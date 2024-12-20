@@ -1,0 +1,64 @@
+### IntelliJ IDEA ###
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+.idea
+/build/
+/.dart_tool/
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/.filecache
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/.filecache
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/app.dill
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/app.dill
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/debug_android_application.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/debug_android_application.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/flutter_assets.d
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/flutter_assets.d
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/gen_dart_plugin_registrant.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/gen_dart_plugin_registrant.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/gen_localizations.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/gen_localizations.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/kernel_snapshot.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/kernel_snapshot.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/kernel_snapshot_native_assets.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/kernel_snapshot_native_assets.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/kernel_snapshot_program.d
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/kernel_snapshot_program.d
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/kernel_snapshot_program.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/kernel_snapshot_program.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/native_assets.d
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/native_assets.d
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/native_assets.dill
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/native_assets.dill
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/native_assets.stamp
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/native_assets.stamp
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/native_assets.yaml
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/native_assets.yaml
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/outputs.json
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/outputs.json
+/.dart_tool/flutter_build/95dc364b251ea5aa954db032cc669c56/program.dill
+/.dart_tool/flutter_build/cab52501ac991344ec75fdd937252f51/program.dill
