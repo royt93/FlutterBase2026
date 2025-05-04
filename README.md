@@ -1,28 +1,29 @@
 **Cập nhật dependencies:** google_mobile_ads: ^6.0.0
 
-
-
 **Thêm quyền Android**
 
 <!-- android/app/src/main/AndroidManifest.xml -->    
 
 
- <uses-permission android:name="com.google.android.gms.permission.AD_ID" />    <uses-permission android:name="android.permission.INTERNET" />    
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />    
+<uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+<uses-permission android:name="android.permission.INTERNET" />    
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />    
 
-    <manifest>    
+<manifest>    
       <application>    
       <meta-data    
       android:name="com.google.android.gms.ads.APPLICATION_ID"    
           android:value="ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"/>    
-      </application>    
+      </application>
 </manifest>   
 
 
 
 **Cấu hình iOS:**
 
- <!-- ios/Runner/Info.plist -->    <key>GADApplicationIdentifier</key>    
+ <!-- ios/Runner/Info.plist -->
+
+    <key>GADApplicationIdentifier</key>
     <string>ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy</string>    
     <key>SKAdNetworkItems</key>    
     <array>    
@@ -32,30 +33,24 @@
     </dict>    
     </array>  
 
-
-
-
-
 **Copy class AdMobManager: ad_mob_manager.dart , tốt nhất cope cả folder admob**
-
 
 **Chú ý update các value về app id trong manifest và các ad id trong ad_mob_manager.dart**
 
-
 **Copy class AdScreen: ad_screen.dart**
-
 
 **Trong main thêm đoạn initialize AdMobManager**
 
-
-void main() async {      WidgetsFlutterBinding.ensureInitialized();    
-await AdMobManager().initialize();    
-runApp(const MyApp());    
+void main() async {
+    WidgetsFlutterBinding.ensureInitialized();    
+    await AdMobManager().initialize();    
+    runApp(const MyApp());    
 }
-
 
 **Chú ý dùng showAppOpenAd() cho hợp lý, nên show 1 lần duy nhất ở Splash.**
 
+    - Sửa UI: Xoá mấy cái Avatar glow, thêm UI sau
+    - Chú ý StreamSubscription? _subscription; trong class splash_screen
 
     const Text(  
       "Please note: this action may show ads",  
@@ -80,7 +75,5 @@ runApp(const MyApp());
         borderRadius: BorderRadius.circular(45),  
       ),  
     ),
-
-
 
 **Check code show quảng cáo trong screenA và screenB**
