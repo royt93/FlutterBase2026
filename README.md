@@ -39,3 +39,13 @@ google_mobile_ads: ^6.0.0
 
 - Chú ý update các value về app id trong manifest và các ad id trong ad_mob_manager.dart
 
+
+- Copy class AdScreen: ad_screen.dart
+
+
+- Trong main thêm đoạn initialize AdMobManager
+  void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AdMobManager().initialize();
+  runApp(const MyApp());
+  }
