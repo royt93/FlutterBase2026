@@ -49,3 +49,6 @@ google_mobile_ads: ^6.0.0
   await AdMobManager().initialize();
   runApp(const MyApp());
   }
+
+ 
+- Chú ý dùng showAppOpenAd() cho hợp lý, nên show 1 lần duy nhất ở Splash.
