@@ -34,8 +34,8 @@ google_mobile_ads: ^6.0.0
 
 
 
-- Copy class AdMobManager
+- Copy class AdMobManager: ad_mob_manager.dart
 
 
-
+- Chú ý update các value về app id trong manifest và các ad id trong ad_mob_manager.dart
 
