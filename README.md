@@ -1,5 +1,7 @@
 **Cập nhật dependencies:**  
+
 google_mobile_ads: ^6.0.0
+
 gma_mediation_applovin:
 
 **Thêm quyền Android**
