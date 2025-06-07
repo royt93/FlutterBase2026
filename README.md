@@ -89,10 +89,11 @@ gma_mediation_applovin:
 
 ```  
 const Text(    
-  "Please note: this action may display app open ads.",    
+  "Please note: this action may display app open ads.",
+  textAlign: TextAlign.center,    
   style: TextStyle(    
   fontWeight: FontWeight.bold,    
-    fontSize: 16,    
+    fontSize: 14,    
     color: Colors.white,    
     shadows: [    
   Shadow(    
