@@ -1,0 +1,174 @@
+name: Flutter Tests and Quality Checks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Job 1: Unit và Widget Tests
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Generate mocks
+      run: flutter packages pub run build_runner build --delete-conflicting-outputs
+
+    - name: Run unit tests
+      run: flutter test test/unit/ --coverage
+
+    - name: Run widget tests
+      run: flutter test test/widget/ --coverage
+
+    - name: Generate coverage report
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y lcov
+        genhtml coverage/lcov.info -o coverage/html
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: coverage/lcov.info
+        fail_ci_if_error: true
+
+    - name: Archive coverage results
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: coverage/
+
+  # Job 2: Code Quality Analysis
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Analyze code
+      run: flutter analyze
+
+    - name: Check formatting
+      run: dart format --set-exit-if-changed .
+
+    - name: Run dart code metrics
+      run: flutter pub run dart_code_metrics:metrics analyze lib
+
+  # Job 3: Integration Tests (Android)
+  integration_test_android:
+    name: Integration Tests (Android)
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Setup Android Emulator
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 29
+        target: default
+        arch: x86_64
+        profile: Nexus 6
+        script: |
+          flutter drive \
+            --driver=test_driver/integration_test.dart \
+            --target=test/integration/app_integration_test.dart
+
+  # Job 4: Build Tests
+  build_test:
+    name: Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Build APK
+      run: flutter build apk --debug
+
+    - name: Build Web
+      run: flutter build web
+
+    - name: Archive build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-artifacts
+        path: |
+          build/app/outputs/flutter-apk/
+          build/web/
+
+  # Job 5: Performance Tests
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Install dependencies
+      run: flutter pub get
+
+    - name: Run performance tests
+      run: |
+        # Memory usage test
+        flutter test test/unit/ --reporter=github
+
+        # Build size analysis
+        flutter build apk --analyze-size
+
+        # Check for performance antipatterns
+        flutter analyze --no-fatal-infos
+
+    - name: Check dependencies
+      run: flutter pub deps
