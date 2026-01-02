@@ -4,6 +4,7 @@ không dùng late, hãy dùng nullable
 không dùng setState, hãy dùng GetX
 không dùng force null
 không bug, không memory leak
+lưu ý cần có multi language đầy đủ
 
 🔬 Advanced Testing Features
 
