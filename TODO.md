@@ -1,6 +1,8 @@
 Dựa trên code hiện tại của WiFi Stressor, đây là các ý tưởng mở rộng:
 
-
+không dùng late, hãy dùng nullable
+không dùng setState, hãy dùng GetX
+không dùng force null
 
 🔬 Advanced Testing Features
 
