@@ -96,14 +96,6 @@ Chạy: `flutter pub get`
 ```groovy
 android {
     buildFeatures { buildConfig true }
-    buildTypes {
-        debug {
-            buildConfigField "Boolean", "IS_ENABLE_ADMOB", "false"
-        }
-        release {
-            buildConfigField "Boolean", "IS_ENABLE_ADMOB", "false"
-        }
-    }
 }
 dependencies {
     implementation("com.google.ads.mediation:applovin:13.2.0.1")
