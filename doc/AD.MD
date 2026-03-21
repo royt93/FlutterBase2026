@@ -911,3 +911,540 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 8. [ ] Cold start: lần đầu mở app → KHÔNG show App Open (chỉ từ splash)
 9. [ ] VIP device: GAID nằm trong list → không thấy bất kỳ ad nào
 10. [ ] `destroy()`: gọi khi app truly terminate → không leak
+
+---
+
+## 6. IMPLEMENTATION STATUS (20260321 v2)
+
+> `flutter analyze` → **0 errors, 0 warnings**, 1 info (cosmetic)
+
+### 6.1 Bugs Fixed (Memory Leak + Logic Audit)
+
+| # | Bug | Severity | File | Fix |
+|---|-----|----------|------|-----|
+| 1 | AppLovin `loadAppOpenAd` callback never fired — splash hangs until 8s hard cap | 🔴 Critical | `ad_manager.dart` | Added `_pendingAppOpenLoadCallback`, fired from global listener |
+| 2 | Banner missing VIP check — VIP device still sees ads | 🔴 Critical | `banner_ad_widget.dart` | Added `AdManager().isVIPMember()` check |
+| 3 | Banner missing network check | 🟡 Medium | `banner_ad_widget.dart` | Added `ConnectionNotifierTools.isConnected` check |
+| 4 | `destroy()` doesn't call `.dispose()` — ad objects leak | 🔴 Critical | `ad_manager.dart` | Added `_interstitialAd?.dispose()` + `_appOpenAd?.dispose()` |
+| 5 | Force unwrap `_interstitialAd!` — race condition crash | 🔴 Critical | `ad_manager.dart` | Replaced with local var `final ad = _interstitialAd` |
+| 6 | AppLovin `showInterstitial` double-show possible | 🟡 Medium | `ad_manager.dart` | Set `_isMaxInterReady = false` before `showAd()` |
+| 7 | Double `canShowAppOpenOnResume()` call — `_resumeTimestamps` double-counted | 🔴 Critical | `main.dart` | Removed duplicate call from `didChangeAppLifecycleState` |
+| 8 | Force unwrap `_appOpenAd!.show()` — race condition crash | 🟡 Medium | `ad_manager.dart` | Replaced with local var `final ad = _appOpenAd` |
+
+### 6.2 Edge Cases Handled
+
+| # | Edge Case | Native Pattern | Flutter Implementation |
+|---|-----------|----------------|----------------------|
+| 1 | Widget disposed before ad callback | N/A (Flutter only) | `_isDisposed` check in all callbacks |
+| 2 | Splash called 2nd time | `countInitSplashScreen > 1` | Navigate immediately, skip init |
+| 3 | EventBus fires false | Not explicit | `_navigateToMainSafely()` on false |
+| 4 | Hard cap fires before ad callback | `AtomicBoolean hasNavigated` | `_hasNavigated` check before show |
+| 5 | Activity destroyed during ad load | `WeakReference<Activity>` | Flutter GC + `mounted` check |
+| 6 | Ad load succeeds but widget disposed | Covered by listeners | `_isDisposed` guard returns early |
+| 7 | VIP device → zero ads everywhere | VIP checks in every method | Banner, interstitial, app open all check |
+| 8 | No internet → skip all loads | `NetworkUtils.isDeviceConnected` | `ConnectionNotifierTools.isConnected` |
+| 9 | Multiple rapid resume → skip ad | `_maxRapidResumesPerMinute` | Same check in `canShowAppOpenOnResume()` |
+| 10 | CTR too high → progressive pause | `_suspiciousCtrThreshold` | Same 12-rule safety system |
+
+### 6.3 Method-by-Method Cross-Check: Native → Flutter
+
+| # | Native Method (Kotlin) | Flutter Method | Status |
+|---|---|---|---|
+| 1 | `init()` L151-216 | `initialize()` | ✅ |
+| 2 | `getGAID()` L244-258 | TODO platform channel | ⚠️ |
+| 3 | `bannerResume/Pause/Destroy` L290-311 | Widget lifecycle | ✅ |
+| 4 | `loadBanner` L313-484 | `BannerAdWidget` | ✅ |
+| 5 | `loadInterstitial` L487-598 | `loadInterstitial()` | ✅ |
+| 6 | `setInterstitialCallback` L601-634 | Inline callbacks | ✅ |
+| 7 | `showInterstitial` L637-719 | `showInterstitial()` | ✅ |
+| 8 | `loadAppOpenAd` L721-843 | `loadAppOpenAd()` | ✅ |
+| 9 | `showAppOpenAd` L845-940 | `showAppOpenAd()` | ✅ |
+| 10 | `isVIPMember()` L946 | `isVIPMember()` | ✅ |
+| 11 | `addVIPMember` L956 | `addVIPMember()` | ✅ |
+| 12 | `deleteVIPMember` L969 | `deleteVIPMember()` | ✅ |
+| 13 | `initSplashScreen` L986-1073 | Splash EventBus + `count>1` guard | ✅ |
+| 14 | `registerAppOpenAdLifecycle` L1082-1177 | `WidgetsBindingObserver` | ✅ |
+| 15 | `destroy()` L1194-1214 | `destroy()` + `.dispose()` | ✅ |
+| 16 | `AdSafetyConfig` L1360-1648 | `AdSafetyConfig` (12 rules) | ✅ |
+| 17 | `AppPreferences` L1220-1312 | `AppPreferences` | ✅ |
+| 18 | `NetworkUtils` L1323-1333 | `ConnectionNotifierTools` | ✅ |
+
+### 6.4 File Map (Actual)
+
+| File | Lines | Mô tả |
+|------|-------|-------|
+| `ad/k/k.dart` | 60 | Constants, VIP GAIDs, debug/release toggle |
+| `ad/utils/safe_logger.dart` | 33 | SafeLogger + ProductionConfig |
+| `ad/utils/app_preferences.dart` | 86 | SharedPreferences persistence |
+| `ad/ad_safety_config.dart` | 329 | 12 anti-fraud rules, AdSafetyResult |
+| `ad/ad_manager.dart` | ~750 | Core dual-provider singleton (bao gồm cả Rewarded Ad + GAID auto-fetch) |
+| `ad/widget/shimmer_view.dart` | 77 | Custom shimmer animation |
+| `ad/widget/banner_ad_widget.dart` | ~230 | Dual-provider banner |
+| `ad/ad_screen.dart` | ~60 | Base class, có `showInterstitialAd` & `showRewardedAd` |
+| `ad/event_bus.dart` | 28 | Simple broadcast EventBus |
+| `widget/splash/splash_screen.dart` | ~310 | Splash: load→show chain, count>1 guard |
+| `main.dart` | ~170 | WidgetsBindingObserver lifecycle |
+
+### 6.5 DONE (Tất cả TODO đã hoàn tất)
+
+- ✅ **`getGAID()`**: Đã implement tự động lấy GAID bằng package `advertising_id`.
+- ✅ **Cập nhật SDK Keys**: Đã chép AppLovin SDK key và Ad Unit IDs production từ project Android gốc sang file `k/k.dart`.
+- ✅ **Rewarded Ad**: Đã implement 100% (cả AdMob và AppLovin) chung vào controller.
+- ✅ **Ad Safety Audit**: Xác nhận cơ chế chặn spam click, giới hạn lượt xem, skip cold start, anti-rapid resume đã code hoàn chỉnh và **không có memory leak** nhờ cơ chế `removeWhere` liên tục.
+- ✅ Lỗi `flutter analyze` dọn dẹp sạch sẽ (0 errors, 0 warnings).
+
+---
+
+## 7. HƯỚNG DẪN TÍCH HỢP CHO PROJECT KHÁC (Step-by-Step)
+
+> Hướng dẫn này giúp bạn copy Ad Manager module vào bất kỳ Flutter project nào
+> và có quảng cáo chạy trong **30 phút**.
+
+---
+
+### STEP 1: Copy Files (5 phút)
+
+Copy toàn bộ thư mục `lib/mckimquyen/ad/` vào project mới:
+
+```
+lib/
+└── your_package/
+    └── ad/                          ← COPY TOÀN BỘ THƯ MỤC NÀY
+        ├── k/
+        │   └── k.dart                  ← Config: ad IDs, VIP GAIDs, provider switch
+        ├── utils/
+        │   ├── safe_logger.dart        ← Logger an toàn (debug only)
+        │   └── app_preferences.dart    ← SharedPreferences persistence
+        ├── widget/
+        │   ├── shimmer_view.dart       ← Shimmer loading effect
+        │   └── banner_ad_widget.dart   ← Banner ad dual-provider widget
+        ├── ad_manager.dart         ← ⭐ CORE: singleton controller
+        ├── ad_safety_config.dart       ← 12 anti-fraud rules
+        ├── ad_screen.dart              ← Base class cho screen có ad
+        └── event_bus.dart              ← Simple broadcast event bus
+```
+
+⚠️ **LƯU Ý**: Sau khi copy, phải update import paths cho đúng package name.
+Ví dụ: `package:saigonphantomlabs/...` → `package:your_app/...`
+
+---
+
+### STEP 2: Thêm Dependencies vào `pubspec.yaml` (2 phút)
+
+```yaml
+dependencies:
+  # ═══ AD PACKAGES ═══
+  google_mobile_ads: ^6.0.0          # AdMob
+  applovin_max: ^4.6.3               # AppLovin MAX
+  gma_mediation_applovin: ^1.2.0     # Mediation adapter (optional)
+
+  # ═══ REQUIRED BY AD MODULE ═══
+  shared_preferences: ^2.5.3          # Persist VIP list + daily count
+  connection_notifier: ^2.0.1         # Network check
+```
+
+Sau đó chạy:
+```bash
+flutter pub get
+```
+
+---
+
+### STEP 3: Cấu hình Android Native (5 phút)
+
+#### 3.1 `android/app/src/main/AndroidManifest.xml`
+
+Thêm AdMob App ID vào `<application>`:
+
+```xml
+<application>
+    <!-- AdMob App ID -->
+    <meta-data
+        android:name="com.google.android.gms.ads.APPLICATION_ID"
+        android:value="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"/>
+
+    <!-- AppLovin SDK Key (nếu dùng AppLovin) -->
+    <meta-data
+        android:name="applovin.sdk.key"
+        android:value="YOUR_APPLOVIN_SDK_KEY"/>
+</application>
+```
+
+#### 3.2 `android/app/build.gradle.kts` (hoặc `.gradle`)
+
+```kotlin
+android {
+    compileSdk = 35  // hoặc mới nhất
+    defaultConfig {
+        minSdk = 23  // AppLovin yêu cầu min 21
+    }
+}
+```
+
+---
+
+### STEP 4: Cập nhật Ad IDs trong `k/k.dart` (3 phút)
+
+Mở file `ad/k/k.dart` và thay đổi theo project:
+
+```dart
+// ═══════ PROVIDER SWITCH ═══════
+const bool kIsEnableAdmob = true; // true = AdMob, false = AppLovin MAX
+
+// ═══════ APPLOVIN CONFIG ═══════
+const String kAppLovinSdkKey = "YOUR_SDK_KEY_HERE";       // ← Lấy từ AppLovin dashboard
+const String kAppLovinBannerId = "YOUR_BANNER_ID";        // ← Ad unit ID
+const String kAppLovinInterstitialId = "YOUR_INTER_ID";
+const String kAppLovinAppOpenId = "YOUR_APP_OPEN_ID";
+
+// ═══════ ADMOB CONFIG ═══════
+const String kAdmobBannerAdUnitId = kDebugMode
+    ? "ca-app-pub-3940256099942544/6300978111"           // Google test ID
+    : "ca-app-pub-XXXXX/YYYYY";                          // ← Production ID của bạn
+
+const String kAdmobInterstitialAdUnitId = kDebugMode
+    ? "ca-app-pub-3940256099942544/1033173712"
+    : "ca-app-pub-XXXXX/YYYYY";
+
+const String kAdmobAppOpenAdUnitId = kDebugMode
+    ? "ca-app-pub-3940256099942544/9257395921"
+    : "ca-app-pub-XXXXX/YYYYY";
+
+// ═══════ VIP DEVICES ═══════
+// GAID các thiết bị dev → KHÔNG hiện quảng cáo
+const List<String> kVipDeviceGaids = [
+  "YOUR-DEVICE-GAID-HERE",
+];
+
+// Test device hash (cho AdMob test ads trên device thật)
+const List<String> kTestDeviceIds = [
+  "YOUR_DEVICE_HASH_HERE",  // Xem trong logcat khi build debug
+];
+```
+
+---
+
+### STEP 5: Khởi tạo trong `main.dart` (5 phút)
+
+#### 5.1 Import
+
+```dart
+import 'your_package/ad/ad_manager.dart';
+import 'your_package/ad/ad_safety_config.dart';
+import 'your_package/ad/utils/safe_logger.dart';
+```
+
+#### 5.2 MyApp State — thêm `WidgetsBindingObserver`
+
+```dart
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this); // ← BẮT BUỘC
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // ← TRÁNH LEAK
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    SafeLogger.d('MyApp', 'lifecycle state=$state');
+    if (state == AppLifecycleState.paused) {
+      // App vào background → ghi nhận thời gian
+      SafeLogger.d('MyApp', 'ProcessLifecycle ⏸️ App went to BACKGROUND');
+      AdSafetyConfig.recordAppWentBackground();
+    } else if (state == AppLifecycleState.resumed) {
+      // App quay lại → show App Open Ad (nếu đủ điều kiện)
+      SafeLogger.d('MyApp', 'ProcessLifecycle ▶️ App came to FOREGROUND');
+      AdManager().showAppOpenAdOnResume();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: const SplashScreen(), // ← Splash đầu tiên
+    );
+  }
+}
+```
+
+> ⚠️ **QUAN TRỌNG**: KHÔNG gọi `canShowAppOpenOnResume()` riêng trong `didChangeAppLifecycleState`.
+> Hàm check đã nằm bên trong `showAppOpenAdOnResume()` rồi. Gọi 2 lần sẽ làm `_resumeTimestamps` bị đếm gấp đôi.
+
+---
+
+### STEP 6: Splash Screen — Load & Show App Open Ad (5 phút)
+
+```dart
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'your_package/ad/ad_manager.dart';
+import 'your_package/ad/event_bus.dart';
+import 'your_package/ad/utils/safe_logger.dart';
+
+class _SplashScreenState extends State<SplashScreen> {
+  Timer? _hardCapTimer;
+  StreamSubscription? _subscription;
+  bool _hasNavigated = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // ① Mark splash active (chống show App Open khi resume)
+    AdManager().markSplashActive();
+    AdManager().incrementSplashCount();
+
+    // ② Splash lần 2+ → bỏ qua (giống native)
+    if (AdManager().countInitSplashScreen > 1) {
+      SafeLogger.d('Splash', '⏭️ Already called, navigating immediately');
+      WidgetsBinding.instance.addPostFrameCallback((_) => _navigate());
+      return;
+    }
+
+    // ③ Hard cap 8s — KHÔNG BAO GIỜ treo splash quá 8s
+    _hardCapTimer = Timer(const Duration(seconds: 8), () {
+      SafeLogger.d('Splash', '⏰ HARD CAP 8s reached');
+      _navigate();
+    });
+
+    // ④ Lắng nghe SDK init xong → load → show App Open Ad
+    _subscription = SimpleEventBus().onBoolEvent.listen((event) {
+      if (event.value && !_hasNavigated) {
+        AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
+          if (_hasNavigated) return;
+          if (loaded) {
+            AdManager().showAppOpenAd(
+              onAdDismiss: (_) => _navigate(),
+              bypassSafety: true,
+            );
+          } else {
+            _navigate();
+          }
+        });
+      } else if (!event.value) {
+        _navigate(); // SDK init fail → vào app luôn
+      }
+    });
+
+    // ⑤ Khởi tạo AdManager (sau khi UI render)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AdManager().initialize(onComplete: (success, gaid) {
+        SafeLogger.d('Splash', 'init complete: $success, gaid=$gaid');
+      });
+    });
+  }
+
+  void _navigate() {
+    if (_hasNavigated) return;
+    _hasNavigated = true;
+    _hardCapTimer?.cancel();
+    _subscription?.cancel();
+    AdManager().markSplashInactive(); // ← BẮT BUỘC: cho phép App Open resume
+    // Navigator.pushReplacement → MainScreen
+  }
+
+  @override
+  void dispose() {
+    _hardCapTimer?.cancel();
+    _subscription?.cancel();
+    super.dispose();
+  }
+}
+```
+
+**Flow**:
+```
+SplashScreen.initState()
+  ├── markSplashActive()
+  ├── Hard cap Timer 8s
+  ├── Listen EventBus
+  └── AdManager().initialize()
+        ├── AdMob/AppLovin SDK init
+        └── EventBus.fire(true) ──→ loadAppOpenAd()
+                                       ├── Success → showAppOpenAd() → navigate
+                                       └── Fail → navigate immediately
+```
+
+---
+
+### STEP 7: Screen có Banner + Interstitial (3 phút)
+
+#### Cách 1: Extend `AdScreen` (khuyến khích)
+
+```dart
+import 'your_package/ad/ad_screen.dart';
+
+class MyScreen extends AdScreen {
+  const MyScreen({super.key});
+  @override
+  State<MyScreen> createState() => _MyScreenState();
+}
+
+class _MyScreenState extends AdScreenState<MyScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          // ═══ BANNER AD ═══
+          buildBanner(), // ← 1 dòng, tự load/shimmer/VIP check
+
+          // ═══ NÚT SHOW INTERSTITIAL ═══
+          ElevatedButton(
+            onPressed: () {
+              showInterstitialAd(onDone: (shown) {
+                if (shown) {
+                  // Ad đã show và dismissed
+                } else {
+                  // Ad không sẵn sàng hoặc bị block bởi safety
+                }
+                // Tiếp tục flow của bạn ở đây
+              });
+            },
+            child: const Text('Next'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+#### Cách 2: Gọi AdManager trực tiếp
+
+```dart
+// Load (gọi sớm, ví dụ initState)
+AdManager().loadInterstitial();
+
+// Show (gọi khi cần)
+AdManager().showInterstitial(onDoneFlow: (result) {
+  // result = true nếu ad đã show, false nếu không
+});
+
+// Banner widget
+const BannerAdWidget() // ← Drop-in widget, tự quản lifecycle
+```
+
+---
+
+### STEP 8: Cấu hình AdSafety (Tuỳ chọn — 2 phút)
+
+Mở `ad_safety_config.dart` để tuỳ chỉnh rules:
+
+```dart
+// Thay đổi giới hạn nếu cần:
+static const int _minTimeBetweenFullscreenAds = 60000; // 60s giữa 2 ad
+static const int _maxFullscreenAdsPerSession = 6;       // Max 6/session
+static const int _maxFullscreenAdsPerDay = 5;            // Max 5/ngày
+static const int _maxFullscreenAdsPerHour = 3;           // Max 3/giờ
+static const int _maxClicksPerMinute = 3;                // Spam detection
+static const int _minTimeAppOpenResume = 5000;           // Min 5s background
+static const int _maxRapidResumesPerMinute = 3;          // Rapid resume cap
+```
+
+---
+
+### STEP 9: Build & Test (5 phút)
+
+```bash
+# ① Analyze — phải 0 errors
+flutter analyze
+
+# ② Build debug APK
+flutter build apk --debug
+
+# ③ Install lên device
+flutter install
+
+# ④ Xem log (filter bằng tag)
+adb logcat | grep "roy93~"
+```
+
+**Checklist test trên device**:
+
+| # | Test Case | Expected |
+|---|-----------|----------|
+| 1 | Mở app lần đầu | Splash → App Open Ad → MainScreen |
+| 2 | Tắt wifi → mở app | Splash → MainScreen (không treo, max 8s) |
+| 3 | Vào screen có banner | Shimmer → Banner hiện |
+| 4 | Bấm nút show interstitial | Ad hiện → dismiss → callback |
+| 5 | Background > 5s → resume | App Open Ad hiện |
+| 6 | Background < 5s → resume | KHÔNG hiện ad (too fast) |
+| 7 | Resume 4+ lần/phút | KHÔNG hiện ad (rapid resume) |
+| 8 | Show > 6 interstitial/session | Bị block (session limit) |
+| 9 | Click 4+ lần/1 phút | Progressive pause kích hoạt |
+| 10 | Đổi `kIsEnableAdmob = false` | Ad từ AppLovin hiện thay AdMob |
+
+---
+
+### STEP 10: Chuyển đổi Provider (1 phút)
+
+Chỉ cần đổi 1 dòng trong `k/k.dart`:
+
+```dart
+// AdMob mode
+const bool kIsEnableAdmob = true;
+
+// AppLovin MAX mode
+const bool kIsEnableAdmob = false;
+```
+
+Build lại → Toàn bộ ad tự động chuyển sang provider khác. Không cần sửa code UI.
+
+---
+
+### TỔNG KẾT
+
+| Step | Việc | Thời gian |
+|------|------|-----------|
+| 1 | Copy files | 5 phút |
+| 2 | pubspec.yaml | 2 phút |
+| 3 | Android config | 5 phút |
+| 4 | Ad IDs | 3 phút |
+| 5 | main.dart lifecycle | 5 phút |
+| 6 | Splash Screen | 5 phút |
+| 7 | Screen + Banner/Inter | 3 phút |
+| 8 | AdSafety tuning | 2 phút |
+| 9 | Build & Test | 5 phút |
+| 10 | Switch provider | 1 phút |
+| **Tổng** | | **~36 phút** |
+
+---
+
+## 11. LUỒNG HOẠT ĐỘNG APP OPEN AD (SPLASH SCREEN & RESUME)
+
+Kiến trúc xử lý App Open Ad được thiết kế bám sát Native Android gốc nhằm tối đa hoá trải nghiệm người dùng (UX) và giữ an toàn logic cho vòng đời ứng dụng. Dưới đây là 6 kịch bản thực tế:
+
+### Kịch bản 1: Init SDK Ad thành công (Mạng tốt)
+- Quá trình `MobileAds.instance.initialize()` hoàn tất, `AdManager` lập tức bắn sự kiện `EventBus(true)` về cho `SplashScreen`.
+- Tại `SplashScreen`, khi hứng được `EventBus(true)`, hàm `loadAppOpenAd(onAdLoaded)` sẽ được kích hoạt để gọi quảng cáo trả về.
+- Ở dưới nền, `AdManager` cũng tự động kích hoạt `loadAppOpenAd()` để dự phòng đạn cho các luồng Resume sau này (đảm bảo lúc nào cũng có sẵn Ad).
+
+### Kịch bản 2: Init SDK Ad KHÔNG thành công (Treo mạng)
+- `SplashScreen` được thiết kế với chốt chặn **"Hard-cap Timer 8 giây"**.
+- Chờ quá 8 giây mà SDK ngoài vẫn chưa chịu Init xong, Splash sẽ tự động "cắt cầu", gọi `_navigateToMainSafely()` để đưa User thẳng vào `MainScreen`, tuyệt đối không để người dùng bị kẹt lại ở giao diện Splash. Hàm chờ `_subscription.cancel()` sẽ đóng lại gọn gàng.
+
+### Kịch bản 3: Load THÀNH CÔNG Ad Open mà ĐÃ HẾT time Splash (Chậm hơn 8s)
+- Vì quá 8s, màn Splash đã chủ động đưa User vào `MainScreen` và ghim lá chắn `_hasNavigated = true`.
+- Khi Ad Open load báo về thành công (ví dụ giây thứ 10), Splash nhảy vào callback nhưng đụng ngay chốt chặn `if (_hasNavigated) return;`. Lệnh show bị Block! (User không bị quảng cáo đập vào mặt lúc đang bấm MainScreen).
+- Quảng cáo vừa load xong đó sẽ nằm ngủ trong bộ nhớ. Lát sau User ẩn App rồi Resume -> lập tức nó sẽ bung ra chớp nhoáng đón lõng.
+
+### Kịch bản 4: Load THÀNH CÔNG Ad Open mà CHƯA HẾT time Splash (Nhanh < 8s)
+- Cờ `_hasNavigated` vẫn đang `false`. Mã sẽ gọi `showAppOpenAd(bypassSafety: true)` bung quảng cáo bao phủ toàn màn hình ngay lập tức.
+- Dù Timer 8s lúc này chạy hết hạn cũng không ảnh hưởng vì Splash đã nằm dưới lớp quảng cáo.
+- Khi người dùng bấm chéo tắt Quảng cáo, callback `onAdDismiss` sẽ dắt tay User nhẹ nhàng bước vào `MainScreen`.
+
+### Kịch bản 5: Load KHÔNG THÀNH CÔNG Ad Open (Rớt mạng) và ĐÃ HẾT time Splash
+- Giống kịch bản 3, do quá 8 giây Splash đã đưa User đi mất.
+- Kết quả `false` (fail) dội về bị từ chối hoàn toàn do Splash đã đóng lắng nghe. App lướt đi êm ru và quảng cáo sẽ tự load lại dưới nền chờ luồng Resume sau.
+
+### Kịch bản 6: Load KHÔNG THÀNH CÔNG Ad Open và CHƯA HẾT time Splash (Nhanh < 8s)
+- Callback `onAdLoaded(false)` chạy ngược về Splash.
+- Ngay lập tức, Splash không bắt User chờ cho đủ 8 giây mà tự cắt ngắn thời gian, gọi `_navigateToMainSafely()` để lao vút vào MainScreen luôn và ngay. UX được bảo toàn tuyệt đối không 1 dây gián đoạn!
+
