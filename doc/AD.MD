@@ -1,6 +1,6 @@
 # 📊 TÍCH HỢP QUẢNG CÁO (AdMob + AppLovin MAX) — FLUTTER
 
-> Version: 20260321-final | Provider: AdMob & AppLovin MAX (dual)
+> Version: 20260322-v17 | Provider: AdMob & AppLovin MAX (dual)
 > Strict: Không `late`, không `!`, dùng nullable `?`, `ValueNotifier`, zero memory leak.
 
 ---
@@ -63,18 +63,21 @@ lib/mckimquyen/ad/
 | **`_isRewardedShowing`** chống App Open trong khi Rewarded hiện | ✅ | — | — | — |
 | **`_isMaxInterReady`** guard (AppLovin) | — | ✅ | — | — |
 | **Navigation cooldown 5s** | — | — | — | ✅ |
+| **`_admobIsTopRoute`** per-widget (chống double AdWidget) | — | — | — | ✅ AdMob |
 | **`wasActuallyShown` log** phân biệt blocked vs dismissed thật | ✅ | — | — | — |
-| **AppLovin Stack deadlock fix** (MaxAdView luôn mounted) | — | — | — | ✅ |
 
 ---
 
-## 3. INTEGRATION GUIDE — STEP BY STEP (Junior Dev)
+## 3. INTEGRATION GUIDE — STEP BY STEP (Fresher Dev)
 
-### ⏱ Thời gian: ~40 phút
+> ⏱ Thời gian ước tính: **~90 phút**
+> 📋 Đọc hết phần này trước khi bắt đầu. Làm từng bước, không skip.
 
 ---
 
 ### STEP 1: Thêm Dependencies — `pubspec.yaml`
+
+Mở file `pubspec.yaml` ở root project, thêm vào section `dependencies`:
 
 ```yaml
 dependencies:
@@ -82,76 +85,131 @@ dependencies:
   google_mobile_ads: ^6.0.0
   applovin_max: ^4.6.3
 
-  # Utilities
+  # Utilities (bắt buộc)
   shared_preferences: ^2.5.3
   connection_notifier: ^2.0.1
 ```
 
-Chạy: `flutter pub get`
+Sau đó chạy terminal:
+```bash
+flutter pub get
+```
+
+✅ **Kiểm tra:** Terminal không có lỗi đỏ.
 
 ---
 
-### STEP 2: Android Config — `android/app/build.gradle`
+### STEP 2: Android Config — `android/app/build.gradle.kts`
 
-```groovy
+> ⚠️ Project mới dùng `.kts` (Kotlin DSL). Nếu project dùng `.gradle` (Groovy) thì cú pháp khác nhau.
+
+Mở file `android/app/build.gradle.kts`, tìm block `android { }` và thêm:
+
+```kotlin
 android {
-    buildFeatures { buildConfig true }
+    // ... các config khác ...
+    buildFeatures {
+        buildConfig = true   // Cần cho BuildConfig.DEBUG
+    }
 }
+
 dependencies {
+    // ... các dep khác ...
     implementation("com.google.ads.mediation:applovin:13.2.0.1")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }
 ```
 
+✅ **Kiểm tra:** Build thành công (chạy `flutter build apk --debug`).
+
 ---
 
 ### STEP 3: AndroidManifest.xml
 
-> ⚠️ KHÔNG thêm `applovin.sdk.key` vào manifest (SDK v13+ crash nếu thêm).
-> SDK Key truyền qua `AppLovinMAX.initialize(sdkKey)` trong Dart.
+Mở `android/app/src/main/AndroidManifest.xml`:
 
 ```xml
-<manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- THÊM 3 permissions này nếu chưa có -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <application>
-        <!-- AdMob App ID của bạn -->
+    <application
+        android:label="YourApp"
+        ... >
+
+        <!-- THÊM meta-data AdMob App ID (bắt buộc dù dùng AppLovin) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX" />
+
+        <!-- KHÔNG thêm applovin.sdk.key ở đây — SDK v13+ crash nếu thêm -->
+        <!-- SDK Key truyền qua AppLovinMAX.initialize() trong Dart -->
+
+        <activity ... />
     </application>
 </manifest>
 ```
 
+> 📌 Lấy AdMob Application ID từ [AdMob Console](https://apps.admob.com) → Apps → App settings.
+
+✅ **Kiểm tra:** App vẫn build và run được sau khi thêm manifest.
+
 ---
 
-### STEP 4: Copy Toàn Bộ Thư Mục Ad
+### STEP 4: Copy Thư Mục Ad vào Project Mới
 
-Copy folder `lib/mckimquyen/ad/` vào project mới của bạn.
+Copy **toàn bộ** thư mục từ project nguồn vào project đích:
+
+```
+lib/mckimquyen/ad/           →  lib/[your_package]/ad/
+lib/mckimquyen/core/         →  lib/[your_package]/core/    ← chứa BaseStatefulState
+```
+
+> ⚠️ `BaseStatefulState` là dependency của `AdScreenState`. Không copy sẽ bị lỗi compile.
+
+Sau khi copy, cập nhật tất cả `import` trong các file ad:
+```dart
+// Đổi từ:
+import 'package:saigonphantomlabs/mckimquyen/...';
+// Thành:
+import 'package:[your_package_name]/[your_path]/...';
+```
+
+Chạy `flutter analyze` để xem còn lỗi import nào không.
+
+✅ **Kiểm tra:** `flutter analyze` không còn lỗi trong thư mục `ad/`.
 
 ---
 
 ### STEP 5: Cấu hình Ad IDs — `k/k.dart`
 
+Mở `lib/[your_package]/ad/k/k.dart`, điền đúng ID của bạn:
+
 ```dart
 import 'package:flutter/foundation.dart';
 
-// ═══════ PROVIDER SWITCH — CHỈ CẦN ĐỔI 1 DÒNG NÀY ═══════
-const bool kIsEnableAdmob = false; // true = AdMob, false = AppLovin
+// ═══════ BƯỚC 1: Chọn provider ═══════
+// true  = dùng Google AdMob
+// false = dùng AppLovin MAX
+const bool kIsEnableAdmob = false;
 
-// ═══════ APPLOVIN CONFIG ═══════
+// ═══════ BƯỚC 2: AppLovin Config ═══════
+// Lấy từ AppLovin Dashboard → Ad Units
 const String kAppLovinSdkKey         = "YOUR_APPLOVIN_SDK_KEY";
 const String kAppLovinBannerId        = "YOUR_BANNER_UNIT_ID";
 const String kAppLovinInterstitialId  = "YOUR_INTER_UNIT_ID";
 const String kAppLovinAppOpenId       = "YOUR_APP_OPEN_UNIT_ID";
 const String kAppLovinRewardedId      = "YOUR_REWARDED_UNIT_ID";
 
-// ═══════ ADMOB CONFIG ═══════
+// ═══════ BƯỚC 3: AdMob Config ═══════
+// kDebugMode = true tự động khi chạy debug (flutter run)
+// kDebugMode = false tự động khi build release
 const String kAdmobBannerAdUnitId = kDebugMode
-    ? "ca-app-pub-3940256099942544/6300978111"     // test
-    : "ca-app-pub-XXXXXXXXXXXXXXXX/XXXXXXXXXX";     // production
+    ? "ca-app-pub-3940256099942544/6300978111"      // ID test chính thức của Google
+    : "ca-app-pub-XXXXXXXXXXXXXXXX/XXXXXXXXXX";      // ID production của bạn
 
 const String kAdmobInterstitialAdUnitId = kDebugMode
     ? "ca-app-pub-3940256099942544/1033173712"
@@ -165,52 +223,95 @@ const String kAdmobRewardedAdUnitId = kDebugMode
     ? "ca-app-pub-3940256099942544/5224354917"
     : "ca-app-pub-XXXXXXXXXXXXXXXX/XXXXXXXXXX";
 
-// ═══════ TEST DEVICES (AdMob dùng GAID hash MD5) ═══════
+// ═══════ BƯỚC 4: Test Devices (AdMob) ═══════
+// Xem GAID hash trong logcat sau khi chạy app lần đầu —
+// log sẽ có dạng: "Use RequestConfiguration.Builder().setTestDeviceIds(Arrays.asList("HASH"))"
 const List<String> kTestDeviceIds = [
-  "YOUR_TEST_DEVICE_HASH_1",
-  "YOUR_TEST_DEVICE_HASH_2",
+  "YOUR_TEST_DEVICE_HASH",   // Hash MD5 của GAID thiết bị test
 ];
 
-// ═══════ VIP MEMBER GAID LIST ═══════
-// Các GAID này sẽ KHÔNG thấy quảng cáo bao giờ
+// ═══════ BƯỚC 5: VIP Devices (tùy chọn) ═══════
+// GAID của các thiết bị này sẽ KHÔNG bao giờ thấy quảng cáo
 const List<String> kVipDeviceGaids = [
-  "your-gaid-uuid-1",
-  "your-gaid-uuid-2",
+  // "your-gaid-uuid",
 ];
 ```
 
+✅ **Kiểm tra:** Không có lỗi compile sau khi lưu file.
+
 ---
 
-### STEP 6: Khởi động AdManager — `main.dart`
+### STEP 6: Đăng ký AdRouteObserver trong `main.dart`
+
+> 🔑 **Đây là bước quan trọng nhất cho Banner Ad.** Nếu bỏ qua, `BannerAdWidget` sẽ không nhận được sự kiện navigation (pause/resume) và banner sẽ crash khi navigate giữa các màn hình.
+
+**Cách thêm với `GetMaterialApp` (GetX):**
 
 ```dart
+import 'package:[your_package]/ad/ad_route_observer.dart'; // THÊM import này
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
-}
+  // ... các init khác ...
+  runApp(
+    GetMaterialApp(
+      // ... các config khác ...
 
-class MyApp extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: SplashScreen(),
-    );
-  }
+      // THÊM 2 observers này — BẮT BUỘC
+      navigatorObservers: [
+        adRouteObserver,        // RouteAware cho BannerAdWidget pause/resume
+        AdScreenRouteLogger(),  // Log navigation để debug
+      ],
+
+      home: const MyApp(),
+    ),
+  );
 }
+```
+
+**Cách thêm với `MaterialApp` thông thường:**
+
+```dart
+import 'package:[your_package]/ad/ad_route_observer.dart';
+
+MaterialApp(
+  navigatorObservers: [
+    adRouteObserver,
+    AdScreenRouteLogger(),
+  ],
+  home: SplashScreen(),
+)
 ```
 
 > ✅ `AdManager` tự gắn `WidgetsBindingObserver` trong constructor — **KHÔNG cần** gắn thêm ở `main.dart`.
 
+✅ **Kiểm tra:** Chạy app và navigate giữa 2 màn hình, log phải có:
+```
+[roy93~Router] ➡️ PUSH: /ScreenA (from: /MainScreen)
+[roy93~Banner] RouteAware.didPush() ▶️ [AdMob] scheduling _admobIsTopRoute=true
+```
+
 ---
 
-### STEP 7: Splash Screen — Nơi Init Ad
+### STEP 7: Splash Screen — Nơi Khởi Động Ad
+
+Splash Screen là nơi DUY NHẤT gọi `AdManager().initialize()`. Copy pattern sau:
 
 ```dart
-class SplashScreen extends StatefulWidget { ... }
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:[your_package]/ad/ad_manager.dart';
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
 
 class _SplashScreenState extends State<SplashScreen> {
   bool _hasNavigated = false;
-  StreamSubscription? _subscription;
+  StreamSubscription<bool>? _subscription;
 
   @override
   void initState() {
@@ -219,28 +320,28 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _startSplash() {
-    // 1) Đánh dấu Splash đang active (chặn showAppOpenAdOnResume)
+    // 1) Đánh dấu Splash đang active — chặn AppOpen Resume trigger
     AdManager().markSplashActive();
     AdManager().incrementSplashCount();
 
-    // 2) Hard-cap timer 8s — nếu SDK chậm vẫn vào app được
+    // 2) Hard-cap timer 8s: nếu SDK chậm, user vẫn vào được app
     Future.delayed(const Duration(seconds: 8), () {
       _navigateToMainSafely(initAdSuccess: false);
     });
 
-    // 3) Subscribe EventBus để biết Ad init xong
+    // 3) Lắng nghe AdManager báo init xong qua EventBus
     _subscription = AdManager().eventBusStream.listen((success) {
       if (success) {
-        _loadAndShowAppOpenAd();
+        _loadAndShowAppOpenAd(); // Init OK → thử show App Open Ad
       } else {
-        _navigateToMainSafely(initAdSuccess: false);
+        _navigateToMainSafely(initAdSuccess: false); // Init fail → vào app luôn
       }
     });
 
-    // 4) Bắt đầu init AdManager
+    // 4) Bắt đầu init AdManager (gọi 1 lần duy nhất)
     AdManager().initialize(
       onComplete: (success, _) {
-        // Đã phát qua EventBus, không cần làm thêm ở đây
+        // EventBus đã xử lý, không cần làm gì ở đây
       },
     );
   }
@@ -250,7 +351,7 @@ class _SplashScreenState extends State<SplashScreen> {
       if (!mounted || _hasNavigated) return;
       if (loaded) {
         AdManager().showAppOpenAd(
-          bypassSafety: true, // Bỏ qua AdSafety cho splash
+          bypassSafety: true, // Bỏ qua AdSafety cho lần đầu (splash)
           onAdDismiss: (_) => _navigateToMainSafely(initAdSuccess: true),
         );
       } else {
@@ -260,12 +361,15 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _navigateToMainSafely({required bool initAdSuccess}) {
-    if (_hasNavigated) return;
+    if (_hasNavigated) return; // Guard chống navigate 2 lần
     _hasNavigated = true;
     _subscription?.cancel();
-    AdManager().markSplashInactive(); // Cho phép showAppOpenAdOnResume hoạt động
-    // Navigate to main screen
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => MainScreen()));
+    AdManager().markSplashInactive(); // Từ đây AppOpen Resume có thể kích hoạt
+    // TODO: Thay bằng navigation method của bạn
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const MainScreen()),
+    );
   }
 
   @override
@@ -273,47 +377,139 @@ class _SplashScreenState extends State<SplashScreen> {
     _subscription?.cancel();
     super.dispose();
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
 }
+```
+
+✅ **Kiểm tra log sau khi chạy:**
+```
+[roy93~AdManager] markSplashActive
+[roy93~AdManager] ###init called, isEnableAdmob=false
+[roy93~AdManager] ###init completed, calling onComplete
+[roy93~AdManager] loadAppOpenAd [AppLovin] 🔄 requesting ad...
+[roy93~AdManager] ✅ [AppLovin] App Open Ad Loaded
+[roy93~AdManager] markSplashInactive
 ```
 
 ---
 
-### STEP 8: Screen Có Ads — Kế thừa `AdScreenState`
+### STEP 8: Màn Hình Có Ads — Kế thừa `AdScreen`
+
+Mọi màn hình muốn có Interstitial/Rewarded Ad phải kế thừa `AdScreen` thay vì `StatefulWidget`:
 
 ```dart
-class MyScreen extends StatefulWidget { ... }
+import 'package:flutter/material.dart';
+import 'package:[your_package]/ad/ad_screen.dart';
+import 'package:[your_package]/ad/ad_manager.dart';
 
-class _MyScreenState extends AdScreenState<MyScreen> {
+// STEP 8a: Kế thừa AdScreen thay vì StatefulWidget
+class HomeScreen extends AdScreen {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+// STEP 8b: Kế thừa AdScreenState<T> thay vì State<T>
+class _HomeScreenState extends AdScreenState<HomeScreen> {
+
   @override
   void initState() {
-    super.initState();
-    // Inter và Rewarded được preload sẵn bởi AdManager — không cần gọi load ở đây
+    super.initState(); // AdScreenState.initState() tự gọi loadInterstitial()
+    // Thêm init riêng của màn hình ở đây nếu cần
   }
 
-  void _onGoToNextScreen() {
-    // Gọi inter trước khi navigate
-    showInterstitialAd(onDoneFlow: (shown) {
+  // STEP 8c: Show interstitial trước khi navigate
+  void _goToNextScreen() {
+    showInterstitialAd(onDone: (shown) {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => NextScreen()));
+      // Dù ad show hay không (shown=true/false), vẫn navigate
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const DetailScreen()));
     });
   }
 
-  void _onWatchRewardedAd() {
-    AdManager().showRewardedAd(onEarnedReward: (earned) {
+  // STEP 8d: Show rewarded ad để nhận phần thưởng
+  void _watchAdForReward() {
+    showRewardedAd(onEarnedReward: (earned) {
+      if (!mounted) return;
       if (earned) {
-        // Đã xem đủ → phát thưởng cho user
-        setState(() { coins += 10; });
+        // User đã xem đủ → trao thưởng
+        setState(() { /* cộng coins, mở tính năng, ... */ });
       }
+      // earned=false: ad bị skip hoặc safety blocked → không trao thưởng
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(title: const Text('Home')),
       body: Column(
         children: [
-          // BannerAdWidget tự quản lý lifecycle — đặt ở cuối màn hình
-          const BannerAdWidget(),
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: _goToNextScreen,
+                    child: const Text('Go to Detail'),
+                  ),
+                  ElevatedButton(
+                    onPressed: _watchAdForReward,
+                    child: const Text('Watch Ad for Reward'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // STEP 8e: Banner Ad — đặt ở cuối màn hình
+          buildBanner(), // Gọi method từ AdScreenState, không new BannerAdWidget()
+        ],
+      ),
+    );
+  }
+}
+```
+
+> 📌 Dùng `buildBanner()` (method của `AdScreenState`) thay vì `const BannerAdWidget()` trực tiếp — để có log tracking.
+
+✅ **Kiểm tra log khi mở màn hình:**
+```
+[roy93~AdScreen] initState _HomeScreenState — preloading interstitial
+[roy93~AdScreen] buildBanner _HomeScreenState
+[roy93~Banner] initState — isEnableAdmob=false
+[roy93~Banner] RouteAware subscribed to /HomeScreen
+[roy93~Banner] _initBanner ✅ allowed, proceeding...
+```
+
+---
+
+### STEP 9: Màn Hình CHỈ Có Banner (Không Có Inter/Rewarded)
+
+Nếu màn hình chỉ cần banner, không cần Inter/Rewarded, vẫn dùng `AdScreen` nhưng không gọi `showInterstitialAd`:
+
+```dart
+class SimpleScreen extends AdScreen {
+  const SimpleScreen({super.key});
+  @override
+  State<SimpleScreen> createState() => _SimpleScreenState();
+}
+
+class _SimpleScreenState extends AdScreenState<SimpleScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          const Expanded(child: Center(child: Text('Content'))),
+          buildBanner(), // Chỉ cần dòng này
         ],
       ),
     );
@@ -323,51 +519,72 @@ class _MyScreenState extends AdScreenState<MyScreen> {
 
 ---
 
-### STEP 9: Sử dụng BannerAdWidget
+### STEP 10: Màn Hình KHÔNG Có Banner
+
+Nếu màn hình không cần bất kỳ ad nào, dùng `StatefulWidget` bình thường — **không kế thừa AdScreen**.
 
 ```dart
-// Đặt ở bất kỳ đâu trong widget tree — tự quản lý toàn bộ lifecycle
-const BannerAdWidget()
+class NoAdScreen extends StatefulWidget {
+  const NoAdScreen({super.key});
+  @override
+  State<NoAdScreen> createState() => _NoAdScreenState();
+}
+
+class _NoAdScreenState extends State<NoAdScreen> {
+  // Không import gì liên quan đến ad
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(body: const Center(child: Text('No ads here')));
+  }
+}
 ```
-
-**Không cần:**
-- Gọi `load()` thủ công
-- Gọi `dispose()` thủ công
-- Xử lý callback loading
-
-**BannerAdWidget tự động:**
-- Kiểm tra VIP → ẩn nếu VIP
-- Kiểm tra mạng → ẩn nếu offline
-- Kiểm tra navigation cooldown 5s → ẩn nếu navigate quá nhanh
-- Hiện shimmer trong khi load
-- Chuyển sang ad thật khi load xong
-- Dispose sạch khi widget bị remove
 
 ---
 
-### STEP 10: AdSafety Tuning (Tuỳ chỉnh giới hạn)
+### STEP 11: Tuỳ chỉnh AdSafety Limits
 
-Trong `ad_safety_config.dart`, bạn có thể đổi các constant:
+Mở `lib/[your_package]/ad/ad_safety_config.dart`:
 
 ```dart
 // Thời gian tối thiểu giữa 2 fullscreen ad (ms)
-static const int _minTimeBetweenFullscreenAds = 60000;   // 60s — khuyến nghị giữ nguyên
+static const int _minTimeBetweenFullscreenAds = 60000;  // 60s (khuyên giữ nguyên)
 
 // Giới hạn số lần show
-static const int _maxFullscreenAdsPerSession = 6;  // 6 lần/session
-static const int _maxFullscreenAdsPerHour    = 3;  // 3 lần/giờ
-static const int _maxFullscreenAdsPerDay     = 5;  // 5 lần/ngày
+static const int _maxFullscreenAdsPerSession = 6;   // 6 lần/session
+static const int _maxFullscreenAdsPerHour    = 3;   // 3 lần/giờ
+static const int _maxFullscreenAdsPerDay     = 5;   // 5 lần/ngày
 
-// Resume protection
-static const int _minTimeAppOpenResume       = 5000;  // App phải background ≥ 5s
+// App Open: bỏ qua resume nếu background quá ngắn
+static const int _minTimeAppOpenResume       = 5000; // ≥ 5s
 
-// Anti-fraud thresholds
-static const double _suspiciousCtrThreshold  = 0.30;  // CTR > 30% → suspend
-static const int    _maxClicksPerMinute      = 3;     // > 3 clicks/min → suspend
-static const int    _maxRapidResumesPerMinute = 3;    // > 3 resume/min → skip
+// Anti-fraud
+static const double _suspiciousCtrThreshold  = 0.30; // CTR > 30% → suspend
+static const int    _maxClicksPerMinute      = 3;    // > 3 click/min → suspend
 ```
 
 ---
+
+### STEP 12: Verification Checklist
+
+Sau khi tích hợp xong, test lần lượt các kịch bản sau:
+
+| # | Kịch bản | Log cần thấy | Pass? |
+|---|----------|--------------|-------|
+| 1 | Mở app lần đầu | `###init completed` | ☐ |
+| 2 | App Open Splash show | `✅ App Open Ad Shown` | ☐ |
+| 3 | Navigate A → B | `didPushNext ⏸️` trên A, `didPush ▶️` trên B | ☐ |
+| 4 | Navigate back B → A | `didPop ⏹️` B, `didPopNext ▶️` A (postFrame) | ☐ |
+| 5 | Banner load | `✅ Banner Ad Loaded` | ☐ |
+| 6 | Interstitial show | `✅ Interstitial Ad Shown` | ☐ |
+| 7 | Rewarded show | `✅ Rewarded Ad Shown` | ☐ |
+| 8 | App → Background → Foreground | `⏸️ App went to BACKGROUND` → `▶️ App came to FOREGROUND` | ☐ |
+| 9 | App Open Resume | `showAppOpenAdOnResume triggered` | ☐ |
+| 10 | Navigation spam | `canLoadBanner ⏭️ cooldown active` | ☐ |
+
+> 🔴 Nếu thấy log `❌`, `SUSPICIOUS`, hoặc exception trong console → báo ngay Senior Dev.
+
+---
+
 
 ## 4. LUỒNG APP OPEN AD — 6 KỊCH BẢN
 
@@ -437,25 +654,46 @@ Screen C (6s sau) → canLoadBanner() → "load allowed, timer reset" → load b
 
 Ngưỡng cooldown: **5 giây** (thay đổi trong `AdManager._bannerLoadCooldown`)
 
-### 5.2 AppLovin MaxAdView — Stack Fix
+### 5.2 AdMob — `_admobIsTopRoute` Per-Widget Guard
+
+**Vấn đề cũ:** `bannerVisible` là global `ValueNotifier` dùng chung cho tất cả `BannerAdWidget`. Khi set `bannerVisible=true`, cả ScreenA lẫn ScreenB đều react và cùng render `AdWidget` trên cùng một `BannerAd` object → crash "AdWidget already in tree".
+
+**Giải pháp:** Mỗi `BannerAdWidget` instance có riêng `_admobIsTopRoute ValueNotifier<bool>` (khởi tạo `false`). Chỉ render `AdWidget` khi cả 2 flag đều `true`:
+
+```
+_admobIsTopRoute (PER-WIDGET) AND bannerVisible (GLOBAL lifecycle)
+```
+
+**RouteAware hook → `_admobIsTopRoute` lifecycle:**
+
+| Hook | Thực thi | `_admobIsTopRoute` | Ghi chú |
+|------|----------|-------------------|---------|
+| `didPush()` | postFrameCallback | `false → true` | Defer tránh markNeedsBuild-during-build |
+| `didPushNext()` | Immediate | `true → false` | Screen bị che, gỡ AdWidget ngay |
+| `didPop()` | Immediate | `true → false` | Screen đang pop, gỡ AdWidget trước khi screen dưới mount AdWidget |
+| `didPopNext()` | postFrameCallback | `false → true` | Defer để ScreenB đã gỡ AdWidget trước |
+
+**Tại sao `false` và `postFrame` quan trọng:**
+- `=false` (immediate): remove AdWidget khỏi tree NGAY trong frame hiện tại
+- `=true` (postFrameCallback): add AdWidget SAU khi frame trước hoàn chỉnh → đảm bảo không bao giờ có 2 AdWidget cùng tồn tại
+- Khởi tạo `false`: first build là SizedBox placeholder (1 frame, không thấy được) → tránh conflict với screen đang để lại AnimWidget
+
+**bannerVisible (global) vẫn được giữ** — chỉ dùng cho lifecycle background/foreground:
+```
+App → Background: bannerVisible=false (ẩn toàn bộ)
+App → Foreground: bannerVisible=true  (hiện lại)
+```
+
+### 5.3 AppLovin — `MaxAdView` Luôn Mounted
 
 ```
 ❌ Sai (deadlock): isLoaded=false → không render MaxAdView → MaxAdView không mount → callback không fire
 ✅ Đúng (Stack): MaxAdView luôn được mount → callback fire → isLoaded=true → shimmer ẩn
 ```
 
-```dart
-// AppLovin path trong build():
-Stack(
-  children: [
-    _buildAdWidget(),              // MaxAdView LUÔN mounted
-    if (!isLoaded)
-      Positioned.fill(child: ShimmerView(...)),  // Shimmer overlay
-  ],
-)
-```
+AppLovin **không gặp** vấn đề double-view vì `MaxAdView` là **native view được reuse** (không phải Dart object mới mỗi lần). `_admobIsTopRoute` không được dùng cho AppLovin path.
 
-### 5.3 Click Tracking
+### 5.4 Click Tracking
 
 Mỗi banner click → `AdSafetyConfig.recordAdClick()` → track `clicks/min`.
 SDK (AppLovin/AdMob) xử lý click ở platform level — app không thể block, chỉ có thể monitor.
@@ -579,36 +817,60 @@ Vi phạm 5+ → Pause 8 giờ (max 24 giờ)
 
 ## 9. LOG REFERENCE — ĐỌC LOG ĐỂ DEBUG
 
+> 📌 Tất cả logs ad đều có prefix **`[AdMob]`** hoặc **`[AppLovin]`** để phân biệt provider.
+
 ### 9.1 Log tốt (cần thấy)
 
 ```
-✅ Ad Loaded successfully              ← Ad tải thành công
-✅ Ad Shown full screen               ← Ad hiện lên
-✅ Ad Dismissed by user               ← Ad bị tắt bởi user (THẬT)
-📊 Ad SHOWN | session=X/6 | hourly=X/3 | daily=X/5  ← AdSafety counts
-canLoadBanner ✅ load allowed, timer reset            ← Banner được load
+✅ Ad Loaded successfully                          ← Ad tải thành công
+✅ Ad Shown full screen                            ← Ad hiện lên
+✅ Ad Dismissed by user                            ← Ad bị tắt bởi user (THẬT)
+📊 Ad SHOWN | session=X/6 | hourly=X/3 | daily=X/5 ← AdSafety counts
+canLoadBanner ✅ load allowed, timer reset          ← Banner được load
 ```
 
-### 9.2 Log Warning (quan sát)
+### 9.2 Log RouteAware Banner — [AdMob]
 
 ```
-⏭️ already loading, skip request      ← Mutex đang lock (tốt)
-⏭️ ad already in memory, no need to reload  ← Cache hit (rất tốt)
-⏭️ ad still valid (< 4h), no need to reload ← 4h cache hit (tốt)
-⏭️ ad already ready, no need to reload      ← AppLovin guard (tốt)
-🔄 Ad blocked/skipped before show           ← Safety chặn, KHÔNG phải dismissed
-canLoadBanner ⏭️ cooldown active            ← Navigation quá nhanh
+RouteAware.didPush() ▶️ [AdMob] scheduling _admobIsTopRoute=true via postFrameCallback
+RouteAware.didPush() postFrame ▶️ [AdMob] _admobIsTopRoute=true (AdWidget now in tree)
+RouteAware.didPushNext() ⏸️ [AdMob] _admobIsTopRoute=false (hiding AdWidget)
+RouteAware.didPop() ⏹️ [AdMob] _admobIsTopRoute=false (removing AdWidget immediately)
+RouteAware.didPopNext() ▶️ [AdMob] scheduling _admobIsTopRoute=true via postFrameCallback
+RouteAware.didPopNext() postFrame ▶️ [AdMob] _admobIsTopRoute=true (top route popped)
 ```
 
-### 9.3 Log cần chú ý
+### 9.3 Log RouteAware Banner — [AppLovin]
 
 ```
-🛡️ Throttle: wait Xs          ← Đang trong cooling down — bình thường
-🛡️ Hourly cap: 3/3            ← Đã đạt giới hạn giờ — bình thường
-🛡️ Skipping App Open on cold start  ← Lần resume đầu tiên — bình thường
-🛡️ Resume too fast (Xms)      ← User vào/ra quá nhanh — bình thường
-⚠️ SUSPICIOUS                 ← CTR hoặc click spam — cần kiểm tra
+RouteAware.didPush() ▶️ [AppLovin] scheduling Banner RESUME via postFrameCallback
+RouteAware.didPush() postFrame ▶️ [AppLovin] bannerAutoRefreshEnabled=true
+RouteAware.didPushNext() ⏸️ [AppLovin] Banner PAUSED (route covered by new push)
+RouteAware.didPopNext() ▶️ [AppLovin] Banner RESUMED (top route popped)
+RouteAware.didPop() ⏹️ route containing banner is popping
 ```
+
+### 9.4 Log Warning (quan sát)
+
+```
+⏭️ already loading, skip request           ← Mutex đang lock (tốt)
+⏭️ ad already in memory, no need to reload ← Cache hit (rất tốt)
+⏭️ ad still valid (< 4h), no need to reload← 4h cache hit (tốt)
+⏭️ ad already ready, no need to reload     ← AppLovin guard (tốt)
+🔄 Ad blocked/skipped before show          ← Safety chặn, KHÔNG phải dismissed
+canLoadBanner ⏭️ cooldown active           ← Navigation quá nhanh
+```
+
+### 9.5 Log cần chú ý
+
+```
+🛡️ Throttle: wait Xs           ← Đang trong cooling down — bình thường
+🛡️ Hourly cap: 3/3             ← Đã đạt giới hạn giờ — bình thường
+🛡️ Skipping App Open on cold start ← Lần resume đầu tiên — bình thường
+🛡️ Resume too fast (Xms)       ← User vào/ra quá nhanh — bình thường
+⚠️ SUSPICIOUS                  ← CTR hoặc click spam — cần kiểm tra
+```
+
 
 ---
 
@@ -626,6 +888,14 @@ canLoadBanner ⏭️ cooldown active            ← Navigation quá nhanh
 ---
 
 ## 11. TROUBLESHOOTING
+
+### "AdWidget is already in the Widget tree" (AdMob Banner)
+**Nguyên nhân:** `bannerVisible` là global ValueNotifier. Khi set `=true`, tất cả `BannerAdWidget` đang mount đều rebuild và cố render `AdWidget` trên cùng một `BannerAd` object.
+**Fix:** `_admobIsTopRoute` per-widget flag (khởi tạo `false`). `didPushNext()/didPop()` set `=false` immediate. `didPush()/didPopNext()` set `=true` via `addPostFrameCallback` → đảm bảo chỉ 1 AdWidget trong tree mỗi lúc.
+
+### "setState() or markNeedsBuild() called during build"
+**Nguyên nhân:** `RouteObserver.subscribe()` gọi `didPush()` SYNCHRONOUSLY bên trong `_firstBuild`. Set `ValueNotifier.value` ở đây trigger `markNeedsBuild()` during build frame.
+**Fix:** Wrap tất cả `ValueNotifier.value=` trong `didPush()` bằng `addPostFrameCallback`.
 
 ### Banner bị stuck shimmer (AppLovin)
 **Nguyên nhân:** `MaxAdView` không được mount vào widget tree trước khi `isLoaded=true`.
@@ -651,19 +921,23 @@ canLoadBanner ⏭️ cooldown active            ← Navigation quá nhanh
 
 ## 12. PHIÊN BẢN VÀ THAY ĐỔI
 
-| Ngày | Thay đổi |
-|------|----------|
-| 20260321-v1 | Port từ Kotlin AdManager.kt — baseline |
-| 20260321-v2 | Thêm WidgetsBindingObserver vào AdManager |
-| 20260321-v3 | Fix banner adaptive full-width (Anchored Adaptive) |
-| 20260321-v4 | Thêm Rewarded Ad flow + preload toàn bộ ad khi init |
-| 20260321-v5 | Thêm mutex lock `_isAppOpenLoading`, `_isInterLoading` |
-| 20260321-v6 | Thêm 4h cache validity cho App Open |
-| 20260321-v7 | Fix AppLovin Banner deadlock bằng Stack widget |
-| 20260321-v8 | Thêm `_isInterstitialShowing`, `_isRewardedShowing` guard |
-| 20260321-v9 | Thêm in-memory guard cho Interstitial và Rewarded |
-| 20260321-v10 | Fix false `dismissed` log — `wasActuallyShown` branching |
-| 20260321-v11 | Thêm `_isMaxInterReady` guard cho AppLovin Interstitial |
-| 20260321-v12 | Thêm Banner navigation cooldown 5s |
-| **20260321-final** | **Tài liệu hoàn chỉnh — Production Ready** |
+| Ngày | Version | Thay đổi |
+|------|---------|----------|
+| 20260321 | v1 | Port từ Kotlin AdManager.kt — baseline |
+| 20260321 | v2 | Thêm WidgetsBindingObserver vào AdManager |
+| 20260321 | v3 | Fix banner adaptive full-width (Anchored Adaptive) |
+| 20260321 | v4 | Thêm Rewarded Ad flow + preload toàn bộ ad khi init |
+| 20260321 | v5 | Thêm mutex lock `_isAppOpenLoading`, `_isInterLoading` |
+| 20260321 | v6 | Thêm 4h cache validity cho App Open |
+| 20260321 | v7 | Fix AppLovin Banner deadlock bằng Stack widget |
+| 20260321 | v8 | Thêm `_isInterstitialShowing`, `_isRewardedShowing` guard |
+| 20260321 | v9 | Thêm in-memory guard cho Interstitial và Rewarded |
+| 20260321 | v10 | Fix false `dismissed` log — `wasActuallyShown` branching |
+| 20260321 | v11 | Thêm `_isMaxInterReady` guard cho AppLovin Interstitial |
+| 20260321 | v12 | Thêm Banner navigation cooldown 5s |
+| 20260322 | v13 | Thêm provider label `[AdMob]`/`[AppLovin]` vào toàn bộ SafeLogger |
+| 20260322 | v14 | Fix `setState() called during build` — wrap `didPush()` ValueNotifier mutations trong `addPostFrameCallback` |
+| 20260322 | v15 | Fix `AdWidget already in tree` (PUSH) — `_admobIsTopRoute ValueNotifier<bool>(false)` per-widget; `didPushNext()` immediate `false`, `didPush()` postFrame `true` |
+| 20260322 | v16 | Fix `AdWidget already in tree` (POP) — `didPop()` immediate `false` (gỡ AdWidget trước); `didPopNext()` postFrame `true` (thêm AdWidget sau) |
+| **20260322** | **v17** | **Document update — Production Ready** |
 
