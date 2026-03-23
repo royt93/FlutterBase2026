@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
 
-  applovin_admob_sdk: ^1.0.3
+  applovin_admob_sdk: ^1.0.4
 #  applovin_admob_sdk:
 #    path: ../
 

@@ -28,7 +28,6 @@
 ///   Widget build(context) => Column(children: [buildBanner(), ...]);
 /// }
 /// ```
-library ad_sdk;
 
 export 'src/config/ad_config.dart';
 export 'src/core/ad_manager.dart';

@@ -1,4 +1,8 @@
-## 1.0.3
+## 1.0.4
+
+- Fixed double `loadAppOpenAd` in-flight guard for **AppLovin** provider — `_isAppOpenLoading` is now set/reset in `_loadAppOpenAdAppLovin` and its loaded/failed callbacks, preventing duplicate requests and callback overwrites that broke the splash App Open flow
+- Fixed hard cap timer not being cancelled before `showAppOpenAd` is called in splash — prevents force-navigation while an ad is actively displaying (example + WiFi splash screens)
+
 
 - Replaced all `debugPrint` in `AdScreenRouteLogger` with `SafeLogger.d` — consistent logging across the entire SDK
 - Bumped dependencies: `google_mobile_ads: ^7.0.0`, `shared_preferences: ^2.5.4`, `connection_notifier: ^3.0.0`, `flutter_lints: ^6.0.0`

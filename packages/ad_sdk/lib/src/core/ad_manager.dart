@@ -344,6 +344,7 @@ class AdManager with WidgetsBindingObserver {
     AppLovinMAX.setAppOpenAdListener(AppOpenAdListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_tag, '✅ [AppLovin] App Open Ad Loaded');
+        _isAppOpenLoading = false;
         _isMaxAppOpenReady = true;
         _pendingAppOpenLoadCallback?.call(true);
         _pendingAppOpenLoadCallback = null;
@@ -356,6 +357,7 @@ class AdManager with WidgetsBindingObserver {
       },
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.d(_tag, '❌ [AppLovin] App Open Ad Failed: code=${err.code}');
+        _isAppOpenLoading = false;
         _lastAppOpenErrorTime = DateTime.now().millisecondsSinceEpoch;
         _isMaxAppOpenReady = false;
         _pendingAppOpenLoadCallback?.call(false);
@@ -562,6 +564,7 @@ class AdManager with WidgetsBindingObserver {
   void _loadAppOpenAdAppLovin({void Function(bool)? onAdLoaded}) {
     final appOpenId = _config.appLovin!.appOpenId;
     SafeLogger.d(_tag, 'loadAppOpenAd [AppLovin] 🔄 id=$appOpenId');
+    _isAppOpenLoading = true;
     _pendingAppOpenLoadCallback = onAdLoaded;
     AppLovinMAX.loadAppOpenAd(appOpenId);
   }

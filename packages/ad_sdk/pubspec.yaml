@@ -1,6 +1,6 @@
 name: applovin_admob_sdk
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX) with built-in safety throttle, VIP bypass, RouteAware banner lifecycle management, and animated TopToast feedback.
-version: 1.0.3
+version: 1.0.4
 homepage: https://github.com/royt93/FlutterBase2025
 repository: https://github.com/royt93/FlutterBase2025
 issue_tracker: https://github.com/royt93/FlutterBase2025/issues
