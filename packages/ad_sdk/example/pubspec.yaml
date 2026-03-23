@@ -1,0 +1,16 @@
+name: ad_sdk_example
+description: Example app demonstrating the ad_sdk package.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ad_sdk:
+    path: ../
+
+flutter:
+  uses-material-design: true
