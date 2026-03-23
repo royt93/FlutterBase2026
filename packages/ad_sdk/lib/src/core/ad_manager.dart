@@ -501,10 +501,16 @@ class AdManager with WidgetsBindingObserver {
   // ════════════════════════════════════════════════════
   void loadAppOpenAd({void Function(bool)? onAdLoaded}) {
     _assertInitialized();
-    SafeLogger.d(_tag, 'loadAppOpenAd $_provider called, isVIP=$_isVipMember');
     if (_isVipMember) { onAdLoaded?.call(false); return; }
     if (!isConnected) { onAdLoaded?.call(false); return; }
     if (_isCooldown(_lastAppOpenErrorTime)) { onAdLoaded?.call(false); return; }
+    // Guard against duplicate in-flight loads — checked before logging to avoid spam
+    if (_isAppOpenLoading) {
+      SafeLogger.d(_tag, 'loadAppOpenAd $_provider ⏭️ already loading, skip');
+      onAdLoaded?.call(false);
+      return;
+    }
+    SafeLogger.d(_tag, 'loadAppOpenAd $_provider called, isVIP=$_isVipMember');
 
     if (_isAdmob) {
       _loadAppOpenAdAdmob(onAdLoaded: onAdLoaded);

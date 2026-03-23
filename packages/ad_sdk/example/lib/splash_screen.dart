@@ -10,12 +10,20 @@ import 'home_screen.dart';
 // Replace with your own values from dash.applovin.com
 // SDK Key (86 chars): dash.applovin.com/o/account
 // Ad Unit IDs (16 chars): dash.applovin.com/o/mediation/ad_units
-const _kSdkKey =
+const _kAppLovinSdkKey =
     'REDACTED_APPLOVIN_SDK_KEY_ROUND68';
-const _kBannerId = 'REDACTED_APPLOVIN_BANNER_ID';
-const _kInterstitialId = 'REDACTED_APPLOVIN_INTERSTITIAL_ID';
-const _kAppOpenId = 'REDACTED_APPLOVIN_APPOPEN_ID';
-const _kRewardedId = 'REDACTED_APPLOVIN_REWARDED_ID';
+const _kAppLovinBannerId     = 'REDACTED_APPLOVIN_BANNER_ID';
+const _kAppLovinInterstitialId = 'REDACTED_APPLOVIN_INTERSTITIAL_ID';
+const _kAppLovinAppOpenId    = 'REDACTED_APPLOVIN_APPOPEN_ID';
+const _kAppLovinRewardedId   = 'REDACTED_APPLOVIN_REWARDED_ID';
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── AdMob credentials (Google test IDs — replace with real ones for prod) ────
+// Real IDs: console.admob.google.com
+const _kAdmobBannerId        = 'ca-app-pub-3940256099942544/6300978111';
+const _kAdmobInterstitialId  = 'ca-app-pub-3940256099942544/1033173712';
+const _kAdmobAppOpenId       = 'ca-app-pub-3940256099942544/9257395921';
+const _kAdmobRewardedId      = 'ca-app-pub-3940256099942544/5224354917';
 // ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -102,19 +110,19 @@ class _SplashScreenState extends State<SplashScreen> {
       AdManager().initialize(
         config: const AdConfig(
           // ← Switch provider here: AdProvider.admob or AdProvider.appLovin
-          provider: AdProvider.admob,
+          provider: AdProvider.appLovin,
           admob: AdMobConfig(
-            bannerId: 'ca-app-pub-3940256099942544/6300978111',
-            interstitialId: 'ca-app-pub-3940256099942544/1033173712',
-            appOpenId: 'ca-app-pub-3940256099942544/9257395921',
-            rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+            bannerId: _kAdmobBannerId,
+            interstitialId: _kAdmobInterstitialId,
+            appOpenId: _kAdmobAppOpenId,
+            rewardedId: _kAdmobRewardedId,
           ),
           appLovin: AppLovinConfig(
-            sdkKey: _kSdkKey,
-            bannerId: _kBannerId,
-            interstitialId: _kInterstitialId,
-            appOpenId: _kAppOpenId,
-            rewardedId: _kRewardedId,
+            sdkKey: _kAppLovinSdkKey,
+            bannerId: _kAppLovinBannerId,
+            interstitialId: _kAppLovinInterstitialId,
+            appOpenId: _kAppLovinAppOpenId,
+            rewardedId: _kAppLovinRewardedId,
           ),
           vipDeviceGaids: [],
           loadingBufferMs: 1000,
@@ -130,9 +138,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   /// Returns true if any AppLovin credential is still a placeholder.
   bool _hasPlaceholderIds() {
-    return _kSdkKey.startsWith('YOUR_') ||
-        _kBannerId.startsWith('YOUR_') ||
-        _kInterstitialId.startsWith('YOUR_');
+    return _kAppLovinSdkKey.startsWith('YOUR_') ||
+        _kAppLovinBannerId.startsWith('YOUR_') ||
+        _kAppLovinInterstitialId.startsWith('YOUR_');
   }
 
 
@@ -145,6 +153,9 @@ class _SplashScreenState extends State<SplashScreen> {
         if (!mounted) { _navigateHome(); return; }
         AdLoadingDialog.showAdBuffer(context, onComplete: () {
           if (!mounted) { _navigateHome(); return; }
+          // Cancel hard cap BEFORE showing ad — timer must not interrupt an active ad
+          _hardCapTimer?.cancel();
+          _hardCapTimer = null;
           AdManager().showAppOpenAd(
             bypassSafety: true,
             onAdDismiss: (_) => _navigateHome(),
