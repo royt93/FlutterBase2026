@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ad_sdk/ad_sdk.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'screen_b.dart';
 
 /// Demo Screen A — demonstrates interstitial + rewarded ads using AdScreen.
@@ -64,15 +64,8 @@ class _ScreenAState extends AdScreenState<ScreenA> {
                             if (earned) {
                               SafeLogger.d('ScreenA', '🎉 Rewarded! +10 coins');
                               _coinsNotifier.value += 10;
-                            } else {
-                              SafeLogger.d('ScreenA', '❌ No reward — ad not ready');
-                              if (!mounted) return;
-                              TopToast.show(
-                                context,
-                                icon: Icons.hourglass_top_rounded,
-                                message: 'Ad not ready — please wait and try again.',
-                              );
                             }
+                            // else: SDK already showed TopToast automatically
                           },
                         );
                       },

@@ -43,6 +43,9 @@ class AdManager with WidgetsBindingObserver {
   late AdConfig _config;
   bool _initialized = false;
 
+  /// Exposes the active config after [initialize] has been called.
+  AdConfig? get config => _initialized ? _config : null;
+
   bool get _isAdmob => _config.isAdMob;
   String get _provider => _isAdmob ? '[AdMob]' : '[AppLovin]';
 

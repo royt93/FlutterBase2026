@@ -22,7 +22,9 @@ class AdLoadingDialog {
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black.withValues(alpha: 0.72),
-      builder: (ctx) => const _AdLoadingDialogContent(),
+      builder: (ctx) => _AdLoadingDialogContent(
+        loadingText: AdManager().config?.adLoadingMessage ?? 'Loading…',
+      ),
     );
 
     await timer;
@@ -36,7 +38,9 @@ class AdLoadingDialog {
 }
 
 class _AdLoadingDialogContent extends StatefulWidget {
-  const _AdLoadingDialogContent();
+  const _AdLoadingDialogContent({required this.loadingText});
+
+  final String loadingText;
 
   @override
   State<_AdLoadingDialogContent> createState() => _AdLoadingDialogContentState();
@@ -105,7 +109,7 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  'Loading...',
+                  widget.loadingText,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.82),
                     fontSize: 13,

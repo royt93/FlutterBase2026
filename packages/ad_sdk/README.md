@@ -1,10 +1,10 @@
-# ad_sdk
+# applovin_admob_sdk
 
-[![pub.dev](https://img.shields.io/pub/v/ad_sdk?label=pub.dev)](https://pub.dev/packages/ad_sdk)
+[![pub.dev](https://img.shields.io/pub/v/applovin_admob_sdk?label=pub.dev)](https://pub.dev/packages/applovin_admob_sdk)
 [![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.10.0-blue)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-**Dual-provider Flutter Ad SDK** — switch between AdMob and AppLovin MAX with a single line of config. Built-in anti-fraud safety layer, route-aware banner, and VIP device bypass.
+**Dual-provider Flutter Ad SDK** — switch between AdMob and AppLovin MAX with a single line of config. Built-in anti-fraud safety layer, route-aware banner, animated top-center toast feedback, and VIP device bypass.
 
 ---
 
@@ -18,6 +18,8 @@
 | **RouteAware Banner** | Banner automatically pauses/resumes on navigation |
 | **VIP Bypass** | Specific devices (by GAID) never see ads — for owners/testers |
 | **Shimmer Placeholder** | Beautiful loading state while banner fills |
+| **TopToast** | Animated glassmorphism toast at top-center — auto-shown when rewarded ad unavailable |
+| **Localizable Strings** | `adNotReadyMessage` + `adLoadingMessage` in config — no hardcoded English |
 
 ---
 
@@ -25,7 +27,7 @@
 
 ```yaml
 dependencies:
-  ad_sdk: ^1.0.0
+  applovin_admob_sdk: ^1.0.2
 ```
 
 ### Android Setup (required)
@@ -51,32 +53,30 @@ dependencies:
 
 ## Quick Start
 
-### 1. Initialize in `main.dart`
+### 1. Initialize in SplashScreen
 
 ```dart
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
-  await AdManager().initialize(
-    config: AdConfig(
-      provider: AdProvider.appLovin,          // or AdProvider.admob
-      appLovin: AppLovinConfig(
-        sdkKey: 'YOUR_SDK_KEY',
-        bannerId: 'YOUR_BANNER_ID',
-        interstitialId: 'YOUR_INTER_ID',
-        appOpenId: 'YOUR_APP_OPEN_ID',
-        rewardedId: 'YOUR_REWARDED_ID',
-      ),
-      // Optional: devices that never see ads (owners/testers)
-      vipDeviceGaids: ['your-device-gaid'],
+AdManager().initialize(
+  config: AdConfig(
+    provider: AdProvider.appLovin,          // or AdProvider.admob
+    appLovin: AppLovinConfig(
+      sdkKey: 'YOUR_86_CHAR_SDK_KEY',
+      bannerId: 'YOUR_BANNER_ID',
+      interstitialId: 'YOUR_INTER_ID',
+      appOpenId: 'YOUR_APP_OPEN_ID',
+      rewardedId: 'YOUR_REWARDED_ID',
     ),
-    onComplete: (success, gaid) {
-      print('Ad SDK ready. GAID: $gaid');
-    },
-  );
-
-  runApp(MyApp());
-}
+    vipDeviceGaids: ['your-device-gaid'],   // never show ads on these devices
+    // Localizable UI strings (override with your i18n solution):
+    adNotReadyMessage: 'ad_not_ready'.tr,   // shown in TopToast when ad unavailable
+    adLoadingMessage: 'loading'.tr,          // shown in AdLoadingDialog spinner
+  ),
+  onComplete: (success, gaid) {
+    SafeLogger.d('App', 'Ad SDK ready. GAID: \$gaid');
+  },
+);
 ```
 
 ### 2. Add observers to your app
@@ -126,6 +126,7 @@ showInterstitialAd(onDone: (wasShown) {
 ```dart
 showRewardedAd(onEarnedReward: (earned) {
   if (earned) unlockPremiumFeature();
+  // else: SDK already showed TopToast "Ad not ready" automatically
 });
 ```
 
@@ -138,19 +139,20 @@ AdManager().showAppOpenAd(
 );
 ```
 
+### 7. TopToast (manual use)
+
+```dart
+TopToast.show(
+  context,
+  icon: Icons.info_outline,
+  message: 'Your message here',
+  iconColor: Colors.blue,     // optional, default amber
+);
+```
+
 ---
 
 ## Advanced Configuration
-
-### Custom Safety Parameters
-
-```dart
-AdConfig(
-  provider: AdProvider.appLovin,
-  appLovin: AppLovinConfig(...),
-)
-// AdSafetyParams currently use defaults — customizable via AdSafetyConfig.init()
-```
 
 ### AdMob Provider
 
@@ -167,6 +169,12 @@ AdConfig(
     testDeviceIds: ['YOUR_TEST_DEVICE_HASH'],
   ),
 )
+```
+
+### Custom Safety Parameters
+
+```dart
+// AdSafetyParams currently use defaults — customizable via AdSafetyConfig.init()
 ```
 
 ---

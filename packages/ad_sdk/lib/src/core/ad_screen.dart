@@ -4,6 +4,7 @@ import '../core/ad_manager.dart';
 import '../utils/safe_logger.dart';
 import '../widget/ad_loading_dialog.dart';
 import '../widget/banner_ad_widget.dart';
+import '../widget/top_toast.dart';
 
 /// Base widget class for screens that use ads.
 ///
@@ -127,8 +128,14 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     SafeLogger.d(_tag, 'showRewardedAd pre-check result: canShow=$canShow');
 
     if (!canShow) {
-      // No valid ad or safety throttle active — notify caller to show user feedback.
-      SafeLogger.d(_tag, 'showRewardedAd ⏭️ no valid ad → earned=false');
+      // No valid ad — show top toast using the configured message, then notify caller.
+      SafeLogger.d(_tag, 'showRewardedAd ⏭️ no valid ad → showing TopToast + earned=false');
+      TopToast.show(
+        context,
+        icon: Icons.hourglass_top_rounded,
+        message: AdManager().config?.adNotReadyMessage ??
+            'Ad not ready — please wait and try again.',
+      );
       onEarnedReward(false);
       return;
     }

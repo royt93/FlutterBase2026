@@ -1,4 +1,4 @@
-import 'package:ad_sdk/ad_sdk.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 

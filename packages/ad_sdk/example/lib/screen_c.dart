@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:ad_sdk/ad_sdk.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
 /// Demo Screen C — final screen in the demo flow, shows a banner.
 class ScreenC extends AdScreen {

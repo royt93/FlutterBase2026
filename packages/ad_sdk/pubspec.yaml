@@ -1,6 +1,6 @@
-name: ad_sdk
-description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX) with built-in safety throttle, VIP bypass, and RouteAware banner lifecycle management.
-version: 1.0.0
+name: applovin_admob_sdk
+description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX) with built-in safety throttle, VIP bypass, RouteAware banner lifecycle management, and animated TopToast feedback.
+version: 1.0.3
 homepage: https://github.com/royt93/FlutterBase2025
 repository: https://github.com/royt93/FlutterBase2025
 issue_tracker: https://github.com/royt93/FlutterBase2025/issues
@@ -22,7 +22,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   # This package does not use flutter_lints or other Flutter artifacts.

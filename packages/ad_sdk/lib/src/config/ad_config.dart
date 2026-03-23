@@ -81,6 +81,17 @@ class AdConfig {
   /// Log level — verbose in debug, none in release.
   final AdLogLevel logLevel;
 
+  /// Message shown in the top-center toast when a rewarded ad is unavailable.
+  ///
+  /// Defaults to English. Override with your own localized string.
+  /// Example: `'ad_not_ready'.tr` (GetX) or `AppLocalizations.of(ctx)!.adNotReady`
+  final String adNotReadyMessage;
+
+  /// Text shown inside the loading spinner dialog before a fullscreen ad.
+  ///
+  /// Defaults to 'Loading…'. Override with a localized string.
+  final String adLoadingMessage;
+
   const AdConfig({
     required this.provider,
     this.appLovin,
@@ -88,6 +99,8 @@ class AdConfig {
     this.vipDeviceGaids = const [],
     this.loadingBufferMs = 1000,
     this.logLevel = AdLogLevel.verbose,
+    this.adNotReadyMessage = 'Ad not ready — please wait and try again.',
+    this.adLoadingMessage = 'Loading…',
   }) : assert(
           identical(provider, AdProvider.appLovin)
               ? appLovin != null
