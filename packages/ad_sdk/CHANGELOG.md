@@ -1,4 +1,11 @@
-## 1.0.4
+## 1.0.6
+
+- Replaced real AppLovin credentials in example app with `YOUR_*` placeholders — prevents accidental credential exposure in published package
+
+
+- Merged example app into a single `main.dart` file for simplicity
+- Completely rewrote README with detailed step-by-step integration guide (Android setup, iOS setup, AdMob/AppLovin setup, 7-step guide, ad types reference, AdConfig reference, safety layer table, VIP bypass, TopToast, troubleshooting)
+
 
 - Fixed double `loadAppOpenAd` in-flight guard for **AppLovin** provider — `_isAppOpenLoading` is now set/reset in `_loadAppOpenAdAppLovin` and its loaded/failed callbacks, preventing duplicate requests and callback overwrites that broke the splash App Open flow
 - Fixed hard cap timer not being cancelled before `showAppOpenAd` is called in splash — prevents force-navigation while an ad is actively displaying (example + WiFi splash screens)
