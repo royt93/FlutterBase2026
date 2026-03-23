@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'home_screen.dart';
 
 // ── AppLovin credentials ─────────────────────────────────────────────────────
-// Replace these with your own values from dash.applovin.com
+// Replace with your own values from dash.applovin.com
 // SDK Key (86 chars): dash.applovin.com/o/account
 // Ad Unit IDs (16 chars): dash.applovin.com/o/mediation/ad_units
 const _kSdkKey =
@@ -101,7 +101,14 @@ class _SplashScreenState extends State<SplashScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AdManager().initialize(
         config: const AdConfig(
-          provider: AdProvider.appLovin,
+          // ← Switch provider here: AdProvider.admob or AdProvider.appLovin
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'ca-app-pub-3940256099942544/6300978111',
+            interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+            appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+            rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+          ),
           appLovin: AppLovinConfig(
             sdkKey: _kSdkKey,
             bannerId: _kBannerId,
@@ -109,7 +116,7 @@ class _SplashScreenState extends State<SplashScreen> {
             appOpenId: _kAppOpenId,
             rewardedId: _kRewardedId,
           ),
-          vipDeviceGaids: const [],
+          vipDeviceGaids: [],
           loadingBufferMs: 1000,
           adNotReadyMessage: 'Ad not ready — please wait and try again.',
           adLoadingMessage: 'Loading…',

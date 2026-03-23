@@ -12,9 +12,10 @@ packages:
   applovin_admob_sdk:
     dependency: "direct main"
     description:
-      path: ".."
-      relative: true
-    source: path
+      name: applovin_admob_sdk
+      sha256: de12fa27af33cd35b344d4d92089800e5aacc216eb9e6ab39abe4296f8a125e0
+      url: "https://pub.dev"
+    source: hosted
     version: "1.0.3"
   applovin_max:
     dependency: transitive
