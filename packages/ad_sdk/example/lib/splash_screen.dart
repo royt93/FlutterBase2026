@@ -109,8 +109,10 @@ class _SplashScreenState extends State<SplashScreen> {
             appOpenId: _kAppOpenId,
             rewardedId: _kRewardedId,
           ),
-          vipDeviceGaids: [],
+          vipDeviceGaids: const [],
           loadingBufferMs: 1000,
+          adNotReadyMessage: 'Ad not ready — please wait and try again.',
+          adLoadingMessage: 'Loading…',
         ),
         onComplete: (success, gaid) {
           SafeLogger.d('SplashExample', 'init done: success=$success, gaid=$gaid');
