@@ -1,6 +1,6 @@
 # 📊 TÍCH HỢP QUẢNG CÁO (AdMob + AppLovin MAX) — FLUTTER
 
-> Version: 20260324-v20 | SDK: `applovin_admob_sdk` v1.0.14 (pub.dev)
+> Version: 20260324-v21 | SDK: `applovin_admob_sdk` v1.0.14 (pub.dev)
 > Strict: Không `late`, không `!`, dùng nullable `?`, `ValueNotifier`, zero memory leak.
 
 ---
@@ -62,125 +62,223 @@ applovin_admob_sdk/
 ## 3. INTEGRATION GUIDE — STEP BY STEP (Fresher Dev)
 
 > ⏱ Thời gian ước tính: **~60 phút**
-> 📋 Đọc hết phần này trước khi bắt đầu. Làm từng bước, không skip.
+> 📋 Đọc hết phần này trước khi bắt đầu. Làm từng bước theo thứ tự, **KHÔNG skip bước nào**.
+
+### Mục tiêu cuối cùng
+
+Sau khi hoàn thành 7 step, app bạn sẽ có:
+- ✅ **App Open Ad** hiện khi mở app lần đầu (có loading dialog 1s)
+- ✅ **App Open Ad** tự hiện khi user quay lại app từ background
+- ✅ **Banner Ad** nằm ở đầu/cuối màn hình, tự pause/resume theo navigation
+- ✅ **Interstitial Ad** hiện trước khi chuyển màn hình (có loading dialog 1s)
+- ✅ **Rewarded Ad** hiện khi user muốn nhận thưởng
+- ✅ **12 cơ chế bảo vệ** chống invalid traffic (tự động, không cần code thêm)
 
 ---
 
-### STEP 1: Thêm Dependencies — `pubspec.yaml`
+### 📁 Tổng quan file cần sửa
+
+| # | File | Việc cần làm |
+|---|------|-------------|
+| 1 | `pubspec.yaml` | Thêm 2 dòng dependency |
+| 2 | `android/app/build.gradle.kts` | Thêm `minSdk`, `buildConfig`, 2 dòng implementation |
+| 3 | `android/app/src/main/AndroidManifest.xml` | Thêm 3 permission + 1 meta-data |
+| 4 | `lib/main.dart` | Tạo navigatorKey, đăng ký SDK, thêm observers |
+| 5 | `lib/splash_screen.dart` | Tạo mới — nơi init SDK + show App Open Ad |
+| 6 | `lib/home_screen.dart` | Kế thừa `AdScreen` thay vì `StatefulWidget` |
+| 7 | *(Không cần code)* | App Open resume tự động hoạt động |
+
+---
+
+### STEP 1 / 7 — Thêm Dependencies
+
+> **Tại sao:** SDK quảng cáo là 1 package riêng trên pub.dev. Bạn cần khai báo để Flutter tải về.
+
+**📂 Mở file:** `pubspec.yaml` (ở thư mục gốc project)
+
+**📝 Tìm mục `dependencies:` rồi thêm 2 dòng:**
 
 ```yaml
 dependencies:
+  flutter:
+    sdk: flutter
+  # ... các package khác của bạn ...
+
+  # ✅ THÊM 2 DÒNG NÀY:
   applovin_admob_sdk: ^1.0.14
-  gma_mediation_applovin: ^1.0.0  # chỉ nếu dùng AppLovin
+  gma_mediation_applovin: ^1.0.0  # bỏ dòng này nếu chỉ dùng AdMob
 ```
 
+**▶️ Chạy lệnh:**
 ```bash
 flutter pub get
 ```
 
-✅ **Kiểm tra:** Terminal không có lỗi đỏ.
+**✅ Kiểm tra thành công:** Terminal hiện `Got dependencies!` và KHÔNG có dòng đỏ.
+
+**❌ Nếu lỗi:** Kiểm tra thụt lề (phải dùng 2 dấu cách, KHÔNG dùng tab).
 
 ---
 
-### STEP 2: Android Config — `android/app/build.gradle.kts`
+### STEP 2 / 7 — Cấu hình Android Gradle
+
+> **Tại sao:** SDK cần `minSdk >= 21` (Android 5.0+) và `buildConfig = true` để hoạt động.
+
+**📂 Mở file:** `android/app/build.gradle.kts`
+
+**📝 Sửa/thêm trong block `android { }` :**
 
 ```kotlin
 android {
+    // ... compileSdk, namespace, etc. ...
+
     defaultConfig {
-        minSdk = 21   // phải >= 21
+        // ✅ Đảm bảo minSdk >= 21 (nếu đang < 21 thì sửa lên)
+        minSdk = 21
+        // ... targetSdk, versionCode, etc. ...
     }
+
+    // ✅ THÊM block này nếu chưa có:
     buildFeatures {
         buildConfig = true
     }
 }
+```
 
+**📝 Tìm block `dependencies { }` (nằm NGOÀI block `android { }`) rồi thêm:**
+
+```kotlin
 dependencies {
+    // ... các dòng khác ...
+
+    // ✅ THÊM 2 DÒNG NÀY:
     implementation("com.google.ads.mediation:applovin:13.2.0.1")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }
 ```
 
-✅ **Kiểm tra:** `flutter build apk --debug` thành công.
+**▶️ Kiểm tra:** Chạy `flutter build apk --debug` — phải thành công.
 
 ---
 
-### STEP 3: AndroidManifest.xml
+### STEP 3 / 7 — Cấu hình AndroidManifest.xml
 
-Mở `android/app/src/main/AndroidManifest.xml`:
+> **Tại sao:** Google yêu cầu khai báo AD_ID permission và AdMob App ID trong manifest.
+
+**📂 Mở file:** `android/app/src/main/AndroidManifest.xml`
+
+**📝 Thêm 3 permission TRƯỚC tag `<application>` :**
 
 ```xml
-<manifest>
-    <!-- Permission (trước <application>) -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ✅ THÊM 3 DÒNG NÀY (trước <application>) -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <application ...>
-        <!-- AdMob App ID (bắt buộc dù dùng AppLovin) -->
+    <application
+        android:label="..."
+        ...>
+
+        <!-- ✅ THÊM BLOCK NÀY (trong <application>, trước </application>) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX" />
+        <!--
+            ⚠️ THAY "ca-app-pub-XXX~XXX" bằng AdMob App ID thật của bạn.
+            ⚠️ Lấy ID ở: https://admob.google.com → Apps → App settings
+            ⚠️ KHÔNG thêm applovin.sdk.key ở đây — SDK Key truyền qua code Dart
+        -->
 
-        <!-- KHÔNG thêm applovin.sdk.key ở đây — SDK Key truyền qua Dart -->
+        <!-- ... activity, intent-filter, etc. ... -->
     </application>
 </manifest>
 ```
 
+**✅ Kiểm tra:** Build lại `flutter build apk --debug` thành công.
+
 ---
 
-### STEP 4: Đăng ký Navigator Key + Route Observers — `main.dart`
+### STEP 4 / 7 — Đăng ký Navigator Key — `main.dart`
 
-> 🔑 **ĐÂY LÀ BƯỚC QUAN TRỌNG NHẤT.** Nếu bỏ qua:
-> - Banner sẽ crash khi navigate (thiếu `adRouteObserver`)
-> - App Open on resume sẽ KHÔNG có loading dialog (thiếu `navigatorKey`)
+> **Tại sao:** SDK cần `navigatorKey` để:
+> 1. Hiện loading dialog 1s trước mỗi ad fullscreen
+> 2. Hiện App Open Ad khi user quay lại app từ background
+> 3. Banner tự pause/resume khi chuyển màn hình (qua `adRouteObserver`)
+>
+> ⛔ **Nếu bỏ qua step này:** Banner crash khi navigate, App Open resume không có dialog.
+
+**📂 Mở file:** `lib/main.dart`
+
+**📝 Sửa file theo mẫu sau (chú ý các dòng có ✅):**
 
 ```dart
-import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/material.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart'; // ✅ THÊM
 
-// 👇 Tạo navigator key GLOBAL
+// ✅ THÊM: Tạo navigatorKey — biến GLOBAL, đặt NGOÀI class
 final navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 👇 Đăng ký navigator key cho SDK — TRƯỚC runApp()
+  // ✅ THÊM: Đăng ký navigatorKey cho SDK — gọi TRƯỚC runApp()
   AdManager().setNavigatorKey(navigatorKey);
 
-  runApp(
-    MaterialApp(
-      // 👇 3 dòng BẮT BUỘC
-      navigatorKey: navigatorKey,
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'My App',
+
+      // ✅ THÊM 3 dòng sau vào MaterialApp:
+      navigatorKey: navigatorKey,               // Để SDK show dialog
       navigatorObservers: [
-        adRouteObserver,        // RouteAware Banner pause/resume
-        AdScreenRouteLogger(),  // Log route changes (debug)
+        adRouteObserver,                        // Banner pause/resume
+        AdScreenRouteLogger(),                  // Log navigation (debug)
       ],
-      home: const SplashScreen(),
-    ),
-  );
+
+      home: const SplashScreen(),               // ✅ Điểm vào là SplashScreen
+    );
+  }
 }
 ```
 
-**Nếu dùng GetX:**
-```dart
-GetMaterialApp(
-  navigatorKey: navigatorKey,
-  navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
-  home: const MyApp(),
-)
-```
+> 💡 **Nếu dùng GetX:** Thay `MaterialApp` bằng `GetMaterialApp`, tương tự:
+> ```dart
+> GetMaterialApp(
+>   navigatorKey: navigatorKey,
+>   navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
+>   home: const MyApp(),
+> )
+> ```
 
-✅ **Kiểm tra:** Chạy app, log có:
+**▶️ Kiểm tra:** Chạy app, mở **Logcat/Console**, tìm 2 dòng sau:
 ```
-setNavigatorKey: registered ✅
+[AdManager] setNavigatorKey: registered ✅
 [AdScreen~Router] ➡️ PUSH: / (from: null)
 ```
+Nếu thấy → Step 4 thành công. Nếu không → kiểm tra `navigatorKey` truyền đúng chưa.
 
 ---
 
-### STEP 5: Splash Screen — Nơi Khởi Động Ad
+### STEP 5 / 7 — Tạo Splash Screen (Nơi init SDK + Show App Open Ad)
 
-> ⚠️ `AdManager().initialize()` **BẮT BUỘC gọi trong SplashScreen**, không phải trong `main()`.
-> Lý do: EventBus phải fire SAU khi listener đã đăng ký.
+> **Tại sao:** SDK cần 1-3 giây để khởi tạo + tải ad. Splash screen là nơi duy nhất phù hợp
+> để chờ quá trình này mà user không thấy lag.
+>
+> ⚠️ **QUAN TRỌNG:** `AdManager().initialize()` **BẮT BUỘC gọi ở SplashScreen**,
+> KHÔNG được gọi trong `main()`. Lý do: EventBus listener phải đăng ký TRƯỚC khi `initialize()` fire event.
+
+**📂 Tạo file mới:** `lib/splash_screen.dart`
+
+**📝 Copy toàn bộ code sau:**
 
 ```dart
 import 'dart:async';
@@ -201,33 +299,39 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+
+    // ── Bước A: Đánh dấu splash đang active ──
     AdManager().markSplashActive();
     AdManager().incrementSplashCount();
 
-    // Skip ad nếu đã vào app rồi (hot restart)
+    // ── Bước B: Skip ad nếu hot restart (đã vào app rồi) ──
     if (AdManager().countInitSplashScreen > 1) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _navigateHome());
       return;
     }
 
-    // Hard cap 8s — tránh stuck splash
+    // ── Bước C: Hard cap 8s — nếu load quá lâu, vào home luôn ──
     _hardCapTimer = Timer(const Duration(seconds: 8), () => _navigateHome());
 
-    // Đăng ký EventBus TRƯỚC khi gọi initialize()
+    // ── Bước D: Lắng nghe EventBus — nhận kết quả init ──
+    // ⚠️ PHẢI đăng ký listener TRƯỚC khi gọi initialize()
     _eventListener = (event) {
       if (event.value) {
+        // SDK init thành công → tải App Open Ad
         _loadAndShowAppOpenAd();
       } else {
-        _navigateHome(); // init fail
+        // SDK init thất bại → vào home luôn
+        _navigateHome();
       }
     };
     SimpleEventBus().listen(_eventListener!);
 
-    // Initialize AdManager trong postFrameCallback
+    // ── Bước E: Gọi initialize() — chờ postFrameCallback ──
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AdManager().initialize(
         config: const AdConfig(
-          provider: AdProvider.appLovin,  // đổi thành .admob nếu dùng AdMob
+          // ⚠️ ĐỔI provider ở đây: .appLovin hoặc .admob
+          provider: AdProvider.appLovin,
           admob: AdMobConfig(
             bannerId: 'ca-app-pub-3940256099942544/6300978111',
             interstitialId: 'ca-app-pub-3940256099942544/1033173712',
@@ -235,44 +339,46 @@ class _SplashScreenState extends State<SplashScreen> {
             rewardedId: 'ca-app-pub-3940256099942544/5224354917',
           ),
           appLovin: AppLovinConfig(
-            sdkKey: 'YOUR_86_CHAR_SDK_KEY',
-            bannerId: 'YOUR_BANNER_ID',
-            interstitialId: 'YOUR_INTER_ID',
-            appOpenId: 'YOUR_APP_OPEN_ID',
-            rewardedId: 'YOUR_REWARDED_ID',
+            sdkKey: 'YOUR_86_CHAR_SDK_KEY',   // ⚠️ THAY bằng SDK key thật
+            bannerId: 'YOUR_BANNER_ID',        // ⚠️ THAY bằng ID thật
+            interstitialId: 'YOUR_INTER_ID',   // ⚠️ THAY bằng ID thật
+            appOpenId: 'YOUR_APP_OPEN_ID',     // ⚠️ THAY bằng ID thật
+            rewardedId: 'YOUR_REWARDED_ID',    // ⚠️ THAY bằng ID thật
           ),
-          vipDeviceGaids: [],
-          loadingBufferMs: 1000,
+          vipDeviceGaids: [],        // GAID của thiết bị VIP (không hiện ad)
+          loadingBufferMs: 1000,     // Thời gian hiện loading dialog (ms)
           adNotReadyMessage: 'Ad chưa sẵn sàng, vui lòng thử lại.',
           adLoadingMessage: 'Đang tải…',
         ),
         onComplete: (success, gaid) {
-          SafeLogger.d('Splash', 'SDK ready. GAID: $gaid');
+          SafeLogger.d('Splash', 'SDK ready=$success, GAID=$gaid');
         },
       );
     });
   }
 
+  /// Tải App Open Ad → nếu thành công thì hiện loading dialog + show ad
   void _loadAndShowAppOpenAd() {
     AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-      if (_hasNavigated) return;
+      if (_hasNavigated) return; // đã navigate rồi (ví dụ timeout 8s)
       if (loaded) {
         if (!mounted) { _navigateHome(); return; }
-        // SDK sẽ tự show loading dialog 1s trước ad
+        // Hiện loading dialog 1 giây → rồi show ad
         AdLoadingDialog.showAdBuffer(context, onComplete: () {
           if (!mounted) { _navigateHome(); return; }
-          _hardCapTimer?.cancel(); // cancel timer trước khi show ad
+          _hardCapTimer?.cancel();
           AdManager().showAppOpenAd(
-            bypassSafety: true,
+            bypassSafety: true,     // Splash luôn show, bỏ qua throttle
             onAdDismiss: (_) => _navigateHome(),
           );
         });
       } else {
-        _navigateHome();
+        _navigateHome(); // Load thất bại → vào home
       }
     });
   }
 
+  /// Chuyển sang HomeScreen — chỉ được gọi ĐÚNG 1 LẦN
   void _navigateHome() {
     if (_hasNavigated) return;
     _hasNavigated = true;
@@ -281,7 +387,7 @@ class _SplashScreenState extends State<SplashScreen> {
       SimpleEventBus().remove(_eventListener!);
       _eventListener = null;
     }
-    AdManager().markSplashInactive(); // gọi ĐÚNG 1 lần
+    AdManager().markSplashInactive();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -299,57 +405,85 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Bạn có thể thay bằng logo app + animation
     return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 ```
 
-✅ **Kiểm tra log:**
+**▶️ Kiểm tra log (theo thứ tự):**
 ```
-[AdManager] ###init called, provider=AdProvider.appLovin
-[AdManager] ###init completed
-[AdManager] loadAppOpenAd [AppLovin] 🔄 requesting...
-[AdManager] ✅ [AppLovin] App Open Ad Loaded
-[AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
-[AdManager] markSplashInactive
+1. [AdManager] ###init called, provider=AdProvider.appLovin
+2. [AdManager] ###init completed
+3. [AdManager] loadAppOpenAd [AppLovin] 🔄 ...
+4. [AdManager] ✅ [AppLovin] App Open Ad Loaded
+5. [AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+6. [AdManager] ✅ [AppLovin] App Open Ad Shown
+7. [AdManager] ✅ [AppLovin] App Open Ad Dismissed
+8. [AdManager] markSplashInactive
 ```
+
+**❌ Nếu không thấy log #1:** `initialize()` chưa được gọi — kiểm tra `postFrameCallback`.
+**❌ Nếu thấy log #1 nhưng không có #2:** SDK key hoặc network bị sai.
+**❌ Nếu thấy #4 nhưng không có #5:** Thiếu `navigatorKey` ở Step 4.
 
 ---
 
-### STEP 6: Màn Hình Có Ads — Kế thừa `AdScreen`
+### STEP 6 / 7 — Tạo màn hình có Ads (kế thừa `AdScreen`)
+
+> **Tại sao dùng `AdScreen`:** Thay vì `StatefulWidget`, bạn kế thừa `AdScreen` để SDK tự:
+> - Preload interstitial khi màn hình mở
+> - Quản lý banner lifecycle (pause khi navigate, resume khi quay lại)
+> - Cung cấp sẵn hàm `showInterstitialAd()`, `showRewardedAd()`, `buildBanner()`
+
+**📂 Mở file:** `lib/home_screen.dart` (hoặc bất kỳ màn hình nào cần ad)
+
+**📝 Thay đổi 2 chỗ:**
 
 ```dart
 import 'package:flutter/material.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
-// Kế thừa AdScreen thay vì StatefulWidget
-class HomeScreen extends AdScreen {
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TRƯỚC (không có ad):
+//   class HomeScreen extends StatefulWidget { ... }
+//   class _HomeScreenState extends State<HomeScreen> { ... }
+//
+// SAU (có ad):
+//   class HomeScreen extends AdScreen { ... }           ← đổi ở đây
+//   class _HomeScreenState extends AdScreenState<HomeScreen> { ... }  ← và đây
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class HomeScreen extends AdScreen {  // ← ĐỔI: StatefulWidget → AdScreen
   const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-// Kế thừa AdScreenState<T> thay vì State<T>
-class _HomeScreenState extends AdScreenState<HomeScreen> {
+class _HomeScreenState extends AdScreenState<HomeScreen> {  // ← ĐỔI: State → AdScreenState
 
+  /// Ví dụ 1: Hiện Interstitial trước khi chuyển màn hình
   void _goToNextScreen() {
-    // Loading dialog 1s tự hiện → ad show → onDone gọi
+    // SDK tự: pre-check → loading dialog 1s → show ad → gọi onDone
     showInterstitialAd(onDone: (shown) {
+      // shown=true: ad đã hiện xong | shown=false: ad không sẵn sàng hoặc bị throttle
+      // Dù shown=true hay false, luôn navigate (UX tốt hơn)
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => const DetailScreen()));
     });
   }
 
+  /// Ví dụ 2: Hiện Rewarded Ad — user xem ad để nhận thưởng
   void _watchAdForCoins() {
     showRewardedAd(onEarnedReward: (earned) {
       if (!mounted) return;
       if (earned) {
-        // User xem hết ad → trao thưởng
+        // ✅ User xem hết ad → TRẢ THƯỞNG ở đây
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('+10 coins!')),
         );
       }
-      // earned=false → ad bị skip hoặc không sẵn sàng (SDK tự show TopToast)
+      // earned=false → ad bị skip / không sẵn sàng (SDK tự show TopToast thông báo)
     });
   }
 
@@ -358,7 +492,11 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
     return Scaffold(
       body: Column(
         children: [
-          buildBanner(),  // 👈 Banner tự quản lý lifecycle
+          // ── Banner Ad ──
+          // buildBanner() là hàm có sẵn từ AdScreenState
+          // Banner tự load, tự pause khi navigate, tự resume khi quay lại
+          buildBanner(),
+
           Expanded(
             child: Center(
               child: Column(
@@ -366,8 +504,9 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
                 children: [
                   ElevatedButton(
                     onPressed: _goToNextScreen,
-                    child: const Text('Go to Detail (Inter Ad)'),
+                    child: const Text('Go to Detail (Interstitial Ad)'),
                   ),
+                  const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: _watchAdForCoins,
                     child: const Text('Watch Ad for 10 Coins'),
@@ -383,24 +522,60 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
 }
 ```
 
-> 📌 `AdScreenState` tự động gọi `loadInterstitial()` trong `initState`. Nếu SDK chưa init → SDK sẽ bỏ qua (không crash).
+> 📌 **Ghi nhớ:**
+> - `AdScreenState` tự gọi `loadInterstitial()` trong `initState`. Nếu SDK chưa init xong → SDK bỏ qua (không crash).
+> - `buildBanner()` chỉ cần gọi 1 lần trong `build()`. SDK quản lý toàn bộ lifecycle.
+> - `showInterstitialAd()` và `showRewardedAd()` đã tích hợp sẵn loading dialog 1s.
 
 ---
 
-### STEP 7: App Open On Resume — TỰ ĐỘNG
+### STEP 7 / 7 — App Open On Resume (TỰ ĐỘNG — Không cần code)
 
-SDK tự handle qua `WidgetsBindingObserver`. Bạn KHÔNG cần viết thêm gì.
+> **Tại sao không cần code:** SDK đã đăng ký `WidgetsBindingObserver` bên trong.
+> Khi user rời app rồi quay lại, SDK tự xử lý toàn bộ flow:
 
-**Flow khi user quay lại app:**
 ```
-App background ≥ 5s
-  → User mở lại app
+User nhấn Home (app vào background)
+  → Đợi ≥ 5 giây
+  → User quay lại app
   → SDK check: canShowAppOpenOnResume()
-  → Nếu OK: show AdLoadingDialog 1s → show App Open Ad
-  → Nếu blocked: log lý do, skip (bình thường)
+     ├── Nếu OK  → Hiện AdLoadingDialog 1s → Show App Open Ad
+     └── Nếu KHÔNG (throttle/cold start/…) → Log lý do → Skip
 ```
 
-> ⚠️ **Bắt buộc:** Phải gọi `AdManager().setNavigatorKey(navigatorKey)` ở `main()` để SDK có thể show loading dialog khi resume.
+> ⚠️ **Điều kiện bắt buộc:** Step 4 phải hoàn thành (có `navigatorKey`).
+> Nếu thiếu → resume CÓ ad nhưng KHÔNG có loading dialog.
+
+**▶️ Kiểm tra:**
+1. Chạy app, đợi qua splash vào home
+2. Nhấn Home (app vào background), đợi 60 giây
+3. Mở lại app
+4. Xem log:
+```
+[AdManager] ProcessLifecycle ▶️ App came to FOREGROUND
+[AdManager] ▶️ showAppOpenAdOnResume: showing loading dialog...
+[AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+[AdManager] ✅ [AppLovin] App Open Ad Shown
+```
+
+**❌ Nếu thấy `🛡️ Skipping on cold start`:** Đây là bình thường — lần resume đầu tiên luôn bị skip.
+**❌ Nếu thấy `🛡️ Throttle: wait Xs`:** Đây là bình thường — cần đợi 60s giữa 2 fullscreen ad.
+
+---
+
+### 🎉 HOÀN THÀNH!
+
+Nếu bạn hoàn thành đủ 7 step, app sẽ có đầy đủ:
+
+| Tính năng | Trạng thái |
+|-----------|-----------|
+| App Open Ad (splash) | ✅ Tự động |
+| App Open Ad (resume) | ✅ Tự động |
+| Banner Ad | ✅ `buildBanner()` |
+| Interstitial Ad | ✅ `showInterstitialAd()` |
+| Rewarded Ad | ✅ `showRewardedAd()` |
+| Loading Dialog 1s | ✅ Tự động trước mọi fullscreen |
+| 12 Safety Guards | ✅ Tự động, không cần config |
 
 ---
 
@@ -624,4 +799,4 @@ BannerAdWidget mount
 | 20260323 | v18 | SDK Package `applovin_admob_sdk`, 43 bug fixes |
 | 20260324 | v19 | Fix #47: Loading dialog cho App Open resume via navigator key |
 | **20260324** | **v20** | **Fix #48: _assertInitialized không crash + doc update** |
-`, "Complexity": 8, "Description": "Complete rewrite of AD.MD for the updated SDK package approach (pub.dev) with navigator key, loading dialog, and fresher-friendly guide.", "EmptyFile": false, "IsArtifact": false, "Overwrite": true, "TargetFile": "/Users/loitran/AndroidStudioProjects/@mckimquyen/@playstore/@prodution/_260321_FlutterBase2025/doc/AD.MD"}
+| **20260324** | **v21** | **Rewrite Integration Guide cho fresher — thêm WHY, file map, troubleshoot per step** |
