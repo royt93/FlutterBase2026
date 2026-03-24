@@ -82,11 +82,37 @@ Sau khi hoàn thành 7 step, app bạn sẽ có:
 |---|------|-------------|
 | 1 | `pubspec.yaml` | Thêm 2 dòng dependency |
 | 2 | `android/app/build.gradle.kts` | Thêm `minSdk`, `buildConfig`, 2 dòng implementation |
-| 3 | `android/app/src/main/AndroidManifest.xml` | Thêm 3 permission + 1 meta-data |
+| 3a | `android/app/src/main/AndroidManifest.xml` | Thêm 3 permission + 1 meta-data |
+| 3b | `ios/Runner/Info.plist` | *(Nếu chạy iOS)* Thêm GADApplicationIdentifier, SKAdNetwork |
 | 4 | `lib/main.dart` | Tạo navigatorKey, đăng ký SDK, thêm observers |
 | 5 | `lib/splash_screen.dart` | Tạo mới — nơi init SDK + show App Open Ad |
 | 6 | `lib/home_screen.dart` | Kế thừa `AdScreen` thay vì `StatefulWidget` |
 | 7 | *(Không cần code)* | App Open resume tự động hoạt động |
+
+---
+
+### 🔑 Lấy Ad ID ở đâu? (Đọc TRƯỚC khi bắt đầu)
+
+> Bạn cần chuẩn bị sẵn các ID sau trước khi tích hợp. Nếu chưa có tài khoản, hãy đăng ký trước.
+
+**Nếu dùng AppLovin MAX:**
+
+| Thông tin | Lấy ở đâu |
+|-----------|----------|
+| **SDK Key** (86 ký tự) | [AppLovin Dashboard](https://dash.applovin.com) → Account → Keys → SDK Key |
+| **Banner Ad Unit ID** | [MAX → Manage → Ad Units](https://dash.applovin.com/o/mediation/ad_units/) → tạo/chọn ad unit type = Banner |
+| **Interstitial Ad Unit ID** | Tương tự, type = Interstitial |
+| **App Open Ad Unit ID** | Tương tự, type = App Open |
+| **Rewarded Ad Unit ID** | Tương tự, type = Rewarded |
+
+**Nếu dùng AdMob:**
+
+| Thông tin | Lấy ở đâu |
+|-----------|----------|
+| **AdMob App ID** (`ca-app-pub-XXX~XXX`) | [AdMob Console](https://admob.google.com) → Apps → chọn app → App settings |
+| **Banner/Inter/AppOpen/Rewarded ID** | AdMob Console → Apps → Ad units → tạo/chọn từng loại |
+
+> 💡 **Khi đang develop:** Dùng [Test Ad IDs của Google](https://developers.google.com/admob/android/test-ads) (đã có sẵn trong code mẫu). Chỉ đổi sang ID thật khi release production.
 
 ---
 
@@ -161,7 +187,7 @@ dependencies {
 
 ---
 
-### STEP 3 / 7 — Cấu hình AndroidManifest.xml
+### STEP 3a / 7 — Cấu hình AndroidManifest.xml (Android)
 
 > **Tại sao:** Google yêu cầu khai báo AD_ID permission và AdMob App ID trong manifest.
 
@@ -197,6 +223,58 @@ dependencies {
 ```
 
 **✅ Kiểm tra:** Build lại `flutter build apk --debug` thành công.
+
+---
+
+### STEP 3b / 7 — Cấu hình iOS (Nếu app chạy trên iOS)
+
+> **Tại sao:** Apple yêu cầu khai báo `GADApplicationIdentifier` và `SKAdNetworkItems` trong `Info.plist`.
+> Nếu app chỉ chạy Android thì **bỏ qua step này**.
+
+**📂 Mở file:** `ios/Runner/Info.plist`
+
+**📝 Thêm vào trong tag `<dict>` (trước `</dict>` cuối cùng):**
+
+```xml
+<!-- ✅ AdMob App ID (bắt buộc) -->
+<key>GADApplicationIdentifier</key>
+<string>ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX</string>
+<!-- ⚠️ THAY bằng AdMob App ID thật của bạn -->
+
+<!-- ✅ AppLovin SDK Key (chỉ cần nếu dùng AppLovin) -->
+<key>AppLovinSdkKey</key>
+<string>YOUR_86_CHAR_SDK_KEY</string>
+<!-- ⚠️ THAY bằng SDK Key thật, lấy ở AppLovin Dashboard -->
+
+<!-- ✅ SKAdNetwork IDs (bắt buộc cho iOS 14+) -->
+<key>SKAdNetworkItems</key>
+<array>
+    <!-- AppLovin -->
+    <dict>
+        <key>SKAdNetworkIdentifier</key>
+        <string>ludvb6z3bs.skadnetwork</string>
+    </dict>
+    <!-- Google AdMob -->
+    <dict>
+        <key>SKAdNetworkIdentifier</key>
+        <string>cstr6suwn9.skadnetwork</string>
+    </dict>
+    <!--
+        ⚠️ Thêm đầy đủ SKAdNetwork IDs từ:
+        - AppLovin: https://dash.applovin.com/documentation/mediation/ios/getting-started/skadnetwork-info
+        - AdMob: https://developers.google.com/admob/ios/quick-start#update_your_infoplist
+    -->
+</array>
+
+<!-- ✅ App Tracking Transparency (iOS 14+, tuỳ chọn nhưng nên có) -->
+<key>NSUserTrackingUsageDescription</key>
+<string>Ứng dụng sử dụng thông tin quảng cáo để hiển thị quảng cáo phù hợp.</string>
+```
+
+> 📌 **SKAdNetwork IDs:** Danh sách trên chỉ là ví dụ tối thiểu. Để mediation hoạt động tốt nhất,
+> hãy copy **đầy đủ** danh sách từ link ở comment trong code.
+
+**▶️ Kiểm tra:** Chạy `flutter build ios --debug --no-codesign` — phải thành công.
 
 ---
 
@@ -576,6 +654,23 @@ Nếu bạn hoàn thành đủ 7 step, app sẽ có đầy đủ:
 | Rewarded Ad | ✅ `showRewardedAd()` |
 | Loading Dialog 1s | ✅ Tự động trước mọi fullscreen |
 | 12 Safety Guards | ✅ Tự động, không cần config |
+
+---
+
+### ⚠️ COMMON MISTAKES — Lỗi Thường Gặp Của Fresher
+
+| # | Lỗi | Hậu quả | Cách fix |
+|---|-----|---------|----------|
+| 1 | Gọi `initialize()` trong `main()` thay vì SplashScreen | EventBus fire trước khi listener đăng ký → ad không load | Chuyển `initialize()` vào `SplashScreen.initState()` (Step 5) |
+| 2 | Quên `flutter pub get` sau khi thêm dependency | Import báo lỗi đỏ, class không tìm thấy | Chạy `flutter pub get` trong terminal |
+| 3 | Quên truyền `navigatorKey` cho `MaterialApp` | Banner crash khi navigate, App Open resume không có dialog | Thêm 3 dòng ở Step 4 |
+| 4 | Dùng test ID khi release production | App bị Google/AppLovin reject hoặc không tính revenue | Đổi tất cả ID sang production trước khi build release |
+| 5 | Thêm `applovin.sdk.key` trong `AndroidManifest.xml` | SDK key bị expose, có thể conflict | SDK Key chỉ truyền qua Dart trong `AppLovinConfig.sdkKey` |
+| 6 | Kế thừa `StatefulWidget` thay vì `AdScreen` | Không có `buildBanner()`, `showInterstitialAd()` | Đổi `extends StatefulWidget` → `extends AdScreen` (Step 6) |
+| 7 | Gọi `showInterstitialAd()` trước khi SDK init xong | Trước v1.0.14: crash. Từ v1.0.14: SDK tự bỏ qua (log warning) | Không cần fix — SDK đã handle. Nhưng nên gọi sau splash |
+| 8 | Quên `markSplashActive()` / `markSplashInactive()` | App Open resume show trên splash screen | Copy đúng code SplashScreen ở Step 5 |
+| 9 | Không thêm `adRouteObserver` vào `navigatorObservers` | Banner không pause khi navigate → impression spam | Thêm `adRouteObserver` vào `navigatorObservers` (Step 4) |
+| 10 | Build release thiếu `minSdk = 21` | Build fail trên một số device cũ | Đảm bảo `minSdk = 21` trong `build.gradle.kts` (Step 2) |
 
 ---
 
