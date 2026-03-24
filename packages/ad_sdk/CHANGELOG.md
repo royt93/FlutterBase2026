@@ -1,3 +1,8 @@
+## 1.0.14
+
+### Bug Fixes
+- **Fix #48: `_assertInitialized` crash** — Changed from throwing `StateError` to returning `bool` with a warning log. All 11 call sites now gracefully early-return when SDK is not yet initialized, preventing crashes during hot restart, early widget builds, or when `AdScreenState.initState` runs before `AdManager().initialize()`.
+
 ## 1.0.13
 
 ### New Feature: Navigator Key for SDK Dialogs

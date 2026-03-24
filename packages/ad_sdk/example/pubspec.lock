@@ -13,10 +13,10 @@ packages:
     dependency: "direct main"
     description:
       name: applovin_admob_sdk
-      sha256: "6391872e0696c7c320d5895e30017857aaa5c847f25e2ce8a0a66ddfc74d4de9"
+      sha256: "6cc13c5d8416ce6e3fa895b108e81272c3d079532eb83a5c92150bcee4c3bd65"
       url: "https://pub.dev"
     source: hosted
-    version: "1.0.6"
+    version: "1.0.14"
   applovin_max:
     dependency: transitive
     description:

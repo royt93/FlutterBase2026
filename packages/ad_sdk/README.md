@@ -59,7 +59,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.13
+  applovin_admob_sdk: ^1.0.14
 ```
 
 Then run:
@@ -198,7 +198,7 @@ Follow **every step** in order.
 `pubspec.yaml`:
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.13
+  applovin_admob_sdk: ^1.0.14
   gma_mediation_applovin: ^1.0.0   # only if using AppLovin
 ```
 

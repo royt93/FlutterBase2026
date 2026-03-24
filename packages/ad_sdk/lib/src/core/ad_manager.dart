@@ -269,19 +269,21 @@ class AdManager with WidgetsBindingObserver {
     _startAdRetryTimer();
   }
 
-  void _assertInitialized() {
+  /// Returns `true` if initialized, `false` (with log) if not.
+  /// Callers should early-return when `false`.
+  bool _assertInitialized() {
     if (!_initialized) {
-      throw StateError(
-        'AdManager not initialized. Call AdManager().initialize() before using any ad methods.',
-      );
+      SafeLogger.w(_tag, '⚠️ AdManager not initialized — call AdManager().initialize() first. Ignoring.');
+      return false;
     }
+    return true;
   }
 
   // ════════════════════════════════════════════════════
   // BANNER — AppLovin preload
   // ════════════════════════════════════════════════════
   void _preloadAppLovinBanner() {
-    _assertInitialized();
+    if (!_assertInitialized()) return;
     final bannerId = _config.appLovin!.bannerId;
     if (_isVipMember) {
       SafeLogger.d(_tag, 'Banner [AppLovin] ⏭️ preload skipped — VIP device');
@@ -339,7 +341,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// [AdMob] Load banner ad on first BannerAdWidget mount.
   void loadAdmobBannerIfNeeded(double adWidth) {
-    _assertInitialized();
+    if (!_assertInitialized()) return;
     if (_isVipMember) {
       SafeLogger.d(_tag, 'Banner [AdMob] ⏭️ skipped — VIP device');
       bannerHasError.value = true;
@@ -579,7 +581,7 @@ class AdManager with WidgetsBindingObserver {
   // APP OPEN AD — LOAD
   // ════════════════════════════════════════════════════
   void loadAppOpenAd({void Function(bool)? onAdLoaded}) {
-    _assertInitialized();
+    if (!_assertInitialized()) { onAdLoaded?.call(false); return; }
     if (_isVipMember) { onAdLoaded?.call(false); return; }
     if (!isConnected) { onAdLoaded?.call(false); return; }
     if (_isCooldown(_lastAppOpenErrorTime)) { onAdLoaded?.call(false); return; }
@@ -663,7 +665,7 @@ class AdManager with WidgetsBindingObserver {
     required void Function(bool) onAdDismiss,
     bool bypassSafety = false,
   }) {
-    _assertInitialized();
+    if (!_assertInitialized()) { onAdDismiss(false); return; }
     SafeLogger.d(_tag, 'showAppOpenAd $_provider called, isVIP=$_isVipMember, bypassSafety=$bypassSafety');
     if (_isVipMember) { onAdDismiss(false); return; }
 
@@ -890,7 +892,7 @@ class AdManager with WidgetsBindingObserver {
   // INTERSTITIAL — LOAD
   // ════════════════════════════════════════════════════
   void loadInterstitial() {
-    _assertInitialized();
+    if (!_assertInitialized()) return;
     SafeLogger.d(_tag, 'loadInterstitial $_provider called, isVIP=$_isVipMember');
     if (_isVipMember || !isConnected || _isCooldown(_lastInterErrorTime)) return;
 
@@ -920,7 +922,7 @@ class AdManager with WidgetsBindingObserver {
   // INTERSTITIAL — SHOW
   // ════════════════════════════════════════════════════
   void showInterstitial({required void Function(bool) onDoneFlow}) {
-    _assertInitialized();
+    if (!_assertInitialized()) { onDoneFlow(false); return; }
     SafeLogger.d(_tag, 'showInterstitial $_provider called, isVIP=$_isVipMember, isAlreadyShowing=$_isInterstitialShowing');
     if (_isVipMember) {
       SafeLogger.d(_tag, 'showInterstitial ⏭️ VIP → skip');
@@ -1004,7 +1006,7 @@ class AdManager with WidgetsBindingObserver {
   // REWARDED — LOAD
   // ════════════════════════════════════════════════════
   void loadRewardedAd() {
-    _assertInitialized();
+    if (!_assertInitialized()) return;
     SafeLogger.d(_tag, 'loadRewardedAd $_provider called, isVIP=$_isVipMember');
     if (_isVipMember || !isConnected || _isCooldown(_lastRewardedErrorTime)) return;
 
@@ -1034,7 +1036,7 @@ class AdManager with WidgetsBindingObserver {
   // REWARDED — SHOW
   // ════════════════════════════════════════════════════
   void showRewardedAd({required void Function(bool) onEarnedReward}) {
-    _assertInitialized();
+    if (!_assertInitialized()) { onEarnedReward(false); return; }
     SafeLogger.d(_tag, 'showRewardedAd $_provider called, isVIP=$_isVipMember, isAlreadyShowing=$_isRewardedShowing');
     if (_isVipMember) {
       SafeLogger.d(_tag, 'showRewardedAd ✅ VIP → auto-reward');
@@ -1200,7 +1202,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// Returns true if an interstitial ad can be shown right now.
   bool canShowInterstitial() {
-    _assertInitialized();
+    if (!_assertInitialized()) return false;
     if (_isVipMember || _isInterstitialShowing) return false;
     if (AdLoadingDialog.isShowing) return false; // dialog buffer active
     final safety = AdSafetyConfig.canShowFullscreenAd();
@@ -1210,7 +1212,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// Returns true if a rewarded ad can be shown right now.
   bool canShowRewardedAd() {
-    _assertInitialized();
+    if (!_assertInitialized()) return false;
     if (_isVipMember) return true; // VIP auto-reward
     if (_isRewardedShowing) return false;
     if (AdLoadingDialog.isShowing) return false; // dialog buffer active
