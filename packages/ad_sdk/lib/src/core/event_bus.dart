@@ -19,9 +19,20 @@ class SimpleEventBus {
     _listeners.remove(listener);
   }
 
+  /// Fire event — each listener is guarded so one failure
+  /// doesn't prevent other listeners from receiving the event.
   void fire(BoolEvent event) {
     for (final l in List.of(_listeners)) {
-      l(event);
+      try {
+        l(event);
+      } catch (_) {
+        // Fix #43: swallow — one bad listener must not block others
+      }
     }
+  }
+
+  /// Remove all listeners — call from [AdManager.destroy()].
+  void clearAll() {
+    _listeners.clear();
   }
 }

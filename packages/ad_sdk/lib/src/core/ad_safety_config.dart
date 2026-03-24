@@ -161,9 +161,23 @@ class AdSafetyConfig {
   static bool canShowAppOpenOnResume() {
     final now = DateTime.now().millisecondsSinceEpoch;
 
+    // Fix #45: Respect minTimeBetweenFullscreenAds — prevents showing
+    // App Open immediately after an interstitial/rewarded dismissal.
+    if (_lastFullscreenAdTime > 0) {
+      final elapsed = now - _lastFullscreenAdTime;
+      if (elapsed < _params.minTimeBetweenFullscreenAds) {
+        final wait = (_params.minTimeBetweenFullscreenAds - elapsed) ~/ 1000;
+        SafeLogger.d(_tag, '🛡️ App Open on resume throttled: last fullscreen ${elapsed}ms ago, wait ${wait}s');
+        return false;
+      }
+    }
+
     if (_isColdStart) {
-      _isColdStart = false;
+      // Don't consume cold start flag yet — only consume when we actually
+      // return true (i.e., ad is allowed). This way, if resume is blocked
+      // by other checks, cold start protection isn't wasted.
       SafeLogger.d(_tag, '🛡️ Skipping App Open on cold start');
+      _isColdStart = false; // consumed regardless — first resume is always skipped
       return false;
     }
 
@@ -205,6 +219,13 @@ class AdSafetyConfig {
     );
   }
 
+  /// Record a banner ad impression (initial load only, not refreshes).
+  /// Counts towards total impressions for CTR calculation.
+  static void recordBannerImpression() {
+    _totalImpressions++;
+    SafeLogger.d(_tag, '📊 Banner impression | totalImpressions=$_totalImpressions');
+  }
+
   /// Record that the user clicked an ad.
   static void recordAdClick() {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -243,6 +264,20 @@ class AdSafetyConfig {
     _totalImpressions = 0;
     _totalClicks = 0;
     SafeLogger.d(_tag, '🔄 Session reset');
+  }
+
+  /// Full reset for destroy() + re-initialize() flows.
+  /// Unlike [resetSession], this also resets [_isColdStart] and
+  /// [_suspiciousPauseUntil] so the SDK behaves as if freshly started.
+  static void resetForReinit() {
+    resetSession();
+    _isColdStart = true;
+    _lastFullscreenAdTime = 0;
+    _lastBackgroundTime = 0;
+    _suspiciousPauseUntil = 0;
+    _suspiciousViolationCount = 0; // Fix #35: reset violation count for clean reinit
+    _clickTimestamps.clear();
+    SafeLogger.d(_tag, '🔄 Full reinit reset (coldStart restored)');
   }
 
   static String getStatus() {

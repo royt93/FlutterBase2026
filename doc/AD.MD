@@ -1,6 +1,6 @@
 # 📊 TÍCH HỢP QUẢNG CÁO (AdMob + AppLovin MAX) — FLUTTER
 
-> Version: 20260322-v17 | Provider: AdMob & AppLovin MAX (dual)
+> Version: 20260324-v19 | Provider: AdMob & AppLovin MAX (dual) | SDK: applovin_admob_sdk v1.0.13
 > Strict: Không `late`, không `!`, dùng nullable `?`, `ValueNotifier`, zero memory leak.
 
 ---
@@ -250,12 +250,19 @@ const List<String> kVipDeviceGaids = [
 ```dart
 import 'package:[your_package]/ad/ad_route_observer.dart'; // THÊM import này
 
+final navigatorKey = GlobalKey<NavigatorState>(); // THÊM navigator key
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // ✅ Đăng ký navigator key — SDK cần key này để show loading dialog
+  // khi App Open Ad hiển thị từ background → foreground
+  AdManager().setNavigatorKey(navigatorKey);
   // ... các init khác ...
   runApp(
     GetMaterialApp(
       // ... các config khác ...
+
+      navigatorKey: navigatorKey,  // THÊM navigator key
 
       // THÊM 2 observers này — BẮT BUỘC
       navigatorObservers: [
@@ -622,10 +629,10 @@ markSplashActive()
 App về Background → Ad đã sẵn sàng trong RAM
   → User vào lại App → showAppOpenAdOnResume()
   → AdSafety.canShowAppOpenOnResume() = true
-  → adReady=true, isShowing=false → SHOWING NOW
-  → showAppOpenAd(bypassSafety: false)
-  → AdSafety.canShowFullscreenAd() = true → show
-  → User đóng → "ProcessLifecycle ✅ Ad dismissed by user" → preload next
+  → adReady=true, isShowing=false
+  → AdLoadingDialog hiển thị 1s (spinner) — cần setNavigatorKey()
+  → showAppOpenAd(bypassSafety: true)
+  → User đóng → preload next
 ```
 
 ### Kịch bản 6: App Resume — Bị chặn bởi Safety
@@ -924,20 +931,204 @@ canLoadBanner ⏭️ cooldown active           ← Navigation quá nhanh
 | Ngày | Version | Thay đổi |
 |------|---------|----------|
 | 20260321 | v1 | Port từ Kotlin AdManager.kt — baseline |
-| 20260321 | v2 | Thêm WidgetsBindingObserver vào AdManager |
-| 20260321 | v3 | Fix banner adaptive full-width (Anchored Adaptive) |
-| 20260321 | v4 | Thêm Rewarded Ad flow + preload toàn bộ ad khi init |
-| 20260321 | v5 | Thêm mutex lock `_isAppOpenLoading`, `_isInterLoading` |
-| 20260321 | v6 | Thêm 4h cache validity cho App Open |
-| 20260321 | v7 | Fix AppLovin Banner deadlock bằng Stack widget |
-| 20260321 | v8 | Thêm `_isInterstitialShowing`, `_isRewardedShowing` guard |
-| 20260321 | v9 | Thêm in-memory guard cho Interstitial và Rewarded |
-| 20260321 | v10 | Fix false `dismissed` log — `wasActuallyShown` branching |
-| 20260321 | v11 | Thêm `_isMaxInterReady` guard cho AppLovin Interstitial |
-| 20260321 | v12 | Thêm Banner navigation cooldown 5s |
-| 20260322 | v13 | Thêm provider label `[AdMob]`/`[AppLovin]` vào toàn bộ SafeLogger |
-| 20260322 | v14 | Fix `setState() called during build` — wrap `didPush()` ValueNotifier mutations trong `addPostFrameCallback` |
-| 20260322 | v15 | Fix `AdWidget already in tree` (PUSH) — `_admobIsTopRoute ValueNotifier<bool>(false)` per-widget; `didPushNext()` immediate `false`, `didPush()` postFrame `true` |
-| 20260322 | v16 | Fix `AdWidget already in tree` (POP) — `didPop()` immediate `false` (gỡ AdWidget trước); `didPopNext()` postFrame `true` (thêm AdWidget sau) |
-| **20260322** | **v17** | **Document update — Production Ready** |
+| 20260321 | v2–v12 | 12 iterations: observer, adaptive banner, rewarded, mutex, cache, deadlock fix, guards |
+| 20260322 | v13–v17 | Provider labels, setState fix, AdWidget-in-tree fix (push+pop), document update |
+| **20260323** | **v18** | **SDK Package `applovin_admob_sdk` — 39 bug fixes qua 9 audit rounds** |
 
+---
+
+## 13. SDK INTERNALS — FLOW CHI TIẾT
+
+### 13.1 App Open Ad — Complete Flow
+
+```
+┌─────────────── LOAD ───────────────┐
+│ loadAppOpenAd()                    │
+│ ├─ VIP? → skip                     │
+│ ├─ No internet? → skip             │
+│ ├─ 15min cooldown? → skip          │
+│ ├─ _isAppOpenLoading? → skip       │
+│ │                                  │
+│ ├─ [AdMob]                         │
+│ │  ├─ _appOpenAd cached <4h? → OK  │
+│ │  ├─ >4h? → dispose + reload      │  ← Fix #24
+│ │  └─ AppOpenAd.load() → cache     │
+│ │                                  │
+│ └─ [AppLovin]                      │
+│    └─ AppLovinMAX.loadAppOpenAd()  │
+│    └─ onAdLoadedCallback → ready   │
+│                                    │
+│ ★ First ad loaded → trigger        │
+│   loadInterstitial()+loadRewarded()│
+└────────────────────────────────────┘
+
+┌─────────────── SHOW ───────────────┐
+│ showAppOpenAd(onAdDismiss)         │
+│ ├─ VIP? → onAdDismiss(false)       │
+│ ├─ already showing? → skip         │
+│ ├─ bypassSafety=false?             │
+│ │  └─ canShowFullscreenAd() check  │
+│ │                                  │
+│ ├─ [AdMob] ad.show()               │
+│ │  ├─ onShowed → recordShown()     │
+│ │  ├─ onDismissed → dispose+reload │
+│ │  └─ onFailedToShow → reload      │  ← Fix Y
+│ │                                  │
+│ └─ [AppLovin] AppLovinMAX.show()   │
+│    ├─ 10s timeout guard            │  ← Fix #17
+│    ├─ onAdDisplayed → recording    │
+│    └─ onAdHidden → reload          │
+└────────────────────────────────────┘
+
+┌─────────────── ON RESUME ──────────┐
+│ didChangeAppLifecycleState(resumed)│
+│ └─ showAppOpenAdOnResume()         │
+│    ├─ splash active? → skip        │
+│    ├─ inter/rewarded showing? → no │
+│    ├─ canShowAppOpenOnResume()      │
+│    │  ├─ cold start? → skip (1x)   │  ← Fix #15
+│    │  ├─ <5s background? → skip    │
+│    │  └─ >3 resumes/min? → skip    │
+│    └─ showAppOpenAd(bypassSafety)  │  ← Fix #3
+└────────────────────────────────────┘
+```
+
+### 13.2 Interstitial Ad — Complete Flow
+
+```
+┌─── AdScreen.showInterstitialAd() ──┐
+│ ├─ disposed/unmounted? → false     │
+│ ├─ canShowInterstitial() pre-check │  ← gồm safety + dialog guard
+│ ├─ AdLoadingDialog (1s buffer)     │
+│ │  └─ concurrent guard (_isShowing)│  ← Fix #22
+│ └─ AdManager.showInterstitial()    │
+│    ├─ _isInterstitialShowing=true  │  ← set TRƯỚC dialog (Fix 2)
+│    ├─ canShowFullscreenAd() recheck│
+│    ├─ [AdMob] ad.show()            │
+│    │  ├─ dismiss → dispose+reload  │
+│    │  └─ fail → reload             │  ← Fix #1
+│    └─ [AppLovin] MAX.show()        │
+│       └─ listener → callback       │
+└────────────────────────────────────┘
+```
+
+### 13.3 Rewarded Ad — Complete Flow
+
+```
+┌─── AdScreen.showRewardedAd() ──────┐
+│ ├─ VIP? → auto-reward onEarned(T)  │
+│ ├─ canShowRewardedAd() pre-check   │
+│ │  └─ fail? → TopToast + false     │
+│ ├─ AdLoadingDialog (1s buffer)     │
+│ └─ AdManager.showRewardedAd()      │
+│    ├─ _isRewardedShowing=true EARLY│
+│    ├─ canShowFullscreenAd() recheck│
+│    ├─ [AdMob]                      │
+│    │  ├─ ad.show(onUserEarned)     │
+│    │  ├─ earned → callback(true)   │
+│    │  ├─ dismissed w/o earn → false│
+│    │  └─ fail → reload             │  ← Fix #2
+│    └─ [AppLovin]                   │
+│       ├─ onAdReceived → flow(true) │
+│       └─ onHidden w/o reward       │
+│          → flow(false) + reload    │
+└────────────────────────────────────┘
+```
+
+### 13.4 Banner Ad — Complete Flow
+
+```
+┌─── BannerAdWidget mount ───────────┐
+│ ├─ didChangeDependencies()         │
+│ │  ├─ RouteAware subscribe         │
+│ │  └─ _initBanner() (1 lần)       │
+│ │     ├─ VIP? → SizedBox.shrink    │
+│ │     ├─ no internet? → skip       │
+│ │     ├─ 5s cooldown? → skip       │
+│ │     ├─ [AdMob] loadAdmobBanner() │
+│ │     └─ [AppLovin] preloaded      │
+│ │                                  │
+│ ├─ Route navigation:               │
+│ │  didPushNext → pause/hide        │
+│ │  didPopNext  → resume/show       │
+│ │  didPop      → hide immediately  │
+│ │                                  │
+│ └─ App lifecycle:                  │
+│    paused  → hide/pause refresh    │
+│    resumed → show/resume refresh   │
+│           → auto-reload on error   │  ← Fix #14
+└────────────────────────────────────┘
+```
+
+---
+
+## 14. FILL RATE OPTIMIZATION
+
+| Cơ chế | Mô tả |
+|--------|-------|
+| **Sequential preload** | App Open load xong → trigger Inter + Rewarded load |
+| **Auto-reload after dismiss** | Mọi ad type đều reload ngay khi user dismiss |
+| **Auto-reload after show-fail** | Mọi ad type đều reload khi hiện lỗi |
+| **5-min retry timer** | Tự động check + fill ad slots trống mỗi 5 phút |
+| **4h expiry reload** | AdMob App Open hết hạn 4h → tự dispose + load mới |
+| **Resume banner reload** | Banner tự load lại khi resume nếu trước đó bị lỗi |
+| **Error cooldown 15min** | Tránh spam server khi load liên tục thất bại |
+
+---
+
+## 15. MEMORY LEAK PREVENTION
+
+| Cơ chế | Mô tả |
+|--------|-------|
+| **fullScreenContentCallback = null** | Set null TRƯỚC dispose để tránh late callback |
+| **EventBus clearAll()** | Xoá listeners trong destroy() |
+| **Observer paired** | addObserver/removeObserver đúng cặp |
+| **ValueNotifier reset** | Reset value, KHÔNG dispose (singleton lifetime) |
+| **_cleanupOldAds()** | Auto-dispose khi initialize() gọi lại không có destroy() |
+| **Pending callback flush** | Tất cả pending callbacks fire(false) trước khi null trong destroy() |
+| **Static state reset** | AdLoadingDialog.resetState(), AdSafetyConfig.resetForReinit() |
+| **Expired ad dispose** | App Open >4h bị dispose trước khi load mới |
+
+---
+
+## 16. DESTROY / REINIT SAFETY
+
+```
+destroy() hoàn tất reset:
+  ✅ AdMob ads: callback=null → dispose → null
+  ✅ Pending callbacks: fire(false) → null
+  ✅ AppLovin state flags: tất cả reset false
+  ✅ Loading flags: _isInterLoading, _isRewardedLoading, _isAppOpenLoading
+  ✅ Showing flags: _isInterstitialShowing, _isRewardedShowing, _isAppOpenShowing
+  ✅ Error cooldowns: reset → 0
+  ✅ Banner state: route pause, splash, load cooldown
+  ✅ ValueNotifiers: reset values (not disposed)
+  ✅ AdSafetyConfig: full reinit (cold start restored)
+  ✅ EventBus: clearAll()
+  ✅ Retry timer: stopped
+  ✅ Lifecycle observer: removed + flag reset
+  ✅ AdLoadingDialog: _isShowing reset
+  ✅ _isInitializing = false (Fix #39)
+  ✅ _initialized = false
+
+initialize() an toàn:
+  ✅ Nếu _initialized=true → auto _cleanupOldAds() trước
+  ✅ _cleanupOldAds reset banner ValueNotifiers (Fix #37)
+  ✅ Concurrent init guard (_isInitializing mutex, Fix #36)
+  ✅ SDK init wrapped in try-catch (Fix #38)
+  ✅ Observer tự re-add nếu chưa có
+  ✅ VIP GAIDs clear trước addAll (không accumulate)
+  ✅ SafeLogger.setEnabled EARLY (Fix #34)
+```
+
+---
+
+## 17. AUDIT SUMMARY — 54 BUGS FIXED (20 ROUNDS)
+
+| Loại | Số lượng |
+|------|----------|
+| 🔴 Critical crash | 5 (#29, #32, #33, #38, #40) |
+| 🔴 High severity | 3 (#36, #37, #41) |
+| 🟡 Medium | 20+ |
+| 🟢 Logic/edge case | 26+ |
+| **Tổng** | **54** |

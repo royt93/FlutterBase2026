@@ -59,7 +59,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.4
+  applovin_admob_sdk: ^1.0.13
 ```
 
 Then run:
@@ -198,7 +198,7 @@ Follow **every step** in order.
 `pubspec.yaml`:
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.4
+  applovin_admob_sdk: ^1.0.13
   gma_mediation_applovin: ^1.0.0   # only if using AppLovin
 ```
 
@@ -208,25 +208,39 @@ flutter pub get
 
 ---
 
-### Step 2 — Add `navigatorObservers` to your `MaterialApp`
+### Step 2 — Register `navigatorKey` and `navigatorObservers`
 
-The SDK needs to observe navigation to manage the banner lifecycle (pause/resume automatically).
+The SDK needs:
+1. A **navigator key** — so it can show loading dialogs from lifecycle callbacks (e.g. App Open on resume)
+2. **Route observers** — to manage the banner lifecycle (pause/resume automatically)
 
 ```dart
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
+// ✅ Create a global navigator key
+final navigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // ✅ Register navigator key BEFORE runApp
+  AdManager().setNavigatorKey(navigatorKey);
+  runApp(const MyApp());
+}
+
+// In your MaterialApp:
 MaterialApp(
-  // ✅ REQUIRED — add both observers
+  navigatorKey: navigatorKey,    // ✅ REQUIRED — pass key to MaterialApp
   navigatorObservers: [
-    adRouteObserver,         // manages RouteAware banner
-    AdScreenRouteLogger(),   // logs route changes for debugging
+    adRouteObserver,              // manages RouteAware banner
+    AdScreenRouteLogger(),        // logs route changes for debugging
   ],
   home: const SplashScreen(),
-  // ...
 )
 ```
 
-> **Why?** Without `adRouteObserver`, the banner will not pause when another screen pushes on top, causing double-billing.
+> **Why navigator key?** Without it, the App Open ad shown when returning from background won't display a loading dialog (1s spinner) before showing. The SDK needs the navigator context to show dialogs from lifecycle observers.
+>
+> **Why route observers?** Without `adRouteObserver`, the banner will not pause when another screen pushes on top, causing double-billing.
 
 ---
 
@@ -500,6 +514,7 @@ showRewardedAd(onEarnedReward: (earned) { if (earned) grantReward(); });
 - Shown on cold start (splash) and when app returns from background
 - On splash: call with `bypassSafety: true`
 - On resume: SDK handles automatically via `AppLifecycleState`
+- **Loading dialog** (1s spinner) is shown automatically before the ad — requires `setNavigatorKey()` in `main()`
 
 ```dart
 // On splash only — SDK handles resume automatically
@@ -613,6 +628,27 @@ TopToast.show(
 4. Wait — new ad units take up to 24h to activate on AdMob
 5. Enable logging and look for `❌ Failed:` or `🛡️ blocked:` in logs
 
+### Loading dialog stuck on screen (never dismisses)
+
+**Root cause:** The loading dialog shown before every fullscreen ad (inter / rewarded / app open) can get stuck if the parent screen is disposed while the buffer timer is running.
+
+**Flow that triggers the bug (pre-1.0.8):**
+```
+showAdBuffer() called → dialog shown → await 1000ms
+  → screen disposed during 1s wait (user navigates back fast)
+  → context.mounted == false → pop() was skipped
+  → dialog stays on screen forever, nobody dismisses it
+```
+
+**Fix (1.0.8+):**  `NavigatorState` is now captured **before** the async delay. Since `NavigatorState` is owned by the root navigator (not the screen), it outlives any screen disposal and can always pop the dialog.
+
+```dart
+// ✅ Correct — navigator captured before any await
+final navigator = Navigator.of(context, rootNavigator: true);
+await Future.delayed(duration);
+navigator.pop(); // always works, even if screen is disposed
+```
+
 ### Hard cap timer fires before App Open Ad shows
 
 Ensure you call `AdManager().markSplashActive()` and `markSplashInactive()` in your splash screen, and that `_hardCapTimer?.cancel()` is called **before** `showAppOpenAd()`.
@@ -632,6 +668,14 @@ Ensure you call `AdManager().markSplashActive()` and `markSplashInactive()` in y
 ### "Ad not ready" toast appears every time
 
 The safety throttle is active. Default is 30 seconds between ads. Wait and try again.
+
+### Rewarded ad watched but reward not granted
+
+Check that `onEarnedReward(true)` is being called — look for log:
+```
+[AdManager] 🏆 [AppLovin] Rewarded Ad Earned Reward
+```
+If missing, the user skipped the ad (did not watch fully). The SDK calls `onEarnedReward(false)` automatically in this case.
 
 ---
 

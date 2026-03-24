@@ -88,7 +88,7 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       SafeLogger.d(_tag, 'showInterstitialAd → calling AdManager.showInterstitial()');
       AdManager().showInterstitial(onDoneFlow: (result) {
         SafeLogger.d(_tag, 'showInterstitialAd onDoneFlow: result=$result');
-        if (mounted && !_isDisposed) onDone(result);
+        onDone(result); // Fix #5: always call — caller must handle unmounted state
       });
     });
   }
@@ -150,7 +150,7 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       SafeLogger.d(_tag, 'showRewardedAd → calling AdManager.showRewardedAd()');
       AdManager().showRewardedAd(onEarnedReward: (result) {
         SafeLogger.d(_tag, 'showRewardedAd onEarnedReward: result=$result');
-        if (mounted && !_isDisposed) onEarnedReward(result);
+        onEarnedReward(result); // Fix #6: always call — caller must handle unmounted state
       });
     });
   }

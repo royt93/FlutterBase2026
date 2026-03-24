@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
+import '../utils/safe_logger.dart';
 
 /// Loading dialog shown before a fullscreen ad (inter / rewarded / app-open).
 ///
@@ -9,14 +10,52 @@ import '../core/ad_manager.dart';
 ///
 /// The [durationMs] defaults to [AdManager]'s configured [AdConfig.loadingBufferMs].
 class AdLoadingDialog {
+  static const String _tag = 'AdLoadingDialog';
+
+  /// Guard against concurrent calls (e.g. double-tap).
+  /// If a dialog is already showing, the new call skips the dialog and
+  /// immediately invokes [onComplete] — the caller still runs its ad flow.
+  static bool _isShowing = false;
+
+  /// Whether a loading dialog is currently on screen.
+  /// Used by [AdManager.canShowInterstitial] / [canShowRewardedAd] to block
+  /// a second ad flow while the first dialog buffer is still active.
+  static bool get isShowing => _isShowing;
+
+  /// Reset static state — called by [AdManager.destroy()] to ensure
+  /// _isShowing doesn't stay stuck true after a mid-dialog destroy.
+  static void resetState() {
+    _isShowing = false;
+  }
+
   /// Show the buffer dialog and call [onComplete] after the delay.
+  ///
+  /// [onComplete] is **always** called — even if the context becomes unmounted
+  /// during the delay — so callers must guard with `mounted` checks themselves.
   static Future<void> showAdBuffer(
     BuildContext context, {
     required VoidCallback onComplete,
     int? durationMs,
   }) async {
-    final ms = durationMs ?? 1000;
-    final timer = Future.delayed(Duration(milliseconds: ms));
+    final ms = durationMs ?? AdManager().config?.loadingBufferMs ?? 1000;
+
+    // ✅ FIX 1: Concurrent guard — prevents double-tap from stacking two dialogs.
+    // If two dialogs stack, the first navigator.pop() dismisses the WRONG dialog.
+    if (_isShowing) {
+      SafeLogger.w(_tag, 'showAdBuffer: ⚠️ dialog already showing, skipping duplicate — calling onComplete immediately');
+      onComplete();
+      return;
+    }
+
+    _isShowing = true;
+    SafeLogger.d(_tag, 'showAdBuffer: showing dialog, bufferMs=$ms');
+
+    // ✅ FIX 2 (from 1.0.8): capture NavigatorState BEFORE any async gap.
+    // NavigatorState is owned by the navigator widget (lives at app root),
+    // NOT by the screen's State. It survives even when the screen is disposed.
+    // Old code: checked `context.mounted` AFTER await → if screen was disposed
+    // during the wait, pop() was skipped → dialog hangs forever.
+    final navigator = Navigator.of(context, rootNavigator: true);
 
     showDialog(
       context: context,
@@ -27,12 +66,22 @@ class AdLoadingDialog {
       ),
     );
 
-    await timer;
+    await Future.delayed(Duration(milliseconds: ms));
 
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
+    // Always dismiss via pre-captured navigator — context.mounted is irrelevant here
+    SafeLogger.d(_tag, 'showAdBuffer: timer done, dismissing dialog');
+    try {
+      navigator.pop();
+      SafeLogger.d(_tag, 'showAdBuffer: dialog dismissed ✅');
+    } catch (e) {
+      // Only reachable if the navigator itself was disposed (app shutting down)
+      SafeLogger.e(_tag, 'showAdBuffer: pop failed (navigator disposed?): $e');
+    } finally {
+      _isShowing = false;
     }
 
+    // Always call onComplete — screen-side callers guard with mounted/isDisposed
+    SafeLogger.d(_tag, 'showAdBuffer: calling onComplete()');
     onComplete();
   }
 }

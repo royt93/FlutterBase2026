@@ -54,7 +54,11 @@ class TopToast {
   }
 
   static void _dismiss() {
-    _current?.remove();
+    try {
+      _current?.remove();
+    } catch (_) {
+      // OverlayEntry already removed (e.g. widget disposed by navigation)
+    }
     _current = null;
   }
 }

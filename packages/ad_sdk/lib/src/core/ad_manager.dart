@@ -11,6 +11,7 @@ import '../utils/safe_logger.dart';
 import '../utils/ad_preferences.dart';
 import 'ad_safety_config.dart';
 import 'event_bus.dart';
+import '../widget/ad_loading_dialog.dart';
 
 /// Dual-provider Ad Manager singleton.
 ///
@@ -33,7 +34,15 @@ class AdManager with WidgetsBindingObserver {
   factory AdManager() => _instance;
 
   AdManager._internal() {
-    WidgetsBinding.instance.addObserver(this);
+    _ensureObserverAdded();
+  }
+
+  bool _isObserverAdded = false;
+  void _ensureObserverAdded() {
+    if (!_isObserverAdded) {
+      WidgetsBinding.instance.addObserver(this);
+      _isObserverAdded = true;
+    }
   }
 
   static const String _tag = 'AdManager';
@@ -56,6 +65,21 @@ class AdManager with WidgetsBindingObserver {
   int _countInitSplashScreen = 0;
   final Set<String> _setGAIDVipMember = {};
 
+  // ════════ NAVIGATOR KEY (for showing dialogs from lifecycle observer) ════════
+  GlobalKey<NavigatorState>? _navigatorKey;
+
+  /// Register the app's navigator key so the SDK can show loading dialogs
+  /// from lifecycle callbacks (e.g. App Open on resume) without a BuildContext.
+  ///
+  /// Call this in `main()` or early in your app:
+  /// ```dart
+  /// AdManager().setNavigatorKey(navigatorKey);
+  /// ```
+  void setNavigatorKey(GlobalKey<NavigatorState> key) {
+    _navigatorKey = key;
+    SafeLogger.d(_tag, 'setNavigatorKey: registered ✅');
+  }
+
   // ════════ ADMOB STATE ════════
   AppOpenAd? _appOpenAd;
   InterstitialAd? _interstitialAd;
@@ -67,6 +91,8 @@ class AdManager with WidgetsBindingObserver {
   int _lastInterErrorTime = 0;
   bool _isAppOpenLoading = false;
   bool _isAppOpenShowing = false;
+  bool _isInitializing = false; // Fix #36: concurrent initialize() guard
+  int _lastFullscreenDismissTime = 0; // Fix #46: tracks when last fullscreen ad was dismissed
 
   // Banner spam guard
   int _lastBannerLoadTime = 0;
@@ -135,14 +161,31 @@ class AdManager with WidgetsBindingObserver {
     required AdConfig config,
     required void Function(bool success, String gaid) onComplete,
   }) async {
+    // Fix #19: if called again without destroy(), clean up old resources first
+    if (_initialized) {
+      SafeLogger.w(_tag, '###init called again without destroy() — auto-cleaning old resources');
+      _cleanupOldAds();
+    }
+
+    // Fix #36: guard against concurrent async initialize() calls
+    if (_isInitializing) {
+      SafeLogger.w(_tag, '###init already in progress — skipping duplicate call');
+      return;
+    }
+    _isInitializing = true;
+
     _config = config;
     _initialized = true;
+    // Fix #34: configure log level EARLY so init logs respect AdLogLevel.none
+    SafeLogger.setEnabled(config.logLevel != AdLogLevel.none);
+    _ensureObserverAdded(); // Fix O: re-add lifecycle observer after destroy()
     SafeLogger.d(_tag, '###init called, provider=${config.provider}');
 
     final prefs = await AdPreferences.getInstance();
     await AdSafetyConfig.init(prefs);
 
     // Load VIP GAIDs from SharedPreferences
+    _setGAIDVipMember.clear(); // Fix #7: prevent accumulation on reinit
     _setGAIDVipMember.addAll(prefs.getGAIDList());
     SafeLogger.d(_tag, '###init setGAIDVipMember size: ${_setGAIDVipMember.length}');
 
@@ -171,33 +214,43 @@ class AdManager with WidgetsBindingObserver {
       }
     }
 
-    if (_isAdmob) {
-      final admobConfig = config.admob!;
-      await MobileAds.instance.initialize();
-      final rc = RequestConfiguration(testDeviceIds: admobConfig.testDeviceIds);
-      await MobileAds.instance.updateRequestConfiguration(rc);
-      SafeLogger.d(_tag, '###init AdMob initialized');
-    } else {
-      final appLovinConfig = config.appLovin!;
-      SafeLogger.d(_tag, '###init AppLovin mode, setting up listeners...');
-      _setupAppLovinAppOpenListener();
-      _setupAppLovinInterstitialListener();
-      _setupAppLovinRewardedListener();
+    try {
+      if (_isAdmob) {
+        final admobConfig = config.admob!;
+        await MobileAds.instance.initialize();
+        final rc = RequestConfiguration(testDeviceIds: admobConfig.testDeviceIds);
+        await MobileAds.instance.updateRequestConfiguration(rc);
+        SafeLogger.d(_tag, '###init AdMob initialized');
+      } else {
+        final appLovinConfig = config.appLovin!;
+        SafeLogger.d(_tag, '###init AppLovin mode, setting up listeners...');
+        _setupAppLovinAppOpenListener();
+        _setupAppLovinInterstitialListener();
+        _setupAppLovinRewardedListener();
 
-      await AppLovinMAX.initialize(appLovinConfig.sdkKey);
-      SafeLogger.d(_tag, '###init AppLovin SDK initialized');
+        await AppLovinMAX.initialize(appLovinConfig.sdkKey);
+        SafeLogger.d(_tag, '###init AppLovin SDK initialized');
 
-      if (kDebugMode && _currentDeviceGAID.isNotEmpty) {
-        try {
-          AppLovinMAX.setTestDeviceAdvertisingIds([_currentDeviceGAID]);
-          SafeLogger.d(_tag, '###init AppLovin test device registered: $_currentDeviceGAID');
-        } catch (e) {
-          SafeLogger.d(_tag, '###init AppLovin test device registration failed: $e');
+        if (kDebugMode && _currentDeviceGAID.isNotEmpty) {
+          try {
+            AppLovinMAX.setTestDeviceAdvertisingIds([_currentDeviceGAID]);
+            SafeLogger.d(_tag, '###init AppLovin test device registered: $_currentDeviceGAID');
+          } catch (e) {
+            SafeLogger.d(_tag, '###init AppLovin test device registration failed: $e');
+          }
         }
       }
+    } catch (e) {
+      // Fix #38: SDK init failed — release mutex and notify caller
+      SafeLogger.e(_tag, '###init SDK initialization FAILED: $e');
+      _isInitializing = false;
+      onComplete(false, _currentDeviceGAID);
+      SimpleEventBus().fire(const BoolEvent(false));
+      return;
     }
 
     SafeLogger.d(_tag, '###init completed');
+    _isInitializing = false; // Fix #36: release init mutex
     onComplete(true, _currentDeviceGAID);
     _logAllAdStatus('after-init');
     SimpleEventBus().fire(const BoolEvent(true));
@@ -211,6 +264,9 @@ class AdManager with WidgetsBindingObserver {
     } else {
       SafeLogger.d(_tag, '###init [AdMob] banner will be loaded on BannerAdWidget mount');
     }
+
+    // Start periodic retry timer to refill expired/failed ads
+    _startAdRetryTimer();
   }
 
   void _assertInitialized() {
@@ -246,6 +302,7 @@ class AdManager with WidgetsBindingObserver {
           );
           bannerIsLoaded.value = true;
           bannerHasError.value = false;
+          AdSafetyConfig.recordBannerImpression(); // Fix J
         } else {
           SafeLogger.d(
             _tag,
@@ -297,6 +354,8 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, 'Banner [AdMob] ⏭️ already cached, reusing');
       return;
     }
+    // Fix #28: reset banner loaded state so shimmer shows during reload
+    bannerIsLoaded.value = false;
     final bannerId = _config.admob!.bannerId;
     SafeLogger.d(_tag, 'Banner [AdMob] 🔄 creating BannerAd, adWidth=$adWidth');
 
@@ -312,6 +371,7 @@ class AdManager with WidgetsBindingObserver {
             bannerIsLoaded.value = true;
             bannerHasError.value = false;
             bannerAdSize.value = Size(size.width.toDouble(), size.height.toDouble());
+            AdSafetyConfig.recordBannerImpression(); // Fix J
           },
           onAdFailedToLoad: (ad, error) {
             SafeLogger.d(_tag, '❌ [AdMob] Banner Failed: ${error.code}, ${error.message}');
@@ -378,8 +438,10 @@ class AdManager with WidgetsBindingObserver {
         SafeLogger.d(_tag, '❌ [AppLovin] App Open Display Failed: ${err.message}');
         _isMaxAppOpenShowing = false;
         _isMaxAppOpenReady = false;
-        _onAppOpenDismissed?.call(true);
+        _onAppOpenDismissed?.call(false);
         _onAppOpenDismissed = null;
+        // Reload so the next attempt has a fresh ad
+        AppLovinMAX.loadAppOpenAd(appOpenId);
       },
       onAdClickedCallback: (ad) {
         SafeLogger.d(_tag, '🎯 [AppLovin] App Open Ad Clicked');
@@ -421,6 +483,8 @@ class AdManager with WidgetsBindingObserver {
         _isInterstitialShowing = false;
         _pendingInterDoneFlow?.call(false);
         _pendingInterDoneFlow = null;
+        // Reload so the next attempt has a fresh ad
+        AppLovinMAX.loadInterstitial(interId);
       },
       onAdClickedCallback: (ad) {
         SafeLogger.d(_tag, '🎯 [AppLovin] Interstitial Ad Clicked');
@@ -431,6 +495,7 @@ class AdManager with WidgetsBindingObserver {
         _isMaxInterReady = false;
         _isInterLoading = false;
         _isInterstitialShowing = false;
+        _lastFullscreenDismissTime = DateTime.now().millisecondsSinceEpoch; // Fix #46
         _pendingInterDoneFlow?.call(true);
         _pendingInterDoneFlow = null;
         AppLovinMAX.loadInterstitial(interId);
@@ -444,6 +509,7 @@ class AdManager with WidgetsBindingObserver {
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_tag, '✅ [AppLovin] Rewarded Ad Loaded');
         _isMaxRewardedReady = true;
+        _isRewardedLoading = false; // Fix #4: was missing → stuck true after first load
       },
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.d(_tag, '❌ [AppLovin] Rewarded Ad Failed: code=${err.code}');
@@ -462,6 +528,8 @@ class AdManager with WidgetsBindingObserver {
         _isRewardedShowing = false;
         _pendingRewardedDoneFlow?.call(false);
         _pendingRewardedDoneFlow = null;
+        // Reload so the next attempt has a fresh ad
+        AppLovinMAX.loadRewardedAd(rewardedId);
       },
       onAdClickedCallback: (ad) {
         SafeLogger.d(_tag, '🎯 [AppLovin] Rewarded Ad Clicked');
@@ -472,6 +540,15 @@ class AdManager with WidgetsBindingObserver {
         _isMaxRewardedReady = false;
         _isRewardedLoading = false;
         _isRewardedShowing = false;
+        _lastFullscreenDismissTime = DateTime.now().millisecondsSinceEpoch; // Fix #46
+        // ⚠️ BUG FIX: if reward was NOT earned (user skipped), _pendingRewardedDoneFlow
+        // is still set because onAdReceivedRewardCallback was never called.
+        // We must call it with false here to avoid the loading dialog hanging forever.
+        if (_pendingRewardedDoneFlow != null) {
+          SafeLogger.w(_tag, '⚠️ [AppLovin] Rewarded dismissed WITHOUT reward — calling pending flow(false)');
+          _pendingRewardedDoneFlow?.call(false);
+          _pendingRewardedDoneFlow = null;
+        }
         AppLovinMAX.loadRewardedAd(rewardedId);
       },
       onAdReceivedRewardCallback: (ad, reward) {
@@ -527,6 +604,11 @@ class AdManager with WidgetsBindingObserver {
       if (DateTime.now().difference(_appOpenAdLoadTime!).inHours < 4) {
         onAdLoaded?.call(true); return;
       }
+      // Fix #24: dispose the expired ad before loading a new one
+      _appOpenAd!.fullScreenContentCallback = null;
+      _appOpenAd!.dispose();
+      _appOpenAd = null;
+      _appOpenAdLoadTime = null;
     }
     _isAppOpenLoading = true;
     final appOpenId = _config.admob!.appOpenId;
@@ -565,6 +647,11 @@ class AdManager with WidgetsBindingObserver {
     final appOpenId = _config.appLovin!.appOpenId;
     SafeLogger.d(_tag, 'loadAppOpenAd [AppLovin] 🔄 id=$appOpenId');
     _isAppOpenLoading = true;
+    // Fix #8: call old callback before overwriting to avoid swallowed callbacks
+    if (_pendingAppOpenLoadCallback != null) {
+      SafeLogger.w(_tag, 'loadAppOpenAd [AppLovin] ⚠️ overwriting pending callback → calling old one with false');
+      _pendingAppOpenLoadCallback?.call(false);
+    }
     _pendingAppOpenLoadCallback = onAdLoaded;
     AppLovinMAX.loadAppOpenAd(appOpenId);
   }
@@ -610,13 +697,16 @@ class AdManager with WidgetsBindingObserver {
         ad.dispose();
         _appOpenAd = null;
         _isAppOpenShowing = false;
+        _lastFullscreenDismissTime = DateTime.now().millisecondsSinceEpoch; // Fix #46
         onAdDismiss(true);
+        loadAppOpenAd(); // Fix #41: reload after dismiss to keep slot filled (matches AppLovin path)
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         ad.dispose();
         _appOpenAd = null;
         _isAppOpenShowing = false;
-        onAdDismiss(true);
+        onAdDismiss(false); // Fix Y: was true, but ad was NOT shown
+        loadAppOpenAd(); // Reload for next attempt
       },
       onAdClicked: (ad) => AdSafetyConfig.recordAdClick(),
       onAdImpression: (ad) {},
@@ -626,19 +716,58 @@ class AdManager with WidgetsBindingObserver {
 
   void _showAppOpenAdAppLovin(void Function(bool) onAdDismiss) {
     final appOpenId = _config.appLovin!.appOpenId;
-    if (!_isMaxAppOpenReady) { onAdDismiss(false); return; }
-    if (_isMaxAppOpenShowing) { onAdDismiss(false); return; }
+    if (!_isMaxAppOpenReady) {
+      SafeLogger.w(_tag, '_showAppOpenAdAppLovin: ad not ready \u2192 onAdDismiss(false)');
+      onAdDismiss(false);
+      return;
+    }
+    if (_isMaxAppOpenShowing) {
+      SafeLogger.w(_tag, '_showAppOpenAdAppLovin: already showing \u2192 onAdDismiss(false)');
+      onAdDismiss(false);
+      return;
+    }
     _onAppOpenDismissed = onAdDismiss;
+    SafeLogger.d(_tag, '_showAppOpenAdAppLovin: calling AppLovinMAX.showAppOpenAd');
     AppLovinMAX.showAppOpenAd(appOpenId);
+
+    // Fix #17: capture callback ref locally to detect race with onAdDisplayFailedCallback.
+    // If the callback was already consumed by the listener before timeout fires,
+    // the local ref still points to the old callback but _onAppOpenDismissed is null.
+    final capturedCallback = onAdDismiss;
+    const kTimeoutMs = 10000;
+    Future.delayed(const Duration(milliseconds: kTimeoutMs), () {
+      // Only fire if OUR callback is still the pending one (not consumed by listener)
+      if (_onAppOpenDismissed == capturedCallback && !_isMaxAppOpenShowing) {
+        SafeLogger.e(_tag, '⚠️ _showAppOpenAdAppLovin: TIMEOUT after ${kTimeoutMs}ms — ad never displayed, force-calling onAdDismiss(false)');
+        _onAppOpenDismissed = null;
+        _isMaxAppOpenShowing = false;
+        capturedCallback(false);
+      }
+    });
   }
 
   // ════════════════════════════════════════════════════
   // APP OPEN ON RESUME
   // ════════════════════════════════════════════════════
   void showAppOpenAdOnResume() {
+    // Fix #33: guard against LateInitializationError — this is a public method
+    // that could be called before initialize() sets _config (late field).
+    if (!_initialized) {
+      SafeLogger.d(_tag, '▶️ showAppOpenAdOnResume SKIPPED (not initialized)');
+      return;
+    }
     SafeLogger.d(_tag, '▶️ showAppOpenAdOnResume $_provider triggered! isSplash=$_isSplashActive, isVIP=$_isVipMember');
     if (_isSplashActive || _isVipMember) return;
     if (_isInterstitialShowing || _isRewardedShowing) return;
+
+    // Fix #46: interstitial/rewarded dismiss callback fires BEFORE lifecycle
+    // resumed — so _isInterstitialShowing is already false by this point.
+    // Use timestamp instead to catch the edge case.
+    final timeSinceDismiss = DateTime.now().millisecondsSinceEpoch - _lastFullscreenDismissTime;
+    if (_lastFullscreenDismissTime > 0 && timeSinceDismiss < 2000) {
+      SafeLogger.d(_tag, '▶️ showAppOpenAdOnResume SKIPPED (fullscreen dismissed ${timeSinceDismiss}ms ago)');
+      return;
+    }
 
     if (!AdSafetyConfig.canShowAppOpenOnResume()) {
       loadAppOpenAd();
@@ -649,10 +778,43 @@ class AdManager with WidgetsBindingObserver {
     final isShowing = _isAdmob ? _isAppOpenShowing : _isMaxAppOpenShowing;
 
     if (adReady && !isShowing) {
-      showAppOpenAd(
-        onAdDismiss: (wasActuallyShown) => loadAppOpenAd(),
-        bypassSafety: false,
-      );
+      // Fix #47: Show actual AdLoadingDialog before App Open on resume.
+      // Uses navigator key to show dialog without BuildContext.
+      final navKey = _navigatorKey;
+      final navContext = navKey?.currentContext;
+      if (navContext != null) {
+        SafeLogger.d(_tag, '▶️ showAppOpenAdOnResume: showing loading dialog...');
+        AdLoadingDialog.showAdBuffer(navContext, onComplete: () {
+          // Re-check conditions after dialog — user may have triggered another ad
+          if (_isSplashActive || _isVipMember || _isInterstitialShowing || _isRewardedShowing) return;
+          final stillReady = _isAdmob ? (_appOpenAd != null) : _isMaxAppOpenReady;
+          final nowShowing = _isAdmob ? _isAppOpenShowing : _isMaxAppOpenShowing;
+          if (!stillReady || nowShowing) {
+            loadAppOpenAd();
+            return;
+          }
+          showAppOpenAd(
+            onAdDismiss: (wasActuallyShown) => loadAppOpenAd(),
+            bypassSafety: true, // Fix #3: canShowAppOpenOnResume() already checked above
+          );
+        });
+      } else {
+        // Fallback: no navigator key — use delay buffer
+        SafeLogger.w(_tag, '▶️ showAppOpenAdOnResume: no navigator context, using delay fallback...');
+        Future.delayed(const Duration(seconds: 1), () {
+          if (_isSplashActive || _isVipMember || _isInterstitialShowing || _isRewardedShowing) return;
+          final stillReady = _isAdmob ? (_appOpenAd != null) : _isMaxAppOpenReady;
+          final nowShowing = _isAdmob ? _isAppOpenShowing : _isMaxAppOpenShowing;
+          if (!stillReady || nowShowing) {
+            loadAppOpenAd();
+            return;
+          }
+          showAppOpenAd(
+            onAdDismiss: (wasActuallyShown) => loadAppOpenAd(),
+            bypassSafety: true,
+          );
+        });
+      }
     } else {
       loadAppOpenAd();
     }
@@ -663,6 +825,12 @@ class AdManager with WidgetsBindingObserver {
   // ════════════════════════════════════════════════════
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Fix #29: guard against LateInitializationError — lifecycle events
+    // can fire before initialize() sets _config (late field).
+    if (!_initialized) {
+      SafeLogger.d(_tag, 'didChangeAppLifecycleState: state=$state — SKIPPED (not initialized)');
+      return;
+    }
     SafeLogger.d(_tag, 'didChangeAppLifecycleState: state=$state');
     if (state == AppLifecycleState.paused) {
       SafeLogger.d(_tag, 'ProcessLifecycle ⏸️ App went to BACKGROUND');
@@ -691,7 +859,18 @@ class AdManager with WidgetsBindingObserver {
       }
       if (_isAdmob) {
         if (bannerHasError.value && _admobBannerAd == null) {
+          // Fix #14: previously only cleared the flag but never reloaded.
+          // Now trigger a fresh load so banner fills after resume.
           bannerHasError.value = false;
+          // Fix #40: guard against empty views (edge case during background transition)
+          final views = WidgetsBinding.instance.platformDispatcher.views;
+          if (views.isEmpty) {
+            SafeLogger.w(_tag, 'lifecycle-resumed: platformDispatcher.views is empty — skipping banner reload');
+          } else {
+            final view = views.first;
+            final width = view.physicalSize.width / view.devicePixelRatio;
+            loadAdmobBannerIfNeeded(width);
+          }
         } else if (_admobBannerAd != null) {
           bannerVisible.value = true;
         }
@@ -742,11 +921,32 @@ class AdManager with WidgetsBindingObserver {
   // ════════════════════════════════════════════════════
   void showInterstitial({required void Function(bool) onDoneFlow}) {
     _assertInitialized();
-    SafeLogger.d(_tag, 'showInterstitial $_provider called, isVIP=$_isVipMember');
-    if (_isVipMember) { onDoneFlow(false); return; }
+    SafeLogger.d(_tag, 'showInterstitial $_provider called, isVIP=$_isVipMember, isAlreadyShowing=$_isInterstitialShowing');
+    if (_isVipMember) {
+      SafeLogger.d(_tag, 'showInterstitial ⏭️ VIP → skip');
+      onDoneFlow(false);
+      return;
+    }
+
+    // ✅ FIX 2: Early concurrent guard — set flag NOW before the dialog buffer,
+    // not inside _showInterstitialAppLovin (which runs after 1s buffer).
+    // Without this, a second tap during the 1s buffer passes canShowInterstitial()
+    // and shows a SECOND loading dialog, corrupting the navigator stack.
+    if (_isInterstitialShowing) {
+      SafeLogger.w(_tag, 'showInterstitial ⚠️ already showing — skipping duplicate call');
+      onDoneFlow(false);
+      return;
+    }
+    _isInterstitialShowing = true;
+    SafeLogger.d(_tag, 'showInterstitial: locked _isInterstitialShowing=true early');
 
     final safetyResult = AdSafetyConfig.canShowFullscreenAd();
-    if (!safetyResult.canShow) { onDoneFlow(false); return; }
+    if (!safetyResult.canShow) {
+      _isInterstitialShowing = false; // release lock on safety failure
+      SafeLogger.w(_tag, 'showInterstitial ⚠️ safety re-check failed: ${safetyResult.reason} → calling onDoneFlow(false)');
+      onDoneFlow(false);
+      return;
+    }
 
     if (_isAdmob) {
       _showInterstitialAdmob(onDoneFlow);
@@ -757,14 +957,20 @@ class AdManager with WidgetsBindingObserver {
 
   void _showInterstitialAdmob(void Function(bool) onDoneFlow) {
     final ad = _interstitialAd;
-    if (ad == null) { onDoneFlow(false); return; }
-    _isInterstitialShowing = true;
+    if (ad == null) {
+      _isInterstitialShowing = false; // release early lock
+      SafeLogger.w(_tag, '_showInterstitialAdmob: ad is null → onDoneFlow(false)');
+      onDoneFlow(false);
+      return;
+    }
+    // _isInterstitialShowing already set true by showInterstitial() early lock
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (a) => AdSafetyConfig.recordFullscreenAdShown(),
       onAdDismissedFullScreenContent: (a) {
         a.dispose();
         _interstitialAd = null;
         _isInterstitialShowing = false;
+        _lastFullscreenDismissTime = DateTime.now().millisecondsSinceEpoch; // Fix #46
         loadInterstitial();
         onDoneFlow(true);
       },
@@ -773,6 +979,7 @@ class AdManager with WidgetsBindingObserver {
         _interstitialAd = null;
         _isInterstitialShowing = false;
         onDoneFlow(false);
+        loadInterstitial(); // Fix #1: reload after show-fail
       },
       onAdClicked: (a) => AdSafetyConfig.recordAdClick(),
     );
@@ -780,11 +987,16 @@ class AdManager with WidgetsBindingObserver {
   }
 
   void _showInterstitialAppLovin(void Function(bool) onDoneFlow) {
-    if (!_isMaxInterReady) { onDoneFlow(false); return; }
-    if (_isInterstitialShowing) { onDoneFlow(false); return; }
+    if (!_isMaxInterReady) {
+      _isInterstitialShowing = false; // release early lock
+      SafeLogger.w(_tag, '_showInterstitialAppLovin: ad not ready \u2192 onDoneFlow(false)');
+      onDoneFlow(false);
+      return;
+    }
     _isMaxInterReady = false;
-    _isInterstitialShowing = true;
+    // _isInterstitialShowing already set true by showInterstitial() early lock
     _pendingInterDoneFlow = onDoneFlow;
+    SafeLogger.d(_tag, '_showInterstitialAppLovin: calling AppLovinMAX.showInterstitial');
     AppLovinMAX.showInterstitial(_config.appLovin!.interstitialId);
   }
 
@@ -823,11 +1035,30 @@ class AdManager with WidgetsBindingObserver {
   // ════════════════════════════════════════════════════
   void showRewardedAd({required void Function(bool) onEarnedReward}) {
     _assertInitialized();
-    SafeLogger.d(_tag, 'showRewardedAd $_provider called, isVIP=$_isVipMember');
-    if (_isVipMember) { onEarnedReward(true); return; }
+    SafeLogger.d(_tag, 'showRewardedAd $_provider called, isVIP=$_isVipMember, isAlreadyShowing=$_isRewardedShowing');
+    if (_isVipMember) {
+      SafeLogger.d(_tag, 'showRewardedAd ✅ VIP → auto-reward');
+      onEarnedReward(true);
+      return;
+    }
+
+    // ✅ FIX: Early concurrent guard — mirrors the interstitial fix.
+    // Prevents double-tap from launching two rewarded flows simultaneously.
+    if (_isRewardedShowing) {
+      SafeLogger.w(_tag, 'showRewardedAd ⚠️ already showing — skipping duplicate call');
+      onEarnedReward(false);
+      return;
+    }
+    _isRewardedShowing = true;
+    SafeLogger.d(_tag, 'showRewardedAd: locked _isRewardedShowing=true early');
 
     final safetyResult = AdSafetyConfig.canShowFullscreenAd();
-    if (!safetyResult.canShow) { onEarnedReward(false); return; }
+    if (!safetyResult.canShow) {
+      _isRewardedShowing = false; // release early lock
+      SafeLogger.w(_tag, 'showRewardedAd ⚠️ safety re-check failed: ${safetyResult.reason} → calling onEarnedReward(false)');
+      onEarnedReward(false);
+      return;
+    }
 
     if (_isAdmob) {
       _showRewardedAdmob(onEarnedReward);
@@ -838,41 +1069,65 @@ class AdManager with WidgetsBindingObserver {
 
   void _showRewardedAdmob(void Function(bool) onEarnedReward) {
     final ad = _rewardedAd;
-    if (ad == null) { onEarnedReward(false); return; }
+    if (ad == null) {
+      _isRewardedShowing = false; // release early lock
+      SafeLogger.w(_tag, '_showRewardedAdmob: ad is null → onEarnedReward(false)');
+      onEarnedReward(false);
+      return;
+    }
+    // _isRewardedShowing already set true by showRewardedAd() early lock
     bool hasEarned = false;
-    _isRewardedShowing = true;
+    bool callbackFired = false; // Fix #42: guard against double callback
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (a) => AdSafetyConfig.recordFullscreenAdShown(),
       onAdDismissedFullScreenContent: (a) {
         a.dispose();
         _rewardedAd = null;
         _isRewardedShowing = false;
+        _lastFullscreenDismissTime = DateTime.now().millisecondsSinceEpoch; // Fix #46
         loadRewardedAd();
-        if (!hasEarned) onEarnedReward(false);
+        // Fix #42: only call if reward callback hasn't fired yet
+        if (!hasEarned && !callbackFired) {
+          callbackFired = true;
+          onEarnedReward(false);
+        }
       },
       onAdFailedToShowFullScreenContent: (a, error) {
         a.dispose();
         _rewardedAd = null;
         _isRewardedShowing = false;
-        onEarnedReward(false);
+        if (!callbackFired) {
+          callbackFired = true;
+          onEarnedReward(false);
+        }
+        loadRewardedAd(); // Fix #2: reload after show-fail
       },
       onAdClicked: (a) => AdSafetyConfig.recordAdClick(),
     );
     ad.show(onUserEarnedReward: (AdWithoutView a, RewardItem reward) {
       SafeLogger.d(_tag, '🏆 showRewardedAd [AdMob] Earned: type=${reward.type}, amount=${reward.amount}');
       hasEarned = true;
-      onEarnedReward(true);
+      if (!callbackFired) {
+        callbackFired = true;
+        onEarnedReward(true);
+      }
     });
   }
 
   void _showRewardedAppLovin(void Function(bool) onEarnedReward) {
-    if (_isRewardedShowing || !_isMaxRewardedReady) { onEarnedReward(false); return; }
+    if (!_isMaxRewardedReady) {
+      _isRewardedShowing = false; // release early lock
+      SafeLogger.w(_tag, '_showRewardedAppLovin: ad not ready → onEarnedReward(false)');
+      onEarnedReward(false);
+      return;
+    }
     _isMaxRewardedReady = false;
-    _isRewardedShowing = true;
+    // _isRewardedShowing already set true by showRewardedAd() early lock
     _pendingRewardedDoneFlow = (earned) {
       _isRewardedShowing = false;
       onEarnedReward(earned);
     };
+    SafeLogger.d(_tag, '_showRewardedAppLovin: calling AppLovinMAX.showRewardedAd');
     AppLovinMAX.showRewardedAd(_config.appLovin!.rewardedId);
   }
 
@@ -947,6 +1202,7 @@ class AdManager with WidgetsBindingObserver {
   bool canShowInterstitial() {
     _assertInitialized();
     if (_isVipMember || _isInterstitialShowing) return false;
+    if (AdLoadingDialog.isShowing) return false; // dialog buffer active
     final safety = AdSafetyConfig.canShowFullscreenAd();
     if (!safety.canShow) return false;
     return _isAdmob ? (_interstitialAd != null) : _isMaxInterReady;
@@ -957,6 +1213,7 @@ class AdManager with WidgetsBindingObserver {
     _assertInitialized();
     if (_isVipMember) return true; // VIP auto-reward
     if (_isRewardedShowing) return false;
+    if (AdLoadingDialog.isShowing) return false; // dialog buffer active
     final safety = AdSafetyConfig.canShowFullscreenAd();
     if (!safety.canShow) return false;
     return _isAdmob ? (_rewardedAd != null) : _isMaxRewardedReady;
@@ -966,16 +1223,34 @@ class AdManager with WidgetsBindingObserver {
   // DESTROY
   // ════════════════════════════════════════════════════
 
+  /// Lightweight cleanup of old ad objects when [initialize] is called again
+  /// without a prior [destroy]. Prevents native ad memory leaks.
+  void _cleanupOldAds() {
+    _interstitialAd?.fullScreenContentCallback = null;
+    _interstitialAd?.dispose();
+    _interstitialAd = null;
+    _appOpenAd?.fullScreenContentCallback = null;
+    _appOpenAd?.dispose();
+    _appOpenAd = null;
+    _rewardedAd?.fullScreenContentCallback = null;
+    _rewardedAd?.dispose();
+    _rewardedAd = null;
+    _admobBannerAd?.dispose();
+    _admobBannerAd = null;
+    // Fix #37: reset banner ValueNotifiers so next BannerAdWidget shows shimmer, not stale state
+    bannerIsLoaded.value = false;
+    bannerHasError.value = false;
+    bannerAdSize.value = null;
+    _stopAdRetryTimer();
+    SafeLogger.d(_tag, '_cleanupOldAds() done');
+  }
+
   /// Release all ad resources. Call only when you truly need a full reset.
   ///
   /// ⚠️ After destroy, [AdManager] singleton will no longer respond to
   /// lifecycle events. You must call [initialize] again before using ads.
   void destroy() {
     SafeLogger.d(_tag, 'destroy() called — releasing all ad resources');
-
-    // Remove lifecycle observer — prevents memory leak from dangling observer
-    SafeLogger.d(_tag, 'destroy() removing WidgetsBinding observer');
-    WidgetsBinding.instance.removeObserver(this);
 
     // AdMob cleanup — null fullScreenContentCallback BEFORE dispose to avoid late callbacks
     SafeLogger.d(_tag, 'destroy() [AdMob] disposing interstitialAd=${_interstitialAd != null}');
@@ -997,6 +1272,24 @@ class AdManager with WidgetsBindingObserver {
     _admobBannerAd?.dispose();
     _admobBannerAd = null;
 
+    // Fix #20: fire pending callbacks BEFORE nulling so callers aren't left hanging
+    if (_pendingInterDoneFlow != null) {
+      SafeLogger.w(_tag, 'destroy() firing pending interstitial callback(false)');
+      _pendingInterDoneFlow?.call(false);
+    }
+    if (_onAppOpenDismissed != null) {
+      SafeLogger.w(_tag, 'destroy() firing pending app open callback(false)');
+      _onAppOpenDismissed?.call(false);
+    }
+    if (_pendingAppOpenLoadCallback != null) {
+      SafeLogger.w(_tag, 'destroy() firing pending app open load callback(false)');
+      _pendingAppOpenLoadCallback?.call(false);
+    }
+    if (_pendingRewardedDoneFlow != null) {
+      SafeLogger.w(_tag, 'destroy() firing pending rewarded callback(false)');
+      _pendingRewardedDoneFlow?.call(false);
+    }
+
     // AppLovin cleanup — reset all state flags
     SafeLogger.d(_tag, 'destroy() [AppLovin] resetting state: appOpen=$_isMaxAppOpenReady, inter=$_isMaxInterReady, rewarded=$_isMaxRewardedReady');
     _isMaxAppOpenReady = false;
@@ -1007,14 +1300,30 @@ class AdManager with WidgetsBindingObserver {
     _isMaxRewardedReady = false;
     _isRewardedLoading = false;
     _isRewardedShowing = false;
+    _lastFullscreenDismissTime = 0; // Fix #46: reset dismiss timestamp
     _pendingInterDoneFlow = null;
     _onAppOpenDismissed = null;
     _pendingAppOpenLoadCallback = null;
     _pendingRewardedDoneFlow = null;
+    _isFirstAdLoadTriggered = false; // Fix V: reset so Inter+Rewarded get preloaded on reinit
 
     // Common flags
     _isAppOpenShowing = false;
     _isAppOpenLoading = false;
+    _isInitializing = false; // Fix #39: reset init mutex in destroy
+    _bannerRoutePaused = false; // Fix #25: reset banner pause flag
+    _isSplashActive = false; // Fix #26: reset splash flag for clean reinit
+    _countInitSplashScreen = 0; // Fix #27: reset splash count for clean reinit
+
+    // Fix #18: reset error cooldown timestamps so reinit doesn't carry stale cooldowns
+    _lastAppOpenErrorTime = 0;
+    _lastInterErrorTime = 0;
+    _lastRewardedErrorTime = 0;
+    _appOpenAdLoadTime = null;
+    _lastBannerLoadTime = 0; // Fix #21: reset banner cooldown
+
+    // Fix #22: reset AdLoadingDialog static flag
+    AdLoadingDialog.resetState();
 
     // Banner — reset ValueNotifier values (but do NOT dispose — they are
     // final fields that live for the entire singleton lifetime)
@@ -1026,6 +1335,85 @@ class AdManager with WidgetsBindingObserver {
     bannerVisible.value = true;
     bannerAdSize.value = null;
 
+    // Reset AdSafetyConfig for clean re-init (cold start, session, etc.)
+    AdSafetyConfig.resetForReinit();
+
+    // Clear EventBus listeners to prevent memory leaks (Fix N)
+    SimpleEventBus().clearAll();
+
+    // Stop retry timer
+    _stopAdRetryTimer();
+
+    // Remove lifecycle observer — it will be re-added on next initialize()
+    SafeLogger.d(_tag, 'destroy() removing WidgetsBinding observer');
+    WidgetsBinding.instance.removeObserver(this);
+    _isObserverAdded = false;
+
+    _initialized = false;
     SafeLogger.d(_tag, 'destroy() ✅ all ad resources released');
+  }
+
+  // ════════════════════════════════════════════════════
+  // PERIODIC AD RETRY TIMER (Fix R / T)
+  // ════════════════════════════════════════════════════
+  static const int _retryIntervalMs = 5 * 60 * 1000; // 5 min
+  bool _retryTimerActive = false;
+
+  void _startAdRetryTimer() {
+    if (_retryTimerActive) return;
+    _retryTimerActive = true;
+    SafeLogger.d(_tag, '⏲️ Ad retry timer started (every ${_retryIntervalMs ~/ 1000}s)');
+    _scheduleNextRetry();
+  }
+
+  void _scheduleNextRetry() {
+    Future.delayed(Duration(milliseconds: _retryIntervalMs), () {
+      if (!_retryTimerActive || !_initialized) return;
+      _retryRefillAds();
+      _scheduleNextRetry(); // reschedule
+    });
+  }
+
+  void _stopAdRetryTimer() {
+    _retryTimerActive = false;
+    SafeLogger.d(_tag, '⏲️ Ad retry timer stopped');
+  }
+
+  /// Proactively refill any empty ad slots.
+  void _retryRefillAds() {
+    SafeLogger.d(_tag, '⏲️ Ad retry timer fired — checking fill status');
+
+    // App Open: check AdMob expiry (4h) or AppLovin not ready
+    if (_isAdmob) {
+      if (_appOpenAd != null && _appOpenAdLoadTime != null) {
+        if (DateTime.now().difference(_appOpenAdLoadTime!).inHours >= 4) {
+          SafeLogger.d(_tag, '⏲️ AdMob App Open expired (>4h) — reloading');
+          // Fix #30: null callback BEFORE dispose to prevent stale native callback
+          _appOpenAd?.fullScreenContentCallback = null;
+          _appOpenAd?.dispose();
+          _appOpenAd = null;
+          _appOpenAdLoadTime = null;
+          loadAppOpenAd();
+        }
+      } else if (_appOpenAd == null && !_isAppOpenLoading) {
+        loadAppOpenAd();
+      }
+    } else {
+      if (!_isMaxAppOpenReady && !_isAppOpenLoading) loadAppOpenAd();
+    }
+
+    // Interstitial
+    if (_isAdmob) {
+      if (_interstitialAd == null && !_isInterLoading) loadInterstitial();
+    } else {
+      if (!_isMaxInterReady && !_isInterLoading) loadInterstitial();
+    }
+
+    // Rewarded
+    if (_isAdmob) {
+      if (_rewardedAd == null && !_isRewardedLoading) loadRewardedAd();
+    } else {
+      if (!_isMaxRewardedReady && !_isRewardedLoading) loadRewardedAd();
+    }
   }
 }

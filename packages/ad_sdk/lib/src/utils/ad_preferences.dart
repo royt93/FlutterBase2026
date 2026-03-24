@@ -49,7 +49,8 @@ class AdPreferences {
     if (savedDate != today) {
       _prefs?.setString(_keyDailyDate, today);
       _prefs?.setInt(_keyDailyAdCount, 0);
-      _prefs?.setInt(_keySuspiciousCount, 0);
+      // NOTE: _keySuspiciousCount is NOT reset daily — it persists across days
+      // so progressive cooldown escalates for repeat offenders.
       return 0;
     }
     return _prefs?.getInt(_keyDailyAdCount) ?? 0;

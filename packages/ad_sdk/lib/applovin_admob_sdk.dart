@@ -28,6 +28,7 @@
 ///   Widget build(context) => Column(children: [buildBanner(), ...]);
 /// }
 /// ```
+library;
 
 export 'src/config/ad_config.dart';
 export 'src/core/ad_manager.dart';

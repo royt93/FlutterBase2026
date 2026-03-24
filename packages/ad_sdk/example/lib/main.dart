@@ -31,8 +31,12 @@ const _kAdmobRewardedId     = 'ca-app-pub-3940256099942544/5224354917';
 /// Entry point — DO NOT initialize AdManager here.
 /// AdManager is initialized inside SplashScreen so that
 /// the EventBus fires AFTER the listener is registered.
+final _navigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Register navigator key so SDK can show loading dialogs from lifecycle observer
+  AdManager().setNavigatorKey(_navigatorKey);
   runApp(const AdSdkExampleApp());
 }
 
@@ -49,6 +53,7 @@ class AdSdkExampleApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // ⚠️ Required: register route observers for RouteAware banner lifecycle
+      navigatorKey: _navigatorKey,
       navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
       home: const SplashScreen(),
     );
