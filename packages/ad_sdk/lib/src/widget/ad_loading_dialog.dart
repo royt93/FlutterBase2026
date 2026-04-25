@@ -97,80 +97,92 @@ class _AdLoadingDialogContent extends StatefulWidget {
 
 class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
     with SingleTickerProviderStateMixin {
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
+  AnimationController? _fadeController;
+  Animation<double>? _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
-    _fadeController = AnimationController(
+    final ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
     );
-    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
-    _fadeController.forward();
+    _fadeController = ctrl;
+    _fadeAnimation = CurvedAnimation(parent: ctrl, curve: Curves.easeOut);
+    ctrl.forward();
   }
 
   @override
   void dispose() {
-    _fadeController.dispose();
+    _fadeController?.dispose();
+    _fadeController = null;
+    _fadeAnimation = null;
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      child: FadeTransition(
-        opacity: _fadeAnimation,
-        child: Center(
-          child: Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.18),
-                width: 1.2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.30),
-                  blurRadius: 24,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Colors.white.withValues(alpha: 0.90),
+    final fade = _fadeAnimation;
+    // CRITICAL: wrap in Material so the Text below inherits the host app's
+    // DefaultTextStyle (theme font) — without it Flutter falls back to a
+    // blocky raw-renderer font with red underlines (the "yellow-text-on-red-
+    // underline debug look") and the dialog renders broken.
+    return Material(
+      type: MaterialType.transparency,
+      child: PopScope(
+        canPop: false,
+        child: fade == null
+            ? const SizedBox.shrink()
+            : FadeTransition(
+                opacity: fade,
+                child: Center(
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.30),
+                          blurRadius: 24,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ),
-                    backgroundColor: Colors.white.withValues(alpha: 0.18),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3.5,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white.withValues(alpha: 0.90),
+                            ),
+                            backgroundColor: Colors.white.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          widget.loadingText,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  widget.loadingText,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.82),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.3,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }

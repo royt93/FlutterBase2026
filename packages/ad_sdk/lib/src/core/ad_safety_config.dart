@@ -1,5 +1,7 @@
-import '../utils/safe_logger.dart';
+import 'package:flutter/foundation.dart';
+
 import '../utils/ad_preferences.dart';
+import '../utils/safe_logger.dart';
 
 /// Result of an ad safety check.
 class AdSafetyResult {
@@ -43,6 +45,10 @@ class AdSafetyParams {
   /// Max rapid resumes per minute before skipping App Open (default: 3)
   final int maxRapidResumesPerMinute;
 
+  /// QA mode: log violations but always return `canShow=true`.
+  /// **Set to false in production** — bypasses every safety check.
+  final bool dryRun;
+
   const AdSafetyParams({
     this.minTimeBetweenFullscreenAds = 60000,
     this.maxFullscreenAdsPerSession = 6,
@@ -53,7 +59,92 @@ class AdSafetyParams {
     this.minSessionDurationBeforeAd = 10000,
     this.suspiciousCtrThreshold = 0.30,
     this.maxRapidResumesPerMinute = 3,
+    this.dryRun = false,
   });
+
+  // ─── Presets ──────────────────────────────────────────────────────────────
+
+  /// Production defaults — strict caps. Identical to `const AdSafetyParams()`.
+  static const AdSafetyParams production = AdSafetyParams();
+
+  /// Loose limits for development / QA. All caps cranked to 999, throttle 2 s,
+  /// session warm-up 0 s, cold-start gate respected (still blocks the very
+  /// first resume). Use this preset when you need to iterate fast on ad UI
+  /// without hitting daily/hourly walls.
+  ///
+  /// ```dart
+  /// safety: AdSafetyParams.debug
+  /// ```
+  static const AdSafetyParams debug = AdSafetyParams(
+    minTimeBetweenFullscreenAds: 2000,      // 2 s
+    maxFullscreenAdsPerSession: 999,
+    maxFullscreenAdsPerHour: 999,
+    maxFullscreenAdsPerDay: 999,
+    minSessionDurationBeforeAd: 0,
+    minTimeAppOpenResume: 0,
+    maxClicksPerMinute: 999,
+    suspiciousCtrThreshold: 1.0,
+    maxRapidResumesPerMinute: 999,
+    dryRun: false,
+  );
+
+  /// Auto-pick: [debug] in `kDebugMode` builds, [production] in release.
+  /// This is what `AdConfig` defaults to — the host app can still override
+  /// via `AdConfig.safety: AdSafetyParams.production` (force strict in dev)
+  /// or `AdSafetyParams.debug` (force loose in release; not recommended).
+  static const AdSafetyParams auto = kDebugMode ? debug : production;
+
+  /// Returns a copy of this with the given fields replaced. Use to override
+  /// just the knobs you care about while keeping the rest:
+  ///
+  /// ```dart
+  /// safety: AdSafetyParams.production.copyWith(maxFullscreenAdsPerDay: 10)
+  /// ```
+  AdSafetyParams copyWith({
+    int? minTimeBetweenFullscreenAds,
+    int? maxFullscreenAdsPerSession,
+    int? minTimeAppOpenResume,
+    int? maxClicksPerMinute,
+    int? maxFullscreenAdsPerDay,
+    int? maxFullscreenAdsPerHour,
+    int? minSessionDurationBeforeAd,
+    double? suspiciousCtrThreshold,
+    int? maxRapidResumesPerMinute,
+    bool? dryRun,
+  }) {
+    return AdSafetyParams(
+      minTimeBetweenFullscreenAds:
+          minTimeBetweenFullscreenAds ?? this.minTimeBetweenFullscreenAds,
+      maxFullscreenAdsPerSession:
+          maxFullscreenAdsPerSession ?? this.maxFullscreenAdsPerSession,
+      minTimeAppOpenResume: minTimeAppOpenResume ?? this.minTimeAppOpenResume,
+      maxClicksPerMinute: maxClicksPerMinute ?? this.maxClicksPerMinute,
+      maxFullscreenAdsPerDay:
+          maxFullscreenAdsPerDay ?? this.maxFullscreenAdsPerDay,
+      maxFullscreenAdsPerHour:
+          maxFullscreenAdsPerHour ?? this.maxFullscreenAdsPerHour,
+      minSessionDurationBeforeAd:
+          minSessionDurationBeforeAd ?? this.minSessionDurationBeforeAd,
+      suspiciousCtrThreshold:
+          suspiciousCtrThreshold ?? this.suspiciousCtrThreshold,
+      maxRapidResumesPerMinute:
+          maxRapidResumesPerMinute ?? this.maxRapidResumesPerMinute,
+      dryRun: dryRun ?? this.dryRun,
+    );
+  }
+
+  @override
+  String toString() => 'AdSafetyParams('
+      'between=${minTimeBetweenFullscreenAds}ms, '
+      'session=$maxFullscreenAdsPerSession, '
+      'hour=$maxFullscreenAdsPerHour, '
+      'day=$maxFullscreenAdsPerDay, '
+      'warmup=${minSessionDurationBeforeAd}ms, '
+      'resume=${minTimeAppOpenResume}ms, '
+      'clicks/min=$maxClicksPerMinute, '
+      'ctr=$suspiciousCtrThreshold, '
+      'rapidResume=$maxRapidResumesPerMinute, '
+      'dryRun=$dryRun)';
 }
 
 /// Ad safety manager — 12 anti-fraud protections.
@@ -101,20 +192,32 @@ class AdSafetyConfig {
   }
 
   /// Check whether a fullscreen ad (inter/rewarded/app-open) can be shown.
+  /// Honours `params.dryRun` — if set, blocks are logged but always return ok.
   static AdSafetyResult canShowFullscreenAd() {
+    final result = _canShowFullscreenAdStrict();
+    if (!result.canShow && _params.dryRun) {
+      SafeLogger.w(_tag,
+          '⚠️ dryRun: would have blocked (${result.reason}) — allowing');
+      return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
+    }
+    return result;
+  }
+
+  static AdSafetyResult _canShowFullscreenAdStrict() {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     if (now < _suspiciousPauseUntil) {
-      final remaining = (_suspiciousPauseUntil - now) ~/ 1000;
-      SafeLogger.d(_tag, '🛡️ Ads paused, remaining=${remaining}s');
-      return AdSafetyResult(false, 'Suspended: ${remaining}s remaining');
+      final remainingMs = _suspiciousPauseUntil - now;
+      SafeLogger.d(_tag, '🛡️ Ads paused, remaining=${_fmtWait(remainingMs)}');
+      return AdSafetyResult(false, 'Suspended: ${_fmtWait(remainingMs)} remaining');
     }
 
     final sessionDuration = now - _sessionStartTime;
     if (sessionDuration < _params.minSessionDurationBeforeAd) {
-      final waitSec = (_params.minSessionDurationBeforeAd - sessionDuration) ~/ 1000;
-      SafeLogger.d(_tag, '🛡️ Session too young (${sessionDuration ~/ 1000}s), wait ${waitSec}s');
-      return AdSafetyResult(false, 'Session too young: wait ${waitSec}s');
+      final waitMs = _params.minSessionDurationBeforeAd - sessionDuration;
+      SafeLogger.d(_tag,
+          '🛡️ Session too young (${_fmtWait(sessionDuration)}), wait ${_fmtWait(waitMs)}');
+      return AdSafetyResult(false, 'Session too young: wait ${_fmtWait(waitMs)}');
     }
 
     if (_fullscreenAdsShownInSession >= _params.maxFullscreenAdsPerSession) {
@@ -137,9 +240,10 @@ class AdSafetyConfig {
     if (_lastFullscreenAdTime > 0) {
       final elapsed = now - _lastFullscreenAdTime;
       if (elapsed < _params.minTimeBetweenFullscreenAds) {
-        final wait = (_params.minTimeBetweenFullscreenAds - elapsed) ~/ 1000;
-        SafeLogger.d(_tag, '🛡️ Throttle: wait ${wait}s');
-        return AdSafetyResult(false, 'Throttle: ${wait}s');
+        final waitMs = _params.minTimeBetweenFullscreenAds - elapsed;
+        SafeLogger.d(_tag,
+            '🛡️ Throttle: last fullscreen ${_fmtWait(elapsed)} ago, wait ${_fmtWait(waitMs)}');
+        return AdSafetyResult(false, 'Throttle: wait ${_fmtWait(waitMs)}');
       }
     }
 
@@ -157,8 +261,22 @@ class AdSafetyConfig {
     return const AdSafetyResult(true, 'OK');
   }
 
-  /// Check whether App Open can be shown on app resume.
-  static bool canShowAppOpenOnResume() {
+  /// Check whether App Open can be shown on app resume. Returns a structured
+  /// result so callers can log the specific reason + remaining wait time.
+  ///
+  /// Honours `params.dryRun` — if set, blocks are logged but always returns
+  /// `canShow=true` (with the original block reason annotated).
+  static AdSafetyResult canShowAppOpenOnResume() {
+    final result = _canShowAppOpenOnResumeStrict();
+    if (!result.canShow && _params.dryRun) {
+      SafeLogger.w(_tag,
+          '⚠️ dryRun: would have blocked App Open on resume — allowing (${result.reason})');
+      return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
+    }
+    return result;
+  }
+
+  static AdSafetyResult _canShowAppOpenOnResumeStrict() {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Fix #45: Respect minTimeBetweenFullscreenAds — prevents showing
@@ -166,9 +284,11 @@ class AdSafetyConfig {
     if (_lastFullscreenAdTime > 0) {
       final elapsed = now - _lastFullscreenAdTime;
       if (elapsed < _params.minTimeBetweenFullscreenAds) {
-        final wait = (_params.minTimeBetweenFullscreenAds - elapsed) ~/ 1000;
-        SafeLogger.d(_tag, '🛡️ App Open on resume throttled: last fullscreen ${elapsed}ms ago, wait ${wait}s');
-        return false;
+        final waitMs = _params.minTimeBetweenFullscreenAds - elapsed;
+        final reason =
+            'fullscreen throttle (last fullscreen ${elapsed}ms ago, wait ${_fmtWait(waitMs)})';
+        SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
+        return AdSafetyResult(false, reason);
       }
     }
 
@@ -176,28 +296,41 @@ class AdSafetyConfig {
       // Don't consume cold start flag yet — only consume when we actually
       // return true (i.e., ad is allowed). This way, if resume is blocked
       // by other checks, cold start protection isn't wasted.
-      SafeLogger.d(_tag, '🛡️ Skipping App Open on cold start');
+      SafeLogger.d(_tag, '🛡️ Skipping App Open on cold start (one-shot, will allow next resume)');
       _isColdStart = false; // consumed regardless — first resume is always skipped
-      return false;
+      return const AdSafetyResult(false,
+          'cold start (one-shot — next resume will pass)');
     }
 
     if (_lastBackgroundTime > 0) {
       final timeInBackground = now - _lastBackgroundTime;
       if (timeInBackground < _params.minTimeAppOpenResume) {
-        SafeLogger.d(_tag, '🛡️ Resume too fast (${timeInBackground}ms)');
-        return false;
+        final waitMs = _params.minTimeAppOpenResume - timeInBackground;
+        final reason =
+            'resume too fast (background ${timeInBackground}ms < min ${_params.minTimeAppOpenResume}ms, wait ${_fmtWait(waitMs)})';
+        SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
+        return AdSafetyResult(false, reason);
       }
     }
 
     _resumeTimestamps.add(now);
     _resumeTimestamps.removeWhere((t) => now - t > 60000);
     if (_resumeTimestamps.length > _params.maxRapidResumesPerMinute) {
-      SafeLogger.d(_tag, '🛡️ Rapid resume detected: ${_resumeTimestamps.length} resumes/min');
+      final reason =
+          'rapid resume (${_resumeTimestamps.length} resumes/min > cap ${_params.maxRapidResumesPerMinute}, wait up to 60s)';
+      SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
       _resumeTimestamps.clear();
-      return false;
+      return AdSafetyResult(false, reason);
     }
 
-    return true;
+    return const AdSafetyResult(true, 'ok');
+  }
+
+  /// Pretty-print a wait duration as "Xs" when ≥ 1 s, "Yms" otherwise.
+  /// Avoids the "wait 0s" bug where sub-second waits truncated to 0.
+  static String _fmtWait(int ms) {
+    if (ms >= 1000) return '${(ms / 1000).toStringAsFixed(1)}s';
+    return '${ms}ms';
   }
 
   /// Record that a fullscreen ad was shown.

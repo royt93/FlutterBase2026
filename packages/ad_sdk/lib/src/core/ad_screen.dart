@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
+import '../state/ad_placement.dart';
 import '../utils/safe_logger.dart';
 import '../widget/ad_loading_dialog.dart';
 import '../widget/banner_ad_widget.dart';
@@ -56,7 +57,11 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   /// Show an interstitial ad with safety checks.
   ///
   /// [onDone] is called with `true` if the ad was shown, `false` otherwise.
-  void showInterstitialAd({required void Function(bool) onDone}) {
+  /// [placement] tags this call for analytics — used by `AdShowEvent`.
+  void showInterstitialAd({
+    required void Function(bool) onDone,
+    AdPlacement placement = AdPlacement.unspecified,
+  }) {
     SafeLogger.d(
       _tag,
       'showInterstitialAd called from $runtimeType, '
@@ -86,10 +91,13 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
         return;
       }
       SafeLogger.d(_tag, 'showInterstitialAd → calling AdManager.showInterstitial()');
-      AdManager().showInterstitial(onDoneFlow: (result) {
-        SafeLogger.d(_tag, 'showInterstitialAd onDoneFlow: result=$result');
-        onDone(result); // Fix #5: always call — caller must handle unmounted state
-      });
+      AdManager().showInterstitial(
+        placement: placement,
+        onDoneFlow: (result) {
+          SafeLogger.d(_tag, 'showInterstitialAd onDoneFlow: result=$result');
+          onDone(result);
+        },
+      );
     });
   }
 
@@ -104,11 +112,20 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   /// - Ad unavailable/throttled → [onEarnedReward] called with `false`.
   ///   The caller should notify the user (e.g. snackbar: 'Ad not ready, try again').
   /// - Widget disposed/unmounted → [onEarnedReward] called with `false` (unsafe to act).
-  void showRewardedAd({required void Function(bool) onEarnedReward}) {
+  ///
+  /// VIP behaviour (Q12B — caller must opt in): when the device is VIP and
+  /// [vipAutoGrant] is `true`, the reward is auto-granted without showing an
+  /// ad. When [vipAutoGrant] is `false` (default), the SDK behaves like
+  /// "no ad available" — caller decides reward outcome.
+  void showRewardedAd({
+    required void Function(bool) onEarnedReward,
+    bool vipAutoGrant = false,
+    AdPlacement placement = AdPlacement.unspecified,
+  }) {
     SafeLogger.d(
       _tag,
       'showRewardedAd called from $runtimeType, '
-      'isDisposed=$_isDisposed, mounted=$mounted',
+      'isDisposed=$_isDisposed, mounted=$mounted, vipAutoGrant=$vipAutoGrant',
     );
 
     if (_isDisposed || !mounted) {
@@ -117,10 +134,15 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       return;
     }
 
-    // VIP device: auto-grant reward without any ad or dialog
+    // VIP device: caller opt-in required (Q12B)
     if (AdManager().isVIPMember()) {
-      SafeLogger.d(_tag, 'showRewardedAd ✅ VIP device → auto-reward');
-      onEarnedReward(true);
+      if (vipAutoGrant) {
+        SafeLogger.d(_tag, 'showRewardedAd ✅ VIP + opt-in → auto-reward');
+        onEarnedReward(true);
+      } else {
+        SafeLogger.d(_tag, 'showRewardedAd ⏭️ VIP without opt-in → false (caller chooses)');
+        onEarnedReward(false);
+      }
       return;
     }
 
@@ -148,10 +170,14 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
         return;
       }
       SafeLogger.d(_tag, 'showRewardedAd → calling AdManager.showRewardedAd()');
-      AdManager().showRewardedAd(onEarnedReward: (result) {
-        SafeLogger.d(_tag, 'showRewardedAd onEarnedReward: result=$result');
-        onEarnedReward(result); // Fix #6: always call — caller must handle unmounted state
-      });
+      AdManager().showRewardedAd(
+        vipAutoGrant: vipAutoGrant,
+        placement: placement,
+        onEarnedReward: (result) {
+          SafeLogger.d(_tag, 'showRewardedAd onEarnedReward: result=$result');
+          onEarnedReward(result);
+        },
+      );
     });
   }
 

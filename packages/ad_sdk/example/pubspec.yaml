@@ -4,15 +4,21 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: '>=3.27.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
-  applovin_admob_sdk: ^1.0.14
-#  applovin_admob_sdk:
-#    path: ../
+  applovin_admob_sdk:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  mocktail: ^1.0.0
 
 flutter:
   uses-material-design: true

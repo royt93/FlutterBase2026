@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required by AdMob + AppLovin: network access. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Android 13+ AD_ID permission: required for advertising ID. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
+
     <application
         android:label="ad_sdk_example"
         android:name="${applicationName}"
@@ -36,6 +42,11 @@
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-3940256099942544~3347511713" />
+        <!-- AppLovin SDK key. Replace with your 86-char key from
+             dash.applovin.com/o/account before running with AppLovin provider. -->
+        <meta-data
+            android:name="applovin.sdk.key"
+            android:value="YOUR_86_CHAR_APPLOVIN_SDK_KEY" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

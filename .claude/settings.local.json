@@ -10,7 +10,14 @@
       "Bash(flutter packages pub run build_runner build:*)",
       "Bash(genhtml:*)",
       "Bash(flutter:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(dart compile *)",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(grep -n \"class StatePanelDemoPage\\\\|^}\\\\$\" example/lib/main.dart)",
+      "Bash(git ls-tree *)",
+      "Bash(dart pub *)"
     ],
     "deny": [],
     "ask": []

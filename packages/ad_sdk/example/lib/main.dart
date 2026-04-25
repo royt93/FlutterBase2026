@@ -1,73 +1,233 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// applovin_admob_sdk — single-file example
+//
+// 11 demo pages, all in this one file so a developer can read top-to-bottom
+// without jumping between files. Sections in order:
+//   §1  Constants + DemoConfig + VIP validator
+//   §2  LogBuffer (in-memory ring of SDK logs)
+//   §3  Entry: main() + SplashScreen
+//   §4  Shared: DemoTile widget
+//   §5  HomePage (list of all demos)
+//   §6  Demo: Banner
+//   §7  Demo: Interstitial
+//   §8  Demo: Rewarded
+//   §9  Demo: App Open
+//   §10 Demo: VIP redeem (Cupertino dialog)
+//   §11 Demo: Consent / GDPR / COPPA / CCPA flags
+//   §12 Demo: Safety status + presets
+//   §13 Demo: Log viewer (ring buffer)
+//   §14 Demo: Revenue dashboard
+//   §15 Demo: Slot state panel (+ manual destroy/reinit)
+//   §16 Demo: AdEvent stream live viewer
+//
+// Note: provider (AdMob vs AppLovin) is chosen ONCE at app startup via
+// `AdConfig.provider` and is **not** swappable at runtime. To switch
+// providers, change `kProvider` in §1 and rebuild.
+// ═══════════════════════════════════════════════════════════════════════════
+
 import 'dart:async';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-// ── AppLovin credentials ──────────────────────────────────────────────────────
-// Replace with your own values from dash.applovin.com
-// SDK Key (86 chars): dash.applovin.com/o/account
-// Ad Unit IDs (16 chars): dash.applovin.com/o/mediation/ad_units
-const _kAppLovinSdkKey =
-    'YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD';
-const _kAppLovinBannerId       = 'YOUR_BANNER_AD_UNIT_ID';
+// ═══════════════════════════════════════════════════════════════════════════
+// §1  Constants + DemoConfig + VIP validator
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Replace with your own AppLovin keys; AdMob test IDs below are public and
+/// always valid (Google's test units).
+const _kAppLovinSdkKey = 'YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD';
+const _kAppLovinBannerId = 'YOUR_BANNER_AD_UNIT_ID';
 const _kAppLovinInterstitialId = 'YOUR_INTERSTITIAL_AD_UNIT_ID';
-const _kAppLovinAppOpenId      = 'YOUR_APP_OPEN_AD_UNIT_ID';
-const _kAppLovinRewardedId     = 'YOUR_REWARDED_AD_UNIT_ID';
-// ─────────────────────────────────────────────────────────────────────────────
+const _kAppLovinAppOpenId = 'YOUR_APP_OPEN_AD_UNIT_ID';
+const _kAppLovinRewardedId = 'YOUR_REWARDED_AD_UNIT_ID';
 
-// ── AdMob credentials (Google test IDs — replace with real ones for prod) ────
-// Real IDs: console.admob.google.com
-const _kAdmobBannerId       = 'ca-app-pub-3940256099942544/6300978111';
-const _kAdmobInterstitialId = 'ca-app-pub-3940256099942544/1033173712';
-const _kAdmobAppOpenId      = 'ca-app-pub-3940256099942544/9257395921';
-const _kAdmobRewardedId     = 'ca-app-pub-3940256099942544/5224354917';
-// ─────────────────────────────────────────────────────────────────────────────
+/// Provider for this app — chosen once. Change to [AdProvider.appLovin] and
+/// rebuild to test AppLovin (after replacing the YOUR_* keys above).
+const AdProvider kProvider = AdProvider.admob;
 
-// ════════════════════════════════════════════════════════════════════════════
-// ENTRY POINT
-// ════════════════════════════════════════════════════════════════════════════
+/// VIP demo keys (Q28 — user-supplied).
+const Map<String, Duration> kDemoVipKeys = {
+  'TEST_VIP_7': Duration(days: 7),
+  'TEST_VIP_30': Duration(days: 30),
+  'TEST_VIP_90': Duration(days: 90),
+};
 
-/// Entry point — DO NOT initialize AdManager here.
-/// AdManager is initialized inside SplashScreen so that
-/// the EventBus fires AFTER the listener is registered.
-final _navigatorKey = GlobalKey<NavigatorState>();
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // Register navigator key so SDK can show loading dialogs from lifecycle observer
-  AdManager().setNavigatorKey(_navigatorKey);
-  runApp(const AdSdkExampleApp());
+/// Validator wired into [AdConfig.vipKeyValidator] — only the demo keys above
+/// are valid. In a real app this calls your server.
+Future<bool> demoVipValidator(String key) async {
+  await Future<void>.delayed(const Duration(milliseconds: 600));
+  return kDemoVipKeys.containsKey(key);
 }
 
-class AdSdkExampleApp extends StatelessWidget {
-  const AdSdkExampleApp({super.key});
+/// Builds the [AdConfig] used by the demo. Provider is a compile-time const
+/// (`kProvider` above) — runtime swap is intentionally NOT exposed because
+/// the SDK is designed to be initialised once per app process.
+class DemoConfig {
+  DemoConfig._();
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ad_sdk Example',
-      debugShowCheckedModeBanner: kDebugMode,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
+  static final DemoConfig instance = DemoConfig._();
+
+  AdConfig build() {
+    return AdConfig(
+      provider: kProvider,
+      admob: const AdMobConfig(
+        bannerId: 'ca-app-pub-3940256099942544/6300978111',
+        interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+        appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+        rewardedId: 'ca-app-pub-3940256099942544/5224354917',
       ),
-      // ⚠️ Required: register route observers for RouteAware banner lifecycle
-      navigatorKey: _navigatorKey,
-      navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
-      home: const SplashScreen(),
+      appLovin: const AppLovinConfig(
+        sdkKey: _kAppLovinSdkKey,
+        bannerId: _kAppLovinBannerId,
+        interstitialId: _kAppLovinInterstitialId,
+        appOpenId: _kAppLovinAppOpenId,
+        rewardedId: _kAppLovinRewardedId,
+      ),
+      logLevel: AdLogLevel.verbose,
+      onLog: LogBuffer.instance.sink,
+      vipKeyValidator: demoVipValidator,
+      adNotReadyMessage: 'Ad not ready — please wait.',
+      adLoadingMessage: 'Loading…',
+      splashMaxDuration: const Duration(seconds: 8),
+      // Demo always uses the loose preset (999 caps, 2 s throttle, 0 s
+      // warm-up) regardless of debug/release. Lets QA pound the buttons
+      // without hitting any safety wall.
+      // ⚠️ DO NOT copy this into a production app — use AdSafetyParams.auto
+      // (default) or AdSafetyParams.production there.
+      safety: kDemoSafetyParams,
+      // First-install VIP grace: 30 s in debug (so QA can verify "after
+      // grace expires, ads return" without waiting 24 h), 24 h in release.
+      // Other options:
+      //   FirstInstallVipGrace.disabled                    → never grant
+      //   FirstInstallVipGrace.day                         → force 24 h both modes
+      //   FirstInstallVipGrace(Duration(hours: 12))        → custom
+      firstInstallVipGrace: FirstInstallVipGrace.auto,
+      // Auto-show Cupertino consent dialog ~1 s after splash → home (skipped
+      // for VIP users — first 30 s of debug install stays silent because
+      // grace is active). Strings default to English; consumers override
+      // via consentDialogStrings: ConsentDialogStrings.vi etc.
+      autoShowConsentDialog: true,
+      consentDialogPostSplashDelay: const Duration(seconds: 1),
     );
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SPLASH SCREEN
-// ════════════════════════════════════════════════════════════════════════════
+/// Single set of safety params used by this demo for both debug and release.
+/// All caps are 999 / throttle 2 s / no warm-up — chosen for easy QA testing.
+const AdSafetyParams kDemoSafetyParams = AdSafetyParams(
+  minTimeBetweenFullscreenAds: 2000, // 2 s between fullscreen ads
+  maxFullscreenAdsPerSession: 999,
+  maxFullscreenAdsPerHour: 999,
+  maxFullscreenAdsPerDay: 999,
+  minSessionDurationBeforeAd: 0,
+  minTimeAppOpenResume: 0,
+  maxClicksPerMinute: 999,
+  suspiciousCtrThreshold: 1.0, // CTR fraud check effectively disabled
+  maxRapidResumesPerMinute: 999,
+  dryRun: false,
+);
 
-/// SplashScreen — initializes AdManager, shows App Open Ad, then navigates.
-///
-/// AdManager.initialize() is called HERE (not in main) so that
-/// SimpleEventBus.fire() always happens AFTER the listener is registered.
+// ═══════════════════════════════════════════════════════════════════════════
+// §2  LogBuffer — in-memory ring of SDK logs
+// ═══════════════════════════════════════════════════════════════════════════
+
+class LogBuffer {
+  LogBuffer._();
+
+  static final LogBuffer instance = LogBuffer._();
+
+  static const int _maxEntries = 200;
+  final List<LogEntry> _entries = [];
+
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  void Function(AdLogLevel, String, String) get sink => _onLog;
+
+  void _onLog(AdLogLevel level, String tag, String message) {
+    _entries.add(LogEntry(
+      timestamp: DateTime.now(),
+      level: level,
+      tag: tag,
+      message: message,
+    ));
+    if (_entries.length > _maxEntries) {
+      _entries.removeAt(0);
+    }
+    revision.value = revision.value + 1;
+  }
+
+  List<LogEntry> snapshot() => List.unmodifiable(_entries);
+
+  void clear() {
+    _entries.clear();
+    revision.value = revision.value + 1;
+  }
+}
+
+class LogEntry {
+  const LogEntry({
+    required this.timestamp,
+    required this.level,
+    required this.tag,
+    required this.message,
+  });
+
+  final DateTime timestamp;
+  final AdLogLevel level;
+  final String tag;
+  final String message;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §3  Entry: main() + SplashScreen
+// ═══════════════════════════════════════════════════════════════════════════
+
+final _navigatorKey = GlobalKey<NavigatorState>();
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Edge-to-edge: status bar + nav bar transparent, content paints behind them.
+  // Required on Android 15+ (target SDK 35) and recommended on older versions.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
+  // ⚠️ Required: register navigator key BEFORE runApp so the SDK can show
+  // loading dialogs from lifecycle observer (App Open on resume).
+  AdManager().setNavigatorKey(_navigatorKey);
+  runApp(MaterialApp(
+    title: 'ad_sdk demo',
+    debugShowCheckedModeBanner: kDebugMode,
+    navigatorKey: _navigatorKey,
+    // ⚠️ Required: register route observers for RouteAware banner lifecycle.
+    navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
+    theme: ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+      useMaterial3: true,
+    ),
+    // DebugAdOverlay floats over every screen (kDebugMode only). Wrapping
+    // here instead of inside HomePage means the overlay stays visible while
+    // the user navigates into any demo page.
+    builder: (context, child) {
+      if (child == null) return const SizedBox.shrink();
+      return Stack(
+        children: [
+          child,
+          const DebugAdOverlay(),
+        ],
+      );
+    },
+    home: const SplashScreen(),
+  ));
+}
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -76,13 +236,9 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  // ── State (ValueNotifier — no setState needed) ──
-  final ValueNotifier<String> _statusNotifier = ValueNotifier('Initializing…');
-
-  // ── Internal ──
-  bool _hasNavigated = false;
-  void Function(BoolEvent)? _eventListener;
-  Timer? _hardCapTimer;
+  final ValueNotifier<bool> _navigated = ValueNotifier<bool>(false);
+  Timer? _hardCap;
+  void Function(BoolEvent)? _listener;
 
   @override
   void initState() {
@@ -90,315 +246,281 @@ class _SplashScreenState extends State<SplashScreen> {
     AdManager().markSplashActive();
     AdManager().incrementSplashCount();
 
-    // Skip ad flow if splash was already shown before (cold re-open)
     if (AdManager().countInitSplashScreen > 1) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _navigateHome());
+      WidgetsBinding.instance.addPostFrameCallback((_) => _goHome());
       return;
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // PLACEHOLDER CHECK — detect unfilled example IDs
-    // ──────────────────────────────────────────────────────────────
-    // AppLovin has NO universal test IDs (unlike AdMob).
-    // You MUST create real ad units in your AppLovin MAX dashboard:
-    //   https://dash.applovin.com/o/mediation/ad_units
-    // Then replace the YOUR_* strings in the AdConfig below.
-    //
-    // SDK Key: 86-character string from https://dash.applovin.com/o/account
-    // Ad Unit IDs: 16-character strings from MAX dashboard
-    // ──────────────────────────────────────────────────────────────
-    if (_hasPlaceholderIds()) {
-      SafeLogger.e(
-        'SplashExample',
-        '══════════════════════════════════════════════════════\n'
-        '  ⚠️  PLACEHOLDER IDs DETECTED — ads will NOT load   \n'
-        '  Replace YOUR_* values in main.dart with:           \n'
-        '  • SDK Key (86 chars): dash.applovin.com/o/account  \n'
-        '  • Ad Unit IDs (16 chars): dash.applovin.com         \n'
-        '  UI demo mode: navigating directly to HomeScreen.    \n'
-        '══════════════════════════════════════════════════════',
-      );
-      _statusNotifier.value = 'Demo mode (no real Ad IDs)';
-      // Skip ad init, go straight to UI demo
-      _hardCapTimer = Timer(const Duration(seconds: 2), _navigateHome);
-      return;
-    }
+    _hardCap = Timer(const Duration(seconds: 8), _goHome);
 
-    // Hard cap 8s — prevent stuck splash
-    _hardCapTimer = Timer(const Duration(seconds: 8), () {
-      SafeLogger.d('SplashExample', '⏰ Hard cap 8s → force navigate');
-      _navigateHome();
-    });
+    // ⚠️ Register listener BEFORE calling initialize() — EventBus only
+    // delivers fire events to listeners that registered first.
+    void onEvent(BoolEvent e) => e.value ? _showAppOpen() : _goHome();
+    _listener = onEvent;
+    SimpleEventBus().listen(onEvent);
 
-    // Register EventBus BEFORE calling initialize()
-    _eventListener = (event) {
-      SafeLogger.d('SplashExample', 'EventBus: ${event.value}');
-      if (event.value) {
-        _statusNotifier.value = 'Loading Ad…';
-        _loadAndShowAppOpenAd();
-      } else {
-        _navigateHome(); // SDK init failed
-      }
-    };
-    SimpleEventBus().listen(_eventListener!);
-
-    // Initialize AdManager — fires EventBus when done
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AdManager().initialize(
-        config: const AdConfig(
-          // ← Switch provider here: AdProvider.admob or AdProvider.appLovin
-          provider: AdProvider.appLovin,
-          admob: AdMobConfig(
-            bannerId: _kAdmobBannerId,
-            interstitialId: _kAdmobInterstitialId,
-            appOpenId: _kAdmobAppOpenId,
-            rewardedId: _kAdmobRewardedId,
-          ),
-          appLovin: AppLovinConfig(
-            sdkKey: _kAppLovinSdkKey,
-            bannerId: _kAppLovinBannerId,
-            interstitialId: _kAppLovinInterstitialId,
-            appOpenId: _kAppLovinAppOpenId,
-            rewardedId: _kAppLovinRewardedId,
-          ),
-          vipDeviceGaids: [],
-          loadingBufferMs: 1000,
-          adNotReadyMessage: 'Ad not ready — please wait and try again.',
-          adLoadingMessage: 'Loading…',
-        ),
-        onComplete: (success, gaid) {
-          SafeLogger.d('SplashExample', 'init done: success=$success, gaid=$gaid');
-        },
+        config: DemoConfig.instance.build(),
+        onComplete: (success, gaid) {},
       );
     });
   }
 
-  /// Returns true if any AppLovin credential is still a placeholder.
-  bool _hasPlaceholderIds() {
-    return _kAppLovinSdkKey.startsWith('YOUR_') ||
-        _kAppLovinBannerId.startsWith('YOUR_') ||
-        _kAppLovinInterstitialId.startsWith('YOUR_');
-  }
-
-  void _loadAndShowAppOpenAd() {
+  void _showAppOpen() {
     AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-      SafeLogger.d('SplashExample', 'loadAppOpenAd result=$loaded');
-      if (_hasNavigated) return;
-
-      if (loaded) {
-        if (!mounted) { _navigateHome(); return; }
-        AdLoadingDialog.showAdBuffer(context, onComplete: () {
-          if (!mounted) { _navigateHome(); return; }
-          // Cancel hard cap BEFORE showing ad — timer must not interrupt an active ad
-          _hardCapTimer?.cancel();
-          _hardCapTimer = null;
-          AdManager().showAppOpenAd(
-            bypassSafety: true,
-            onAdDismiss: (_) => _navigateHome(),
-          );
-        });
-      } else {
-        _navigateHome();
+      if (_navigated.value) return;
+      if (!loaded || !mounted) {
+        _goHome();
+        return;
       }
+      AdLoadingDialog.showAdBuffer(context, onComplete: () {
+        if (!mounted) {
+          _goHome();
+          return;
+        }
+        // Cancel hard cap BEFORE showing ad — ad takes over the timer's job.
+        _hardCap?.cancel();
+        _hardCap = null;
+        AdManager().showAppOpenAd(
+          bypassSafety: true, // splash flow is the ONE place safety is bypassed
+          onAdDismiss: (_) => _goHome(),
+        );
+      });
     });
   }
 
-  void _navigateHome() {
-    if (_hasNavigated) return;
-    _hasNavigated = true;
-
-    // Clean up
-    _hardCapTimer?.cancel();
-    _hardCapTimer = null;
-    if (_eventListener != null) {
-      SimpleEventBus().remove(_eventListener!);
-      _eventListener = null;
-    }
-    AdManager().markSplashInactive(); // Called exactly once here
-
+  void _goHome() {
+    if (_navigated.value) return;
+    _navigated.value = true;
+    _hardCap?.cancel();
+    _hardCap = null;
+    final cb = _listener;
+    if (cb != null) SimpleEventBus().remove(cb);
+    _listener = null;
+    AdManager().markSplashInactive();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(builder: (_) => const HomePage()),
     );
   }
 
   @override
   void dispose() {
-    _hardCapTimer?.cancel();
-    // Guard: if disposed before navigated (e.g. hot restart in debug)
-    if (_eventListener != null) {
-      SimpleEventBus().remove(_eventListener!);
-      _eventListener = null;
-    }
-    _statusNotifier.dispose();
+    _hardCap?.cancel();
+    final cb = _listener;
+    if (cb != null) SimpleEventBus().remove(cb);
+    _navigated.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.deepPurple.shade900,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.ads_click, size: 80, color: Colors.white),
-            const SizedBox(height: 24),
-            const Text(
-              'ad_sdk',
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: 2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Dual-provider Ad SDK Demo',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-            const SizedBox(height: 40),
-            ValueListenableBuilder<String>(
-              valueListenable: _statusNotifier,
-              builder: (_, status, __) => Text(
-                status,
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const CircularProgressIndicator(color: Colors.white),
-            if (kDebugMode) ...[
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: _navigateHome,
-                child: const Text('Skip (debug)', style: TextStyle(color: Colors.white54)),
-              ),
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.deepPurple.shade900,
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.ads_click, size: 80, color: Colors.white),
+              SizedBox(height: 24),
+              Text('ad_sdk',
+                  style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: 2)),
+              SizedBox(height: 32),
+              CircularProgressIndicator(color: Colors.white),
             ],
-          ],
+          ),
         ),
-      ),
-    );
-  }
+      );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// HOME SCREEN
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// §4  Shared: DemoTile widget + edge-to-edge helpers
+// ═══════════════════════════════════════════════════════════════════════════
 
-/// HomeScreen — extends AdScreen to get banner + interstitial + rewarded helpers.
-class HomeScreen extends AdScreen {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
+/// Adds the system nav-bar inset to the bottom of [base] so the last item in a
+/// scrollable isn't hidden behind the (transparent) Android nav bar in
+/// edge-to-edge mode.
+EdgeInsets _bottomSafe(BuildContext context, EdgeInsets base) {
+  final inset = MediaQuery.paddingOf(context).bottom;
+  return EdgeInsets.fromLTRB(base.left, base.top, base.right, base.bottom + inset);
 }
 
-class _HomeScreenState extends AdScreenState<HomeScreen> {
-  // ── ValueNotifiers (no setState) ──
-  final ValueNotifier<int> _interCountNotifier = ValueNotifier(0);
-  final ValueNotifier<String> _rewardStatusNotifier = ValueNotifier('Unlock premium content');
+class DemoTile extends StatelessWidget {
+  const DemoTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.color = Colors.blue,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Color color;
 
   @override
-  void dispose() {
-    _interCountNotifier.dispose();
-    _rewardStatusNotifier.dispose();
-    super.dispose();
-  }
+  Widget build(BuildContext context) => Card(
+        elevation: 1,
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: ListTile(
+          leading: CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.15),
+            child: Icon(icon, color: color),
+          ),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+          onTap: onTap,
+        ),
+      );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §5  HomePage — list of all demos
+// ═══════════════════════════════════════════════════════════════════════════
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ad_sdk Demo'),
+        title: const Text('ad_sdk demo'),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
       ),
+      // DebugAdOverlay is mounted at MaterialApp.builder so it floats over
+      // every page, not just HomePage.
+      body: ListView(
+        padding: _bottomSafe(context, const EdgeInsets.symmetric(vertical: 8)),
+        children: [
+          DemoTile(
+            icon: Icons.image,
+                title: 'Banner ad',
+                subtitle: 'Anchored adaptive banner with route lifecycle',
+                color: Colors.blue,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BannerDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.fullscreen,
+                title: 'Interstitial ad',
+                subtitle: 'Show + safety gate + counter',
+                color: Colors.indigo,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InterstitialDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.star,
+                title: 'Rewarded ad',
+                subtitle: 'Show + reward + VIP auto-grant toggle',
+                color: Colors.orange,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RewardedDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.open_in_new,
+                title: 'App-open ad',
+                subtitle: 'Background → foreground triggers',
+                color: Colors.green,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AppOpenDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.workspace_premium,
+                title: 'VIP / redeem',
+                subtitle: 'Cupertino dialog + 7/30/90 day keys',
+                color: Colors.purple,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VipDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.privacy_tip,
+                title: 'Consent / GDPR',
+                subtitle: 'Consent flags + provider propagation',
+                color: Colors.teal,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ConsentDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.shield,
+                title: 'Safety status',
+                subtitle: 'Caps, throttle, dryRun mode, presets',
+                color: Colors.red,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SafetyDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.terminal,
+                title: 'Log viewer',
+                subtitle: 'Ring buffer of SDK logs',
+                color: Colors.grey,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogViewerDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.attach_money,
+                title: 'Revenue dashboard',
+                subtitle: '\$ from onPaidEvent stream',
+                color: Colors.lightGreen,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RevenueDemoPage())),
+              ),
+              DemoTile(
+                icon: Icons.dashboard,
+                title: 'Slot state panel',
+                subtitle: 'Live AdSlot state + manual destroy/reinit',
+                color: Colors.cyan,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatePanelDemoPage())),
+              ),
+          DemoTile(
+            icon: Icons.stream,
+            title: 'AdEvent stream',
+            subtitle: 'All load/show/click/reward/revenue events live',
+            color: Colors.deepOrange,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EventsDemoPage())),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §6  Demo: Banner
+// ═══════════════════════════════════════════════════════════════════════════
+
+class BannerDemoPage extends AdScreen {
+  const BannerDemoPage({super.key});
+
+  @override
+  State<BannerDemoPage> createState() => _BannerDemoPageState();
+}
+
+class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Banner demo')),
       body: Column(
         children: [
-          // ── Banner at top ── (RouteAware, lifecycle-managed automatically)
           buildBanner(),
-
-          // ── Content ──
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Ad Touch Points',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
+            child: ListView(
+              padding: _bottomSafe(context, EdgeInsets.zero),
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.navigate_next),
+                  title: const Text('Push another screen (verifies pause/resume)'),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const _BannerSecondScreen()),
                   ),
-                  const SizedBox(height: 24),
-
-                  // ── Interstitial ──
-                  ValueListenableBuilder<int>(
-                    valueListenable: _interCountNotifier,
-                    builder: (_, count, __) => _DemoCard(
-                      icon: Icons.fullscreen,
-                      title: 'Interstitial Ad',
-                      subtitle: 'Shown $count times',
-                      color: Colors.blue,
-                      onTap: () => showInterstitialAd(onDone: (shown) {
-                        if (shown) _interCountNotifier.value++;
-                      }),
-                    ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Banner refreshes here. Push the second screen — banner '
+                    'pauses on AppLovin / hides on AdMob. Pop back to resume.',
+                    style: TextStyle(color: Colors.grey),
                   ),
-                  const SizedBox(height: 12),
-
-                  // ── Rewarded ──
-                  ValueListenableBuilder<String>(
-                    valueListenable: _rewardStatusNotifier,
-                    builder: (_, status, __) => _DemoCard(
-                      icon: Icons.star,
-                      title: 'Rewarded Ad',
-                      subtitle: status,
-                      color: Colors.orange,
-                      onTap: () => showRewardedAd(onEarnedReward: (earned) {
-                        _rewardStatusNotifier.value = earned
-                            ? '✅ Reward earned!'
-                            : '❌ Ad skipped or unavailable';
-                      }),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── App Open info ──
-                  const _DemoCard(
-                    icon: Icons.open_in_new,
-                    title: 'App Open Ad',
-                    subtitle: 'Background the app and return',
-                    color: Colors.green,
-                    onTap: null,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── Navigate to Screen A (multi-screen demo) ──
-                  _DemoCard(
-                    icon: Icons.navigate_next,
-                    title: 'Multi-screen Ad Flow',
-                    subtitle: 'Screen A → B → C with banner + interstitial',
-                    color: Colors.purple,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ScreenA()),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // ── Safety status ──
-                  ValueListenableBuilder<bool>(
-                    valueListenable: AdManager().bannerIsLoaded,
-                    builder: (_, loaded, __) => Text(
-                      'Banner loaded: $loaded\n${AdSafetyConfig.getStatus()}',
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -407,216 +529,1041 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
   }
 }
 
-// ─────────────────────────────────────────
-// Reusable demo card widget
-// ─────────────────────────────────────────
-class _DemoCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback? onTap;
-
-  const _DemoCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
+class _BannerSecondScreen extends AdScreen {
+  const _BannerSecondScreen();
 
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.15),
-          child: Icon(icon, color: color),
+  State<_BannerSecondScreen> createState() => _BannerSecondScreenState();
+}
+
+class _BannerSecondScreenState extends AdScreenState<_BannerSecondScreen> {
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Second route')),
+        body: SafeArea(
+          top: false,
+          child: Column(children: [
+            const Expanded(child: Center(child: Text('Banner pauses on previous'))),
+            buildBanner(),
+          ]),
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle),
-        trailing: onTap != null
-            ? Icon(Icons.play_arrow, color: color)
-            : const Icon(Icons.info_outline, color: Colors.grey),
-        onTap: onTap,
-      ),
-    );
-  }
+      );
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SCREEN A
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// §7  Demo: Interstitial
+// ═══════════════════════════════════════════════════════════════════════════
 
-/// Demo Screen A — demonstrates interstitial + rewarded ads using AdScreen.
-class ScreenA extends AdScreen {
-  const ScreenA({super.key});
+class InterstitialDemoPage extends AdScreen {
+  const InterstitialDemoPage({super.key});
 
   @override
-  State<ScreenA> createState() => _ScreenAState();
+  State<InterstitialDemoPage> createState() => _InterstitialDemoPageState();
 }
 
-class _ScreenAState extends AdScreenState<ScreenA> {
-  final ValueNotifier<int> _coinsNotifier = ValueNotifier<int>(0);
+class _InterstitialDemoPageState extends AdScreenState<InterstitialDemoPage> {
+  final ValueNotifier<int> _shownCount = ValueNotifier<int>(0);
+  final ValueNotifier<String> _lastResult = ValueNotifier<String>('—');
 
   @override
   void dispose() {
-    _coinsNotifier.dispose();
+    _shownCount.dispose();
+    _lastResult.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Screen A — Ad Demo')),
-      body: SafeArea(
+      appBar: AppBar(title: const Text('Interstitial demo')),
+      body: Padding(
+        padding: _bottomSafe(context, const EdgeInsets.all(24)),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
+            ValueListenableBuilder<int>(
+              valueListenable: _shownCount,
+              builder: (_, c, __) =>
+                  Text('Shown: $c times', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 8),
+            ValueListenableBuilder<String>(
+              valueListenable: _lastResult,
+              builder: (_, r, __) => Text('Last: $r', style: const TextStyle(color: Colors.grey)),
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () {
+                showInterstitialAd(onDone: (shown) {
+                  _lastResult.value = shown ? 'shown ✅' : 'skipped/blocked ❌';
+                  if (shown) _shownCount.value = _shownCount.value + 1;
+                });
+              },
+              child: const Text('Show interstitial'),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'SDK runs: pre-check (canShowInterstitial) → 1 s loading dialog → '
+              'native show. If safety blocks, "skipped" returns immediately.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §8  Demo: Rewarded
+// ═══════════════════════════════════════════════════════════════════════════
+
+class RewardedDemoPage extends AdScreen {
+  const RewardedDemoPage({super.key});
+
+  @override
+  State<RewardedDemoPage> createState() => _RewardedDemoPageState();
+}
+
+class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
+  final ValueNotifier<int> _coins = ValueNotifier<int>(0);
+  final ValueNotifier<bool> _vipAutoGrant = ValueNotifier<bool>(false);
+  final ValueNotifier<String> _last = ValueNotifier<String>('—');
+
+  @override
+  void dispose() {
+    _coins.dispose();
+    _vipAutoGrant.dispose();
+    _last.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Rewarded demo')),
+      body: Padding(
+        padding: _bottomSafe(context, const EdgeInsets.all(24)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ValueListenableBuilder<int>(
+              valueListenable: _coins,
+              builder: (_, c, __) =>
+                  Text('Coins: $c', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 8),
+            ValueListenableBuilder<String>(
+              valueListenable: _last,
+              builder: (_, r, __) => Text('Last: $r', style: const TextStyle(color: Colors.grey)),
+            ),
+            const SizedBox(height: 24),
+            ValueListenableBuilder<bool>(
+              valueListenable: _vipAutoGrant,
+              builder: (_, on, __) => SwitchListTile(
+                value: on,
+                onChanged: (v) => _vipAutoGrant.value = v,
+                title: const Text('VIP auto-grant'),
+                subtitle: const Text('When VIP, auto-mark reward earned (Q12B: opt-in only).'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () {
+                showRewardedAd(
+                  vipAutoGrant: _vipAutoGrant.value,
+                  onEarnedReward: (earned) {
+                    _last.value = earned ? 'earned 🏆' : 'skipped/blocked ❌';
+                    if (earned) _coins.value = _coins.value + 10;
+                  },
+                );
+              },
+              child: const Text('Watch ad for +10 coins'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §9  Demo: App Open
+// ═══════════════════════════════════════════════════════════════════════════
+
+class AppOpenDemoPage extends StatelessWidget {
+  const AppOpenDemoPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('App-open demo')),
+      body: Padding(
+        padding: _bottomSafe(context, const EdgeInsets.all(24)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ValueListenableBuilder<int>(
-                      valueListenable: _coinsNotifier,
-                      builder: (_, coins, __) => Text(
-                        'Coins: $coins',
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'How to test:\n'
+                  '1. Press the home button to background the app.\n'
+                  '2. Wait > 5 s.\n'
+                  '3. Tap the app icon to return — you should see the App Open ad.\n'
+                  '\n'
+                  'Cold start protection skips the very first foreground event.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () {
+                AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(loaded ? 'App open ad ready ✅' : 'Load failed ❌'),
+                  ));
+                });
+              },
+              child: const Text('Force load App Open'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §10  Demo: VIP redeem (Cupertino dialog)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class VipDemoPage extends StatefulWidget {
+  const VipDemoPage({super.key});
+
+  @override
+  State<VipDemoPage> createState() => _VipDemoPageState();
+}
+
+class _VipDemoPageState extends State<VipDemoPage> {
+  final TextEditingController _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _redeem(String key, Duration duration) async {
+    final vip = AdManager().vip;
+    if (vip == null) return;
+    await vip.redeemVip(
+      context,
+      key: key,
+      duration: duration,
+      validator: AdManager().config?.vipKeyValidator,
+      strings: AdManager().config?.vipDialogStrings ?? const VipDialogStrings(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: AdManager().initRevision,
+      builder: (context, _, __) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    final vip = AdManager().vip;
+    return Scaffold(
+      appBar: AppBar(title: const Text('VIP demo')),
+      body: ListView(
+        padding: _bottomSafe(context, const EdgeInsets.all(16)),
+        children: [
+            // Status card
+            if (vip != null)
+              ValueListenableBuilder<bool>(
+                valueListenable: vip.activeListenable,
+                builder: (_, active, __) {
+                  final exp = vip.expiresAt;
+                  return Card(
+                    color: active ? Colors.purple.shade50 : Colors.grey.shade100,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            active ? '🟣 VIP active' : '⚪ VIP inactive',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          if (active && exp != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text('Until ${exp.toLocal().toIso8601String().substring(0, 16)}'),
+                            ),
+                          if (vip.entries.isNotEmpty) ...[
+                            const Divider(),
+                            const Text('Entries:', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            ...vip.entries.map((e) => Text(
+                                  '• ${e.key} → ${e.expiresAt.toLocal().toIso8601String().substring(0, 16)}',
+                                  style: const TextStyle(fontSize: 12),
+                                )),
+                          ],
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Show Interstitial → Screen B'),
-                      onPressed: () {
-                        showInterstitialAd(onDone: (shown) {
-                          SafeLogger.d('ScreenA', 'interstitial result: $shown');
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const ScreenB()),
-                          );
-                        });
-                      },
+                  );
+                },
+              ),
+            const SizedBox(height: 16),
+
+            // Quick redeem buttons
+            const Text('Quick redeem', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: kDemoVipKeys.entries
+                  .map((e) => OutlinedButton(
+                        onPressed: () => _redeem(e.key, e.value),
+                        child: Text('${e.key}\n(${e.value.inDays} days)', textAlign: TextAlign.center),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(height: 24),
+
+            // Custom redeem
+            const Text('Custom key (1-day duration)', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _ctrl,
+                    decoration: const InputDecoration(
+                      hintText: 'enter key',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.monetization_on),
-                      label: const Text('Watch Ad for 10 Coins'),
-                      onPressed: () {
-                        showRewardedAd(
-                          onEarnedReward: (earned) {
-                            if (earned) {
-                              SafeLogger.d('ScreenA', '🎉 Rewarded! +10 coins');
-                              _coinsNotifier.value += 10;
-                            }
-                            // else: SDK already showed TopToast automatically
-                          },
-                        );
-                      },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => _redeem(_ctrl.text, const Duration(days: 1)),
+                  child: const Text('Redeem'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Revoke
+            FilledButton.tonal(
+              onPressed: () async {
+                await vip?.revokeAll();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('All VIP entries revoked')),
+                  );
+                }
+              },
+              child: const Text('Revoke ALL'),
+            ),
+          ],
+        ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §11  Demo: Consent / GDPR / COPPA / CCPA
+// ═══════════════════════════════════════════════════════════════════════════
+
+class ConsentDemoPage extends StatefulWidget {
+  const ConsentDemoPage({super.key});
+
+  @override
+  State<ConsentDemoPage> createState() => _ConsentDemoPageState();
+}
+
+class _ConsentDemoPageState extends State<ConsentDemoPage> {
+  final ValueNotifier<bool> _hasConsent = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _isAge = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _doNotSell = ValueNotifier<bool>(false);
+
+  @override
+  void initState() {
+    super.initState();
+    _hasConsent.value = AdManager().consent.hasUserConsent;
+    _isAge.value = AdManager().consent.isAgeRestrictedUser;
+    _doNotSell.value = AdManager().consent.doNotSell;
+  }
+
+  @override
+  void dispose() {
+    _hasConsent.dispose();
+    _isAge.dispose();
+    _doNotSell.dispose();
+    super.dispose();
+  }
+
+  Widget _row(String label, ValueNotifier<bool> n, String help) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: n,
+      builder: (_, on, __) => SwitchListTile(
+        value: on,
+        onChanged: (v) => n.value = v,
+        title: Text(label),
+        subtitle: Text(help),
+      ),
+    );
+  }
+
+  void _syncFromSdk() {
+    _hasConsent.value = AdManager().consent.hasUserConsent;
+    _isAge.value = AdManager().consent.isAgeRestrictedUser;
+    _doNotSell.value = AdManager().consent.doNotSell;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Rebuild + resync local toggles whenever SDK destroy/reinit fires.
+    return ValueListenableBuilder<int>(
+      valueListenable: AdManager().initRevision,
+      builder: (context, _, __) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _syncFromSdk();
+        });
+        return _build(context);
+      },
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Consent demo')),
+      body: ListView(
+        padding: _bottomSafe(context, EdgeInsets.zero),
+        children: [
+          _row('GDPR consent (hasUserConsent)', _hasConsent, 'EEA users — set after UMP form ACCEPT.'),
+          _row('Age-restricted (COPPA)', _isAge, 'App targets children < 13 → tagForChildDirectedTreatment=YES.'),
+          _row('Do-not-sell (CCPA)', _doNotSell, 'California users opt-out of personal-data sale.'),
+          const SizedBox(height: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: FilledButton(
+              onPressed: () async {
+                await AdManager().setConsent(AdConsent(
+                  hasUserConsent: _hasConsent.value,
+                  isAgeRestrictedUser: _isAge.value,
+                  doNotSell: _doNotSell.value,
+                ));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('Consent applied to both providers ✅')));
+                }
+              },
+              child: const Text('Apply consent to providers'),
+            ),
+          ),
+          const Divider(height: 32),
+          // ─── ConsentManager (Cupertino dialog) ──────────────────────────
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              'ConsentManager — built-in Cupertino dialog (auto-shown post-splash on first launch)',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+          ValueListenableBuilder<ConsentSettings>(
+            valueListenable: ConsentManager.instance.listenable,
+            builder: (_, s, __) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Card(
+                color: s.hasBeenAsked ? Colors.green.shade50 : Colors.amber.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.hasBeenAsked ? '✅ User has been asked' : '⚠️ Not asked yet',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'consent=${s.hasUserConsent}  coppa=${s.isAgeRestrictedUser}  ccpa=${s.doNotSell}',
+                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                      ),
+                      if (s.askedAt != null)
+                        Text('askedAt=${s.askedAt!.toLocal().toIso8601String().substring(0, 19)}',
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  icon: const Icon(Icons.help_outline),
+                  label: const Text('Show consent dialog'),
+                  onPressed: () async {
+                    await ConsentManager.instance.showDialog(
+                      context,
+                      config: AdManager().config,
+                    );
+                  },
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reset (re-prompt next launch)'),
+                  onPressed: () async {
+                    await ConsentManager.instance.reset(config: AdManager().config);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Consent reset — next init will re-prompt')),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Note: the SDK auto-shows the binary dialog ~1s AFTER markSplashInactive '
+              'on first launch (default behaviour, controlled by AdConfig.autoShowConsentDialog). '
+              'iOS ATT prompt is still caller responsibility — see README.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §12  Demo: Safety status + presets
+// ═══════════════════════════════════════════════════════════════════════════
+
+class SafetyDemoPage extends StatefulWidget {
+  const SafetyDemoPage({super.key});
+
+  @override
+  State<SafetyDemoPage> createState() => _SafetyDemoPageState();
+}
+
+class _SafetyDemoPageState extends State<SafetyDemoPage> {
+  final ValueNotifier<int> _refresh = ValueNotifier<int>(0);
+
+  @override
+  void dispose() {
+    _refresh.dispose();
+    super.dispose();
+  }
+
+  AdSafetyParams get _activeParams => AdManager().config?.safety ?? AdSafetyParams.auto;
+
+  Widget _paramsCard(String title, AdSafetyParams p, {Color? color}) {
+    return Card(
+      color: color,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            Text(
+              'between=${p.minTimeBetweenFullscreenAds}ms\n'
+              'session=${p.maxFullscreenAdsPerSession} / hour=${p.maxFullscreenAdsPerHour} / day=${p.maxFullscreenAdsPerDay}\n'
+              'warmup=${p.minSessionDurationBeforeAd}ms / resume=${p.minTimeAppOpenResume}ms\n'
+              'clicks/min=${p.maxClicksPerMinute} / ctr=${p.suspiciousCtrThreshold}\n'
+              'rapidResume=${p.maxRapidResumesPerMinute} / dryRun=${p.dryRun}',
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Wrap with initRevision so destroy/reinit refreshes _activeParams display.
+    return ValueListenableBuilder<int>(
+      valueListenable: AdManager().initRevision,
+      builder: (context, _, __) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Safety demo')),
+      body: ValueListenableBuilder<int>(
+        valueListenable: _refresh,
+        builder: (_, __, ___) => ListView(
+          padding: _bottomSafe(context, const EdgeInsets.all(16)),
+          children: [
+            _paramsCard(
+              'Active params (demo: same for debug + release)',
+              _activeParams,
+              color: Colors.blue.shade50,
+            ),
+            const SizedBox(height: 12),
+            _paramsCard('Preset: AdSafetyParams.production', AdSafetyParams.production),
+            const SizedBox(height: 8),
+            _paramsCard('Preset: AdSafetyParams.debug', AdSafetyParams.debug),
+            const SizedBox(height: 8),
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  'How to customize from your app:\n'
+                  '\n'
+                  '// 1) Use a built-in preset\n'
+                  'safety: AdSafetyParams.debug\n'
+                  '\n'
+                  '// 2) Auto-pick (default — debug in dev, prod in release)\n'
+                  'safety: AdSafetyParams.auto\n'
+                  '\n'
+                  '// 3) Override only the knobs you care about\n'
+                  'safety: AdSafetyParams.production.copyWith(\n'
+                  '  maxFullscreenAdsPerDay: 10,\n'
+                  '  dryRun: kDebugMode,\n'
+                  ')',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
+              ),
+            ),
+            const Divider(height: 24),
+            const Text('Live status', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(AdSafetyConfig.getStatus(), style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+            const SizedBox(height: 12),
+            const Text('Latest fullscreen check', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Builder(builder: (_) {
+              final r = AdSafetyConfig.canShowFullscreenAd();
+              return Text(
+                'canShow=${r.canShow}\nreason=${r.reason}',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+              );
+            }),
+            const SizedBox(height: 16),
+            FilledButton.tonal(
+              onPressed: () {
+                AdSafetyConfig.resetSession();
+                _refresh.value = _refresh.value + 1;
+              },
+              child: const Text('Reset session counters'),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: () => _refresh.value = _refresh.value + 1,
+              child: const Text('Refresh'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §13  Demo: Log viewer
+// ═══════════════════════════════════════════════════════════════════════════
+
+class LogViewerDemoPage extends StatelessWidget {
+  const LogViewerDemoPage({super.key});
+
+  Color _colorFor(AdLogLevel l) => switch (l) {
+        AdLogLevel.verbose => Colors.grey,
+        AdLogLevel.warning => Colors.orange,
+        AdLogLevel.error => Colors.red,
+        AdLogLevel.none => Colors.black,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Log viewer'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: () => LogBuffer.instance.clear(),
+            tooltip: 'Clear',
+          ),
+        ],
+      ),
+      body: ValueListenableBuilder<int>(
+        valueListenable: LogBuffer.instance.revision,
+        builder: (_, __, ___) {
+          final entries = LogBuffer.instance.snapshot();
+          if (entries.isEmpty) {
+            return const Center(child: Text('(no logs yet)'));
+          }
+          return ListView.builder(
+            reverse: true,
+            padding: _bottomSafe(context, EdgeInsets.zero),
+            itemCount: entries.length,
+            itemBuilder: (_, i) {
+              final e = entries[entries.length - 1 - i];
+              final time = e.timestamp.toIso8601String().substring(11, 19);
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(time, style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.grey)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: _colorFor(e.level).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Text(e.level.name.toUpperCase(),
+                          style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 9,
+                              color: _colorFor(e.level),
+                              fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text('[${e.tag}] ${e.message}',
+                          style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
                     ),
                   ],
                 ),
-              ),
-            ),
-            buildBanner(),
-          ],
-        ),
+              );
+            },
+          );
+        },
       ),
     );
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SCREEN B
-// ════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// §14  Demo: Revenue dashboard
+// ═══════════════════════════════════════════════════════════════════════════
 
-/// Demo Screen B — demonstrates interstitial ad before navigation.
-class ScreenB extends AdScreen {
-  const ScreenB({super.key});
+class RevenueDemoPage extends StatelessWidget {
+  const RevenueDemoPage({super.key});
 
-  @override
-  State<ScreenB> createState() => _ScreenBState();
-}
-
-class _ScreenBState extends AdScreenState<ScreenB> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Screen B — Interstitial Demo'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
+      appBar: AppBar(title: const Text('Revenue dashboard')),
+      body: Padding(
+        padding: _bottomSafe(context, const EdgeInsets.all(16)),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              child: Center(
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Show Interstitial → Screen C'),
-                  onPressed: () {
-                    showInterstitialAd(onDone: (shown) {
-                      SafeLogger.d('ScreenB', 'interstitial result: $shown');
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ScreenC()),
-                      );
-                    });
-                  },
-                ),
-              ),
-            ),
-            buildBanner(),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// SCREEN C
-// ════════════════════════════════════════════════════════════════════════════
-
-/// Demo Screen C — final screen in the demo flow, shows a banner.
-class ScreenC extends AdScreen {
-  const ScreenC({super.key});
-
-  @override
-  State<ScreenC> createState() => _ScreenCState();
-}
-
-class _ScreenCState extends AdScreenState<ScreenC> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Screen C — Final'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            const Expanded(
-              child: Center(
+            RevenuePanel(),
+            SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
                 child: Text(
-                  '🎉 End of demo flow',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  'Revenue is reported by AdMob/AppLovin via the OnPaidEvent '
+                  'hook on each impression. The dashboard subscribes to '
+                  'AdManager().events and accumulates AdRevenueEvent values.\n'
+                  '\n'
+                  'Pipe the same stream into your Firebase / AppsFlyer LTV '
+                  'tracking — see README.',
+                  style: TextStyle(color: Colors.grey),
                 ),
               ),
             ),
-            buildBanner(),
           ],
         ),
       ),
     );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §15  Demo: Slot state panel
+// ═══════════════════════════════════════════════════════════════════════════
+
+class StatePanelDemoPage extends StatelessWidget {
+  const StatePanelDemoPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: AdManager().initRevision,
+      builder: (context, _, __) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    final adapter = AdManager().adapter;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Slot state panel')),
+      body: adapter == null
+          ? const Center(child: Text('SDK not initialised yet'))
+          : ListView(
+              padding: _bottomSafe(context, const EdgeInsets.all(16)),
+              children: [
+                Text('Provider: ${adapter.tag}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 12),
+                _slotCard('App Open', adapter.appOpenSlot),
+                _slotCard('Interstitial', adapter.interstitialSlot),
+                _slotCard('Rewarded', adapter.rewardedSlot),
+                _slotCard('Banner', adapter.bannerSlot),
+                const Divider(height: 32),
+                const Text(
+                  'Lifecycle test',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonal(
+                  onPressed: () async {
+                    await AdManager().destroy();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('SDK destroyed — adapter null')),
+                      );
+                    }
+                  },
+                  child: const Text('Destroy SDK'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: () async {
+                    await AdManager().initialize(
+                      config: DemoConfig.instance.build(),
+                      onComplete: (_, __) {},
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('SDK re-initialized')),
+                      );
+                    }
+                  },
+                  child: const Text('Re-initialize SDK'),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _slotCard(String label, AdSlot slot) {
+    return ValueListenableBuilder<AdSlotState>(
+      valueListenable: slot.state,
+      builder: (_, state, __) => Card(
+        child: ListTile(
+          title: Text(label),
+          subtitle: Text(
+            'state=${state.name}\n'
+            'fails=${slot.consecutiveFailures}\n'
+            'lastError=${slot.lastErrorAt?.toIso8601String() ?? '—'}\n'
+            'lastLoaded=${slot.lastLoadedAt?.toIso8601String() ?? '—'}',
+          ),
+          trailing: _badge(state),
+        ),
+      ),
+    );
+  }
+
+  Widget _badge(AdSlotState s) {
+    final color = switch (s) {
+      AdSlotState.idle => Colors.grey,
+      AdSlotState.loading => Colors.blue,
+      AdSlotState.ready => Colors.green,
+      AdSlotState.showing => Colors.purple,
+      AdSlotState.cooldown => Colors.orange,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(s.name, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §16  Demo: AdEvent stream live viewer
+// ═══════════════════════════════════════════════════════════════════════════
+
+class EventsDemoPage extends StatefulWidget {
+  const EventsDemoPage({super.key});
+  @override
+  State<EventsDemoPage> createState() => _EventsDemoPageState();
+}
+
+class _EventsDemoPageState extends State<EventsDemoPage> {
+  /// Ring buffer of last N events. Bumped via revision so the list view
+  /// only rebuilds once per push (cheap).
+  static const int _max = 100;
+  final List<_EventRow> _rows = [];
+  final ValueNotifier<int> _rev = ValueNotifier<int>(0);
+  StreamSubscription<AdEvent>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = AdManager().events.listen((event) {
+      if (!mounted) return;
+      _rows.insert(0, _EventRow(DateTime.now(), event));
+      if (_rows.length > _max) _rows.removeLast();
+      _rev.value = _rev.value + 1;
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _sub = null;
+    _rev.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('AdEvent stream'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            tooltip: 'Clear',
+            onPressed: () {
+              _rows.clear();
+              _rev.value = _rev.value + 1;
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text(
+              'Tap any other demo (banner, inter, rewarded, app-open) and '
+              'come back — every load/show/click/reward/revenue event from '
+              'the SDK is logged here in real time.',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ValueListenableBuilder<int>(
+              valueListenable: _rev,
+              builder: (_, __, ___) {
+                if (_rows.isEmpty) {
+                  return const Center(
+                    child: Text('(no events yet — trigger an ad somewhere)',
+                        style: TextStyle(color: Colors.grey)),
+                  );
+                }
+                return ListView.separated(
+                  padding: _bottomSafe(context, EdgeInsets.zero),
+                  itemCount: _rows.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final row = _rows[i];
+                    return _EventTile(row: row);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventRow {
+  _EventRow(this.timestamp, this.event);
+  final DateTime timestamp;
+  final AdEvent event;
+}
+
+class _EventTile extends StatelessWidget {
+  const _EventTile({required this.row});
+  final _EventRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = row.event;
+    final time = row.timestamp.toIso8601String().substring(11, 19);
+    final (label, color, detail) = _describe(e);
+    return ListTile(
+      dense: true,
+      leading: Container(
+        width: 56,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        child: Text(label,
+            style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+                fontSize: 10)),
+      ),
+      title: Text(
+        '${e.providerTag} ${e.type.name} @${e.placement.id}',
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+      ),
+      subtitle: Text(
+        '$time  $detail',
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+      ),
+    );
+  }
+
+  (String, Color, String) _describe(AdEvent e) {
+    if (e is AdLoadEvent) {
+      return (
+        e.success ? 'LOAD✓' : 'LOAD✗',
+        e.success ? Colors.blue : Colors.red,
+        e.success ? 'loaded' : 'errCode=${e.errorCode ?? '?'}',
+      );
+    }
+    if (e is AdShowEvent) {
+      return (
+        e.success ? 'SHOW✓' : 'SHOW✗',
+        e.success ? Colors.green : Colors.orange,
+        e.success ? 'shown' : 'skipped',
+      );
+    }
+    if (e is AdClickEvent) return ('CLICK', Colors.purple, 'user clicked');
+    if (e is AdRewardEvent) {
+      return ('REWARD', Colors.amber.shade700,
+          '${e.label ?? '?'} × ${e.amount ?? 0}');
+    }
+    if (e is AdRevenueEvent) {
+      return (
+        'REV \$',
+        Colors.teal,
+        '\$${e.value.toStringAsFixed(6)} ${e.currencyCode}'
+            '${e.networkName != null ? ' via ${e.networkName}' : ''}',
+      );
+    }
+    return ('?', Colors.grey, '');
   }
 }

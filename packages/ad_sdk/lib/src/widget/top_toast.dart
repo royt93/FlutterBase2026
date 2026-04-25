@@ -34,8 +34,7 @@ class TopToast {
     try {
       _dismiss();
       final overlay = Overlay.of(context, rootOverlay: true);
-      late OverlayEntry entry;
-      entry = OverlayEntry(
+      final entry = OverlayEntry(
         builder: (_) => _TopToastWidget(
           icon: icon,
           message: message,
@@ -88,50 +87,59 @@ class _TopToastWidget extends StatefulWidget {
 
 class _TopToastWidgetState extends State<_TopToastWidget>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _opacity;
-  late final Animation<Offset> _slide;
+  AnimationController? _ctrl;
+  Animation<double>? _opacity;
+  Animation<Offset>? _slide;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
+    final ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 380),
     );
-    _opacity = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl = ctrl;
+    _opacity = CurvedAnimation(parent: ctrl, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, -1.4),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
+    ).animate(CurvedAnimation(parent: ctrl, curve: Curves.easeOutBack));
 
-    _ctrl.forward();
+    ctrl.forward();
     Future.delayed(widget.duration, _animateOut);
   }
 
   Future<void> _animateOut() async {
     if (!mounted) return;
-    await _ctrl.reverse();
+    final ctrl = _ctrl;
+    if (ctrl == null) return;
+    await ctrl.reverse();
     widget.onDismiss();
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _ctrl?.dispose();
+    _ctrl = null;
+    _opacity = null;
+    _slide = null;
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top + 12;
+    final slide = _slide;
+    final opacity = _opacity;
+    if (slide == null || opacity == null) return const SizedBox.shrink();
     return Positioned(
       top: topPadding,
       left: 24,
       right: 24,
       child: SlideTransition(
-        position: _slide,
+        position: slide,
         child: FadeTransition(
-          opacity: _opacity,
+          opacity: opacity,
           child: Material(
             color: Colors.transparent,
             child: GestureDetector(

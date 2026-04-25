@@ -1,0 +1,355 @@
+import 'dart:async';
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+
+import '../config/ad_config.dart';
+import '../utils/ad_preferences.dart';
+import '../utils/safe_logger.dart';
+import 'vip_dialog.dart';
+import 'vip_dialog_strings.dart';
+import 'vip_entry.dart';
+
+/// VIP management — Phase 4 feature.
+///
+/// Stores [VipEntry] list in SharedPreferences. A device is "VIP" if any
+/// entry's `expiresAt` is in the future. While VIP is active, [AdManager]
+/// short-circuits **every** ad type (banner, app-open, interstitial, rewarded).
+///
+/// API:
+/// - [redeemVip] — full UI flow with Cupertino dialog (loading → success/failed).
+/// - [addVip] — headless variant for scripted tests / restore-purchase flows.
+/// - [revokeVip] — remove a specific key.
+/// - [revokeAll] — wipe everything.
+/// - [isActive] / [expiresAt] / [activeStream] — reactive state for the host app.
+///
+/// Conflict policy (Q14A — latest expiry wins): adding a key that already
+/// exists keeps the entry whose `expiresAt` is the **latest** of the two.
+class VipManager {
+  VipManager(this._prefs);
+
+  static const String _tag = 'VipManager';
+
+  final AdPreferences _prefs;
+
+  final List<VipEntry> _entries = [];
+  final ValueNotifier<bool> _activeNotifier = ValueNotifier<bool>(false);
+  final StreamController<bool> _activeStream = StreamController<bool>.broadcast();
+
+  /// Serialises every prefs write — concurrent `addVip` / `revokeVip` calls
+  /// would otherwise race. Each save reads `_entries` at the moment its
+  /// queued task runs (capturing the latest state), and waits for the
+  /// previous save to finish.
+  Future<void> _saveQueue = Future.value();
+
+  /// Concurrency guard for [redeemVip] — a double-tap would otherwise stack
+  /// two verifying dialogs and confuse the navigator pop sequence.
+  bool _redeemInFlight = false;
+
+  /// One-shot timer fired at the earliest [VipEntry.expiresAt] across active
+  /// entries. When it fires we purge the expired entry, refresh the active
+  /// notifier (which flips `true → false` if no entries remain active), and
+  /// re-arm for the next-soonest expiry.
+  ///
+  /// Without this timer the active state would only refresh on
+  /// [load]/[addVip]/[revokeVip]/[revokeAll] — meaning a user holding the
+  /// app open past the first-install grace expiry would stay falsely VIP
+  /// until next launch. The timer fixes that mid-session UX surprise.
+  Timer? _expiryTimer;
+
+  /// True if at least one entry is currently active.
+  bool get isActive => _activeNotifier.value;
+
+  /// Listenable variant — subscribe via `ValueListenableBuilder`.
+  ValueListenable<bool> get activeListenable => _activeNotifier;
+
+  /// Stream emitting on every active-state change.
+  Stream<bool> get activeStream => _activeStream.stream;
+
+  /// Latest expiry across all active entries, or null if none active.
+  DateTime? get expiresAt {
+    DateTime? latest;
+    for (final e in _entries) {
+      if (!e.isActive) continue;
+      if (latest == null || e.expiresAt.isAfter(latest)) latest = e.expiresAt;
+    }
+    return latest;
+  }
+
+  /// Read-only snapshot of all entries (for UI listing).
+  List<VipEntry> get entries => List.unmodifiable(_entries);
+
+  /// Normalise the user-supplied VIP key — trim + uppercase. Avoids
+  /// accidental whitespace mismatches.
+  static String normaliseKey(String raw) => raw.trim().toUpperCase();
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  LOAD + MIGRATE
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /// Load entries from prefs.
+  ///
+  /// If 1.x GAID list is present and 2.x migration has not yet run, convert
+  /// the GAIDs that match the [currentDeviceGaid] to entries with year-2099
+  /// expiry (Q15A — auto-migrate, treat as effectively permanent).
+  ///
+  /// **Critical**: 1.x semantic was per-device (each device's prefs held the
+  /// list of *VIP-eligible* GAIDs, and the device was VIP only when its own
+  /// GAID matched one of them). Naively migrating every GAID would mark
+  /// *every* device VIP — that's why we filter against [currentDeviceGaid].
+  Future<void> load({String currentDeviceGaid = ''}) async {
+    _entries
+      ..clear()
+      ..addAll(VipEntry.decodeList(_prefs.getVipEntriesRaw()));
+
+    if (!_prefs.isVipMigrated()) {
+      final legacyGaids = _prefs.getGAIDList();
+      if (legacyGaids.isNotEmpty && currentDeviceGaid.isNotEmpty) {
+        final myGaid = normaliseKey(currentDeviceGaid);
+        final farFuture = DateTime(2099, 12, 31);
+        final now = DateTime.now();
+        var migrated = 0;
+        for (final gaid in legacyGaids) {
+          if (gaid.trim().isEmpty) continue;
+          if (normaliseKey(gaid) != myGaid) continue;
+          _entries.add(VipEntry(
+            key: 'LEGACY_${normaliseKey(gaid)}',
+            expiresAt: farFuture,
+            grantedAt: now,
+          ));
+          migrated++;
+        }
+        if (migrated > 0) {
+          SafeLogger.d(_tag, 'migrated $migrated legacy GAID(s) for this device → entries');
+          await _save();
+        }
+      }
+      await _prefs.markVipMigrated();
+    }
+    _purgeExpired();
+    _refreshActive();
+    _scheduleNextExpiry();
+    SafeLogger.d(_tag, 'load() entries=${_entries.length} active=$isActive');
+  }
+
+  Future<void> _save() {
+    final task = _saveQueue.then((_) async {
+      await _prefs.setVipEntriesRaw(VipEntry.encodeList(_entries));
+    });
+    // Catch errors so the queue keeps working even if one save fails.
+    _saveQueue = task.catchError((Object e) {
+      SafeLogger.w(_tag, '_save threw: $e');
+    });
+    return task;
+  }
+
+  void _purgeExpired() {
+    final before = _entries.length;
+    _entries.removeWhere((e) => !e.isActive);
+    if (_entries.length != before) {
+      SafeLogger.d(_tag, 'purgeExpired: removed ${before - _entries.length}');
+      unawaited(_save());
+    }
+  }
+
+  void _refreshActive() {
+    final wasActive = _activeNotifier.value;
+    final nowActive = _entries.any((e) => e.isActive);
+    if (wasActive != nowActive) {
+      _activeNotifier.value = nowActive;
+      if (!_activeStream.isClosed) _activeStream.add(nowActive);
+      SafeLogger.d(_tag, 'active state changed: $wasActive → $nowActive');
+    }
+  }
+
+  /// Re-arm [_expiryTimer] for the soonest active entry's `expiresAt`.
+  /// Cancels any existing timer first; if no active entries remain, the
+  /// timer stays cancelled (no work pending).
+  void _scheduleNextExpiry() {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+
+    DateTime? earliest;
+    for (final e in _entries) {
+      if (!e.isActive) continue;
+      if (earliest == null || e.expiresAt.isBefore(earliest)) {
+        earliest = e.expiresAt;
+      }
+    }
+    if (earliest == null) return;
+
+    final delay = earliest.difference(DateTime.now());
+    if (delay <= Duration.zero) {
+      // Already expired (clock skew or scheduling lag) — handle on next
+      // microtask so we don't reentrantly call _purgeExpired.
+      Future.microtask(_handleExpiry);
+      return;
+    }
+    SafeLogger.d(_tag, () => '⏲️ next VIP expiry in ${delay.inSeconds}s');
+    _expiryTimer = Timer(delay, _handleExpiry);
+  }
+
+  void _handleExpiry() {
+    _expiryTimer = null;
+    SafeLogger.d(_tag, '⏰ VIP entry expired — purging + refreshing');
+    _purgeExpired();
+    _refreshActive();
+    // Re-arm for the next-soonest entry (if any).
+    _scheduleNextExpiry();
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  //  REDEEM / ADD / REVOKE
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /// Headless add. Skips the dialog UI and any validator. Use for
+  /// restore-purchase or scripted tests. Returns the saved entry.
+  Future<VipEntry> addVip({
+    required String key,
+    required Duration duration,
+  }) async {
+    final norm = normaliseKey(key);
+    final newEntry = VipEntry(
+      key: norm,
+      expiresAt: DateTime.now().add(duration),
+      grantedAt: DateTime.now(),
+    );
+    final existing = _entries.indexWhere((e) => e.key == norm);
+    if (existing >= 0) {
+      // Q14A — latest expiry wins.
+      final old = _entries[existing];
+      if (newEntry.expiresAt.isAfter(old.expiresAt)) {
+        _entries[existing] = newEntry;
+        SafeLogger.d(_tag, 'addVip: replaced ${old.key} (later expiry wins)');
+      } else {
+        SafeLogger.d(_tag, 'addVip: kept existing ${old.key} (still later)');
+        return old;
+      }
+    } else {
+      _entries.add(newEntry);
+      SafeLogger.d(_tag, 'addVip: added ${newEntry.key} until ${newEntry.expiresAt}');
+    }
+    await _save();
+    _refreshActive();
+    _scheduleNextExpiry();
+    return newEntry;
+  }
+
+  /// Full UI flow:
+  /// 1. Show "Verifying" Cupertino dialog.
+  /// 2. Run `validator(key)` — if `null` in [AdConfig.vipKeyValidator], every
+  ///    key is accepted (demo mode).
+  /// 3. On success → save entry → show success dialog.
+  /// 4. On failure / network error → show failed dialog.
+  ///
+  /// Returns `true` only if the entry was saved and made active.
+  Future<bool> redeemVip(
+    BuildContext context, {
+    required String key,
+    required Duration duration,
+    required Future<bool> Function(String key)? validator,
+    required VipDialogStrings strings,
+  }) async {
+    if (_redeemInFlight) {
+      SafeLogger.w(_tag, 'redeemVip ⏭️ already in flight — ignoring duplicate');
+      return false;
+    }
+    _redeemInFlight = true;
+    try {
+      final norm = normaliseKey(key);
+      if (norm.isEmpty) {
+        await _showFailed(context, strings, strings.failedMessage);
+        return false;
+      }
+
+      // Capture the root NavigatorState BEFORE the await — context.mounted may
+      // flip false during the validator wait, but the NavigatorState itself
+      // outlives any single screen and is safe to call.
+      final navigator = Navigator.of(context, rootNavigator: true);
+
+      // Fire-and-forget the verifying dialog: its future completes when the
+      // dialog is popped. We pop it ourselves below; awaiting that future
+      // afterwards isn't necessary and would hang if the pop ever fails.
+      unawaited(showVipVerifyingDialog(context, strings));
+
+      bool ok = false;
+      String? errorMsg;
+      try {
+        ok = await _runValidator(norm, validator);
+      } catch (e) {
+        SafeLogger.w(_tag, 'redeemVip validator threw: $e');
+        errorMsg = strings.networkErrorMessage;
+      }
+
+      try {
+        navigator.pop();
+      } catch (e) {
+        SafeLogger.w(_tag, 'redeemVip pop threw: $e');
+      }
+
+      if (!ok) {
+        if (context.mounted) {
+          await _showFailed(context, strings, errorMsg ?? strings.failedMessage);
+        }
+        return false;
+      }
+
+      final entry = await addVip(key: norm, duration: duration);
+      if (context.mounted) {
+        await showVipSuccessDialog(context, strings, entry);
+      }
+      return true;
+    } finally {
+      _redeemInFlight = false;
+    }
+  }
+
+  Future<bool> _runValidator(
+    String key,
+    Future<bool> Function(String key)? validator,
+  ) async {
+    if (validator == null) {
+      // No validator wired — demo mode.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      return true;
+    }
+    return validator(key);
+  }
+
+  Future<void> _showFailed(
+    BuildContext context,
+    VipDialogStrings strings,
+    String message,
+  ) =>
+      showVipFailedDialog(context, strings, message);
+
+  /// Remove a specific entry.
+  Future<void> revokeVip(String key) async {
+    final norm = normaliseKey(key);
+    final n = _entries.length;
+    _entries.removeWhere((e) => e.key == norm);
+    if (_entries.length != n) {
+      SafeLogger.d(_tag, 'revokeVip: removed $norm');
+      await _save();
+      _refreshActive();
+      _scheduleNextExpiry();
+    }
+  }
+
+  /// Wipe all entries.
+  Future<void> revokeAll() async {
+    _entries.clear();
+    SafeLogger.d(_tag, 'revokeAll: cleared');
+    await _save();
+    _refreshActive();
+    _scheduleNextExpiry();
+  }
+
+  /// Cleanup. After this the manager can no longer fire stream events.
+  void dispose() {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    _activeNotifier.dispose();
+    _activeStream.close();
+  }
+}

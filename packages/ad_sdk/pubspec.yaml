@@ -1,14 +1,17 @@
 name: applovin_admob_sdk
-description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX) with built-in safety throttle, VIP bypass, RouteAware banner lifecycle management, and animated TopToast feedback.
-version: 1.0.14
+description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Adapter pattern, state machine, VIP redeem with Cupertino dialog, GDPR/COPPA/CCPA flags, exponential backoff, AdEvent stream, debug overlay.
+version: 2.0.0
 homepage: https://github.com/royt93/FlutterBase2025
 repository: https://github.com/royt93/FlutterBase2025
 issue_tracker: https://github.com/royt93/FlutterBase2025/issues
 
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
-  flutter: '>=3.10.0'
+  sdk: '>=3.6.0 <4.0.0'
+  # 3.27.0+ is required because the SDK uses `Color.withValues(alpha:)`
+  # introduced in that release. Pinning lower would compile-fail on older
+  # Flutter versions.
+  flutter: '>=3.27.0'
 
 dependencies:
   flutter:
@@ -23,6 +26,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  mocktail: ^1.0.0
 
 flutter:
   # This package does not use flutter_lints or other Flutter artifacts.
