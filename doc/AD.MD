@@ -1,897 +1,384 @@
-# 📊 TÍCH HỢP QUẢNG CÁO (AdMob + AppLovin MAX) — FLUTTER
-
-> Version: 20260324-v21 | SDK: `applovin_admob_sdk` v1.0.14 (pub.dev)
-> Strict: Không `late`, không `!`, dùng nullable `?`, `ValueNotifier`, zero memory leak.
-
----
-
-## 1. TỔNG QUAN
-
-### 1.1 Provider Switch
-
-```dart
-// Chỉ đổi 1 dòng trong AdConfig:
-provider: AdProvider.appLovin  // hoặc AdProvider.admob
-```
-
-### 1.2 Kiến trúc SDK Package
-
-```
-applovin_admob_sdk/
-  ├── AdManager         # Singleton — quản lý toàn bộ ad lifecycle
-  ├── AdScreen          # Base widget cho màn hình có ad
-  ├── AdSafetyConfig    # Anti invalid traffic — 12 rules
-  ├── AdLoadingDialog   # Dialog loading 1s trước fullscreen ad
-  ├── BannerAdWidget    # Banner widget — dual provider, RouteAware
-  ├── TopToast          # Animated toast khi ad chưa sẵn sàng
-  ├── SimpleEventBus    # Splash ↔ AdManager bridge
-  └── SafeLogger        # Production-safe logger
-```
-
-### 1.3 Ad Units
-
-| Loại | AdMob Debug | AdMob Production | AppLovin MAX |
-|------|-------------|-----------------|--------------|
-| Banner | `ca-app-pub-3940256099942544/6300978111` | your_id | your_id |
-| Interstitial | `ca-app-pub-3940256099942544/1033173712` | your_id | your_id |
-| App Open | `ca-app-pub-3940256099942544/9257395921` | your_id | your_id |
-| Rewarded | `ca-app-pub-3940256099942544/5224354917` | your_id | your_id |
-
----
-
-## 2. GUARD MATRIX — TẤT CẢ CƠ CHẾ BẢO VỆ
-
-| Guard | App Open | Inter | Rewarded | Banner |
-|-------|:--------:|:-----:|:--------:|:------:|
-| **Throttle 60s** giữa 2 fullscreen | ✅ | ✅ | ✅ | — |
-| **Session cap** 6/session | ✅ | ✅ | ✅ | — |
-| **Hourly cap** 3/giờ | ✅ | ✅ | ✅ | — |
-| **Daily cap** 5/ngày (persistent) | ✅ | ✅ | ✅ | — |
-| **Suspicious CTR** pause nếu CTR > 30% | ✅ | ✅ | ✅ | — |
-| **Click spam** > 3 clicks/min | ✅ | ✅ | ✅ | ✅ |
-| **Cold start skip** (chỉ show lần 2+) | ✅ | — | — | — |
-| **Rapid resume** > 3 resume/min | ✅ | — | — | — |
-| **Loading dialog 1s** trước fullscreen | ✅ | ✅ | ✅ | — |
-| **Mutex `_isXxxLoading`** chống double load | ✅ | ✅ | ✅ | — |
-| **`_isInterstitialShowing`** chống App Open | ✅ | — | — | — |
-| **`_lastFullscreenDismissTime`** cooldown 2s | ✅ | — | — | — |
-| **Navigation cooldown 5s** | — | — | — | ✅ |
-
----
-
-## 3. INTEGRATION GUIDE — STEP BY STEP (Fresher Dev)
-
-> ⏱ Thời gian ước tính: **~60 phút**
-> 📋 Đọc hết phần này trước khi bắt đầu. Làm từng bước theo thứ tự, **KHÔNG skip bước nào**.
-
-### Mục tiêu cuối cùng
-
-Sau khi hoàn thành 7 step, app bạn sẽ có:
-- ✅ **App Open Ad** hiện khi mở app lần đầu (có loading dialog 1s)
-- ✅ **App Open Ad** tự hiện khi user quay lại app từ background
-- ✅ **Banner Ad** nằm ở đầu/cuối màn hình, tự pause/resume theo navigation
-- ✅ **Interstitial Ad** hiện trước khi chuyển màn hình (có loading dialog 1s)
-- ✅ **Rewarded Ad** hiện khi user muốn nhận thưởng
-- ✅ **12 cơ chế bảo vệ** chống invalid traffic (tự động, không cần code thêm)
-
----
-
-### 📁 Tổng quan file cần sửa
-
-| # | File | Việc cần làm |
-|---|------|-------------|
-| 1 | `pubspec.yaml` | Thêm 2 dòng dependency |
-| 2 | `android/app/build.gradle.kts` | Thêm `minSdk`, `buildConfig`, 2 dòng implementation |
-| 3a | `android/app/src/main/AndroidManifest.xml` | Thêm 3 permission + 1 meta-data |
-| 3b | `ios/Runner/Info.plist` | *(Nếu chạy iOS)* Thêm GADApplicationIdentifier, SKAdNetwork |
-| 4 | `lib/main.dart` | Tạo navigatorKey, đăng ký SDK, thêm observers |
-| 5 | `lib/splash_screen.dart` | Tạo mới — nơi init SDK + show App Open Ad |
-| 6 | `lib/home_screen.dart` | Kế thừa `AdScreen` thay vì `StatefulWidget` |
-| 7 | *(Không cần code)* | App Open resume tự động hoạt động |
-
----
-
-### 🔑 Lấy Ad ID ở đâu? (Đọc TRƯỚC khi bắt đầu)
-
-> Bạn cần chuẩn bị sẵn các ID sau trước khi tích hợp. Nếu chưa có tài khoản, hãy đăng ký trước.
-
-**Nếu dùng AppLovin MAX:**
-
-| Thông tin | Lấy ở đâu |
-|-----------|----------|
-| **SDK Key** (86 ký tự) | [AppLovin Dashboard](https://dash.applovin.com) → Account → Keys → SDK Key |
-| **Banner Ad Unit ID** | [MAX → Manage → Ad Units](https://dash.applovin.com/o/mediation/ad_units/) → tạo/chọn ad unit type = Banner |
-| **Interstitial Ad Unit ID** | Tương tự, type = Interstitial |
-| **App Open Ad Unit ID** | Tương tự, type = App Open |
-| **Rewarded Ad Unit ID** | Tương tự, type = Rewarded |
-
-**Nếu dùng AdMob:**
-
-| Thông tin | Lấy ở đâu |
-|-----------|----------|
-| **AdMob App ID** (`ca-app-pub-XXX~XXX`) | [AdMob Console](https://admob.google.com) → Apps → chọn app → App settings |
-| **Banner/Inter/AppOpen/Rewarded ID** | AdMob Console → Apps → Ad units → tạo/chọn từng loại |
-
-> 💡 **Khi đang develop:** Dùng [Test Ad IDs của Google](https://developers.google.com/admob/android/test-ads) (đã có sẵn trong code mẫu). Chỉ đổi sang ID thật khi release production.
-
----
-
-### STEP 1 / 7 — Thêm Dependencies
-
-> **Tại sao:** SDK quảng cáo là 1 package riêng trên pub.dev. Bạn cần khai báo để Flutter tải về.
-
-**📂 Mở file:** `pubspec.yaml` (ở thư mục gốc project)
-
-**📝 Tìm mục `dependencies:` rồi thêm 2 dòng:**
-
-```yaml
-dependencies:
-  flutter:
-    sdk: flutter
-  # ... các package khác của bạn ...
-
-  # ✅ THÊM 2 DÒNG NÀY:
-  applovin_admob_sdk: ^1.0.14
-  gma_mediation_applovin: ^1.0.0  # bỏ dòng này nếu chỉ dùng AdMob
-```
-
-**▶️ Chạy lệnh:**
-```bash
-flutter pub get
-```
-
-**✅ Kiểm tra thành công:** Terminal hiện `Got dependencies!` và KHÔNG có dòng đỏ.
-
-**❌ Nếu lỗi:** Kiểm tra thụt lề (phải dùng 2 dấu cách, KHÔNG dùng tab).
-
----
-
-### STEP 2 / 7 — Cấu hình Android Gradle
-
-> **Tại sao:** SDK cần `minSdk >= 21` (Android 5.0+) và `buildConfig = true` để hoạt động.
-
-**📂 Mở file:** `android/app/build.gradle.kts`
-
-**📝 Sửa/thêm trong block `android { }` :**
-
-```kotlin
-android {
-    // ... compileSdk, namespace, etc. ...
-
-    defaultConfig {
-        // ✅ Đảm bảo minSdk >= 21 (nếu đang < 21 thì sửa lên)
-        minSdk = 21
-        // ... targetSdk, versionCode, etc. ...
-    }
-
-    // ✅ THÊM block này nếu chưa có:
-    buildFeatures {
-        buildConfig = true
-    }
-}
-```
-
-**📝 Tìm block `dependencies { }` (nằm NGOÀI block `android { }`) rồi thêm:**
-
-```kotlin
-dependencies {
-    // ... các dòng khác ...
-
-    // ✅ THÊM 2 DÒNG NÀY:
-    implementation("com.google.ads.mediation:applovin:13.2.0.1")
-    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
-}
-```
-
-**▶️ Kiểm tra:** Chạy `flutter build apk --debug` — phải thành công.
-
----
-
-### STEP 3a / 7 — Cấu hình AndroidManifest.xml (Android)
-
-> **Tại sao:** Google yêu cầu khai báo AD_ID permission và AdMob App ID trong manifest.
-
-**📂 Mở file:** `android/app/src/main/AndroidManifest.xml`
-
-**📝 Thêm 3 permission TRƯỚC tag `<application>` :**
-
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- ✅ THÊM 3 DÒNG NÀY (trước <application>) -->
-    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <application
-        android:label="..."
-        ...>
-
-        <!-- ✅ THÊM BLOCK NÀY (trong <application>, trước </application>) -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX" />
-        <!--
-            ⚠️ THAY "ca-app-pub-XXX~XXX" bằng AdMob App ID thật của bạn.
-            ⚠️ Lấy ID ở: https://admob.google.com → Apps → App settings
-            ⚠️ KHÔNG thêm applovin.sdk.key ở đây — SDK Key truyền qua code Dart
-        -->
-
-        <!-- ... activity, intent-filter, etc. ... -->
-    </application>
-</manifest>
-```
-
-**✅ Kiểm tra:** Build lại `flutter build apk --debug` thành công.
-
----
-
-### STEP 3b / 7 — Cấu hình iOS (Nếu app chạy trên iOS)
-
-> **Tại sao:** Apple yêu cầu khai báo `GADApplicationIdentifier` và `SKAdNetworkItems` trong `Info.plist`.
-> Nếu app chỉ chạy Android thì **bỏ qua step này**.
-
-**📂 Mở file:** `ios/Runner/Info.plist`
-
-**📝 Thêm vào trong tag `<dict>` (trước `</dict>` cuối cùng):**
-
-```xml
-<!-- ✅ AdMob App ID (bắt buộc) -->
-<key>GADApplicationIdentifier</key>
-<string>ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX</string>
-<!-- ⚠️ THAY bằng AdMob App ID thật của bạn -->
-
-<!-- ✅ AppLovin SDK Key (chỉ cần nếu dùng AppLovin) -->
-<key>AppLovinSdkKey</key>
-<string>YOUR_86_CHAR_SDK_KEY</string>
-<!-- ⚠️ THAY bằng SDK Key thật, lấy ở AppLovin Dashboard -->
-
-<!-- ✅ SKAdNetwork IDs (bắt buộc cho iOS 14+) -->
-<key>SKAdNetworkItems</key>
-<array>
-    <!-- AppLovin -->
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>ludvb6z3bs.skadnetwork</string>
-    </dict>
-    <!-- Google AdMob -->
-    <dict>
-        <key>SKAdNetworkIdentifier</key>
-        <string>cstr6suwn9.skadnetwork</string>
-    </dict>
-    <!--
-        ⚠️ Thêm đầy đủ SKAdNetwork IDs từ:
-        - AppLovin: https://dash.applovin.com/documentation/mediation/ios/getting-started/skadnetwork-info
-        - AdMob: https://developers.google.com/admob/ios/quick-start#update_your_infoplist
-    -->
-</array>
-
-<!-- ✅ App Tracking Transparency (iOS 14+, tuỳ chọn nhưng nên có) -->
-<key>NSUserTrackingUsageDescription</key>
-<string>Ứng dụng sử dụng thông tin quảng cáo để hiển thị quảng cáo phù hợp.</string>
-```
-
-> 📌 **SKAdNetwork IDs:** Danh sách trên chỉ là ví dụ tối thiểu. Để mediation hoạt động tốt nhất,
-> hãy copy **đầy đủ** danh sách từ link ở comment trong code.
-
-**▶️ Kiểm tra:** Chạy `flutter build ios --debug --no-codesign` — phải thành công.
-
----
-
-### STEP 4 / 7 — Đăng ký Navigator Key — `main.dart`
-
-> **Tại sao:** SDK cần `navigatorKey` để:
-> 1. Hiện loading dialog 1s trước mỗi ad fullscreen
-> 2. Hiện App Open Ad khi user quay lại app từ background
-> 3. Banner tự pause/resume khi chuyển màn hình (qua `adRouteObserver`)
+# 📊 TÍCH HỢP QUẢNG CÁO — `applovin_admob_sdk` v1.0.16
+
+> **Phạm vi:** audit + đặc tả as-is của repo `_FlutterBase2025` sau khi migrate từ
+> v1.0.14 → v1.0.16. File này phản ánh state thực tế của code (file:line cụ thể),
+> không phải template chung. Khi sửa code, cập nhật mục tương ứng ở đây trước.
 >
-> ⛔ **Nếu bỏ qua step này:** Banner crash khi navigate, App Open resume không có dialog.
-
-**📂 Mở file:** `lib/main.dart`
-
-**📝 Sửa file theo mẫu sau (chú ý các dòng có ✅):**
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:applovin_admob_sdk/applovin_admob_sdk.dart'; // ✅ THÊM
-
-// ✅ THÊM: Tạo navigatorKey — biến GLOBAL, đặt NGOÀI class
-final navigatorKey = GlobalKey<NavigatorState>();
-
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // ✅ THÊM: Đăng ký navigatorKey cho SDK — gọi TRƯỚC runApp()
-  AdManager().setNavigatorKey(navigatorKey);
-
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'My App',
-
-      // ✅ THÊM 3 dòng sau vào MaterialApp:
-      navigatorKey: navigatorKey,               // Để SDK show dialog
-      navigatorObservers: [
-        adRouteObserver,                        // Banner pause/resume
-        AdScreenRouteLogger(),                  // Log navigation (debug)
-      ],
-
-      home: const SplashScreen(),               // ✅ Điểm vào là SplashScreen
-    );
-  }
-}
-```
-
-> 💡 **Nếu dùng GetX:** Thay `MaterialApp` bằng `GetMaterialApp`, tương tự:
-> ```dart
-> GetMaterialApp(
->   navigatorKey: navigatorKey,
->   navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
->   home: const MyApp(),
-> )
-> ```
-
-**▶️ Kiểm tra:** Chạy app, mở **Logcat/Console**, tìm 2 dòng sau:
-```
-[AdManager] setNavigatorKey: registered ✅
-[AdScreen~Router] ➡️ PUSH: / (from: null)
-```
-Nếu thấy → Step 4 thành công. Nếu không → kiểm tra `navigatorKey` truyền đúng chưa.
-
----
-
-### STEP 5 / 7 — Tạo Splash Screen (Nơi init SDK + Show App Open Ad)
-
-> **Tại sao:** SDK cần 1-3 giây để khởi tạo + tải ad. Splash screen là nơi duy nhất phù hợp
-> để chờ quá trình này mà user không thấy lag.
+> **Provider hiện tại:** `AdProvider.appLovin` (nhúng AdMob qua mediation).
 >
-> ⚠️ **QUAN TRỌNG:** `AdManager().initialize()` **BẮT BUỘC gọi ở SplashScreen**,
-> KHÔNG được gọi trong `main()`. Lý do: EventBus listener phải đăng ký TRƯỚC khi `initialize()` fire event.
-
-**📂 Tạo file mới:** `lib/splash_screen.dart`
-
-**📝 Copy toàn bộ code sau:**
-
-```dart
-import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
-  bool _hasNavigated = false;
-  void Function(BoolEvent)? _eventListener;
-  Timer? _hardCapTimer;
-
-  @override
-  void initState() {
-    super.initState();
-
-    // ── Bước A: Đánh dấu splash đang active ──
-    AdManager().markSplashActive();
-    AdManager().incrementSplashCount();
-
-    // ── Bước B: Skip ad nếu hot restart (đã vào app rồi) ──
-    if (AdManager().countInitSplashScreen > 1) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _navigateHome());
-      return;
-    }
-
-    // ── Bước C: Hard cap 8s — nếu load quá lâu, vào home luôn ──
-    _hardCapTimer = Timer(const Duration(seconds: 8), () => _navigateHome());
-
-    // ── Bước D: Lắng nghe EventBus — nhận kết quả init ──
-    // ⚠️ PHẢI đăng ký listener TRƯỚC khi gọi initialize()
-    _eventListener = (event) {
-      if (event.value) {
-        // SDK init thành công → tải App Open Ad
-        _loadAndShowAppOpenAd();
-      } else {
-        // SDK init thất bại → vào home luôn
-        _navigateHome();
-      }
-    };
-    SimpleEventBus().listen(_eventListener!);
-
-    // ── Bước E: Gọi initialize() — chờ postFrameCallback ──
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      AdManager().initialize(
-        config: const AdConfig(
-          // ⚠️ ĐỔI provider ở đây: .appLovin hoặc .admob
-          provider: AdProvider.appLovin,
-          admob: AdMobConfig(
-            bannerId: 'ca-app-pub-3940256099942544/6300978111',
-            interstitialId: 'ca-app-pub-3940256099942544/1033173712',
-            appOpenId: 'ca-app-pub-3940256099942544/9257395921',
-            rewardedId: 'ca-app-pub-3940256099942544/5224354917',
-          ),
-          appLovin: AppLovinConfig(
-            sdkKey: 'YOUR_86_CHAR_SDK_KEY',   // ⚠️ THAY bằng SDK key thật
-            bannerId: 'YOUR_BANNER_ID',        // ⚠️ THAY bằng ID thật
-            interstitialId: 'YOUR_INTER_ID',   // ⚠️ THAY bằng ID thật
-            appOpenId: 'YOUR_APP_OPEN_ID',     // ⚠️ THAY bằng ID thật
-            rewardedId: 'YOUR_REWARDED_ID',    // ⚠️ THAY bằng ID thật
-          ),
-          vipDeviceGaids: [],        // GAID của thiết bị VIP (không hiện ad)
-          loadingBufferMs: 1000,     // Thời gian hiện loading dialog (ms)
-          adNotReadyMessage: 'Ad chưa sẵn sàng, vui lòng thử lại.',
-          adLoadingMessage: 'Đang tải…',
-        ),
-        onComplete: (success, gaid) {
-          SafeLogger.d('Splash', 'SDK ready=$success, GAID=$gaid');
-        },
-      );
-    });
-  }
-
-  /// Tải App Open Ad → nếu thành công thì hiện loading dialog + show ad
-  void _loadAndShowAppOpenAd() {
-    AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-      if (_hasNavigated) return; // đã navigate rồi (ví dụ timeout 8s)
-      if (loaded) {
-        if (!mounted) { _navigateHome(); return; }
-        // Hiện loading dialog 1 giây → rồi show ad
-        AdLoadingDialog.showAdBuffer(context, onComplete: () {
-          if (!mounted) { _navigateHome(); return; }
-          _hardCapTimer?.cancel();
-          AdManager().showAppOpenAd(
-            bypassSafety: true,     // Splash luôn show, bỏ qua throttle
-            onAdDismiss: (_) => _navigateHome(),
-          );
-        });
-      } else {
-        _navigateHome(); // Load thất bại → vào home
-      }
-    });
-  }
-
-  /// Chuyển sang HomeScreen — chỉ được gọi ĐÚNG 1 LẦN
-  void _navigateHome() {
-    if (_hasNavigated) return;
-    _hasNavigated = true;
-    _hardCapTimer?.cancel();
-    if (_eventListener != null) {
-      SimpleEventBus().remove(_eventListener!);
-      _eventListener = null;
-    }
-    AdManager().markSplashInactive();
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
-  }
-
-  @override
-  void dispose() {
-    _hardCapTimer?.cancel();
-    if (_eventListener != null) {
-      SimpleEventBus().remove(_eventListener!);
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Bạn có thể thay bằng logo app + animation
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
-  }
-}
-```
-
-**▶️ Kiểm tra log (theo thứ tự):**
-```
-1. [AdManager] ###init called, provider=AdProvider.appLovin
-2. [AdManager] ###init completed
-3. [AdManager] loadAppOpenAd [AppLovin] 🔄 ...
-4. [AdManager] ✅ [AppLovin] App Open Ad Loaded
-5. [AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
-6. [AdManager] ✅ [AppLovin] App Open Ad Shown
-7. [AdManager] ✅ [AppLovin] App Open Ad Dismissed
-8. [AdManager] markSplashInactive
-```
-
-**❌ Nếu không thấy log #1:** `initialize()` chưa được gọi — kiểm tra `postFrameCallback`.
-**❌ Nếu thấy log #1 nhưng không có #2:** SDK key hoặc network bị sai.
-**❌ Nếu thấy #4 nhưng không có #5:** Thiếu `navigatorKey` ở Step 4.
+> **Ad units (production AppLovin MAX):** xem `lib/mckimquyen/widget/splash/splash_screen.dart:124–129`.
 
 ---
 
-### STEP 6 / 7 — Tạo màn hình có Ads (kế thừa `AdScreen`)
+## 1. TỔNG QUAN VERSION
 
-> **Tại sao dùng `AdScreen`:** Thay vì `StatefulWidget`, bạn kế thừa `AdScreen` để SDK tự:
-> - Preload interstitial khi màn hình mở
-> - Quản lý banner lifecycle (pause khi navigate, resume khi quay lại)
-> - Cung cấp sẵn hàm `showInterstitialAd()`, `showRewardedAd()`, `buildBanner()`
+| | Giá trị |
+|---|---|
+| SDK package | `applovin_admob_sdk` v1.0.16 (`pubspec.yaml:46`) |
+| Native mediation | `gma_mediation_applovin` (app-level, `pubspec.yaml:52`) |
+| iOS deployment target | 13.0 (`ios/Podfile`) |
+| Android `minSdk` / `targetSdk` / `compileSdk` | 24 / 36 / 36 |
+| AdMob `APPLICATION_ID` | `ca-app-pub-3612191981543807~9731053733` (`AndroidManifest.xml:53`) |
+| Provider package native | AppLovin MAX SDK key bundled in code (Dart) |
 
-**📂 Mở file:** `lib/home_screen.dart` (hoặc bất kỳ màn hình nào cần ad)
+### v1.0.16 highlights đã apply trong repo
 
-**📝 Thay đổi 2 chỗ:**
+- ✅ Documentation-only release từ 1.0.15. Không có breaking change runtime.
+- ✅ Manifest pitfall đã clean: `MainActivity` **KHÔNG** set `android:taskAffinity=""` (`AndroidManifest.xml:58–65`). Đây là pitfall #1 của 1.0.15 — nếu set rỗng, AppLovin fullscreen activity sẽ "rơi" sang task khác và user bị đẩy về launcher khi quay lại app.
 
-```dart
-import 'package:flutter/material.dart';
-import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+### v1.0.15 features đã wired
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TRƯỚC (không có ad):
-//   class HomeScreen extends StatefulWidget { ... }
-//   class _HomeScreenState extends State<HomeScreen> { ... }
-//
-// SAU (có ad):
-//   class HomeScreen extends AdScreen { ... }           ← đổi ở đây
-//   class _HomeScreenState extends AdScreenState<HomeScreen> { ... }  ← và đây
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+| Feature | Wired? | File:line |
+|---|---|---|
+| Smart App-Open timeout (5s polling, 90s hard cap) | ✅ tự động (no-op) | (SDK internal) |
+| Slot-state dismiss watcher | ✅ tự động (no-op) | (SDK internal) |
+| `requestUmpConsent()` (UMP wrapper) | ✅ | `splash_screen.dart:120–128` |
+| `ConsentDialogStrings` từ translations | ✅ | `splash_screen.dart:166–173` |
+| `ConsentDialog` privacy URL | ✅ | `splash_screen.dart:172` |
+| `firstInstallVipGrace: auto` (30s debug / 24h release) | ✅ default, không override | `splash_screen.dart` (config) |
+| `vipKeyValidator` + `kVipKeyMap` | ✅ | `widget/vip/vip_keys.dart`, `splash_screen.dart:178` |
+| `VipDialogStrings` từ translations | ✅ | `splash_screen.dart:181–190` |
+| `logLevel` build-mode-aware | ✅ | `splash_screen.dart:163` |
+| `VipManager` UI (redeem / revoke / list) | ✅ | `widget/vip/vip_screen.dart` |
 
-class HomeScreen extends AdScreen {  // ← ĐỔI: StatefulWidget → AdScreen
-  const HomeScreen({super.key});
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
+---
 
-class _HomeScreenState extends AdScreenState<HomeScreen> {  // ← ĐỔI: State → AdScreenState
+## 2. KIẾN TRÚC AD HIỆN TẠI
 
-  /// Ví dụ 1: Hiện Interstitial trước khi chuyển màn hình
-  void _goToNextScreen() {
-    // SDK tự: pre-check → loading dialog 1s → show ad → gọi onDone
-    showInterstitialAd(onDone: (shown) {
-      // shown=true: ad đã hiện xong | shown=false: ad không sẵn sàng hoặc bị throttle
-      // Dù shown=true hay false, luôn navigate (UX tốt hơn)
-      if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const DetailScreen()));
-    });
-  }
-
-  /// Ví dụ 2: Hiện Rewarded Ad — user xem ad để nhận thưởng
-  void _watchAdForCoins() {
-    showRewardedAd(onEarnedReward: (earned) {
-      if (!mounted) return;
-      if (earned) {
-        // ✅ User xem hết ad → TRẢ THƯỞNG ở đây
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('+10 coins!')),
-        );
-      }
-      // earned=false → ad bị skip / không sẵn sàng (SDK tự show TopToast thông báo)
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          // ── Banner Ad ──
-          // buildBanner() là hàm có sẵn từ AdScreenState
-          // Banner tự load, tự pause khi navigate, tự resume khi quay lại
-          buildBanner(),
-
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton(
-                    onPressed: _goToNextScreen,
-                    child: const Text('Go to Detail (Interstitial Ad)'),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _watchAdForCoins,
-                    child: const Text('Watch Ad for 10 Coins'),
-                  ),
-                ],
-              ),
-            ),
-          ),
+```
+main()                                                  lib/main.dart:33
+  └── AdManager().setNavigatorKey(navigatorKey)        :36   (PHẢI trước runApp)
+  └── runApp(GetMaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [
+          adRouteObserver,                              :81   (banner pause/resume)
+          AdScreenRouteLogger(),                        :82   (route logging)
         ],
-      ),
-    );
-  }
+        home: MyApp() → SplashScreen,
+      ))
+
+SplashScreen                                           widget/splash/splash_screen.dart
+  ├── markSplashActive() / incrementSplashCount()      :40–42
+  ├── HARD CAP 8s timer                                :55–58
+  ├── SimpleEventBus.listen(_eventListener)            :107  (đăng ký TRƯỚC initialize)
+  ├── (optional) AdManager().requestUmpConsent()       :120–128  ← v1.0.15 NEW
+  ├── AdManager().initialize(config: AdConfig(...))    :131–198  ← v1.0.15 features
+  └── EventBus(true) → loadAppOpenAd → buffer → showAppOpenAd(bypassSafety: true)
+
+StressorHomePage extends AdScreen                      widget/wifi_stressor/wifi_stressor_screen.dart
+  ├── buildBanner()                                    :115
+  ├── showInterstitialAd() khi navigate History/start/stop test :164,298
+  └── _buildVipAction() → push VipScreen               :157–183 ← NEW
+
+HistoryScreen extends AdScreen                         widget/wifi_stressor/presentation/history_screen.dart
+  ├── buildBanner()                                    :87
+  └── showRewardedAd() khi clear history               :50
+
+VipScreen extends StatefulWidget                       widget/vip/vip_screen.dart  ← NEW
+  ├── ValueListenableBuilder<bool>(vip.activeListenable) → hero card
+  ├── ValueListenableBuilder<List<VipEntry>> → entries list
+  ├── vip.redeemVip(context, key, duration, validator, strings) → SDK Cupertino flow
+  └── vip.revokeVip(key) / vip.revokeAll()
+```
+
+---
+
+## 3. AD UNITS (PRODUCTION)
+
+> Provider: `AdProvider.appLovin`. Source: `splash_screen.dart:124–129`.
+
+| Loại | AppLovin Ad Unit ID |
+|---|---|
+| SDK Key | `REDACTED_APPLOVIN_SDK_KEY_ROUND68` |
+| Banner | `REDACTED_APPLOVIN_BANNER_ID` |
+| Interstitial | `REDACTED_APPLOVIN_INTERSTITIAL_ID` |
+| App Open | `REDACTED_APPLOVIN_APPOPEN_ID` |
+| Rewarded | `REDACTED_APPLOVIN_REWARDED_ID` |
+
+> ⚠️ Đây là production IDs. Để test impressions không bị đếm, dùng AppLovin Mediation Debugger (3-finger long-press trong app) hoặc đăng ký GAID thiết bị qua test mode trong AppLovin Dashboard.
+
+---
+
+## 4. AD CONFIG ĐẦY ĐỦ HIỆN TẠI
+
+> Source: `lib/mckimquyen/widget/splash/splash_screen.dart` (block `AdManager().initialize`).
+
+```dart
+AdConfig(
+  provider: AdProvider.appLovin,
+  appLovin: AppLovinConfig(sdkKey, bannerId, interstitialId, appOpenId, rewardedId),
+
+  // ─ User-facing strings ────────────────────────────────────
+  adNotReadyMessage: 'ad_not_ready'.tr,
+  adLoadingMessage: 'loading'.tr,
+
+  // ─ Logging (Q5) ───────────────────────────────────────────
+  logLevel: kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning,
+
+  // ─ Consent dialog (Q1A + Q9B) ─────────────────────────────
+  // Auto-show ~1s sau markSplashInactive (default true). Strings từ
+  // translations vi/en. Privacy URL = Notion page.
+  consentDialogStrings: ConsentDialogStrings(
+    title: 'consent_title'.tr,
+    message: 'consent_message'.tr,
+    allowButton: 'consent_allow'.tr,
+    rejectButton: 'consent_reject'.tr,
+    privacyPolicyLabel: 'consent_privacy_label'.tr,
+    privacyPolicyUrl: 'https://loitp.notion.site/Term-...',
+  ),
+
+  // ─ VIP redeem (Q14, Q15) ──────────────────────────────────
+  vipKeyValidator: vipKeyValidator,        // kiểm tra key vs kVipKeyMap
+  vipDialogStrings: VipDialogStrings(...), // từ translations vi/en
+
+  // ─ Legacy GAID list (Q16B: keep) ──────────────────────────
+  // SDK auto-migrates → VipManager entries (year-2099) cho device khớp GAID.
+  vipDeviceGaids: const [/* 21 GAIDs QA devices */],
+
+  // ─ Defaults không override ────────────────────────────────
+  // firstInstallVipGrace: auto    (30s debug / 24h release)  ← Q2B
+  // autoShowConsentDialog: true   (auto-show post-splash)
+  // safety: AdSafetyParams.auto   (12-layer guard, không tinh chỉnh)
+  // splashMaxDuration: 8s         (đồng bộ với hard-cap timer)
+  // loadingBufferMs: 1000         (buffer trước fullscreen ad)
+)
+```
+
+---
+
+## 5. UMP CONSENT FLOW (v1.0.15 NEW)
+
+> Source: `splash_screen.dart:120–128`.
+
+```dart
+try {
+  final umpResult = await AdManager().requestUmpConsent(testMode: false);
+  // → Map UMP → AdConsent → setConsent(...) (SDK auto)
+} catch (e) {
+  SafeLogger.w('Splash', 'UMP threw, continuing init anyway: $e');
+}
+// → init bình thường dù canRequestAds == false (Q11A: fallback non-personalized)
+AdManager().initialize(config: ...);
+```
+
+**Hành vi:**
+- **Non-EEA user:** `requestConsentInfoUpdate` trả `notRequired` ngay → form không show → `canRequestAds=true`. Không có thêm UI.
+- **EEA user, lần đầu:** `notRequired` → `required` → `ConsentForm` Google show → user chọn → cập nhật status. Splash hard-cap 8s vẫn chạy → nếu user đọc form quá lâu, navigate về home, lần sau mở app vào lại splash với cached consent.
+- **Không có internet:** `requestConsentInfoUpdate` fail → catch và continue. SDK vẫn init, ads sẽ load lại khi có internet.
+- **iOS ATT:** UMP flow này KHÔNG show ATT prompt. App chưa wire `app_tracking_transparency` package — nếu cần, thêm sau riêng.
+
+---
+
+## 6. CONSENT DIALOG (Cupertino, Auto-show)
+
+`autoShowConsentDialog: true` (default). SDK schedule `Timer(consentDialogPostSplashDelay = 1s)` ngay khi `markSplashInactive` → trên home screen show binary dialog "Allow / Reject".
+
+**Skip điều kiện:**
+- VIP đang active → skip (đỡ làm phiền user trả phí). Vì `firstInstallVipGrace: auto` mặc định 24h release → user fresh-install **sẽ KHÔNG thấy dialog trong 24h đầu**, dialog chỉ surface sau khi grace expire.
+- `hasBeenAsked == true` → skip vĩnh viễn (lưu SharedPreferences).
+- Không có `navigatorKey` → skip (logged warning).
+
+**Manual re-show** (vd Privacy settings page): `ConsentManager.instance.showDialog(context, strings: ..., barrierDismissible: ...)`.
+
+---
+
+## 7. VIP SYSTEM
+
+### 7.1 Key whitelist
+
+> Source: `lib/mckimquyen/widget/vip/vip_keys.dart`.
+
+```dart
+const Map<String, Duration> kVipKeyMap = {
+  'LOITP_30': Duration(days: 30),
+};
+
+Future<bool> vipKeyValidator(String normalisedKey) async {
+  return kVipKeyMap.containsKey(normalisedKey);
 }
 ```
 
-> 📌 **Ghi nhớ:**
-> - `AdScreenState` tự gọi `loadInterstitial()` trong `initState`. Nếu SDK chưa init xong → SDK bỏ qua (không crash).
-> - `buildBanner()` chỉ cần gọi 1 lần trong `build()`. SDK quản lý toàn bộ lifecycle.
-> - `showInterstitialAd()` và `showRewardedAd()` đã tích hợp sẵn loading dialog 1s.
+- `VipManager.normaliseKey` (trim + uppercase) chạy trước khi gọi validator → user gõ `loitp_30` hoặc ` LOITP_30 ` đều match.
+- Thêm key mới: thêm 1 entry vào `kVipKeyMap`. Không cần đổi UI.
+
+### 7.2 VipScreen (entry point)
+
+`StressorHomePage` AppBar → icon 👑 (`Icons.workspace_premium`) → `Get.to(VipScreen())`.
+
+Icon đổi màu reactive theo `vip.activeListenable`:
+- `false` → outline trắng
+- `true` → filled vàng `0xFFFFD60A`
+
+### 7.3 VipScreen sections
+
+| Section | Source | Behaviour |
+|---|---|---|
+| Hero card | `_buildHeroCard` | Gradient gold (active) / xám (inactive). Crown icon có shimmer ring khi active. Hiển thị "Hiệu lực đến @date" + remaining-badge. |
+| Redeem section | `_buildRedeemSection` | TextField uppercase auto, prefix icon ticket, suffix clear. Button "Kích hoạt" gradient gold + spinner khi processing. |
+| Active entries | `_buildEntriesSection` | List card mỗi entry (FIRST_INSTALL / LEGACY_xxx / user key) với icon riêng, days/hours remaining, expires date, revoke button. Header có "Thu hồi tất cả" nếu nhiều entry. |
+| Footer | `_buildFooter` | Privacy Policy link → `url_launcher` external browser. |
+
+### 7.4 Redeem flow (sequence)
+
+```
+User nhập key → tap "Kích hoạt"
+  → FocusScope.unfocus()                          (đóng keyboard)
+  → _isProcessing.value = true                    (button → spinner)
+  → vip.redeemVip(context, key, duration, validator, strings)
+    → SDK show Cupertino "Verifying" dialog
+    → await validator(normalisedKey)              (≥400ms artificial delay nếu null)
+    → SDK pop verifying
+    → ok? addVip(key, duration) → show success    (return true)
+    → !ok? show failed                            (return false)
+  → finally: _isProcessing.value = false
+  → ok? clear input + heavy haptic + refresh entries
+```
+
+### 7.5 Special entries
+
+| Key prefix | Source | UI |
+|---|---|---|
+| `__FIRST_INSTALL__` | `firstInstallVipGrace.auto` (SDK) | Icon 🎉, label "Quà tặng cài đặt mới" |
+| `LEGACY_<gaid>` | Auto-migrated từ `vipDeviceGaids` (SDK) | Icon 📱, label "Thiết bị QA" |
+| Khác | User redeem (vd `LOITP_30`) | Icon 🎟, label = key |
+
+### 7.6 Reactivity
+
+- `vip.activeListenable` → hero card + AppBar icon đổi màu.
+- `vip.activeStream` → re-fetch entries khi active state đổi (cover case external add).
+- Local `Timer.periodic(30s)` → re-render remaining-time text mượt (không poll API, chỉ rebuild UI từ entries hiện có).
 
 ---
 
-### STEP 7 / 7 — App Open On Resume (TỰ ĐỘNG — Không cần code)
+## 8. TOUCHPOINTS — TỔNG HỢP
 
-> **Tại sao không cần code:** SDK đã đăng ký `WidgetsBindingObserver` bên trong.
-> Khi user rời app rồi quay lại, SDK tự xử lý toàn bộ flow:
-
-```
-User nhấn Home (app vào background)
-  → Đợi ≥ 5 giây
-  → User quay lại app
-  → SDK check: canShowAppOpenOnResume()
-     ├── Nếu OK  → Hiện AdLoadingDialog 1s → Show App Open Ad
-     └── Nếu KHÔNG (throttle/cold start/…) → Log lý do → Skip
-```
-
-> ⚠️ **Điều kiện bắt buộc:** Step 4 phải hoàn thành (có `navigatorKey`).
-> Nếu thiếu → resume CÓ ad nhưng KHÔNG có loading dialog.
-
-**▶️ Kiểm tra:**
-1. Chạy app, đợi qua splash vào home
-2. Nhấn Home (app vào background), đợi 60 giây
-3. Mở lại app
-4. Xem log:
-```
-[AdManager] ProcessLifecycle ▶️ App came to FOREGROUND
-[AdManager] ▶️ showAppOpenAdOnResume: showing loading dialog...
-[AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
-[AdManager] ✅ [AppLovin] App Open Ad Shown
-```
-
-**❌ Nếu thấy `🛡️ Skipping on cold start`:** Đây là bình thường — lần resume đầu tiên luôn bị skip.
-**❌ Nếu thấy `🛡️ Throttle: wait Xs`:** Đây là bình thường — cần đợi 60s giữa 2 fullscreen ad.
+| Loại ad | Touch point | File:line | Note |
+|---|---|---|---|
+| App Open (cold) | Splash sau init + load + buffer | `splash_screen.dart:79–110` | `bypassSafety: true` |
+| App Open (resume) | SDK auto qua `WidgetsBindingObserver` | (SDK internal) | Yêu cầu `setNavigatorKey` ở `main.dart:36` |
+| Banner | Stressor home top | `wifi_stressor_screen.dart:115` | `buildBanner()` từ AdScreen |
+| Banner | History screen top | `presentation/history_screen.dart:87` | `buildBanner()` từ AdScreen |
+| Interstitial | Tap "Start test" | `wifi_stressor_screen.dart:164` | `showInterstitialAd(onDone:)` |
+| Interstitial | Tap "Stop test" | `wifi_stressor_screen.dart:298` | `showInterstitialAd(onDone:)` |
+| Interstitial | Navigate to History | `wifi_stressor_screen.dart:164` | `showInterstitialAd(onDone:)` |
+| Rewarded | Clear history button | `presentation/history_screen.dart:50` | `showRewardedAd(onEarnedReward:)` |
+| VIP nav | AppBar icon 👑 | `wifi_stressor_screen.dart:181` | KHÔNG show inter (UX VIP phải mượt) |
 
 ---
 
-### 🎉 HOÀN THÀNH!
+## 9. POLICY COMPLIANCE AUDIT
 
-Nếu bạn hoàn thành đủ 7 step, app sẽ có đầy đủ:
+### 9.1 AdMob policy (qua mediation)
 
-| Tính năng | Trạng thái |
-|-----------|-----------|
-| App Open Ad (splash) | ✅ Tự động |
-| App Open Ad (resume) | ✅ Tự động |
-| Banner Ad | ✅ `buildBanner()` |
-| Interstitial Ad | ✅ `showInterstitialAd()` |
-| Rewarded Ad | ✅ `showRewardedAd()` |
-| Loading Dialog 1s | ✅ Tự động trước mọi fullscreen |
-| 12 Safety Guards | ✅ Tự động, không cần config |
+| Rule | Status | Note |
+|---|---|---|
+| Không show interstitial trên splash | ✅ Splash dùng App Open Ad, không Interstitial | App Open tách biệt slot, được phép trên splash |
+| App Open `bypassSafety` chỉ 1 lần ở splash | ✅ | Resume App Open vẫn check `canShowAppOpenOnResume()` (4 guards) |
+| Không show ad chồng nhau | ✅ | SDK có `_isInterstitialShowing` + `_lastFullscreenDismissTime` 2s cooldown + slot-state watcher v1.0.15 |
+| Không gây hiểu nhầm "tap để xem nội dung" rồi show ad | ✅ | Mỗi touch point đều có UX rõ ràng (button có label) |
+| AdMob `APPLICATION_ID` trong AndroidManifest | ✅ | Line 51–53 |
+| AndroidManifest permissions | ✅ | `AD_ID`, `INTERNET`, `ACCESS_NETWORK_STATE` (line 5–11) |
+| iOS `GADApplicationIdentifier` / `SKAdNetworkItems` / `NSUserTrackingUsageDescription` | ⚠️ | Cần verify `ios/Runner/Info.plist` có đầy đủ 4 keys (out of scope migration này) |
 
----
+### 9.2 AppLovin policy
 
-### ⚠️ COMMON MISTAKES — Lỗi Thường Gặp Của Fresher
+| Rule | Status | Note |
+|---|---|---|
+| SDK key truyền qua code, không trong manifest | ✅ | `splash_screen.dart:124` |
+| Mediation Debugger có thể truy cập | ✅ | AppLovin tự bật trong debug builds |
+| `taskAffinity` không rỗng | ✅ | `AndroidManifest.xml:58–65` không có attribute → default = package name |
+| `gma_mediation_applovin` ở app-level | ✅ | `pubspec.yaml:52` (KHÔNG ở sub-package) |
 
-| # | Lỗi | Hậu quả | Cách fix |
-|---|-----|---------|----------|
-| 1 | Gọi `initialize()` trong `main()` thay vì SplashScreen | EventBus fire trước khi listener đăng ký → ad không load | Chuyển `initialize()` vào `SplashScreen.initState()` (Step 5) |
-| 2 | Quên `flutter pub get` sau khi thêm dependency | Import báo lỗi đỏ, class không tìm thấy | Chạy `flutter pub get` trong terminal |
-| 3 | Quên truyền `navigatorKey` cho `MaterialApp` | Banner crash khi navigate, App Open resume không có dialog | Thêm 3 dòng ở Step 4 |
-| 4 | Dùng test ID khi release production | App bị Google/AppLovin reject hoặc không tính revenue | Đổi tất cả ID sang production trước khi build release |
-| 5 | Thêm `applovin.sdk.key` trong `AndroidManifest.xml` | SDK key bị expose, có thể conflict | SDK Key chỉ truyền qua Dart trong `AppLovinConfig.sdkKey` |
-| 6 | Kế thừa `StatefulWidget` thay vì `AdScreen` | Không có `buildBanner()`, `showInterstitialAd()` | Đổi `extends StatefulWidget` → `extends AdScreen` (Step 6) |
-| 7 | Gọi `showInterstitialAd()` trước khi SDK init xong | Trước v1.0.14: crash. Từ v1.0.14: SDK tự bỏ qua (log warning) | Không cần fix — SDK đã handle. Nhưng nên gọi sau splash |
-| 8 | Quên `markSplashActive()` / `markSplashInactive()` | App Open resume show trên splash screen | Copy đúng code SplashScreen ở Step 5 |
-| 9 | Không thêm `adRouteObserver` vào `navigatorObservers` | Banner không pause khi navigate → impression spam | Thêm `adRouteObserver` vào `navigatorObservers` (Step 4) |
-| 10 | Build release thiếu `minSdk = 21` | Build fail trên một số device cũ | Đảm bảo `minSdk = 21` trong `build.gradle.kts` (Step 2) |
+### 9.3 GDPR / EEA
 
----
+| Rule | Status | Note |
+|---|---|---|
+| UMP form show TRƯỚC first ad request | ✅ | `splash_screen.dart:120–128` chạy trước `initialize()` |
+| Non-personalized fallback nếu reject | ✅ | SDK `setConsent` map `canRequestAds=false` → AdConsent.hasUserConsent=false |
+| Privacy Policy URL | ✅ | Nhúng vào `ConsentDialogStrings.privacyPolicyUrl` |
 
-## 4. LUỒNG APP OPEN AD — 6 KỊCH BẢN
+### 9.4 Safety guards (12 layers, SDK tự động)
 
-### Kịch bản 1: Init thành công + Load nhanh (lý tưởng)
-```
-markSplashActive()
-  → initialize() → EventBus(true)
-  → loadAppOpenAd() → loaded < 8s
-  → AdLoadingDialog 1s → showAppOpenAd(bypassSafety: true)
-  → User đóng → markSplashInactive() → MainScreen
-```
+> Không tinh chỉnh trong app — `AdSafetyParams.auto` đủ.
 
-### Kịch bản 2: Load chậm > 8s
-```
-Timer 8s hết → navigateHome() → MainScreen
-Ad load về → _hasNavigated=true → BLOCKED
-Ad nằm trong RAM → Resume sau sẽ show
-```
+App Open + Inter + Rewarded: throttle 60s, session cap 6, hourly cap 3, daily cap 5, suspicious CTR 30%, click spam 3/min, cold start skip, rapid resume 3/min, loading dialog 1s, mutex chống double-load, `_isInterstitialShowing` chống AppOpen, `_lastFullscreenDismissTime` 2s cooldown.
 
-### Kịch bản 3: Load thất bại
-```
-onAdLoaded(false) → navigateHome() → MainScreen (sớm hơn 8s)
-```
-
-### Kịch bản 4: Init thất bại
-```
-EventBus(false) → navigateHome() → MainScreen
-```
-
-### Kịch bản 5: App Resume — Show thành công
-```
-App background → User quay lại
-  → showAppOpenAdOnResume()
-  → canShowAppOpenOnResume() = true
-  → AdLoadingDialog 1s (spinner)
-  → showAppOpenAd(bypassSafety: true)
-  → User đóng → preload next
-```
-
-### Kịch bản 6: App Resume — Bị chặn
-```
-Background < 5s hoặc throttle active
-  → canShowAppOpenOnResume() = false → skip
-  → KHÔNG show ad, KHÔNG show dialog
-```
+Banner: navigation cooldown 5s, click spam 3/min.
 
 ---
 
-## 5. AD SAFETY — 12 BIỆN PHÁP CHỐNG INVALID TRAFFIC
+## 10. SO SÁNH TRƯỚC / SAU MIGRATE v1.0.14 → v1.0.16
 
-### 5.1 `canShowFullscreenAd()` — 7 Checks
-
-| # | Check | Giới hạn | Fail log |
-|---|-------|----------|----------|
-| 1 | Suspicious pause | 30m→1h→2h→4h→8h | `🛡️ Suspended` |
-| 2 | Session age | > 10s | `🛡️ Session too young` |
-| 3 | Session cap | ≤ 6/session | `🛡️ Session limit` |
-| 4 | Hourly cap | ≤ 3/giờ | `🛡️ Hourly cap` |
-| 5 | Daily cap | ≤ 5/ngày | `🛡️ Daily limit` |
-| 6 | Throttle | ≥ 60s | `🛡️ Throttle: wait Xs` |
-| 7 | CTR anomaly | ≤ 30% (≥ 5 imp) | `⚠️ SUSPICIOUS` |
-
-### 5.2 `canShowAppOpenOnResume()` — 4 Checks
-
-| # | Check | Fail log |
-|---|-------|----------|
-| 1 | Cold start skip | `🛡️ Skipping on cold start` |
-| 2 | Background < 5s | `🛡️ Resume too fast` |
-| 3 | Rapid resume > 3/min | `🛡️ Rapid resume detected` |
-| 4 | Fullscreen throttle | `🛡️ Throttle: wait Xs` |
-
-### 5.3 Progressive Suspension
-
-```
-Vi phạm 1 → Pause 30 phút
-Vi phạm 2 → Pause 1 giờ
-Vi phạm 3 → Pause 2 giờ
-Vi phạm 5+ → Pause 8 giờ (max 24 giờ)
-```
+| Hạng mục | Trước (v1.0.14) | Sau (v1.0.16) |
+|---|---|---|
+| Pubspec version | `^1.0.14` (legacy doc nói thế) | `^1.0.16` |
+| Consent dialog | ❌ Không có | ✅ Cupertino auto-show, vi/en strings từ translations |
+| UMP wrapper | ❌ Không gọi | ✅ `requestUmpConsent` chạy trước `initialize` |
+| First-install VIP grace | ❌ Không có | ✅ `auto` (24h release / 30s debug) |
+| VIP redeem UI | ❌ Không có | ✅ `VipScreen` riêng + Cupertino verifying/success/failed dialogs |
+| VIP key validator | ❌ Không có | ✅ `kVipKeyMap` whitelist, `LOITP_30 → 30 ngày` |
+| AppOpen timeout | Fixed 10s (false-positive khi user click ad → browser) | Lifecycle-aware polling 5s tick / 90s cap |
+| Slot dismiss watcher | ❌ Bug: rewarded `onDone` fire khi earn-reward, không phải dismiss → AppOpen show ngay sau rewarded | ✅ Fix bằng slot-state transition watcher |
+| Banner paid-event | ❌ Silently fail (dynamic dispatch) | ✅ `BannerAdListener.onPaidEvent` |
+| Log level | Verbose mặc định | `kDebugMode ? verbose : warning` |
+| `taskAffinity=""` pitfall | Tiềm ẩn | ✅ Verified clean (`AndroidManifest.xml:58`) |
+| Hot-restart `markSplashInactive` | ⚠️ Chỉ gọi sau 1 frame | ✅ Sync ngay khi detect `count > 1` |
+| Comment "300ms buffer" | ❌ Sai (default thực tế 1000ms) | ✅ Comment chính xác |
 
 ---
 
-## 6. LOG REFERENCE
+## 11. CHECKLIST RELEASE
 
-> Tất cả log có prefix `[AdMob]` hoặc `[AppLovin]` để phân biệt.
-
-### 6.1 Log tốt
-```
-✅ Ad Loaded / Shown / Dismissed      ← Hoạt động bình thường
-📊 Ad SHOWN | session=X/6 | hourly=X/3 | daily=X/5
-[AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
-```
-
-### 6.2 Log warning (bình thường)
-```
-⏭️ already loading, skip             ← Mutex lock (tốt)
-⏭️ ad already ready                  ← AppLovin guard
-🛡️ Throttle: wait Xs                 ← Safety hoạt động đúng
-⚠️ AdManager not initialized         ← SDK chưa init, method bị skip
-```
-
-### 6.3 Log cần chú ý
-```
-⚠️ SUSPICIOUS                        ← CTR/click spam → kiểm tra
-❌ Failed to load                     ← Network/config issue
-```
+- [ ] Production AppLovin/AdMob IDs đã đúng (không phải test ID).
+- [x] `AndroidManifest.xml` có `APPLICATION_ID`, `AD_ID`, `INTERNET`, `ACCESS_NETWORK_STATE`.
+- [x] `MainActivity` KHÔNG có `android:taskAffinity=""`.
+- [ ] `ios/Runner/Info.plist` có `GADApplicationIdentifier`, `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`.
+- [ ] iOS Podfile target ≥ 13.0, đã `pod install`.
+- [x] Privacy Policy URL valid và load được external browser.
+- [x] `firstInstallVipGrace` strategy aligned (auto = ad-free 24h release).
+- [x] VIP key `LOITP_30` test redeem thành công, đếm còn 30 ngày.
+- [ ] Test thật trên thiết bị (emulator không show real ad).
+- [ ] Mediation Debugger không có "no-fill 100%" trên unit production.
 
 ---
 
-## 7. FILL RATE OPTIMIZATION
+## 12. TROUBLESHOOTING
 
-| Cơ chế | Mô tả |
-|--------|-------|
-| **Sequential preload** | App Open loaded → auto load Inter + Rewarded |
-| **Auto-reload on dismiss** | Mọi ad type reload ngay khi user đóng |
-| **Auto-reload on fail** | Reload khi show thất bại |
-| **5-min retry timer** | Check + fill ad slots trống mỗi 5 phút |
-| **4h expiry reload** | AdMob App Open hết hạn → auto reload |
-| **Error cooldown 15min** | Tránh spam server khi load thất bại liên tục |
+### Splash bị treo > 8s
+Check log `[Splash]` — UMP có thể đang block. Hard cap 8s sẽ tự navigate. Lần mở sau cached UMP nên fast.
 
----
+### Consent dialog không hiện
+1. VIP đang active (kiểm tra `vip.isActive`) → expected, dialog skip cho VIP.
+2. `hasBeenAsked == true` (đã chọn rồi) → expected, không re-prompt.
+3. `setNavigatorKey` chưa gọi → check `main.dart:36`.
 
-## 8. MEMORY LEAK PREVENTION
+### VIP key đúng nhưng "Mã không hợp lệ"
+1. Check `kVipKeyMap` có key đó không (case insensitive — SDK normalise).
+2. Verify `vipKeyValidator` truyền vào `AdConfig.vipKeyValidator` (`splash_screen.dart:178`).
 
-| Cơ chế | Mô tả |
-|--------|-------|
-| **Callback null before dispose** | Tránh late callback |
-| **EventBus clearAll()** | Xoá listeners trong destroy() |
-| **Observer paired** | add/remove observer đúng cặp |
-| **ValueNotifier reset** | Reset value, KHÔNG dispose (singleton lifetime) |
-| **Pending callback flush** | Tất cả pending callbacks fire(false) trước null |
-| **Static state reset** | AdLoadingDialog, AdSafetyConfig reset trong destroy() |
+### App Open Ad không show khi resume
+1. Cold start skip — lần resume đầu tiên luôn skip.
+2. Background < 5s — bị `canShowAppOpenOnResume` reject.
+3. VIP active — expected, ads suppressed.
+4. Daily cap reached → check log `🛡️ Daily limit`.
 
----
-
-## 9. CHECKLIST TRƯỚC KHI RELEASE
-
-- [ ] Đổi ad unit ID từ test → production trong `AdConfig`
-- [ ] Kiểm tra `vipDeviceGaids` đúng danh sách
-- [ ] Kiểm tra `AdProvider` đúng (admob vs appLovin)
-- [ ] Kiểm tra `AndroidManifest.xml` có AdMob Application ID
-- [ ] Test trên real device (emulator không show ad thật)
-- [ ] Xem log không có `⚠️ SUSPICIOUS` bất thường
-- [ ] Kiểm tra `daily=X/5` tăng đúng sau mỗi phiên test
+### Banner không hiển thị
+1. VIP active → expected, banner skipped.
+2. Network sai → check log `[BannerAdWidget] _initBanner ⏭️`.
+3. Cooldown sau lỗi load → đợi 5 phút.
 
 ---
 
-## 10. TROUBLESHOOTING
-
-### "AdManager not initialized" warning
-**Khi nào xảy ra:** `AdScreenState.initState` gọi `loadInterstitial()` trước khi `initialize()` hoàn thành.
-**Fix:** SDK v1.0.14+ tự bỏ qua (warning log, không crash). Đảm bảo `initialize()` được gọi trong SplashScreen.
-
-### "AdWidget is already in the Widget tree" (AdMob)
-**Fix:** SDK dùng `_admobIsTopRoute` per-widget flag, chỉ 1 AdWidget trong tree mỗi lúc.
-
-### Banner bị stuck shimmer (AppLovin)
-**Fix:** SDK dùng `Stack` — MaxAdView luôn mounted, shimmer overlay lên trên.
-
-### App Open show cùng lúc Interstitial
-**Fix:** `_isInterstitialShowing` guard + `_lastFullscreenDismissTime` 2s cooldown.
-
-### "Ad not ready" toast hiện liên tục
-**Lý do:** Safety throttle active (60s giữa 2 ad). Chờ và thử lại.
-
-### App Open resume không có loading dialog
-**Fix:** Phải gọi `AdManager().setNavigatorKey(navigatorKey)` trong `main()`.
-
----
-
-## 11. SDK INTERNALS — FLOW CHI TIẾT
-
-### 11.1 Interstitial Flow
-```
-AdScreen.showInterstitialAd()
-  → canShowInterstitial() pre-check (safety + dialog guard)
-  → AdLoadingDialog 1s buffer
-  → AdManager.showInterstitial()
-    → canShowFullscreenAd() recheck
-    → [AdMob] ad.show() / [AppLovin] MAX.show()
-    → dismiss → dispose + reload
-```
-
-### 11.2 Rewarded Flow
-```
-AdScreen.showRewardedAd()
-  → VIP? → auto-reward true
-  → canShowRewardedAd() pre-check
-    → fail? → TopToast + false
-  → AdLoadingDialog 1s buffer
-  → AdManager.showRewardedAd()
-    → earned → callback(true)
-    → skip → callback(false) + reload
-```
-
-### 11.3 Banner Flow
-```
-BannerAdWidget mount
-  → RouteAware subscribe
-  → _initBanner() (1 lần)
-    → VIP/no internet/cooldown → skip
-    → [AdMob] loadBanner / [AppLovin] preloaded
-  → Route navigation:
-    didPushNext → pause
-    didPopNext → resume
-  → App lifecycle:
-    paused → hide
-    resumed → show + auto-reload on error
-```
-
----
-
-## 12. PHIÊN BẢN
+## 13. PHIÊN BẢN
 
 | Ngày | Version | Thay đổi |
-|------|---------|----------|
-| 20260321 | v1–v12 | Port từ Kotlin → Flutter, 12 iterations |
-| 20260322 | v13–v17 | Provider labels, setState fix, AdWidget fix |
-| 20260323 | v18 | SDK Package `applovin_admob_sdk`, 43 bug fixes |
-| 20260324 | v19 | Fix #47: Loading dialog cho App Open resume via navigator key |
-| **20260324** | **v20** | **Fix #48: _assertInitialized không crash + doc update** |
-| **20260324** | **v21** | **Rewrite Integration Guide cho fresher — thêm WHY, file map, troubleshoot per step** |
+|---|---|---|
+| 20260321 | v1–v17 | Port từ Kotlin Native → Flutter, single-file `AdManager` |
+| 20260322 | v18 | Tách ra package `applovin_admob_sdk`, 43 bug fixes |
+| 20260323 | v19 | Fix #47: Loading dialog cho App Open resume |
+| 20260324 | v20 | Fix #48: `_assertInitialized` không crash |
+| 20260324 | v21 | Rewrite Integration Guide cho fresher |
+| 20260423 | v22 (1.0.14) | Production-hardened baseline |
+| 20260426 | **v23 (1.0.15)** | **+ConsentManager, +UMP wrapper, +firstInstallVipGrace, +slot dismiss watcher, +smart timeout, fix `taskAffinity` pitfall** |
+| 20260426 | **v24 (1.0.16)** | **Documentation overhaul (no runtime change)** |
+| 20260426 | **v25 (host)** | **Repo host adopts 1.0.15 features (consent strings vi/en, UMP, vipKeyValidator+LOITP_30, VipScreen, logLevel)** |

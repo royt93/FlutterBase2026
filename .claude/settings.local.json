@@ -17,7 +17,9 @@
       "Read(//private/tmp/**)",
       "Bash(grep -n \"class StatePanelDemoPage\\\\|^}\\\\$\" example/lib/main.dart)",
       "Bash(git ls-tree *)",
-      "Bash(dart pub *)"
+      "Bash(dart pub *)",
+      "Bash(shasum -a 256)",
+      "Bash(awk '{print $1}')"
     ],
     "deny": [],
     "ask": []
