@@ -4,35 +4,95 @@
 [![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.27.0-blue)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-**SDK quảng cáo Flutter dùng cả AdMob lẫn AppLovin MAX qua một API duy nhất.**
+**A production-grade dual-provider ad SDK for Flutter — AdMob and AppLovin MAX behind a single, opinionated API.**
 
-✨ Đổi provider chỉ bằng 1 dòng code · 🎯 VIP system tự động · 🛡️ Anti-fraud 12 lớp · 🍎 Cupertino consent dialog đẹp · 💰 Revenue events stream · 🐛 Debug overlay realtime
+Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance, anti-fraud, retention, and crash recovery — most apps need zero glue code beyond the splash bootstrap.
 
 ---
 
-## 🇻🇳 Hướng dẫn cho người mới (copy-paste 6 bước)
+## Table of contents
 
-> Anh em không cần biết gì về Flutter / AdMob / AppLovin. Làm đúng 6 bước này là chạy được.
+1. [Why this SDK](#why-this-sdk)
+2. [What's new in 1.0.15](#whats-new-in-1015)
+3. [Quick start (copy-paste in 6 steps)](#quick-start)
+4. [Configuration reference](#configuration-reference)
+5. [VIP system](#vip-system)
+6. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
+7. [Debugging](#debugging)
+8. [Pitfalls — read before filing a bug](#pitfalls)
+9. [Public API surface](#public-api)
+10. [FAQ](#faq)
+11. [Migration from older versions](#migration)
+12. [Support](#support)
+13. [License](#license)
 
-### Bước 1️⃣ — Thêm vào `pubspec.yaml`
+---
 
-Mở file `pubspec.yaml` ở thư mục gốc app, dán đoạn sau vào mục `dependencies:`:
+## Why this SDK
+
+| You want | The SDK gives you |
+|---|---|
+| Switch between AdMob and AppLovin without rewriting code | One `AdConfig.provider` flag |
+| First-session ad-free experience for new installs (boost D1 retention) | `firstInstallVipGrace` — auto-grants VIP for 24 hours on first install |
+| GDPR-compliant consent UI without integrating a third-party CMP | Built-in Cupertino consent dialog, auto-shown post-splash |
+| Google UMP form for EEA users | `AdManager().requestUmpConsent()` — wraps `google_mobile_ads`'s built-in `ConsentInformation` API |
+| Anti-fraud protection so AdMob doesn't suspend your account | Twelve-layer safety gate: per-session/hour/day caps, throttle, CTR threshold, click-spam detection, progressive cooldown |
+| Banner that pauses on navigation and resumes on return | `buildBanner()` — hooks into the navigator and adapter lifecycle automatically |
+| Revenue tracking for LTV analytics | `Stream<AdEvent>` emits `AdRevenueEvent` per impression |
+| Sane behavior when Android kills the process under memory pressure | Smart App-Open timeout (lifecycle-aware), process-restart marker, detached state warning |
+
+---
+
+## What's new in 1.0.15
+
+The 1.0.15 release is fully backwards-compatible with 1.0.14. It adds:
+
+- **Cupertino consent dialog** — opt-in via `AdConfig.autoShowConsentDialog: true` (the default). Auto-shows on the home screen ~1 second after the splash flow completes, never during splash. Skipped automatically for VIP users. Persists the user's choice; surfaces the choice via `ConsentManager.instance` for re-show from a Privacy settings page.
+- **Google UMP wrapper** — `AdManager().requestUmpConsent(...)` calls into `google_mobile_ads`'s built-in UMP API (no extra dependency needed since `google_mobile_ads` 6.x). Returns a structured `UmpConsentResult { canRequestAds, status, formShown, error }`.
+- **First-install VIP grace** — `AdConfig.firstInstallVipGrace: FirstInstallVipGrace.auto` (default). Auto-grants a one-time VIP entry on the very first SDK init for this install. Default: 30 seconds in debug builds, 24 hours in release. Tracked via `SharedPreferences` so the grant fires exactly once per install.
+- **Smart App-Open timeout** — replaces a fixed 10-second timeout that produced false-positive force-dismisses when users clicked an ad and were sent to a browser for 20+ seconds. The new timeout polls the app lifecycle every 5 seconds (re-arms while paused, force-dismisses only when app is foreground for two consecutive ticks without `onAdHiddenCallback`), with a 90-second hard cap.
+- **Slot-state dismiss watcher** — replaces the brittle adapter-callback timestamp writes that used to fire at the wrong moment for rewarded ads (rewarded `onDone` fires when the reward is earned, not when the user actually dismisses). The watcher hooks every fullscreen slot's `state.value` and records the dismiss instant on `showing → !showing`. Source of truth for the resume guard.
+- **VIP auto-expire timer** — `VipManager` now schedules a `Timer` for the soonest `expiresAt`. When it fires, the manager purges the expired entry, refreshes the active flag, and `AdManager` (listening to `vip.activeListenable`) preloads all four ad slots so the next user-triggered show finds an ad ready.
+- **Granular diagnostic logging** — every gate (`adapter null`, `VIP`, `no network`, `slot showing`, safety reason, recent dismiss) emits an explicit `⏭️ skipped — <reason>` log instead of returning silently. Process-restart marker `🚀 AdManager singleton CREATED` fires once per process so two markers in the same logcat session indicate Android killed and restarted the app. Lifecycle observer logs full state (`prev → current`, slot states, VIP, splash flag, backgrounded duration).
+
+See `CHANGELOG.md` for the full list, including all bug fixes.
+
+---
+
+## Quick start
+
+> **Audience: developers integrating ads into a fresh Flutter app.** No prior AdMob or AppLovin experience required. Each step is copy-paste.
+
+### Prerequisites
+
+- Flutter 3.27.0 or newer
+- Android `minSdkVersion` 21 or newer (AdMob requirement)
+- iOS deployment target 12.0 or newer
+- An [AdMob account](https://admob.google.com) (for AdMob ad units), an [AppLovin account](https://dash.applovin.com) (for AppLovin), or both. The SDK ships Google's public test ad unit IDs so you can verify integration before creating real units.
+
+### Step 1 — Add the dependency
+
+Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.15
-  gma_mediation_applovin:   # bắt buộc nếu dùng AdMob mediation, không thì xóa dòng này
+  applovin_admob_sdk: ^1.0.16
+
+  # Optional — only if you want to use AppLovin as an AdMob mediation network.
+  # Skip this line if you are using AppLovin directly via AdProvider.appLovin
+  # or AdMob without mediation.
+  gma_mediation_applovin:
 ```
 
-Chạy lệnh này trong terminal:
+Then run:
 
 ```bash
 flutter pub get
 ```
 
-### Bước 2️⃣ — Cấu hình Android (file `android/app/src/main/AndroidManifest.xml`)
+### Step 2 — Android configuration
 
-Mở file `AndroidManifest.xml`, **dán** vào trong thẻ `<manifest>`:
+Open `android/app/src/main/AndroidManifest.xml` and add the three permissions inside `<manifest>`:
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET"/>
@@ -40,101 +100,134 @@ Mở file `AndroidManifest.xml`, **dán** vào trong thẻ `<manifest>`:
 <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
 ```
 
-**Dán** vào trong thẻ `<application>` (thay 2 KEY bằng key thật từ AdMob/AppLovin dashboard):
+Inside `<application>`, add the two `<meta-data>` tags below. Replace each value with your real key from the respective dashboard. The placeholders below use Google's public test App ID (always valid) and a placeholder for the AppLovin SDK key:
 
 ```xml
-<!-- AdMob App ID — lấy từ admob.google.com → Settings → App ID -->
-<meta-data
-    android:name="com.google.android.gms.ads.APPLICATION_ID"
-    android:value="ca-app-pub-3940256099942544~3347511713"/>
+<application
+    android:label="My App"
+    android:icon="@mipmap/ic_launcher">
 
-<!-- AppLovin SDK Key (86 ký tự) — lấy từ dash.applovin.com → Account → Keys -->
-<meta-data
-    android:name="applovin.sdk.key"
-    android:value="DAN_KEY_86_KY_TU_CUA_BAN_VAO_DAY"/>
+    <!-- Required by google_mobile_ads even if you only use AppLovin.
+         Get yours from https://admob.google.com → Settings → App ID. -->
+    <meta-data
+        android:name="com.google.android.gms.ads.APPLICATION_ID"
+        android:value="ca-app-pub-3940256099942544~3347511713"/>
+
+    <!-- Required by applovin_max. Get the 86-character SDK key from
+         https://dash.applovin.com/o/account → Account → Keys → SDK Key. -->
+    <meta-data
+        android:name="applovin.sdk.key"
+        android:value="YOUR_86_CHARACTER_APPLOVIN_SDK_KEY_HERE"/>
+
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"
+        android:launchMode="singleTop"
+        ...>
+        <!-- ⚠️ Do NOT add android:taskAffinity="" here. See "Pitfalls" below. -->
+    </activity>
+</application>
 ```
 
-> 💡 Nếu chưa có AdMob/AppLovin account, dùng key test ở trên (`ca-app-pub-3940256099942544~3347511713` là test app ID công khai của Google).
-
-⚠️ **KHÔNG ĐƯỢC** thêm `android:taskAffinity=""` vào MainActivity. Nếu Flutter create template tự thêm, hãy **xóa nó đi** — gây crash khi user background app trong lúc xem ad.
-
-Mở file `android/app/build.gradle` hoặc `build.gradle.kts`, sửa:
+Update `android/app/build.gradle.kts` (or `build.gradle`) to require Android 5.0 or newer:
 
 ```kotlin
-defaultConfig {
-    minSdk = 21      // bắt buộc, AdMob yêu cầu
-    // ...
+android {
+    defaultConfig {
+        minSdk = 21
+        // ...
+    }
 }
 ```
 
-### Bước 3️⃣ — Cấu hình iOS (file `ios/Runner/Info.plist`)
+### Step 3 — iOS configuration
 
-Mở file `Info.plist`, **dán** vào trong thẻ `<dict>` ngoài cùng:
+Open `ios/Runner/Info.plist` and add the keys below at the root `<dict>`. Replace `YOUR_…` placeholders:
 
 ```xml
-<!-- AdMob App ID -->
+<!-- AdMob App ID — must match the Android one for the same app -->
 <key>GADApplicationIdentifier</key>
 <string>ca-app-pub-3940256099942544~1458002511</string>
 
-<!-- AppLovin SDK Key (giống bên Android) -->
+<!-- AppLovin SDK Key — must match the Android one -->
 <key>AppLovinSdkKey</key>
-<string>DAN_KEY_86_KY_TU_CUA_BAN_VAO_DAY</string>
+<string>YOUR_86_CHARACTER_APPLOVIN_SDK_KEY_HERE</string>
 
-<!-- iOS bắt buộc — text này hiện khi iOS hỏi quyền tracking -->
+<!-- Required since iOS 14.5: shown in the system ATT prompt -->
 <key>NSUserTrackingUsageDescription</key>
-<string>App dùng ID này để hiển thị quảng cáo phù hợp hơn với bạn.</string>
+<string>This identifier is used to deliver personalised ads.</string>
 
-<!-- SKAdNetworkItems — copy nguyên đoạn dài này từ Google AdMob docs -->
-<!-- https://developers.google.com/admob/ios/ios14#skadnetwork -->
+<!-- Required by AdMob & AppLovin on iOS 14.5+. Copy the canonical list
+     from https://developers.google.com/admob/ios/ios14#skadnetwork -->
+<key>SKAdNetworkItems</key>
+<array>
+    <!-- ~70 entries — paste from the link above -->
+</array>
 ```
 
-Mở `ios/Podfile`, sửa dòng `platform`:
+Update `ios/Podfile` to require iOS 12 or newer:
 
 ```ruby
 platform :ios, '12.0'
 ```
 
-Chạy:
+Then install pods:
 
 ```bash
 cd ios && pod install && cd ..
 ```
 
-### Bước 4️⃣ — Code Dart: 2 file
+### Step 4 — Bootstrap the SDK in `main.dart`
 
-**File 1: `lib/main.dart`** — copy/paste y nguyên:
+Replace your `lib/main.dart` with this:
 
 ```dart
 import 'package:flutter/material.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
+import 'splash_screen.dart';
+
+/// Global navigator key — required so the SDK can show consent dialogs and
+/// loading buffers from a context-less callback path (e.g., from the lifecycle
+/// observer when an ad dismisses).
 final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // ⚠️ BẮT BUỘC: setNavigatorKey trước runApp để SDK show được consent dialog
+
+  // ⚠️ This MUST be called before runApp(). The SDK's auto-show consent
+  // dialog and app-open-on-resume buffer rely on this navigator.
   AdManager().setNavigatorKey(navigatorKey);
+
   runApp(MaterialApp(
+    title: 'My App',
     navigatorKey: navigatorKey,
-    // ⚠️ BẮT BUỘC: 2 observers để banner pause/resume tự động
+    // ⚠️ Both observers are required:
+    //   - adRouteObserver: pauses banner refresh on navigation,
+    //                      resumes when the route comes back to top
+    //   - AdScreenRouteLogger: emits route push/pop logs (debug only)
     navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
     home: const SplashScreen(),
   ));
 }
 ```
 
-**File 2: `lib/splash_screen.dart`** — copy/paste y nguyên (chỉ sửa 5 ID đánh dấu `// TODO`):
+### Step 5 — Initialize the SDK in `splash_screen.dart`
+
+Create `lib/splash_screen.dart`. Replace the five `TODO` ad-unit IDs with values from your AppLovin dashboard. The AdMob IDs are Google's public test units and can be left as-is for verification:
 
 ```dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-import 'main.dart';                  // để dùng navigatorKey
-import 'home_screen.dart';            // màn hình chính của bạn
+
+import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
-  @override State<SplashScreen> createState() => _SplashScreenState();
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
@@ -144,54 +237,90 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+
     AdManager().markSplashActive();
     AdManager().incrementSplashCount();
 
+    // If the user reopens the app while the splash is still on the stack
+    // (rare race), short-circuit straight to home.
     if (AdManager().countInitSplashScreen > 1) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _goHome());
       return;
     }
 
+    // Hard cap: if the SDK init or the splash app-open ad takes longer than
+    // 30 seconds (network issues, etc.), force-navigate so the user is not
+    // stuck on the splash screen.
     _hardCap = Timer(const Duration(seconds: 30), _goHome);
 
-    // ⚠️ BẮT BUỘC: đăng ký listener TRƯỚC khi gọi initialize()
-    SimpleEventBus().listen((e) => e.value ? _showAppOpen() : _goHome());
+    // ⚠️ Subscribe BEFORE calling initialize(). SimpleEventBus only
+    // delivers fire events to listeners that registered before the fire.
+    SimpleEventBus().listen((BoolEvent e) {
+      if (e.value) {
+        _showSplashAppOpen();
+      } else {
+        _goHome();
+      }
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AdManager().initialize(
         config: AdConfig(
-          provider: AdProvider.appLovin,    // hoặc AdProvider.admob
-          // TODO: đổi 4 ID + sdkKey bằng giá trị thật của bạn từ dashboard
+          // Pick one. Switch by changing this single line.
+          provider: AdProvider.appLovin,
+
+          // TODO: replace with your real keys from dash.applovin.com
           appLovin: const AppLovinConfig(
-            sdkKey: 'DAN_KEY_86_KY_TU_VAO_DAY',
-            bannerId: 'banner_unit_id',
-            interstitialId: 'inter_unit_id',
-            appOpenId: 'appopen_unit_id',
-            rewardedId: 'rewarded_unit_id',
+            sdkKey:        'YOUR_86_CHARACTER_APPLOVIN_SDK_KEY_HERE',
+            bannerId:      'YOUR_BANNER_AD_UNIT_ID',
+            interstitialId:'YOUR_INTERSTITIAL_AD_UNIT_ID',
+            appOpenId:     'YOUR_APP_OPEN_AD_UNIT_ID',
+            rewardedId:    'YOUR_REWARDED_AD_UNIT_ID',
           ),
-          // TODO: AdMob ID test mặc định bên dưới có thể giữ để test, prod thay bằng ID thật
+
+          // AdMob test units — public, always valid. Replace with your real
+          // ad unit IDs (from admob.google.com) before publishing the app.
           admob: const AdMobConfig(
-            bannerId: 'ca-app-pub-3940256099942544/6300978111',
+            bannerId:       'ca-app-pub-3940256099942544/6300978111',
             interstitialId: 'ca-app-pub-3940256099942544/1033173712',
-            appOpenId: 'ca-app-pub-3940256099942544/9257395921',
-            rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+            appOpenId:      'ca-app-pub-3940256099942544/9257395921',
+            rewardedId:     'ca-app-pub-3940256099942544/5224354917',
           ),
-          // Dialog tiếng Việt — hoặc dùng const ConsentDialogStrings() cho tiếng Anh
-          consentDialogStrings: ConsentDialogStrings.vi,
+
+          // Optional: localise the auto-show consent dialog.
+          // ConsentDialogStrings.vi for Vietnamese, or pass your own.
+          // consentDialogStrings: ConsentDialogStrings.vi,
+
+          // Optional: validate redeemed VIP keys against your server.
+          // vipKeyValidator: (key) => myServer.verifyVipKey(key),
         ),
-        onComplete: (success, gaid) {},
+        onComplete: (success, gaid) {
+          // Optional: log to your analytics here.
+          debugPrint('SDK init complete: success=$success gaid=$gaid');
+        },
       );
     });
   }
 
-  void _showAppOpen() {
+  void _showSplashAppOpen() {
     AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-      if (_navigated) return;
-      if (!loaded || !mounted) { _goHome(); return; }
+      if (_navigated || !mounted) return;
+      if (!loaded) {
+        _goHome();
+        return;
+      }
       AdLoadingDialog.showAdBuffer(context, onComplete: () {
-        if (!mounted) { _goHome(); return; }
+        if (!mounted) {
+          _goHome();
+          return;
+        }
+        // Cancel the hard cap BEFORE showAppOpenAd — the ad now owns the
+        // splash screen, so we should not race-fire markSplashInactive.
         _hardCap?.cancel();
+        _hardCap = null;
         AdManager().showAppOpenAd(
+          // bypassSafety: true is the ONE place we override safety —
+          // splash app-open is a privileged placement.
           bypassSafety: true,
           onAdDismiss: (_) => _goHome(),
         );
@@ -203,6 +332,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (_navigated) return;
     _navigated = true;
     _hardCap?.cancel();
+    _hardCap = null;
     AdManager().markSplashInactive();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -211,19 +341,31 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   @override
-  void dispose() { _hardCap?.cancel(); super.dispose(); }
+  void dispose() {
+    _hardCap?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => const Scaffold(
-    backgroundColor: Colors.deepPurple,
-    body: Center(child: CircularProgressIndicator(color: Colors.white)),
-  );
+        backgroundColor: Colors.deepPurple,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.ads_click, size: 80, color: Colors.white),
+              SizedBox(height: 24),
+              CircularProgressIndicator(color: Colors.white),
+            ],
+          ),
+        ),
+      );
 }
 ```
 
-### Bước 5️⃣ — Hiển thị ad ở màn hình bất kỳ
+### Step 6 — Show ads on any screen
 
-**File `lib/home_screen.dart`** — copy/paste:
+Create `lib/home_screen.dart`. Any screen that should display ads extends `AdScreen` and uses `AdScreenState` instead of `StatefulWidget` and `State`. This gives you `buildBanner()`, `showInterstitialAd(...)`, and `showRewardedAd(...)` automatically:
 
 ```dart
 import 'package:flutter/material.dart';
@@ -231,117 +373,219 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
 class HomeScreen extends AdScreen {
   const HomeScreen({super.key});
-  @override State<HomeScreen> createState() => _HomeScreenState();
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends AdScreenState<HomeScreen> {
+  int _coins = 0;
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('My App')),
-    body: Column(children: [
-      // BANNER — tự load, tự refresh, tự pause khi navigate, tự VIP-skip
-      buildBanner(),
+        appBar: AppBar(title: const Text('My App')),
+        body: Column(
+          children: [
+            // Anchored adaptive banner. Auto-loads, auto-pauses on
+            // navigation, auto-resumes on return, auto-skips if VIP.
+            buildBanner(),
 
-      // INTERSTITIAL
-      FilledButton(
-        onPressed: () => showInterstitialAd(onDone: (shown) {
-          if (shown) print('Inter shown');
-        }),
-        child: const Text('Show interstitial'),
-      ),
+            const SizedBox(height: 24),
+            Text('Coins: $_coins', style: const TextStyle(fontSize: 24)),
+            const SizedBox(height: 24),
 
-      // REWARDED
-      FilledButton(
-        onPressed: () => showRewardedAd(
-          onEarnedReward: (earned) {
-            if (earned) print('+10 coins');
-          },
+            // Interstitial — full-screen ad after a user action
+            FilledButton(
+              onPressed: () => showInterstitialAd(
+                onDone: (shown) {
+                  // Called whether or not the ad actually appeared.
+                  // shown=true → ad was displayed and dismissed
+                  // shown=false → blocked by safety, VIP, no network, etc.
+                  debugPrint('Interstitial result: $shown');
+                },
+              ),
+              child: const Text('Show interstitial'),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Rewarded — user opts in to watch in exchange for a reward
+            FilledButton(
+              onPressed: () => showRewardedAd(
+                onEarnedReward: (earned) {
+                  if (earned) {
+                    setState(() => _coins += 10);
+                  }
+                },
+              ),
+              child: const Text('Watch ad for +10 coins'),
+            ),
+          ],
         ),
-        child: const Text('Watch rewarded'),
-      ),
-    ]),
-  );
+      );
 }
 ```
 
-### Bước 6️⃣ — Run thử
+That's the entire integration. Run:
 
 ```bash
 flutter run
 ```
 
-**Đó là xong.** Default behavior bạn nhận được:
+You should see the splash screen, then a splash app-open ad (if available), then the home screen. After ~1 second on the home screen, the consent dialog appears (skipped on subsequent launches once the user has answered). The default behaviour you get out-of-the-box:
 
-✅ **First-install VIP grace 24h** — user mới cài app KHÔNG thấy ad trong 24h đầu (boost retention D1)
-✅ **Cupertino consent dialog** tự pop ~1s sau splash trên home screen (skip nếu VIP)
-✅ **Splash app open ad** tự load + show + 30s hard cap
-✅ **Banner** tự pause khi navigate sang screen khác, tự resume khi quay lại
-✅ **Anti-fraud** 12 lớp tự bảo vệ tài khoản AdMob/AppLovin của bạn
-✅ **VIP key redeem** — gọi `AdManager().vip!.redeemVip(...)` để cho user cash key VIP
+- ✅ **First-install VIP grace 24h** — the user does not see ads during their first 24 hours after install. Tunable via `AdConfig.firstInstallVipGrace`.
+- ✅ **Cupertino consent dialog** auto-shown ~1 second after splash on the home screen (skipped if VIP). Tunable via `AdConfig.autoShowConsentDialog`, `consentDialogStrings`, `consentDialogPostSplashDelay`.
+- ✅ **Splash app-open ad** with a 30-second hard cap so the user is never stuck.
+- ✅ **Banner pause/resume** automatically when the user navigates between screens.
+- ✅ **Anti-fraud** twelve-layer safety gate protects your AdMob/AppLovin account.
 
 ---
 
-## 🇬🇧 Quick start (English)
+## Configuration reference
 
-Same 6 steps as Vietnamese above. Replace VN strings:
+### `AdConfig`
 
 ```dart
-consentDialogStrings: const ConsentDialogStrings(),  // English defaults
+AdConfig({
+  // ─── Provider selection ─────────────────────────────────────────
+  required AdProvider provider,
+  AppLovinConfig? appLovin,
+  AdMobConfig? admob,
+
+  // ─── First-install VIP grace ────────────────────────────────────
+  FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto,
+  String firstInstallVipKey = '__FIRST_INSTALL__',
+
+  // ─── Consent flow ───────────────────────────────────────────────
+  bool autoShowConsentDialog = true,
+  ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(),
+  bool consentBarrierDismissible = false,
+  Duration consentDialogPostSplashDelay = const Duration(seconds: 1),
+
+  // ─── Logging ────────────────────────────────────────────────────
+  AdLogLevel logLevel = AdLogLevel.verbose,
+  List<String>? logTagFilter,
+  AdLogSink? onLog,
+
+  // ─── Safety / fraud protection ──────────────────────────────────
+  AdSafetyParams safety = AdSafetyParams.auto,
+
+  // ─── VIP ────────────────────────────────────────────────────────
+  Future<bool> Function(String key)? vipKeyValidator,
+  VipDialogStrings vipDialogStrings = const VipDialogStrings(),
+
+  // ─── Splash flow ────────────────────────────────────────────────
+  Duration splashMaxDuration = const Duration(seconds: 8),
+
+  // ─── Loading buffer ─────────────────────────────────────────────
+  int loadingBufferMs = 1000,
+})
+```
+
+### `FirstInstallVipGrace`
+
+Build-mode-aware presets — picks the right duration based on `kDebugMode`:
+
+```dart
+FirstInstallVipGrace.auto       // 30s in debug, 24h in release (DEFAULT)
+FirstInstallVipGrace.disabled   // never grant
+FirstInstallVipGrace.day        // force 24h in both modes
+FirstInstallVipGrace.debugShort // force 30s in both modes
+const FirstInstallVipGrace(Duration(hours: 12))  // custom
+```
+
+The grant fires exactly once per install. Calling `AdManager.destroy()` followed by `AdManager.initialize()` in the same process does **not** re-grant.
+
+### `AdSafetyParams` presets
+
+```dart
+AdSafetyParams.auto         // production in release, debug in debug (DEFAULT)
+AdSafetyParams.production   // strict caps for real users
+AdSafetyParams.debug        // loose caps for QA testing
+AdSafetyParams.production.copyWith(
+  maxFullscreenAdsPerDay: 10,
+  dryRun: kDebugMode,
+)                           // override individual knobs
+```
+
+### `AdLogLevel`
+
+```dart
+AdLogLevel.verbose   // everything (DEFAULT)
+AdLogLevel.warning   // warnings + errors only
+AdLogLevel.error     // errors only
+AdLogLevel.none      // silent
 ```
 
 ---
 
-## ✨ Tính năng nổi bật (1.0.15)
+## VIP system
 
-| Feature | Mặc định | Tweak qua |
-|---------|---------|-----------|
-| **First-install VIP 24h grace** | ✅ ON (debug 30s) | `AdConfig.firstInstallVipGrace` |
-| **Cupertino consent dialog auto-show** | ✅ ON, post-splash +1s | `AdConfig.autoShowConsentDialog` |
-| **Smart App-Open timeout** | ✅ Lifecycle-aware (5s tick × 18, hard cap 90s) | — |
-| **VIP auto-expire timer** | ✅ ON | — |
-| **Banner pause/resume on route change** | ✅ ON | — |
-| **Memory pressure log throttle** | ✅ 60s | — |
-| **Diagnostic logs `roy93~`** | Verbose | `AdConfig.logLevel` |
-| **Process-restart marker `🚀 CREATED`** | ✅ ON | — |
-| **Adapter swap (admob ↔ applovin)** | 1 line | `AdConfig.provider` |
+### Programmatic add (purchase / restore flow)
 
----
-
-## 🎯 VIP system
-
-### User redeem key (Cupertino dialog)
-
-```dart
-await AdManager().vip!.redeemVip(
-  context,
-  key: userInputKey,
-  duration: const Duration(days: 30),
-  validator: (key) => myServer.verifyVip(key),
-  strings: AdConfig.instance.vipDialogStrings,
-);
-```
-
-### Programmatic add (cho purchase / restore flow)
+Use this when the user purchases a VIP unlock through your IAP flow:
 
 ```dart
 await AdManager().vip!.addVip(
-  key: 'PURCHASE_${transactionId}',
+  key: 'PURCHASED_PREMIUM_${transactionId}',
   duration: const Duration(days: 365),
+);
+```
+
+### Cupertino dialog redeem (user inputs a key)
+
+Use this if you ship promo/redeem keys for VIP. The SDK shows a verifying → success/failed Cupertino dialog flow:
+
+```dart
+final didRedeem = await AdManager().vip!.redeemVip(
+  context,
+  key: userInputKey,
+  duration: const Duration(days: 30),
+  validator: (key) async {
+    // Validate against your server. Return true if valid.
+    final response = await myServer.verifyVip(key);
+    return response.isValid;
+  },
+  strings: AdManager().config?.vipDialogStrings ?? const VipDialogStrings(),
 );
 ```
 
 ### Check VIP state
 
 ```dart
-if (AdManager().vip!.isActive) { /* user là VIP */ }
+// Synchronous check
+if (AdManager().vip?.isActive ?? false) {
+  // User is VIP — render premium UI
+}
 
+// Reactive — rebuilds when VIP state changes
 ValueListenableBuilder<bool>(
   valueListenable: AdManager().vip!.activeListenable,
-  builder: (_, active, __) => active ? VipBadge() : SizedBox.shrink(),
+  builder: (_, active, __) => active
+      ? const VipBadge()
+      : const SizedBox.shrink(),
 )
+
+// Stream — for analytics / side effects
+AdManager().vip!.activeStream.listen((active) {
+  analytics.logEvent('vip_state_changed', {'active': active});
+});
 ```
 
-### Tắt first-install grace
+### Revoke
+
+```dart
+// Specific key (e.g., user requested refund)
+await AdManager().vip!.revokeVip('PURCHASED_PREMIUM_${transactionId}');
+
+// All entries (e.g., logout)
+await AdManager().vip!.revokeAll();
+```
+
+### Disable first-install grace
+
+If your app does not want the 24-hour grace (some genres prefer to monetize immediately):
 
 ```dart
 AdConfig(
@@ -352,207 +596,360 @@ AdConfig(
 
 ---
 
-## 🛡️ Compliance (GDPR / COPPA / CCPA)
+## Consent & compliance
 
-### Cách 1 — Cupertino dialog tự động (đơn giản nhất, recommended)
+The SDK supports three patterns. Pick whichever matches your release strategy.
 
-Mặc định SDK auto-show dialog ~1s sau splash. User chọn "Đồng ý" / "Từ chối", state lưu vào SharedPreferences. KHÔNG cần code thêm.
+### Option 1 — Built-in Cupertino dialog (simplest, default)
 
-Re-show từ Settings page:
+The SDK auto-shows a clean Cupertino dialog ~1 second after `markSplashInactive`, so it lands on the home screen rather than competing with the splash app-open ad. Persists the user's choice to SharedPreferences. Skipped automatically for VIP users.
+
+No code required — this is the default. To re-show from a Privacy settings screen:
+
 ```dart
 await ConsentManager.instance.showDialog(context);
 ```
 
-### Cách 2 — Google UMP form (bắt buộc cho EEA users)
+To localize:
 
 ```dart
-final r = await AdManager().requestUmpConsent(
-  testMode: kDebugMode,
-  debugGeography: DebugGeography.debugGeographyEea,
-);
-if (r.canRequestAds) {
-  // tiếp tục init bình thường
-}
+AdConfig(
+  consentDialogStrings: ConsentDialogStrings.vi,  // Vietnamese pre-canned
+  // or supply your own:
+  consentDialogStrings: const ConsentDialogStrings(
+    title: 'Privacy Preferences',
+    message: 'This app shows ads to keep it free. ...',
+    allowButton: 'Allow personalized ads',
+    rejectButton: 'No thanks',
+    privacyPolicyLabel: 'Privacy Policy',
+    privacyPolicyUrl: 'https://yourapp.com/privacy',
+  ),
+)
 ```
 
-### Cách 3 — Manual flag set (nếu có UI riêng)
+To disable auto-show entirely (e.g., if you have your own consent UI):
+
+```dart
+AdConfig(
+  autoShowConsentDialog: false,
+)
+```
+
+### Option 2 — Google UMP form (required for EEA users on AdMob)
+
+Wrap Google's UMP API. Call this in your splash before `AdManager().initialize`:
+
+```dart
+final result = await AdManager().requestUmpConsent(
+  testMode: kDebugMode,
+  debugGeography: DebugGeography.debugGeographyEea,
+  testIdentifiers: kDebugMode ? const ['<your-device-hash>'] : const [],
+);
+
+if (!result.canRequestAds) {
+  // User denied consent. You can either:
+  //   - Skip ad initialization entirely
+  //   - Initialize with non-personalized ads only
+  return;
+}
+
+// Continue with AdManager().initialize(...) as normal
+```
+
+### Option 3 — Manual flag set (you have your own UI)
+
+If you already integrate a third-party CMP and just want the SDK to forward the flags to the providers:
 
 ```dart
 await AdManager().setConsent(AdConsent(
   hasUserConsent: true,        // GDPR consent
-  isAgeRestrictedUser: false,  // COPPA
-  doNotSell: false,            // CCPA
+  isAgeRestrictedUser: false,  // COPPA: app targets children < 13
+  doNotSell: false,            // CCPA: California user opts out of data sale
 ));
 ```
 
-### Checklist tuân thủ
+### Compliance checklist
 
-- [ ] `app-ads.txt` đặt ở root domain
-- [ ] Privacy Policy URL khai báo trong App Store / Play Store
-- [ ] iOS ATT prompt — gọi `app_tracking_transparency` **trước** `AdManager().initialize`
-- [ ] App cho trẻ em → set `isAgeRestrictedUser: true`
+- [ ] `app-ads.txt` placed at the root of your app's domain
+- [ ] Privacy Policy URL declared in App Store / Play Store listing
+- [ ] iOS App Tracking Transparency prompt shown via `app_tracking_transparency` **before** `AdManager().initialize` on iOS
+- [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA)
+- [ ] If targeting EEA users, integrate UMP via Option 2 above
 
 ---
 
-## 🐛 Debug
+## Debugging
 
-### DebugAdOverlay (floating panel)
+### Built-in debug overlay
+
+Wrap your `MaterialApp` builder to mount a floating debug panel that appears only in debug builds:
 
 ```dart
 runApp(MaterialApp(
   // ...
-  builder: (context, child) => Stack(children: [
-    child!,
-    const DebugAdOverlay(),  // chỉ hiện trong kDebugMode
-  ]),
+  builder: (context, child) {
+    if (child == null) return const SizedBox.shrink();
+    return Stack(children: [
+      child,
+      const DebugAdOverlay(),
+    ]);
+  },
 ));
 ```
 
-Tap pill 🐛 Ad ở góc dưới → expand panel hiện realtime: slot states, VIP, init flag, safety status.
+A `🐛 Ad` pill appears in the bottom-left corner. Tap to expand into a panel showing realtime SDK state: slot states (idle/loading/ready/showing/cooldown), VIP status, init flag, splash flag, safety status. Auto-hidden in release builds.
 
 ### Verbose logs
 
-Tất cả SDK logs prefix `roy93~ [Tag]`. Ví dụ:
+Every SDK log is prefixed with `roy93~ [Tag]` for easy `grep`. Examples:
+
 ```
-roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process
-roy93~ [AppLovinAdapter] inter [AppLovin] ✅ displayed | network=AppLovin creativeId=...
-roy93~ [VipManager] ⏰ VIP entry expired — purging
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-04-26T13:06:09.808
+roy93~ [AdManager] initialize start, provider=appLovin
+roy93~ [AppLovinAdapter] inter [AppLovin] ✅ displayed | network=AppLovin creativeId=1540789 latency=792ms
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
 roy93~ [AdManager] 🛡️ interstitial dismissed — app-open suppression armed
+roy93~ [AdManager] ⏭️ app-open on resume skipped — interstitial/rewarded currently showing
 ```
 
-Pipe vào Crashlytics / Sentry:
+### Pipe logs into Crashlytics / Sentry
+
 ```dart
 AdConfig(
-  onLog: (level, tag, msg) {
-    if (level == AdLogLevel.error) FirebaseCrashlytics.instance.log('[$tag] $msg');
+  onLog: (level, tag, message) {
+    if (level == AdLogLevel.error) {
+      FirebaseCrashlytics.instance.log('[$tag] $message');
+    }
+    if (level == AdLogLevel.warning) {
+      Sentry.captureMessage('[$tag] $message');
+    }
   },
   // ...
 )
 ```
 
----
+### Process-restart marker
 
-## ⚠️ Pitfalls (đọc trước khi báo bug)
-
-### 1. KHÔNG set `android:taskAffinity=""`
-
-Flutter create template default thêm dòng này vào `MainActivity`. **Xóa nó đi**. Lý do:
-- AppLovin's full-screen ad activity inherit default affinity (= package name)
-- MainActivity có `taskAffinity=""` → 2 activity ở 2 task khác nhau
-- User HOME → reopen → tap X trên ad → no activity to return → user về launcher
-
-### 2. iOS phải có `SKAdNetworkItems`
-
-Thiếu cái này → AdMob/AppLovin không serve ads trên iOS 14.5+. Copy nguyên đoạn dài này từ [AdMob docs](https://developers.google.com/admob/ios/ios14#skadnetwork).
-
-### 3. AppLovin KHÔNG có public test ad units
-
-Khác AdMob, AppLovin yêu cầu register account + register test device. Mở `dash.applovin.com → MAX → Test Mode`.
-
-SDK auto-register test device trong debug build dựa trên GAID — không cần manual nếu chỉ test debug.
-
-### 4. `setNavigatorKey` trước `runApp`
-
-Nếu không, consent dialog auto-show sẽ skip (no navigator context).
-
-### 5. Init phải gọi trong `SplashScreen`, KHÔNG trong `main`
-
-`SimpleEventBus().listen` phải register **trước** `AdManager().initialize()`. Nếu init trong main, listener không nhận được event init-complete.
+If you see two `🚀 AdManager singleton CREATED` markers in the same logcat session, Android killed and restarted your app between them — typically because of memory pressure while the user had a long ad open. The user perceives this as "the app crashed". Use this signal to size your in-memory cache budget appropriately.
 
 ---
 
-## 📚 API Reference
+## Pitfalls
 
-### `AdConfig`
+### 1. Do NOT set `android:taskAffinity=""`
 
-```dart
-AdConfig({
-  required AdProvider provider,                       // admob | appLovin
-  AppLovinConfig? appLovin,                           // bắt buộc nếu provider == appLovin
-  AdMobConfig? admob,                                 // bắt buộc nếu provider == admob
+Flutter's `flutter create` template adds `android:taskAffinity=""` to `MainActivity` by default in some Flutter versions. **Remove it** when integrating this SDK with AppLovin:
 
-  // First-install VIP grace
-  FirstInstallVipGrace firstInstallVipGrace =
-      FirstInstallVipGrace.auto,                      // 30s debug / 24h release
-  String firstInstallVipKey = '__FIRST_INSTALL__',
-
-  // Consent
-  bool autoShowConsentDialog = true,
-  ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(),
-  bool consentBarrierDismissible = false,
-  Duration consentDialogPostSplashDelay = const Duration(seconds: 1),
-
-  // Logging
-  AdLogLevel logLevel = AdLogLevel.verbose,
-  List<String>? logTagFilter,
-  AdLogSink? onLog,
-
-  // Safety / fraud
-  AdSafetyParams safety = AdSafetyParams.auto,        // production | debug | custom
-
-  // VIP
-  Future<bool> Function(String key)? vipKeyValidator,
-  VipDialogStrings vipDialogStrings = const VipDialogStrings(),
-
-  // Splash
-  Duration splashMaxDuration = const Duration(seconds: 8),
-})
+```diff
+  <activity
+      android:name=".MainActivity"
+      android:exported="true"
+      android:launchMode="singleTop"
+-     android:taskAffinity=""
+      ...>
 ```
 
-### `AdScreen`
+**Why**: AppLovin's full-screen ad activity (`AppLovinFullscreenActivity`) inherits the application's default task affinity, which is the package name. With `android:taskAffinity=""` on `MainActivity`, the two activities end up in different Android tasks. After the user presses HOME and reopens the app, the activity stack management breaks; when the user dismisses the ad, no activity is available to return to and Android drops the user to the launcher. The user perceives this as a crash.
 
-Mixin-style base class cho screens hiển thị ads. Cung cấp:
+### 2. iOS requires `SKAdNetworkItems`
 
-```dart
-Widget buildBanner();                                 // banner widget tự pause/resume
-void showInterstitialAd({required onDone, ...});      // pre-check + buffer + show
-void showRewardedAd({required onEarnedReward, ...});  // same
-```
+Without `SKAdNetworkItems` in `Info.plist`, AdMob and AppLovin will not serve ads on iOS 14.5+. Copy the canonical list from [AdMob's iOS 14 guide](https://developers.google.com/admob/ios/ios14#skadnetwork) — it has roughly 70 entries.
+
+### 3. AppLovin has no public test ad units
+
+Unlike AdMob, AppLovin requires a real account and real ad unit IDs. To avoid being charged for development impressions, register your test device in `dash.applovin.com → MAX → Test Mode`. The SDK auto-registers the current device's GAID in debug builds via `AppLovinMAX.setTestDeviceAdvertisingIds(...)` so this is mostly handled for you.
+
+### 4. `setNavigatorKey` must be called before `runApp`
+
+If you forget, the auto-show consent dialog has no `BuildContext` to use and silently skips. The dialog will eventually surface on a future launch, but better to wire it correctly the first time.
+
+### 5. Initialize the SDK in `SplashScreen`, not `main`
+
+The SDK fires a `BoolEvent` over `SimpleEventBus` when initialization completes. Listeners must be registered **before** the fire — `SimpleEventBus` does not buffer past events for late subscribers. The conventional pattern is:
+
+1. `splash.initState`: register the listener
+2. `splash.initState`: schedule `AdManager().initialize` via a post-frame callback
+3. The init completes, `BoolEvent` fires, listener runs
+
+If you initialize in `main` directly, the listener registration in your splash will miss the fire and the splash will hang on the hard cap.
+
+### 6. Slot state after dismiss
+
+The SDK's `_lastFullscreenDismissAt` is recorded by a slot-state watcher on the `showing → !showing` transition, not by adapter callbacks. This is the source of truth for the resume-guard window. If you wrap or override slot state mutation, ensure the transition still fires (`slot.markDismissed()` or equivalent).
+
+---
+
+## Public API
 
 ### `AdManager` singleton
 
 ```dart
-AdManager().setNavigatorKey(key);                     // bắt buộc trước runApp
-AdManager().initialize(config: ..., onComplete: ...); // gọi 1 lần ở splash
-AdManager().destroy();                                // teardown để re-init
-AdManager().setConsent(consent);                     // GDPR/COPPA/CCPA flags
-AdManager().requestUmpConsent(...);                   // Google UMP wrapper
-AdManager().showAppOpenAd(...);                       // splash flow
-AdManager().showInterstitial(...);                    // hoặc dùng AdScreen.showInterstitialAd
-AdManager().showRewardedAd(...);
-AdManager().vip;                                      // VipManager (after init)
-AdManager().consentManager;                           // ConsentManager
-AdManager().events;                                   // Stream<AdEvent>
+AdManager()                                // factory; returns the singleton
+AdManager().setNavigatorKey(key)           // call before runApp (REQUIRED)
+AdManager().initialize(config, onComplete) // call once in splash
+AdManager().destroy()                      // teardown for hot-reinit / test cleanup
+
+AdManager().markSplashActive()
+AdManager().markSplashInactive()
+AdManager().incrementSplashCount()
+
+AdManager().setConsent(adConsent)          // GDPR / COPPA / CCPA flags
+AdManager().requestUmpConsent(...)         // Google UMP wrapper
+
+AdManager().showAppOpenAd(onAdDismiss)
+AdManager().showInterstitial(onDoneFlow)
+AdManager().showRewardedAd(onEarnedReward)
+AdManager().loadAppOpenAd(onAdLoaded)
+AdManager().canShowInterstitial()
+
+AdManager().isInitialised            // bool
+AdManager().vip                      // VipManager? (null before init)
+AdManager().consentManager           // ConsentManager?
+AdManager().adapter                  // AdProviderAdapter?
+AdManager().consent                  // current AdConsent flags
+AdManager().events                   // Stream<AdEvent>
+AdManager().initRevision             // ValueNotifier<int> — bumps on init
+AdManager().processStartedAtMs       // wall-clock of singleton creation
 ```
+
+### `AdScreen`
+
+A base class for screens that display ads. Mirror replacement for `StatefulWidget`/`State`:
+
+```dart
+class HomeScreen extends AdScreen {
+  const HomeScreen({super.key});
+  @override State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends AdScreenState<HomeScreen> {
+  Widget buildBanner();                                  // anchored adaptive banner
+  void showInterstitialAd({required onDone, ...});       // pre-check + buffer + show
+  void showRewardedAd({required onEarnedReward, ...});   // same
+}
+```
+
+### `VipManager`
+
+```dart
+final vip = AdManager().vip!;
+
+vip.addVip(key, duration)            // Future<VipEntry>
+vip.redeemVip(context, ...)          // Future<bool> — full Cupertino flow
+vip.revokeVip(key)                   // Future<void>
+vip.revokeAll()                      // Future<void>
+
+vip.isActive                         // bool
+vip.activeListenable                 // ValueListenable<bool>
+vip.activeStream                     // Stream<bool>
+vip.expiresAt                        // DateTime? — latest active entry
+vip.entries                          // List<VipEntry> — read-only snapshot
+```
+
+### `ConsentManager`
+
+```dart
+final mgr = ConsentManager.instance;
+
+mgr.current                          // ConsentSettings
+mgr.listenable                       // ValueListenable<ConsentSettings>
+mgr.hasBeenAsked                     // bool
+mgr.adConsent                        // AdConsent — runtime flag projection
+
+mgr.showDialog(context)              // re-show binary dialog
+mgr.set(settings)                    // programmatic update + persist
+mgr.applyToProviders()               // re-apply current to providers
+mgr.reset()                          // wipe state — next init re-prompts
+```
+
+### `Stream<AdEvent>`
+
+Pipe into Firebase / AppsFlyer / etc. for LTV tracking:
+
+```dart
+AdManager().events.listen((event) {
+  if (event is AdRevenueEvent) {
+    analytics.logAdRevenue(
+      currency: event.currencyCode,
+      value: event.value,
+      network: event.networkName,
+    );
+  }
+  if (event is AdRewardEvent) {
+    analytics.logEvent('ad_reward', {'amount': event.amount});
+  }
+});
+```
+
+Event types: `AdLoadEvent`, `AdShowEvent`, `AdClickEvent`, `AdRewardEvent`, `AdRevenueEvent`.
 
 ---
 
-## 🚚 Migration
+## FAQ
 
-Từ `1.0.14` lên `1.0.15`: **không có breaking change**. Chỉ cần:
+### Do I need both AdMob and AppLovin accounts?
 
-```yaml
-applovin_admob_sdk: ^1.0.15
-```
+No. The provider you specify in `AdConfig.provider` determines which one is active at runtime. The other config struct (`appLovin` or `admob`) is unused but the constructor still requires the matching one to be non-null. Pass placeholder values for the unused one.
+
+### Can I switch providers at runtime?
+
+Not safely. Both SDKs are designed to initialize once per process. To swap, call `AdManager().destroy()`, change the config, and call `AdManager().initialize()` again — but be aware the user will see splash transitions and ad reload latency. Most apps pick one provider per build configuration.
+
+### How do I test the first-install grace?
+
+In debug builds, the grace defaults to 30 seconds. Wipe the app data and re-launch:
 
 ```bash
-flutter pub get
+adb shell pm clear com.your.package
+flutter run
 ```
 
-Đọc `CHANGELOG.md` cho list đầy đủ bug fixes + features mới (consent dialog, UMP wrapper, first-install VIP grace, smart timeout, …).
+The SDK logs `🎁 first-install VIP grace granted (30s, mode=debug)` on a fresh install. After 30 seconds the timer fires, `🔓 VIP inactive — kicking secondary preload` logs, and ads start serving.
 
-Từ `1.x` lên `1.0.15`: xem `MIGRATION.md`.
+### My ad is not showing — how do I debug?
+
+1. Check the log for `⏭️ skipped — <reason>`. The SDK emits an explicit reason for every gate (adapter null, VIP, no network, slot showing, safety throttle, recent dismiss). The reason will tell you exactly what to fix.
+2. Check the `DebugAdOverlay` for the slot state. `idle` means no load attempted; `loading` means in-flight; `ready` means good to show; `cooldown` means a recent failure backed off; `showing` means already on screen.
+3. Verify your real ad unit IDs are not paused or pending review in the AdMob/AppLovin dashboard.
+4. AppLovin specifically: check that test mode is enabled for your device (`dash.applovin.com → MAX → Test Mode`).
+
+### Why does the app appear to crash when the user backgrounds during an ad?
+
+If you see two `🚀 AdManager singleton CREATED` markers in your logcat session, Android killed and restarted your process while the user was viewing an ad with the app backgrounded. This is OS behavior — the SDK cannot prevent it directly, but you can mitigate by:
+
+- Reducing the number of ads cached simultaneously (e.g., disable banner preload during interstitial show)
+- Implementing state restoration so the user lands back on the same screen after the cold restart
+- Showing fewer or shorter ads on memory-constrained device classes
+
+If you see only one `🚀 CREATED` marker but the app still appears to crash, check that `android:taskAffinity=""` is **not** set on your `MainActivity` (see Pitfalls above).
+
+### What happens if the user revokes VIP halfway through a session?
+
+The SDK listens to `VipManager.activeListenable`. On `true → false` transition, it kicks all four ad slots into preload so the next user-triggered show finds an ad ready. The user's first ad after losing VIP may take 1-2 seconds to load (test ads load fast; real ads vary).
+
+### I see "Throttle: wait 0s" — is that a bug?
+
+That was a bug in 1.0.14 — sub-second waits truncated to zero. Fixed in 1.0.15: now displays "wait 645ms" or "wait 1.5s" depending on magnitude.
 
 ---
 
-## 🆘 Hỗ trợ
+## Migration
 
-- **Bugs**: [GitHub Issues](https://github.com/royt93/FlutterBase2025/issues)
-- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 13 demo pages
-- **Architecture deep-dive**: `doc/architecture.md`
+See `MIGRATION.md` for a step-by-step guide.
+
+- **1.0.14 → 1.0.15** — no breaking change. Update the version, run `flutter pub get`, optionally remove `android:taskAffinity=""` from `MainActivity`.
+- **1.x → 2.x** — backwards-compatible (deprecations, not removals). Old call sites compile and behave the same.
 
 ---
 
-## 📄 License
+## Support
+
+- **Bug reports**: open an issue on [GitHub](https://github.com/royt93/FlutterBase2025/issues) with `roy93~` log output, SDK version, and provider (admob/appLovin)
+- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 13 self-contained demo pages, one per feature
+- **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management
+
+---
+
+## License
 
 MIT — see `LICENSE` file.

@@ -4,6 +4,29 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.16] - 2026-04-26
+
+### Documentation
+- **Full English rewrite of `README.md`** — restructured into 13 sections
+  with table of contents. Quick start expanded into 6 copy-paste steps
+  any Flutter developer can follow without prior AdMob/AppLovin knowledge.
+  Added complete public API reference, FAQ, and dedicated Pitfalls section
+  covering the `android:taskAffinity=""` issue (the most common cause of
+  perceived crashes during background → foreground ad cycles).
+- **Full English rewrite of `MIGRATION.md`** — clear 1.0.14 → 1.0.15
+  upgrade path (no breaking changes), plus legacy 1.x → 2.x path with
+  auto-migration details. Added Common issues and FAQ sections.
+- **Full English rewrite of `doc/architecture.md`** — deep-dive for
+  contributors and advanced integrators. Added detailed sections on the
+  Smart App-Open timeout, Slot-state dismiss watcher, Consent flow
+  sequence, Memory management contract, and Manifest pitfalls.
+
+### No code changes
+- This is a documentation-only release. The runtime behaviour, public
+  API surface, and bundled assets are identical to 1.0.15. Upgrading
+  from 1.0.15 to 1.0.16 requires no code changes — only a `pubspec.yaml`
+  version bump and `flutter pub get`.
+
 ## [1.0.15] - 2026-04-26
 
 ### Fixed
