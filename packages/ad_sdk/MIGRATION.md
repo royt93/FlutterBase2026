@@ -1,174 +1,202 @@
-# Migration: 1.x → 2.x
+# Migration Guide
 
-The 2.0 release is **mostly source-compatible** with 1.x. Existing call
-sites compile and behave the same; old methods that no longer fit the
-2.x architecture are **deprecated, not removed** (will be removed in 3.0).
+## 🆕 1.0.14 → 1.0.15 — Không cần đổi gì
 
-This guide covers the four practical migration tasks.
+**Không có breaking change.** Update version, chạy `flutter pub get`, xong.
+
+```yaml
+dependencies:
+  applovin_admob_sdk: ^1.0.15
+```
+
+```bash
+flutter pub get
+```
+
+### Cảnh báo cho user đã có code
+
+⚠️ **Kiểm tra `android/app/src/main/AndroidManifest.xml`** — nếu MainActivity có dòng `android:taskAffinity=""`, hãy **xóa nó đi**. Dòng này (Flutter create template default) gây crash khi user background app trong lúc xem ad. Đã giải thích chi tiết ở `README.md` → "Pitfalls".
+
+```diff
+  <activity
+      android:name=".MainActivity"
+      android:exported="true"
+      android:launchMode="singleTop"
+-     android:taskAffinity=""        <!-- XÓA dòng này -->
+      ...
+```
+
+### Tận dụng feature mới (optional)
+
+#### A. Cupertino consent dialog (default ON)
+
+Nếu app cũ của bạn đã có UMP form riêng, **tắt** auto-show:
+
+```dart
+AdConfig(
+  autoShowConsentDialog: false,  // dùng UMP form của riêng bạn
+  // ...
+)
+```
+
+Nếu chưa có, để default — SDK auto-show ~1s sau splash. Tiếng Việt:
+
+```dart
+AdConfig(
+  consentDialogStrings: ConsentDialogStrings.vi,
+  // ...
+)
+```
+
+#### B. First-install VIP grace 24h
+
+Default ON cho release builds. Tắt nếu không muốn:
+
+```dart
+AdConfig(
+  firstInstallVipGrace: FirstInstallVipGrace.disabled,
+  // ...
+)
+```
+
+Hoặc tùy chỉnh duration:
+
+```dart
+AdConfig(
+  firstInstallVipGrace: const FirstInstallVipGrace(Duration(hours: 12)),
+  // ...
+)
+```
+
+#### C. Google UMP wrapper
+
+Nếu app target EEA users:
+
+```dart
+// Trong splash, TRƯỚC AdManager().initialize:
+final r = await AdManager().requestUmpConsent(
+  testMode: kDebugMode,
+);
+if (!r.canRequestAds) return;  // user denied
+// ... tiếp tục init
+```
 
 ---
 
-## 1. Update import (delete the duplicate barrel)
+## 🔄 1.x → 2.x (older)
 
-The 1.x package exposed two identical entry points; 2.x keeps only one.
+> Phần này dành cho user upgrade từ phiên bản 1.x cũ. Nếu bạn đã ở 1.0.14, chỉ cần xem section trên.
+
+### 1. Update import
 
 ```diff
 - import 'package:applovin_admob_sdk/ad_sdk.dart';
 + import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 ```
 
----
-
-## 2. Logger configuration
+### 2. Logger configuration
 
 ```diff
 - SafeLogger.setEnabled(true);
-+ // Configured automatically via AdConfig.logLevel — no manual call needed.
++ // Cấu hình tự động qua AdConfig.logLevel
 ```
-
-If you want to keep the old "all-or-nothing" toggle, `setEnabled(...)` still
-works (deprecated). For new code:
 
 ```dart
 AdConfig(
-  ...,
   logLevel: AdLogLevel.warning,
   logTagFilter: ['AdManager', 'AdSafety'],
   onLog: (lvl, tag, msg) => Sentry.captureMessage('[$tag] $msg'),
 );
 ```
 
----
+### 3. VIP API (breaking)
 
-## 3. VIP API (the big one)
-
-### 1.x
-
+#### 1.x (cũ)
 ```dart
 AdManager().addVIPMember(['gaid-1', 'gaid-2']);
 final isVip = AdManager().isVIPMember();
 ```
 
-### 2.x
-
+#### 2.x / 1.0.15 (mới)
 ```dart
-// Programmatic — instant, permanent (50-year expiry):
-AdManager().vip?.addVip(
-  key: 'PURCHASED_PREMIUM',
-  duration: const Duration(days: 365 * 50),
+// Programmatic add (cho purchase flow)
+await AdManager().vip!.addVip(
+  key: 'PURCHASED_PREMIUM_${transactionId}',
+  duration: const Duration(days: 365),
 );
 
-// Interactive — full Cupertino dialog flow:
-final ok = await AdManager().vip?.redeemVip(
+// Cupertino dialog redeem (cho user nhập key)
+await AdManager().vip!.redeemVip(
   context,
-  key: userInputKey,
+  key: userInput,
   duration: const Duration(days: 30),
-  validator: AdManager().config?.vipKeyValidator,
-  strings: AdManager().config?.vipDialogStrings,
+  validator: (key) => myServer.verifyVip(key),
+  strings: AdConfig.instance.vipDialogStrings,
 );
 
-// Same gate as before:
-final isVip = AdManager().isVIPMember();
+// Check
+if (AdManager().vip!.isActive) { /* VIP */ }
+
+// Reactive UI
+ValueListenableBuilder<bool>(
+  valueListenable: AdManager().vip!.activeListenable,
+  builder: (_, active, __) => active ? VipBadge() : SizedBox.shrink(),
+)
 ```
 
-### Auto-migration
+**Auto-migration**: 1.x GAID list được tự động convert sang VipEntry (year-2099 expiry) trên init đầu tiên — **bạn không cần làm gì**. Code cũ vẫn chạy, chỉ là deprecated.
 
-If your app shipped 1.x and the user has GAIDs in their 1.x VIP list, the
-SDK auto-migrates them on **first launch under 2.x** to entries with
-`expiresAt = year 2099` (effectively permanent — Q15A confirmed). No
-action required from you.
+### 4. Replace `setState` / `late` / `!`
 
-### Key validator
+Theo project policy, SDK code đã loại bỏ hết `late` / `!` / `setState`. Nếu app code của bạn extend `BaseStatefulState`, cập nhật theo:
 
-`AdConfig.vipKeyValidator` is a `Future<bool> Function(String key)?`. Your
-app provides the validation logic — usually a server call:
-
-```dart
-AdConfig(
-  ...,
-  vipKeyValidator: (key) async {
-    final res = await dio.post('/api/vip/verify', data: {'key': key});
-    return res.data['valid'] == true;
-  },
-);
-```
-
-If `null` (default), the redeem dialog accepts every key (demo mode).
-
----
-
-## 4. Compliance flags
-
-### 1.x
-
-(none — caller had to set AppLovin flags directly through the
-`applovin_max` package and AdMob through `MobileAds.instance`).
-
-### 2.x
-
-```dart
-// After your UMP form / consent UI:
-await AdManager().setConsent(AdConsent(
-  hasUserConsent: userAcceptedGdpr,
-  isAgeRestrictedUser: appTargetsKidsUnder13,
-  doNotSell: userOptedOutCcpa,
-));
-```
-
-The SDK forwards each flag to both providers correctly. Default =
-`AdConsent.conservative` (no consent / no age restriction / no DNS opt-out).
-
----
-
-## Optional: adopt new features
-
-### `AdEvent` stream → analytics
-
-```dart
-AdManager().events.listen((event) {
-  if (event is AdRevenueEvent) {
-    FirebaseAnalytics.instance.logAdImpression(
-      adPlatform: event.providerTag,
-      value: event.value,
-      currency: event.currencyCode,
-    );
-  }
-});
-```
-
-### Per-placement tagging
-
-```dart
-showInterstitialAd(
-  onDone: (_) {},
-  placement: AdPlacement.shop,
-);
-```
-
-### Debug overlay
-
-Wrap your home screen during development:
-
-```dart
-Stack(children: [
-  HomeScreen(),
-  const DebugAdOverlay(),
-])
-```
-
-### Revenue dashboard
-
-```dart
-const RevenuePanel(showDecimals: true)
+```diff
+- late final Foo foo;
+- @override void initState() { foo = Foo(); }
++ Foo? foo;  // nullable
++ @override void initState() { foo = Foo(); }
++ // dùng foo! → foo?.method() hoặc final f = foo; if (f != null) f.method();
 ```
 
 ---
 
-## Breaking changes summary
+## ❓ FAQ
 
-None — all 1.x public methods still work. The deprecation warnings give
-you a window until 3.0 to migrate at your own pace.
+### Có cần update gì ở native code không?
 
-The internal architecture changed dramatically (adapter + state machine),
-but only matters if you were reaching into private APIs (which you
-shouldn't have been).
+**Android**: Xóa `android:taskAffinity=""` (xem trên).
+
+**iOS**: Không cần thay đổi nào nếu đã có `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`, `GADApplicationIdentifier`.
+
+### Code cũ có còn chạy không?
+
+**Có**. Mọi method 1.x cũ đều deprecated chứ chưa removed. Sẽ remove ở 3.0. Bạn có thời gian để migrate dần dần.
+
+### Test grace 24h như thế nào trong dev?
+
+Default `FirstInstallVipGrace.auto` đã handle: trong debug build dùng 30s thay vì 24h. Wipe app data, run app, đợi 30s là VIP hết.
+
+```bash
+adb shell pm clear your.package.name
+flutter run
+```
+
+### Ad không hiện sau dismiss inter — bị "ad not ready"?
+
+Lỗi 1.x cũ. 1.0.15 đã fix bằng:
+- Slot watcher track dismiss timestamp đúng lúc thật sự dismiss (không phải lúc reward earned)
+- `_lastFullscreenDismissAt` armed correctly → guard window 5s sau dismiss
+
+Nếu vẫn gặp ở 1.0.15, mở issue + paste log có prefix `roy93~`.
+
+### Memory pressure log fire nhiều quá
+
+1.0.15 đã throttle 60s/event. Nếu vẫn nhiều, có thể app của bạn thật sự đang chịu pressure — thử reduce ad preload song song.
+
+---
+
+## 🆘 Vẫn gặp vấn đề?
+
+1. Xem `README.md` → "Pitfalls"
+2. Run với `AdConfig.logLevel = AdLogLevel.verbose` để có full log `roy93~ [Tag]`
+3. Mở issue ở [GitHub](https://github.com/royt93/FlutterBase2025/issues) kèm log + version + provider (admob/applovin)

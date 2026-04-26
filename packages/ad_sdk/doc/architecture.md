@@ -151,5 +151,121 @@ logs the reason but always returns `true` (QA only).
 
 ## Versioning
 
-- 2.0.0 (current) — adapter + state machine, VIP, consent.
+- 1.0.15 (current) — Cupertino consent dialog, UMP wrapper, first-install
+  VIP grace, smart App-Open timeout, slot-state dismiss watcher, granular
+  diagnostic logs.
+- 1.0.14 — adapter + state machine, VIP system, basic consent flags.
 - 3.0.0 (planned) — remove all `@Deprecated` symbols listed in CHANGELOG.
+
+---
+
+## New in 1.0.15
+
+### `ConsentManager` (orchestrator above `AdConsent`)
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ ConsentManager (singleton, bootstrapped during initialize) │
+│ ┌──────────┐ ┌────────────────┐ ┌────────────────────────┐ │
+│ │ persist  │ │ Cupertino      │ │ provider apply         │ │
+│ │ JSON in  │ │ dialog (binary │ │ pipeline               │ │
+│ │ prefs    │ │ Allow/Reject)  │ │ (admob + applovin)     │ │
+│ └──────────┘ └────────────────┘ └────────────────────────┘ │
+└────────────────────────────────────────────────────────────┘
+       │
+       │ auto-show ~1s after markSplashInactive
+       │ skip if VIP active
+       │ skip if hasBeenAsked == true
+       ▼
+   user picks → persist → applyToProviders
+```
+
+### `FirstInstallVipGrace` (build-mode-aware)
+
+```dart
+FirstInstallVipGrace.auto      // 30s debug, 24h release (default)
+FirstInstallVipGrace.disabled  // never grant
+FirstInstallVipGrace.day       // force 24h both modes
+const FirstInstallVipGrace(Duration(hours: 12))  // custom
+```
+
+Grant fires once per install (tracked via `_keyFirstInstallApplied` in
+prefs). After grace duration, `VipManager` auto-expire timer fires +
+`AdManager._onVipActiveChanged` listener kicks secondary preload.
+
+### Smart App-Open timeout (lifecycle-aware)
+
+Replaces fixed 10s. Strategy:
+
+```
+  every 5s tick:
+    if !appOpenSlot.isShowing → exit (natural callback fired)
+    else if app foreground → grace tick once → force dismiss(false)
+    else (app paused) → re-arm +5s
+  hard cap: 90s (18 ticks)
+```
+
+Avoids false-positive when AppLovin's `onAdHiddenCallback` arrives 10-30s
+late after click → browser → return.
+
+### Slot-state dismiss watcher
+
+Replaces brittle adapter-callback timestamp writes:
+
+```dart
+// In AdManager.initialize():
+_attachFullscreenDismissWatchers();   // listens to slot.state for all 3 fullscreen
+// → fires _lastFullscreenDismissAt = now ON state transition out of `showing`
+```
+
+Source of truth for the resume guard's `dismissDelta < 5000ms` check.
+Works regardless of adapter quirks (rewarded fires onDone on earn vs
+dismiss, etc.).
+
+### Process-restart diagnostic
+
+```
+constructor _internal() {
+  print('roy93~ [AdManager] 🚀 AdManager singleton CREATED — ...');
+}
+```
+
+Two `🚀 CREATED` markers in the same logcat session = Android killed +
+restarted the process between them. Useful for diagnosing memory-pressure
+kills vs SDK crashes.
+
+### Detached lifecycle warning
+
+```
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  // ...
+  if (state == AppLifecycleState.detached) {
+    SafeLogger.w('🚨 lifecycle DETACHED — Flutter engine being torn down');
+    return;
+  }
+  // ...
+}
+```
+
+Fires before process death (when OS is tearing down). Useful for last
+opportunity to flush analytics.
+
+---
+
+## Manifest pitfall
+
+**Do NOT** set `android:taskAffinity=""` on `MainActivity`:
+
+```xml
+<activity
+    android:name=".MainActivity"
+    android:launchMode="singleTop"
+    <!-- android:taskAffinity=""  ← causes AppLovin overlay to land in
+         a different Android task; on user HOME → reopen, the activity
+         stack becomes empty after ad dismiss → user dropped to launcher,
+         appears as "app crashed". -->
+    ...>
+```
+
+Default affinity (= package name) is safe. Just omit the attribute.
