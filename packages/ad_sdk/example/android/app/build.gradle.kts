@@ -19,7 +19,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.ad_sdk_example"
+        // Must match the package the AppLovin ad units are registered against
+        // (re-uses the host app's applicationId + 4 MAX ad unit IDs).
+        // ⚠️ Conflicts with the main app on the same device — uninstall via
+        //   `adb uninstall com.roy.admobwrapper` before installing this demo.
+        // Namespace stays at "com.example.ad_sdk_example" so existing
+        // MainActivity.kt path under kotlin/com/example/... keeps working.
+        applicationId = "com.roy.admobwrapper"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

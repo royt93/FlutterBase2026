@@ -323,16 +323,81 @@ class AppLovinAdapter implements AdProviderAdapter {
       return;
     }
 
+    // Smart timeout: AppLovin's `onAdHiddenCallback` is unreliable — sometimes
+    // fires LATE (10-30s after dismiss), especially when the user clicks the
+    // ad and is sent to a browser/app store before returning.
+    //
+    // Strategy: poll the app lifecycle state every 5 s up to 90 s.
+    //   - If app is `hidden`/`paused`/`inactive` → ad is still on screen
+    //     (or user is in browser via click). Keep waiting.
+    //   - Only force-dismiss when app is foreground (resumed) AND no
+    //     `hidden` callback fired within ~90 s — that's a real hung ad.
+    //
+    // Old fixed 10 s timeout fired false-positive twice in QA (user click →
+    // browser → 20+s → return), arming dismiss timestamps prematurely and
+    // letting subsequent app-open trigger leak through the resume guard.
     _appOpenShowTimeout?.cancel();
     final captured = onDismiss;
-    _appOpenShowTimeout = Timer(const Duration(seconds: 10), () {
+    _scheduleAppOpenTimeoutCheck(captured, attempt: 0);
+  }
+
+  /// Recursive lifecycle-aware timeout. Re-arms while app is backgrounded
+  /// (= ad still showing or user out in browser); only force-dismisses on
+  /// hard cap of 18 attempts × 5 s = 90 s wall clock.
+  void _scheduleAppOpenTimeoutCheck(
+    void Function(bool) captured, {
+    required int attempt,
+  }) {
+    const tickSeconds = 5;
+    const maxAttempts = 18; // 18 × 5 s = 90 s hard cap
+    _appOpenShowTimeout = Timer(const Duration(seconds: tickSeconds), () {
       _appOpenShowTimeout = null;
-      if (_appOpenDismiss == captured && appOpenSlot.isShowing) {
-        SafeLogger.e(_logTag, 'showAppOpen $tag ⏰ TIMEOUT 10s — force dismiss(false)');
+      // Already dismissed by AppLovin's normal callback path? Nothing to do.
+      if (_appOpenDismiss != captured || !appOpenSlot.isShowing) {
+        SafeLogger.d(_logTag,
+            'showAppOpen $tag ⏰ tick #$attempt — already dismissed via callback, watcher exits');
+        return;
+      }
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      final isForeground = lifecycle == AppLifecycleState.resumed;
+
+      if (isForeground) {
+        // App is foreground but ad hasn't fired hidden. Could be:
+        //   (a) Hung overlay — needs force-dismiss
+        //   (b) Just-resumed transition — AppLovin's hidden callback is
+        //       still in-flight via method channel (typically lands within
+        //       ~500-1000 ms of the activity transition).
+        //
+        // Treat the FIRST foreground tick as a grace period — re-arm one
+        // more tick to give AppLovin's natural callback time to land.
+        // Only force-dismiss if app is STILL foreground on the second
+        // foreground-observed tick.
+        if (attempt < 1) {
+          SafeLogger.d(_logTag,
+              'showAppOpen $tag ⏰ tick #${attempt + 1} foreground but no callback yet — grace period, re-arming');
+          _scheduleAppOpenTimeoutCheck(captured, attempt: attempt + 1);
+          return;
+        }
+        SafeLogger.e(_logTag,
+            'showAppOpen $tag ⏰ TIMEOUT — app foreground for ${(attempt + 1) * tickSeconds}s without hidden callback, force dismiss(false)');
         appOpenSlot.markShowFailed();
         _appOpenDismiss = null;
         captured(false);
+        return;
       }
+      // App still backgrounded — ad probably still showing OR user in
+      // browser via click. Keep waiting unless we hit the hard cap.
+      if (attempt >= maxAttempts) {
+        SafeLogger.e(_logTag,
+            'showAppOpen $tag ⏰ HARD CAP ${maxAttempts * tickSeconds}s reached (lifecycle=${lifecycle?.name}) — force dismiss(false)');
+        appOpenSlot.markShowFailed();
+        _appOpenDismiss = null;
+        captured(false);
+        return;
+      }
+      SafeLogger.d(_logTag,
+          'showAppOpen $tag ⏰ tick #${attempt + 1}/$maxAttempts (lifecycle=${lifecycle?.name}) — re-arming +${tickSeconds}s');
+      _scheduleAppOpenTimeoutCheck(captured, attempt: attempt + 1);
     });
   }
 
@@ -361,12 +426,21 @@ class AppLovinAdapter implements AdProviderAdapter {
           errorCode: err.code.value,
         ));
       },
-      onAdDisplayedCallback: (ad) => SafeLogger.d(_logTag, 'inter $tag ✅ displayed'),
+      onAdDisplayedCallback: (ad) {
+        SafeLogger.d(_logTag,
+            () => 'inter $tag ✅ displayed | network=${ad.networkName} '
+                'creativeId=${ad.creativeId} placement=${ad.placement} '
+                'latency=${ad.latencyMillis}ms');
+      },
       onAdRevenuePaidCallback: (ad) {
+        SafeLogger.d(_logTag,
+            () => 'inter $tag 💰 revenue=\$${ad.revenue} '
+                'precision=${ad.revenuePrecision} network=${ad.networkName}');
         _emitRevenueIfPresent(ad, AdSlotType.interstitial, AdPlacement.unspecified);
       },
       onAdDisplayFailedCallback: (ad, err) {
-        SafeLogger.w(_logTag, 'inter $tag ❌ display failed: ${err.message}');
+        SafeLogger.w(_logTag,
+            () => 'inter $tag ❌ display failed: code=${err.code} message="${err.message}"');
         interstitialSlot.markShowFailed();
         final cb = _interstitialDone;
         _interstitialDone = null;
@@ -443,6 +517,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _interstitialDone = null;
     if (old != null) old(false);
     _interstitialDone = onDone;
+    SafeLogger.d(_logTag, 'showInterstitial $tag → AppLovinMAX.showInterstitial(${cfg.interstitialId})');
     try {
       AppLovinMAX.showInterstitial(cfg.interstitialId);
     } catch (e, st) {
@@ -523,7 +598,16 @@ class AppLovinAdapter implements AdProviderAdapter {
         }
       },
       onAdReceivedRewardCallback: (ad, reward) {
-        SafeLogger.d(_logTag, 'rewarded $tag 🏆 ${reward.label}/${reward.amount}');
+        // Note: AppLovin **test creatives** report `amount=0` and empty
+        // `label` regardless of what the dashboard rewarded ad-unit declares.
+        // Real rewarded creatives in production return the configured values.
+        // The `earned=true` flag is the source of truth for "user finished
+        // watching" — `amount` is purely informational metadata.
+        SafeLogger.d(
+          _logTag,
+          () => 'rewarded $tag 🏆 label="${reward.label}" amount=${reward.amount} '
+              '(test creatives report 0/empty — earned=true is the truth)',
+        );
         final cb = _rewardedDone;
         _rewardedDone = null;
         cb?.call(RewardResult(
@@ -571,6 +655,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _rewardedDone = null;
     if (old != null) old(RewardResult.skipped);
     _rewardedDone = onDone;
+    SafeLogger.d(_logTag, 'showRewarded $tag → AppLovinMAX.showRewardedAd(${cfg.rewardedId})');
     try {
       AppLovinMAX.showRewardedAd(cfg.rewardedId);
     } catch (e, st) {
@@ -660,20 +745,65 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   void onAppPaused() {
-    if (_bannerAdViewId.value != null) {
-      banner.autoRefreshEnabled.value = false;
+    // The diagnostic log reads several ValueNotifier values + our slot
+    // states. If the host activity is mid-recreation (AppLovin dismiss
+    // path on Android can briefly leave Flutter widgets in a weird state),
+    // any of these reads CAN theoretically throw — wrap in try-catch so
+    // the actual side-effect (disabling banner autoRefresh) always runs.
+    try {
+      SafeLogger.d(
+        _logTag,
+        () => 'onAppPaused $tag '
+            '| banner.autoRefresh=${banner.autoRefreshEnabled.value} '
+            '| bannerAdViewId=${_bannerAdViewId.value} '
+            '| inter=${interstitialSlot.value.name} '
+            '| rewarded=${rewardedSlot.value.name} '
+            '| appOpen=${appOpenSlot.value.name} '
+            '| pendingDismissCallback=${_appOpenDismiss != null}',
+      );
+    } catch (e) {
+      SafeLogger.w(_logTag, 'onAppPaused diagnostic log threw: $e');
+    }
+    try {
+      if (_bannerAdViewId.value != null) {
+        banner.autoRefreshEnabled.value = false;
+        SafeLogger.d(_logTag, 'onAppPaused $tag — banner.autoRefresh disabled');
+      }
+    } catch (e, st) {
+      SafeLogger.e(_logTag, 'onAppPaused side-effect threw: $e\n$st');
     }
   }
 
   @override
   void onAppResumed() {
-    if (banner.hasError.value) {
-      banner.hasError.value = false;
-      _bannerAdViewId.value = null;
-      banner.autoRefreshEnabled.value = true;
-      preloadBanner();
-    } else if (_bannerAdViewId.value != null && !_bannerRoutePaused) {
-      banner.autoRefreshEnabled.value = true;
+    try {
+      SafeLogger.d(
+        _logTag,
+        () => 'onAppResumed $tag '
+            '| banner.hasError=${banner.hasError.value} '
+            '| banner.autoRefresh=${banner.autoRefreshEnabled.value} '
+            '| bannerAdViewId=${_bannerAdViewId.value} '
+            '| bannerRoutePaused=$_bannerRoutePaused '
+            '| inter=${interstitialSlot.value.name} '
+            '| rewarded=${rewardedSlot.value.name} '
+            '| appOpen=${appOpenSlot.value.name}',
+      );
+    } catch (e) {
+      SafeLogger.w(_logTag, 'onAppResumed diagnostic log threw: $e');
+    }
+    try {
+      if (banner.hasError.value) {
+        SafeLogger.d(_logTag, 'onAppResumed $tag — banner had error, recreating');
+        banner.hasError.value = false;
+        _bannerAdViewId.value = null;
+        banner.autoRefreshEnabled.value = true;
+        preloadBanner();
+      } else if (_bannerAdViewId.value != null && !_bannerRoutePaused) {
+        banner.autoRefreshEnabled.value = true;
+        SafeLogger.d(_logTag, 'onAppResumed $tag — banner.autoRefresh re-enabled');
+      }
+    } catch (e, st) {
+      SafeLogger.e(_logTag, 'onAppResumed side-effect threw: $e\n$st');
     }
   }
 }

@@ -40,10 +40,32 @@ import 'ump_consent.dart';
 ///  - splash budget enforcement (Q32E)
 class AdManager with WidgetsBindingObserver {
   AdManager._internal() {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    _processStartedAtMs = ts;
+    // Logger config not yet set at this point (initialize() hasn't run),
+    // so use direct print prefixed with the SafeLogger tag prefix so it
+    // shows up in the same `roy93~` stream the rest of the SDK uses.
+    // ignore: avoid_print
+    print('roy93~ [$_tag] 🚀 AdManager singleton CREATED — '
+        'new Flutter process / cold start at ${DateTime.fromMillisecondsSinceEpoch(ts).toIso8601String()}');
     _ensureObserverAdded();
   }
 
   static final AdManager _instance = AdManager._internal();
+
+  /// Wall-clock timestamp of when this singleton (and therefore this
+  /// Flutter process) was created. Useful for distinguishing a true cold
+  /// start from a lifecycle resume — if you see two `🚀 CREATED` markers in
+  /// the same logcat session, Android killed the process between them
+  /// (likely under memory pressure, with the user perceiving a "black
+  /// screen → fresh splash" flow).
+  ///
+  /// Nullable + 0 fallback (project convention forbids `late` and `!`).
+  /// In practice always set during the singleton constructor before any
+  /// other code can read it.
+  int? _processStartedAtMs;
+
+  int get processStartedAtMs => _processStartedAtMs ?? 0;
 
   factory AdManager() => _instance;
 
@@ -450,7 +472,15 @@ class AdManager with WidgetsBindingObserver {
 
       SafeLogger.d(_tag, 'triggering App Open + banner preload');
       unawaited(loadAppOpenAd());
-      unawaited(adapter.preloadBanner());
+      // Banner preload also respects VIP — preloading while VIP is active
+      // wastes a network request, and on AppLovin it inflates the internal
+      // `recordBannerImpression` counter (the banner widget itself does
+      // suppress *display*, but the cache fill is unnecessary).
+      if (_isVipMember) {
+        SafeLogger.d(_tag, '⏭️ banner preload skipped — VIP member');
+      } else {
+        unawaited(adapter.preloadBanner());
+      }
 
       _scheduleFirstSecondaryLoad();
       _startAdRetryTimer();
@@ -561,8 +591,7 @@ class AdManager with WidgetsBindingObserver {
     _consent = consent;
     SafeLogger.d(_tag, () => 'setConsent: $consent');
     if (!isInitialised) {
-      SafeLogger.d(_tag,
-          '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
+      SafeLogger.d(_tag, '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
       return;
     }
     await applyConsentToProviders(consent, config: _config);
@@ -733,8 +762,7 @@ class AdManager with WidgetsBindingObserver {
         return;
       }
     }
-    SafeLogger.d(_tag,
-        () => '▶️ showAppOpen (bypassSafety=$bypassSafety, placement=${placement.id})');
+    SafeLogger.d(_tag, () => '▶️ showAppOpen (bypassSafety=$bypassSafety, placement=${placement.id})');
     await ad.showAppOpen(onDismiss: (dismissed) {
       if (dismissed) {
         AdSafetyConfig.recordFullscreenAdShown();
@@ -753,6 +781,15 @@ class AdManager with WidgetsBindingObserver {
 
   void showAppOpenAdOnResume() {
     final ad = _adapter;
+    SafeLogger.d(
+      _tag,
+      () => '🔍 evaluating app-open on resume — '
+          'adapter=${ad?.tag ?? "null"} '
+          'splash=$_isSplashActive vip=$_isVipMember '
+          'appOpenSlot=${ad?.appOpenSlot.value.name ?? "?"} '
+          'interSlot=${ad?.interstitialSlot.value.name ?? "?"} '
+          'rewardedSlot=${ad?.rewardedSlot.value.name ?? "?"}',
+    );
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ app-open on resume skipped — adapter null');
       return;
@@ -766,8 +803,7 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (ad.interstitialSlot.isShowing || ad.rewardedSlot.isShowing) {
-      SafeLogger.d(_tag,
-          '⏭️ app-open on resume skipped — interstitial/rewarded currently showing');
+      SafeLogger.d(_tag, '⏭️ app-open on resume skipped — interstitial/rewarded currently showing');
       return;
     }
 
@@ -783,14 +819,15 @@ class AdManager with WidgetsBindingObserver {
     }
     final safetyResume = AdSafetyConfig.canShowAppOpenOnResume();
     if (!safetyResume.canShow) {
-      SafeLogger.d(_tag,
-          () => '⏭️ app-open on resume skipped — ${safetyResume.reason} → triggering reload');
+      SafeLogger.d(_tag, () => '⏭️ app-open on resume skipped — ${safetyResume.reason} → triggering reload');
       unawaited(loadAppOpenAd());
       return;
     }
     if (!ad.appOpenSlot.isReady) {
-      SafeLogger.d(_tag,
-          () => '⏭️ app-open on resume skipped — slot not ready (state=${ad.appOpenSlot.value.name}) → triggering reload');
+      SafeLogger.d(
+          _tag,
+          () =>
+              '⏭️ app-open on resume skipped — slot not ready (state=${ad.appOpenSlot.value.name}) → triggering reload');
       unawaited(loadAppOpenAd());
       return;
     }
@@ -880,8 +917,7 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
-    SafeLogger.d(_tag,
-        () => '▶️ showInterstitial (placement=${placement.id}, slot=${ad.interstitialSlot.value.name})');
+    SafeLogger.d(_tag, () => '▶️ showInterstitial (placement=${placement.id}, slot=${ad.interstitialSlot.value.name})');
     await ad.showInterstitial(onDone: (shown) {
       if (shown) {
         AdSafetyConfig.recordFullscreenAdShown();
@@ -950,8 +986,7 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (_isVipMember) {
-      SafeLogger.d(_tag,
-          () => '⏭️ showRewarded skipped — VIP member (vipAutoGrant=$vipAutoGrant)');
+      SafeLogger.d(_tag, () => '⏭️ showRewarded skipped — VIP member (vipAutoGrant=$vipAutoGrant)');
       onEarnedReward(vipAutoGrant);
       return;
     }
@@ -966,8 +1001,10 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
-    SafeLogger.d(_tag,
-        () => '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
+    SafeLogger.d(
+        _tag,
+        () =>
+            '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
     await ad.showRewarded(onDone: (result) {
       if (result.earned) {
         AdSafetyConfig.recordFullscreenAdShown();
@@ -1056,18 +1093,106 @@ class AdManager with WidgetsBindingObserver {
   //  LIFECYCLE OBSERVER
   // ──────────────────────────────────────────────────────────────────────────
 
+  /// Tracks the previous lifecycle state so we can log transitions like
+  /// "paused → resumed" instead of just current state.
+  AppLifecycleState? _prevLifecycleState;
+
+  /// Wall clock timestamp of last paused state — used to log how long the
+  /// app was actually backgrounded on resume.
+  int _lastPausedAtMs = 0;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!isInitialised) return;
-    SafeLogger.d(_tag, () => 'lifecycle: ${state.name}');
+    final prev = _prevLifecycleState;
+    _prevLifecycleState = state;
+
+    if (!isInitialised) {
+      // Defensive: any field access inside the closure can throw if the
+      // host activity is mid-recreation; isolate this log path so it can
+      // never crash the lifecycle observer.
+      _safeLifecycleLog(
+        () => 'lifecycle: ${prev?.name ?? "—"} → ${state.name} (SDK not initialised — ignoring)',
+      );
+      return;
+    }
     final ad = _adapter;
+
+    // Compute background duration if resuming.
+    String backgroundedFor = '';
+    if (state == AppLifecycleState.resumed && _lastPausedAtMs > 0) {
+      final ms = DateTime.now().millisecondsSinceEpoch - _lastPausedAtMs;
+      backgroundedFor = ' | backgroundedFor=${(ms / 1000).toStringAsFixed(1)}s';
+    }
+    if (state == AppLifecycleState.paused) {
+      _lastPausedAtMs = DateTime.now().millisecondsSinceEpoch;
+    }
+
+    // ⚠️ Critical: this lifecycle log MUST not throw. AppLovin's overlay
+    // recreates the host activity on dismiss, and during that brief window
+    // any GlobalKey-rooted state access (e.g. `canPop()`, navigator probes)
+    // can hit a disposed-but-not-yet-cleared State and throw — which
+    // bubbles up here and aborts `onAppResumed` + `showAppOpenAdOnResume`,
+    // causing the next ad cycle to look "frozen".
+    //
+    // Keep the log to fields we own (slot ValueNotifiers, our own bools).
+    // Do NOT touch _navigatorKey.currentState — that's the host's tree.
+    _safeLifecycleLog(
+      () => 'lifecycle: ${prev?.name ?? "—"} → ${state.name} '
+          '| splash=$_isSplashActive '
+          '| vip=$_isVipMember '
+          '| adapter=${ad?.tag ?? "null"} '
+          '| inter=${ad?.interstitialSlot.value.name ?? "?"} '
+          '| rewarded=${ad?.rewardedSlot.value.name ?? "?"} '
+          '| appOpen=${ad?.appOpenSlot.value.name ?? "?"} '
+          '| banner=${ad?.bannerSlot.value.name ?? "?"}'
+          '$backgroundedFor',
+    );
+
+    // Detached = engine is being torn down (process likely about to die).
+    if (state == AppLifecycleState.detached) {
+      SafeLogger.w(
+          _tag,
+          '🚨 lifecycle DETACHED — Flutter engine being torn down. '
+          'Common causes: (a) Android killed process under memory pressure, '
+          '(b) host activity destroyed while ad overlay alive, '
+          '(c) launcher relaunched the app from cold. '
+          'Ad slots will reset on next initialize().');
+      return;
+    }
+
     if (ad == null) return;
     if (state == AppLifecycleState.paused) {
       AdSafetyConfig.recordAppWentBackground();
-      ad.onAppPaused();
+      try {
+        ad.onAppPaused();
+      } catch (e, st) {
+        SafeLogger.e(_tag, 'onAppPaused threw: $e\n$st');
+      }
     } else if (state == AppLifecycleState.resumed) {
-      ad.onAppResumed();
-      showAppOpenAdOnResume();
+      try {
+        ad.onAppResumed();
+      } catch (e, st) {
+        SafeLogger.e(_tag, 'onAppResumed threw: $e\n$st');
+      }
+      try {
+        showAppOpenAdOnResume();
+      } catch (e, st) {
+        SafeLogger.e(_tag, 'showAppOpenAdOnResume threw: $e\n$st');
+      }
+    }
+  }
+
+  /// Run a lifecycle-log closure with error suppression so a missing
+  /// field, disposed slot listener or any unexpected NPE inside the
+  /// formatter cannot abort the lifecycle observer.
+  void _safeLifecycleLog(String Function() msgBuilder) {
+    try {
+      SafeLogger.d(_tag, msgBuilder);
+    } catch (e) {
+      // Last-resort: emit something so we know the formatter died, but
+      // never propagate the throw upward.
+      // ignore: avoid_print
+      print('roy93~ [$_tag] ⚠️ lifecycle log builder threw: $e');
     }
   }
 
@@ -1082,16 +1207,26 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// We log the pressure event so analytics can react — actual eviction is
   /// handled by `destroy()` if the host app decides to re-init under pressure.
+  /// Memory-pressure log throttle. Background → foreground cycles fire this
+  /// once per cycle; we log at most every 60 s to avoid filling the buffer
+  /// when the user backgrounds the app many times in a short window.
+  int _lastMemoryPressureLogAt = 0;
+
   @override
   void didHaveMemoryPressure() {
     final ad = _adapter;
     if (ad == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastMemoryPressureLogAt < 60000) return; // 60 s throttle
+    _lastMemoryPressureLogAt = now;
     SafeLogger.w(
       _tag,
       () => '⚠️ memory pressure — '
           'inter=${ad.interstitialSlot.value.name} '
           'rewarded=${ad.rewardedSlot.value.name} '
-          'appOpen=${ad.appOpenSlot.value.name}',
+          'appOpen=${ad.appOpenSlot.value.name} '
+          'banner=${ad.bannerSlot.value.name} '
+          'vip=$_isVipMember',
     );
   }
 
@@ -1123,7 +1258,13 @@ class AdManager with WidgetsBindingObserver {
   void _retryRefillAds() {
     final ad = _adapter;
     if (ad == null) return;
-    SafeLogger.d(_tag, '⏲️ retry refill scan');
+    SafeLogger.d(
+      _tag,
+      () => '⏲️ retry refill scan — vip=$_isVipMember '
+          'inter=${ad.interstitialSlot.value.name} '
+          'rewarded=${ad.rewardedSlot.value.name} '
+          'appOpen=${ad.appOpenSlot.value.name}',
+    );
     if (ad.appOpenSlot.isIdle || ad.appOpenSlot.isCooldown) {
       unawaited(loadAppOpenAd());
     }
