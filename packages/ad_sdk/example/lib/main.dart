@@ -46,7 +46,7 @@ const _kAppLovinRewardedId = 'YOUR_REWARDED_AD_UNIT_ID';
 
 /// Provider for this app — chosen once. Replace the 5 YOUR_* constants
 /// above with real values from dash.applovin.com BEFORE running.
-const AdProvider kProvider = AdProvider.appLovin;
+const AdProvider kProvider = AdProvider.admob;
 
 /// VIP demo keys (Q28 — user-supplied).
 const Map<String, Duration> kDemoVipKeys = {
