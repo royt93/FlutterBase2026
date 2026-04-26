@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Flutter app whose Dart package name is **`saigonphantomlabs`** (so imports look like `package:saigonphantomlabs/mckimquyen/...`). The display name shown in `MaterialApp` is "RoyApp".
 - The shipped feature is a **WiFi stress tester** (`lib/mckimquyen/widget/wifi_stressor/`) that hammers public CDN endpoints with parallel Dio downloads and charts throughput.
-- Targets Android + iOS. Project version in `pubspec.yaml` doubles as the Play/App Store build (`2026.03.24+20260324`).
+- Targets Android + iOS. Project version in `pubspec.yaml` doubles as the Play/App Store build (`2026.04.26+20260426`).
 - Default UI locale is `vi_VN`, fallback is `en_US`. Translations live in `lib/translations/` and are persisted via `LanguageService` (SharedPreferences).
 
 ## Common commands
 
-The `Makefile` is the canonical entrypoint and uses paths (`test/unit/`, `test/widget/`, `test/integration/`) that **do not currently exist in the repo** — assume any `make test*` target will fail until those folders are created. Use `flutter` directly for now.
+The `Makefile` is the canonical entrypoint and uses paths (`test/unit/`, `test/widget/`, `test/integration/`) that **do not currently exist in the repo** — there is no `test/` directory at all, only `test_driver/integration_test.dart`. Assume any `make test*` target will fail until those folders are created. Use `flutter` directly for now.
 
 ```bash
 # Install + generate mocks
@@ -72,7 +72,7 @@ This `mckimquyen/` namespace folder is where all app code lives. Subfolders are 
 The `applovin_admob_sdk` package is **dual-sourced**:
 
 - A local copy lives in `packages/ad_sdk/` (it is its own Flutter package with its own example app, README, tests).
-- The app currently consumes it as a **hosted** dependency (`applovin_admob_sdk: ^1.0.14`). The path override is commented out in `pubspec.yaml`. If you need to develop against the local copy, uncomment the `path: packages/ad_sdk` block.
+- The app currently consumes it as a **hosted** dependency (`applovin_admob_sdk: ^1.0.16`). The path override is commented out in `pubspec.yaml`. If you need to develop against the local copy, uncomment the `path: packages/ad_sdk` block.
 - `gma_mediation_applovin` must stay at the app level — it's a native mediation plugin and cannot be declared inside the sub-package.
 
 The integration contract (see `packages/ad_sdk/README.md` for the full version):
