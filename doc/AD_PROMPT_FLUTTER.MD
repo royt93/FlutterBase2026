@@ -446,7 +446,7 @@ AdConfig(
 
 Verify ở entry `__FIRST_INSTALL__` trong `vip.entries` sau init lần đầu (xem Step 10.6 — special entries).
 
-### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17)
+### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.18)
 
 Mục tiêu: chặn user gỡ app + cài lại để nhận grace 24h vô hạn lần. Cơ chế per platform:
 
@@ -925,7 +925,7 @@ Nếu user migrate từ project Android native dùng `_AdmobWrapper`, mapping nh
 
 ## Phụ lục B — Reference doc của project `_FlutterBase2025`
 
-Project này là reference implementation cho `applovin_admob_sdk: ^1.0.16`. Files đáng đọc:
+Project này là reference implementation cho `applovin_admob_sdk: ^1.0.18`. Files đáng đọc:
 
 - `doc/AD.MD` — audit + as-is spec đầy đủ (touchpoint table, ad config, UMP flow, VIP system, policy compliance)
 - `lib/main.dart` — bootstrap pattern

@@ -25,7 +25,13 @@
       "WebFetch(domain:stackoverflow.com)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:developers.google.com)",
-      "Bash(curl -sf https://pub.dev/api/packages/applovin_admob_sdk)"
+      "Bash(curl -sf https://pub.dev/api/packages/applovin_admob_sdk)",
+      "Bash(curl -s https://pub.dev/api/packages/applovin_admob_sdk)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('latest:', d['latest']['version']\\); print\\('versions:', [v['version'] for v in d['versions'][-5:]]\\)\")",
+      "Bash(curl -sf https://pub.dev/api/packages/applovin_admob_sdk/versions/1.0.18)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('version:', d.get\\('version'\\)\\); print\\('archive:', d.get\\('archive_url'\\)\\)\")",
+      "Bash(curl -sIL https://pub.dev/api/archives/applovin_admob_sdk-1.0.18.tar.gz)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('latest:', d['latest']['version']\\); print\\('all versions:', [v['version'] for v in d['versions']]\\)\")"
     ],
     "deny": [],
     "ask": []

@@ -4,6 +4,14 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.18] - 2026-04-27
+
+### No code changes
+- Version bump only. Runtime behaviour, public API surface, and bundled
+  assets are identical to 1.0.17. Upgrading from 1.0.17 to 1.0.18
+  requires no code changes — only a `pubspec.yaml` version bump and
+  `flutter pub get`.
+
 ## [1.0.17] - 2026-04-27
 
 ### Added — Anti-uninstall-bypass for first-install VIP grace (iOS-side)

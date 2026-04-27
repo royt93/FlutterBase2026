@@ -21,7 +21,11 @@
 | AdMob `APPLICATION_ID` | `ca-app-pub-3612191981543807~9731053733` (`AndroidManifest.xml:53`) |
 | Provider package native | AppLovin MAX SDK key bundled in code (Dart) |
 
-### v1.0.17 highlights (Unreleased — pending Phase 2 device test)
+### v1.0.18 highlights (released 2026-04-27)
+
+- Version bump only — identical runtime behaviour to v1.0.17.
+
+### v1.0.17 highlights
 
 - 🆕 **Anti-uninstall-bypass guard** cho `firstInstallVipGrace`. iOS qua Keychain flag (auto via SDK), Android qua Auto Backup (host app phải config — xem section 7.7).
 - 🆕 New dep: `flutter_secure_storage: ^9.2.4` (~+400KB binary, iOS-only usage).
@@ -253,7 +257,7 @@ User nhập key → tap "Kích hoạt"
 - `vip.activeStream` → re-fetch entries khi active state đổi (cover case external add).
 - Local `Timer.periodic(30s)` → re-render remaining-time text mượt (không poll API, chỉ rebuild UI từ entries hiện có).
 
-### 7.7 Anti-uninstall-bypass guard (SDK ≥ 1.0.17)
+### 7.7 Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.18)
 
 > **Mục tiêu**: chặn user gỡ app + cài lại để nhận lại grace 24h vô hạn lần.
 
