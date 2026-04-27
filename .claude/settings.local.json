@@ -19,7 +19,13 @@
       "Bash(git ls-tree *)",
       "Bash(dart pub *)",
       "Bash(shasum -a 256)",
-      "Bash(awk '{print $1}')"
+      "Bash(awk '{print $1}')",
+      "Bash(git *)",
+      "WebFetch(domain:pub.dev)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:developers.google.com)",
+      "Bash(curl -sf https://pub.dev/api/packages/applovin_admob_sdk)"
     ],
     "deny": [],
     "ask": []

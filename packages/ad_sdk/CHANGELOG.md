@@ -4,6 +4,91 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17] - 2026-04-27
+
+### Added — Anti-uninstall-bypass for first-install VIP grace (iOS-side)
+- **`FirstInstallGuard`** (internal, `lib/src/vip/_first_install_guard.dart`) —
+  protects the `firstInstallVipGrace` feature against the trivial bypass
+  of "uninstall + reinstall to claim a fresh 24-hour grace window."
+  Wired automatically inside `AdManager.initialize`; host apps need no
+  code changes.
+- **iOS defence** — writes a single boolean flag to the iOS Keychain
+  (`kSecAttrAccessibleAfterFirstUnlock`, no `synchronizable`, no
+  `kSecAttrAccessGroup`). Keychain entries persist across app uninstall
+  by default on iOS, so a reinstall on the same device finds the flag
+  and the guard skips re-granting. Deliberately uses a constant flag
+  rather than `identifierForVendor` (IDFV) — Apple resets IDFV when the
+  user deletes all of a vendor's apps and reinstalls, which would let
+  a standalone-app reinstall silently bypass the guard.
+- **Android defence (host-app responsibility)** — there is no reliable
+  local-only Play Install Referrer signal that distinguishes a fresh
+  install from a reinstall (per Google's docs, referrer info is reset
+  when the application is reinstalled). Real Android anti-bypass relies
+  on the host app's **Auto Backup** configuration restoring
+  `FlutterSharedPreferences.xml` (which contains the
+  `prefs.isFirstInstallGraceApplied()` flag) on Play Store reinstall,
+  short-circuiting the outer grace block before the guard runs. The
+  guard itself returns `false` (allow grace) on Android — anti-bypass
+  is performed entirely by the host's `AndroidManifest.xml` /
+  `<data-extraction-rules>` + Google Cloud Backup.
+- **Call-order guarantee (iOS)** — `AdManager` writes the Keychain
+  anti-bypass flag *before* the `prefs.markFirstInstallGraceApplied()`
+  flag, so a process kill between the two writes leaves the persistent
+  marker set and the next install on the same device is still blocked.
+- **Debug bypass** — `kDebugMode` builds skip both `hasAlreadyGranted`
+  and `markGranted`, so QA can iterate on `flutter run` without the
+  Keychain signal locking them out of the grace UX. Anti-bypass
+  validation must happen on signed release builds (TestFlight / Play
+  Store internal track).
+- **Fail-open philosophy** — every storage error is caught and logged;
+  the guard returns `false` (allow grace) so a transient Keychain
+  hiccup never denies grace to a legitimate first-time user.
+- **15 new unit tests** covering debug bypass, Keychain present/absent/
+  tampered/error, Android always-grant behaviour, `markGranted`
+  no-op on Android, idempotency, and fail-open error swallowing.
+
+### Changed
+- New required dependency for the iOS guard:
+  - `flutter_secure_storage: ^9.2.4` — iOS Keychain wrapper.
+- Approximate binary size delta: +400 KB (Keychain wrapper native code).
+
+### Host-app integration notes
+- **Android (required for anti-bypass)** — add Auto Backup configuration
+  to `android/app/src/main/AndroidManifest.xml`:
+  ```xml
+  <application
+      android:allowBackup="true"
+      android:dataExtractionRules="@xml/data_extraction_rules"
+      android:fullBackupContent="@xml/full_backup_content">
+  ```
+  Create `android/app/src/main/res/xml/data_extraction_rules.xml`
+  (Android 12+) and `full_backup_content.xml` (Android 6-11) including
+  `FlutterSharedPreferences.xml` so Google Auto Backup restores the
+  grace flag on Play Store reinstall.
+  Without these, **Android anti-bypass does not work** — uninstall +
+  reinstall always re-grants the grace window. (Acceptable for many
+  apps; configure Auto Backup only if you want to block this bypass.)
+- **iOS** — no host-side configuration required.
+
+### Removed
+- **`play_install_referrer` dependency** — initially included for an
+  Android conservative-skip path, removed after research confirmed
+  Install Referrer cannot detect Play Store reinstall (timestamps
+  reset per Google's documented behaviour). Real Android anti-bypass
+  comes from Auto Backup, not Install Referrer.
+
+### Limitations (documented, not fixed)
+- **iOS factory reset** ("Erase All Content and Settings") wipes
+  Keychain → bypass succeeds. Acceptable; factory resets are rare.
+- **Android Play Store reinstall without Auto Backup or within Auto
+  Backup's ~24 h cache window** still bypasses the guard. This is a
+  fundamental local-only limitation — closing it requires a backend
+  (Firebase Anonymous Auth + Firestore, or a custom server).
+- **iOS encrypted backup restore to a new device** could carry the
+  Keychain flag onto the new device, denying that device's first
+  install grace. Edge case; acceptable trade-off vs. weakening
+  anti-bypass on the primary device.
+
 ## [1.0.16] - 2026-04-26
 
 ### Documentation

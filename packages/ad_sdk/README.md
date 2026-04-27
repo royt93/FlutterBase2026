@@ -594,6 +594,66 @@ AdConfig(
 )
 ```
 
+### Anti-bypass guard
+
+The grace is protected against the trivial bypass of "uninstall + reinstall to claim a fresh 24-hour window." The guard runs automatically inside `AdManager.initialize` — host apps need no code changes for the iOS side. **Android requires host-app Auto Backup configuration** (see below).
+
+| Platform | Mechanism                                                                                              | Bypass-blocked scenarios                                              | Limitations                                                                                              |
+|----------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| iOS      | Boolean flag in Keychain (`kSecAttrAccessibleAfterFirstUnlock`, no sync)                               | Uninstall + reinstall on same device                                  | "Erase All Content and Settings" wipes Keychain; encrypted backup → new device carries the flag          |
+| Android  | Host's `SharedPreferences` flag (`isFirstInstallGraceApplied`) restored from Google Cloud Auto Backup  | Play Store reinstall on same Google account, after the ~24 h backup window | Reinstall within ~24 h of install (before Auto Backup runs); user disables cloud backup; cross-account reinstall |
+
+#### Android — required host-app configuration
+
+The SDK does not bundle a Play Install Referrer plugin: per Google's docs, Install Referrer timestamps reset on reinstall, so the API cannot distinguish a fresh install from a reinstall on its own. The realistic Android anti-bypass is **Google Auto Backup restoring the grace flag from `SharedPreferences`** on Play Store reinstall.
+
+To enable it, in `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<application
+    android:allowBackup="true"
+    android:fullBackupContent="@xml/full_backup_content"
+    android:dataExtractionRules="@xml/data_extraction_rules">
+```
+
+Create `android/app/src/main/res/xml/data_extraction_rules.xml` (Android 12+):
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+  <cloud-backup>
+    <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+  </cloud-backup>
+  <device-transfer>
+    <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+  </device-transfer>
+</data-extraction-rules>
+```
+
+And `full_backup_content.xml` (Android 6–11):
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+  <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+  <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+</full-backup-content>
+```
+
+`FlutterSecureStorage.xml` is excluded because its EncryptedSharedPreferences ciphertext is unrecoverable without the device-bound Keystore key (which is not part of any backup).
+
+Without this configuration, Android anti-bypass is effectively disabled — uninstall + reinstall always re-grants the grace window. That is a valid choice if you want to allow the bypass; just be aware of the trade-off.
+
+#### Debug builds always bypass the guard
+
+So you can iterate on `flutter run` without being locked out of the grace UX. Anti-bypass validation must happen on signed release builds (TestFlight / Play Store internal track).
+
+#### Fail-open
+
+The guard never denies grace on storage errors — it fails open so a transient Keychain hiccup never punishes a legitimate first-time user.
+
 ---
 
 ## Consent & compliance
@@ -905,6 +965,17 @@ flutter run
 ```
 
 The SDK logs `🎁 first-install VIP grace granted (30s, mode=debug)` on a fresh install. After 30 seconds the timer fires, `🔓 VIP inactive — kicking secondary preload` logs, and ads start serving.
+
+Debug builds bypass the anti-bypass guard, so each `flutter run` cycle grants a fresh grace.
+
+### How do I test the anti-bypass guard?
+
+Anti-bypass only runs on **release builds**. Build a signed release and install it the way real users would:
+
+- **iOS** — TestFlight or a signed Ad Hoc build. Install, wait for grace to expire (30 s in debug, 24 h in release — temporarily set `firstInstallVipGrace: FirstInstallVipGrace.debugShort` in your test build to keep the cycle short), uninstall, then reinstall. Look for `🛡️ Keychain flag present — prior install detected on this device` in the splash log on the second install.
+- **Android** — Play Store internal testing track (Auto Backup must be configured — see "Android — required host-app configuration" above). Wait long enough for Auto Backup to run (typically ~24 h after first launch, or trigger manually via `adb shell bmgr backupnow <package>`). Then uninstall and reinstall. The grace block should be skipped because the restored prefs flag short-circuits before the guard runs.
+
+Sideload via `adb install` of a release APK will simply re-grant the grace window each time — this is expected behaviour now that the SDK no longer ships an Install Referrer-based conservative skip.
 
 ### My ad is not showing — how do I debug?
 

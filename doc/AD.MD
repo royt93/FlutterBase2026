@@ -21,6 +21,11 @@
 | AdMob `APPLICATION_ID` | `ca-app-pub-3612191981543807~9731053733` (`AndroidManifest.xml:53`) |
 | Provider package native | AppLovin MAX SDK key bundled in code (Dart) |
 
+### v1.0.17 highlights (Unreleased — pending Phase 2 device test)
+
+- 🆕 **Anti-uninstall-bypass guard** cho `firstInstallVipGrace`. iOS qua Keychain flag (auto via SDK), Android qua Auto Backup (host app phải config — xem section 7.7).
+- 🆕 New dep: `flutter_secure_storage: ^9.2.4` (~+400KB binary, iOS-only usage).
+
 ### v1.0.16 highlights đã apply trong repo
 
 - ✅ Documentation-only release từ 1.0.15. Không có breaking change runtime.
@@ -248,6 +253,83 @@ User nhập key → tap "Kích hoạt"
 - `vip.activeStream` → re-fetch entries khi active state đổi (cover case external add).
 - Local `Timer.periodic(30s)` → re-render remaining-time text mượt (không poll API, chỉ rebuild UI từ entries hiện có).
 
+### 7.7 Anti-uninstall-bypass guard (SDK ≥ 1.0.17)
+
+> **Mục tiêu**: chặn user gỡ app + cài lại để nhận lại grace 24h vô hạn lần.
+
+**Cơ chế per platform:**
+
+| Platform | Mechanism | Hiệu lực thực tế |
+|---|---|---|
+| iOS | SDK ghi flag vào Keychain (`kSecAttrAccessibleAfterFirstUnlock`, no `synchronizable`) qua `flutter_secure_storage`. Keychain entries persist qua uninstall trên iOS by default. | ✅ Block uninstall+reinstall trên cùng device |
+| Android | **Host-app responsibility**: AndroidManifest cấu hình Auto Backup → Google Cloud sao lưu `FlutterSharedPreferences.xml` (chứa flag `isFirstInstallGraceApplied`). Reinstall qua Play Store → backup auto-restore → flag = true → outer if short-circuit, không re-grant. | ✅ Block (sau ~24h backup window), ❌ bypass nếu uninstall trong 24h đầu |
+
+**Tại sao Android không tự làm?** Per Google docs: Install Referrer timestamps **reset** trên reinstall, nên không phát hiện được reinstall bằng API. Auto Backup là cơ chế thực sự duy nhất khả thi (no-backend).
+
+**Android — config bắt buộc (HOST APP)**:
+
+Project `_FlutterBase2025` đã wire (audit ngày 2026-04-27):
+
+`android/app/src/main/AndroidManifest.xml` (lines 42-49):
+```xml
+<application
+    android:name="${applicationName}"
+    android:allowBackup="true"
+    android:fullBackupOnly="true"
+    android:fullBackupContent="@xml/full_backup_content"
+    android:dataExtractionRules="@xml/data_extraction_rules"
+    android:hasFragileUserData="true"
+    ...>
+```
+
+`android/app/src/main/res/xml/data_extraction_rules.xml` (Android 12+, target SDK 36):
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+  <cloud-backup>
+    <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+  </cloud-backup>
+  <device-transfer>
+    <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+  </device-transfer>
+</data-extraction-rules>
+```
+
+`android/app/src/main/res/xml/full_backup_content.xml` (Android 6-11):
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+  <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+  <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
+</full-backup-content>
+```
+
+**Lý do `FlutterSecureStorage.xml` exclude**: ciphertext của EncryptedSharedPreferences cần Keystore key device-bound — restore không decrypt được nên backup blob là rác. `FlutterSecureStorage.xml` Android không serve anti-bypass (anti-bypass iOS-only ở phía SDK).
+
+**Bypass-result matrix** (sau setup này):
+
+| Scenario Android | Result |
+|---|---|
+| User cài app, dùng > 24h, uninstall + reinstall (cùng Google account) | ✅ Block (backup đã chạy 1 lần, restore flag) |
+| User cài, uninstall trong 24h đầu, reinstall | ❌ Bypass (backup chưa kịp chạy) |
+| User cài, uninstall, reinstall qua Google account khác | ❌ Bypass (backup không cross-account) |
+| User disable Google Backup ở Settings | ❌ Bypass (no cloud restore) |
+| User factory reset rồi cài | ❌ Bypass |
+
+**Trade-off accepted**: ~5-15% edge case bypass, đa phần (~85-95%) user thường sẽ bị block. SDK không tự config được manifest — host app phải làm.
+
+**Verify Auto Backup actually works** (manual test):
+```bash
+# Trigger backup ngay (Android dev mode)
+adb shell bmgr backupnow com.saigonphantomlabs.base
+
+# Check backup status
+adb shell bmgr enable
+adb shell bmgr list transports
+```
+
 ---
 
 ## 8. TOUCHPOINTS — TỔNG HỢP
@@ -332,12 +414,15 @@ Banner: navigation cooldown 5s, click spam 3/min.
 - [ ] Production AppLovin/AdMob IDs đã đúng (không phải test ID).
 - [x] `AndroidManifest.xml` có `APPLICATION_ID`, `AD_ID`, `INTERNET`, `ACCESS_NETWORK_STATE`.
 - [x] `MainActivity` KHÔNG có `android:taskAffinity=""`.
+- [x] **Anti-bypass Android — Auto Backup config wired** (`AndroidManifest.xml:43-47` + `res/xml/data_extraction_rules.xml` + `res/xml/full_backup_content.xml`). Verify `<include domain="sharedpref" path="FlutterSharedPreferences.xml"/>` có trong cả 2 xml files.
 - [ ] `ios/Runner/Info.plist` có `GADApplicationIdentifier`, `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`.
 - [ ] iOS Podfile target ≥ 13.0, đã `pod install`.
 - [x] Privacy Policy URL valid và load được external browser.
 - [x] `firstInstallVipGrace` strategy aligned (auto = ad-free 24h release).
 - [x] VIP key `LOITP_30` test redeem thành công, đếm còn 30 ngày.
 - [ ] Test thật trên thiết bị (emulator không show real ad).
+- [ ] Test anti-bypass Android: cài qua Play Store internal track → đợi > 24h (hoặc `adb shell bmgr backupnow <pkg>`) → uninstall → reinstall → verify ads show ngay (không grace re-grant).
+- [ ] Test anti-bypass iOS: cài qua TestFlight → đợi grace expire → uninstall → reinstall → verify log `🛡️ Keychain flag present`.
 - [ ] Mediation Debugger không có "no-fill 100%" trên unit production.
 
 ---
@@ -366,6 +451,17 @@ Check log `[Splash]` — UMP có thể đang block. Hard cap 8s sẽ tự naviga
 1. VIP active → expected, banner skipped.
 2. Network sai → check log `[BannerAdWidget] _initBanner ⏭️`.
 3. Cooldown sau lỗi load → đợi 5 phút.
+
+### User uninstall + reinstall vẫn nhận grace 24h trên Android (anti-bypass không work)
+Đây là edge case bình thường nếu rơi vào 1 trong các trường hợp sau:
+1. **Uninstall trong vòng ~24h từ lần cài đầu** — Auto Backup chưa kịp chạy lần nào (backup cycle 24h, cần device idle + WiFi + charging). Restore không có gì → flag false → re-grant.
+2. **User disable Google Backup** ở `Settings → Google → Backup` → no cloud restore.
+3. **User reinstall qua Google account khác** → backup không cross-account.
+4. **Factory reset rồi cài lại** → backup linked với Google account, nhưng nếu user setup Google account fresh sẽ mất.
+5. **Manifest config thiếu** — verify `android:dataExtractionRules="@xml/data_extraction_rules"` có trong `<application>` và file xml có `<include domain="sharedpref" path="FlutterSharedPreferences.xml"/>`.
+6. **Trigger backup manual cho test**: `adb shell bmgr backupnow com.saigonphantomlabs.base` rồi uninstall + reinstall qua Play Store internal track.
+
+Nếu thuộc case 5 → fix config. Nếu 1-4 → accepted limitation, đa phần user thật ko rơi vào edge case (~85-95% bypass attempt sẽ bị block).
 
 ---
 

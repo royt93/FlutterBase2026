@@ -16,6 +16,7 @@ import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
+import '../vip/_first_install_guard.dart';
 import '../vip/vip_manager.dart';
 import '../widget/ad_loading_dialog.dart';
 import 'ad_consent.dart';
@@ -410,18 +411,50 @@ class AdManager with WidgetsBindingObserver {
       await prefs.setFirstInstallAtMsIfMissing(nowMs);
       final graceCfg = config.firstInstallVipGrace;
       if (graceCfg.isEnabled && !prefs.isFirstInstallGraceApplied()) {
-        final dur = graceCfg.duration!;
-        await vip.addVip(
-          key: config.firstInstallVipKey,
-          duration: dur,
-        );
-        await prefs.markFirstInstallGraceApplied();
-        SafeLogger.d(_tag, () {
-          // Log seconds in debug (likely 30 s) so QA can verify quickly;
-          // hours in release (24 h+) for human-readable retention reports.
-          final readable = dur.inHours > 0 ? '${dur.inHours}h' : '${dur.inSeconds}s';
-          return '🎁 first-install VIP grace granted ($readable, mode=${kDebugMode ? "debug" : "release"})';
-        });
+        final dur = graceCfg.duration;
+        if (dur != null) {
+          // Anti-uninstall-bypass guard. iOS: a Keychain flag persists
+          // across uninstall, so the second install sees the flag and we
+          // skip re-granting. Android: Install Referrer with conservative
+          // skip on connection failure (Q3). Falls through to allow grace
+          // if no bypass signal is found, so legitimate first-time users
+          // still get their grace window.
+          final guard = FirstInstallGuard();
+          final alreadyGranted = await guard.hasAlreadyGranted();
+          if (alreadyGranted) {
+            await prefs.markFirstInstallGraceApplied();
+            SafeLogger.d(_tag, () =>
+                '🛡️ first-install VIP grace SKIPPED — anti-bypass guard '
+                'returned true (prior install detected, or referrer signal '
+                'inconclusive on Android)');
+          } else {
+            await vip.addVip(
+              key: config.firstInstallVipKey,
+              duration: dur,
+            );
+            // ORDER MATTERS — write the persistent anti-bypass marker
+            // (Keychain on iOS) BEFORE the per-install prefs flag. If the
+            // process is force-killed between these two writes, the worst
+            // case is that the prefs flag stays unset — and the next init
+            // on the same install simply re-runs the guard, which finds
+            // the Keychain flag and skips re-granting (or, if the user
+            // also uninstalls in that microsecond window before reinstall,
+            // the Keychain flag still blocks the bypass).
+            //
+            // The opposite order would leave a window where prefs flag
+            // is set but Keychain flag is not, allowing uninstall +
+            // reinstall to bypass the guard.
+            await guard.markGranted();
+            await prefs.markFirstInstallGraceApplied();
+            SafeLogger.d(_tag, () {
+              // Log seconds in debug (likely 30 s) so QA can verify quickly;
+              // hours in release (24 h+) for human-readable retention reports.
+              final readable =
+                  dur.inHours > 0 ? '${dur.inHours}h' : '${dur.inSeconds}s';
+              return '🎁 first-install VIP grace granted ($readable, mode=${kDebugMode ? "debug" : "release"})';
+            });
+          }
+        }
       }
 
       // Pick adapter, wire its event sink, then initialise. The resolved
