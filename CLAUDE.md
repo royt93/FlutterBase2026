@@ -33,7 +33,7 @@ flutter build apk --analyze-size   # size report
 flutter clean && flutter pub get
 ```
 
-`make help` lists every wrapper target (`install-deps`, `analyze`, `quality-check`, `test-file FILE=...`). The `.github/workflows/test.yml` CI pipeline expects the same `test/unit/`, `test/widget/`, `test/integration/` layout plus `test_driver/integration_test.dart` (which does exist).
+`make help` lists every wrapper target (`install-deps`, `analyze`, `quality-check`, `test-file FILE=...`). The `.github/workflows/test.yml` CI pipeline pins **Flutter 3.24.0 stable** and expects the same `test/unit/`, `test/widget/`, `test/integration/` layout plus `test_driver/integration_test.dart` (which does exist). CI also calls `flutter pub run dart_code_metrics:metrics analyze lib`, but `dart_code_metrics` is **not** in `pubspec.yaml` — that step will fail until the dep is added or the workflow is fixed.
 
 ## Architecture
 
@@ -48,7 +48,7 @@ flutter clean && flutter pub get
 5. `LanguageService.getSavedLanguage()` to restore locale.
 6. `runApp(GetMaterialApp(...))` with `navigatorKey`, `navigatorObservers: [adRouteObserver, AdScreenRouteLogger()]`, and `translations: AppTranslations()`.
 
-`MyApp` immediately renders `SplashScreen`, which is where the ad SDK actually initializes (see "Ad SDK" below). Splash → `MainScreen` → `WiFiStressorApp` / `StressorHomePage`.
+`MyApp` immediately renders `SplashScreen`, which is where the ad SDK actually initializes (see "Ad SDK" below). Splash → `MainScreen` → `WiFiStressorApp` / `StressorHomePage`. From `WiFiStressorScreen` the user can push `VipScreen` (`lib/mckimquyen/widget/vip/`) to redeem a key and toggle the SDK's VIP state — see "VIP entitlement" below.
 
 ### Code layout under `lib/mckimquyen/`
 
@@ -83,6 +83,14 @@ The integration contract (see `packages/ad_sdk/README.md` for the full version):
 4. `SplashScreen` already implements the required pattern: hard-cap timer (8s), `AdManager().markSplashActive/Inactive()`, `incrementSplashCount()`, and `AdLoadingDialog.showAdBuffer()` before `showAppOpenAd(bypassSafety: true)`. If you touch this file, preserve the cancellation order: cancel the hard-cap timer **before** `showAppOpenAd`, and always call `markSplashInactive()` exactly once on navigation away.
 5. Any screen that displays ads should extend `AdScreen` + `AdScreenState` (instead of `StatefulWidget`/`State`) so it gets `buildBanner()`, `showInterstitialAd()`, and `showRewardedAd()`. RouteAware banner lifecycle is automatic when `adRouteObserver` is registered.
 6. The SDK has a built-in safety layer (daily/hourly/session caps, 30s throttle, CTR fraud, progressive cooldown). Don't try to bypass it except on the splash App Open ad (`bypassSafety: true`).
+
+### VIP entitlement
+
+The SDK exposes a `VipManager` reachable as `AdManager().vip` (nullable until SDK init completes). When a VIP entry is active, the SDK suppresses all ad surfaces — `AdScreen.buildBanner()`, interstitials, rewarded — automatically. Reactive UI subscribes to `AdManager().vip!.activeListenable` (see `wifi_stressor_screen.dart:162`).
+
+- `lib/mckimquyen/widget/vip/vip_screen.dart` is the redeem UI (extends `BaseStatefulState`, **not** `AdScreenState`, since it's the screen that *grants* the no-ads state).
+- `lib/mckimquyen/widget/vip/vip_keys.dart` holds the key → `Duration` map. Keys are **base64-obfuscated** at rest — pass them through `utf8.decode(base64Decode(...))`. Don't commit raw keys to source. Validation goes through `vipKeyValidator(normalisedKey)` then `lookupVipKeyDuration(...)` to compute expiry.
+- The Privacy Policy URL `https://loitp.notion.site/Term-Privacy-Policy-Disclaimer-...` is wired into this screen and is the canonical place to update legal links.
 
 ### Native config gotchas
 
