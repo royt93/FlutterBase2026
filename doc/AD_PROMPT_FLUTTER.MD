@@ -616,9 +616,9 @@ abstract final class AdKey {
 | # | Thành phần | Detail (Flutter idiom, no `setState`/`!`/`late`) |
 |---|---|---|
 | 1 | Status header / Hero card | `ValueListenableBuilder<bool>` lắng nghe `vip?.activeListenable` (null-safe pattern). Active: gradient gold + crown icon `Icons.workspace_premium` + text 2 dòng (`'vip_active'.tr` + `'vip_until'.trParams({'date': formatted})`). Inactive: gradient xám + `'vip_free_user'.tr` |
-| 2 | Activation date row | `'Activated: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.startedAt)}'` (ẩn nếu free). Dùng `package:intl` |
+| 2 | Activation date row | `'Activated: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.grantedAt)}'` (ẩn nếu free). Dùng `package:intl`. Field name là `grantedAt` (SDK 1.0.18+), KHÔNG phải `startedAt` |
 | 3 | Expiry date row | `'Expires: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.expiresAt)}'` (ẩn nếu free) |
-| 4 | Progress bar | `LinearProgressIndicator` với `value = (now - startedAt) / (expiresAt - startedAt)` — chỉ show khi VIP active. Wrap trong `TweenAnimationBuilder<double>` curve `Curves.easeOut` (animation #4 Step 10.4) |
+| 4 | Progress bar (elapsed) | `LinearProgressIndicator` với `value = (now − entry.grantedAt) / (entry.expiresAt − entry.grantedAt)`, clamp `[0.0, 1.0]`. **3 mốc trên timeline ngang**: `start = entry.grantedAt` (mép trái, 0%), `end = entry.expiresAt` (mép phải, 100%), `current = now` (vị trí thanh fill). Bar **rỗng lúc vừa kích hoạt → đầy dần đến hết hạn** (elapsed semantic — match user mental model "progression toward expiry"). Tuyệt đối KHÔNG đảo formula thành `remaining/total` (đầy → rỗng) — UX confusing. Chỉ show khi VIP active. **KHÔNG cần `TweenAnimationBuilder`** — per-second tick từ `_now` đủ smooth (Δ ≪ 0.001%/s cho VIP 24h trở lên), TweenAnimationBuilder chỉ thêm overhead và làm chậm rebuild. Edge case `total ≤ 0` (clock skew / đã expire) → default `value = 1.0` (đầy = đã hết hạn) |
 | 5 | Countdown text | Dạng `12d 03h 24m 15s` — update bằng `Timer.periodic(Duration(seconds: 1), ...)` trong `initState`, `cancel()` trong `dispose`. State qua `ValueNotifier<Duration>` không qua `setState` |
 | 6 | TextField nhập key VIP | `TextEditingController` + `TextCapitalization.characters` (uppercase auto), prefix icon `Icons.confirmation_number`, suffix clear button. Nút "Kích hoạt" gọi `vip.redeemVip(context, key, duration, validator, strings)` — SDK đã handle Cupertino verifying/success/failed dialogs |
 | 7 | Button "Watch ad → N days VIP" | Click → `showRewardedAd(onEarnedReward: ...)`. Fallback nếu rewarded load fail: `showInterstitialAd(onDone: ...)`. Pulse animation #1 |
@@ -634,6 +634,52 @@ abstract final class AdKey {
 
 - TextField và dialog phải dùng Material 3 (`useMaterial3: true` trong `ThemeData`).
 - Sau khi kích hoạt VIP thành công, UI lập tức cập nhật qua `activeListenable` reactive — KHÔNG `setState`. Kèm confetti animation (Q18A) + `HapticFeedback.heavyImpact()`.
+
+#### Reference implementation cho row #4 (Progress bar — elapsed semantic)
+
+```dart
+/// 3 mốc trên timeline ngang [grantedAt ─── expiresAt]:
+///   start   = entry.grantedAt   (mép trái, value 0.0)
+///   end     = entry.expiresAt   (mép phải, value 1.0)
+///   current = now               (vị trí thanh fill)
+///
+/// progress = (current − start) / (end − start)
+/// Bar RỖNG lúc vừa kích hoạt, ĐẦY DẦN đến lúc hết hạn.
+Widget _buildProgressBar(VipEntry entry) {
+  return ValueListenableBuilder<DateTime>(
+    valueListenable: _now,  // ticker 1s, drives elapsed update
+    builder: (context, now, _) {
+      final total = entry.expiresAt.difference(entry.grantedAt);
+      final elapsed = now.difference(entry.grantedAt);
+      final progress = total.inMilliseconds <= 0
+          ? 1.0  // expired / clock skew → render đầy
+          : (elapsed.inMilliseconds / total.inMilliseconds)
+              .clamp(0.0, 1.0)
+              .toDouble();
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: LinearProgressIndicator(
+          value: progress,
+          minHeight: 10,
+          backgroundColor: Colors.white.withValues(alpha: 0.18),
+          valueColor: AlwaysStoppedAnimation<Color>(
+            Colors.white.withValues(alpha: 0.95),
+          ),
+        ),
+      );
+    },
+  );
+}
+```
+
+Visualization với VIP 30 ngày:
+```
+T+0      [░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0% — vừa redeem
+T+1d     [█░░░░░░░░░░░░░░░░░░░░░░░░░░]   3.3%
+T+15d    [██████████████░░░░░░░░░░░░░]   50%
+T+29d    [██████████████████████████░]   96.7%
+T+30d    [███████████████████████████]  100% — expired
+```
 
 ### 10.4 — Animation (bắt buộc đủ 5 — Flutter idiom, no `late`)
 
