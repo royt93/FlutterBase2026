@@ -1,7 +1,9 @@
 # Prompt Template: Tích hợp `applovin_admob_sdk` vào project Flutter
 
 > Template dùng chung cho mọi project **Flutter**. Trước khi đưa cho AI, **fill hết placeholder `<...>`** ở Section 0. VIP feature là **mandatory** — mọi project phải có VIP screen + first-install grace (SDK đã build-in, không re-implement).
->
+> UI của vip screen nên tận dụng screen có sẵn (hoặc enhance) theo /Users/loitran/AndroidStudioProjects/@mckimquyen/@playstore/@prodution/_FlutterBase2025/lib/mckimquyen/widget/vip/vip_screen.dart
+> 
+> 
 > **Rule cốt lõi (áp dụng toàn bộ codebase mới sinh):**
 > 1. **KHÔNG** dùng `setState` — bắt buộc `ValueNotifier<T>` + `ValueListenableBuilder` (hoặc equivalent reactive của state manager đang dùng — ưu tiên GetX `Rx<T>` + `Obx`).
 > 2. **KHÔNG** dùng `!` (bang operator) — bắt buộc null-safe pattern: `if (x case final v?)`, `final v = x; if (v == null) return;`, hoặc null-coalesce `??`.
