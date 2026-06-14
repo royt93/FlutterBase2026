@@ -219,7 +219,10 @@ class AppLovinAdapter implements AdProviderAdapter {
         final cb = _appOpenDismiss;
         _appOpenDismiss = null;
         cb?.call(false);
-        if (appOpenSlot.beginLoad()) {
+        // beginReload (not beginLoad) — the show failed but the load path is
+        // healthy, so refill immediately instead of waiting out the backoff
+        // window the show-failure just armed.
+        if (appOpenSlot.beginReload()) {
           try {
             AppLovinMAX.loadAppOpenAd(unitId);
           } catch (e) {
@@ -459,7 +462,8 @@ class AppLovinAdapter implements AdProviderAdapter {
         final cb = _interstitialDone;
         _interstitialDone = null;
         cb?.call(false);
-        if (interstitialSlot.beginLoad()) {
+        // beginReload — refill past the show-failure backoff window.
+        if (interstitialSlot.beginReload()) {
           try {
             AppLovinMAX.loadInterstitial(unitId);
           } catch (e) {
@@ -578,7 +582,8 @@ class AppLovinAdapter implements AdProviderAdapter {
         final cb = _rewardedDone;
         _rewardedDone = null;
         cb?.call(RewardResult.skipped);
-        if (rewardedSlot.beginLoad()) {
+        // beginReload — refill past the show-failure backoff window.
+        if (rewardedSlot.beginReload()) {
           try {
             AppLovinMAX.loadRewardedAd(unitId);
           } catch (e) {

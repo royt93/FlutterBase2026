@@ -95,6 +95,24 @@ class AdSlot {
     return true;
   }
 
+  /// Begin a load that BYPASSES the cooldown backoff window.
+  ///
+  /// Used to immediately refill a slot after a *show* failure (or any case
+  /// where the ad object was spent but the load path itself is healthy). After
+  /// [markShowFailed]/[markFailed] the slot is in [AdSlotState.cooldown] with
+  /// `lastErrorAt = now`, so a plain [beginLoad] would be blocked by its own
+  /// just-recorded error and the slot would stay empty until the periodic retry
+  /// timer fires minutes later. The backoff exists to throttle *flapping loads*
+  /// — it must not strand a slot whose only failure was a one-off display miss.
+  ///
+  /// Genuine repeated *load* failures are still throttled because each load
+  /// goes through [markFailed] and callers use [beginLoad] for the retry path.
+  bool beginReload() {
+    if (isLoading || isShowing) return false;
+    state.value = AdSlotState.loading;
+    return true;
+  }
+
   /// Mark load successful: slot becomes [AdSlotState.ready].
   void markReady() {
     lastLoadedAt = DateTime.now();

@@ -85,25 +85,42 @@ AttStatus _map(TrackingStatus s) {
 /// availability is settled before the first ad request. The
 /// `NSUserTrackingUsageDescription` key must be present in `Info.plist` or the
 /// prompt silently fails.
-Future<AttResult> requestAttIfNeeded() async {
+///
+/// The optional `*Override` parameters exist purely for unit testing (the
+/// real platform/plugin APIs are not reachable from the test environment).
+/// Production callers use `requestAttIfNeeded()` with no args.
+Future<AttResult> requestAttIfNeeded({
+  bool Function()? platformIsIosOverride,
+  Future<TrackingStatus> Function()? readStatusOverride,
+  Future<TrackingStatus> Function()? requestAuthorizationOverride,
+  Future<String> Function()? readIdfaOverride,
+}) async {
   const tag = 'AttConsent';
 
-  if (!Platform.isIOS) {
+  final isIos = (platformIsIosOverride ?? () => Platform.isIOS)();
+  if (!isIos) {
     return const AttResult(status: AttStatus.notSupported);
   }
 
+  final readStatus = readStatusOverride ??
+      () => AppTrackingTransparency.trackingAuthorizationStatus;
+  final requestAuthorization = requestAuthorizationOverride ??
+      () => AppTrackingTransparency.requestTrackingAuthorization();
+  final readIdfa = readIdfaOverride ??
+      () => AppTrackingTransparency.getAdvertisingIdentifier();
+
   try {
-    var status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    var status = await readStatus();
     SafeLogger.d(tag, () => 'current status=${status.name}');
 
     if (status == TrackingStatus.notDetermined) {
-      status = await AppTrackingTransparency.requestTrackingAuthorization();
+      status = await requestAuthorization();
       SafeLogger.d(tag, () => 'prompt result=${status.name}');
     }
 
     String? idfa;
     if (status == TrackingStatus.authorized) {
-      final raw = await AppTrackingTransparency.getAdvertisingIdentifier();
+      final raw = await readIdfa();
       idfa = (raw.isEmpty || raw == _zeroIdfa) ? null : raw;
     }
 

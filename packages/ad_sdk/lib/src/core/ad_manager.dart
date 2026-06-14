@@ -363,6 +363,35 @@ class AdManager with WidgetsBindingObserver {
       // Phase 3: pipe safety params from config.
       await AdSafetyConfig.init(prefs, params: config.safety);
 
+      // ── Release footguns (loud, fire in release where it matters) ──────────
+      // dryRun disables the ENTIRE safety layer (throttle, caps, CTR fraud).
+      // Shipping it risks ad-spam → invalid traffic → account ban.
+      if (config.safety.dryRun && !kDebugMode) {
+        SafeLogger.e(_tag,
+            '🚨 AdSafetyParams.dryRun is TRUE in a RELEASE build — the entire '
+            'safety layer is bypassed. This risks an AdMob/AppLovin ban. '
+            'Set dryRun:false before shipping.');
+        assert(false, 'dryRun must not be enabled in release builds');
+      }
+      // Google public TEST unit IDs must never serve in production AdMob.
+      if (config.provider == AdProvider.admob && !kDebugMode) {
+        const googleTestPrefix = 'ca-app-pub-3940256099942544';
+        final m = config.admob;
+        final usesTestId = m != null &&
+            (m.bannerId.contains(googleTestPrefix) ||
+                m.interstitialId.contains(googleTestPrefix) ||
+                m.appOpenId.contains(googleTestPrefix) ||
+                m.rewardedId.contains(googleTestPrefix));
+        if (usesTestId) {
+          SafeLogger.e(_tag,
+              '🚨 AdMob provider is active in RELEASE with Google TEST ad unit '
+              'IDs (ca-app-pub-3940256099942544/…). Serving test ads in '
+              'production violates AdMob policy and earns \$0. Replace with '
+              'production unit IDs before shipping.');
+          assert(false, 'AdMob test unit IDs must not ship in release');
+        }
+      }
+
       // Resolve device GAID FIRST — VIP migration + first-init both need it
       // to preserve 1.x's per-device matching semantic (a `vipDeviceGaids`
       // entry only marks the device VIP when its own GAID matches).
@@ -1082,6 +1111,15 @@ class AdManager with WidgetsBindingObserver {
     });
   }
 
+  /// Whether a "watch rewarded ad" entry point should be enabled.
+  ///
+  /// ⚠️ Returns `true` for a VIP member even though no ad will actually play —
+  /// the assumption is the caller passes `vipAutoGrant: true` to
+  /// [showRewardedAd] so a VIP still "earns" the reward instantly without an ad.
+  /// If your caller relies on `canShowRewardedAd() == true` but calls
+  /// [showRewardedAd] with the default `vipAutoGrant: false`, a VIP user will
+  /// tap the button and get `earned == false` (no reward). Keep the two in sync:
+  /// gate the button on `canShowRewardedAd()` AND pass `vipAutoGrant: true`.
   bool canShowRewardedAd() {
     final ad = _adapter;
     if (ad == null) return false;

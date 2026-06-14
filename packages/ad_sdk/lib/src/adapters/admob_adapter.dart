@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -108,6 +110,14 @@ class AdMobAdapter implements AdProviderAdapter {
   void Function(bool shown)? _interstitialDone;
   void Function(RewardResult result)? _rewardedDone;
 
+  /// Safety watchdog for App Open show. GMA's `FullScreenContentCallback` is
+  /// reliable, but on the rare occasion neither `onAdDismissed` nor
+  /// `onAdFailedToShow` fires (some mediation adapters), the resume path has no
+  /// other timer to recover it → the caller would hang forever. Mirrors the
+  /// AppLovin adapter's hard-cap watchdog.
+  Timer? _appOpenShowTimeout;
+  static const Duration _appOpenShowHardCap = Duration(seconds: 90);
+
   bool _bannerRoutePaused = false;
 
   @override
@@ -154,6 +164,8 @@ class AdMobAdapter implements AdProviderAdapter {
   @override
   Future<void> dispose() async {
     SafeLogger.d(_logTag, 'dispose() $tag — releasing native resources');
+    _appOpenShowTimeout?.cancel();
+    _appOpenShowTimeout = null;
     _disposeAd(_appOpenAd, 'appOpen');
     _appOpenAd = null;
     _disposeAd(_interstitialAd, 'interstitial');
@@ -211,6 +223,19 @@ class AdMobAdapter implements AdProviderAdapter {
 
   static const int _appOpenExpiryHours = 4;
 
+  /// AdMob interstitial/rewarded content is valid for up to 1 hour after load
+  /// (per Google's docs). Beyond that the cached ad is stale and `show()` will
+  /// fail — so refuse to reuse it and load a fresh one instead.
+  static const int _fullscreenExpiryHours = 1;
+
+  /// Whether a cached ad loaded at [loadedAt] is still fresh enough to reuse.
+  /// Returns false when never loaded (`null`). Exposed for tests.
+  @visibleForTesting
+  static bool isAdFresh(DateTime? loadedAt, int maxHours, {DateTime? now}) {
+    if (loadedAt == null) return false;
+    return (now ?? DateTime.now()).difference(loadedAt).inHours < maxHours;
+  }
+
   @override
   Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
     final cfg = _admob;
@@ -220,9 +245,8 @@ class AdMobAdapter implements AdProviderAdapter {
     }
 
     // Fresh ad already in slot? Reuse.
-    final loadedAt = appOpenSlot.lastLoadedAt;
-    if (_appOpenAd != null && loadedAt != null) {
-      if (DateTime.now().difference(loadedAt).inHours < _appOpenExpiryHours) {
+    if (_appOpenAd != null) {
+      if (isAdFresh(appOpenSlot.lastLoadedAt, _appOpenExpiryHours)) {
         SafeLogger.d(_logTag, 'loadAppOpen $tag ⏭️ already fresh, reuse');
         onAdLoaded?.call(true);
         return;
@@ -299,6 +323,8 @@ class AdMobAdapter implements AdProviderAdapter {
       },
       onAdDismissedFullScreenContent: (a) {
         SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
+        _appOpenShowTimeout?.cancel();
+        _appOpenShowTimeout = null;
         _disposeAd(a, 'appOpen-after-dismiss');
         _appOpenAd = null;
         appOpenSlot.markDismissed();
@@ -308,6 +334,8 @@ class AdMobAdapter implements AdProviderAdapter {
       },
       onAdFailedToShowFullScreenContent: (a, err) {
         SafeLogger.w(_logTag, 'showAppOpen $tag ❌ display failed: ${err.message}');
+        _appOpenShowTimeout?.cancel();
+        _appOpenShowTimeout = null;
         _disposeAd(a, 'appOpen-show-fail');
         _appOpenAd = null;
         appOpenSlot.markShowFailed();
@@ -328,8 +356,14 @@ class AdMobAdapter implements AdProviderAdapter {
     );
     try {
       await ad.show();
+      // Safety net: if neither dismiss nor fail callback fires (rare GMA /
+      // mediation hang), force-dismiss after the hard cap so the caller — which
+      // on the resume path has no other recovery timer — never hangs.
+      _armAppOpenWatchdog(onDismiss);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showAppOpen $tag show THREW: $e\n$st');
+      _appOpenShowTimeout?.cancel();
+      _appOpenShowTimeout = null;
       _appOpenAd = null;
       appOpenSlot.markShowFailed();
       final cb = _appOpenDismiss;
@@ -337,6 +371,41 @@ class AdMobAdapter implements AdProviderAdapter {
       cb?.call(false);
     }
   }
+
+  /// Arms the App Open show watchdog. Captures [captured] (the *local*
+  /// onDismiss) and verifies identity before firing, so a watchdog left over
+  /// from a previous show can never resolve a newer show's callback. [cap] is
+  /// overridable for tests.
+  void _armAppOpenWatchdog(void Function(bool) captured, {Duration? cap}) {
+    _appOpenShowTimeout?.cancel();
+    _appOpenShowTimeout = Timer(cap ?? _appOpenShowHardCap, () {
+      _appOpenShowTimeout = null;
+      // Only fire if THIS show's callback is still the pending one.
+      if (_appOpenDismiss != captured) return; // already resolved / replaced
+      SafeLogger.w(_logTag,
+          'showAppOpen $tag ⏰ HARD CAP — no dismiss callback, force dismiss(false)');
+      _appOpenAd = null;
+      appOpenSlot.markShowFailed();
+      _appOpenDismiss = null;
+      captured(false);
+    });
+  }
+
+  /// Test seam: simulate an App Open that is "showing" then arm the watchdog
+  /// with a short [cap] so the hard-cap path can be exercised without the
+  /// native GMA `AppOpenAd`.
+  @visibleForTesting
+  void debugSimulateAppOpenShowAndArmWatchdog(
+      void Function(bool) onDismiss, Duration cap) {
+    appOpenSlot.beginLoad();
+    appOpenSlot.markReady();
+    appOpenSlot.beginShow();
+    _appOpenDismiss = onDismiss;
+    _armAppOpenWatchdog(onDismiss, cap: cap);
+  }
+
+  @visibleForTesting
+  bool get debugWatchdogArmed => _appOpenShowTimeout != null;
 
   // ──────────────────────────────────────────────────────────────────────────
   //  INTERSTITIAL
@@ -346,7 +415,16 @@ class AdMobAdapter implements AdProviderAdapter {
   Future<void> loadInterstitial() async {
     final cfg = _admob;
     if (cfg == null) return;
-    if (_interstitialAd != null) return; // already cached
+    // Reuse only if still fresh (≤1h); a stale cached ad fails on show().
+    if (_interstitialAd != null) {
+      if (isAdFresh(interstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
+        return; // fresh — keep it
+      }
+      SafeLogger.d(_logTag, 'loadInterstitial $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
+      _disposeAd(_interstitialAd, 'inter-expired');
+      _interstitialAd = null;
+      interstitialSlot.lastLoadedAt = null;
+    }
     if (!interstitialSlot.beginLoad()) return;
     SafeLogger.d(_logTag, 'loadInterstitial $tag 🔄');
     try {
@@ -451,7 +529,16 @@ class AdMobAdapter implements AdProviderAdapter {
   Future<void> loadRewarded() async {
     final cfg = _admob;
     if (cfg == null) return;
-    if (_rewardedAd != null) return;
+    // Reuse only if still fresh (≤1h); a stale cached ad fails on show().
+    if (_rewardedAd != null) {
+      if (isAdFresh(rewardedSlot.lastLoadedAt, _fullscreenExpiryHours)) {
+        return; // fresh — keep it
+      }
+      SafeLogger.d(_logTag, 'loadRewarded $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
+      _disposeAd(_rewardedAd, 'rewarded-expired');
+      _rewardedAd = null;
+      rewardedSlot.lastLoadedAt = null;
+    }
     if (!rewardedSlot.beginLoad()) return;
     SafeLogger.d(_logTag, 'loadRewarded $tag 🔄');
     try {
@@ -577,6 +664,16 @@ class AdMobAdapter implements AdProviderAdapter {
       SafeLogger.d(_logTag, 'loadBanner $tag ⏭️ already cached');
       return;
     }
+    // Transition the slot to `loading` BEFORE creating the BannerAd. GMA's
+    // onAdLoaded/onAdFailedToLoad can fire synchronously on a cached fill — if
+    // beginLoad() ran AFTER ..load() it would overwrite the ready/cooldown
+    // state the callback set and strand the slot in `loading` forever.
+    // Use beginLoad (not beginReload) so a flapping banner still respects the
+    // backoff window — banner reload is cheap to skip, unlike a spent fullscreen.
+    if (!bannerSlot.beginLoad()) {
+      SafeLogger.d(_logTag, 'loadBanner $tag ⏭️ already loading/showing or in cooldown');
+      return;
+    }
     banner.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadBanner $tag 🔄 width=$widthPx');
     try {
@@ -632,7 +729,7 @@ class AdMobAdapter implements AdProviderAdapter {
           onAdClosed: (ad) => SafeLogger.d(_logTag, 'banner $tag closed'),
         ),
       )..load();
-      bannerSlot.beginLoad();
+      // Slot already transitioned to `loading` above (before BannerAd creation).
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadBanner $tag adaptive size THREW: $e\n$st');
       banner.hasError.value = true;
@@ -669,13 +766,16 @@ class AdMobAdapter implements AdProviderAdapter {
       banner.hasError.value = false;
       // Width is unknown here — caller (AdManager) supplies it via
       // platformDispatcher when it forwards the resume.
-      final views = WidgetsBinding.instance.platformDispatcher.views;
-      if (views.isNotEmpty) {
-        final view = views.first;
+      // Prefer the app's implicit (primary) view — `views.first` can be the
+      // wrong window on foldables / iPad split-view / multi-window.
+      final dispatcher = WidgetsBinding.instance.platformDispatcher;
+      final view = dispatcher.implicitView ??
+          (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
+      if (view != null) {
         final width = view.physicalSize.width / view.devicePixelRatio;
         loadBannerIfNeeded(width);
       } else {
-        SafeLogger.w(_logTag, 'onAppResumed $tag platformDispatcher.views empty — skip reload');
+        SafeLogger.w(_logTag, 'onAppResumed $tag no platform view — skip reload');
       }
     } else if (_bannerAd != null) {
       banner.visible.value = true;

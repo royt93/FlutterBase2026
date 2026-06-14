@@ -74,6 +74,41 @@ void main() {
     });
   });
 
+  // Regression for the "slot dies after a show failure" bug: a plain
+  // beginLoad() right after markShowFailed() is blocked by the just-armed
+  // backoff window, but beginReload() must refill immediately.
+  group('AdSlot beginReload (refill after show failure)', () {
+    test('beginLoad is blocked in cooldown, beginReload bypasses it', () {
+      final s = AdSlot(type: AdSlotType.appOpen);
+      expect(s.beginLoad(), isTrue);
+      s.markReady();
+      expect(s.beginShow(), isTrue);
+      s.markShowFailed(); // → cooldown, lastErrorAt = now
+      expect(s.isCooldown, isTrue);
+
+      // A real backoff window blocks the normal load path.
+      expect(
+        s.beginLoad(backoff: const Backoff(baseMs: 60000, maxMs: 600000)),
+        isFalse,
+        reason: 'backoff must throttle the genuine load-retry path',
+      );
+      expect(s.isCooldown, isTrue);
+
+      // The refill path bypasses the cooldown window.
+      expect(s.beginReload(), isTrue);
+      expect(s.value, AdSlotState.loading);
+    });
+
+    test('beginReload refuses while loading or showing', () {
+      final s = AdSlot(type: AdSlotType.interstitial);
+      expect(s.beginReload(), isTrue); // idle → loading
+      expect(s.beginReload(), isFalse, reason: 'already loading');
+      s.markReady();
+      expect(s.beginShow(), isTrue); // → showing
+      expect(s.beginReload(), isFalse, reason: 'already showing');
+    });
+  });
+
   group('Backoff', () {
     test('zero failures = zero wait', () {
       const b = Backoff();

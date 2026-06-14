@@ -67,6 +67,31 @@ Updated: 2026-06-14
   navigate. No `❌ TIMEOUT` force-dismiss. AdMob adapter never had this issue
   (uses native `FullScreenContentCallback`).
 
+### Audit fixes (SDK 1.0.19, 2026-06-14) — all 108 SDK tests pass, analyze clean
+
+Correctness:
+- AppLovin reload-after-display-fail no longer stranded by backoff — new
+  `AdSlot.beginReload()` bypasses the cooldown window for show-failure refills
+  (the load path is healthy); genuine load failures still throttle via
+  `beginLoad`. Applied to appOpen/inter/rewarded display-fail paths. Regression
+  tests added.
+- AdMob `bannerSlot.beginReload()` now runs BEFORE `BannerAd(..)..load()`
+  (was after → slot could strand in `loading` on a synchronous fill).
+- AdMob App Open now has a 90s hard-cap watchdog (parity with AppLovin) so the
+  resume path can't hang if no dismiss callback fires.
+- AdMob interstitial/rewarded now expire after 1h (parity with the 4h app-open
+  guard) instead of reusing a stale cached ad that fails on show.
+- AdMob `onAppResumed` banner reload uses `implicitView` (foldable/split-view).
+- `canShowRewardedAd()` vs `vipAutoGrant` mismatch documented.
+
+Policy:
+- Interstitial removed from "Start test" (interruptive placement); kept only on
+  Stop and navigation transitions.
+- VIP is now granted ONLY on a real rewarded `earned==true` — the
+  interstitial-as-reward fallback was removed (rewarded-policy compliance).
+- Release footgun guards added in `AdManager.initialize`: loud error + assert if
+  `dryRun` is on in release, or if AdMob provider ships Google TEST unit IDs.
+
 ## Skipped
 
 - Old verification/performance/package-plan reports in `doc/` were removed
