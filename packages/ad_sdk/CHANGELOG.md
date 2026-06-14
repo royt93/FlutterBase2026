@@ -4,6 +4,39 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19] - 2026-06-14
+
+### Added — iOS App Tracking Transparency
+- **`AdManager().requestAtt()`** / **`requestAttIfNeeded()`** — show the iOS ATT
+  prompt when needed and return a structured `AttResult { status, idfa,
+  allowsTracking }` (`AttStatus` enum). No-op on Android; never throws (degrades
+  to `denied`). Call it in the splash **before** `requestUmpConsent`. Requires
+  `NSUserTrackingUsageDescription` in `Info.plist`. Decoupled from the GDPR
+  consent flag — the native SDKs read ATT directly for IDFA.
+
+### Fixed
+- **iOS App Open watchdog false-positive** — the lifecycle-aware show timeout no
+  longer force-dismisses on iOS, where the ad shows while the app stays
+  `resumed`. The "foreground = hung" heuristic is now Android-only; iOS relies on
+  the native hidden/displayFailed callbacks plus the 90 s hard cap.
+- **AppLovin reload-after-display-fail** — a slot is no longer stranded by the
+  backoff window after a *show* failure; it refills immediately via the new
+  `AdSlot.beginReload()` (genuine load failures still back off).
+- **AdMob parity** — App Open now has a 90 s show watchdog; interstitial/rewarded
+  honour a 1 h freshness expiry; the banner slot transitions to `loading` before
+  the native `BannerAd` is created (fixes a synchronous-fill race).
+
+### Internal
+- Both adapters now load through an injectable bridge (`AppLovinBridge` /
+  `GmaBridge`) for full behavioural unit-test coverage. No public-API change.
+
+### Compliance / docs
+- Removed the rewarded→interstitial reward fallback (rewarded-policy compliance);
+  removed the interstitial on "Start" actions in the example host.
+
+Upgrading from 1.0.18 requires no code changes for existing integrations. To use
+ATT, add `NSUserTrackingUsageDescription` and call `AdManager().requestAtt()`.
+
 ## [1.0.18] - 2026-04-27
 
 ### No code changes
