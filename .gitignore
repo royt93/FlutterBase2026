@@ -70,3 +70,6 @@ bin/
 **/.cxx/
 android/app/.cxx/
 android/app/build/
+
+# Claude Code local settings (YOLO/bypassPermissions — không commit)
+.claude/settings.local.json
