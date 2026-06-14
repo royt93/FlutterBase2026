@@ -6,7 +6,7 @@ Updated: 2026-06-14
 
 | Item | Current value |
 |---|---|
-| Runtime SDK | `applovin_admob_sdk: ^1.0.18` |
+| Runtime SDK | `applovin_admob_sdk: ^1.0.19` (dev: `path: packages/ad_sdk`) |
 | Runtime provider | `AdProvider.appLovin` |
 | Native mediation plugin | `gma_mediation_applovin` at app level |
 | AppLovin MAX SDK override | `applovin_max: 4.6.0` |
@@ -14,7 +14,10 @@ Updated: 2026-06-14
 | Bundle/package id | `com.saigonphantomlabs.base` |
 | iOS signing team seen during Roy phone deploy | `8CU2Y3DBS5` |
 
-`^1.0.18` is a version bump over `1.0.17`; runtime behavior is the same as `1.0.17`.
+`^1.0.19` adds iOS App Tracking Transparency (`requestAtt()`) and the iOS
+App Open watchdog fix over `1.0.18`. The app currently consumes the SDK via the
+in-repo `path: packages/ad_sdk` override; revert to the hosted `^1.0.19` line
+after publishing.
 
 ## Root cause found on iOS
 

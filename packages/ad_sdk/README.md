@@ -36,7 +36,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 | First-session ad-free experience for new installs (boost D1 retention) | `firstInstallVipGrace` — auto-grants VIP for 24 hours on first install |
 | GDPR-compliant consent UI without integrating a third-party CMP | Built-in Cupertino consent dialog, auto-shown post-splash |
 | Google UMP form for EEA users | `AdManager().requestUmpConsent()` — wraps `google_mobile_ads`'s built-in `ConsentInformation` API |
-| Anti-fraud protection so AdMob doesn't suspend your account | Twelve-layer safety gate: per-session/hour/day caps, throttle, CTR threshold, click-spam detection, progressive cooldown |
+| Anti-fraud protection so AdMob doesn't suspend your account | Multi-layer safety gate: per-session/hour/day caps, throttle, CTR threshold, click-spam detection, progressive cooldown |
 | Banner that pauses on navigation and resumes on return | `buildBanner()` — hooks into the navigator and adapter lifecycle automatically |
 | Revenue tracking for LTV analytics | `Stream<AdEvent>` emits `AdRevenueEvent` per impression |
 | Sane behavior when Android kills the process under memory pressure | Smart App-Open timeout (lifecycle-aware), process-restart marker, detached state warning |
@@ -91,7 +91,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.18
+  applovin_admob_sdk: ^1.0.19
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
@@ -180,7 +180,7 @@ Open `ios/Runner/Info.plist` and add the keys below at the root `<dict>`. Replac
 </array>
 ```
 
-Update `ios/Podfile` to require iOS 12 or newer:
+Update `ios/Podfile` to require iOS 13 or newer:
 
 ```ruby
 platform :ios, '13.0'
@@ -454,7 +454,7 @@ You should see the splash screen, then a splash app-open ad (if available), then
 - ✅ **Cupertino consent dialog** auto-shown ~1 second after splash on the home screen (skipped if VIP). Tunable via `AdConfig.autoShowConsentDialog`, `consentDialogStrings`, `consentDialogPostSplashDelay`.
 - ✅ **Splash app-open ad** with an 8-second hard cap so the user is never stuck.
 - ✅ **Banner pause/resume** automatically when the user navigates between screens.
-- ✅ **Anti-fraud** twelve-layer safety gate protects your AdMob/AppLovin account.
+- ✅ **Anti-fraud** multi-layer safety gate protects your AdMob/AppLovin account.
 
 ---
 
@@ -490,9 +490,16 @@ AdConfig({
   // ─── VIP ────────────────────────────────────────────────────────
   Future<bool> Function(String key)? vipKeyValidator,
   VipDialogStrings vipDialogStrings = const VipDialogStrings(),
+  // Legacy 1.x GAID allow-list — auto-migrated to VipManager entries
+  // (year-2099 expiry) on first init for the matching device only.
+  List<String> vipDeviceGaids = const [],
 
   // ─── Splash flow ────────────────────────────────────────────────
   Duration splashMaxDuration = const Duration(seconds: 8),
+
+  // ─── User-facing strings ────────────────────────────────────────
+  String adNotReadyMessage = 'Ad not ready — please wait and try again.',
+  String adLoadingMessage = 'Loading…',
 
   // ─── Loading buffer ─────────────────────────────────────────────
   int loadingBufferMs = 1000,
@@ -1060,7 +1067,7 @@ See `MIGRATION.md` for a step-by-step guide.
 ## Support
 
 - **Bug reports**: open an issue on [GitHub](https://github.com/royt93/FlutterBase2025/issues) with `roy93~` log output, SDK version, and provider (admob/appLovin)
-- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 13 self-contained demo pages, one per feature
+- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 11 self-contained demo pages, one per feature
 - **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management
 
 ---

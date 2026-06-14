@@ -40,10 +40,10 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 | Dart package name (từ `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | State management hiện tại | `<GetX | Provider | Riverpod | Bloc | none>` (ưu tiên GetX, nếu trống → AI hỏi) |
 | Default locale | `<vi_VN | en_US | ...>` (ưu tiên `vi_VN`, fallback `en_US`) |
-| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.16`. |
+| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.19`. |
 | Lib reference local (nếu monorepo) | `packages/ad_sdk/` |
 | File spec gốc của lib | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (lịch sử feature) + `packages/ad_sdk/MIGRATION.md` |
-| Sample app | `packages/ad_sdk/example/lib/main.dart` (13 demo pages, một trang một feature) |
+| Sample app | `packages/ad_sdk/example/lib/main.dart` (11 demo pages, một trang một feature) |
 | Build target debug | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, nếu target iOS) — cả 2 phải xanh |
 | Build target release | `flutter build apk --release --analyze-size` — verify size delta < 5MB so với baseline |
 | Provider chính (active runtime) | **`AdProvider.appLovin`** (ưu tiên cứng — KHÔNG đổi) |
@@ -72,7 +72,7 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 1. **Cả AppLovin + AdMob config bắt buộc đầy đủ** trước khi setup `AdConfig` — `AppLovinConfig` và `AdMobConfig` đều phải non-null trong constructor (SDK constraint). Với AppLovin, **ad unit IDs phải tách Android/iOS** nếu app target cả hai platform; không dùng nhầm iOS units cho Android hoặc ngược lại. Cho phép swap provider không cần re-build template. Nếu user nói "chỉ có AppLovin" → AI vẫn hỏi AdMob IDs riêng từng cái, không tự fill test ID khi user có ID thật.
 2. **AdMob `APPLICATION_ID` exception**: nếu user không có AdMob account và xác nhận sẽ không serve AdMob ads → cho phép dùng test App ID `ca-app-pub-3940256099942544~3347511713` + ghi warning vào báo cáo cuối Step 12.
 3. Bất kỳ field nào còn ghi `<hỏi user — dừng nếu thiếu>`: AI **phải hỏi user trong chat** rồi **dừng chờ trả lời**, KHÔNG tự fill placeholder, KHÔNG dùng test ID khi user có production ID, KHÔNG bỏ qua.
-4. **Latest version**: AI fetch `pub.dev` API hoặc đọc `flutter pub outdated` để lấy version stable mới nhất ngay khi bắt đầu Step 1. Verify `>= 1.0.16` (minimum cứng do dependency contract).
+4. **Latest version**: AI fetch `pub.dev` API hoặc đọc `flutter pub outdated` để lấy version stable mới nhất ngay khi bắt đầu Step 1. Verify `>= 1.0.19` (minimum cứng do dependency contract).
 
 ---
 
@@ -110,7 +110,7 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 - Đọc `packages/ad_sdk/CHANGELOG.md` — phần "What's new" cho version đang dùng để biết feature mới (UMP wrapper, smart App-Open timeout, slot-state dismiss watcher, first-install grace, anti-bypass nếu có ở version đó, taskAffinity pitfall).
 - Đọc `packages/ad_sdk/example/lib/main.dart` để xem demo page nào active.
 
-**Output bắt buộc**: 1 đoạn ≤ 10 dòng tóm tắt API surface của lib và những thứ SDK tự quản (App Open auto qua `WidgetsBindingObserver`, banner auto pause/resume qua `adRouteObserver` + RouteAware, frequency cap qua 12-layer safety gate, VIP auto-expire `Timer`, consent dialog auto-show post-splash 1s, first-install grace, anti-bypass nếu version đó có).
+**Output bắt buộc**: 1 đoạn ≤ 10 dòng tóm tắt API surface của lib và những thứ SDK tự quản (App Open auto qua `WidgetsBindingObserver`, banner auto pause/resume qua `adRouteObserver` + RouteAware, frequency cap qua multi-layer safety gate, VIP auto-expire `Timer`, consent dialog auto-show post-splash 1s, first-install grace, anti-bypass nếu version đó có).
 
 ## Step 2 — Audit hiện trạng project
 
@@ -486,7 +486,7 @@ AdConfig(
 
 Verify ở entry `__FIRST_INSTALL__` trong `vip.entries` sau init lần đầu (xem Step 10.6 — special entries).
 
-### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.18)
+### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.19)
 
 Mục tiêu: chặn user gỡ app + cài lại để nhận grace 24h vô hạn lần. Cơ chế per platform:
 
@@ -1024,7 +1024,7 @@ Nếu user migrate từ project Android native dùng `_AdmobWrapper`, mapping nh
 
 ## Phụ lục B — Reference doc của project `_FlutterBase2025`
 
-Project này là reference implementation cho `applovin_admob_sdk: ^1.0.18`. Files đáng đọc:
+Project này là reference implementation cho `applovin_admob_sdk: ^1.0.19`. Files đáng đọc:
 
 - `doc/AD.MD` — audit + as-is spec đầy đủ (touchpoint table, ad config, UMP flow, VIP system, policy compliance)
 - `lib/main.dart` — bootstrap pattern
