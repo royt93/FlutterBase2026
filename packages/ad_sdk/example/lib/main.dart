@@ -259,7 +259,25 @@ class _SplashScreenState extends State<SplashScreen> {
     _listener = onEvent;
     SimpleEventBus().listen(onEvent);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Consent ordering (recommended): ATT → UMP → initialize.
+      // 1) iOS App Tracking Transparency. No-op on Android; never throws.
+      //    Must run from the splash (UI is up), NOT from main() before runApp.
+      try {
+        final att = await AdManager().requestAtt();
+        debugPrint('ATT status: ${att.status.name}');
+      } catch (e) {
+        debugPrint('ATT skipped: $e');
+      }
+      // 2) Google UMP consent form for EEA/UK users — before the first ad request.
+      try {
+        final ump = await AdManager().requestUmpConsent();
+        debugPrint('UMP: canRequestAds=${ump.canRequestAds}');
+      } catch (e) {
+        debugPrint('UMP skipped: $e');
+      }
+      if (!mounted) return;
+      // 3) Initialize the SDK (fires the EventBus completion event).
       AdManager().initialize(
         config: DemoConfig.instance.build(),
         onComplete: (success, gaid) {},

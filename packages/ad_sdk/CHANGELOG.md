@@ -4,6 +4,14 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.20] - 2026-06-14
+
+### Example only
+- The bundled example (`example/lib/main.dart`) now demonstrates the recommended
+  consent ordering in its splash: `AdManager().requestAtt()` →
+  `AdManager().requestUmpConsent()` → `AdManager().initialize()`. No library /
+  public-API change vs 1.0.19 — upgrading requires nothing.
+
 ## [1.0.19] - 2026-06-14
 
 ### Added — iOS App Tracking Transparency

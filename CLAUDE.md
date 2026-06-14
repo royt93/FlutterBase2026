@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common commands
 
-The `Makefile` is the canonical entrypoint and uses paths (`test/unit/`, `test/widget/`, `test/integration/`) that **do not currently exist in the repo** — there is no `test/` directory at all, only `test_driver/integration_test.dart`. Assume any `make test*` target will fail until those folders are created. Use `flutter` directly for now.
+**Where the tests live:** the host app (`lib/`) has **no `test/` directory** (UI-only, gated on `flutter analyze`). All automated tests live in the **`packages/ad_sdk/` package** — 130+ unit/widget/integration tests under `packages/ad_sdk/test/`. Run them with `cd packages/ad_sdk && flutter test`. The `Makefile` still references a `test/unit|widget|integration` layout that does not exist; prefer `flutter`/the package tests directly.
 
 ```bash
 # Install + generate mocks
@@ -33,7 +33,7 @@ flutter build apk --analyze-size   # size report
 flutter clean && flutter pub get
 ```
 
-`make help` lists every wrapper target (`install-deps`, `analyze`, `quality-check`, `test-file FILE=...`). The `.github/workflows/test.yml` CI pipeline pins **Flutter 3.24.0 stable** and expects the same `test/unit/`, `test/widget/`, `test/integration/` layout plus `test_driver/integration_test.dart` (which does exist). CI also calls `flutter pub run dart_code_metrics:metrics analyze lib`, but `dart_code_metrics` is **not** in `pubspec.yaml` — that step will fail until the dep is added or the workflow is fixed.
+**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable** and has two jobs: `sdk` (runs `flutter analyze` + `flutter test` inside `packages/ad_sdk` — the real gate) and `host` (`flutter analyze` only, since the host has no unit tests). It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
 
 ## Architecture
 
