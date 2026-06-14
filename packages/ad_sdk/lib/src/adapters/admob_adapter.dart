@@ -11,14 +11,20 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'gma_bridge.dart';
 
 /// AdMob (Google Mobile Ads) implementation of [AdProviderAdapter].
 ///
 /// Owns the 4 ad-unit objects (`AppOpenAd`, `InterstitialAd`, `RewardedAd`,
 /// `BannerAd`) and their state machines. All callbacks go through [AdSlot]
-/// transitions instead of hand-managed bool flags.
+/// transitions instead of hand-managed bool flags. The fullscreen ads load
+/// through an injectable [GmaBridge]; the banner stays on the native GMA API
+/// (it is `AdWidget`-coupled and not behaviourally testable in isolation).
 class AdMobAdapter implements AdProviderAdapter {
-  AdMobAdapter();
+  /// [bridge] defaults to the real GMA plugin; tests inject a fake.
+  AdMobAdapter({GmaBridge bridge = const RealGmaBridge()}) : _bridge = bridge;
+
+  final GmaBridge _bridge;
 
   @override
   String get tag => '[AdMob]';
@@ -34,28 +40,19 @@ class AdMobAdapter implements AdProviderAdapter {
 
   void _emit(AdEvent e) => eventSink?.call(e);
 
-  /// Wires `OnPaidEventCallback` for the given native ad — emits AdRevenueEvent.
-  /// Used for AppOpen / Interstitial / Rewarded (subclasses of [AdWithoutView]
-  /// — they expose `onPaidEvent` as a settable property).
-  ///
-  /// Banner ([AdWithView]) does NOT expose this setter — its paid-event
-  /// callback must be passed via [BannerAdListener] at construction. See
-  /// [_paidEventForBanner] below.
-  void _wirePaidEvent(dynamic ad, AdSlotType type, AdPlacement placement) {
-    try {
-      ad.onPaidEvent = (Ad _, double valueMicros, PrecisionType precision, String currencyCode) {
-        _emit(AdRevenueEvent(
-          providerTag: tag,
-          type: type,
-          placement: placement,
-          valueMicros: valueMicros.toInt(),
-          currencyCode: currencyCode,
-          precision: precision.name,
-        ));
-      };
-    } catch (e) {
-      SafeLogger.w(_logTag, 'paid-event wire failed for $type: $e');
-    }
+  /// Wires the fullscreen ad's paid-event (revenue) listener through the bridge.
+  void _wirePaidEvent(
+      GmaFullscreenAd ad, AdSlotType type, AdPlacement placement) {
+    ad.setPaidEventListener((valueMicros, currencyCode, precision) {
+      _emit(AdRevenueEvent(
+        providerTag: tag,
+        type: type,
+        placement: placement,
+        valueMicros: valueMicros.toInt(),
+        currencyCode: currencyCode,
+        precision: precision,
+      ));
+    });
   }
 
   /// Constructor-time paid-event callback for banner — used in
@@ -100,10 +97,10 @@ class AdMobAdapter implements AdProviderAdapter {
 
   // ─── Native ad objects ────────────────────────────────────────────────────
 
-  AppOpenAd? _appOpenAd;
-  InterstitialAd? _interstitialAd;
-  RewardedAd? _rewardedAd;
-  BannerAd? _bannerAd;
+  GmaFullscreenAd? _appOpenAd;
+  GmaFullscreenAd? _interstitialAd;
+  GmaFullscreenAd? _rewardedAd;
+  BannerAd? _bannerAd; // banner stays on the native API
 
   // ─── Pending callbacks (one per slot at most) ─────────────────────────────
   void Function(bool dismissed)? _appOpenDismiss;
@@ -147,10 +144,8 @@ class AdMobAdapter implements AdProviderAdapter {
       return false;
     }
     try {
-      await MobileAds.instance.initialize();
-      await MobileAds.instance.updateRequestConfiguration(
-        RequestConfiguration(testDeviceIds: cfg.testDeviceIds),
-      );
+      await _bridge.initialize();
+      await _bridge.updateRequestConfiguration(cfg.testDeviceIds);
       _config = config;
       _admob = cfg;
       SafeLogger.d(_logTag, 'initialize $tag ✅');
@@ -203,14 +198,11 @@ class AdMobAdapter implements AdProviderAdapter {
     _config = null;
   }
 
-  void _disposeAd(dynamic ad, String label) {
+  void _disposeAd(GmaFullscreenAd? ad, String label) {
     if (ad == null) return;
     try {
-      // Critical: null callback BEFORE dispose to avoid late callbacks
-      // mutating state on a destroyed object (Fix #30 preserved).
-      if (ad is AppOpenAd) ad.fullScreenContentCallback = null;
-      if (ad is InterstitialAd) ad.fullScreenContentCallback = null;
-      if (ad is RewardedAd) ad.fullScreenContentCallback = null;
+      // The wrapper nulls the fullScreenContentCallback BEFORE disposing the
+      // native ad, avoiding late callbacks mutating a destroyed object.
       ad.dispose();
     } catch (e) {
       SafeLogger.w(_logTag, '$label dispose threw: $e');
@@ -266,35 +258,32 @@ class AdMobAdapter implements AdProviderAdapter {
     SafeLogger.d(_logTag, 'loadAppOpen $tag 🔄');
 
     try {
-      await AppOpenAd.load(
-        adUnitId: cfg.appOpenId,
-        request: const AdRequest(),
-        adLoadCallback: AppOpenAdLoadCallback(
-          onAdLoaded: (ad) {
-            SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
-            _appOpenAd = ad;
-            _wirePaidEvent(ad, AdSlotType.appOpen, AdPlacement.splash);
-            appOpenSlot.markReady();
-            _emit(AdLoadEvent(
-              providerTag: tag,
-              type: AdSlotType.appOpen,
-              placement: AdPlacement.splash,
-              success: true,
-            ));
-          },
-          onAdFailedToLoad: (err) {
-            SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=${err.code} msg=${err.message}');
-            _appOpenAd = null;
-            appOpenSlot.markFailed();
-            _emit(AdLoadEvent(
-              providerTag: tag,
-              type: AdSlotType.appOpen,
-              placement: AdPlacement.splash,
-              success: false,
-              errorCode: err.code,
-            ));
-          },
-        ),
+      await _bridge.loadAppOpen(
+        cfg.appOpenId,
+        onLoaded: (ad) {
+          SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
+          _appOpenAd = ad;
+          _wirePaidEvent(ad, AdSlotType.appOpen, AdPlacement.splash);
+          appOpenSlot.markReady();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.appOpen,
+            placement: AdPlacement.splash,
+            success: true,
+          ));
+        },
+        onFailed: (code, message) {
+          SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=$code msg=$message');
+          _appOpenAd = null;
+          appOpenSlot.markFailed();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.appOpen,
+            placement: AdPlacement.splash,
+            success: false,
+            errorCode: code,
+          ));
+        },
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadAppOpen $tag THREW: $e\n$st');
@@ -317,45 +306,41 @@ class AdMobAdapter implements AdProviderAdapter {
       return;
     }
     _appOpenDismiss = onDismiss;
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (a) {
-        SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown');
-      },
-      onAdDismissedFullScreenContent: (a) {
-        SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
-        _appOpenShowTimeout?.cancel();
-        _appOpenShowTimeout = null;
-        _disposeAd(a, 'appOpen-after-dismiss');
-        _appOpenAd = null;
-        appOpenSlot.markDismissed();
-        final cb = _appOpenDismiss;
-        _appOpenDismiss = null;
-        cb?.call(true);
-      },
-      onAdFailedToShowFullScreenContent: (a, err) {
-        SafeLogger.w(_logTag, 'showAppOpen $tag ❌ display failed: ${err.message}');
-        _appOpenShowTimeout?.cancel();
-        _appOpenShowTimeout = null;
-        _disposeAd(a, 'appOpen-show-fail');
-        _appOpenAd = null;
-        appOpenSlot.markShowFailed();
-        final cb = _appOpenDismiss;
-        _appOpenDismiss = null;
-        cb?.call(false);
-      },
-      onAdClicked: (a) {
-        SafeLogger.d(_logTag, 'showAppOpen $tag 🎯 click');
-        AdSafetyConfig.recordAdClick();
-        _emit(AdClickEvent(
-          providerTag: tag,
-          type: AdSlotType.appOpen,
-          placement: AdPlacement.splash,
-        ));
-      },
-      onAdImpression: (a) {},
-    );
     try {
-      await ad.show();
+      await ad.show(GmaShowCallbacks(
+        onShowed: () => SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown'),
+        onDismissed: () {
+          SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
+          _appOpenShowTimeout?.cancel();
+          _appOpenShowTimeout = null;
+          _appOpenAd = null;
+          _disposeAd(ad, 'appOpen-after-dismiss');
+          appOpenSlot.markDismissed();
+          final cb = _appOpenDismiss;
+          _appOpenDismiss = null;
+          cb?.call(true);
+        },
+        onFailedToShow: (message) {
+          SafeLogger.w(_logTag, 'showAppOpen $tag ❌ display failed: $message');
+          _appOpenShowTimeout?.cancel();
+          _appOpenShowTimeout = null;
+          _appOpenAd = null;
+          _disposeAd(ad, 'appOpen-show-fail');
+          appOpenSlot.markShowFailed();
+          final cb = _appOpenDismiss;
+          _appOpenDismiss = null;
+          cb?.call(false);
+        },
+        onClicked: () {
+          SafeLogger.d(_logTag, 'showAppOpen $tag 🎯 click');
+          AdSafetyConfig.recordAdClick();
+          _emit(AdClickEvent(
+            providerTag: tag,
+            type: AdSlotType.appOpen,
+            placement: AdPlacement.splash,
+          ));
+        },
+      ));
       // Safety net: if neither dismiss nor fail callback fires (rare GMA /
       // mediation hang), force-dismiss after the hard cap so the caller — which
       // on the resume path has no other recovery timer — never hangs.
@@ -428,35 +413,32 @@ class AdMobAdapter implements AdProviderAdapter {
     if (!interstitialSlot.beginLoad()) return;
     SafeLogger.d(_logTag, 'loadInterstitial $tag 🔄');
     try {
-      await InterstitialAd.load(
-        adUnitId: cfg.interstitialId,
-        request: const AdRequest(),
-        adLoadCallback: InterstitialAdLoadCallback(
-          onAdLoaded: (ad) {
-            SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
-            _interstitialAd = ad;
-            _wirePaidEvent(ad, AdSlotType.interstitial, AdPlacement.unspecified);
-            interstitialSlot.markReady();
-            _emit(AdLoadEvent(
-              providerTag: tag,
-              type: AdSlotType.interstitial,
-              placement: AdPlacement.unspecified,
-              success: true,
-            ));
-          },
-          onAdFailedToLoad: (err) {
-            SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ ${err.code}');
-            _interstitialAd = null;
-            interstitialSlot.markFailed();
-            _emit(AdLoadEvent(
-              providerTag: tag,
-              type: AdSlotType.interstitial,
-              placement: AdPlacement.unspecified,
-              success: false,
-              errorCode: err.code,
-            ));
-          },
-        ),
+      await _bridge.loadInterstitial(
+        cfg.interstitialId,
+        onLoaded: (ad) {
+          SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
+          _interstitialAd = ad;
+          _wirePaidEvent(ad, AdSlotType.interstitial, AdPlacement.unspecified);
+          interstitialSlot.markReady();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.interstitial,
+            placement: AdPlacement.unspecified,
+            success: true,
+          ));
+        },
+        onFailed: (code, message) {
+          SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ $code');
+          _interstitialAd = null;
+          interstitialSlot.markFailed();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.interstitial,
+            placement: AdPlacement.unspecified,
+            success: false,
+            errorCode: code,
+          ));
+        },
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadInterstitial $tag THREW: $e\n$st');
@@ -479,38 +461,37 @@ class AdMobAdapter implements AdProviderAdapter {
       return;
     }
     _interstitialDone = onDone;
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (a) => SafeLogger.d(_logTag, 'showInterstitial $tag ✅ shown'),
-      onAdDismissedFullScreenContent: (a) {
-        SafeLogger.d(_logTag, 'showInterstitial $tag 👋 dismissed');
-        _disposeAd(a, 'inter-after-dismiss');
-        _interstitialAd = null;
-        interstitialSlot.markDismissed();
-        final cb = _interstitialDone;
-        _interstitialDone = null;
-        cb?.call(true);
-      },
-      onAdFailedToShowFullScreenContent: (a, err) {
-        SafeLogger.w(_logTag, 'showInterstitial $tag ❌ display failed: ${err.message}');
-        _disposeAd(a, 'inter-show-fail');
-        _interstitialAd = null;
-        interstitialSlot.markShowFailed();
-        final cb = _interstitialDone;
-        _interstitialDone = null;
-        cb?.call(false);
-      },
-      onAdClicked: (a) {
-        SafeLogger.d(_logTag, 'showInterstitial $tag 🎯 click');
-        AdSafetyConfig.recordAdClick();
-        _emit(AdClickEvent(
-          providerTag: tag,
-          type: AdSlotType.interstitial,
-          placement: AdPlacement.unspecified,
-        ));
-      },
-    );
     try {
-      await ad.show();
+      await ad.show(GmaShowCallbacks(
+        onShowed: () => SafeLogger.d(_logTag, 'showInterstitial $tag ✅ shown'),
+        onDismissed: () {
+          SafeLogger.d(_logTag, 'showInterstitial $tag 👋 dismissed');
+          _interstitialAd = null;
+          _disposeAd(ad, 'inter-after-dismiss');
+          interstitialSlot.markDismissed();
+          final cb = _interstitialDone;
+          _interstitialDone = null;
+          cb?.call(true);
+        },
+        onFailedToShow: (message) {
+          SafeLogger.w(_logTag, 'showInterstitial $tag ❌ display failed: $message');
+          _interstitialAd = null;
+          _disposeAd(ad, 'inter-show-fail');
+          interstitialSlot.markShowFailed();
+          final cb = _interstitialDone;
+          _interstitialDone = null;
+          cb?.call(false);
+        },
+        onClicked: () {
+          SafeLogger.d(_logTag, 'showInterstitial $tag 🎯 click');
+          AdSafetyConfig.recordAdClick();
+          _emit(AdClickEvent(
+            providerTag: tag,
+            type: AdSlotType.interstitial,
+            placement: AdPlacement.unspecified,
+          ));
+        },
+      ));
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showInterstitial $tag THREW: $e\n$st');
       _interstitialAd = null;
@@ -542,35 +523,32 @@ class AdMobAdapter implements AdProviderAdapter {
     if (!rewardedSlot.beginLoad()) return;
     SafeLogger.d(_logTag, 'loadRewarded $tag 🔄');
     try {
-      await RewardedAd.load(
-        adUnitId: cfg.rewardedId,
-        request: const AdRequest(),
-        rewardedAdLoadCallback: RewardedAdLoadCallback(
-          onAdLoaded: (ad) {
-            SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
-            _rewardedAd = ad;
-            _wirePaidEvent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
-            rewardedSlot.markReady();
-            _emit(AdLoadEvent(
-              providerTag: tag,
-              type: AdSlotType.rewarded,
-              placement: AdPlacement.unspecified,
-              success: true,
-            ));
-          },
-          onAdFailedToLoad: (err) {
-            SafeLogger.w(_logTag, 'loadRewarded $tag ❌ ${err.code}');
-            _rewardedAd = null;
-            rewardedSlot.markFailed();
-            _emit(AdLoadEvent(
-              providerTag: tag,
-              type: AdSlotType.rewarded,
-              placement: AdPlacement.unspecified,
-              success: false,
-              errorCode: err.code,
-            ));
-          },
-        ),
+      await _bridge.loadRewarded(
+        cfg.rewardedId,
+        onLoaded: (ad) {
+          SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
+          _rewardedAd = ad;
+          _wirePaidEvent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
+          rewardedSlot.markReady();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.rewarded,
+            placement: AdPlacement.unspecified,
+            success: true,
+          ));
+        },
+        onFailed: (code, message) {
+          SafeLogger.w(_logTag, 'loadRewarded $tag ❌ $code');
+          _rewardedAd = null;
+          rewardedSlot.markFailed();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.rewarded,
+            placement: AdPlacement.unspecified,
+            success: false,
+            errorCode: code,
+          ));
+        },
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadRewarded $tag THREW: $e\n$st');
@@ -605,39 +583,38 @@ class AdMobAdapter implements AdProviderAdapter {
       cb?.call(r);
     }
 
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (a) => SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown'),
-      onAdDismissedFullScreenContent: (a) {
-        SafeLogger.d(_logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
-        _disposeAd(a, 'rewarded-after-dismiss');
-        _rewardedAd = null;
-        rewardedSlot.markDismissed();
-        if (!earned) fire(RewardResult.skipped);
-      },
-      onAdFailedToShowFullScreenContent: (a, err) {
-        SafeLogger.w(_logTag, 'showRewarded $tag ❌ display failed: ${err.message}');
-        _disposeAd(a, 'rewarded-show-fail');
-        _rewardedAd = null;
-        rewardedSlot.markShowFailed();
-        fire(RewardResult.skipped);
-      },
-      onAdClicked: (a) {
-        SafeLogger.d(_logTag, 'showRewarded $tag 🎯 click');
-        AdSafetyConfig.recordAdClick();
-        _emit(AdClickEvent(
-          providerTag: tag,
-          type: AdSlotType.rewarded,
-          placement: AdPlacement.unspecified,
-        ));
-      },
-    );
-
     try {
-      await ad.show(onUserEarnedReward: (a, reward) {
-        SafeLogger.d(_logTag, 'showRewarded $tag 🏆 type=${reward.type} amount=${reward.amount}');
-        earned = true;
-        fire(RewardResult(earned: true, label: reward.type, amount: reward.amount));
-      });
+      await ad.show(GmaShowCallbacks(
+        onShowed: () => SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown'),
+        onDismissed: () {
+          SafeLogger.d(_logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
+          _rewardedAd = null;
+          _disposeAd(ad, 'rewarded-after-dismiss');
+          rewardedSlot.markDismissed();
+          if (!earned) fire(RewardResult.skipped);
+        },
+        onFailedToShow: (message) {
+          SafeLogger.w(_logTag, 'showRewarded $tag ❌ display failed: $message');
+          _rewardedAd = null;
+          _disposeAd(ad, 'rewarded-show-fail');
+          rewardedSlot.markShowFailed();
+          fire(RewardResult.skipped);
+        },
+        onClicked: () {
+          SafeLogger.d(_logTag, 'showRewarded $tag 🎯 click');
+          AdSafetyConfig.recordAdClick();
+          _emit(AdClickEvent(
+            providerTag: tag,
+            type: AdSlotType.rewarded,
+            placement: AdPlacement.unspecified,
+          ));
+        },
+        onUserEarnedReward: (amount, type) {
+          SafeLogger.d(_logTag, 'showRewarded $tag 🏆 type=$type amount=$amount');
+          earned = true;
+          fire(RewardResult(earned: true, label: type, amount: amount));
+        },
+      ));
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
       _rewardedAd = null;
