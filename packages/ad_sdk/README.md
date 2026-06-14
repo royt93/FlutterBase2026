@@ -13,7 +13,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 ## Table of contents
 
 1. [Why this SDK](#why-this-sdk)
-2. [What's new in 1.0.15](#whats-new-in-1015)
+2. [What's new in 1.0.19](#whats-new-in-1019)
 3. [Quick start (copy-paste in 6 steps)](#quick-start)
 4. [Configuration reference](#configuration-reference)
 5. [VIP system](#vip-system)
@@ -43,14 +43,29 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 
 ---
 
-## What's new in 1.0.15
+## What's new in 1.0.19
 
-The 1.0.15 release is fully backwards-compatible with 1.0.14. It adds:
+Backwards-compatible with 1.0.1x. Recent additions:
+
+- **iOS App Tracking Transparency (1.0.19)** — `AdManager().requestAtt()` /
+  `requestAttIfNeeded()` show the ATT prompt when needed and return a structured
+  `AttResult { status, idfa, allowsTracking }` (`AttStatus` enum). No-op on
+  Android; never throws. Call it in the splash before UMP. See Consent → Option 0.
+- **iOS App-Open watchdog fix (1.0.19)** — the lifecycle-aware show timeout no
+  longer force-dismisses on iOS. On iOS the ad shows while the app stays
+  `resumed`, so the Android-only "foreground = hung" heuristic was force-closing
+  every iOS App Open at ~10 s; iOS now relies on the native hidden/displayFailed
+  callbacks plus the 90 s hard cap.
+- **First-install anti-bypass guard (1.0.17)** — the first-install VIP grace is
+  protected against uninstall/reinstall bypass (iOS Keychain flag; Android Auto
+  Backup of `SharedPreferences`).
+
+Earlier, the 1.0.15 release added:
 
 - **Cupertino consent dialog** — opt-in via `AdConfig.autoShowConsentDialog: true` (the default). Auto-shows on the home screen ~1 second after the splash flow completes, never during splash. Skipped automatically for VIP users. Persists the user's choice; surfaces the choice via `ConsentManager.instance` for re-show from a Privacy settings page.
 - **Google UMP wrapper** — `AdManager().requestUmpConsent(...)` calls into `google_mobile_ads`'s built-in UMP API (no extra dependency needed since `google_mobile_ads` 6.x). Returns a structured `UmpConsentResult { canRequestAds, status, formShown, error }`.
 - **First-install VIP grace** — `AdConfig.firstInstallVipGrace: FirstInstallVipGrace.auto` (default). Auto-grants a one-time VIP entry on the very first SDK init for this install. Default: 30 seconds in debug builds, 24 hours in release. Tracked via `SharedPreferences` so the grant fires exactly once per install.
-- **Smart App-Open timeout** — replaces a fixed 10-second timeout that produced false-positive force-dismisses when users clicked an ad and were sent to a browser for 20+ seconds. The new timeout polls the app lifecycle every 5 seconds (re-arms while paused, force-dismisses only when app is foreground for two consecutive ticks without `onAdHiddenCallback`), with a 90-second hard cap.
+- **Smart App-Open timeout** — replaces a fixed 10-second timeout that produced false-positive force-dismisses when users clicked an ad and were sent to a browser for 20+ seconds. The timeout polls the app lifecycle every 5 seconds (re-arms while paused), with a 90-second hard cap. On **Android** it force-dismisses when the app is foreground for two consecutive ticks without `onAdHiddenCallback` (= hung overlay). On **iOS** the ad shows while the app stays `resumed`, so foreground is ignored and only the native callbacks + 90 s hard cap apply (fixed in 1.0.19).
 - **Slot-state dismiss watcher** — replaces the brittle adapter-callback timestamp writes that used to fire at the wrong moment for rewarded ads (rewarded `onDone` fires when the reward is earned, not when the user actually dismisses). The watcher hooks every fullscreen slot's `state.value` and records the dismiss instant on `showing → !showing`. Source of truth for the resume guard.
 - **VIP auto-expire timer** — `VipManager` now schedules a `Timer` for the soonest `expiresAt`. When it fires, the manager purges the expired entry, refreshes the active flag, and `AdManager` (listening to `vip.activeListenable`) preloads all four ad slots so the next user-triggered show finds an ad ready.
 - **Granular diagnostic logging** — every gate (`adapter null`, `VIP`, `no network`, `slot showing`, safety reason, recent dismiss) emits an explicit `⏭️ skipped — <reason>` log instead of returning silently. Process-restart marker `🚀 AdManager singleton CREATED` fires once per process so two markers in the same logcat session indicate Android killed and restarted the app. Lifecycle observer logs full state (`prev → current`, slot states, VIP, splash flag, backgrounded duration).
@@ -66,8 +81,8 @@ See `CHANGELOG.md` for the full list, including all bug fixes.
 ### Prerequisites
 
 - Flutter 3.27.0 or newer
-- Android `minSdkVersion` 21 or newer (AdMob requirement)
-- iOS deployment target 12.0 or newer
+- Android `minSdkVersion` 24 or newer (AppLovin MAX 13.x + AdMob requirement)
+- iOS deployment target 13.0 or newer (required by AppLovin MAX 13.x and `app_tracking_transparency`)
 - An [AdMob account](https://admob.google.com) (for AdMob ad units), an [AppLovin account](https://dash.applovin.com) (for AppLovin), or both. The SDK ships Google's public test ad unit IDs so you can verify integration before creating real units.
 
 ### Step 1 — Add the dependency
@@ -113,11 +128,11 @@ Inside `<application>`, add the two `<meta-data>` tags below. Replace each value
         android:name="com.google.android.gms.ads.APPLICATION_ID"
         android:value="ca-app-pub-3940256099942544~3347511713"/>
 
-    <!-- Required by applovin_max. Get the 86-character SDK key from
-         https://dash.applovin.com/o/account → Account → Keys → SDK Key. -->
-    <meta-data
-        android:name="applovin.sdk.key"
-        android:value="YOUR_86_CHARACTER_APPLOVIN_SDK_KEY_HERE"/>
+    <!-- NOTE: `applovin_max` 4.x (used by this SDK) does NOT read the SDK key
+         from a manifest meta-data. The 86-character key is passed at runtime via
+         `AppLovinConfig.sdkKey` → `AdManager().initialize(...)`. You do NOT need
+         an `applovin.sdk.key` meta-data here; adding one is harmless but ignored.
+         Get the key from https://dash.applovin.com/o/account → Account → Keys. -->
 
     <activity
         android:name=".MainActivity"
@@ -134,7 +149,7 @@ Update `android/app/build.gradle.kts` (or `build.gradle`) to require Android 5.0
 ```kotlin
 android {
     defaultConfig {
-        minSdk = 21
+        minSdk = 24
         // ...
     }
 }
@@ -168,7 +183,7 @@ Open `ios/Runner/Info.plist` and add the keys below at the root `<dict>`. Replac
 Update `ios/Podfile` to require iOS 12 or newer:
 
 ```ruby
-platform :ios, '12.0'
+platform :ios, '13.0'
 ```
 
 Then install pods:
@@ -249,9 +264,10 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     // Hard cap: if the SDK init or the splash app-open ad takes longer than
-    // 30 seconds (network issues, etc.), force-navigate so the user is not
-    // stuck on the splash screen.
-    _hardCap = Timer(const Duration(seconds: 30), _goHome);
+    // the budget (network issues, etc.), force-navigate so the user is not
+    // stuck on the splash screen. Keep this in sync with
+    // `AdConfig.splashMaxDuration` (default 8 s).
+    _hardCap = Timer(const Duration(seconds: 8), _goHome);
 
     // ⚠️ Subscribe BEFORE calling initialize(). SimpleEventBus only
     // delivers fire events to listeners that registered before the fire.
@@ -436,7 +452,7 @@ You should see the splash screen, then a splash app-open ad (if available), then
 
 - ✅ **First-install VIP grace 24h** — the user does not see ads during their first 24 hours after install. Tunable via `AdConfig.firstInstallVipGrace`.
 - ✅ **Cupertino consent dialog** auto-shown ~1 second after splash on the home screen (skipped if VIP). Tunable via `AdConfig.autoShowConsentDialog`, `consentDialogStrings`, `consentDialogPostSplashDelay`.
-- ✅ **Splash app-open ad** with a 30-second hard cap so the user is never stuck.
+- ✅ **Splash app-open ad** with an 8-second hard cap so the user is never stuck.
 - ✅ **Banner pause/resume** automatically when the user navigates between screens.
 - ✅ **Anti-fraud** twelve-layer safety gate protects your AdMob/AppLovin account.
 
@@ -695,9 +711,35 @@ AdConfig(
 )
 ```
 
+### Option 0 — iOS App Tracking Transparency (call FIRST on iOS)
+
+ATT is built into the SDK — do **not** call `app_tracking_transparency`
+directly. Call `requestAtt()` from your **splash screen** (after the first
+frame), **before** `requestUmpConsent` and `initialize`, so the IDFA
+availability is settled before the first ad request:
+
+```dart
+final att = await AdManager().requestAtt();
+// att.status   → AttStatus.{notSupported|notDetermined|restricted|denied|authorized}
+// att.idfa     → String? (only when authorized and non-zero)
+// att.allowsTracking → bool (true when authorized, or non-iOS where ATT doesn't apply)
+```
+
+- **No-op on Android** — returns `AttStatus.notSupported` immediately.
+- On iOS it shows the system prompt only when the status is `notDetermined`;
+  an already-decided status is returned without re-prompting.
+- Never throws — a missing plugin / Info.plist key degrades to `denied`.
+- **Do NOT call from `main()` before `runApp`** — Apple rejects ATT prompts
+  shown over a blank screen.
+- Requires `NSUserTrackingUsageDescription` in `Info.plist` (see Setup).
+- ATT is **independent of the GDPR consent flag** — the native AppLovin/AdMob
+  SDKs read the ATT status directly when deciding IDFA usage, so `requestAtt()`
+  does not call `setConsent`.
+
 ### Option 2 — Google UMP form (required for EEA users on AdMob)
 
-Wrap Google's UMP API. Call this in your splash before `AdManager().initialize`:
+Wrap Google's UMP API. Call this in your splash **after** `requestAtt()` and
+before `AdManager().initialize`:
 
 ```dart
 final result = await AdManager().requestUmpConsent(
@@ -732,7 +774,7 @@ await AdManager().setConsent(AdConsent(
 
 - [ ] `app-ads.txt` placed at the root of your app's domain
 - [ ] Privacy Policy URL declared in App Store / Play Store listing
-- [ ] iOS App Tracking Transparency prompt shown via `app_tracking_transparency` **before** `AdManager().initialize` on iOS
+- [ ] iOS App Tracking Transparency prompt shown via `AdManager().requestAtt()` in the splash, **before** `requestUmpConsent` / `AdManager().initialize` (see Option 0)
 - [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA)
 - [ ] If targeting EEA users, integrate UMP via Option 2 above
 
@@ -854,6 +896,7 @@ AdManager().markSplashInactive()
 AdManager().incrementSplashCount()
 
 AdManager().setConsent(adConsent)          // GDPR / COPPA / CCPA flags
+AdManager().requestAtt()                   // iOS ATT prompt (no-op Android) → AttResult
 AdManager().requestUmpConsent(...)         // Google UMP wrapper
 
 AdManager().showAppOpenAd(onAdDismiss)
@@ -1009,6 +1052,7 @@ That was a bug in 1.0.14 — sub-second waits truncated to zero. Fixed in 1.0.15
 See `MIGRATION.md` for a step-by-step guide.
 
 - **1.0.14 → 1.0.15** — no breaking change. Update the version, run `flutter pub get`, optionally remove `android:taskAffinity=""` from `MainActivity`.
+- **1.0.1x → 1.0.19** — no breaking change. New optional `AdManager().requestAtt()` for iOS ATT (call in splash before UMP); add `NSUserTrackingUsageDescription` to `Info.plist` if targeting iOS. iOS App-Open watchdog fix is automatic.
 - **1.x → 2.x** — backwards-compatible (deprecations, not removals). Old call sites compile and behave the same.
 
 ---

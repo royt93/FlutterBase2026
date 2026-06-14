@@ -327,13 +327,20 @@ class AppLovinAdapter implements AdProviderAdapter {
     // fires LATE (10-30s after dismiss), especially when the user clicks the
     // ad and is sent to a browser/app store before returning.
     //
-    // Strategy: poll the app lifecycle state every 5 s up to 90 s.
-    //   - If app is `hidden`/`paused`/`inactive` → ad is still on screen
-    //     (or user is in browser via click). Keep waiting.
-    //   - Only force-dismiss when app is foreground (resumed) AND no
-    //     `hidden` callback fired within ~90 s — that's a real hung ad.
+    // Strategy depends on platform, because the app lifecycle behaves
+    // differently while a full-screen App Open ad is on screen:
+    //   - ANDROID: the ad launches a separate Activity → Flutter goes
+    //     `paused`/`inactive`. So `resumed` (foreground) WITHOUT a hidden
+    //     callback genuinely means a hung overlay → force-dismiss after a
+    //     short grace.
+    //   - iOS: the ad is presented as a modal view controller WITHIN the app
+    //     → Flutter stays `resumed` the whole time the ad shows. Foreground is
+    //     therefore NOT a hung-ad signal; treating it as one (the old logic)
+    //     force-dismissed every iOS App Open at ~10 s while it was displaying
+    //     fine. On iOS we only rely on the native hidden/displayFailed
+    //     callbacks plus the 90 s hard cap.
     //
-    // Old fixed 10 s timeout fired false-positive twice in QA (user click →
+    // An old fixed 10 s timeout also fired false-positive in QA (user click →
     // browser → 20+s → return), arming dismiss timestamps prematurely and
     // letting subsequent app-open trigger leak through the resume guard.
     _appOpenShowTimeout?.cancel();
@@ -341,15 +348,21 @@ class AppLovinAdapter implements AdProviderAdapter {
     _scheduleAppOpenTimeoutCheck(captured, attempt: 0);
   }
 
-  /// Recursive lifecycle-aware timeout. Re-arms while app is backgrounded
-  /// (= ad still showing or user out in browser); only force-dismisses on
-  /// hard cap of 18 attempts × 5 s = 90 s wall clock.
+  /// Recursive lifecycle-aware timeout. On Android, force-dismisses shortly
+  /// after observing the app foreground without a hidden callback (= hung
+  /// overlay). On iOS the ad shows while the app stays `resumed`, so foreground
+  /// is ignored and only the hard cap of 18 attempts × 5 s = 90 s applies.
   void _scheduleAppOpenTimeoutCheck(
     void Function(bool) captured, {
     required int attempt,
   }) {
     const tickSeconds = 5;
     const maxAttempts = 18; // 18 × 5 s = 90 s hard cap
+    // iOS presents the App Open ad as an in-app modal VC, so Flutter never
+    // leaves `resumed` while it shows — the foreground-as-hung heuristic only
+    // holds on Android. See the comment block in [showAppOpen].
+    final foregroundMeansHung =
+        defaultTargetPlatform != TargetPlatform.iOS;
     _appOpenShowTimeout = Timer(const Duration(seconds: tickSeconds), () {
       _appOpenShowTimeout = null;
       // Already dismissed by AppLovin's normal callback path? Nothing to do.
@@ -361,8 +374,8 @@ class AppLovinAdapter implements AdProviderAdapter {
       final lifecycle = WidgetsBinding.instance.lifecycleState;
       final isForeground = lifecycle == AppLifecycleState.resumed;
 
-      if (isForeground) {
-        // App is foreground but ad hasn't fired hidden. Could be:
+      if (isForeground && foregroundMeansHung) {
+        // Android: app foreground but ad hasn't fired hidden. Could be:
         //   (a) Hung overlay — needs force-dismiss
         //   (b) Just-resumed transition — AppLovin's hidden callback is
         //       still in-flight via method channel (typically lands within
@@ -385,8 +398,9 @@ class AppLovinAdapter implements AdProviderAdapter {
         captured(false);
         return;
       }
-      // App still backgrounded — ad probably still showing OR user in
-      // browser via click. Keep waiting unless we hit the hard cap.
+      // iOS foreground (ad shows while resumed), or Android backgrounded (ad on
+      // screen / user in browser via click): the ad is presumed still up. Keep
+      // waiting for the native hidden callback until the 90 s hard cap.
       if (attempt >= maxAttempts) {
         SafeLogger.e(_logTag,
             'showAppOpen $tag ⏰ HARD CAP ${maxAttempts * tickSeconds}s reached (lifecycle=${lifecycle?.name}) — force dismiss(false)');
@@ -396,7 +410,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag,
-          'showAppOpen $tag ⏰ tick #${attempt + 1}/$maxAttempts (lifecycle=${lifecycle?.name}) — re-arming +${tickSeconds}s');
+          'showAppOpen $tag ⏰ tick #${attempt + 1}/$maxAttempts (lifecycle=${lifecycle?.name}, fgHung=$foregroundMeansHung) — re-arming +${tickSeconds}s');
       _scheduleAppOpenTimeoutCheck(captured, attempt: attempt + 1);
     });
   }

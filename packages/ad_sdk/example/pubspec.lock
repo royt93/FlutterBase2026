@@ -9,13 +9,21 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.1"
+  app_tracking_transparency:
+    dependency: transitive
+    description:
+      name: app_tracking_transparency
+      sha256: "3a52669c0645ffd7efe9a460047616de3e3f2128338f9ec7cdb681628d36238e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.7"
   applovin_admob_sdk:
     dependency: "direct main"
     description:
       path: ".."
       relative: true
     source: path
-    version: "1.0.18"
+    version: "1.0.19"
   applovin_max:
     dependency: transitive
     description:

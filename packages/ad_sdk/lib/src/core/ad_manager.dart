@@ -20,6 +20,7 @@ import '../vip/_first_install_guard.dart';
 import '../vip/vip_manager.dart';
 import '../widget/ad_loading_dialog.dart';
 import 'ad_consent.dart';
+import 'att_consent.dart';
 import 'ad_provider_adapter.dart';
 import 'ad_safety_config.dart';
 import 'event_bus.dart';
@@ -665,6 +666,25 @@ class AdManager with WidgetsBindingObserver {
       isAgeRestrictedUser: _consent.isAgeRestrictedUser,
       doNotSell: _consent.doNotSell,
     ));
+    return result;
+  }
+
+  /// Show the iOS App Tracking Transparency prompt when needed and return the
+  /// resulting authorization. No-op on non-iOS (returns
+  /// [AttStatus.notSupported]). Wraps [requestAttIfNeeded] — see its doc.
+  ///
+  /// Call this from your splash **before** [requestUmpConsent] so the IDFA
+  /// availability is settled before the first ad request. Requires
+  /// `NSUserTrackingUsageDescription` in `Info.plist`.
+  ///
+  /// This does **not** mutate the GDPR consent flag: ATT (IDFA access) and UMP
+  /// (GDPR purposes) are independent signals, and the native AppLovin/AdMob
+  /// SDKs already read the ATT status directly when deciding IDFA usage.
+  /// Tightening [setConsent] here would wrongly suppress EEA personalization
+  /// for a user who granted GDPR consent but declined ATT.
+  Future<AttResult> requestAtt() async {
+    final result = await requestAttIfNeeded();
+    SafeLogger.d(_tag, () => 'ATT → ${result.status.name}');
     return result;
   }
 

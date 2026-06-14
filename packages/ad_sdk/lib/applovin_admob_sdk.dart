@@ -25,6 +25,8 @@ export 'src/core/ad_safety_config.dart'
 export 'src/core/ad_screen.dart';
 export 'src/core/event_bus.dart';
 export 'src/core/ump_consent.dart' show UmpConsentResult, requestUmpConsentFlow;
+export 'src/core/att_consent.dart'
+    show AttStatus, AttResult, requestAttIfNeeded;
 // Re-export Google's UMP enums so callers don't need a direct google_mobile_ads import.
 export 'package:google_mobile_ads/google_mobile_ads.dart'
     show ConsentStatus, DebugGeography;

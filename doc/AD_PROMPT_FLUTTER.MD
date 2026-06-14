@@ -1,5 +1,22 @@
 # Prompt Template: Tích hợp `applovin_admob_sdk` vào project Flutter
 
+> **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/AD.MD`.
+>
+> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-06-14):**
+> - Runtime SDK: `applovin_admob_sdk: ^1.0.19` (partner dùng bản hosted này). Lưu ý: repo `_FlutterBase2025` HIỆN đang dev SDK qua `path: packages/ad_sdk` (dòng hosted bị comment) — khi tích hợp project mới partner dùng hosted, KHÔNG cần path override.
+> - ATT (App Tracking Transparency) đã tích hợp SẴN trong SDK: gọi `AdManager().requestAtt()` trong splash trước UMP (xem Step 8.3) — KHÔNG tự gọi `app_tracking_transparency`.
+> - Runtime provider: `AdProvider.appLovin`; `AdMobConfig` vẫn phải non-null để swap-ready.
+> - App-level native mediation plugin: `gma_mediation_applovin`.
+> - iOS AppLovin MAX override hiện dùng `applovin_max: 4.6.0` để khớp mediation.
+> - Do not share AppLovin ad unit IDs across Android and iOS. Keep separate `AppLovinConfig` values per platform and select at runtime.
+> - Current Android AppLovin units: app-open `REDACTED_APPLOVIN_APPOPEN_ID`, banner `REDACTED_APPLOVIN_BANNER_ID`, interstitial `REDACTED_APPLOVIN_INTERSTITIAL_ID`, rewarded `REDACTED_APPLOVIN_REWARDED_ID`.
+> - Current iOS AppLovin units for `com.saigonphantomlabs.base`: app-open `REDACTED_APPLOVIN_IOS_APPOPEN_ID`, banner `REDACTED_APPLOVIN_IOS_BANNER_ID`, interstitial `REDACTED_APPLOVIN_IOS_INTERSTITIAL_ID`, rewarded `REDACTED_APPLOVIN_IOS_REWARDED_ID`.
+> - Android đã có `com.google.android.gms.ads.APPLICATION_ID`, `AD_ID`, `INTERNET`, `ACCESS_NETWORK_STATE`, và không được set `android:taskAffinity=""`.
+> - iOS bắt buộc có đủ trong `ios/Runner/Info.plist`: `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems`.
+> - Thiếu các key iOS trên là lỗi đã từng làm Android ads chạy nhưng iOS không work/không vào được runtime ads đúng cách.
+> - Trước khi release iOS, recheck official AdMob/AppLovin SKAdNetwork list vì mediation partner có thể yêu cầu thêm identifier.
+> - App host dùng trực tiếp SDK `SafeLogger` để log luôn có prefix `roy93~`, ví dụ `SafeLogger.d('SplashTrace', '...')`. Tối thiểu trace các mốc: `main()` start, `setNavigatorKey`, `runApp`, `Splash.initState`, hard-cap armed/fired, UMP start/done, `AdManager.initialize` start/done, EventBus result, App Open load/show/dismiss, navigate main, dispose.
+>
 > Template dùng chung cho mọi project **Flutter**. Trước khi đưa cho AI, **fill hết placeholder `<...>`** ở Section 0. VIP feature là **mandatory** — mọi project phải có VIP screen + first-install grace (SDK đã build-in, không re-implement).
 > UI của vip screen nên tận dụng screen có sẵn (hoặc enhance) theo /Users/loitran/AndroidStudioProjects/@mckimquyen/@playstore/@prodution/_FlutterBase2025/lib/mckimquyen/widget/vip/vip_screen.dart
 > 
@@ -32,10 +49,14 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 | Provider chính (active runtime) | **`AdProvider.appLovin`** (ưu tiên cứng — KHÔNG đổi) |
 | Provider fallback | `AdProvider.adMob` (đổi `AdConfig.provider` để swap) |
 | AppLovin SDK key | `<hỏi user — dừng nếu thiếu>` (86 chars, lấy từ `dash.applovin.com → Account → Keys → SDK Key`) |
-| AppLovin banner ID | `<hỏi user — dừng nếu thiếu>` |
-| AppLovin interstitial ID | `<hỏi user — dừng nếu thiếu>` |
-| AppLovin app open ID | `<hỏi user — dừng nếu thiếu>` |
-| AppLovin rewarded ID | `<hỏi user — dừng nếu thiếu>` |
+| AppLovin Android banner ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
+| AppLovin Android interstitial ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
+| AppLovin Android app open ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
+| AppLovin Android rewarded ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
+| AppLovin iOS banner ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
+| AppLovin iOS interstitial ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
+| AppLovin iOS app open ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
+| AppLovin iOS rewarded ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
 | AdMob `APPLICATION_ID` | `<hỏi user — nếu user không có AdMob account, dùng test App ID `ca-app-pub-3940256099942544~3347511713` + warning trong báo cáo cuối>` |
 | AdMob banner ID | `<hỏi user — dừng nếu thiếu>` (KHÔNG dùng test ID khi user có production ID) |
 | AdMob interstitial ID | `<hỏi user — dừng nếu thiếu>` |
@@ -48,7 +69,7 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 
 **Rule cứng cho Section 0**:
 
-1. **Cả 2 bộ ID (AppLovin + AdMob) bắt buộc đầy đủ** trước khi setup `AdConfig` — `AppLovinConfig` và `AdMobConfig` đều phải non-null trong constructor (SDK constraint). Cho phép swap không cần re-build template. Nếu user nói "chỉ có AppLovin" → AI vẫn hỏi AdMob IDs riêng từng cái, không tự fill test ID khi user có ID thật.
+1. **Cả AppLovin + AdMob config bắt buộc đầy đủ** trước khi setup `AdConfig` — `AppLovinConfig` và `AdMobConfig` đều phải non-null trong constructor (SDK constraint). Với AppLovin, **ad unit IDs phải tách Android/iOS** nếu app target cả hai platform; không dùng nhầm iOS units cho Android hoặc ngược lại. Cho phép swap provider không cần re-build template. Nếu user nói "chỉ có AppLovin" → AI vẫn hỏi AdMob IDs riêng từng cái, không tự fill test ID khi user có ID thật.
 2. **AdMob `APPLICATION_ID` exception**: nếu user không có AdMob account và xác nhận sẽ không serve AdMob ads → cho phép dùng test App ID `ca-app-pub-3940256099942544~3347511713` + ghi warning vào báo cáo cuối Step 12.
 3. Bất kỳ field nào còn ghi `<hỏi user — dừng nếu thiếu>`: AI **phải hỏi user trong chat** rồi **dừng chờ trả lời**, KHÔNG tự fill placeholder, KHÔNG dùng test ID khi user có production ID, KHÔNG bỏ qua.
 4. **Latest version**: AI fetch `pub.dev` API hoặc đọc `flutter pub outdated` để lấy version stable mới nhất ngay khi bắt đầu Step 1. Verify `>= 1.0.16` (minimum cứng do dependency contract).
@@ -137,8 +158,9 @@ Future<void> main() async {
   // 1. setNavigatorKey TRƯỚC runApp — bắt buộc
   AdManager().setNavigatorKey(navigatorKey);
 
-  // 2. (iOS only) ATT prompt nếu target iOS — Step 8.iOS
-  // if (Platform.isIOS) await AppTrackingTransparency.requestTrackingAuthorization();
+  // 2. ATT: KHÔNG gọi ở đây. Apple reject prompt hiện trên blank screen.
+  //    Gọi `AdManager().requestAtt()` trong SplashScreen (postFrame, trước
+  //    requestUmpConsent) — xem Step 4.2.4 và Step 8.3.
 
   // 3. Project bootstrap (wakelock, edge-to-edge, refresh rate)
   WakelockPlus.enable();
@@ -198,10 +220,19 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
       }
     });
 
-    // 4.2.4 — UMP TRƯỚC initialize (Step 8 Option B)
+    // 4.2.4 — ATT (iOS) → UMP → initialize. THỨ TỰ BẮT BUỘC.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // ATT trước UMP để IDFA settle trước first ad request. No-op Android.
+      // SDK tự nuốt lỗi → trả AttStatus.denied, không throw.
       try {
-        await AdManager().requestUmpConsent(testMode: kDebugMode);
+        final att = await AdManager().requestAtt();
+        SafeLogger.d('Splash', 'ATT status=${att.status.name}');
+      } catch (e) {
+        SafeLogger.w('Splash', 'ATT threw, continuing: $e');
+      }
+      // testMode: false — để geo thật quyết định EEA (KHÔNG force EEA trong debug).
+      try {
+        await AdManager().requestUmpConsent(testMode: false);
       } catch (e) {
         SafeLogger.w('Splash', 'UMP threw, continuing init anyway: $e');
       }
@@ -417,21 +448,28 @@ Strings qua i18n `.tr` (Step 4.2 đã wire). Auto-show ~1s sau `markSplashInacti
 
 ### 8.3 — iOS ATT (mandate, Q14A)
 
-Nếu project target iOS:
+ATT đã được tích hợp SẴN trong SDK (từ 1.0.19) — KHÔNG tự gọi
+`app_tracking_transparency` trực tiếp. Dùng `AdManager().requestAtt()`.
 
-- Add dep `app_tracking_transparency: <LATEST>` vào `pubspec.yaml`.
-- Add `Info.plist` key `NSUserTrackingUsageDescription`:
+- Dep `app_tracking_transparency` là transitive của SDK — KHÔNG cần add ở app.
+- Add `Info.plist` key `NSUserTrackingUsageDescription` (BẮT BUỘC, thiếu thì
+  prompt im lặng không hiện):
   ```xml
   <key>NSUserTrackingUsageDescription</key>
   <string>This identifier is used to deliver personalised ads.</string>
   ```
-- Trong `main.dart` TRƯỚC `AdManager().initialize` (cụ thể trước Step 4.2.4):
+- Gọi trong **SplashScreen postFrame, TRƯỚC `requestUmpConsent`** (Step 4.2.4) —
+  KHÔNG gọi trong `main()` trước `runApp`: **Apple reject** prompt hiện trên
+  blank screen.
   ```dart
-  if (Platform.isIOS) {
-    await AppTrackingTransparency.requestTrackingAuthorization();
-  }
+  final att = await AdManager().requestAtt();   // no-op trên Android
+  // att.status: notSupported | notDetermined | restricted | denied | authorized
+  // att.idfa: String? (chỉ khi authorized); att.allowsTracking: bool
   ```
-- iOS 14.5+ KHÔNG show ATT prompt = AppLovin/AdMob fallback non-personalized ads.
+- `requestAtt()` tự xử lý: non-iOS → `notSupported`; đã quyết định trước →
+  trả status cached, không re-prompt; lỗi/thiếu plugin → `denied` (không throw).
+- ATT KHÔNG đụng GDPR consent flag — native AppLovin/AdMob tự đọc ATT cho IDFA.
+- iOS user chọn "Ask App Not to Track" = fallback non-personalized / SKAdNetwork.
 
 ## Step 9 — First-install VIP grace + Anti-uninstall-bypass guard
 
@@ -589,15 +627,27 @@ lib/<DART_PACKAGE_NAME>/
 ```dart
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
-/// Centralised ad-related constants. Single key per project (Q25A) — không
-/// switch theo flavor.
+/// Centralised ad-related constants. AppLovin SDK key can be shared by account,
+/// but AppLovin ad unit IDs must be split per platform.
 abstract final class AdKey {
-  static const AppLovinConfig appLovin = AppLovinConfig(
+  static AppLovinConfig get appLovin {
+    return Platform.isIOS ? appLovinIos : appLovinAndroid;
+  }
+
+  static const AppLovinConfig appLovinAndroid = AppLovinConfig(
     sdkKey:         '<APPLOVIN_SDK_KEY>',
-    bannerId:       '<APPLOVIN_BANNER_ID>',
-    interstitialId: '<APPLOVIN_INTERSTITIAL_ID>',
-    appOpenId:      '<APPLOVIN_APP_OPEN_ID>',
-    rewardedId:     '<APPLOVIN_REWARDED_ID>',
+    bannerId:       '<APPLOVIN_ANDROID_BANNER_ID>',
+    interstitialId: '<APPLOVIN_ANDROID_INTERSTITIAL_ID>',
+    appOpenId:      '<APPLOVIN_ANDROID_APP_OPEN_ID>',
+    rewardedId:     '<APPLOVIN_ANDROID_REWARDED_ID>',
+  );
+
+  static const AppLovinConfig appLovinIos = AppLovinConfig(
+    sdkKey:         '<APPLOVIN_SDK_KEY>',
+    bannerId:       '<APPLOVIN_IOS_BANNER_ID>',
+    interstitialId: '<APPLOVIN_IOS_INTERSTITIAL_ID>',
+    appOpenId:      '<APPLOVIN_IOS_APP_OPEN_ID>',
+    rewardedId:     '<APPLOVIN_IOS_REWARDED_ID>',
   );
 
   static const AdMobConfig adMob = AdMobConfig(
@@ -611,7 +661,7 @@ abstract final class AdKey {
 }
 ```
 
-**Usage:** `AdManager().initialize(config: AdConfig(provider: AdProvider.appLovin, appLovin: AdKey.appLovin, adMob: AdKey.adMob, ...))`.
+**Usage:** `AdManager().initialize(config: AdConfig(provider: AdProvider.appLovin, appLovin: AdKey.appLovin, admob: AdKey.adMob, ...))`.
 
 ### 10.3 — Cấu trúc UI (bắt buộc đủ 13 thành phần — Q19A + Q33A)
 
@@ -844,8 +894,9 @@ Review duy nhất 1 lần, KHÔNG lặp 3 lần. Checklist:
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + 7 packages bắt buộc (Q37 → C):
-  - `get`, `intl`, `url_launcher`, `confetti`, `app_tracking_transparency` (chỉ iOS), `shared_preferences` (đã có nếu dùng GetX), SDK
+- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + packages bắt buộc (Q37 → C):
+  - `get`, `intl`, `url_launcher`, `confetti`, `shared_preferences` (đã có nếu dùng GetX), SDK
+  - `app_tracking_transparency` là **transitive của SDK** — KHÔNG add ở app-level
   - **Skip** `vibration` — dùng Flutter built-in `HapticFeedback.heavyImpact()`
 - [ ] `AndroidManifest.xml` whitelist permissions (Q12B): `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Permission liên quan ad ngoài 3 cái này → có lý do rõ ràng. Permission ngoài ad → đã hỏi user.
 - [ ] `AndroidManifest.xml` có AdMob `APPLICATION_ID` meta-data (production hoặc test ID + warning Q6C)
@@ -856,7 +907,7 @@ Review duy nhất 1 lần, KHÔNG lặp 3 lần. Checklist:
 ### 11.2 — Bootstrap
 
 - [ ] `main.dart`: `AdManager().setNavigatorKey` trước `runApp`, navigator observers đầy đủ (`adRouteObserver` + `AdScreenRouteLogger()`)
-- [ ] (Nếu iOS) ATT prompt gọi trước `AdManager().initialize`
+- [ ] (Nếu iOS) `AdManager().requestAtt()` gọi trong **splash postFrame, trước `requestUmpConsent`** (KHÔNG gọi trong `main()` trước `runApp`)
 - [ ] Splash: `SimpleEventBus().listen` đăng ký TRƯỚC `initialize`, hard-cap (default 8s — Q24D), `markSplashActive/Inactive` đúng cặp, **hot-restart guard `countInitSplashScreen > 1`** (mandate — Q35A), App Open flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` đúng thứ tự
 - [ ] Splash UI có disclaimer `'splash_ads_notice'.tr` (Q27A)
 - [ ] `AdConfig.onLog` wire vào `SafeLogger` (Q9)
@@ -873,7 +924,7 @@ Review duy nhất 1 lần, KHÔNG lặp 3 lần. Checklist:
 ### 11.4 — VIP + Consent
 
 - [ ] First-install VIP grace dùng SDK `auto`, KHÔNG override (Q34A)
-- [ ] `AdKey` class ở `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` chứa `appLovin: AppLovinConfig(...)`, `adMob: AdMobConfig(...)`, `privacyPolicyUrl` (Q21A + Q29c)
+- [ ] `AdKey` class ở `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` chứa `appLovinAndroid`, `appLovinIos`, getter `appLovin` chọn theo platform, `adMob: AdMobConfig(...)`, `privacyPolicyUrl` (Q21A + Q29c)
 - [ ] VIP screen có **đủ 13 thành phần UI** (10.3) + **đủ 5 animation** (10.4) + **0 vi phạm memory leak rule** (10.5)
 - [ ] Translations vi + en đã thêm (10.7), 0 hard-code string user-facing (Q26)
 - [ ] AppBar icon VIP reactive theo `vip?.activeListenable` (10.8)
