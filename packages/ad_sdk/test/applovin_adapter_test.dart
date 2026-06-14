@@ -8,6 +8,9 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_bridge.dart';
 import 'package:applovin_max/applovin_max.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Captures listeners + records every native call.
@@ -182,6 +185,78 @@ void main() {
       expect(shown, isFalse);
       expect(bridge.loadInterCalls.length, loadsBefore + 1,
           reason: 'interstitial must refill past the show-failure cooldown');
+    });
+  });
+
+  // End-to-end: go through the REAL showAppOpen path (which arms the watchdog)
+  // and then advance time with FakeAsync — closing the seam between "showAppOpen
+  // arms the watchdog" and "the watchdog timing logic".
+  group('showAppOpen arms the watchdog (real show path + FakeAsync)', () {
+    AppLovinAdapter armedViaRealShow(
+      FakeAppLovinBridge b,
+      AppLifecycleState lifecycle,
+      FakeAsync async,
+      void Function(bool) onDismiss,
+    ) {
+      final a = AppLovinAdapter(
+        bridge: b,
+        lifecycleStateResolver: () => lifecycle,
+      );
+      a.initialize(_config);
+      async.flushMicrotasks();
+      a.loadAppOpen();
+      b.appOpen!.onAdLoadedCallback(_fakeAd());
+      a.showAppOpen(onDismiss: onDismiss);
+      async.flushMicrotasks();
+      expect(b.showAppOpenCalls, ['appopen-id']);
+      expect(a.appOpenSlot.isShowing, isTrue);
+      return a;
+    }
+
+    test('iOS: real show → re-arms past 10s, only the 90s hard cap dismisses',
+        () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        var calls = 0;
+        bool? dismissed;
+        final a = armedViaRealShow(b, AppLifecycleState.resumed, async, (d) {
+          calls++;
+          dismissed = d;
+        });
+
+        async.elapse(const Duration(seconds: 30));
+        expect(dismissed, isNull, reason: 'iOS re-arms; no early force-dismiss');
+
+        async.elapse(const Duration(seconds: 70)); // total 100s > 90s
+        expect(dismissed, isFalse, reason: 'hard cap fires');
+        expect(calls, 1);
+        expect(a.appOpenSlot.value, AdSlotState.cooldown);
+      });
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('native hide cancels the armed watchdog (no late double-dismiss)', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        var calls = 0;
+        bool? dismissed;
+        armedViaRealShow(b, AppLifecycleState.resumed, async, (d) {
+          calls++;
+          dismissed = d;
+        });
+
+        // AppLovin's native onAdHidden resolves the show.
+        b.appOpen!.onAdHiddenCallback(_fakeAd());
+        expect(dismissed, isTrue);
+        expect(calls, 1);
+
+        // Past the hard cap — the cancelled watchdog must not fire again.
+        async.elapse(const Duration(seconds: 100));
+        expect(calls, 1, reason: 'watchdog cancelled by native hide');
+      });
+      debugDefaultTargetPlatformOverride = null;
     });
   });
 }
