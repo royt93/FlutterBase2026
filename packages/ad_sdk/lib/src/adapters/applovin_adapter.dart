@@ -11,10 +11,23 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'applovin_bridge.dart';
 
 /// AppLovin MAX implementation of [AdProviderAdapter].
 class AppLovinAdapter implements AdProviderAdapter {
-  AppLovinAdapter();
+  /// [bridge] defaults to the real `AppLovinMAX` plugin; tests inject a fake.
+  /// [lifecycleStateResolver] defaults to the real app lifecycle state; the App
+  /// Open watchdog reads it through this seam so tests can drive the
+  /// foreground/background branches deterministically.
+  AppLovinAdapter({
+    AppLovinBridge bridge = const RealAppLovinBridge(),
+    AppLifecycleState? Function()? lifecycleStateResolver,
+  })  : _bridge = bridge,
+        _lifecycleState = lifecycleStateResolver ??
+            (() => WidgetsBinding.instance.lifecycleState);
+
+  final AppLovinBridge _bridge;
+  final AppLifecycleState? Function() _lifecycleState;
 
   @override
   String get tag => '[AppLovin]';
@@ -106,7 +119,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _wireInterstitialListener(cfg.interstitialId);
     _wireRewardedListener(cfg.rewardedId);
     try {
-      await AppLovinMAX.initialize(cfg.sdkKey);
+      await _bridge.initialize(cfg.sdkKey);
       SafeLogger.d(_logTag, 'initialize $tag ✅ SDK ready');
 
       // Register THIS device as a test device in debug builds — required
@@ -115,7 +128,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       // 1.x behaviour exactly.
       if (kDebugMode && deviceGaid.isNotEmpty) {
         try {
-          AppLovinMAX.setTestDeviceAdvertisingIds([deviceGaid]);
+          _bridge.setTestDeviceAdvertisingIds([deviceGaid]);
           SafeLogger.d(_logTag, 'AppLovin test device registered: $deviceGaid');
         } catch (e) {
           SafeLogger.w(_logTag, 'setTestDeviceAdvertisingIds failed: $e');
@@ -141,10 +154,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     // `onAdDisplayFailedCallback`) is silently dropped instead of
     // mutating slot state on a half-disposed adapter.
     try {
-      AppLovinMAX.setAppOpenAdListener(null);
-      AppLovinMAX.setInterstitialListener(null);
-      AppLovinMAX.setRewardedAdListener(null);
-      AppLovinMAX.setWidgetAdViewAdListener(null);
+      _bridge.setAppOpenAdListener(null);
+      _bridge.setInterstitialListener(null);
+      _bridge.setRewardedAdListener(null);
+      _bridge.setWidgetAdViewAdListener(null);
     } catch (e) {
       SafeLogger.w(_logTag, 'dispose() listener clear threw: $e');
     }
@@ -154,7 +167,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     final oldId = _bannerAdViewId.value;
     if (oldId != null) {
       try {
-        await AppLovinMAX.destroyWidgetAdView(oldId);
+        await _bridge.destroyWidgetAdView(oldId);
       } catch (e) {
         SafeLogger.w(_logTag, 'destroyWidgetAdView threw: $e');
       }
@@ -185,7 +198,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   // ─── App Open ─────────────────────────────────────────────────────────────
 
   void _wireAppOpenListener(String unitId) {
-    AppLovinMAX.setAppOpenAdListener(AppOpenAdListener(
+    _bridge.setAppOpenAdListener(AppOpenAdListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
         appOpenSlot.markReady();
@@ -224,7 +237,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         // window the show-failure just armed.
         if (appOpenSlot.beginReload()) {
           try {
-            AppLovinMAX.loadAppOpenAd(unitId);
+            _bridge.loadAppOpenAd(unitId);
           } catch (e) {
             SafeLogger.e(_logTag, 'reload appOpen threw: $e');
             appOpenSlot.markFailed();
@@ -250,7 +263,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         cb?.call(true);
         if (appOpenSlot.beginLoad()) {
           try {
-            AppLovinMAX.loadAppOpenAd(unitId);
+            _bridge.loadAppOpenAd(unitId);
           } catch (e) {
             SafeLogger.e(_logTag, 'reload appOpen threw: $e');
             appOpenSlot.markFailed();
@@ -285,7 +298,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     };
     SafeLogger.d(_logTag, 'loadAppOpen $tag 🔄 id=${cfg.appOpenId}');
     try {
-      AppLovinMAX.loadAppOpenAd(cfg.appOpenId);
+      _bridge.loadAppOpenAd(cfg.appOpenId);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadAppOpen $tag THREW: $e\n$st');
       appOpenSlot.markFailed();
@@ -314,9 +327,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     if (old != null) old(false);
     _appOpenDismiss = onDismiss;
 
-    SafeLogger.d(_logTag, 'showAppOpen $tag → AppLovinMAX.showAppOpenAd');
+    SafeLogger.d(_logTag, 'showAppOpen $tag → _bridge.showAppOpenAd');
     try {
-      AppLovinMAX.showAppOpenAd(cfg.appOpenId);
+      _bridge.showAppOpenAd(cfg.appOpenId);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showAppOpen $tag THREW: $e\n$st');
       appOpenSlot.markShowFailed();
@@ -351,6 +364,18 @@ class AppLovinAdapter implements AdProviderAdapter {
     _scheduleAppOpenTimeoutCheck(captured, attempt: 0);
   }
 
+  /// Test seam: put the App Open slot into `showing` and arm the watchdog with
+  /// [captured] as the pending dismiss callback, so the lifecycle/platform
+  /// branches of [_scheduleAppOpenTimeoutCheck] can be driven under `FakeAsync`.
+  @visibleForTesting
+  void debugStartAppOpenWatchdog(void Function(bool) captured) {
+    appOpenSlot.beginLoad();
+    appOpenSlot.markReady();
+    appOpenSlot.beginShow();
+    _appOpenDismiss = captured;
+    _scheduleAppOpenTimeoutCheck(captured, attempt: 0);
+  }
+
   /// Recursive lifecycle-aware timeout. On Android, force-dismisses shortly
   /// after observing the app foreground without a hidden callback (= hung
   /// overlay). On iOS the ad shows while the app stays `resumed`, so foreground
@@ -374,7 +399,7 @@ class AppLovinAdapter implements AdProviderAdapter {
             'showAppOpen $tag ⏰ tick #$attempt — already dismissed via callback, watcher exits');
         return;
       }
-      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      final lifecycle = _lifecycleState();
       final isForeground = lifecycle == AppLifecycleState.resumed;
 
       if (isForeground && foregroundMeansHung) {
@@ -421,7 +446,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   // ─── Interstitial ─────────────────────────────────────────────────────────
 
   void _wireInterstitialListener(String unitId) {
-    AppLovinMAX.setInterstitialListener(InterstitialListener(
+    _bridge.setInterstitialListener(InterstitialListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
         interstitialSlot.markReady();
@@ -465,7 +490,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         // beginReload — refill past the show-failure backoff window.
         if (interstitialSlot.beginReload()) {
           try {
-            AppLovinMAX.loadInterstitial(unitId);
+            _bridge.loadInterstitial(unitId);
           } catch (e) {
             SafeLogger.e(_logTag, 'reload inter threw: $e');
             interstitialSlot.markFailed();
@@ -489,7 +514,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         cb?.call(true);
         if (interstitialSlot.beginLoad()) {
           try {
-            AppLovinMAX.loadInterstitial(unitId);
+            _bridge.loadInterstitial(unitId);
           } catch (e) {
             SafeLogger.e(_logTag, 'reload inter threw: $e');
             interstitialSlot.markFailed();
@@ -507,7 +532,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     if (!interstitialSlot.beginLoad()) return;
     SafeLogger.d(_logTag, 'loadInterstitial $tag 🔄');
     try {
-      AppLovinMAX.loadInterstitial(cfg.interstitialId);
+      _bridge.loadInterstitial(cfg.interstitialId);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadInterstitial $tag THREW: $e\n$st');
       interstitialSlot.markFailed();
@@ -535,9 +560,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     _interstitialDone = null;
     if (old != null) old(false);
     _interstitialDone = onDone;
-    SafeLogger.d(_logTag, 'showInterstitial $tag → AppLovinMAX.showInterstitial(${cfg.interstitialId})');
+    SafeLogger.d(_logTag, 'showInterstitial $tag → _bridge.showInterstitial(${cfg.interstitialId})');
     try {
-      AppLovinMAX.showInterstitial(cfg.interstitialId);
+      _bridge.showInterstitial(cfg.interstitialId);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showInterstitial $tag THREW: $e\n$st');
       interstitialSlot.markShowFailed();
@@ -550,7 +575,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   // ─── Rewarded ─────────────────────────────────────────────────────────────
 
   void _wireRewardedListener(String unitId) {
-    AppLovinMAX.setRewardedAdListener(RewardedAdListener(
+    _bridge.setRewardedAdListener(RewardedAdListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
         rewardedSlot.markReady();
@@ -585,7 +610,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         // beginReload — refill past the show-failure backoff window.
         if (rewardedSlot.beginReload()) {
           try {
-            AppLovinMAX.loadRewardedAd(unitId);
+            _bridge.loadRewardedAd(unitId);
           } catch (e) {
             SafeLogger.e(_logTag, 'reload rewarded threw: $e');
             rewardedSlot.markFailed();
@@ -609,7 +634,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         cb?.call(RewardResult.skipped);
         if (rewardedSlot.beginLoad()) {
           try {
-            AppLovinMAX.loadRewardedAd(unitId);
+            _bridge.loadRewardedAd(unitId);
           } catch (e) {
             SafeLogger.e(_logTag, 'reload rewarded threw: $e');
             rewardedSlot.markFailed();
@@ -646,7 +671,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     if (!rewardedSlot.beginLoad()) return;
     SafeLogger.d(_logTag, 'loadRewarded $tag 🔄');
     try {
-      AppLovinMAX.loadRewardedAd(cfg.rewardedId);
+      _bridge.loadRewardedAd(cfg.rewardedId);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadRewarded $tag THREW: $e\n$st');
       rewardedSlot.markFailed();
@@ -674,9 +699,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     _rewardedDone = null;
     if (old != null) old(RewardResult.skipped);
     _rewardedDone = onDone;
-    SafeLogger.d(_logTag, 'showRewarded $tag → AppLovinMAX.showRewardedAd(${cfg.rewardedId})');
+    SafeLogger.d(_logTag, 'showRewarded $tag → _bridge.showRewardedAd(${cfg.rewardedId})');
     try {
-      AppLovinMAX.showRewardedAd(cfg.rewardedId);
+      _bridge.showRewardedAd(cfg.rewardedId);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showRewarded $tag THREW: $e\n$st');
       rewardedSlot.markShowFailed();
@@ -694,7 +719,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     if (cfg == null) return;
     SafeLogger.d(_logTag, 'preloadBanner $tag 🔄 id=${cfg.bannerId}');
 
-    AppLovinMAX.setWidgetAdViewAdListener(WidgetAdViewAdListener(
+    _bridge.setWidgetAdViewAdListener(WidgetAdViewAdListener(
       onAdLoadedCallback: (ad) {
         final isInitial = !banner.isLoaded.value;
         SafeLogger.d(
@@ -735,7 +760,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     ));
 
     try {
-      final adViewId = await AppLovinMAX.preloadWidgetAdView(
+      final adViewId = await _bridge.preloadWidgetAdView(
         cfg.bannerId,
         AdFormat.banner,
       );
