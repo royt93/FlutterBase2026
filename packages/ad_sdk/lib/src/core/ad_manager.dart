@@ -5,7 +5,8 @@ import 'package:connection_notifier/connection_notifier.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart' show ConsentStatus, DebugGeography;
+import 'package:google_mobile_ads/google_mobile_ads.dart'
+    show ConsentStatus, DebugGeography;
 
 import '../adapters/admob_adapter.dart';
 import '../adapters/applovin_adapter.dart';
@@ -90,8 +91,56 @@ class AdManager with WidgetsBindingObserver {
 
   AdProviderAdapter? get adapter => _adapter;
 
+  /// Release-build footgun checks, returned as human-readable warnings.
+  /// `initialize()` logs each (and asserts in non-release). Pure + static so it
+  /// is unit-testable without running the full native init.
+  @visibleForTesting
+  static List<String> releaseFootgunWarnings(AdConfig config,
+      {required bool isDebug}) {
+    if (isDebug) return const [];
+    final warnings = <String>[];
+    // dryRun disables the ENTIRE safety layer (throttle, caps, CTR fraud).
+    if (config.safety.dryRun) {
+      warnings.add('🚨 AdSafetyParams.dryRun is TRUE in a RELEASE build — the '
+          'entire safety layer is bypassed. This risks an AdMob/AppLovin ban. '
+          'Set dryRun:false before shipping.');
+    }
+    // Google public TEST unit IDs must never serve in production AdMob.
+    if (config.provider == AdProvider.admob) {
+      const googleTestPrefix = 'ca-app-pub-3940256099942544';
+      final m = config.admob;
+      final usesTestId = m != null &&
+          (m.bannerId.contains(googleTestPrefix) ||
+              m.interstitialId.contains(googleTestPrefix) ||
+              m.appOpenId.contains(googleTestPrefix) ||
+              m.rewardedId.contains(googleTestPrefix));
+      if (usesTestId) {
+        warnings.add('🚨 AdMob provider is active in RELEASE with Google TEST '
+            'ad unit IDs (ca-app-pub-3940256099942544/…). Serving test ads in '
+            'production violates AdMob policy and earns \$0. Replace with '
+            'production unit IDs before shipping.');
+      }
+    }
+    return warnings;
+  }
+
   /// VIP manager — `null` until [initialize] completes.
   VipManager? get vip => _vipManager;
+
+  // ─── Test seams ────────────────────────────────────────────────────────────
+  /// Push an event onto [events] (lets a test drive consumers like RevenuePanel
+  /// without a live native adapter).
+  @visibleForTesting
+  void debugEmit(AdEvent event) => _emit(event);
+
+  /// Inject a (fake) adapter so the gating logic in `loadX`/`showX`/`canShowX`
+  /// can be unit-tested without the native plugins.
+  @visibleForTesting
+  void debugSetAdapter(AdProviderAdapter? adapter) => _adapter = adapter;
+
+  /// Inject a VipManager so the VIP-suppression branches are unit-testable.
+  @visibleForTesting
+  set debugVipManager(VipManager? m) => _vipManager = m;
 
   /// Consent manager — `null` until [initialize] completes. Owns the
   /// Cupertino consent dialog, persistence, and provider apply pipeline.
@@ -103,7 +152,8 @@ class AdManager with WidgetsBindingObserver {
 
   /// Stream of every [AdEvent] (load / show / click / reward / revenue).
   Stream<AdEvent> get events => _eventStream.stream;
-  final StreamController<AdEvent> _eventStream = StreamController<AdEvent>.broadcast();
+  final StreamController<AdEvent> _eventStream =
+      StreamController<AdEvent>.broadcast();
 
   /// Increments on every successful [initialize]. Widgets can listen so they
   /// rebuild after a provider hot-swap or destroy → re-init cycle.
@@ -190,16 +240,19 @@ class AdManager with WidgetsBindingObserver {
     if (mgr.hasBeenAsked) return;
     if (_consentDialogScheduled) return;
     if (_isVipMember) {
-      SafeLogger.d(_tag, '⏭️ consent dialog skipped — VIP member (no ads anyway)');
+      SafeLogger.d(
+          _tag, '⏭️ consent dialog skipped — VIP member (no ads anyway)');
       return;
     }
     _consentDialogScheduled = true;
 
     final delay = cfg.consentDialogPostSplashDelay;
-    SafeLogger.d(_tag, () => '🕒 consent dialog scheduled (delay=${delay.inMilliseconds}ms)');
+    SafeLogger.d(_tag,
+        () => '🕒 consent dialog scheduled (delay=${delay.inMilliseconds}ms)');
     Future.delayed(delay, () async {
       if (mgr.hasBeenAsked) {
-        SafeLogger.d(_tag, '⏭️ scheduled consent dialog skipped — already asked');
+        SafeLogger.d(
+            _tag, '⏭️ scheduled consent dialog skipped — already asked');
         return;
       }
       // Re-check VIP at fire time — user may have redeemed a VIP key during
@@ -210,7 +263,8 @@ class AdManager with WidgetsBindingObserver {
       }
       final ctx = _navigatorKey?.currentContext;
       if (ctx == null) {
-        SafeLogger.w(_tag, 'scheduled consent dialog: no navigator context — skipping');
+        SafeLogger.w(
+            _tag, 'scheduled consent dialog: no navigator context — skipping');
         return;
       }
       SafeLogger.d(_tag, '🪟 showing scheduled consent dialog');
@@ -252,18 +306,22 @@ class AdManager with WidgetsBindingObserver {
     // forcing markSplashInactive here cuts the ad off and the splash flow's
     // own onAdDismiss → markSplashInactive becomes a noop. Wait instead.
     if (_adapter?.appOpenSlot.value == AdSlotState.showing) {
-      SafeLogger.d(_tag,
-          () => '⏰ splash budget elapsed but app-open in flight — re-arming +${_splashHardCapAfterAd.inSeconds}s');
+      SafeLogger.d(
+          _tag,
+          () =>
+              '⏰ splash budget elapsed but app-open in flight — re-arming +${_splashHardCapAfterAd.inSeconds}s');
       _splashBudgetTimer = Timer(_splashHardCapAfterAd, () {
         _splashBudgetTimer = null;
         if (!_isSplashActive) return;
-        SafeLogger.w(_tag, '⏰ splash hard cap reached — forcing markSplashInactive');
+        SafeLogger.w(
+            _tag, '⏰ splash hard cap reached — forcing markSplashInactive');
         markSplashInactive();
       });
       return;
     }
     final dur = _config?.splashMaxDuration ?? const Duration(seconds: 8);
-    SafeLogger.w(_tag, '⏰ splash budget exceeded (${dur.inSeconds}s) — forcing markSplashInactive');
+    SafeLogger.w(_tag,
+        '⏰ splash budget exceeded (${dur.inSeconds}s) — forcing markSplashInactive');
     markSplashInactive();
   }
 
@@ -280,37 +338,46 @@ class AdManager with WidgetsBindingObserver {
 
   bool canLoadBanner() {
     if (_lastBannerLoadAt == 0) return true;
-    return DateTime.now().millisecondsSinceEpoch - _lastBannerLoadAt >= _bannerLoadCooldownMs;
+    return DateTime.now().millisecondsSinceEpoch - _lastBannerLoadAt >=
+        _bannerLoadCooldownMs;
   }
 
   void recordBannerLoad() {
     _lastBannerLoadAt = DateTime.now().millisecondsSinceEpoch;
   }
 
-  ValueListenable<bool> get bannerIsLoaded => _adapter?.banner.isLoaded ?? _stubBoolFalse;
+  ValueListenable<bool> get bannerIsLoaded =>
+      _adapter?.banner.isLoaded ?? _stubBoolFalse;
 
-  ValueListenable<bool> get bannerHasError => _adapter?.banner.hasError ?? _stubBoolFalse;
+  ValueListenable<bool> get bannerHasError =>
+      _adapter?.banner.hasError ?? _stubBoolFalse;
 
-  ValueListenable<Size?> get bannerAdSize => _adapter?.banner.adSize ?? _stubSize;
+  ValueListenable<Size?> get bannerAdSize =>
+      _adapter?.banner.adSize ?? _stubSize;
 
-  ValueListenable<bool> get bannerAutoRefreshEnabled => _adapter?.banner.autoRefreshEnabled ?? _stubBoolTrue;
+  ValueListenable<bool> get bannerAutoRefreshEnabled =>
+      _adapter?.banner.autoRefreshEnabled ?? _stubBoolTrue;
 
-  ValueListenable<bool> get bannerVisible => _adapter?.banner.visible ?? _stubBoolTrue;
+  ValueListenable<bool> get bannerVisible =>
+      _adapter?.banner.visible ?? _stubBoolTrue;
 
-  ValueListenable<Object?> get bannerAdViewId => _adapter?.appLovinBannerAdViewId ?? _stubObject;
+  ValueListenable<Object?> get bannerAdViewId =>
+      _adapter?.appLovinBannerAdViewId ?? _stubObject;
 
   String get appLovinBannerId => _adapter?.appLovinBannerId ?? '';
 
   bool get bannerRoutePaused => _adapter?.bannerRoutePaused ?? false;
 
-  void setBannerRoutePaused(bool paused) => _adapter?.setBannerRoutePaused(paused);
+  void setBannerRoutePaused(bool paused) =>
+      _adapter?.setBannerRoutePaused(paused);
 
   Widget? get admobBannerView => _adapter?.buildAdmobBannerView();
 
   static final ValueNotifier<bool> _stubBoolFalse = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> _stubBoolTrue = ValueNotifier<bool>(true);
   static final ValueNotifier<Size?> _stubSize = ValueNotifier<Size?>(null);
-  static final ValueNotifier<Object?> _stubObject = ValueNotifier<Object?>(null);
+  static final ValueNotifier<Object?> _stubObject =
+      ValueNotifier<Object?>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   //  INITIALIZE
@@ -356,7 +423,8 @@ class AdManager with WidgetsBindingObserver {
       );
 
       _ensureObserverAdded();
-      SafeLogger.d(_tag, () => 'initialize start, provider=${config.provider.name}');
+      SafeLogger.d(
+          _tag, () => 'initialize start, provider=${config.provider.name}');
 
       final prefs = await AdPreferences.getInstance();
 
@@ -364,32 +432,9 @@ class AdManager with WidgetsBindingObserver {
       await AdSafetyConfig.init(prefs, params: config.safety);
 
       // ── Release footguns (loud, fire in release where it matters) ──────────
-      // dryRun disables the ENTIRE safety layer (throttle, caps, CTR fraud).
-      // Shipping it risks ad-spam → invalid traffic → account ban.
-      if (config.safety.dryRun && !kDebugMode) {
-        SafeLogger.e(_tag,
-            '🚨 AdSafetyParams.dryRun is TRUE in a RELEASE build — the entire '
-            'safety layer is bypassed. This risks an AdMob/AppLovin ban. '
-            'Set dryRun:false before shipping.');
-        assert(false, 'dryRun must not be enabled in release builds');
-      }
-      // Google public TEST unit IDs must never serve in production AdMob.
-      if (config.provider == AdProvider.admob && !kDebugMode) {
-        const googleTestPrefix = 'ca-app-pub-3940256099942544';
-        final m = config.admob;
-        final usesTestId = m != null &&
-            (m.bannerId.contains(googleTestPrefix) ||
-                m.interstitialId.contains(googleTestPrefix) ||
-                m.appOpenId.contains(googleTestPrefix) ||
-                m.rewardedId.contains(googleTestPrefix));
-        if (usesTestId) {
-          SafeLogger.e(_tag,
-              '🚨 AdMob provider is active in RELEASE with Google TEST ad unit '
-              'IDs (ca-app-pub-3940256099942544/…). Serving test ads in '
-              'production violates AdMob policy and earns \$0. Replace with '
-              'production unit IDs before shipping.');
-          assert(false, 'AdMob test unit IDs must not ship in release');
-        }
+      for (final w in releaseFootgunWarnings(config, isDebug: kDebugMode)) {
+        SafeLogger.e(_tag, w);
+        assert(false, w);
       }
 
       // Resolve device GAID FIRST — VIP migration + first-init both need it
@@ -413,7 +458,8 @@ class AdManager with WidgetsBindingObserver {
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
-      SafeLogger.d(_tag, () => 'VIP active=${vip.isActive} entries=${vip.entries.length}');
+      SafeLogger.d(_tag,
+          () => 'VIP active=${vip.isActive} entries=${vip.entries.length}');
 
       // First-init: import VIP GAIDs from config (release builds only).
       // Only entries whose GAID matches THIS device are persisted as active
@@ -453,10 +499,11 @@ class AdManager with WidgetsBindingObserver {
           final alreadyGranted = await guard.hasAlreadyGranted();
           if (alreadyGranted) {
             await prefs.markFirstInstallGraceApplied();
-            SafeLogger.d(_tag, () =>
-                '🛡️ first-install VIP grace SKIPPED — anti-bypass guard '
-                'returned true (prior install detected, or referrer signal '
-                'inconclusive on Android)');
+            SafeLogger.d(
+                _tag,
+                () => '🛡️ first-install VIP grace SKIPPED — anti-bypass guard '
+                    'returned true (prior install detected, or referrer signal '
+                    'inconclusive on Android)');
           } else {
             await vip.addVip(
               key: config.firstInstallVipKey,
@@ -492,7 +539,8 @@ class AdManager with WidgetsBindingObserver {
       // as a test device in debug builds (preserves 1.x policy compliance).
       final adapter = config.isAdMob ? AdMobAdapter() : AppLovinAdapter();
       adapter.eventSink = _emit;
-      final ok = await adapter.initialize(config, deviceGaid: _currentDeviceGAID);
+      final ok =
+          await adapter.initialize(config, deviceGaid: _currentDeviceGAID);
       if (!ok) {
         SafeLogger.e(_tag, 'adapter init FAILED');
         onComplete(false, _currentDeviceGAID);
@@ -598,7 +646,10 @@ class AdManager with WidgetsBindingObserver {
         final curr = slot.value;
         if (prev == AdSlotState.showing && curr != AdSlotState.showing) {
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
-          SafeLogger.d(_tag, () => '🛡️ ${slot.type.name} dismissed — app-open suppression armed');
+          SafeLogger.d(
+              _tag,
+              () =>
+                  '🛡️ ${slot.type.name} dismissed — app-open suppression armed');
         }
         _slotPrevState[slot.type] = curr;
       }
@@ -654,7 +705,8 @@ class AdManager with WidgetsBindingObserver {
     _consent = consent;
     SafeLogger.d(_tag, () => 'setConsent: $consent');
     if (!isInitialised) {
-      SafeLogger.d(_tag, '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
+      SafeLogger.d(_tag,
+          '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
       return;
     }
     await applyConsentToProviders(consent, config: _config);
@@ -689,7 +741,8 @@ class AdManager with WidgetsBindingObserver {
     // Map UMP status → AdConsent.hasUserConsent. `obtained` and `notRequired`
     // both mean we may serve personalized ads; `required` (form not shown /
     // dismissed without choosing) and `unknown` stay non-personalized.
-    final hasConsent = result.status == ConsentStatus.obtained || result.status == ConsentStatus.notRequired;
+    final hasConsent = result.status == ConsentStatus.obtained ||
+        result.status == ConsentStatus.notRequired;
     await setConsent(AdConsent(
       hasUserConsent: hasConsent,
       isAgeRestrictedUser: _consent.isAgeRestrictedUser,
@@ -839,12 +892,16 @@ class AdManager with WidgetsBindingObserver {
     if (!bypassSafety) {
       final s = AdSafetyConfig.canShowFullscreenAd();
       if (!s.canShow) {
-        SafeLogger.d(_tag, () => '⏭️ showAppOpen blocked by safety: ${s.reason}');
+        SafeLogger.d(
+            _tag, () => '⏭️ showAppOpen blocked by safety: ${s.reason}');
         onAdDismiss(false);
         return;
       }
     }
-    SafeLogger.d(_tag, () => '▶️ showAppOpen (bypassSafety=$bypassSafety, placement=${placement.id})');
+    SafeLogger.d(
+        _tag,
+        () =>
+            '▶️ showAppOpen (bypassSafety=$bypassSafety, placement=${placement.id})');
     await ad.showAppOpen(onDismiss: (dismissed) {
       if (dismissed) {
         AdSafetyConfig.recordFullscreenAdShown();
@@ -885,7 +942,8 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (ad.interstitialSlot.isShowing || ad.rewardedSlot.isShowing) {
-      SafeLogger.d(_tag, '⏭️ app-open on resume skipped — interstitial/rewarded currently showing');
+      SafeLogger.d(_tag,
+          '⏭️ app-open on resume skipped — interstitial/rewarded currently showing');
       return;
     }
 
@@ -894,14 +952,21 @@ class AdManager with WidgetsBindingObserver {
     // watcher gives us an accurate dismiss instant — so suppressing app-open
     // for 5 s after any fullscreen ad covers the bounce-back UX without
     // starving legitimate background→foreground app-open impressions.
-    final dismissDelta = DateTime.now().millisecondsSinceEpoch - _lastFullscreenDismissAt;
+    final dismissDelta =
+        DateTime.now().millisecondsSinceEpoch - _lastFullscreenDismissAt;
     if (_lastFullscreenDismissAt > 0 && dismissDelta < 5000) {
-      SafeLogger.d(_tag, () => '⏭️ skipping app-open on resume (recent fullscreen dismiss ${dismissDelta}ms ago)');
+      SafeLogger.d(
+          _tag,
+          () =>
+              '⏭️ skipping app-open on resume (recent fullscreen dismiss ${dismissDelta}ms ago)');
       return;
     }
     final safetyResume = AdSafetyConfig.canShowAppOpenOnResume();
     if (!safetyResume.canShow) {
-      SafeLogger.d(_tag, () => '⏭️ app-open on resume skipped — ${safetyResume.reason} → triggering reload');
+      SafeLogger.d(
+          _tag,
+          () =>
+              '⏭️ app-open on resume skipped — ${safetyResume.reason} → triggering reload');
       unawaited(loadAppOpenAd());
       return;
     }
@@ -913,12 +978,16 @@ class AdManager with WidgetsBindingObserver {
       unawaited(loadAppOpenAd());
       return;
     }
-    SafeLogger.d(_tag, '✅ app-open on resume — all gates passed, showing buffer + ad');
+    SafeLogger.d(
+        _tag, '✅ app-open on resume — all gates passed, showing buffer + ad');
 
     final navContext = _navigatorKey?.currentContext;
     if (navContext != null) {
       AdLoadingDialog.showAdBuffer(navContext, onComplete: () {
-        if (_isSplashActive || _isVipMember || ad.interstitialSlot.isShowing || ad.rewardedSlot.isShowing) {
+        if (_isSplashActive ||
+            _isVipMember ||
+            ad.interstitialSlot.isShowing ||
+            ad.rewardedSlot.isShowing) {
           return;
         }
         if (!ad.appOpenSlot.isReady) {
@@ -935,7 +1004,10 @@ class AdManager with WidgetsBindingObserver {
       _resumeFallbackTimer = Timer(const Duration(seconds: 1), () {
         _resumeFallbackTimer = null;
         if (!isInitialised) return;
-        if (_isSplashActive || _isVipMember || ad.interstitialSlot.isShowing || ad.rewardedSlot.isShowing) {
+        if (_isSplashActive ||
+            _isVipMember ||
+            ad.interstitialSlot.isShowing ||
+            ad.rewardedSlot.isShowing) {
           return;
         }
         if (!ad.appOpenSlot.isReady) {
@@ -995,11 +1067,15 @@ class AdManager with WidgetsBindingObserver {
     }
     final safety = AdSafetyConfig.canShowFullscreenAd();
     if (!safety.canShow) {
-      SafeLogger.d(_tag, () => '⏭️ showInterstitial blocked by safety: ${safety.reason}');
+      SafeLogger.d(_tag,
+          () => '⏭️ showInterstitial blocked by safety: ${safety.reason}');
       onDoneFlow(false);
       return;
     }
-    SafeLogger.d(_tag, () => '▶️ showInterstitial (placement=${placement.id}, slot=${ad.interstitialSlot.value.name})');
+    SafeLogger.d(
+        _tag,
+        () =>
+            '▶️ showInterstitial (placement=${placement.id}, slot=${ad.interstitialSlot.value.name})');
     await ad.showInterstitial(onDone: (shown) {
       if (shown) {
         AdSafetyConfig.recordFullscreenAdShown();
@@ -1068,7 +1144,10 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (_isVipMember) {
-      SafeLogger.d(_tag, () => '⏭️ showRewarded skipped — VIP member (vipAutoGrant=$vipAutoGrant)');
+      SafeLogger.d(
+          _tag,
+          () =>
+              '⏭️ showRewarded skipped — VIP member (vipAutoGrant=$vipAutoGrant)');
       onEarnedReward(vipAutoGrant);
       return;
     }
@@ -1079,7 +1158,8 @@ class AdManager with WidgetsBindingObserver {
     }
     final safety = AdSafetyConfig.canShowFullscreenAd();
     if (!safety.canShow) {
-      SafeLogger.d(_tag, () => '⏭️ showRewarded blocked by safety: ${safety.reason}');
+      SafeLogger.d(
+          _tag, () => '⏭️ showRewarded blocked by safety: ${safety.reason}');
       onEarnedReward(false);
       return;
     }
@@ -1202,7 +1282,8 @@ class AdManager with WidgetsBindingObserver {
       // host activity is mid-recreation; isolate this log path so it can
       // never crash the lifecycle observer.
       _safeLifecycleLog(
-        () => 'lifecycle: ${prev?.name ?? "—"} → ${state.name} (SDK not initialised — ignoring)',
+        () =>
+            'lifecycle: ${prev?.name ?? "—"} → ${state.name} (SDK not initialised — ignoring)',
       );
       return;
     }

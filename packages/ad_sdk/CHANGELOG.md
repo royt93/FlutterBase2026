@@ -4,6 +4,23 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.21] - 2026-06-15
+
+### Changed — dependency refresh
+- `google_mobile_ads` `^6.0.0` → `^7.0.0`, `flutter_secure_storage` `^9.2.4` →
+  `^10.0.0`, `applovin_max` `^4.6.3` → `^4.6.4`. No public-API change; all 132
+  tests pass. (Bumping `google_mobile_ads` to 8/9 requires Dart ≥3.10 / a newer
+  Flutter, so 7.x is the current ceiling; `connection_notifier` is kept at
+  `^2.0.1` because `^4` pulls `connectivity_plus 7`, which conflicts with hosts
+  on `connectivity_plus 6`.)
+- Dropped the deprecated `encryptedSharedPreferences` AndroidOptions flag
+  (flutter_secure_storage 10 auto-migrates).
+
+### Example
+- Interstitial demo now passes `placement: AdPlacement.levelComplete` to show
+  per-placement revenue tagging; VIP demo documents the `AdConfig.vipDeviceGaids`
+  allow-list + `isVIPMember()`.
+
 ## [1.0.20] - 2026-06-14
 
 ### Example only

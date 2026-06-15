@@ -64,7 +64,9 @@ class FirstInstallGuard {
               iOptions: IOSOptions(
                 accessibility: KeychainAccessibility.first_unlock,
               ),
-              aOptions: AndroidOptions(encryptedSharedPreferences: true),
+              // flutter_secure_storage 10.x deprecated `encryptedSharedPreferences`
+              // (Jetpack Security retired); data auto-migrates to custom ciphers.
+              aOptions: AndroidOptions(),
             ),
         _isDebug = debugOverride ?? kDebugMode,
         _platformIsIos = platformIsIos ?? _defaultIsIos,

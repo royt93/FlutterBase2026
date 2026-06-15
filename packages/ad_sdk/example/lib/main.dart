@@ -612,12 +612,19 @@ class _InterstitialDemoPageState extends AdScreenState<InterstitialDemoPage> {
             const SizedBox(height: 24),
             FilledButton(
               onPressed: () {
-                showInterstitialAd(onDone: (shown) {
-                  _lastResult.value = shown ? 'shown ✅' : 'skipped/blocked ❌';
-                  if (shown) _shownCount.value = _shownCount.value + 1;
-                });
+                // `placement` tags the impression for revenue analytics — it
+                // flows into `AdShowEvent.placement` / `AdRevenueEvent`. Use a
+                // preset (home/shop/levelComplete/gameOver/settings) or
+                // `AdPlacement.custom('my_screen')`.
+                showInterstitialAd(
+                  placement: AdPlacement.levelComplete,
+                  onDone: (shown) {
+                    _lastResult.value = shown ? 'shown ✅' : 'skipped/blocked ❌';
+                    if (shown) _shownCount.value = _shownCount.value + 1;
+                  },
+                );
               },
-              child: const Text('Show interstitial'),
+              child: const Text('Show interstitial (placement: levelComplete)'),
             ),
             const SizedBox(height: 12),
             const Text(
@@ -799,6 +806,42 @@ class _VipDemoPageState extends State<VipDemoPage> {
       body: ListView(
         padding: _bottomSafe(context, const EdgeInsets.all(16)),
         children: [
+            // GAID allow-list — a second VIP mechanism alongside key redeem:
+            // mark specific devices VIP by their Google Advertising ID. The
+            // SUPPORTED way is the startup config `AdConfig.vipDeviceGaids:
+            // ['gaid1', ...]` (auto-migrated to VipManager entries on first
+            // init). `AdManager().isVIPMember()` reports the current state.
+            // (The runtime add/deleteVIPMember mutators are deprecated — prefer
+            // `AdManager().vip.addVip(...)` / `revokeVip(...)`.)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('GAID VIP allow-list',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Set at startup via AdConfig.vipDeviceGaids: [...]. '
+                      'Tap to read the live VIP state:',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () {
+                        final isVip = AdManager().isVIPMember();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('isVIPMember() = $isVip')),
+                        );
+                      },
+                      child: const Text('Check isVIPMember()'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             // Status card
             if (vip != null)
               ValueListenableBuilder<bool>(
