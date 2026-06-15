@@ -45,6 +45,10 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 
 ## What's new in 1.0.19
 
+> **1.0.20** is an example-only release — the bundled example's splash now demos
+> the recommended `requestAtt() → requestUmpConsent() → initialize()` ordering.
+> No library / public-API change vs 1.0.19.
+
 Backwards-compatible with 1.0.1x. Recent additions:
 
 - **iOS App Tracking Transparency (1.0.19)** — `AdManager().requestAtt()` /
@@ -91,7 +95,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.19
+  applovin_admob_sdk: ^1.0.20
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
@@ -1060,6 +1064,7 @@ See `MIGRATION.md` for a step-by-step guide.
 
 - **1.0.14 → 1.0.15** — no breaking change. Update the version, run `flutter pub get`, optionally remove `android:taskAffinity=""` from `MainActivity`.
 - **1.0.1x → 1.0.19** — no breaking change. New optional `AdManager().requestAtt()` for iOS ATT (call in splash before UMP); add `NSUserTrackingUsageDescription` to `Info.plist` if targeting iOS. iOS App-Open watchdog fix is automatic.
+- **1.0.19 → 1.0.20** — no breaking change, no API change (example-only update).
 - **1.x → 2.x** — backwards-compatible (deprecations, not removals). Old call sites compile and behave the same.
 
 ---

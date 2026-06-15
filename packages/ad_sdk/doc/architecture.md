@@ -391,7 +391,10 @@ The adapter-callback writes are still kept as belt-and-braces fallback (they can
 
 | Version | Status | Highlights |
 |---|---|---|
-| 1.0.16 | Current stable | Documentation-only release. Full English rewrite of README, MIGRATION, and architecture. No runtime code changes vs 1.0.15. |
+| 1.0.20 | Current stable | Example-only release — example splash demos `requestAtt → requestUmpConsent → initialize`. No library/API change vs 1.0.19. |
+| 1.0.19 | Stable | iOS App Tracking Transparency (`requestAtt()`, `AttStatus`/`AttResult`); iOS App-Open watchdog fix; AppLovin reload-after-display-fail fix; AdMob parity (watchdog, expiry); rewarded-only VIP grant (removed interstitial fallback). |
+| 1.0.17–1.0.18 | Stable | Anti-uninstall-bypass guard for the first-install VIP grace (iOS Keychain + Android Auto Backup); version bump. |
+| 1.0.16 | Stable | Documentation-only release. Full English rewrite of README, MIGRATION, and architecture. No runtime code changes vs 1.0.15. |
 | 1.0.15 | Stable | Cupertino consent dialog, UMP wrapper, first-install VIP grace, smart App-Open timeout, slot-state dismiss watcher, granular diagnostic logs |
 | 1.0.14 | Previous stable | Adapter pattern + state machine, VIP system with redeem dialog, consent flag forwarding, Stream of `AdEvent`, debug overlay |
 | 2.0.0 | Unreleased | Will remove all `@Deprecated` symbols listed in `CHANGELOG.md` (legacy GAID-based VIP API, duplicate `ad_sdk.dart` barrel) |

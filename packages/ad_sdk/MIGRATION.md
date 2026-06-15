@@ -4,6 +4,7 @@ Practical step-by-step guides for upgrading from older versions of `applovin_adm
 
 ## Table of contents
 
+- [1.0.18 → 1.0.19 → 1.0.20](#1018--1019--1020) — iOS ATT (action needed for iOS); example-only 1.0.20
 - [1.0.15 → 1.0.16](#1015--1016) — documentation-only release
 - [1.0.14 → 1.0.15](#1014--1015) — no breaking changes; opt-in new features
 - [1.x → 2.x (legacy upgrade path)](#1x--2x) — auto-migrating; old calls still work
@@ -11,6 +12,27 @@ Practical step-by-step guides for upgrading from older versions of `applovin_adm
 - [FAQ](#faq)
 
 ---
+
+## 1.0.18 → 1.0.19 → 1.0.20
+
+**No breaking changes.** Bump the version and `flutter pub get`.
+
+**iOS action needed (1.0.19):** to use App Tracking Transparency,
+1. Add `NSUserTrackingUsageDescription` to `ios/Runner/Info.plist`.
+2. In your splash (after the first frame, **before** `requestUmpConsent` and
+   `initialize`), call:
+   ```dart
+   final att = await AdManager().requestAtt(); // no-op on Android, never throws
+   ```
+   `requestAtt()` returns `AttResult { status, idfa, allowsTracking }`. It is
+   decoupled from the GDPR consent flag — the native SDKs read ATT directly.
+
+Also in 1.0.19: the iOS App-Open watchdog fix and AppLovin reload-after-display-fail
+fix are automatic (no action). The rewarded-ad reward is now granted **only** when
+a rewarded ad completes (`earned == true`) — if your code relied on an
+interstitial-as-reward fallback, remove it.
+
+**1.0.20** is example-only (no library change).
 
 ## 1.0.15 → 1.0.16
 
@@ -363,7 +385,7 @@ Yes. 1.0.15 has zero breaking changes. The new behaviors (auto consent dialog, f
 
 ### Should I migrate to 2.0?
 
-The 2.0 release line is currently unreleased (the public stable line is 1.0.15). When 2.0 ships, it will remove all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API. If you have already migrated to the modern VipManager API in 1.0.15, the 2.0 upgrade will be trivial.
+The 2.0 release line is currently unreleased (the public stable line is 1.0.20). When 2.0 ships, it will remove all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API. If you have already migrated to the modern VipManager API in 1.0.15, the 2.0 upgrade will be trivial.
 
 ### How do I roll back from 1.0.15?
 

@@ -1,5 +1,12 @@
 # 🧪 TESTING GUIDE - WiFi Stressor App
 
+> ⚠️ **OUTDATED / ASPIRATIONAL.** The `test/unit`, `test/widget`, `test/integration`
+> layout, `make coverage` and Codecov steps described below **do not exist** in
+> this repo. The host app has no `test/` directory. The real automated tests
+> (132 unit/widget/integration tests) live in **`packages/ad_sdk/test/`** — run
+> them with `cd packages/ad_sdk && flutter test`. CI (`.github/workflows/test.yml`)
+> runs exactly that. This file is kept only as a future plan for host-app tests.
+
 ## 📋 Tổng quan
 
 Comprehensive testing suite cho WiFi Stressor App bao gồm:

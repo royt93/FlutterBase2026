@@ -3,7 +3,7 @@
 > **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/AD.MD`.
 >
 > **State hiện tại của `_FlutterBase2025` (cập nhật 2026-06-14):**
-> - Runtime SDK: `applovin_admob_sdk: ^1.0.19` (partner dùng bản hosted này). Lưu ý: repo `_FlutterBase2025` HIỆN đang dev SDK qua `path: packages/ad_sdk` (dòng hosted bị comment) — khi tích hợp project mới partner dùng hosted, KHÔNG cần path override.
+> - Runtime SDK: `applovin_admob_sdk: ^1.0.20` (hosted trên pub.dev — partner dùng bản này). `_FlutterBase2025` đã consume hosted `^1.0.20`, không còn path override.
 > - ATT (App Tracking Transparency) đã tích hợp SẴN trong SDK: gọi `AdManager().requestAtt()` trong splash trước UMP (xem Step 8.3) — KHÔNG tự gọi `app_tracking_transparency`.
 > - Runtime provider: `AdProvider.appLovin`; `AdMobConfig` vẫn phải non-null để swap-ready.
 > - App-level native mediation plugin: `gma_mediation_applovin`.
@@ -486,7 +486,7 @@ AdConfig(
 
 Verify ở entry `__FIRST_INSTALL__` trong `vip.entries` sau init lần đầu (xem Step 10.6 — special entries).
 
-### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.19)
+### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.20)
 
 Mục tiêu: chặn user gỡ app + cài lại để nhận grace 24h vô hạn lần. Cơ chế per platform:
 
@@ -1024,7 +1024,7 @@ Nếu user migrate từ project Android native dùng `_AdmobWrapper`, mapping nh
 
 ## Phụ lục B — Reference doc của project `_FlutterBase2025`
 
-Project này là reference implementation cho `applovin_admob_sdk: ^1.0.19`. Files đáng đọc:
+Project này là reference implementation cho `applovin_admob_sdk: ^1.0.20`. Files đáng đọc:
 
 - `doc/AD.MD` — audit + as-is spec đầy đủ (touchpoint table, ad config, UMP flow, VIP system, policy compliance)
 - `lib/main.dart` — bootstrap pattern

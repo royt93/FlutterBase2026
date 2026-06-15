@@ -7,7 +7,7 @@ Updated: 2026-06-14
 - WiFi stress test core flow.
 - History/detail/statistics screens.
 - VIP screen and SDK VIP integration.
-- Android + iOS ad integration with `applovin_admob_sdk ^1.0.19`.
+- Android + iOS ad integration with `applovin_admob_sdk ^1.0.20`.
 - Platform-specific AppLovin ad unit config:
   Android keeps the previously working unit IDs, iOS uses the provided
   `com.saigonphantomlabs.base` iPhone units, and `AdKey.appLovin` selects at
@@ -27,9 +27,9 @@ Updated: 2026-06-14
   `authorized` with IDFA present; full ad chain after it incl. App Open
   `✅ displayed` on splash. ATT is decoupled from the GDPR consent flag by
   design (native SDKs read ATT directly for IDFA).
-- App consumes the SDK via local `path: packages/ad_sdk` while the redesign is
-  in flight (hosted `^1.0.19` line commented). Revert to the hosted line after
-  publishing the SDK.
+- SDK published to pub.dev as `applovin_admob_sdk 1.0.20`; the app now consumes
+  the hosted `^1.0.20` (the local `path: packages/ad_sdk` override is removed).
+  Smoke-tested on device against the published package — no regression.
 
 ## In progress
 
@@ -67,7 +67,7 @@ Updated: 2026-06-14
   navigate. No `❌ TIMEOUT` force-dismiss. AdMob adapter never had this issue
   (uses native `FullScreenContentCallback`).
 
-### Audit fixes (SDK 1.0.19, 2026-06-14) — all 133 SDK tests pass, analyze clean
+### Audit fixes (SDK 1.0.19, 2026-06-14) — all 132 SDK tests pass, analyze clean
 
 Correctness:
 - AppLovin reload-after-display-fail no longer stranded by backoff — new
