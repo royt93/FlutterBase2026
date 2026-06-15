@@ -15,7 +15,7 @@ a **WiFi stress tester** and serves ads through an in-repo, dual-provider ad SDK
 | Path | What it is |
 |---|---|
 | `lib/` | The host app (`saigonphantomlabs`). Bootstrap in `lib/main.dart`, ad setup in `lib/mckimquyen/widget/splash/splash_screen.dart`. |
-| `packages/ad_sdk/` | The **`applovin_admob_sdk`** package — the ad SDK, with its own README, example app and 130+ tests. |
+| `packages/ad_sdk/` | The **`applovin_admob_sdk`** package — the ad SDK, with its own README, example app and 225+ tests. |
 | `doc/` | Project docs (see below). |
 | `.github/workflows/test.yml` | CI: runs the SDK's `flutter analyze` + `flutter test`, plus host `flutter analyze`. |
 
@@ -33,7 +33,9 @@ a **WiFi stress tester** and serves ads through an in-repo, dual-provider ad SDK
   `lib/mckimquyen/common/const/ad_keys.dart`).
 - **VIP entitlement**: redeem keys / "watch a rewarded ad for VIP" suppress all
   ad surfaces while active. Rewards are granted **only** when a rewarded ad is
-  actually completed (`earned == true`).
+  actually completed (`earned == true`). VIP time **stacks globally** — every
+  grant adds onto the latest expiry (clamped at ~90 days), and a VIP can keep
+  watching real rewarded ads to extend their window (`bypassVipGuard`).
 - **Built-in safety**: session/hourly/daily caps, throttle, CTR-fraud detection,
   progressive cooldown.
 
@@ -47,7 +49,7 @@ flutter run            # host app
 # Ad SDK package (where the automated tests live):
 cd packages/ad_sdk
 flutter analyze
-flutter test           # 130+ unit / widget / integration tests
+flutter test           # 225+ unit / widget / integration tests
 ```
 
 ## Native config (required for ads)

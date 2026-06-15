@@ -2,8 +2,8 @@
 
 > **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/AD.MD`.
 >
-> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-06-14):**
-> - Runtime SDK: `applovin_admob_sdk: ^1.0.20` (hosted trên pub.dev — partner dùng bản này). `_FlutterBase2025` đã consume hosted `^1.0.20`, không còn path override.
+> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-06-15):**
+> - Runtime SDK: `applovin_admob_sdk: ^1.0.23` (latest pub.dev — partner dùng bản này). `_FlutterBase2025` đã consume hosted `^1.0.23`, không còn path override. (1.0.21/1.0.22 chỉ có CHANGELOG, không publish; pub.dev nhảy thẳng 1.0.20 → 1.0.23.)
 > - ATT (App Tracking Transparency) đã tích hợp SẴN trong SDK: gọi `AdManager().requestAtt()` trong splash trước UMP (xem Step 8.3) — KHÔNG tự gọi `app_tracking_transparency`.
 > - Runtime provider: `AdProvider.appLovin`; `AdMobConfig` vẫn phải non-null để swap-ready.
 > - App-level native mediation plugin: `gma_mediation_applovin`.
@@ -40,7 +40,7 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 | Dart package name (từ `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | State management hiện tại | `<GetX | Provider | Riverpod | Bloc | none>` (ưu tiên GetX, nếu trống → AI hỏi) |
 | Default locale | `<vi_VN | en_US | ...>` (ưu tiên `vi_VN`, fallback `en_US`) |
-| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.19`. |
+| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.19`; latest hiện tại = `1.0.23`. |
 | Lib reference local (nếu monorepo) | `packages/ad_sdk/` |
 | File spec gốc của lib | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (lịch sử feature) + `packages/ad_sdk/MIGRATION.md` |
 | Sample app | `packages/ad_sdk/example/lib/main.dart` (11 demo pages, một trang một feature) |
@@ -103,8 +103,8 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
   - Bootstrap: `AdManager().setNavigatorKey(key)`, `adRouteObserver`, `AdScreenRouteLogger()`, `SimpleEventBus().listen`, `AdManager().initialize(config:, onComplete:)`.
   - Splash flow: `markSplashActive` / `markSplashInactive` / `incrementSplashCount` / `countInitSplashScreen`, `loadAppOpenAd`, `AdLoadingDialog.showAdBuffer`, `showAppOpenAd(bypassSafety: true)`.
   - Per-screen: `class XxxScreen extends AdScreen` → `class _XxxState extends AdScreenState<XxxScreen>` cấp `buildBanner()`, `showInterstitialAd(onDone:)`, `showRewardedAd(onEarnedReward:)`.
-  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` + `redeemVip` nhận `stack: bool` (default `false`)** — `stack: true` = **cộng dồn toàn cục**: `+duration` lên mốc hết hạn cao nhất của TẤT CẢ entry đang active (mọi nguồn dồn chung 1 timeline; vd còn 6 ngày + code 30 ngày ⇒ 36 ngày). `stack: false` giữ "latest-expiry-wins". Cap tuỳ chọn: **`AdConfig.maxVipStackDuration`** (default `null` = không cap) kẹp tổng `≤ now + cap`.
-  - Rewarded khi đang VIP: `showRewardedAd(bypassVipGuard: true, ...)` cho phép VIP **chủ động** xem rewarded thật để gia hạn (SDK nạp ad on-demand + show loading dialog; default `false` giữ nguyên suppress). Tuỳ chỉnh `onDemandLoadTimeout` (default 15s). `showRewardedAd` đã **re-entrancy-safe** (chặn double-tap khi đang load/show).
+  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` + `redeemVip` nhận `stack: bool` (default `false`)** — `stack: true` = **cộng dồn toàn cục**: `+duration` lên mốc hết hạn cao nhất của TẤT CẢ entry đang active (mọi nguồn dồn chung 1 timeline; vd còn 6 ngày + code 30 ngày ⇒ 36 ngày). `stack: false` giữ "latest-expiry-wins". Cap tuỳ chọn: **`AdConfig.maxVipStackDuration`** (default `null` = không cap) kẹp tổng `≤ now + cap`. (có từ bản publish 1.0.23; 1.0.21/1.0.22 không publish.)
+  - Rewarded khi đang VIP: `showRewardedAd(bypassVipGuard: true, ...)` cho phép VIP **chủ động** xem rewarded thật để gia hạn (SDK nạp ad on-demand + show loading dialog; default `false` giữ nguyên suppress). Tuỳ chỉnh `onDemandLoadTimeout` (default 15s). `showRewardedAd` đã **re-entrancy-safe** (chặn double-tap khi đang load/show). (có từ bản publish 1.0.23; 1.0.21/1.0.22 không publish.)
   - Consent: `AdManager().requestUmpConsent(testMode:, debugGeography:, testIdentifiers:)` + `ConsentManager.instance.showDialog(context)` + `AdConfig.autoShowConsentDialog` + `consentDialogStrings`.
   - Safety: `AdSafetyParams.auto` (default, KHÔNG override).
   - Logger pipe: `AdConfig.onLog: (level, tag, msg) { ... }`.
@@ -366,6 +366,10 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
 
 SDK đã hook `WidgetsBindingObserver`. **KHÔNG** tự subscribe lifecycle lần thứ 2 — tránh double-show.
 
+Từ bản publish `1.0.23`: `showAppOpenAdOnResume` không show App Open chồng lên modal —
+nó kiểm tra `isDialogOnTop` (do `AdScreenRouteLogger` đếm số `PopupRoute` đang mở) +
+`AdLoadingDialog.isShowing` trước khi show; nếu đang có dialog/loading buffer ở trên thì bỏ qua.
+
 ### 4.6 — Interstitial pattern
 
 ```dart
@@ -509,7 +513,7 @@ AdConfig(
 
 Verify ở entry `__FIRST_INSTALL__` trong `vip.entries` sau init lần đầu (xem Step 10.6 — special entries).
 
-### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.20)
+### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.23)
 
 Mục tiêu: chặn user gỡ app + cài lại để nhận grace 24h vô hạn lần. Cơ chế per platform:
 
@@ -1048,7 +1052,7 @@ Nếu user migrate từ project Android native dùng `_AdmobWrapper`, mapping nh
 
 ## Phụ lục B — Reference doc của project `_FlutterBase2025`
 
-Project này là reference implementation cho `applovin_admob_sdk: ^1.0.20`. Files đáng đọc:
+Project này là reference implementation cho `applovin_admob_sdk: ^1.0.23`. Files đáng đọc:
 
 - `doc/AD.MD` — audit + as-is spec đầy đủ (touchpoint table, ad config, UMP flow, VIP system, policy compliance)
 - `lib/main.dart` — bootstrap pattern

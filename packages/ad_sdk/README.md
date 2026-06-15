@@ -13,7 +13,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 ## Table of contents
 
 1. [Why this SDK](#why-this-sdk)
-2. [What's new in 1.0.19](#whats-new-in-1019)
+2. [What's new in 1.0.23](#whats-new-in-1023)
 3. [Quick start (copy-paste in 6 steps)](#quick-start)
 4. [Configuration reference](#configuration-reference)
 5. [VIP system](#vip-system)
@@ -43,14 +43,36 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 
 ---
 
-## What's new in 1.0.19
+## What's new in 1.0.23
 
-> **1.0.20** is an example-only release — the bundled example's splash now demos
-> the recommended `requestAtt() → requestUmpConsent() → initialize()` ordering.
-> No library / public-API change vs 1.0.19.
+> **1.0.20** demoed the recommended `requestAtt() → requestUmpConsent() →
+> initialize()` ordering in the example splash (no library change). **1.0.21**,
+> **1.0.22** and **1.0.23** are the additions below. (Note: 1.0.21/1.0.22 are in
+> the changelog but were never published to pub.dev — the public line jumped
+> 1.0.20 → 1.0.23.)
 
 Backwards-compatible with 1.0.1x. Recent additions:
 
+- **App Open never stacks on a modal (1.0.23)** — `AdScreenRouteLogger` now
+  counts `PopupRoute`s (dialogs, bottom sheets, Cupertino popups) and exposes
+  `isDialogOnTop`; `showAppOpenAdOnResume` consults it plus
+  `AdLoadingDialog.isShowing` and **skips the App Open ad while any dialog is
+  presented** (e.g. the consent dialog or a VIP redeem confirmation). The
+  `_retryRefillAds` periodic scan also returns early for VIP members.
+- **VIP time stacking (1.0.22)** — `VipManager.addVip` / `redeemVip` gained an
+  opt-in `stack` flag (default `false`). With `stack: true` the grant
+  **accumulates onto the latest expiry across ALL active entries** (global
+  stacking), so VIP time from every source adds to one growing window. Optional
+  `AdConfig.maxVipStackDuration` clamps the total stacked window. See VIP system.
+- **Rewarded-while-VIP (1.0.22)** — `AdManager().showRewardedAd` gained a
+  `bypassVipGuard` flag (default `false`): a VIP member can voluntarily watch a
+  **real** rewarded ad (e.g. to extend their own window). The slot isn't
+  preloaded while VIP, so the SDK loads it on demand (tunable
+  `onDemandLoadTimeout`, default 15 s) behind a blocking `AdLoadingDialog`.
+- **Dependency refresh (1.0.21)** — `google_mobile_ads` → `^7.0.0`,
+  `flutter_secure_storage` → `^10.0.0`, `applovin_max` → `^4.6.4`; dropped the
+  deprecated `encryptedSharedPreferences` AndroidOptions flag. No public-API
+  change; added tests.
 - **iOS App Tracking Transparency (1.0.19)** — `AdManager().requestAtt()` /
   `requestAttIfNeeded()` show the ATT prompt when needed and return a structured
   `AttResult { status, idfa, allowsTracking }` (`AttStatus` enum). No-op on
@@ -95,7 +117,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.20
+  applovin_admob_sdk: ^1.0.23
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
@@ -458,6 +480,7 @@ You should see the splash screen, then a splash app-open ad (if available), then
 - ✅ **Cupertino consent dialog** auto-shown ~1 second after splash on the home screen (skipped if VIP). Tunable via `AdConfig.autoShowConsentDialog`, `consentDialogStrings`, `consentDialogPostSplashDelay`.
 - ✅ **Splash app-open ad** with an 8-second hard cap so the user is never stuck.
 - ✅ **Banner pause/resume** automatically when the user navigates between screens.
+- ✅ **App Open ad auto-skips while a dialog/modal is on top** (1.0.23) — it never stacks over the consent dialog, a VIP redeem confirmation, or any bottom sheet.
 - ✅ **Anti-fraud** multi-layer safety gate protects your AdMob/AppLovin account.
 
 ---
@@ -1118,6 +1141,7 @@ See `MIGRATION.md` for a step-by-step guide.
 - **1.0.14 → 1.0.15** — no breaking change. Update the version, run `flutter pub get`, optionally remove `android:taskAffinity=""` from `MainActivity`.
 - **1.0.1x → 1.0.19** — no breaking change. New optional `AdManager().requestAtt()` for iOS ATT (call in splash before UMP); add `NSUserTrackingUsageDescription` to `Info.plist` if targeting iOS. iOS App-Open watchdog fix is automatic.
 - **1.0.19 → 1.0.20** — no breaking change, no API change (example-only update).
+- **1.0.20 → 1.0.21 → 1.0.22 → 1.0.23** — all backwards-compatible. Just bump the version and run `flutter pub get`. 1.0.21 refreshes dependencies; 1.0.22 adds the opt-in `stack` flag (VIP stacking), `bypassVipGuard` on `showRewardedAd`, and `AdConfig.maxVipStackDuration`; 1.0.23's App-Open-skip-on-dialog behaviour is automatic. (1.0.21/1.0.22 were not published to pub.dev — the public line jumped 1.0.20 → 1.0.23.)
 - **1.x → 2.x** — backwards-compatible (deprecations, not removals). Old call sites compile and behave the same.
 
 ---

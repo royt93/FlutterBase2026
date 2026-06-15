@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Flutter app whose Dart package name is **`saigonphantomlabs`** (so imports look like `package:saigonphantomlabs/mckimquyen/...`). The display name shown in `MaterialApp` is "RoyApp".
 - The shipped feature is a **WiFi stress tester** (`lib/mckimquyen/widget/wifi_stressor/`) that hammers public CDN endpoints with parallel Dio downloads and charts throughput.
-- Targets Android + iOS. Project version in `pubspec.yaml` doubles as the Play/App Store build (`2026.04.26+20260426`).
+- Targets Android + iOS. Project version in `pubspec.yaml` doubles as the Play/App Store build (`2026.04.27+20260427`).
 - Default UI locale is `vi_VN`, fallback is `en_US`. Translations live in `lib/translations/` and are persisted via `LanguageService` (SharedPreferences).
 
 ## Common commands
@@ -72,7 +72,7 @@ This `mckimquyen/` namespace folder is where all app code lives. Subfolders are 
 The `applovin_admob_sdk` package is **dual-sourced**:
 
 - A local copy lives in `packages/ad_sdk/` (it is its own Flutter package with its own example app, README, tests).
-- The app currently consumes it via the **local `path: packages/ad_sdk` override** (active in `pubspec.yaml`; the hosted `applovin_admob_sdk: ^1.0.20` line is commented out right above it). This was enabled to ship SDK changes — VIP stacking + `bypassVipGuard` (local SDK is at `1.0.22`). Before a release that pulls from pub.dev, re-publish the bumped SDK version and flip the two lines back.
+- The app currently consumes the **hosted `applovin_admob_sdk: ^1.0.23` from pub.dev** (active in `pubspec.yaml`; the local `path: packages/ad_sdk` override is commented out right below it). The local copy is kept in sync at `1.0.23` for dev/test. To ship SDK changes that haven't been published yet, uncomment the path override (and comment out the hosted line), then re-publish the bumped SDK version and flip the two lines back before a release.
 - `gma_mediation_applovin` must stay at the app level — it's a native mediation plugin and cannot be declared inside the sub-package.
 
 The integration contract (see `packages/ad_sdk/README.md` for the full version):
@@ -83,10 +83,13 @@ The integration contract (see `packages/ad_sdk/README.md` for the full version):
 4. `SplashScreen` already implements the required pattern: hard-cap timer (8s), `AdManager().markSplashActive/Inactive()`, `incrementSplashCount()`, and `AdLoadingDialog.showAdBuffer()` before `showAppOpenAd(bypassSafety: true)`. If you touch this file, preserve the cancellation order: cancel the hard-cap timer **before** `showAppOpenAd`, and always call `markSplashInactive()` exactly once on navigation away.
 5. Any screen that displays ads should extend `AdScreen` + `AdScreenState` (instead of `StatefulWidget`/`State`) so it gets `buildBanner()`, `showInterstitialAd()`, and `showRewardedAd()`. RouteAware banner lifecycle is automatic when `adRouteObserver` is registered.
 6. The SDK has a built-in safety layer (daily/hourly/session caps, 30s throttle, CTR fraud, progressive cooldown). Don't try to bypass it except on the splash App Open ad (`bypassSafety: true`).
+7. App Open never stacks on top of a modal — `showAppOpenAdOnResume` checks `AdScreenRouteLogger.isDialogOnTop` and skips while a dialog is showing (SDK 1.0.23). The SDK's `_retryRefillAds` also returns early while a VIP entry is active so it doesn't reload suppressed slots.
 
 ### VIP entitlement
 
 The SDK exposes a `VipManager` reachable as `AdManager().vip` (nullable until SDK init completes). When a VIP entry is active, the SDK suppresses all ad surfaces — `AdScreen.buildBanner()`, interstitials, rewarded — automatically. Reactive UI subscribes to `AdManager().vip!.activeListenable` (see `wifi_stressor_screen.dart:162`).
+
+VIP grants **stack globally** — `addVip`/`redeemVip` with `stack: true` add onto the latest expiry across all active entries (clamped at `AdConfig.maxVipStackDuration`, ~90 days). A VIP can also voluntarily watch a real rewarded ad to extend their window: the watch-ad flow passes `bypassVipGuard: true` to `showRewardedAd` so the (normally VIP-suppressed) rewarded surface still plays and grants more time.
 
 - `lib/mckimquyen/widget/vip/vip_screen.dart` is the redeem UI (extends `BaseStatefulState`, **not** `AdScreenState`, since it's the screen that *grants* the no-ads state).
 - `lib/mckimquyen/widget/vip/vip_keys.dart` holds the key → `Duration` map. Keys are **base64-obfuscated** at rest — pass them through `utf8.decode(base64Decode(...))`. Don't commit raw keys to source. Validation goes through `vipKeyValidator(normalisedKey)` then `lookupVipKeyDuration(...)` to compute expiry.

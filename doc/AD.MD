@@ -6,7 +6,7 @@ Updated: 2026-06-15
 
 | Item | Current value |
 |---|---|
-| Runtime SDK | `applovin_admob_sdk: ^1.0.20` (hosted on pub.dev) |
+| Runtime SDK | `applovin_admob_sdk: ^1.0.23` (hosted on pub.dev) |
 | Runtime provider | `AdProvider.appLovin` |
 | Native mediation plugin | `gma_mediation_applovin` at app level |
 | AppLovin MAX SDK override | `applovin_max: 4.6.0` |
@@ -15,9 +15,11 @@ Updated: 2026-06-15
 | iOS signing team seen during Roy phone deploy | `8CU2Y3DBS5` |
 
 `1.0.19` added iOS App Tracking Transparency (`requestAtt()`) and the iOS App
-Open watchdog fix over `1.0.18`; `1.0.20` is an example-only release (its splash
-now demos ATT → UMP → initialize). The app consumes the hosted `^1.0.20` from
-pub.dev — the local `path` override has been removed.
+Open watchdog fix over `1.0.18`. The latest published release is **`1.0.23`**;
+the previous published release was `1.0.20`. Versions `1.0.21` and `1.0.22` have
+CHANGELOG entries but were never published to pub.dev (dev-only), so pub.dev
+jumps straight from `1.0.20` to `1.0.23`. The app consumes the hosted `^1.0.23`
+from pub.dev — the local `path` override has been commented out.
 
 ## Root cause found on iOS
 
@@ -63,7 +65,7 @@ Fix applied:
 | Surface | File | Trigger | SDK API |
 |---|---|---|---|
 | App Open cold start | `widget/splash/splash_screen.dart` | SDK init event on first splash | `loadAppOpenAd` + `showAppOpenAd(bypassSafety: true)` |
-| App Open resume | SDK internal | app foreground lifecycle | SDK observer |
+| App Open resume | SDK internal | app foreground lifecycle | SDK observer (`showAppOpenAdOnResume`) |
 | Banner | `widget/wifi_stressor/wifi_stressor_screen.dart` | screen build | `buildBanner()` |
 | Banner | `widget/wifi_stressor/presentation/history_screen.dart` | screen build | `buildBanner()` |
 | Interstitial | `widget/wifi_stressor/wifi_stressor_screen.dart` | navigation/start/stop flows | `showInterstitialAd()` |
@@ -77,7 +79,8 @@ VIP time now **accumulates** instead of resetting. Both the key-redeem flow
 duration: 3d, stack: true)`) add onto the current window. The watch-ad CTA stays
 visible while VIP so a member can extend by watching a real rewarded ad
 (`bypassVipGuard: true` — the SDK loads the slot on demand; no auto-grant). This
-required SDK changes (now `1.0.22`), consumed via the in-repo `path` override.
+required SDK changes that landed in the published `1.0.23` release, now consumed
+via the hosted `^1.0.23` (the in-repo `path` override is no longer used).
 Total stacked window is **capped at 90 days** via `AdConfig.maxVipStackDuration`
 (set in `splash_screen.dart`). `showRewardedAd` is re-entrancy-safe and shows a
 loading dialog during the on-demand load (`onDemandLoadTimeout` 15 s).
@@ -149,6 +152,15 @@ configs per platform: Android continues using the previously working Android
 unit IDs, while iOS uses the AppLovin MAX units for `com.saigonphantomlabs.base`:
 app-open `REDACTED_APPLOVIN_IOS_APPOPEN_ID`, banner `REDACTED_APPLOVIN_IOS_BANNER_ID`, interstitial
 `REDACTED_APPLOVIN_IOS_INTERSTITIAL_ID`, rewarded `REDACTED_APPLOVIN_IOS_REWARDED_ID`.
+
+## SDK 1.0.23 behaviour
+
+- **App Open no longer stacks on top of a modal.** `AdScreenRouteLogger` now
+  counts open `PopupRoute`s and exposes `isDialogOnTop`; `showAppOpenAdOnResume`
+  checks `isDialogOnTop` plus `AdLoadingDialog.isShowing` before showing, so the
+  resume App Open ad will not appear over a dialog/loading buffer.
+- **`_retryRefillAds` returns early when the user is VIP** — no slot preloading
+  is attempted while a VIP entry is active.
 
 ## Known risks
 

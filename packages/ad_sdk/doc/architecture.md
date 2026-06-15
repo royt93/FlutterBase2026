@@ -181,6 +181,7 @@ Key invariants of this flow:
 adapter is null → skip
 splash still active → skip
 VIP member → skip
+dialog/popup on top (isDialogOnTop) or AdLoadingDialog.isShowing → skip
 inter/rewarded currently showing → skip
 recent fullscreen dismiss (< 5s) → skip + reload
 safety gate denies (cold-start, throttle, etc.) → skip + reload
@@ -260,7 +261,11 @@ All wait durations format with `_fmtWait(ms)`: shows milliseconds when sub-secon
 
 The auto-expire `Timer` is the key 1.0.15 improvement. Before, VIP state only refreshed on `load()` / `addVip` / `revokeVip` / `revokeAll` — meaning a user who kept the app open past their VIP expiry stayed falsely VIP until the next launch.
 
-Conflict policy: when adding a key that already exists, the entry whose `expiresAt` is the **latest** wins. This makes restore-purchase flows safe — re-adding the same purchase ID does not shorten the user's remaining time.
+Conflict policy: by default, when adding a key that already exists, the entry whose `expiresAt` is the **latest** wins. This makes restore-purchase flows safe — re-adding the same purchase ID does not shorten the user's remaining time.
+
+**Global stacking (1.0.22).** `addVip` / `redeemVip` accept an opt-in `stack` flag (default `false`). With `stack: true`, the grant **accumulates onto the latest expiry across ALL active entries** (not just the same key) — so VIP time from every source (redeem code, watch-ad) adds to one growing window. The granted key's entry becomes the new latest (created if new, updated if it existed) and `grantedAt` resets to now. `AdConfig.maxVipStackDuration` (default `null` = uncapped) optionally clamps the total stacked window to `now + maxVipStackDuration`.
+
+**Rewarded-while-VIP (1.0.22).** `AdManager.showRewardedAd` accepts `bypassVipGuard` (default `false`). When `true`, a VIP member can voluntarily watch a **real** rewarded ad (e.g. to extend their own window). Since the rewarded slot is not preloaded while VIP, the SDK loads it on demand and waits (observing the public `AdSlot.state` notifier, tunable `onDemandLoadTimeout`, default 15 s) behind a blocking `AdLoadingDialog`. No auto-grant — the reward is still earned only by completing the ad. The call is re-entrancy-safe.
 
 ---
 
@@ -391,7 +396,10 @@ The adapter-callback writes are still kept as belt-and-braces fallback (they can
 
 | Version | Status | Highlights |
 |---|---|---|
-| 1.0.20 | Current stable | Example-only release — example splash demos `requestAtt → requestUmpConsent → initialize`. No library/API change vs 1.0.19. |
+| 1.0.23 | Current stable | App Open ad never stacks on a modal (`AdScreenRouteLogger.isDialogOnTop` + `AdLoadingDialog.isShowing` → skip); `_retryRefillAds` bails early for VIP members. |
+| 1.0.22 | Stable (changelog only — not published to pub.dev) | VIP global time stacking (opt-in `stack` flag + `AdConfig.maxVipStackDuration` cap); `bypassVipGuard` on `showRewardedAd` (rewarded-while-VIP, on-demand load + `onDemandLoadTimeout`). |
+| 1.0.21 | Stable (changelog only — not published to pub.dev) | Dependency refresh (`google_mobile_ads` ^7.0.0, `flutter_secure_storage` ^10.0.0, `applovin_max` ^4.6.4); dropped deprecated `encryptedSharedPreferences` option; added tests. |
+| 1.0.20 | Stable | Example-only release — example splash demos `requestAtt → requestUmpConsent → initialize`. No library/API change vs 1.0.19. |
 | 1.0.19 | Stable | iOS App Tracking Transparency (`requestAtt()`, `AttStatus`/`AttResult`); iOS App-Open watchdog fix; AppLovin reload-after-display-fail fix; AdMob parity (watchdog, expiry); rewarded-only VIP grant (removed interstitial fallback). |
 | 1.0.17–1.0.18 | Stable | Anti-uninstall-bypass guard for the first-install VIP grace (iOS Keychain + Android Auto Backup); version bump. |
 | 1.0.16 | Stable | Documentation-only release. Full English rewrite of README, MIGRATION, and architecture. No runtime code changes vs 1.0.15. |
@@ -444,12 +452,12 @@ The first two are obvious. `AD_ID` (added in Android 13) is required to read the
 
 ### `minSdkVersion`
 
-AdMob requires Android 5.0 (API 21) or newer. AppLovin requires Android 5.0 as well. Set:
+AdMob and AppLovin MAX 13.x require Android 7.0 (API 24) or newer. Set:
 
 ```kotlin
 android {
     defaultConfig {
-        minSdk = 21
+        minSdk = 24
         // ...
     }
 }

@@ -4,6 +4,7 @@ Practical step-by-step guides for upgrading from older versions of `applovin_adm
 
 ## Table of contents
 
+- [1.0.20 → 1.0.21 → 1.0.22 → 1.0.23](#1020--1021--1022--1023) — backward-compatible; opt-in VIP stacking / rewarded-while-VIP; auto App-Open-skip-on-dialog
 - [1.0.18 → 1.0.19 → 1.0.20](#1018--1019--1020) — iOS ATT (action needed for iOS); example-only 1.0.20
 - [1.0.15 → 1.0.16](#1015--1016) — documentation-only release
 - [1.0.14 → 1.0.15](#1014--1015) — no breaking changes; opt-in new features
@@ -12,6 +13,33 @@ Practical step-by-step guides for upgrading from older versions of `applovin_adm
 - [FAQ](#faq)
 
 ---
+
+## 1.0.20 → 1.0.21 → 1.0.22 → 1.0.23
+
+**No breaking changes.** Bump the version and `flutter pub get` — nothing else is
+required. (Heads-up: 1.0.21/1.0.22 are documented but were never published to
+pub.dev; the public line jumped 1.0.20 → 1.0.23, which carries all the changes
+below.)
+
+**1.0.21** refreshes dependencies (`google_mobile_ads` → `^7.0.0`,
+`flutter_secure_storage` → `^10.0.0`, `applovin_max` → `^4.6.4`) and drops the
+deprecated `encryptedSharedPreferences` AndroidOptions flag (flutter_secure_storage
+10 auto-migrates). No public-API change.
+
+**1.0.22** adds three opt-in knobs (all default to the pre-1.0.22 behaviour):
+- `VipManager.addVip` / `redeemVip` gained a `stack` flag. With `stack: true` the
+  grant **accumulates onto the latest expiry across all active entries** (global
+  stacking) instead of the default latest-expiry-wins replacement.
+- `AdConfig.maxVipStackDuration` (default `null` = uncapped) clamps the total
+  stacked window to `now + maxVipStackDuration`.
+- `AdManager().showRewardedAd` gained `bypassVipGuard` (default `false`): a VIP
+  member can voluntarily watch a **real** rewarded ad. The slot is loaded on
+  demand behind a blocking dialog; tune the wait with `onDemandLoadTimeout`
+  (default 15 s).
+
+**1.0.23** is automatic (no action): the App Open ad now **skips while any dialog
+or modal is on top** (`AdScreenRouteLogger.isDialogOnTop` + `AdLoadingDialog.isShowing`),
+and the `_retryRefillAds` periodic scan bails early for VIP members.
 
 ## 1.0.18 → 1.0.19 → 1.0.20
 
@@ -333,7 +361,7 @@ flutter pub get
 
 ### "Build failed — `Unexpected token` in `build.gradle.kts`"
 
-Likely the `minSdk` or `targetSdk` is set with Groovy syntax (`minSdk 21`) in a Kotlin DSL file. Use Kotlin syntax (`minSdk = 21`).
+Likely the `minSdk` or `targetSdk` is set with Groovy syntax (`minSdk 24`) in a Kotlin DSL file. Use Kotlin syntax (`minSdk = 24`).
 
 ### "App crashes when user backgrounds during an ad"
 
@@ -341,7 +369,7 @@ See `README.md` → Pitfalls → 1. Most likely you have `android:taskAffinity="
 
 ### Ads not loading on iOS
 
-Verify `Info.plist` contains `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`, and `GADApplicationIdentifier`. Verify Podfile targets iOS 12 or newer and you ran `pod install`.
+Verify `Info.plist` contains `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`, and `GADApplicationIdentifier`. Verify Podfile targets iOS 13 or newer and you ran `pod install`.
 
 ### "Inter ad doesn't show — `canShow=false`"
 
@@ -385,7 +413,7 @@ Yes. 1.0.15 has zero breaking changes. The new behaviors (auto consent dialog, f
 
 ### Should I migrate to 2.0?
 
-The 2.0 release line is currently unreleased (the public stable line is 1.0.20). When 2.0 ships, it will remove all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API. If you have already migrated to the modern VipManager API in 1.0.15, the 2.0 upgrade will be trivial.
+The 2.0 release line is currently unreleased (the public stable line is 1.0.23). When 2.0 ships, it will remove all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API. If you have already migrated to the modern VipManager API in 1.0.15, the 2.0 upgrade will be trivial.
 
 ### How do I roll back from 1.0.15?
 
