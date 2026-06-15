@@ -209,18 +209,17 @@ class VipManager {
   /// Headless add. Skips the dialog UI and any validator. Use for
   /// restore-purchase or scripted tests. Returns the saved entry.
   ///
-  /// Conflict handling when an entry with the same [key] already exists:
-  /// - [stack] == false (default, **Q14A — latest expiry wins**): the new
-  ///   `now + duration` replaces the old one only if it expires later;
-  ///   otherwise the existing (longer) entry is kept untouched.
-  /// - [stack] == true (**accumulate / cộng dồn**): [duration] is *added on top*
-  ///   of the entry's current window. If the entry is still active the new
-  ///   expiry is `old.expiresAt + duration`; if it already lapsed it restarts
-  ///   from `now + duration` (a fresh window — never extends a dead grant from a
-  ///   point in the past). Used by the host's "redeem key" and "watch ad → +N
-  ///   days" flows so repeats add up instead of resetting. When stacking, the
-  ///   resulting expiry is clamped to `now + [maxStackDuration]` if that cap is
-  ///   set (excess time is dropped; the entry is still extended up to the cap).
+  /// Conflict / accumulation handling:
+  /// - [stack] == false (default, **Q14A — latest expiry wins**): when an entry
+  ///   with the same [key] exists, the new `now + duration` replaces it only if
+  ///   it expires later; otherwise the existing (longer) entry is kept untouched.
+  /// - [stack] == true (**global accumulate / cộng dồn toàn cục**): [duration]
+  ///   is added on top of the **latest expiry across ALL active entries** (any
+  ///   source — redeem key or watch-ad), so every grant extends one growing VIP
+  ///   window. E.g. with ~6 active days, redeeming a 30-day code yields ~36 days.
+  ///   The just-granted [key]'s entry becomes the new latest (created if new,
+  ///   updated if it already existed) and its `grantedAt` resets to now. The
+  ///   result is clamped to `now + [maxStackDuration]` when that cap is set.
   Future<VipEntry> addVip({
     required String key,
     required Duration duration,
@@ -230,11 +229,13 @@ class VipManager {
     final now = DateTime.now();
     final existing = _entries.indexWhere((e) => e.key == norm);
 
-    if (stack && existing >= 0) {
-      final old = _entries[existing];
-      // Extend from the later of (now, old expiry): an active entry accumulates,
-      // an expired one restarts cleanly from now.
-      final base = old.expiresAt.isAfter(now) ? old.expiresAt : now;
+    if (stack) {
+      // Global stacking: extend from the latest expiry across ALL active
+      // entries (not just this key) so grants from every source add up.
+      var base = now;
+      for (final e in _entries) {
+        if (e.isActive && e.expiresAt.isAfter(base)) base = e.expiresAt;
+      }
       var newExpiry = base.add(duration);
       // Clamp to the optional total-window cap.
       final cap = maxStackDuration;
@@ -250,7 +251,11 @@ class VipManager {
         expiresAt: newExpiry,
         grantedAt: now,
       );
-      _entries[existing] = stacked;
+      if (existing >= 0) {
+        _entries[existing] = stacked;
+      } else {
+        _entries.add(stacked);
+      }
       SafeLogger.d(_tag,
           'addVip: stacked ${stacked.key} (+${duration.inMinutes}m) → ${stacked.expiresAt}');
       await _save();

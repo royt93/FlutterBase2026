@@ -790,8 +790,8 @@ class _VipDemoPageState extends State<VipDemoPage> {
       duration: duration,
       validator: AdManager().config?.vipKeyValidator,
       strings: AdManager().config?.vipDialogStrings ?? const VipDialogStrings(),
-      // stack: true → redeeming the same key again ADDS time on top of the
-      // current window (cộng dồn) instead of the default latest-expiry-wins.
+      // stack: true → global stacking: ADDS time on top of the latest expiry
+      // across ALL VIP entries (cộng dồn toàn cục) instead of latest-wins.
       stack: true,
     );
   }

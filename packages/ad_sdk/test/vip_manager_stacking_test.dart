@@ -180,6 +180,48 @@ void main() {
     expect(transitions, [true]);
   });
 
+  test('GLOBAL stacking: a different key extends from the latest expiry across '
+      'all entries', () async {
+    final mgr = VipManager(prefs);
+    await mgr.load();
+    addTearDown(mgr.dispose);
+
+    // Window from source A (e.g. watch-ad), then a DIFFERENT key (e.g. a code).
+    await mgr.addVip(key: 'WATCH', duration: const Duration(days: 6), stack: true);
+    await mgr.addVip(key: 'CODE30', duration: const Duration(days: 30), stack: true);
+
+    final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
+    expect(remainingDays, inInclusiveRange(35, 36),
+        reason: '6d + 30d across different keys must total ~36d');
+    expect(mgr.entries.length, 2, reason: 'both grants kept as separate entries');
+  });
+
+  test('GLOBAL stacking is order-independent (code first, then watch-ad)',
+      () async {
+    final mgr = VipManager(prefs);
+    await mgr.load();
+    addTearDown(mgr.dispose);
+
+    await mgr.addVip(key: 'CODE30', duration: const Duration(days: 30), stack: true);
+    await mgr.addVip(key: 'WATCH', duration: const Duration(days: 3), stack: true);
+
+    final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
+    expect(remainingDays, inInclusiveRange(32, 33), reason: '30d + 3d = ~33d');
+  });
+
+  test('GLOBAL stacking across different keys still respects the cap', () async {
+    final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 30));
+    await mgr.load();
+    addTearDown(mgr.dispose);
+
+    await mgr.addVip(key: 'A', duration: const Duration(days: 20), stack: true);
+    // 20d + 20d = 40d across keys → clamped to the 30-day cap.
+    await mgr.addVip(key: 'B', duration: const Duration(days: 20), stack: true);
+
+    final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
+    expect(remainingDays, inInclusiveRange(29, 30), reason: 'total clamped to 30d');
+  });
+
   test('stacking is clamped to maxStackDuration when the cap is set', () async {
     final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 7));
     await mgr.load();

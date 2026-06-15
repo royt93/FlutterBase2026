@@ -549,20 +549,20 @@ AdLogLevel.none      // silent
 
 ## VIP system
 
-### Conflict policy: latest-expiry-wins vs. stacking
+### Conflict policy: latest-expiry-wins vs. global stacking
 
-When `addVip`/`redeemVip` is called with a key that already has an entry, the
-`stack` flag decides how the windows combine:
+The `stack` flag decides how a grant combines with existing VIP time:
 
 | `stack` | Behaviour | Use for |
 |---------|-----------|---------|
-| `false` *(default)* | **Latest-expiry-wins** — the new `now + duration` replaces the old entry only if it expires later; otherwise the existing (longer) entry is kept. | Purchases/restore where you set an absolute window. |
-| `true` | **Stacking (cộng dồn)** — `duration` is *added on top* of the entry's current window. Active entry → `old.expiresAt + duration`; already-lapsed entry → `now + duration` (fresh window). `grantedAt` resets to now (progress bar restarts). | "Redeem key again to extend", "watch ad → +N days". |
+| `false` *(default)* | **Latest-expiry-wins** — when an entry with the same key exists, the new `now + duration` replaces it only if it expires later; otherwise the existing (longer) entry is kept. | Purchases/restore where you set an absolute window. |
+| `true` | **Global stacking (cộng dồn toàn cục)** — `duration` is added on top of the **latest expiry across ALL active entries** (any source). Every grant extends one growing VIP window; the granted key's entry becomes the new latest (created if new, updated if it existed) and `grantedAt` resets to now. | "Redeem code", "watch ad → +N days" — all accumulate. |
 
 ```dart
-// Redeem the same key twice with stack:true → the windows add up.
-await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 30d
-await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 60d total
+// Global stacking: grants from ANY key add to one timeline.
+await vip.addVip(key: 'WATCH',  duration: const Duration(days: 6),  stack: true); // 6d
+await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 36d total
+await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 66d total
 ```
 
 **Optional cap.** Set `AdConfig.maxVipStackDuration` to bound the *total* stacked

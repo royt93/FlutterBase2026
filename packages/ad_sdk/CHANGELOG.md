@@ -8,11 +8,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added — VIP time stacking + rewarded-while-VIP
 - `VipManager.addVip` and `redeemVip` gained a `stack` flag (default `false`,
-  fully backward compatible). With `stack: true`, redeeming a key that already
-  has an entry **accumulates** the duration onto the current window
-  (`old.expiresAt + duration` for an active entry; `now + duration` for a lapsed
-  one) and resets `grantedAt` to now — instead of the default latest-expiry-wins
-  replacement. Enables "redeem key again to extend" and "watch ad → +N days".
+  fully backward compatible). With `stack: true`, the grant **accumulates onto
+  the latest expiry across ALL active entries** (global stacking) — so VIP time
+  from every source (redeem code, watch-ad) adds to one growing window (e.g. ~6
+  active days + a 30-day code ⇒ ~36 days). The granted key's entry becomes the
+  new latest (created if new, updated if it existed) and `grantedAt` resets to
+  now. Without `stack`, the default latest-expiry-wins replacement is unchanged.
 - `AdManager.showRewardedAd` gained a `bypassVipGuard` flag (default `false`).
   When `true`, a VIP member can voluntarily watch a **real** rewarded ad (e.g. to
   extend their own VIP window). Since the rewarded slot is not preloaded while
@@ -32,10 +33,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   to `now + maxVipStackDuration`. Plumbed to `VipManager` at init.
 
 ### Tests
-- +19 tests (217 total). New `vip_manager_stacking_test.dart` (10 — stacking math,
-  cap clamp + uncapped, persistence across reload, notifier, watch-ad fixed-key)
-  and a `rewarded VIP-bypass` group in `ad_manager_core_test.dart` (6 — default
-  vs. bypass, on-demand load success/failure, non-VIP, re-entrancy guard).
+- +24 tests (222 total). `vip_manager_stacking_test.dart` (13 — global stacking
+  incl. cross-key + order-independence, cap clamp, persistence, notifier,
+  watch-ad fixed-key); `rewarded VIP-bypass` group in `ad_manager_core_test.dart`
+  (6 — default vs. bypass, on-demand success/failure, non-VIP, re-entrancy guard);
+  `rewarded_ondemand_dialog_test.dart` (2 widget — cold-VIP loading dialog during
+  async on-demand load + timeout dismissal).
 
 ## [1.0.21] - 2026-06-15
 

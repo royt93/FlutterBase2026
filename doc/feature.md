@@ -7,15 +7,16 @@ Updated: 2026-06-14
 - WiFi stress test core flow.
 - History/detail/statistics screens.
 - VIP screen and SDK VIP integration.
-- VIP time **cộng dồn (stacking)** — both flows extend the existing window
-  instead of resetting it. Implemented as a first-class SDK feature: a `stack`
-  flag on `VipManager.addVip` / `redeemVip` (default `false` = latest-expiry-wins;
-  `true` = add `duration` onto the current window, `grantedAt` reset). SDK bumped
-  to `1.0.22`; host consumes it via the local `path` override.
-  - Redeem key: `vip_screen.dart` calls `redeemVip(..., stack: true)` → re-entering
-    an active key adds +30d on top.
+- VIP time **cộng dồn toàn cục (global stacking)** — every grant (redeem code OR
+  watch-ad) adds onto the latest expiry across ALL active entries, so all VIP
+  time accumulates into one growing window (e.g. ~6 active days + a 30-day code
+  ⇒ ~36 days). Implemented as a first-class SDK feature: a `stack` flag on
+  `VipManager.addVip` / `redeemVip` (default `false` = latest-expiry-wins;
+  `true` = global stacking, `grantedAt` reset). SDK bumped to `1.0.22`; host
+  consumes it via the local `path` override.
+  - Redeem code: `vip_screen.dart` calls `redeemVip(..., stack: true)`.
   - Watch-ad +3d: uses a fixed key `REWARDED_VIP` (was per-timestamp) +
-    `addVip(stack: true)` so repeats accumulate into one entry, no list clutter.
+    `addVip(stack: true)` so repeats consolidate into one entry, no list clutter.
   - Watch-ad section is shown even while VIP is active; the flow passes
     `bypassVipGuard: true` to `AdManager().showRewardedAd`, a new SDK flag that
     lets a VIP voluntarily watch a REAL rewarded ad to extend (policy-compliant,
