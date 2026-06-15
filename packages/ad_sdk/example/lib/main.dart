@@ -89,6 +89,8 @@ class DemoConfig {
       logLevel: AdLogLevel.verbose,
       onLog: LogBuffer.instance.sink,
       vipKeyValidator: demoVipValidator,
+      // Cap the total stacked VIP window (cộng dồn) — demo at 90 days. null = uncapped.
+      maxVipStackDuration: const Duration(days: 90),
       adNotReadyMessage: 'Ad not ready — please wait.',
       adLoadingMessage: 'Loading…',
       splashMaxDuration: const Duration(seconds: 8),
@@ -788,6 +790,28 @@ class _VipDemoPageState extends State<VipDemoPage> {
       duration: duration,
       validator: AdManager().config?.vipKeyValidator,
       strings: AdManager().config?.vipDialogStrings ?? const VipDialogStrings(),
+      // stack: true → redeeming the same key again ADDS time on top of the
+      // current window (cộng dồn) instead of the default latest-expiry-wins.
+      stack: true,
+    );
+  }
+
+  /// Watch a real rewarded ad to EXTEND VIP — works even while already VIP
+  /// (`bypassVipGuard: true` plays a real ad; the SDK loads it on demand). The
+  /// reward is granted into a fixed key with `stack: true` so repeats add up.
+  Future<void> _watchAdToExtend() async {
+    final vip = AdManager().vip;
+    if (vip == null) return;
+    AdManager().showRewardedAd(
+      bypassVipGuard: true,
+      onEarnedReward: (earned) {
+        if (!earned) return;
+        vip.addVip(
+          key: 'REWARDED_VIP',
+          duration: const Duration(days: 3),
+          stack: true,
+        );
+      },
     );
   }
 
@@ -915,6 +939,17 @@ class _VipDemoPageState extends State<VipDemoPage> {
                   child: const Text('Redeem'),
                 ),
               ],
+            ),
+            const SizedBox(height: 24),
+
+            // Watch ad → +3 days VIP (stacks; works even while already VIP)
+            const Text('Extend by watching an ad',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _watchAdToExtend,
+              icon: const Icon(Icons.play_circle_outline),
+              label: const Text('Watch ad → +3 days VIP (stack)'),
             ),
             const SizedBox(height: 24),
 

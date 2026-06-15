@@ -7,6 +7,41 @@ Updated: 2026-06-14
 - WiFi stress test core flow.
 - History/detail/statistics screens.
 - VIP screen and SDK VIP integration.
+- VIP time **cộng dồn (stacking)** — both flows extend the existing window
+  instead of resetting it. Implemented as a first-class SDK feature: a `stack`
+  flag on `VipManager.addVip` / `redeemVip` (default `false` = latest-expiry-wins;
+  `true` = add `duration` onto the current window, `grantedAt` reset). SDK bumped
+  to `1.0.22`; host consumes it via the local `path` override.
+  - Redeem key: `vip_screen.dart` calls `redeemVip(..., stack: true)` → re-entering
+    an active key adds +30d on top.
+  - Watch-ad +3d: uses a fixed key `REWARDED_VIP` (was per-timestamp) +
+    `addVip(stack: true)` so repeats accumulate into one entry, no list clutter.
+  - Watch-ad section is shown even while VIP is active; the flow passes
+    `bypassVipGuard: true` to `AdManager().showRewardedAd`, a new SDK flag that
+    lets a VIP voluntarily watch a REAL rewarded ad to extend (policy-compliant,
+    no auto-grant). The SDK load-on-demands the slot via `_loadRewardedOnDemand`.
+  - Tests: SDK `vip_manager_stacking_test.dart` (8) + `rewarded VIP-bypass` group
+    in `ad_manager_core_test.dart` (5); host `test/vip_screen_widget_test.dart`
+    (5 widget + 1 redeem→stack integration). Docs synced: SDK README/CHANGELOG,
+    `doc/AD_PROMPT_FLUTTER.MD`, `example/lib/main.dart`.
+  - Anti-abuse: total stacked window is **capped at 90 days** via
+    `AdConfig.maxVipStackDuration` (SDK clamps in `addVip` stack branch; set in
+    `splash_screen.dart`). Watch-ad is additionally rate-limited by the SDK's
+    fullscreen safety caps.
+  - Hardening (post-audit): `showRewardedAd` is re-entrancy-safe
+    (`_rewardedInFlight` guard), the on-demand load shows a blocking
+    `AdLoadingDialog` with a tunable `onDemandLoadTimeout` (15 s), and the wait
+    observes the public `AdSlot.state` notifier (no internal `pendingCallback`
+    coupling). SDK at `1.0.22`, 217 tests.
+  - **Native build pin (important):** the local SDK `1.0.22` declares
+    `google_mobile_ads ^7` / `applovin_max ^4.6.4`, but this app ships on the
+    proven `google_mobile_ads 6.0.0` + `gma_mediation_applovin 2.5.1` +
+    `applovin_max 4.6.0` stack. Switching to the `path` override dragged GMA 7
+    in and broke the `GmaMediationApplovinPlugin` native registrant (Android
+    build fail). Fixed by `dependency_overrides` pinning GMA 6 + gma 2.5.1 (SDK
+    Dart is GMA-6-compatible). **Verified building: Android `apk --debug` ✅,
+    iOS `ios --debug --no-codesign` ✅ (pods OK).** Not yet verified: live ad
+    playback / VIP-bypass on a real device — needs on-device testing.
 - Android + iOS ad integration with `applovin_admob_sdk ^1.0.20`.
 - Platform-specific AppLovin ad unit config:
   Android keeps the previously working unit IDs, iOS uses the provided

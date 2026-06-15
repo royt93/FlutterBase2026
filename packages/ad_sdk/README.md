@@ -549,6 +549,27 @@ AdLogLevel.none      // silent
 
 ## VIP system
 
+### Conflict policy: latest-expiry-wins vs. stacking
+
+When `addVip`/`redeemVip` is called with a key that already has an entry, the
+`stack` flag decides how the windows combine:
+
+| `stack` | Behaviour | Use for |
+|---------|-----------|---------|
+| `false` *(default)* | **Latest-expiry-wins** — the new `now + duration` replaces the old entry only if it expires later; otherwise the existing (longer) entry is kept. | Purchases/restore where you set an absolute window. |
+| `true` | **Stacking (cộng dồn)** — `duration` is *added on top* of the entry's current window. Active entry → `old.expiresAt + duration`; already-lapsed entry → `now + duration` (fresh window). `grantedAt` resets to now (progress bar restarts). | "Redeem key again to extend", "watch ad → +N days". |
+
+```dart
+// Redeem the same key twice with stack:true → the windows add up.
+await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 30d
+await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 60d total
+```
+
+**Optional cap.** Set `AdConfig.maxVipStackDuration` to bound the *total* stacked
+window — a stacked grant is then clamped to `now + maxVipStackDuration` (excess
+dropped; the entry still extends up to the cap). `null` (default) = uncapped.
+Only the stacking path is clamped; a plain absolute `addVip` is never touched.
+
 ### Programmatic add (purchase / restore flow)
 
 Use this when the user purchases a VIP unlock through your IAP flow:
@@ -575,8 +596,40 @@ final didRedeem = await AdManager().vip!.redeemVip(
     return response.isValid;
   },
   strings: AdManager().config?.vipDialogStrings ?? const VipDialogStrings(),
+  stack: true, // accumulate onto the current window instead of replacing
 );
 ```
+
+### Watch a rewarded ad to EXTEND VIP (even while already VIP)
+
+By default the SDK suppresses every ad for a VIP member, so a rewarded ad will
+not play (`showRewardedAd` calls back with `vipAutoGrant`). To let a VIP
+*voluntarily* watch a **real** rewarded ad to top up their window, pass
+`bypassVipGuard: true`. The slot isn't preloaded while VIP, so the SDK
+load-on-demands it before showing:
+
+```dart
+AdManager().showRewardedAd(
+  bypassVipGuard: true,            // play a real ad even for a VIP
+  onEarnedReward: (earned) {
+    if (!earned) return;           // only granted on a completed ad — never auto-granted
+    AdManager().vip?.addVip(
+      key: 'REWARDED_VIP',         // fixed key + stack → one accumulating entry
+      duration: const Duration(days: 3),
+      stack: true,
+    );
+  },
+);
+```
+
+During the on-demand load the SDK shows a blocking loading dialog and waits up
+to `onDemandLoadTimeout` (default 15 s, tunable per call). `showRewardedAd` is
+re-entrancy-safe — a second tap while a load/show is in flight is rejected with
+`onEarnedReward(false)`.
+
+> Policy note: this is compliant because a real ad is always shown. Do **not**
+> instead grant VIP without an ad — that loses revenue and risks rewarded-ad
+> policy violations. Spam is bounded by the SDK's fullscreen safety caps.
 
 ### Check VIP state
 
@@ -912,7 +965,7 @@ AdManager().requestUmpConsent(...)         // Google UMP wrapper
 
 AdManager().showAppOpenAd(onAdDismiss)
 AdManager().showInterstitial(onDoneFlow)
-AdManager().showRewardedAd(onEarnedReward)
+AdManager().showRewardedAd(onEarnedReward, {vipAutoGrant, bypassVipGuard, onDemandLoadTimeout})
 AdManager().loadAppOpenAd(onAdLoaded)
 AdManager().canShowInterstitial()
 
@@ -948,8 +1001,8 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
 ```dart
 final vip = AdManager().vip!;
 
-vip.addVip(key, duration)            // Future<VipEntry>
-vip.redeemVip(context, ...)          // Future<bool> — full Cupertino flow
+vip.addVip(key, duration, {stack})   // Future<VipEntry> — stack:true accumulates
+vip.redeemVip(context, ..., {stack}) // Future<bool> — full Cupertino flow
 vip.revokeVip(key)                   // Future<void>
 vip.revokeAll()                      // Future<void>
 

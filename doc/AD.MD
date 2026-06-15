@@ -1,6 +1,6 @@
 # Ad SDK Audit - current app state
 
-Updated: 2026-06-14
+Updated: 2026-06-15
 
 ## Current integration
 
@@ -68,7 +68,20 @@ Fix applied:
 | Banner | `widget/wifi_stressor/presentation/history_screen.dart` | screen build | `buildBanner()` |
 | Interstitial | `widget/wifi_stressor/wifi_stressor_screen.dart` | navigation/start/stop flows | `showInterstitialAd()` |
 | Rewarded | `widget/wifi_stressor/presentation/history_screen.dart` | clear/export action | `showRewardedAd()` |
-| Rewarded VIP | `widget/vip/vip_screen.dart` | watch-ad VIP CTA | `showRewardedAd()` |
+| Rewarded VIP | `widget/vip/vip_screen.dart` | watch-ad VIP CTA (visible even while VIP) | `showRewardedAd(bypassVipGuard: true)` → `addVip(key: 'REWARDED_VIP', stack: true)` |
+
+### VIP time stacking (2026-06-15)
+
+VIP time now **accumulates** instead of resetting. Both the key-redeem flow
+(`redeemVip(..., stack: true)`) and the watch-ad flow (`addVip(key: 'REWARDED_VIP',
+duration: 3d, stack: true)`) add onto the current window. The watch-ad CTA stays
+visible while VIP so a member can extend by watching a real rewarded ad
+(`bypassVipGuard: true` — the SDK loads the slot on demand; no auto-grant). This
+required SDK changes (now `1.0.22`), consumed via the in-repo `path` override.
+Total stacked window is **capped at 90 days** via `AdConfig.maxVipStackDuration`
+(set in `splash_screen.dart`). `showRewardedAd` is re-entrancy-safe and shows a
+loading dialog during the on-demand load (`onDemandLoadTimeout` 15 s).
+See `doc/AD_PROMPT_FLUTTER.MD` §4.7 + Step 10.3 and the SDK README "VIP system".
 
 ## Ad keys
 

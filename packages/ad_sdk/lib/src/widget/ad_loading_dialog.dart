@@ -22,10 +22,49 @@ class AdLoadingDialog {
   /// a second ad flow while the first dialog buffer is still active.
   static bool get isShowing => _isShowing;
 
+  /// NavigatorState captured by [show] so [dismiss] can pop the right route.
+  static NavigatorState? _activeNavigator;
+
   /// Reset static state — called by [AdManager.destroy()] to ensure
   /// _isShowing doesn't stay stuck true after a mid-dialog destroy.
   static void resetState() {
     _isShowing = false;
+    _activeNavigator = null;
+  }
+
+  /// Show a non-dismissable loading dialog that stays up until [dismiss] is
+  /// called. Unlike [showAdBuffer] there is **no timer** — the caller controls
+  /// dismissal (e.g. once an on-demand ad load resolves). No-op if a dialog is
+  /// already showing (keeps the `_isShowing` single-dialog invariant).
+  static void show(BuildContext context) {
+    if (_isShowing) {
+      SafeLogger.w(_tag, 'show: ⚠️ dialog already showing, skipping');
+      return;
+    }
+    _isShowing = true;
+    // Capture NavigatorState now (survives screen disposal — see showAdBuffer).
+    _activeNavigator = Navigator.of(context, rootNavigator: true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => _AdLoadingDialogContent(
+        loadingText: AdManager().config?.adLoadingMessage ?? 'Loading…',
+      ),
+    );
+  }
+
+  /// Dismiss a dialog opened by [show]. Safe no-op if nothing is showing.
+  static void dismiss() {
+    if (!_isShowing) return;
+    final nav = _activeNavigator;
+    _activeNavigator = null;
+    _isShowing = false;
+    try {
+      nav?.pop();
+    } catch (e) {
+      SafeLogger.e(_tag, 'dismiss: pop failed (navigator disposed?): $e');
+    }
   }
 
   /// Show the buffer dialog and call [onComplete] after the delay.

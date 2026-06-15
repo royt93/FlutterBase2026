@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common commands
 
-**Where the tests live:** the host app (`lib/`) has **no `test/` directory** (UI-only, gated on `flutter analyze`). All automated tests live in the **`packages/ad_sdk/` package** — 130+ unit/widget/integration tests under `packages/ad_sdk/test/`. Run them with `cd packages/ad_sdk && flutter test`. The `Makefile` still references a `test/unit|widget|integration` layout that does not exist; prefer `flutter`/the package tests directly.
+**Where the tests live:** most automated tests live in the **`packages/ad_sdk/` package** — 200+ unit/widget/integration tests under `packages/ad_sdk/test/` (run with `cd packages/ad_sdk && flutter test`). The host app (`lib/`) is largely UI-only and gated on `flutter analyze`, but it now also has a small **`test/` directory** at the repo root for screens with non-trivial logic — currently `test/vip_screen_widget_test.dart` (VipScreen widget + redeem/stacking integration tests; run with `flutter test` from the repo root). The `Makefile` still references a `test/unit|widget|integration` layout that does not exist; prefer `flutter`/the package tests directly.
 
 ```bash
 # Install + generate mocks
@@ -33,7 +33,7 @@ flutter build apk --analyze-size   # size report
 flutter clean && flutter pub get
 ```
 
-**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable** and has two jobs: `sdk` (runs `flutter analyze` + `flutter test` inside `packages/ad_sdk` — the real gate) and `host` (`flutter analyze` only, since the host has no unit tests). It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
+**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable** and has two jobs: `sdk` (runs `flutter analyze` + `flutter test` inside `packages/ad_sdk` — the primary gate) and `host` (`flutter analyze` + `flutter test` at the repo root — the host test suite is small but now real). It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ This `mckimquyen/` namespace folder is where all app code lives. Subfolders are 
 The `applovin_admob_sdk` package is **dual-sourced**:
 
 - A local copy lives in `packages/ad_sdk/` (it is its own Flutter package with its own example app, README, tests).
-- The app currently consumes it as a **hosted** dependency (`applovin_admob_sdk: ^1.0.16`). The path override is commented out in `pubspec.yaml`. If you need to develop against the local copy, uncomment the `path: packages/ad_sdk` block.
+- The app currently consumes it via the **local `path: packages/ad_sdk` override** (active in `pubspec.yaml`; the hosted `applovin_admob_sdk: ^1.0.20` line is commented out right above it). This was enabled to ship SDK changes — VIP stacking + `bypassVipGuard` (local SDK is at `1.0.22`). Before a release that pulls from pub.dev, re-publish the bumped SDK version and flip the two lines back.
 - `gma_mediation_applovin` must stay at the app level — it's a native mediation plugin and cannot be declared inside the sub-package.
 
 The integration contract (see `packages/ad_sdk/README.md` for the full version):

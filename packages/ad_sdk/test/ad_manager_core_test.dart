@@ -13,8 +13,10 @@
 //      AdRevenueEvents through debugEmit must accumulate on screen.
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal fake adapter: real slots (so the non-VIP slot reads work) and call
 /// counters for the load/show paths. Everything else is routed through
@@ -32,6 +34,19 @@ class _FakeAdapter implements AdProviderAdapter {
   int loadInterstitialCalls = 0;
   int showInterstitialCalls = 0;
   int loadRewardedCalls = 0;
+  int showRewardedCalls = 0;
+
+  /// When true, [loadRewarded] simulates a successful async load by flipping
+  /// the slot to `ready`. Drives the VIP-bypass on-demand load path.
+  /// Default false = load never makes the slot ready.
+  bool loadMarksReady = false;
+
+  /// When true, [loadRewarded] begins loading (slot → `loading`) but never
+  /// resolves — simulates a slow load so the on-demand wait stays in flight.
+  bool hangLoad = false;
+
+  /// What [showRewarded] reports back via `onDone`.
+  bool nextRewardEarned = true;
 
   @override
   String get tag => 'fake';
@@ -47,7 +62,28 @@ class _FakeAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> loadRewarded() async => loadRewardedCalls++;
+  Future<void> loadRewarded() async {
+    loadRewardedCalls++;
+    if (hangLoad) {
+      rewardedSlot.beginReload(); // → loading, never resolves
+      return;
+    }
+    if (loadMarksReady) {
+      rewardedSlot.beginReload();
+      rewardedSlot.markReady();
+    }
+  }
+
+  @override
+  Future<void> showRewarded(
+      {required void Function(RewardResult result) onDone}) async {
+    showRewardedCalls++;
+    rewardedSlot.beginShow();
+    rewardedSlot.markDismissed();
+    onDone(nextRewardEarned
+        ? const RewardResult(earned: true, label: 'coins', amount: 1)
+        : RewardResult.skipped);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -201,6 +237,108 @@ void main() {
       // safety layer's session-timing state.
       expect(adapter.interstitialSlot.isReady, isFalse);
       expect(AdManager().canShowInterstitial(), isFalse);
+    });
+  });
+
+  group('rewarded VIP-bypass (watch-ad to EXTEND VIP)', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      // Permissive safety + clean timing so the fullscreen gate never blocks
+      // the show path under test.
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugVipManager = null;
+    });
+
+    test(
+        'default (no bypass): VIP active → no real ad even if a slot is ready, '
+        'onEarnedReward(false)', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      adapter.loadMarksReady = true;
+      bool? earned;
+      await AdManager().showRewardedAd(onEarnedReward: (e) => earned = e);
+      expect(earned, isFalse, reason: 'vipAutoGrant defaults to false');
+      expect(adapter.showRewardedCalls, 0);
+    });
+
+    test('default + vipAutoGrant: VIP active → earned(true) without showing',
+        () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      bool? earned;
+      await AdManager().showRewardedAd(
+          vipAutoGrant: true, onEarnedReward: (e) => earned = e);
+      expect(earned, isTrue);
+      expect(adapter.showRewardedCalls, 0);
+    });
+
+    test(
+        'bypassVipGuard: VIP active → on-demand load + REAL ad shown, '
+        'earned=true', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      adapter.loadMarksReady = true;
+      adapter.nextRewardEarned = true;
+      bool? earned;
+      await AdManager().showRewardedAd(
+          bypassVipGuard: true, onEarnedReward: (e) => earned = e);
+      expect(adapter.loadRewardedCalls, greaterThanOrEqualTo(1),
+          reason: 'slot was not preloaded for a VIP → must load on demand');
+      expect(adapter.showRewardedCalls, 1, reason: 'a real ad must be shown');
+      expect(earned, isTrue);
+    });
+
+    test('bypassVipGuard but on-demand load fails → no show, earned=false',
+        () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      adapter.loadMarksReady = false; // load never makes the slot ready
+      bool? earned;
+      await AdManager().showRewardedAd(
+          bypassVipGuard: true, onEarnedReward: (e) => earned = e);
+      expect(adapter.showRewardedCalls, 0);
+      expect(earned, isFalse);
+    });
+
+    test('bypassVipGuard with a non-VIP user still shows normally', () async {
+      AdManager().debugVipManager = _FakeVip(false);
+      adapter.loadMarksReady = true;
+      bool? earned;
+      await AdManager().showRewardedAd(
+          bypassVipGuard: true, onEarnedReward: (e) => earned = e);
+      expect(adapter.showRewardedCalls, 1);
+      expect(earned, isTrue);
+    });
+
+    test(
+        'a second call while the first is mid on-demand-load is rejected '
+        '(re-entrancy guard, slot not yet showing)', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      adapter.hangLoad = true; // first call's load never resolves
+      bool? r1, r2;
+      // First call enters the on-demand wait and stays in flight.
+      final f1 = AdManager().showRewardedAd(
+        bypassVipGuard: true,
+        onDemandLoadTimeout: const Duration(milliseconds: 300),
+        onEarnedReward: (e) => r1 = e,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // Second call while the first is still loading (slot is `loading`, NOT
+      // `showing`) — only the in-flight guard can reject it.
+      await AdManager().showRewardedAd(
+        bypassVipGuard: true,
+        onEarnedReward: (e) => r2 = e,
+      );
+      expect(r2, isFalse, reason: 'blocked by _rewardedInFlight guard');
+      expect(adapter.showRewardedCalls, 0, reason: 'neither reached show');
+      await f1; // first times out → false, releasing the guard
+      expect(r1, isFalse);
     });
   });
 

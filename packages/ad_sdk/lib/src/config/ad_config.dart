@@ -120,6 +120,7 @@ class AdConfig {
     this.safety = AdSafetyParams.auto,
     this.vipKeyValidator,
     this.vipDialogStrings = const VipDialogStrings(),
+    this.maxVipStackDuration,
     this.splashMaxDuration = const Duration(seconds: 8),
     this.firstInstallVipGrace = FirstInstallVipGrace.auto,
     this.firstInstallVipKey = '__FIRST_INSTALL__',
@@ -173,6 +174,14 @@ class AdConfig {
 
   /// Strings used by the Cupertino VIP dialog. Override to localise.
   final VipDialogStrings vipDialogStrings;
+
+  /// Optional cap on the **total** VIP window produced by stacking
+  /// (`addVip(stack: true)` / `redeemVip(stack: true)`). When set, a stacked
+  /// grant never pushes the entry's expiry beyond `now + maxVipStackDuration`;
+  /// the excess is clamped (the entry is still extended up to the cap). `null`
+  /// (default) = uncapped. Only affects the stacking path — a plain
+  /// (non-stacking) `addVip` with an absolute duration is never clamped.
+  final Duration? maxVipStackDuration;
 
   // ─── Splash budget (Q32E) ─────────────────────────────────────────────────
 

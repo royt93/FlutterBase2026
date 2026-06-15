@@ -26,11 +26,15 @@ import 'vip_entry.dart';
 /// Conflict policy (Q14A — latest expiry wins): adding a key that already
 /// exists keeps the entry whose `expiresAt` is the **latest** of the two.
 class VipManager {
-  VipManager(this._prefs);
+  VipManager(this._prefs, {this.maxStackDuration});
 
   static const String _tag = 'VipManager';
 
   final AdPreferences _prefs;
+
+  /// Optional cap on the total window produced by [addVip] stacking — sourced
+  /// from `AdConfig.maxVipStackDuration`. `null` = uncapped. See [addVip].
+  final Duration? maxStackDuration;
 
   final List<VipEntry> _entries = [];
   final ValueNotifier<bool> _activeNotifier = ValueNotifier<bool>(false);
@@ -204,17 +208,62 @@ class VipManager {
 
   /// Headless add. Skips the dialog UI and any validator. Use for
   /// restore-purchase or scripted tests. Returns the saved entry.
+  ///
+  /// Conflict handling when an entry with the same [key] already exists:
+  /// - [stack] == false (default, **Q14A — latest expiry wins**): the new
+  ///   `now + duration` replaces the old one only if it expires later;
+  ///   otherwise the existing (longer) entry is kept untouched.
+  /// - [stack] == true (**accumulate / cộng dồn**): [duration] is *added on top*
+  ///   of the entry's current window. If the entry is still active the new
+  ///   expiry is `old.expiresAt + duration`; if it already lapsed it restarts
+  ///   from `now + duration` (a fresh window — never extends a dead grant from a
+  ///   point in the past). Used by the host's "redeem key" and "watch ad → +N
+  ///   days" flows so repeats add up instead of resetting. When stacking, the
+  ///   resulting expiry is clamped to `now + [maxStackDuration]` if that cap is
+  ///   set (excess time is dropped; the entry is still extended up to the cap).
   Future<VipEntry> addVip({
     required String key,
     required Duration duration,
+    bool stack = false,
   }) async {
     final norm = normaliseKey(key);
+    final now = DateTime.now();
+    final existing = _entries.indexWhere((e) => e.key == norm);
+
+    if (stack && existing >= 0) {
+      final old = _entries[existing];
+      // Extend from the later of (now, old expiry): an active entry accumulates,
+      // an expired one restarts cleanly from now.
+      final base = old.expiresAt.isAfter(now) ? old.expiresAt : now;
+      var newExpiry = base.add(duration);
+      // Clamp to the optional total-window cap.
+      final cap = maxStackDuration;
+      if (cap != null) {
+        final capExpiry = now.add(cap);
+        if (newExpiry.isAfter(capExpiry)) {
+          newExpiry = capExpiry;
+          SafeLogger.d(_tag, 'addVip: stack clamped to cap ($cap) for $norm');
+        }
+      }
+      final stacked = VipEntry(
+        key: norm,
+        expiresAt: newExpiry,
+        grantedAt: now,
+      );
+      _entries[existing] = stacked;
+      SafeLogger.d(_tag,
+          'addVip: stacked ${stacked.key} (+${duration.inMinutes}m) → ${stacked.expiresAt}');
+      await _save();
+      _refreshActive();
+      _scheduleNextExpiry();
+      return stacked;
+    }
+
     final newEntry = VipEntry(
       key: norm,
-      expiresAt: DateTime.now().add(duration),
-      grantedAt: DateTime.now(),
+      expiresAt: now.add(duration),
+      grantedAt: now,
     );
-    final existing = _entries.indexWhere((e) => e.key == norm);
     if (existing >= 0) {
       // Q14A — latest expiry wins.
       final old = _entries[existing];
@@ -243,12 +292,18 @@ class VipManager {
   /// 4. On failure / network error → show failed dialog.
   ///
   /// Returns `true` only if the entry was saved and made active.
+  ///
+  /// [stack] forwards to [addVip]: when `true`, redeeming a key that is already
+  /// active **adds** [duration] on top of the current window instead of the
+  /// default latest-expiry-wins replacement. The success dialog reports the
+  /// resulting (stacked) expiry.
   Future<bool> redeemVip(
     BuildContext context, {
     required String key,
     required Duration duration,
     required Future<bool> Function(String key)? validator,
     required VipDialogStrings strings,
+    bool stack = false,
   }) async {
     if (_redeemInFlight) {
       SafeLogger.w(_tag, 'redeemVip ⏭️ already in flight — ignoring duplicate');
@@ -294,7 +349,7 @@ class VipManager {
         return false;
       }
 
-      final entry = await addVip(key: norm, duration: duration);
+      final entry = await addVip(key: norm, duration: duration, stack: stack);
       if (context.mounted) {
         await showVipSuccessDialog(context, strings, entry);
       }

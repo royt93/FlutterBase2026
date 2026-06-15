@@ -103,7 +103,8 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
   - Bootstrap: `AdManager().setNavigatorKey(key)`, `adRouteObserver`, `AdScreenRouteLogger()`, `SimpleEventBus().listen`, `AdManager().initialize(config:, onComplete:)`.
   - Splash flow: `markSplashActive` / `markSplashInactive` / `incrementSplashCount` / `countInitSplashScreen`, `loadAppOpenAd`, `AdLoadingDialog.showAdBuffer`, `showAppOpenAd(bypassSafety: true)`.
   - Per-screen: `class XxxScreen extends AdScreen` → `class _XxxState extends AdScreenState<XxxScreen>` cấp `buildBanner()`, `showInterstitialAd(onDone:)`, `showRewardedAd(onEarnedReward:)`.
-  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`.
+  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` + `redeemVip` nhận `stack: bool` (default `false`)** — `stack: true` = cộng dồn (`+duration` lên hạn hiện tại) thay vì "latest-expiry-wins" replace. Dùng cho redeem key lặp lại + watch-ad +N ngày. Cap tuỳ chọn: **`AdConfig.maxVipStackDuration`** (default `null` = không cap) kẹp tổng cửa sổ stack `≤ now + cap`.
+  - Rewarded khi đang VIP: `showRewardedAd(bypassVipGuard: true, ...)` cho phép VIP **chủ động** xem rewarded thật để gia hạn (SDK nạp ad on-demand + show loading dialog; default `false` giữ nguyên suppress). Tuỳ chỉnh `onDemandLoadTimeout` (default 15s). `showRewardedAd` đã **re-entrancy-safe** (chặn double-tap khi đang load/show).
   - Consent: `AdManager().requestUmpConsent(testMode:, debugGeography:, testIdentifiers:)` + `ConsentManager.instance.showDialog(context)` + `AdConfig.autoShowConsentDialog` + `consentDialogStrings`.
   - Safety: `AdSafetyParams.auto` (default, KHÔNG override).
   - Logger pipe: `AdConfig.onLog: (level, tag, msg) { ... }`.
@@ -386,9 +387,31 @@ showRewardedAd(onEarnedReward: (earned) {
   // grant reward (vd grant VIP 3 ngày)
   final vip = AdManager().vip;     // RULE #2 no `!`
   if (vip == null) return;
-  vip.addVip(key: 'REWARDED_${DateTime.now().millisecondsSinceEpoch}', duration: const Duration(days: 3));
+  // Cộng dồn (stack): dùng KEY CỐ ĐỊNH (không timestamp) + `stack: true` →
+  // mỗi lần xem ad +3 ngày lên hạn hiện tại, gom về 1 entry (không rác list).
+  vip.addVip(key: 'REWARDED_VIP', duration: const Duration(days: 3), stack: true);
 });
 ```
+
+**Cộng dồn khi đang là VIP (optional, theo yêu cầu user).** Mặc định khi VIP active,
+SDK suppress mọi ad → nút "Watch ad" thường bị ẩn. Nếu muốn cho VIP **gia hạn bằng
+cách xem ad thật** (cộng dồn lúc còn hạn), giữ nút hiển thị và truyền
+`bypassVipGuard: true`:
+
+```dart
+showRewardedAd(
+  bypassVipGuard: true,            // VIP vẫn xem được rewarded THẬT (SDK nạp on-demand)
+  onEarnedReward: (earned) {
+    if (!earned) return;           // vẫn chỉ cấp khi xem hết ad — KHÔNG auto-grant
+    AdManager().vip?.addVip(
+      key: 'REWARDED_VIP', duration: const Duration(days: 3), stack: true);
+  },
+);
+```
+
+> ⚠️ KHÔNG tặng VIP chay khi đang VIP (vd ép `vipAutoGrant: true` rồi cộng dồn) —
+> = +N ngày vô hạn không xem ad, mất doanh thu + rủi ro policy. `bypassVipGuard`
+> vẫn chiếu ad thật nên hợp lệ; chống spam dựa vào safety cap fullscreen của SDK.
 
 ## Step 5 — Phạm vi thay thế (mandate replace all — Q11)
 
@@ -672,8 +695,8 @@ abstract final class AdKey {
 | 3 | Expiry date row | `'Expires: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.expiresAt)}'` (ẩn nếu free) |
 | 4 | Progress bar (elapsed) | `LinearProgressIndicator` với `value = (now − entry.grantedAt) / (entry.expiresAt − entry.grantedAt)`, clamp `[0.0, 1.0]`. **3 mốc trên timeline ngang**: `start = entry.grantedAt` (mép trái, 0%), `end = entry.expiresAt` (mép phải, 100%), `current = now` (vị trí thanh fill). Bar **rỗng lúc vừa kích hoạt → đầy dần đến hết hạn** (elapsed semantic — match user mental model "progression toward expiry"). Tuyệt đối KHÔNG đảo formula thành `remaining/total` (đầy → rỗng) — UX confusing. Chỉ show khi VIP active. **KHÔNG cần `TweenAnimationBuilder`** — per-second tick từ `_now` đủ smooth (Δ ≪ 0.001%/s cho VIP 24h trở lên), TweenAnimationBuilder chỉ thêm overhead và làm chậm rebuild. Edge case `total ≤ 0` (clock skew / đã expire) → default `value = 1.0` (đầy = đã hết hạn) |
 | 5 | Countdown text | Dạng `12d 03h 24m 15s` — update bằng `Timer.periodic(Duration(seconds: 1), ...)` trong `initState`, `cancel()` trong `dispose`. State qua `ValueNotifier<Duration>` không qua `setState` |
-| 6 | TextField nhập key VIP | `TextEditingController` + `TextCapitalization.characters` (uppercase auto), prefix icon `Icons.confirmation_number`, suffix clear button. Nút "Kích hoạt" gọi `vip.redeemVip(context, key, duration, validator, strings)` — SDK đã handle Cupertino verifying/success/failed dialogs |
-| 7 | Button "Watch ad → N days VIP" | Click → `showRewardedAd(onEarnedReward: (earned) {...})`. **Chỉ cấp VIP khi `earned == true`** (user xem hết rewarded). **KHÔNG** fallback sang interstitial để cấp thưởng — cấp VIP cho việc xem interstitial vi phạm rewarded policy của Google/AppLovin (làm mờ ranh giới rewarded/interstitial). Nếu rewarded không sẵn sàng → báo "thử lại sau". Pulse animation #1 |
+| 6 | TextField nhập key VIP | `TextEditingController` + `TextCapitalization.characters` (uppercase auto), prefix icon `Icons.confirmation_number`, suffix clear button. Nút "Kích hoạt" gọi `vip.redeemVip(context, key, duration, validator, strings, stack: true)` — `stack: true` cho **cộng dồn**: nhập lại key đang còn hạn = `+duration` lên hạn hiện tại thay vì reset. SDK đã handle Cupertino verifying/success/failed dialogs (success dialog báo hạn sau cộng dồn) |
+| 7 | Button "Watch ad → N days VIP" | Click → `showRewardedAd(onEarnedReward: (earned) {...})`. **Chỉ cấp VIP khi `earned == true`** (user xem hết rewarded). **KHÔNG** fallback sang interstitial để cấp thưởng — cấp VIP cho việc xem interstitial vi phạm rewarded policy của Google/AppLovin (làm mờ ranh giới rewarded/interstitial). Nếu rewarded không sẵn sàng → báo "thử lại sau". **Cộng dồn**: cấp qua key cố định `REWARDED_VIP` + `addVip(..., stack: true)` (gom 1 entry). Muốn cho VIP gia hạn lúc còn hạn → giữ nút hiển thị cả khi `active` + `showRewardedAd(bypassVipGuard: true, ...)` (xem 4.7). Pulse animation #1 |
 | 8 | Buy 30-day VIP (disabled) | `OutlinedButton.icon(icon: Icon(Icons.card_giftcard))` disabled, label `'vip_buy_30d_locked'.tr` ('Mua VIP 30 ngày — sắp ra mắt'). Wait IAP integration |
 | 9 | Buy 90-day VIP (disabled) | Tương tự #8 |
 | 10 | Buy 1-year VIP (disabled) | Tương tự #8 |
@@ -840,7 +863,8 @@ Duration? lookupVipKeyDuration(String normalisedKey) =>
 |---|---|---|
 | `__FIRST_INSTALL__` | `firstInstallVipGrace.auto` (Step 9) | `'vip_entry_first_install'.tr` ('Quà tặng cài đặt mới') |
 | `LEGACY_<gaid>` | Auto-migrated từ `vipDeviceGaids` (nếu set) | `'vip_entry_legacy'.tr` ('Thiết bị QA') |
-| Khác | User redeem hoặc programmatic `addVip` | `entry.key` raw |
+| `REWARDED_VIP` (prefix `REWARDED_`) | Watch-ad reward (key cố định + `stack: true`) | `'vip_reward_entry'.tr` ('Phần thưởng xem quảng cáo') |
+| Khác | User redeem hoặc programmatic `addVip` | `entry.key` raw (mask 3 ký tự đầu) |
 
 ### 10.7 — Translations (mandate vi + en — Q26)
 

@@ -173,6 +173,11 @@ class AdManager with WidgetsBindingObserver {
   bool _isInitializing = false;
   int _lastFullscreenDismissAt = 0;
 
+  /// Re-entrancy guard for [showRewardedAd] — spans the on-demand load + show
+  /// window so a second tap can't start a parallel loader/show. Reset in the
+  /// rewarded `onDone`, on the on-demand-fail path, and in [destroy].
+  bool _rewardedInFlight = false;
+
   /// Per-slot previous state, used by [_fullscreenDismissWatcher] to detect
   /// `showing → !showing` transitions. The slot watcher is the authoritative
   /// source for [_lastFullscreenDismissAt] — adapter-callback writes are kept
@@ -454,7 +459,7 @@ class AdManager with WidgetsBindingObserver {
       // Detach + dispose any pre-existing VipManager (re-init path) before
       // wiring a new one — otherwise the old listener would leak.
       _vipManager?.activeListenable.removeListener(_onVipActiveChanged);
-      final vip = VipManager(prefs);
+      final vip = VipManager(prefs, maxStackDuration: config.maxVipStackDuration);
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
@@ -805,6 +810,7 @@ class AdManager with WidgetsBindingObserver {
     _isFirstAdLoadTriggered = false;
     _lastBannerLoadAt = 0;
     _lastFullscreenDismissAt = 0;
+    _rewardedInFlight = false;
     _isInitializing = false;
     _consentDialogScheduled = false;
 
@@ -1128,6 +1134,51 @@ class AdManager with WidgetsBindingObserver {
     await ad.loadRewarded();
   }
 
+  /// Force-load a rewarded ad ignoring the VIP suppression and wait until it
+  /// is ready (or fails / times out). Used only by the VIP-bypass branch of
+  /// [showRewardedAd]; the normal flow relies on the preloaded slot.
+  ///
+  /// Observes the slot's **public** [AdSlot.state] notifier (not the internal
+  /// `pendingCallback`, which is reserved for the app-open path) and resolves on
+  /// the first `ready` (true) or `cooldown`/`idle` (false) transition.
+  Future<bool> _loadRewardedOnDemand(
+    AdProviderAdapter ad, {
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    if (ad.rewardedSlot.isReady) return true;
+    // Adapter-level load — deliberately NOT loadRewardedAd(), which skips for
+    // VIP members. `beginLoad()` flips the slot to `loading` synchronously.
+    await ad.loadRewarded();
+    if (ad.rewardedSlot.isReady) return true; // completed synchronously
+    if (!ad.rewardedSlot.isLoading) {
+      // Couldn't begin (cooldown/backoff) — no transition will come.
+      return false;
+    }
+    final completer = Completer<bool>();
+    void listener() {
+      switch (ad.rewardedSlot.value) {
+        case AdSlotState.ready:
+          if (!completer.isCompleted) completer.complete(true);
+        case AdSlotState.cooldown:
+        case AdSlotState.idle:
+          if (!completer.isCompleted) completer.complete(false);
+        case AdSlotState.loading:
+        case AdSlotState.showing:
+          break; // still in flight
+      }
+    }
+
+    ad.rewardedSlot.state.addListener(listener);
+    try {
+      return await completer.future.timeout(timeout, onTimeout: () {
+        SafeLogger.w(_tag, '⏱️ on-demand rewarded load timed out');
+        return false;
+      });
+    } finally {
+      ad.rewardedSlot.state.removeListener(listener);
+    }
+  }
+
   /// Show a rewarded ad.
   ///
   /// VIP behaviour (Q12B — caller-confirmed): the SDK does **NOT**
@@ -1135,6 +1186,8 @@ class AdManager with WidgetsBindingObserver {
   Future<void> showRewardedAd({
     required void Function(bool earned) onEarnedReward,
     bool vipAutoGrant = false,
+    bool bypassVipGuard = false,
+    Duration onDemandLoadTimeout = const Duration(seconds: 15),
     AdPlacement placement = AdPlacement.unspecified,
   }) async {
     final ad = _adapter;
@@ -1143,7 +1196,13 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
-    if (_isVipMember) {
+    // VIP normally suppresses every ad. [bypassVipGuard] is the single,
+    // explicit exception: a VIP user voluntarily watching a rewarded ad to
+    // EXTEND their own VIP window (the "watch ad → +N days" flow). This is
+    // policy-compliant — a real ad is still shown; we never auto-grant here.
+    // Because VIP also stops the slot from being preloaded, this path
+    // load-on-demands before showing.
+    if (_isVipMember && !bypassVipGuard) {
       SafeLogger.d(
           _tag,
           () =>
@@ -1151,8 +1210,11 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(vipAutoGrant);
       return;
     }
-    if (ad.rewardedSlot.isShowing) {
-      SafeLogger.d(_tag, '⏭️ showRewarded skipped — already showing');
+    // Re-entrancy guard: a second call while the on-demand load OR the ad show
+    // of a first call is still in flight would clobber state (two loaders, two
+    // shows). Self-contained so the SDK is safe even without a caller-side lock.
+    if (_rewardedInFlight || ad.rewardedSlot.isShowing) {
+      SafeLogger.d(_tag, '⏭️ showRewarded skipped — already showing / in flight');
       onEarnedReward(false);
       return;
     }
@@ -1163,11 +1225,31 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
+    _rewardedInFlight = true;
+    // VIP bypass: the slot was never preloaded (loadRewardedAd skips for VIP),
+    // so fetch one on demand and wait for it before showing. A blocking loading
+    // dialog covers the wait (the slot can take seconds). A normal (non-VIP)
+    // caller with a preloaded slot skips both the dialog and the wait.
+    if (bypassVipGuard && !ad.rewardedSlot.isReady) {
+      final ctx = _navigatorKey?.currentContext;
+      if (ctx != null) AdLoadingDialog.show(ctx);
+      final loaded =
+          await _loadRewardedOnDemand(ad, timeout: onDemandLoadTimeout);
+      AdLoadingDialog.dismiss();
+      if (!loaded) {
+        _rewardedInFlight = false;
+        SafeLogger.d(
+            _tag, '⏭️ showRewarded (bypass) — on-demand load failed');
+        onEarnedReward(false);
+        return;
+      }
+    }
     SafeLogger.d(
         _tag,
         () =>
             '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
     await ad.showRewarded(onDone: (result) {
+      _rewardedInFlight = false;
       if (result.earned) {
         AdSafetyConfig.recordFullscreenAdShown();
         _emit(AdRewardEvent(

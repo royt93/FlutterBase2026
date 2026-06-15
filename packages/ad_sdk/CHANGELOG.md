@@ -4,6 +4,39 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.22] - 2026-06-15
+
+### Added — VIP time stacking + rewarded-while-VIP
+- `VipManager.addVip` and `redeemVip` gained a `stack` flag (default `false`,
+  fully backward compatible). With `stack: true`, redeeming a key that already
+  has an entry **accumulates** the duration onto the current window
+  (`old.expiresAt + duration` for an active entry; `now + duration` for a lapsed
+  one) and resets `grantedAt` to now — instead of the default latest-expiry-wins
+  replacement. Enables "redeem key again to extend" and "watch ad → +N days".
+- `AdManager.showRewardedAd` gained a `bypassVipGuard` flag (default `false`).
+  When `true`, a VIP member can voluntarily watch a **real** rewarded ad (e.g. to
+  extend their own VIP window). Since the rewarded slot is not preloaded while
+  VIP, the SDK loads it on demand and waits before showing. No auto-grant — the
+  reward is still only earned by completing the ad. Policy-compliant (a real ad
+  is shown).
+  - On-demand load observes the slot's **public** `AdSlot.state` notifier (not
+    the internal `pendingCallback`), with a caller-tunable `onDemandLoadTimeout`
+    (default 15 s) param on `showRewardedAd`.
+  - A blocking `AdLoadingDialog` covers the on-demand wait (new
+    `AdLoadingDialog.show()` / `dismiss()` non-timed pair).
+  - `showRewardedAd` is now **re-entrancy-safe**: a second call while a first is
+    mid load/show is rejected (`onEarnedReward(false)`), independent of any
+    caller-side lock.
+- `AdConfig.maxVipStackDuration` (default `null` = uncapped) — optional cap on
+  the **total** window produced by stacking. When set, a stacked grant is clamped
+  to `now + maxVipStackDuration`. Plumbed to `VipManager` at init.
+
+### Tests
+- +19 tests (217 total). New `vip_manager_stacking_test.dart` (10 — stacking math,
+  cap clamp + uncapped, persistence across reload, notifier, watch-ad fixed-key)
+  and a `rewarded VIP-bypass` group in `ad_manager_core_test.dart` (6 — default
+  vs. bypass, on-demand load success/failure, non-VIP, re-entrancy guard).
+
 ## [1.0.21] - 2026-06-15
 
 ### Changed — dependency refresh

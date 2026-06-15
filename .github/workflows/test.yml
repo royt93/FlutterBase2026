@@ -28,10 +28,11 @@ jobs:
       - name: Run tests
         run: flutter test
 
-  # The host app has no unit tests (UI-only), so we gate it on static analysis.
-  # It consumes the SDK via the in-repo path override, so no publish is needed.
+  # The host app is mostly UI-only (gated on static analysis) but now ships a
+  # small test/ dir for screens with real logic (e.g. VipScreen stacking). It
+  # consumes the SDK via the in-repo path override, so no publish is needed.
   host:
-    name: host app — analyze
+    name: host app — analyze & test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,3 +44,5 @@ jobs:
         run: flutter pub get
       - name: Analyze
         run: flutter analyze
+      - name: Run tests
+        run: flutter test
