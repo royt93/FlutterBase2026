@@ -4,6 +4,22 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.23] - 2026-06-15
+
+### Changed — App Open ad never stacks on top of a modal
+- `AdScreenRouteLogger` now tracks how many `PopupRoute`s (dialogs, bottom
+  sheets, Cupertino popups) are on the navigation stack and exposes
+  `AdScreenRouteLogger.isDialogOnTop`. `showAppOpenAdOnResume` consults it (plus
+  `AdLoadingDialog.isShowing`) and **skips the App Open ad while any dialog is
+  presented** — e.g. the consent dialog or a VIP redeem confirmation. Showing a
+  fullscreen ad over a modal is bad UX and an AdMob policy risk. The counter is
+  reset by `AdManager.destroy()` so a mid-dialog teardown can't wedge it.
+
+### Fixed — retry-refill scan bails early for VIP members
+- `_retryRefillAds` now returns immediately when the user is a VIP member.
+  Each `load*()` already guarded on VIP, so behaviour is unchanged, but this is
+  a defense-in-depth backstop and avoids a pointless periodic scan/log.
+
 ## [1.0.22] - 2026-06-15
 
 ### Added — VIP time stacking + rewarded-while-VIP

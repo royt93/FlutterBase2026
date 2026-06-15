@@ -23,6 +23,7 @@ import '../widget/ad_loading_dialog.dart';
 import 'ad_consent.dart';
 import 'att_consent.dart';
 import 'ad_provider_adapter.dart';
+import 'ad_route_observer.dart';
 import 'ad_safety_config.dart';
 import 'event_bus.dart';
 import 'ump_consent.dart';
@@ -792,6 +793,7 @@ class AdManager with WidgetsBindingObserver {
     _splashBudgetTimer = null;
     _stopAdRetryTimer();
     AdLoadingDialog.resetState();
+    AdScreenRouteLogger.resetState();
     AdSafetyConfig.resetForReinit();
     SimpleEventBus().clearAll();
 
@@ -950,6 +952,14 @@ class AdManager with WidgetsBindingObserver {
     if (ad.interstitialSlot.isShowing || ad.rewardedSlot.isShowing) {
       SafeLogger.d(_tag,
           '⏭️ app-open on resume skipped — interstitial/rewarded currently showing');
+      return;
+    }
+    // Don't stack a fullscreen App Open ad on top of a modal — consent dialog,
+    // VIP redeem confirmation, the SDK's own loading buffer, etc. Showing an ad
+    // over a dialog is bad UX and an AdMob policy risk.
+    if (AdLoadingDialog.isShowing || AdScreenRouteLogger.isDialogOnTop) {
+      SafeLogger.d(
+          _tag, '⏭️ app-open on resume skipped — a dialog/popup is on top');
       return;
     }
 
@@ -1512,6 +1522,10 @@ class AdManager with WidgetsBindingObserver {
   void _retryRefillAds() {
     final ad = _adapter;
     if (ad == null) return;
+    // VIP members never load ads. Each load*() already guards on this, but
+    // bailing here keeps the periodic scan from logging/iterating pointlessly
+    // and is a defense-in-depth backstop if a future load*() drops its guard.
+    if (_isVipMember) return;
     SafeLogger.d(
       _tag,
       () => '⏲️ retry refill scan — vip=$_isVipMember '
