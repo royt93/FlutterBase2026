@@ -154,6 +154,33 @@ Updated: 2026-06-15
 > **Wave 1 COMPLETE (2026-06-16).** All three features coded, tested (18/18),
 > analyzed clean, built, and verified end-to-end on real devices.
 
+### Wave 1 UI polish — dark theme unify (2026-06-16) · `done`
+> The WiFi main screen used a light cream `Card` (app theme is `ThemeData.light`)
+> floating over the dark space background, clashing with the dark-slate History/
+> Comparison screens. Unified everything to the dark design system
+> (bg #0F172A · card #1E293B · accent #3B82F6).
+- Control panel: cream `Card` → dark `Container` (#1E293B, subtle border), white
+  text, dark dropdown (`dropdownColor`).
+- Duration chips: default Material `ChoiceChip` → custom dark chips — selected =
+  solid blue accent + white, unselected = #0F172A + white70, animated.
+- Speedometer gauge: now the **hero** when running (size 260, top, replaces the
+  idle status circle); removed the redundant "Tốc độ hiện tại" metric row; fixed
+  the "Mbps" label colour (was black → white70); gauge `size` param added.
+- `MetricTileWidget`: white/white70 text on dark; green metric icons kept.
+- `SpeedChart` (live) + `collecting_data`: cream `Card` → dark, readable text.
+- Comparison + History charts: softened the harsh black `FlBorderData` to
+  white-12%; comparison legend squares rounded.
+- Verified on device (S24 Ultra): cohesive dark control panel + accent chips +
+  gauge hero. `flutter analyze` clean, `flutter test` 12/12 Wave 1 still green.
+
+#### UI refinements (user feedback, 2026-06-16)
+- Connection-count picker: bare underlined `DropdownButton` → rounded pill
+  (#0F172A, 12px corners, subtle border, `borderRadius` on the popup too).
+- Speedometer gauge value overlap fixed: redesigned from a 270° dial (value
+  Stacked over the hub/needle/background art) to a **180° semicircle with the
+  value number in a `Column` directly below the arc** — number can no longer
+  overlap the needle/arc/background. Verified on device.
+
 ## 📋 Picked — awaiting implementation
 
 > Chosen 2026-06-15. Apply the coding rules at the top of this file to each.
