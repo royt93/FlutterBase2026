@@ -85,7 +85,76 @@ Updated: 2026-06-15
 
 ## 🟡 In progress
 
-- (none — Wave 1 complete; Wave 2 not started)
+- (none — Wave 2 complete; Wave 3 not started)
+
+## ✅ Implemented — Wave 2 (measurement + export) · DONE 2026-06-16
+
+> Started + completed 2026-06-16. New files: `services/latency_service.dart`,
+> `models/network_quality.dart`, `test/wave2_{latency,quality,export}_test.dart`.
+> Touched: `models/test_result(_adapter).dart`, `stressor_controller.dart`,
+> `controllers/history_controller.dart`, `widgets/control_panel_widget.dart`,
+> `presentation/{test_detail,comparison}_screen.dart`, translations, `pubspec.yaml`
+> (`pdf`).
+
+### D. Ping/Latency + Jitter realtime — `done`
+- [x] D1 `LatencyService`: HTTP GET round-trip probe (Cloudflare trace), ms; null
+      on failure. Pure static `jitter`/`average`. — `done`
+- [x] D2 Controller: `latencyMs`/`jitterMs`/`latencyHistory` Rx + 2s probe Timer
+      during a run (cancelled in stop/cleanup, service closed); jitter = mean |Δ|.
+      — `done`
+- [x] D3 Model+adapter: `TestResult.avgLatencyMs`/`jitterMs` (fields 12/13,
+      backward-safe null read) + `fromControllerData`/`copyWith`/`toJson`/`fromJson`
+      + `latencyFormatted`/`jitterFormatted`. — `done`
+- [x] D4 UI: latency + jitter metric tiles (running panel) + detail screen rows.
+      — `done`
+- [x] D5 i18n vi/en (`latency`,`jitter`) + tests `test/wave2_latency_test.dart`
+      (8: jitter/average math + model round-trip/format/backward-compat). — `done`
+> Note: latency is measured *under load* (during the download stress) → reflects
+> bufferbloat, intentionally. Probe runs in parallel with downloads.
+
+### E. Network Quality Score A–F — `done`
+- [x] `NetworkQuality.compute` (pure): speed 50pts + latency 30pts + jitter 20pts
+      → 0-100 score → grade A/B/C/D/F + colour. Null latency → speed-only on a
+      100 scale. — `done`
+- [x] UI: grade badge on the test-detail performance card (white pill, coloured
+      letter + score) + a coloured grade row in the comparison table (+ latency/
+      jitter rows). — `done`
+- [x] i18n `quality_score` + tests `test/wave2_quality_test.dart` (6: tiers,
+      boundaries, null-latency, caps). — `done`
+
+### F. Export CSV / JSON / PDF — `done`
+- [x] `exportData` now opens a dark bottom-sheet format picker (CSV/JSON/PDF) →
+      `_exportAs(fmt)` writes temp file + shares (share_plus). — `done`
+- [x] CSV: added Latency/Jitter/Quality columns. JSON: indented array of
+      `TestResult.toJson` (incl. latency). PDF: `pdf: ^3.12.0` — A4 MultiPage
+      table (#, time, avg, peak, latency, jitter, grade, status). — `done`
+- [x] Generators made `@visibleForTesting` (`generateCsv`/`generateJson`/
+      `generatePdf`); i18n `export_choose_format`; tests
+      `test/wave2_export_test.dart` (3: CSV headers/rows, JSON parse+round-trip,
+      PDF %PDF magic). — `done`
+
+> **Wave 2 COMPLETE (2026-06-16).** Latency+jitter, A–F quality score, 3-format
+> export. `flutter analyze` clean, APK builds.
+
+#### Wave 2 tests + bug fixes (2026-06-16)
+- Added **widget + integration tests**: `test/wave2_widget_test.dart` (latency/
+  jitter tiles, detail quality badge, export bottom-sheet) +
+  `test/wave2_integration_test.dart` (select 2 → comparison shows latency + A–F
+  grades end-to-end). **40/40 host tests green.**
+- 🐛 **Fixed custom-duration dialog crash** (`_dependents.isEmpty` assertion): the
+  dialog disposed its `TextEditingController` in a `.then()` while the `TextField`
+  was still mounted. Rewrote as a `_CustomDurationDialog` StatefulWidget that
+  disposes in `State.dispose()`. Regression test added in `wave1_widget_test.dart`
+  (open→fill→OK→`pumpAndSettle`). Verified on S24 Ultra: 45s entered → no crash →
+  `45s` chip selected.
+- 🐛 **Fixed pre-existing detail-screen overflow** (233px): `SpeedChart` was forced
+  into `SizedBox(height:200)` but needed ~420px → added `chartHeight` param
+  (detail uses 180).
+- 🐛 Added missing i18n key `ok` (the OK button rendered as lowercase "ok").
+- **On-device (S24 Ultra):** latency `268 ms` + jitter `362 ms` tiles live during
+  a run (high = under-load bufferbloat, by design), gauge hero animates, auto-stop
+  fires, custom dialog no longer crashes. No `_dependents`/assertion/FlutterError
+  in logcat (only expected per-loop DioException on cancel).
 
 ## ✅ Implemented — Wave 1 (Quick wins) · DONE 2026-06-16
 
@@ -180,25 +249,20 @@ Updated: 2026-06-15
   Stacked over the hub/needle/background art) to a **180° semicircle with the
   value number in a `Column` directly below the arc** — number can no longer
   overlap the needle/arc/background. Verified on device.
+- Gauge smooth animation: `TweenAnimationBuilder` (450ms easeOutCubic) interpolates
+  needle/arc/number/colour between value changes (no more jumps on each 500ms
+  controller tick). `begin: null` → first build shows target instantly (tests stay
+  green).
 
 ## 📋 Picked — awaiting implementation
 
 > Chosen 2026-06-15. Apply the coding rules at the top of this file to each.
 
-### 🔬 Core measurement (Wave 2–3)
-- **Ping/Latency + Jitter realtime** — measure round-trip latency + jitter during
-  a test (HTTP round-trip / ICMP), show live, persist into `TestResult`. Highest
-  gap for a network tester.
-- **Network Quality Score A–F** — combine speed + latency + jitter (+ packet loss
-  if available) into a colour-coded grade. Reuse the existing `speedQuality`.
+### 🔬 Wave 3 — native measurement
 - **Signal strength dBm (real)** — replace the `null` with a platform channel
   (Android `WifiManager.getRssi`, iOS equivalent); surface in Network Info.
 - **DNS resolution + Packet loss** — DNS response time + packet-loss ratio; needs
-  a dedicated package. Most complex of the four.
-
-### 📈 UX / visualization (Wave 2)
-- **Export upgrade CSV / JSON / PDF** — extend the current `exportData`; pretty
-  reports + share. Keep the existing rewarded-ad gate.
+  a dedicated package. Most complex.
 
 ## 🚧 Blockers — config, not code
 
