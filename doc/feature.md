@@ -1,6 +1,6 @@
 # Feature Status
 
-Updated: 2026-06-15
+Updated: 2026-06-16
 
 > **Single source of truth** for feature decisions. Two tracks:
 > **🛜 Product** (the WiFi stress-tester itself) and **📣 Ad/SDK**
@@ -84,7 +84,50 @@ Updated: 2026-06-15
 
 ## 🟡 In progress
 
-- (none — Polish + Wave 4 complete)
+- (none — Wave 5 complete)
+
+## ✅ Implemented — Wave 5 (network dashboard + chart types) · DONE 2026-06-16
+
+> Picked 2026-06-16 (Network Info dashboard + Chart types & visualization), built
+> same day. New files: `models/network_dashboard.dart`,
+> `controllers/network_dashboard_controller.dart`,
+> `presentation/network_dashboard_screen.dart`, `widgets/loss_pie_widget.dart`,
+> `test/wave5_{unit,widget}_test.dart`. Touched: `MainActivity.kt`
+> (getNetworkDetails), `services/network_info_service.dart`, `speed_chart.dart`,
+> `presentation/test_detail_screen.dart`, `wifi_stressor_screen.dart` (router
+> AppBar icon), translations. Also polished `common/v/pulse_container.dart`
+> (`late`→nullable).
+
+### I. Network Info dashboard — `done`
+- [x] Native `getNetworkDetails` (MainActivity.kt): gateway IP + DNS1/DNS2 + BSSID
+      via `DhcpInfo` + `WifiInfo.bssid`; int→dotted IPv4; placeholder MAC
+      `02:00:00:00:00:00` (no location perm) → null.
+- [x] `NetworkInfoService`: `getNetworkDashboard()` gathers base info + native
+      gateway/dns/bssid + **public IP** (Dio GET ipify, 5s timeout, null on fail)
+      + link speed. Pure helpers `isLikelyIpv4` / `dnsListOf` `@visibleForTesting`.
+- [x] `NetworkDashboard` model (live, **not** Hive-persisted → no adapter/schema
+      migration). `NetworkDashboardController` (GetX Rx, refresh guard).
+- [x] `NetworkDashboardScreen`: Connection / Addresses / DNS cards + per-row
+      copy-to-clipboard + refresh button. Entry = `Icons.router` on main AppBar
+      (no interstitial — info screen).
+- [x] i18n vi/en (`net_*`). Tests in `wave5_unit_test.dart`.
+
+### J. Chart types & visualization — `done`
+- [x] `SpeedChart` now StatefulWidget with line / area / bar toggle (state via
+      `ValueNotifier`, **no setState**). Bar chart downsamples to `maxBars=48`
+      buckets (`downsample` `@visibleForTesting`). Live running chart passes
+      `showTypeToggle:false` (keeps data-points counter).
+- [x] `LossPieWidget` — success-vs-loss pie (fl_chart `PieChart`) from
+      `packetLossPct`; rendered in `test_detail` only when not null. Pure
+      `successOf` `@visibleForTesting`.
+- [x] i18n vi/en (`packet_pie_title`, `packet_success`). Tests in
+      `wave5_widget_test.dart` (toggle line→bar, hidden toggle, pie + legends).
+
+> **Wave 5 COMPLETE (2026-06-16).** 70/70 host tests green (58 + 12 new),
+> ad_sdk 225/225, `flutter analyze` clean (host + ad_sdk), APK builds with the
+> native channel. i18n 184/184 parity.
+> **Deferred from this pick:** heatmap (performance over time) — needs a
+> history×time matrix + a custom painter; larger than this session.
 
 ## ✅ Implemented — Polish + Wave 4 · DONE 2026-06-16
 
@@ -364,18 +407,20 @@ Policy:
 > Unstructured pool — promote to Picked with a clear scope before implementing.
 
 ### 🛜 Product
-- Upload vs Download speed (currently download-only).
-- Real-time alerts: speed drop below threshold, test-complete notification, push
-  on connection failure.
-- Network Information dashboard: gateway/DNS info, connected-devices count,
-  router manufacturer/model, public IP.
 - Benchmarking / leaderboard: compare against ISP advertised speeds; fastest
   networks list.
 - Multiple servers selection + auto-test scheduling (daily/weekly).
 - Custom test params (packet size, interval, timeout), data-usage limits.
-- Heatmap of performance over time; bar/area chart types; success-vs-failed pie.
+- Heatmap of performance over time (deferred from Wave 5 — needs history×time
+  matrix + custom painter).
+- Network dashboard extras: connected-devices count, router manufacturer/model
+  (OUI lookup) — deferred (BSSID shown in Wave 5, vendor DB is heavy).
 - Light/dark theme toggle (app is currently dark-only by design).
-- Localization completeness audit (TODO calls for "multi language đầy đủ").
+
+> Done: Upload vs Download (Wave 4) · Real-time alerts (Wave 4) · Network Info
+> dashboard public-IP/gateway/DNS/BSSID (Wave 5) · bar/area chart types +
+> success-vs-loss pie (Wave 5) · localization completeness audit (i18n 184/184
+> parity verified 2026-06-16).
 
 ### 📣 Ad / SDK
 - In-app debug entry to launch AppLovin/AdMob ad inspectors.
