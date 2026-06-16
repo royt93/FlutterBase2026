@@ -123,11 +123,55 @@ Updated: 2026-06-16
 - [x] i18n vi/en (`packet_pie_title`, `packet_success`). Tests in
       `wave5_widget_test.dart` (toggle line→bar, hidden toggle, pie + legends).
 
-> **Wave 5 COMPLETE (2026-06-16).** 70/70 host tests green (58 + 12 new),
-> ad_sdk 225/225, `flutter analyze` clean (host + ad_sdk), APK builds with the
-> native channel. i18n 184/184 parity.
+> **Wave 5 COMPLETE (2026-06-16).** 72/72 host tests green, ad_sdk 225/225,
+> `flutter analyze` clean (host + ad_sdk), APK builds with the native channel.
+> i18n 184/184 parity.
 > **Deferred from this pick:** heatmap (performance over time) — needs a
 > history×time matrix + a custom painter; larger than this session.
+
+#### Wave 5 on-device verification + post-review polish (S24 Ultra, 2026-06-16)
+- **Verified live on Samsung S24 Ultra (Android 16):** Network Dashboard resolved
+  gateway `192.168.92.1`, DNS, BSSID `a2:05:...`, public IP `118.69.32.232`,
+  signal/freq/channel/link-speed (458 Mbps) — all native data correct. Chart
+  toggle line/area/bar + success-vs-loss pie (100%) render + switch smoothly.
+  Interstitial-only-on-History confirmed. **Zero** app crash/ANR/`E/flutter`
+  across the session (only system `serviceDiscovery`/`NearbySharing` noise).
+- **3 review nits fixed + re-verified on device:**
+  1. **Public IP fallback** — `getPublicIp` now iterates `publicIpProviders`
+     (ipify → ifconfig.me → icanhazip), first valid IPv4 wins (was single
+     provider → silent N/A if blocked).
+  2. **Parallel fetch** — `getNetworkDashboard` starts connectionType / base /
+     wifi / details / publicIp as concurrent hot futures (public IP's ≤5s no
+     longer serializes behind the fast native calls).
+  3. **Signal-quality i18n unified** — `TestResult.signalQuality` now returns
+     lowercase tier keys (`excellent`/`good`/`fair`/`poor`) like
+     `NetworkDashboard`; test-detail row translates via `signal_<tier>` (device
+     shows "-33 dBm (Xuất sắc)", was untranslated "(Excellent)"); share text
+     uses `capitalizeFirst` to stay an English report.
+  - Tests: +2 in `wave5_unit_test.dart` (TestResult tier keys, publicIpProviders
+    shape). `DhcpInfo` kept (deprecated but reliable) — noted for a future move
+    to `ConnectivityManager.getLinkProperties`.
+
+#### Wave 5 spec-audit round (2026-06-16) — closed the deferred sub-items
+> Audit vs the chosen option text surfaced 2 named-but-undelivered sub-items
+> (router vendor OUI, heatmap) + 3 minor issues. All addressed + re-verified on
+> S24 Ultra. **79/79 host tests, analyze clean, i18n 192/192.**
+- **Router vendor (OUI)** — `NetworkInfoService.vendorOf(bssid)` + `ouiVendors`
+  map (~40 common router/AP makers). Guards **locally-administered/randomized
+  MAC** (0x02 bit) → null (real-world routers often randomize, incl. the test
+  device — vendor row then hidden by design). `NetworkDashboard.vendor` + "Hãng"
+  row (only when non-null). Tests: 4 (known/randomized/unknown/malformed).
+- **Heatmap** (`presentation/heatmap_screen.dart`) — each test = a 24-cell strip
+  (reuses `SpeedChart.downsample`, now a plain public util) coloured red→amber→
+  green by speed vs global peak; legend + per-row time/avg label. Entry = grid
+  icon on History AppBar. `heatmapColor` `@visibleForTesting` (3 tests). i18n
+  `heatmap_*`. On device: 3 rows render, startup-ramp amber → sustained green.
+- **3 nits fixed:** (a) parallel reorder so BSSID isn't fetched before location
+  permission resolves (await base first; publicIp still overlapped); (b)
+  `connectionType` localized (`net_type_wifi/mobile/ethernet/unknown` — device
+  shows "WiFi"); (c) `getPublicIp` closes its Dio in `finally`.
+- **Still deferred:** connected-devices count (needs ARP scan, unreliable);
+  OUI DB is a starter list (extend as needed).
 
 ## ✅ Implemented — Polish + Wave 4 · DONE 2026-06-16
 
