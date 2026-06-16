@@ -42,11 +42,15 @@ Mỗi lần chạy `flutter_native_splash:create`, package **ghi đè** styles-v
 - `android/app/src/main/res/drawable/splash_icon_anim.xml` — **AnimationDrawable**
   (`<animation-list oneshot="true">`) dựng từ chính logo: zoom-in + fade overshoot,
   16 frame × 45ms (frame cuối dwell 200ms), dừng ở logo đầy đủ.
-- Frames: `android/app/src/main/res/drawable-nodpi/splash_logo_00..15.png`, sinh từ
+- Frames: `android/app/src/main/res/drawable-nodpi/splash_logo_00..15.webp`, sinh từ
   `assets/images/ic_launcher_960.png` bằng PIL (crop sát nội dung -> scale 0.62→1.0
   easeOutCubic + alpha easeOutCubic, canvas 640px trong suốt). Đặt trong `drawable-nodpi`
   để không bị scale theo density. Để chỉnh lại animation, re-render bằng script PIL
   rồi build lại.
+  > 💡 Frame lưu dạng **WebP (quality 90)** để giảm size (~1.2MB PNG → ~220KB, -81%).
+  > Android resolve `@drawable/splash_logo_NN` theo tên nên không cần sửa
+  > `splash_icon_anim.xml`. Nếu re-render bằng PIL, nhớ `save(..., "WEBP", quality=90)`
+  > thay vì PNG để khỏi phình lại.
   > ⚠️ VÙNG AN TOÀN (tránh "cut"): splash icon Android 12 chỉ hiện logo trong ~2/3
   > trung tâm. Logo lúc nghỉ (scale=1.0) phải bằng kích thước `android12splash.png`
   > tĩnh do package sinh — đo được **~40.4% rộng / ~46.5% cao** canvas. Vì vậy
