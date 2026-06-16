@@ -24,9 +24,8 @@ Updated: 2026-06-15
   line chart, timeline list.
 - Test detail screen: avg / peak / min / median speed, network info,
   speed-over-time chart.
-- Network info: SSID, IP, estimated frequency.
-  ⚠️ `signalStrength` is currently `null` (Flutter can't read RSSI without a
-  platform channel) → see Picked **"Signal strength dBm"**.
+- Network info: SSID, IP, estimated frequency, **signal dBm** (Wave 3 native
+  channel), latency/jitter/DNS/packet-loss (Wave 2–3).
 - Endpoint set: Linode / Vultr / OVH / free.fr / ThinkBroadband (the 5 dead
   DigitalOcean speedtest endpoints were removed).
 
@@ -85,7 +84,42 @@ Updated: 2026-06-15
 
 ## 🟡 In progress
 
-- (none — Wave 2 complete; Wave 3 not started)
+- (none — Polish + Wave 4 complete)
+
+## ✅ Implemented — Polish + Wave 4 · DONE 2026-06-16
+
+> New: `services/upload_speed_service.dart`, `presentation/ad_health_screen.dart`,
+> `test/wave4_*` (upload/alerts/ad_health). Touched: model+adapter (uploadMbps),
+> stressor_controller (upload probe + alerts), control_panel (upload tile + alert
+> chips), test_detail/comparison/history_controller (upload col), MainActivity.kt
+> (getWifiInfo), network_info_service (band/channel), translations.
+
+### P. Polish — `done`
+- [x] P1 De-nested the test-detail speed chart (was card-inside-card + 2 headers);
+      now `SpeedChart` stands alone (single card/header). — `done`
+- [x] P2 Native `getWifiInfo` (rssi + frequency MHz + link speed); Dart
+      `bandOf`/`channelOf` derive real `NetworkInfo.frequency` (2.4/5/6 GHz) +
+      `channel`. Tests added (band/channel/map). — `done`
+
+### Wave 4 (picked)
+- [x] **Upload speed test** — `done`. `UploadSpeedService` (POST 1MB to Cloudflare
+      `__up`, throughput) probed every 5s under load; `TestResult.uploadMbps`
+      (adapter field 16) + running tile + detail row + comparison row + CSV col +
+      i18n `upload_speed`. Tests `test/wave4_upload_test.dart`.
+- [x] **Real-time alerts** — `done`. Threshold chips (Off/5/10/20/50 Mbps) in the
+      control panel; low-speed toast fires once when avg drops below (after 5s,
+      resets on recovery); test-complete toast on stop/auto-stop. In-app toasts
+      (toastification) — no OS-notification plugin needed. `shouldAlertLowSpeed`
+      `@visibleForTesting`. Tests `test/wave4_alerts_test.dart`.
+- [x] **Ad-health / debug screen** — built then **REMOVED per user (2026-06-16)**:
+      verified working on device (SDK/slots/VIP/consent live), but it's a
+      dev/debug tool — exposing it on the production AppBar is clutter + leaks
+      internal ad state to end-users. Screen + icon + test + i18n all removed.
+      (If needed later, re-add gated behind `kDebugMode`.)
+
+> **Polish + Wave 4 COMPLETE (2026-06-16).** Upload speed + alerts + polish
+> shipped; ad-health built+verified then removed as a debug-only tool. analyze
+> clean, APK builds.
 
 ## ✅ Implemented — Wave 2 (measurement + export) · DONE 2026-06-16
 
@@ -254,15 +288,33 @@ Updated: 2026-06-15
   controller tick). `begin: null` → first build shows target instantly (tests stay
   green).
 
-## 📋 Picked — awaiting implementation
+## ✅ Implemented — Wave 3 (native measurement) · DONE 2026-06-16
 
-> Chosen 2026-06-15. Apply the coding rules at the top of this file to each.
+> New: `MainActivity.kt` MethodChannel, `test/wave3_{signal,dns_loss}_test.dart`.
+> Touched: `latency_service.dart` (DNS), `network_info_service.dart` (RSSI channel),
+> `stressor_controller.dart`, `models/test_result(_adapter).dart`,
+> `presentation/{test_detail,comparison}_screen.dart`, `controllers/history_controller.dart`
+> (CSV cols), translations.
 
-### 🔬 Wave 3 — native measurement
-- **Signal strength dBm (real)** — replace the `null` with a platform channel
-  (Android `WifiManager.getRssi`, iOS equivalent); surface in Network Info.
-- **DNS resolution + Packet loss** — DNS response time + packet-loss ratio; needs
-  a dedicated package. Most complex.
+### G. Signal strength dBm (native) — `done`
+- [x] `MainActivity.kt`: MethodChannel `com.saigonphantomlabs.base/wifi` →
+      `getRssi` returns `WifiManager.connectionInfo.rssi` (null if ≥0 / error).
+- [x] `NetworkInfoService.getSignalStrength()` (`@visibleForTesting`) invokes it;
+      iOS has no handler → caught → null. Wired into `getCurrentNetworkInfo`
+      (was hard-coded `null`). Detail Network-Info row already renders it.
+- [x] Tests `test/wave3_signal_test.dart` (4, channel-mocked: negative kept,
+      0/positive→null, null→null, PlatformException→null). APK builds (Kotlin OK).
+
+### H. DNS resolution + Packet loss — `done`
+- [x] `LatencyService.dnsLookup()` (timed `InternetAddress.lookup`, null on fail).
+- [x] Controller: `dnsMs`/`packetLossPct`/`dnsHistory` + probe-attempt/failure
+      counters; packet-loss = failed/total probes %, DNS = avg. Persisted to
+      `TestResult.dnsMs`/`packetLossPct` (adapter fields 14/15, backward-safe).
+- [x] UI: detail rows + comparison rows + CSV columns; i18n `dns_time`,
+      `packet_loss`. Tests `test/wave3_dns_loss_test.dart` (7).
+
+> **Wave 3 COMPLETE (2026-06-16).** 49/49 host tests green, analyze clean, APK
+> builds with the native channel.
 
 ## 🚧 Blockers — config, not code
 
