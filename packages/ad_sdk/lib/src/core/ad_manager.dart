@@ -123,6 +123,51 @@ class AdManager with WidgetsBindingObserver {
             'production unit IDs before shipping.');
       }
     }
+    warnings.addAll(_adUnitIdFootgunWarnings(config));
+    return warnings;
+  }
+
+  /// T16: empty/malformed ad-unit-id checks, split out of
+  /// [releaseFootgunWarnings] purely to keep that function short — same
+  /// "loud in release" contract applies (caller logs ERROR + asserts debug).
+  static List<String> _adUnitIdFootgunWarnings(AdConfig config) {
+    final warnings = <String>[];
+    final isAdMob = config.provider == AdProvider.admob;
+    // ca-app-pub-<16 digits>/<ad-unit number>, e.g. ca-app-pub-1234567890123456/1234567890.
+    final admobIdPattern = RegExp(r'^ca-app-pub-\d{16}/\d+$');
+
+    void checkId(String label, String id) {
+      if (id.isEmpty) {
+        warnings.add(
+            '🚨 $label ad-unit id is empty in a RELEASE build — ad requests '
+            'for this slot will fail with a confusing native error. Set a '
+            'real production id (or remove the slot from your UI).');
+        return;
+      }
+      if (isAdMob && !admobIdPattern.hasMatch(id)) {
+        warnings.add('🚨 $label ad-unit id "$id" does not match AdMob\'s '
+            'ca-app-pub-<16 digits>/<ad-unit id> format — looks like an '
+            'AppLovin id (or a typo) was configured for the AdMob provider.');
+      }
+    }
+
+    if (isAdMob) {
+      final m = config.admob;
+      if (m != null) {
+        checkId('banner', m.bannerId);
+        checkId('interstitial', m.interstitialId);
+        checkId('appOpen', m.appOpenId);
+        checkId('rewarded', m.rewardedId);
+      }
+    } else {
+      final a = config.appLovin;
+      if (a != null) {
+        checkId('banner', a.bannerId);
+        checkId('interstitial', a.interstitialId);
+        checkId('appOpen', a.appOpenId);
+        checkId('rewarded', a.rewardedId);
+      }
+    }
     return warnings;
   }
 

@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — ad-unit-id validation in release footguns (T16)
+- `AdManager.releaseFootgunWarnings` now also warns (release builds only,
+  same log-ERROR + `assert(false, ...)` treatment as the existing dryRun/
+  Google-test-id guards) when: any resolved `bannerId`/`interstitialId`/
+  `appOpenId`/`rewardedId` is empty, or (AdMob provider only) an id doesn't
+  match AdMob's `ca-app-pub-<16 digits>/<ad-unit id>` format — the classic
+  "pasted an AppLovin id into the AdMob config" mistake. Test:
+  `test/ad_manager_core_test.dart` (`releaseFootgunWarnings` group).
+
 ### Added — per-platform ad-unit ids (T15)
 - `AdMobConfig`/`AppLovinConfig` gained optional `android*Id`/`ios*Id`
   overrides for `bannerId`/`interstitialId`/`appOpenId`/`rewardedId` (e.g.

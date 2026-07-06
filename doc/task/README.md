@@ -18,14 +18,15 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
 - **T04 done** (AppLovin CMP-flow đã tắt mặc định khi dùng UMP + footgun warning nếu tắt cả 2 CMP; COPPA gap của `applovin_max` 4.x được document loudly qua `SafeLogger.w`, +2 test case).
 - **T06 done** (`AdManager().showPrivacyOptions()` + `isPrivacyOptionsRequired()` wrap UMP privacy-options form; README có mục "Privacy Options entry point" hướng dẫn host đặt nút thường trực; re-consent re-apply provider ngay; +6 test case).
 - **T07 done** (ATT wiring đúng thứ tự splash→ATT→UMP; thêm `assert()`-wrapped `SafeLogger.e()` ngay trước `requestAuthorization()` để cảnh báo sớm nếu thiếu `NSUserTrackingUsageDescription`; không cần test mới — nhánh quan sát được không đổi, `att_consent_test.dart` đã bao phủ đủ).
-- **T15 done** (`AdMobConfig`/`AppLovinConfig` thêm optional `android*Id`/`ios*Id` override cho `bannerId`/`interstitialId`/`appOpenId`/`rewardedId`, resolve qua `Platform.isAndroid/isIOS` bằng getter cùng tên cũ — backward-compatible, adapter không cần sửa; +4 test case `ad_config_platform_test.dart`). Còn lại P1: T16 (provider), T17 (trial) · P2: T14, T19, T20.
+- **T15 done** (`AdMobConfig`/`AppLovinConfig` thêm optional `android*Id`/`ios*Id` override cho `bannerId`/`interstitialId`/`appOpenId`/`rewardedId`, resolve qua `Platform.isAndroid/isIOS` bằng getter cùng tên cũ — backward-compatible, adapter không cần sửa; +4 test case `ad_config_platform_test.dart`).
+- **T16 done** (`releaseFootgunWarnings` thêm cảnh báo id rỗng cho `bannerId`/`interstitialId`/`appOpenId`/`rewardedId` (mọi provider) và cảnh báo sai định dạng `ca-app-pub-<16 số>/<id>` riêng cho AdMob — cùng cơ chế log ERROR + `assert(false, ...)` như guard dryRun/test-id sẵn có, không thêm class/abstraction mới; +6 test case `ad_manager_core_test.dart`). Còn lại P1: T17 (trial) · P2: T14, T19, T20.
 - **✅ P0 milestone build verified trên S24 Ultra (SM-S928B) — cả 2 provider:**
   - AdMob (example app): `🔐 UMP gate → canRequestAds=true`, `applyConsent → nonPersonalizedAds=true`, `📶 connectivity watch started`, VIP grace → expire → AdMob appOpen/inter/rewarded **loaded ✅**.
   - AppLovin (host FastNet): `AppLovin CMP flow disabled (UMP is CMP)`, gate hoạt động, provider=appLovin.
   - **0 crash, 0 `E/flutter`.**
-- **294/294 test SDK xanh**, `flutter analyze` sạch (SDK + host).
+- **300/300 test SDK xanh**, `flutter analyze` sạch (SDK + host).
 - ⚠️ Host `pubspec.yaml` đang **flip path override** sang SDK local — nhớ flip lại trước release.
-- **Điểm hiện tại: 8/10** — thiếu: (1đ) T14/T16/T17/T19/T20 còn ở todo/; (1đ) chưa re-audit `doc/audit/audit_claude.md` sau đợt fix T07/T15; (~0.5đ) chưa smoke-test lại trên SM_A507FN kể từ khi thêm T07.
+- **Điểm hiện tại: 8/10** — thiếu: (1đ) T14/T17/T19/T20 còn ở todo/; (1đ) chưa re-audit `doc/audit/audit_claude.md` sau đợt fix T07/T15/T16; (~0.5đ) chưa smoke-test lại trên SM_A507FN kể từ khi thêm T07.
 
 ## Legend
 - **Priority:** `P0` = chặn phát hành · `P1` = ngay sau · `P2` = cải thiện
@@ -51,7 +52,7 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
 | T13 | Close `_eventStream` + pop dialog khi destroy/reset | 3 | P2 | MEDIUM | ✅ done |
 | T14 | Route observer re-subscribe + guard timer nhỏ | 3 | P2 | LOW | todo |
 | T15 | Ad-unit-id tách theo platform (Android/iOS) | 1 | P1 | MEDIUM | ✅ done |
-| T16 | Validate ad-unit-id (rỗng/định dạng) trong footgun warnings | 1 | P1 | MEDIUM | todo |
+| T16 | Validate ad-unit-id (rỗng/định dạng) trong footgun warnings | 1 | P1 | MEDIUM | ✅ done |
 | T17 | Trial hardening: anti clock-rollback + footgun nếu grace tắt | 4 | P1 | HIGH | todo |
 | T18 | VIP key signed offline (Ed25519) + one-time-use per-device | 5 | P0 | HIGH | ✅ done |
 | T19 | VIP robustness: negative-duration, purge, cap/API clarity | 5 | P2 | MEDIUM | todo |

@@ -182,6 +182,107 @@ void main() {
       );
       expect(w, isEmpty);
     });
+
+    // ── T16: empty / malformed ad-unit-id footguns ──────────────────────────
+    test('release + empty AdMob rewardedId → one warning naming "rewarded"',
+        () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'ca-app-pub-9999999999999999/1111111111',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            // rewardedId defaults to '' — the T16 footgun this guards.
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('rewarded'));
+      expect(w.single, contains('empty'));
+    });
+
+    test('release + empty required AdMob id (banner) → one warning', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: '',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('banner'));
+      expect(w.single, contains('empty'));
+    });
+
+    test('release + AppLovin-shaped id on AdMob provider → format warning', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'appLovinLookingId123',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('banner'));
+      expect(w.single, contains('format'));
+    });
+
+    test('release + well-formed production AdMob ids → no id warnings', () {
+      final w = AdManager.releaseFootgunWarnings(
+        _admobConfig(dryRun: false, testIds: false),
+        isDebug: false,
+      );
+      expect(w, isEmpty);
+    });
+
+    test('release + empty AppLovin id → one warning (no format check)', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'k',
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: '',
+            rewardedId: 'r',
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('appOpen'));
+      expect(w.single, contains('empty'));
+    });
+
+    test('release + non-ca-app-pub AppLovin ids → exempt from format check',
+        () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'k',
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, isEmpty);
+    });
   });
 
   group('VIP gating (via injected adapter + VipManager)', () {
