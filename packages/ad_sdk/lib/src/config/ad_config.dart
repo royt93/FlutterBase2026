@@ -49,8 +49,7 @@ class FirstInstallVipGrace {
   /// for [AdConfig.firstInstallVipGrace].
   static const FirstInstallVipGrace auto = kDebugMode ? debugShort : day;
 
-  bool get isEnabled =>
-      duration != null && duration! > Duration.zero;
+  bool get isEnabled => duration != null && duration! > Duration.zero;
 
   @override
   String toString() => 'FirstInstallVipGrace($duration)';
@@ -128,6 +127,9 @@ class AdConfig {
     this.consentDialogStrings = const ConsentDialogStrings(),
     this.consentBarrierDismissible = false,
     this.consentDialogPostSplashDelay = const Duration(seconds: 1),
+    this.autoRequestUmpConsent = false,
+    this.umpTagForUnderAgeOfConsent = false,
+    this.disableAppLovinCmpFlow = true,
   }) : assert(
           provider == AdProvider.appLovin ? appLovin != null : admob != null,
           'AppLovinConfig required when provider==appLovin; AdMobConfig required when provider==admob',
@@ -264,12 +266,33 @@ class AdConfig {
   /// for the first frame to settle.
   final Duration consentDialogPostSplashDelay;
 
+  /// When `true`, [AdManager.initialize] runs Google UMP
+  /// ([AdManager.requestUmpConsent]) **before** the first ad request and gates
+  /// loading on `canRequestAds` — the SDK owns the whole consent flow (T01).
+  ///
+  /// Default `false` so hosts that already run UMP in their splash (calling
+  /// [AdManager.requestUmpConsent] themselves) don't double-run it. Set `true`
+  /// to let the SDK drive UMP for you.
+  final bool autoRequestUmpConsent;
+
+  /// Forwarded to UMP as `tagForUnderAgeOfConsent` when [autoRequestUmpConsent]
+  /// is `true`. Set for child-directed / under-age audiences.
+  final bool umpTagForUnderAgeOfConsent;
+
+  /// When `true` (default), the AppLovin adapter disables AppLovin's **own**
+  /// Terms & Privacy Policy (CMP) flow so it doesn't prompt on top of Google
+  /// UMP — UMP is the single source of truth and its result is forwarded to
+  /// AppLovin via `setHasUserConsent`. Set `false` only if you deliberately use
+  /// AppLovin's CMP instead of UMP.
+  final bool disableAppLovinCmpFlow;
+
   /// Convenience getter.
   bool get isAdMob => provider == AdProvider.admob;
 }
 
 // ═══════ Backward-compatible ad-label constants (1.x) ═══════
 const String adPlsNoteEn = 'Please note: this action may display app open ads.';
-const String adPlsNoteVi = 'Xin lưu ý: hành động này có thể hiển thị quảng cáo khi mở ứng dụng.';
+const String adPlsNoteVi =
+    'Xin lưu ý: hành động này có thể hiển thị quảng cáo khi mở ứng dụng.';
 const String adMayAppearEn = '(Ads may appear)';
 const String adMayAppearVi = '(Có thể xuất hiện quảng cáo)';

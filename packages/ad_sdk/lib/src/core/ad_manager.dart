@@ -27,6 +27,7 @@ import 'ad_route_observer.dart';
 import 'ad_safety_config.dart';
 import 'event_bus.dart';
 import 'ump_consent.dart';
+import 'ump_consent.dart' as core_ump;
 
 /// Orchestrator singleton.
 ///
@@ -143,6 +144,12 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugVipManager(VipManager? m) => _vipManager = m;
 
+  /// Inject a config so [isInitialised] (`_config != null && _adapter != null`)
+  /// can be flipped true in tests without running the native init — used to
+  /// exercise the consent → adapter (`applyConsent`) wiring.
+  @visibleForTesting
+  set debugConfig(AdConfig? c) => _config = c;
+
   /// Consent manager — `null` until [initialize] completes. Owns the
   /// Cupertino consent dialog, persistence, and provider apply pipeline.
   /// Also accessible via static [ConsentManager.instance] once initialised.
@@ -193,6 +200,53 @@ class AdManager with WidgetsBindingObserver {
 
   bool _retryTimerActive = false;
   int _retryGen = 0;
+
+  // ─── Connectivity watch (T08) ─────────────────────────────────────────────
+  StreamSubscription<bool>? _connectivitySub;
+  Timer? _reconnectDebounceTimer;
+
+  /// Last connectivity state seen by [_onConnectivityChanged]. Seeded `true`
+  /// (optimistic) so the very first event only triggers a refill on a genuine
+  /// offline→online transition.
+  bool _lastConnected = true;
+
+  /// Debounce window collapsing connectivity flapping into a single refill.
+  Duration _reconnectDebounce = const Duration(milliseconds: 800);
+
+  /// Test seam: shorten the reconnect debounce so tests need not wait 800 ms.
+  @visibleForTesting
+  set debugReconnectDebounce(Duration d) => _reconnectDebounce = d;
+
+  /// Test seam: drive the connectivity handler without the native plugin.
+  @visibleForTesting
+  void debugConnectivityChanged(bool connected) =>
+      _onConnectivityChanged(connected);
+
+  // ─── Consent gate (T01) ────────────────────────────────────────────────────
+  /// Whether ad requests are permitted by the consent flow, mirroring Google
+  /// UMP's `ConsentInformation.canRequestAds()`. Defaults `true` so non-UMP
+  /// hosts and non-EEA users are unaffected; flips `false` only when UMP reports
+  /// the user (EEA, form dismissed) has not granted a basis to request ads.
+  /// Google policy: **never** request an ad while this is `false`.
+  bool _canRequestAds = true;
+
+  /// See [_canRequestAds].
+  bool get canRequestAds => _canRequestAds;
+
+  /// Test seam for the consent gate.
+  @visibleForTesting
+  set debugCanRequestAds(bool v) => _canRequestAds = v;
+
+  /// Whether [requestUmpConsent] has ever run this process — used to detect the
+  /// "no consent form anywhere" footgun at [initialize] time (AppLovin CMP off +
+  /// UMP never run). Runtime state, so it doesn't false-alarm hosts that gather
+  /// consent correctly in their splash.
+  bool _umpRequested = false;
+
+  /// Test seam: clear the banner load cooldown so tests sharing the singleton
+  /// don't leak `_lastBannerLoadAt` into each other.
+  @visibleForTesting
+  void debugResetBannerCooldown() => _lastBannerLoadAt = 0;
 
   bool _isObserverAdded = false;
 
@@ -460,7 +514,8 @@ class AdManager with WidgetsBindingObserver {
       // Detach + dispose any pre-existing VipManager (re-init path) before
       // wiring a new one — otherwise the old listener would leak.
       _vipManager?.activeListenable.removeListener(_onVipActiveChanged);
-      final vip = VipManager(prefs, maxStackDuration: config.maxVipStackDuration);
+      final vip =
+          VipManager(prefs, maxStackDuration: config.maxVipStackDuration);
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
@@ -570,6 +625,12 @@ class AdManager with WidgetsBindingObserver {
       _consentManager = consentMgr;
       _consent = consentMgr.adConsent;
 
+      // Re-sync the adapter's per-request personalization (AdMob npa) on ANY
+      // later consent change — the auto-shown consent dialog, ConsentManager
+      // .set/.reset, or a host privacy screen — none of which route through
+      // [setConsent]. Idempotent with the explicit applyConsent calls.
+      consentMgr.listenable.addListener(_syncConsentToAdapter);
+
       // Auto-show is DEFERRED: showing the dialog mid-`initialize()` would
       // block the splash flow and steal user attention from the splash app
       // open ad. Instead we schedule it for `markSplashInactive` + delay,
@@ -583,6 +644,40 @@ class AdManager with WidgetsBindingObserver {
       // below could race with `MobileAds.instance.updateRequestConfiguration`
       // and the first request would go out without the privacy tags.
       await consentMgr.applyToProviders(config: _config);
+      // Sync per-request personalization (AdMob npa=1) into the adapter so the
+      // App Open / banner preloads below carry the correct consent state.
+      _adapter?.applyConsent(consentMgr.adConsent);
+
+      // T01 — SDK-owned UMP: run Google's consent flow before the first ad
+      // request and gate loading on canRequestAds. Opt-in; hosts that run UMP
+      // in their splash leave this false to avoid double-running.
+      if (config.autoRequestUmpConsent) {
+        SafeLogger.d(
+            _tag, '🔐 autoRequestUmpConsent — running UMP before first load');
+        await requestUmpConsent(
+          testMode: kDebugMode,
+          tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
+        );
+      }
+
+      // Consent-coverage footgun (runtime, not config-static so it doesn't
+      // false-alarm hosts that gather consent in their splash): AppLovin's own
+      // CMP is off, the SDK won't auto-run UMP, AND the host never called
+      // requestUmpConsent() before init → EEA/UK users would see NO consent form
+      // at all. Loud warning; the fix is one of: autoRequestUmpConsent:true,
+      // call requestUmpConsent() before initialize(), or disableAppLovinCmpFlow:
+      // false.
+      if (config.disableAppLovinCmpFlow &&
+          !config.autoRequestUmpConsent &&
+          !_umpRequested) {
+        SafeLogger.w(
+            _tag,
+            '🚨 No consent flow will run: AppLovin CMP is disabled, '
+            'autoRequestUmpConsent is false, and requestUmpConsent() was not '
+            'called before initialize(). EEA/UK users get NO consent form — '
+            'GDPR/UMP policy risk. Enable autoRequestUmpConsent, call '
+            'requestUmpConsent() first, or set disableAppLovinCmpFlow:false.');
+      }
 
       onComplete(true, _currentDeviceGAID);
       SimpleEventBus().fire(const BoolEvent(true));
@@ -601,6 +696,7 @@ class AdManager with WidgetsBindingObserver {
 
       _scheduleFirstSecondaryLoad();
       _startAdRetryTimer();
+      unawaited(_startConnectivityWatch());
     } catch (e, st) {
       SafeLogger.e(_tag, 'initialize THREW: $e\n$st');
       onComplete(false, _currentDeviceGAID);
@@ -716,7 +812,15 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     await applyConsentToProviders(consent, config: _config);
+    // Keep the adapter's per-request personalization (AdMob npa) in sync.
+    _adapter?.applyConsent(consent);
   }
+
+  /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
+  /// into the provider adapter so AdMob's per-request `npa` flag tracks every
+  /// consent change (dialog answer, set/reset, privacy screen).
+  void _syncConsentToAdapter() =>
+      _adapter?.applyConsent(_consentManager?.adConsent ?? _consent);
 
   /// Run Google's UMP (User Messaging Platform) consent flow and auto-apply
   /// the result. Wraps [requestUmpConsentFlow] — see its doc for details.
@@ -744,6 +848,18 @@ class AdManager with WidgetsBindingObserver {
       testIdentifiers: testIdentifiers,
       tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
     );
+
+    // T01 — the compliance gate. Google policy: do NOT request ads when
+    // canRequestAds is false (EEA user who hasn't granted a basis). Every
+    // load*() consults [_canRequestAds].
+    _umpRequested = true;
+    final wasBlocked = !_canRequestAds;
+    _canRequestAds = result.canRequestAds;
+    SafeLogger.d(
+        _tag,
+        () =>
+            '🔐 UMP gate → canRequestAds=$_canRequestAds (status=${result.status.name})');
+
     // Map UMP status → AdConsent.hasUserConsent. `obtained` and `notRequired`
     // both mean we may serve personalized ads; `required` (form not shown /
     // dismissed without choosing) and `unknown` stay non-personalized.
@@ -754,6 +870,70 @@ class AdManager with WidgetsBindingObserver {
       isAgeRestrictedUser: _consent.isAgeRestrictedUser,
       doNotSell: _consent.doNotSell,
     ));
+
+    // If the gate just opened (blocked → allowed) and we're already running,
+    // refill the slots that were held back while consent was pending.
+    if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
+      SafeLogger.d(_tag, '🔓 consent granted → refilling held ad slots');
+      _retryRefillAds();
+    }
+    return result;
+  }
+
+  /// Whether Google requires a durable "Privacy Options" entry point (e.g. a
+  /// settings button) to be shown to the current user — true for EEA/UK
+  /// users under UMP once initial consent has been gathered. Wraps
+  /// [isPrivacyOptionsRequired].
+  ///
+  /// Host apps should check this (after [requestUmpConsent]/[initialize]) to
+  /// decide whether to render a persistent "Privacy Settings" control — Google
+  /// UMP policy requires a CMP to let users change their choice at any time.
+  Future<bool> isPrivacyOptionsRequired() =>
+      core_ump.isPrivacyOptionsRequired();
+
+  /// Open Google's native UMP "Privacy Options" form, letting the user
+  /// revisit/change their consent choice at any time. Wraps
+  /// [requestPrivacyOptionsFlow] — see its doc for details.
+  ///
+  /// Typical usage: bind to a host "Privacy Settings" button, shown
+  /// persistently once [isPrivacyOptionsRequired] returns true.
+  /// ```dart
+  /// if (await AdManager().isPrivacyOptionsRequired()) {
+  ///   // render the settings button
+  /// }
+  /// // on tap:
+  /// await AdManager().showPrivacyOptions();
+  /// ```
+  ///
+  /// No-op-safe: if Google doesn't require privacy options for this user
+  /// (non-EEA, or consent never gathered), this returns immediately without
+  /// presenting anything. On success, the result is re-mapped to [AdConsent]
+  /// and re-applied to both providers via [setConsent] — matching the
+  /// established "re-apply after consent change" pattern used by
+  /// [ConsentManager] and [requestUmpConsent].
+  Future<PrivacyOptionsResult> showPrivacyOptions() async {
+    final result = await requestPrivacyOptionsFlow();
+
+    final wasBlocked = !_canRequestAds;
+    _canRequestAds = result.canRequestAds;
+    SafeLogger.d(
+        _tag,
+        () =>
+            '🔐 privacy options → canRequestAds=$_canRequestAds (status=${result.status.name})');
+
+    final hasConsent = result.status == ConsentStatus.obtained ||
+        result.status == ConsentStatus.notRequired;
+    await setConsent(AdConsent(
+      hasUserConsent: hasConsent,
+      isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+      doNotSell: _consent.doNotSell,
+    ));
+
+    if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
+      SafeLogger.d(_tag,
+          '🔓 consent granted via privacy options → refilling held ad slots');
+      _retryRefillAds();
+    }
     return result;
   }
 
@@ -792,6 +972,7 @@ class AdManager with WidgetsBindingObserver {
     _splashBudgetTimer?.cancel();
     _splashBudgetTimer = null;
     _stopAdRetryTimer();
+    _stopConnectivityWatch();
     AdLoadingDialog.resetState();
     AdScreenRouteLogger.resetState();
     AdSafetyConfig.resetForReinit();
@@ -805,6 +986,7 @@ class AdManager with WidgetsBindingObserver {
     // not tied to the adapter lifecycle, and clearing it would force a
     // re-prompt on the next initialize() which is bad UX. Caller can wipe
     // explicitly via `ConsentManager.instance.reset()`.
+    _consentManager?.listenable.removeListener(_syncConsentToAdapter);
     _consentManager = null;
 
     _isSplashActive = false;
@@ -845,8 +1027,17 @@ class AdManager with WidgetsBindingObserver {
   bool get isConnected {
     try {
       return ConnectionNotifierTools.isConnected;
-    } catch (_) {
-      return true;
+    } catch (e) {
+      // Detector not initialised / unavailable — fall back to the last value the
+      // connectivity watch (T08) observed, seeded optimistic `true`. Optimistic
+      // on purpose: a broken detector must NOT permanently block ads when the
+      // device may well be online — a genuinely offline load just fails and
+      // backs off, and the connectivity watch refills on reconnect.
+      SafeLogger.w(
+          _tag,
+          () =>
+              'isConnected read failed, using last-known=$_lastConnected: $e');
+      return _lastConnected;
     }
   }
 
@@ -863,6 +1054,11 @@ class AdManager with WidgetsBindingObserver {
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — VIP member');
+      onAdLoaded?.call(false);
+      return;
+    }
+    if (!_canRequestAds) {
+      SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — consent not granted (UMP)');
       onAdLoaded?.call(false);
       return;
     }
@@ -889,6 +1085,15 @@ class AdManager with WidgetsBindingObserver {
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — VIP member');
+      onAdDismiss(false);
+      return;
+    }
+    // T03 — never show an impression before consent is resolved, even the
+    // splash App Open with bypassSafety. The load gate already prevents loading,
+    // this closes the window where a previously-loaded ad could show after
+    // consent is revoked.
+    if (!_canRequestAds) {
+      SafeLogger.d(_tag, '⏭️ showAppOpen skipped — consent not granted (UMP)');
       onAdDismiss(false);
       return;
     }
@@ -1052,6 +1257,11 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — VIP member');
       return;
     }
+    if (!_canRequestAds) {
+      SafeLogger.d(
+          _tag, '⏭️ loadInterstitial skipped — consent not granted (UMP)');
+      return;
+    }
     if (!isConnected) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — no network');
       return;
@@ -1073,6 +1283,12 @@ class AdManager with WidgetsBindingObserver {
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ showInterstitial skipped — VIP member');
+      onDoneFlow(false);
+      return;
+    }
+    if (!_canRequestAds) {
+      SafeLogger.d(
+          _tag, '⏭️ showInterstitial skipped — consent not granted (UMP)');
       onDoneFlow(false);
       return;
     }
@@ -1135,6 +1351,10 @@ class AdManager with WidgetsBindingObserver {
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — VIP member');
+      return;
+    }
+    if (!_canRequestAds) {
+      SafeLogger.d(_tag, '⏭️ loadRewarded skipped — consent not granted (UMP)');
       return;
     }
     if (!isConnected) {
@@ -1220,11 +1440,19 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(vipAutoGrant);
       return;
     }
+    // T03 — no impression without consent. (The vipAutoGrant-no-ad path above
+    // already returned; this only gates paths that would actually show an ad.)
+    if (!_canRequestAds) {
+      SafeLogger.d(_tag, '⏭️ showRewarded skipped — consent not granted (UMP)');
+      onEarnedReward(false);
+      return;
+    }
     // Re-entrancy guard: a second call while the on-demand load OR the ad show
     // of a first call is still in flight would clobber state (two loaders, two
     // shows). Self-contained so the SDK is safe even without a caller-side lock.
     if (_rewardedInFlight || ad.rewardedSlot.isShowing) {
-      SafeLogger.d(_tag, '⏭️ showRewarded skipped — already showing / in flight');
+      SafeLogger.d(
+          _tag, '⏭️ showRewarded skipped — already showing / in flight');
       onEarnedReward(false);
       return;
     }
@@ -1248,8 +1476,7 @@ class AdManager with WidgetsBindingObserver {
       AdLoadingDialog.dismiss();
       if (!loaded) {
         _rewardedInFlight = false;
-        SafeLogger.d(
-            _tag, '⏭️ showRewarded (bypass) — on-demand load failed');
+        SafeLogger.d(_tag, '⏭️ showRewarded (bypass) — on-demand load failed');
         onEarnedReward(false);
         return;
       }
@@ -1517,6 +1744,53 @@ class AdManager with WidgetsBindingObserver {
   void _stopAdRetryTimer() {
     _retryTimerActive = false;
     _retryGen++;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  CONNECTIVITY WATCH (T08) — auto-refill the moment the network returns
+  //  instead of waiting up to `_retryIntervalMs` (5 min) for the poll timer.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<void> _startConnectivityWatch() async {
+    // ConnectionNotifierTools must be initialised before its stream/isConnected
+    // are usable. Nobody else calls this, so the SDK owns it. Best-effort: on
+    // platforms/tests without the plugin we simply skip the live watch.
+    try {
+      await ConnectionNotifierTools.initialize();
+      _lastConnected = ConnectionNotifierTools.isConnected;
+      _connectivitySub =
+          ConnectionNotifierTools.onStatusChange.listen(_onConnectivityChanged);
+      SafeLogger.d(_tag,
+          () => '📶 connectivity watch started (connected=$_lastConnected)');
+    } catch (e) {
+      SafeLogger.w(_tag, 'connectivity watch unavailable: $e');
+    }
+  }
+
+  void _stopConnectivityWatch() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+    _reconnectDebounceTimer?.cancel();
+    _reconnectDebounceTimer = null;
+  }
+
+  /// Handles a connectivity event. Only an offline→online transition triggers a
+  /// refill, debounced against flapping. Idempotent and safe post-destroy.
+  void _onConnectivityChanged(bool connected) {
+    final was = _lastConnected;
+    _lastConnected = connected;
+    if (!connected || was) return; // only act on false→true
+    _reconnectDebounceTimer?.cancel();
+    _reconnectDebounceTimer = Timer(_reconnectDebounce, () {
+      if (!isInitialised || _isVipMember) return;
+      SafeLogger.d(
+          _tag, '📶 network back online → refilling ad slots + banners');
+      _retryRefillAds();
+      // Banners re-run their init on an initRevision bump (the widget checks
+      // isConnected in _initBanner); also nudge the adapter's banner preload.
+      unawaited(_adapter?.preloadBanner() ?? Future<void>.value());
+      initRevision.value = initRevision.value + 1;
+    });
   }
 
   void _retryRefillAds() {

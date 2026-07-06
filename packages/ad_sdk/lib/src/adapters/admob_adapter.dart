@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/ad_config.dart';
+import '../core/ad_consent.dart';
 import '../core/ad_provider_adapter.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
@@ -34,6 +35,32 @@ class AdMobAdapter implements AdProviderAdapter {
   // ignore: unused_field
   AdConfig? _config;
   AdMobConfig? _admob;
+
+  /// Whether the next ad request must be non-personalized (`npa=1`).
+  ///
+  /// Defaults to `true` (conservative — no personalized ads) so that any load
+  /// firing before consent is applied is safe. [applyConsent] flips it to
+  /// `!hasUserConsent` on every consent change.
+  ///
+  /// NOTE: when Google UMP manages consent (T01), the TCF consent string
+  /// governs personalization natively; this per-request flag is the source of
+  /// truth for the non-UMP path (custom dialog / [AdManager.setConsent]).
+  bool _nonPersonalizedAds = true;
+
+  /// CCPA "do not sell" signal (`doNotSell`), forwarded to AdMob per-request as
+  /// restricted-data-processing (RDP) via `AdRequest.extras`. AdMob has no
+  /// dedicated RDP field on `RequestConfiguration` — the `{'rdp': '1'}` extra
+  /// is Google's documented per-request mechanism. See [AdConsent] doc for why
+  /// this must stay independent from `tagForUnderAgeOfConsent` (TFUA).
+  bool _restrictedDataProcessing = false;
+
+  /// Test-only view of the current non-personalized flag.
+  @visibleForTesting
+  bool get debugNonPersonalizedAds => _nonPersonalizedAds;
+
+  /// Test-only view of the current RDP flag.
+  @visibleForTesting
+  bool get debugRestrictedDataProcessing => _restrictedDataProcessing;
 
   @override
   AdEventSink? eventSink;
@@ -130,7 +157,8 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   ValueListenable<Object?> get appLovinBannerAdViewId => _appLovinAdViewIdStub;
-  static final ValueNotifier<Object?> _appLovinAdViewIdStub = ValueNotifier<Object?>(null);
+  static final ValueNotifier<Object?> _appLovinAdViewIdStub =
+      ValueNotifier<Object?>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   //  LIFECYCLE
@@ -196,6 +224,28 @@ class AdMobAdapter implements AdProviderAdapter {
 
     _admob = null;
     _config = null;
+    // Reset to conservative so a re-init before consent re-applies stays npa=1.
+    _nonPersonalizedAds = true;
+    _restrictedDataProcessing = false;
+  }
+
+  @override
+  void applyConsent(AdConsent consent) {
+    // AdMob personalization is per-request. No user consent → non-personalized
+    // (`npa=1`) on every subsequent AdRequest. This is the authoritative signal
+    // for the non-UMP consent path; UMP (T01) governs personalization natively
+    // via the TCF string when enabled.
+    _nonPersonalizedAds = !consent.hasUserConsent;
+    // CCPA "do not sell" → forwarded per-request as AdMob restricted-data-
+    // processing (RDP). Independent of hasUserConsent/isAgeRestrictedUser —
+    // never derived from or into tagForUnderAgeOfConsent (see AdConsent doc).
+    _restrictedDataProcessing = consent.doNotSell;
+    SafeLogger.d(
+      _logTag,
+      () => 'applyConsent → nonPersonalizedAds=$_nonPersonalizedAds '
+          'restrictedDataProcessing=$_restrictedDataProcessing '
+          '(hasUserConsent=${consent.hasUserConsent}, doNotSell=${consent.doNotSell})',
+    );
   }
 
   void _disposeAd(GmaFullscreenAd? ad, String label) {
@@ -243,7 +293,8 @@ class AdMobAdapter implements AdProviderAdapter {
         onAdLoaded?.call(true);
         return;
       }
-      SafeLogger.d(_logTag, 'loadAppOpen $tag ♻️ expired (>${_appOpenExpiryHours}h), disposing old');
+      SafeLogger.d(_logTag,
+          'loadAppOpen $tag ♻️ expired (>${_appOpenExpiryHours}h), disposing old');
       _disposeAd(_appOpenAd, 'appOpen-expired');
       _appOpenAd = null;
       appOpenSlot.lastLoadedAt = null;
@@ -260,6 +311,8 @@ class AdMobAdapter implements AdProviderAdapter {
     try {
       await _bridge.loadAppOpen(
         cfg.appOpenId,
+        nonPersonalizedAds: _nonPersonalizedAds,
+        restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
           _appOpenAd = ad;
@@ -293,10 +346,12 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showAppOpen({required void Function(bool dismissed) onDismiss}) async {
+  Future<void> showAppOpen(
+      {required void Function(bool dismissed) onDismiss}) async {
     final ad = _appOpenAd;
     if (ad == null || !appOpenSlot.isReady) {
-      SafeLogger.w(_logTag, 'showAppOpen $tag ⚠️ not ready (state=${appOpenSlot.value})');
+      SafeLogger.w(_logTag,
+          'showAppOpen $tag ⚠️ not ready (state=${appOpenSlot.value})');
       onDismiss(false);
       return;
     }
@@ -405,7 +460,8 @@ class AdMobAdapter implements AdProviderAdapter {
       if (isAdFresh(interstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
         return; // fresh — keep it
       }
-      SafeLogger.d(_logTag, 'loadInterstitial $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
+      SafeLogger.d(_logTag,
+          'loadInterstitial $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
       _disposeAd(_interstitialAd, 'inter-expired');
       _interstitialAd = null;
       interstitialSlot.lastLoadedAt = null;
@@ -415,6 +471,8 @@ class AdMobAdapter implements AdProviderAdapter {
     try {
       await _bridge.loadInterstitial(
         cfg.interstitialId,
+        nonPersonalizedAds: _nonPersonalizedAds,
+        restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
           _interstitialAd = ad;
@@ -448,7 +506,8 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showInterstitial({required void Function(bool shown) onDone}) async {
+  Future<void> showInterstitial(
+      {required void Function(bool shown) onDone}) async {
     final ad = _interstitialAd;
     if (ad == null || !interstitialSlot.isReady) {
       SafeLogger.w(_logTag, 'showInterstitial $tag ⚠️ not ready');
@@ -474,7 +533,8 @@ class AdMobAdapter implements AdProviderAdapter {
           cb?.call(true);
         },
         onFailedToShow: (message) {
-          SafeLogger.w(_logTag, 'showInterstitial $tag ❌ display failed: $message');
+          SafeLogger.w(
+              _logTag, 'showInterstitial $tag ❌ display failed: $message');
           _interstitialAd = null;
           _disposeAd(ad, 'inter-show-fail');
           interstitialSlot.markShowFailed();
@@ -515,7 +575,8 @@ class AdMobAdapter implements AdProviderAdapter {
       if (isAdFresh(rewardedSlot.lastLoadedAt, _fullscreenExpiryHours)) {
         return; // fresh — keep it
       }
-      SafeLogger.d(_logTag, 'loadRewarded $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
+      SafeLogger.d(_logTag,
+          'loadRewarded $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
       _disposeAd(_rewardedAd, 'rewarded-expired');
       _rewardedAd = null;
       rewardedSlot.lastLoadedAt = null;
@@ -525,6 +586,8 @@ class AdMobAdapter implements AdProviderAdapter {
     try {
       await _bridge.loadRewarded(
         cfg.rewardedId,
+        nonPersonalizedAds: _nonPersonalizedAds,
+        restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
           _rewardedAd = ad;
@@ -558,7 +621,8 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showRewarded({required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded(
+      {required void Function(RewardResult result) onDone}) async {
     final ad = _rewardedAd;
     if (ad == null || !rewardedSlot.isReady) {
       SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ not ready');
@@ -587,7 +651,8 @@ class AdMobAdapter implements AdProviderAdapter {
       await ad.show(GmaShowCallbacks(
         onShowed: () => SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown'),
         onDismissed: () {
-          SafeLogger.d(_logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
+          SafeLogger.d(
+              _logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
           _rewardedAd = null;
           _disposeAd(ad, 'rewarded-after-dismiss');
           rewardedSlot.markDismissed();
@@ -610,7 +675,8 @@ class AdMobAdapter implements AdProviderAdapter {
           ));
         },
         onUserEarnedReward: (amount, type) {
-          SafeLogger.d(_logTag, 'showRewarded $tag 🏆 type=$type amount=$amount');
+          SafeLogger.d(
+              _logTag, 'showRewarded $tag 🏆 type=$type amount=$amount');
           earned = true;
           fire(RewardResult(earned: true, label: type, amount: amount));
         },
@@ -648,25 +714,35 @@ class AdMobAdapter implements AdProviderAdapter {
     // Use beginLoad (not beginReload) so a flapping banner still respects the
     // backoff window — banner reload is cheap to skip, unlike a spent fullscreen.
     if (!bannerSlot.beginLoad()) {
-      SafeLogger.d(_logTag, 'loadBanner $tag ⏭️ already loading/showing or in cooldown');
+      SafeLogger.d(
+          _logTag, 'loadBanner $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
     banner.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadBanner $tag 🔄 width=$widthPx');
     try {
-      final adaptive = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(widthPx.truncate());
+      final adaptive =
+          await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
+              widthPx.truncate());
       final size = adaptive ?? AdSize.banner;
       _bannerAd = BannerAd(
         adUnitId: cfg.bannerId,
         size: size,
-        request: const AdRequest(),
+        // Banner doesn't go through GmaBridge, so RDP extras are built locally
+        // here — mirrors GmaBridge's private `_rdpExtras`/`_extrasFor` used by
+        // the fullscreen ad loaders (see gma_bridge.dart).
+        request: AdRequest(
+          nonPersonalizedAds: _nonPersonalizedAds,
+          extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
+        ),
         listener: BannerAdListener(
           onPaidEvent: _paidEventForBanner(AdPlacement.unspecified),
           onAdLoaded: (ad) {
             SafeLogger.d(_logTag, 'loadBanner $tag ✅');
             banner.isLoaded.value = true;
             banner.hasError.value = false;
-            banner.adSize.value = Size(size.width.toDouble(), size.height.toDouble());
+            banner.adSize.value =
+                Size(size.width.toDouble(), size.height.toDouble());
             bannerSlot.markReady();
             // Counts towards CTR denominator (preserves original 1.x Fix J).
             AdSafetyConfig.recordBannerImpression();
@@ -752,7 +828,8 @@ class AdMobAdapter implements AdProviderAdapter {
         final width = view.physicalSize.width / view.devicePixelRatio;
         loadBannerIfNeeded(width);
       } else {
-        SafeLogger.w(_logTag, 'onAppResumed $tag no platform view — skip reload');
+        SafeLogger.w(
+            _logTag, 'onAppResumed $tag no platform view — skip reload');
       }
     } else if (_bannerAd != null) {
       banner.visible.value = true;

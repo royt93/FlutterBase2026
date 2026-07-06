@@ -27,9 +27,22 @@ class AdLoadingDialog {
 
   /// Reset static state — called by [AdManager.destroy()] to ensure
   /// _isShowing doesn't stay stuck true after a mid-dialog destroy.
+  ///
+  /// T13: if a dialog is still on screen, actively pop it first so a mid-dialog
+  /// destroy/re-init can't strand a non-dismissable loading dialog on the
+  /// navigator (which would then block a fresh dialog and freeze the UI).
   static void resetState() {
+    final nav = _activeNavigator;
+    final wasShowing = _isShowing;
     _isShowing = false;
     _activeNavigator = null;
+    if (wasShowing && nav != null) {
+      try {
+        nav.pop();
+      } catch (e) {
+        SafeLogger.w(_tag, 'resetState: pop failed (navigator disposed?): $e');
+      }
+    }
   }
 
   /// Show a non-dismissable loading dialog that stays up until [dismiss] is
@@ -81,7 +94,8 @@ class AdLoadingDialog {
     // ✅ FIX 1: Concurrent guard — prevents double-tap from stacking two dialogs.
     // If two dialogs stack, the first navigator.pop() dismisses the WRONG dialog.
     if (_isShowing) {
-      SafeLogger.w(_tag, 'showAdBuffer: ⚠️ dialog already showing, skipping duplicate — calling onComplete immediately');
+      SafeLogger.w(_tag,
+          'showAdBuffer: ⚠️ dialog already showing, skipping duplicate — calling onComplete immediately');
       onComplete();
       return;
     }
@@ -131,7 +145,8 @@ class _AdLoadingDialogContent extends StatefulWidget {
   final String loadingText;
 
   @override
-  State<_AdLoadingDialogContent> createState() => _AdLoadingDialogContentState();
+  State<_AdLoadingDialogContent> createState() =>
+      _AdLoadingDialogContentState();
 }
 
 class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
@@ -204,7 +219,8 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                             valueColor: AlwaysStoppedAnimation<Color>(
                               Colors.white.withValues(alpha: 0.90),
                             ),
-                            backgroundColor: Colors.white.withValues(alpha: 0.18),
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.18),
                           ),
                         ),
                         const SizedBox(height: 14),

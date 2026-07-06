@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../config/ad_config.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
+import 'signed_vip_key.dart';
 import 'vip_dialog.dart';
 import 'vip_dialog_strings.dart';
 import 'vip_entry.dart';
@@ -38,7 +39,8 @@ class VipManager {
 
   final List<VipEntry> _entries = [];
   final ValueNotifier<bool> _activeNotifier = ValueNotifier<bool>(false);
-  final StreamController<bool> _activeStream = StreamController<bool>.broadcast();
+  final StreamController<bool> _activeStream =
+      StreamController<bool>.broadcast();
 
   /// Serialises every prefs write — concurrent `addVip` / `revokeVip` calls
   /// would otherwise race. Each save reads `_entries` at the moment its
@@ -49,6 +51,12 @@ class VipManager {
   /// Concurrency guard for [redeemVip] — a double-tap would otherwise stack
   /// two verifying dialogs and confuse the navigator pop sequence.
   bool _redeemInFlight = false;
+
+  /// Key ids currently mid-redeem in [redeemSignedKey]. The check + insert is
+  /// synchronous (no await between), so in Dart's single-threaded model a
+  /// concurrent double-tap of the same key is rejected before it can grant
+  /// twice — the SDK enforces one-time-use, not just the host UI.
+  final Set<String> _signedKidsInFlight = <String>{};
 
   /// One-shot timer fired at the earliest [VipEntry.expiresAt] across active
   /// entries. When it fires we purge the expired entry, refresh the active
@@ -124,7 +132,8 @@ class VipManager {
           migrated++;
         }
         if (migrated > 0) {
-          SafeLogger.d(_tag, 'migrated $migrated legacy GAID(s) for this device → entries');
+          SafeLogger.d(_tag,
+              'migrated $migrated legacy GAID(s) for this device → entries');
           await _save();
         }
       }
@@ -281,7 +290,8 @@ class VipManager {
       }
     } else {
       _entries.add(newEntry);
-      SafeLogger.d(_tag, 'addVip: added ${newEntry.key} until ${newEntry.expiresAt}');
+      SafeLogger.d(
+          _tag, 'addVip: added ${newEntry.key} until ${newEntry.expiresAt}');
     }
     await _save();
     _refreshActive();
@@ -349,7 +359,8 @@ class VipManager {
 
       if (!ok) {
         if (context.mounted) {
-          await _showFailed(context, strings, errorMsg ?? strings.failedMessage);
+          await _showFailed(
+              context, strings, errorMsg ?? strings.failedMessage);
         }
         return false;
       }
@@ -361,6 +372,57 @@ class VipManager {
       return true;
     } finally {
       _redeemInFlight = false;
+    }
+  }
+
+  /// Redeem an **offline signed** VIP key (T18). The key is verified with the
+  /// embedded Ed25519 [publicKeyBase64] — no network, no shared secret, and a
+  /// decompiler cannot forge new keys. The VIP window is read from the key
+  /// itself. Enforces **per-device one-time-use**: the same key id cannot be
+  /// redeemed twice on this device.
+  ///
+  /// Returns a [SignedVipRedeemResult] describing success / invalid / already
+  /// used. On success the grant [stack]s onto the current window by default.
+  Future<SignedVipRedeemResult> redeemSignedKey(
+    String code, {
+    required String publicKeyBase64,
+    bool stack = true,
+  }) async {
+    SignedVipKey parsed;
+    try {
+      parsed = await verifySignedVipKey(code, publicKeyBase64: publicKeyBase64);
+    } on VipKeyException catch (e) {
+      SafeLogger.w(_tag, 'redeemSignedKey invalid: ${e.message}');
+      return SignedVipRedeemResult.invalid(e.message);
+    } catch (e) {
+      SafeLogger.w(_tag, 'redeemSignedKey error: $e');
+      return SignedVipRedeemResult.invalid('$e');
+    }
+
+    // Atomic one-time-use claim: check persisted + in-flight, then claim the
+    // kid synchronously (no await in between) so a concurrent double-redeem of
+    // the same key can't slip through and grant twice.
+    if (_prefs.isVipKeyIdRedeemed(parsed.keyId) ||
+        _signedKidsInFlight.contains(parsed.keyId)) {
+      SafeLogger.d(_tag, 'redeemSignedKey: kid ${parsed.keyId} already used');
+      return const SignedVipRedeemResult.alreadyUsed();
+    }
+    _signedKidsInFlight.add(parsed.keyId);
+
+    try {
+      final entry = await addVip(
+        key: 'SIGNED_${parsed.keyId}',
+        duration: parsed.duration,
+        stack: stack,
+      );
+      await _prefs.addRedeemedVipKeyId(parsed.keyId);
+      SafeLogger.d(
+          _tag,
+          () =>
+              '🔑 redeemSignedKey ok kid=${parsed.keyId} +${parsed.duration}');
+      return SignedVipRedeemResult.success(entry);
+    } finally {
+      _signedKidsInFlight.remove(parsed.keyId);
     }
   }
 

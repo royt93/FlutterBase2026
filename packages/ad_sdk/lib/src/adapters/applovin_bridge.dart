@@ -11,6 +11,11 @@ abstract class AppLovinBridge {
   Future<void> initialize(String sdkKey);
   void setTestDeviceAdvertisingIds(List<String> ids);
 
+  /// Enable/disable AppLovin's OWN Terms & Privacy Policy (CMP) flow. The SDK
+  /// disables it when Google UMP is the consent source (T01) to avoid a double
+  /// consent prompt. See [AppLovinBridge].
+  void setTermsAndPrivacyPolicyFlowEnabled(bool enabled);
+
   void setAppOpenAdListener(AppOpenAdListener? listener);
   void setInterstitialListener(InterstitialListener? listener);
   void setRewardedAdListener(RewardedAdListener? listener);
@@ -37,6 +42,10 @@ class RealAppLovinBridge implements AppLovinBridge {
   @override
   void setTestDeviceAdvertisingIds(List<String> ids) =>
       AppLovinMAX.setTestDeviceAdvertisingIds(ids);
+
+  @override
+  void setTermsAndPrivacyPolicyFlowEnabled(bool enabled) =>
+      AppLovinMAX.setTermsAndPrivacyPolicyFlowEnabled(enabled);
 
   @override
   void setAppOpenAdListener(AppOpenAdListener? listener) =>

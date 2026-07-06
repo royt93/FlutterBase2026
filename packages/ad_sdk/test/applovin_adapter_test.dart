@@ -31,6 +31,11 @@ class FakeAppLovinBridge implements AppLovinBridge {
   Future<void> initialize(String sdkKey) async {}
   @override
   void setTestDeviceAdvertisingIds(List<String> ids) {}
+
+  bool termsFlowEnabled = true;
+  @override
+  void setTermsAndPrivacyPolicyFlowEnabled(bool enabled) =>
+      termsFlowEnabled = enabled;
   @override
   void setAppOpenAdListener(AppOpenAdListener? l) => appOpen = l;
   @override
@@ -57,8 +62,8 @@ class FakeAppLovinBridge implements AppLovinBridge {
   Future<void> destroyWidgetAdView(AdViewId id) async {}
 }
 
-MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact', 'cid',
-    'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
+MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact',
+    'cid', 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
 
 MaxError _fakeError() => MaxError(ErrorCode.values.first, 'fail', null, null);
 
@@ -89,6 +94,32 @@ void main() {
 
   tearDown(() async {
     await adapter.dispose();
+  });
+
+  group('AppLovin CMP flow vs UMP (T01)', () {
+    test('default config disables AppLovin CMP flow (UMP is the CMP)', () {
+      // setUp initialised with the default _config (disableAppLovinCmpFlow=true).
+      expect(bridge.termsFlowEnabled, isFalse);
+    });
+
+    test('disableAppLovinCmpFlow:false keeps AppLovin CMP flow enabled',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(const AdConfig(
+        provider: AdProvider.appLovin,
+        disableAppLovinCmpFlow: false,
+        appLovin: AppLovinConfig(
+          sdkKey: 'sdk',
+          bannerId: 'b',
+          interstitialId: 'i',
+          appOpenId: 'a',
+          rewardedId: 'r',
+        ),
+      ));
+      expect(b.termsFlowEnabled, isTrue);
+      await a.dispose();
+    });
   });
 
   group('App Open load/show happy path', () {
@@ -156,7 +187,8 @@ void main() {
     test('receiving a reward yields earned=true', () async {
       RewardResult? result;
       await loadAndShow((r) => result = r);
-      bridge.rewarded!.onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+      bridge.rewarded!
+          .onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
       expect(result, isNotNull);
       expect(result!.earned, isTrue);
     });
@@ -226,7 +258,8 @@ void main() {
         });
 
         async.elapse(const Duration(seconds: 30));
-        expect(dismissed, isNull, reason: 'iOS re-arms; no early force-dismiss');
+        expect(dismissed, isNull,
+            reason: 'iOS re-arms; no early force-dismiss');
 
         async.elapse(const Duration(seconds: 70)); // total 100s > 90s
         expect(dismissed, isFalse, reason: 'hard cap fires');

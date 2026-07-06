@@ -37,6 +37,11 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
   bool _routeSubscribed = false;
 
+  /// T12 — guards against stacking multiple post-frame `_initBanner` callbacks
+  /// when `build` runs repeatedly (initRevision / parent rebuilds) while the
+  /// banner hasn't been allowed yet. Only one callback may be pending.
+  bool _initScheduled = false;
+
   /// AdMob only: true while this route is the top route.
   final ValueNotifier<bool> _admobIsTop = ValueNotifier<bool>(false);
 
@@ -72,6 +77,10 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     }
     if (mgr.isVIPMember()) {
       SafeLogger.d(_tag, '_initBanner ⏭️ VIP');
+      return;
+    }
+    if (!mgr.canRequestAds) {
+      SafeLogger.d(_tag, '_initBanner ⏭️ consent not granted (UMP)');
       return;
     }
     if (!mgr.isConnected) {
@@ -175,8 +184,10 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {
-        if (!_allowed.value && AdManager().isInitialised) {
+        if (!_allowed.value && !_initScheduled && AdManager().isInitialised) {
+          _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
+            _initScheduled = false;
             if (!mounted) return;
             _initBanner(context);
           });
@@ -329,7 +340,8 @@ class _BannerContainer extends StatelessWidget {
                               height: 1.1,
                             ),
                           )
-                        : const ShimmerView(cornerRadius: 2, width: 20, height: 13),
+                        : const ShimmerView(
+                            cornerRadius: 2, width: 20, height: 13),
                   ),
                   SizedBox(
                     width: double.infinity,

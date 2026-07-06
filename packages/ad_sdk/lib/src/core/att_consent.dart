@@ -46,7 +46,8 @@ class AttResult {
       status == AttStatus.authorized || status == AttStatus.notSupported;
 
   @override
-  String toString() => 'AttResult(status=${status.name}, hasIdfa=${idfa != null})';
+  String toString() =>
+      'AttResult(status=${status.name}, hasIdfa=${idfa != null})';
 }
 
 const _zeroIdfa = '00000000-0000-0000-0000-000000000000';
@@ -114,6 +115,19 @@ Future<AttResult> requestAttIfNeeded({
     SafeLogger.d(tag, () => 'current status=${status.name}');
 
     if (status == TrackingStatus.notDetermined) {
+      // ponytail: the plugin has no way to detect a missing Info.plist key —
+      // it just calls into ATTrackingManager, which silently no-ops/crashes
+      // natively. This assert-only reminder fires loudly in debug builds
+      // (stripped in release) so a missing NSUserTrackingUsageDescription is
+      // caught during development, not after an App Store rejection.
+      assert(() {
+        SafeLogger.e(
+            tag,
+            '⚠️ Về chuẩn bị gọi ATT prompt — xác nhận Info.plist có key '
+            'NSUserTrackingUsageDescription. Thiếu key này khiến prompt fail '
+            'âm thầm hoặc app crash trên thiết bị thật. (Chỉ log ở debug build.)');
+        return true;
+      }());
       status = await requestAuthorization();
       SafeLogger.d(tag, () => 'prompt result=${status.name}');
     }

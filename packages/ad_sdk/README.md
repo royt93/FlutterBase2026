@@ -572,6 +572,50 @@ AdLogLevel.none      // silent
 
 ## VIP system
 
+### Signed VIP keys (offline, forge-proof) — T18
+
+VIP redeem codes are **Ed25519-signed** and verified **offline** against a public
+key embedded in the app. The matching **private key never ships**, so a
+decompiler cannot forge new valid keys. There is **no server and no shared
+secret** — a leaked *legitimate* key can still be reused on other devices (true
+global one-time-use needs a backend), but per-device reuse is blocked.
+
+**1. Generate a key pair once (keep the private key secret):**
+
+```bash
+cd packages/ad_sdk
+dart run tool/vip_keygen.dart
+# PUBLIC  (embed in app): <base64url>
+# PRIVATE (keep secret!): <base64url>   ← store in a secret manager, never commit
+```
+
+**2. Mint keys offline with the private key:**
+
+```bash
+dart run tool/vip_mint.dart --priv <b64priv> --days 30 --kid promo30_001
+# → AVP1.<payload>.<signature>
+```
+
+**3. Embed the public key + redeem in-app:**
+
+```dart
+final result = await AdManager().vip!.redeemSignedKey(
+  userInput,
+  publicKeyBase64: kVipPublicKeyBase64, // your public key
+  stack: true,                          // add onto the current VIP window
+);
+switch (result.status) {
+  case VipRedeemStatus.success:     /* granted result.entry */ break;
+  case VipRedeemStatus.alreadyUsed: /* this key already used on this device */ break;
+  case VipRedeemStatus.invalid:     /* bad/forged/expired key */ break;
+}
+```
+
+Key format: `AVP1.<b64url(payload)>.<b64url(sig)>`, `payload = "<seconds>|<keyId>"`.
+The VIP duration is read from the key; `keyId` drives per-device one-time-use.
+Use `verifySignedVipKey(code, publicKeyBase64: ...)` directly if you only need to
+inspect a key without redeeming.
+
 ### Conflict policy: latest-expiry-wins vs. global stacking
 
 The `stack` flag decides how a grant combines with existing VIP time:
@@ -844,6 +888,36 @@ if (!result.canRequestAds) {
 
 // Continue with AdManager().initialize(...) as normal
 ```
+
+#### Privacy Options entry point (MUST — required by Google UMP policy)
+
+Google requires every app that gathers UMP consent to expose a **durable,
+always-visible** way for the user to change their choice later (e.g. a
+"Privacy Settings" row in your Settings screen). Wire a permanent button that
+calls `AdManager().showPrivacyOptions()`:
+
+```dart
+// Settings screen — always render this row; it's a safe no-op for users
+// who were never shown a consent form (non-EEA / notRequired).
+ListTile(
+  title: const Text('Privacy Settings'),
+  onTap: () async {
+    final result = await AdManager().showPrivacyOptions();
+    // result.formShown == true only when Google's UMP actually required
+    // and displayed the native privacy-options form. Consent changes are
+    // re-applied to the active ad provider (npa/RDP) automatically.
+  },
+);
+
+// Optional: hide/disable the row instead of always showing it.
+final required = await AdManager().isPrivacyOptionsRequired();
+```
+
+`showPrivacyOptions()` is safe to call unconditionally — it no-ops (does
+**not** show any native UI) whenever Google's `ConsentInformation` reports the
+privacy-options form isn't required for the current user. Call it any time
+after `AdManager().initialize()`, from user interaction only — never as part
+of app-startup gating.
 
 ### Option 3 — Manual flag set (you have your own UI)
 

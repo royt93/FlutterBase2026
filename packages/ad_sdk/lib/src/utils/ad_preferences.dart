@@ -124,5 +124,21 @@ class AdPreferences {
     await _prefs?.setBool(_keyVipMigrated, true);
   }
 
+  // ─── Redeemed signed-key IDs (T18 — per-device one-time-use) ───────────────
+  // We can't enforce GLOBAL one-time-use offline, but we can stop the SAME
+  // signed key from being redeemed repeatedly on the SAME device.
+
+  static const String _keyRedeemedVipKids = 'ad_sdk_redeemed_vip_kids';
+
+  List<String> getRedeemedVipKeyIds() =>
+      _prefs?.getStringList(_keyRedeemedVipKids) ?? const [];
+
+  bool isVipKeyIdRedeemed(String kid) => getRedeemedVipKeyIds().contains(kid);
+
+  Future<void> addRedeemedVipKeyId(String kid) async {
+    final set = getRedeemedVipKeyIds().toSet()..add(kid);
+    await _prefs?.setStringList(_keyRedeemedVipKids, set.toList());
+  }
+
   Future<void> clearAllData() async => _prefs?.clear();
 }

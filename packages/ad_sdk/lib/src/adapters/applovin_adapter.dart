@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../config/ad_config.dart';
+import '../core/ad_consent.dart';
 import '../core/ad_provider_adapter.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
@@ -80,7 +81,8 @@ class AppLovinAdapter implements AdProviderAdapter {
     visible: ValueNotifier<bool>(true),
   );
 
-  final ValueNotifier<AdViewId?> _bannerAdViewId = ValueNotifier<AdViewId?>(null);
+  final ValueNotifier<AdViewId?> _bannerAdViewId =
+      ValueNotifier<AdViewId?>(null);
 
   @override
   ValueListenable<Object?> get appLovinBannerAdViewId => _bannerAdViewId;
@@ -118,6 +120,16 @@ class AppLovinAdapter implements AdProviderAdapter {
     _wireAppOpenListener(cfg.appOpenId);
     _wireInterstitialListener(cfg.interstitialId);
     _wireRewardedListener(cfg.rewardedId);
+    // T01 — when Google UMP is the consent source, disable AppLovin's own CMP
+    // flow so the user isn't prompted twice. Must be set BEFORE SDK init.
+    if (config.disableAppLovinCmpFlow) {
+      try {
+        _bridge.setTermsAndPrivacyPolicyFlowEnabled(false);
+        SafeLogger.d(_logTag, 'AppLovin CMP flow disabled (UMP is CMP)');
+      } catch (e) {
+        SafeLogger.w(_logTag, 'setTermsAndPrivacyPolicyFlowEnabled failed: $e');
+      }
+    }
     try {
       await _bridge.initialize(cfg.sdkKey);
       SafeLogger.d(_logTag, 'initialize $tag ✅ SDK ready');
@@ -195,6 +207,14 @@ class AppLovinAdapter implements AdProviderAdapter {
     _config = null;
   }
 
+  @override
+  void applyConsent(AdConsent consent) {
+    // No-op: AppLovin consent is forwarded via the static `AppLovinMAX`
+    // privacy APIs in `applyConsentToProviders` (setHasUserConsent /
+    // setDoNotSell). AppLovin has no per-request non-personalized flag, so
+    // there is nothing to store on the adapter.
+  }
+
   // ─── App Open ─────────────────────────────────────────────────────────────
 
   void _wireAppOpenListener(String unitId) {
@@ -220,7 +240,8 @@ class AppLovinAdapter implements AdProviderAdapter {
           errorCode: err.code.value,
         ));
       },
-      onAdDisplayedCallback: (ad) => SafeLogger.d(_logTag, 'appOpen $tag ✅ displayed'),
+      onAdDisplayedCallback: (ad) =>
+          SafeLogger.d(_logTag, 'appOpen $tag ✅ displayed'),
       onAdRevenuePaidCallback: (ad) {
         _emitRevenueIfPresent(ad, AdSlotType.appOpen, AdPlacement.splash);
       },
@@ -306,7 +327,8 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showAppOpen({required void Function(bool dismissed) onDismiss}) async {
+  Future<void> showAppOpen(
+      {required void Function(bool dismissed) onDismiss}) async {
     final cfg = _max;
     if (cfg == null) {
       onDismiss(false);
@@ -389,8 +411,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     // iOS presents the App Open ad as an in-app modal VC, so Flutter never
     // leaves `resumed` while it shows — the foreground-as-hung heuristic only
     // holds on Android. See the comment block in [showAppOpen].
-    final foregroundMeansHung =
-        defaultTargetPlatform != TargetPlatform.iOS;
+    final foregroundMeansHung = defaultTargetPlatform != TargetPlatform.iOS;
     _appOpenShowTimeout = Timer(const Duration(seconds: tickSeconds), () {
       _appOpenShowTimeout = null;
       // Already dismissed by AppLovin's normal callback path? Nothing to do.
@@ -469,20 +490,25 @@ class AppLovinAdapter implements AdProviderAdapter {
         ));
       },
       onAdDisplayedCallback: (ad) {
-        SafeLogger.d(_logTag,
+        SafeLogger.d(
+            _logTag,
             () => 'inter $tag ✅ displayed | network=${ad.networkName} '
                 'creativeId=${ad.creativeId} placement=${ad.placement} '
                 'latency=${ad.latencyMillis}ms');
       },
       onAdRevenuePaidCallback: (ad) {
-        SafeLogger.d(_logTag,
+        SafeLogger.d(
+            _logTag,
             () => 'inter $tag 💰 revenue=\$${ad.revenue} '
                 'precision=${ad.revenuePrecision} network=${ad.networkName}');
-        _emitRevenueIfPresent(ad, AdSlotType.interstitial, AdPlacement.unspecified);
+        _emitRevenueIfPresent(
+            ad, AdSlotType.interstitial, AdPlacement.unspecified);
       },
       onAdDisplayFailedCallback: (ad, err) {
-        SafeLogger.w(_logTag,
-            () => 'inter $tag ❌ display failed: code=${err.code} message="${err.message}"');
+        SafeLogger.w(
+            _logTag,
+            () =>
+                'inter $tag ❌ display failed: code=${err.code} message="${err.message}"');
         interstitialSlot.markShowFailed();
         final cb = _interstitialDone;
         _interstitialDone = null;
@@ -540,7 +566,8 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showInterstitial({required void Function(bool shown) onDone}) async {
+  Future<void> showInterstitial(
+      {required void Function(bool shown) onDone}) async {
     final cfg = _max;
     if (cfg == null) {
       onDone(false);
@@ -560,7 +587,8 @@ class AppLovinAdapter implements AdProviderAdapter {
     _interstitialDone = null;
     if (old != null) old(false);
     _interstitialDone = onDone;
-    SafeLogger.d(_logTag, 'showInterstitial $tag → _bridge.showInterstitial(${cfg.interstitialId})');
+    SafeLogger.d(_logTag,
+        'showInterstitial $tag → _bridge.showInterstitial(${cfg.interstitialId})');
     try {
       _bridge.showInterstitial(cfg.interstitialId);
     } catch (e, st) {
@@ -597,7 +625,8 @@ class AppLovinAdapter implements AdProviderAdapter {
           errorCode: err.code.value,
         ));
       },
-      onAdDisplayedCallback: (ad) => SafeLogger.d(_logTag, 'rewarded $tag ✅ displayed'),
+      onAdDisplayedCallback: (ad) =>
+          SafeLogger.d(_logTag, 'rewarded $tag ✅ displayed'),
       onAdRevenuePaidCallback: (ad) {
         _emitRevenueIfPresent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
       },
@@ -649,7 +678,8 @@ class AppLovinAdapter implements AdProviderAdapter {
         // watching" — `amount` is purely informational metadata.
         SafeLogger.d(
           _logTag,
-          () => 'rewarded $tag 🏆 label="${reward.label}" amount=${reward.amount} '
+          () =>
+              'rewarded $tag 🏆 label="${reward.label}" amount=${reward.amount} '
               '(test creatives report 0/empty — earned=true is the truth)',
         );
         final cb = _rewardedDone;
@@ -679,7 +709,8 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showRewarded({required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded(
+      {required void Function(RewardResult result) onDone}) async {
     final cfg = _max;
     if (cfg == null) {
       onDone(RewardResult.skipped);
@@ -699,7 +730,8 @@ class AppLovinAdapter implements AdProviderAdapter {
     _rewardedDone = null;
     if (old != null) old(RewardResult.skipped);
     _rewardedDone = onDone;
-    SafeLogger.d(_logTag, 'showRewarded $tag → _bridge.showRewardedAd(${cfg.rewardedId})');
+    SafeLogger.d(_logTag,
+        'showRewarded $tag → _bridge.showRewardedAd(${cfg.rewardedId})');
     try {
       _bridge.showRewardedAd(cfg.rewardedId);
     } catch (e, st) {
@@ -837,14 +869,16 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
     try {
       if (banner.hasError.value) {
-        SafeLogger.d(_logTag, 'onAppResumed $tag — banner had error, recreating');
+        SafeLogger.d(
+            _logTag, 'onAppResumed $tag — banner had error, recreating');
         banner.hasError.value = false;
         _bannerAdViewId.value = null;
         banner.autoRefreshEnabled.value = true;
         preloadBanner();
       } else if (_bannerAdViewId.value != null && !_bannerRoutePaused) {
         banner.autoRefreshEnabled.value = true;
-        SafeLogger.d(_logTag, 'onAppResumed $tag — banner.autoRefresh re-enabled');
+        SafeLogger.d(
+            _logTag, 'onAppResumed $tag — banner.autoRefresh re-enabled');
       }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'onAppResumed side-effect threw: $e\n$st');

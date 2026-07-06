@@ -41,9 +41,17 @@ export 'src/state/backoff.dart';
 export 'src/utils/safe_logger.dart' show SafeLogger, AdLogSink;
 
 // VIP
+export 'src/vip/signed_vip_key.dart'
+    show
+        SignedVipKey,
+        SignedVipRedeemResult,
+        VipKeyException,
+        VipRedeemStatus,
+        verifySignedVipKey;
 export 'src/vip/vip_dialog_strings.dart';
 export 'src/vip/vip_entry.dart';
 export 'src/vip/vip_manager.dart';
+export 'src/vip/vip_redeem_screen.dart' show VipRedeemScreen, VipRedeemStrings;
 
 // Widgets
 export 'src/widget/ad_loading_dialog.dart';

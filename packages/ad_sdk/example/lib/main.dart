@@ -55,6 +55,19 @@ const Map<String, Duration> kDemoVipKeys = {
   'TEST_VIP_90': Duration(days: 90),
 };
 
+/// T18 — offline SIGNED VIP keys. The public key below verifies the keys; the
+/// matching private key (never shipped) minted them via tool/vip_mint.dart.
+/// DEMO keypair — generate your own with tool/vip_keygen.dart before release.
+const String kDemoVipPublicKey = 'nqmoUYYjAH_dVDcO5fZk8EagjLIq688hPbAzIYD0DWY=';
+const Map<String, String> kDemoSignedVipKeys = {
+  '1d':
+      'AVP1.ODY0MDB8ZGVtbzFk.NFrAVXDD8FUNpZzBQG_MDq_dgKVyE6HmRTn7TTxmbWT0_hIZX2_9PO1tX2SBMMWh-Mp5nt3d3hnNSbYuDI-tCA==',
+  '7d':
+      'AVP1.NjA0ODAwfGRlbW83ZA==.7lj_TWdPk3h8LWcBAQzU5dfwmfMeu0--inrlLckEgqtlx3LpNpPNOX4TNZ7ypHmfKRamSWErp6uyRDP54jAaAg==',
+  '30d':
+      'AVP1.MjU5MjAwMHxkZW1vMzBk.nCPvlNoexldaulVWw5IycTDM1Cr_pUmQQMuf0myVogbnTcrccs69LB40t1MtvPLNhakK0OPIM3e_GaXOsXKrDg==',
+};
+
 /// Validator wired into [AdConfig.vipKeyValidator] — only the demo keys above
 /// are valid. In a real app this calls your server.
 Future<bool> demoVipValidator(String key) async {
@@ -344,7 +357,11 @@ class _SplashScreenState extends State<SplashScreen> {
               Icon(Icons.ads_click, size: 80, color: Colors.white),
               SizedBox(height: 24),
               Text('ad_sdk',
-                  style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2)),
               SizedBox(height: 32),
               CircularProgressIndicator(color: Colors.white),
             ],
@@ -362,7 +379,8 @@ class _SplashScreenState extends State<SplashScreen> {
 /// edge-to-edge mode.
 EdgeInsets _bottomSafe(BuildContext context, EdgeInsets base) {
   final inset = MediaQuery.paddingOf(context).bottom;
-  return EdgeInsets.fromLTRB(base.left, base.top, base.right, base.bottom + inset);
+  return EdgeInsets.fromLTRB(
+      base.left, base.top, base.right, base.bottom + inset);
 }
 
 class DemoTile extends StatelessWidget {
@@ -390,7 +408,8 @@ class DemoTile extends StatelessWidget {
             backgroundColor: color.withValues(alpha: 0.15),
             child: Icon(icon, color: color),
           ),
-          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+          title:
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
           subtitle: Text(subtitle),
           trailing: const Icon(Icons.chevron_right, color: Colors.grey),
           onTap: onTap,
@@ -420,80 +439,109 @@ class HomePage extends StatelessWidget {
         children: [
           DemoTile(
             icon: Icons.image,
-                title: 'Banner ad',
-                subtitle: 'Anchored adaptive banner with route lifecycle',
-                color: Colors.blue,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BannerDemoPage())),
+            title: 'Banner ad',
+            subtitle: 'Anchored adaptive banner with route lifecycle',
+            color: Colors.blue,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const BannerDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.fullscreen,
+            title: 'Interstitial ad',
+            subtitle: 'Show + safety gate + counter',
+            color: Colors.indigo,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const InterstitialDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.star,
+            title: 'Rewarded ad',
+            subtitle: 'Show + reward + VIP auto-grant toggle',
+            color: Colors.orange,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const RewardedDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.open_in_new,
+            title: 'App-open ad',
+            subtitle: 'Background → foreground triggers',
+            color: Colors.green,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const AppOpenDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.workspace_premium,
+            title: 'VIP / redeem',
+            subtitle: 'Shared VipRedeemScreen (identical to host)',
+            color: Colors.purple,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VipRedeemScreen(
+                  publicKeyBase64: kDemoVipPublicKey,
+                  onPrivacyPolicyTap: () =>
+                      debugPrint('[example] privacy policy tapped'),
+                ),
               ),
-              DemoTile(
-                icon: Icons.fullscreen,
-                title: 'Interstitial ad',
-                subtitle: 'Show + safety gate + counter',
-                color: Colors.indigo,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InterstitialDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.star,
-                title: 'Rewarded ad',
-                subtitle: 'Show + reward + VIP auto-grant toggle',
-                color: Colors.orange,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RewardedDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.open_in_new,
-                title: 'App-open ad',
-                subtitle: 'Background → foreground triggers',
-                color: Colors.green,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AppOpenDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.workspace_premium,
-                title: 'VIP / redeem',
-                subtitle: 'Cupertino dialog + 7/30/90 day keys',
-                color: Colors.purple,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VipDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.privacy_tip,
-                title: 'Consent / GDPR',
-                subtitle: 'Consent flags + provider propagation',
-                color: Colors.teal,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ConsentDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.shield,
-                title: 'Safety status',
-                subtitle: 'Caps, throttle, dryRun mode, presets',
-                color: Colors.red,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SafetyDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.terminal,
-                title: 'Log viewer',
-                subtitle: 'Ring buffer of SDK logs',
-                color: Colors.grey,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogViewerDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.attach_money,
-                title: 'Revenue dashboard',
-                subtitle: '\$ from onPaidEvent stream',
-                color: Colors.lightGreen,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RevenueDemoPage())),
-              ),
-              DemoTile(
-                icon: Icons.dashboard,
-                title: 'Slot state panel',
-                subtitle: 'Live AdSlot state + manual destroy/reinit',
-                color: Colors.cyan,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StatePanelDemoPage())),
-              ),
+            ),
+          ),
+          DemoTile(
+            icon: Icons.science_outlined,
+            title: 'VIP API playground',
+            subtitle: 'Raw redeem / signed keys / watch-ad buttons',
+            color: Colors.deepPurple,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const VipDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.privacy_tip,
+            title: 'Consent / GDPR',
+            subtitle: 'Consent flags + provider propagation',
+            color: Colors.teal,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ConsentDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.shield,
+            title: 'Safety status',
+            subtitle: 'Caps, throttle, dryRun mode, presets',
+            color: Colors.red,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const SafetyDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.terminal,
+            title: 'Log viewer',
+            subtitle: 'Ring buffer of SDK logs',
+            color: Colors.grey,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const LogViewerDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.attach_money,
+            title: 'Revenue dashboard',
+            subtitle: '\$ from onPaidEvent stream',
+            color: Colors.lightGreen,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const RevenueDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.dashboard,
+            title: 'Slot state panel',
+            subtitle: 'Live AdSlot state + manual destroy/reinit',
+            color: Colors.cyan,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const StatePanelDemoPage())),
+          ),
           DemoTile(
             icon: Icons.stream,
             title: 'AdEvent stream',
             subtitle: 'All load/show/click/reward/revenue events live',
             color: Colors.deepOrange,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EventsDemoPage())),
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const EventsDemoPage())),
           ),
         ],
       ),
@@ -526,10 +574,12 @@ class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.navigate_next),
-                  title: const Text('Push another screen (verifies pause/resume)'),
+                  title:
+                      const Text('Push another screen (verifies pause/resume)'),
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const _BannerSecondScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const _BannerSecondScreen()),
                   ),
                 ),
                 const Padding(
@@ -563,7 +613,8 @@ class _BannerSecondScreenState extends AdScreenState<_BannerSecondScreen> {
         body: SafeArea(
           top: false,
           child: Column(children: [
-            const Expanded(child: Center(child: Text('Banner pauses on previous'))),
+            const Expanded(
+                child: Center(child: Text('Banner pauses on previous'))),
             buildBanner(),
           ]),
         ),
@@ -603,13 +654,15 @@ class _InterstitialDemoPageState extends AdScreenState<InterstitialDemoPage> {
           children: [
             ValueListenableBuilder<int>(
               valueListenable: _shownCount,
-              builder: (_, c, __) =>
-                  Text('Shown: $c times', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              builder: (_, c, __) => Text('Shown: $c times',
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String>(
               valueListenable: _lastResult,
-              builder: (_, r, __) => Text('Last: $r', style: const TextStyle(color: Colors.grey)),
+              builder: (_, r, __) =>
+                  Text('Last: $r', style: const TextStyle(color: Colors.grey)),
             ),
             const SizedBox(height: 24),
             FilledButton(
@@ -676,13 +729,15 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
           children: [
             ValueListenableBuilder<int>(
               valueListenable: _coins,
-              builder: (_, c, __) =>
-                  Text('Coins: $c', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              builder: (_, c, __) => Text('Coins: $c',
+                  style: const TextStyle(
+                      fontSize: 28, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String>(
               valueListenable: _last,
-              builder: (_, r, __) => Text('Last: $r', style: const TextStyle(color: Colors.grey)),
+              builder: (_, r, __) =>
+                  Text('Last: $r', style: const TextStyle(color: Colors.grey)),
             ),
             const SizedBox(height: 24),
             ValueListenableBuilder<bool>(
@@ -691,7 +746,8 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
                 value: on,
                 onChanged: (v) => _vipAutoGrant.value = v,
                 title: const Text('VIP auto-grant'),
-                subtitle: const Text('When VIP, auto-mark reward earned (Q12B: opt-in only).'),
+                subtitle: const Text(
+                    'When VIP, auto-mark reward earned (Q12B: opt-in only).'),
               ),
             ),
             const SizedBox(height: 12),
@@ -748,7 +804,8 @@ class AppOpenDemoPage extends StatelessWidget {
               onPressed: () {
                 AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(loaded ? 'App open ad ready ✅' : 'Load failed ❌'),
+                    content:
+                        Text(loaded ? 'App open ad ready ✅' : 'Load failed ❌'),
                   ));
                 });
               },
@@ -796,6 +853,22 @@ class _VipDemoPageState extends State<VipDemoPage> {
     );
   }
 
+  /// T18 — redeem an offline SIGNED VIP key (Ed25519, verified against the
+  /// embedded public key; no network; per-device one-time-use).
+  Future<void> _redeemSigned(String code) async {
+    final vip = AdManager().vip;
+    if (vip == null) return;
+    final r = await vip.redeemSignedKey(code,
+        publicKeyBase64: kDemoVipPublicKey, stack: true);
+    if (!mounted) return;
+    final msg = switch (r.status) {
+      VipRedeemStatus.success => '✅ Signed key OK — VIP granted',
+      VipRedeemStatus.alreadyUsed => '⏭️ Key already used on this device',
+      VipRedeemStatus.invalid => '❌ Invalid key: ${r.error}',
+    };
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   /// Watch a real rewarded ad to EXTEND VIP — works even while already VIP
   /// (`bypassVipGuard: true` plays a real ad; the SDK loads it on demand). The
   /// reward is granted into a fixed key with `stack: true` so repeats add up.
@@ -830,143 +903,165 @@ class _VipDemoPageState extends State<VipDemoPage> {
       body: ListView(
         padding: _bottomSafe(context, const EdgeInsets.all(16)),
         children: [
-            // GAID allow-list — a second VIP mechanism alongside key redeem:
-            // mark specific devices VIP by their Google Advertising ID. The
-            // SUPPORTED way is the startup config `AdConfig.vipDeviceGaids:
-            // ['gaid1', ...]` (auto-migrated to VipManager entries on first
-            // init). `AdManager().isVIPMember()` reports the current state.
-            // (The runtime add/deleteVIPMember mutators are deprecated — prefer
-            // `AdManager().vip.addVip(...)` / `revokeVip(...)`.)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('GAID VIP allow-list',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Set at startup via AdConfig.vipDeviceGaids: [...]. '
-                      'Tap to read the live VIP state:',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton(
-                      onPressed: () {
-                        final isVip = AdManager().isVIPMember();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('isVIPMember() = $isVip')),
-                        );
-                      },
-                      child: const Text('Check isVIPMember()'),
-                    ),
-                  ],
-                ),
+          // GAID allow-list — a second VIP mechanism alongside key redeem:
+          // mark specific devices VIP by their Google Advertising ID. The
+          // SUPPORTED way is the startup config `AdConfig.vipDeviceGaids:
+          // ['gaid1', ...]` (auto-migrated to VipManager entries on first
+          // init). `AdManager().isVIPMember()` reports the current state.
+          // (The runtime add/deleteVIPMember mutators are deprecated — prefer
+          // `AdManager().vip.addVip(...)` / `revokeVip(...)`.)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('GAID VIP allow-list',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Set at startup via AdConfig.vipDeviceGaids: [...]. '
+                    'Tap to read the live VIP state:',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed: () {
+                      final isVip = AdManager().isVIPMember();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('isVIPMember() = $isVip')),
+                      );
+                    },
+                    child: const Text('Check isVIPMember()'),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            // Status card
-            if (vip != null)
-              ValueListenableBuilder<bool>(
-                valueListenable: vip.activeListenable,
-                builder: (_, active, __) {
-                  final exp = vip.expiresAt;
-                  return Card(
-                    color: active ? Colors.purple.shade50 : Colors.grey.shade100,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            active ? '🟣 VIP active' : '⚪ VIP inactive',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          // Status card
+          if (vip != null)
+            ValueListenableBuilder<bool>(
+              valueListenable: vip.activeListenable,
+              builder: (_, active, __) {
+                final exp = vip.expiresAt;
+                return Card(
+                  color: active ? Colors.purple.shade50 : Colors.grey.shade100,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          active ? '🟣 VIP active' : '⚪ VIP inactive',
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        if (active && exp != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                                'Until ${exp.toLocal().toIso8601String().substring(0, 16)}'),
                           ),
-                          if (active && exp != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text('Until ${exp.toLocal().toIso8601String().substring(0, 16)}'),
-                            ),
-                          if (vip.entries.isNotEmpty) ...[
-                            const Divider(),
-                            const Text('Entries:', style: TextStyle(fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            ...vip.entries.map((e) => Text(
-                                  '• ${e.key} → ${e.expiresAt.toLocal().toIso8601String().substring(0, 16)}',
-                                  style: const TextStyle(fontSize: 12),
-                                )),
-                          ],
+                        if (vip.entries.isNotEmpty) ...[
+                          const Divider(),
+                          const Text('Entries:',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          ...vip.entries.map((e) => Text(
+                                '• ${e.key} → ${e.expiresAt.toLocal().toIso8601String().substring(0, 16)}',
+                                style: const TextStyle(fontSize: 12),
+                              )),
                         ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            const SizedBox(height: 16),
-
-            // Quick redeem buttons
-            const Text('Quick redeem', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: kDemoVipKeys.entries
-                  .map((e) => OutlinedButton(
-                        onPressed: () => _redeem(e.key, e.value),
-                        child: Text('${e.key}\n(${e.value.inDays} days)', textAlign: TextAlign.center),
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 24),
-
-            // Custom redeem
-            const Text('Custom key (1-day duration)', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _ctrl,
-                    decoration: const InputDecoration(
-                      hintText: 'enter key',
-                      border: OutlineInputBorder(),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: () => _redeem(_ctrl.text, const Duration(days: 1)),
-                  child: const Text('Redeem'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Watch ad → +3 days VIP (stacks; works even while already VIP)
-            const Text('Extend by watching an ad',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _watchAdToExtend,
-              icon: const Icon(Icons.play_circle_outline),
-              label: const Text('Watch ad → +3 days VIP (stack)'),
-            ),
-            const SizedBox(height: 24),
-
-            // Revoke
-            FilledButton.tonal(
-              onPressed: () async {
-                await vip?.revokeAll();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('All VIP entries revoked')),
-                  );
-                }
+                );
               },
-              child: const Text('Revoke ALL'),
             ),
-          ],
-        ),
+          const SizedBox(height: 16),
+
+          // Quick redeem buttons
+          const Text('Quick redeem',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: kDemoVipKeys.entries
+                .map((e) => OutlinedButton(
+                      onPressed: () => _redeem(e.key, e.value),
+                      child: Text('${e.key}\n(${e.value.inDays} days)',
+                          textAlign: TextAlign.center),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // T18 — signed offline keys (Ed25519). Redeeming twice shows the
+          // per-device one-time-use guard ("already used").
+          const Text('Signed keys (T18 — offline, forge-proof)',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: kDemoSignedVipKeys.entries
+                .map((e) => FilledButton.tonal(
+                      onPressed: () => _redeemSigned(e.value),
+                      child: Text('signed ${e.key}'),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // Custom redeem
+          const Text('Custom key (1-day duration)',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  decoration: const InputDecoration(
+                    hintText: 'enter key',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => _redeem(_ctrl.text, const Duration(days: 1)),
+                child: const Text('Redeem'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Watch ad → +3 days VIP (stacks; works even while already VIP)
+          const Text('Extend by watching an ad',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _watchAdToExtend,
+            icon: const Icon(Icons.play_circle_outline),
+            label: const Text('Watch ad → +3 days VIP (stack)'),
+          ),
+          const SizedBox(height: 24),
+
+          // Revoke
+          FilledButton.tonal(
+            onPressed: () async {
+              await vip?.revokeAll();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('All VIP entries revoked')),
+                );
+              }
+            },
+            child: const Text('Revoke ALL'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -987,6 +1082,10 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
   final ValueNotifier<bool> _isAge = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _doNotSell = ValueNotifier<bool>(false);
 
+  /// Bumped after setConsent so the "effective personalization" card below
+  /// reflects the just-applied AdManager().consent state.
+  final ValueNotifier<int> _appliedRev = ValueNotifier<int>(0);
+
   @override
   void initState() {
     super.initState();
@@ -1000,6 +1099,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
     _hasConsent.dispose();
     _isAge.dispose();
     _doNotSell.dispose();
+    _appliedRev.dispose();
     super.dispose();
   }
 
@@ -1042,9 +1142,12 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
       body: ListView(
         padding: _bottomSafe(context, EdgeInsets.zero),
         children: [
-          _row('GDPR consent (hasUserConsent)', _hasConsent, 'EEA users — set after UMP form ACCEPT.'),
-          _row('Age-restricted (COPPA)', _isAge, 'App targets children < 13 → tagForChildDirectedTreatment=YES.'),
-          _row('Do-not-sell (CCPA)', _doNotSell, 'California users opt-out of personal-data sale.'),
+          _row('GDPR consent (hasUserConsent)', _hasConsent,
+              'EEA users — set after UMP form ACCEPT.'),
+          _row('Age-restricted (COPPA)', _isAge,
+              'App targets children < 13 → tagForChildDirectedTreatment=YES.'),
+          _row('Do-not-sell (CCPA)', _doNotSell,
+              'California users opt-out of personal-data sale.'),
           const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1055,12 +1158,42 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                   isAgeRestrictedUser: _isAge.value,
                   doNotSell: _doNotSell.value,
                 ));
+                _appliedRev.value++;
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('Consent applied to both providers ✅')));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Consent applied to both providers ✅')));
                 }
               },
               child: const Text('Apply consent to providers'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Effective per-request personalization (T02): AdMob attaches npa=1 to
+          // every AdRequest when the applied consent has hasUserConsent=false.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ValueListenableBuilder<int>(
+              valueListenable: _appliedRev,
+              builder: (context, _, __) {
+                final npa = !AdManager().consent.hasUserConsent;
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: npa
+                        ? Colors.orange.withValues(alpha: 0.12)
+                        : Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    npa
+                        ? '📵 AdMob ad requests: NON-personalized (npa=1)'
+                        : '🎯 AdMob ad requests: personalized',
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                );
+              },
             ),
           ),
           const Divider(height: 32),
@@ -1077,24 +1210,31 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
             builder: (_, s, __) => Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
-                color: s.hasBeenAsked ? Colors.green.shade50 : Colors.amber.shade50,
+                color: s.hasBeenAsked
+                    ? Colors.green.shade50
+                    : Colors.amber.shade50,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        s.hasBeenAsked ? '✅ User has been asked' : '⚠️ Not asked yet',
+                        s.hasBeenAsked
+                            ? '✅ User has been asked'
+                            : '⚠️ Not asked yet',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'consent=${s.hasUserConsent}  coppa=${s.isAgeRestrictedUser}  ccpa=${s.doNotSell}',
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 11),
                       ),
                       if (s.askedAt != null)
-                        Text('askedAt=${s.askedAt!.toLocal().toIso8601String().substring(0, 19)}',
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                        Text(
+                            'askedAt=${s.askedAt!.toLocal().toIso8601String().substring(0, 19)}',
+                            style: const TextStyle(
+                                fontFamily: 'monospace', fontSize: 11)),
                     ],
                   ),
                 ),
@@ -1122,10 +1262,13 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                   icon: const Icon(Icons.refresh),
                   label: const Text('Reset (re-prompt next launch)'),
                   onPressed: () async {
-                    await ConsentManager.instance.reset(config: AdManager().config);
+                    await ConsentManager.instance
+                        .reset(config: AdManager().config);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Consent reset — next init will re-prompt')),
+                        const SnackBar(
+                            content: Text(
+                                'Consent reset — next init will re-prompt')),
                       );
                     }
                   },
@@ -1168,7 +1311,8 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
     super.dispose();
   }
 
-  AdSafetyParams get _activeParams => AdManager().config?.safety ?? AdSafetyParams.auto;
+  AdSafetyParams get _activeParams =>
+      AdManager().config?.safety ?? AdSafetyParams.auto;
 
   Widget _paramsCard(String title, AdSafetyParams p, {Color? color}) {
     return Card(
@@ -1178,7 +1322,9 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            Text(title,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
             const SizedBox(height: 6),
             Text(
               'between=${p.minTimeBetweenFullscreenAds}ms\n'
@@ -1217,7 +1363,8 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
               color: Colors.blue.shade50,
             ),
             const SizedBox(height: 12),
-            _paramsCard('Preset: AdSafetyParams.production', AdSafetyParams.production),
+            _paramsCard(
+                'Preset: AdSafetyParams.production', AdSafetyParams.production),
             const SizedBox(height: 8),
             _paramsCard('Preset: AdSafetyParams.debug', AdSafetyParams.debug),
             const SizedBox(height: 8),
@@ -1243,11 +1390,14 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
               ),
             ),
             const Divider(height: 24),
-            const Text('Live status', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Live status',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(AdSafetyConfig.getStatus(), style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+            Text(AdSafetyConfig.getStatus(),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
             const SizedBox(height: 12),
-            const Text('Latest fullscreen check', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Latest fullscreen check',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Builder(builder: (_) {
               final r = AdSafetyConfig.canShowFullscreenAd();
@@ -1318,14 +1468,20 @@ class LogViewerDemoPage extends StatelessWidget {
               final e = entries[entries.length - 1 - i];
               final time = e.timestamp.toIso8601String().substring(11, 19);
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(time, style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.grey)),
+                    Text(time,
+                        style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            color: Colors.grey)),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 1),
                       decoration: BoxDecoration(
                         color: _colorFor(e.level).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(2),
@@ -1340,7 +1496,8 @@ class LogViewerDemoPage extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text('[${e.tag}] ${e.message}',
-                          style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+                          style: const TextStyle(
+                              fontFamily: 'monospace', fontSize: 11)),
                     ),
                   ],
                 ),
@@ -1416,7 +1573,9 @@ class StatePanelDemoPage extends StatelessWidget {
           : ListView(
               padding: _bottomSafe(context, const EdgeInsets.all(16)),
               children: [
-                Text('Provider: ${adapter.tag}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                Text('Provider: ${adapter.tag}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 18)),
                 const SizedBox(height: 12),
                 _slotCard('App Open', adapter.appOpenSlot),
                 _slotCard('Interstitial', adapter.interstitialSlot),
@@ -1433,7 +1592,8 @@ class StatePanelDemoPage extends StatelessWidget {
                     await AdManager().destroy();
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('SDK destroyed — adapter null')),
+                        const SnackBar(
+                            content: Text('SDK destroyed — adapter null')),
                       );
                     }
                   },
@@ -1491,7 +1651,8 @@ class StatePanelDemoPage extends StatelessWidget {
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(s.name, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+      child: Text(s.name,
+          style: TextStyle(color: color, fontWeight: FontWeight.bold)),
     );
   }
 }
@@ -1649,8 +1810,11 @@ class _EventTile extends StatelessWidget {
     }
     if (e is AdClickEvent) return ('CLICK', Colors.purple, 'user clicked');
     if (e is AdRewardEvent) {
-      return ('REWARD', Colors.amber.shade700,
-          '${e.label ?? '?'} × ${e.amount ?? 0}');
+      return (
+        'REWARD',
+        Colors.amber.shade700,
+        '${e.label ?? '?'} × ${e.amount ?? 0}'
+      );
     }
     if (e is AdRevenueEvent) {
       return (

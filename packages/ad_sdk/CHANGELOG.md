@@ -4,6 +4,131 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Privacy Options entry point + re-consent (T06)
+- `AdManager().isPrivacyOptionsRequired()` and `AdManager().showPrivacyOptions()`
+  (wrapping `ConsentInformation.getPrivacyOptionsRequirementStatus` +
+  `ConsentForm.showPrivacyOptionsForm`) are now documented in the README as the
+  **required durable re-consent entry point** Google's UMP policy mandates
+  (a permanent "Privacy Settings" button). `showPrivacyOptions()` safely no-ops
+  (no native UI) when Google doesn't require it for the current user, and
+  re-applies the resulting consent to the active ad provider (npa/RDP) when it
+  does. Test: `test/privacy_options_test.dart` — required→opens form,
+  notRequired→no-op, re-consent re-applies to the active adapter.
+
+### Added — shared `VipRedeemScreen` widget
+- Extracted the full VIP redeem screen (hero status, key input, watch-ad-extend,
+  active-entries list, buy placeholder, confetti) into the SDK as a reusable
+  `VipRedeemScreen` + `VipRedeemStrings` (localizable, mirrors the
+  `ConsentDialogStrings` pattern). The host and the SDK example now render the
+  **identical** screen — host injects Vietnamese strings, the example uses the
+  English defaults. Privacy-policy opening is a callback (`onPrivacyPolicyTap`)
+  so the SDK needs no `url_launcher` dependency; `confetti` is added.
+- Widget tests: renders inactive state + privacy-footer visibility. Verified on
+  a Samsung S24 Ultra.
+
+### Fixed — code-review follow-ups
+- VIP: `redeemSignedKey` now claims the key id **atomically** (synchronous
+  check + in-flight set) so a concurrent double-tap of the same signed key can't
+  slip past the one-time-use check and grant twice. Enforced in the SDK, not
+  just the host UI. Test: concurrent double-redeem grants exactly once.
+- Consent: `initialize()` logs a **loud runtime warning** when AppLovin's CMP is
+  disabled AND `autoRequestUmpConsent` is false AND `requestUmpConsent()` was
+  never called before init — the "no consent form anywhere" footgun. Runtime,
+  not config-static, so it never false-alarms hosts that gather consent in
+  their splash.
+
+### Improved — offline/network UX (T09 + T10)
+- T09: verified the banner **collapses** to a zero-size box when offline (no
+  shimmer / battery drain) and **reloads automatically on reconnect** (via the
+  T08 connectivity watch bumping `initRevision`). Added a widget test.
+- T10: `isConnected` now falls back to the **last-known** connectivity state
+  (from the T08 watch) with a warning log instead of a silent `true` when the
+  detector is unavailable. Kept optimistic on purpose — a broken detector must
+  not permanently block ads; genuine offline loads just fail and back off, and
+  the watch refills on reconnect (network-error fast-retry is subsumed by T08).
+
+### Hardened — lifecycle & memory (T11 + T12 + T13)
+- T13: `AdLoadingDialog.resetState()` (called by `AdManager.destroy()`) now pops
+  a still-showing dialog before clearing its flags, so a mid-dialog destroy /
+  re-init can't strand a non-dismissable loading dialog on the navigator.
+  (`_eventStream` is intentionally left open — it's a process-lifetime singleton
+  broadcast exposed publicly; closing it would break host subscribers and it is
+  bounded to one instance, so it is not a leak.)
+- T11: added regression tests proving the fullscreen single-use guard — a
+  second show while one is showing is rejected by the slot state machine
+  (`isReady` + atomic `beginShow` + null-on-dismiss), a disposed ad is never
+  re-shown, and dispose happens exactly once. (No code change needed; the guard
+  already existed — the tests lock it down.)
+- T12: `BannerAdWidget` now guards against stacking multiple post-frame
+  `_initBanner` callbacks (`_initScheduled`) when `build` runs repeatedly, so a
+  banner loads exactly once across rebuilds. (`loadBannerIfNeeded` already
+  bailed on a cached ad; this removes the wasteful callback pile-up.)
+  (dispose-before-recreate was already handled by that early-return.)
+
+### Added — consent gate + UMP as single CMP (T01 + T03)
+- **`AdManager.canRequestAds`** consent gate: every load path (app-open,
+  interstitial, rewarded, banner) AND every show path now skips when consent
+  hasn't been granted, mirroring Google UMP's `ConsentInformation
+  .canRequestAds()`. `requestUmpConsent` stores the result and, when the gate
+  opens (blocked→allowed), refills the held slots. Google policy: never request
+  or show an ad while `canRequestAds` is false. Defaults `true` so non-UMP /
+  non-EEA hosts are unaffected.
+- **`AdConfig.autoRequestUmpConsent`** (default false): when true,
+  `initialize()` runs UMP before the first ad request and gates on the result —
+  the SDK owns the whole consent flow. `umpTagForUnderAgeOfConsent` forwards the
+  under-age flag.
+- **`AdConfig.disableAppLovinCmpFlow`** (default true): the AppLovin adapter
+  disables AppLovin's own Terms & Privacy (CMP) flow so UMP is the single
+  consent prompt — no double prompt. UMP's result is still forwarded to AppLovin
+  via `setHasUserConsent`.
+- **T03**: the splash App Open ad (even `bypassSafety: true`) no longer shows an
+  impression before consent is resolved; the show gate also prevents a
+  previously-loaded ad from showing after consent is revoked.
+
+### Added — offline signed VIP keys (T18)
+- New `verifySignedVipKey` + `VipManager.redeemSignedKey` verify Ed25519-signed
+  keys **offline** against an embedded public key. Only the public key ships, so
+  a decompiler cannot forge new keys (the old local base64 map could be extracted
+  and reused infinitely). VIP duration is encoded in the key.
+- Per-device one-time-use: a redeemed key id can't be redeemed again on the same
+  device (`AdPreferences` redeemed-id store). Global one-time-use still needs a
+  server — documented as a known offline limitation.
+- New deps: `cryptography` (pure-Dart Ed25519). Tooling: `tool/vip_keygen.dart`
+  (generate a key pair) and `tool/vip_mint.dart` (mint signed keys with the
+  private key — never shipped). See README → "Signed VIP keys".
+- Host `vip_keys.dart` now holds only the public key + demo keys; `vip_screen`
+  redeems via `redeemSignedKey`.
+
+### Added — connectivity auto-refill on reconnect (T08)
+- The SDK now initialises `ConnectionNotifierTools` (nobody did before, so
+  `isConnected` silently always returned `true` and the offline guards never
+  fired) and subscribes to `onStatusChange`.
+- On an offline→online transition the SDK refills idle/cooldown ad slots,
+  nudges the banner preload, and bumps `initRevision` so banner widgets re-init
+  — within ~1s (debounced) instead of waiting up to 5 min for the poll timer.
+  Suppressed for VIP members and while uninitialised. Subscription cancelled on
+  `destroy`. Test seams: `debugConnectivityChanged`, `debugReconnectDebounce`.
+
+### Fixed — AdMob non-personalized ads (`npa`) now actually applied (T02)
+- Previously `applyConsentToProviders` only set AdMob's global
+  `RequestConfiguration` (COPPA/age tags) and never attached the per-request
+  non-personalized flag, so a user who declined consent could still be served
+  **personalized** AdMob ads. The doc comment claimed an `npa` extra was
+  forwarded, but no code did so.
+- `AdProviderAdapter` gains `applyConsent(AdConsent)`. `AdMobAdapter` maps
+  `!hasUserConsent` → `AdRequest(nonPersonalizedAds: true)` on **every** load
+  (banner, interstitial, rewarded, app open); it defaults to non-personalized
+  until consent is applied and resets to that on `dispose`. `AppLovinAdapter`'s
+  implementation is a no-op (it forwards consent via static `AppLovinMAX` APIs).
+- `AdManager` calls `applyConsent` on the adapter at init, from `setConsent`,
+  and on any `ConsentManager` change (auto dialog / set / reset / privacy
+  screen), so personalization tracks consent across every path.
+- Tests: adapter-level npa propagation + AdManager wiring (integration) +
+  UI-driven consent (widget). Example app shows a live "personalized vs
+  non-personalized" indicator on the Consent page.
+
 ## [1.0.23] - 2026-06-15
 
 ### Changed — App Open ad never stacks on top of a modal

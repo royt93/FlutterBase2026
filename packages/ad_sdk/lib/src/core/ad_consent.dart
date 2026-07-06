@@ -13,10 +13,14 @@ import '../utils/safe_logger.dart';
 ///
 /// ### Compliance scope handled by SDK
 /// - **GDPR** (EEA): forwards `hasUserConsent` to AppLovin and AdMob `npa` extra.
-/// - **COPPA** (children): `tagForChildDirectedTreatment` (AdMob) +
-///   `setIsAgeRestrictedUser` (AppLovin).
-/// - **CCPA** (California): `setDoNotSell` (AppLovin) +
-///   `tagForUnderAgeOfConsent` (AdMob, age-13 proxy).
+/// - **COPPA** (children): `tagForChildDirectedTreatment` (AdMob). AppLovin 4.x
+///   has no equivalent API — see the runtime warning logged below when
+///   [AdConsent.isAgeRestrictedUser] is true (split-provider limitation).
+/// - **CCPA** (California, "do not sell"): `setDoNotSell` (AppLovin) + AdMob
+///   restricted-data-processing (RDP) via the per-request `AdRequest.extras`,
+///   applied in [AdMobAdapter]/[GmaBridge] — **not** `tagForUnderAgeOfConsent`,
+///   which is reserved for the unrelated EEA "under age of consent" (TFUA)
+///   signal and must never be derived from `doNotSell`.
 ///
 /// ### NOT handled by SDK (caller responsibility — see README)
 /// - UMP consent form (use the `umpsdk` Flutter package).
@@ -49,6 +53,12 @@ class AdConsent {
 
 /// Apply the consent flags to both provider SDKs (idempotent).
 ///
+/// **Personalization (npa)**: this function sets AdMob's *global*
+/// `RequestConfiguration` (COPPA/age tags) and AppLovin's static privacy flags.
+/// The AdMob per-request non-personalized flag (`AdRequest(nonPersonalizedAds:
+/// !hasUserConsent)`, i.e. `npa=1`) is applied separately by
+/// [AdMobAdapter.applyConsent], which [AdManager] calls alongside this function.
+///
 /// **Important**: AdMob's `updateRequestConfiguration` REPLACES the entire
 /// global config — it does not merge. Call sites must therefore include
 /// every field they care about, including `testDeviceIds`. Without this,
@@ -64,8 +74,19 @@ Future<void> applyConsentToProviders(
   try {
     AppLovinMAX.setHasUserConsent(c.hasUserConsent);
     AppLovinMAX.setDoNotSell(c.doNotSell);
-    // AppLovin 4.x removed `setIsAgeRestrictedUser` (use AdMob's
-    // tagForChildDirectedTreatment instead — already wired below).
+    // AppLovin 4.x removed `setIsAgeRestrictedUser` — there is no API to
+    // forward COPPA's child-directed signal to AppLovin. When the app is
+    // marked age-restricted, warn loudly so integrators know AppLovin ads
+    // may still be served without the COPPA flag (AdMob still receives it
+    // via tagForChildDirectedTreatment below).
+    if (c.isAgeRestrictedUser) {
+      SafeLogger.w(
+          tag,
+          'isAgeRestrictedUser=true but AppLovin MAX 4.x has no setIsAgeRestrictedUser API — '
+          'COPPA child-directed signal is NOT forwarded to AppLovin (AdMob still receives it '
+          'via tagForChildDirectedTreatment). If AppLovin serves ads to this user, verify '
+          'COPPA compliance through AppLovin dashboard-level child-directed app settings instead.');
+    }
     SafeLogger.d(tag, 'AppLovin privacy applied: $c');
   } catch (e) {
     SafeLogger.w(tag, 'AppLovin privacy apply failed: $e');
@@ -77,9 +98,15 @@ Future<void> applyConsentToProviders(
     final cfg = RequestConfiguration(
       // Preserve test-device registration across consent updates.
       testDeviceIds: testDeviceIds,
-      tagForChildDirectedTreatment:
-          c.isAgeRestrictedUser ? TagForChildDirectedTreatment.yes : TagForChildDirectedTreatment.no,
-      tagForUnderAgeOfConsent: c.doNotSell ? TagForUnderAgeOfConsent.yes : TagForUnderAgeOfConsent.no,
+      tagForChildDirectedTreatment: c.isAgeRestrictedUser
+          ? TagForChildDirectedTreatment.yes
+          : TagForChildDirectedTreatment.no,
+      // NOTE: `tagForUnderAgeOfConsent` (TFUA) models the EEA "under age of
+      // consent" concept — an axis this SDK does not currently expose a
+      // dedicated flag for. It must NOT be derived from `doNotSell` (CCPA):
+      // CCPA opt-out is handled per-request via RDP in AdMobAdapter/GmaBridge
+      // instead. Leaving this unset (default `unspecified`) avoids incorrectly
+      // flagging non-EEA CCPA opt-outs as EEA under-age-of-consent users.
     );
     await MobileAds.instance.updateRequestConfiguration(cfg);
     SafeLogger.d(tag,

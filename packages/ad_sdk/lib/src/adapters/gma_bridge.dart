@@ -45,20 +45,35 @@ abstract class GmaBridge {
 
   Future<void> loadAppOpen(
     String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   });
   Future<void> loadInterstitial(
     String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   });
   Future<void> loadRewarded(
     String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   });
 }
+
+/// CCPA restricted-data-processing signal, forwarded to AdMob per-request via
+/// `AdRequest.extras`. AdMob's `RequestConfiguration` has no dedicated RDP
+/// field — this `extras` key is Google's documented mechanism for opting a
+/// request into limited ads / restricted data processing under CCPA.
+const Map<String, String> _rdpExtras = {'rdp': '1'};
+
+Map<String, String>? _extrasFor(bool restrictedDataProcessing) =>
+    restrictedDataProcessing ? _rdpExtras : null;
 
 /// Production bridge — forwards to the real `google_mobile_ads` plugin.
 class RealGmaBridge implements GmaBridge {
@@ -79,12 +94,17 @@ class RealGmaBridge implements GmaBridge {
   @override
   Future<void> loadAppOpen(
     String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   }) {
     return AppOpenAd.load(
       adUnitId: adUnitId,
-      request: const AdRequest(),
+      request: AdRequest(
+        nonPersonalizedAds: nonPersonalizedAds,
+        extras: _extrasFor(restrictedDataProcessing),
+      ),
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (ad) => onLoaded(_AppOpenWrap(ad)),
         onAdFailedToLoad: (err) => onFailed(err.code, err.message),
@@ -95,12 +115,17 @@ class RealGmaBridge implements GmaBridge {
   @override
   Future<void> loadInterstitial(
     String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   }) {
     return InterstitialAd.load(
       adUnitId: adUnitId,
-      request: const AdRequest(),
+      request: AdRequest(
+        nonPersonalizedAds: nonPersonalizedAds,
+        extras: _extrasFor(restrictedDataProcessing),
+      ),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) => onLoaded(_InterstitialWrap(ad)),
         onAdFailedToLoad: (err) => onFailed(err.code, err.message),
@@ -111,12 +136,17 @@ class RealGmaBridge implements GmaBridge {
   @override
   Future<void> loadRewarded(
     String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   }) {
     return RewardedAd.load(
       adUnitId: adUnitId,
-      request: const AdRequest(),
+      request: AdRequest(
+        nonPersonalizedAds: nonPersonalizedAds,
+        extras: _extrasFor(restrictedDataProcessing),
+      ),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) => onLoaded(_RewardedWrap(ad)),
         onAdFailedToLoad: (err) => onFailed(err.code, err.message),
@@ -147,8 +177,7 @@ class _AppOpenWrap implements GmaFullscreenAd {
   }
 
   @override
-  void setPaidEventListener(
-      void Function(num, String, String) cb) {
+  void setPaidEventListener(void Function(num, String, String) cb) {
     _ad.onPaidEvent = (ad, micros, precision, currency) =>
         cb(micros, currency, precision.name);
   }

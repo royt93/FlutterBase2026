@@ -17,6 +17,59 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// AdMob-provider fake that counts banner loads, for the T12 rebuild test.
+class _BannerCountingAdapter implements AdProviderAdapter {
+  @override
+  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
+  @override
+  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
+  @override
+  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+
+  int loadBannerCalls = 0;
+
+  @override
+  final BannerListenables banner = BannerListenables(
+    isLoaded: ValueNotifier<bool>(false),
+    hasError: ValueNotifier<bool>(false),
+    adSize: ValueNotifier<Size?>(null),
+    autoRefreshEnabled: ValueNotifier<bool>(true),
+    visible: ValueNotifier<bool>(true),
+  );
+
+  @override
+  String get tag => 'counting';
+  @override
+  Future<void> loadBannerIfNeeded(double widthPx) async => loadBannerCalls++;
+  @override
+  Future<void> preloadBanner() async {}
+  // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
+  @override
+  Future<void> loadInterstitial() async {}
+  @override
+  Future<void> loadRewarded() async {}
+  @override
+  Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async {}
+  @override
+  Widget? buildAdmobBannerView() => null; // placeholder path, no native view
+  @override
+  void applyConsent(AdConsent consent) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+const _admobConfig = AdConfig(
+  provider: AdProvider.admob,
+  admob: AdMobConfig(
+    bannerId: 'ca-app-pub-3940256099942544/6300978111',
+    interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+    appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+    rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+  ),
+);
+
 void main() {
   Widget host(Widget child) => MaterialApp(
         navigatorObservers: [adRouteObserver],
@@ -60,7 +113,8 @@ void main() {
 
     // Push a route on top → BannerAdWidget receives didPushNext.
     navKey.currentState!.push(
-      MaterialPageRoute<void>(builder: (_) => const Scaffold(body: Text('top'))),
+      MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('top'))),
     );
     await tester.pumpAndSettle();
     expect(find.text('top'), findsOneWidget);
@@ -69,6 +123,67 @@ void main() {
     navKey.currentState!.pop();
     await tester.pumpAndSettle();
     expect(find.byType(BannerAdWidget), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  // T12 — repeated rebuilds must not stack banner loads. The _initScheduled
+  // guard + _allowed + cooldown together ensure a single load.
+  testWidgets('repeated rebuilds trigger exactly one banner load',
+      (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig; // isInitialised + AdMob provider
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    // Not pumpAndSettle: the placeholder shimmer animates forever.
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Force several rebuilds via initRevision bumps.
+    for (var i = 0; i < 5; i++) {
+      AdManager().initRevision.value = AdManager().initRevision.value + 1;
+      await tester.pump();
+    }
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.loadBannerCalls, 1,
+        reason: 'banner loads once despite repeated rebuilds');
+    expect(tester.takeException(), isNull);
+  });
+
+  // T09 — offline: banner stays collapsed (no load, no shimmer); on reconnect
+  // (T08 connectivity watch) it reloads automatically.
+  testWidgets('banner collapses offline and reloads on reconnect',
+      (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    AdManager().debugReconnectDebounce = Duration.zero;
+    AdManager().debugConnectivityChanged(false); // go offline
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugConnectivityChanged(true);
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 0, reason: 'offline → no banner load');
+
+    // Reconnect → connectivity watch (zero debounce) fires → refill + bump
+    // initRevision → rebuild → post-frame _initBanner → load.
+    AdManager().debugConnectivityChanged(true);
+    await tester.pump(const Duration(milliseconds: 10)); // debounce timer fires
+    await tester.pump(); // rebuild from initRevision bump
+    await tester.pump(); // post-frame _initBanner runs
+    expect(adapter.loadBannerCalls, 1, reason: 'reconnect → banner reloads');
     expect(tester.takeException(), isNull);
   });
 }

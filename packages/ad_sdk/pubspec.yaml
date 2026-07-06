@@ -29,6 +29,8 @@ dependencies:
   # (`android:dataExtractionRules` restoring `FlutterSharedPreferences.xml`
   # on Play Store reinstall) — no plugin dependency needed.
   flutter_secure_storage: ^10.0.0       # iOS Keychain flag (survives uninstall by default)
+  cryptography: ^2.9.0
+  confetti: ^0.7.0
 
 dev_dependencies:
   flutter_test:

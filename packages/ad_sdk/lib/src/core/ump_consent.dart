@@ -45,7 +45,7 @@ class UmpConsentResult {
 /// Opt-in UMP (User Messaging Platform) flow for AdMob compliance.
 ///
 /// This wraps Google's `ConsentInformation` + `ConsentForm` (built into
-/// `google_mobile_ads` 6.x — no extra dependency) into a single async call:
+/// `google_mobile_ads` ^7.0.0 — no extra dependency) into a single async call:
 ///
 /// ```dart
 /// final r = await AdManager().requestUmpConsent(
@@ -96,7 +96,8 @@ Future<UmpConsentResult> requestUmpConsentFlow({
   ConsentInformation.instance.requestConsentInfoUpdate(
     params,
     () => updateCompleter.complete(null),
-    (FormError err) => updateCompleter.complete('${err.errorCode}:${err.message}'),
+    (FormError err) =>
+        updateCompleter.complete('${err.errorCode}:${err.message}'),
   );
   final updateError = await updateCompleter.future;
   if (updateError != null) {
@@ -126,17 +127,16 @@ Future<UmpConsentResult> requestUmpConsentFlow({
       (ConsentForm form) {
         try {
           form.show((FormError? err) {
-            dismissCompleter.complete(err == null
-                ? null
-                : '${err.errorCode}:${err.message}');
+            dismissCompleter.complete(
+                err == null ? null : '${err.errorCode}:${err.message}');
           });
           formShown = true;
         } catch (e) {
           dismissCompleter.complete('show threw: $e');
         }
       },
-      (FormError err) => dismissCompleter.complete(
-          'load failed: ${err.errorCode}:${err.message}'),
+      (FormError err) => dismissCompleter
+          .complete('load failed: ${err.errorCode}:${err.message}'),
     );
     formError = await dismissCompleter.future;
     if (formError != null) {
@@ -148,13 +148,114 @@ Future<UmpConsentResult> requestUmpConsentFlow({
 
   final finalStatus = await ConsentInformation.instance.getConsentStatus();
   final canRequest = await ConsentInformation.instance.canRequestAds();
-  SafeLogger.d(tag,
-      () => '✅ done canRequestAds=$canRequest status=${finalStatus.name} formShown=$formShown');
+  SafeLogger.d(
+      tag,
+      () =>
+          '✅ done canRequestAds=$canRequest status=${finalStatus.name} formShown=$formShown');
 
   return UmpConsentResult(
     canRequestAds: canRequest,
     status: finalStatus,
     error: formError,
     formShown: formShown,
+  );
+}
+
+/// Result of [requestPrivacyOptionsFlow].
+class PrivacyOptionsResult {
+  const PrivacyOptionsResult({
+    required this.canRequestAds,
+    required this.status,
+    this.error,
+    this.formShown = false,
+  });
+
+  /// Whether ads can be requested after the privacy options interaction.
+  final bool canRequestAds;
+
+  /// Final consent status from Google's UMP after the interaction.
+  final ConsentStatus status;
+
+  /// Non-null if the form failed to load/show. Best-effort: [canRequestAds]
+  /// still reflects the last-known consent even when this is non-null.
+  final String? error;
+
+  /// True if the native privacy options form was actually presented (vs.
+  /// skipped because Google doesn't require it for this user).
+  final bool formShown;
+
+  bool get isObtained => status == ConsentStatus.obtained;
+
+  @override
+  String toString() => 'PrivacyOptionsResult(canRequestAds=$canRequestAds, '
+      'status=${status.name}, formShown=$formShown, error=$error)';
+}
+
+/// Whether Google requires this app to expose a durable "Privacy Options"
+/// entry point (e.g. a settings button) to the current user — true for
+/// EEA/UK users under UMP once initial consent has been gathered.
+///
+/// Host apps should call this after [requestUmpConsentFlow] to decide
+/// whether to render a persistent "Privacy Settings" control, per Google's
+/// UMP policy (a CMP must let users change their choice at any time).
+Future<bool> isPrivacyOptionsRequired() async {
+  final status =
+      await ConsentInformation.instance.getPrivacyOptionsRequirementStatus();
+  return status == PrivacyOptionsRequirementStatus.required;
+}
+
+/// Opens Google's native UMP "Privacy Options" form — the durable
+/// re-consent entry point Google requires apps to expose once initial
+/// consent has been gathered (EEA/UK users).
+///
+/// **Where to call**: from a host-provided "Privacy Settings" button, at
+/// any point after [AdManager.initialize] — never during app startup, since
+/// this is a *user-initiated* re-consent action, not part of the gating
+/// flow that must complete before the first ad request.
+///
+/// No-ops (returns immediately with the current status, `formShown=false`)
+/// if [isPrivacyOptionsRequired] would return `false` — i.e. this call is
+/// always safe even for non-EEA users or hosts that never gathered consent.
+Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
+  const tag = 'UmpConsent';
+
+  final requirement =
+      await ConsentInformation.instance.getPrivacyOptionsRequirementStatus();
+  if (requirement != PrivacyOptionsRequirementStatus.required) {
+    SafeLogger.d(
+        tag,
+        () =>
+            'privacy options: not required (status=${requirement.name}) — no-op');
+    final status = await ConsentInformation.instance.getConsentStatus();
+    final canRequest = await ConsentInformation.instance.canRequestAds();
+    return PrivacyOptionsResult(canRequestAds: canRequest, status: status);
+  }
+
+  final dismissCompleter = Completer<String?>();
+  try {
+    await ConsentForm.showPrivacyOptionsForm((FormError? err) {
+      dismissCompleter
+          .complete(err == null ? null : '${err.errorCode}:${err.message}');
+    });
+  } catch (e) {
+    dismissCompleter.complete('showPrivacyOptionsForm threw: $e');
+  }
+  final formError = await dismissCompleter.future;
+  if (formError != null) {
+    SafeLogger.w(tag, 'privacy options form: $formError');
+  }
+
+  final finalStatus = await ConsentInformation.instance.getConsentStatus();
+  final canRequest = await ConsentInformation.instance.canRequestAds();
+  SafeLogger.d(
+      tag,
+      () =>
+          '🔐 privacy options done canRequestAds=$canRequest status=${finalStatus.name}');
+
+  return PrivacyOptionsResult(
+    canRequestAds: canRequest,
+    status: finalStatus,
+    error: formError,
+    formShown: true,
   );
 }

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../config/ad_config.dart';
 import '../state/ad_event.dart';
 import '../state/ad_slot.dart';
+import 'ad_consent.dart';
 
 /// Result of a rewarded-ad show. Whether the user actually earned the reward
 /// (true) or skipped/closed early (false).
@@ -98,6 +99,17 @@ abstract class AdProviderAdapter {
   /// Must be safe to call before [initialize], or after a previous [dispose].
   Future<void> dispose();
 
+  /// Apply privacy/consent state that affects **per-request** ad
+  /// personalization. Called by [AdManager] whenever consent changes (init,
+  /// [AdManager.setConsent], or a consent-dialog result).
+  ///
+  /// AdMob maps `!consent.hasUserConsent` → non-personalized ad requests
+  /// (`AdRequest(nonPersonalizedAds: true)`, i.e. the `npa=1` extra) so a user
+  /// who declined consent is never served personalized ads. AppLovin already
+  /// forwards consent via static `AppLovinMAX` privacy APIs, so its
+  /// implementation is a no-op.
+  void applyConsent(AdConsent consent);
+
   // ─── App Open ──────────────────────────────────────────────────────────────
 
   Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded});
@@ -111,7 +123,8 @@ abstract class AdProviderAdapter {
   // ─── Rewarded ──────────────────────────────────────────────────────────────
 
   Future<void> loadRewarded();
-  Future<void> showRewarded({required void Function(RewardResult result) onDone});
+  Future<void> showRewarded(
+      {required void Function(RewardResult result) onDone});
 
   // ─── Banner ────────────────────────────────────────────────────────────────
 
