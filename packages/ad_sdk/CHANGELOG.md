@@ -6,6 +6,23 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — trial hardening: anti clock-rollback + grace-disabled footgun (T17)
+- `VipEntry.isActive`/`remaining` now also check `now.isBefore(grantedAt)` —
+  previously only `now.isBefore(expiresAt)` was checked, so rolling the
+  device clock backwards past a grant's `expiresAt` made an
+  already-expired-by-real-time entry "come back to life". A rolled-back
+  clock is now treated as the entry having already been consumed
+  (fail-safe), not as extra time granted. `VipManager`'s purge/active/
+  stacking logic needed no change — everything already routes through
+  `VipEntry.isActive`. Test: `test/vip_entry_test.dart` (`anti
+  clock-rollback (T17)` group).
+- `AdManager.releaseFootgunWarnings` now also warns (release builds only,
+  same log-ERROR + `assert(false, ...)` treatment) when
+  `AdConfig.firstInstallVipGrace` is `.disabled` — previously a partner
+  could silently ship with no ad-free first-install trial. Test:
+  `test/ad_manager_core_test.dart` (`firstInstallVipGrace` cases in the
+  `releaseFootgunWarnings` group).
+
 ### Added — ad-unit-id validation in release footguns (T16)
 - `AdManager.releaseFootgunWarnings` now also warns (release builds only,
   same log-ERROR + `assert(false, ...)` treatment as the existing dryRun/

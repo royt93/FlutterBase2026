@@ -93,5 +93,51 @@ void main() {
       expect(decoded.length, 1);
       expect(decoded.first.key, 'GOOD');
     });
+
+    // ── T17: anti clock-rollback ─────────────────────────────────────────
+    group('anti clock-rollback (T17)', () {
+      test(
+          'isActive false when grantedAt is in the future (clock rolled back '
+          'after grant)', () {
+        final e = VipEntry(
+          key: 'ROLLED_BACK',
+          // Still "unexpired" by wall-clock, but grantedAt in the future
+          // means the system clock was set backwards since the grant.
+          expiresAt: DateTime.now().add(const Duration(days: 1)),
+          grantedAt: DateTime.now().add(const Duration(days: 10)),
+        );
+        expect(e.isActive, isFalse);
+      });
+
+      test('remaining is Duration.zero when grantedAt is in the future', () {
+        final e = VipEntry(
+          key: 'ROLLED_BACK',
+          expiresAt: DateTime.now().add(const Duration(days: 1)),
+          grantedAt: DateTime.now().add(const Duration(days: 10)),
+        );
+        expect(e.remaining, Duration.zero);
+      });
+
+      test('isActive still true for a normal, non-rolled-back active entry',
+          () {
+        final e = VipEntry(
+          key: 'NORMAL',
+          expiresAt: DateTime.now().add(const Duration(days: 1)),
+          grantedAt: DateTime.now().subtract(const Duration(hours: 1)),
+        );
+        expect(e.isActive, isTrue);
+      });
+
+      test(
+          'isActive false for both expired AND rolled-back (still false, '
+          'not resurrected)', () {
+        final e = VipEntry(
+          key: 'EXPIRED_AND_ROLLED_BACK',
+          expiresAt: DateTime.now().subtract(const Duration(days: 1)),
+          grantedAt: DateTime.now().add(const Duration(days: 10)),
+        );
+        expect(e.isActive, isFalse);
+      });
+    });
   });
 }

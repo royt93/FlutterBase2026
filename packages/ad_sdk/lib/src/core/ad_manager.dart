@@ -123,6 +123,14 @@ class AdManager with WidgetsBindingObserver {
             'production unit IDs before shipping.');
       }
     }
+    // T17: a disabled first-install grace is a silent trial removal — warn
+    // loudly so a partner doesn't accidentally ship with no ad-free trial.
+    if (!config.firstInstallVipGrace.isEnabled) {
+      warnings.add('🚨 AdConfig.firstInstallVipGrace is disabled in a '
+          'RELEASE build — new installs get NO ad-free trial window. If '
+          'this is intentional, ignore; otherwise set it back to '
+          'FirstInstallVipGrace.auto (or .day).');
+    }
     warnings.addAll(_adUnitIdFootgunWarnings(config));
     return warnings;
   }

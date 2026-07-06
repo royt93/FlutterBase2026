@@ -19,10 +19,24 @@ class VipEntry {
   final DateTime expiresAt;
   final DateTime grantedAt;
 
-  bool get isActive => DateTime.now().isBefore(expiresAt);
+  /// True if this entry is currently valid.
+  ///
+  /// T17 anti clock-rollback: `grantedAt` is the immutable anchor. If the
+  /// wall clock now reads *before* `grantedAt`, the system clock was set
+  /// backwards after the grant — the naive `now.isBefore(expiresAt)` check
+  /// would let an expired-by-real-time entry "come back to life". Treat a
+  /// rolled-back clock as the entry having already been consumed rather
+  /// than granting extra time (fail-safe, not fail-open).
+  bool get isActive {
+    final now = DateTime.now();
+    if (now.isBefore(grantedAt)) return false;
+    return now.isBefore(expiresAt);
+  }
 
   Duration get remaining {
-    final d = expiresAt.difference(DateTime.now());
+    final now = DateTime.now();
+    if (now.isBefore(grantedAt)) return Duration.zero;
+    final d = expiresAt.difference(now);
     return d.isNegative ? Duration.zero : d;
   }
 

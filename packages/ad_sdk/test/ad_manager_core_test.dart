@@ -283,6 +283,45 @@ void main() {
       );
       expect(w, isEmpty);
     });
+
+    // ── T17: firstInstallVipGrace disabled footgun ──────────────────────────
+    test('release + firstInstallVipGrace.disabled → one warning', () {
+      final w = AdManager.releaseFootgunWarnings(
+        AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: const AppLovinConfig(
+            sdkKey: 'k',
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          firstInstallVipGrace: FirstInstallVipGrace.disabled,
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('firstInstallVipGrace'));
+    });
+
+    test('release + firstInstallVipGrace enabled (default) → no grace warning',
+        () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'k',
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          firstInstallVipGrace: FirstInstallVipGrace.day,
+        ),
+        isDebug: false,
+      );
+      expect(w, isEmpty);
+    });
   });
 
   group('VIP gating (via injected adapter + VipManager)', () {
