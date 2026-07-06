@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../consent/consent_dialog_strings.dart';
@@ -64,43 +66,170 @@ enum AdProvider {
   appLovin,
 }
 
+/// Resolves a per-platform ad-unit id override, falling back to the
+/// platform-agnostic id when no override applies. Exposed as a top-level
+/// function (rather than a class) so tests can drive `isAndroid`/`isIos`
+/// directly without mocking `dart:io`'s `Platform`.
+@visibleForTesting
+String resolvePlatformAdUnitId({
+  required String fallback,
+  required String? androidId,
+  required String? iosId,
+  required bool isAndroid,
+  required bool isIos,
+}) {
+  if (isAndroid && androidId != null && androidId.isNotEmpty) return androidId;
+  if (isIos && iosId != null && iosId.isNotEmpty) return iosId;
+  return fallback;
+}
+
 /// AppLovin MAX ad-unit IDs.
 class AppLovinConfig {
   const AppLovinConfig({
     required this.sdkKey,
-    required this.bannerId,
-    required this.interstitialId,
-    required this.appOpenId,
-    required this.rewardedId,
-  });
+    required String bannerId,
+    required String interstitialId,
+    required String appOpenId,
+    required String rewardedId,
+    this.androidBannerId,
+    this.iosBannerId,
+    this.androidInterstitialId,
+    this.iosInterstitialId,
+    this.androidAppOpenId,
+    this.iosAppOpenId,
+    this.androidRewardedId,
+    this.iosRewardedId,
+  })  : _bannerId = bannerId,
+        _interstitialId = interstitialId,
+        _appOpenId = appOpenId,
+        _rewardedId = rewardedId;
 
   /// AppLovin SDK key (86 chars, from `dash.applovin.com/o/account`).
   final String sdkKey;
 
-  final String bannerId;
-  final String interstitialId;
-  final String appOpenId;
-  final String rewardedId;
+  final String _bannerId;
+  final String _interstitialId;
+  final String _appOpenId;
+  final String _rewardedId;
+
+  /// Optional per-platform overrides. When unset (or empty), the
+  /// platform-agnostic id passed to the constructor is used for both
+  /// platforms — fully backward compatible.
+  final String? androidBannerId;
+  final String? iosBannerId;
+  final String? androidInterstitialId;
+  final String? iosInterstitialId;
+  final String? androidAppOpenId;
+  final String? iosAppOpenId;
+  final String? androidRewardedId;
+  final String? iosRewardedId;
+
+  String get bannerId => resolvePlatformAdUnitId(
+        fallback: _bannerId,
+        androidId: androidBannerId,
+        iosId: iosBannerId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  String get interstitialId => resolvePlatformAdUnitId(
+        fallback: _interstitialId,
+        androidId: androidInterstitialId,
+        iosId: iosInterstitialId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  String get appOpenId => resolvePlatformAdUnitId(
+        fallback: _appOpenId,
+        androidId: androidAppOpenId,
+        iosId: iosAppOpenId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  String get rewardedId => resolvePlatformAdUnitId(
+        fallback: _rewardedId,
+        androidId: androidRewardedId,
+        iosId: iosRewardedId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
 }
 
 /// AdMob ad-unit IDs.
 class AdMobConfig {
   const AdMobConfig({
-    required this.bannerId,
-    required this.interstitialId,
-    required this.appOpenId,
-    this.rewardedId = '',
+    required String bannerId,
+    required String interstitialId,
+    required String appOpenId,
+    String rewardedId = '',
     this.testDeviceIds = const [],
-  });
+    this.androidBannerId,
+    this.iosBannerId,
+    this.androidInterstitialId,
+    this.iosInterstitialId,
+    this.androidAppOpenId,
+    this.iosAppOpenId,
+    this.androidRewardedId,
+    this.iosRewardedId,
+  })  : _bannerId = bannerId,
+        _interstitialId = interstitialId,
+        _appOpenId = appOpenId,
+        _rewardedId = rewardedId;
 
-  final String bannerId;
-  final String interstitialId;
-  final String appOpenId;
-  final String rewardedId;
+  final String _bannerId;
+  final String _interstitialId;
+  final String _appOpenId;
+  final String _rewardedId;
 
   /// AdMob's hashed-GAID test-device list. Avoids accidental "real impression"
   /// counts during development.
   final List<String> testDeviceIds;
+
+  /// Optional per-platform overrides. When unset (or empty), the
+  /// platform-agnostic id passed to the constructor is used for both
+  /// platforms — fully backward compatible.
+  final String? androidBannerId;
+  final String? iosBannerId;
+  final String? androidInterstitialId;
+  final String? iosInterstitialId;
+  final String? androidAppOpenId;
+  final String? iosAppOpenId;
+  final String? androidRewardedId;
+  final String? iosRewardedId;
+
+  String get bannerId => resolvePlatformAdUnitId(
+        fallback: _bannerId,
+        androidId: androidBannerId,
+        iosId: iosBannerId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  String get interstitialId => resolvePlatformAdUnitId(
+        fallback: _interstitialId,
+        androidId: androidInterstitialId,
+        iosId: iosInterstitialId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  String get appOpenId => resolvePlatformAdUnitId(
+        fallback: _appOpenId,
+        androidId: androidAppOpenId,
+        iosId: iosAppOpenId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  String get rewardedId => resolvePlatformAdUnitId(
+        fallback: _rewardedId,
+        androidId: androidRewardedId,
+        iosId: iosRewardedId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
 }
 
 /// Master configuration. Pass to [AdManager.initialize] before `runApp`.

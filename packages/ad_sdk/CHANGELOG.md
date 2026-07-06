@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — per-platform ad-unit ids (T15)
+- `AdMobConfig`/`AppLovinConfig` gained optional `android*Id`/`ios*Id`
+  overrides for `bannerId`/`interstitialId`/`appOpenId`/`rewardedId` (e.g.
+  `androidBannerId`, `iosBannerId`). Resolved via `Platform.isAndroid`/
+  `Platform.isIOS` at read time, falling back to the existing single id when
+  no override is set — fully backward compatible. Test:
+  `test/ad_config_platform_test.dart`.
+
 ### Added — Privacy Options entry point + re-consent (T06)
 - `AdManager().isPrivacyOptionsRequired()` and `AdManager().showPrivacyOptions()`
   (wrapping `ConsentInformation.getPrivacyOptionsRequirementStatus` +

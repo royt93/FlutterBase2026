@@ -91,6 +91,10 @@ class DemoConfig {
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+        // Optional per-platform overrides (T15) — omit to use the same id
+        // on both platforms, as above:
+        // androidBannerId: 'ca-app-pub-.../android-banner',
+        // iosBannerId: 'ca-app-pub-.../ios-banner',
       ),
       appLovin: const AppLovinConfig(
         sdkKey: _kAppLovinSdkKey,

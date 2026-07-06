@@ -342,6 +342,29 @@ class _SplashScreenState extends State<SplashScreen> {
         },
       );
     });
+```
+
+#### Per-platform ad-unit ids (T15)
+
+`bannerId`/`interstitialId`/`appOpenId`/`rewardedId` are used on **both**
+platforms by default — pass one id and it applies everywhere (fully backward
+compatible). If Android and iOS have different ad units, add the optional
+`android*Id`/`ios*Id` overrides; the SDK picks the right one via
+`Platform.isAndroid`/`Platform.isIOS` when the getter is read:
+
+```dart
+admob: const AdMobConfig(
+  bannerId: 'ca-app-pub-.../fallback-banner', // used if no override matches
+  interstitialId: 'ca-app-pub-.../fallback-interstitial',
+  appOpenId: 'ca-app-pub-.../fallback-app-open',
+  rewardedId: 'ca-app-pub-.../fallback-rewarded',
+  androidBannerId: 'ca-app-pub-.../android-banner',
+  iosBannerId: 'ca-app-pub-.../ios-banner',
+),
+```
+
+Same fields exist on `AppLovinConfig`. An override left `null` or `''` falls
+back to the single id above — no breaking changes for existing configs.
   }
 
   void _showSplashAppOpen() {
