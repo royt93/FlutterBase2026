@@ -41,7 +41,8 @@ void main() {
     await mgr.addVip(key: 'KEY_30D', duration: const Duration(days: 30));
 
     expect(mgr.isActive, isTrue);
-    expect(transitions, [true], reason: 'notifier fires exactly once false→true');
+    expect(transitions, [true],
+        reason: 'notifier fires exactly once false→true');
     addTearDown(() => mgr.dispose());
   });
 
@@ -64,7 +65,8 @@ void main() {
 
     await mgr.addVip(key: 'DUP', duration: const Duration(hours: 1));
     await mgr.addVip(key: 'DUP', duration: const Duration(hours: 5)); // later
-    await mgr.addVip(key: 'DUP', duration: const Duration(minutes: 10)); // earlier
+    await mgr.addVip(
+        key: 'DUP', duration: const Duration(minutes: 10)); // earlier
 
     // Reload to inspect what actually persisted.
     final reader = VipManager(prefs);
@@ -116,5 +118,70 @@ void main() {
     final reader = VipManager(prefs);
     await reader.load();
     expect(reader.isActive, isFalse, reason: 'revokeAll must persist the wipe');
+  });
+
+  test(
+      'mid-session expiry timer flips isActive to false without a reload '
+      '(covers _scheduleNextExpiry/_handleExpiry)', () async {
+    // NOTE: real (not fakeAsync) delay — VipManager/VipEntry read wall-clock
+    // DateTime.now() directly (no injected clock), so fakeAsync's virtual
+    // clock would advance the Timer callback instantly while DateTime.now()
+    // stays real, and the entry would not actually look expired yet.
+    final mgr = VipManager(prefs);
+    await mgr.load();
+    await mgr.addVip(key: 'SOON', duration: const Duration(milliseconds: 200));
+    expect(mgr.isActive, isTrue);
+
+    final transitions = <bool>[];
+    mgr.activeListenable.addListener(() => transitions.add(mgr.isActive));
+
+    // Wait past the entry's expiry without calling load()/addVip()/
+    // revokeVip() again — only the internal Timer should flip state.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    expect(mgr.isActive, isFalse,
+        reason: 'the one-shot expiry Timer must purge + refresh on its own');
+    expect(transitions, [false],
+        reason: 'notifier fires exactly once true→false on timer expiry');
+
+    mgr.dispose();
+  });
+
+  test('legacy 1.x GAID migration: matches vs. non-matches, then never rescans',
+      () async {
+    // Simulate the pre-2.x on-disk shape: a flat list of VIP-eligible GAIDs,
+    // no 2.x entries yet, migration flag unset.
+    await prefs.saveGAIDList(['device-a-gaid', 'device-b-gaid']);
+
+    // This device's GAID is NOT in the legacy list — must not be promoted,
+    // even though the legacy list itself contains other devices' GAIDs.
+    final theirs = VipManager(prefs);
+    await theirs.load(currentDeviceGaid: 'device-c-not-in-list');
+    expect(theirs.isActive, isFalse,
+        reason: 'non-matching GAID must not be migrated to an entry');
+    expect(prefs.isVipMigrated(), isTrue,
+        reason: 'migration flag is set even when nothing matched');
+
+    // A second load() must be a no-op rescan-wise (isVipMigrated()==true
+    // skip path) — reloading with a NOW-matching GAID must still not
+    // retroactively promote, because migration only ever runs once.
+    final again = VipManager(prefs);
+    await again.load(currentDeviceGaid: 'device-a-gaid');
+    expect(again.isActive, isFalse,
+        reason: 'migration flag already set — load() must not rescan');
+
+    // Reset to a genuinely fresh (unmigrated) store to exercise the
+    // matching-GAID branch itself: promotion to a far-future LEGACY_ entry.
+    await prefs.clearAllData();
+    await prefs.saveGAIDList(['device-a-gaid', 'device-b-gaid']);
+    final mine = VipManager(prefs);
+    await mine.load(currentDeviceGaid: 'device-a-gaid');
+
+    expect(mine.isActive, isTrue,
+        reason: 'this device\'s GAID was in the legacy list');
+    expect(prefs.isVipMigrated(), isTrue);
+    expect(mine.entries.single.key, 'LEGACY_DEVICE-A-GAID');
+    expect(mine.entries.single.expiresAt.year, 2099,
+        reason: 'legacy migration grants an effectively-permanent entry');
   });
 }
