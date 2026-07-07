@@ -27,7 +27,10 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
   - **0 crash, 0 `E/flutter`.**
 - **306/306 test SDK xanh**, `flutter analyze` sạch (SDK + host).
 - ⚠️ Host `pubspec.yaml` đang **flip path override** sang SDK local — nhớ flip lại trước release.
-- **Điểm hiện tại: 8.5/10** — thiếu: (0.5đ) T14/T19/T20 còn ở todo/ (đều P2); (1đ) chưa re-audit `doc/audit/audit_claude.md` sau đợt fix T07/T15/T16/T17; (~0.5đ) chưa smoke-test lại trên SM_A507FN kể từ khi thêm T07.
+- **Điểm hiện tại: 9.5/10** — T14/T19/T20 đã done. Re-audit `doc/audit/audit_claude.md` hoàn tất 2026-07-07 (đọc trực tiếp code hiện tại, không chỉ tin doc): tất cả P0/P1 finding (T01–T18) đều **PASS** khi đối chiếu code, trừ 2 điểm cần lưu ý (không phải bug mới, không cần task mới ngay):
+  - **T06** — SDK expose `AdManager().showPrivacyOptions()` + `isPrivacyOptionsRequired()` đúng như acceptance criteria, README có mục MUST. Nhưng **host app hiện tại chưa wire nút** gọi 2 API này ở đâu cả (`vip_screen.dart` chỉ có link mở Privacy Policy tĩnh, không phải UMP re-consent form) — nếu cần entry point thật cho user trước khi submit store, nên mở task nhỏ để thêm 1 nút trong Settings/VIP screen.
+  - **T18** — Ed25519 signed key chặn được **forge key mới** (decompile không lấy được private key) và one-time-use **per-device** (redeemed-kid store local) hoạt động đúng. Nhưng one-time-use **toàn cục** vẫn chưa có (đã ghi rõ trong chính task doc T18 "Giới hạn đã biết" — quyết định có chủ đích vì "user xác nhận không có backend"): 1 key hợp lệ bị lộ/share vẫn redeem được trên nhiều máy khác nhau. Chấp nhận được cho scope hiện tại, nhưng là rủi ro kinh doanh cần nhớ nếu key bị leak công khai.
+  - (~0.5đ còn thiếu) chưa smoke-test lại trên SM_A507FN kể từ khi thêm T07 — nằm ngoài phạm vi audit code tĩnh của lượt re-audit này.
 
 ## Legend
 - **Priority:** `P0` = chặn phát hành · `P1` = ngay sau · `P2` = cải thiện
