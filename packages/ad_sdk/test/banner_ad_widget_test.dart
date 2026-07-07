@@ -214,6 +214,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // T23 (leak-audit round) — rapid push/pop/push/pop/push/pop of a banner
+  // screen within a single frame budget (no pumpAndSettle between steps,
+  // unlike the T14 test above). Guards against a duplicate banner load or an
+  // orphaned RouteAware subscription piling up when navigation outruns the
+  // post-frame callback that schedules _initBanner.
+  testWidgets('rapid push/pop x3 does not stack banner loads or leak routes',
+      (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final navKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navKey,
+      navigatorObservers: [adRouteObserver],
+      home: const Scaffold(body: BannerAdWidget()),
+    ));
+    await tester.pump(const Duration(milliseconds: 50)); // initial load settles
+
+    for (var i = 0; i < 3; i++) {
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: BannerAdWidget())),
+      );
+      await tester
+          .pump(); // no settle — next push/pop fires before shimmer/animations finish
+      navKey.currentState!.pop();
+      await tester.pump();
+    }
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(tester.takeException(), isNull,
+        reason:
+            'no crash from stale RouteAware subscription or double dispose');
+    // Base-route banner reloads at most once per pop-back (cooldown-gated);
+    // it must never exceed a small bound — a leak would make this grow
+    // unbounded with iteration count.
+    expect(adapter.loadBannerCalls, lessThanOrEqualTo(4),
+        reason:
+            'repeated rapid push/pop must not stack duplicate banner loads');
+  });
+
   // T09 — offline: banner stays collapsed (no load, no shimmer); on reconnect
   // (T08 connectivity watch) it reloads automatically.
   testWidgets('banner collapses offline and reloads on reconnect',
