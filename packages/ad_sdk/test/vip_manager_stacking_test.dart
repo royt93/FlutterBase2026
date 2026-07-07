@@ -97,7 +97,8 @@ void main() {
     final plain = VipManager(prefs);
     await plain.load();
     await plain.addVip(key: 'A', duration: const Duration(hours: 1));
-    await plain.addVip(key: 'A', duration: const Duration(hours: 1)); // no stack
+    await plain.addVip(
+        key: 'A', duration: const Duration(hours: 1)); // no stack
     final plainMin = remainingMinutes(plain);
     plain.dispose();
 
@@ -170,30 +171,72 @@ void main() {
     final transitions = <bool>[];
     mgr.activeListenable.addListener(() => transitions.add(mgr.isActive));
 
-    await mgr.addVip(
-        key: 'N', duration: const Duration(hours: 1), stack: true);
-    await mgr.addVip(
-        key: 'N', duration: const Duration(hours: 1), stack: true);
+    await mgr.addVip(key: 'N', duration: const Duration(hours: 1), stack: true);
+    await mgr.addVip(key: 'N', duration: const Duration(hours: 1), stack: true);
 
     expect(mgr.isActive, isTrue);
     // false→true exactly once; the second stack does not re-toggle.
     expect(transitions, [true]);
   });
 
-  test('GLOBAL stacking: a different key extends from the latest expiry across '
+  test(
+      'GLOBAL stacking: a different key extends from the latest expiry across '
       'all entries', () async {
     final mgr = VipManager(prefs);
     await mgr.load();
     addTearDown(mgr.dispose);
 
     // Window from source A (e.g. watch-ad), then a DIFFERENT key (e.g. a code).
-    await mgr.addVip(key: 'WATCH', duration: const Duration(days: 6), stack: true);
-    await mgr.addVip(key: 'CODE30', duration: const Duration(days: 30), stack: true);
+    await mgr.addVip(
+        key: 'WATCH', duration: const Duration(days: 6), stack: true);
+    await mgr.addVip(
+        key: 'CODE30', duration: const Duration(days: 30), stack: true);
 
     final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
     expect(remainingDays, inInclusiveRange(35, 36),
         reason: '6d + 30d across different keys must total ~36d');
-    expect(mgr.entries.length, 2, reason: 'both grants kept as separate entries');
+    expect(mgr.entries.length, 2,
+        reason: 'both grants kept as separate entries');
+  });
+
+  test(
+      'trial + redeem: redeeming a paid code while the first-install trial '
+      'is still active ADDS onto it rather than overwriting/shortening it',
+      () async {
+    final mgr = VipManager(prefs);
+    await mgr.load();
+    addTearDown(mgr.dispose);
+
+    // Mirrors AdManager's first-install grant: fixed key (matches
+    // AdConfig.firstInstallVipKey's default of '__FIRST_INSTALL__').
+    const trialKey = '__FIRST_INSTALL__';
+    await mgr.addVip(
+      key: trialKey,
+      duration: const Duration(days: 1),
+      stack: true,
+    );
+    final trialOnly = mgr.expiresAt!;
+
+    // User redeems a signed/paid code under a DIFFERENT key while the
+    // trial entry is still active (mirrors redeemSignedKey's stack: true).
+    await mgr.addVip(
+      key: 'SIGNED_ABC123',
+      duration: const Duration(days: 30),
+      stack: true,
+    );
+
+    // The trial entry must still exist, untouched, alongside the new one —
+    // not replaced or shortened.
+    final trialEntry = mgr.entries.singleWhere((e) => e.key == trialKey);
+    expect(trialEntry.expiresAt, trialOnly,
+        reason: 'trial entry itself must be untouched by the redeem');
+    expect(mgr.entries.length, 2,
+        reason: 'trial and redeemed code remain distinguishable entries');
+
+    // Total window must be the SUM (trial + redeemed), not a replacement.
+    final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
+    expect(remainingDays, inInclusiveRange(30, 31),
+        reason: '1d trial + 30d redeemed code must total ~31d, not just 30d');
   });
 
   test('GLOBAL stacking is order-independent (code first, then watch-ad)',
@@ -202,14 +245,17 @@ void main() {
     await mgr.load();
     addTearDown(mgr.dispose);
 
-    await mgr.addVip(key: 'CODE30', duration: const Duration(days: 30), stack: true);
-    await mgr.addVip(key: 'WATCH', duration: const Duration(days: 3), stack: true);
+    await mgr.addVip(
+        key: 'CODE30', duration: const Duration(days: 30), stack: true);
+    await mgr.addVip(
+        key: 'WATCH', duration: const Duration(days: 3), stack: true);
 
     final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
     expect(remainingDays, inInclusiveRange(32, 33), reason: '30d + 3d = ~33d');
   });
 
-  test('GLOBAL stacking across different keys still respects the cap', () async {
+  test('GLOBAL stacking across different keys still respects the cap',
+      () async {
     final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 30));
     await mgr.load();
     addTearDown(mgr.dispose);
@@ -219,7 +265,8 @@ void main() {
     await mgr.addVip(key: 'B', duration: const Duration(days: 20), stack: true);
 
     final remainingDays = mgr.expiresAt!.difference(DateTime.now()).inDays;
-    expect(remainingDays, inInclusiveRange(29, 30), reason: 'total clamped to 30d');
+    expect(remainingDays, inInclusiveRange(29, 30),
+        reason: 'total clamped to 30d');
   });
 
   test('stacking is clamped to maxStackDuration when the cap is set', () async {

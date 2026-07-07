@@ -150,6 +150,57 @@ void main() {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // Reinstall-evasion: durable Keychain marker survives an app-data /
+  // SharedPreferences clear (AdPreferences is a separate store from the
+  // guard's flutter_secure_storage-backed flag). Mirrors the AdManager
+  // conditional: `graceCfg.isEnabled && !prefs.isFirstInstallGraceApplied()`
+  // gates entry, then `guard.hasAlreadyGranted()` decides grant-vs-skip.
+  // ────────────────────────────────────────────────────────────────────────
+  group('reinstall-evasion — durable marker outlives prefs clear (iOS)', () {
+    test(
+        'Keychain flag still reports granted after SharedPreferences-style '
+        'clear, so a "reinstall" on the same device is correctly skipped',
+        () async {
+      final storage = _MockSecureStorage();
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => 'true');
+
+      // First "install": prefs flag is unset (fresh SharedPreferences), but
+      // the Keychain already carries a prior grant (simulating uninstall +
+      // reinstall where only the OS keychain survived).
+      var prefsFirstInstallApplied = false;
+      final guard = buildGuard(secureStorage: storage, isIos: true);
+
+      final alreadyGranted = await guard.hasAlreadyGranted();
+      expect(alreadyGranted, isTrue,
+          reason: 'Keychain flag must be visible even though the '
+              'SharedPreferences-backed prefs flag was reset to false');
+
+      // Mirrors AdManager: when the guard says "already granted", we mark
+      // the prefs flag applied WITHOUT calling vip.addVip — no second grant.
+      if (alreadyGranted) {
+        prefsFirstInstallApplied = true;
+      }
+      expect(prefsFirstInstallApplied, isTrue);
+      // The grant path (addVip) must never have needed to run — verified by
+      // the fact this test never calls it. hasAlreadyGranted() alone must be
+      // enough to short-circuit before any grant occurs.
+    });
+
+    test(
+        'no Keychain flag (genuine first install) → guard allows grace so a '
+        'real new user is never denied their trial', () async {
+      final storage = _MockSecureStorage();
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => null);
+
+      final guard = buildGuard(secureStorage: storage, isIos: true);
+      expect(await guard.hasAlreadyGranted(), isFalse,
+          reason: 'genuine first install must not be blocked');
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // markGranted — write semantics
   // ────────────────────────────────────────────────────────────────────────
   group('markGranted', () {
@@ -195,8 +246,7 @@ void main() {
           )).called(1);
     });
 
-    test('swallows exceptions on Keychain write failure (fail-open)',
-        () async {
+    test('swallows exceptions on Keychain write failure (fail-open)', () async {
       final storage = _MockSecureStorage();
       when(() => storage.write(
             key: any(named: 'key'),
