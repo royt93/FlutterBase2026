@@ -98,6 +98,40 @@ void main() {
         throwsA(isA<VipKeyException>()),
       );
     });
+
+    test('rejects negative duration', () async {
+      final code = await _mint(keyPair, seconds: -1, kid: 'neg');
+      expect(
+        () => verifySignedVipKey(code, publicKeyBase64: pub),
+        throwsA(isA<VipKeyException>()),
+      );
+    });
+
+    test('rejects duration above the ~100-year cap', () async {
+      // _maxSeconds = 100 * 365 * 24 * 60 * 60. One second past it must reject
+      // — guards against a corrupt/absurd key minting a 10 000-year VIP grant.
+      const overCap = 100 * 365 * 24 * 60 * 60 + 1;
+      final code = await _mint(keyPair, seconds: overCap, kid: 'toolong');
+      expect(
+        () => verifySignedVipKey(code, publicKeyBase64: pub),
+        throwsA(isA<VipKeyException>()),
+      );
+    });
+
+    test('accepts duration exactly at the ~100-year cap', () async {
+      const atCap = 100 * 365 * 24 * 60 * 60;
+      final code = await _mint(keyPair, seconds: atCap, kid: 'atcap');
+      final r = await verifySignedVipKey(code, publicKeyBase64: pub);
+      expect(r.duration, const Duration(seconds: atCap));
+    });
+
+    test('rejects empty key id', () async {
+      final code = await _mint(keyPair, seconds: 3600, kid: '');
+      expect(
+        () => verifySignedVipKey(code, publicKeyBase64: pub),
+        throwsA(isA<VipKeyException>()),
+      );
+    });
   });
 
   group('VipManager.redeemSignedKey', () {
