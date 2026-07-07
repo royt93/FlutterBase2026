@@ -30,8 +30,7 @@ abstract class GmaFullscreenAd {
   Future<void> show(GmaShowCallbacks callbacks);
 
   /// Wires the paid-event (revenue) listener.
-  void setPaidEventListener(
-      void Function(num valueMicros, String currencyCode, String precision) cb);
+  void setPaidEventListener(void Function(num valueMicros, String currencyCode, String precision) cb);
 
   void dispose();
 }
@@ -41,6 +40,7 @@ abstract class GmaFullscreenAd {
 /// tests inject a fake that hands back a fake [GmaFullscreenAd].
 abstract class GmaBridge {
   Future<void> initialize();
+
   Future<void> updateRequestConfiguration(List<String> testDeviceIds);
 
   Future<void> loadAppOpen(
@@ -50,6 +50,7 @@ abstract class GmaBridge {
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   });
+
   Future<void> loadInterstitial(
     String adUnitId, {
     required bool nonPersonalizedAds,
@@ -57,6 +58,7 @@ abstract class GmaBridge {
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   });
+
   Future<void> loadRewarded(
     String adUnitId, {
     required bool nonPersonalizedAds,
@@ -72,8 +74,7 @@ abstract class GmaBridge {
 /// request into limited ads / restricted data processing under CCPA.
 const Map<String, String> _rdpExtras = {'rdp': '1'};
 
-Map<String, String>? _extrasFor(bool restrictedDataProcessing) =>
-    restrictedDataProcessing ? _rdpExtras : null;
+Map<String, String>? _extrasFor(bool restrictedDataProcessing) => restrictedDataProcessing ? _rdpExtras : null;
 
 /// Production bridge — forwards to the real `google_mobile_ads` plugin.
 class RealGmaBridge implements GmaBridge {
@@ -159,8 +160,7 @@ FullScreenContentCallback<T> _content<T extends Ad>(GmaShowCallbacks cb) {
   return FullScreenContentCallback<T>(
     onAdShowedFullScreenContent: (_) => cb.onShowed?.call(),
     onAdDismissedFullScreenContent: (_) => cb.onDismissed?.call(),
-    onAdFailedToShowFullScreenContent: (_, err) =>
-        cb.onFailedToShow?.call(err.message),
+    onAdFailedToShowFullScreenContent: (_, err) => cb.onFailedToShow?.call(err.message),
     onAdClicked: (_) => cb.onClicked?.call(),
     onAdImpression: (_) => cb.onImpression?.call(),
   );
@@ -168,6 +168,7 @@ FullScreenContentCallback<T> _content<T extends Ad>(GmaShowCallbacks cb) {
 
 class _AppOpenWrap implements GmaFullscreenAd {
   _AppOpenWrap(this._ad);
+
   final AppOpenAd _ad;
 
   @override
@@ -178,8 +179,7 @@ class _AppOpenWrap implements GmaFullscreenAd {
 
   @override
   void setPaidEventListener(void Function(num, String, String) cb) {
-    _ad.onPaidEvent = (ad, micros, precision, currency) =>
-        cb(micros, currency, precision.name);
+    _ad.onPaidEvent = (ad, micros, precision, currency) => cb(micros, currency, precision.name);
   }
 
   @override
@@ -191,6 +191,7 @@ class _AppOpenWrap implements GmaFullscreenAd {
 
 class _InterstitialWrap implements GmaFullscreenAd {
   _InterstitialWrap(this._ad);
+
   final InterstitialAd _ad;
 
   @override
@@ -201,8 +202,7 @@ class _InterstitialWrap implements GmaFullscreenAd {
 
   @override
   void setPaidEventListener(void Function(num, String, String) cb) {
-    _ad.onPaidEvent = (ad, micros, precision, currency) =>
-        cb(micros, currency, precision.name);
+    _ad.onPaidEvent = (ad, micros, precision, currency) => cb(micros, currency, precision.name);
   }
 
   @override
@@ -214,21 +214,20 @@ class _InterstitialWrap implements GmaFullscreenAd {
 
 class _RewardedWrap implements GmaFullscreenAd {
   _RewardedWrap(this._ad);
+
   final RewardedAd _ad;
 
   @override
   Future<void> show(GmaShowCallbacks callbacks) {
     _ad.fullScreenContentCallback = _content<RewardedAd>(callbacks);
     return _ad.show(
-      onUserEarnedReward: (ad, reward) =>
-          callbacks.onUserEarnedReward?.call(reward.amount, reward.type),
+      onUserEarnedReward: (ad, reward) => callbacks.onUserEarnedReward?.call(reward.amount, reward.type),
     );
   }
 
   @override
   void setPaidEventListener(void Function(num, String, String) cb) {
-    _ad.onPaidEvent = (ad, micros, precision, currency) =>
-        cb(micros, currency, precision.name);
+    _ad.onPaidEvent = (ad, micros, precision, currency) => cb(micros, currency, precision.name);
   }
 
   @override
