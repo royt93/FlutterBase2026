@@ -25,7 +25,7 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
   - AdMob (example app): `🔐 UMP gate → canRequestAds=true`, `applyConsent → nonPersonalizedAds=true`, `📶 connectivity watch started`, VIP grace → expire → AdMob appOpen/inter/rewarded **loaded ✅**.
   - AppLovin (host FastNet): `AppLovin CMP flow disabled (UMP is CMP)`, gate hoạt động, provider=appLovin.
   - **0 crash, 0 `E/flutter`.**
-- **306/306 test SDK xanh**, `flutter analyze` sạch (SDK + host).
+- **321/321 test SDK xanh** (+76 host), `flutter analyze` sạch (SDK + host). (2026-07-07, vòng audit round 3)
 - ⚠️ Host `pubspec.yaml` đang **flip path override** sang SDK local — nhớ flip lại trước release.
 - **Điểm hiện tại: 10/10** (xem chi tiết smoke-test bên dưới). T14/T19/T20 đã done. Re-audit `doc/audit/audit_claude.md` hoàn tất 2026-07-07 (đọc trực tiếp code hiện tại, không chỉ tin doc): tất cả P0/P1 finding (T01–T18) đều **PASS** khi đối chiếu code, trừ 2 điểm cần lưu ý (không phải bug mới, không cần task mới ngay):
   - **T06** — SDK expose `AdManager().showPrivacyOptions()` + `isPrivacyOptionsRequired()` đúng như acceptance criteria, README có mục MUST. Nhưng **host app hiện tại chưa wire nút** gọi 2 API này ở đâu cả (`vip_screen.dart` chỉ có link mở Privacy Policy tĩnh, không phải UMP re-consent form) — nếu cần entry point thật cho user trước khi submit store, nên mở task nhỏ để thêm 1 nút trong Settings/VIP screen.
