@@ -154,6 +154,22 @@ void main() {
     });
   });
 
+  // T10 — isConnected falls back to the last-known state (not a blind
+  // optimistic `true`) when the native detector is unavailable/throws, which
+  // is exactly what happens in this plugin-less test environment.
+  group('isConnected fallback (T10)', () {
+    test('reflects last-known state seen via the connectivity watch', () async {
+      AdManager().debugConnectivityChanged(true);
+      expect(AdManager().isConnected, isTrue);
+
+      AdManager().debugConnectivityChanged(false);
+      expect(AdManager().isConnected, isFalse);
+
+      AdManager().debugConnectivityChanged(true);
+      expect(AdManager().isConnected, isTrue);
+    });
+  });
+
   group('widget: banner reacts to reconnect via initRevision', () {
     testWidgets('a widget listening to initRevision rebuilds on reconnect',
         (tester) async {
