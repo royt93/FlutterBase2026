@@ -466,7 +466,67 @@ Policy:
 > success-vs-loss pie (Wave 5) · localization completeness audit (i18n 184/184
 > parity verified 2026-06-16).
 
+#### New ideas (2026-07-07 differentiation pass)
+- **Walk-test room-tagging mode.** Quick-succession tests (e.g. 5s each) with a
+  lightweight room/location label prompt between runs, then a bar-chart summary
+  ("Living room: 180 Mbps avg · Bedroom: 22 Mbps avg — 88% drop") so users can
+  pinpoint dead zones without leaving the app. Differentiating because it's a
+  *diagnostic workflow* generic speed-test apps don't offer — they test once and
+  stop; a stress tester already has the rapid-fire test loop this needs. Needs
+  one new nullable `roomTag` field on `TestResult`/Hive adapter (next free index
+  17) + a small tag-picker sheet reusing the existing history list UI. Effort: M
+  (~1 day) — no new native code, no new screen architecture, just a tag field +
+  a grouped-bar aggregation view.
+- **ISP-dispute evidence export.** A dedicated PDF report mode (reusing the
+  existing `pdf`-based export pipeline from Wave 2) that aggregates N historical
+  tests over a date range against the user's stated ISP-advertised plan speed,
+  computing "% of tests below promised speed," worst/median/best, and a
+  timestamped table — framed explicitly as evidence to hand to an ISP or
+  regulator, not just a personal chart. Differentiating because "prove my ISP
+  is underdelivering over time" is a use case a stress tester's persistent
+  history uniquely supports and no bundled speed-test app frames this way.
+  Effort: S–M (~4-6h) — reuses `generatePdf`/history storage, just needs a new
+  report template + one plan-speed input field.
+- **Sustained-load thermal/throttle detector.** During long-duration stress
+  runs (5m+ preset already exists), poll Android's
+  `PowerManager.getCurrentThermalStatus()` (API 29+, currently never wired to
+  the `com.saigonphantomlabs.base/wifi` channel) alongside speed samples, and
+  flag "throughput dropped after N minutes — possible router or phone thermal
+  throttling" instead of just showing a falling line on the chart. This is
+  something *only* a sustained stress tester can detect — a 10s speed test
+  never runs long enough to trigger throttling, so this is structurally
+  impossible for competing speed-test apps to offer. Effort: M (~1 day) — one
+  new native method (mirrors the existing `getRssi`/`getWifiInfo` pattern) +
+  a periodic sample alongside the existing latency probe Timer; iOS has no
+  public thermal API, so gate this Android-only like signal dBm already is.
+
 ### 📣 Ad / SDK
 - In-app debug entry to launch AppLovin/AdMob ad inspectors.
 - Ad health screen: SDK init state, loaded slots, consent state, VIP state, last
   load error.
+
+#### New ideas (2026-07-07 differentiation pass)
+- **Shadow eCPM comparison between AdMob and AppLovin.** Since
+  `AdProviderAdapter` is already a shared interface both adapters implement,
+  add an opt-in "shadow load" mode that loads (but never shows) the *inactive*
+  provider's ad alongside the active one, logging both providers' `AdEvent`
+  revenue/fill data side by side per slot type. This gives partners real
+  per-slot A/B eCPM signal without the architectural cost of per-slot routing
+  (`AdConfig.provider` stays a single app-wide choice) — just a second adapter
+  instance running in observe-only mode. Differentiating because most
+  lightweight ad-wrapper SDKs force partners to choose one network and never
+  surface what they're leaving on the table. Effort: M (~1 day) — no
+  `AdConfig`/`AdManager` restructuring needed, just a second adapter instance +
+  a comparison log sink; real per-slot routing (mentioned as a bigger lift) is
+  explicitly out of scope for this version.
+- **VIP grace-period expiry nudge.** The signed-key + trial (`firstInstallVipGrace`)
+  system already tracks `expiresAt`/`remaining` per entry but currently gives
+  no UX signal before VIP lapses — the user just starts seeing ads again with
+  no warning. Add a one-time in-app nudge (banner or dialog, not a push
+  notification) when `remaining` crosses a threshold (e.g. 24h left), pointing
+  at the redeem/watch-ad-to-extend flow that already exists. Differentiating
+  because simple ad-wrapper SDKs treat VIP/trial as a binary flag with no
+  retention UX around the transition — this SDK already has the stacking +
+  watch-ad-to-extend mechanics to make a nudge actually actionable, most
+  competitors don't. Effort: S (~3-4h) — reactive `Obx` on the existing
+  `activeListenable`/`expiresAt`, no new persistence, no new native code.
