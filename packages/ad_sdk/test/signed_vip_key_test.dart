@@ -180,6 +180,98 @@ void main() {
       expect(r.status, VipRedeemStatus.invalid);
       expect(mgr.isActive, isFalse);
     });
+
+    test(
+        'a fresh VipManager instance (simulated app restart) still rejects '
+        'an already-redeemed key id — proves rejection reads persisted '
+        'SharedPreferences, not just in-memory _signedKidsInFlight state',
+        () async {
+      final code = await _mint(keyPair, seconds: 3600, kid: 'restart-kid');
+
+      // "Session 1": redeem on a first VipManager instance, then dispose it —
+      // its in-memory _signedKidsInFlight set dies with it.
+      final mgr1 = VipManager(prefs);
+      await mgr1.load();
+      final first = await mgr1.redeemSignedKey(code, publicKeyBase64: pub);
+      mgr1.dispose();
+      expect(first.ok, isTrue);
+
+      // "Session 2": brand-new VipManager over the SAME (persisted) prefs —
+      // nothing carries over except what was written to SharedPreferences.
+      final mgr2 = VipManager(prefs);
+      await mgr2.load();
+      addTearDown(mgr2.dispose);
+      final second = await mgr2.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(second.status, VipRedeemStatus.alreadyUsed,
+          reason: 'redeemed key ids must survive process restart via '
+              'SharedPreferences, not just an in-memory guard');
+    });
+  });
+
+  group('redeemSignedKey never logs the raw key string', () {
+    late AdPreferences logPrefs;
+    final captured = <String>[];
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      logPrefs = await AdPreferences.getInstance();
+      await VipManager(logPrefs).revokeAll();
+      captured.clear();
+      SafeLogger.configure(
+        level: AdLogLevel.verbose,
+        onLog: (level, tag, message) => captured.add(message),
+      );
+      addTearDown(SafeLogger.resetForTest);
+    });
+
+    test('valid redeem never logs the full code, only the (non-secret) kid',
+        () async {
+      final mgr = VipManager(logPrefs);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mint(keyPair, seconds: 3600, kid: 'nolog-ok');
+      await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(captured, isNotEmpty);
+      for (final line in captured) {
+        expect(line.contains(code), isFalse,
+            reason: 'log line leaked the raw signed key: $line');
+      }
+    });
+
+    test('invalid/malformed key redeem never logs the raw code', () async {
+      final mgr = VipManager(logPrefs);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      const badCode = 'AVP1.dG90YWxseS1zZWNyZXQtcGF5bG9hZA==.YmFkc2ln';
+      await mgr.redeemSignedKey(badCode, publicKeyBase64: pub);
+
+      expect(captured, isNotEmpty);
+      for (final line in captured) {
+        expect(line.contains(badCode), isFalse,
+            reason: 'log line leaked the raw rejected key: $line');
+      }
+    });
+
+    test('already-used redeem attempt never logs the raw code', () async {
+      final mgr = VipManager(logPrefs);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mint(keyPair, seconds: 3600, kid: 'nolog-reuse');
+      await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+      captured.clear();
+      await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(captured, isNotEmpty);
+      for (final line in captured) {
+        expect(line.contains(code), isFalse,
+            reason: 'log line leaked the raw reused key: $line');
+      }
+    });
   });
 
   group('widget: redeem button drives VIP state', () {
