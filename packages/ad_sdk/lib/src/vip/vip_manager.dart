@@ -229,6 +229,15 @@ class VipManager {
   ///   The just-granted [key]'s entry becomes the new latest (created if new,
   ///   updated if it already existed) and its `grantedAt` resets to now. The
   ///   result is clamped to `now + [maxStackDuration]` when that cap is set.
+  ///
+  /// [duration] must be strictly positive — a zero or negative duration would
+  /// silently create a dead entry (`stack: false`, expires at/before grant)
+  /// or invert the stacking base (`stack: true`, pulling the window
+  /// backwards). Debug builds `assert` on this; release builds reject the
+  /// call by returning the current entry for [key] unchanged (or a
+  /// same-instant dead stub if none exists yet) without mutating state or
+  /// persisting — matching this method's existing "no-op returns the
+  /// untouched entry" convention for the latest-expiry-wins branch above.
   Future<VipEntry> addVip({
     required String key,
     required Duration duration,
@@ -236,6 +245,18 @@ class VipManager {
   }) async {
     final norm = normaliseKey(key);
     final now = DateTime.now();
+    assert(duration > Duration.zero,
+        'VipManager.addVip: duration must be > 0 (got $duration) for key=$norm');
+    if (duration <= Duration.zero) {
+      SafeLogger.w(_tag,
+          'addVip: rejected non-positive duration ($duration) for key=$norm — no-op');
+      final existingEntry = _entries.firstWhere((e) => e.key == norm,
+          orElse: () => VipEntry(key: norm, expiresAt: now, grantedAt: now));
+      return existingEntry;
+    }
+    // Eagerly drop already-expired entries before adding — keeps persistence
+    // from accumulating stale rows between the periodic expiry-timer purges.
+    _purgeExpired();
     final existing = _entries.indexWhere((e) => e.key == norm);
 
     if (stack) {
@@ -305,6 +326,10 @@ class VipManager {
   ///    key is accepted (demo mode).
   /// 3. On success → save entry → show success dialog.
   /// 4. On failure / network error → show failed dialog.
+  ///
+  /// [duration] is forwarded to [addVip] as-is, so the same `duration > 0`
+  /// guard applies (see [addVip]) — a non-positive duration is rejected
+  /// there rather than silently redeeming a dead entry.
   ///
   /// Returns `true` only if the entry was saved and made active.
   ///

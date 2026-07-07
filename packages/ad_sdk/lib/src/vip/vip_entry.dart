@@ -40,6 +40,13 @@ class VipEntry {
     return d.isNegative ? Duration.zero : d;
   }
 
+  /// Encodes [expiresAt]/[grantedAt] via the plain `DateTime.toIso8601String()`
+  /// — i.e. in whatever zone the DateTime already carries. [VipManager]
+  /// always constructs entries from `DateTime.now()` (local), so persisted
+  /// JSON is local-time ISO8601 (no `Z` suffix), not UTC. This is safe: Dart's
+  /// `DateTime.parse` in [fromJson] respects the suffix (or its absence) and
+  /// reconstructs the exact same absolute instant either way — verified by
+  /// the round-trip tests in `vip_manager_robustness_test.dart`.
   Map<String, dynamic> toJson() => {
         'key': key,
         'expiresAt': expiresAt.toIso8601String(),

@@ -1470,6 +1470,16 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// VIP behaviour (Q12B — caller-confirmed): the SDK does **NOT**
   /// auto-grant the reward. Caller decides via [vipAutoGrant].
+  ///
+  /// ⚠️ [bypassVipGuard] is **not** a policy bypass — read it as "skip the
+  /// VIP-suppression *guard*", not "skip ad policy". A **real** rewarded ad
+  /// is still requested, throttled by [AdSafetyConfig.canShowFullscreenAd],
+  /// and counted like any other impression; every other safety gate in this
+  /// method (consent, re-entrancy, cooldowns) still applies unchanged. Its
+  /// one and only purpose is the single existing "VIP watches an ad to
+  /// extend their own VIP window" flow (see [VipManager] `stack: true`
+  /// grants), where the normal VIP-suppression branch above would otherwise
+  /// prevent the ad from ever loading. Pass `true` only from that flow.
   Future<void> showRewardedAd({
     required void Function(bool earned) onEarnedReward,
     bool vipAutoGrant = false,

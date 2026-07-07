@@ -310,8 +310,14 @@ class AdConfig {
   /// (`addVip(stack: true)` / `redeemVip(stack: true)`). When set, a stacked
   /// grant never pushes the entry's expiry beyond `now + maxVipStackDuration`;
   /// the excess is clamped (the entry is still extended up to the cap). `null`
-  /// (default) = uncapped. Only affects the stacking path — a plain
-  /// (non-stacking) `addVip` with an absolute duration is never clamped.
+  /// (default) = uncapped.
+  ///
+  /// ⚠️ **This ONLY caps the `stack: true` path.** A common misreading is that
+  /// this bounds VIP duration in general — it does not. A plain (non-stacking,
+  /// default `stack: false`) `addVip`/`redeemVip` call grants its `duration`
+  /// as an absolute `now + duration` expiry and is **never** clamped by this
+  /// value, no matter how large `duration` is (e.g. the year-2099 legacy-GAID
+  /// migration grant in [VipManager.load] is unaffected).
   final Duration? maxVipStackDuration;
 
   // ─── Splash budget (Q32E) ─────────────────────────────────────────────────
