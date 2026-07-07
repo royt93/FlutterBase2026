@@ -27,6 +27,11 @@ class _ShimmerViewState extends State<ShimmerView>
   @override
   void initState() {
     super.initState();
+    // T14 — guard against ever creating a second controller on top of an
+    // existing one (leaks a Ticker). initState() only runs once per State
+    // in normal Flutter lifecycle, but this makes that invariant explicit
+    // and safe if a future refactor calls this path again.
+    if (_controller != null) return;
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),

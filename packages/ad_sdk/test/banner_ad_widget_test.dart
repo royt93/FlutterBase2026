@@ -156,6 +156,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // T14 — the banner's own enclosing route can change (e.g. replaced by a
+  // new route, or the banner subtree is re-parented under a different
+  // route/dialog). Previously `_routeSubscribed` was a one-shot latch: once
+  // true it never re-subscribed, so a route-replace event stopped delivering
+  // RouteAware callbacks (didPush/didPushNext/didPopNext) to the banner
+  // entirely — it kept listening to the old, now-detached route.
+  testWidgets(
+      'route replace re-subscribes RouteAware to the new route (push→pop→push)',
+      (tester) async {
+    final navKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navKey,
+      navigatorObservers: [adRouteObserver],
+      home: const Scaffold(body: BannerAdWidget()),
+    ));
+    await tester.pumpAndSettle();
+
+    // Push a new route whose body is ALSO a BannerAdWidget — simulates the
+    // "banner on a different route" scenario from the acceptance criteria.
+    // Its RouteAware subscription must bind to this new route, not stay
+    // latched to (or leak from) the first one.
+    //
+    // Not awaited: Navigator.push()'s returned Future only completes when
+    // the route is later popped (it resolves with the pop result), so
+    // awaiting it here would deadlock the test forever.
+    navKey.currentState!.push(
+      MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: BannerAdWidget())),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(BannerAdWidget), findsOneWidget,
+        reason: 'first banner is now covered; only the pushed one is live');
+    expect(tester.takeException(), isNull);
+
+    // Pop back to the first route.
+    navKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(BannerAdWidget), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Push again — a fresh BannerAdWidget instance on a fresh route. If the
+    // previous instance's dispose() didn't balance its subscribe (or a new
+    // instance's didChangeDependencies failed to (re-)subscribe), this would
+    // either throw or leave RouteAware callbacks silently undelivered.
+    // Not awaited — see note above.
+    navKey.currentState!.push(
+      MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: BannerAdWidget())),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(BannerAdWidget), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    navKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   // T09 — offline: banner stays collapsed (no load, no shimmer); on reconnect
   // (T08 connectivity watch) it reloads automatically.
   testWidgets('banner collapses offline and reloads on reconnect',

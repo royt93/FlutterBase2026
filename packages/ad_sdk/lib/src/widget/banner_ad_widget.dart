@@ -35,7 +35,14 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   final ValueNotifier<bool> _initStarted = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
-  bool _routeSubscribed = false;
+
+  /// T14 — the [ModalRoute] this widget is currently subscribed to via
+  /// [adRouteObserver]. Re-resolved every `didChangeDependencies` so a route
+  /// change (e.g. this widget's subtree moves under a new route, or the
+  /// enclosing route is replaced) unsubscribes the old route before
+  /// subscribing the new one — otherwise RouteAware callbacks would keep
+  /// firing for a route this widget no longer belongs to.
+  ModalRoute<void>? _subscribedRoute;
 
   /// T12 — guards against stacking multiple post-frame `_initBanner` callbacks
   /// when `build` runs repeatedly (initRevision / parent rebuilds) while the
@@ -54,10 +61,11 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_routeSubscribed) {
-      final route = ModalRoute.of(context);
+    final route = ModalRoute.of(context);
+    if (route != _subscribedRoute) {
+      if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
+      _subscribedRoute = route;
       if (route != null) {
-        _routeSubscribed = true;
         adRouteObserver.subscribe(this, route);
         SafeLogger.d(_tag,
             'RouteAware subscribed: ${route.settings.name ?? route.runtimeType}');
@@ -167,7 +175,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   @override
   void dispose() {
-    if (_routeSubscribed) adRouteObserver.unsubscribe(this);
+    if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
     _admobIsTop.dispose();
     _initStarted.dispose();
     _allowed.dispose();

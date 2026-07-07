@@ -830,6 +830,10 @@ class AdManager with WidgetsBindingObserver {
     if (_isFirstAdLoadTriggered) return;
     final ad = _adapter;
     if (ad == null) return;
+    // T14 — idempotent: if a prior initialize() already attached this
+    // listener on the same adapter (re-init without an intervening
+    // destroy()), drop it first so we never fire the callback twice.
+    ad.appOpenSlot.state.removeListener(_onAppOpenStateChange);
     ad.appOpenSlot.state.addListener(_onAppOpenStateChange);
   }
 
