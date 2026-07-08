@@ -87,6 +87,10 @@ Known accepted (not bugs) limitations carried forward: T06 host missing a re-con
 | T18 | VIP key signed offline (Ed25519) + one-time-use per-device | 5 | P0 | HIGH | ✅ done |
 | T19 | VIP robustness: negative-duration, purge, cap/API clarity | 5 | P2 | MEDIUM | ✅ done |
 | T20 | Test suite compliance + lifecycle + network | tất cả | P2 | — | ✅ done |
+| T21 | Preload/load không check daily/hourly safety cap → phí request | 3,7 | P2 | MEDIUM | 🔲 todo |
+| T22 | `AdScreenState.showRewardedAd()` thiếu disclosure hook | 3,7 | P2 | LOW | 🔲 todo |
+
+*T21/T22 phát sinh từ audit mới `doc/audit/audit_gemini.md` (2026-07-08) — góc nhìn request-minimization/fill-rate + pháp lý theo loại ad, chưa nằm trong `audit_claude.md` gốc.*
 
 ## Định nghĩa "Done" chung
 - Code + `flutter analyze` sạch, `dart format` áp dụng.
