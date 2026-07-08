@@ -254,6 +254,7 @@ class AdConfig {
     this.firstInstallVipKey = '__FIRST_INSTALL__',
     this.autoShowConsentDialog = true,
     this.consentDialogStrings = const ConsentDialogStrings(),
+    this.onPrivacyPolicyTap,
     this.consentBarrierDismissible = false,
     this.consentDialogPostSplashDelay = const Duration(seconds: 1),
     this.autoRequestUmpConsent = false,
@@ -384,6 +385,15 @@ class AdConfig {
   /// Strings used by the Cupertino consent dialog. Override to localise.
   /// Vietnamese pre-canned at [ConsentDialogStrings.vi].
   final ConsentDialogStrings consentDialogStrings;
+
+  /// Handler for the "Privacy Policy" link inside the **auto-shown**
+  /// consent dialog (hidden unless [ConsentDialogStrings.privacyPolicyUrl]
+  /// is also set). Typically `(url) => launchUrl(Uri.parse(url))`.
+  ///
+  /// Only wires the automatic post-splash dialog — hosts calling
+  /// [AdManager.consentManager]'s `showDialog` manually pass their own
+  /// `onPrivacyPolicyTap` to that call instead.
+  final void Function(String url)? onPrivacyPolicyTap;
 
   /// Whether tapping outside the auto-shown consent dialog dismisses it.
   /// Default `false` — force user to make an explicit choice. Set `true`

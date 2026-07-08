@@ -142,21 +142,43 @@ class _ConsentBinaryDialog extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     height: 1.45,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.72),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.72),
                   ),
                 ),
               ),
+              if (strings.adPartnersLabel != null) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: Text(
+                    strings.adPartnersLabel!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.5),
+                    ),
+                  ),
+                ),
+              ],
               if (policyUrl != null) ...[
                 const SizedBox(height: 12),
                 InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: () => onPrivacyPolicyTap?.call(policyUrl),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.open_in_new_rounded, size: 14, color: _kAccent),
+                        const Icon(Icons.open_in_new_rounded,
+                            size: 14, color: _kAccent),
                         const SizedBox(width: 6),
                         Text(
                           strings.privacyPolicyLabel,
@@ -250,14 +272,19 @@ class _AllowButton extends StatelessWidget {
               ),
             ],
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Center(
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-                letterSpacing: 0.2,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  letterSpacing: 0.2,
+                ),
               ),
             ),
           ),
@@ -289,13 +316,18 @@ class _RejectButton extends StatelessWidget {
               width: 1.2,
             ),
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Center(
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: _kRejectFg,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: const TextStyle(
+                  color: _kRejectFg,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
             ),
           ),

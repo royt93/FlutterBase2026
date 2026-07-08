@@ -385,6 +385,7 @@ class AdManager with WidgetsBindingObserver {
         ctx, // ignore: use_build_context_synchronously
         config: cfg,
         barrierDismissible: cfg.consentBarrierDismissible,
+        onPrivacyPolicyTap: cfg.onPrivacyPolicyTap,
       );
       _consent = mgr.adConsent;
     });

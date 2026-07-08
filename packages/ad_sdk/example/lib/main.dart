@@ -48,6 +48,10 @@ const _kAppLovinRewardedId = 'YOUR_REWARDED_AD_UNIT_ID';
 /// above with real values from dash.applovin.com BEFORE running.
 const AdProvider kProvider = AdProvider.admob;
 
+/// Placeholder privacy-policy link shown by the consent dialog demo.
+/// Real apps should point this at their own published policy.
+const String kDemoPrivacyPolicyUrl = 'https://example.com/privacy';
+
 /// VIP demo keys (Q28 — user-supplied).
 const Map<String, Duration> kDemoVipKeys = {
   'TEST_VIP_7': Duration(days: 7),
@@ -130,6 +134,14 @@ class DemoConfig {
       // via consentDialogStrings: ConsentDialogStrings.vi etc.
       autoShowConsentDialog: true,
       consentDialogPostSplashDelay: const Duration(seconds: 1),
+      // Demo wires a real privacy-policy URL so the dialog's link isn't
+      // silently hidden — a bare `debugPrint` handler is enough here since
+      // this is a demo harness, not a shipping app (a real app would
+      // `launchUrl(Uri.parse(url))`, e.g. via package:url_launcher).
+      consentDialogStrings:
+          const ConsentDialogStrings(privacyPolicyUrl: kDemoPrivacyPolicyUrl),
+      onPrivacyPolicyTap: (url) =>
+          debugPrint('[example] privacy policy tapped: $url'),
     );
   }
 }
@@ -201,6 +213,36 @@ class LogEntry {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// §2b  EventBuffer — in-memory ring of AdEvents (persists across navigation,
+// same pattern as LogBuffer above — a page-local StreamSubscription would
+// miss every event fired while the page wasn't mounted).
+// ═══════════════════════════════════════════════════════════════════════════
+
+class EventBuffer {
+  EventBuffer._();
+
+  static final EventBuffer instance = EventBuffer._();
+
+  static const int _maxEntries = 100;
+  final List<EventRow> _rows = [];
+
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  void onEvent(AdEvent event) {
+    _rows.insert(0, EventRow(DateTime.now(), event));
+    if (_rows.length > _maxEntries) _rows.removeLast();
+    revision.value = revision.value + 1;
+  }
+
+  List<EventRow> snapshot() => List.unmodifiable(_rows);
+
+  void clear() {
+    _rows.clear();
+    revision.value = revision.value + 1;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // §3  Entry: main() + SplashScreen
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -221,6 +263,9 @@ void main() {
   // ⚠️ Required: register navigator key BEFORE runApp so the SDK can show
   // loading dialogs from lifecycle observer (App Open on resume).
   AdManager().setNavigatorKey(_navigatorKey);
+  // Subscribe once at startup so EventBuffer captures events fired while the
+  // AdEvent stream demo page isn't mounted (mirrors LogBuffer's sink wiring).
+  AdManager().events.listen(EventBuffer.instance.onEvent);
   runApp(MaterialApp(
     title: 'ad_sdk demo',
     debugShowCheckedModeBanner: kDebugMode,
@@ -855,6 +900,9 @@ class _VipDemoPageState extends State<VipDemoPage> {
       // across ALL VIP entries (cộng dồn toàn cục) instead of latest-wins.
       stack: true,
     );
+    // vip.activeListenable only fires on true/false transitions, so stacking
+    // more time while already active wouldn't otherwise refresh the card below.
+    if (mounted) setState(() {});
   }
 
   /// T18 — redeem an offline SIGNED VIP key (Ed25519, verified against the
@@ -865,6 +913,7 @@ class _VipDemoPageState extends State<VipDemoPage> {
     final r = await vip.redeemSignedKey(code,
         publicKeyBase64: kDemoVipPublicKey, stack: true);
     if (!mounted) return;
+    setState(() {});
     final msg = switch (r.status) {
       VipRedeemStatus.success => '✅ Signed key OK — VIP granted',
       VipRedeemStatus.alreadyUsed => '⏭️ Key already used on this device',
@@ -888,6 +937,7 @@ class _VipDemoPageState extends State<VipDemoPage> {
           duration: const Duration(days: 3),
           stack: true,
         );
+        if (mounted) setState(() {});
       },
     );
   }
@@ -1259,6 +1309,8 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                     await ConsentManager.instance.showDialog(
                       context,
                       config: AdManager().config,
+                      onPrivacyPolicyTap:
+                          AdManager().config?.onPrivacyPolicyTap,
                     );
                   },
                 ),
@@ -1572,27 +1624,33 @@ class StatePanelDemoPage extends StatelessWidget {
     final adapter = AdManager().adapter;
     return Scaffold(
       appBar: AppBar(title: const Text('Slot state panel')),
-      body: adapter == null
-          ? const Center(child: Text('SDK not initialised yet'))
-          : ListView(
-              padding: _bottomSafe(context, const EdgeInsets.all(16)),
-              children: [
-                Text('Provider: ${adapter.tag}',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 18)),
-                const SizedBox(height: 12),
-                _slotCard('App Open', adapter.appOpenSlot),
-                _slotCard('Interstitial', adapter.interstitialSlot),
-                _slotCard('Rewarded', adapter.rewardedSlot),
-                _slotCard('Banner', adapter.bannerSlot),
-                const Divider(height: 32),
-                const Text(
-                  'Lifecycle test',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.tonal(
-                  onPressed: () async {
+      body: ListView(
+        padding: _bottomSafe(context, const EdgeInsets.all(16)),
+        children: [
+          if (adapter != null) ...[
+            Text('Provider: ${adapter.tag}',
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 12),
+            _slotCard('App Open', adapter.appOpenSlot),
+            _slotCard('Interstitial', adapter.interstitialSlot),
+            _slotCard('Rewarded', adapter.rewardedSlot),
+            _slotCard('Banner', adapter.bannerSlot),
+          ] else
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: Text('SDK not initialised yet')),
+            ),
+          const Divider(height: 32),
+          const Text(
+            'Lifecycle test',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.tonal(
+            onPressed: adapter == null
+                ? null
+                : () async {
                     await AdManager().destroy();
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1601,25 +1659,25 @@ class StatePanelDemoPage extends StatelessWidget {
                       );
                     }
                   },
-                  child: const Text('Destroy SDK'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: () async {
-                    await AdManager().initialize(
-                      config: DemoConfig.instance.build(),
-                      onComplete: (_, __) {},
-                    );
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('SDK re-initialized')),
-                      );
-                    }
-                  },
-                  child: const Text('Re-initialize SDK'),
-                ),
-              ],
-            ),
+            child: const Text('Destroy SDK'),
+          ),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: () async {
+              await AdManager().initialize(
+                config: DemoConfig.instance.build(),
+                onComplete: (_, __) {},
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('SDK re-initialized')),
+                );
+              }
+            },
+            child: const Text('Re-initialize SDK'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1665,38 +1723,8 @@ class StatePanelDemoPage extends StatelessWidget {
 // §16  Demo: AdEvent stream live viewer
 // ═══════════════════════════════════════════════════════════════════════════
 
-class EventsDemoPage extends StatefulWidget {
+class EventsDemoPage extends StatelessWidget {
   const EventsDemoPage({super.key});
-  @override
-  State<EventsDemoPage> createState() => _EventsDemoPageState();
-}
-
-class _EventsDemoPageState extends State<EventsDemoPage> {
-  /// Ring buffer of last N events. Bumped via revision so the list view
-  /// only rebuilds once per push (cheap).
-  static const int _max = 100;
-  final List<_EventRow> _rows = [];
-  final ValueNotifier<int> _rev = ValueNotifier<int>(0);
-  StreamSubscription<AdEvent>? _sub;
-
-  @override
-  void initState() {
-    super.initState();
-    _sub = AdManager().events.listen((event) {
-      if (!mounted) return;
-      _rows.insert(0, _EventRow(DateTime.now(), event));
-      if (_rows.length > _max) _rows.removeLast();
-      _rev.value = _rev.value + 1;
-    });
-  }
-
-  @override
-  void dispose() {
-    _sub?.cancel();
-    _sub = null;
-    _rev.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1707,10 +1735,7 @@ class _EventsDemoPageState extends State<EventsDemoPage> {
           IconButton(
             icon: const Icon(Icons.delete),
             tooltip: 'Clear',
-            onPressed: () {
-              _rows.clear();
-              _rev.value = _rev.value + 1;
-            },
+            onPressed: () => EventBuffer.instance.clear(),
           ),
         ],
       ),
@@ -1728,9 +1753,10 @@ class _EventsDemoPageState extends State<EventsDemoPage> {
           const Divider(height: 1),
           Expanded(
             child: ValueListenableBuilder<int>(
-              valueListenable: _rev,
+              valueListenable: EventBuffer.instance.revision,
               builder: (_, __, ___) {
-                if (_rows.isEmpty) {
+                final rows = EventBuffer.instance.snapshot();
+                if (rows.isEmpty) {
                   return const Center(
                     child: Text('(no events yet — trigger an ad somewhere)',
                         style: TextStyle(color: Colors.grey)),
@@ -1738,10 +1764,10 @@ class _EventsDemoPageState extends State<EventsDemoPage> {
                 }
                 return ListView.separated(
                   padding: _bottomSafe(context, EdgeInsets.zero),
-                  itemCount: _rows.length,
+                  itemCount: rows.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
-                    final row = _rows[i];
+                    final row = rows[i];
                     return _EventTile(row: row);
                   },
                 );
@@ -1754,15 +1780,15 @@ class _EventsDemoPageState extends State<EventsDemoPage> {
   }
 }
 
-class _EventRow {
-  _EventRow(this.timestamp, this.event);
+class EventRow {
+  EventRow(this.timestamp, this.event);
   final DateTime timestamp;
   final AdEvent event;
 }
 
 class _EventTile extends StatelessWidget {
   const _EventTile({required this.row});
-  final _EventRow row;
+  final EventRow row;
 
   @override
   Widget build(BuildContext context) {
