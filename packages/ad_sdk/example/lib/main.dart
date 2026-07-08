@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // applovin_admob_sdk — single-file example
 //
-// 11 demo pages, all in this one file so a developer can read top-to-bottom
+// 12 demo pages, all in this one file so a developer can read top-to-bottom
 // without jumping between files. Sections in order:
 //   §1  Constants + DemoConfig + VIP validator
 //   §2  LogBuffer (in-memory ring of SDK logs)
@@ -19,6 +19,7 @@
 //   §14 Demo: Revenue dashboard
 //   §15 Demo: Slot state panel (+ manual destroy/reinit)
 //   §16 Demo: AdEvent stream live viewer
+//   §17 Demo: Compliance report export (T23)
 //
 // Note: provider (AdMob vs AppLovin) is chosen ONCE at app startup via
 // `AdConfig.provider` and is **not** swappable at runtime. To switch
@@ -591,6 +592,14 @@ class HomePage extends StatelessWidget {
             color: Colors.deepOrange,
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const EventsDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.fact_check,
+            title: 'Compliance report',
+            subtitle: 'Export event log + safety + consent snapshot (T23)',
+            color: Colors.brown,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ComplianceDemoPage())),
           ),
         ],
       ),
@@ -1452,6 +1461,37 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
             Text(AdSafetyConfig.getStatus(),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
             const SizedBox(height: 12),
+            const Text('Policy risk score (T24, dev/partner signal only)',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            ValueListenableBuilder<int>(
+              valueListenable: AdManager().policyRiskScore,
+              builder: (_, score, __) {
+                final color = score < 30
+                    ? Colors.green
+                    : (score < 70 ? Colors.orange : Colors.red);
+                return Row(
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration:
+                          BoxDecoration(color: color, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$score / 100',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
             const Text('Latest fullscreen check',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
@@ -1813,7 +1853,9 @@ class _EventTile extends StatelessWidget {
                 fontSize: 10)),
       ),
       title: Text(
-        '${e.providerTag} ${e.type.name} @${e.placement.id}',
+        e is AdAnomalyEvent
+            ? e.reason
+            : '${e.providerTag} ${e.type.name} @${e.placement.id}',
         style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
       ),
       subtitle: Text(
@@ -1854,6 +1896,116 @@ class _EventTile extends StatelessWidget {
             '${e.networkName != null ? ' via ${e.networkName}' : ''}',
       );
     }
+    if (e is AdAnomalyEvent) {
+      return (
+        'ANOMALY',
+        Colors.redAccent,
+        'violation #${e.violationCount} · paused ${e.pauseDurationMs ~/ 60000}min',
+      );
+    }
     return ('?', Colors.grey, '');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §17  Demo: Compliance report export (T23)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class ComplianceDemoPage extends StatefulWidget {
+  const ComplianceDemoPage({super.key});
+
+  @override
+  State<ComplianceDemoPage> createState() => _ComplianceDemoPageState();
+}
+
+class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
+  String? _reportJson;
+  int _eventCount = 0;
+
+  void _generate() {
+    final report = AdManager().exportComplianceReport();
+    setState(() {
+      _eventCount = report.events.length;
+      _reportJson = report.toJsonString(pretty: true);
+    });
+  }
+
+  void _copy() {
+    final json = _reportJson;
+    if (json == null) return;
+    Clipboard.setData(ClipboardData(text: json));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Report JSON copied to clipboard')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final json = _reportJson;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Compliance report'),
+        actions: [
+          if (json != null)
+            IconButton(
+              icon: const Icon(Icons.copy),
+              tooltip: 'Copy JSON',
+              onPressed: _copy,
+            ),
+        ],
+      ),
+      body: Padding(
+        padding: _bottomSafe(context, const EdgeInsets.all(16)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Combines the persisted ad event log, safety status snapshot, '
+              'consent flags and VIP state into one JSON document — hand to '
+              'a partner/reviewer as evidence of policy compliance.',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _generate,
+              icon: const Icon(Icons.description_outlined),
+              label: const Text('Generate report'),
+            ),
+            const SizedBox(height: 12),
+            if (json == null)
+              const Expanded(
+                child: Center(child: Text('(no report generated yet)')),
+              )
+            else
+              Expanded(
+                child: Card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Text('$_eventCount event(s) in log',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(12),
+                          child: SelectableText(
+                            json,
+                            style: const TextStyle(
+                                fontFamily: 'monospace', fontSize: 11),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

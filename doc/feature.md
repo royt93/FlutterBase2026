@@ -505,6 +505,31 @@ Policy:
 - Ad health screen: SDK init state, loaded slots, consent state, VIP state, last
   load error.
 
+#### 📋 Picked (2026-07-08) — "Trust & Analytics" layer
+Decision: after `doc/audit/audit_gemini.md` confirmed near-total compliance
+(T01-T22), package that strength into a partner-facing product feature instead
+of chasing incremental ops tricks. Broken into 4 tasks in `doc/task/todo/`,
+ordered by dependency:
+- **T23 — Compliance Report export.** Persist a rolling `AdEventLog` +
+  structured safety/consent snapshot, exportable as JSON — evidence a partner
+  can hand to Google/AppLovin during an account-suspension appeal. Foundation
+  for T24/T25.
+- **T24 — Real-time policy risk score.** Turn `AdSafetyConfig`'s existing
+  internal signals (CTR, violation count, rapid-resume) into a single 0-100
+  score exposed reactively, so partners see risk building *before* an external
+  policy strike.
+- **T25 — Anomaly/fraud alert stream.** `_triggerSuspiciousPause()` currently
+  only logs internally; emit a new `AdAnomalyEvent` on `AdManager().events` so
+  partners can pipe anomalies into their own alerting (Sentry, Slack, etc.).
+- **T26 — Adaptive frequency capping, Phase 1 only.** Instrumentation-only
+  proxy signals (session-length-after-ad, time-to-next-open) logged for
+  observation. Explicitly NOT auto-adjusting caps yet — no backend/LTV signal
+  exists to validate a bandit algorithm safely; Phase 2 (actual adaptive
+  capping) is deferred until Phase 1 data exists.
+
+Supersedes the two 💭 ideas below as the near-term priority — they remain
+logged as deferred, not discarded.
+
 #### New ideas (2026-07-07 differentiation pass)
 - **Shadow eCPM comparison between AdMob and AppLovin.** Since
   `AdProviderAdapter` is already a shared interface both adapters implement,

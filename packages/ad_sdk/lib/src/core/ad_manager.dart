@@ -10,8 +10,12 @@ import 'package:google_mobile_ads/google_mobile_ads.dart'
 
 import '../adapters/admob_adapter.dart';
 import '../adapters/applovin_adapter.dart';
+import '../adaptive/adaptive_frequency.dart';
+import '../compliance/ad_event_log.dart';
+import '../compliance/compliance_report.dart';
 import '../config/ad_config.dart';
 import '../consent/consent_manager.dart';
+import '../consent/consent_settings.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
@@ -216,9 +220,37 @@ class AdManager with WidgetsBindingObserver {
   final StreamController<AdEvent> _eventStream =
       StreamController<AdEvent>.broadcast();
 
+  /// Persisted log backing [exportComplianceReport] (T23). `null` until
+  /// [initialize] completes.
+  AdEventLog? _eventLog;
+
+  /// Build a [ComplianceReport] from everything the SDK already tracks:
+  /// consent state, safety-cap counters, VIP status, and the ad-event/
+  /// safety-block history for `[from, to]` (open-ended if omitted).
+  ///
+  /// Safe to call before [initialize] or with an empty log — returns a
+  /// report with zero events rather than throwing.
+  ComplianceReport exportComplianceReport({DateTime? from, DateTime? to}) {
+    return ComplianceReport.generate(
+      events: _eventLog?.inRange(from: from, to: to) ??
+          const <Map<String, dynamic>>[],
+      safety: AdSafetyConfig.getStatusSnapshot(),
+      consent: _consentManager?.current ?? ConsentSettings.unset,
+      vipActive: _vipManager?.isActive ?? false,
+      from: from,
+      to: to,
+    );
+  }
+
   /// Increments on every successful [initialize]. Widgets can listen so they
   /// rebuild after a provider hot-swap or destroy → re-init cycle.
   final ValueNotifier<int> initRevision = ValueNotifier<int>(0);
+
+  /// 0-100 real-time policy risk score (T24) blending CTR anomaly, decayed
+  /// suspicious-violation history and resume spam. Dev/partner dashboard
+  /// signal only — never shown to end-users, never consulted by the ad-gate
+  /// logic. Safe to read pre-init (starts at 0).
+  ValueListenable<int> get policyRiskScore => AdSafetyConfig.policyRiskScore;
 
   // ─── Common state ────────────────────────────────────────────────────────
 
@@ -541,9 +573,13 @@ class AdManager with WidgetsBindingObserver {
           _tag, () => 'initialize start, provider=${config.provider.name}');
 
       final prefs = await AdPreferences.getInstance();
+      _eventLog ??= AdEventLog(prefs);
+      AdaptiveFrequencySignals.setSink(
+          _eventLog!.recordAdaptiveSignal); // T26: adaptive-frequency signals
 
       // Phase 3: pipe safety params from config.
       await AdSafetyConfig.init(prefs, params: config.safety);
+      AdSafetyConfig.setAnomalySink(_emit); // T25: anomaly/fraud alert stream
 
       // ── Release footguns (loud, fire in release where it matters) ──────────
       for (final w in releaseFootgunWarnings(config, isDebug: kDebugMode)) {
@@ -1891,6 +1927,7 @@ class AdManager with WidgetsBindingObserver {
   // ──────────────────────────────────────────────────────────────────────────
 
   void _emit(AdEvent event) {
+    _eventLog?.recordEvent(event);
     if (_eventStream.isClosed) return;
     _eventStream.add(event);
   }

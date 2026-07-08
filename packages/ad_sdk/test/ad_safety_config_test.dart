@@ -157,6 +157,60 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────
+  // getStatusSnapshot (T23) — structured twin of getStatus
+  // ─────────────────────────────────────────────────
+  group('getStatusSnapshot', () {
+    test('matches getStatus counters on a clean session', () {
+      final snapshot = AdSafetyConfig.getStatusSnapshot();
+      expect(snapshot.fullscreenAdsShownInSession, 0);
+      expect(snapshot.hourlyAdCount, 0);
+      expect(snapshot.clicksLastMinute, 0);
+      expect(snapshot.suspiciousViolationCount, 0);
+      expect(snapshot.isSuspended, isFalse);
+      expect(snapshot.clickThroughRate, 0.0);
+    });
+
+    test('reflects recorded fullscreen ads and clicks', () {
+      AdSafetyConfig.recordFullscreenAdShown();
+      AdSafetyConfig.recordFullscreenAdShown();
+      AdSafetyConfig.recordAdClick();
+
+      final snapshot = AdSafetyConfig.getStatusSnapshot();
+      expect(snapshot.fullscreenAdsShownInSession, 2);
+      expect(snapshot.hourlyAdCount, 2);
+      expect(snapshot.clicksLastMinute, 1);
+    });
+
+    test('toJson round-trips every field with plain types', () {
+      final json = AdSafetyConfig.getStatusSnapshot().toJson();
+      expect(
+          json.keys,
+          containsAll(<String>[
+            'fullscreenAdsShownInSession',
+            'maxFullscreenAdsPerSession',
+            'hourlyAdCount',
+            'maxFullscreenAdsPerHour',
+            'dailyAdCount',
+            'maxFullscreenAdsPerDay',
+            'clickThroughRate',
+            'suspiciousCtrThreshold',
+            'clicksLastMinute',
+            'suspiciousViolationCount',
+            'isSuspended',
+            'dryRun',
+          ]));
+    });
+
+    test('does not change getStatus()\'s own behaviour', () {
+      AdSafetyConfig.recordFullscreenAdShown();
+      final before = AdSafetyConfig.getStatus();
+      AdSafetyConfig.getStatusSnapshot();
+      final after = AdSafetyConfig.getStatus();
+      expect(after, before);
+    });
+  });
+
+  // ─────────────────────────────────────────────────
   // recordAppWentBackground
   // ─────────────────────────────────────────────────
   group('recordAppWentBackground', () {
@@ -193,7 +247,6 @@ void main() {
       expect(result.canShow, isFalse);
     });
   });
-
 
   // ─────────────────────────────────────────────────
   // canShowAppOpenOnResume

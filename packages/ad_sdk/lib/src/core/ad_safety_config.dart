@@ -1,5 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
+import '../adaptive/adaptive_frequency.dart';
+import '../state/ad_event.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
 
@@ -12,6 +16,57 @@ class AdSafetyResult {
   final String reason;
 
   const AdSafetyResult(this.canShow, this.reason);
+}
+
+/// Structured, JSON-able snapshot of [AdSafetyConfig]'s current counters.
+///
+/// Used by T23 (Compliance Report export) and T24 (policy risk score).
+/// Companion to [AdSafetyConfig.getStatus] (the human-readable debug string);
+/// this carries the same numbers but as typed fields instead of a formatted
+/// string, so callers don't have to parse it.
+class AdSafetySnapshot {
+  final int fullscreenAdsShownInSession;
+  final int maxFullscreenAdsPerSession;
+  final int hourlyAdCount;
+  final int maxFullscreenAdsPerHour;
+  final int dailyAdCount;
+  final int maxFullscreenAdsPerDay;
+  final double clickThroughRate;
+  final double suspiciousCtrThreshold;
+  final int clicksLastMinute;
+  final int suspiciousViolationCount;
+  final bool isSuspended;
+  final bool dryRun;
+
+  const AdSafetySnapshot({
+    required this.fullscreenAdsShownInSession,
+    required this.maxFullscreenAdsPerSession,
+    required this.hourlyAdCount,
+    required this.maxFullscreenAdsPerHour,
+    required this.dailyAdCount,
+    required this.maxFullscreenAdsPerDay,
+    required this.clickThroughRate,
+    required this.suspiciousCtrThreshold,
+    required this.clicksLastMinute,
+    required this.suspiciousViolationCount,
+    required this.isSuspended,
+    required this.dryRun,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'fullscreenAdsShownInSession': fullscreenAdsShownInSession,
+        'maxFullscreenAdsPerSession': maxFullscreenAdsPerSession,
+        'hourlyAdCount': hourlyAdCount,
+        'maxFullscreenAdsPerHour': maxFullscreenAdsPerHour,
+        'dailyAdCount': dailyAdCount,
+        'maxFullscreenAdsPerDay': maxFullscreenAdsPerDay,
+        'clickThroughRate': clickThroughRate,
+        'suspiciousCtrThreshold': suspiciousCtrThreshold,
+        'clicksLastMinute': clicksLastMinute,
+        'suspiciousViolationCount': suspiciousViolationCount,
+        'isSuspended': isSuspended,
+        'dryRun': dryRun,
+      };
 }
 
 /// Tunable parameters for [AdSafetyConfig].
@@ -76,7 +131,7 @@ class AdSafetyParams {
   /// safety: AdSafetyParams.debug
   /// ```
   static const AdSafetyParams debug = AdSafetyParams(
-    minTimeBetweenFullscreenAds: 2000,      // 2 s
+    minTimeBetweenFullscreenAds: 2000, // 2 s
     maxFullscreenAdsPerSession: 999,
     maxFullscreenAdsPerHour: 999,
     maxFullscreenAdsPerDay: 999,
@@ -173,7 +228,24 @@ class AdSafetyConfig {
   static int _totalImpressions = 0;
   static int _totalClicks = 0;
   static int _suspiciousViolationCount = 0;
+  static int _lastViolationTimestamp = 0;
   static AdPreferences? _prefs;
+
+  /// Sink for [AdAnomalyEvent] (T25), set by [AdManager] at init to avoid a
+  /// reverse import (mirrors the [_prefs] injection pattern).
+  static void Function(AdAnomalyEvent)? _anomalySink;
+
+  /// Wire an [AdAnomalyEvent] sink — call once from `AdManager.initialize()`.
+  static void setAnomalySink(void Function(AdAnomalyEvent) sink) {
+    _anomalySink = sink;
+  }
+
+  /// 0-100 real-time policy risk score (T24) — blends CTR anomaly, decayed
+  /// suspicious-violation history and resume-spam into one reactive number.
+  /// Refreshed after every event that can move the score; watch this instead
+  /// of polling [getPolicyRiskScore]. Not shown to end-users — a dev/partner
+  /// signal only.
+  static final ValueNotifier<int> policyRiskScore = ValueNotifier<int>(0);
 
   /// Initialize with optional custom [params].
   static Future<void> init(
@@ -189,6 +261,7 @@ class AdSafetyConfig {
       '🔄 init, dailyAds=${prefs.getDailyAdCount()}/${params.maxFullscreenAdsPerDay}, '
       'suspiciousCount=$_suspiciousViolationCount',
     );
+    _refreshRiskScore();
   }
 
   /// Check whether a fullscreen ad (inter/rewarded/app-open) can be shown.
@@ -196,8 +269,8 @@ class AdSafetyConfig {
   static AdSafetyResult canShowFullscreenAd() {
     final result = _canShowFullscreenAdStrict();
     if (!result.canShow && _params.dryRun) {
-      SafeLogger.w(_tag,
-          '⚠️ dryRun: would have blocked (${result.reason}) — allowing');
+      SafeLogger.w(
+          _tag, '⚠️ dryRun: would have blocked (${result.reason}) — allowing');
       return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
     }
     return result;
@@ -209,7 +282,8 @@ class AdSafetyConfig {
     if (now < _suspiciousPauseUntil) {
       final remainingMs = _suspiciousPauseUntil - now;
       SafeLogger.d(_tag, '🛡️ Ads paused, remaining=${_fmtWait(remainingMs)}');
-      return AdSafetyResult(false, 'Suspended: ${_fmtWait(remainingMs)} remaining');
+      return AdSafetyResult(
+          false, 'Suspended: ${_fmtWait(remainingMs)} remaining');
     }
 
     final sessionDuration = now - _sessionStartTime;
@@ -217,23 +291,29 @@ class AdSafetyConfig {
       final waitMs = _params.minSessionDurationBeforeAd - sessionDuration;
       SafeLogger.d(_tag,
           '🛡️ Session too young (${_fmtWait(sessionDuration)}), wait ${_fmtWait(waitMs)}');
-      return AdSafetyResult(false, 'Session too young: wait ${_fmtWait(waitMs)}');
+      return AdSafetyResult(
+          false, 'Session too young: wait ${_fmtWait(waitMs)}');
     }
 
     if (_fullscreenAdsShownInSession >= _params.maxFullscreenAdsPerSession) {
-      SafeLogger.d(_tag, '🛡️ Session limit: $_fullscreenAdsShownInSession/${_params.maxFullscreenAdsPerSession}');
-      return AdSafetyResult(false, 'Session limit: $_fullscreenAdsShownInSession ads');
+      SafeLogger.d(_tag,
+          '🛡️ Session limit: $_fullscreenAdsShownInSession/${_params.maxFullscreenAdsPerSession}');
+      return AdSafetyResult(
+          false, 'Session limit: $_fullscreenAdsShownInSession ads');
     }
 
     _hourlyAdTimestamps.removeWhere((t) => now - t > 3600000);
     if (_hourlyAdTimestamps.length >= _params.maxFullscreenAdsPerHour) {
-      SafeLogger.d(_tag, '🛡️ Hourly cap: ${_hourlyAdTimestamps.length}/${_params.maxFullscreenAdsPerHour}');
-      return AdSafetyResult(false, 'Hourly cap: ${_hourlyAdTimestamps.length} ads');
+      SafeLogger.d(_tag,
+          '🛡️ Hourly cap: ${_hourlyAdTimestamps.length}/${_params.maxFullscreenAdsPerHour}');
+      return AdSafetyResult(
+          false, 'Hourly cap: ${_hourlyAdTimestamps.length} ads');
     }
 
     final dailyCount = _prefs?.getDailyAdCount() ?? 0;
     if (dailyCount >= _params.maxFullscreenAdsPerDay) {
-      SafeLogger.d(_tag, '🛡️ Daily limit: $dailyCount/${_params.maxFullscreenAdsPerDay}');
+      SafeLogger.d(_tag,
+          '🛡️ Daily limit: $dailyCount/${_params.maxFullscreenAdsPerDay}');
       return AdSafetyResult(false, 'Daily limit: $dailyCount ads');
     }
 
@@ -267,6 +347,17 @@ class AdSafetyConfig {
   /// Honours `params.dryRun` — if set, blocks are logged but always returns
   /// `canShow=true` (with the original block reason annotated).
   static AdSafetyResult canShowAppOpenOnResume() {
+    // T26 Phase 1: proxy signal (b) — gap between the last backgrounding and
+    // this resume. Diagnostic only, recorded before any gate so it always
+    // fires exactly once per resume regardless of the strict-check outcome.
+    if (_lastBackgroundTime > 0) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      AdaptiveFrequencySignals.record(
+        'background_to_resume',
+        now,
+        now - _lastBackgroundTime,
+      );
+    }
     final result = _canShowAppOpenOnResumeStrict();
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(_tag,
@@ -296,10 +387,12 @@ class AdSafetyConfig {
       // Don't consume cold start flag yet — only consume when we actually
       // return true (i.e., ad is allowed). This way, if resume is blocked
       // by other checks, cold start protection isn't wasted.
-      SafeLogger.d(_tag, '🛡️ Skipping App Open on cold start (one-shot, will allow next resume)');
-      _isColdStart = false; // consumed regardless — first resume is always skipped
-      return const AdSafetyResult(false,
-          'cold start (one-shot — next resume will pass)');
+      SafeLogger.d(_tag,
+          '🛡️ Skipping App Open on cold start (one-shot, will allow next resume)');
+      _isColdStart =
+          false; // consumed regardless — first resume is always skipped
+      return const AdSafetyResult(
+          false, 'cold start (one-shot — next resume will pass)');
     }
 
     if (_lastBackgroundTime > 0) {
@@ -315,11 +408,13 @@ class AdSafetyConfig {
 
     _resumeTimestamps.add(now);
     _resumeTimestamps.removeWhere((t) => now - t > 60000);
+    _refreshRiskScore();
     if (_resumeTimestamps.length > _params.maxRapidResumesPerMinute) {
       final reason =
           'rapid resume (${_resumeTimestamps.length} resumes/min > cap ${_params.maxRapidResumesPerMinute}, wait up to 60s)';
       SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
       _resumeTimestamps.clear();
+      _refreshRiskScore();
       return AdSafetyResult(false, reason);
     }
 
@@ -350,13 +445,16 @@ class AdSafetyConfig {
       '| daily=$daily/${_params.maxFullscreenAdsPerDay} '
       '| impressions=$_totalImpressions',
     );
+    _refreshRiskScore();
   }
 
   /// Record a banner ad impression (initial load only, not refreshes).
   /// Counts towards total impressions for CTR calculation.
   static void recordBannerImpression() {
     _totalImpressions++;
-    SafeLogger.d(_tag, '📊 Banner impression | totalImpressions=$_totalImpressions');
+    SafeLogger.d(
+        _tag, '📊 Banner impression | totalImpressions=$_totalImpressions');
+    _refreshRiskScore();
   }
 
   /// Record that the user clicked an ad.
@@ -376,15 +474,27 @@ class AdSafetyConfig {
     );
 
     if (_clickTimestamps.length > _params.maxClicksPerMinute) {
-      _triggerSuspiciousPause('Click spam: ${_clickTimestamps.length} clicks/min');
+      _triggerSuspiciousPause(
+          'Click spam: ${_clickTimestamps.length} clicks/min');
       _clickTimestamps.clear();
     }
+    _refreshRiskScore();
   }
 
   /// Record that the app went to background.
   static void recordAppWentBackground() {
-    _lastBackgroundTime = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _lastBackgroundTime = now;
     SafeLogger.d(_tag, '📊 App went to background');
+    // T26 Phase 1: proxy signal (a) — did this backgrounding happen shortly
+    // after a fullscreen ad? Diagnostic only, no cap is affected.
+    if (_lastFullscreenAdTime > 0) {
+      AdaptiveFrequencySignals.record(
+        'ad_to_background',
+        now,
+        now - _lastFullscreenAdTime,
+      );
+    }
   }
 
   static int getSessionAdCount() => _fullscreenAdsShownInSession;
@@ -397,6 +507,7 @@ class AdSafetyConfig {
     _totalImpressions = 0;
     _totalClicks = 0;
     SafeLogger.d(_tag, '🔄 Session reset');
+    _refreshRiskScore();
   }
 
   /// Full reset for destroy() + re-initialize() flows.
@@ -408,9 +519,13 @@ class AdSafetyConfig {
     _lastFullscreenAdTime = 0;
     _lastBackgroundTime = 0;
     _suspiciousPauseUntil = 0;
-    _suspiciousViolationCount = 0; // Fix #35: reset violation count for clean reinit
+    _suspiciousViolationCount =
+        0; // Fix #35: reset violation count for clean reinit
+    _lastViolationTimestamp = 0;
     _clickTimestamps.clear();
+    AdaptiveFrequencySignals.reset();
     SafeLogger.d(_tag, '🔄 Full reinit reset (coldStart restored)');
+    _refreshRiskScore();
   }
 
   static String getStatus() {
@@ -428,6 +543,29 @@ class AdSafetyConfig {
         'suspended=${DateTime.now().millisecondsSinceEpoch < _suspiciousPauseUntil}]';
   }
 
+  /// Structured variant of [getStatus] — same underlying counters, JSON-able.
+  /// Added for T23 (Compliance Report export); does not change [getStatus].
+  static AdSafetySnapshot getStatusSnapshot() {
+    final ctr = _totalImpressions > 0
+        ? _totalClicks.toDouble() / _totalImpressions
+        : 0.0;
+    return AdSafetySnapshot(
+      fullscreenAdsShownInSession: _fullscreenAdsShownInSession,
+      maxFullscreenAdsPerSession: _params.maxFullscreenAdsPerSession,
+      hourlyAdCount: _hourlyAdTimestamps.length,
+      maxFullscreenAdsPerHour: _params.maxFullscreenAdsPerHour,
+      dailyAdCount: _prefs?.getDailyAdCount() ?? 0,
+      maxFullscreenAdsPerDay: _params.maxFullscreenAdsPerDay,
+      clickThroughRate: ctr,
+      suspiciousCtrThreshold: _params.suspiciousCtrThreshold,
+      clicksLastMinute: _clickTimestamps.length,
+      suspiciousViolationCount: _suspiciousViolationCount,
+      isSuspended:
+          DateTime.now().millisecondsSinceEpoch < _suspiciousPauseUntil,
+      dryRun: _params.dryRun,
+    );
+  }
+
   // ════════════════ PROGRESSIVE COOLDOWN ════════════════
   static void _triggerSuspiciousPause(String reason) {
     _suspiciousViolationCount++;
@@ -440,13 +578,67 @@ class AdSafetyConfig {
     }
 
     int pauseDuration = _baseSuspiciousPause * multiplier;
-    if (pauseDuration > _maxSuspiciousPause) pauseDuration = _maxSuspiciousPause;
+    if (pauseDuration > _maxSuspiciousPause) {
+      pauseDuration = _maxSuspiciousPause;
+    }
 
-    _suspiciousPauseUntil = DateTime.now().millisecondsSinceEpoch + pauseDuration;
+    _suspiciousPauseUntil =
+        DateTime.now().millisecondsSinceEpoch + pauseDuration;
+    _lastViolationTimestamp = DateTime.now().millisecondsSinceEpoch;
     SafeLogger.w(
       _tag,
       '⚠️ SUSPICIOUS: $reason | violation #$_suspiciousViolationCount '
       '| paused ${pauseDuration ~/ 60000} min',
     );
+    // T25: emit even in dry-run — partners should see anomaly signals even
+    // when the block itself is bypassed (dry-run only suppresses the block).
+    _anomalySink?.call(AdAnomalyEvent(
+      reason: reason,
+      violationCount: _suspiciousViolationCount,
+      pauseDurationMs: pauseDuration,
+    ));
+    _refreshRiskScore();
+  }
+
+  // ════════════════ POLICY RISK SCORE (T24) ════════════════
+
+  /// 0-100 real-time policy risk score. Additive-only: never consulted by
+  /// [canShowFullscreenAd] or [getStatus] — a dev/partner dashboard signal.
+  /// Blends three linearly-weighted signals (no ML):
+  ///  - CTR ratio vs [AdSafetyParams.suspiciousCtrThreshold] (weight 50) —
+  ///    the clearest invalid-click signal.
+  ///  - Suspicious-violation count, halved every 24h since the last
+  ///    violation (weight 30).
+  ///  - Rapid-resume ratio vs [AdSafetyParams.maxRapidResumesPerMinute]
+  ///    (weight 20) — more false-positive prone, lowest weight.
+  static int getPolicyRiskScore() => _computeRiskScore();
+
+  static int _computeRiskScore() {
+    final ctrRatio = _totalImpressions > 0 && _params.suspiciousCtrThreshold > 0
+        ? (_totalClicks / _totalImpressions) / _params.suspiciousCtrThreshold
+        : 0.0;
+    final ctrComponent = ctrRatio.clamp(0.0, 1.0) * 50;
+
+    var decayedViolations = _suspiciousViolationCount.toDouble();
+    if (_lastViolationTimestamp > 0) {
+      final hoursSince =
+          (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /
+              (60 * 60 * 1000);
+      decayedViolations *= math.pow(0.5, hoursSince / 24);
+    }
+    final violationComponent = (decayedViolations / 5).clamp(0.0, 1.0) * 30;
+
+    final resumeRatio = _params.maxRapidResumesPerMinute > 0
+        ? _resumeTimestamps.length / _params.maxRapidResumesPerMinute
+        : 0.0;
+    final resumeComponent = resumeRatio.clamp(0.0, 1.0) * 20;
+
+    return (ctrComponent + violationComponent + resumeComponent)
+        .round()
+        .clamp(0, 100);
+  }
+
+  static void _refreshRiskScore() {
+    policyRiskScore.value = _computeRiskScore();
   }
 }

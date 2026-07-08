@@ -100,3 +100,34 @@ class AdRevenueEvent extends AdEvent {
   /// Convenience: `valueMicros / 1_000_000` as a double.
   double get value => valueMicros / 1000000.0;
 }
+
+/// Emitted by [AdSafetyConfig]'s progressive-cooldown trigger (T25) —
+/// every CTR anomaly or click-spam detection fires one of these on
+/// `AdManager().events`, dry-run mode included (so partners still see the
+/// signal even when the block itself is bypassed).
+///
+/// This is a global, safety-layer diagnostic, not tied to any one ad slot —
+/// [providerTag], [type], [placement] carry non-meaningful sentinel values
+/// (`'[Safety]'`, [AdSlotType.interstitial], [AdPlacement.unspecified]).
+/// Read [reason]/[violationCount]/[pauseDurationMs] instead.
+class AdAnomalyEvent extends AdEvent {
+  const AdAnomalyEvent({
+    required this.reason,
+    required this.violationCount,
+    required this.pauseDurationMs,
+  }) : super(
+          providerTag: '[Safety]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+        );
+
+  /// Human-readable trigger, e.g. `'CTR anomaly: ...'` or `'Click spam: ...'`.
+  final String reason;
+
+  /// Cumulative suspicious-violation count after this trigger (session-scoped,
+  /// persisted across cold starts via [AdPreferences]).
+  final int violationCount;
+
+  /// Computed cooldown duration in ms (exponential backoff, capped at 24h).
+  final int pauseDurationMs;
+}

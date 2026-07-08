@@ -140,5 +140,15 @@ class AdPreferences {
     await _prefs?.setStringList(_keyRedeemedVipKids, set.toList());
   }
 
+  // ─── Compliance event log (T23, JSON-encoded ring buffer) ─────────────────
+
+  static const String _keyComplianceLog = 'ad_sdk_compliance_event_log_v1';
+
+  String? getComplianceLogRaw() => _prefs?.getString(_keyComplianceLog);
+
+  Future<void> setComplianceLogRaw(String json) async {
+    await _prefs?.setString(_keyComplianceLog, json);
+  }
+
   Future<void> clearAllData() async => _prefs?.clear();
 }

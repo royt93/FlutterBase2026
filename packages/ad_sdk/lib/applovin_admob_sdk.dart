@@ -4,6 +4,10 @@
 /// See `README.md` for the full integration guide (English + Tiếng Việt).
 library;
 
+// Compliance report export (T23)
+export 'src/compliance/ad_event_log.dart';
+export 'src/compliance/compliance_report.dart';
+
 // Configuration
 export 'src/config/ad_config.dart';
 export 'src/config/ad_log_level.dart';
@@ -21,7 +25,7 @@ export 'src/core/ad_provider_adapter.dart'
     show AdProviderAdapter, BannerListenables, RewardResult;
 export 'src/core/ad_route_observer.dart';
 export 'src/core/ad_safety_config.dart'
-    show AdSafetyConfig, AdSafetyParams, AdSafetyResult;
+    show AdSafetyConfig, AdSafetyParams, AdSafetyResult, AdSafetySnapshot;
 export 'src/core/ad_screen.dart';
 export 'src/core/event_bus.dart';
 export 'src/core/ump_consent.dart' show UmpConsentResult, requestUmpConsentFlow;
