@@ -533,6 +533,7 @@ class HomePage extends StatelessWidget {
                   publicKeyBase64: kDemoVipPublicKey,
                   onPrivacyPolicyTap: () =>
                       debugPrint('[example] privacy policy tapped'),
+                  onPrivacyOptionsTap: () => AdManager().showPrivacyOptions(),
                 ),
               ),
             ),

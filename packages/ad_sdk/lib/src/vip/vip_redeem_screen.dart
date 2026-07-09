@@ -53,6 +53,7 @@ class VipRedeemStrings {
     this.buyLocked = 'SOON',
     this.restoreLocked = 'Restore purchase (coming soon)',
     this.privacyPolicy = 'Privacy Policy',
+    this.privacyOptions = 'Privacy Options',
     this.expiresAt = _defaultExpiresAt,
     this.remainingDays = _defaultRemainingDays,
     this.remainingHours = _defaultRemainingHours,
@@ -102,7 +103,8 @@ class VipRedeemStrings {
       buyLifetime,
       buyLocked,
       restoreLocked,
-      privacyPolicy;
+      privacyPolicy,
+      privacyOptions;
 
   // Parameterized strings — pass closures (e.g. from your i18n) to localize.
   final String Function(String date) expiresAt;
@@ -127,6 +129,7 @@ class VipRedeemScreen extends StatefulWidget {
     this.strings = const VipRedeemStrings(),
     this.rewardWatchAdDuration = const Duration(days: 3),
     this.onPrivacyPolicyTap,
+    this.onPrivacyOptionsTap,
     this.firstInstallKey = '__FIRST_INSTALL__',
     this.rewardKey = 'REWARDED_VIP',
     this.rewardKeyPrefix = 'REWARDED_',
@@ -138,6 +141,7 @@ class VipRedeemScreen extends StatefulWidget {
   final VipRedeemStrings strings;
   final Duration rewardWatchAdDuration;
   final VoidCallback? onPrivacyPolicyTap;
+  final VoidCallback? onPrivacyOptionsTap;
   final String firstInstallKey;
   final String rewardKey;
   final String rewardKeyPrefix;
@@ -422,7 +426,8 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                         const SizedBox(height: 24),
                         _staggered(4, _buildBuyVipSection()),
                       ],
-                      if (widget.onPrivacyPolicyTap != null) ...[
+                      if (widget.onPrivacyPolicyTap != null ||
+                          widget.onPrivacyOptionsTap != null) ...[
                         const SizedBox(height: 24),
                         _staggered(5, _buildFooter()),
                       ],
@@ -1277,15 +1282,33 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
 
   Widget _buildFooter() {
     return Center(
-      child: TextButton.icon(
-        onPressed: widget.onPrivacyPolicyTap,
-        icon: const Icon(Icons.privacy_tip_outlined,
-            size: 16, color: Colors.white70),
-        label: Text(_s.privacyPolicy,
-            style: const TextStyle(
-                color: Colors.white70,
-                decoration: TextDecoration.underline,
-                fontSize: 12.5)),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 4,
+        children: [
+          if (widget.onPrivacyPolicyTap != null)
+            TextButton.icon(
+              onPressed: widget.onPrivacyPolicyTap,
+              icon: const Icon(Icons.privacy_tip_outlined,
+                  size: 16, color: Colors.white70),
+              label: Text(_s.privacyPolicy,
+                  style: const TextStyle(
+                      color: Colors.white70,
+                      decoration: TextDecoration.underline,
+                      fontSize: 12.5)),
+            ),
+          if (widget.onPrivacyOptionsTap != null)
+            TextButton.icon(
+              onPressed: widget.onPrivacyOptionsTap,
+              icon: const Icon(Icons.tune_rounded,
+                  size: 16, color: Colors.white70),
+              label: Text(_s.privacyOptions,
+                  style: const TextStyle(
+                      color: Colors.white70,
+                      decoration: TextDecoration.underline,
+                      fontSize: 12.5)),
+            ),
+        ],
       ),
     );
   }

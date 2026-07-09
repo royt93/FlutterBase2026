@@ -73,9 +73,20 @@ class _ReadyAdapter implements AdProviderAdapter {
 }
 
 class _DemoAdScreen extends AdScreen {
-  const _DemoAdScreen({required this.onInter, required this.onReward});
+  const _DemoAdScreen({
+    required this.onInter,
+    required this.onReward,
+    this.disclosureTitle,
+    this.disclosureSubtitle,
+    this.disclosureButtonLabel,
+    this.disclosureCancelLabel,
+  });
   final void Function(bool) onInter;
   final void Function(bool) onReward;
+  final String? disclosureTitle;
+  final String? disclosureSubtitle;
+  final String? disclosureButtonLabel;
+  final String? disclosureCancelLabel;
 
   @override
   State<_DemoAdScreen> createState() => _DemoAdScreenState();
@@ -98,7 +109,13 @@ class _DemoAdScreenState extends AdScreenState<_DemoAdScreen> {
           ),
           ElevatedButton(
             key: const Key('reward'),
-            onPressed: () => showRewardedAd(onEarnedReward: widget.onReward),
+            onPressed: () => showRewardedAd(
+              onEarnedReward: widget.onReward,
+              disclosureTitle: widget.disclosureTitle,
+              disclosureSubtitle: widget.disclosureSubtitle,
+              disclosureButtonLabel: widget.disclosureButtonLabel,
+              disclosureCancelLabel: widget.disclosureCancelLabel,
+            ),
             child: const Text('reward'),
           ),
         ],
@@ -237,6 +254,78 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(adapter.showRewardedCalls, 0,
           reason: 'disposed screen must never reach AdManager.showRewardedAd');
+      expect(reward, isFalse);
+    });
+  });
+
+  // T22 — disclosureTitle opts a caller into a confirm dialog before the
+  // rewarded ad plays. Omitted-disclosureTitle path is already pinned by
+  // the earlier tests in this file (none pass it).
+  group('rewarded disclosure hook', () {
+    late _ReadyAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _ReadyAdapter();
+      adapter.rewardedSlot.beginReload();
+      adapter.rewardedSlot.markReady();
+      AdManager().debugSetAdapter(adapter);
+    });
+
+    tearDown(() => AdManager().debugSetAdapter(null));
+
+    testWidgets('confirmed → proceeds to ad flow, reward true', (tester) async {
+      bool? reward;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (_) {},
+          onReward: (v) => reward = v,
+          disclosureTitle: 'Earn 50 coins',
+          disclosureSubtitle: 'Watch a short ad to continue.',
+          disclosureButtonLabel: 'Watch ad',
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('reward')));
+      await tester.pump(); // build disclosure dialog
+
+      expect(find.text('Earn 50 coins'), findsOneWidget);
+      await tester.tap(find.text('Watch ad'));
+      await tester.pump(); // dismiss dialog, start buffer delay
+      await tester.pump(const Duration(seconds: 2)); // let buffer timer fire
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.showRewardedCalls, 1,
+          reason: 'confirming the disclosure must still reach the real ad');
+      expect(reward, isTrue);
+    });
+
+    testWidgets('cancelled → onEarnedReward(false), ad never shown',
+        (tester) async {
+      bool? reward;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (_) {},
+          onReward: (v) => reward = v,
+          disclosureTitle: 'Earn 50 coins',
+          disclosureCancelLabel: 'Không, cảm ơn',
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('reward')));
+      await tester.pump();
+
+      expect(find.text('Không, cảm ơn'), findsOneWidget,
+          reason: 'disclosureCancelLabel must override the English default');
+      await tester.tap(find.text('Không, cảm ơn'));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.showRewardedCalls, 0,
+          reason: 'declining the disclosure must never reach the ad flow');
       expect(reward, isFalse);
     });
   });

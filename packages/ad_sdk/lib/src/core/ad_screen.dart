@@ -78,19 +78,23 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     SafeLogger.d(_tag, 'showInterstitialAd pre-check result: canShow=$canShow');
 
     if (!canShow) {
-      SafeLogger.d(_tag, 'showInterstitialAd ⏭️ pre-check failed → skip dialog');
+      SafeLogger.d(
+          _tag, 'showInterstitialAd ⏭️ pre-check failed → skip dialog');
       onDone(false);
       return;
     }
 
-    SafeLogger.d(_tag, 'showInterstitialAd ✅ pre-check passed → showing dialog buffer');
+    SafeLogger.d(
+        _tag, 'showInterstitialAd ✅ pre-check passed → showing dialog buffer');
     AdLoadingDialog.showAdBuffer(context, onComplete: () {
       if (!mounted || _isDisposed) {
-        SafeLogger.d(_tag, 'showInterstitialAd ⏭️ widget gone after dialog buffer');
+        SafeLogger.d(
+            _tag, 'showInterstitialAd ⏭️ widget gone after dialog buffer');
         onDone(false);
         return;
       }
-      SafeLogger.d(_tag, 'showInterstitialAd → calling AdManager.showInterstitial()');
+      SafeLogger.d(
+          _tag, 'showInterstitialAd → calling AdManager.showInterstitial()');
       AdManager().showInterstitial(
         placement: placement,
         onDoneFlow: (result) {
@@ -117,11 +121,23 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   /// [vipAutoGrant] is `true`, the reward is auto-granted without showing an
   /// ad. When [vipAutoGrant] is `false` (default), the SDK behaves like
   /// "no ad available" — caller decides reward outcome.
-  void showRewardedAd({
+  ///
+  /// [disclosureTitle] (optional): when set, a confirm dialog naming the
+  /// reward is shown right before the ad plays, so the user explicitly opts
+  /// in instead of an ad appearing unannounced. Omitted (default): unchanged
+  /// behaviour — straight to the ad after the ready/throttle pre-check.
+  /// [disclosureButtonLabel]/[disclosureCancelLabel] localize the two dialog
+  /// actions; both default to English so non-English callers should pass
+  /// their own (e.g. a `vi_VN` host should not rely on the fallback).
+  Future<void> showRewardedAd({
     required void Function(bool) onEarnedReward,
     bool vipAutoGrant = false,
     AdPlacement placement = AdPlacement.unspecified,
-  }) {
+    String? disclosureTitle,
+    String? disclosureSubtitle,
+    String? disclosureButtonLabel,
+    String? disclosureCancelLabel,
+  }) async {
     SafeLogger.d(
       _tag,
       'showRewardedAd called from $runtimeType, '
@@ -140,7 +156,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
         SafeLogger.d(_tag, 'showRewardedAd ✅ VIP + opt-in → auto-reward');
         onEarnedReward(true);
       } else {
-        SafeLogger.d(_tag, 'showRewardedAd ⏭️ VIP without opt-in → false (caller chooses)');
+        SafeLogger.d(_tag,
+            'showRewardedAd ⏭️ VIP without opt-in → false (caller chooses)');
         onEarnedReward(false);
       }
       return;
@@ -151,7 +168,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
 
     if (!canShow) {
       // No valid ad — show top toast using the configured message, then notify caller.
-      SafeLogger.d(_tag, 'showRewardedAd ⏭️ no valid ad → showing TopToast + earned=false');
+      SafeLogger.d(_tag,
+          'showRewardedAd ⏭️ no valid ad → showing TopToast + earned=false');
       TopToast.show(
         context,
         icon: Icons.hourglass_top_rounded,
@@ -162,7 +180,27 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       return;
     }
 
-    SafeLogger.d(_tag, 'showRewardedAd ✅ pre-check passed → showing dialog buffer');
+    if (disclosureTitle != null) {
+      final proceed = await _showRewardDisclosure(
+        title: disclosureTitle,
+        subtitle: disclosureSubtitle,
+        buttonLabel: disclosureButtonLabel,
+        cancelLabel: disclosureCancelLabel,
+      );
+      if (!proceed) {
+        SafeLogger.d(_tag, 'showRewardedAd ⏭️ disclosure declined → false');
+        onEarnedReward(false);
+        return;
+      }
+      if (!mounted || _isDisposed) {
+        SafeLogger.d(_tag, 'showRewardedAd ⏭️ widget gone after disclosure');
+        onEarnedReward(false);
+        return;
+      }
+    }
+
+    SafeLogger.d(
+        _tag, 'showRewardedAd ✅ pre-check passed → showing dialog buffer');
     AdLoadingDialog.showAdBuffer(context, onComplete: () {
       if (!mounted || _isDisposed) {
         SafeLogger.d(_tag, 'showRewardedAd ⏭️ widget gone after dialog buffer');
@@ -181,6 +219,35 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     });
   }
 
+  /// Small confirm dialog shown before a rewarded ad plays when the caller
+  /// passes a [disclosureTitle] to [showRewardedAd] — explicit opt-in instead
+  /// of an ad appearing with no warning. Returns `true` if the user tapped
+  /// the confirm action, `false` on Cancel or dismissal.
+  Future<bool> _showRewardDisclosure({
+    required String title,
+    String? subtitle,
+    String? buttonLabel,
+    String? cancelLabel,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: subtitle == null ? null : Text(subtitle),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(cancelLabel ?? 'Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(buttonLabel ?? 'Watch ad'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
 
   @override
   void dispose() {

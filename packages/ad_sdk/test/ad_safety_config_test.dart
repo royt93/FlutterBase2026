@@ -343,6 +343,27 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────
+  // dailyCapReached
+  // ─────────────────────────────────────────────────
+  group('dailyCapReached', () {
+    test('false when below the daily cap', () async {
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(maxFullscreenAdsPerDay: 3));
+      await prefs.incrementDailyAdCount();
+      expect(AdSafetyConfig.dailyCapReached(), isFalse);
+    });
+
+    test('true once the daily cap is reached', () async {
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(maxFullscreenAdsPerDay: 3));
+      await prefs.incrementDailyAdCount();
+      await prefs.incrementDailyAdCount();
+      await prefs.incrementDailyAdCount();
+      expect(AdSafetyConfig.dailyCapReached(), isTrue);
+    });
+  });
+
+  // ─────────────────────────────────────────────────
   // canShowAppOpenOnResume
   // ─────────────────────────────────────────────────
   group('canShowAppOpenOnResume', () {

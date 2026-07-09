@@ -1112,9 +1112,21 @@ class HomeScreen extends AdScreen {
 class _HomeScreenState extends AdScreenState<HomeScreen> {
   Widget buildBanner();                                  // anchored adaptive banner
   void showInterstitialAd({required onDone, ...});       // pre-check + buffer + show
-  void showRewardedAd({required onEarnedReward, ...});   // same
+  Future<void> showRewardedAd({                          // pre-check + buffer + show
+    required onEarnedReward,
+    vipAutoGrant,
+    placement,
+    disclosureTitle,          // set → confirm dialog before the ad plays
+    disclosureSubtitle,
+    disclosureButtonLabel,     // default 'Watch ad'
+    disclosureCancelLabel,     // default 'Cancel' — localize for non-English hosts
+  });
 }
 ```
+
+`disclosureTitle` is opt-in: omit it and the call is unchanged (straight to the ad after
+the ready/throttle pre-check). Pass it to show a small confirm dialog naming the reward
+first — declining calls `onEarnedReward(false)` and never reaches the ad.
 
 ### `VipManager`
 

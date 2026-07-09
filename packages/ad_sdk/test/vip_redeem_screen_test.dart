@@ -83,4 +83,36 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.text('Privacy Policy'), findsOneWidget);
   });
+
+  testWidgets('privacy-options footer hidden when no onPrivacyOptionsTap',
+      (tester) async {
+    useTallSurface(tester);
+    await tester
+        .pumpWidget(MaterialApp(home: VipRedeemScreen(publicKeyBase64: pub)));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Privacy Options'), findsNothing);
+
+    await tester.pumpWidget(MaterialApp(
+        home:
+            VipRedeemScreen(publicKeyBase64: pub, onPrivacyOptionsTap: () {})));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('Privacy Options'), findsOneWidget);
+  });
+
+  testWidgets('tapping privacy-options footer invokes onPrivacyOptionsTap',
+      (tester) async {
+    useTallSurface(tester);
+    var tapped = false;
+    await tester.pumpWidget(MaterialApp(
+        home: VipRedeemScreen(
+            publicKeyBase64: pub, onPrivacyOptionsTap: () => tapped = true)));
+    // Entry stagger animation is 1100ms; a repeating pulse controller means
+    // pumpAndSettle never quiesces, so advance a fixed duration instead.
+    await tester.pump(const Duration(milliseconds: 1200));
+
+    await tester.tap(find.text('Privacy Options'));
+    await tester.pump();
+
+    expect(tapped, isTrue);
+  });
 }

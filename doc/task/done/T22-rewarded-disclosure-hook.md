@@ -1,7 +1,7 @@
 # T22 — `AdScreenState.showRewardedAd()` thiếu disclosure hook cho reward
 
 - **REQ:** 3, 7 (đúng pháp lý theo loại ad)
-- **Priority:** P2 · **Severity:** LOW · **Status:** todo
+- **Priority:** P2 · **Severity:** LOW · **Status:** done
 - **Nguồn:** `doc/audit/audit_gemini.md` — audit pháp lý theo loại ad (round mới, 2026-07-08)
 - **Files dự kiến:** `packages/ad_sdk/lib/src/core/ad_screen.dart` (`showRewardedAd`), có thể thêm 1 widget nhỏ tái dùng pattern của `vip_redeem_screen.dart`
 
@@ -16,6 +16,6 @@ Nhưng helper generic `AdScreenState.showRewardedAd()` (dùng cho bất kỳ hos
 Thêm optional param cho `showRewardedAd()` (ví dụ `rewardDescription`/`onShowDisclosure` callback), hoặc 1 widget nhỏ `RewardedAdDisclosureSheet` tái dùng copy pattern của `vip_redeem_screen.dart`, để integrator mới có disclosure "miễn phí" thay vì phải tự nhớ viết.
 
 ## Acceptance criteria
-- [ ] `showRewardedAd()` có optional disclosure path (không breaking API cũ — param optional, default giữ nguyên behavior).
-- [ ] Test mới xác nhận disclosure hiển thị trước khi gọi native ad khi param được truyền.
-- [ ] `flutter analyze` sạch, test SDK xanh.
+- [x] `showRewardedAd()` có optional disclosure path (`disclosureTitle`/`disclosureSubtitle`/`disclosureButtonLabel`, param optional, default giữ nguyên behavior — signature đổi `void` → `Future<void> ... async`, non-breaking nhờ Dart void-covariance).
+- [x] Test mới xác nhận disclosure hiển thị trước khi gọi native ad khi param được truyền (`test/ad_screen_test.dart` group "rewarded disclosure hook" +2: confirm → proceeds to ad, cancel → `onEarnedReward(false)` không gọi ad).
+- [x] `flutter analyze` sạch, test SDK xanh.

@@ -6,6 +6,37 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added — Privacy Options footer button on VipRedeemScreen (T28)
+- `VipRedeemScreen` gained `onPrivacyOptionsTap` (`VoidCallback?`) and
+  `VipRedeemStrings.privacyOptions`, mirroring the existing
+  `onPrivacyPolicyTap`/`privacyPolicy` pair. The footer now renders whichever
+  of the two buttons has a non-null callback (previously only the privacy
+  policy button existed). Closes the gap where `AdManager().showPrivacyOptions()`
+  (T06) had no host call site — GDPR requires a durable re-consent entry
+  point, not just a one-time policy link. Test: `test/vip_redeem_screen_test.dart`
+  (footer hidden/shown/tap cases for `onPrivacyOptionsTap`).
+
+### Added — rewarded disclosure hook on `AdScreenState.showRewardedAd` (T22)
+- `showRewardedAd` gained optional `disclosureTitle`/`disclosureSubtitle`/
+  `disclosureButtonLabel`/`disclosureCancelLabel` params. When
+  `disclosureTitle` is set, a confirm dialog naming the reward is shown right
+  before the ad plays; declining calls `onEarnedReward(false)` and never
+  reaches the ad. Omitted (default): behaviour is unchanged — return type
+  changed `void` → `Future<void>`, non-breaking via Dart's void-return
+  covariance. Test: `test/ad_screen_test.dart` (`rewarded disclosure hook`
+  group — confirm/cancel paths).
+
+### Added — load-time daily safety cap gate (T21)
+- `AdSafetyConfig.dailyCapReached()` is a new pure read-only check (no
+  CTR-anomaly side effects, unlike `canShowFullscreenAd()`). `loadAppOpenAd`/
+  `loadInterstitial`/`loadRewardedAd` and the periodic `_retryRefillAds` scan
+  now skip preloading once the daily fullscreen-ad cap is hit — previously
+  the cap was only enforced at *show* time, so a capped-out user kept
+  burning ad-network load requests that could never convert. VIP members are
+  unaffected (the existing VIP guard already returns before this check runs
+  in every call site). Test: `test/daily_cap_load_gate_test.dart`,
+  `test/ad_safety_config_test.dart` (`dailyCapReached` group).
+
 ### Fixed — trial hardening: anti clock-rollback + grace-disabled footgun (T17)
 - `VipEntry.isActive`/`remaining` now also check `now.isBefore(grantedAt)` —
   previously only `now.isBefore(expiresAt)` was checked, so rolling the

@@ -1151,6 +1151,11 @@ class AdManager with WidgetsBindingObserver {
       onAdLoaded?.call(false);
       return;
     }
+    if (AdSafetyConfig.dailyCapReached()) {
+      SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — daily cap reached');
+      onAdLoaded?.call(false);
+      return;
+    }
     if (!_canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — consent not granted (UMP)');
       onAdLoaded?.call(false);
@@ -1351,6 +1356,10 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — VIP member');
       return;
     }
+    if (AdSafetyConfig.dailyCapReached()) {
+      SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — daily cap reached');
+      return;
+    }
     if (!_canRequestAds) {
       SafeLogger.d(
           _tag, '⏭️ loadInterstitial skipped — consent not granted (UMP)');
@@ -1445,6 +1454,10 @@ class AdManager with WidgetsBindingObserver {
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — VIP member');
+      return;
+    }
+    if (AdSafetyConfig.dailyCapReached()) {
+      SafeLogger.d(_tag, '⏭️ loadRewarded skipped — daily cap reached');
       return;
     }
     if (!_canRequestAds) {
@@ -1904,6 +1917,10 @@ class AdManager with WidgetsBindingObserver {
     // bailing here keeps the periodic scan from logging/iterating pointlessly
     // and is a defense-in-depth backstop if a future load*() drops its guard.
     if (_isVipMember) return;
+    // Same defense-in-depth rationale as the VIP guard above: each load*()
+    // already checks the daily cap, but bailing here stops the periodic
+    // scan from even scheduling the unawaited loads once capped.
+    if (AdSafetyConfig.dailyCapReached()) return;
     SafeLogger.d(
       _tag,
       () => '⏲️ retry refill scan — vip=$_isVipMember '

@@ -301,6 +301,13 @@ class AdSafetyConfig {
     return result;
   }
 
+  /// Pure read-only check: has the daily fullscreen-ad cap already been hit?
+  /// Unlike [canShowFullscreenAd], has no side effects (no CTR-anomaly
+  /// bookkeeping) — safe to call before *loading* an ad, not just showing one,
+  /// so preload doesn't burn network requests that can never convert.
+  static bool dailyCapReached() =>
+      (_prefs?.getDailyAdCount() ?? 0) >= _params.maxFullscreenAdsPerDay;
+
   static AdSafetyResult _canShowFullscreenAdStrict() {
     final now = DateTime.now().millisecondsSinceEpoch;
 
