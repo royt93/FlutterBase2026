@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import '../adaptive/adaptive_frequency.dart';
@@ -24,6 +23,11 @@ class AdEventLog {
   final AdPreferences _prefs;
   final int _maxEntries;
   final List<Map<String, dynamic>> _entries = [];
+
+  /// Chains every [_persist] call after the previous one so concurrent
+  /// `_append`s can't race their `setString` writes and finish out of
+  /// order — each persist always encodes the latest [_entries] snapshot.
+  Future<void> _persistChain = Future.value();
 
   /// Read-only view of every log entry, oldest first.
   List<Map<String, dynamic>> get entries => List.unmodifiable(_entries);
@@ -75,7 +79,13 @@ class AdEventLog {
     if (_entries.length > _maxEntries) {
       _entries.removeRange(0, _entries.length - _maxEntries);
     }
-    unawaited(_persist());
+    _schedulePersist();
+  }
+
+  void _schedulePersist() {
+    _persistChain = _persistChain.then((_) => _persist()).catchError((e) {
+      SafeLogger.w(_tag, 'compliance log persist failed: $e');
+    });
   }
 
   Future<void> _persist() => _prefs.setComplianceLogRaw(jsonEncode(_entries));
@@ -94,7 +104,8 @@ class AdEventLog {
 
   Future<void> clear() async {
     _entries.clear();
-    await _persist();
+    _schedulePersist();
+    await _persistChain;
   }
 }
 

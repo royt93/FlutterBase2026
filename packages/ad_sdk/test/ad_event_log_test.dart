@@ -165,6 +165,23 @@ void main() {
       final log = AdEventLog(prefs);
       expect(log.entries, isEmpty);
     });
+
+    // T23 re-audit fix: rapid-fire recordEvent calls used to each fire an
+    // unawaited setString — concurrent writes could finish out of order and
+    // leave a stale, truncated snapshot persisted. Persists are now chained.
+    test('rapid successive recordEvent calls persist all entries in order',
+        () async {
+      final log = AdEventLog(prefs);
+      for (var i = 0; i < 20; i++) {
+        log.recordEvent(loadEvent(), timestampMs: i);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final reloaded = AdEventLog(prefs);
+      expect(reloaded.entries, hasLength(20));
+      expect(reloaded.entries.map((e) => e['timestampMs']),
+          List.generate(20, (i) => i));
+    });
   });
 
   group('clear', () {

@@ -104,6 +104,13 @@ class AdSafetyParams {
   /// **Set to false in production** — bypasses every safety check.
   final bool dryRun;
 
+  /// T26 Phase 1: max ms between a fullscreen ad and a backgrounding for the
+  /// `ad_to_background` diagnostic signal to still count as "shortly after"
+  /// (default: 300 000 = 5 min). `_lastFullscreenAdTime` itself is never
+  /// cleared, so without this window the signal would fire on every
+  /// backgrounding for the rest of the session after just one ad.
+  final int adToBackgroundSignalWindowMs;
+
   const AdSafetyParams({
     this.minTimeBetweenFullscreenAds = 60000,
     this.maxFullscreenAdsPerSession = 6,
@@ -115,6 +122,7 @@ class AdSafetyParams {
     this.suspiciousCtrThreshold = 0.30,
     this.maxRapidResumesPerMinute = 3,
     this.dryRun = false,
+    this.adToBackgroundSignalWindowMs = 300000,
   });
 
   // ─── Presets ──────────────────────────────────────────────────────────────
@@ -166,6 +174,7 @@ class AdSafetyParams {
     double? suspiciousCtrThreshold,
     int? maxRapidResumesPerMinute,
     bool? dryRun,
+    int? adToBackgroundSignalWindowMs,
   }) {
     return AdSafetyParams(
       minTimeBetweenFullscreenAds:
@@ -185,6 +194,8 @@ class AdSafetyParams {
       maxRapidResumesPerMinute:
           maxRapidResumesPerMinute ?? this.maxRapidResumesPerMinute,
       dryRun: dryRun ?? this.dryRun,
+      adToBackgroundSignalWindowMs:
+          adToBackgroundSignalWindowMs ?? this.adToBackgroundSignalWindowMs,
     );
   }
 
@@ -219,6 +230,13 @@ class AdSafetyConfig {
   static int _lastFullscreenAdTime = 0;
   static int _fullscreenAdsShownInSession = 0;
   static int _lastBackgroundTime = 0;
+  // T26 Phase 1: one-shot guard so `background_to_resume` fires at most once
+  // per backgrounding — `_lastBackgroundTime` itself can't be cleared after
+  // recording since the unbounded `minTimeAppOpenResume` gate below also
+  // reads it, so a `resumed` firing twice without an intervening `paused`
+  // (permission dialogs, notification-shade dips) would otherwise re-emit
+  // stale signal data forever.
+  static bool _backgroundToResumeSignalPending = false;
   static bool _isColdStart = true;
   static final List<int> _clickTimestamps = [];
   static int _suspiciousPauseUntil = 0;
@@ -229,6 +247,13 @@ class AdSafetyConfig {
   static int _totalClicks = 0;
   static int _suspiciousViolationCount = 0;
   static int _lastViolationTimestamp = 0;
+  // T24 re-audit fix: violations already reflected by another additive risk
+  // score component (currently CTR anomalies, which feed `ctrComponent`
+  // directly off the same `ctr` value) must not also inflate
+  // `violationComponent` — that was double-penalising one signal under two
+  // labels. `_suspiciousViolationCount` above still counts every violation
+  // for the progressive-cooldown escalation, unchanged.
+  static int _scoreableViolationCount = 0;
   static AdPreferences? _prefs;
 
   /// Sink for [AdAnomalyEvent] (T25), set by [AdManager] at init to avoid a
@@ -333,6 +358,9 @@ class AdSafetyConfig {
         _triggerSuspiciousPause(
           'CTR anomaly: ${(ctr * 100).toInt()}% '
           '(threshold: ${(_params.suspiciousCtrThreshold * 100).toInt()}%)',
+          // Same `ctr` value already feeds `ctrComponent` directly below —
+          // don't also inflate `violationComponent` for it.
+          countsTowardRiskScore: false,
         );
         return AdSafetyResult(false, 'CTR too high: ${(ctr * 100).toInt()}%');
       }
@@ -349,8 +377,11 @@ class AdSafetyConfig {
   static AdSafetyResult canShowAppOpenOnResume() {
     // T26 Phase 1: proxy signal (b) — gap between the last backgrounding and
     // this resume. Diagnostic only, recorded before any gate so it always
-    // fires exactly once per resume regardless of the strict-check outcome.
-    if (_lastBackgroundTime > 0) {
+    // fires regardless of the strict-check outcome. Gated on the one-shot
+    // flag (not just `_lastBackgroundTime > 0`) so a `resumed` firing twice
+    // without an intervening `paused` doesn't re-emit the same stale gap.
+    if (_backgroundToResumeSignalPending && _lastBackgroundTime > 0) {
+      _backgroundToResumeSignalPending = false;
       final now = DateTime.now().millisecondsSinceEpoch;
       AdaptiveFrequencySignals.record(
         'background_to_resume',
@@ -485,15 +516,19 @@ class AdSafetyConfig {
   static void recordAppWentBackground() {
     final now = DateTime.now().millisecondsSinceEpoch;
     _lastBackgroundTime = now;
+    _backgroundToResumeSignalPending = true;
     SafeLogger.d(_tag, '📊 App went to background');
     // T26 Phase 1: proxy signal (a) — did this backgrounding happen shortly
     // after a fullscreen ad? Diagnostic only, no cap is affected.
+    // `_lastFullscreenAdTime` is never cleared once set (it's also read by
+    // the unbounded throttle checks above), so this needs its own freshness
+    // window — otherwise it fires on every backgrounding for the rest of the
+    // session after just one ad.
     if (_lastFullscreenAdTime > 0) {
-      AdaptiveFrequencySignals.record(
-        'ad_to_background',
-        now,
-        now - _lastFullscreenAdTime,
-      );
+      final gap = now - _lastFullscreenAdTime;
+      if (gap <= _params.adToBackgroundSignalWindowMs) {
+        AdaptiveFrequencySignals.record('ad_to_background', now, gap);
+      }
     }
   }
 
@@ -506,23 +541,34 @@ class AdSafetyConfig {
     _resumeTimestamps.clear();
     _totalImpressions = 0;
     _totalClicks = 0;
+    // T24 re-audit fix: the click-spam sliding window is per-session state
+    // too — leaving it here meant clicks from before a reset still counted
+    // toward the spam threshold afterward.
+    _clickTimestamps.clear();
+    // T24 re-audit fix: violation history is per-session, not a lifetime
+    // ban — leaving it set here meant only the rarely-triggered
+    // resetForReinit() ever cleared it, so a session reset (Reset button /
+    // test isolation) looked full but silently left old violations alive.
+    _suspiciousViolationCount = 0;
+    _scoreableViolationCount = 0;
+    _lastViolationTimestamp = 0;
+    // The active pause is derived from the violation count above — leaving
+    // it set here meant a reset session could still report suspended=true
+    // with 0 violations.
+    _suspiciousPauseUntil = 0;
+    _prefs?.setSuspiciousCount(0);
     SafeLogger.d(_tag, '🔄 Session reset');
     _refreshRiskScore();
   }
 
   /// Full reset for destroy() + re-initialize() flows.
-  /// Unlike [resetSession], this also resets [_isColdStart] and
-  /// [_suspiciousPauseUntil] so the SDK behaves as if freshly started.
+  /// Unlike [resetSession], this also resets [_isColdStart].
   static void resetForReinit() {
     resetSession();
     _isColdStart = true;
     _lastFullscreenAdTime = 0;
     _lastBackgroundTime = 0;
-    _suspiciousPauseUntil = 0;
-    _suspiciousViolationCount =
-        0; // Fix #35: reset violation count for clean reinit
-    _lastViolationTimestamp = 0;
-    _clickTimestamps.clear();
+    _backgroundToResumeSignalPending = false;
     AdaptiveFrequencySignals.reset();
     SafeLogger.d(_tag, '🔄 Full reinit reset (coldStart restored)');
     _refreshRiskScore();
@@ -567,9 +613,39 @@ class AdSafetyConfig {
   }
 
   // ════════════════ PROGRESSIVE COOLDOWN ════════════════
-  static void _triggerSuspiciousPause(String reason) {
+  /// T25 re-audit fix: halve [_suspiciousViolationCount] every 24h of good
+  /// behaviour since the last violation, mirroring the decay curve already
+  /// used to soften the risk-score display (`_computeRiskScore`). Without
+  /// this, a handful of old violations kept escalating the progressive
+  /// cooldown exponent forever, since the only full reset was
+  /// [resetForReinit] (rarely triggered in production).
+  static void _decayViolationCount() {
+    if (_lastViolationTimestamp == 0) return;
+    final hoursSince =
+        (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /
+            (60 * 60 * 1000);
+    final decayFactor = math.pow(0.5, hoursSince / 24);
+    if (_suspiciousViolationCount > 0) {
+      _suspiciousViolationCount =
+          (_suspiciousViolationCount * decayFactor).round();
+    }
+    if (_scoreableViolationCount > 0) {
+      _scoreableViolationCount =
+          (_scoreableViolationCount * decayFactor).round();
+    }
+  }
+
+  /// [countsTowardRiskScore]: false when this violation's signal is already
+  /// reflected in another additive `_computeRiskScore` component (see
+  /// [_scoreableViolationCount] doc) — it still always counts toward
+  /// [_suspiciousViolationCount] for the progressive-cooldown escalation
+  /// below, which must stay strong regardless of risk-score bookkeeping.
+  static void _triggerSuspiciousPause(String reason,
+      {bool countsTowardRiskScore = true}) {
+    _decayViolationCount();
     _suspiciousViolationCount++;
-    _prefs?.incrementSuspiciousCount();
+    if (countsTowardRiskScore) _scoreableViolationCount++;
+    _prefs?.setSuspiciousCount(_suspiciousViolationCount);
 
     final exponent = (_suspiciousViolationCount - 1).clamp(0, 4);
     int multiplier = 1;
@@ -619,7 +695,7 @@ class AdSafetyConfig {
         : 0.0;
     final ctrComponent = ctrRatio.clamp(0.0, 1.0) * 50;
 
-    var decayedViolations = _suspiciousViolationCount.toDouble();
+    var decayedViolations = _scoreableViolationCount.toDouble();
     if (_lastViolationTimestamp > 0) {
       final hoursSince =
           (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /

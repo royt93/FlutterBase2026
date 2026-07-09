@@ -1,13 +1,27 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Unit tests for AdSafetyConfig.
 ///
 /// NOTE: AdSafetyConfig uses static state, so each test group calls
 /// resetSession() between tests to ensure isolation.
 void main() {
-  setUp(() {
-    // Reset all static state before each test
+  late AdPreferences prefs;
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await AdPreferences.getInstance();
+  });
+
+  setUp(() async {
+    // Clear persisted state (daily count, suspicious count, ...) and re-init
+    // with default params before each test — some tests below call
+    // AdSafetyConfig.init(params: ...debug...) and never restore it, which
+    // would otherwise leak into whichever test runs next.
+    await prefs.clearAllData();
+    await AdSafetyConfig.init(prefs);
     AdSafetyConfig.resetSession();
   });
 
@@ -133,6 +147,86 @@ void main() {
       AdSafetyConfig.recordFullscreenAdShown();
       AdSafetyConfig.resetSession();
       expect(AdSafetyConfig.getStatus(), contains('session=0'));
+    });
+
+    // T24 re-audit fix: resetSession() used to leave violation state
+    // untouched (only resetForReinit() cleared it), so a "Reset session"
+    // action looked complete but silently kept old violation history alive.
+    test('also clears the suspicious violation count', () {
+      for (var i = 0; i < 4; i++) {
+        AdSafetyConfig.recordAdClick(); // 4th click > default cap of 3
+      }
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
+          greaterThan(0));
+
+      AdSafetyConfig.resetSession();
+
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 0);
+    });
+
+    test('also clears the persisted suspicious count in AdPreferences',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+      );
+      AdSafetyConfig.resetForReinit();
+
+      // Click cap is 999 in debug params — force a violation via CTR instead.
+      for (var i = 0; i < 5; i++) {
+        AdSafetyConfig.recordBannerImpression();
+      }
+      for (var i = 0; i < 5; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      AdSafetyConfig.canShowFullscreenAd(); // triggers a CTR-anomaly pause
+      expect(prefs.getSuspiciousCount(), greaterThan(0));
+
+      AdSafetyConfig.resetSession();
+      expect(prefs.getSuspiciousCount(), 0);
+    });
+  });
+
+  // ─────────────────────────────────────────────────
+  // Suspicious violation count decay (T25 re-audit fix)
+  // ─────────────────────────────────────────────────
+  group('suspicious violation count decay', () {
+    test(
+        'back-to-back violations with ~0 elapsed time increment normally '
+        '(decay factor ~1 when hoursSince is ~0)', () {
+      for (var i = 0; i < 4; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 1);
+
+      for (var i = 0; i < 4; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 2);
+    });
+
+    test('persists the running count via AdPreferences.setSuspiciousCount',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+      );
+      AdSafetyConfig.resetForReinit();
+
+      for (var i = 0; i < 5; i++) {
+        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordAdClick();
+      }
+      AdSafetyConfig.canShowFullscreenAd(); // 100% CTR — triggers a violation
+
+      final snapshotCount =
+          AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount;
+      expect(snapshotCount, greaterThan(0));
+      expect(prefs.getSuspiciousCount(), snapshotCount);
     });
   });
 

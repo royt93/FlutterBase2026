@@ -70,9 +70,8 @@ class AdPreferences {
 
   int getSuspiciousCount() => _prefs?.getInt(_keySuspiciousCount) ?? 0;
 
-  Future<void> incrementSuspiciousCount() async {
-    final current = getSuspiciousCount();
-    await _prefs?.setInt(_keySuspiciousCount, current + 1);
+  Future<void> setSuspiciousCount(int value) async {
+    await _prefs?.setInt(_keySuspiciousCount, value);
   }
 
   // ─── First-install VIP grace ──────────────────────────────────────────────

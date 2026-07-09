@@ -42,6 +42,26 @@ void main() {
       expect(signal.gapMs, greaterThanOrEqualTo(0));
     });
 
+    test(
+        'recordAppWentBackground does not record ad_to_background once the '
+        'fullscreen-ad gap exceeds the freshness window', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      // Negative window: any real (>=0ms) gap always exceeds it, so this
+      // deterministically exercises the "stale" branch without waiting out
+      // the real 5-minute production window.
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(adToBackgroundSignalWindowMs: -1),
+      );
+      AdSafetyConfig.resetForReinit();
+
+      AdSafetyConfig.recordFullscreenAdShown();
+      AdSafetyConfig.recordAppWentBackground();
+
+      expect(AdaptiveFrequencySignals.entries, isEmpty);
+    });
+
     test('canShowAppOpenOnResume with no prior background records nothing',
         () async {
       await initSafety();
@@ -60,6 +80,20 @@ void main() {
       final signal = AdaptiveFrequencySignals.entries.single;
       expect(signal.kind, 'background_to_resume');
       expect(signal.gapMs, greaterThanOrEqualTo(0));
+    });
+
+    test(
+        'canShowAppOpenOnResume called twice without an intervening '
+        'recordAppWentBackground only records background_to_resume once',
+        () async {
+      await initSafety();
+      AdSafetyConfig.recordAppWentBackground();
+      AdSafetyConfig.canShowAppOpenOnResume();
+      AdSafetyConfig.canShowAppOpenOnResume();
+
+      expect(AdaptiveFrequencySignals.entries, hasLength(1));
+      expect(
+          AdaptiveFrequencySignals.entries.single.kind, 'background_to_resume');
     });
 
     test('sink receives every recorded signal in order', () async {

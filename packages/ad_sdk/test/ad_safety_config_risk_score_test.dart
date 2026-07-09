@@ -64,7 +64,13 @@ void main() {
   });
 
   group('policyRiskScore — violation component', () {
-    test('CTR-anomaly suspicious pause raises the score', () {
+    // T24 re-audit fix: a CTR-anomaly violation's `ctr` value already feeds
+    // ctrComponent directly, so the pause it triggers must NOT also inflate
+    // violationComponent — that was double-penalising the same signal under
+    // two labels. (It still increments the progressive-cooldown counter —
+    // see ad_safety_config_test.dart.)
+    test('CTR-anomaly suspicious pause does not double-count into the score',
+        () {
       for (var i = 0; i < 5; i++) {
         AdSafetyConfig.recordBannerImpression();
       }
@@ -77,8 +83,33 @@ void main() {
       expect(result.canShow, isFalse);
 
       final afterGate = AdSafetyConfig.getPolicyRiskScore();
-      expect(afterGate, greaterThan(beforeGate));
+      expect(afterGate, beforeGate);
       expect(AdSafetyConfig.policyRiskScore.value, afterGate);
+    });
+
+    test(
+        'click-spam suspicious pause raises the score via the violation '
+        'component', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(maxClicksPerMinute: 2),
+      );
+      AdSafetyConfig.resetForReinit();
+
+      // No impressions recorded — ctrComponent stays 0, isolating the
+      // violation component.
+      final before = AdSafetyConfig.getPolicyRiskScore();
+      expect(before, 0);
+
+      for (var i = 0; i < 3; i++) {
+        AdSafetyConfig.recordAdClick(); // 3rd click > maxClicksPerMinute of 2
+      }
+
+      final after = AdSafetyConfig.getPolicyRiskScore();
+      expect(after, greaterThan(before));
+      expect(AdSafetyConfig.policyRiskScore.value, after);
     });
   });
 
