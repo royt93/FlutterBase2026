@@ -139,6 +139,21 @@ class AdPreferences {
     await _prefs?.setStringList(_keyRedeemedVipKids, set.toList());
   }
 
+  // ─── VIP grace-period expiry nudge (one-time-per-expiry ack) ──────────────
+  // Stores the `expiresAt` (millisSinceEpoch) already acknowledged, so a
+  // later stack/redeem that produces a NEW expiry naturally makes the nudge
+  // due again — no separate reset logic needed.
+
+  static const String _keyVipGraceNudgeAckExpiryMs =
+      'ad_sdk_vip_grace_nudge_ack_expiry_ms';
+
+  int? getVipGraceNudgeAckExpiryMs() =>
+      _prefs?.getInt(_keyVipGraceNudgeAckExpiryMs);
+
+  Future<void> setVipGraceNudgeAckExpiryMs(int expiryMs) async {
+    await _prefs?.setInt(_keyVipGraceNudgeAckExpiryMs, expiryMs);
+  }
+
   // ─── Compliance event log (T23, JSON-encoded ring buffer) ─────────────────
 
   static const String _keyComplianceLog = 'ad_sdk_compliance_event_log_v1';

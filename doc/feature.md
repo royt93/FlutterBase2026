@@ -51,6 +51,17 @@ Updated: 2026-06-16
     safety caps. `showRewardedAd` is re-entrancy-safe (`onDemandLoadTimeout` 15s).
   - Tests: SDK `vip_manager_stacking_test.dart` (8) + `rewarded VIP-bypass` (5);
     host `test/vip_screen_widget_test.dart` (5 widget + 1 integration).
+- **VIP grace-period expiry nudge (2026-07-09).** `VipManager` gains
+  `graceNudgeThreshold` (default 24h) + `graceNudgeDueListenable` +
+  `acknowledgeGraceNudge()`, folded into the existing `_scheduleNextExpiry`/
+  `_handleExpiry` timer (no second timer). Ack is keyed on
+  `expiresAt.millisecondsSinceEpoch` via `AdPreferences`, so a new
+  stack/redeem automatically makes the nudge due again. Host wires it in
+  `wifi_stressor_screen.dart` (`SnackBar` + navigate-to-`VipScreen` action);
+  SDK example `VipDemoPage` shows the same listenable. Tests:
+  `vip_manager_grace_nudge_test.dart` (5). Verified on Samsung SM-A507FN
+  (debug build) — no crash, correctly hidden when remaining time is above
+  threshold.
 - **Native build pin (historical):** app ships `google_mobile_ads 6.0.0` +
   `gma_mediation_applovin 2.5.1` + `applovin_max 4.6.0` via `dependency_overrides`
   (SDK 1.0.23 declares GMA ^7 but the hosted Dart is GMA-6-compatible). The
@@ -544,14 +555,3 @@ logged as deferred, not discarded.
   `AdConfig`/`AdManager` restructuring needed, just a second adapter instance +
   a comparison log sink; real per-slot routing (mentioned as a bigger lift) is
   explicitly out of scope for this version.
-- **VIP grace-period expiry nudge.** The signed-key + trial (`firstInstallVipGrace`)
-  system already tracks `expiresAt`/`remaining` per entry but currently gives
-  no UX signal before VIP lapses — the user just starts seeing ads again with
-  no warning. Add a one-time in-app nudge (banner or dialog, not a push
-  notification) when `remaining` crosses a threshold (e.g. 24h left), pointing
-  at the redeem/watch-ad-to-extend flow that already exists. Differentiating
-  because simple ad-wrapper SDKs treat VIP/trial as a binary flag with no
-  retention UX around the transition — this SDK already has the stacking +
-  watch-ad-to-extend mechanics to make a nudge actually actionable, most
-  competitors don't. Effort: S (~3-4h) — reactive `Obx` on the existing
-  `activeListenable`/`expiresAt`, no new persistence, no new native code.

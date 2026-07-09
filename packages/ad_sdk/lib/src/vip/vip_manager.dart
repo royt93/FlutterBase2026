@@ -27,7 +27,11 @@ import 'vip_entry.dart';
 /// Conflict policy (Q14A — latest expiry wins): adding a key that already
 /// exists keeps the entry whose `expiresAt` is the **latest** of the two.
 class VipManager {
-  VipManager(this._prefs, {this.maxStackDuration});
+  VipManager(
+    this._prefs, {
+    this.maxStackDuration,
+    this.graceNudgeThreshold = const Duration(hours: 24),
+  });
 
   static const String _tag = 'VipManager';
 
@@ -37,10 +41,19 @@ class VipManager {
   /// from `AdConfig.maxVipStackDuration`. `null` = uncapped. See [addVip].
   final Duration? maxStackDuration;
 
+  /// How long before an active entry's [expiresAt] the grace-period nudge
+  /// becomes due. Defaults to 24h; overridable (mainly for tests).
+  final Duration graceNudgeThreshold;
+
   final List<VipEntry> _entries = [];
   final ValueNotifier<bool> _activeNotifier = ValueNotifier<bool>(false);
   final StreamController<bool> _activeStream =
       StreamController<bool>.broadcast();
+
+  /// True once the active VIP window's remaining time has crossed
+  /// [graceNudgeThreshold] and hasn't been acknowledged yet for the current
+  /// [expiresAt]. See [acknowledgeGraceNudge].
+  final ValueNotifier<bool> _graceNudgeDueNotifier = ValueNotifier<bool>(false);
 
   /// Serialises every prefs write — concurrent `addVip` / `revokeVip` calls
   /// would otherwise race. Each save reads `_entries` at the moment its
@@ -90,6 +103,36 @@ class VipManager {
 
   /// Read-only snapshot of all entries (for UI listing).
   List<VipEntry> get entries => List.unmodifiable(_entries);
+
+  /// Listenable — true once the active VIP window's remaining time has
+  /// crossed [graceNudgeThreshold] and hasn't been acknowledged yet for the
+  /// current [expiresAt]. Host UI should show a one-time nudge pointing at
+  /// the redeem/watch-ad-to-extend flow, then call [acknowledgeGraceNudge].
+  ValueListenable<bool> get graceNudgeDueListenable => _graceNudgeDueNotifier;
+
+  /// Marks the current [expiresAt] as acknowledged so the nudge stops being
+  /// due — until a later stack/redeem produces a new (different) expiry.
+  void acknowledgeGraceNudge() {
+    final exp = expiresAt;
+    if (exp != null) {
+      unawaited(_prefs.setVipGraceNudgeAckExpiryMs(exp.millisecondsSinceEpoch));
+    }
+    _graceNudgeDueNotifier.value = false;
+  }
+
+  void _refreshGraceNudge() {
+    final exp = expiresAt;
+    final now = DateTime.now();
+    final due = isActive &&
+        exp != null &&
+        exp.isAfter(now) &&
+        exp.difference(now) <= graceNudgeThreshold &&
+        _prefs.getVipGraceNudgeAckExpiryMs() != exp.millisecondsSinceEpoch;
+    if (_graceNudgeDueNotifier.value != due) {
+      _graceNudgeDueNotifier.value = due;
+      SafeLogger.d(_tag, 'grace nudge due: $due');
+    }
+  }
 
   /// Normalise the user-supplied VIP key — trim + uppercase. Avoids
   /// accidental whitespace mismatches.
@@ -173,11 +216,16 @@ class VipManager {
       if (!_activeStream.isClosed) _activeStream.add(nowActive);
       SafeLogger.d(_tag, 'active state changed: $wasActive → $nowActive');
     }
+    // Independent of whether active-state itself flipped — remaining time
+    // alone can cross the grace-nudge threshold while still active.
+    _refreshGraceNudge();
   }
 
-  /// Re-arm [_expiryTimer] for the soonest active entry's `expiresAt`.
-  /// Cancels any existing timer first; if no active entries remain, the
-  /// timer stays cancelled (no work pending).
+  /// Re-arm [_expiryTimer] for whichever comes first: the soonest active
+  /// entry's `expiresAt`, or the moment the grace-nudge threshold will next
+  /// be crossed. Both share one timer/handler — [_handleExpiry] recomputes
+  /// everything on fire regardless of which reason woke it. Cancels any
+  /// existing timer first; if neither is pending, the timer stays cancelled.
   void _scheduleNextExpiry() {
     _expiryTimer?.cancel();
     _expiryTimer = null;
@@ -189,6 +237,15 @@ class VipManager {
         earliest = e.expiresAt;
       }
     }
+
+    final exp = expiresAt;
+    if (exp != null) {
+      final nudgeFireAt = exp.subtract(graceNudgeThreshold);
+      if (nudgeFireAt.isAfter(DateTime.now()) &&
+          (earliest == null || nudgeFireAt.isBefore(earliest))) {
+        earliest = nudgeFireAt;
+      }
+    }
     if (earliest == null) return;
 
     final delay = earliest.difference(DateTime.now());
@@ -198,7 +255,7 @@ class VipManager {
       Future.microtask(_handleExpiry);
       return;
     }
-    SafeLogger.d(_tag, () => '⏲️ next VIP expiry in ${delay.inSeconds}s');
+    SafeLogger.d(_tag, () => '⏲️ next VIP timer event in ${delay.inSeconds}s');
     _expiryTimer = Timer(delay, _handleExpiry);
   }
 
@@ -497,6 +554,7 @@ class VipManager {
     _expiryTimer?.cancel();
     _expiryTimer = null;
     _activeNotifier.dispose();
+    _graceNudgeDueNotifier.dispose();
     _activeStream.close();
   }
 }

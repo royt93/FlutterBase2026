@@ -99,10 +99,11 @@ Known accepted (not bugs) limitations carried forward: T06 host missing a re-con
 | T24 | Real-time policy risk score | 7 | P1 | — | ✅ done |
 | T25 | Anomaly/fraud alert stream (`AdAnomalyEvent`) | 7 | P2 | — | ✅ done |
 | T26 | Adaptive frequency capping — Phase 1 instrumentation only | 7 | P3 | — | ✅ done |
+| T27 | VIP grace-period expiry nudge (`graceNudgeThreshold` + one-time SnackBar) | 7 | P2 | — | ✅ done |
 
 *T21/T22 phát sinh từ audit mới `doc/audit/audit_gemini.md` (2026-07-08) — góc nhìn request-minimization/fill-rate + pháp lý theo loại ad, chưa nằm trong `audit_claude.md` gốc.*
 
-*T23-T26 = epic **"Trust & Analytics layer"** (quyết định user 2026-07-08, sau khi audit_gemini xác nhận compliance gần tuyệt đối → đóng gói thành sản phẩm độc quyền thay vì chỉ tuân thủ). Thứ tự làm: T23 trước (nền tảng event log), T24/T25 dùng chung, T26 làm sau cùng và CHỈ Phase 1 (instrumentation, không tự động điều chỉnh cap — xem cảnh báo rủi ro trong file task). Thay thế 2 ý tưởng "Shadow eCPM comparison" và "VIP grace-period expiry nudge" trong `doc/feature.md` làm hướng ưu tiên kế tiếp (2 ý tưởng đó chuyển 💭 idea, chưa pick).*
+*T23-T26 = epic **"Trust & Analytics layer"** (quyết định user 2026-07-08, sau khi audit_gemini xác nhận compliance gần tuyệt đối → đóng gói thành sản phẩm độc quyền thay vì chỉ tuân thủ). Thứ tự làm: T23 trước (nền tảng event log), T24/T25 dùng chung, T26 làm sau cùng và CHỈ Phase 1 (instrumentation, không tự động điều chỉnh cap — xem cảnh báo rủi ro trong file task). Thay thế 2 ý tưởng "Shadow eCPM comparison" và "VIP grace-period expiry nudge" trong `doc/feature.md` làm hướng ưu tiên kế tiếp. T27 (VIP grace nudge) đã pick + implement 2026-07-09; "Shadow eCPM comparison" vẫn ở 💭 idea, chưa pick.*
 
 ## Định nghĩa "Done" chung
 - Code + `flutter analyze` sạch, `dart format` áp dụng.

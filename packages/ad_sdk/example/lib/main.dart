@@ -1026,6 +1026,29 @@ class _VipDemoPageState extends State<VipDemoPage> {
                             child: Text(
                                 'Until ${exp.toLocal().toIso8601String().substring(0, 16)}'),
                           ),
+                        ValueListenableBuilder<bool>(
+                          valueListenable: vip.graceNudgeDueListenable,
+                          builder: (_, due, __) {
+                            if (!due) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.warning_amber,
+                                      color: Colors.orange, size: 18),
+                                  const SizedBox(width: 4),
+                                  const Expanded(
+                                      child: Text(
+                                          '⏳ VIP expiring soon — grace nudge due')),
+                                  TextButton(
+                                    onPressed: vip.acknowledgeGraceNudge,
+                                    child: const Text('Ack'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                         if (vip.entries.isNotEmpty) ...[
                           const Divider(),
                           const Text('Entries:',
