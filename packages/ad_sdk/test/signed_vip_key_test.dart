@@ -10,10 +10,24 @@ import 'dart:convert';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_redeemed_key_ledger.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// In-memory fake so the durable-ledger tests don't touch a real Keychain.
+class _FakeRedeemedKeyLedger extends RedeemedKeyLedger {
+  final Set<String> redeemed = {};
+
+  void seed(String kid) => redeemed.add(kid);
+
+  @override
+  Future<bool> isRedeemed(String kid) async => redeemed.contains(kid);
+
+  @override
+  Future<void> markRedeemed(String kid) async => redeemed.add(kid);
+}
 
 final _ed = Ed25519();
 
@@ -240,6 +254,49 @@ void main() {
       expect(second.status, VipRedeemStatus.alreadyUsed,
           reason: 'redeemed key ids must survive process restart via '
               'SharedPreferences, not just an in-memory guard');
+    });
+  });
+
+  group('redeemSignedKey — durable (iOS Keychain) ledger backstop', () {
+    // Simulates the scenario the plain SharedPreferences ledger cannot
+    // cover: an uninstall wipes `_prefs`, but the RedeemedKeyLedger's
+    // Keychain-backed store (mocked here) survives.
+    late AdPreferences prefs;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      prefs = await AdPreferences.getInstance();
+      await VipManager(prefs).revokeAll();
+    });
+
+    test(
+        'kid already present in the durable ledger is rejected even though '
+        'the SharedPreferences ledger (this "install") has never seen it',
+        () async {
+      final ledger = _FakeRedeemedKeyLedger()..seed('pre-redeemed');
+      final mgr = VipManager(prefs, redeemedKeyLedger: ledger);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mint(keyPair, seconds: 3600, kid: 'pre-redeemed');
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.status, VipRedeemStatus.alreadyUsed);
+      expect(mgr.isActive, isFalse);
+    });
+
+    test('successful redeem marks the kid into the durable ledger too',
+        () async {
+      final ledger = _FakeRedeemedKeyLedger();
+      final mgr = VipManager(prefs, redeemedKeyLedger: ledger);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mint(keyPair, seconds: 3600, kid: 'newly-redeemed');
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.ok, isTrue);
+      expect(ledger.redeemed, contains('newly-redeemed'));
     });
   });
 

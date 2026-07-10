@@ -182,6 +182,14 @@ class AdSlot {
     _firePending(false);
   }
 
+  /// Disposes [state]. Must be called exactly once, when the owning adapter
+  /// is torn down — an undisposed `ValueNotifier` leaks its listeners for the
+  /// adapter's lifetime.
+  void dispose() {
+    state.dispose();
+  }
+
   @override
-  String toString() => 'AdSlot($type, ${value.name}, fails=$consecutiveFailures)';
+  String toString() =>
+      'AdSlot($type, ${value.name}, fails=$consecutiveFailures)';
 }

@@ -107,6 +107,15 @@ void main() {
       expect(s.beginShow(), isTrue); // → showing
       expect(s.beginReload(), isFalse, reason: 'already showing');
     });
+
+    test('dispose() disposes the underlying notifier', () {
+      final s = AdSlot(type: AdSlotType.interstitial);
+      s.dispose();
+      expect(
+        () => s.state.addListener(() {}),
+        throwsFlutterError,
+      );
+    });
   });
 
   group('Backoff', () {

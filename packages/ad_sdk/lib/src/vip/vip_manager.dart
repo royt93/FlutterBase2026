@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../config/ad_config.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
+import '_redeemed_key_ledger.dart';
 import 'signed_vip_key.dart';
 import 'vip_dialog.dart';
 import 'vip_dialog_strings.dart';
@@ -31,11 +32,17 @@ class VipManager {
     this._prefs, {
     this.maxStackDuration,
     this.graceNudgeThreshold = const Duration(hours: 24),
-  });
+    RedeemedKeyLedger? redeemedKeyLedger,
+  }) : _redeemedKeyLedger = redeemedKeyLedger ?? RedeemedKeyLedger();
 
   static const String _tag = 'VipManager';
 
   final AdPreferences _prefs;
+
+  /// Durable (iOS Keychain) backstop for redeemed signed-key ids — survives
+  /// reinstall, unlike `_prefs`'s SharedPreferences-backed ledger. See
+  /// `_redeemed_key_ledger.dart`.
+  final RedeemedKeyLedger _redeemedKeyLedger;
 
   /// Optional cap on the total window produced by [addVip] stacking — sourced
   /// from `AdConfig.maxVipStackDuration`. `null` = uncapped. See [addVip].
@@ -492,12 +499,24 @@ class VipManager {
     _signedKidsInFlight.add(parsed.keyId);
 
     try {
+      // Durable cross-reinstall check (iOS Keychain; no-op elsewhere) — the
+      // in-flight Set above already claimed the kid synchronously so a
+      // same-process double-tap can't slip through; this catches a kid
+      // that was redeemed, then the app data/`_prefs` ledger was wiped by
+      // an uninstall + reinstall.
+      if (await _redeemedKeyLedger.isRedeemed(parsed.keyId)) {
+        SafeLogger.d(_tag,
+            'redeemSignedKey: kid ${parsed.keyId} already used (durable ledger)');
+        return const SignedVipRedeemResult.alreadyUsed();
+      }
+
       final entry = await addVip(
         key: 'SIGNED_${parsed.keyId}',
         duration: parsed.duration,
         stack: stack,
       );
       await _prefs.addRedeemedVipKeyId(parsed.keyId);
+      await _redeemedKeyLedger.markRedeemed(parsed.keyId);
       SafeLogger.d(
           _tag,
           () =>

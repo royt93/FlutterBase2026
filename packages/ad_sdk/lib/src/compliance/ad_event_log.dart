@@ -37,7 +37,12 @@ class AdEventLog {
     if (raw == null || raw.isEmpty) return;
     try {
       final decoded = jsonDecode(raw) as List;
-      _entries.addAll(decoded.cast<Map<String, dynamic>>());
+      // Drop entries missing a valid `timestampMs` here at load time — every
+      // reader (inRange, export) assumes `e['timestampMs'] as int` and would
+      // otherwise throw much later, far from the actual corrupt data.
+      _entries.addAll(decoded
+          .cast<Map<String, dynamic>>()
+          .where((e) => e['timestampMs'] is int));
     } catch (e) {
       SafeLogger.w(_tag, 'discarding corrupt persisted compliance log: $e');
     }

@@ -75,12 +75,31 @@ void main() {
 
       // dispose flushes the pending dismiss callback once and cancels the timer.
       await adapter.dispose();
-      expect(calls, 1, reason: 'dispose flushes the pending callback exactly once');
+      expect(calls, 1,
+          reason: 'dispose flushes the pending callback exactly once');
       expect(adapter.debugWatchdogArmed, isFalse);
 
       // Past the original cap — the cancelled timer must NOT fire again.
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(calls, 1, reason: 'cancelled watchdog must not double-fire');
+    });
+  });
+
+  group('AdMobAdapter.dispose() releases ValueNotifiers', () {
+    test('slot and banner notifiers are disposed, not just reset', () async {
+      final adapter = AdMobAdapter();
+      await adapter.dispose();
+
+      expect(() => adapter.appOpenSlot.state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => adapter.interstitialSlot.state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => adapter.rewardedSlot.state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => adapter.bannerSlot.state.addListener(() {}),
+          throwsFlutterError);
+      expect(
+          () => adapter.banner.isLoaded.addListener(() {}), throwsFlutterError);
     });
   });
 }

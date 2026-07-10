@@ -160,6 +160,10 @@ class AdManager with WidgetsBindingObserver {
         warnings.add('🚨 $label ad-unit id "$id" does not match AdMob\'s '
             'ca-app-pub-<16 digits>/<ad-unit id> format — looks like an '
             'AppLovin id (or a typo) was configured for the AdMob provider.');
+      } else if (!isAdMob && admobIdPattern.hasMatch(id)) {
+        warnings.add('🚨 $label ad-unit id "$id" matches AdMob\'s '
+            'ca-app-pub-<16 digits>/<ad-unit id> format — looks like an '
+            'AdMob id was pasted into the AppLovin config by mistake.');
       }
     }
 
@@ -301,6 +305,14 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam: shorten the reconnect debounce so tests need not wait 800 ms.
   @visibleForTesting
   set debugReconnectDebounce(Duration d) => _reconnectDebounce = d;
+
+  /// Test seam: observe the retry-timer generation counter. [_stopAdRetryTimer]
+  /// unconditionally bumps this — including from the re-init guard in
+  /// [initialize] that stops the previous retry timer + connectivity watch
+  /// before tearing down the old adapter, so a re-init without an explicit
+  /// [destroy] can't leak them.
+  @visibleForTesting
+  int get debugRetryGen => _retryGen;
 
   /// Test seam: drive the connectivity handler without the native plugin.
   @visibleForTesting
@@ -558,6 +570,11 @@ class AdManager with WidgetsBindingObserver {
     try {
       if (isInitialised) {
         SafeLogger.w(_tag, 'initialize called again — auto-disposing previous');
+        // Mirror destroy(): a re-init that skips these leaks the old
+        // connectivity subscription/retry timer, which then double-fires
+        // reconnect-triggered refills alongside the fresh adapter's own.
+        _stopAdRetryTimer();
+        _stopConnectivityWatch();
         await _disposeAdapter();
       }
 

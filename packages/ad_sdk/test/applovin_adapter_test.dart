@@ -292,4 +292,22 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   });
+
+  group('AppLovinAdapter.dispose() releases ValueNotifiers', () {
+    test('slot and banner notifiers are disposed, not just reset', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      await a.dispose();
+
+      expect(() => a.appOpenSlot.state.addListener(() {}), throwsFlutterError);
+      expect(() => a.interstitialSlot.state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => a.rewardedSlot.state.addListener(() {}), throwsFlutterError);
+      expect(() => a.bannerSlot.state.addListener(() {}), throwsFlutterError);
+      expect(() => a.banner.isLoaded.addListener(() {}), throwsFlutterError);
+      expect(() => a.appLovinBannerAdViewId.addListener(() {}),
+          throwsFlutterError);
+    });
+  });
 }

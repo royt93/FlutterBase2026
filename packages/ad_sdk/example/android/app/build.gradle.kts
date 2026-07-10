@@ -25,6 +25,7 @@ android {
         //   `adb uninstall com.roy.admobwrapper` before installing this demo.
         // Namespace stays at "com.example.ad_sdk_example" so existing
         // MainActivity.kt path under kotlin/com/example/... keeps working.
+        // demo-only — change this when copying the example into a real app.
         applicationId = "com.roy.admobwrapper"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion

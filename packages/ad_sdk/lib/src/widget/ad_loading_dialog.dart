@@ -25,6 +25,12 @@ class AdLoadingDialog {
   /// NavigatorState captured by [show] so [dismiss] can pop the right route.
   static NavigatorState? _activeNavigator;
 
+  /// Bumped by [resetState] to invalidate any [showAdBuffer] timer still
+  /// waiting on its `Future.delayed` — without this, a `resetState()` pop
+  /// mid-buffer leaves the old timer to fire later and pop whatever route
+  /// happens to be on top (a stranded/wrong-route pop).
+  static int _generation = 0;
+
   /// Reset static state — called by [AdManager.destroy()] to ensure
   /// _isShowing doesn't stay stuck true after a mid-dialog destroy.
   ///
@@ -36,6 +42,7 @@ class AdLoadingDialog {
     final wasShowing = _isShowing;
     _isShowing = false;
     _activeNavigator = null;
+    _generation++;
     if (wasShowing && nav != null) {
       try {
         nav.pop();
@@ -109,6 +116,8 @@ class AdLoadingDialog {
     // Old code: checked `context.mounted` AFTER await → if screen was disposed
     // during the wait, pop() was skipped → dialog hangs forever.
     final navigator = Navigator.of(context, rootNavigator: true);
+    _activeNavigator = navigator;
+    final myGen = ++_generation;
 
     showDialog(
       context: context,
@@ -121,6 +130,18 @@ class AdLoadingDialog {
 
     await Future.delayed(Duration(milliseconds: ms));
 
+    // ✅ FIX (T-stranded-dialog): resetState() may have already popped this
+    // exact dialog (and bumped _generation) while we were asleep in the
+    // delay above. If so, the dialog is gone and _isShowing/_activeNavigator
+    // already belong to whatever came next — popping again here would close
+    // an unrelated route.
+    if (myGen != _generation) {
+      SafeLogger.d(_tag,
+          'showAdBuffer: generation stale (resetState already handled this dialog), skipping pop');
+      onComplete();
+      return;
+    }
+
     // Always dismiss via pre-captured navigator — context.mounted is irrelevant here
     SafeLogger.d(_tag, 'showAdBuffer: timer done, dismissing dialog');
     try {
@@ -131,6 +152,7 @@ class AdLoadingDialog {
       SafeLogger.e(_tag, 'showAdBuffer: pop failed (navigator disposed?): $e');
     } finally {
       _isShowing = false;
+      _activeNavigator = null;
     }
 
     // Always call onComplete — screen-side callers guard with mounted/isDisposed

@@ -1,6 +1,8 @@
 // Unit tests for AdEventLog (T23) — the persisted ring buffer backing
 // AdManager.exportComplianceReport().
 
+import 'dart:convert';
+
 import 'package:applovin_admob_sdk/src/compliance/ad_event_log.dart';
 import 'package:applovin_admob_sdk/src/state/ad_event.dart';
 import 'package:applovin_admob_sdk/src/state/ad_placement.dart';
@@ -164,6 +166,21 @@ void main() {
       await prefs.setComplianceLogRaw('{not valid json');
       final log = AdEventLog(prefs);
       expect(log.entries, isEmpty);
+    });
+
+    // Fix #7: a valid JSON list where one entry is missing `timestampMs`
+    // (e.g. hand-edited storage, or a future schema change) must not throw
+    // — neither at load, nor later when inRange/export read `timestampMs`.
+    test('a valid entry survives alongside one missing timestampMs', () async {
+      await prefs.setComplianceLogRaw(jsonEncode([
+        {'kind': 'ad_event', 'timestampMs': 50, 'eventType': 'AdLoadEvent'},
+        {'kind': 'ad_event', 'eventType': 'AdLoadEvent'}, // missing timestampMs
+      ]));
+
+      final log = AdEventLog(prefs);
+      expect(log.entries, hasLength(1));
+      expect(log.entries.single['timestampMs'], 50);
+      expect(() => log.inRange(), returnsNormally);
     });
 
     // T23 re-audit fix: rapid-fire recordEvent calls used to each fire an

@@ -222,6 +222,15 @@ class AdMobAdapter implements AdProviderAdapter {
     banner.visible.value = true;
     _bannerRoutePaused = false;
 
+    // This adapter instance is discarded after dispose() — a fresh one is
+    // constructed on the next initialize() — so it's safe to permanently
+    // dispose the ValueNotifiers here rather than just resetting their value.
+    appOpenSlot.dispose();
+    interstitialSlot.dispose();
+    rewardedSlot.dispose();
+    bannerSlot.dispose();
+    banner.dispose();
+
     _admob = null;
     _config = null;
     // Reset to conservative so a re-init before consent re-applies stays npa=1.

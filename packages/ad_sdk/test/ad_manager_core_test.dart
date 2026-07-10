@@ -284,6 +284,27 @@ void main() {
       expect(w, isEmpty);
     });
 
+    test(
+        'release + AdMob-shaped id on AppLovin provider → format warning '
+        '(reverse T16 footgun)', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'k',
+            bannerId: 'ca-app-pub-9999999999999999/1111111111',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('banner'));
+      expect(w.single, contains('AdMob'));
+    });
+
     // ── T17: firstInstallVipGrace disabled footgun ──────────────────────────
     test('release + firstInstallVipGrace.disabled → one warning', () {
       final w = AdManager.releaseFootgunWarnings(
@@ -479,6 +500,45 @@ void main() {
       expect(adapter.showRewardedCalls, 0, reason: 'neither reached show');
       await f1; // first times out → false, releasing the guard
       expect(r1, isFalse);
+    });
+  });
+
+  group(
+      'initialize() re-init guard (Fix #5: stale retry timer/connectivity '
+      'watch leak)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      // Force isInitialised=true (config != null && adapter != null) via the
+      // existing injection seams — the real adapter.initialize() path (native
+      // plugins) isn't reachable in a plain `flutter test` run, but the guard
+      // this fix touches runs BEFORE that call, so this is enough to exercise it.
+      AdManager().debugSetAdapter(_FakeAdapter());
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    test(
+        're-entering initialize() while already initialised bumps the '
+        'retry generation (stops the stale timer + connectivity watch)',
+        () async {
+      expect(AdManager().isInitialised, isTrue);
+      final genBefore = AdManager().debugRetryGen;
+
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) {},
+      );
+
+      // The re-init guard (`if (isInitialised) { ...; _stopAdRetryTimer(); }`)
+      // must have run — _stopAdRetryTimer() unconditionally increments
+      // _retryGen, so a strictly-greater value proves the stale timer chain
+      // (and, in the same guard, the stale connectivity subscription) was
+      // torn down before the fresh adapter/init proceeded.
+      expect(AdManager().debugRetryGen, greaterThan(genBefore));
     });
   });
 

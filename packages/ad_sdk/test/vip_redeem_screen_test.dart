@@ -16,6 +16,13 @@ final _ed = Ed25519();
 Future<String> _pubB64(SimpleKeyPair kp) async =>
     base64Url.encode((await kp.extractPublicKey()).bytes);
 
+Future<String> _mint(SimpleKeyPair kp,
+    {required int seconds, required String kid}) async {
+  final payload = utf8.encode('$seconds|$kid');
+  final sig = await _ed.sign(payload, keyPair: kp);
+  return 'AVP1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -63,11 +70,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  // NOTE: the redeem→ACTIVE reactive flip is covered indirectly — the redeem
-  // logic (grant + one-time-use) is unit-tested in signed_vip_key_test, and the
-  // render test above proves the screen reads vip.activeListenable. A full
-  // in-widget redeem test is omitted because the granted VipManager entry leaves
-  // a real expiry Timer pending, which trips the widget-test timer invariant.
+  testWidgets(
+      'entering a valid signed key and tapping Activate flips the hero '
+      'to VIP ACTIVE', (tester) async {
+    useTallSurface(tester);
+    final code = await _mint(keyPair, seconds: 1, kid: 'k1');
+
+    await tester
+        .pumpWidget(MaterialApp(home: VipRedeemScreen(publicKeyBase64: pub)));
+    await tester.pump(const Duration(milliseconds: 1200));
+
+    await tester.enterText(find.byType(TextField), code);
+    await tester.pump();
+    await tester.tap(find.text('ACTIVATE'));
+    // `onPressed` awaits a real SharedPreferences write (VipManager._save).
+    // Under AutomatedTestWidgetsFlutterBinding that Future never resolves
+    // from inside a tap-dispatched callback — flutter_test's documented
+    // escape hatch is runAsync(), which runs a real event-loop turn outside
+    // the test's synthetic time so the platform-channel reply is delivered.
+    await tester.runAsync(() => Future<void>.delayed(
+          const Duration(milliseconds: 50),
+        ));
+    await tester.pump();
+
+    expect(find.text('VIP ACTIVE'), findsOneWidget);
+    expect(find.text('VIP NOT ACTIVE'), findsNothing);
+
+    // VipManager.isActive/expiresAt is checked against real DateTime.now(),
+    // not the fake_async clock pump() advances — so pump() alone lets the
+    // expiry Timer *fire* without the entry actually being real-time expired
+    // yet, which just re-arms another Timer (leaked at teardown). runAsync()
+    // genuinely sleeps past the 1s grant so the entry is really expired by
+    // the time the Timer's virtual delay elapses below.
+    await tester.runAsync(() => Future<void>.delayed(
+          const Duration(milliseconds: 1100),
+        ));
+    await tester.pump(const Duration(seconds: 1, milliseconds: 200));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('privacy footer hidden when no onPrivacyPolicyTap',
       (tester) async {

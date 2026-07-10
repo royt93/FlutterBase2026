@@ -203,6 +203,17 @@ class AppLovinAdapter implements AdProviderAdapter {
     banner.visible.value = true;
     _bannerAdViewId.value = null;
     _bannerRoutePaused = false;
+
+    // This adapter instance is discarded after dispose() — a fresh one is
+    // constructed on the next initialize() — so it's safe to permanently
+    // dispose the ValueNotifiers here rather than just resetting their value.
+    appOpenSlot.dispose();
+    interstitialSlot.dispose();
+    rewardedSlot.dispose();
+    bannerSlot.dispose();
+    banner.dispose();
+    _bannerAdViewId.dispose();
+
     _max = null;
     _config = null;
   }
