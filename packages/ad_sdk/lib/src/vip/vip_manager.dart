@@ -569,11 +569,19 @@ class VipManager {
   }
 
   /// Cleanup. After this the manager can no longer fire stream events.
+  ///
+  /// Deliberately does NOT dispose [_activeNotifier]/[_graceNudgeDueNotifier]:
+  /// external widgets (e.g. wifi_stressor_screen's grace-nudge listener) hold
+  /// references to these across an `AdManager` re-init and call
+  /// `removeListener` against whichever instance they last attached to.
+  /// `ChangeNotifier.removeListener` is documented as safe to call after
+  /// dispose in the current Flutter SDK, so this isn't closing a live crash —
+  /// it's removing the dependency on that specific SDK guarantee, since
+  /// they're plain objects that GC reclaims once this VipManager is
+  /// unreferenced; no need to dispose them explicitly.
   void dispose() {
     _expiryTimer?.cancel();
     _expiryTimer = null;
-    _activeNotifier.dispose();
-    _graceNudgeDueNotifier.dispose();
     _activeStream.close();
   }
 }

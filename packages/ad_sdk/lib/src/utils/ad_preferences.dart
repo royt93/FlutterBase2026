@@ -123,6 +123,13 @@ class AdPreferences {
 
   static const String _keyVipEntries = 'ad_sdk_vip_entries';
   static const String _keyVipMigrated = 'ad_sdk_vip_migrated_v2';
+  // Separate from `_keyVipMigrated` (1.x GAID → 2.x entries migration,
+  // unrelated). Tracks whether the one-time raw-JSON-without-checksum
+  // trust-and-backfill below has already happened, so a raw JSON array
+  // reappearing afterwards (e.g. a rooted/jailbroken write straight to
+  // SharedPreferences) is rejected instead of trusted again.
+  static const String _keyVipEntriesChecksumMigrated =
+      'ad_sdk_vip_entries_checksum_migrated_v1';
   static const String _tag = 'AdPreferences';
 
   // FNV-1a — deterministic across Dart/Flutter versions (unlike
@@ -150,8 +157,18 @@ class AdPreferences {
     final payload = _prefs?.getString(_keyVipEntries);
     if (payload == null) return null;
     if (payload.startsWith('[')) {
+      if (_prefs?.getBool(_keyVipEntriesChecksumMigrated) ?? false) {
+        // The one-time trust-and-backfill window (below) already ran once —
+        // a raw JSON array showing up again means something wrote straight
+        // to SharedPreferences, bypassing the checksum. Reject it.
+        SafeLogger.w(_tag,
+            'VIP entries checksum mismatch — raw JSON after migration, ignoring as tampered');
+        return null;
+      }
       // Pre-upgrade data written before this checksum existed — trust once,
-      // backfill into the new checksum-prefixed format.
+      // backfill into the new checksum-prefixed format, and close this
+      // window so it can't be reused later.
+      unawaited(_prefs?.setBool(_keyVipEntriesChecksumMigrated, true));
       unawaited(setVipEntriesRaw(payload));
       return payload;
     }

@@ -621,6 +621,7 @@ class AdManager with WidgetsBindingObserver {
       // Detach + dispose any pre-existing VipManager (re-init path) before
       // wiring a new one — otherwise the old listener would leak.
       _vipManager?.activeListenable.removeListener(_onVipActiveChanged);
+      _vipManager?.dispose();
       final vip =
           VipManager(prefs, maxStackDuration: config.maxVipStackDuration);
       await vip.load(currentDeviceGaid: _currentDeviceGAID);

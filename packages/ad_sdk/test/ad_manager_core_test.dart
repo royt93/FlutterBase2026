@@ -15,8 +15,34 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// `MobileAds._instance` is a lazily-initialized static field that fires an
+/// un-awaited `channel.invokeMethod('_init')` the first time anything in this
+/// isolate touches `MobileAds.instance`. Without a mock handler that call
+/// throws an uncaught async MissingPluginException that attaches to whatever
+/// test happens to be running at that moment — not necessarily the one whose
+/// code path triggered it. The re-init guard tests below legitimately reach
+/// real `AdMobAdapter.initialize()` on the second `AdManager().initialize()`
+/// call, so this mock must be installed before any test runs.
+const _gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
+
+/// Tracks whether [dispose] ran, to prove a stale VipManager is torn down
+/// (not just detached) on AdManager re-init — see the "re-init disposes the
+/// previous VipManager" test.
+class _DisposeTrackingVipManager extends VipManager {
+  _DisposeTrackingVipManager(super.prefs);
+
+  bool disposed = false;
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
+  }
+}
 
 /// Minimal fake adapter: real slots (so the non-VIP slot reads work) and call
 /// counters for the load/show paths. Everything else is routed through
@@ -86,6 +112,9 @@ class _FakeAdapter implements AdProviderAdapter {
   }
 
   @override
+  Future<void> dispose() async {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -120,6 +149,16 @@ AdConfig _admobConfig({required bool dryRun, required bool testIds}) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_gmaChannel, (call) async => null);
+  });
+
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_gmaChannel, null);
+  });
 
   group('releaseFootgunWarnings', () {
     test('debug build never warns (guards are release-only)', () {
@@ -399,6 +438,18 @@ void main() {
       expect(adapter.interstitialSlot.isReady, isFalse);
       expect(AdManager().canShowInterstitial(), isFalse);
     });
+
+    test(
+        'VIP active → showAppOpenAd is skipped even with bypassSafety '
+        '(never stacks on top of the no-ads state)', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+      expect(dismissed, isFalse);
+    });
   });
 
   group('rewarded VIP-bypass (watch-ad to EXTEND VIP)', () {
@@ -519,6 +570,8 @@ void main() {
     tearDown(() {
       AdManager().debugSetAdapter(null);
       AdManager().debugConfig = null;
+      AdManager().vip?.dispose();
+      AdManager().debugVipManager = null;
     });
 
     test(
@@ -539,6 +592,30 @@ void main() {
       // (and, in the same guard, the stale connectivity subscription) was
       // torn down before the fresh adapter/init proceeded.
       expect(AdManager().debugRetryGen, greaterThan(genBefore));
+    });
+
+    test(
+        're-entering initialize() disposes the previous VipManager '
+        '(audit 1.1: stale _expiryTimer/notifier leak)', () async {
+      // Phase 4 (VipManager swap) runs unconditionally, before the real
+      // adapter's native initialize() call — so this doesn't need any
+      // platform-channel mocking to reach.
+      final prefs = await AdPreferences.getInstance();
+      final oldVip = _DisposeTrackingVipManager(prefs);
+      await oldVip.load(currentDeviceGaid: '');
+      AdManager().debugVipManager = oldVip;
+
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) {},
+      );
+
+      expect(oldVip.disposed, isTrue,
+          reason: 'without dispose(), the old VipManager\'s _expiryTimer '
+              'keeps re-arming itself via a closure holding the instance '
+              'alive forever');
+      expect(AdManager().vip, isNot(same(oldVip)),
+          reason: 'a fresh VipManager must replace the disposed one');
     });
   });
 

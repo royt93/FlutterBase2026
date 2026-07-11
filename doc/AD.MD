@@ -1,12 +1,12 @@
 # Ad SDK Audit - current app state
 
-Updated: 2026-06-15
+Updated: 2026-07-11
 
 ## Current integration
 
 | Item | Current value |
 |---|---|
-| Runtime SDK | `applovin_admob_sdk: ^1.0.23` (hosted on pub.dev) |
+| Runtime SDK | `applovin_admob_sdk` local `path: packages/ad_sdk` override, version `1.0.24` (hosted `^1.0.23` line is commented out in `pubspec.yaml` — see note below) |
 | Runtime provider | `AdProvider.appLovin` |
 | Native mediation plugin | `gma_mediation_applovin` at app level |
 | AppLovin MAX SDK override | `applovin_max: 4.6.0` |
@@ -15,11 +15,15 @@ Updated: 2026-06-15
 | iOS signing team seen during Roy phone deploy | `8CU2Y3DBS5` |
 
 `1.0.19` added iOS App Tracking Transparency (`requestAtt()`) and the iOS App
-Open watchdog fix over `1.0.18`. The latest published release is **`1.0.23`**;
-the previous published release was `1.0.20`. Versions `1.0.21` and `1.0.22` have
-CHANGELOG entries but were never published to pub.dev (dev-only), so pub.dev
-jumps straight from `1.0.20` to `1.0.23`. The app consumes the hosted `^1.0.23`
-from pub.dev — the local `path` override has been commented out.
+Open watchdog fix over `1.0.18`. The latest **published** release on pub.dev is
+still `1.0.23`; versions `1.0.21` and `1.0.22` have CHANGELOG entries but were
+never published (dev-only), so pub.dev jumps straight from `1.0.20` to
+`1.0.23`. `1.0.24` (the current in-repo version) has **not** been published
+yet — the app is temporarily on the local `path: packages/ad_sdk` override
+while `1.0.24` is under dev/test (see `pubspec.yaml`'s comment for the exact
+flip-back steps before release). Do not trust "hosted `^1.0.23` is active"
+claims elsewhere without checking `pubspec.yaml` directly — this exact line
+has drifted stale before.
 
 ## Root cause found on iOS
 
@@ -79,8 +83,7 @@ VIP time now **accumulates** instead of resetting. Both the key-redeem flow
 duration: 3d, stack: true)`) add onto the current window. The watch-ad CTA stays
 visible while VIP so a member can extend by watching a real rewarded ad
 (`bypassVipGuard: true` — the SDK loads the slot on demand; no auto-grant). This
-required SDK changes that landed in the published `1.0.23` release, now consumed
-via the hosted `^1.0.23` (the in-repo `path` override is no longer used).
+required SDK changes that landed in the published `1.0.23` release.
 Total stacked window is **capped at 90 days** via `AdConfig.maxVipStackDuration`
 (set in `splash_screen.dart`). `showRewardedAd` is re-entrancy-safe and shows a
 loading dialog during the on-demand load (`onDemandLoadTimeout` 15 s).
@@ -161,6 +164,34 @@ app-open `REDACTED_APPLOVIN_IOS_APPOPEN_ID`, banner `REDACTED_APPLOVIN_IOS_BANNE
   resume App Open ad will not appear over a dialog/loading buffer.
 - **`_retryRefillAds` returns early when the user is VIP** — no slot preloading
   is attempted while a VIP entry is active.
+
+## SDK 1.0.24 behaviour (in-repo, unpublished — see version note above)
+
+- **Signed VIP key redemption ledger.** `vip/_redeemed_key_ledger.dart` tracks
+  redeemed signed-key IDs (`kid`) per device (`AdPreferences.getRedeemedVipKeyIds`
+  / `isVipKeyIdRedeemed` / `addRedeemedVipKeyId`) so the same signed key cannot be
+  redeemed twice on the same device. This is per-device only — there's no global
+  one-time-use enforcement offline.
+- **VIP entries checksum hardening.** `AdPreferences.getVipEntriesRaw()` stores
+  `<checksum>|<json>` in a single SharedPreferences key (avoids a write-window
+  race between separate checksum/payload keys). A one-time trust-and-backfill
+  path handles pre-upgrade raw JSON (no checksum yet); the new
+  `_keyVipEntriesChecksumMigrated` flag closes that window after the first
+  backfill so a raw JSON array reappearing later (e.g. a rooted/jailbroken
+  direct SharedPreferences write) is rejected as tampered instead of trusted
+  again.
+- **VIP grace-period expiry nudge.** `VipManager.graceNudgeDueListenable` fires
+  once per expiry (`AdPreferences.getVipGraceNudgeAckExpiryMs` /
+  `setVipGraceNudgeAckExpiryMs` track the acknowledged `expiresAt` so a later
+  stack/redeem naturally makes the nudge due again). `wifi_stressor_screen.dart`
+  attaches its listener via `AdManager().initRevision` (retry-attach on every
+  SDK (re)init) rather than once in `initState()`, since `AdManager().vip` can
+  still be `null` when this screen builds if splash's 8s hard-cap navigates
+  away before SDK init completes.
+- **`VipRedeemScreen` extraction.** The SDK now owns the actual redeem UI;
+  the host app's `vip_screen.dart` is a thin (~80-line) wrapper around it.
+- **T29 splash race fix.** Guards against `AdManager().vip` being null when
+  splash navigates away early (see grace-nudge point above — same root cause).
 
 ## Known risks
 

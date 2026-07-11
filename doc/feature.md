@@ -29,10 +29,12 @@ Updated: 2026-06-16
 - Endpoint set: Linode / Vultr / OVH / free.fr / ThinkBroadband (the 5 dead
   DigitalOcean speedtest endpoints were removed).
 
-### 📣 Ad / SDK — `applovin_admob_sdk ^1.0.23`
+### 📣 Ad / SDK — `applovin_admob_sdk` (local `path` override, dev/test `1.0.24`)
 - Android + iOS ad integration, runtime provider `AdProvider.appLovin`
-  (AdMob kept present for swap-readiness). Hosted `^1.0.23` from pub.dev (local
-  `path: packages/ad_sdk` override commented out).
+  (AdMob kept present for swap-readiness). Local `path: packages/ad_sdk`
+  override is ACTIVE (in-repo `1.0.24`, unpublished); hosted `^1.0.23` line
+  is commented out. Check `pubspec.yaml` directly before trusting this —
+  it has drifted stale before. Flip back to hosted before release.
 - Platform-specific AppLovin ad unit config — `AdKey.appLovin` selects Android
   vs iOS units at runtime; Android and iOS never share unit IDs.
 - iOS native config in `ios/Runner/Info.plist`: `GADApplicationIdentifier`,

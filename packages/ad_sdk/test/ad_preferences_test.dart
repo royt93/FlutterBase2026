@@ -58,6 +58,29 @@ void main() {
     expect(prefs.getVipEntriesRaw(), isNull);
   });
 
+  test(
+      'raw JSON array reappearing AFTER the one-time backfill is rejected, not re-trusted',
+      () async {
+    // First encounter: pre-upgrade raw JSON, no checksum prefix yet — trust
+    // once and backfill (same as the "trusted once and backfilled" test).
+    AdPreferences.resetForTest();
+    SharedPreferences.setMockInitialValues({
+      'ad_sdk_vip_entries': '[{"key":"LEGACY"}]',
+    });
+    prefs = await AdPreferences.getInstance();
+    expect(prefs.getVipEntriesRaw(), '[{"key":"LEGACY"}]');
+    await Future<void>.delayed(Duration.zero); // let the backfill land
+
+    // Simulate a rooted/jailbroken write straight to SharedPreferences that
+    // reintroduces a bare JSON array (bypassing the checksum entirely) —
+    // this is the audit's "bypass doesn't need to know the algorithm" gap.
+    final raw = await SharedPreferences.getInstance();
+    await raw.setString('ad_sdk_vip_entries', '[{"key":"FORGED"}]');
+
+    expect(prefs.getVipEntriesRaw(), isNull,
+        reason: 'the trust-once window must already be closed');
+  });
+
   test('consent settings raw round-trips', () async {
     await prefs.setConsentSettingsRaw('{"hasUserConsent":true}');
     expect(prefs.getConsentSettingsRaw(), '{"hasUserConsent":true}');

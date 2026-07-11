@@ -109,6 +109,80 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'entering a garbage key shows the invalid-key SnackBar and keeps the '
+      'field populated (only the success branch clears it)', (tester) async {
+    useTallSurface(tester);
+    await tester
+        .pumpWidget(MaterialApp(home: VipRedeemScreen(publicKeyBase64: pub)));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.enterText(find.byType(TextField), 'not-a-real-key');
+    await tester.pump();
+    await tester.tap(find.text('ACTIVATE'));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+
+    expect(find.text('The VIP key you entered is invalid or expired.'),
+        findsOneWidget);
+    expect(find.text('VIP ACTIVE'), findsNothing);
+    expect(find.text('not-a-real-key'), findsOneWidget,
+        reason: 'field only clears on the success branch');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'redeeming the same signed key twice shows the already-used SnackBar '
+      'on the second attempt and leaves the first activation intact',
+      (tester) async {
+    useTallSurface(tester);
+    final code = await _mint(keyPair, seconds: 2, kid: 'reuse-k1');
+
+    await tester
+        .pumpWidget(MaterialApp(home: VipRedeemScreen(publicKeyBase64: pub)));
+    await tester.pump(const Duration(milliseconds: 1200));
+
+    // First redeem succeeds.
+    await tester.enterText(find.byType(TextField), code);
+    await tester.pump();
+    await tester.tap(find.text('ACTIVATE'));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+    expect(find.text('VIP ACTIVE'), findsOneWidget);
+    // Clear the first SnackBar ("VIP activated") outright — Scaffold-
+    // Messenger otherwise queues the second showSnackBar call behind it,
+    // and its dismiss animation timing is brittle to fake-clock pumping.
+    ScaffoldMessenger.of(tester.element(find.byType(VipRedeemScreen)))
+        .clearSnackBars();
+    await tester.pump();
+
+    // Second redeem of the identical key is rejected — ledger (T30) already
+    // recorded its kid.
+    await tester.enterText(find.byType(TextField), code);
+    await tester.pump();
+    await tester.tap(find.text('ACTIVATE'));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump();
+
+    expect(find.text('This key has already been used on this device.'),
+        findsOneWidget);
+    expect(find.text('VIP ACTIVE'), findsOneWidget,
+        reason: 'the first, successful activation must still stand');
+    expect(find.text(code), findsOneWidget,
+        reason: 'alreadyUsed branch does not clear the field');
+    expect(tester.takeException(), isNull);
+
+    // Let the short-lived grant actually expire in real time so VipManager's
+    // expiry Timer fires and clears itself — otherwise flutter_test's
+    // end-of-test invariant check flags it as a leaked pending Timer.
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(seconds: 3)));
+    await tester.pump(const Duration(seconds: 3));
+  });
+
   testWidgets('privacy footer hidden when no onPrivacyPolicyTap',
       (tester) async {
     useTallSurface(tester);

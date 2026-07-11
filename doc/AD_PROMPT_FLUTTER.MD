@@ -2,8 +2,8 @@
 
 > **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/AD.MD`.
 >
-> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-06-15):**
-> - Runtime SDK: `applovin_admob_sdk: ^1.0.23` (latest pub.dev — partner dùng bản này). `_FlutterBase2025` đã consume hosted `^1.0.23`, không còn path override. (1.0.21/1.0.22 chỉ có CHANGELOG, không publish; pub.dev nhảy thẳng 1.0.20 → 1.0.23.)
+> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-07-11):**
+> - Runtime SDK: `_FlutterBase2025` hiện dùng local `path: packages/ad_sdk` override, version `1.0.24` (dev/test in-repo, chưa publish). Latest **published** pub.dev vẫn là `^1.0.23` — đó là version partner ngoài dùng khi consume hosted. (1.0.21/1.0.22 chỉ có CHANGELOG, không publish; pub.dev nhảy thẳng 1.0.20 → 1.0.23.) Kiểm tra `pubspec.yaml` trực tiếp trước khi tin dòng nào đang active — dòng này đã từng lệch thực tế.
 > - ATT (App Tracking Transparency) đã tích hợp SẴN trong SDK: gọi `AdManager().requestAtt()` trong splash trước UMP (xem Step 8.3) — KHÔNG tự gọi `app_tracking_transparency`.
 > - Runtime provider: `AdProvider.appLovin`; `AdMobConfig` vẫn phải non-null để swap-ready.
 > - App-level native mediation plugin: `gma_mediation_applovin`.
@@ -65,7 +65,7 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 | Privacy Policy URL | `<hỏi user — dừng nếu thiếu>` (sẽ nhúng vào `ConsentDialogStrings.privacyPolicyUrl` + footer VIP screen) |
 | Splash hard cap (giây) | `<hỏi user, default 8>` (đồng bộ với `AdConfig.splashMaxDuration`) |
 | VIP key whitelist (plain) | `<hỏi user — list dạng "KEY: <duration>", vd "LOITP_30: 30 days, LOITP_3: 3 days">` |
-| Mức che giấu VIP key | Plaintext `Map<String, Duration>` trong `vip_keys.dart`. Nếu user yêu cầu, dùng Base64 layer như `_FlutterBase2025` đang làm (`utf8.decode(base64Decode(...))`). |
+| Mức che giấu VIP key | Plaintext `Map<String, Duration>` trong `vip_keys.dart` (đơn giản, đủ cho project mới). `_FlutterBase2025` hiện dùng cơ chế mạnh hơn — Ed25519 signed keys (T18, không phải Base64 map) — chỉ áp dụng nếu user yêu cầu mức chống-forge cao hơn; xem `packages/ad_sdk/README.md` → "Signed VIP keys". |
 
 **Rule cứng cho Section 0**:
 
@@ -845,12 +845,14 @@ final Map<String, Duration> kVipKeyMap = {
   'LOITP_3':  const Duration(days: 3),
 };
 
-// HOẶC Base64-obfuscated map (mức che giấu cao hơn — `_FlutterBase2025` đang làm):
+// HOẶC Base64-obfuscated map (mức che giấu cao hơn, đủ cho project mới):
 // import 'dart:convert';
 // final Map<String, Duration> kVipKeyMap = {
 //   utf8.decode(base64Decode('OUZBMFE3RU4hMjdDTFgwNEAyMTk5M1kyVTBJNyNRMA==')):
 //       const Duration(days: 30),
 // };
+// `_FlutterBase2025` KHÔNG dùng pattern này nữa — đã chuyển sang Ed25519
+// signed-key (T18), xem `vip_keys.dart` + `packages/ad_sdk/README.md` → "Signed VIP keys".
 
 Future<bool> vipKeyValidator(String normalisedKey) async =>
     kVipKeyMap.containsKey(normalisedKey);
@@ -925,11 +927,11 @@ Review duy nhất 1 lần, KHÔNG lặp 3 lần. Checklist:
 - [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + packages bắt buộc (Q37 → C):
   - `get`, `intl`, `url_launcher`, `confetti`, `shared_preferences` (đã có nếu dùng GetX), SDK
   - `app_tracking_transparency` là **transitive của SDK** — KHÔNG add ở app-level
-  - **Skip** `vibration` — dùng Flutter built-in `HapticFeedback.heavyImpact()`
+  - Cho VIP confetti/success feedback: **skip** thêm `vibration` riêng, dùng Flutter built-in `HapticFeedback.heavyImpact()`. Lưu ý: `_FlutterBase2025` VẪN có `vibration` như một dependency thật trong `pubspec.yaml` — dùng bởi `zoom_inkwell.dart` cho long-press haptic không liên quan VIP/ad. Dòng này chỉ áp dụng cho VIP UI, không phải "project không dùng vibration".
 - [ ] `AndroidManifest.xml` whitelist permissions (Q12B): `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Permission liên quan ad ngoài 3 cái này → có lý do rõ ràng. Permission ngoài ad → đã hỏi user.
 - [ ] `AndroidManifest.xml` có AdMob `APPLICATION_ID` meta-data (production hoặc test ID + warning Q6C)
 - [ ] `MainActivity` **KHÔNG** có `android:taskAffinity=""` (pitfall #1)
-- [ ] (Nếu iOS) `ios/Runner/Info.plist` có `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (~70 entries)
+- [ ] (Nếu iOS) `ios/Runner/Info.plist` có `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (đếm thật bằng `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, KHÔNG dùng con số cố định — danh sách mediation partner đổi theo thời gian; hiện tại ~50 entries)
 - [ ] (Nếu iOS) Podfile target ≥ 13.0
 
 ### 11.2 — Bootstrap
@@ -1052,14 +1054,14 @@ Nếu user migrate từ project Android native dùng `_AdmobWrapper`, mapping nh
 
 ## Phụ lục B — Reference doc của project `_FlutterBase2025`
 
-Project này là reference implementation cho `applovin_admob_sdk: ^1.0.23`. Files đáng đọc:
+Project này là reference implementation cho `applovin_admob_sdk` (hiện dev/test tại `1.0.24` qua local `path` override; latest publish trên pub.dev vẫn `^1.0.23`). Files đáng đọc:
 
 - `doc/AD.MD` — audit + as-is spec đầy đủ (touchpoint table, ad config, UMP flow, VIP system, policy compliance)
 - `lib/main.dart` — bootstrap pattern
 - `lib/mckimquyen/widget/splash/splash_screen.dart` — splash flow chuẩn (UMP + initialize + App Open + hard cap 8s + hot-restart guard)
 - `lib/mckimquyen/widget/wifi_stressor/wifi_stressor_screen.dart` — example screen extend `AdScreen` + buildBanner + showInterstitialAd + VIP icon
 - `lib/mckimquyen/widget/wifi_stressor/presentation/history_screen.dart` — example showRewardedAd
-- `lib/mckimquyen/widget/vip/vip_screen.dart` — VIP UI reference (13 components — sẽ bổ sung row 13 "Restore Purchase" theo Q33A)
-- `lib/mckimquyen/widget/vip/vip_keys.dart` — Base64-obfuscated key map pattern
+- `lib/mckimquyen/widget/vip/vip_screen.dart` — **KHÔNG** phải 13-component screen tự chứa. Đây là thin wrapper (~80 dòng) bọc SDK's `VipRedeemScreen` — 13 thành phần ở Step 10.3 là spec của SDK's `VipRedeemScreen`, không phải file host này. "Restore Purchase" (row 13) **đã tồn tại** trong `VipRedeemScreen`, disabled ở UI (không phải "chưa build") — xem `packages/ad_sdk/lib/src/vip/` cho component thật
+- `lib/mckimquyen/widget/vip/vip_keys.dart` — **KHÔNG** phải Base64-obfuscated plaintext-duration map. Đây là Ed25519 signed-key config (T18): chỉ chứa public key (`kVipPublicKeyBase64`) để verify offline + demo signed keys (`kVipDemoKeys`) cho QA. Duration/redemption logic nằm trong SDK (`vip_manager.dart` + `_redeemed_key_ledger.dart`), không phải một `Map<String, Duration>` ở project này
 - `lib/translations/vi_vn.dart` + `en_us.dart` — i18n keys
 - `packages/ad_sdk/README.md` — full SDK API reference

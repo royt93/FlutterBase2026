@@ -14,6 +14,7 @@
 //   • Does not paint an AppLovin/AdMob platform view when uninitialised.
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -292,4 +293,49 @@ void main() {
     expect(adapter.loadBannerCalls, 1, reason: 'reconnect → banner reloads');
     expect(tester.takeException(), isNull);
   });
+
+  // VIP-suppresses-all-ads contract, banner leg: a VIP member must never see
+  // a banner load, even with an initialised adapter/config that would
+  // otherwise load one for a non-VIP user (see `_isVipMember` gate in
+  // BannerAdWidget, mirrors the interstitial/rewarded gates already covered
+  // in ad_manager_core_test.dart's "VIP gating" group).
+  testWidgets('VIP active → banner collapses to empty box, never loads',
+      (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    AdManager().debugVipManager = _FakeVip(true);
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.loadBannerCalls, 0, reason: 'VIP member → no banner load');
+    final size = tester.getSize(find.byType(BannerAdWidget));
+    expect(size.height, 0,
+        reason: 'VIP member must collapse to zero height, like uninitialised');
+    expect(tester.takeException(), isNull);
+  });
+}
+
+/// Fake VipManager whose `isActive` is fixed — the only member AdManager
+/// reads for gating (`_isVipMember => _vipManager?.isActive ?? false`).
+class _FakeVip implements VipManager {
+  _FakeVip(this._active);
+  final bool _active;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  ValueListenable<bool> get activeListenable => ValueNotifier<bool>(_active);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
