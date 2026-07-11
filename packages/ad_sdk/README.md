@@ -912,6 +912,16 @@ if (!result.canRequestAds) {
 // Continue with AdManager().initialize(...) as normal
 ```
 
+#### Per-app-id setup (do this for EVERY app, not just once)
+
+The UMP consent message is configured and **published per AdMob app ID** in
+the AdMob console — it is **not** a one-time SDK-level setup. Every new app
+(or clone of this app under a different AdMob account/app ID) needs its own
+consent message published before shipping to EEA users, otherwise
+`requestConsentInfoUpdate` fails with `no form(s) configured` and consent
+gathering silently no-ops. Full step-by-step console instructions:
+`doc/UMP_SETUP.md` (in the host app repo).
+
 #### Privacy Options entry point (MUST — required by Google UMP policy)
 
 Google requires every app that gathers UMP consent to expose a **durable,
@@ -961,6 +971,7 @@ await AdManager().setConsent(AdConsent(
 - [ ] iOS App Tracking Transparency prompt shown via `AdManager().requestAtt()` in the splash, **before** `requestUmpConsent` / `AdManager().initialize` (see Option 0)
 - [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA)
 - [ ] If targeting EEA users, integrate UMP via Option 2 above
+- [ ] UMP consent message **published** (not just saved as draft) for *this app's* specific AdMob app ID — required again for every new app ID, see "Per-app-id setup" above
 
 ---
 

@@ -12,6 +12,7 @@ void main() {
   late AdPreferences prefs;
 
   setUp(() async {
+    AdPreferences.resetForTest();
     SharedPreferences.setMockInitialValues({});
     prefs = await AdPreferences.getInstance();
   });
@@ -20,6 +21,41 @@ void main() {
     expect(prefs.getVipEntriesRaw(), isNull, reason: 'nothing stored yet');
     await prefs.setVipEntriesRaw('[{"key":"A"}]');
     expect(prefs.getVipEntriesRaw(), '[{"key":"A"}]');
+  });
+
+  test(
+      'VIP entries written before checksum existed are trusted once and backfilled',
+      () async {
+    // Simulate pre-upgrade data: raw JSON array, no checksum prefix.
+    AdPreferences.resetForTest();
+    SharedPreferences.setMockInitialValues({
+      'ad_sdk_vip_entries': '[{"key":"LEGACY"}]',
+    });
+    prefs = await AdPreferences.getInstance();
+
+    expect(prefs.getVipEntriesRaw(), '[{"key":"LEGACY"}]');
+    // Backfill happens fire-and-forget on the microtask queue.
+    await Future<void>.delayed(Duration.zero);
+    final backfilled = await SharedPreferences.getInstance();
+    expect(
+        backfilled.getString('ad_sdk_vip_entries'), isNot('[{"key":"LEGACY"}]'),
+        reason: 'backfilled value must now carry a checksum prefix');
+    expect(prefs.getVipEntriesRaw(), '[{"key":"LEGACY"}]',
+        reason: 'backfilled value must still read back correctly');
+  });
+
+  test('VIP entries with a mismatched checksum are treated as tampered',
+      () async {
+    await prefs.setVipEntriesRaw('[{"key":"A"}]');
+    // Bypass the setter to simulate direct SharedPreferences editing: keep
+    // the checksum-prefixed shape but swap in a different payload so the
+    // checksum no longer matches.
+    final raw = await SharedPreferences.getInstance();
+    final stored = raw.getString('ad_sdk_vip_entries')!;
+    final checksum = stored.substring(0, stored.indexOf('|'));
+    await raw.setString('ad_sdk_vip_entries', '$checksum|[{"key":"TAMPERED"}]');
+
+    expect(prefs.getVipEntriesRaw(), isNull);
   });
 
   test('consent settings raw round-trips', () async {

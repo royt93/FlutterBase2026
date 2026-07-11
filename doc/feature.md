@@ -427,6 +427,12 @@ Updated: 2026-06-16
 
 - Recheck official AppLovin MAX iOS SKAdNetwork requirements before App Store
   release (mediation partners may require extra identifiers).
+- Recheck native ad SDK majors (AppLovinSDK / Google Mobile Ads) each quarter —
+  confirm whether the CocoaPods/Dart version pins in `dependency_overrides`
+  (root `pubspec.yaml`) can be relaxed now that upstream has moved. Retested
+  2026-07-10: still blocked (`gma_mediation_applovin >=2.6.0` needs
+  `meta ^1.17.0`, Flutter SDK 3.35.1's `flutter_test` pins `meta 1.16.0`). See
+  `doc/audit/audit_partner_lead_20260710.md` finding #2/#3.
 
 ## ❌ Skipped
 
@@ -434,6 +440,17 @@ Updated: 2026-06-16
   (described historical states, could mislead current debugging).
 
 ## 🐛 Fixed
+
+- **Splash hard-cap race làm mất `AdManager().initialize()` vĩnh viễn** (2026-07-10):
+  timer hard-cap 8s ở splash race với chuỗi ATT→UMP consent async. Guard cũ
+  (`if (!mounted) return;` ở `packages/ad_sdk/example/lib/main.dart`, `if (!mounted
+  || _hasNavigated) return;` ở `lib/mckimquyen/widget/splash/splash_screen.dart`)
+  skip luôn `AdManager().initialize()` nếu hard-cap bắn trước khi user tap xong
+  form GDPR — mất toàn bộ ad surface (banner/interstitial/rewarded) cho cả phiên
+  app. Fix: bỏ guard mounted/`_hasNavigated` trước `initialize()` ở cả 2 file (gọi
+  hàm này không cần `BuildContext`). Verify on-device qua example app (iOS sim):
+  log xác nhận `initialize()` chạy lúc 00:14:28 dù hard-cap đã bắn lúc 00:11:01;
+  banner/interstitial/rewarded đều load creative thật (test mode) sau fix.
 
 - **iOS App Open watchdog false-positive** (SDK 1.0.19): the "foreground = hung
   ad" heuristic is Android-only now; on iOS the ad shows while the app stays

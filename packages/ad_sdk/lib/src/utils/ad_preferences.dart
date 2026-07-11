@@ -1,4 +1,10 @@
+import 'dart:async' show unawaited;
+import 'dart:convert' show utf8;
+
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'safe_logger.dart';
 
 /// Thin wrapper around `SharedPreferences` for SDK-owned persistence.
 ///
@@ -25,6 +31,13 @@ class AdPreferences {
   }
 
   static AdPreferences? get instanceOrNull => _instance;
+
+  /// Reset the cached singleton (used by test setUp so each test gets a
+  /// fresh instance bound to a fresh `SharedPreferences.setMockInitialValues`).
+  @visibleForTesting
+  static void resetForTest() {
+    _instance = null;
+  }
 
   // ─── Legacy VIP GAID list ─────────────────────────────────────────────────
 
@@ -110,11 +123,52 @@ class AdPreferences {
 
   static const String _keyVipEntries = 'ad_sdk_vip_entries';
   static const String _keyVipMigrated = 'ad_sdk_vip_migrated_v2';
+  static const String _tag = 'AdPreferences';
 
-  String? getVipEntriesRaw() => _prefs?.getString(_keyVipEntries);
+  // FNV-1a — deterministic across Dart/Flutter versions (unlike
+  // `String.hashCode`, which isn't spec-guaranteed stable). This is a
+  // tamper-*deterrent* against casual SharedPreferences editing, not a
+  // cryptographic guarantee against a rooted/jailbroken attacker.
+  static int _fnv1a(String s) {
+    const prime = 0x01000193;
+    var hash = 0x811c9dc5;
+    for (final byte in utf8.encode(s)) {
+      hash = ((hash ^ byte) * prime) & 0xFFFFFFFF;
+    }
+    return hash;
+  }
+
+  static String _vipEntriesChecksum(String value) =>
+      _fnv1a('$value|ad_sdk_vip_integrity_v1').toRadixString(16);
+
+  // Checksum + payload live in ONE key (`<checksum>|<json>`), written with a
+  // single `setString` call. Two separate keys would open a window — between
+  // the entries write and the checksum write — where a concurrent
+  // fire-and-forget save (see VipManager._save) could be read mid-flight,
+  // making the checksum look "mismatched" even though nothing was tampered.
+  String? getVipEntriesRaw() {
+    final payload = _prefs?.getString(_keyVipEntries);
+    if (payload == null) return null;
+    if (payload.startsWith('[')) {
+      // Pre-upgrade data written before this checksum existed — trust once,
+      // backfill into the new checksum-prefixed format.
+      unawaited(setVipEntriesRaw(payload));
+      return payload;
+    }
+    final sep = payload.indexOf('|');
+    if (sep == -1) return null;
+    final raw = payload.substring(sep + 1);
+    if (payload.substring(0, sep) != _vipEntriesChecksum(raw)) {
+      SafeLogger.w(
+          _tag, 'VIP entries checksum mismatch — ignoring as tampered');
+      return null;
+    }
+    return raw;
+  }
 
   Future<void> setVipEntriesRaw(String json) async {
-    await _prefs?.setString(_keyVipEntries, json);
+    await _prefs?.setString(
+        _keyVipEntries, '${_vipEntriesChecksum(json)}|$json');
   }
 
   bool isVipMigrated() => _prefs?.getBool(_keyVipMigrated) ?? false;

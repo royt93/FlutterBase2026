@@ -336,13 +336,19 @@ class _SplashScreenState extends State<SplashScreen> {
       }
       // 2) Google UMP consent form for EEA/UK users — before the first ad request.
       try {
-        final ump = await AdManager().requestUmpConsent();
+        final ump = await AdManager().requestUmpConsent(
+          // TEMP smoke test (2026-07-10, revert after verifying UMP form):
+          testMode: true,
+          debugGeography: DebugGeography.debugGeographyEea,
+        );
         debugPrint('UMP: canRequestAds=${ump.canRequestAds}');
       } catch (e) {
         debugPrint('UMP skipped: $e');
       }
-      if (!mounted) return;
-      // 3) Initialize the SDK (fires the EventBus completion event).
+      // 3) Initialize the SDK (fires the EventBus completion event). Must run
+      // even if the splash's hard-cap timer already navigated away (unmounting
+      // this State) — otherwise a slow ATT/UMP dialog permanently skips SDK
+      // init for the rest of the session.
       AdManager().initialize(
         config: DemoConfig.instance.build(),
         onComplete: (success, gaid) {},

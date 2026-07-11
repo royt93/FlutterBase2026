@@ -6,6 +6,62 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.0.24] - 2026-07-10
+
+### Added — durable redeemed-key ledger for signed VIP keys on iOS
+- New `RedeemedKeyLedger` (`lib/src/vip/_redeemed_key_ledger.dart`) backs
+  `VipManager.redeemSignedKey`'s one-time-use check with an iOS Keychain
+  entry, alongside the existing `AdPreferences` (SharedPreferences) check.
+  `AdPreferences` alone is wiped on uninstall, so a user could
+  uninstall/reinstall to redeem the same signed key repeatedly; the Keychain
+  entry survives that. Android intentionally has no durable backstop here,
+  same reasoning as the existing `FirstInstallGuard` (no local primitive
+  survives uninstall without an install-referrer plugin for a narrow
+  benefit) — `AdPreferences` remains the sole check there. Fails open: any
+  Keychain read/write error is swallowed and treated as "not redeemed" so a
+  storage hiccup never locks out a legitimate key. Test:
+  `test/redeemed_key_ledger_test.dart`.
+
+### Added — VIP grace-period expiry nudge
+- `VipManager` exposes `graceNudgeThreshold` (default 24h),
+  `graceNudgeDueListenable`, and `acknowledgeGraceNudge()`. Once a VIP
+  entry's `expiresAt` comes within the threshold, the nudge notifier flips
+  true so the host UI can prompt the user to redeem/extend before ads
+  resume; acknowledging persists the current `expiresAt` so the same expiry
+  doesn't re-nudge, but stacking a new expiry (redeem/watch-ad-to-extend)
+  makes it due again. Inactive/no-VIP state is never due. Test:
+  `test/vip_manager_grace_nudge_test.dart`.
+
+### Added — VIP entries integrity checksum
+- `AdPreferences.getVipEntriesRaw()`/`setVipEntriesRaw()` now store an
+  FNV-1a checksum alongside the VIP entries JSON, as a single combined
+  `SharedPreferences` value (`'<checksum>|<json>'` written via one
+  `setString` call). A mismatched checksum is logged and treated as absent
+  data, deterring casual on-device editing of the plaintext VIP entries to
+  self-grant free ad-free time — this is a tamper *deterrent*, not
+  root/jailbreak-proof protection (a rooted device can still recompute the
+  checksum). Pre-upgrade data with no checksum is trusted once and
+  backfilled into the new format. FNV-1a was chosen over `String.hashCode`
+  (not stable across Dart/Flutter versions) and over the existing async
+  `cryptography`-package HMAC (would force every VIP-entries caller async).
+  Note: an earlier two-separate-keys design was replaced with the single
+  combined key above after it surfaced a real race — a concurrent
+  fire-and-forget `VipManager._save()` write could be observed mid-flight
+  with one key updated and the other still stale, causing a false
+  "tampered" read. Test: `test/ad_preferences_test.dart`.
+
+### Changed — native ad SDK dependency pins retested, still blocked upstream
+- Retested bumping `applovin_max`/`gma_mediation_applovin` to the latest
+  upstream versions (`4.6.4`/`2.6.1`) to see whether the CocoaPods
+  version-pin conflict documented in the host `pubspec.yaml`
+  `dependency_overrides` had been resolved. It has not: `2.6.1` now
+  requires `meta ^1.17.0`, while `flutter_test` from the CI-pinned Flutter
+  SDK (3.35.1) forces `meta 1.16.0` — a Dart-level version-solve conflict,
+  never even reaching the CocoaPods layer. No SDK code change; the pins
+  stay at `applovin_max 4.6.0` / `google_mobile_ads 6.0.0` /
+  `gma_mediation_applovin 2.5.1` in the host app. See
+  `doc/audit/audit_partner_lead_20260710.md` findings #2/#3.
+
 ### Added — Privacy Options footer button on VipRedeemScreen (T28)
 - `VipRedeemScreen` gained `onPrivacyOptionsTap` (`VoidCallback?`) and
   `VipRedeemStrings.privacyOptions`, mirroring the existing
