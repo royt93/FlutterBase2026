@@ -27,6 +27,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/foundation.dart';
@@ -37,17 +38,36 @@ import 'package:flutter/services.dart';
 // §1  Constants + DemoConfig + VIP validator
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Replace with your own AppLovin keys; AdMob test IDs below are public and
-/// always valid (Google's test units).
-const _kAppLovinSdkKey = 'YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD';
-const _kAppLovinBannerId = 'YOUR_BANNER_AD_UNIT_ID';
-const _kAppLovinInterstitialId = 'YOUR_INTERSTITIAL_AD_UNIT_ID';
-const _kAppLovinAppOpenId = 'YOUR_APP_OPEN_AD_UNIT_ID';
-const _kAppLovinRewardedId = 'YOUR_REWARDED_AD_UNIT_ID';
+// ⚠️ SECURITY — these are REAL production AppLovin keys borrowed from the
+// host app (`lib/mckimquyen/common/const/ad_keys.dart`) for a one-off
+// real-device audit round (2026-07-11, doc/task/README.md). They MUST be
+// replaced back with the YOUR_* placeholders below before the next
+// `dart pub publish` — see README.md "Compliance checklist".
+//   const _kAppLovinSdkKey = 'YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD';
+//   const _kAppLovinBannerId = 'YOUR_BANNER_AD_UNIT_ID';
+//   const _kAppLovinInterstitialId = 'YOUR_INTERSTITIAL_AD_UNIT_ID';
+//   const _kAppLovinAppOpenId = 'YOUR_APP_OPEN_AD_UNIT_ID';
+//   const _kAppLovinRewardedId = 'YOUR_REWARDED_AD_UNIT_ID';
+final _kAppLovinSdkKey = Platform.isIOS
+    ? 'REDACTED_APPLOVIN_SDK_KEY_ROUND68'
+    : 'REDACTED_APPLOVIN_SDK_KEY_ROUND68';
+final _kAppLovinBannerId =
+    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_BANNER_ID' : 'REDACTED_APPLOVIN_BANNER_ID';
+final _kAppLovinInterstitialId =
+    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_INTERSTITIAL_ID' : 'REDACTED_APPLOVIN_INTERSTITIAL_ID';
+final _kAppLovinAppOpenId =
+    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_APPOPEN_ID' : 'REDACTED_APPLOVIN_APPOPEN_ID';
+final _kAppLovinRewardedId =
+    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_REWARDED_ID' : 'REDACTED_APPLOVIN_REWARDED_ID';
 
 /// Provider for this app — chosen once. Replace the 5 YOUR_* constants
 /// above with real values from dash.applovin.com BEFORE running.
-const AdProvider kProvider = AdProvider.admob;
+///
+/// ⚠️ Set to `AdProvider.appLovin` deliberately and kept this way — the demo
+/// needs a provider with real credentials to exercise banner/interstitial/
+/// rewarded/appOpen with genuine AppLovin creative (2026-07-11 audit round,
+/// see doc/task/README.md). Do not revert to `AdProvider.admob`.
+const AdProvider kProvider = AdProvider.appLovin;
 
 /// Placeholder privacy-policy link shown by the consent dialog demo.
 /// Real apps should point this at their own published policy.
@@ -101,7 +121,7 @@ class DemoConfig {
         // androidBannerId: 'ca-app-pub-.../android-banner',
         // iosBannerId: 'ca-app-pub-.../ios-banner',
       ),
-      appLovin: const AppLovinConfig(
+      appLovin: AppLovinConfig(
         sdkKey: _kAppLovinSdkKey,
         bannerId: _kAppLovinBannerId,
         interstitialId: _kAppLovinInterstitialId,

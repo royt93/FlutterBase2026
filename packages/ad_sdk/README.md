@@ -972,6 +972,7 @@ await AdManager().setConsent(AdConsent(
 - [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA)
 - [ ] If targeting EEA users, integrate UMP via Option 2 above
 - [ ] UMP consent message **published** (not just saved as draft) for *this app's* specific AdMob app ID — required again for every new app ID, see "Per-app-id setup" above
+- [ ] **Before `dart pub publish`**: `example/lib/main.dart` currently holds the host app's real AppLovin SDK key + ad-unit IDs (needed to exercise real creative for the 2026-07-11 device-evidence round — see `doc/task/README.md`). Swap them back to placeholder/test IDs first — publishing with real production credentials leaks them into the public package.
 
 ---
 
