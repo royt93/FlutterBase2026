@@ -321,6 +321,12 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  // Compile-time (not Platform.environment — unreliable via `simctl launch`
+  // env injection on iOS). Pass `--dart-define=SKIP_SPLASH_AD=true` when
+  // building for scripted Simulator test runs, so the App-Open MAX test
+  // creative (which can auto-click into an undismissable Safari sheet) never
+  // fires on splash.
+  static const _skipSplashAd = bool.fromEnvironment('SKIP_SPLASH_AD');
   final ValueNotifier<bool> _navigated = ValueNotifier<bool>(false);
   Timer? _hardCap;
   void Function(BoolEvent)? _listener;
@@ -340,7 +346,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // ⚠️ Register listener BEFORE calling initialize() — EventBus only
     // delivers fire events to listeners that registered first.
-    void onEvent(BoolEvent e) => e.value ? _showAppOpen() : _goHome();
+    void onEvent(BoolEvent e) =>
+        (e.value && !_skipSplashAd) ? _showAppOpen() : _goHome();
     _listener = onEvent;
     SimpleEventBus().listen(onEvent);
 

@@ -168,27 +168,34 @@ class _ConsentBinaryDialog extends StatelessWidget {
               ],
               if (policyUrl != null) ...[
                 const SizedBox(height: 12),
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => onPrivacyPolicyTap?.call(policyUrl),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.open_in_new_rounded,
-                            size: 14, color: _kAccent),
-                        const SizedBox(width: 6),
-                        Text(
-                          strings.privacyPolicyLabel,
-                          style: const TextStyle(
-                            color: _kAccent,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
+                // ponytail: Semantics(button:true) wrapper — bare InkWell
+                // exposes no distinct tappable a11y node (same gap found +
+                // fixed in vip_redeem_screen.dart's ACTIVATE button).
+                Semantics(
+                  button: true,
+                  label: strings.privacyPolicyLabel,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => onPrivacyPolicyTap?.call(policyUrl),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.open_in_new_rounded,
+                              size: 14, color: _kAccent),
+                          const SizedBox(width: 6),
+                          Text(
+                            strings.privacyPolicyLabel,
+                            style: const TextStyle(
+                              color: _kAccent,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -252,38 +259,45 @@ class _AllowButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Ink(
-          height: 50,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            gradient: const LinearGradient(
-              colors: [_kAccent, Color(0xFF8B5CF6)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x556366F1),
-                blurRadius: 14,
-                offset: Offset(0, 6),
+      // ponytail: Semantics(button:true) — bare InkWell exposes no distinct
+      // tappable a11y node (same gap found + fixed in vip_redeem_screen.dart's
+      // ACTIVATE button); this is the primary GDPR-consent action.
+      child: Semantics(
+        button: true,
+        label: label,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Ink(
+            height: 50,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: const LinearGradient(
+                colors: [_kAccent, Color(0xFF8B5CF6)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-            ],
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Center(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                  letterSpacing: 0.2,
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x556366F1),
+                  blurRadius: 14,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    letterSpacing: 0.2,
+                  ),
                 ),
               ),
             ),
@@ -304,29 +318,34 @@ class _RejectButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Container(
-          height: 50,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: _kRejectFg.withValues(alpha: 0.25),
-              width: 1.2,
+      // ponytail: same Semantics(button:true) fix as _AllowButton above.
+      child: Semantics(
+        button: true,
+        label: label,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            height: 50,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _kRejectFg.withValues(alpha: 0.25),
+                width: 1.2,
+              ),
             ),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Center(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                style: const TextStyle(
-                  color: _kRejectFg,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: _kRejectFg,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ),

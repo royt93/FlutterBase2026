@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/ad_manager.dart';
+import '../utils/safe_logger.dart';
 import 'signed_vip_key.dart';
 import 'vip_entry.dart';
 import 'vip_manager.dart';
@@ -232,11 +233,14 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
     FocusScope.of(context).unfocus();
     final raw = _keyController.text;
     if (raw.trim().isEmpty) {
+      SafeLogger.d('VipRedeemScreen', 'activate tapped with empty key');
       _showSnack(_s.enterKeyFirst);
       return;
     }
     final vip = AdManager().vip;
     if (vip == null) {
+      SafeLogger.w('VipRedeemScreen',
+          'activate tapped but AdManager().vip is null (SDK not ready)');
       _showSnack(_s.sdkNotReady);
       return;
     }
@@ -247,6 +251,8 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         publicKeyBase64: widget.publicKeyBase64,
         stack: true,
       );
+      SafeLogger.d('VipRedeemScreen',
+          'redeemSignedKey result=${result.status} error=${result.error}');
       if (!mounted) return;
       switch (result.status) {
         case VipRedeemStatus.success:
@@ -767,6 +773,13 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
               controller: _keyController,
               focusNode: _keyFocus,
               textInputAction: TextInputAction.go,
+              autocorrect: false,
+              enableSuggestions: false,
+              // ponytail: keys are base64url (letters/digits/-/_/=) — smart
+              // dashes/quotes would silently rewrite '-' into an em-dash and
+              // corrupt the key on real iOS keyboards, not just automation.
+              smartDashesType: SmartDashesType.disabled,
+              smartQuotesType: SmartQuotesType.disabled,
               onSubmitted: (_) => _onActivate(),
               style: const TextStyle(
                   color: Colors.white,
@@ -866,27 +879,37 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
             ),
             child: Material(
               color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: enabled ? _onActivate : null,
-                child: Center(
-                  child: processing
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2.6, color: Colors.black))
-                      : Text(
-                          _s.activateButton.toUpperCase(),
-                          style: TextStyle(
-                            color: enabled
-                                ? Colors.black
-                                : Colors.white.withValues(alpha: 0.4),
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.6,
+              child: Semantics(
+                // ponytail: without this, the field's empty-state Semantics
+                // merges "ACTIVATE" into the text field's label and this
+                // InkWell exposes no distinct accessible node at all (found
+                // via VoiceOver-equivalent a11y tooling) — real screen
+                // readers and UI-test tooling alike can't target the button.
+                button: true,
+                enabled: enabled,
+                label: _s.activateButton,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: enabled ? _onActivate : null,
+                  child: Center(
+                    child: processing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.6, color: Colors.black))
+                        : Text(
+                            _s.activateButton.toUpperCase(),
+                            style: TextStyle(
+                              color: enabled
+                                  ? Colors.black
+                                  : Colors.white.withValues(alpha: 0.4),
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.6,
+                            ),
                           ),
-                        ),
+                  ),
                 ),
               ),
             ),
