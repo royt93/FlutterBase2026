@@ -450,7 +450,9 @@ Updated: 2026-06-16
   app. Fix: bỏ guard mounted/`_hasNavigated` trước `initialize()` ở cả 2 file (gọi
   hàm này không cần `BuildContext`). Verify on-device qua example app (iOS sim):
   log xác nhận `initialize()` chạy lúc 00:14:28 dù hard-cap đã bắn lúc 00:11:01;
-  banner/interstitial/rewarded đều load creative thật (test mode) sau fix.
+  cả 4 ad surface (banner/interstitial/rewarded/App Open) đều load + show
+  creative thật (test mode) sau fix — App Open confirm show qua screenshot
+  2026-07-11 (`showAppOpen [AdMob] ✅ shown`). Tracked as `doc/task/done/T29-splash-init-race-condition.md`.
 
 - **iOS App Open watchdog false-positive** (SDK 1.0.19): the "foreground = hung
   ad" heuristic is Android-only now; on iOS the ad shows while the app stays

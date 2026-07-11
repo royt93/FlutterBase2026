@@ -62,7 +62,9 @@ Every scope item from the original `/loop` audit request is now closed with 2 co
 8. **Docs kept in sync** — this README updated every round with fresh evidence, not rubber-stamped.
 9. **Device smoke-test** — passed clean on real hardware (Pixel 7 Pro, host app `com.roy.admobwrapper`), 0 crash.
 
-Known accepted (not bugs) limitations carried forward: T06 host missing a re-consent UI button, T18 VIP one-time-use is per-device not global, Android has no durable anti-reinstall marker (iOS-only). Final state: `flutter analyze` clean (root + SDK), `flutter test` **76/76** root + **334/334** SDK. The `/loop` audit cycle is complete; no further rounds are scheduled.
+Known accepted (not bugs) limitations carried forward: T06 host missing a re-consent UI button, T18 VIP one-time-use is per-device not global, Android has no durable anti-reinstall marker (iOS-only).
+
+**Round 14 (2026-07-10, requested by partner re-ask against 7 yêu cầu)**: cross-checked user's 7 restated feature asks 1:1 against REQ 1-7 below — full overlap, no new gap area found. 3 items landed in this conversation but were missing their own ticket: backfilled as **T29** (splash hard-cap race condition — CRITICAL, SDK never inits for the whole session if the 8s timer fires before ATT/UMP resolves; fixed in both example app and host app), **T30** (VIP entries checksum + iOS Keychain redeemed-key ledger, SDK 1.0.24), and **T27** (grace nudge — existed in the backlog table but had no file, backfilled from CHANGELOG). Re-verified counts fresh, not trusted from a prior round: `flutter analyze` clean (root + SDK), `flutter test` **76/76** root + **430/430** SDK. Confirmed both Android/iOS `Platform`-conditional branches (`resolvePlatformAdUnitId`, `FirstInstallGuard`) are genuinely exercised by the automated suite via dependency-injected boolean seams — not relying on the test-runner's host OS — so "full test coverage for both iOS and Android" holds at the automated-test level; the SDK itself has zero native Android/iOS code (fully mediated through `google_mobile_ads`/`applovin_max` plugins), so there is no native-layer test gap to fill. The `/loop` audit cycle remains complete; no further rounds scheduled unless a genuinely new feature area is requested.
 
 ## Legend
 - **Priority:** `P0` = chặn phát hành · `P1` = ngay sau · `P2` = cải thiện
@@ -101,6 +103,8 @@ Known accepted (not bugs) limitations carried forward: T06 host missing a re-con
 | T26 | Adaptive frequency capping — Phase 1 instrumentation only | 7 | P3 | — | ✅ done |
 | T27 | VIP grace-period expiry nudge (`graceNudgeThreshold` + one-time SnackBar) | 7 | P2 | — | ✅ done |
 | T28 | Privacy Options host entry point (host chưa gọi `showPrivacyOptions()`) | 6,7 | P1 | HIGH | ✅ done |
+| T29 | Splash hard-cap race condition: SDK init skip vĩnh viễn nếu timer bắn trước ATT/UMP resolve | 3,6 | P0 | CRITICAL | ✅ done |
+| T30 | VIP storage hardening: entries checksum + redeemed-key ledger (iOS Keychain) | 5 | P1 | MEDIUM | ✅ done |
 
 *T21/T22 phát sinh từ audit mới `doc/audit/audit_gemini.md` (2026-07-08) — góc nhìn request-minimization/fill-rate + pháp lý theo loại ad, chưa nằm trong `audit_claude.md` gốc. Cả hai done 2026-07-09.*
 

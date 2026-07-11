@@ -336,11 +336,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
       // 2) Google UMP consent form for EEA/UK users — before the first ad request.
       try {
-        final ump = await AdManager().requestUmpConsent(
-          // TEMP smoke test (2026-07-10, revert after verifying UMP form):
-          testMode: true,
-          debugGeography: DebugGeography.debugGeographyEea,
-        );
+        final ump = await AdManager().requestUmpConsent();
         debugPrint('UMP: canRequestAds=${ump.canRequestAds}');
       } catch (e) {
         debugPrint('UMP skipped: $e');
