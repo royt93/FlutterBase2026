@@ -257,9 +257,16 @@ class AppLovinAdapter implements AdProviderAdapter {
         _emitRevenueIfPresent(ad, AdSlotType.appOpen, AdPlacement.splash);
       },
       onAdDisplayFailedCallback: (ad, err) {
-        SafeLogger.w(_logTag, 'appOpen $tag ❌ display failed: ${err.message}');
         _appOpenShowTimeout?.cancel();
         _appOpenShowTimeout = null;
+        // Late arrival (see onAdHiddenCallback above) — watchdog already
+        // resolved this show cycle; don't clobber state or double-reload.
+        if (_appOpenDismiss == null) {
+          SafeLogger.w(_logTag,
+              'appOpen $tag ❌ display failed (late — watchdog already handled this show): ${err.message}');
+          return;
+        }
+        SafeLogger.w(_logTag, 'appOpen $tag ❌ display failed: ${err.message}');
         appOpenSlot.markShowFailed();
         final cb = _appOpenDismiss;
         _appOpenDismiss = null;
@@ -286,9 +293,21 @@ class AppLovinAdapter implements AdProviderAdapter {
         ));
       },
       onAdHiddenCallback: (ad) {
-        SafeLogger.d(_logTag, 'appOpen $tag 👋 hidden');
         _appOpenShowTimeout?.cancel();
         _appOpenShowTimeout = null;
+        // Late arrival: the smart-timeout watchdog already force-dismissed
+        // this show cycle (_appOpenDismiss cleared, slot moved out of
+        // `showing`) before AppLovin's native callback landed — see the
+        // "unreliable, sometimes fires LATE" comment in [showAppOpen]. Acting
+        // again here would clobber whatever state the reload-in-flight has
+        // already moved to and fire a SECOND raw `_bridge.loadAppOpenAd`
+        // call that bypasses AdManager's VIP/consent/daily-cap gates.
+        if (_appOpenDismiss == null) {
+          SafeLogger.d(_logTag,
+              'appOpen $tag 👋 hidden (late — watchdog already handled this show)');
+          return;
+        }
+        SafeLogger.d(_logTag, 'appOpen $tag 👋 hidden');
         appOpenSlot.markDismissed();
         final cb = _appOpenDismiss;
         _appOpenDismiss = null;

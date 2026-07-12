@@ -374,9 +374,20 @@ class AdMobAdapter implements AdProviderAdapter {
       await ad.show(GmaShowCallbacks(
         onShowed: () => SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown'),
         onDismissed: () {
-          SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
           _appOpenShowTimeout?.cancel();
           _appOpenShowTimeout = null;
+          // Late arrival: the hard-cap watchdog already force-dismissed this
+          // show cycle (_appOpenDismiss cleared) before GMA's native callback
+          // landed. Acting again would clobber slot state the reload-in-flight
+          // already moved on from and double-dispose `ad`.
+          if (_appOpenDismiss == null) {
+            SafeLogger.d(_logTag,
+                'showAppOpen $tag 👋 dismissed (late — watchdog already handled this show)');
+            _appOpenAd = null;
+            _disposeAd(ad, 'appOpen-after-dismiss-late');
+            return;
+          }
+          SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
           _appOpenAd = null;
           _disposeAd(ad, 'appOpen-after-dismiss');
           appOpenSlot.markDismissed();
@@ -385,10 +396,17 @@ class AdMobAdapter implements AdProviderAdapter {
           cb?.call(true);
         },
         onFailedToShow: (message) {
-          SafeLogger.w(_logTag, 'showAppOpen $tag ❌ display failed: $message');
           _appOpenShowTimeout?.cancel();
           _appOpenShowTimeout = null;
           _appOpenAd = null;
+          // Late arrival (see onDismissed above) — watchdog already resolved.
+          if (_appOpenDismiss == null) {
+            SafeLogger.w(_logTag,
+                'showAppOpen $tag ❌ display failed (late — watchdog already handled this show): $message');
+            _disposeAd(ad, 'appOpen-show-fail-late');
+            return;
+          }
+          SafeLogger.w(_logTag, 'showAppOpen $tag ❌ display failed: $message');
           _disposeAd(ad, 'appOpen-show-fail');
           appOpenSlot.markShowFailed();
           final cb = _appOpenDismiss;
