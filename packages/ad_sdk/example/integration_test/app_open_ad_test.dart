@@ -49,6 +49,25 @@ Future<bool> _waitForAppOpenLoaded(WidgetTester tester) async {
   return false;
 }
 
+/// Revoking the first-install VIP grace mid-test can unmask the SDK's
+/// already-scheduled post-splash consent dialog (AdManager._maybeScheduleConsentDialog
+/// re-checks VIP at its ~1s-delayed fire time, per ad_manager.dart) — it was
+/// scheduled while VIP was still inactive-pending, then fires after our
+/// revokeAll() call. Wait out that window and dismiss it if it shows, so it
+/// doesn't swallow the tap meant for the demo tile underneath.
+Future<void> _revokeVipGraceAndClearConsentDialog(WidgetTester tester) async {
+  await AdManager().vip!.revokeAll();
+  for (var i = 0; i < 6; i++) {
+    await tester.pump(const Duration(milliseconds: 300));
+    final allow = find.text('Allow personalized ads');
+    if (allow.evaluate().isNotEmpty) {
+      await tester.tap(allow);
+      await tester.pump(const Duration(milliseconds: 300));
+      break;
+    }
+  }
+}
+
 /// This test polls for up to 60s because a human must manually tap the ad's
 /// close button when it appears — there is no automated real-device
 /// UI-automation tool available for iOS in this environment.
@@ -72,13 +91,11 @@ void main() {
     await tester.pump();
     await _waitForInit(tester);
 
-    // Fresh installs auto-grant a first-install VIP grace window (see
-    // DemoConfig.firstInstallVipGrace), which silently no-ops every load/show
-    // call below (loadAppOpen skipped, slot never enters `showing`) and would
-    // make this test pass without ever exercising the real ad lifecycle.
-    // Revoke it for a deterministic run regardless of device install history.
-    await AdManager().vip!.revokeAll();
-    await tester.pump();
+    // Fresh installs auto-grant a first-install VIP grace window
+    // (DemoConfig.firstInstallVipGrace) during which AdManager silently
+    // no-ops every load/show call. Revoke it so this test actually exercises
+    // the real ad show/dismiss lifecycle instead of trivially passing.
+    await _revokeVipGraceAndClearConsentDialog(tester);
 
     final tile = find.text('App-open ad');
     var foundTile = false;
