@@ -22,8 +22,9 @@
 //   §17 Demo: Compliance report export (T23)
 //
 // Note: provider (AdMob vs AppLovin) is chosen ONCE at app startup via
-// `AdConfig.provider` and is **not** swappable at runtime. To switch
-// providers, change `kProvider` in §1 and rebuild.
+// `AdConfig.provider` and is **not** swappable at runtime. Default is
+// AppLovin; pass --dart-define=AD_PROVIDER_ADMOB=true to build/test the
+// AdMob path instead (see kProvider in §1).
 // ═══════════════════════════════════════════════════════════════════════════
 
 import 'dart:async';
@@ -60,14 +61,17 @@ final _kAppLovinAppOpenId =
 final _kAppLovinRewardedId =
     Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_REWARDED_ID' : 'REDACTED_APPLOVIN_REWARDED_ID';
 
-/// Provider for this app — chosen once. Replace the 5 YOUR_* constants
-/// above with real values from dash.applovin.com BEFORE running.
+/// Provider for this app — defaults to `AdProvider.appLovin` deliberately and
+/// kept this way — the demo needs a provider with real credentials to
+/// exercise banner/interstitial/rewarded/appOpen with genuine AppLovin
+/// creative (2026-07-11 audit round, see doc/task/README.md). Do not change
+/// this default to `AdProvider.admob` in source.
 ///
-/// ⚠️ Set to `AdProvider.appLovin` deliberately and kept this way — the demo
-/// needs a provider with real credentials to exercise banner/interstitial/
-/// rewarded/appOpen with genuine AppLovin creative (2026-07-11 audit round,
-/// see doc/task/README.md). Do not revert to `AdProvider.admob`.
-const AdProvider kProvider = AdProvider.appLovin;
+/// For integration-test runs that need to exercise the AdMob path, pass
+/// `--dart-define=AD_PROVIDER_ADMOB=true` instead of editing this constant.
+const AdProvider kProvider = bool.fromEnvironment('AD_PROVIDER_ADMOB')
+    ? AdProvider.admob
+    : AdProvider.appLovin;
 
 /// Placeholder privacy-policy link shown by the consent dialog demo.
 /// Real apps should point this at their own published policy.
@@ -327,6 +331,12 @@ class _SplashScreenState extends State<SplashScreen> {
   // creative (which can auto-click into an undismissable Safari sheet) never
   // fires on splash.
   static const _skipSplashAd = bool.fromEnvironment('SKIP_SPLASH_AD');
+  // ponytail: the real ATT system dialog has no simctl pre-grant (no
+  // "tracking" TCC service exists) and reprompts on every fresh install, so
+  // it wedges every scripted `flutter test integration_test/...` run behind
+  // an untappable system alert. Skip the real prompt under this flag; pass
+  // `--dart-define=SKIP_ATT=true` for Simulator/CI integration-test runs.
+  static const _skipAtt = bool.fromEnvironment('SKIP_ATT');
   final ValueNotifier<bool> _navigated = ValueNotifier<bool>(false);
   Timer? _hardCap;
   void Function(BoolEvent)? _listener;
@@ -355,11 +365,13 @@ class _SplashScreenState extends State<SplashScreen> {
       // Consent ordering (recommended): ATT → UMP → initialize.
       // 1) iOS App Tracking Transparency. No-op on Android; never throws.
       //    Must run from the splash (UI is up), NOT from main() before runApp.
-      try {
-        final att = await AdManager().requestAtt();
-        debugPrint('ATT status: ${att.status.name}');
-      } catch (e) {
-        debugPrint('ATT skipped: $e');
+      if (!_skipAtt) {
+        try {
+          final att = await AdManager().requestAtt();
+          debugPrint('ATT status: ${att.status.name}');
+        } catch (e) {
+          debugPrint('ATT skipped: $e');
+        }
       }
       // 2) Google UMP consent form for EEA/UK users — before the first ad request.
       try {

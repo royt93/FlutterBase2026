@@ -51,6 +51,13 @@
 	<string>REDACTED_APPLOVIN_SDK_KEY_ROUND68</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>This identifier is used to deliver personalised ads.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_dartobservatory._tcp</string>
+		<string>_dartVmService._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Required for Flutter debugging/Dart VM Service discovery.</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
