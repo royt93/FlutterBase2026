@@ -568,6 +568,16 @@ class VipManager {
     _scheduleNextExpiry();
   }
 
+  /// Test hook — wipes the durable (iOS Keychain) redeemed-signed-key-id
+  /// ledger, so `redeemSignedKey` accepts a previously-used `kid` again.
+  /// Deliberately separate from [revokeAll]: that only clears active VIP
+  /// entries, not the anti-reuse ledger (which must survive revoke/reinstall
+  /// in production). Production callers never call this.
+  @visibleForTesting
+  Future<void> clearRedeemedKeyLedgerForTest() =>
+      // ignore: invalid_use_of_visible_for_testing_member
+      _redeemedKeyLedger.clearForTest();
+
   /// Cleanup. After this the manager can no longer fire stream events.
   ///
   /// Deliberately does NOT dispose [_activeNotifier]/[_graceNudgeDueNotifier]:

@@ -46,13 +46,24 @@ void main() {
 
   testWidgets('Compliance report demo page generates a report on-device',
       (tester) async {
+    // Tall synthetic viewport: HomePage's ListView is a lazy Sliver under the
+    // hood, so "Compliance report" (the LAST tile) never gets an Element at
+    // all — not just "off-screen" — until something scrolls it into the
+    // build/cache extent. find.text()/evaluate() only sees built Elements, so
+    // the plain poll loop below can never find it without this (same fix
+    // already applied in slot_state_panel_test.dart / safety_status_test.dart).
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
 
     final tile = find.text('Compliance report');
     var foundTile = false;
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (tile.evaluate().isNotEmpty) {
         foundTile = true;
@@ -65,10 +76,24 @@ void main() {
     await tester.scrollUntilVisible(tile, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
 
-    final generateButton = find.widgetWithText(FilledButton, 'Generate report');
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.text('Compliance report')),
+        findsOneWidget,
+        reason: 'tap must have navigated into ComplianceDemoPage');
+
+    // Not find.widgetWithText(FilledButton, ...): FilledButton.icon(...) is a
+    // factory returning the private subclass _FilledButtonWithIcon, whose
+    // runtimeType never equals FilledButton — widgetWithText/byType do an
+    // exact runtimeType match, so they silently find nothing for .icon
+    // buttons. byWidgetPredicate's `is FilledButton` check matches the
+    // subclass correctly.
+    final generateButton = find.ancestor(
+      of: find.text('Generate report'),
+      matching: find.byWidgetPredicate((w) => w is FilledButton),
+    );
     expect(generateButton, findsOneWidget);
     await tester.tap(generateButton);
     await tester.pump();

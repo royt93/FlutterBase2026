@@ -69,6 +69,15 @@ void main() {
     await tester.tap(quick7);
     await tester.pump(const Duration(milliseconds: 700)); // validator delay
 
+    // redeemVip() shows a blocking (barrierDismissible: false) success dialog
+    // that only closes when its "OK" CupertinoDialogAction is tapped — it
+    // otherwise sits on top of the whole page and swallows every further
+    // tap (including the second quick-redeem button below).
+    final okButton = find.text('OK');
+    expect(okButton, findsOneWidget);
+    await tester.tap(okButton);
+    await tester.pumpAndSettle();
+
     expect(AdManager().vip!.activeListenable.value, isTrue);
     final firstExpiry = AdManager().vip!.expiresAt;
     expect(firstExpiry, isNotNull);
@@ -80,6 +89,11 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     await tester.tap(quick30);
     await tester.pump(const Duration(milliseconds: 700));
+
+    final okButton2 = find.text('OK');
+    expect(okButton2, findsOneWidget);
+    await tester.tap(okButton2);
+    await tester.pumpAndSettle();
 
     expect(AdManager().vip!.activeListenable.value, isTrue);
     expect(AdManager().vip!.expiresAt!.isAfter(firstExpiry!), isTrue,
@@ -102,6 +116,11 @@ void main() {
     expect(tile, findsOneWidget);
 
     await AdManager().vip!.revokeAll();
+    // The signed-key one-time-use ledger is a durable (iOS Keychain) anti-abuse
+    // backstop that deliberately survives revokeAll/reinstall — so on a device
+    // that has already run this test, the fixed demo key id would still show
+    // as "already used" from a prior run. Clear it for a clean first redeem.
+    await AdManager().vip!.clearRedeemedKeyLedgerForTest();
     await tester.pump();
 
     await tester.tap(tile);
@@ -115,6 +134,10 @@ void main() {
 
     expect(AdManager().vip!.activeListenable.value, isTrue);
     expect(find.textContaining('Signed key OK'), findsOneWidget);
+    // Let the first SnackBar fully animate out — ScaffoldMessenger queues a
+    // second SnackBar behind a still-showing one, so without this the
+    // "already used" SnackBar below may not be visible after only one pump.
+    await tester.pump(const Duration(seconds: 4));
 
     // Redeeming the exact same signed key again on this device must be
     // rejected as already-used (per-device one-time-use guard, T18).

@@ -30,6 +30,15 @@ void main() {
   testWidgets(
       'slot panel shows the real adapter state and survives destroy/reinit',
       (tester) async {
+    // Tall synthetic viewport: HomePage's tile list is long enough that
+    // scrollUntilVisible's default centering can still leave a target tile
+    // partially clipped at the default simulator surface size (same fix as
+    // safety_status_test.dart).
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -46,9 +55,22 @@ void main() {
     expect(foundTile, isTrue,
         reason: 'HomePage must list the Slot state panel tile');
 
+    // Existing in the tree doesn't mean visible/hit-testable — HomePage's
+    // tile list is long enough that this tile can render below the fold on
+    // the default test viewport (same pattern already handled in
+    // compliance_export_test.dart / safety_status_test.dart).
+    await tester.scrollUntilVisible(tile, 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Slot state panel'), findsOneWidget);
+    // The pushed page's AppBar title is also "Slot state panel", and the
+    // previous HomePage route (with its own matching tile) stays mounted
+    // underneath a MaterialPageRoute push — so two matches is expected here;
+    // just confirm the AppBar copy specifically made it on screen.
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.text('Slot state panel')),
+        findsOneWidget);
 
     // Real adapter is live — provider tag + all four slot cards render.
     final adapter = AdManager().adapter;

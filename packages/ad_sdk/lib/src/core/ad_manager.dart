@@ -608,7 +608,14 @@ class AdManager with WidgetsBindingObserver {
       // to preserve 1.x's per-device matching semantic (a `vipDeviceGaids`
       // entry only marks the device VIP when its own GAID matches).
       try {
-        final id = await AdvertisingId.id(true);
+        // ponytail: native advertising-id platform channel call, same
+        // unbounded-hang risk as the adapter init below (observed hanging
+        // on iOS Simulator, e.g. with ATT left notDetermined) — bound it so
+        // a hang degrades to "no GAID" instead of stalling init forever.
+        final id = await AdvertisingId.id(true).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => null,
+        );
         _currentDeviceGAID = id ?? '';
       } on PlatformException catch (e) {
         SafeLogger.w(_tag, () => 'GAID PlatformException: $e');
@@ -708,8 +715,20 @@ class AdManager with WidgetsBindingObserver {
       // as a test device in debug builds (preserves 1.x policy compliance).
       final adapter = config.isAdMob ? AdMobAdapter() : AppLovinAdapter();
       adapter.eventSink = _emit;
-      final ok =
-          await adapter.initialize(config, deviceGaid: _currentDeviceGAID);
+      // ponytail: native mediation SDK init (AppLovin/AdMob platform channel)
+      // has no completion guarantee — an occasional native-side hang (seen
+      // on iOS Simulator) previously wedged this await forever, permanently
+      // stuck at isInitialised=false with no error surfaced. Bound it so a
+      // hang degrades to a normal init-failure instead of an infinite hang.
+      bool ok;
+      try {
+        ok = await adapter
+            .initialize(config, deviceGaid: _currentDeviceGAID)
+            .timeout(const Duration(seconds: 20));
+      } on TimeoutException {
+        SafeLogger.e(_tag, 'adapter init TIMED OUT after 20s');
+        ok = false;
+      }
       if (!ok) {
         SafeLogger.e(_tag, 'adapter init FAILED');
         onComplete(false, _currentDeviceGAID);

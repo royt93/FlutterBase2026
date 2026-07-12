@@ -61,13 +61,30 @@ void main() {
     expect(active, isNotNull);
     expect(active!.maxFullscreenAdsPerDay, 999);
     expect(active.minTimeBetweenFullscreenAds, 2000);
+
+    // kDemoSafetyParams' numeric fields are, by design, identical to
+    // AdSafetyParams.debug's preset (both: 999 caps / 2000ms throttle / 0ms
+    // warm-up) — so the "between=…ms" / "session=…" content text is
+    // rendered VERBATIM on both the Active-params card and the
+    // Preset:AdSafetyParams.debug card below. Scope the finder to the
+    // specific card (via its title-containing Card ancestor) instead of
+    // asserting global uniqueness, which isn't guaranteed.
+    final activeCard = find.ancestor(
+      of: find.textContaining('Active params (demo: same for debug + release)'),
+      matching: find.byType(Card),
+    );
+    expect(activeCard, findsOneWidget);
     expect(
-        find.textContaining('between=${active.minTimeBetweenFullscreenAds}ms'),
-        findsOneWidget);
-    expect(find.textContaining('session=${active.maxFullscreenAdsPerSession}'),
+        find.descendant(
+            of: activeCard,
+            matching: find.textContaining(
+                'between=${active.minTimeBetweenFullscreenAds}ms')),
         findsOneWidget);
     expect(
-        find.textContaining('Active params (demo: same for debug + release)'),
+        find.descendant(
+            of: activeCard,
+            matching: find.textContaining(
+                'session=${active.maxFullscreenAdsPerSession}')),
         findsOneWidget);
 
     // Both built-in presets are also rendered for comparison — assert they
