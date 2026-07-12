@@ -336,6 +336,17 @@ class _SplashScreenState extends State<SplashScreen> {
   // it wedges every scripted `flutter test integration_test/...` run behind
   // an untappable system alert. Skip the real prompt under this flag; pass
   // `--dart-define=SKIP_ATT=true` for Simulator/CI integration-test runs.
+  //
+  // Known gap (2026-07-12 investigation): SKIP_ATT only suppresses THIS
+  // Dart-level `AdManager().requestAtt()` call below — there is no second
+  // Dart call site (checked packages/ad_sdk/lib + example/lib). But tapping
+  // an App-Open ad's click-through can open AppLovin's in-app browser
+  // (applovin.com), which independently triggers iOS's native ATT prompt
+  // outside any Dart code path — no dart-define can reach or suppress that.
+  // If a scripted run wedges on ATT despite SKIP_ATT=true, it's this path;
+  // the test needs a UI-automation tap on "Allow"/"Ask App Not to Track"
+  // (same class of fix as the App-Open dismiss-button handling), not a
+  // change to this flag.
   static const _skipAtt = bool.fromEnvironment('SKIP_ATT');
   final ValueNotifier<bool> _navigated = ValueNotifier<bool>(false);
   Timer? _hardCap;

@@ -29,6 +29,16 @@ void main() {
 
   testWidgets('Log viewer shows entries accumulated from real SDK init logs',
       (tester) async {
+    // HomePage's demo list is a viewport-lazy ListView — "Log viewer" is the
+    // 8th of 10 tiles and isn't built at all at default phone height (see
+    // compliance_export_test.dart for the same issue on the last tile). Use a
+    // tall synthetic viewport so every tile is within the build/cache extent
+    // instead of requiring a real scroll gesture.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -44,6 +54,8 @@ void main() {
     }
     expect(foundTile, isTrue, reason: 'HomePage must list the Log viewer tile');
 
+    await tester.scrollUntilVisible(tile, 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Log viewer'), findsWidgets);

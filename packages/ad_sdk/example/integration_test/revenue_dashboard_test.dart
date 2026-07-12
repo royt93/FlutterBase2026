@@ -12,6 +12,7 @@
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -28,6 +29,16 @@ void main() {
 
   testWidgets('Revenue dashboard renders RevenuePanel without crashing',
       (tester) async {
+    // HomePage's demo list is a viewport-lazy ListView — "Revenue dashboard"
+    // is the 9th of 10 tiles and isn't built at all at default phone height
+    // (see compliance_export_test.dart for the same issue on the last tile).
+    // Use a tall synthetic viewport so every tile is within the build/cache
+    // extent instead of requiring a real scroll gesture.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -44,6 +55,8 @@ void main() {
     expect(foundTile, isTrue,
         reason: 'HomePage must list the Revenue dashboard tile');
 
+    await tester.scrollUntilVisible(tile, 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
     // RevenuePanel subscribes to a live event stream — avoid pumpAndSettle,
     // use a bounded pump window instead.

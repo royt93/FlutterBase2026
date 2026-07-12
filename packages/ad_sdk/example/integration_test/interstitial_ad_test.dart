@@ -59,6 +59,14 @@ void main() {
     await tester.pump();
     await _waitForInit(tester);
 
+    // Fresh installs auto-grant a first-install VIP grace window (see
+    // DemoConfig.firstInstallVipGrace), which silently no-ops every show
+    // call below (pre-check fails, slot never enters `showing`) and would
+    // make this test pass without ever exercising the real ad lifecycle.
+    // Revoke it for a deterministic run regardless of device install history.
+    await AdManager().vip!.revokeAll();
+    await tester.pump();
+
     final tile = find.text('Interstitial ad');
     var foundTile = false;
     for (var i = 0; i < 40; i++) {
