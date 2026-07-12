@@ -93,7 +93,13 @@
       "Bash(echo \"grep exit2: $?\")",
       "Bash(echo \"exit: $?\")",
       "Bash(echo \"exit2: $?\")",
-      "Bash(echo \"lib clean: $?\")"
+      "Bash(echo \"lib clean: $?\")",
+      "Bash(ps -o pid,etime,command -p 8092,8094,8095)",
+      "Bash(ps -eo pid,etime,command)",
+      "Bash(ps -o pid,etime,command -p 73473)",
+      "Bash(kill -9 99853)",
+      "Bash(timeout 590 bash -c 'PREV=22; while true; do CUR=$\\(grep -c \"DONE\" /tmp/ios_test_run_20260712_rerun/progress.log 2>/dev/null\\); CUR=${CUR:-0}; if [ \"$CUR\" -gt \"$PREV\" ]; then break; fi; if ! pgrep -f run_all.sh >/dev/null; then break; fi; sleep 5; done')",
+      "Bash(timeout 590 bash -c 'PREV=30; while true; do CUR=$\\(grep -c \"DONE\" /tmp/ios_test_run_20260712_rerun/progress.log 2>/dev/null\\); CUR=${CUR:-0}; if [ \"$CUR\" -gt \"$PREV\" ]; then break; fi; if ! pgrep -f run_all.sh >/dev/null; then break; fi; sleep 5; done')"
     ],
     "deny": [],
     "ask": [],
