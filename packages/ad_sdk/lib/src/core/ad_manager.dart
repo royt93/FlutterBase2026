@@ -16,6 +16,7 @@ import '../compliance/compliance_report.dart';
 import '../config/ad_config.dart';
 import '../consent/consent_manager.dart';
 import '../consent/consent_settings.dart';
+import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
@@ -25,6 +26,7 @@ import '../vip/_first_install_guard.dart';
 import '../vip/vip_manager.dart';
 import '../widget/ad_loading_dialog.dart';
 import 'ad_consent.dart';
+import 'ad_crash_guard.dart';
 import 'att_consent.dart';
 import 'ad_provider_adapter.dart';
 import 'ad_route_observer.dart';
@@ -189,6 +191,32 @@ class AdManager with WidgetsBindingObserver {
 
   /// VIP manager — `null` until [initialize] completes.
   VipManager? get vip => _vipManager;
+
+  /// Opt-in "Smart Monetization Arbitrator" (default OFF) — `null` unless the
+  /// host app calls [enableArbitrator]. When `null`, [showInterstitial] and
+  /// [showRewardedAd] behave exactly as if this feature didn't exist.
+  MonetizationArbitrator? _arbitrator;
+
+  /// `null` by default — see [enableArbitrator].
+  MonetizationArbitrator? get arbitrator => _arbitrator;
+
+  /// Opt in to the Smart Monetization Arbitrator: at each fullscreen ad-show
+  /// attempt (after every existing gate, including the safety layer, already
+  /// passes) [arbitrator] gets one more veto — show the ad, or nudge the host
+  /// app to upsell VIP instead (see [ArbitratorNudgeEvent] on [events]).
+  ///
+  /// Byte-for-byte no-op until this is called: [showInterstitial] and
+  /// [showRewardedAd] only consult [arbitrator] when it's non-null.
+  void enableArbitrator(MonetizationArbitrator arbitrator) {
+    _arbitrator = arbitrator;
+  }
+
+  /// Test/host seam: clear a previously-registered arbitrator.
+  @visibleForTesting
+  void disableArbitrator() {
+    _arbitrator?.dispose();
+    _arbitrator = null;
+  }
 
   // ─── Test seams ────────────────────────────────────────────────────────────
   /// Push an event onto [events] (lets a test drive consumers like RevenuePanel
@@ -588,6 +616,10 @@ class AdManager with WidgetsBindingObserver {
       _ensureObserverAdded();
       SafeLogger.d(
           _tag, () => 'initialize start, provider=${config.provider.name}');
+
+      if (config.enableCrashGuard) {
+        installAdCrashGuard();
+      }
 
       final prefs = await AdPreferences.getInstance();
       _eventLog ??= AdEventLog(prefs);
@@ -1444,6 +1476,20 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
+    // Opt-in Smart Monetization Arbitrator (default OFF — see
+    // enableArbitrator). Only consulted when a host app has registered one.
+    final arbitrator = _arbitrator;
+    if (arbitrator != null &&
+        arbitrator.decide() == ArbitratorDecision.nudgeVip) {
+      SafeLogger.d(_tag, '⏭️ showInterstitial vetoed — arbitrator nudgeVip');
+      _emit(ArbitratorNudgeEvent(
+        type: AdSlotType.interstitial,
+        placement: placement,
+        estimatedEcpmMicros: arbitrator.estimatedEcpmMicros,
+      ));
+      onDoneFlow(false);
+      return;
+    }
     SafeLogger.d(
         _tag,
         () =>
@@ -1567,12 +1613,26 @@ class AdManager with WidgetsBindingObserver {
   /// extend their own VIP window" flow (see [VipManager] `stack: true`
   /// grants), where the normal VIP-suppression branch above would otherwise
   /// prevent the ad from ever loading. Pass `true` only from that flow.
+  ///
+  /// [ssvCustomData]/[ssvUserId] are optional Server-Side Verification (SSV)
+  /// identifiers, forwarded verbatim to the native SDK's real SSV field
+  /// (AppLovin: `custom_data`; AdMob: `ServerSideVerificationOptions`). This
+  /// SDK does NOT run a server and does NOT verify anything itself — it only
+  /// plumbs the data through so the PARTNER's OWN backend can match it
+  /// against AppLovin's/AdMob's reward postback. See README "Server-Side
+  /// Verification". Omitting both preserves today's fully client-side
+  /// behavior exactly; supplying either sets
+  /// `RewardResult.pendingServerConfirmation` (surfaced here only as
+  /// `onEarnedReward`'s `earned` flag — read `AdManager().events` /
+  /// `AdRewardEvent` if you need the pending flag itself).
   Future<void> showRewardedAd({
     required void Function(bool earned) onEarnedReward,
     bool vipAutoGrant = false,
     bool bypassVipGuard = false,
     Duration onDemandLoadTimeout = const Duration(seconds: 15),
     AdPlacement placement = AdPlacement.unspecified,
+    String? ssvCustomData,
+    String? ssvUserId,
   }) async {
     final ad = _adapter;
     if (ad == null) {
@@ -1617,6 +1677,26 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
+    // Opt-in Smart Monetization Arbitrator (default OFF — see
+    // enableArbitrator). Only consulted when a host app has registered one.
+    // Deliberately NOT applied to the VIP watch-ad-to-extend-VIP bypass path
+    // (bypassVipGuard) — that flow is the user already spending their own
+    // time to earn more VIP, vetoing it would defeat its purpose. It's also
+    // skipped for the same reason a low-eCPM veto shouldn't block a user who
+    // is already mid-VIP-purchase-flow.
+    final arbitrator = _arbitrator;
+    if (!bypassVipGuard &&
+        arbitrator != null &&
+        arbitrator.decide() == ArbitratorDecision.nudgeVip) {
+      SafeLogger.d(_tag, '⏭️ showRewarded vetoed — arbitrator nudgeVip');
+      _emit(ArbitratorNudgeEvent(
+        type: AdSlotType.rewarded,
+        placement: placement,
+        estimatedEcpmMicros: arbitrator.estimatedEcpmMicros,
+      ));
+      onEarnedReward(false);
+      return;
+    }
     _rewardedInFlight = true;
     // VIP bypass: the slot was never preloaded (loadRewardedAd skips for VIP),
     // so fetch one on demand and wait for it before showing. A blocking loading
@@ -1639,29 +1719,33 @@ class AdManager with WidgetsBindingObserver {
         _tag,
         () =>
             '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
-    await ad.showRewarded(onDone: (result) {
-      _rewardedInFlight = false;
-      if (result.earned) {
-        AdSafetyConfig.recordFullscreenAdShown();
-        _emit(AdRewardEvent(
-          providerTag: ad.tag,
-          placement: placement,
-          label: result.label,
-          amount: result.amount,
-        ));
-      }
-      _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
-      _emit(AdShowEvent(
-        providerTag: ad.tag,
-        type: AdSlotType.rewarded,
-        placement: placement,
-        success: result.earned,
-      ));
-      onEarnedReward(result.earned);
-      // Fix #2 (preserved from 1.x): reload after dismiss/fail. Same dedup
-      // applies as for the interstitial path.
-      unawaited(loadRewardedAd());
-    });
+    await ad.showRewarded(
+        ssvCustomData: ssvCustomData,
+        ssvUserId: ssvUserId,
+        onDone: (result) {
+          _rewardedInFlight = false;
+          if (result.earned) {
+            AdSafetyConfig.recordFullscreenAdShown();
+            _emit(AdRewardEvent(
+              providerTag: ad.tag,
+              placement: placement,
+              label: result.label,
+              amount: result.amount,
+              pendingServerConfirmation: result.pendingServerConfirmation,
+            ));
+          }
+          _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+          _emit(AdShowEvent(
+            providerTag: ad.tag,
+            type: AdSlotType.rewarded,
+            placement: placement,
+            success: result.earned,
+          ));
+          onEarnedReward(result.earned);
+          // Fix #2 (preserved from 1.x): reload after dismiss/fail. Same dedup
+          // applies as for the interstitial path.
+          unawaited(loadRewardedAd());
+        });
   }
 
   /// Whether a "watch rewarded ad" entry point should be enabled.

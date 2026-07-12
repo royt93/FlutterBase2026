@@ -101,8 +101,11 @@ class _FakeAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showRewarded(
-      {required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
     showRewardedCalls++;
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();

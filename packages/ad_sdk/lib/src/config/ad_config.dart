@@ -260,6 +260,7 @@ class AdConfig {
     this.autoRequestUmpConsent = false,
     this.umpTagForUnderAgeOfConsent = false,
     this.disableAppLovinCmpFlow = true,
+    this.enableCrashGuard = true,
   }) : assert(
           provider == AdProvider.appLovin ? appLovin != null : admob != null,
           'AppLovinConfig required when provider==appLovin; AdMobConfig required when provider==admob',
@@ -430,6 +431,20 @@ class AdConfig {
   /// AppLovin via `setHasUserConsent`. Set `false` only if you deliberately use
   /// AppLovin's CMP instead of UMP.
   final bool disableAppLovinCmpFlow;
+
+  // ─── Crash guard ──────────────────────────────────────────────────────────
+
+  /// When `true` (default), [AdManager.initialize] installs a global
+  /// `FlutterError.onError` + `PlatformDispatcher.instance.onError` guard
+  /// (see `ad_crash_guard.dart`) that catches exceptions attributable to
+  /// this SDK's own package, logs them, and recovers the affected ad slot
+  /// (`AdSlot.markShowFailed`) instead of letting them crash the host app.
+  /// Any previously-installed handler is chained, never replaced — and
+  /// errors NOT attributable to this SDK are forwarded untouched.
+  ///
+  /// Set `false` if the host app already installs its own global error
+  /// handler and wants to own this itself.
+  final bool enableCrashGuard;
 
   /// Convenience getter.
   bool get isAdMob => provider == AdProvider.admob;

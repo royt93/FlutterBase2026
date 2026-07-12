@@ -15,10 +15,20 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
   int showCount = 0;
   int disposeCount = 0;
 
+  // Captured SSV params from the most recent show() call.
+  String? lastSsvCustomData;
+  String? lastSsvUserId;
+
   @override
-  Future<void> show(GmaShowCallbacks callbacks) async {
+  Future<void> show(
+    GmaShowCallbacks callbacks, {
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
     shown = callbacks;
     showCount++;
+    lastSsvCustomData = ssvCustomData;
+    lastSsvUserId = ssvUserId;
   }
 
   @override

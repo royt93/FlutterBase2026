@@ -19,6 +19,9 @@
 //
 // Run with:
 //   flutter test integration_test/interstitial_ad_test.dart -d <device-or-sim-id>
+//
+// Automated-equivalent unit coverage for the same show/dismiss state-machine
+// logic (no manual tap required): test/interstitial_rewarded_watchdog_test.dart
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';

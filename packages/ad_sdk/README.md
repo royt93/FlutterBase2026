@@ -17,14 +17,15 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 3. [Quick start (copy-paste in 6 steps)](#quick-start)
 4. [Configuration reference](#configuration-reference)
 5. [VIP system](#vip-system)
-6. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
-7. [Debugging](#debugging)
-8. [Pitfalls — read before filing a bug](#pitfalls)
-9. [Public API surface](#public-api)
-10. [FAQ](#faq)
-11. [Migration from older versions](#migration)
-12. [Support](#support)
-13. [License](#license)
+6. [Server-Side Verification (SSV) for rewarded ads](#server-side-verification-ssv-for-rewarded-ads)
+7. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
+8. [Debugging](#debugging)
+9. [Pitfalls — read before filing a bug](#pitfalls)
+10. [Public API surface](#public-api)
+11. [FAQ](#faq)
+12. [Migration from older versions](#migration)
+13. [Support](#support)
+14. [License](#license)
 
 ---
 
@@ -826,6 +827,52 @@ The guard never denies grace on storage errors — it fails open so a transient 
 
 ---
 
+## Server-Side Verification (SSV) for rewarded ads
+
+**This SDK does not run a server and does not verify anything itself.** Real
+SSV verification happens entirely outside this SDK:
+
+1. You configure an SSV callback URL for your rewarded ad unit in the
+   **AppLovin dashboard** or the **AdMob dashboard**.
+2. When a user earns a reward, AppLovin's/AdMob's servers make an HTTP
+   request (a "postback") directly to **your own backend** at that URL —
+   this SDK is not involved in that request at all.
+3. Your backend verifies the postback's signature and identifying data
+   (whatever you passed in step 1 below) before granting the reward
+   server-side, which is what makes SSV resistant to client-side tampering
+   that a purely `onEarnedReward` client callback is not.
+
+What this SDK actually does — pure plumbing, nothing more:
+
+- `AdManager().showRewardedAd(...)` takes two optional parameters,
+  `ssvCustomData` and `ssvUserId`, so you can attach an identifier (e.g. your
+  own user ID, or `"userId:orderId"`) to the specific ad show. Omit both for
+  today's fully client-side behavior — nothing changes.
+- That data is forwarded verbatim to the native SDK's real SSV field:
+  AppLovin's `AppLovinMAX.showRewardedAd(adUnitId, customData: ...)` (AppLovin
+  has one combined `custom_data` string field — pass `ssvUserId` if you don't
+  need a separate custom payload), or AdMob's
+  `RewardedAd.setServerSideOptions(ServerSideVerificationOptions(userId: ..., customData: ...))`.
+- The reward result exposes `pendingServerConfirmation` (on `RewardResult`
+  and on the `AdRewardEvent` from `AdManager().events`) — `true` only when you
+  supplied `ssvCustomData`/`ssvUserId` for that show call, `false` otherwise.
+  It's an informational flag meaning "your own backend's postback is the
+  authoritative signal for this grant, not just this client-side callback" —
+  the SDK does not poll for or otherwise track your backend's verification
+  outcome.
+
+```dart
+AdManager().showRewardedAd(
+  ssvUserId: currentUser.id,           // → forwarded to AppLovin/AdMob's SSV field
+  onEarnedReward: (earned) {
+    if (!earned) return;
+    // Optimistic client-side UI update only. If you've configured an SSV
+    // callback URL in the AppLovin/AdMob dashboard, YOUR backend receives
+    // the authoritative postback independently of this callback.
+  },
+);
+```
+
 ## Consent & compliance
 
 The SDK supports three patterns. Pick whichever matches your release strategy.
@@ -1097,7 +1144,7 @@ AdManager().requestUmpConsent(...)         // Google UMP wrapper
 
 AdManager().showAppOpenAd(onAdDismiss)
 AdManager().showInterstitial(onDoneFlow)
-AdManager().showRewardedAd(onEarnedReward, {vipAutoGrant, bypassVipGuard, onDemandLoadTimeout})
+AdManager().showRewardedAd(onEarnedReward, {vipAutoGrant, bypassVipGuard, onDemandLoadTimeout, ssvCustomData, ssvUserId})
 AdManager().loadAppOpenAd(onAdLoaded)
 AdManager().canShowInterstitial()
 

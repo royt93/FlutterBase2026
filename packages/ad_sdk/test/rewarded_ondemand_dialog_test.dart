@@ -43,8 +43,11 @@ class _Fake implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showRewarded(
-      {required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
     showRewardedCalls++;
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
@@ -147,7 +150,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     await future;
     await tester.pump(); // process the dismiss pop
-    await tester.pump(const Duration(milliseconds: 300)); // finish exit transition
+    await tester
+        .pump(const Duration(milliseconds: 300)); // finish exit transition
 
     expect(earned, isFalse);
     expect(fake.showRewardedCalls, 0);

@@ -27,10 +27,22 @@ class GmaShowCallbacks {
 /// behind plain methods so it can be faked in tests.
 abstract class GmaFullscreenAd {
   /// Wires the lifecycle callbacks and shows the ad.
-  Future<void> show(GmaShowCallbacks callbacks);
+  ///
+  /// [ssvCustomData]/[ssvUserId] are Server-Side Verification (SSV)
+  /// identifiers — rewarded-only. [_RewardedWrap] forwards them to the real
+  /// `RewardedAd.setServerSideOptions(ServerSideVerificationOptions(...))`
+  /// before showing; App Open/Interstitial wraps ignore both params (GMA has
+  /// no SSV concept for those formats). Null/omitted preserves today's
+  /// behavior exactly.
+  Future<void> show(
+    GmaShowCallbacks callbacks, {
+    String? ssvCustomData,
+    String? ssvUserId,
+  });
 
   /// Wires the paid-event (revenue) listener.
-  void setPaidEventListener(void Function(num valueMicros, String currencyCode, String precision) cb);
+  void setPaidEventListener(
+      void Function(num valueMicros, String currencyCode, String precision) cb);
 
   void dispose();
 }
@@ -74,7 +86,8 @@ abstract class GmaBridge {
 /// request into limited ads / restricted data processing under CCPA.
 const Map<String, String> _rdpExtras = {'rdp': '1'};
 
-Map<String, String>? _extrasFor(bool restrictedDataProcessing) => restrictedDataProcessing ? _rdpExtras : null;
+Map<String, String>? _extrasFor(bool restrictedDataProcessing) =>
+    restrictedDataProcessing ? _rdpExtras : null;
 
 /// Production bridge — forwards to the real `google_mobile_ads` plugin.
 class RealGmaBridge implements GmaBridge {
@@ -160,7 +173,8 @@ FullScreenContentCallback<T> _content<T extends Ad>(GmaShowCallbacks cb) {
   return FullScreenContentCallback<T>(
     onAdShowedFullScreenContent: (_) => cb.onShowed?.call(),
     onAdDismissedFullScreenContent: (_) => cb.onDismissed?.call(),
-    onAdFailedToShowFullScreenContent: (_, err) => cb.onFailedToShow?.call(err.message),
+    onAdFailedToShowFullScreenContent: (_, err) =>
+        cb.onFailedToShow?.call(err.message),
     onAdClicked: (_) => cb.onClicked?.call(),
     onAdImpression: (_) => cb.onImpression?.call(),
   );
@@ -172,14 +186,21 @@ class _AppOpenWrap implements GmaFullscreenAd {
   final AppOpenAd _ad;
 
   @override
-  Future<void> show(GmaShowCallbacks callbacks) {
+  Future<void> show(
+    GmaShowCallbacks callbacks, {
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) {
+    // ponytail: App Open has no SSV concept in GMA — params intentionally
+    // unused here, kept only so the shared interface stays uniform.
     _ad.fullScreenContentCallback = _content<AppOpenAd>(callbacks);
     return _ad.show();
   }
 
   @override
   void setPaidEventListener(void Function(num, String, String) cb) {
-    _ad.onPaidEvent = (ad, micros, precision, currency) => cb(micros, currency, precision.name);
+    _ad.onPaidEvent = (ad, micros, precision, currency) =>
+        cb(micros, currency, precision.name);
   }
 
   @override
@@ -195,14 +216,20 @@ class _InterstitialWrap implements GmaFullscreenAd {
   final InterstitialAd _ad;
 
   @override
-  Future<void> show(GmaShowCallbacks callbacks) {
+  Future<void> show(
+    GmaShowCallbacks callbacks, {
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) {
+    // ponytail: Interstitial has no SSV concept in GMA — same as App Open.
     _ad.fullScreenContentCallback = _content<InterstitialAd>(callbacks);
     return _ad.show();
   }
 
   @override
   void setPaidEventListener(void Function(num, String, String) cb) {
-    _ad.onPaidEvent = (ad, micros, precision, currency) => cb(micros, currency, precision.name);
+    _ad.onPaidEvent = (ad, micros, precision, currency) =>
+        cb(micros, currency, precision.name);
   }
 
   @override
@@ -218,16 +245,30 @@ class _RewardedWrap implements GmaFullscreenAd {
   final RewardedAd _ad;
 
   @override
-  Future<void> show(GmaShowCallbacks callbacks) {
+  Future<void> show(
+    GmaShowCallbacks callbacks, {
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
+    if (ssvCustomData != null || ssvUserId != null) {
+      await _ad.setServerSideOptions(
+        ServerSideVerificationOptions(
+          userId: ssvUserId,
+          customData: ssvCustomData,
+        ),
+      );
+    }
     _ad.fullScreenContentCallback = _content<RewardedAd>(callbacks);
     return _ad.show(
-      onUserEarnedReward: (ad, reward) => callbacks.onUserEarnedReward?.call(reward.amount, reward.type),
+      onUserEarnedReward: (ad, reward) =>
+          callbacks.onUserEarnedReward?.call(reward.amount, reward.type),
     );
   }
 
   @override
   void setPaidEventListener(void Function(num, String, String) cb) {
-    _ad.onPaidEvent = (ad, micros, precision, currency) => cb(micros, currency, precision.name);
+    _ad.onPaidEvent = (ad, micros, precision, currency) =>
+        cb(micros, currency, precision.name);
   }
 
   @override

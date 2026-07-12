@@ -31,7 +31,11 @@
       "Bash(curl -sf https://pub.dev/api/packages/applovin_admob_sdk/versions/1.0.18)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('version:', d.get\\('version'\\)\\); print\\('archive:', d.get\\('archive_url'\\)\\)\")",
       "Bash(curl -sIL https://pub.dev/api/archives/applovin_admob_sdk-1.0.18.tar.gz)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('latest:', d['latest']['version']\\); print\\('all versions:', [v['version'] for v in d['versions']]\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('latest:', d['latest']['version']\\); print\\('all versions:', [v['version'] for v in d['versions']]\\)\")",
+      "Bash(dart doc *)",
+      "Bash(find / -iname \"change_notifier.dart\" -path \"*flutter/lib*\")",
+      "Bash(find / -type d -name \"applovin_max-*\")",
+      "Bash(find / -type d -name \"google_mobile_ads-*\")"
     ],
     "deny": [],
     "ask": [],

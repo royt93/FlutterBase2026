@@ -78,6 +78,30 @@ Known accepted (not bugs) limitations carried forward: T06 host missing a re-con
 - **B2 (network-loss giữa lúc ad đang load) — hạ xuống code-review, không test bằng hành động thật**: kế hoạch gốc là tắt Wi-Fi thật của host giữa lúc interstitial/rewarded đang load. User từ chối cả 2 phương án hành động thật (tắt Wi-Fi thật vì rủi ro cắt kết nối phiên hiện tại; "Simulator network condition" hoá ra không khả thi — Airplane Mode trong Settings app của Simulator và `simctl status_bar ... --dataNetwork` chỉ đổi icon status bar, không chặn traffic thật, vì Simulator dùng chung network stack với host, không có NIC ảo riêng) — quyết định chỉ code-review lại logic. Đọc `applovin_adapter.dart`'s `onAdLoadFailedCallback` (interstitial dòng ~492, tương tự cho rewarded/appOpen) + `ad_slot.dart`'s `markFailed()`/`isCooldown` + `ad_manager.dart`'s `_retryRefillAds()` (dòng ~1930): load-fail (bất kể nguyên nhân, kể cả mất mạng giữa chừng) đẩy slot vào `AdSlotState.cooldown` với backoff window, không throw/crash, không leak Timer/listener; periodic retry-refill scan tự động thử lại slot đang idle/cooldown sau khi backoff hết hạn — tức mất mạng giữa chừng sẽ tự phục hồi khi có mạng lại, không cần logic riêng cho "network". **Giới hạn thật của kết luận này**: code review chỉ chứng minh code xử lý đúng callback-based failure của native SDK; không có bằng chứng thật rằng native AppLovin/AdMob SDK **luôn luôn** gọi `onAdLoadFailedCallback` khi mất mạng giữa request thay vì treo vô thời hạn (không có load-timeout watchdog ở tầng Dart — chỉ có show-timeout cho App Open, không có load-timeout cho bất kỳ loại ad nào) — đây là hành vi được native SDK đảm nhiệm, chưa verify bằng thiết bị thật lần này. Ghi nhận là giới hạn chưa verify, không phải bug đã xác nhận.
 - **B3 (memory leak — stress-cycle proxy, không phải heap-diff thật)**: không MCP tool nào expose Instruments/DevTools heap snapshot (`mcp__dart` không có, `mcp__xcodebuild` chỉ LLDB) — không tự chế thêm debug-counter vào SDK production chỉ để phục vụ 1 lần test. Làm proxy tự động hoá được: mount/unmount Banner demo screen (push "screen thứ 2" rồi Back) **25 chu kỳ liên tục** trong 1 session app thật (iPhone 17 Pro Max Simulator). Kết quả từ native runtime log (`[AppLovinSdk] [AppLovinMAX] Mounting/Unmounting AdView`): 8 cặp mount/unmount, cân bằng 1:1 tuyệt đối — không có AdView nào bị mount mà thiếu unmount tương ứng (không orphan view); 0 dòng `error`/`exception`/`crash`/`leak`/`fatal` trong log; app không crash, không treo, UI phản hồi bình thường suốt 25 chu kỳ. Lưu ý: số cặp mount/unmount log ra (8) thấp hơn số chu kỳ tap thực hiện (25) — vì đây là log của AppLovin's banner (pause/resume khi push/pop route, không phải destroy/recreate mỗi lần) chứ không phải 1 mount-log riêng cho mỗi lần push/pop; các chu kỳ còn lại chỉ pause/resume view sẵn có (đúng behavior "pause-not-hide" đã xác nhận ở B1), không tạo thêm log. **Giới hạn không automate được**: full show+dismiss cycling ở scale cho Interstitial/Rewarded (như plan gốc đề xuất) bị chặn bởi cùng giới hạn accessibility-blindness đã ghi nhận ở B1 — `snapshot_ui` không thấy nút đóng của fullscreen ad nên không có cách bấm-tắt hàng loạt bằng UI automation; một lần trong lúc chạy batch, 1 interstitial test ad bất ngờ xuất hiện che UI (R4 kích hoạt, dừng chờ user xác nhận "done") kèm 1 click-through thật sang applovin.com qua Safari — nguyên nhân chính xác không xác định được (không phải do tap sai toạ độ, vì toạ độ batch cố định trên Banner screen suốt); phải `launch_app_sim` relaunch app để quay lại, cắt session log thành 2 đoạn. Không quan sát DevTools Memory tab thật (`flutter run --profile`) trong stream này — cần mắt người, không bắt buộc để hoàn thành stream. Sau khi xong: revert bypass tạm ở `_showAppOpen()`, `flutter analyze` clean cả 3 nơi (root/SDK/example), `flutter test` **76/76** root + **430/430** SDK (số đã re-verify, không phải số nhớ từ vòng trước) — git diff `example/lib/main.dart` chỉ còn phần credential/kProvider được user cho phép giữ vĩnh viễn, không còn scaffolding test nào sót lại.
 
+## Round 16 (2026-07-12) — "SDK hoàn hảo nhất": 6 hạng mục mới, song song theo cặp
+
+Sau khi test matrix on-device đóng (iOS Simulator 29/30, Android physical 24/30,
+iOS physical blocked vĩnh viễn do bug `flutter_tools` — xem
+`doc/audit/ios_integration_test_result_20260712.md`), user chọn qua nhiều vòng
+`AskUserQuestion` 6 hạng mục nâng cấp tiếp theo, triển khai **song song theo cặp**
+(3 vòng × 2 agent), mỗi vòng xác nhận `flutter analyze` + `flutter test` 100%
+xanh trước khi qua vòng kế. Baseline 465 → **514/514** cuối cùng, zero regression,
+`packages/ad_sdk/lib` không đổi behavior mặc định ở bất kỳ hạng mục nào (tất cả
+tính năng mới đều opt-in hoặc thuần test).
+
+- **Vòng 1**: memory-leak regression test (T31) + network-loss resilience test
+  sâu hơn (T32) — thuần test, dùng lại test-seam có sẵn (`debugConnectivityChanged`,
+  `debugReconnectDebounce`), không cần đổi production code.
+- **Vòng 2**: debug-hook mở rộng Interstitial/Rewarded (T33) + global crash
+  watchdog (T34). T33 phát hiện App-Open watchdog không generalize máy móc được
+  — Interstitial/Rewarded không có race thật (callback native được coi là đáng
+  tin, không có timer cạnh tranh) nên chỉ mirror phần dismiss/display-fail thật,
+  không giả tạo race test không tồn tại.
+- **Vòng 3**: reward SSV plumbing (T35) + Smart Monetization Arbitrator (T36) —
+  cả hai đụng chung `ad_manager.dart`/`ad_event.dart` nhưng merge sạch, không
+  xung đột (verify qua `flutter analyze` + full suite sau vòng). Arbitrator mặc
+  định `null`/tắt, đã có test riêng xác nhận zero-behavior-change khi chưa đăng ký.
+
 ## Legend
 - **Priority:** `P0` = chặn phát hành · `P1` = ngay sau · `P2` = cải thiện
 - **Severity:** CRITICAL / HIGH / MEDIUM / LOW
@@ -117,6 +141,16 @@ Known accepted (not bugs) limitations carried forward: T06 host missing a re-con
 | T28 | Privacy Options host entry point (host chưa gọi `showPrivacyOptions()`) | 6,7 | P1 | HIGH | ✅ done |
 | T29 | Splash hard-cap race condition: SDK init skip vĩnh viễn nếu timer bắn trước ATT/UMP resolve | 3,6 | P0 | CRITICAL | ✅ done |
 | T30 | VIP storage hardening: entries checksum + redeemed-key ledger (iOS Keychain) | 5 | P1 | MEDIUM | ✅ done |
+| T31 | Memory-leak regression test tự động (banner mount/unmount 25 chu kỳ) | 3 | P2 | LOW | ✅ done |
+| T32 | Network-loss resilience test sâu hơn (rapid toggle + long offline) | 2 | P2 | LOW | ✅ done |
+| T33 | Debug-hook mở rộng Interstitial/Rewarded (unit-test coverage, không tự động hoá on-device dismiss) | 3 | P2 | LOW | ✅ done |
+| T34 | Global native-crash watchdog cho code ad-attributable (`AdConfig.enableCrashGuard`) | 3 | P1 | MEDIUM | ✅ done |
+| T35 | Reward Ad Server-Side Verification (SSV) plumbing — client-side only, verify thật ở backend partner | 5 | P2 | MEDIUM | ✅ done |
+| T36 | Smart Monetization Arbitrator — ad vs VIP-nudge theo trailing eCPM (opt-in, default off) | 5,7 | P2 | — | ✅ done |
+
+*T31-T36 = 6 hạng mục "SDK hoàn hảo nhất" (Round 16, 2026-07-12), chọn qua nhiều
+vòng `AskUserQuestion` sau khi test matrix on-device đóng. Triển khai song song
+theo cặp, baseline 465 → 514/514, zero regression. Chi tiết xem Round 16 ở trên.*
 
 *T21/T22 phát sinh từ audit mới `doc/audit/audit_gemini.md` (2026-07-08) — góc nhìn request-minimization/fill-rate + pháp lý theo loại ad, chưa nằm trong `audit_claude.md` gốc. Cả hai done 2026-07-09.*
 

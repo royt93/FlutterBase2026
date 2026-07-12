@@ -26,7 +26,12 @@ abstract class AppLovinBridge {
   void loadInterstitial(String adUnitId);
   void showInterstitial(String adUnitId);
   void loadRewardedAd(String adUnitId);
-  void showRewardedAd(String adUnitId);
+
+  /// [customData] is AppLovin's own SSV passthrough field — forwarded
+  /// verbatim to `AppLovinMAX.showRewardedAd`'s `customData` param, which
+  /// AppLovin includes in its server-to-server reward postback. Null/omitted
+  /// preserves today's behavior exactly.
+  void showRewardedAd(String adUnitId, {String? customData});
 
   Future<AdViewId?> preloadWidgetAdView(String adUnitId, AdFormat adFormat);
   Future<void> destroyWidgetAdView(AdViewId adViewId);
@@ -81,7 +86,8 @@ class RealAppLovinBridge implements AppLovinBridge {
   void loadRewardedAd(String adUnitId) => AppLovinMAX.loadRewardedAd(adUnitId);
 
   @override
-  void showRewardedAd(String adUnitId) => AppLovinMAX.showRewardedAd(adUnitId);
+  void showRewardedAd(String adUnitId, {String? customData}) =>
+      AppLovinMAX.showRewardedAd(adUnitId, customData: customData);
 
   @override
   Future<AdViewId?> preloadWidgetAdView(String adUnitId, AdFormat adFormat) =>

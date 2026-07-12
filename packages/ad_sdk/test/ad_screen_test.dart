@@ -62,8 +62,11 @@ class _ReadyAdapter implements AdProviderAdapter {
   Future<void> loadRewarded() async {}
 
   @override
-  Future<void> showRewarded(
-      {required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
     showRewardedCalls++;
     onDone(const RewardResult(earned: true, label: 'coins', amount: 1));
   }

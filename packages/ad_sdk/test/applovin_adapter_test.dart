@@ -26,6 +26,7 @@ class FakeAppLovinBridge implements AppLovinBridge {
   final List<String> showInterCalls = [];
   final List<String> loadRewardedCalls = [];
   final List<String> showRewardedCalls = [];
+  String? lastShowRewardedCustomData;
 
   @override
   Future<void> initialize(String sdkKey) async {}
@@ -55,7 +56,11 @@ class FakeAppLovinBridge implements AppLovinBridge {
   @override
   void loadRewardedAd(String id) => loadRewardedCalls.add(id);
   @override
-  void showRewardedAd(String id) => showRewardedCalls.add(id);
+  void showRewardedAd(String id, {String? customData}) {
+    showRewardedCalls.add(id);
+    lastShowRewardedCustomData = customData;
+  }
+
   @override
   Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) async => 1;
   @override

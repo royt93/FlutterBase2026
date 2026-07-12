@@ -130,4 +130,7 @@ Map<String, dynamic> _eventExtra(AdEvent event) => switch (event) {
           'violationCount': e.violationCount,
           'pauseDurationMs': e.pauseDurationMs,
         },
+      ArbitratorNudgeEvent e => {
+          'estimatedEcpmMicros': e.estimatedEcpmMicros,
+        },
     };

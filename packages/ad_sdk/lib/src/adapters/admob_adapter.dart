@@ -589,6 +589,34 @@ class AdMobAdapter implements AdProviderAdapter {
     }
   }
 
+  /// Test seam: put the interstitial slot into `showing` with [onDone]
+  /// captured, then immediately simulate GMA's `onDismissed` (or
+  /// `onFailedToShow` when [dismissed] is `false`) — the same callback path
+  /// `showInterstitial` drives in production. Unlike App Open, there is no
+  /// watchdog/timer here: GMA's fullscreen interstitial callbacks are treated
+  /// as reliable, so this hook only exercises the plain `beginShow()` →
+  /// `markDismissed()`/`markShowFailed()` transition — the exact path a
+  /// zombie-`showing` bug would corrupt.
+  @visibleForTesting
+  void debugSimulateInterstitialShowAndDismiss(
+    void Function(bool) onDone, {
+    bool dismissed = true,
+  }) {
+    interstitialSlot.beginLoad();
+    interstitialSlot.markReady();
+    interstitialSlot.beginShow();
+    _interstitialDone = onDone;
+    final cb = _interstitialDone;
+    _interstitialDone = null;
+    if (dismissed) {
+      interstitialSlot.markDismissed();
+      cb?.call(true);
+    } else {
+      interstitialSlot.markShowFailed();
+      cb?.call(false);
+    }
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   //  REWARDED
   // ──────────────────────────────────────────────────────────────────────────
@@ -648,8 +676,11 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showRewarded(
-      {required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
     final ad = _rewardedAd;
     if (ad == null || !rewardedSlot.isReady) {
       SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ not ready');
@@ -662,6 +693,7 @@ class AdMobAdapter implements AdProviderAdapter {
       return;
     }
     _rewardedDone = onDone;
+    final pendingSsv = ssvCustomData != null || ssvUserId != null;
 
     // Local guards against double-fire (Fix #42 preserved).
     var earned = false;
@@ -675,44 +707,78 @@ class AdMobAdapter implements AdProviderAdapter {
     }
 
     try {
-      await ad.show(GmaShowCallbacks(
-        onShowed: () => SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown'),
-        onDismissed: () {
-          SafeLogger.d(
-              _logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
-          _rewardedAd = null;
-          _disposeAd(ad, 'rewarded-after-dismiss');
-          rewardedSlot.markDismissed();
-          if (!earned) fire(RewardResult.skipped);
-        },
-        onFailedToShow: (message) {
-          SafeLogger.w(_logTag, 'showRewarded $tag ❌ display failed: $message');
-          _rewardedAd = null;
-          _disposeAd(ad, 'rewarded-show-fail');
-          rewardedSlot.markShowFailed();
-          fire(RewardResult.skipped);
-        },
-        onClicked: () {
-          SafeLogger.d(_logTag, 'showRewarded $tag 🎯 click');
-          AdSafetyConfig.recordAdClick();
-          _emit(AdClickEvent(
-            providerTag: tag,
-            type: AdSlotType.rewarded,
-            placement: AdPlacement.unspecified,
+      await ad.show(
+          ssvCustomData: ssvCustomData,
+          ssvUserId: ssvUserId,
+          GmaShowCallbacks(
+            onShowed: () => SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown'),
+            onDismissed: () {
+              SafeLogger.d(
+                  _logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
+              _rewardedAd = null;
+              _disposeAd(ad, 'rewarded-after-dismiss');
+              rewardedSlot.markDismissed();
+              if (!earned) fire(RewardResult.skipped);
+            },
+            onFailedToShow: (message) {
+              SafeLogger.w(
+                  _logTag, 'showRewarded $tag ❌ display failed: $message');
+              _rewardedAd = null;
+              _disposeAd(ad, 'rewarded-show-fail');
+              rewardedSlot.markShowFailed();
+              fire(RewardResult.skipped);
+            },
+            onClicked: () {
+              SafeLogger.d(_logTag, 'showRewarded $tag 🎯 click');
+              AdSafetyConfig.recordAdClick();
+              _emit(AdClickEvent(
+                providerTag: tag,
+                type: AdSlotType.rewarded,
+                placement: AdPlacement.unspecified,
+              ));
+            },
+            onUserEarnedReward: (amount, type) {
+              SafeLogger.d(
+                  _logTag, 'showRewarded $tag 🏆 type=$type amount=$amount');
+              earned = true;
+              fire(RewardResult(
+                earned: true,
+                label: type,
+                amount: amount,
+                pendingServerConfirmation: pendingSsv,
+              ));
+            },
           ));
-        },
-        onUserEarnedReward: (amount, type) {
-          SafeLogger.d(
-              _logTag, 'showRewarded $tag 🏆 type=$type amount=$amount');
-          earned = true;
-          fire(RewardResult(earned: true, label: type, amount: amount));
-        },
-      ));
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
       _rewardedAd = null;
       rewardedSlot.markShowFailed();
       fire(RewardResult.skipped);
+    }
+  }
+
+  /// Test seam: put the rewarded slot into `showing` with [onDone] captured,
+  /// then immediately simulate GMA's `onDismissed` (or `onFailedToShow` when
+  /// [dismissed] is `false`) — mirrors [debugSimulateInterstitialShowAndDismiss].
+  /// No watchdog exists for rewarded either, so this only exercises the plain
+  /// `beginShow()` → `markDismissed()`/`markShowFailed()` transition.
+  @visibleForTesting
+  void debugSimulateRewardedShowAndDismiss(
+    void Function(RewardResult) onDone, {
+    bool dismissed = true,
+  }) {
+    rewardedSlot.beginLoad();
+    rewardedSlot.markReady();
+    rewardedSlot.beginShow();
+    _rewardedDone = onDone;
+    final cb = _rewardedDone;
+    _rewardedDone = null;
+    if (dismissed) {
+      rewardedSlot.markDismissed();
+      cb?.call(RewardResult.skipped);
+    } else {
+      rewardedSlot.markShowFailed();
+      cb?.call(RewardResult.skipped);
     }
   }
 

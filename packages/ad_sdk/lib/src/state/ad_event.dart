@@ -67,9 +67,15 @@ class AdRewardEvent extends AdEvent {
     required super.placement,
     required this.label,
     required this.amount,
+    this.pendingServerConfirmation = false,
   }) : super(type: AdSlotType.rewarded);
   final String? label;
   final num? amount;
+
+  /// Mirrors `RewardResult.pendingServerConfirmation` — true only when the
+  /// triggering `showRewardedAd` call supplied `ssvCustomData`/`ssvUserId`.
+  /// Purely informational passthrough; this SDK does not verify anything.
+  final bool pendingServerConfirmation;
 }
 
 /// Emitted when the underlying ad SDK reports paid revenue (`OnPaidEventCallback`
@@ -130,4 +136,23 @@ class AdAnomalyEvent extends AdEvent {
 
   /// Computed cooldown duration in ms (exponential backoff, capped at 24h).
   final int pauseDurationMs;
+}
+
+/// Emitted by the opt-in `MonetizationArbitrator` (default OFF — see
+/// `AdManager().enableArbitrator`) when it vetoes a would-have-shown ad in
+/// favor of nudging the user toward VIP instead.
+///
+/// The SDK owns no upsell UI: this is purely a signal on `AdManager().events`
+/// for the host app's own listener to react to (e.g. show its VIP screen).
+/// [providerTag] carries a non-meaningful sentinel value (`'[Arbitrator]'`) —
+/// no ad adapter is involved, since none was shown.
+class ArbitratorNudgeEvent extends AdEvent {
+  const ArbitratorNudgeEvent({
+    required super.type,
+    required super.placement,
+    required this.estimatedEcpmMicros,
+  }) : super(providerTag: '[Arbitrator]');
+
+  /// The trailing eCPM estimate (micros) that led to the veto.
+  final int estimatedEcpmMicros;
 }

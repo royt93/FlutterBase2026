@@ -95,6 +95,11 @@ class AppLovinAdapter implements AdProviderAdapter {
   void Function(bool shown)? _interstitialDone;
   void Function(RewardResult result)? _rewardedDone;
 
+  /// Set true in [showRewarded] when the caller supplied SSV identifying
+  /// data for the in-flight show — read once by the reward callback to stamp
+  /// [RewardResult.pendingServerConfirmation].
+  bool _pendingSsv = false;
+
   Timer? _appOpenShowTimeout;
 
   bool _bannerRoutePaused = false;
@@ -630,6 +635,34 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
   }
 
+  /// Test seam: put the interstitial slot into `showing` with [onDone]
+  /// captured, then immediately simulate AppLovin's `onAdHiddenCallback` (or
+  /// `onAdDisplayFailedCallback` when [dismissed] is `false`) — the same
+  /// callback path `_wireInterstitialListener` drives in production. Unlike
+  /// App Open, there is no watchdog/timer here: AppLovin's fullscreen
+  /// interstitial callbacks are treated as reliable, so this hook only
+  /// exercises the plain `beginShow()` → `markDismissed()`/`markShowFailed()`
+  /// transition — the exact path a zombie-`showing` bug would corrupt.
+  @visibleForTesting
+  void debugSimulateInterstitialShowAndDismiss(
+    void Function(bool) onDone, {
+    bool dismissed = true,
+  }) {
+    interstitialSlot.beginLoad();
+    interstitialSlot.markReady();
+    interstitialSlot.beginShow();
+    _interstitialDone = onDone;
+    final cb = _interstitialDone;
+    _interstitialDone = null;
+    if (dismissed) {
+      interstitialSlot.markDismissed();
+      cb?.call(true);
+    } else {
+      interstitialSlot.markShowFailed();
+      cb?.call(false);
+    }
+  }
+
   // ─── Rewarded ─────────────────────────────────────────────────────────────
 
   void _wireRewardedListener(String unitId) {
@@ -714,10 +747,13 @@ class AppLovinAdapter implements AdProviderAdapter {
         );
         final cb = _rewardedDone;
         _rewardedDone = null;
+        final pendingSsv = _pendingSsv;
+        _pendingSsv = false;
         cb?.call(RewardResult(
           earned: true,
           label: reward.label,
           amount: reward.amount,
+          pendingServerConfirmation: pendingSsv,
         ));
       },
     ));
@@ -739,8 +775,11 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> showRewarded(
-      {required void Function(RewardResult result) onDone}) async {
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
     final cfg = _max;
     if (cfg == null) {
       onDone(RewardResult.skipped);
@@ -760,15 +799,46 @@ class AppLovinAdapter implements AdProviderAdapter {
     _rewardedDone = null;
     if (old != null) old(RewardResult.skipped);
     _rewardedDone = onDone;
+    // AppLovin's SSV surface is a single `custom_data` string (no separate
+    // userId field) — pass ssvCustomData verbatim, or fall back to ssvUserId
+    // so a caller that only has a userId still gets it into the postback.
+    final customData = ssvCustomData ?? ssvUserId;
+    _pendingSsv = customData != null;
     SafeLogger.d(_logTag,
         'showRewarded $tag → _bridge.showRewardedAd(${cfg.rewardedId})');
     try {
-      _bridge.showRewardedAd(cfg.rewardedId);
+      _bridge.showRewardedAd(cfg.rewardedId, customData: customData);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showRewarded $tag THREW: $e\n$st');
       rewardedSlot.markShowFailed();
       final cb = _rewardedDone;
       _rewardedDone = null;
+      cb?.call(RewardResult.skipped);
+    }
+  }
+
+  /// Test seam: put the rewarded slot into `showing` with [onDone] captured,
+  /// then immediately simulate AppLovin's `onAdHiddenCallback` (or
+  /// `onAdDisplayFailedCallback` when [dismissed] is `false`) — mirrors
+  /// [debugSimulateInterstitialShowAndDismiss]. No watchdog exists for
+  /// rewarded either, so this only exercises the plain `beginShow()` →
+  /// `markDismissed()`/`markShowFailed()` transition.
+  @visibleForTesting
+  void debugSimulateRewardedShowAndDismiss(
+    void Function(RewardResult) onDone, {
+    bool dismissed = true,
+  }) {
+    rewardedSlot.beginLoad();
+    rewardedSlot.markReady();
+    rewardedSlot.beginShow();
+    _rewardedDone = onDone;
+    final cb = _rewardedDone;
+    _rewardedDone = null;
+    if (dismissed) {
+      rewardedSlot.markDismissed();
+      cb?.call(RewardResult.skipped);
+    } else {
+      rewardedSlot.markShowFailed();
       cb?.call(RewardResult.skipped);
     }
   }

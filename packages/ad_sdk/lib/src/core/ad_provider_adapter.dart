@@ -9,10 +9,22 @@ import 'ad_consent.dart';
 /// Result of a rewarded-ad show. Whether the user actually earned the reward
 /// (true) or skipped/closed early (false).
 class RewardResult {
-  const RewardResult({required this.earned, this.label, this.amount});
+  const RewardResult({
+    required this.earned,
+    this.label,
+    this.amount,
+    this.pendingServerConfirmation = false,
+  });
   final bool earned;
   final String? label;
   final num? amount;
+
+  /// True only when this show call supplied SSV identifying data
+  /// (`ssvCustomData`/`ssvUserId` on [AdManager.showRewardedAd]) — meaning the
+  /// reward postback AppLovin/AdMob sends is the host app's OWN backend's
+  /// signal to treat, not this SDK's `earned` flag alone. Purely
+  /// informational: this SDK does not verify anything server-side itself.
+  final bool pendingServerConfirmation;
 
   static const RewardResult skipped = RewardResult(earned: false);
 }
@@ -123,8 +135,19 @@ abstract class AdProviderAdapter {
   // ─── Rewarded ──────────────────────────────────────────────────────────────
 
   Future<void> loadRewarded();
-  Future<void> showRewarded(
-      {required void Function(RewardResult result) onDone});
+
+  /// [ssvCustomData]/[ssvUserId] are optional Server-Side Verification (SSV)
+  /// identifiers plumbed straight through to the native SDK's real SSV
+  /// field (AppLovin: `custom_data` on `showRewardedAd`; AdMob:
+  /// `ServerSideVerificationOptions.customData`/`.userId`). This SDK does
+  /// NOT run a server or verify anything itself — see README "Server-Side
+  /// Verification" section. Omit both for today's fully client-side behavior
+  /// (unchanged).
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  });
 
   // ─── Banner ────────────────────────────────────────────────────────────────
 
