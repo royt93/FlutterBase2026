@@ -16,15 +16,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 // AdMessageCodec isn't exported from the public API — needed to construct a
 // mock channel matching the plugin's own codec.
-import 'package:google_mobile_ads/src/ad_instance_manager.dart'
-    show AdMessageCodec;
+import 'package:google_mobile_ads/src/ad_instance_manager.dart' show AdMessageCodec;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const bridge = RealGmaBridge();
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   // Must match the production channel's codec (AdMessageCodec) — it has
   // custom encode/decode for InitializationStatus and AdRequest, which the
   // default StandardMethodCodec can't (de)serialize.
@@ -56,8 +54,7 @@ void main() {
     await bridge.initialize();
     // MobileAds.instance's first-ever access also fires a one-time '_init'
     // hot-restart-cleanup call (see mobile_ads.dart), hence firstWhere.
-    expect(calls.firstWhere((c) => c.method == 'MobileAds#initialize').method,
-        'MobileAds#initialize');
+    expect(calls.firstWhere((c) => c.method == 'MobileAds#initialize').method, 'MobileAds#initialize');
   });
 
   test('updateRequestConfiguration forwards test device ids', () async {
@@ -82,8 +79,7 @@ void main() {
     expect(request.extras, isNull);
   });
 
-  test('loadInterstitial forwards RDP extras when restrictedDataProcessing',
-      () async {
+  test('loadInterstitial forwards RDP extras when restrictedDataProcessing', () async {
     await bridge.loadInterstitial(
       'unit-inter',
       nonPersonalizedAds: false,

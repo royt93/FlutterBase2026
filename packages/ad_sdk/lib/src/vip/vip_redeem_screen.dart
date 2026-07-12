@@ -63,9 +63,13 @@ class VipRedeemStrings {
   });
 
   static String _defaultExpiresAt(String date) => 'Expires: $date';
+
   static String _defaultRemainingDays(int days) => '$days days left';
+
   static String _defaultRemainingHours(int hours) => '$hours hours left';
+
   static String _defaultRemainingExtraHours(int hours) => '$hours h';
+
   static String _defaultActiveEntries(int count) => 'Active VIP ($count)';
 
   final String sdkNotReady,
@@ -153,13 +157,11 @@ class VipRedeemScreen extends StatefulWidget {
   State<VipRedeemScreen> createState() => _VipRedeemScreenState();
 }
 
-class _VipRedeemScreenState extends State<VipRedeemScreen>
-    with TickerProviderStateMixin {
+class _VipRedeemScreenState extends State<VipRedeemScreen> with TickerProviderStateMixin {
   final TextEditingController _keyController = TextEditingController();
   final FocusNode _keyFocus = FocusNode();
   final ValueNotifier<bool> _isProcessing = ValueNotifier<bool>(false);
-  final ValueNotifier<List<VipEntry>> _entriesNotifier =
-      ValueNotifier<List<VipEntry>>(const []);
+  final ValueNotifier<List<VipEntry>> _entriesNotifier = ValueNotifier<List<VipEntry>>(const []);
 
   AnimationController? _shimmerController;
   AnimationController? _entryController;
@@ -187,8 +189,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat(reverse: true);
-    _confettiController =
-        ConfettiController(duration: const Duration(milliseconds: 1200));
+    _confettiController = ConfettiController(duration: const Duration(milliseconds: 1200));
 
     _refreshEntries();
     final vip = AdManager().vip;
@@ -225,8 +226,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
   void _refreshEntries() {
     if (!mounted) return;
     final vip = AdManager().vip;
-    _entriesNotifier.value =
-        vip == null ? const [] : List<VipEntry>.from(vip.entries);
+    _entriesNotifier.value = vip == null ? const [] : List<VipEntry>.from(vip.entries);
   }
 
   Future<void> _onActivate() async {
@@ -239,8 +239,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
     }
     final vip = AdManager().vip;
     if (vip == null) {
-      SafeLogger.w('VipRedeemScreen',
-          'activate tapped but AdManager().vip is null (SDK not ready)');
+      SafeLogger.w('VipRedeemScreen', 'activate tapped but AdManager().vip is null (SDK not ready)');
       _showSnack(_s.sdkNotReady);
       return;
     }
@@ -251,8 +250,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         publicKeyBase64: widget.publicKeyBase64,
         stack: true,
       );
-      SafeLogger.d('VipRedeemScreen',
-          'redeemSignedKey result=${result.status} error=${result.error}');
+      SafeLogger.d('VipRedeemScreen', 'redeemSignedKey result=${result.status} error=${result.error}');
       if (!mounted) return;
       switch (result.status) {
         case VipRedeemStatus.success:
@@ -339,13 +337,11 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF252540),
         title: Text(title, style: const TextStyle(color: Colors.white)),
-        content: Text(message,
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.85))),
+        content: Text(message, style: TextStyle(color: Colors.white.withValues(alpha: 0.85))),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child:
-                Text(_s.cancel, style: const TextStyle(color: Colors.white70)),
+            child: Text(_s.cancel, style: const TextStyle(color: Colors.white70)),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
@@ -418,8 +414,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                   _buildBackdrop(active),
                   ListView(
                     physics: const BouncingScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(
-                        16, topInset + kToolbarHeight + 8, 16, 32),
+                    padding: EdgeInsets.fromLTRB(16, topInset + kToolbarHeight + 8, 16, 32),
                     children: [
                       _staggered(0, _buildHeroCard(active, primaryEntry)),
                       const SizedBox(height: 24),
@@ -432,8 +427,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                         const SizedBox(height: 24),
                         _staggered(4, _buildBuyVipSection()),
                       ],
-                      if (widget.onPrivacyPolicyTap != null ||
-                          widget.onPrivacyOptionsTap != null) ...[
+                      if (widget.onPrivacyPolicyTap != null || widget.onPrivacyOptionsTap != null) ...[
                         const SizedBox(height: 24),
                         _staggered(5, _buildFooter()),
                       ],
@@ -481,18 +475,13 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       tween: Tween<double>(begin: 0.85, end: 1.0),
       duration: const Duration(milliseconds: 600),
       curve: Curves.easeOutBack,
-      builder: (context, scale, child) =>
-          Transform.scale(scale: scale, child: child),
+      builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
       child: Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: active
-                ? const [
-                    Color(0xFFFFD60A),
-                    Color(0xFFFFB200),
-                    Color(0xFFFF6B00)
-                  ]
+                ? const [Color(0xFFFFD60A), Color(0xFFFFB200), Color(0xFFFF6B00)]
                 : const [Color(0xFF3A3A5E), Color(0xFF252540)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -505,12 +494,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                       blurRadius: 32,
                       offset: const Offset(0, 12))
                 ]
-              : [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 18,
-                      offset: const Offset(0, 6))
-                ],
+              : [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 18, offset: const Offset(0, 6))],
         ),
         child: Column(
           children: [
@@ -519,22 +503,14 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
             Text(
               active ? _s.statusActive : _s.statusInactive,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.4),
+              style:
+                  const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.4),
             ),
             const SizedBox(height: 8),
             Text(
-              active && expiresAt != null
-                  ? _s.expiresAt(_fmtDateTime(expiresAt))
-                  : _s.statusInactiveTagline,
+              active && expiresAt != null ? _s.expiresAt(_fmtDateTime(expiresAt)) : _s.statusInactiveTagline,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.92),
-                  fontSize: 13.5,
-                  height: 1.4),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.92), fontSize: 13.5, height: 1.4),
             ),
             if (active && primaryEntry != null) ...[
               const SizedBox(height: 18),
@@ -587,17 +563,14 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         final elapsed = now.difference(entry.grantedAt);
         final progress = total.inMilliseconds <= 0
             ? 1.0
-            : (elapsed.inMilliseconds / total.inMilliseconds)
-                .clamp(0.0, 1.0)
-                .toDouble();
+            : (elapsed.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0).toDouble();
         return ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: LinearProgressIndicator(
             value: progress,
             minHeight: 10,
             backgroundColor: Colors.white.withValues(alpha: 0.18),
-            valueColor: AlwaysStoppedAnimation<Color>(
-                Colors.white.withValues(alpha: 0.95)),
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white.withValues(alpha: 0.95)),
           ),
         );
       },
@@ -629,12 +602,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         numberOfParticles: 18,
         gravity: 0.4,
         shouldLoop: false,
-        colors: const [
-          Color(0xFFFFD60A),
-          Color(0xFFFFB200),
-          Color(0xFFFF6B00),
-          Colors.white
-        ],
+        colors: const [Color(0xFFFFD60A), Color(0xFFFFB200), Color(0xFFFF6B00), Colors.white],
       ),
     );
   }
@@ -648,11 +616,9 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: Colors.white.withValues(alpha: 0.12),
-          border: Border.all(
-              color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
         ),
-        child:
-            const Icon(Icons.workspace_premium, size: 50, color: Colors.white),
+        child: const Icon(Icons.workspace_premium, size: 50, color: Colors.white),
       );
     }
     return AnimatedBuilder(
@@ -688,14 +654,10 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight),
                 boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2))
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2))
                 ],
               ),
-              child: const Icon(Icons.workspace_premium,
-                  size: 46, color: Colors.white),
+              child: const Icon(Icons.workspace_premium, size: 46, color: Colors.white),
             ),
           ],
         ),
@@ -707,18 +669,14 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
     final remaining = expiresAt.difference(DateTime.now());
     final days = remaining.inDays;
     final hours = remaining.inHours % 24;
-    final label = days > 0
-        ? _s.remainingDays(days)
-        : _s.remainingHours(remaining.inHours);
-    final subLabel =
-        days > 0 && hours > 0 ? _s.remainingExtraHours(hours) : null;
+    final label = days > 0 ? _s.remainingDays(days) : _s.remainingHours(remaining.inHours);
+    final subLabel = days > 0 && hours > 0 ? _s.remainingExtraHours(hours) : null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(999),
-        border:
-            Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.2),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.2),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -727,10 +685,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
           const SizedBox(width: 8),
           Text(
             subLabel == null ? label : '$label · $subLabel',
-            style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 13.5),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
           ),
         ],
       ),
@@ -750,22 +705,15 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         children: [
           Row(
             children: [
-              const Icon(Icons.vpn_key_outlined,
-                  color: Color(0xFFFFB200), size: 20),
+              const Icon(Icons.vpn_key_outlined, color: Color(0xFFFFB200), size: 20),
               const SizedBox(width: 8),
               Text(_s.redeemTitle,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold)),
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 6),
           Text(_s.redeemSubtitle,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontSize: 13,
-                  height: 1.35)),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 13, height: 1.35)),
           const SizedBox(height: 16),
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: _keyController,
@@ -781,47 +729,34 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
               smartDashesType: SmartDashesType.disabled,
               smartQuotesType: SmartQuotesType.disabled,
               onSubmitted: (_) => _onActivate(),
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  letterSpacing: 1.6),
+              style:
+                  const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16, letterSpacing: 1.6),
               decoration: InputDecoration(
                 hintText: _s.keyHint,
-                hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.35),
-                    letterSpacing: 1.0),
+                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35), letterSpacing: 1.0),
                 filled: true,
                 fillColor: Colors.black.withValues(alpha: 0.35),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                prefixIcon: const Icon(Icons.confirmation_number_outlined,
-                    color: Color(0xFFFFB200)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                prefixIcon: const Icon(Icons.confirmation_number_outlined, color: Color(0xFFFFB200)),
                 suffixIcon: value.text.isEmpty
                     ? null
                     : IconButton(
-                        icon: const Icon(Icons.clear,
-                            color: Colors.white70, size: 20),
+                        icon: const Icon(Icons.clear, color: Colors.white70, size: 20),
                         onPressed: _keyController.clear),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
                 enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.12))),
+                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12))),
                 focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide:
-                        const BorderSide(color: Color(0xFFFFB200), width: 1.6)),
+                    borderSide: const BorderSide(color: Color(0xFFFFB200), width: 1.6)),
               ),
             ),
           ),
           const SizedBox(height: 14),
           ValueListenableBuilder<bool>(
             valueListenable: _isProcessing,
-            builder: (context, processing, _) =>
-                ValueListenableBuilder<TextEditingValue>(
+            builder: (context, processing, _) => ValueListenableBuilder<TextEditingValue>(
               valueListenable: _keyController,
               builder: (context, value, __) => _buildActivateButton(
                 enabled: !processing && value.text.trim().isNotEmpty,
@@ -834,8 +769,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
     );
   }
 
-  Widget _buildActivateButton(
-      {required bool enabled, required bool processing}) {
+  Widget _buildActivateButton({required bool enabled, required bool processing}) {
     final pulseCtrl = _pulseController;
     return SizedBox(
       width: double.infinity,
@@ -843,9 +777,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       child: AnimatedBuilder(
         animation: pulseCtrl ?? const AlwaysStoppedAnimation(0),
         builder: (context, _) {
-          final p = (enabled && !processing && pulseCtrl != null)
-              ? pulseCtrl.value
-              : 0.0;
+          final p = (enabled && !processing && pulseCtrl != null) ? pulseCtrl.value : 0.0;
           final glowAlpha = enabled ? (0.32 + 0.28 * p) : 0.0;
           final blur = enabled ? (16.0 + 14.0 * p) : 0.0;
           return AnimatedContainer(
@@ -855,23 +787,16 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
               gradient: LinearGradient(
                 colors: enabled
                     ? const [Color(0xFFFFD60A), Color(0xFFFFB200)]
-                    : [
-                        Colors.white.withValues(alpha: 0.10),
-                        Colors.white.withValues(alpha: 0.04)
-                      ],
+                    : [Colors.white.withValues(alpha: 0.10), Colors.white.withValues(alpha: 0.04)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(14),
-              border: enabled
-                  ? null
-                  : Border.all(
-                      color: Colors.white.withValues(alpha: 0.12), width: 1),
+              border: enabled ? null : Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
               boxShadow: enabled
                   ? [
                       BoxShadow(
-                          color: const Color(0xFFFFB200)
-                              .withValues(alpha: glowAlpha),
+                          color: const Color(0xFFFFB200).withValues(alpha: glowAlpha),
                           blurRadius: blur,
                           offset: const Offset(0, 6))
                     ]
@@ -896,14 +821,11 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                         ? const SizedBox(
                             width: 24,
                             height: 24,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2.6, color: Colors.black))
+                            child: CircularProgressIndicator(strokeWidth: 2.6, color: Colors.black))
                         : Text(
                             _s.activateButton.toUpperCase(),
                             style: TextStyle(
-                              color: enabled
-                                  ? Colors.black
-                                  : Colors.white.withValues(alpha: 0.4),
+                              color: enabled ? Colors.black : Colors.white.withValues(alpha: 0.4),
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 0.6,
@@ -931,18 +853,13 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
             children: [
               Expanded(
                 child: Text(_s.activeEntries(visible.length),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               ),
               if (visible.length > 1)
                 TextButton.icon(
                   onPressed: _onRevokeAll,
-                  icon: const Icon(Icons.delete_sweep_outlined,
-                      size: 18, color: Colors.redAccent),
-                  label: Text(_s.revokeAll,
-                      style: const TextStyle(color: Colors.redAccent)),
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 18, color: Colors.redAccent),
+                  label: Text(_s.revokeAll, style: const TextStyle(color: Colors.redAccent)),
                 ),
             ],
           ),
@@ -962,12 +879,9 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       ),
       child: Column(
         children: [
-          Icon(Icons.inbox_outlined,
-              color: Colors.white.withValues(alpha: 0.35), size: 42),
+          Icon(Icons.inbox_outlined, color: Colors.white.withValues(alpha: 0.35), size: 42),
           const SizedBox(height: 10),
-          Text(_s.noEntries,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
+          Text(_s.noEntries, style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
         ],
       ),
     );
@@ -997,9 +911,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       displayName = _maskKey(entry.key);
     }
 
-    final remainingLabel = daysLeft > 0
-        ? _s.remainingDays(daysLeft)
-        : _s.remainingHours(hoursLeft);
+    final remainingLabel = daysLeft > 0 ? _s.remainingDays(daysLeft) : _s.remainingHours(hoursLeft);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1026,16 +938,11 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
               children: [
                 Text(displayName,
                     style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        letterSpacing: 0.4),
+                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.4),
                     overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 3),
                 Text('$remainingLabel · ${_fmtDateShort(entry.expiresAt)}',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 12),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12),
                     overflow: TextOverflow.ellipsis),
               ],
             ),
@@ -1063,50 +970,35 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(22),
-        border:
-            Border.all(color: const Color(0xFFFFB200).withValues(alpha: 0.35)),
+        border: Border.all(color: const Color(0xFFFFB200).withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.play_circle_outline,
-                  color: Color(0xFFFFB200), size: 22),
+              const Icon(Icons.play_circle_outline, color: Color(0xFFFFB200), size: 22),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(_s.watchAdTitle,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                    color: const Color(0xFFFFB200),
-                    borderRadius: BorderRadius.circular(999)),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: const Color(0xFFFFB200), borderRadius: BorderRadius.circular(999)),
                 child: Text(_s.watchAdBadgeFree,
                     style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.6)),
+                        color: Colors.black, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Text(_s.watchAdSubtitle,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.78),
-                  fontSize: 13,
-                  height: 1.4)),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.78), fontSize: 13, height: 1.4)),
           const SizedBox(height: 16),
           ValueListenableBuilder<bool>(
             valueListenable: _isProcessing,
-            builder: (context, processing, _) =>
-                _buildWatchAdButton(processing: processing),
+            builder: (context, processing, _) => _buildWatchAdButton(processing: processing),
           ),
         ],
       ),
@@ -1129,9 +1021,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
             curve: Curves.easeOut,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                  colors: [Color(0xFFFFD60A), Color(0xFFFFB200)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight),
+                  colors: [Color(0xFFFFD60A), Color(0xFFFFB200)], begin: Alignment.topLeft, end: Alignment.bottomRight),
               borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
@@ -1150,13 +1040,11 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                       ? const SizedBox(
                           width: 24,
                           height: 24,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2.6, color: Colors.black))
+                          child: CircularProgressIndicator(strokeWidth: 2.6, color: Colors.black))
                       : Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.play_arrow_rounded,
-                                color: Colors.black, size: 22),
+                            const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 22),
                             const SizedBox(width: 6),
                             Text(_s.watchAdButton.toUpperCase(),
                                 style: const TextStyle(
@@ -1188,29 +1076,16 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         children: [
           Row(
             children: [
-              const Icon(Icons.shopping_bag_outlined,
-                  color: Color(0xFFFFB200), size: 20),
+              const Icon(Icons.shopping_bag_outlined, color: Color(0xFFFFB200), size: 20),
               const SizedBox(width: 8),
-              Text(_s.buyTitle,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold)),
+              Text(_s.buyTitle, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 14),
-          _buildBuyOption(
-              icon: Icons.calendar_today_outlined,
-              label: _s.buy30d,
-              price: '\$0.5'),
-          _buildBuyOption(
-              icon: Icons.event_outlined, label: _s.buy90d, price: '\$1'),
-          _buildBuyOption(
-              icon: Icons.event_available_outlined,
-              label: _s.buy1y,
-              price: '\$2'),
-          _buildBuyOption(
-              icon: Icons.all_inclusive, label: _s.buyLifetime, price: '\$3'),
+          _buildBuyOption(icon: Icons.calendar_today_outlined, label: _s.buy30d, price: '\$0.5'),
+          _buildBuyOption(icon: Icons.event_outlined, label: _s.buy90d, price: '\$1'),
+          _buildBuyOption(icon: Icons.event_available_outlined, label: _s.buy1y, price: '\$2'),
+          _buildBuyOption(icon: Icons.all_inclusive, label: _s.buyLifetime, price: '\$3'),
           const SizedBox(height: 6),
           Material(
             color: Colors.transparent,
@@ -1218,18 +1093,14 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
               borderRadius: BorderRadius.circular(12),
               onTap: null,
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Row(
                   children: [
-                    Icon(Icons.restore,
-                        color: Colors.white.withValues(alpha: 0.4), size: 18),
+                    Icon(Icons.restore, color: Colors.white.withValues(alpha: 0.4), size: 18),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(_s.restoreLocked,
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.5),
-                              fontSize: 13)),
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
                     ),
                   ],
                 ),
@@ -1241,8 +1112,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
     );
   }
 
-  Widget _buildBuyOption(
-      {required IconData icon, required String label, required String price}) {
+  Widget _buildBuyOption({required IconData icon, required String label, required String price}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -1262,32 +1132,23 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                      color: const Color(0xFFFFB200).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(10)),
-                  child: Icon(icon,
-                      color: const Color(0xFFFFB200).withValues(alpha: 0.6),
-                      size: 18),
+                      color: const Color(0xFFFFB200).withValues(alpha: 0.10), borderRadius: BorderRadius.circular(10)),
+                  child: Icon(icon, color: const Color(0xFFFFB200).withValues(alpha: 0.6), size: 18),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(label,
                       style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.55),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600)),
+                          color: Colors.white.withValues(alpha: 0.55), fontSize: 14, fontWeight: FontWeight.w600)),
                 ),
                 Text(price,
                     style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700)),
+                        color: Colors.white.withValues(alpha: 0.4), fontSize: 13, fontWeight: FontWeight.w700)),
                 const SizedBox(width: 10),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(999)),
+                      color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(999)),
                   child: Text(_s.buyLocked,
                       style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.55),
@@ -1312,24 +1173,16 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
           if (widget.onPrivacyPolicyTap != null)
             TextButton.icon(
               onPressed: widget.onPrivacyPolicyTap,
-              icon: const Icon(Icons.privacy_tip_outlined,
-                  size: 16, color: Colors.white70),
+              icon: const Icon(Icons.privacy_tip_outlined, size: 16, color: Colors.white70),
               label: Text(_s.privacyPolicy,
-                  style: const TextStyle(
-                      color: Colors.white70,
-                      decoration: TextDecoration.underline,
-                      fontSize: 12.5)),
+                  style: const TextStyle(color: Colors.white70, decoration: TextDecoration.underline, fontSize: 12.5)),
             ),
           if (widget.onPrivacyOptionsTap != null)
             TextButton.icon(
               onPressed: widget.onPrivacyOptionsTap,
-              icon: const Icon(Icons.tune_rounded,
-                  size: 16, color: Colors.white70),
+              icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white70),
               label: Text(_s.privacyOptions,
-                  style: const TextStyle(
-                      color: Colors.white70,
-                      decoration: TextDecoration.underline,
-                      fontSize: 12.5)),
+                  style: const TextStyle(color: Colors.white70, decoration: TextDecoration.underline, fontSize: 12.5)),
             ),
         ],
       ),
@@ -1341,8 +1194,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
     if (ctrl == null) return child;
     final start = (index * 0.15).clamp(0.0, 1.0);
     final end = (start + 0.55).clamp(0.0, 1.0);
-    final anim = CurvedAnimation(
-        parent: ctrl, curve: Interval(start, end, curve: Curves.easeOutCubic));
+    final anim = CurvedAnimation(parent: ctrl, curve: Interval(start, end, curve: Curves.easeOutCubic));
     return AnimatedBuilder(
       animation: anim,
       builder: (context, c) {
