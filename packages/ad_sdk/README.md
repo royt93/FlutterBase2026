@@ -13,19 +13,20 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 ## Table of contents
 
 1. [Why this SDK](#why-this-sdk)
-2. [What's new in 1.0.23](#whats-new-in-1023)
-3. [Quick start (copy-paste in 6 steps)](#quick-start)
-4. [Configuration reference](#configuration-reference)
-5. [VIP system](#vip-system)
-6. [Server-Side Verification (SSV) for rewarded ads](#server-side-verification-ssv-for-rewarded-ads)
-7. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
-8. [Debugging](#debugging)
-9. [Pitfalls — read before filing a bug](#pitfalls)
-10. [Public API surface](#public-api)
-11. [FAQ](#faq)
-12. [Migration from older versions](#migration)
-13. [Support](#support)
-14. [License](#license)
+2. [Known limitations — read before adopting](#known-limitations--read-before-adopting)
+3. [What's new in 1.0.23](#whats-new-in-1023)
+4. [Quick start (copy-paste in 6 steps)](#quick-start)
+5. [Configuration reference](#configuration-reference)
+6. [VIP system](#vip-system)
+7. [Server-Side Verification (SSV) for rewarded ads](#server-side-verification-ssv-for-rewarded-ads)
+8. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
+9. [Debugging](#debugging)
+10. [Pitfalls — read before filing a bug](#pitfalls)
+11. [Public API surface](#public-api)
+12. [FAQ](#faq)
+13. [Migration from older versions](#migration)
+14. [Support](#support)
+15. [License](#license)
 
 ---
 
@@ -43,6 +44,40 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 | Sane behavior when Android kills the process under memory pressure | Smart App-Open timeout (lifecycle-aware), process-restart marker, detached state warning |
 
 ---
+
+## Known limitations — read before adopting
+
+This SDK has extensive automated coverage (500+ unit/widget tests, plus a
+cross-platform integration_test matrix on Android + iOS × both providers),
+and several real bugs have been found and fixed through that process. That
+is not the same claim as "battle-tested in production by third parties" —
+be clear-eyed about the gap before depending on it for revenue:
+
+- **Ad-policy risk is not this SDK's to control.** It's a thin wrapper over
+  AppLovin MAX and Google Mobile Ads. Fill rate, fraud detection accuracy,
+  and account-level policy enforcement (suspensions, strikes) are decided by
+  those platforms, not by this package. The built-in safety layer (daily/
+  hourly caps, throttle, CTR-based fraud heuristics) reduces obviously bad
+  behavior but has not been validated against a real policy review.
+- **The real ad show/dismiss lifecycle is only partially automatable.**
+  Real AppLovin MAX test-ad creatives expose no accessible dismiss element,
+  so 3 of the ~15 integration_test scenarios (app-open/interstitial/rewarded
+  dismiss) can only be verified manually, not via CI. Everything else in the
+  lifecycle (load, show, click, reward callbacks, VIP suppression, safety
+  gating) is automated and re-run on every change.
+- **Limited real-world production history.** As of this writing the only
+  first-party app running the hosted pub.dev release is this repo's own
+  host app. If you're evaluating this for a partner or a new app, check that
+  app's live AdMob/AppLovin dashboards (fill rate, policy flags, crash
+  reports, revenue trend) over a multi-week window before treating this as
+  proven at scale — that's stronger evidence than any test suite here.
+- **Single maintainer, no SLA.** There's no dedicated support team behind
+  this package; plan integration/rollback risk accordingly.
+
+**Recommended adoption path for a new consumer (including internal
+partners):** start with a small-traffic, time-boxed pilot on one app,
+watching the same dashboards above for a few weeks, rather than a
+wholesale integration on day one.
 
 ## What's new in 1.0.23
 

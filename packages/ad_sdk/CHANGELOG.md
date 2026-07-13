@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Docs
+- Added a "Known limitations — read before adopting" section to the README
+  (ad-policy risk sits with AppLovin/Google, not this package; the real
+  ad show/dismiss lifecycle is only partially automatable — 3/15
+  integration_test scenarios are manual-only; limited real-world production
+  history beyond this repo's own host app; single maintainer, no SLA).
+  Written for anyone evaluating this SDK for a new app/partner before a
+  wholesale integration.
+
 ## [1.0.24] - 2026-07-10
 
 ### Added — durable redeemed-key ledger for signed VIP keys on iOS
