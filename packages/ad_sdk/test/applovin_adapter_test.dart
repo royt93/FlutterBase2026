@@ -61,10 +61,14 @@ class FakeAppLovinBridge implements AppLovinBridge {
     lastShowRewardedCustomData = customData;
   }
 
+  final List<AdViewId> destroyWidgetAdViewCalls = [];
+
   @override
   Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) async => 1;
   @override
-  Future<void> destroyWidgetAdView(AdViewId id) async {}
+  Future<void> destroyWidgetAdView(AdViewId id) async {
+    destroyWidgetAdViewCalls.add(id);
+  }
 }
 
 MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact',
@@ -313,6 +317,26 @@ void main() {
       expect(() => a.banner.isLoaded.addListener(() {}), throwsFlutterError);
       expect(() => a.appLovinBannerAdViewId.addListener(() {}),
           throwsFlutterError);
+    });
+  });
+
+  group('onAppResumed() recreates errored banner AdView (T34)', () {
+    test('destroys the stale native AdView before preloading a replacement',
+        () async {
+      await adapter.preloadBanner();
+      final oldId = adapter.appLovinBannerAdViewId.value;
+      expect(oldId, isNotNull, reason: 'fake bridge preloads id=1');
+
+      adapter.banner.hasError.value = true;
+      adapter.onAppResumed();
+      await Future<void>.value(); // flush unawaited destroyWidgetAdView
+
+      expect(bridge.destroyWidgetAdViewCalls, [oldId],
+          reason: 'stale AdView must be destroyed exactly once, with the '
+              'id that was current before the error-triggered recreate');
+      expect(adapter.banner.hasError.value, isFalse);
+      expect(bridge.loadInterCalls, isEmpty,
+          reason: 'sanity: only banner path touched');
     });
   });
 }

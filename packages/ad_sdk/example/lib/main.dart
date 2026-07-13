@@ -1794,15 +1794,17 @@ class StatePanelDemoPage extends StatelessWidget {
             },
             child: const Text('Re-initialize SDK'),
           ),
-          const SizedBox(height: 8),
-          FilledButton.tonal(
-            onPressed: () => _openAdInspector(context),
-            child: const Text(
-              kProvider == AdProvider.appLovin
-                  ? 'Open AppLovin mediation debugger'
-                  : 'Open AdMob ad inspector',
+          if (kDebugMode) ...[
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              onPressed: () => _openAdInspector(context),
+              child: const Text(
+                kProvider == AdProvider.appLovin
+                    ? 'Open AppLovin mediation debugger'
+                    : 'Open AdMob ad inspector',
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

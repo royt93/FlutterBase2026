@@ -14,7 +14,9 @@
 `isConnected` catch mọi lỗi → `return true` (lạc quan) ⇒ offline có thể bị hiểu là online, load thất bại với lỗi native khó hiểu. Adapter coi lỗi mạng như mọi lỗi khác → vào cooldown/backoff dài thay vì fast-retry.
 
 ## Acceptance criteria
-- [ ] `isConnected` khi exception → log + default `false` (pessimistic).
+- [x] `isConnected` khi exception → log + fallback về **last-known state**
+      (`_lastConnected`, seed `true`, optimistic) — quyết định đổi so với
+      criteria gốc, xem "Kết quả & quyết định" phía trên.
 - [ ] Adapter nhận diện error code mạng (no network/timeout/DNS) và: (a) không tính vào backoff dài, hoặc (b) uỷ thác cho connection listener (T08) refill khi reconnect.
 - [ ] Lỗi "hard" (unit id sai, no-fill) vẫn dùng backoff bình thường (`backoff.dart`).
 

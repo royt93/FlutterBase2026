@@ -249,7 +249,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// Stream of every [AdEvent] (load / show / click / reward / revenue).
   Stream<AdEvent> get events => _eventStream.stream;
-  final StreamController<AdEvent> _eventStream =
+  StreamController<AdEvent> _eventStream =
       StreamController<AdEvent>.broadcast();
 
   /// Persisted log backing [exportComplianceReport] (T23). `null` until
@@ -326,6 +326,15 @@ class AdManager with WidgetsBindingObserver {
   /// (optimistic) so the very first event only triggers a refill on a genuine
   /// offline→online transition.
   bool _lastConnected = true;
+
+  final ValueNotifier<bool> _offlineNotifier = ValueNotifier<bool>(false);
+
+  /// True while the device is offline — listenable mirror of [isConnected],
+  /// same pattern as `VipManager.activeListenable`. Host UI may subscribe to
+  /// render its own offline placeholder for the banner slot; the SDK itself
+  /// renders nothing extra when offline (banner just hides, unchanged) — this
+  /// signal is additive, not behavior-changing.
+  ValueListenable<bool> get isOfflineListenable => _offlineNotifier;
 
   /// Debounce window collapsing connectivity flapping into a single refill.
   Duration _reconnectDebounce = const Duration(milliseconds: 800);
@@ -1125,6 +1134,8 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> destroy() async {
     SafeLogger.d(_tag, 'destroy() called');
+    await _eventStream.close();
+    _eventStream = StreamController<AdEvent>.broadcast();
     await _disposeAdapter();
     // Bump revision so subscribed widgets rebuild against the now-null adapter
     // (otherwise BannerAdWidget would keep painting the stale provider's view
@@ -1160,6 +1171,7 @@ class AdManager with WidgetsBindingObserver {
     _rewardedInFlight = false;
     _isInitializing = false;
     _consentDialogScheduled = false;
+    _offlineNotifier.value = false;
 
     if (_isObserverAdded) {
       WidgetsBinding.instance.removeObserver(this);
@@ -1996,6 +2008,7 @@ class AdManager with WidgetsBindingObserver {
     try {
       await ConnectionNotifierTools.initialize();
       _lastConnected = ConnectionNotifierTools.isConnected;
+      _offlineNotifier.value = !_lastConnected;
       _connectivitySub =
           ConnectionNotifierTools.onStatusChange.listen(_onConnectivityChanged);
       SafeLogger.d(_tag,
@@ -2017,6 +2030,7 @@ class AdManager with WidgetsBindingObserver {
   void _onConnectivityChanged(bool connected) {
     final was = _lastConnected;
     _lastConnected = connected;
+    _offlineNotifier.value = !connected;
     if (!connected || was) return; // only act on false→true
     _reconnectDebounceTimer?.cancel();
     _reconnectDebounceTimer = Timer(_reconnectDebounce, () {

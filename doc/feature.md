@@ -1,6 +1,6 @@
 # Feature Status
 
-Updated: 2026-06-16
+Updated: 2026-07-13
 
 > **Single source of truth** for feature decisions. Two tracks:
 > **🛜 Product** (the WiFi stress-tester itself) and **📣 Ad/SDK**
@@ -39,6 +39,12 @@ Updated: 2026-06-16
   vs iOS units at runtime; Android and iOS never share unit IDs.
 - iOS native config in `ios/Runner/Info.plist`: `GADApplicationIdentifier`,
   `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems`.
+- **Audit follow-up T31-T38 (2026-07-13)**: `_eventStream` closed+recreated in
+  `destroy()`; `AdManager().isOfflineListenable` (opt-in offline signal, mirrors
+  `VipManager.activeListenable`); AppLovin banner's stale native `AdView`
+  destroyed before `onAppResumed()` recreates it; splash `mounted` guard
+  narrowed to UI-only (ATT/UMP/init always run); example app's iOS Podfile
+  platform pin + ad-inspector `kDebugMode` gate. See `doc/task/done/T3{1,3,4,5,6,7,8}-*.md`.
 - iOS ATT flow in the SDK (`AdManager().requestAtt()`), called in splash before
   UMP. Verified on Roy's Phone 2026-06-14 (`authorized` + IDFA present).
 - **VIP time global stacking** — every grant (redeem code OR watch-ad) adds onto
@@ -103,7 +109,18 @@ Updated: 2026-06-16
 
 ## 🟡 In progress
 
-- (none — Wave 5 complete)
+- (Product track: none — Wave 5 complete)
+- **Ad/SDK track — Audit follow-up (T31-T39), picked 2026-07-13.** 7 of 9 gaps
+  done (2026-07-13), see `doc/task/done/T3{1,3,4,5,6,7,8}-*.md`. Still open:
+  - **T32** AdMob Application ID identical in Android Manifest + iOS Info.plist
+    (should be 2 distinct console values — fix before ever flipping to AdMob).
+    - [ ] Pending: real iOS App ID chưa có từ user — `Info.plist` hiện chỉ có
+          TODO marker + giữ giá trị Android tạm thời. Runtime provider hiện là
+          AppLovin (AdMob dormant) nên mức khẩn cấp thấp, nhưng **bắt buộc**
+          thay giá trị thật trước khi build/release với AdMob provider trên iOS.
+  - **T39** SSV plumbing (rewarded ads) built + tested but unwired — needs a
+    partner decision (use it or not), not a bug. Để mở theo quyết định user
+    (2026-07-13) — không đụng tới.
 
 ## ✅ Implemented — Wave 5 (network dashboard + chart types) · DONE 2026-06-16
 

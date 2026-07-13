@@ -637,6 +637,51 @@ void main() {
     });
   });
 
+  group('destroy() event stream lifecycle (T31)', () {
+    AdRevenueEvent rev(int micros) => AdRevenueEvent(
+          providerTag: 'fake',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          valueMicros: micros,
+          currencyCode: 'USD',
+        );
+
+    test(
+        'destroy() closes events stream; subsequent debugEmit() after '
+        'destroy() does not throw', () async {
+      final events = <AdEvent>[];
+      bool done = false;
+      final sub =
+          AdManager().events.listen(events.add, onDone: () => done = true);
+      AdManager().debugEmit(rev(100));
+      await Future<void>.value();
+      await AdManager().destroy();
+      expect(done, isTrue,
+          reason: 'destroy() must close the old broadcast controller, '
+              'firing onDone for existing subscribers');
+      await sub.cancel();
+      expect(() => AdManager().debugEmit(rev(200)), returnsNormally,
+          reason: 'destroy() must recreate _eventStream so a later '
+              'initialize() cycle can emit again without throwing on a '
+              'closed StreamController');
+    });
+  });
+
+  group('isOfflineListenable (T33)', () {
+    tearDown(() => AdManager().debugConnectivityChanged(true));
+
+    test(
+        'flips true when connectivity drops false, back to false on '
+        'reconnect', () {
+      final mgr = AdManager();
+      expect(mgr.isOfflineListenable.value, isFalse);
+      mgr.debugConnectivityChanged(false);
+      expect(mgr.isOfflineListenable.value, isTrue);
+      mgr.debugConnectivityChanged(true);
+      expect(mgr.isOfflineListenable.value, isFalse);
+    });
+  });
+
   group('RevenuePanel consumes AdManager().events (debugEmit)', () {
     AdRevenueEvent rev(int micros) => AdRevenueEvent(
           providerTag: 'fake',

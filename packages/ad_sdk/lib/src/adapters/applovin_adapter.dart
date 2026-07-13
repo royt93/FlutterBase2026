@@ -971,9 +971,16 @@ class AppLovinAdapter implements AdProviderAdapter {
       if (banner.hasError.value) {
         SafeLogger.d(
             _logTag, 'onAppResumed $tag — banner had error, recreating');
+        final oldId = _bannerAdViewId.value;
         banner.hasError.value = false;
         _bannerAdViewId.value = null;
         banner.autoRefreshEnabled.value = true;
+        if (oldId != null) {
+          unawaited(_bridge.destroyWidgetAdView(oldId).catchError((e) {
+            SafeLogger.w(
+                _logTag, 'destroyWidgetAdView (onAppResumed) threw: $e');
+          }));
+        }
         preloadBanner();
       } else if (_bannerAdViewId.value != null && !_bannerRoutePaused) {
         banner.autoRefreshEnabled.value = true;
