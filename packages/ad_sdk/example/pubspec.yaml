@@ -13,6 +13,8 @@ dependencies:
 
   applovin_admob_sdk:
     path: ../
+  google_mobile_ads: ^7.0.0
+  applovin_max: ^4.6.4
 
 dev_dependencies:
   flutter_test:

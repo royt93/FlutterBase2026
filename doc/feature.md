@@ -68,6 +68,12 @@ Updated: 2026-06-16
   `gma_mediation_applovin 2.5.1` + `applovin_max 4.6.0` via `dependency_overrides`
   (SDK 1.0.23 declares GMA ^7 but the hosted Dart is GMA-6-compatible). The
   `path` override dragged GMA 7 in and broke the native registrant — keep the pins.
+- **In-app ad inspector entry (2026-07-13, example app only).** `StatePanelDemoPage`
+  gained a button calling each provider's own native debug UI directly —
+  `AppLovinMAX.showMediationDebugger()` / `MobileAds.instance.openAdInspector()`
+  — picked via `kProvider`. No custom inspector built; both SDKs already ship
+  one. `applovin_max` + `google_mobile_ads` added as direct deps of
+  `example/pubspec.yaml` (previously only transitive via the SDK).
 
 ### 🔬 On-device verification — Samsung S24 Ultra, Android 16 (2026-06-15)
 > Replaces the prior "not yet verified on a real device" note. **Full ad + VIP
@@ -533,9 +539,12 @@ Policy:
   public thermal API, so gate this Android-only like signal dBm already is.
 
 ### 📣 Ad / SDK
-- In-app debug entry to launch AppLovin/AdMob ad inspectors.
-- Ad health screen: SDK init state, loaded slots, consent state, VIP state, last
-  load error.
+- ~~Ad health screen: SDK init state, loaded slots, consent state, VIP state,
+  last load error.~~ **Skipped (2026-07-13)** — already covered rải rác qua
+  các trang có sẵn trong `packages/ad_sdk/example`: `StatePanelDemoPage` (SDK
+  init/destroy, per-slot state/fails/lastError/lastLoaded),
+  `ConsentDemoPage` (consent state), `VipDemoPage` (VIP state). Xây thêm 1
+  màn hình gộp chỉ để tiện hơn — không đáng effort, sẽ duplicate UI có sẵn.
 
 #### 📋 Picked (2026-07-08) — "Trust & Analytics" layer
 Decision: after `doc/audit/audit_gemini.md` confirmed near-total compliance

@@ -31,9 +31,11 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // §1  Constants + DemoConfig + VIP validator
@@ -1792,9 +1794,33 @@ class StatePanelDemoPage extends StatelessWidget {
             },
             child: const Text('Re-initialize SDK'),
           ),
+          const SizedBox(height: 8),
+          FilledButton.tonal(
+            onPressed: () => _openAdInspector(context),
+            child: const Text(
+              kProvider == AdProvider.appLovin
+                  ? 'Open AppLovin mediation debugger'
+                  : 'Open AdMob ad inspector',
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  // Both providers ship their own native debug UI — no need to build one.
+  void _openAdInspector(BuildContext context) {
+    if (kProvider == AdProvider.appLovin) {
+      AppLovinMAX.showMediationDebugger();
+      return;
+    }
+    MobileAds.instance.openAdInspector((error) {
+      if (error != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ad inspector error: ${error.message}')),
+        );
+      }
+    });
   }
 
   Widget _slotCard(String label, AdSlot slot) {

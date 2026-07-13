@@ -25,7 +25,7 @@ packages:
     source: path
     version: "1.0.24"
   applovin_max:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: applovin_max
       sha256: d179b33535589ce72dbc30c1fd0a3f0d249f5d1d547645b7837f8456c6a1df93
@@ -210,7 +210,7 @@ packages:
     source: sdk
     version: "0.0.0"
   google_mobile_ads:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: google_mobile_ads
       sha256: f35e040875bb54e8a3455bcffed3b4ac9e9263fbf7751b9fd1ae7f30793faee8
