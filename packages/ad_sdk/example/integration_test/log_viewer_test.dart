@@ -60,6 +60,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Log viewer'), findsWidgets);
 
+    // LogViewerDemoPage is a fresh full-screen route — restore the real
+    // device viewport before hit-testing its AppBar. On iOS the synthetic
+    // 1080-wide override above doesn't match the coordinate space the
+    // binding actually dispatches taps in, so the delete IconButton's tap
+    // center lands outside the render tree and the tap silently misses.
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    await tester.pump();
+
     // Verbose log level during SDK init guarantees non-empty entries by now.
     expect(find.text('(no logs yet)'), findsNothing);
 
