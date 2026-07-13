@@ -73,3 +73,6 @@ android/app/build/
 
 # Claude Code local settings (YOLO/bypassPermissions — không commit)
 .claude/settings.local.json
+
+# codebase-memory-mcp local index (binary artifact, regenerated per machine)
+.codebase-memory/

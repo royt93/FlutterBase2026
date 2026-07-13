@@ -121,6 +121,16 @@ Updated: 2026-07-13
   - **T39** SSV plumbing (rewarded ads) built + tested but unwired — needs a
     partner decision (use it or not), not a bug. Để mở theo quyết định user
     (2026-07-13) — không đụng tới.
+- **Ad/SDK track — independent audit follow-up (T40-T41), picked 2026-07-13.**
+  `doc/audit/audit_codex.md` (separate audit, same day, policy-cross-check
+  methodology) surfaced 2 gaps outside T31-T39's scope, not yet fixed:
+  - **T40** AppLovin still initializes for age-restricted/child users — only
+    logs a warning, doesn't block. App hiện tại (WiFi stress tester) is not
+    child-directed, so urgency is low, but must fix before this SDK is reused
+    for an app with a mixed/child audience. See `doc/task/todo/T40-*.md`.
+  - **T41** `packages/ad_sdk/example/` isn't publish-safe as-is: real
+    production AppLovin IDs hard-coded + QA safety caps (999/session, CTR 1.0)
+    active in all build modes including release. See `doc/task/todo/T41-*.md`.
 
 ## ✅ Implemented — Wave 5 (network dashboard + chart types) · DONE 2026-06-16
 

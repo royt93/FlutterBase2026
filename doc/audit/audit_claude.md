@@ -131,18 +131,25 @@ Git log 3 commit gần nhất tại thời điểm audit: `e22ab85` (SSV+crash-g
 
 ## 9. Đề xuất thứ tự xử lý (không có mục nào là P0 chặn phát hành)
 
+> **Cập nhật 2026-07-13 (sau audit này):** cả nhóm P1 và 5/6 mục P2 bên dưới đã
+> được xử lý — xem `doc/task/done/T3{1,3,4,5,6,7,8}-*.md` và `doc/feature.md`.
+> T32 vẫn `todo/` do thiếu App ID iOS thật từ user. Danh sách gốc giữ nguyên bên
+> dưới để tham chiếu lịch sử. `doc/audit/audit_codex.md` (audit độc lập, cùng
+> ngày) khảo sát thêm policy/consent-ordering và tìm ra 2 gap ngoài phạm vi
+> audit này, nay track ở `doc/task/todo/T40-*.md` và `T41-*.md`.
+
 **P1 (nên làm trước lần audit kế tiếp):**
-- Đóng `_eventStream` trong `ad_manager.dart destroy()` — 1 dòng, T13 chưa thực sự xong.
-- Sửa AdMob Application ID bị trùng Android/iOS trong native config — bắt buộc trước khi bao giờ flip sang AdMob.
-- Thêm UI state "offline" riêng cho banner (khác `SizedBox.shrink()` chung với VIP/consent/cooldown).
+- ~~Đóng `_eventStream` trong `ad_manager.dart destroy()`~~ — ✅ T31 done.
+- Sửa AdMob Application ID bị trùng Android/iOS trong native config — bắt buộc trước khi bao giờ flip sang AdMob. — 📋 **T32 vẫn todo**, chờ App ID iOS thật.
+- ~~Thêm UI state "offline" riêng cho banner~~ — ✅ T33 done (`AdManager().isOfflineListenable`).
 
 **P2 (dọn dẹp, không rủi ro cao):**
-- Làm rõ lại doc T10: `isConnected` optimistic-by-default là chủ đích, không phải bug — tránh hiểu nhầm ở audit sau.
-- Dispose banner native view tường minh trước khi refresh/reconnect (không chỉ ở destroy toàn phần).
-- Đóng nốt `mounted` guard còn sót ở tầng ngoài splash (T29 phần còn lại) + thêm regression test cho race này.
-- Uncomment iOS 13.0 Podfile pin ở `example/ios/Podfile`.
-- Gate `kDebugMode` cho nút ad inspector nếu pattern này từng được copy sang host app.
-- Publish UMP consent form thật trên AdMob console cho app ID production (thao tác tay, đã có checklist ở `doc/UMP_SETUP.md`).
+- ~~Làm rõ lại doc T10~~ — ✅ T36 done.
+- ~~Dispose banner native view tường minh trước khi refresh/reconnect~~ — ✅ T34 done.
+- ~~Đóng nốt `mounted` guard còn sót ở tầng ngoài splash~~ — ✅ T35 done.
+- ~~Uncomment iOS 13.0 Podfile pin ở `example/ios/Podfile`~~ — ✅ T37 done.
+- ~~Gate `kDebugMode` cho nút ad inspector~~ — ✅ T38 done.
+- Publish UMP consent form thật trên AdMob console cho app ID production (thao tác tay, đã có checklist ở `doc/UMP_SETUP.md`) — vẫn cần làm tay, chưa track bằng task riêng.
 
 ---
 
