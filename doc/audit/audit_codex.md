@@ -28,6 +28,37 @@ The SDK is not a blind "ship as-is everywhere" library, but the core implementat
 
 The example currently includes real AppLovin SDK/ad-unit IDs and uses relaxed QA safety limits in all build modes. It is useful for device audit, but must not be published or used as a template without replacing IDs and restoring production safety defaults.
 
+## Confidence / Certainty
+
+I am **confident in the source-level audit findings**, but this is **not yet a full production certification**.
+
+What is solid / high confidence:
+- The SDK source has real safeguards for VIP suppression, offline load skips, UMP `canRequestAds` gating, frequency caps, route-aware banner lifecycle, app-open resume guards, native object disposal, and first-install trial expiry.
+- The host app startup flow currently follows the correct order: ATT -> UMP -> `AdManager.initialize`.
+- The package and example pass automated checks listed below.
+- The P0/P1 risks are concrete source-level issues, not guesses.
+
+What is not yet proven:
+- Real Android + iOS devices across multiple OS versions have not been fully re-smoked in this audit turn.
+- Real UMP behavior by country/region has not been exhaustively verified. The source uses Google's UMP API, but production confidence still needs test-mode EEA/UK/non-EEA checks and privacy-options checks.
+- Real AppLovin/AdMob live callbacks under poor network, app backgrounding, ad click-through, store redirect, and process recreation are not fully covered by unit tests.
+- No-backend VIP security cannot provide global one-time-use by design. It is secure against key forgery, not against a leaked valid key being reused on another device.
+- AppLovin child-user compliance is not solved by current code. Current code warns but does not block AppLovin initialization for child/child-directed traffic.
+
+Therefore:
+- **I am sure we should not ship the SDK/example as-is.**
+- **I am sure the SDK core is a good production candidate after the ship blockers are fixed.**
+- **I am not claiming it is production-certified until the remediation plan below is implemented and device smoke tests pass.**
+
+Release-confidence gate:
+1. Fix all "Ship Blockers" in this file.
+2. Re-run `flutter test` and `flutter analyze` for SDK + example.
+3. Run Android physical-device tests with network on/off and airplane-mode recovery.
+4. Run iOS physical-device tests for ATT, UMP, AppLovin app-open/inter/reward/banner, and privacy options.
+5. Force UMP debug geography for EEA/UK/non-EEA and verify no ad request before `canRequestAds == true`.
+6. Confirm no real production IDs remain in the publishable example.
+7. Confirm child/child-directed mode blocks AppLovin before native SDK init.
+
 ## Verification
 
 Passed:
@@ -183,6 +214,74 @@ Evidence:
 
 Recommendation:
 - Add optional show watchdog for interstitial/rewarded too, using the app-open pattern.
+
+## Solution / Remediation Plan
+
+### Ship Blockers - Must Fix Before Production
+
+1. **Block AppLovin for child / child-directed traffic.**
+   - Add an explicit config flag such as `AdConfig.audienceMode` or `AdConfig.isChildUser`.
+   - If `provider == AdProvider.appLovin` and child mode is true, `initialize()` must fail closed before `AppLovinMAX.initialize()`.
+   - For child mode, route to a compliant AdMob-only setup or disable ads.
+   - Add tests proving AppLovin init is not called for child mode.
+
+2. **Move consent application before native SDK initialization.**
+   - Bootstrap/load persisted `ConsentManager` before adapter creation.
+   - If `autoRequestUmpConsent == true`, run UMP before `adapter.initialize()`.
+   - Apply `AppLovinMAX.setHasUserConsent()` and `setDoNotSell()` before AppLovin init.
+   - Preserve AdMob `testDeviceIds` when applying `RequestConfiguration`.
+
+3. **Make missing consent flow a release failure, not only a warning.**
+   - Add an explicit `consentFlowHandledExternally` config for host-owned UMP.
+   - In release, require one of:
+     - `autoRequestUmpConsent == true`
+     - `consentFlowHandledExternally == true`
+     - AppLovin CMP intentionally enabled
+   - If none is true, return `onComplete(false, gaid)` and do not preload ads.
+
+4. **Clean the example before publish.**
+   - Remove real AppLovin SDK key and ad-unit IDs from `packages/ad_sdk/example/lib/main.dart`.
+   - Remove real SDK key from `packages/ad_sdk/example/ios/Runner/Info.plist`.
+   - Use placeholders or `--dart-define` values.
+   - Add CI/grep test that fails if known production IDs appear in the example.
+
+5. **Gate QA safety preset.**
+   - Change example default to `AdSafetyParams.auto`.
+   - Enable loose QA caps only with a compile-time flag, e.g. `--dart-define=QA_AD_STRESS=true`.
+   - Keep production host apps on `AdSafetyParams.production` or `AdSafetyParams.auto`.
+
+### Strongly Recommended Hardening
+
+1. **Add watchdogs for interstitial and rewarded show callbacks.**
+   - Reuse the app-open hard-cap pattern.
+   - If native dismiss/fail callbacks do not arrive, mark the slot failed, clear pending callback, and let caller continue.
+   - Add tests for missing callback recovery.
+
+2. **Document VIP security limits in README and integration checklist.**
+   - Offline Ed25519 VIP codes prevent forged keys.
+   - They do not prevent one leaked valid key from being used on multiple devices.
+   - For paid VIP, require StoreKit/Billing/backend verification.
+
+3. **Make provider swap safer.**
+   - Add release-time validation that active provider has production IDs.
+   - If switching to AdMob, block Google public test ad-unit IDs in release.
+   - Keep per-platform IDs mandatory for production if Android/iOS use different ad units.
+
+4. **Add a production integration checklist.**
+   - ATT prompt and `NSUserTrackingUsageDescription` on iOS.
+   - UMP called every launch before first ad request.
+   - Privacy options entry point exposed when UMP requires it.
+   - `app-ads.txt` / seller setup handled by the app owner.
+   - AppLovin child-user gate decided before SDK init.
+
+### Suggested Implementation Order
+
+1. P0 child-user AppLovin hard block.
+2. Consent pre-init reorder and release fail-closed config.
+3. Example credential cleanup and QA safety flag.
+4. Interstitial/rewarded watchdogs.
+5. README/checklist update and CI grep guards.
+6. Re-run `flutter test`, `flutter analyze`, and device smoke tests for Android + iOS with network on/off.
 
 ## Production Decision
 

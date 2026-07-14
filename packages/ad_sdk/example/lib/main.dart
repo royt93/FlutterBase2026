@@ -41,39 +41,52 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 // §1  Constants + DemoConfig + VIP validator
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ⚠️ SECURITY — these are REAL production AppLovin keys borrowed from the
-// host app (`lib/mckimquyen/common/const/ad_keys.dart`) for a one-off
-// real-device audit round (2026-07-11, doc/task/README.md). They MUST be
-// replaced back with the YOUR_* placeholders below before the next
-// `dart pub publish` — see README.md "Compliance checklist".
-//   const _kAppLovinSdkKey = 'YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD';
-//   const _kAppLovinBannerId = 'YOUR_BANNER_AD_UNIT_ID';
-//   const _kAppLovinInterstitialId = 'YOUR_INTERSTITIAL_AD_UNIT_ID';
-//   const _kAppLovinAppOpenId = 'YOUR_APP_OPEN_AD_UNIT_ID';
-//   const _kAppLovinRewardedId = 'YOUR_REWARDED_AD_UNIT_ID';
-final _kAppLovinSdkKey = Platform.isIOS
-    ? 'REDACTED_APPLOVIN_SDK_KEY_ROUND68'
-    : 'REDACTED_APPLOVIN_SDK_KEY_ROUND68';
-final _kAppLovinBannerId =
-    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_BANNER_ID' : 'REDACTED_APPLOVIN_BANNER_ID';
-final _kAppLovinInterstitialId =
-    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_INTERSTITIAL_ID' : 'REDACTED_APPLOVIN_INTERSTITIAL_ID';
-final _kAppLovinAppOpenId =
-    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_APPOPEN_ID' : 'REDACTED_APPLOVIN_APPOPEN_ID';
-final _kAppLovinRewardedId =
-    Platform.isIOS ? 'REDACTED_APPLOVIN_IOS_REWARDED_ID' : 'REDACTED_APPLOVIN_REWARDED_ID';
+// T41 — no real AppLovin credentials are committed to source. Placeholders
+// below make the demo build/run out of the box (native init simply fails to
+// load real creative — safe default, not a crash). Anyone who needs to
+// exercise real ads locally passes their own IDs via --dart-define, e.g.:
+//   flutter run --dart-define=APPLOVIN_SDK_KEY=... \
+//     --dart-define=APPLOVIN_BANNER_ID_ANDROID=... \
+//     --dart-define=APPLOVIN_BANNER_ID_IOS=... (…and _INTERSTITIAL_/_APPOPEN_/_REWARDED_ for each platform)
+// See README.md "Compliance checklist".
+const String _kAppLovinSdkKey = String.fromEnvironment('APPLOVIN_SDK_KEY',
+    defaultValue: 'YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD');
+final String _kAppLovinBannerId = Platform.isIOS
+    ? const String.fromEnvironment('APPLOVIN_BANNER_ID_IOS',
+        defaultValue: 'YOUR_BANNER_AD_UNIT_ID')
+    : const String.fromEnvironment('APPLOVIN_BANNER_ID_ANDROID',
+        defaultValue: 'YOUR_BANNER_AD_UNIT_ID');
+final String _kAppLovinInterstitialId = Platform.isIOS
+    ? const String.fromEnvironment('APPLOVIN_INTERSTITIAL_ID_IOS',
+        defaultValue: 'YOUR_INTERSTITIAL_AD_UNIT_ID')
+    : const String.fromEnvironment('APPLOVIN_INTERSTITIAL_ID_ANDROID',
+        defaultValue: 'YOUR_INTERSTITIAL_AD_UNIT_ID');
+final String _kAppLovinAppOpenId = Platform.isIOS
+    ? const String.fromEnvironment('APPLOVIN_APPOPEN_ID_IOS',
+        defaultValue: 'YOUR_APP_OPEN_AD_UNIT_ID')
+    : const String.fromEnvironment('APPLOVIN_APPOPEN_ID_ANDROID',
+        defaultValue: 'YOUR_APP_OPEN_AD_UNIT_ID');
+final String _kAppLovinRewardedId = Platform.isIOS
+    ? const String.fromEnvironment('APPLOVIN_REWARDED_ID_IOS',
+        defaultValue: 'YOUR_REWARDED_AD_UNIT_ID')
+    : const String.fromEnvironment('APPLOVIN_REWARDED_ID_ANDROID',
+        defaultValue: 'YOUR_REWARDED_AD_UNIT_ID');
 
-/// Provider for this app — defaults to `AdProvider.appLovin` deliberately and
-/// kept this way — the demo needs a provider with real credentials to
-/// exercise banner/interstitial/rewarded/appOpen with genuine AppLovin
-/// creative (2026-07-11 audit round, see doc/task/README.md). Do not change
-/// this default to `AdProvider.admob` in source.
+/// Provider for this app — defaults to `AdProvider.appLovin` since AppLovin is
+/// the harder-to-exercise path (AdMob demo IDs are Google's public test
+/// units; AppLovin needs real per-account IDs passed via --dart-define, see
+/// above). Do not change this default to `AdProvider.admob` in source.
 ///
 /// For integration-test runs that need to exercise the AdMob path, pass
 /// `--dart-define=AD_PROVIDER_ADMOB=true` instead of editing this constant.
 const AdProvider kProvider = bool.fromEnvironment('AD_PROVIDER_ADMOB')
     ? AdProvider.admob
     : AdProvider.appLovin;
+
+/// T41 — the loose QA safety preset ([kDemoSafetyParams]) is opt-in only, so
+/// a release build of this example never ships with fraud/frequency caps
+/// disabled. Pass `--dart-define=QA_AD_STRESS=true` to enable it locally.
+const bool kQaAdStress = bool.fromEnvironment('QA_AD_STRESS');
 
 /// Placeholder privacy-policy link shown by the consent dialog demo.
 /// Real apps should point this at their own published policy.
@@ -142,12 +155,13 @@ class DemoConfig {
       adNotReadyMessage: 'Ad not ready — please wait.',
       adLoadingMessage: 'Loading…',
       splashMaxDuration: const Duration(seconds: 8),
-      // Demo always uses the loose preset (999 caps, 2 s throttle, 0 s
-      // warm-up) regardless of debug/release. Lets QA pound the buttons
-      // without hitting any safety wall.
-      // ⚠️ DO NOT copy this into a production app — use AdSafetyParams.auto
-      // (default) or AdSafetyParams.production there.
-      safety: kDemoSafetyParams,
+      // T41 — the loose preset (999 caps, 2 s throttle, 0 s warm-up) only
+      // applies with --dart-define=QA_AD_STRESS=true, so QA can pound the
+      // buttons on demand without every debug/release build shipping with
+      // fraud/frequency caps effectively disabled.
+      // ⚠️ DO NOT copy kDemoSafetyParams into a production app — use
+      // AdSafetyParams.auto (default) or AdSafetyParams.production there.
+      safety: kQaAdStress ? kDemoSafetyParams : AdSafetyParams.auto,
       // First-install VIP grace: 30 s in debug (so QA can verify "after
       // grace expires, ads return" without waiting 24 h), 24 h in release.
       // Other options:

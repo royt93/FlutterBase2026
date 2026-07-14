@@ -165,7 +165,13 @@ class AdMobAdapter implements AdProviderAdapter {
   // ──────────────────────────────────────────────────────────────────────────
 
   @override
-  Future<bool> initialize(AdConfig config, {String deviceGaid = ''}) async {
+  Future<bool> initialize(
+    AdConfig config, {
+    String deviceGaid = '',
+    bool isAgeRestrictedUser = false,
+  }) async {
+    // ponytail: no gate needed here — COPPA is honoured per-request via
+    // tagForChildDirectedTreatment in ad_consent.dart, not at init time.
     final cfg = config.admob;
     if (cfg == null) {
       SafeLogger.e(_logTag, 'initialize: AdMobConfig is null — aborted');

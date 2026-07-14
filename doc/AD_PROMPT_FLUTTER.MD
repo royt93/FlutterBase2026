@@ -1065,3 +1065,35 @@ Project này là reference implementation cho `applovin_admob_sdk` (hiện dev/t
 - `lib/mckimquyen/widget/vip/vip_keys.dart` — **KHÔNG** phải Base64-obfuscated plaintext-duration map. Đây là Ed25519 signed-key config (T18): chỉ chứa public key (`kVipPublicKeyBase64`) để verify offline + demo signed keys (`kVipDemoKeys`) cho QA. Duration/redemption logic nằm trong SDK (`vip_manager.dart` + `_redeemed_key_ledger.dart`), không phải một `Map<String, Duration>` ở project này
 - `lib/translations/vi_vn.dart` + `en_us.dart` — i18n keys
 - `packages/ad_sdk/README.md` — full SDK API reference
+
+## Phụ lục C — Ghi chú audit 2026-07-13/14 (accepted items, checklist trước khi bật AdMob thật)
+
+- **AdMob App ID hiện là TEST ID (T32, 2026-07-14).** `android/app/src/main/AndroidManifest.xml`'s `com.google.android.gms.ads.APPLICATION_ID` và `ios/Runner/Info.plist`'s `GADApplicationIdentifier` đang dùng test App ID chính thức của Google (`ca-app-pub-3940256099942544~3347511713` Android / `~1458002511` iOS) — quyết định có chủ đích, không phải bug, vì App ID production cũ trước đây bị dán trùng 1 giá trị cho cả 2 platform (sai, vì AdMob console cấp App ID riêng theo từng platform app entry). **Checklist bắt buộc trước khi bật `AdConfig.provider: AdProvider.adMob` thật:**
+  1. Vào https://admob.google.com, lấy đúng App ID của app entry Android và app entry iOS (2 giá trị khác nhau).
+  2. Cập nhật lại 2 file trên với 2 giá trị đó (xoá comment "T32... tạm dùng test App ID").
+  3. Lấy 4 bộ ad-unit ID thật (banner/interstitial/appOpen/rewarded) riêng cho từng platform từ console, điền vào `AdMobConfig` trong `lib/mckimquyen/common/const/ad_keys.dart`.
+  4. Chạy lại `flutter analyze` + build thử để chắc không còn test ID nào sót.
+
+- **Không có watchdog cho Interstitial/Rewarded — accepted risk (chốt
+  2026-07-14, không phải thiếu sót bị bỏ quên).** App Open có watchdog hard-cap
+  (18 lần × 5s = 90s tự thoát nếu native SDK không bao giờ gọi callback show/
+  dismiss — xem comment "hard cap"/"watchdog" trong `admob_adapter.dart` +
+  `applovin_adapter.dart`). Interstitial/Rewarded **không** có cơ chế tương tự
+  — nếu native SDK bên thứ 3 (Google/AppLovin) không bao giờ gọi callback
+  dismiss/fail (lỗi cực hiếm từ chính native SDK), app có thể bị kẹt ở trạng
+  thái "đang hiện quảng cáo" vô thời hạn cho riêng slot đó. User đã đánh giá
+  và **chấp nhận rủi ro này** vì tần suất xảy ra cực thấp và code hiện tại
+  (`admob_adapter.dart:598-605`, `:769`) đã ghi chú rõ đây là lựa chọn có chủ
+  đích, không phải bug. Nếu sau này muốn thêm watchdog cho 2 loại ad này, làm
+  theo đúng pattern watchdog của App Open (tìm comment "watchdog"/"hard cap"
+  trong 2 file adapter trên làm template).
+
+- **T39 — SSV (server-side verification) cho rewarded ad: phần app đã sẵn
+  sàng, chỉ chờ server (chốt 2026-07-14).** Nút export dữ liệu trong
+  `history_screen.dart` (xem quảng cáo rewarded để mở khoá) đã gửi kèm
+  `ssvUserId` — 1 ID ẩn danh, sinh 1 lần và lưu bền vững trên máy
+  (`SharedPreferencesUtil.getOrCreateSsvUserId()`), không gắn với tài khoản
+  thật nào. `ssvCustomData` vẫn để trống vì chưa có server xác minh. **Khi có
+  server thật:** chỉ cần cấu hình postback URL trên AdMob/AppLovin console trỏ
+  về server đó — **không cần sửa thêm code Flutter nào**, plumbing đã đầy đủ
+  từ `AdManager.showRewardedAd()` xuống tới UI.

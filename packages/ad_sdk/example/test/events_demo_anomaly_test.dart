@@ -11,6 +11,14 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   setUp(() => EventBuffer.instance.clear());
 
+  testWidgets('shows the empty-state hint when EventBuffer is empty',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: EventsDemoPage()));
+
+    expect(
+        find.text('(no events yet — trigger an ad somewhere)'), findsOneWidget);
+  });
+
   testWidgets('renders an AdAnomalyEvent with its reason and violation count',
       (tester) async {
     EventBuffer.instance.onEvent(const AdAnomalyEvent(

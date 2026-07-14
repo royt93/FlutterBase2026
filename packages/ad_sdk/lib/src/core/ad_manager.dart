@@ -90,6 +90,11 @@ class AdManager with WidgetsBindingObserver {
   VipManager? _vipManager;
   ConsentManager? _consentManager;
   AdConsent _consent = AdConsent.conservative;
+  // T42 — consent captured by setConsent()/requestUmpConsent() while
+  // _consentManager is still null (i.e. before initialize() bootstraps it).
+  // Without this buffer, initialize()'s bootstrap silently overwrites the
+  // in-session value with stale persisted data — see setConsent() below.
+  ConsentSettings? _pendingConsentSettings;
 
   AdConfig? get config => _config;
 
@@ -350,6 +355,17 @@ class AdManager with WidgetsBindingObserver {
   /// [destroy] can't leak them.
   @visibleForTesting
   int get debugRetryGen => _retryGen;
+
+  /// Test seam: start the periodic retry timer without going through a full
+  /// [initialize] (which requires a real platform-channel adapter init).
+  @visibleForTesting
+  void debugStartAdRetryTimer() => _startAdRetryTimer();
+
+  /// Test seam: stop the periodic retry timer (mirrors what [destroy] and the
+  /// [initialize] re-init guard already do) without tearing down the rest of
+  /// the adapter/config state.
+  @visibleForTesting
+  void debugStopAdRetryTimer() => _stopAdRetryTimer();
 
   /// Test seam: drive the connectivity handler without the native plugin.
   @visibleForTesting
@@ -751,6 +767,17 @@ class AdManager with WidgetsBindingObserver {
         }
       }
 
+      // T40 — bootstrap ConsentManager (loads persisted user choice from
+      // prefs) BEFORE picking/initialising the adapter, so a previously
+      // recorded isAgeRestrictedUser=true can gate AppLovin's init (it has
+      // no runtime child-directed API — see AppLovinAdapter.initialize).
+      final consentMgr = await ConsentManager.bootstrap(
+        prefs: prefs,
+        strings: config.consentDialogStrings,
+      );
+      _consentManager = consentMgr;
+      _consent = consentMgr.adConsent;
+
       // Pick adapter, wire its event sink, then initialise. The resolved
       // GAID is forwarded so the AppLovin adapter can register this device
       // as a test device in debug builds (preserves 1.x policy compliance).
@@ -764,7 +791,11 @@ class AdManager with WidgetsBindingObserver {
       bool ok;
       try {
         ok = await adapter
-            .initialize(config, deviceGaid: _currentDeviceGAID)
+            .initialize(
+              config,
+              deviceGaid: _currentDeviceGAID,
+              isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+            )
             .timeout(const Duration(seconds: 20));
       } on TimeoutException {
         SafeLogger.e(_tag, 'adapter init TIMED OUT after 20s');
@@ -782,16 +813,11 @@ class AdManager with WidgetsBindingObserver {
       _attachFullscreenDismissWatchers();
       initRevision.value = initRevision.value + 1;
 
-      // Phase 5+: bootstrap ConsentManager (loads persisted user choice from
-      // prefs). If config asks for auto-show AND user hasn't been asked yet,
-      // present the Cupertino dialog before the first ad request. The dialog
-      // result auto-applies to providers via ConsentManager.set.
-      final consentMgr = await ConsentManager.bootstrap(
-        prefs: prefs,
-        strings: config.consentDialogStrings,
-      );
-      _consentManager = consentMgr;
-      _consent = consentMgr.adConsent;
+      // consentMgr was already bootstrapped above (before adapter init, so
+      // T40's isAgeRestrictedUser gate could see persisted consent). If
+      // config asks for auto-show AND user hasn't been asked yet, present
+      // the Cupertino dialog before the first ad request. The dialog result
+      // auto-applies to providers via ConsentManager.set.
 
       // Re-sync the adapter's per-request personalization (AdMob npa) on ANY
       // later consent change — the auto-shown consent dialog, ConsentManager
@@ -815,6 +841,19 @@ class AdManager with WidgetsBindingObserver {
       // Sync per-request personalization (AdMob npa=1) into the adapter so the
       // App Open / banner preloads below carry the correct consent state.
       _adapter?.applyConsent(consentMgr.adConsent);
+
+      // T42 — a caller (e.g. requestUmpConsent()) may have set fresh consent
+      // *before* this initialize() call bootstrapped ConsentManager above,
+      // in which case it was buffered into _pendingConsentSettings instead
+      // of being lost. Re-apply it now so it wins over the just-loaded,
+      // possibly-stale persisted data.
+      final pending = _pendingConsentSettings;
+      if (pending != null) {
+        _pendingConsentSettings = null;
+        await consentMgr.set(pending, config: config);
+        _consent = consentMgr.adConsent;
+        _adapter?.applyConsent(_consent);
+      }
 
       // T01 — SDK-owned UMP: run Google's consent flow before the first ad
       // request and gate loading on canRequestAds. Opt-in; hosts that run UMP
@@ -978,6 +1017,25 @@ class AdManager with WidgetsBindingObserver {
   Future<void> setConsent(AdConsent consent) async {
     _consent = consent;
     SafeLogger.d(_tag, () => 'setConsent: $consent');
+    final settings = ConsentSettings(
+      hasUserConsent: consent.hasUserConsent,
+      isAgeRestrictedUser: consent.isAgeRestrictedUser,
+      doNotSell: consent.doNotSell,
+      hasBeenAsked: true,
+    );
+    // T42 — _consentManager may still be null here (e.g. requestUmpConsent()
+    // called before initialize() runs, which is the app's real startup
+    // order). Persisting straight through it — instead of only touching the
+    // in-memory _consent field — stops initialize()'s later
+    // ConsentManager.bootstrap() from silently reloading stale, previously
+    // persisted data and clobbering this fresh value.
+    if (_consentManager != null) {
+      await _consentManager!.set(settings, config: _config);
+    } else {
+      SafeLogger.d(_tag,
+          '⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()');
+      _pendingConsentSettings = settings;
+    }
     if (!isInitialised) {
       SafeLogger.d(_tag,
           '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
@@ -1162,6 +1220,10 @@ class AdManager with WidgetsBindingObserver {
     // explicitly via `ConsentManager.instance.reset()`.
     _consentManager?.listenable.removeListener(_syncConsentToAdapter);
     _consentManager = null;
+    // A setConsent() call buffered before the (now torn-down) init never got
+    // applied — dropping it here (rather than carrying it into a future
+    // initialize()) matches destroy() being an explicit, deliberate teardown.
+    _pendingConsentSettings = null;
 
     _isSplashActive = false;
     _countInitSplashScreen = 0;

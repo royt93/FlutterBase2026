@@ -131,6 +131,20 @@ void main() {
     });
   });
 
+  group('COPPA child-user init gate (T40)', () {
+    test('isAgeRestrictedUser:true aborts init and skips native bridge',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      final ok = await a.initialize(_config, isAgeRestrictedUser: true);
+      expect(ok, isFalse);
+      expect(a.isInitialised, isFalse);
+      expect(a.disabledForChildUser, isTrue);
+      expect(b.appOpen, isNull, reason: 'listeners never wired');
+      await a.dispose();
+    });
+  });
+
   group('App Open load/show happy path', () {
     test('load → onAdLoaded marks slot ready and fires callback(true)',
         () async {

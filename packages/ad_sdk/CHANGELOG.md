@@ -17,6 +17,28 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [1.0.24] - 2026-07-10
 
+### Fixed — consent silently overwritten by stale data on every `initialize()`
+- `AdManager.setConsent()` called before `initialize()` (the real app startup
+  order: `requestUmpConsent()` → `initialize()`) used to only mutate an
+  in-memory field and return early, because `ConsentManager` wasn't bootstrapped
+  yet. `initialize()`'s subsequent `ConsentManager.bootstrap()` then
+  unconditionally reloaded the previous session's **stale** persisted consent
+  and overwrote it — silently discarding the fresh UMP result on every app
+  launch. Fixed by buffering the pending `ConsentSettings` in a new
+  `_pendingConsentSettings` field and re-applying it right after bootstrap, so
+  it wins over the just-loaded stale data; the buffer is cleared on
+  `destroy()` so it never leaks into an unrelated future `initialize()`. Test:
+  `test/consent_persistence_on_init_test.dart`.
+
+### Added — `ssvUserId`/`ssvCustomData` on `AdScreenState.showRewardedAd()`
+- `AdManager.showRewardedAd()` already accepted `ssvUserId`/`ssvCustomData` for
+  server-side reward verification, but the `AdScreenState.showRewardedAd()`
+  convenience wrapper (`lib/src/core/ad_screen.dart`) that most host screens
+  actually call did not expose or forward them — any caller passing those
+  named args failed to compile. Added both as optional parameters, forwarded
+  as-is to the underlying `AdManager` call; no change to the wrapper's
+  existing safety-check/disclosure-dialog behaviour.
+
 ### Added — durable redeemed-key ledger for signed VIP keys on iOS
 - New `RedeemedKeyLedger` (`lib/src/vip/_redeemed_key_ledger.dart`) backs
   `VipManager.redeemSignedKey`'s one-time-use check with an iOS Keychain

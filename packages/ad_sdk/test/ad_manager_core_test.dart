@@ -14,6 +14,7 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,8 +115,52 @@ class _FakeAdapter implements AdProviderAdapter {
         : RewardResult.skipped);
   }
 
+  int loadAppOpenCalls = 0;
+  int showAppOpenCalls = 0;
+
+  /// When true, [loadAppOpen] simulates a successful load (slot → ready).
+  bool appOpenLoadMarksReady = false;
+
+  @override
+  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
+    loadAppOpenCalls++;
+    if (appOpenLoadMarksReady) {
+      appOpenSlot.beginReload();
+      appOpenSlot.markReady();
+    }
+    onAdLoaded?.call(appOpenLoadMarksReady);
+  }
+
+  @override
+  Future<void> showAppOpen(
+      {required void Function(bool dismissed) onDismiss}) async {
+    showAppOpenCalls++;
+    appOpenSlot.beginShow();
+    appOpenSlot.markDismissed();
+    onDismiss(true);
+  }
+
   @override
   Future<void> dispose() async {}
+
+  int onAppPausedCalls = 0;
+  int onAppResumedCalls = 0;
+
+  /// When true, [onAppPaused]/[onAppResumed] throw — proves
+  /// didChangeAppLifecycleState's try/catch swallows adapter exceptions.
+  bool throwOnLifecycle = false;
+
+  @override
+  void onAppPaused() {
+    onAppPausedCalls++;
+    if (throwOnLifecycle) throw StateError('fake onAppPaused failure');
+  }
+
+  @override
+  void onAppResumed() {
+    onAppResumedCalls++;
+    if (throwOnLifecycle) throw StateError('fake onAppResumed failure');
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -132,6 +177,28 @@ class _FakeVip implements VipManager {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Minimal [PopupRoute] to drive [AdScreenRouteLogger.isDialogOnTop] without a
+/// real dialog widget tree — mirrors the private helper in
+/// ad_route_observer_test.dart.
+class _FakePopupRoute extends PopupRoute<void> {
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  String? get barrierLabel => null;
+
+  @override
+  Widget buildPage(BuildContext context, Animation<double> animation,
+          Animation<double> secondaryAnimation) =>
+      const SizedBox.shrink();
+
+  @override
+  Duration get transitionDuration => Duration.zero;
 }
 
 AdConfig _admobConfig({required bool dryRun, required bool testIds}) {
@@ -637,6 +704,262 @@ void main() {
     });
   });
 
+  group('showAppOpenAdOnResume() guard chain', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      // A previous group's real showRewarded/showInterstitial completion may
+      // have left `_lastFullscreenDismissAt` recent, which would trip the
+      // resume-debounce gate before this group's own guards get a chance to
+      // run — destroy() is the only way to zero it (no debug seam for it).
+      await AdManager().destroy();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit(); // fresh _isColdStart=true per test
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().markSplashInactive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+      AdManager().markSplashActive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    test('adapter null → no-op, never throws', () {
+      AdManager().debugSetAdapter(null);
+      expect(AdManager().showAppOpenAdOnResume, returnsNormally);
+    });
+
+    test('splash active → skipped, no reload triggered', () {
+      AdManager().markSplashActive();
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, 0);
+      expect(adapter.showAppOpenCalls, 0);
+    });
+
+    test('VIP member → skipped, no reload triggered', () {
+      AdManager().debugVipManager = _FakeVip(true);
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, 0);
+      expect(adapter.showAppOpenCalls, 0);
+    });
+
+    test('interstitial currently showing → skipped, no reload triggered', () {
+      adapter.interstitialSlot.beginReload();
+      adapter.interstitialSlot.markReady();
+      adapter.interstitialSlot.beginShow();
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, 0);
+      expect(adapter.showAppOpenCalls, 0);
+    });
+
+    test('dialog/popup on top → skipped, no reload triggered', () {
+      final logger = AdScreenRouteLogger();
+      logger.didPush(_FakePopupRoute(), null);
+      expect(AdScreenRouteLogger.isDialogOnTop, isTrue);
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, 0);
+      expect(adapter.showAppOpenCalls, 0);
+    });
+
+    test('cold start (first resume ever) → skipped but triggers a reload', () {
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.showAppOpenCalls, 0,
+          reason: 'cold start is a one-shot skip, never shows on the first '
+              'resume');
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1));
+    });
+
+    test('slot not ready → skipped but triggers a reload', () {
+      // Consume the one-shot cold-start skip first so this test reaches the
+      // slot-readiness gate instead.
+      AdManager().showAppOpenAdOnResume();
+      adapter.loadAppOpenCalls = 0;
+
+      expect(adapter.appOpenSlot.isReady, isFalse,
+          reason: 'never loaded — still idle');
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.showAppOpenCalls, 0);
+      expect(adapter.loadAppOpenCalls, 1);
+    });
+
+    testWidgets(
+        'happy path (no navigatorKey context) → fallback timer shows a real '
+        'App Open ad', (tester) async {
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+
+      AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
+      AdManager().showAppOpenAdOnResume(); // schedules the 1s fallback timer
+      await tester.pump(const Duration(seconds: 1, milliseconds: 100));
+
+      expect(adapter.showAppOpenCalls, 1);
+    });
+  });
+
+  group('didChangeAppLifecycleState()', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      await AdManager().destroy();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().markSplashInactive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+      AdManager().markSplashActive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    test('not initialised → logs only, never throws', () {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      expect(
+          () =>
+              AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed),
+          returnsNormally);
+    });
+
+    test('paused → calls adapter.onAppPaused()', () {
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+      expect(adapter.onAppPausedCalls, 1);
+      expect(adapter.onAppResumedCalls, 0);
+    });
+
+    test(
+        'resumed → calls adapter.onAppResumed() and reaches '
+        'showAppOpenAdOnResume()', () {
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      expect(adapter.onAppResumedCalls, 1);
+      // Cold-start one-shot skip still triggers a reload — same proof used
+      // by the showAppOpenAdOnResume() guard-chain group above — showing the
+      // dispatcher really reached showAppOpenAdOnResume(), not just onResume.
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1));
+    });
+
+    test('detached → early-return, never touches the adapter', () {
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.detached);
+      expect(adapter.onAppPausedCalls, 0);
+      expect(adapter.onAppResumedCalls, 0);
+      expect(adapter.loadAppOpenCalls, 0);
+    });
+
+    test('adapter throwing on paused/resumed is swallowed, never propagates',
+        () {
+      adapter.throwOnLifecycle = true;
+      expect(
+          () =>
+              AdManager().didChangeAppLifecycleState(AppLifecycleState.paused),
+          returnsNormally);
+      expect(
+          () =>
+              AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed),
+          returnsNormally);
+      expect(adapter.onAppPausedCalls, 1);
+      expect(adapter.onAppResumedCalls, 1);
+    });
+  });
+
+  group('didHaveMemoryPressure()', () {
+    late _FakeAdapter adapter;
+
+    setUp(() {
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+    });
+
+    tearDown(() => AdManager().debugSetAdapter(null));
+
+    test('null adapter → no-op, never throws', () {
+      AdManager().debugSetAdapter(null);
+      expect(AdManager().didHaveMemoryPressure, returnsNormally);
+    });
+
+    test('single call is a no-op besides logging — slots untouched', () {
+      expect(AdManager().didHaveMemoryPressure, returnsNormally);
+      expect(adapter.appOpenSlot.isIdle, isTrue);
+      expect(adapter.interstitialSlot.isIdle, isTrue);
+      expect(adapter.rewardedSlot.isIdle, isTrue);
+      expect(adapter.bannerSlot.isIdle, isTrue);
+    });
+
+    test('two calls back-to-back (inside the 60s throttle) never throw', () {
+      AdManager().didHaveMemoryPressure();
+      expect(AdManager().didHaveMemoryPressure, returnsNormally);
+    });
+  });
+
+  group('retry timer (_startAdRetryTimer / _scheduleNextRetry)', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      await AdManager().destroy();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+    });
+
+    tearDown(() {
+      AdManager().debugStopAdRetryTimer();
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    test('fires a refill scan every 5 minutes while active', () {
+      fakeAsync((async) {
+        AdManager().debugStartAdRetryTimer();
+        expect(adapter.loadInterstitialCalls, 0);
+
+        async.elapse(const Duration(minutes: 5));
+        expect(adapter.loadInterstitialCalls, 1,
+            reason: 'first 5-minute tick should trigger a refill scan');
+        expect(adapter.loadRewardedCalls, 1);
+        expect(adapter.loadAppOpenCalls, 1);
+
+        async.elapse(const Duration(minutes: 5));
+        expect(adapter.loadInterstitialCalls, 2,
+            reason: 'timer must reschedule itself for the next tick');
+      });
+    });
+
+    test('debugStopAdRetryTimer() bumps the generation and stops ticks', () {
+      fakeAsync((async) {
+        AdManager().debugStartAdRetryTimer();
+        async.elapse(const Duration(minutes: 5));
+        expect(adapter.loadInterstitialCalls, 1);
+
+        final genBefore = AdManager().debugRetryGen;
+        AdManager().debugStopAdRetryTimer();
+        expect(AdManager().debugRetryGen, greaterThan(genBefore));
+
+        async.elapse(const Duration(minutes: 15));
+        expect(adapter.loadInterstitialCalls, 1,
+            reason: 'no further ticks once the timer generation has moved on');
+      });
+    });
+  });
+
   group('destroy() event stream lifecycle (T31)', () {
     AdRevenueEvent rev(int micros) => AdRevenueEvent(
           providerTag: 'fake',
@@ -727,6 +1050,51 @@ void main() {
       await tester.pump();
 
       expect(find.text('Rev: \$0.00  /  0 imp'), findsOneWidget);
+    });
+
+    testWidgets('compact:false renders the full Card with decimals',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: RevenuePanel(),
+        ),
+      ));
+      await tester.pump();
+      expect(find.byType(Card), findsOneWidget);
+      expect(find.text('Session Revenue'), findsOneWidget);
+      expect(find.text('\$0.0000'), findsOneWidget);
+      expect(find.text('0 impressions'), findsOneWidget);
+
+      AdManager().debugEmit(rev(1500000)); // $1.50
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('\$1.5000'), findsOneWidget);
+      expect(find.text('1 impressions'), findsOneWidget);
+    });
+
+    testWidgets(
+        'disposing the widget cancels the subscription — later debugEmit '
+        'never throws', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: RevenuePanel(compact: true, showDecimals: false),
+        ),
+      ));
+      await tester.pump();
+      AdManager().debugEmit(rev(1000000));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Rev: \$1.00  /  1 imp'), findsOneWidget);
+
+      // Unmount the panel — dispose() must cancel _sub and dispose both
+      // ValueNotifiers without leaking a listener callback into a torn-down
+      // State.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+
+      expect(() => AdManager().debugEmit(rev(2000000)), returnsNormally);
+      await tester.pump();
     });
   });
 }

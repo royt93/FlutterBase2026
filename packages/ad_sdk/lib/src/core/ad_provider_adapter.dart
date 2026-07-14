@@ -105,7 +105,16 @@ abstract class AdProviderAdapter {
   /// used by AppLovin to register the device as a test device in debug
   /// builds (so the dev sees test ads, not real ones — required to avoid
   /// AppLovin policy violations).
-  Future<bool> initialize(AdConfig config, {String deviceGaid = ''});
+  ///
+  /// [isAgeRestrictedUser] mirrors [AdConsent.isAgeRestrictedUser] known at
+  /// init time (T40). AdMob honours this via `tagForChildDirectedTreatment`
+  /// after init; AppLovin MAX 4.x has no equivalent runtime API and instead
+  /// skips native init entirely when true — see [AppLovinAdapter.initialize].
+  Future<bool> initialize(
+    AdConfig config, {
+    String deviceGaid = '',
+    bool isAgeRestrictedUser = false,
+  });
 
   /// Release native resources, native listeners, and reset all slot state.
   /// Must be safe to call before [initialize], or after a previous [dispose].

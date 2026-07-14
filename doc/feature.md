@@ -80,6 +80,82 @@ Updated: 2026-07-13
   — picked via `kProvider`. No custom inspector built; both SDKs already ship
   one. `applovin_max` + `google_mobile_ads` added as direct deps of
   `example/pubspec.yaml` (previously only transitive via the SDK).
+- **T40 — AppLovin child-user (COPPA) init gate (2026-07-13).**
+  `AdProviderAdapter.initialize()` gains `isAgeRestrictedUser` (default
+  `false`); `AppLovinAdapter.initialize()` refuses to call the native AppLovin
+  SDK at all when it's `true` (AppLovin MAX 4.x has no runtime child-directed
+  API — the only compliant option is to never initialize, exposed via the new
+  `disabledForChildUser` getter). `AdMobAdapter` accepts but ignores the flag
+  (COPPA already honoured per-request via `tagForChildDirectedTreatment`).
+  `AdManager.initialize()` now bootstraps `ConsentManager` **before** picking
+  the adapter (was after) so a persisted `isAgeRestrictedUser=true` from a
+  prior session can actually reach the gate. **Known gap, not fixed**: a
+  brand-new install has no persisted consent yet, so on an app that is
+  *always* child-directed with no consent dialog at all, `isAgeRestrictedUser`
+  defaults `false` and AppLovin still initializes on install #1 — there is no
+  `AdConfig`-level "this app is always child-directed" flag. Current app
+  (WiFi stress tester) is not child-directed, so this is a documented gap, not
+  an active bug — fix before reusing this SDK for a mixed/child audience.
+  Tests: `applovin_adapter_test.dart` "COPPA child-user init gate (T40)".
+  Verified: `flutter test` 548/548 green + `flutter analyze` clean in
+  `packages/ad_sdk`.
+- **T41 — example app publish-safety (2026-07-13).** `example/lib/main.dart`'s
+  hardcoded real production AppLovin SDK key + 4 ad-unit IDs replaced with
+  `YOUR_*` placeholders read via `String.fromEnvironment` — pass
+  `--dart-define=APPLOVIN_SDK_KEY=...` (+ per-platform `_BANNER_ID_IOS` /
+  `_BANNER_ID_ANDROID` / etc.) to exercise real ads locally; nothing real is
+  committed to source anymore. `example/ios/Runner/Info.plist`'s real
+  `GADApplicationIdentifier` swapped for Google's public iOS test App ID
+  (`ca-app-pub-3940256099942544~1458002511`, matches the Android manifest's
+  existing test App ID) and `AppLovinSdkKey` swapped for the same placeholder
+  (unused at runtime — the Dart code initializes AppLovin programmatically).
+  `kDemoSafetyParams` (999 caps / CTR-check disabled) is now opt-in only via
+  `--dart-define=QA_AD_STRESS=true`; without it `DemoConfig.build()` uses
+  `AdSafetyParams.auto` like a real app would, so a release build of the
+  example never ships with fraud/frequency caps effectively off. Verified:
+  `flutter test` 12/12 green + `flutter analyze` clean in `example/`.
+- **T32 — AdMob App ID trùng lặp Android/iOS (2026-07-14).** App ID production
+  cũ (`ca-app-pub-3612191981543807~9731053733`) bị dán trùng cho cả 2 platform
+  — sai vì AdMob console cấp App ID riêng theo từng platform app entry. Chốt
+  với user: đổi tạm sang test App ID chính thức của Google (`~3347511713`
+  Android / `~1458002511` iOS, khác nhau đúng theo platform), kèm comment rõ
+  đây là quyết định có chủ đích + checklist việc cần làm trước khi bật AdMob
+  thật. Xem `doc/task/done/T32-admob-appid-duplicated-platforms.md` +
+  `doc/AD_PROMPT_FLUTTER.MD`'s "Phụ lục C". Verified: `flutter analyze`
+  (root) clean; grep xác nhận ID production cũ không còn ở
+  `AndroidManifest.xml`/`Info.plist` (chỉ còn trong comment lịch sử ở
+  `ad_keys.dart`, đã cập nhật nội dung).
+- **Không watchdog Interstitial/Rewarded — accepted risk (chốt 2026-07-14).**
+  User đánh giá và chấp nhận: khác App Open (có hard-cap watchdog 90s), lỗi
+  hiếm từ native SDK bên thứ 3 không gọi callback dismiss/fail có thể kẹt
+  slot Interstitial/Rewarded vô thời hạn — rủi ro chấp nhận được, không phải
+  thiếu sót. Chi tiết + template nếu muốn thêm sau này: `doc/AD_PROMPT_FLUTTER.MD`'s Phụ lục C.
+- **T39 — SSV (server-side verification) rewarded ad: app-side wired
+  (2026-07-14).** `AdManager.showRewardedAd()` đã có `ssvUserId`/`ssvCustomData`
+  sẵn từ trước, nhưng phát sinh thêm 1 lỗ hổng khi wire thật: host app không
+  gọi `AdManager` trực tiếp mà qua wrapper `AdScreenState.showRewardedAd()`
+  (`ad_screen.dart`) — wrapper này chưa expose 2 tham số đó, phải sửa cả SDK.
+  Đã thêm `getOrCreateSsvUserId()` (ID ẩn danh, `Random.secure()`, persist
+  SharedPreferences, không thêm dependency `uuid`) + truyền vào
+  `history_screen.dart`'s nút export + mở rộng wrapper SDK forward xuống
+  `AdManager`. `ssvCustomData` để trống — chưa có server xác minh, out of
+  scope. Xem `doc/task/done/T39-ssv-plumbing-unwired.md` +
+  `doc/AD_PROMPT_FLUTTER.MD`'s Phụ lục C + `packages/ad_sdk/CHANGELOG.md`.
+  Verified: `flutter analyze` root + `packages/ad_sdk` clean; `flutter test`
+  root 79/79 + `packages/ad_sdk` 550/550 pass.
+- **T42 — consent bị "quên" mỗi lần mở app (2026-07-14).** Tự phát hiện khi
+  đối chiếu 6 tài liệu audit với code thật — không nằm trong T31-T39. Host app
+  gọi `requestUmpConsent()` → `setConsent(...)` **trước** `initialize()`; lúc
+  đó `_consentManager` còn `null` nên consent mới chỉ ở RAM, rồi
+  `initialize()`'s `ConsentManager.bootstrap()` load lại dữ liệu **cũ** đã lưu
+  từ phiên trước và ghi đè mất giá trị vừa nhận — xảy ra ở **mọi lần khởi
+  động app**. Fix: `AdManager` đệm consent chưa persist được vào
+  `_pendingConsentSettings`, `initialize()` áp dụng lại buffer này ngay sau
+  bootstrap (thắng dữ liệu cũ); `destroy()` xóa buffer khi teardown tường
+  minh. Xem `doc/task/done/T42-consent-lost-on-init.md`. Verified: `flutter
+  test` 550/550 green (gồm test mới `consent_persistence_on_init_test.dart`,
+  dùng provider AppLovin vì dễ giả lập init-thành-công thật hơn AdMob trong
+  `flutter test`) + `flutter analyze` clean trong `packages/ad_sdk`.
 
 ### 🔬 On-device verification — Samsung S24 Ultra, Android 16 (2026-06-15)
 > Replaces the prior "not yet verified on a real device" note. **Full ad + VIP
@@ -110,27 +186,30 @@ Updated: 2026-07-13
 ## 🟡 In progress
 
 - (Product track: none — Wave 5 complete)
-- **Ad/SDK track — Audit follow-up (T31-T39), picked 2026-07-13.** 7 of 9 gaps
-  done (2026-07-13), see `doc/task/done/T3{1,3,4,5,6,7,8}-*.md`. Still open:
-  - **T32** AdMob Application ID identical in Android Manifest + iOS Info.plist
-    (should be 2 distinct console values — fix before ever flipping to AdMob).
-    - [ ] Pending: real iOS App ID chưa có từ user — `Info.plist` hiện chỉ có
-          TODO marker + giữ giá trị Android tạm thời. Runtime provider hiện là
-          AppLovin (AdMob dormant) nên mức khẩn cấp thấp, nhưng **bắt buộc**
-          thay giá trị thật trước khi build/release với AdMob provider trên iOS.
-  - **T39** SSV plumbing (rewarded ads) built + tested but unwired — needs a
-    partner decision (use it or not), not a bug. Để mở theo quyết định user
-    (2026-07-13) — không đụng tới.
-- **Ad/SDK track — independent audit follow-up (T40-T41), picked 2026-07-13.**
-  `doc/audit/audit_codex.md` (separate audit, same day, policy-cross-check
-  methodology) surfaced 2 gaps outside T31-T39's scope, not yet fixed:
-  - **T40** AppLovin still initializes for age-restricted/child users — only
-    logs a warning, doesn't block. App hiện tại (WiFi stress tester) is not
-    child-directed, so urgency is low, but must fix before this SDK is reused
-    for an app with a mixed/child audience. See `doc/task/todo/T40-*.md`.
-  - **T41** `packages/ad_sdk/example/` isn't publish-safe as-is: real
-    production AppLovin IDs hard-coded + QA safety caps (999/session, CTR 1.0)
-    active in all build modes including release. See `doc/task/todo/T41-*.md`.
+- (Ad/SDK track: Audit follow-up T31-T42 — **hoàn tất 2026-07-14**, xem
+  ✅ Implemented ở trên, `doc/task/done/T3{1,2,...,9}-*.md` + `T42-*.md`)
+- **Ad/SDK track — test-coverage cleanup (9 gaps, direct user request),
+  picked 2026-07-13.** Not a bug/audit item — user asked to fill remaining
+  unit/widget test gaps across `packages/ad_sdk/` + its example app. All 9
+  done same day: `ad_route_observer_test.dart` (didRemove/didReplace),
+  `top_toast_test.dart` (new), `ad_manager_core_test.dart`
+  (showAppOpenAdOnResume guard chain, didHaveMemoryPressure, retry-timer via
+  `fake_async`, RevenuePanel compact:false + dispose-safety),
+  `debug_ad_overlay_test.dart` (new), `example/test/home_page_test.dart`
+  (new), `example/test/revenue_demo_page_test.dart` (new) +
+  `events_demo_anomaly_test.dart` (added empty-state case). Verified:
+  `flutter test` 542/542 green in `packages/ad_sdk`, 12/12 green in
+  `packages/ad_sdk/example`, `flutter analyze` clean in both.
+  Cross-checked against a separate coverage-audit agent afterward — found 2
+  more genuine gaps (audit's other claims were already covered): the real
+  `AdManager.didChangeAppLifecycleState()` dispatcher had no direct test
+  (only its inner `showAppOpenAdOnResume()` call was), and
+  `debug_ad_overlay_test.dart`'s expand-panel test didn't assert `_SlotRows`
+  content (`(no adapter)`/`VIP=`/`Safety:`). Both closed same day: new
+  `didChangeAppLifecycleState()` group (`_FakeAdapter` gained
+  `onAppPaused`/`onAppResumed` call counters + a `throwOnLifecycle` flag) +
+  extended assertions on the existing expand-panel test. 547/547 green,
+  `flutter analyze` clean.
 
 ## ✅ Implemented — Wave 5 (network dashboard + chart types) · DONE 2026-06-16
 
@@ -451,12 +530,19 @@ Updated: 2026-07-13
 
 ## 🚧 Blockers — config, not code
 
-- **UMP consent form NOT configured** for AdMob app ID
-  `ca-app-pub-3612191981543807~9731053733`. Device log:
-  `requestConsentInfoUpdate failed: ... no form(s) configured`. SDK degrades
-  gracefully (`canRequestAds=true`) but EU/EEA/UK users never see a consent form.
-  Configure + **publish** a UMP message in the AdMob dashboard before an EEA
-  release. Full steps in `doc/UMP_SETUP.md`.
+- **UMP consent form NOT configured** for AdMob app ID (test ID sau T32
+  2026-07-14, trước đó là `ca-app-pub-3612191981543807~9731053733`). Device
+  log: `requestConsentInfoUpdate failed: ... no form(s) configured`. SDK
+  degrades gracefully (`canRequestAds=true`) but EU/EEA/UK users never see a
+  consent form. Configure + **publish** a UMP message in the AdMob dashboard
+  before an EEA release. Full steps in `doc/UMP_SETUP.md`. **Đã bàn giao user
+  tự làm trên AdMob console, ngày 2026-07-14** (thao tác console, cần login
+  tài khoản của user — Claude không tự làm được). Các bước ngắn gọn: đăng
+  nhập https://apps.admob.google.com → chọn app entry đúng App ID production
+  thật (sau khi hoàn tất checklist T32) → menu **Privacy & messaging** → chọn
+  **EU consent message** (hoặc mục GDPR tương ứng) → làm theo wizard tạo
+  message → bấm **Publish** ở bước cuối. Sau khi publish, đợi vài phút rồi
+  test lại app — log sẽ không còn dòng "no form(s) configured" nữa.
 
 ## ⏸️ Deferred
 
@@ -467,7 +553,10 @@ Updated: 2026-07-13
   (root `pubspec.yaml`) can be relaxed now that upstream has moved. Retested
   2026-07-10: still blocked (`gma_mediation_applovin >=2.6.0` needs
   `meta ^1.17.0`, Flutter SDK 3.35.1's `flutter_test` pins `meta 1.16.0`). See
-  `doc/audit/audit_partner_lead_20260710.md` finding #2/#3.
+  `doc/audit/audit_partner_lead_20260710.md` finding #2/#3. **Lần kiểm tra kế
+  tiếp: ~2026-10-13** (3 tháng sau lần audit 2026-07-13, chốt qua
+  `AskUserQuestion`) — thử lại `flutter pub get` sau khi bump 3 package trên
+  theo version SDK tự khai báo.
 
 ## ❌ Skipped
 

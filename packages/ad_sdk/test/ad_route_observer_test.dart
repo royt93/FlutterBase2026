@@ -10,7 +10,8 @@ void main() {
   setUp(AdScreenRouteLogger.resetState);
   tearDown(AdScreenRouteLogger.resetState);
 
-  testWidgets('isDialogOnTop flips while a dialog is presented', (tester) async {
+  testWidgets('isDialogOnTop flips while a dialog is presented',
+      (tester) async {
     final navKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(MaterialApp(
       navigatorKey: navKey,
@@ -90,6 +91,52 @@ void main() {
     logger.didPush(popup, null);
     expect(AdScreenRouteLogger.isDialogOnTop, isTrue);
   });
+
+  test('didRemove decrements the popup counter, never negative', () {
+    final logger = AdScreenRouteLogger();
+    final popup = _FakePopupRoute();
+    final page = _FakePageRoute();
+
+    logger.didPush(popup, null);
+    expect(AdScreenRouteLogger.isDialogOnTop, isTrue);
+
+    logger.didRemove(popup, null);
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
+
+    // Removing a non-popup route must not touch the counter.
+    logger.didRemove(page, null);
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
+
+    // Stray remove on an already-empty stack must not go negative.
+    logger.didRemove(popup, null);
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
+  });
+
+  test('didReplace tracks popup-for-popup and popup-for-page swaps', () {
+    final logger = AdScreenRouteLogger();
+    final popup1 = _FakePopupRoute();
+    final popup2 = _FakePopupRoute();
+    final page = _FakePageRoute();
+
+    logger.didPush(popup1, null);
+    expect(AdScreenRouteLogger.isDialogOnTop, isTrue);
+
+    // popup1 -> popup2: still a popup on top.
+    logger.didReplace(newRoute: popup2, oldRoute: popup1);
+    expect(AdScreenRouteLogger.isDialogOnTop, isTrue);
+
+    logger.didRemove(popup2, null);
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
+
+    // page -> popup: counter must pick up the new popup.
+    logger.didPush(page, null);
+    logger.didReplace(newRoute: popup1, oldRoute: page);
+    expect(AdScreenRouteLogger.isDialogOnTop, isTrue);
+
+    // popup -> page: counter must clear.
+    logger.didReplace(newRoute: page, oldRoute: popup1);
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
+  });
 }
 
 /// Minimal [PopupRoute] for the pure-Dart counter test.
@@ -110,4 +157,12 @@ class _FakePopupRoute extends PopupRoute<void> {
 
   @override
   Duration get transitionDuration => Duration.zero;
+}
+
+/// Minimal non-popup [Route] to prove didRemove/didReplace ignore it.
+class _FakePageRoute extends PageRouteBuilder<void> {
+  _FakePageRoute()
+      : super(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const SizedBox.shrink());
 }

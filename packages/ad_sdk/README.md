@@ -1051,10 +1051,10 @@ await AdManager().setConsent(AdConsent(
 - [ ] `app-ads.txt` placed at the root of your app's domain
 - [ ] Privacy Policy URL declared in App Store / Play Store listing
 - [ ] iOS App Tracking Transparency prompt shown via `AdManager().requestAtt()` in the splash, **before** `requestUmpConsent` / `AdManager().initialize` (see Option 0)
-- [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA)
+- [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA). AdMob honours this per-request via `tagForChildDirectedTreatment`. AppLovin MAX 4.x has no runtime child-directed API, so (T40, 2026-07-13) `AppLovinAdapter` refuses to initialize at all when `true` is known **at init time** (persisted from a prior session) — every AppLovin ad surface then stays unavailable for the session (exposed via `AppLovinAdapter.disabledForChildUser`). **Known gap**: on a brand-new install with no persisted consent yet, an app that is *always* child-directed (no consent dialog at all) will still see AppLovin initialize once, since there's nothing yet to gate on — don't rely on this SDK for an always-child-directed app without adding your own explicit "child app" config ahead of `initialize()`.
 - [ ] If targeting EEA users, integrate UMP via Option 2 above
 - [ ] UMP consent message **published** (not just saved as draft) for *this app's* specific AdMob app ID — required again for every new app ID, see "Per-app-id setup" above
-- [ ] **Before `dart pub publish`**: `example/lib/main.dart` currently holds the host app's real AppLovin SDK key + ad-unit IDs (needed to exercise real creative for the 2026-07-11 device-evidence round — see `doc/task/README.md`). Swap them back to placeholder/test IDs first — publishing with real production credentials leaks them into the public package.
+- [x] **`example/` is not a production template** (T41, 2026-07-13): `example/lib/main.dart`'s AppLovin SDK key + ad-unit IDs are `YOUR_*` placeholders read via `String.fromEnvironment` — pass `--dart-define=APPLOVIN_SDK_KEY=...` (+ per-platform `_BANNER_ID_IOS`/`_BANNER_ID_ANDROID`/etc.) to exercise real ads locally; nothing real is committed to source. `example/lib/main.dart`'s safety preset (`kDemoSafetyParams`, 999 caps/CTR off) only applies with `--dart-define=QA_AD_STRESS=true` — default is `AdSafetyParams.auto`. Review both before copying this example into a real app.
 
 ---
 

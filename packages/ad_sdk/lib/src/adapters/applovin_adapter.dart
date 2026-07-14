@@ -112,8 +112,31 @@ class AppLovinAdapter implements AdProviderAdapter {
     _bannerRoutePaused = paused;
   }
 
+  /// T40 — true when [initialize] skipped native SDK init because the caller
+  /// is age-restricted (COPPA). AppLovin MAX 4.x has no runtime child-directed
+  /// API, so the only compliant option is to never initialize at all — the
+  /// adapter stays `isInitialised == false` and every AppLovin ad surface is
+  /// unavailable for the session (same as a normal init failure).
+  bool _disabledForChildUser = false;
+  bool get disabledForChildUser => _disabledForChildUser;
+
   @override
-  Future<bool> initialize(AdConfig config, {String deviceGaid = ''}) async {
+  Future<bool> initialize(
+    AdConfig config, {
+    String deviceGaid = '',
+    bool isAgeRestrictedUser = false,
+  }) async {
+    if (isAgeRestrictedUser) {
+      _disabledForChildUser = true;
+      SafeLogger.e(
+        _logTag,
+        'initialize ABORTED: isAgeRestrictedUser=true — AppLovin MAX 4.x has '
+        'no COPPA child-directed init API, so the SDK is NOT initialized. '
+        'This adapter (and every AppLovin ad surface) stays disabled for the '
+        'session. Do not reuse AppLovin for a child-directed audience.',
+      );
+      return false;
+    }
     final cfg = config.appLovin;
     if (cfg == null) {
       SafeLogger.e(_logTag, 'initialize: AppLovinConfig is null — aborted');

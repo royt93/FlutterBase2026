@@ -75,17 +75,21 @@ Future<void> applyConsentToProviders(
     AppLovinMAX.setHasUserConsent(c.hasUserConsent);
     AppLovinMAX.setDoNotSell(c.doNotSell);
     // AppLovin 4.x removed `setIsAgeRestrictedUser` — there is no API to
-    // forward COPPA's child-directed signal to AppLovin. When the app is
-    // marked age-restricted, warn loudly so integrators know AppLovin ads
-    // may still be served without the COPPA flag (AdMob still receives it
-    // via tagForChildDirectedTreatment below).
+    // forward COPPA's child-directed signal to AppLovin. This path only
+    // fires when consent changes AFTER AppLovin already initialized (e.g. a
+    // mid-session setConsent call), where the only option left is to warn —
+    // the SDK is already running and can't be un-initialized here. The real
+    // gate (T40) is at init time: AppLovinAdapter.initialize() refuses to
+    // initialize at all when isAgeRestrictedUser is already true, so this
+    // branch should only ever fire for a flag flipped mid-session.
     if (c.isAgeRestrictedUser) {
       SafeLogger.w(
           tag,
           'isAgeRestrictedUser=true but AppLovin MAX 4.x has no setIsAgeRestrictedUser API — '
           'COPPA child-directed signal is NOT forwarded to AppLovin (AdMob still receives it '
-          'via tagForChildDirectedTreatment). If AppLovin serves ads to this user, verify '
-          'COPPA compliance through AppLovin dashboard-level child-directed app settings instead.');
+          'via tagForChildDirectedTreatment). AppLovin was already initialized before this '
+          'consent change — it cannot be un-initialized here; call AdManager.destroy() then '
+          're-initialize if you need the init-time gate (T40) to take effect.');
     }
     SafeLogger.d(tag, 'AppLovin privacy applied: $c');
   } catch (e) {

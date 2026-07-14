@@ -126,6 +126,10 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   /// reward is shown right before the ad plays, so the user explicitly opts
   /// in instead of an ad appearing unannounced. Omitted (default): unchanged
   /// behaviour — straight to the ad after the ready/throttle pre-check.
+  ///
+  /// [ssvUserId]/[ssvCustomData] (optional) are forwarded to
+  /// [AdManager.showRewardedAd] for server-side reward verification (SSV) —
+  /// see that method's doc for details.
   /// [disclosureButtonLabel]/[disclosureCancelLabel] localize the two dialog
   /// actions; both default to English so non-English callers should pass
   /// their own (e.g. a `vi_VN` host should not rely on the fallback).
@@ -137,6 +141,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     String? disclosureSubtitle,
     String? disclosureButtonLabel,
     String? disclosureCancelLabel,
+    String? ssvUserId,
+    String? ssvCustomData,
   }) async {
     SafeLogger.d(
       _tag,
@@ -211,6 +217,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       AdManager().showRewardedAd(
         vipAutoGrant: vipAutoGrant,
         placement: placement,
+        ssvUserId: ssvUserId,
+        ssvCustomData: ssvCustomData,
         onEarnedReward: (result) {
           SafeLogger.d(_tag, 'showRewardedAd onEarnedReward: result=$result');
           onEarnedReward(result);
