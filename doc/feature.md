@@ -156,6 +156,19 @@ Updated: 2026-07-13
   test` 550/550 green (gồm test mới `consent_persistence_on_init_test.dart`,
   dùng provider AppLovin vì dễ giả lập init-thành-công thật hơn AdMob trong
   `flutter test`) + `flutter analyze` clean trong `packages/ad_sdk`.
+- **T43 — ATT/UMP consent flow có thể treo vô thời hạn (2026-07-15).** Tự
+  phát hiện khi debug hang lặp lại của `consent_dialog_test.dart` trên iOS
+  Simulator. `requestAttIfNeeded()` và `requestUmpConsentFlow()` await một
+  callback native (dismiss ATT/UMP, hoặc phản hồi mạng
+  `requestConsentInfoUpdate`) **không có timeout** — nếu native side không
+  bao giờ resolve (ATT bị throttle sau nhiều lần mở app, form UMP không ai
+  bấm qua trên test tự động, mạng chết), `AdManager().initialize()` không
+  bao giờ chạy, SDK quảng cáo bị đơ vĩnh viễn cho phiên đó. Fix: bọc 3 chỗ
+  `await` rủi ro bằng `Future.timeout(20s, onTimeout: () => <fallback an
+  toàn>)`. Người dùng chốt "Sửa luôn" qua `AskUserQuestion`. Xem
+  `doc/task/done/T43-att-ump-consent-timeout.md`. Verified: `flutter test`
+  552/552 pass (gồm test timeout mới `att_consent_test.dart`) + `flutter
+  analyze` clean cả `packages/ad_sdk` và repo root.
 
 ### 🔬 On-device verification — Samsung S24 Ultra, Android 16 (2026-06-15)
 > Replaces the prior "not yet verified on a real device" note. **Full ad + VIP

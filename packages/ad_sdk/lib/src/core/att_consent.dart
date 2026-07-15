@@ -128,7 +128,21 @@ Future<AttResult> requestAttIfNeeded({
             'âm thầm hoặc app crash trên thiết bị thật. (Chỉ log ở debug build.)');
         return true;
       }());
-      status = await requestAuthorization();
+      // Timeout guard: the native prompt can hang indefinitely if the OS
+      // never presents it (observed on iOS Simulator after repeated rapid
+      // launches) or the user backgrounds the app mid-prompt. Without this,
+      // requestAttIfNeeded() never returns and callers who sequence
+      // ATT → UMP → initialize() (see example app) never reach initialize().
+      status = await requestAuthorization().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          SafeLogger.w(
+              tag,
+              'ATT prompt timed out after 20s — treating as '
+              'notDetermined so SDK init can proceed');
+          return TrackingStatus.notDetermined;
+        },
+      );
       SafeLogger.d(tag, () => 'prompt result=${status.name}');
     }
 

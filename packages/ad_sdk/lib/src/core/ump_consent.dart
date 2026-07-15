@@ -99,7 +99,13 @@ Future<UmpConsentResult> requestUmpConsentFlow({
     (FormError err) =>
         updateCompleter.complete('${err.errorCode}:${err.message}'),
   );
-  final updateError = await updateCompleter.future;
+  // Timeout guard: this is a network call to Google's consent servers and
+  // has no built-in deadline — a slow/dead network would otherwise hang the
+  // whole UMP flow (and, transitively, splash init) forever.
+  final updateError = await updateCompleter.future.timeout(
+    const Duration(seconds: 20),
+    onTimeout: () => 'requestConsentInfoUpdate timed out after 20s',
+  );
   if (updateError != null) {
     SafeLogger.w(tag, 'requestConsentInfoUpdate failed: $updateError');
     final canShow = await ConsentInformation.instance.canRequestAds();
@@ -138,7 +144,16 @@ Future<UmpConsentResult> requestUmpConsentFlow({
       (FormError err) => dismissCompleter
           .complete('load failed: ${err.errorCode}:${err.message}'),
     );
-    formError = await dismissCompleter.future;
+    // Timeout guard: the form-dismiss callback only fires once the user taps
+    // through Google's native form, which can hang indefinitely if the form
+    // is served but nothing ever dismisses it (observed on iOS Simulator with
+    // no automated tap-through). Without this, requestUmpConsentFlow() never
+    // returns and callers who sequence UMP → initialize() (see example app)
+    // never reach initialize().
+    formError = await dismissCompleter.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => 'consent form dismiss timed out after 20s',
+    );
     if (formError != null) {
       SafeLogger.w(tag, 'consent form: $formError');
     }

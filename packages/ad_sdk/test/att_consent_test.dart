@@ -16,8 +16,11 @@
 //   • denied/restricted yield null IDFA.
 //   • Any thrown error degrades to denied (never rethrows).
 
+import 'dart:async';
+
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/src/core/att_consent.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _zeroIdfa = '00000000-0000-0000-0000-000000000000';
@@ -26,8 +29,8 @@ const _realIdfa = 'ABCDEF12-3456-7890-ABCD-EF1234567890';
 void main() {
   group('AttResult.allowsTracking', () {
     test('true for authorized', () {
-      expect(const AttResult(status: AttStatus.authorized).allowsTracking,
-          isTrue);
+      expect(
+          const AttResult(status: AttStatus.authorized).allowsTracking, isTrue);
     });
     test('true for notSupported (ATT does not apply)', () {
       expect(const AttResult(status: AttStatus.notSupported).allowsTracking,
@@ -90,8 +93,7 @@ void main() {
       );
       expect(result.status, AttStatus.denied);
       expect(result.idfa, isNull);
-      expect(idfaRead, isFalse,
-          reason: 'IDFA is only read when authorized');
+      expect(idfaRead, isFalse, reason: 'IDFA is only read when authorized');
     });
   });
 
@@ -132,7 +134,8 @@ void main() {
         readIdfaOverride: () async => _zeroIdfa,
       );
       expect(result.status, AttStatus.authorized);
-      expect(result.idfa, isNull, reason: 'zero IDFA means tracking unavailable');
+      expect(result.idfa, isNull,
+          reason: 'zero IDFA means tracking unavailable');
     });
 
     test('empty IDFA string is normalised to null', () async {
@@ -159,10 +162,37 @@ void main() {
       final result = await requestAttIfNeeded(
         platformIsIosOverride: () => true,
         readStatusOverride: () async => TrackingStatus.notDetermined,
-        requestAuthorizationOverride: () async =>
-            throw StateError('channel error'),
+        // `.timeout()` reifies T from the Future's own runtime type; an
+        // `async => throw` literal infers Future<Never> instead of
+        // Future<TrackingStatus>, which breaks the onTimeout signature.
+        // Future<T>.error(...) keeps the type explicit.
+        requestAuthorizationOverride: () =>
+            Future<TrackingStatus>.error(StateError('channel error')),
       );
       expect(result.status, AttStatus.denied);
+    });
+  });
+
+  group('requestAttIfNeeded — prompt hang timeout', () {
+    test('a prompt that never resolves times out after 20s as notDetermined',
+        () {
+      fakeAsync((async) {
+        AttResult? result;
+        requestAttIfNeeded(
+          platformIsIosOverride: () => true,
+          readStatusOverride: () async => TrackingStatus.notDetermined,
+          // Never completes — simulates the OS never presenting/dismissing
+          // the native prompt (observed on iOS Simulator).
+          requestAuthorizationOverride: () =>
+              Completer<TrackingStatus>().future,
+        ).then((r) => result = r);
+
+        async.elapse(const Duration(seconds: 20));
+
+        expect(result, isNotNull,
+            reason: 'requestAttIfNeeded must not hang forever');
+        expect(result!.status, AttStatus.notDetermined);
+      });
     });
   });
 }

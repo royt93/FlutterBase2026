@@ -364,6 +364,15 @@ class _SplashScreenState extends State<SplashScreen> {
   // (same class of fix as the App-Open dismiss-button handling), not a
   // change to this flag.
   static const _skipAtt = bool.fromEnvironment('SKIP_ATT');
+  // ponytail: requestUmpConsentFlow() awaits a real ConsentForm dismiss
+  // callback with no timeout (packages/ad_sdk/lib/src/core/ump_consent.dart)
+  // — if the Simulator's IP/locale resolves to an EEA-like region this run,
+  // Google serves a real consent form that no scripted test taps, wedging
+  // the splash chain forever. Skip the Dart-level call for scripted runs;
+  // pass `--dart-define=SKIP_UMP=true`. Same known gap as SKIP_ATT above:
+  // only suppresses this call site, not any native prompt triggered from
+  // elsewhere.
+  static const _skipUmp = bool.fromEnvironment('SKIP_UMP');
   final ValueNotifier<bool> _navigated = ValueNotifier<bool>(false);
   Timer? _hardCap;
   void Function(BoolEvent)? _listener;
@@ -401,11 +410,13 @@ class _SplashScreenState extends State<SplashScreen> {
         }
       }
       // 2) Google UMP consent form for EEA/UK users — before the first ad request.
-      try {
-        final ump = await AdManager().requestUmpConsent();
-        debugPrint('UMP: canRequestAds=${ump.canRequestAds}');
-      } catch (e) {
-        debugPrint('UMP skipped: $e');
+      if (!_skipUmp) {
+        try {
+          final ump = await AdManager().requestUmpConsent();
+          debugPrint('UMP: canRequestAds=${ump.canRequestAds}');
+        } catch (e) {
+          debugPrint('UMP skipped: $e');
+        }
       }
       // 3) Initialize the SDK (fires the EventBus completion event). Must run
       // even if the splash's hard-cap timer already navigated away (unmounting
