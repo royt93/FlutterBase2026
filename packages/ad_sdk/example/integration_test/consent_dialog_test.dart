@@ -54,6 +54,12 @@ void main() {
     expect(find.text('Age-restricted (COPPA)'), findsOneWidget);
     expect(find.text('Do-not-sell (CCPA)'), findsOneWidget);
 
+    // The switch reflects the real AdManager().consent.hasUserConsent at
+    // mount time (see ConsentDemoPage._hasConsent init) — on a device where
+    // UMP resolves to notRequired/obtained this already starts true, so a
+    // single tap flips it OFF. Read the starting value instead of assuming
+    // it, and assert Apply propagates whatever the toggle lands on.
+    final startedConsented = AdManager().consent.hasUserConsent;
     final gdprSwitch =
         find.widgetWithText(SwitchListTile, 'GDPR consent (hasUserConsent)');
     await tester.tap(gdprSwitch);
@@ -67,7 +73,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     // Applied state must reach the real AdManager().consent surface.
-    expect(AdManager().consent.hasUserConsent, isTrue);
+    expect(AdManager().consent.hasUserConsent, !startedConsented);
     expect(find.textContaining('Consent applied to both providers'),
         findsOneWidget);
     expect(tester.takeException(), isNull);
