@@ -26,6 +26,8 @@ class _ReadyAdapter implements AdProviderAdapter {
 
   int showInterstitialCalls = 0;
   int showRewardedCalls = 0;
+  String? lastSsvUserId;
+  String? lastSsvCustomData;
 
   @override
   String get tag => 'ready';
@@ -68,6 +70,8 @@ class _ReadyAdapter implements AdProviderAdapter {
     String? ssvUserId,
   }) async {
     showRewardedCalls++;
+    lastSsvUserId = ssvUserId;
+    lastSsvCustomData = ssvCustomData;
     onDone(const RewardResult(earned: true, label: 'coins', amount: 1));
   }
 
@@ -83,6 +87,8 @@ class _DemoAdScreen extends AdScreen {
     this.disclosureSubtitle,
     this.disclosureButtonLabel,
     this.disclosureCancelLabel,
+    this.ssvUserId,
+    this.ssvCustomData,
   });
   final void Function(bool) onInter;
   final void Function(bool) onReward;
@@ -90,6 +96,8 @@ class _DemoAdScreen extends AdScreen {
   final String? disclosureSubtitle;
   final String? disclosureButtonLabel;
   final String? disclosureCancelLabel;
+  final String? ssvUserId;
+  final String? ssvCustomData;
 
   @override
   State<_DemoAdScreen> createState() => _DemoAdScreenState();
@@ -118,6 +126,8 @@ class _DemoAdScreenState extends AdScreenState<_DemoAdScreen> {
               disclosureSubtitle: widget.disclosureSubtitle,
               disclosureButtonLabel: widget.disclosureButtonLabel,
               disclosureCancelLabel: widget.disclosureCancelLabel,
+              ssvUserId: widget.ssvUserId,
+              ssvCustomData: widget.ssvCustomData,
             ),
             child: const Text('reward'),
           ),
@@ -330,6 +340,48 @@ void main() {
       expect(adapter.showRewardedCalls, 0,
           reason: 'declining the disclosure must never reach the ad flow');
       expect(reward, isFalse);
+    });
+  });
+
+  // T39 audit gap — AdScreenState.showRewardedAd()'s ssvUserId/ssvCustomData
+  // params were added with no test proving they actually reach the adapter
+  // (only manually verified by reading the diff). Pins the forwarding so a
+  // future param-name swap/typo fails here instead of going unnoticed.
+  group('rewarded SSV param forwarding', () {
+    late _ReadyAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _ReadyAdapter();
+      adapter.rewardedSlot.beginReload();
+      adapter.rewardedSlot.markReady();
+      AdManager().debugSetAdapter(adapter);
+    });
+
+    tearDown(() => AdManager().debugSetAdapter(null));
+
+    testWidgets('ssvUserId/ssvCustomData reach AdManager.showRewardedAd',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (_) {},
+          onReward: (_) {},
+          ssvUserId: 'user-123',
+          ssvCustomData: 'custom-abc',
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('reward')));
+      await tester.pump(); // start buffer delay
+      await tester.pump(const Duration(seconds: 2)); // let buffer timer fire
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.showRewardedCalls, 1);
+      expect(adapter.lastSsvUserId, 'user-123');
+      expect(adapter.lastSsvCustomData, 'custom-abc');
     });
   });
 }
