@@ -29,12 +29,13 @@ Updated: 2026-07-13
 - Endpoint set: Linode / Vultr / OVH / free.fr / ThinkBroadband (the 5 dead
   DigitalOcean speedtest endpoints were removed).
 
-### 📣 Ad / SDK — `applovin_admob_sdk` (local `path` override, dev/test `1.0.24`)
+### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.0.24`, ACTIVE 2026-07-16)
 - Android + iOS ad integration, runtime provider `AdProvider.appLovin`
-  (AdMob kept present for swap-readiness). Local `path: packages/ad_sdk`
-  override is ACTIVE (in-repo `1.0.24`, unpublished); hosted `^1.0.23` line
-  is commented out. Check `pubspec.yaml` directly before trusting this —
-  it has drifted stale before. Flip back to hosted before release.
+  (AdMob kept present for swap-readiness). Root `pubspec.yaml` consumes
+  hosted `applovin_admob_sdk: ^1.0.24` from pub.dev; the local `path:
+  packages/ad_sdk` override line is commented out. Check `pubspec.yaml`
+  directly before trusting this — it has drifted stale before (flipped
+  back and forth twice already during T01-T44 dev).
 - Platform-specific AppLovin ad unit config — `AdKey.appLovin` selects Android
   vs iOS units at runtime; Android and iOS never share unit IDs.
 - iOS native config in `ios/Runner/Info.plist`: `GADApplicationIdentifier`,
@@ -257,6 +258,31 @@ hiện mới:
   **suppresses all 3 ad surfaces** (banner gone, interstitial skipped, crown
   turns gold); revoke → reverts (ads return, crown white). Key masked `9FA****`.
 - **Zero** crash / ANR / `E/flutter` across the session.
+
+### 🔬 Smoke-test on-device 4 lượt — hosted `1.0.24` sau publish (2026-07-16)
+> Sau khi publish `applovin_admob_sdk` 1.0.24 lên pub.dev + flip root
+> `pubspec.yaml` sang hosted (checklist #3 ở trên), chạy smoke-test on-device
+> cả 2 app tiêu thụ SDK theo 2 cách khác nhau (hosted pub.dev vs local `path`),
+> trên cả Android + iOS, để bao phủ đủ mọi case tiêu thụ dependency.
+
+| App | Nguồn SDK | Android | iOS Simulator |
+|---|---|---|---|
+| Host app (`saigonphantomlabs`, `com.roy.admobwrapper`) | hosted `^1.0.24` pub.dev | ✅ CPH1989 thiết bị thật — boot sequence AdManager/consent/VIP đúng | ✅ iPhone 17 Pro — tới màn hình chính WiFi Stressor, không crash |
+| `packages/ad_sdk/example` | local `path: ../` (luôn dùng local, **không** verify được publish) | ✅ CPH1989 (sau `adb uninstall` do trùng `applicationId` với host app → tránh `INSTALL_FAILED_VERSION_DOWNGRADE`) — VIP grace 30s hết hạn → preload ad thật đúng flow | ✅ iPhone 17 Pro — AppLovin MAX SDK init OK, không `FATAL`/crash/exception, chỉ badge debug "Ad" (không phải ad thật) |
+
+- Cả 4 lượt: **zero crash**, boot sequence `ATT → notSupported → UMP consent
+  → setConsent buffered → AdManager.initialize provider=appLovin → VipManager
+  → AppLovinAdapter SDK ready` chạy đúng — xác nhận trực tiếp fix T42
+  (consent buffer-then-apply) hoạt động đúng ở điều kiện gần-production.
+- Lưu ý quan trọng: `packages/ad_sdk/example/pubspec.yaml` hardcode
+  `applovin_admob_sdk: path: ../` — **không bao giờ** dùng bản hosted, nên lượt
+  test này chỉ verify local-source consumption, không verify được việc publish
+  lên pub.dev có đóng gói đúng hay không. Việc đó chỉ được verify qua lượt
+  test host app (hosted `^1.0.24`) ở trên.
+- 2 lỗi môi trường gặp phải khi build iOS example app (không phải lỗi code):
+  `FLUTTER_TARGET` cũ trong `Generated.xcconfig` trỏ file tạm đã xóa (fix:
+  `flutter clean && flutter pub get`) và CocoaPods sandbox desync sau đó (fix:
+  `cd ios && pod install`).
 
 ### 🔐 Session 2026-06-15 — security + policy hardening
 - **Keystore credentials** moved out of `android/app/build.gradle` into
@@ -647,23 +673,12 @@ không phụ thuộc lẫn nhau:
    Blockers phía trên (đã bàn giao 2026-07-14, cần xác nhận đã bấm Publish
    thật chưa — nếu chưa chắc, kiểm tra log app có còn dòng "no form(s)
    configured" không).
-3. **Publish `packages/ad_sdk` v1.0.24 lên pub.dev, rồi flip lại
-   `pubspec.yaml`.** Root `pubspec.yaml` hiện đang dùng **local path override**
-   (`applovin_admob_sdk: path: packages/ad_sdk`) để dev/test các fix T01–T43,
-   dòng hosted `applovin_admob_sdk: ^1.0.23` đang bị comment. Trước khi release
-   thật:
-   - Xác nhận `CHANGELOG.md` trong `packages/ad_sdk` đã có mục cho `1.0.24`
-     (gồm các fix T42 consent-lost-on-init và T43 ATT/UMP timeout).
-   - Đăng nhập tài khoản pub.dev của user, chạy (trên máy user, Claude không tự
-     chạy lệnh publish công khai/khó gỡ này):
-     ```
-     cd packages/ad_sdk && flutter pub publish --dry-run   # kiểm tra trước
-     flutter pub publish                                    # publish thật
-     ```
-   - Sau khi publish xong, ở root `pubspec.yaml`: bỏ comment dòng hosted
-     `applovin_admob_sdk: ^1.0.24` (bump version theo bản vừa publish), comment
-     lại dòng `path: packages/ad_sdk`, chạy `flutter pub get` để xác nhận app
-     build lại bằng bản hosted.
+3. ✅ **DONE 2026-07-16 — Publish `packages/ad_sdk` v1.0.24 lên pub.dev + flip
+   `pubspec.yaml`.** Root `pubspec.yaml` đã bỏ comment dòng hosted
+   `applovin_admob_sdk: ^1.0.24` (pub.dev, sha256 `cc8ee183...`), comment lại
+   dòng `path: packages/ad_sdk`; `flutter pub get`/`flutter analyze` clean.
+   Đã smoke-test on-device xác nhận — xem mục "Smoke-test on-device 4 lượt"
+   ngay bên dưới mục "On-device verification".
 
 ## ⏸️ Deferred
 
