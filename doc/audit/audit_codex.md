@@ -83,3 +83,15 @@ Pattern reload-on-hidden/`beginReload`-on-display-fail, wiring click→`recordAd
 5. **(F4) Bổ sung `SKAdNetworkItems`** đầy đủ (~70 + partner của AppLovin) trước release iOS.
 
 F5/F6/F7 là ghi nhận kiến trúc, **không chặn** release. Sau khi xong 1–5, nên theo đúng khuyến nghị README: pilot traffic nhỏ, theo dõi dashboard AdMob/AppLovin vài tuần trước khi tích hợp diện rộng.
+
+---
+
+## Re-verify — 2026-07-16
+
+- **F1 (CHANGELOG thiếu T43) — ✅ ĐÃ FIX.** `CHANGELOG.md` mục `[1.0.24]` giờ có `### Fixed — ATT/UMP consent native awaits could hang initialize() forever (T43)`. Đồng thời phát hiện thêm (mới, không thuộc audit gốc): phần `## [Unreleased]` phía trên đang chứa fix T44 + CCPA toggle + SKAdNetwork — nhưng các fix này **đã được publish** làm một phần của `1.0.24` thật (xác nhận qua commit `1703280`: "now that 1.0.24 (T44 fix + SKAdNetwork expansion + doc corrections) is live on pub.dev"). Đã sửa: merge nội dung "Unreleased" vào mục `[1.0.24]`, để lại `[Unreleased]` trống — nhãn cũ sai lệch so với thực tế publish.
+- **F2 (chạy local path, chưa publish) — ✅ ĐÃ FIX.** `pubspec.yaml` (root) dòng 51 giờ active `applovin_admob_sdk: ^1.0.24` (hosted), dòng `path:` bị comment. Xác nhận qua commit `1703280` (2026-07-16) — flip diễn ra sau khi `1.0.24` đã publish thật lên pub.dev.
+- **F3 (thiếu `applovin.sdk.key` manifest) — ✅ ĐÃ FIX.** `grep -n "applovin.sdk.key" AndroidManifest.xml` → có match tại dòng 65. (Audit gốc grep không ra kết quả tại thời điểm đó; đã được thêm sau.)
+- **F4 (SKAdNetwork 50 entry) — ✅ ĐÃ FIX.** `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist` → 152 (danh sách đầy đủ AppLovin, thay cho danh sách rút gọn 50 trước đó).
+- **F5, F6, F7 — không đổi**, đúng như đánh giá gốc: ghi nhận kiến trúc, không chặn release.
+
+**Kết luận sau re-verify: cả 4/5 điều kiện blocking ban đầu (F1-F4) đã đóng.** Điều kiện #4 còn lại của mục "Kết luận" gốc (đổi test→production Ad Unit/App ID cho AdMob + publish UMP form trên console) là thao tác **vận hành tay trên console AdMob/AppLovin**, không phải code — nằm ngoài phạm vi sửa qua source, cần người dùng tự thực hiện trước khi bật AdMob thật ở EEA.

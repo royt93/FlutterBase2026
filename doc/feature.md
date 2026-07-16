@@ -734,6 +734,33 @@ Policy:
 - Release footgun guards in `AdManager.initialize` (dryRun-in-release, AdMob
   TEST unit IDs).
 
+### Audit re-verify + 3 quyết định qua AskUserQuestion (2026-07-16)
+
+Re-verify toàn bộ "should-fix" của 3 audit (`doc/audit/audit_claude.md`,
+`audit_gemini.md`, `audit_codex.md`) — tất cả blocking đã đóng, verdict cuối:
+**Có, dùng production được.** Phát sinh thêm 1 lỗi CHANGELOG staleness (nội
+dung 1.0.24 vẫn nằm nhầm dưới `## [Unreleased]`) — đã sửa.
+
+3 điểm còn mở (không blocking) được đưa cho người dùng chọn qua
+`AskUserQuestion`, đã chốt và implement xong:
+- **App Open trên splash (Gemini F2):** giữ nguyên hành vi (placement eCPM cao
+  nhất) + thêm comment giải thích rõ rủi ro/mitigation ngay trên
+  `AdManager().showAppOpenAd(..., bypassSafety: true)` ở
+  `lib/mckimquyen/widget/splash/splash_screen.dart`. Theo dõi AdMob Policy
+  Center sau ship thay vì gỡ/rào ad.
+- **AdMob App ID còn là test ID:** giữ nguyên tới khi AdMob thật sự trở thành
+  provider chính (không đổi code) — recommended option, tránh đổi ID rồi lại
+  phải đổi lại.
+- **`redeemVip()` demo mode khi `vipKeyValidator == null` (Gemini F7):** đã vá —
+  `_runValidator()` ở `packages/ad_sdk/lib/src/vip/vip_manager.dart` refuse mọi
+  key khi `kReleaseMode == true` và validator null (thay vì assert, vì
+  `assert()` bị strip khỏi release build nên không bảo vệ được gì ở đúng build
+  cần bảo vệ nhất); debug/profile giữ nguyên demo-mode để không phá luồng dev.
+  Chỉ ảnh hưởng luồng `redeemVip()` cũ — production dùng `redeemSignedKey()`
+  (Ed25519) nên không đổi hành vi thật. Verify: `flutter analyze` sạch +
+  `flutter test` 561/561 pass (`packages/ad_sdk`), root app `flutter analyze`
+  sạch + `flutter test` 79/79 pass sau comment ở splash_screen.dart.
+
 ## 💭 Ideas
 
 > Unstructured pool — promote to Picked with a clear scope before implementing.

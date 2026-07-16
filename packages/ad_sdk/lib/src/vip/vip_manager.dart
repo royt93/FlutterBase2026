@@ -387,7 +387,9 @@ class VipManager {
   /// Full UI flow:
   /// 1. Show "Verifying" Cupertino dialog.
   /// 2. Run `validator(key)` — if `null` in [AdConfig.vipKeyValidator], every
-  ///    key is accepted (demo mode).
+  ///    key is accepted in debug/profile builds (demo mode); release builds
+  ///    refuse instead, so a forgotten validator can't ship as free-VIP-for-
+  ///    anyone.
   /// 3. On success → save entry → show success dialog.
   /// 4. On failure / network error → show failed dialog.
   ///
@@ -532,7 +534,19 @@ class VipManager {
     Future<bool> Function(String key)? validator,
   ) async {
     if (validator == null) {
-      // No validator wired — demo mode.
+      if (kReleaseMode) {
+        // A plain assert() would be stripped from release builds — the
+        // exact build where a forgotten validator matters most (free VIP
+        // for any string). Refuse instead, so demo mode only ever applies
+        // to debug/profile builds used while wiring the integration.
+        SafeLogger.e(
+            _tag,
+            'redeemVip: no vipKeyValidator configured in a release build — '
+            'refusing all keys. Set AdConfig.vipKeyValidator, or use '
+            'redeemSignedKey() instead, before shipping.');
+        return false;
+      }
+      // No validator wired — demo mode (debug/profile only).
       await Future<void>.delayed(const Duration(milliseconds: 400));
       return true;
     }

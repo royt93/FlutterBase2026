@@ -79,3 +79,14 @@ Nền tảng bảo mật/compliance của **SDK core** đủ vững để ship (
 4. **F3/F4:** Chấp nhận cho không-backend; chỉ nâng cấp lên server-validated nếu doanh thu VIP đủ lớn để lo bị crack.
 
 Ngoài ra, lưu ý phi-kỹ-thuật từ chính README: SDK này **single maintainer, no SLA, gần như chưa có lịch sử production bên thứ ba** — nên theo đúng khuyến nghị của README, hãy pilot traffic nhỏ + theo dõi dashboard AdMob/AppLovin (fill rate, policy flags, revenue) vài tuần trước khi tích hợp toàn diện.
+
+---
+
+## Re-verify — 2026-07-16
+
+- **F1 (CCPA doNotSell chưa wire) — ✅ ĐÃ FIX.** `lib/mckimquyen/widget/vip/vip_screen.dart:18-33` giờ có `RxBool _doNotSell = AdManager().consent.doNotSell.obs`, truyền `doNotSellValue`/`onDoNotSellChanged` xuống `VipRedeemScreen`, gọi `AdManager().setConsent(AdConsent(doNotSell: value))` khi user bật switch. Điều kiện blocking #1 của audit này đã đóng.
+- **F2 (App Open trên splash) — quyết định giữ nguyên (2026-07-16), giờ có tài liệu rõ ràng tại code.** Người dùng đã chọn giữ hành vi hiện tại (App Open cold-start là placement eCPM cao nhất) thay vì bỏ/rào lại. `lib/mckimquyen/widget/splash/splash_screen.dart` (ngay trên lời gọi `showAppOpenAd(..., bypassSafety: true)`) nay có comment giải thích rủi ro, tham chiếu đúng F2 này, mitigation hiện có (24h first-install VIP grace) và quyết định theo dõi AdMob Policy Center sau khi ship — thay vì gỡ hoặc rào ad. Vẫn là accepted-risk, không phải bug, không blocking.
+- **F3, F4, F5, F6 — không đổi**, vẫn là giới hạn thiết kế đã ghi nhận có chủ đích cho app không-backend / không child-directed.
+- **F7 (validator null demo mode) — ✅ ĐÃ FIX (2026-07-16).** `_runValidator` ở `packages/ad_sdk/lib/src/vip/vip_manager.dart` nay chặn `validator == null` khi `kReleaseMode == true` (refuse mọi key, log lỗi rõ ràng), chỉ giữ demo-mode passthrough (chấp nhận mọi key) ở debug/profile để không phá luồng dev. Không ảnh hưởng `redeemSignedKey()` (đường production thật). Verify: `flutter analyze` sạch + `flutter test` 561/561 pass tại `packages/ad_sdk` sau fix.
+
+**Kết luận sau re-verify:** cả 2 điều kiện "blocking" ban đầu (F1, F2) nay chỉ còn F2 — và F2 chưa bao giờ là thứ sửa bằng code (là quyết định sản phẩm: có chấp nhận App Open trên splash hay không, nay đã ghi lại quyết định + lý do ngay tại code), nên **không có gì "blocking" ở tầng code còn sót lại** từ audit này. F7 (điểm mở duy nhất còn lại không phải blocking) cũng đã được vá thêm cho chắc.

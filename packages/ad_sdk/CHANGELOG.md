@@ -6,6 +6,23 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — `redeemVip()` demo mode (`validator == null`) no longer accepts any key in release builds
+- Legacy `redeemVip()` accepts any key when `AdConfig.vipKeyValidator` is
+  `null`, intended as a zero-config demo mode. A host app that forgot to wire
+  a validator would ship this silently — any user typing any string got free
+  VIP. `_runValidator` now refuses (`return false`) when `validator == null`
+  and `kReleaseMode` is true; debug/profile builds keep the original
+  demo-mode passthrough so wiring the integration still works without a
+  validator during development. Does not affect `redeemSignedKey()`
+  (Ed25519-verified, the path production code actually uses).
+
+## [1.0.24] - 2026-07-16
+
+> Published in two commits the same version: 2026-07-10 (consent-on-init +
+> ATT/UMP timeout fixes below) then 2026-07-16 (privacy-options timeout +
+> CCPA toggle + SKAdNetwork expansion + doc fixes). Both are live on pub.dev
+> under `1.0.24` — the split below is historical, not two releases.
+
 ### Fixed — `requestPrivacyOptionsFlow()` could hang forever on a served-but-never-dismissed form (T44)
 - The native "Privacy Options" form's dismiss callback only fires after
   `ConsentForm.showPrivacyOptionsForm()`'s own platform call resolves; awaiting
@@ -33,7 +50,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   Written for anyone evaluating this SDK for a new app/partner before a
   wholesale integration.
 
-## [1.0.24] - 2026-07-10
+### Fixed — auto-reload paths bypassed VIP/consent/cap/connectivity gates
+- App-Open, Interstitial, and Rewarded adapters (`applovin_adapter.dart`) all
+  refill ads directly from their own `onAdHidden`/`onAdDisplayFailed` native
+  callbacks, bypassing `AdManager.loadX()` and therefore its gates entirely.
+  A user who just redeemed VIP, went offline, or revoked consent could still
+  trigger an outbound ad request from a stale in-flight callback. Fixed by
+  adding a `canReload()` check (`AdManager` wires it to
+  `!_isVipMember && !AdSafetyConfig.dailyCapReached() && _canRequestAds && isConnected`)
+  immediately before every such reload call site.
 
 ### Fixed — consent silently overwritten by stale data on every `initialize()`
 - `AdManager.setConsent()` called before `initialize()` (the real app startup
