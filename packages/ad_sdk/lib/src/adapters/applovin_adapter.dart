@@ -42,6 +42,9 @@ class AppLovinAdapter implements AdProviderAdapter {
   @override
   AdEventSink? eventSink;
 
+  @override
+  bool Function() canReload = () => true;
+
   void _emit(AdEvent e) => eventSink?.call(e);
 
   /// AppLovin returns revenue on every load callback via `MaxAd.revenue`.
@@ -302,6 +305,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         // beginReload (not beginLoad) — the show failed but the load path is
         // healthy, so refill immediately instead of waiting out the backoff
         // window the show-failure just armed.
+        if (!canReload()) {
+          SafeLogger.d(_logTag,
+              'appOpen $tag ⏭️ reload skipped — AdManager gate closed');
+          return;
+        }
         if (appOpenSlot.beginReload()) {
           try {
             _bridge.loadAppOpenAd(unitId);
@@ -340,6 +348,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         final cb = _appOpenDismiss;
         _appOpenDismiss = null;
         cb?.call(true);
+        if (!canReload()) {
+          SafeLogger.d(_logTag,
+              'appOpen $tag ⏭️ reload skipped — AdManager gate closed');
+          return;
+        }
         if (appOpenSlot.beginLoad()) {
           try {
             _bridge.loadAppOpenAd(unitId);
@@ -572,6 +585,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         _interstitialDone = null;
         cb?.call(false);
         // beginReload — refill past the show-failure backoff window.
+        if (!canReload()) {
+          SafeLogger.d(
+              _logTag, 'inter $tag ⏭️ reload skipped — AdManager gate closed');
+          return;
+        }
         if (interstitialSlot.beginReload()) {
           try {
             _bridge.loadInterstitial(unitId);
@@ -596,6 +614,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         final cb = _interstitialDone;
         _interstitialDone = null;
         cb?.call(true);
+        if (!canReload()) {
+          SafeLogger.d(
+              _logTag, 'inter $tag ⏭️ reload skipped — AdManager gate closed');
+          return;
+        }
         if (interstitialSlot.beginLoad()) {
           try {
             _bridge.loadInterstitial(unitId);
@@ -723,6 +746,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         _rewardedDone = null;
         cb?.call(RewardResult.skipped);
         // beginReload — refill past the show-failure backoff window.
+        if (!canReload()) {
+          SafeLogger.d(_logTag,
+              'rewarded $tag ⏭️ reload skipped — AdManager gate closed');
+          return;
+        }
         if (rewardedSlot.beginReload()) {
           try {
             _bridge.loadRewardedAd(unitId);
@@ -747,6 +775,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         final cb = _rewardedDone;
         _rewardedDone = null;
         cb?.call(RewardResult.skipped);
+        if (!canReload()) {
+          SafeLogger.d(_logTag,
+              'rewarded $tag ⏭️ reload skipped — AdManager gate closed');
+          return;
+        }
         if (rewardedSlot.beginLoad()) {
           try {
             _bridge.loadRewardedAd(unitId);

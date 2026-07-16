@@ -97,8 +97,8 @@ The SDK exposes a `VipManager` reachable as `AdManager().vip` (nullable until SD
 
 VIP grants **stack globally** — `addVip`/`redeemVip` with `stack: true` add onto the latest expiry across all active entries (clamped at `AdConfig.maxVipStackDuration`, ~90 days). A VIP can also voluntarily watch a real rewarded ad to extend their window: the watch-ad flow passes `bypassVipGuard: true` to `showRewardedAd` so the (normally VIP-suppressed) rewarded surface still plays and grants more time.
 
-- `lib/mckimquyen/widget/vip/vip_screen.dart` is the redeem UI (extends `BaseStatefulState`, **not** `AdScreenState`, since it's the screen that *grants* the no-ads state).
-- `lib/mckimquyen/widget/vip/vip_keys.dart` holds the key → `Duration` map. Keys are **base64-obfuscated** at rest — pass them through `utf8.decode(base64Decode(...))`. Don't commit raw keys to source. Validation goes through `vipKeyValidator(normalisedKey)` then `lookupVipKeyDuration(...)` to compute expiry.
+- `lib/mckimquyen/widget/vip/vip_screen.dart` is a thin `StatelessWidget` wrapper (T18) around the SDK's shared `VipRedeemScreen` — the host only injects localized strings, the signing public key, and the privacy-policy launcher; the redeem UI itself lives in the SDK so host + SDK example render an identical screen.
+- `lib/mckimquyen/widget/vip/vip_keys.dart` holds `kVipPublicKeyBase64` (an Ed25519 public key) plus demo signed keys. Keys are **Ed25519-signed and verified offline** — only the public key ships in the app, so decompiling the binary does not let anyone forge new valid keys. Mint new keys with the matching private key via `packages/ad_sdk/tool/vip_mint.dart` (never commit the private key). Redemption goes through `VipManager.redeemSignedKey(...)`, not a lookup table.
 - The Privacy Policy URL `https://loitp.notion.site/Term-Privacy-Policy-Disclaimer-...` is wired into this screen and is the canonical place to update legal links.
 
 ### Native config gotchas

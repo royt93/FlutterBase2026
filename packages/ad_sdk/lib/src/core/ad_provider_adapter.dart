@@ -81,6 +81,15 @@ abstract class AdProviderAdapter {
   AdEventSink? get eventSink;
   set eventSink(AdEventSink? sink);
 
+  /// Set by [AdManager] before [initialize] to its VIP/daily-cap/consent/
+  /// connectivity checks — the same gate [AdManager]'s own `load*()` methods
+  /// consult. Adapters that auto-reload a fullscreen slot from an internal
+  /// dismiss/fail callback (bypassing [AdManager] entirely) must consult
+  /// this before calling into the native bridge. Defaults to always-true so
+  /// adapters/tests that never wire it keep working.
+  bool Function() get canReload;
+  set canReload(bool Function() gate);
+
   /// Human-readable name used in logs, e.g. `'[AdMob]'`.
   String get tag;
 

@@ -247,15 +247,25 @@ Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
   }
 
   final dismissCompleter = Completer<String?>();
-  try {
-    await ConsentForm.showPrivacyOptionsForm((FormError? err) {
-      dismissCompleter
-          .complete(err == null ? null : '${err.errorCode}:${err.message}');
-    });
-  } catch (e) {
+  // Deliberately NOT awaited: ConsentForm.showPrivacyOptionsForm() awaits the
+  // native platform call internally before invoking the dismiss callback, so
+  // awaiting it here directly would hang on that call forever, bypassing the
+  // timeout below entirely — same fire-and-forget shape as
+  // ConsentForm.loadConsentForm()/form.show() above in requestUmpConsentFlow().
+  unawaited(ConsentForm.showPrivacyOptionsForm((FormError? err) {
+    dismissCompleter
+        .complete(err == null ? null : '${err.errorCode}:${err.message}');
+  }).catchError((Object e) {
     dismissCompleter.complete('showPrivacyOptionsForm threw: $e');
-  }
-  final formError = await dismissCompleter.future;
+  }));
+  // Timeout guard (T44) — the dismiss callback only fires once the user taps
+  // through the native form, which can hang indefinitely if it's served but
+  // never dismissed. Without this, a caller awaiting requestPrivacyOptionsFlow()
+  // (e.g. a "Privacy Options" button's tap handler) would hang forever.
+  final formError = await dismissCompleter.future.timeout(
+    const Duration(seconds: 20),
+    onTimeout: () => 'privacy options form dismiss timed out after 20s',
+  );
   if (formError != null) {
     SafeLogger.w(tag, 'privacy options form: $formError');
   }

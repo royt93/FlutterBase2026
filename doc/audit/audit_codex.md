@@ -1,297 +1,85 @@
-# Audit Codex - AdMob/AppLovin SDK + Example
+# Audit độc lập — `applovin_admob_sdk`
 
-Audit time: 2026-07-13 15:09 +07
+**Lens:** Architecture, Provider Parity & Production Readiness
+**Ngày:** 2026-07-16 · **Chế độ:** read-only (không sửa source)
+**Cơ sở đối chiếu:** `doc/task/done/T01–T43`, `packages/ad_sdk/README.md` (Known limitations), `doc/feature.md` (Blockers/Checklist/Deferred).
 
-Scope:
-- `packages/ad_sdk`: Flutter SDK core for AdMob + AppLovin MAX.
-- `packages/ad_sdk/example`: SDK example app.
-- Host integration touchpoints in `lib/`, `android/`, `ios/`.
-- Policy cross-check against current official docs:
-  - Google AdMob Flutter UMP: https://developers.google.com/admob/flutter/privacy
-  - Google AdMob app-open guidance: https://developers.google.com/admob/flutter/app-open
-  - AdMob app-open best practices: https://support.google.com/admob/answer/9341964
-  - AppLovin MAX Flutter privacy: https://developers.applovin.com/en/max/flutter/overview/privacy/
+---
 
-## Verdict
+## 1. Verdict tổng quan
 
-**SDK core: production-usable with conditions.**
+Về mặt **kiến trúc và provider parity**, đây là một SDK trưởng thành hơn hẳn mức "wrapper mỏng" thông thường: có một abstract contract `AdProviderAdapter` sạch sẽ, hai adapter (AdMob + AppLovin) implement đầy đủ interface, error handling nhất quán (try/catch + `SafeLogger` + slot state machine, không rò exception ra caller), 553/553 test pass, `flutter analyze` sạch. Các race condition khó (consent→init→VIP→first-load, splash hard-cap, ATT/UMP timeout) đã được phát hiện và fix có chủ đích (T29/T40/T42/T43), verify được bằng đọc code hiện tại — tài liệu **khớp** với thực trạng.
 
-The SDK is not a blind "ship as-is everywhere" library, but the core implementation is strong enough for production app integration if the host app enforces the required startup contract:
+Tuy nhiên **production-readiness thì chưa xanh hoàn toàn**, và đa số rủi ro còn lại nằm ở **lớp cấu hình/publish, không phải code**: (a) app đang chạy bằng **local `path` override**, chưa publish `1.0.24` lên pub.dev; (b) **CHANGELOG chưa có mục T43** dù checklist release yêu cầu; (c) host app trộn **ad-unit AppLovin production thật + AdMob test ID**, và **thiếu `applovin.sdk.key` meta-data** trong `AndroidManifest.xml`; (d) UMP form chưa configure (blocker đã biết). Không có finding **Critical** ở tầng code; các finding cao nhất là **High** ở tầng publish/native-config phải xử lý trước khi release doanh thu thật.
 
-1. Run ATT on iOS before first ad request.
-2. Run Google UMP `requestConsentInfoUpdate()` / form flow before SDK `initialize()`.
-3. Do not initialize AppLovin for children / child-directed traffic.
-4. Do not publish the example app with its current real AppLovin IDs and QA safety preset.
-5. Add production guardrails so the integration fails closed, not just logs warnings, when consent flow is missing.
+**Kết luận ngắn:** dùng được cho production **có điều kiện** — xem mục 4.
 
-**Example app: not production-safe as-is.**
+---
 
-The example currently includes real AppLovin SDK/ad-unit IDs and uses relaxed QA safety limits in all build modes. It is useful for device audit, but must not be published or used as a template without replacing IDs and restoring production safety defaults.
+## 2. Bảng đối chiếu (các mục thuộc lens)
 
-## Confidence / Certainty
+| Hạng mục | Android | iOS | Nhận định |
+|---|---|---|---|
+| **Provider AdMob** hoạt động | ✅ (test App ID `~3347511713` + test unit) | ✅ (test App ID `~1458002511`) | Adapter đầy đủ; nhưng đang là provider phụ (swap-ready). App ID/unit ID **test** — có chủ đích (T32), phải đổi trước khi bật thật. |
+| **Provider AppLovin** hoạt động | ⚠️ code OK, thiếu `applovin.sdk.key` manifest | ✅ (Info.plist có `AppLovinSdkKey`) | Provider **chính** (`AdProvider.appLovin`). MAX init programmatic bằng `cfg.sdkKey` nên chạy được, nhưng manifest thiếu key là lệch integration guide → xem F3. |
+| **Banner** parity | ✅ AdMob: adaptive size, load-on-mount, dispose-before-refresh, `visible` notifier | ✅ AppLovin: preload widget-AdView, autoRefresh pause theo route | Hai cơ chế khác nhau (AdMob widget-coupled, AppLovin native AdView) nhưng đều được che sau `BannerListenables` chung. Đúng chuẩn. |
+| **App Open** parity | ✅ watchdog 90s + foreground-hung heuristic (Android) | ✅ watchdog 90s, iOS bỏ heuristic foreground | Parity đầy đủ ở cả 2 adapter, kể cả reload-after-show-fail (`beginReload`). |
+| **Interstitial / Rewarded** parity | ✅ | ✅ | AppLovin có reload-on-display-fail; AdMob có expiry 1h + reuse-if-fresh. **Không có watchdog inter/rewarded ở cả 2** — accepted risk đã chốt (không re-report). |
+| **Reward SSV** parity | ✅ `custom_data` | ✅ `ServerSideVerificationOptions` (userId+customData) | AdMob giàu field hơn (userId + customData riêng); AppLovin chỉ 1 string `custom_data` → adapter fallback `ssvCustomData ?? ssvUserId`. Parity "đủ dùng", có ghi rõ giới hạn. SDK không tự verify (đúng thiết kế). |
+| **Revenue callback** parity | ✅ `setPaidEventListener` (fullscreen) + `onPaidEvent` (banner) | ✅ `MaxAd.revenue` mọi callback | Cả 2 emit `AdRevenueEvent`. AppLovin skip khi `revenue<=0` (test mode) — hợp lý. |
+| **Consent (GDPR/CCPA/COPPA)** | ✅ AdMob per-request `npa`/RDP/`tagForChildDirectedTreatment` | ✅ AppLovin static `setHasUserConsent`/`setDoNotSell` | COPPA cho **AppLovin**: MAX 4.x không có runtime API → gate init khi `isAgeRestrictedUser` (T40). Gap "app luôn child-directed, install #1" đã ghi rõ — app hiện không child-directed nên chấp nhận được. |
+| **Monetization Arbitrator** | opt-in, provider-agnostic | như Android | Không phải bộ chọn provider/fallback waterfall — chỉ là heuristic eCPM-threshold quyết định show-ad-vs-nudge-VIP, session-only, phải host tự bật. Đúng như class doc. **Không có auto-fallback AdMob↔AppLovin runtime** — xem F5. |
+| **Native config compliance** | ⚠️ thiếu `applovin.sdk.key`; permissions OK | ⚠️ 50 SKAdNetworkID (README nói ~70) | Xem F3, F4. |
 
-I am **confident in the source-level audit findings**, but this is **not yet a full production certification**.
+---
 
-What is solid / high confidence:
-- The SDK source has real safeguards for VIP suppression, offline load skips, UMP `canRequestAds` gating, frequency caps, route-aware banner lifecycle, app-open resume guards, native object disposal, and first-install trial expiry.
-- The host app startup flow currently follows the correct order: ATT -> UMP -> `AdManager.initialize`.
-- The package and example pass automated checks listed below.
-- The P0/P1 risks are concrete source-level issues, not guesses.
+## 3. Danh sách phát hiện
 
-What is not yet proven:
-- Real Android + iOS devices across multiple OS versions have not been fully re-smoked in this audit turn.
-- Real UMP behavior by country/region has not been exhaustively verified. The source uses Google's UMP API, but production confidence still needs test-mode EEA/UK/non-EEA checks and privacy-options checks.
-- Real AppLovin/AdMob live callbacks under poor network, app backgrounding, ad click-through, store redirect, and process recreation are not fully covered by unit tests.
-- No-backend VIP security cannot provide global one-time-use by design. It is secure against key forgery, not against a leaked valid key being reused on another device.
-- AppLovin child-user compliance is not solved by current code. Current code warns but does not block AppLovin initialization for child/child-directed traffic.
+> Đã loại các mục đã-biết-có-chủ-đích: test Ad Unit/App ID (T32), thiếu watchdog inter/rewarded (accepted 2026-07-14), COPPA install-#1 gap (T40), UMP form chưa config (Blocker), `dependency_overrides` pin GMA/AppLovin (Deferred, retest ~2026-10). Các mục dưới là **phát hiện mới hoặc lệch tài liệu-vs-code** đã verify.
 
-Therefore:
-- **I am sure we should not ship the SDK/example as-is.**
-- **I am sure the SDK core is a good production candidate after the ship blockers are fixed.**
-- **I am not claiming it is production-certified until the remediation plan below is implemented and device smoke tests pass.**
+### High
 
-Release-confidence gate:
-1. Fix all "Ship Blockers" in this file.
-2. Re-run `flutter test` and `flutter analyze` for SDK + example.
-3. Run Android physical-device tests with network on/off and airplane-mode recovery.
-4. Run iOS physical-device tests for ATT, UMP, AppLovin app-open/inter/reward/banner, and privacy options.
-5. Force UMP debug geography for EEA/UK/non-EEA and verify no ad request before `canRequestAds == true`.
-6. Confirm no real production IDs remain in the publishable example.
-7. Confirm child/child-directed mode blocks AppLovin before native SDK init.
+**F1 — CHANGELOG thiếu mục cho T43 (ATT/UMP timeout), chặn checklist publish.**
+`packages/ad_sdk/CHANGELOG.md:18` mục `[1.0.24] - 2026-07-10` chỉ ghi T42 (consent-on-init). Fix **T43** (2026-07-15, bọc `Future.timeout(20s)` quanh 3 await ATT/UMP — xác nhận có trong code: `ad_manager.dart:799` init-timeout 20s + `att_consent.dart`) **không xuất hiện** trong bất kỳ mục 1.0.24 nào. `doc/feature.md` (Checklist mục 3) yêu cầu tường minh "Xác nhận CHANGELOG đã có mục cho 1.0.24 gồm T42 **và T43**". Ngoài ra có mục lạ `## [2.0.0] - Unreleased` (CHANGELOG.md:622) không tương ứng version pubspec (`1.0.24`).
+→ *Rủi ro:* publish `1.0.24` với changelog không phản ánh đúng nội dung fix; người tiêu thụ SDK không biết ATT/UMP timeout đã được vá. Phải cập nhật CHANGELOG trước `flutter pub publish`.
 
-## Verification
+**F2 — SDK chưa publish; app đang chạy local `path` override.**
+`pubspec.yaml:53-54` active `applovin_admob_sdk: path: packages/ad_sdk`; dòng hosted `# applovin_admob_sdk: ^1.0.23` (pubspec.yaml:51) đang comment. `packages/ad_sdk/pubspec.yaml:3` là `version: 1.0.24` — **chưa tồn tại trên pub.dev** (README.md:99 xác nhận public line mới tới 1.0.23; 1.0.21/1.0.22 chưa từng publish). Nghĩa là toàn bộ fix T21→T43 **chỉ sống trong repo**.
+→ *Rủi ro:* nếu release app bằng bản hosted `1.0.23` hiện tại (như CLAUDE.md mô tả contract), app sẽ **thiếu** T42 (consent bị quên mỗi lần mở app) và T43 (ATT/UMP treo) — hai lỗi nghiêm trọng đã fix nhưng chỉ có ở local path. Bắt buộc publish `1.0.24` **rồi** flip pubspec trước release, hoặc release thẳng bằng path override (kém chuẩn cho một app store build).
 
-Passed:
-- `flutter test` in `packages/ad_sdk`: **514 tests passed**.
-- `flutter test` in `packages/ad_sdk/example`: **8 tests passed**.
-- `flutter analyze` in `packages/ad_sdk`: **No issues found**.
-- `flutter analyze` in `packages/ad_sdk/example`: **No issues found**.
+**F3 — `AndroidManifest.xml` host thiếu `applovin.sdk.key` meta-data.**
+`grep applovin android/app/src/main/AndroidManifest.xml` → không có match. Provider chính là AppLovin (`splash_screen.dart:218 provider: AdProvider.appLovin`). CLAUDE.md nêu rõ "AppLovin also needs `applovin.sdk.key` meta-data". Hiện MAX được init programmatic (`applovin_adapter.dart:162 _bridge.initialize(cfg.sdkKey)` với `sdkKey` từ `ad_keys.dart:26`), nên **hôm nay vẫn chạy được** — nhưng đây là lệch integration guide chính thức của AppLovin, và một số phiên bản `applovin_max`/mediation adapter đọc key từ manifest lúc `Application.onCreate`. iOS thì Info.plist **có** `AppLovinSdkKey` (dù comment nói runtime không dùng).
+→ *Rủi ro:* fragile — nếu bản `applovin_max` tương lai yêu cầu manifest key, hoặc mediation adapter native khởi tạo sớm hơn Dart, banner/ad có thể im lặng không fill trên Android. Nên thêm `applovin.sdk.key` vào manifest cho khớp guide.
 
-Notes:
-- Commands print `(eval):1: unmatched "` from the local shell init, but all commands exited `0`.
-- Dependency warnings show newer incompatible versions exist, especially `google_mobile_ads 7.0.0 -> 9.0.0` and `applovin_max 4.6.4` current constraint. This is not a failing audit item, but should be scheduled as dependency review.
+### Medium
 
-## Major Findings
+**F4 — iOS `SKAdNetworkItems` chỉ có 50 entry, README yêu cầu ~70.**
+`ios/Runner/Info.plist` đếm được 50 `SKAdNetworkIdentifier`; `README.md:1147` (và Deferred trong feature.md) nói danh sách chuẩn AdMob "roughly 70 entries" và cần recheck yêu cầu SKAdNetwork của AppLovin MAX mediation partners trước khi release App Store.
+→ *Rủi ro:* thiếu SKAdNetworkID → một số mạng mediation không attribute được install trên iOS 14.5+, giảm fill/doanh thu iOS. Không chặn build, nhưng nên bổ sung danh sách đầy đủ (AdMob iOS14 guide + AppLovin partner list) trước release iOS.
 
-### P0 - AppLovin Must Not Be Initialized For Child Users
+**F5 — Không có fallback provider runtime AdMob↔AppLovin.**
+`ad_manager.dart:784 config.isAdMob ? AdMobAdapter() : AppLovinAdapter()` — provider là lựa chọn **app-wide tĩnh** tại init. Nếu provider đang chọn init fail (`ok=false` tại `ad_manager.dart:804`), SDK **không** tự thử provider còn lại; toàn bộ ad surface tắt cho phiên đó. Đây là quyết định kiến trúc (single provider), phù hợp với ghi chú "shadow eCPM / per-slot routing out of scope" trong feature.md — nhưng cần hiểu rõ: không có redundancy monetization giữa 2 mạng.
+→ *Rủi ro:* thấp về vận hành (init fail hiếm), nhưng là kỳ vọng sai nếu ai đó tưởng "dual-provider = tự động waterfall". Chỉ cần document rõ, không cần code.
 
-AppLovin's current privacy guidance says publishers must set consent/do-not-sell before SDK init and must not initialize/use AppLovin services in connection with a "child" under applicable law. The SDK code only logs a warning when `AdConsent.isAgeRestrictedUser == true`; it does not prevent `AppLovinAdapter.initialize()`.
+### Low
 
-Evidence:
-- `packages/ad_sdk/lib/src/core/ad_consent.dart:75-89` logs that AppLovin MAX 4.x has no child-directed API and warns integrators.
-- `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:116-140` initializes AppLovin regardless of age-restricted state.
-- Official AppLovin doc states consent/privacy flags must be set before init and AppLovin must not be used for child users.
+**F6 — `ad_manager.dart` là god-file 2148 dòng.**
+Đơn file lớn nhất SDK (kế đó `vip_redeem_screen.dart` 1229). Nó gánh orchestration + consent + VIP gating + lifecycle observer + retry timers + arbitrator hook. Còn maintainable (đặt tên tốt, comment dày) nhưng đã tới ngưỡng nên tách (ví dụ tách consent-plumbing và lifecycle-observer ra file riêng).
+→ *Rủi ro:* bảo trì dài hạn; không ảnh hưởng publish.
 
-Impact:
-- For general adult apps: acceptable if the app has no child audience and privacy policy is correct.
-- For mixed audience / Families / child-directed apps: **do not use AppLovin path** without a pre-init age gate that routes child users away from AppLovin entirely.
+**F7 — Trùng lặp logic nhỏ giữa 2 adapter (chấp nhận được).**
+Pattern reload-on-hidden/`beginReload`-on-display-fail, wiring click→`recordAdClick`→emit, expiry-reuse gần như song song ở cả `admob_adapter.dart` và `applovin_adapter.dart`. Do hai native API khác nhau nên khó share thêm mà không tạo abstraction gượng ép (đúng tinh thần không over-engineer). Chỉ ghi nhận, không đề xuất refactor gấp.
 
-Recommendation:
-- Add `AdConfig.isChildUser` / `audienceMode` gate, and block AppLovin initialization when child mode is true.
-- For child-directed apps, use only AdMob/Families-certified flow or disable ads for child users.
+---
 
-### P0 - Example Contains Real Production AppLovin IDs
+## 4. Kết luận — Có nên dùng SDK này cho production ngay bây giờ?
 
-The example source has real AppLovin SDK key and ad-unit IDs.
+**CÓ ĐIỀU KIỆN.** Bản thân code SDK đã đủ chín cho production (parity tốt, error-handling nhất quán, 553/553 test xanh, race conditions đã vá và verify khớp tài liệu). Không có blocker ở tầng code. Nhưng **không được release app ngay ở trạng thái hiện tại** — phải hoàn tất các điều kiện sau, theo thứ tự ưu tiên:
 
-Evidence:
-- `packages/ad_sdk/example/lib/main.dart:44-64` explicitly says real production AppLovin keys were borrowed and must be replaced before publish.
-- `packages/ad_sdk/example/ios/Runner/Info.plist:50-51` includes the AppLovin SDK key.
+1. **(F1) Cập nhật CHANGELOG cho `1.0.24`**: thêm mục T43 (ATT/UMP timeout) và dọn mục `[2.0.0] - Unreleased` lạc lõng, **trước khi** publish.
+2. **(F2) Publish `packages/ad_sdk` 1.0.24 lên pub.dev, rồi flip `pubspec.yaml`** sang hosted `^1.0.24` (bỏ comment hosted, comment lại `path`), chạy `flutter pub get` xác nhận app build bằng bản hosted. **Tuyệt đối không release bằng hosted `1.0.23`** — sẽ mất fix T42/T43. (Lệnh publish do user tự chạy — cần login pub.dev.)
+3. **(F3) Thêm `applovin.sdk.key` meta-data** vào `android/app/src/main/AndroidManifest.xml` cho khớp integration guide AppLovin.
+4. **Đổi test → production Ad Unit/App ID** (AdMob 2 App ID theo platform + bộ unit; AppLovin unit đã là production thật nhưng cần double-check), và **publish UMP consent form** trên AdMob console (Blocker đã biết) trước bản EEA.
+5. **(F4) Bổ sung `SKAdNetworkItems`** đầy đủ (~70 + partner của AppLovin) trước release iOS.
 
-Impact:
-- If published, public example can generate real traffic/revenue/noise under production IDs.
-- If copied by app teams, it teaches an unsafe pattern.
-
-Recommendation:
-- Replace example source with placeholders or dart-defines.
-- Move real IDs to local-only ignored config.
-- Add CI check that rejects `YOUR_` absence / known production IDs in example package before publish.
-
-### P1 - Consent Safety Is Strong In Host Flow, But SDK Defaults Are Too Easy To Misuse
-
-Google UMP docs require `requestConsentInfoUpdate()` on every launch and `canRequestAds()` before requesting ads. The SDK implements a proper gate once `requestUmpConsent()` is used, but `AdConfig.autoRequestUmpConsent` defaults to `false` and `disableAppLovinCmpFlow` defaults to `true`.
-
-Evidence:
-- `packages/ad_sdk/lib/src/config/ad_config.dart:260-263` defaults `autoRequestUmpConsent=false`, `disableAppLovinCmpFlow=true`.
-- `packages/ad_sdk/lib/src/core/ad_manager.dart:810-839` only warns if no UMP/CMP flow will run.
-- `packages/ad_sdk/lib/src/core/ad_manager.dart:1211-1237`, `1418-1441`, `1532-1555` block loads when `_canRequestAds == false`.
-- `packages/ad_sdk/lib/src/core/ump_consent.dart:94-151` calls `requestConsentInfoUpdate()` and `canRequestAds()`.
-- Host app correctly calls ATT and UMP before initialize in `lib/mckimquyen/widget/splash/splash_screen.dart:167-201`, then initializes at `212-290`.
-
-Impact:
-- Host app currently integrates correctly.
-- A future app can accidentally ship with no real consent form and still initialize/request ads because the SDK logs but does not fail.
-
-Recommendation:
-- Change production default to `autoRequestUmpConsent=true`, or add release assert/hard failure unless host marks `consentFlowHandledExternally=true`.
-- Keep the custom Cupertino consent dialog as a preference UI only; do not treat it as a replacement for UMP in regions where Google requires certified CMP behavior.
-
-### P1 - AppLovin Consent Is Applied After SDK Init In `AdManager.initialize`
-
-AppLovin requires consent and do-not-sell values before SDK initialization. The adapter initializes first, and `ConsentManager.applyToProviders()` is called afterward. This is safe only if the host already called `AdManager.requestUmpConsent()` before `initialize()`, because `requestUmpConsent()` calls `setConsent()` and `applyConsentToProviders()` before init.
-
-Evidence:
-- Adapter init at `packages/ad_sdk/lib/src/core/ad_manager.dart:748-759`.
-- Consent manager bootstrap/apply at `776-808`, after adapter init.
-- AppLovin init at `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:138-140`.
-- Host app calls UMP before init at `lib/mckimquyen/widget/splash/splash_screen.dart:189-201`.
-
-Impact:
-- Current host flow: acceptable.
-- SDK-owned `autoRequestUmpConsent=true` path: currently runs UMP after adapter init (`813-820`), which is late for AppLovin's "set before initialize" requirement.
-
-Recommendation:
-- Move consent bootstrap and optional UMP before adapter creation/init.
-- Or require host-preflight UMP for AppLovin provider and fail release if not done.
-
-### P1 - VIP Security Is Good Offline, But Not Globally One-Time Without Backend
-
-The signed VIP key design is appropriate for no-backend apps: Ed25519 public key verification means decompiling cannot forge new keys. However, without a server, a leaked valid code can be redeemed on multiple devices.
-
-Evidence:
-- `packages/ad_sdk/lib/src/vip/signed_vip_key.dart:59-70` documents offline Ed25519 model and the multi-device reuse limitation.
-- `packages/ad_sdk/lib/src/vip/vip_manager.dart:467-528` enforces per-device one-time use.
-- `packages/ad_sdk/lib/src/vip/_redeemed_key_ledger.dart:9-22` adds iOS Keychain durable reuse guard; Android relies on prefs only.
-
-Impact:
-- Good enough for low/medium-value VIP codes, giveaways, internal unlocks.
-- Not strong enough for paid/high-value entitlement unless backend validation exists.
-
-Recommendation:
-- Keep signed offline keys for no-backend mode, but document "per-device, not global" in integration checklist.
-- For paid VIP, use StoreKit/Billing or backend verification.
-
-### P1 - Example Uses QA Safety Limits In All Modes
-
-Example config intentionally disables meaningful frequency caps for QA.
-
-Evidence:
-- `packages/ad_sdk/example/lib/main.dart:145-150` says demo uses loose preset even in release.
-- `packages/ad_sdk/example/lib/main.dart:176-189` sets session/hour/day caps to 999, CTR threshold 1.0.
-
-Impact:
-- Example is useful for testing ad UI repeatedly.
-- Not acceptable for production template.
-
-Recommendation:
-- Make example use `AdSafetyParams.auto` by default, with `--dart-define=QA_AD_STRESS=true` for loose caps.
-
-## Positive Findings
-
-- Provider abstraction is clean: `AdProviderAdapter` isolates AdMob/AppLovin object lifecycle.
-- AdMob path has conservative default `npa=1`, RDP extras, stale ad expiry, and native object disposal.
-- Load/show gates cover VIP, daily cap, UMP `canRequestAds`, network state, and re-entrancy.
-- App-open lifecycle is heavily guarded: splash active guard, fullscreen-dismiss debounce, dialog-on-top guard, rapid resume gate, hard cap watchdog.
-- Banner widget unsubscribes route observer, hides/suppresses for VIP, blocks offline/consent-not-ready startup, and disposes notifiers.
-- First-install trial exists: release default 24h, debug default 30s.
-- Trial expiry is handled mid-session by `VipManager` expiry timer.
-- Android/iOS ad unit separation is supported through per-platform IDs.
-- Host app has required native keys/permissions: Android AdMob App ID, `AD_ID`, iOS `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, SKAdNetwork entries.
-
-## Offline / No-Network Behavior
-
-Pass with caveat:
-- Load paths check `AdManager.isConnected` before app-open/interstitial/rewarded/banner requests.
-- Connectivity watch refills slots on offline -> online transition.
-- If connectivity detector fails, SDK falls back to last-known optimistic state; a real offline request can still fail through native SDK and go into cooldown. This is acceptable but should be monitored in logs.
-
-Evidence:
-- `packages/ad_sdk/lib/src/core/ad_manager.dart:1190-1205`, `1211-1237`, `1418-1441`, `1532-1555`, `1992-2031`.
-
-## Ad Type Coverage
-
-- Banner: implemented for AdMob adaptive banner and AppLovin widget view. Route pause/resume covered.
-- App Open: implemented for splash and resume, with hard caps and lifecycle guards.
-- Interstitial: implemented with safety/frequency gates and post-dismiss reload.
-- Rewarded: implemented with reward callback, optional VIP auto-grant, SSV data plumbing.
-
-Caveat:
-- Interstitial/rewarded do not have watchdog hard caps for missing native callbacks. Tests treat callbacks as reliable. App-open has watchdog because it has known lifecycle risk.
-
-Evidence:
-- AdMob interstitial/rewarded comments at `packages/ad_sdk/lib/src/adapters/admob_adapter.dart:592-599`, `760-764`.
-- AppLovin interstitial/rewarded comments at `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:638-645`, `820-825`.
-
-Recommendation:
-- Add optional show watchdog for interstitial/rewarded too, using the app-open pattern.
-
-## Solution / Remediation Plan
-
-### Ship Blockers - Must Fix Before Production
-
-1. **Block AppLovin for child / child-directed traffic.**
-   - Add an explicit config flag such as `AdConfig.audienceMode` or `AdConfig.isChildUser`.
-   - If `provider == AdProvider.appLovin` and child mode is true, `initialize()` must fail closed before `AppLovinMAX.initialize()`.
-   - For child mode, route to a compliant AdMob-only setup or disable ads.
-   - Add tests proving AppLovin init is not called for child mode.
-
-2. **Move consent application before native SDK initialization.**
-   - Bootstrap/load persisted `ConsentManager` before adapter creation.
-   - If `autoRequestUmpConsent == true`, run UMP before `adapter.initialize()`.
-   - Apply `AppLovinMAX.setHasUserConsent()` and `setDoNotSell()` before AppLovin init.
-   - Preserve AdMob `testDeviceIds` when applying `RequestConfiguration`.
-
-3. **Make missing consent flow a release failure, not only a warning.**
-   - Add an explicit `consentFlowHandledExternally` config for host-owned UMP.
-   - In release, require one of:
-     - `autoRequestUmpConsent == true`
-     - `consentFlowHandledExternally == true`
-     - AppLovin CMP intentionally enabled
-   - If none is true, return `onComplete(false, gaid)` and do not preload ads.
-
-4. **Clean the example before publish.**
-   - Remove real AppLovin SDK key and ad-unit IDs from `packages/ad_sdk/example/lib/main.dart`.
-   - Remove real SDK key from `packages/ad_sdk/example/ios/Runner/Info.plist`.
-   - Use placeholders or `--dart-define` values.
-   - Add CI/grep test that fails if known production IDs appear in the example.
-
-5. **Gate QA safety preset.**
-   - Change example default to `AdSafetyParams.auto`.
-   - Enable loose QA caps only with a compile-time flag, e.g. `--dart-define=QA_AD_STRESS=true`.
-   - Keep production host apps on `AdSafetyParams.production` or `AdSafetyParams.auto`.
-
-### Strongly Recommended Hardening
-
-1. **Add watchdogs for interstitial and rewarded show callbacks.**
-   - Reuse the app-open hard-cap pattern.
-   - If native dismiss/fail callbacks do not arrive, mark the slot failed, clear pending callback, and let caller continue.
-   - Add tests for missing callback recovery.
-
-2. **Document VIP security limits in README and integration checklist.**
-   - Offline Ed25519 VIP codes prevent forged keys.
-   - They do not prevent one leaked valid key from being used on multiple devices.
-   - For paid VIP, require StoreKit/Billing/backend verification.
-
-3. **Make provider swap safer.**
-   - Add release-time validation that active provider has production IDs.
-   - If switching to AdMob, block Google public test ad-unit IDs in release.
-   - Keep per-platform IDs mandatory for production if Android/iOS use different ad units.
-
-4. **Add a production integration checklist.**
-   - ATT prompt and `NSUserTrackingUsageDescription` on iOS.
-   - UMP called every launch before first ad request.
-   - Privacy options entry point exposed when UMP requires it.
-   - `app-ads.txt` / seller setup handled by the app owner.
-   - AppLovin child-user gate decided before SDK init.
-
-### Suggested Implementation Order
-
-1. P0 child-user AppLovin hard block.
-2. Consent pre-init reorder and release fail-closed config.
-3. Example credential cleanup and QA safety flag.
-4. Interstitial/rewarded watchdogs.
-5. README/checklist update and CI grep guards.
-6. Re-run `flutter test`, `flutter analyze`, and device smoke tests for Android + iOS with network on/off.
-
-## Production Decision
-
-Use this SDK in production app only under these rules:
-
-1. For our current FastNet host app, using AppLovin provider is acceptable **if the app is not child-directed and does not classify any served user as a child**.
-2. Keep host startup order: ATT -> UMP -> `AdManager.initialize`.
-3. Do not rely on SDK defaults in new apps; explicitly set/confirm UMP ownership.
-4. Do not publish the example package/app until real IDs are removed and QA safety preset is gated.
-5. If switching to AdMob provider, replace all public Google test unit IDs in `AdKey.adMob` first.
-6. For VIP codes, offline signed keys are acceptable for local entitlement, not for global paid entitlement.
-
-Final answer: **Yes, we can use the SDK core for production after the P0/P1 guardrails above. No, we should not ship/copy the example as-is.**
+F5/F6/F7 là ghi nhận kiến trúc, **không chặn** release. Sau khi xong 1–5, nên theo đúng khuyến nghị README: pilot traffic nhỏ, theo dõi dashboard AdMob/AppLovin vài tuần trước khi tích hợp diện rộng.

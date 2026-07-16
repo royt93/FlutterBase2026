@@ -65,6 +65,17 @@ be clear-eyed about the gap before depending on it for revenue:
   dismiss) can only be verified manually, not via CI. Everything else in the
   lifecycle (load, show, click, reward callbacks, VIP suppression, safety
   gating) is automated and re-run on every change.
+- **Known limitation:** `app_open_ad_test.dart` / `interstitial_ad_test.dart`
+  / `rewarded_ad_test.dart` call `showXAd()` twice back-to-back without
+  waiting for the ad to finish loading first. Whether they exercise the real
+  show+dismiss path or fall into the safe "ad not ready, skip" fallback is a
+  coin-flip race against ad-network response time on the day they're run —
+  confirmed by log tracing across multiple runs where the fallback fired
+  every time. **A green PASS on these 3 tests does not by itself prove real
+  ad-display behavior was exercised for that run** — check the run's log for
+  `loadX ✅` landing before vs. after the `showXAd` attempts to know which
+  path actually executed. Fixing this properly means making the tests await
+  ad-ready (with a timeout) before tapping show, which has not been done.
 - **Limited real-world production history.** As of this writing the only
   first-party app running the hosted pub.dev release is this repo's own
   host app. If you're evaluating this for a partner or a new app, check that
@@ -234,11 +245,14 @@ Open `ios/Runner/Info.plist` and add the keys below at the root `<dict>`. Replac
 <key>NSUserTrackingUsageDescription</key>
 <string>This identifier is used to deliver personalised ads.</string>
 
-<!-- Required by AdMob & AppLovin on iOS 14.5+. Copy the canonical list
-     from https://developers.google.com/admob/ios/ios14#skadnetwork -->
+<!-- Required by AdMob & AppLovin MAX mediation on iOS 14.5+. AdMob's own
+     canonical list (https://developers.google.com/admob/ios/ios14#skadnetwork)
+     is only 50 entries — it doesn't cover AppLovin MAX's mediation partners.
+     Use AppLovin's official superset instead (152 entries, includes all 50
+     AdMob IDs): https://skadnetwork-ids.applovin.com/v1/skadnetworkids.json -->
 <key>SKAdNetworkItems</key>
 <array>
-    <!-- ~70 entries — paste from the link above -->
+    <!-- 152 entries — paste from the AppLovin link above -->
 </array>
 ```
 
@@ -1133,7 +1147,7 @@ Flutter's `flutter create` template adds `android:taskAffinity=""` to `MainActiv
 
 ### 2. iOS requires `SKAdNetworkItems`
 
-Without `SKAdNetworkItems` in `Info.plist`, AdMob and AppLovin will not serve ads on iOS 14.5+. Copy the canonical list from [AdMob's iOS 14 guide](https://developers.google.com/admob/ios/ios14#skadnetwork) — it has roughly 70 entries.
+Without `SKAdNetworkItems` in `Info.plist`, AdMob and AppLovin will not serve ads on iOS 14.5+. [AdMob's own canonical list](https://developers.google.com/admob/ios/ios14#skadnetwork) is only 50 entries and doesn't cover AppLovin MAX's mediation partners — use [AppLovin's official superset list](https://skadnetwork-ids.applovin.com/v1/skadnetworkids.json) instead (152 entries, a strict superset that includes all 50 AdMob IDs).
 
 ### 3. AppLovin has no public test ad units
 

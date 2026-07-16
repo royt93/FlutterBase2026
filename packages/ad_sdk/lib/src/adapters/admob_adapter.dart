@@ -65,6 +65,12 @@ class AdMobAdapter implements AdProviderAdapter {
   @override
   AdEventSink? eventSink;
 
+  // ponytail: AdMobAdapter has no adapter-internal auto-reload path (unlike
+  // AppLovinAdapter's dismiss/fail callbacks), so this gate is never
+  // consulted here — kept only to satisfy AdProviderAdapter.
+  @override
+  bool Function() canReload = () => true;
+
   void _emit(AdEvent e) => eventSink?.call(e);
 
   /// Wires the fullscreen ad's paid-event (revenue) listener through the bridge.

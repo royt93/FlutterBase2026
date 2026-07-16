@@ -243,6 +243,105 @@ void main() {
     });
   });
 
+  // T-canReload: adapter-internal reload-on-dismiss/reload-on-fail paths call
+  // the native bridge directly, bypassing AdManager's load*() gate methods
+  // entirely. AdManager wires `canReload` to those same VIP/daily-cap/
+  // consent/connectivity checks — when it reports false, the reload must be
+  // skipped (not just retried later): a VIP member's fullscreen ad dismissing
+  // must never silently trigger a fresh load behind their back.
+  group('canReload gate blocks adapter-internal auto-reload', () {
+    test('appOpen: hidden does not reload when canReload is false', () async {
+      adapter.canReload = () => false;
+      await adapter.loadAppOpen();
+      bridge.appOpen!.onAdLoadedCallback(_fakeAd());
+      expect(adapter.appOpenSlot.isReady, isTrue);
+      await adapter.showAppOpen(onDismiss: (_) {});
+      final loadsBefore = bridge.loadAppOpenCalls.length;
+
+      bridge.appOpen!.onAdHiddenCallback(_fakeAd());
+
+      expect(bridge.loadAppOpenCalls.length, loadsBefore,
+          reason: 'gate closed — must not reload behind the caller\'s back');
+    });
+
+    test('appOpen: display failure does not reload when canReload is false',
+        () async {
+      adapter.canReload = () => false;
+      await adapter.loadAppOpen();
+      bridge.appOpen!.onAdLoadedCallback(_fakeAd());
+      await adapter.showAppOpen(onDismiss: (_) {});
+      final loadsBefore = bridge.loadAppOpenCalls.length;
+
+      bridge.appOpen!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+
+      expect(bridge.loadAppOpenCalls.length, loadsBefore);
+    });
+
+    test('interstitial: hidden does not reload when canReload is false',
+        () async {
+      adapter.canReload = () => false;
+      await adapter.loadInterstitial();
+      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      await adapter.showInterstitial(onDone: (_) {});
+      final loadsBefore = bridge.loadInterCalls.length;
+
+      bridge.inter!.onAdHiddenCallback(_fakeAd());
+
+      expect(bridge.loadInterCalls.length, loadsBefore);
+    });
+
+    test(
+        'interstitial: display failure does not reload when canReload is false',
+        () async {
+      adapter.canReload = () => false;
+      await adapter.loadInterstitial();
+      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      await adapter.showInterstitial(onDone: (_) {});
+      final loadsBefore = bridge.loadInterCalls.length;
+
+      bridge.inter!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+
+      expect(bridge.loadInterCalls.length, loadsBefore);
+    });
+
+    test('rewarded: hidden does not reload when canReload is false', () async {
+      adapter.canReload = () => false;
+      await adapter.loadRewarded();
+      bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+      await adapter.showRewarded(onDone: (_) {});
+      final loadsBefore = bridge.loadRewardedCalls.length;
+
+      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+
+      expect(bridge.loadRewardedCalls.length, loadsBefore);
+    });
+
+    test('rewarded: display failure does not reload when canReload is false',
+        () async {
+      adapter.canReload = () => false;
+      await adapter.loadRewarded();
+      bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+      await adapter.showRewarded(onDone: (_) {});
+      final loadsBefore = bridge.loadRewardedCalls.length;
+
+      bridge.rewarded!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+
+      expect(bridge.loadRewardedCalls.length, loadsBefore);
+    });
+
+    test('interstitial: reloads normally when canReload stays true (default)',
+        () async {
+      await adapter.loadInterstitial();
+      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      await adapter.showInterstitial(onDone: (_) {});
+      final loadsBefore = bridge.loadInterCalls.length;
+
+      bridge.inter!.onAdHiddenCallback(_fakeAd());
+
+      expect(bridge.loadInterCalls.length, loadsBefore + 1);
+    });
+  });
+
   // End-to-end: go through the REAL showAppOpen path (which arms the watchdog)
   // and then advance time with FakeAsync — closing the seam between "showAppOpen
   // arms the watchdog" and "the watchdog timing logic".

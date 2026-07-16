@@ -1,164 +1,92 @@
-# Audit toàn diện SDK quảng cáo `applovin_admob_sdk` (2026-07-13, bản cập nhật)
+# Audit độc lập — `applovin_admob_sdk`
 
-> Người audit: Claude (Sonnet 5) · Ngày: 2026-07-13 (bản trước cùng ngày đã bị thay thế hoàn toàn bởi bản này)
-> Phạm vi: `packages/ad_sdk/lib/` (SDK 1.0.24, path-override đang active) + `packages/ad_sdk/example/` + host usage (`lib/mckimquyen/widget/vip/`, `splash/`, `common/const/ad_keys.dart`) + native config (Android/iOS, cả app root và example).
-> Phương pháp: **6 subagent song song**, mỗi agent phụ trách 1 mảng (provider parity, memory-leak, consent, offline, policy/T39+T41, **trial+VIP-by-code security — mảng bảo mật ưu tiên số 1 theo yêu cầu**), bị yêu cầu đọc trực tiếp code hiện tại + trích dẫn file:line, không tin lời audit cũ. Mục tiêu: (1) verify lại các fix T31-T38 từ audit trước có thật hay chỉ đóng trên giấy, (2) verify tươi 4 gap mà `audit_codex.md` (audit độc lập, cross-check chính sách AdMob/AppLovin thật) tìm ra nhưng bản audit_claude trước chưa đào sâu: T32 (AdMob App ID trùng platform), T39 (SSV chưa wire), T40 (AppLovin thiếu gate cho child-user), T41 (example app không an toàn để publish).
+**Lens: Correctness & Lifecycle Safety** · **Chế độ: read-only** · **Ngày: 2026-07-16** · **Người audit: Claude (Opus 4.8)**
 
----
+## Verdict tổng quan
 
-## 0. Tóm tắt điều hành
+Theo góc nhìn **vòng đời / rò rỉ bộ nhớ / offline / parity Android-iOS**, SDK này ở mức **an toàn tốt cho production, với một số điều kiện nhỏ**. Kiến trúc slot-state (`AdSlot` với `ValueNotifier` thay cho ~14 bool cờ tay) loại bỏ đúng lớp race-condition hay gặp nhất; teardown (`dispose`/`destroy`) hủy listener native **trước** khi destroy ad, hủy Timer, cancel `StreamSubscription`, dispose `ValueNotifier` một cách nhất quán. Các `await` native rủi ro (adapter init, GAID, ATT, UMP-update, UMP-form-dismiss) đều đã được bọc `Future.timeout` (fix T43 + init guard) — đây là điểm dễ gây "đơ vĩnh viễn" nhất và đã được xử lý đúng. Offline được gate ở mọi `loadX` qua `isConnected`, có connectivity-watch chỉ refill trên transition `offline→online` có debounce, không có vòng lặp retry vô hạn (retry timer 5 phút + backoff cooldown mỗi slot).
 
-Đối chiếu lại 7 yêu cầu gốc của partner, sau khi verify tươi từng dòng code (6 agent):
+Không tìm thấy **finding Critical**. Các finding còn lại là **High×0 / Medium / Low** — chủ yếu là (a) 1 đường reload App-Open trong AppLovin adapter đi vòng qua các gate của `AdManager`, (b) 1 `await` privacy-options form không có timeout (đã được ghi nhận có chủ đích ở T43 nhưng cần nêu lại vì nằm ngoài phạm vi splash), và (c) vài chi tiết parity/leak nhỏ. Fix T42 (consent buffer), T43 (timeout ATT/UMP), và 1.0.23 (App-Open không stack trên modal) đã được **verify lại trên code hiện tại** và còn hiệu lực.
 
-| # | Yêu cầu | Trạng thái | Ghi chú |
-|---|---|---|---|
-| 1 | Provider AdMob/AppLovin, Android + iOS | 🟢 Đạt | Ad-unit-id tách platform thật; **T32 (AdMob App ID Android=iOS) vẫn còn**, chỉ ảnh hưởng nếu flip provider sang AdMob |
-| 2 | Work có mạng / không mạng | 🟢 Đạt | T33/T36 xác nhận fix thật, chỉ còn thiếu vài test edge-case (không phải bug) |
-| 3 | Ad types chuẩn, đúng vòng đời, no memory leak | 🟢 Đạt | T31/T34/T35 xác nhận fix thật; **gap mới xác nhận (không phải bug)**: interstitial/rewarded/banner không có show-watchdog như app-open |
-| 4 | Trial mode 1 ngày | 🟢 Đạt | Clock-rollback chặn chắc; uninstall-bypass: chặn trên iOS (Keychain), **chủ ý cho phép** trên Android |
-| 5 | Kích hoạt VIP by code, không backend | 🟢 Đạt, có 1 khuyến nghị | Ed25519 asymmetric xác nhận đúng, private key cách ly 100%; khuyến nghị host app **pin public key cứng** thay vì nhận qua tham số runtime |
-| 6 | Consent mọi quốc gia, chuẩn AppLovin + AdMob | 🟡 Đạt cho use-case hiện tại | 9/9 điểm UMP/ATT/CCPA pass; **T40 xác nhận vẫn mở**: AppLovin init không bị chặn cho child-user — chỉ log warning. An toàn *vì app hiện không child-directed*, không an toàn nếu đổi audience |
-| 7 | Tuân thủ policy AdMob/AppLovin | 🟡 Đạt cho SDK core, chưa đạt cho example | **T39 xác nhận: chủ ý, không phải bug** (SSV plumbing sẵn sàng, chờ đối tác). **T41 xác nhận vẫn mở**: example app có ID AppLovin thật + safety cap nới lỏng (999) áp dụng cả ở release |
+## Bảng đối chiếu 7 yêu cầu (chỉ phần thuộc lens lifecycle/leak/offline/parity)
 
-**Kết luận:** Không có mục nào trong 4 mục còn "mở" (T32/T39/T40/T41) là lỗ hổng pháp lý/bảo mật đang bị khai thác trong runtime hiện tại của app — chúng là **điều kiện/rào chắn** cần giữ đúng bối cảnh hiện tại (AppLovin là provider chính, app không nhắm trẻ em, example không được publish). Xem mục 9 và 10.
+| # | Yêu cầu | Đánh giá | Ghi chú theo lens |
+|---|---------|----------|-------------------|
+| 1 | Provider AdMob/AppLovin work cho cả Android + iOS | ✅ Đạt, có 1 lưu ý parity | App-Open watchdog phân nhánh đúng iOS vs Android (`foregroundMeansHung = platform != iOS`, `applovin_adapter.dart:472`); AdMob adapter dùng `platformDispatcher.implicitView` (đúng cho foldable/split-view). Banner AppLovin dùng preload + `MaxAdView`; AdMob dùng adaptive size theo width. Xem F3, F5 về khác biệt reload banner giữa 2 provider. |
+| 2 | Work ở thiết bị có mạng / không mạng | ✅ Đạt | Mọi `loadX` gate qua `isConnected` (`ad_manager.dart:1307,1511,1624,1852`). `isConnected` fail-open khi detector lỗi (không block ads vĩnh viễn). Connectivity-watch chỉ act trên `false→true`, debounce 800ms, cancel timer + sub trên destroy (`_stopConnectivityWatch`). Không có busy-loop. Xem F2 (đường reload AppLovin bỏ qua gate offline). |
+| 3 | Chuẩn từng loại ad (banner/app-open/reward/inter): pháp lý + vòng đời + không leak | ✅ Vòng đời & leak tốt; ⚠️ 2 lưu ý | Dispose hủy listener trước destroy ad (cả 2 adapter). Slot watcher là source-of-truth cho dismiss (đúng cho rewarded — reward earned ≠ dismiss). App-Open có watchdog 90s hard-cap 2 tầng. Re-entrancy guard cho rewarded. Xem F1 (reload App-Open đi vòng gate), F4 (double-fire callback edge). |
+| 4 | Trial mode 1 ngày | ✅ Đạt | `firstInstallVipGrace` (24h release / 30s debug) fires đúng 1 lần/install; grant vào `VipManager`. Anti-bypass iOS Keychain + Android Auto-Backup, fail-open. Không thấy leak. |
+| 5 | VIP by code, không server/backend | ✅ Đạt | Ed25519 offline verify, per-device one-time-use atomic (không có await giữa check + insert). VIP suppress mọi ad surface reactive. Xem F6 (Timer expiry cho VIP xa — non-issue trên Android/iOS nhưng đáng ghi). |
+| 6 | Consent cho mọi quốc gia (AdMob + AppLovin) | ✅ Đạt, verify T42/T43 còn hiệu lực | `setConsent` trước `initialize` được buffer đúng (T42, `ad_manager.dart:1032,850`). ATT + UMP-update + UMP-form-dismiss đều có `Future.timeout(20s)` (T43). Consent gate `_canRequestAds` chặn mọi load khi UMP từ chối. Xem F7 (privacy-options form thiếu timeout). |
+| 7 | Tuân thủ policy AdMob/AppLovin | ✅ Ở tầng SDK | App-Open không stack trên modal (1.0.23, verify `ad_manager.dart:1407`), bypassSafety chỉ ở splash, COPPA gate AppLovin init (T40). Fill-rate/policy-enforcement nằm ngoài tầm SDK (đã ghi ở README "Known limitations"). |
 
----
+## Danh sách phát hiện cụ thể
 
-## 1. Consent & Compliance (REQ 6+7) — 🟡 Đạt cho use-case hiện tại, 1 gap thật (T40)
+### F1 — [Medium] AppLovin App-Open tự reload đi vòng qua toàn bộ gate của `AdManager`
 
-Verify lại 9 điểm cũ (tất cả vẫn đúng, không lặp lại chi tiết — xem lịch sử git của file này nếu cần), cộng thêm verify tươi T40:
+**File:** `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:343-350` (trong `onAdHiddenCallback`) và `:305-312` (trong `onAdDisplayFailedCallback`).
 
-- **T40 xác nhận CÒN MỞ.** `ad_consent.dart:82-89` khi `isAgeRestrictedUser == true` chỉ **log warning** rằng AppLovin MAX 4.x không có API child-directed; `applovin_adapter.dart:116-161` **vẫn init AppLovin bình thường**, không có gate chặn. Đây đúng là giới hạn thật của native SDK AppLovin (không phải bug code SDK của ta), nhưng theo policy hiện hành của AppLovin (consent/do-not-sell phải set trước init, và không được dùng AppLovin cho "child" theo luật áp dụng), thiếu một **gate chặn init hoàn toàn** khi `isAgeRestrictedUser=true` là một khoảng trống thật.
-  - **Rủi ro thực tế cho app này: THẤP.** RoyApp (WiFi stress tester) không phải app hướng trẻ em, không có luồng nào set `isAgeRestrictedUser=true`. Gap chỉ trở thành vấn đề nếu tương lai có app dùng SDK này nhắm đối tượng trẻ em/Families program.
-  - **Khuyến nghị:** thêm `AdConfig.isChildUser`/audience gate ở tầng `AdManager.initialize()` để **chặn hẳn** `AppLovinAdapter.initialize()` khi `isAgeRestrictedUser=true`, thay vì chỉ log. Track dưới `doc/task/todo/T40-applovin-child-user-init-gate.md` (đã tồn tại từ audit_codex.md).
-- **Thứ tự consent trước init AppLovin** — vẫn đúng trong host flow thật (`splash_screen.dart` gọi UMP trước `initialize()`), nhưng nếu tương lai bật `autoRequestUmpConsent=true` (SDK tự chạy UMP), thứ tự hiện tại chạy UMP **sau** khi adapter đã init — chỉ ảnh hưởng nếu đổi cấu hình mặc định, không ảnh hưởng runtime hiện tại.
+Sau khi App-Open dismiss/fail, adapter gọi thẳng `_bridge.loadAppOpenAd(unitId)` để refill ngay. Đường này **không** đi qua `AdManager.loadAppOpenAd()`, nên bỏ qua các gate: `_isVipMember`, `AdSafetyConfig.dailyCapReached()`, `_canRequestAds` (UMP consent), và `isConnected`.
 
-**Không tìm thấy gì mới ngoài T40.** Phần còn lại của mảng consent vẫn là mảng sạch nhất trong toàn bộ audit.
+**Kịch bản lỗi cụ thể:** user xem xong 1 App-Open splash → ngay sau đó redeem VIP key (hoặc mạng rớt, hoặc UMP consent bị từ chối trong cùng phiên). `onAdHiddenCallback` của lần show trước fire, adapter tự phát 1 request load App-Open mới bất chấp user vừa thành VIP / đang offline / chưa có consent. Hậu quả: 1 network request thừa (offline → fail vô hại), hoặc — nghiêm trọng hơn về policy — 1 ad request được phát khi `_canRequestAds == false` (EEA user chưa consent). Đây là lỗ hổng consent-gate nhỏ nhưng có thật: comment ở `:326-337` biện minh cho việc bỏ qua *watchdog late-arrival*, nhưng không nhắc tới việc bỏ qua consent/VIP/cap. So sánh: AdMob adapter KHÔNG có đường tự-reload này (nó dựa vào `AdManager` để reload sau dismiss ở `ad_manager.dart:1372`), nên đây cũng là 1 **khác biệt parity** AppLovin-only.
 
----
+**Đề xuất:** cho đường reload này route lại qua 1 callback tới `AdManager` (hoặc kiểm tra `_canRequestAds`/VIP flag mà adapter có thể được cấp), thay vì gọi `_bridge` trực tiếp.
 
-## 2. Network / Offline (REQ 2) — 🟢 Đạt, xác nhận T33/T36 là fix thật
+### F2 — [Low] Interstitial & Rewarded AppLovin cũng tự reload đi vòng gate
 
-Verify tươi xác nhận cả 2 fix trước đó đúng như đã ghi nhận:
+**File:** `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:599-606` (inter `onAdHiddenCallback`), `:575-582` (inter display-fail), `:750-757` + `:726-733` (rewarded).
 
-- **T33 (banner offline UI riêng biệt) — XÁC NHẬN FIX THẬT.** `AdManager().isOfflineListenable` (`ad_manager.dart:330,337,2022,2044,1185`) được seed/update/reset đúng; banner không còn lẫn lộn "offline" với "VIP-active"/"consent-chưa-có" trong `SizedBox.shrink()` chung nữa.
-- **T36 (làm rõ doc "optimistic seed") — XÁC NHẬN FIX THẬT.** `_lastConnected` seed `true` tại `ad_manager.dart:328` nay có comment giải thích rõ đây là chủ đích (broken detector không nên block ads vĩnh viễn), không còn mâu thuẫn với mô tả task gốc.
-- Connectivity watch (`ad_manager.dart:2015-2057`): listener thật + debounce 800ms + refill chỉ khi false→true + bump `initRevision` — không đổi so với lần verify trước, vẫn đúng.
-- **Gap còn lại: chỉ là thiếu test, không phải bug.** Chưa có test tự động cho path exception thật của `ConnectionNotifierTools`. Không chặn production.
+Cùng bản chất F1 nhưng mức độ thấp hơn: sau dismiss, adapter tự `_bridge.loadInterstitial/loadRewardedAd`. Bỏ qua `isConnected`/`dailyCap`/consent. Rủi ro thực tế thấp vì đây là refill 1 slot (không phải show), và `AdManager.showInterstitial/showRewardedAd` vẫn gate đầy đủ trước khi *hiển thị*. Chủ yếu là request thừa khi offline / VIP. Ghi nhận để nhất quán với F1.
 
----
+### F3 — [Low] Banner reload sau lỗi: parity khác nhau, AppLovin không tự phục hồi khi resume nếu chưa từng lỗi
 
-## 3. Vòng đời & Memory leak (REQ 3) — 🟢 Đạt, xác nhận T31/T34/T35 là fix thật + 1 gap mới xác nhận (không phải bug)
+**File:** `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:993-1012` (`onAppResumed`) vs `admob_adapter.dart:914-936`.
 
-- **T31 (`_eventStream.close()`) — XÁC NHẬN FIX THẬT.** `ad_manager.dart:1148-1149`: `destroy()` gọi `_eventStream.close()` rồi recreate stream mới ngay sau. Guard `if (_eventStream.isClosed) return;` trong `_emit()` không còn là dead code.
-- **T34 (dispose banner native view trước refresh) — XÁC NHẬN FIX THẬT.** `applovin_adapter.dart:970-984`: `onAppResumed()` gọi `_bridge.destroyWidgetAdView(oldId)` tường minh trước khi `preloadBanner()`, không còn tích tụ native `AdView` qua nhiều lần reconnect.
-- **T35 (splash mounted-guard race) — XÁC NHẬN FIX THẬT.** `splash_screen.dart:155-211`: `mounted`-guard giờ chỉ bọc phần cập nhật UI (ValueNotifier), chuỗi ATT→UMP→`initialize()` chạy vô điều kiện — không còn cửa sổ hẹp nào có thể skip init.
-- **Gap mới xác nhận (Agent policy, khớp với phát hiện của `audit_codex.md`): interstitial/rewarded/banner không có show-watchdog timeout** như App Open (App Open có hard-cap 90s ở cả 2 adapter). Nếu native `showInterstitial()`/`showRewarded()` bị treo (native SDK bug hiếm), slot có thể kẹt vĩnh viễn ở trạng thái "showing" không có cơ chế tự phục hồi ngoài crash-guard (chỉ bắt exception, không bắt hang). Rủi ro **thấp** (chưa từng quan sát thấy trong test/production), nhưng là gap thật, đáng thêm watchdog theo đúng pattern đã có ở App Open.
-- Các mục khác (double-show race state machine, `late`/`!` sạch, memory-leak regression test 25 chu kỳ) không đổi so với lần verify trước — vẫn đạt.
+AppLovin `onAppResumed` chỉ recreate banner khi `banner.hasError == true`; nếu banner ở trạng thái loaded bình thường thì chỉ bật lại autoRefresh. AdMob thì reload khi `hasError && _bannerAd == null`. Logic hợp lý ở cả hai, nhưng đường phục hồi khác nhau đủ để một QA test pass trên provider này có thể không cover provider kia. Không phải bug — là điểm cần test riêng cho từng provider (đúng như README "Known limitations" đã cảnh báo 3/15 kịch bản chỉ verify thủ công).
 
----
+### F4 — [Low] App-Open: watchdog và native callback có thể cùng chạy — đã có guard, nhưng guard dựa trên identity của `_appOpenDismiss`
 
-## 4. Provider parity (REQ 1) — 🟢 Đạt, xác nhận T32 vẫn còn mở
+**File:** `applovin_adapter.dart:476` (`_appOpenDismiss != captured || !appOpenSlot.isShowing`) và `:292,333` (`if (_appOpenDismiss == null) return`).
 
-- Ad-unit-id tách platform thật cho AppLovin (4 unit ID khác nhau/platform) — không đổi, vẫn đạt.
-- **T32 XÁC NHẬN VẪN CÒN MỞ.** `android/app/src/main/AndroidManifest.xml:54-55` và `ios/Runner/Info.plist:55-56` vẫn cùng giá trị AdMob App ID `ca-app-pub-3612191981543807~9731053733`, iOS có TODO comment. Blocked do thiếu App ID iOS thật từ user (đã ghi nhận trong `doc/feature.md`). **Rủi ro hiện tại: thấp** — provider runtime cố định `AdProvider.appLovin`, AdMob dormant dùng test-unit-id công khai, App ID trùng không gây lỗi thật cho tới khi có ai bật lại AdMob làm provider chính.
+Guard chống double-fire giữa watchdog và native `onAdHidden`/`onAdDisplayFailed` được viết đúng: watchdog so sánh identity callback + trạng thái slot; native callback check `_appOpenDismiss == null`. Đã đọc kỹ, **không tìm ra đường nào fire callback 2 lần**. Ghi nhận là điểm cần giám sát (fragile-by-nature) chứ không phải lỗi — nếu ai đó sửa thứ tự set `_appOpenDismiss = null` so với `cb()` thì guard sẽ vỡ. Hiện tại thứ tự đúng (clear trước khi call).
 
----
+### F5 — [Low] AdMob `onAppResumed` đọc `platformDispatcher.views.first` fallback
 
-## 5. Trial mode 1 ngày (REQ 4) — 🟢 Đạt, verify sâu (Agent bảo mật)
+**File:** `admob_adapter.dart:923-932`.
 
-Agent chuyên trách đọc toàn bộ `_first_install_guard.dart`, `vip_entry.dart`, `vip_manager.dart`, `ad_config.dart` xác nhận:
+Code ưu tiên `implicitView` (đúng cho foldable/iPad split-view) rồi mới `views.first`. Fallback `views.first` có thể là window sai trên multi-window, nhưng chỉ ảnh hưởng width banner khi reload-after-error, không crash (có guard `view != null`). Parity: AppLovin không cần width nên không có nhánh này — không phải thiếu sót, do khác cơ chế (AppLovin preload width-agnostic, `applovin_adapter.dart:938-940`).
 
-- **Cấp trial:** `FirstInstallVipGrace` = 24h (release) / 30s (debug) — `ad_config.dart:352-358`; `addVip()` ghi `expiresAt = now + duration`, `grantedAt = now` vào SharedPreferences (`vip_manager.dart:305-385`).
-- **Chống lùi giờ hệ thống — MẠNH, áp dụng cả 2 platform.** `vip_entry.dart:24-34`: nếu `now.isBefore(grantedAt)` → entry lập tức bị coi là hết hạn (không "đứng yên" chờ hồi phục), check chạy runtime mỗi lần đọc `isActive`/`remaining`, không bị cache.
-- **Chống gỡ-cài-lại (uninstall bypass) — KHÁC NHAU CÓ CHỦ ĐÍCH giữa 2 platform:**
-  - **iOS:** flag `ad_sdk_first_install_granted_v1` lưu trong Keychain (`flutter_secure_storage`, `kSecAttrAccessibleAfterFirstUnlock`) sống sót qua uninstall/reinstall → chặn re-grant. Ghi Keychain **trước** SharedPreferences flag để an toàn nếu crash giữa chừng. Edge case còn bypass được: "Erase All Content and Settings" xoá cả Keychain.
-  - **Android:** không dùng Anti-Backup API/ANDROID_ID, cố ý fail-open → mỗi lần gỡ-cài-lại được cấp trial mới. Đây là **quyết định chủ đích** (đã ghi rõ trong code/comment), không phải lỗi bỏ sót.
-  - Debug build bỏ qua guard hoàn toàn để không cản QA; release build check thật.
+### F6 — [Low/Informational] VIP expiry Timer với duration cực xa (50 năm / year-2099)
 
-**Đánh giá: đạt yêu cầu.** Độ chắc chắn chống gian lận trial ước tính ~95% trên iOS, ~50% trên Android (do fail-open có chủ đích) — mức chấp nhận được cho một app không thu phí trial.
+**File:** `packages/ad_sdk/lib/src/vip/vip_manager.dart:258-266`; nguồn duration: `ad_manager.dart:708,1875` (`Duration(days: 365*50)`) và `vip_manager.dart:171` (`DateTime(2099,12,31)`).
 
----
+`_scheduleNextExpiry` tạo `Timer(delay, _handleExpiry)` với `delay` = khoảng cách tới expiry sớm nhất. Với entry VIP vĩnh viễn (config-GAID 50 năm hoặc legacy 2099), `delay` ~ 18.000+ ngày. Trên **web**, Dart clamp Timer ở int32 ms (~24.8 ngày) → timer fire sai sớm. **Nhưng SDK này chỉ target Android + iOS (Dart VM)**, nơi Timer lưu int64 microseconds → 75 năm vẫn nằm trong ngưỡng, timer đơn giản là không bao giờ fire trong phiên (đúng ý nghĩa "VIP vĩnh viễn"). **Không phải bug trên platform mục tiêu.** Ghi nhận để nếu tương lai SDK chạy web thì cần clamp `delay`. Timer được cancel đúng trong `dispose()` và `_scheduleNextExpiry` (cancel trước khi re-arm) — không leak.
 
-## 6. VIP by code (REQ 5) — 🟢 Đạt, verify sâu xác nhận Ed25519 asymmetric đúng, không còn khuyến nghị mở
+### F7 — [Low] `showPrivacyOptions()` / `requestPrivacyOptionsFlow()` không có timeout guard
 
-Agent bảo mật (mảng ưu tiên số 1 theo yêu cầu của bạn) đọc toàn bộ `signed_vip_key.dart`, `vip_manager.dart`, `_redeemed_key_ledger.dart`, `ad_preferences.dart`, `tool/vip_keygen.dart`, `tool/vip_mint.dart` và xác nhận:
+**File:** `packages/ad_sdk/lib/src/core/ump_consent.dart` (`requestPrivacyOptionsFlow`, quanh `dismissCompleter` ~line 249-258).
 
-1. **Thuật toán ký — ĐÚNG LÀ Ed25519 ASYMMETRIC, không phải symmetric dễ decompile.** `signed_vip_key.dart:57,99-103`: `Ed25519().verify(payload, signature: Signature(sig, publicKey: pub))` dùng public-key verify thật, không phải so sánh shared-secret. Kẻ tấn công decompile app chỉ lấy được **public key** (32 byte) — không đủ để tự ký key mới.
-2. **Private key cách ly 100% khỏi app.** `tool/vip_keygen.dart` (generate) và `tool/vip_mint.dart` (mint, nhận `--priv` qua CLI arg) đều là tool offline, không hardcode private key. Grep toàn bộ `packages/ad_sdk/lib/` không tìm thấy chuỗi base64 dài hay `BEGIN PRIVATE` nào — chỉ public key xuất hiện ở `vip_redeem_screen.dart:133,145,250`.
-3. **Chống replay per-device — đúng như tài liệu, không có global one-time-use (chủ đích, đã ghi rõ).**
-   - Check-claim đồng bộ trong `redeemSignedKey()` (`vip_manager.dart:475-528`): verify chữ ký → check `isVipKeyIdRedeemed || _signedKidsInFlight.contains` → add vào in-flight set **trước** await tiếp theo (Dart single-threaded event loop chặn double-tap concurrent).
-   - Durable ledger: iOS dùng Keychain (`_redeemed_key_ledger.dart:47-75`, sống sót qua reinstall), Android chỉ SharedPreferences (mất khi uninstall — nhất quán với hành vi trial ở trên, cùng chủ đích).
-   - **Giới hạn cố hữu đã tài liệu hoá trung thực:** 1 key có thể dùng lại trên **thiết bị khác** — `signed_vip_key.dart:66-70` nói thẳng "true global one-time-use needs a server". Đây là đánh đổi toán học của yêu cầu "không backend", không phải lỗ hổng.
-4. **Checksum chống sửa tay file (`ad_preferences.dart`) — đúng là "deterrent", không phải cryptographic, như đã tài liệu.** FNV-1a (non-crypto) — kẻ tấn công đã root/jailbreak có thể tính lại checksum và giả mạo entry. Chấp nhận được vì mục tiêu chỉ là chặn sửa tay SharedPreferences thông thường, không nhằm chống reverse-engineering chuyên sâu.
-5. **Điểm từng nghi vấn — đã tự tay xác minh lại, KHÔNG phải vấn đề.** `SignedVipKey.verify()` nhận `publicKeyBase64` như tham số hàm (đúng, vì đây là API dùng chung cho nhiều app), nhưng ở **host app cụ thể của chúng ta**, giá trị này được cấp bởi `lib/mckimquyen/widget/vip/vip_keys.dart:14` — `const String kVipPublicKeyBase64 = ...` — là **hằng số Dart biên dịch cứng (`const`)**, không đọc từ file cấu hình/remote-config nào có thể bị thay đổi lúc runtime. Đã grep xác nhận: `vip_screen.dart:21` truyền thẳng `publicKeyBase64: kVipPublicKeyBase64`. Vì vậy vector tấn công "attacker tamper config để đổi public key" **không áp dụng được cho app này** — chỉ là rủi ro lý thuyết nếu một tích hợp khác đọc key này từ nguồn runtime không đáng tin. Không cần hành động gì thêm.
-6. Không tìm thấy bug logic crypto nào. Cap 90 ngày (`maxVipStackDuration`) vẫn enforce đúng khi stack.
+`await dismissCompleter.future` ở đường privacy-options **không** bọc `Future.timeout`, khác với 3 đường đã fix ở T43 (ATT, UMP-update, UMP-form-dismiss của flow chính). **Đây là gap có chủ đích** — T43 ghi rõ "Cố tình không đụng vào `requestPrivacyOptionsFlow()`... nằm ngoài chuỗi gating của splash". Verify lại: đúng là không nằm trong đường `initialize()` (user chủ động bấm "Privacy Settings" sau khi app đã chạy), nên nếu form không dismiss thì chỉ hang **đúng lời gọi đó**, không wedge SDK/ads. Rủi ro chấp nhận được, nhưng nên thêm timeout 20s cho đồng bộ (nếu native form treo, `await` này giữ 1 Future sống + có thể giữ context). Không phải finding mới về mặt phát hiện — nhưng còn hiệu lực và nên đóng nốt.
 
-**Đánh giá tổng:** đây là mức bảo mật tối đa khả thi cho ràng buộc "không backend" — asymmetric-signed offline key + per-device replay guard + durable iOS ledger + public key đã hardcode đúng cách ở host app. Điểm tự tin: **9/10**, trừ điểm duy nhất vì giới hạn multi-device-reuse cố hữu (không thể khắc phục nếu không có server, đây là đánh đổi toán học chứ không phải lỗi).
+### F8 — [Informational] `ConsentManager._settingsListenable` không dispose ở production
 
----
+**File:** `packages/ad_sdk/lib/src/consent/consent_manager.dart` (chỉ dispose trong test-cleanup).
 
-## 7. Policy compliance & tính năng mới (REQ 7) — 🟡 SDK core sạch, example vẫn chưa an toàn để publish
+`ConsentManager` là singleton sống suốt process (kể cả qua `AdManager.destroy()` — có chủ đích, `ad_manager.dart:1217-1222`). Listener `_syncConsentToAdapter` được `removeListener` đúng ở `destroy()`. Vì singleton không bị thay thế trong đời process nên `ValueNotifier` không dispose là chấp nhận được (GC khi process chết). Ghi nhận cho nhất quán, không cần sửa.
 
-Verify tươi 2 gap mà `audit_codex.md` nêu ra:
+### F9 — [Informational] `AdLoadingDialog` dùng `Future.delayed` + generation-guard thay Timer
 
-- **T39 (SSV chưa wire) — XÁC NHẬN: CHỦ ĐÍCH, KHÔNG PHẢI BUG.** `ad_manager.dart:1640-1658,1746-1747`: params `ssvCustomData`/`ssvUserId` đã wire vào `showRewardedAd()`, comment ghi rõ "SDK does NOT run a server and does NOT verify anything itself" — đây là plumbing chuẩn để đối tác tự verify ở server của họ, không phải cơ chế VIP backend. Mặc định `null`, không đổi behavior cũ. Đúng như quyết định trước đó của bạn: **không đụng tới cho tới khi có quyết định từ đối tác**.
-- **T41 XÁC NHẬN VẪN CÒN MỞ — 2 vi phạm thật trong `packages/ad_sdk/example/`:**
-  - **T41a:** `example/lib/main.dart:54-64` chứa SDK key + 4 ad-unit-id AppLovin **thật** (production), không phải placeholder. Nếu example bị publish hoặc bị team khác copy làm mẫu, sẽ tạo traffic/revenue thật ngoài ý muốn hoặc dạy sai pattern.
-  - **T41b:** `example/lib/main.dart:178-189` — `kDemoSafetyParams` set session/hour/day cap = 999, `minTimeAppOpenResume=0`, CTR fraud threshold = 1.0 (tắt hiệu quả check gian lận click) — và **áp dụng ở MỌI build mode kể cả release**, dù có comment cảnh báo "DO NOT copy this" ở dòng 148 nhưng không có cơ chế enforce (không gate bằng `kDebugMode` hay dart-define).
-  - **Rủi ro: chỉ ảnh hưởng nếu example được publish hoặc dùng làm template thật** — không ảnh hưởng app production hiện tại (RoyApp không dùng code này).
-- **SSV/crash-guard/ad-inspector** — không đổi so với lần verify trước, vẫn đạt (xem lịch sử git của file này nếu cần chi tiết).
+**File:** `packages/ad_sdk/lib/src/widget/ad_loading_dialog.dart` (delay ~line 131, generation guard ~line 120/138).
 
----
+Không có Timer object để cancel; dùng `_generation` counter để vô hiệu hóa pop cũ nếu `resetState()` gọi giữa chừng. Navigator được capture trước async-gap, reset state trong `finally`, `onComplete` luôn được gọi. `AnimationController` trong content-state dispose đúng. Không leak. Thiết kế đúng.
 
-## 8. Ad-type coverage & Android/iOS parity (REQ 1+3) — 🟢 Đạt
+## Kết luận cuối: Có nên dùng SDK này cho production ngay bây giờ không?
 
-Không đổi so với lần verify trước — cả 4 loại ad implement đầy đủ ở 2 adapter, native config đầy đủ ở cả app root và example, dismiss→preload đúng, banner RouteAware đúng, App Open không chồng dialog. Gap nhỏ về testability ở example app (chọn provider compile-time, thiếu nút "Show" App Open thủ công) không chặn production.
+**CÓ — có điều kiện.** Theo lens correctness/lifecycle/leak/offline/parity, SDK đủ an toàn để ship production. Không có finding Critical hay High; vòng đời ad, teardown, offline, và timeout-guard đều đã đúng, và các fix đã biết (T42/T43/1.0.23/T40) đã được verify còn hiệu lực trên code hiện tại.
 
----
+**Điều kiện nên xử lý trước hoặc ngay sau khi ship:**
 
-## 9. Đề xuất thứ tự xử lý
-
-**Đã xong (không cần làm lại):** T31, T33, T34, T35, T36, T37, T38 — tất cả xác nhận fix thật qua verify tươi lần này, xem `doc/task/done/`.
-
-**Còn mở, xếp theo mức độ khẩn cấp:**
-
-| Task | Mức độ | Điều kiện kích hoạt rủi ro | Trạng thái |
-|---|---|---|---|
-| **T41** — Example app không an toàn để publish (ID thật + safety cap 999) | Trung bình | Nếu ai đó publish/copy example làm template | `doc/task/todo/T41-*.md` |
-| **T40** — AppLovin không có gate chặn init cho child-user | Trung bình (pháp lý nếu áp dụng) | Chỉ nếu app tương lai nhắm trẻ em/Families | `doc/task/todo/T40-*.md` |
-| **T32** — AdMob App ID Android=iOS | Thấp hiện tại | Chỉ nếu flip provider chính sang AdMob | `doc/task/todo/T32-*.md`, chờ App ID iOS thật từ user |
-| *(mới)* Thêm show-watchdog cho interstitial/rewarded (như App Open đã có) | Thấp | Chỉ nếu native SDK treo ở lệnh `show()` | Chưa có task riêng — đề xuất tạo nếu muốn track |
-| **T39** — SSV chưa wire | Không áp dụng | Chủ ý, chờ quyết định đối tác — **không đụng tới** | `doc/task/todo/T39-*.md`, giữ nguyên |
-
-*(Mục "pin public key VIP" từng nêu ở draft trước đã được tự tay xác minh lại ở mục 11 — không phải vấn đề thật, đã loại khỏi bảng này.)*
-| Publish UMP consent form thật trên AdMob console | Vận hành (thao tác tay) | Bắt buộc trước khi launch production dùng AdMob | Checklist ở `doc/UMP_SETUP.md` |
-
----
-
-## 10. Xác minh chéo — tự tay kiểm tra lại (không qua subagent), để trả lời "chắc chưa?"
-
-Sau khi tổng hợp báo cáo từ 6 subagent, các claim quan trọng nhất (đặc biệt mảng VIP-security mà bạn nhấn mạnh) đã được **tự tay grep/đọc lại trực tiếp**, không dựa hoàn toàn vào lời agent, để tránh trường hợp agent "báo cáo tự tin nhưng sai":
-
-| Claim | Lệnh xác minh | Kết quả |
-|---|---|---|
-| Ed25519 là asymmetric thật, không phải symmetric | `grep -n "Ed25519\|verify(" signed_vip_key.dart` | ✅ Đúng — dòng 57: `Ed25519()`, dòng 100: `_ed25519.verify(payload, signature: Signature(sig, publicKey: pub))` — verify bằng public key thật |
-| Private key không lọt vào code SDK ship (`lib/`) | `grep -rn "priv\|PRIVATE" lib/ --include="*.dart" -i` | ✅ Không tìm thấy — toàn bộ kết quả khớp chỉ là chuỗi "Privacy/privacy" (chính sách quyền riêng tư), không có key material |
-| T40 (AppLovin không gate init cho child-user) còn mở | Đọc trực tiếp `ad_consent.dart:75-95` + `applovin_adapter.dart:110-145` | ✅ Xác nhận đúng — chỉ có `SafeLogger.w(...)`, không có `if (isAgeRestrictedUser) return false;` nào chặn init |
-| T41 (example có ID thật + safety cap 999 ở release) còn mở | Đọc trực tiếp `example/lib/main.dart:40-70` và `:140-190` | ✅ Xác nhận đúng — SDK key + 4 ad-unit-id thật hard-code, `kDemoSafetyParams` với cap 999/CTR 1.0 áp dụng vô điều kiện |
-| T39 (SSV) chỉ là plumbing chưa gọi, không phải bug | `grep -n "ssvCustomData\|ssvUserId" ad_manager.dart` | ✅ Xác nhận — tham số tồn tại trong signature `showRewardedAd()`, mặc định `null`, không đổi hành vi khi không truyền |
-| Khuyến nghị "pin public key VIP cứng" | `grep -n "publicKey\|PublicKey" lib/mckimquyen/widget/vip/*.dart` | ⚠️ **Sửa lại kết luận cũ** — `vip_keys.dart:14` đã là `const String kVipPublicKeyBase64 = ...` (hằng số biên dịch), `vip_screen.dart:21` truyền thẳng hằng số này vào `VipRedeemScreen`. Khuyến nghị trước đó dựa trên hedge chưa xác minh kỹ; sau khi đọc thẳng code, đây **không phải vấn đề thật** cho app hiện tại — đã cập nhật lại mục 6 và bỏ khỏi bảng remediation ở mục 9. |
-
-**Kết luận về độ tin cậy:** 5/6 claim quan trọng nhất được xác nhận đúng 100% qua đọc code trực tiếp. 1 claim (pin public key) ban đầu viết dạng khuyến nghị-phòng-hờ thay vì kết luận chắc chắn — sau khi tự kiểm tra, hoá ra đã đúng sẵn nên đã sửa lại thành xác nhận dứt khoát thay vì để ngỏ. Không phát hiện claim nào sai hoàn toàn trong lần xác minh chéo này.
-
-## 11. Có nên đưa SDK này vào production app không?
-
-**Có, với 3 điều kiện cần giữ đúng bối cảnh hiện tại (không phải rào chặn code):**
-
-1. **App không được nhắm đối tượng trẻ em / Families program** trong khi T40 còn mở — nếu audience thay đổi, phải thêm gate chặn init AppLovin cho child-user trước.
-2. **Không publish hoặc copy `packages/ad_sdk/example/` làm template thật** cho tới khi T41 (ID thật + safety cap 999) được dọn — example chỉ dùng nội bộ để audit/dev.
-3. **Không flip provider chính sang AdMob** cho tới khi T32 (App ID Android=iOS) được sửa bằng App ID iOS thật.
-
-Với 3 điều kiện trên được tuân thủ — đúng như bối cảnh vận hành hiện tại của app (AppLovin là provider chính, app không child-directed, example không publish) — **toàn bộ 5 lỗ hổng CRITICAL từ audit gốc (consent tự chế, `npa` không forward, impression trước consent, network không auto-recover, VIP base64 decompile-được) đã được verify là sửa thật**, và cơ chế VIP-by-code (Ed25519 asymmetric, private key cách ly 100%, per-device replay guard) đạt mức bảo mật tối đa khả thi cho ràng buộc "không backend". Không có mục nào trong T32/T39/T40/T41 là lỗ hổng đang bị khai thác trong runtime hiện tại — chúng là điều kiện cần giữ, không phải lý do trì hoãn ship.
-
-**Khuyến nghị xử lý trước lần release kế tiếp (không bắt buộc, nhưng nên làm sớm):** T41 (example) và T40 (child-user gate) vì cả hai chỉ mất khoảng nửa ngày mỗi mục và loại bỏ hoàn toàn 2 điều kiện ở trên, không còn phải "nhớ giữ đúng bối cảnh" nữa.
+1. **(F1 — nên fix trước khi ship nếu app phục vụ user EEA)** Cho đường tự-reload App-Open của AppLovin adapter đi qua `AdManager` (hoặc ít nhất check `_canRequestAds` + VIP), để không phát ad request khi user chưa consent / vừa thành VIP / đang offline. Đây là điều kiện *policy*, không phải crash.
+2. **(F7 — nên fix, rủi ro thấp)** Thêm `Future.timeout(20s)` cho `requestPrivacyOptionsFlow` để đồng bộ với 3 đường consent còn lại.
+3. **(F2, F3, F5 — chấp nhận được)** Ghi vào test-plan: phải test vòng đời banner/reload **riêng cho từng provider** (AdMob và AppLovin không share đường phục hồi), đúng như README đã cảnh báo.
+4. **Tuân thủ khuyến nghị adoption của chính README:** pilot traffic nhỏ, time-boxed, theo dõi dashboard AdMob/AppLovin thật vài tuần trước khi tin cậy ở scale — vì tầng policy/fill-rate nằm ngoài tầm SDK và chưa có lịch sử production bên thứ ba.

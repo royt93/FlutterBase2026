@@ -170,6 +170,79 @@ Updated: 2026-07-13
   552/552 pass (gồm test timeout mới `att_consent_test.dart`) + `flutter
   analyze` clean cả `packages/ad_sdk` và repo root.
 
+- **T44 — `requestPrivacyOptionsFlow()` vẫn có thể treo vô thời hạn dù đã có
+  timeout guard (2026-07-15/16).** Tự phát hiện khi viết test cho guard T43 đã
+  thêm: `dismissCompleter.future.timeout(20s)` là **dead code** vì dòng ngay
+  trước đó `await ConsentForm.showPrivacyOptionsForm(...)` tự treo trước —
+  hàm này tự await native platform call bên trong trước khi gọi callback
+  dismiss, khác với `loadConsentForm`/`form.show()` (fire-and-forget thật).
+  Fix: bọc bằng `unawaited(...)` để timeout guard trên `dismissCompleter`
+  thật sự có tác dụng. Test mới trong `ump_consent_test.dart` (T44 case)
+  verify guard hoạt động thật (trước khi fix, test fail vì `result` vẫn
+  `null` sau 20s). `flutter test` 561/561 pass.
+
+- **F4 — iOS `SKAdNetworkItems` chỉ 50 entries, README nói "~70" (2026-07-16).**
+  README ghi sai: list AdMob chính chủ ([iOS 14
+  guide](https://developers.google.com/admob/ios/ios14#skadnetwork)) thực tế
+  vẫn đúng 50 entries (verify trực tiếp qua WebFetch) — "~70" là số liệu cũ,
+  không còn đúng. Vấn đề thật của F4 là **thiếu ID của các mediation partner
+  AppLovin MAX** (không phải AdMob thiếu). Fix: lấy list chính chủ của
+  AppLovin (`https://skadnetwork-ids.applovin.com/v1/skadnetworkids.json`,
+  152 entries, confirm là superset chứa đủ 50 ID AdMob) thay cho 50 entries
+  cũ trong `ios/Runner/Info.plist`. README's "~70" reference đã sửa lại
+  đúng số + nguồn. Verify: XML valid, `grep -c` = 152 `SKAdNetworkIdentifier`,
+  `flutter analyze` clean, `flutter test` 79/79 pass (repo root — không có
+  test nào assert số lượng SKAdNetworkIdentifier cụ thể).
+
+### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
+Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
+phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát
+hiện mới:
+
+- **F3 (Gemini, Medium) — VIP signed key one-time-use chỉ per-device, không
+  toàn cục.** Ed25519 chống forge key mới, nhưng 1 key hợp lệ (vd promo) bị
+  leak công khai (forum/group) thì mỗi máy vẫn redeem được 1 lần → VIP miễn
+  phí không giới hạn số máy; không có server nên không revoke được key đã
+  mint. Giới hạn nội tại của mô hình offline, đã ghi trong T18. Chấp nhận vì
+  app chưa có backend. `vip_manager.dart:475-528`, `signed_vip_key.dart:66-70`.
+- **F4 (Gemini, Medium) — VIP entries lưu plaintext JSON trong
+  SharedPreferences.** Checksum FNV-1a (T30) chỉ chống sửa tay ngây thơ, không
+  chống máy đã root/jailbreak tự set `expiresAt` xa tương lai. Chấp nhận cho
+  app không-backend (đánh đổi hợp lý theo yêu cầu "không server", nhưng vẫn là
+  revenue-integrity risk cần biết). `vip_entry.dart:50-60`,
+  `ad_preferences.dart`.
+- **F5 (Gemini, Medium) — COPPA gap ở lần cài đầu tiên nếu app "always
+  child-directed".** Không có consent dialog nào set `isAgeRestrictedUser`
+  trước install đầu → AppLovin init 1 lần với flag mặc định false (AppLovin
+  MAX 4.x không có runtime API để tắt IDFA sau đó). App hiện tại (WiFi stress
+  tester) **không** child-directed → rủi ro = 0 hiện tại; chỉ áp dụng nếu SDK
+  tái dùng cho app trẻ em sau này. Đã ghi trong T40. `ad_consent.dart:85-93`.
+- **F5 (Codex, Low/operational) — không có fallback provider AdMob↔AppLovin
+  ở runtime.** Provider chọn tĩnh lúc init (`ad_manager.dart:784`); nếu
+  provider đang chọn init fail, SDK không tự thử provider còn lại — toàn bộ
+  ad surface tắt cho phiên đó. Quyết định kiến trúc có chủ đích (single
+  provider, không dual-waterfall); chỉ cần document, không cần code thêm.
+- **F6 (Codex, Low) — `ad_manager.dart` là god-file 2148 dòng.** Gánh
+  orchestration + consent + VIP gating + lifecycle observer + retry timers +
+  arbitrator hook. Còn maintainable (tên tốt, comment dày) nhưng đã tới
+  ngưỡng nên tách. Rủi ro: bảo trì dài hạn, không ảnh hưởng publish. Chấp
+  nhận, không refactor trong đợt này.
+- **No-backend-model (T39) — Reward SSV chỉ có app-side plumbing, chưa có
+  server verify.** `ssvUserId`/`ssvCustomData` đã thread xuyên suốt
+  `AdManager.showRewardedAd`/`AdScreenState.showRewardedAd`, nhưng không có
+  backend nào nhận postback AdMob/AppLovin để verify reward thật — quyết định
+  phạm vi có chủ đích (chưa có nhu cầu backend), không phải thiếu sót. Xem
+  `doc/task/done/T39-ssv-plumbing-unwired.md`.
+- **F2 (Gemini, High) — App Open ad hiện trên splash mọi lần mở app, dùng
+  `bypassSafety: true` (bỏ qua toàn bộ frequency cap).** Google policy về App
+  Open không cho hiện ad theo cách "chặn app đang tải nội dung lần đầu" gây
+  nhầm lẫn; ở đây App Open hiện ngay sau init trên splash, mọi cold-start (trừ
+  VIP grace 24h cho user mới cài). Người dùng đã **chốt giữ nguyên hành vi
+  này** (quyết định thiết kế, không phải bug) — sẽ theo dõi AdMob/AppLovin
+  Policy Center nếu bị flag "interrupting app load" thì mới cân nhắc chuyển
+  App Open sang chỉ chạy khi resume từ background. `splash_screen.dart:85-129`
+  (`bypassSafety:true` tại :129).
+
 ### 🔬 On-device verification — Samsung S24 Ultra, Android 16 (2026-06-15)
 > Replaces the prior "not yet verified on a real device" note. **Full ad + VIP
 > lifecycle verified live** (debug build, AppLovin test ads):
@@ -557,10 +630,43 @@ Updated: 2026-07-13
   message → bấm **Publish** ở bước cuối. Sau khi publish, đợi vài phút rồi
   test lại app — log sẽ không còn dòng "no form(s) configured" nữa.
 
+## 🧑‍💻 Checklist thao tác tay — trước khi release thật (2026-07-15)
+
+Ba việc dưới đây **Claude không tự làm được** (cần login console/pub.dev của
+user, hoặc là quyết định kinh doanh) — user tự làm theo thứ tự nào cũng được,
+không phụ thuộc lẫn nhau:
+
+1. **Đổi test Ad Unit ID / App ID → ID production thật.** Hiện
+   `AndroidManifest.xml`/`Info.plist` và app mẫu đang dùng App ID + ad-unit ID
+   **test** của Google/AppLovin (chốt qua T32, 2026-07-14) — an toàn để dev
+   nhưng sẽ không có doanh thu thật. Trước khi bật AdMob/AppLovin thật: vào
+   AdMob console lấy 2 App ID production (Android + iOS riêng), tạo bộ ad-unit
+   ID (banner/interstitial/rewarded/appopen) cho từng app, thay vào đúng các vị
+   trí đã ghi chú T32 trong `AndroidManifest.xml`/`Info.plist`/`main.dart`.
+2. **Publish UMP consent form trên AdMob console** — xem chi tiết ngay ở mục
+   Blockers phía trên (đã bàn giao 2026-07-14, cần xác nhận đã bấm Publish
+   thật chưa — nếu chưa chắc, kiểm tra log app có còn dòng "no form(s)
+   configured" không).
+3. **Publish `packages/ad_sdk` v1.0.24 lên pub.dev, rồi flip lại
+   `pubspec.yaml`.** Root `pubspec.yaml` hiện đang dùng **local path override**
+   (`applovin_admob_sdk: path: packages/ad_sdk`) để dev/test các fix T01–T43,
+   dòng hosted `applovin_admob_sdk: ^1.0.23` đang bị comment. Trước khi release
+   thật:
+   - Xác nhận `CHANGELOG.md` trong `packages/ad_sdk` đã có mục cho `1.0.24`
+     (gồm các fix T42 consent-lost-on-init và T43 ATT/UMP timeout).
+   - Đăng nhập tài khoản pub.dev của user, chạy (trên máy user, Claude không tự
+     chạy lệnh publish công khai/khó gỡ này):
+     ```
+     cd packages/ad_sdk && flutter pub publish --dry-run   # kiểm tra trước
+     flutter pub publish                                    # publish thật
+     ```
+   - Sau khi publish xong, ở root `pubspec.yaml`: bỏ comment dòng hosted
+     `applovin_admob_sdk: ^1.0.24` (bump version theo bản vừa publish), comment
+     lại dòng `path: packages/ad_sdk`, chạy `flutter pub get` để xác nhận app
+     build lại bằng bản hosted.
+
 ## ⏸️ Deferred
 
-- Recheck official AppLovin MAX iOS SKAdNetwork requirements before App Store
-  release (mediation partners may require extra identifiers).
 - Recheck native ad SDK majors (AppLovinSDK / Google Mobile Ads) each quarter —
   confirm whether the CocoaPods/Dart version pins in `dependency_overrides`
   (root `pubspec.yaml`) can be relaxed now that upstream has moved. Retested

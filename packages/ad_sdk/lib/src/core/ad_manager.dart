@@ -783,6 +783,14 @@ class AdManager with WidgetsBindingObserver {
       // as a test device in debug builds (preserves 1.x policy compliance).
       final adapter = config.isAdMob ? AdMobAdapter() : AppLovinAdapter();
       adapter.eventSink = _emit;
+      // Same gate loadAppOpenAd()/loadInterstitial()/loadRewardedAd() consult
+      // below — adapters that auto-reload from an internal dismiss/fail
+      // callback (bypassing those methods entirely) must check this first.
+      adapter.canReload = () =>
+          !_isVipMember &&
+          !AdSafetyConfig.dailyCapReached() &&
+          _canRequestAds &&
+          isConnected;
       // ponytail: native mediation SDK init (AppLovin/AdMob platform channel)
       // has no completion guarantee — an occasional native-side hang (seen
       // on iOS Simulator) previously wedged this await forever, permanently
