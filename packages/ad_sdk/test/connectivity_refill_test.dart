@@ -42,6 +42,8 @@ class _CountingAdapter implements AdProviderAdapter {
   Future<void> preloadBanner() async => preloadBannerCalls++;
   @override
   void applyConsent(AdConsent consent) {}
+  @override
+  Future<void> dispose() async {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -167,6 +169,85 @@ void main() {
 
       AdManager().debugConnectivityChanged(true);
       expect(AdManager().isConnected, isTrue);
+    });
+  });
+
+  // Pre-ready init race: ad preloads fired from initialize()/VIP-change
+  // callbacks can read isConnected before ConnectionNotifierTools.initialize()
+  // (in _startConnectivityWatch) resolves. The guard must short-circuit to
+  // last-known state and must NOT fall through to the exception-catch path —
+  // proven here by asserting no warning is logged, which distinguishes the
+  // guard from the (pre-existing) try/catch fallback that returns the same
+  // value but only after a caught exception.
+  group('isConnected pre-ready guard', () {
+    tearDown(() {
+      AdManager().debugConnectivityReady = false;
+      SafeLogger.resetForTest();
+    });
+
+    test(
+        'short-circuits to last-known without logging a read-failure '
+        'warning', () {
+      final warnings = <String>[];
+      SafeLogger.configure(
+        level: AdLogLevel.verbose,
+        onLog: (level, tag, message) {
+          if (level == AdLogLevel.warning) warnings.add(message);
+        },
+      );
+
+      AdManager().debugConnectivityChanged(true); // seed _lastConnected
+      AdManager().debugConnectivityReady = false;
+      expect(AdManager().isConnected, isTrue);
+
+      AdManager().debugConnectivityChanged(false);
+      expect(AdManager().isConnected, isFalse);
+
+      expect(warnings, isEmpty,
+          reason: 'guard must return last-known before ConnectionNotifier '
+              'is ready, not fall through to the catch-and-warn fallback');
+    });
+
+    test(
+        'once ready, a broken/unavailable detector falls through to the '
+        'catch path and DOES log a read-failure warning', () {
+      final warnings = <String>[];
+      SafeLogger.configure(
+        level: AdLogLevel.verbose,
+        onLog: (level, tag, message) {
+          if (level == AdLogLevel.warning) warnings.add(message);
+        },
+      );
+
+      AdManager().debugConnectivityChanged(true); // seed _lastConnected
+      AdManager().debugConnectivityReady = true; // simulate init having run
+      // No real ConnectionNotifierTools plugin in this test environment, so
+      // the getter's try block throws and lands in the pre-existing catch —
+      // the mirror-image case of the guard test above.
+      expect(AdManager().isConnected, isTrue,
+          reason: 'catch fallback also returns last-known');
+      expect(warnings, isNotEmpty,
+          reason: 'once ready, a genuinely broken detector must still warn — '
+              'only the pre-ready window is silent');
+    });
+
+    test(
+        'the ready flag survives destroy()/re-init, so a later read never '
+        'regresses to the silent pre-ready path', () async {
+      AdManager().debugConnectivityReady = true;
+      await AdManager().destroy();
+
+      final messages = <String>[];
+      SafeLogger.configure(
+        level: AdLogLevel.verbose,
+        onLog: (level, tag, message) => messages.add(message),
+      );
+      AdManager().isConnected; // return value unused — only the log matters
+
+      expect(messages.any((m) => m.contains('before ready')), isFalse,
+          reason: '_connectivityReady is process/plugin-level state, not '
+              "tied to this AdManager instance's lifecycle — destroy() must "
+              'not reset it, or every re-init would re-open the race window');
     });
   });
 

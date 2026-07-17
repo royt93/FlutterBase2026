@@ -294,6 +294,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // isConnected pre-ready guard, banner leg: a banner mounted/loading during
+  // the window before ConnectionNotifierTools.initialize() resolves must not
+  // throw and must behave as if online (isConnected short-circuits to the
+  // optimistic `_lastConnected` default of true) — reproduces the original
+  // production race where preloadBanner()/loadBannerIfNeeded() could run
+  // before _startConnectivityWatch's initialize() future settled.
+  testWidgets('mounts and loads normally while connectivity is not yet ready',
+      (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    AdManager().debugConnectivityReady = false;
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugConnectivityReady = false;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.loadBannerCalls, 1,
+        reason: 'pre-ready guard reads last-known (true) — banner loads '
+            'exactly as it would once ready');
+    expect(tester.takeException(), isNull);
+  });
+
   // VIP-suppresses-all-ads contract, banner leg: a VIP member must never see
   // a banner load, even with an initialised adapter/config that would
   // otherwise load one for a non-VIP user (see `_isVipMember` gate in

@@ -60,12 +60,37 @@ void main() {
       }
     }
 
-    expect(initialised, isTrue, reason: 'SDK must finish initialising on device');
+    expect(initialised, isTrue,
+        reason: 'SDK must finish initialising on device');
     // VipManager is created during initialize(); a non-null vip surface proves
     // the entitlement subsystem wired up.
     expect(AdManager().vip, isNotNull);
     // The public API must be callable without throwing post-init.
     expect(() => AdManager().isVIPMember(), returnsNormally);
     expect(() => AdManager().canShowInterstitial(), returnsNormally);
+  });
+
+  // Reproduces, end-to-end on a real device/simulator, the original
+  // production race: initialize() fires ad preloads before
+  // ConnectionNotifierTools.initialize() (inside _startConnectivityWatch)
+  // resolves. Polling isConnected repeatedly through that early window must
+  // never throw — only a live native `connection_notifier` plugin can
+  // actually reproduce the pre-fix LateInitializationError, so this is the
+  // one test level below (unit/widget, which fake the plugin) that proves it.
+  testWidgets('isConnected never throws when polled through early boot/init',
+      (tester) async {
+    app.main();
+    await tester.pump();
+
+    for (var i = 0; i < 60; i++) {
+      // ignore: unnecessary_statements
+      AdManager().isConnected;
+      await tester.pump(const Duration(milliseconds: 100));
+      if (AdManager().isInitialised) break;
+    }
+
+    expect(tester.takeException(), isNull,
+        reason: 'isConnected must never throw, even before '
+            'ConnectionNotifierTools.initialize() resolves');
   });
 }

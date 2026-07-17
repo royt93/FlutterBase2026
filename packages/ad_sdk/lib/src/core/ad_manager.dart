@@ -332,6 +332,13 @@ class AdManager with WidgetsBindingObserver {
   /// offline→online transition.
   bool _lastConnected = true;
 
+  /// True once [ConnectionNotifierTools.initialize] has resolved inside
+  /// [_startConnectivityWatch]. Ad preloads triggered by [initialize] (or by
+  /// a VIP state change) can run before that future settles — reading
+  /// [ConnectionNotifierTools.isConnected] before then throws. Guarding on
+  /// this flag avoids the exception entirely instead of catching it.
+  bool _connectivityReady = false;
+
   final ValueNotifier<bool> _offlineNotifier = ValueNotifier<bool>(false);
 
   /// True while the device is offline — listenable mirror of [isConnected],
@@ -371,6 +378,12 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   void debugConnectivityChanged(bool connected) =>
       _onConnectivityChanged(connected);
+
+  /// Test seam: force the pre-ready gate on [isConnected] so tests can
+  /// exercise its early-return branch without waiting on the real
+  /// `ConnectionNotifierTools.initialize()` future.
+  @visibleForTesting
+  set debugConnectivityReady(bool ready) => _connectivityReady = ready;
 
   // ─── Consent gate (T01) ────────────────────────────────────────────────────
   /// Whether ad requests are permitted by the consent flow, mirroring Google
@@ -1270,6 +1283,16 @@ class AdManager with WidgetsBindingObserver {
   // ──────────────────────────────────────────────────────────────────────────
 
   bool get isConnected {
+    if (!_connectivityReady) {
+      // ConnectionNotifierTools.initialize() (in _startConnectivityWatch)
+      // hasn't resolved yet — reading it now would throw. Ad preloads
+      // fired from initialize()/VIP-change callbacks can race this.
+      SafeLogger.d(
+          _tag,
+          () =>
+              'isConnected read before ready, using last-known=$_lastConnected');
+      return _lastConnected;
+    }
     try {
       return ConnectionNotifierTools.isConnected;
     } catch (e) {
@@ -2077,6 +2100,7 @@ class AdManager with WidgetsBindingObserver {
     // platforms/tests without the plugin we simply skip the live watch.
     try {
       await ConnectionNotifierTools.initialize();
+      _connectivityReady = true;
       _lastConnected = ConnectionNotifierTools.isConnected;
       _offlineNotifier.value = !_lastConnected;
       _connectivitySub =
