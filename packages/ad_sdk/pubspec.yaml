@@ -1,6 +1,6 @@
 name: applovin_admob_sdk
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Adapter pattern, state machine, VIP redeem with Cupertino dialog, GDPR/COPPA/CCPA flags, exponential backoff, AdEvent stream, debug overlay.
-version: 1.1.0
+version: 1.1.1
 
 
 environment:
@@ -18,7 +18,7 @@ dependencies:
   app_tracking_transparency: ^2.0.7
   shared_preferences: ^2.5.0
   advertising_id: ^2.7.1
-  connection_notifier: ^2.0.1
+  connection_notifier: ^4.1.0
 
   # Anti-uninstall-bypass guard for first-install VIP grace (iOS-side only).
   # See: lib/src/vip/_first_install_guard.dart
@@ -27,7 +27,7 @@ dependencies:
   # on Play Store reinstall) — no plugin dependency needed.
   flutter_secure_storage: ^10.0.0       # iOS Keychain flag (survives uninstall by default)
   cryptography: ^2.9.0
-  confetti: ^0.7.0
+  confetti: ^0.8.0
 
 dev_dependencies:
   flutter_test:

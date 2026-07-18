@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-18
+
+### Changed
+- Bumped `confetti` `^0.7.0` → `^0.8.0` and `connection_notifier` `^2.0.1` →
+  `^4.1.0` (dependency freshness, closes Pub Points "up-to-date dependencies"
+  gap). No API surface used by this package (`ConnectionNotifierTools
+  .initialize()`/`.isConnected`/`.onStatusChange`) changed across
+  `connection_notifier`'s 3.x/4.x majors — those breaking changes only
+  affected its widget/UI layer, which this SDK doesn't use.
+
 ## [1.1.0] - 2026-07-18
 
 ### Added — Native Ad format v1 (`buildNative()`)
