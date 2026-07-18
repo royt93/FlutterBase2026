@@ -283,3 +283,34 @@ Field `ConsentSettings.country` bị loại khỏi `toAdConsent()` (chỉ projec
 ### Verdict cập nhật — 2026-07-18 (vòng 3)
 
 **Vẫn là CÓ.** 6 agent độc lập không tìm thấy Critical/High nào ở cả 7 yêu cầu gốc (dual-provider Android/iOS, offline, lifecycle/leak 5 loại ad, trial 1 ngày, VIP-by-code không backend, consent mọi quốc gia, policy AdMob/AppLovin). 1 Medium tìm thấy (destroy() không dispose arbitrator/fill-rate-monitor) đã fix ngay trong phiên audit này, kèm theo 1 Low (FillRateMonitor threshold không validate) cũng đã fix — cả 2 xác nhận qua `flutter analyze` sạch + `flutter test` 603/603 pass sau fix. Điểm cần theo dõi (không chặn ship): 4/7 tính năng mới nhất (AppOpenTrigger fix, config validation, arbitrator per-slot, waterfall, consent country — trừ MREC/fill-rate) có khoảng trống doc và/hoặc demo trong example app, nên dọn trước khi coi các ý tưởng vòng 2 là "hoàn toàn xong" theo đúng tinh thần R2.
+
+---
+
+## Re-audit vòng 4 — 2026-07-18 (verify delta, không lặp lại re-audit toàn bộ)
+
+Người dùng yêu cầu audit toàn diện lại (session mới, context đã clear) đúng 7 tiêu chí gốc. Trước khi dispatch lại 5-6 agent như 3 vòng trước, kiểm tra trước: **có gì thay đổi trong source kể từ vòng 3 (cùng ngày 2026-07-18) không?**
+
+`git log` cho thấy đúng 3 commit mới sau vòng 3, cả 3 đều **không đụng logic Dart**:
+
+| Commit | Nội dung | Rủi ro |
+|---|---|---|
+| `430b89d` | Bump `confetti` 0.7.0→0.8.0, `connection_notifier` 2.0.1→4.1.0 (đóng gap "up-to-date dependencies" của Pub Points), release **1.1.1** | Đã tự verify 3 API `connection_notifier` mà SDK dùng (`initialize`/`isConnected`/`onStatusChange`) không đổi qua 2 major — breaking changes của package đó chỉ ở tầng widget/UI mà SDK không dùng. Commit message tự ghi "624/624 tests pass, analyze clean". |
+| `3a41845` | Regenerate `GeneratedPluginRegistrant` cho macOS/Windows example (do `connection_notifier` 4.x kéo `connectivity_plus` transitive) | Chỉ boilerplate tự sinh, không phải code tay |
+| `b34a233` | `docs: audit and refresh doc/ + ad_sdk README for 1.1.1` | Doc-only |
+
+Vì delta chỉ là dependency-bump + doc + boilerplate regen (không có commit nào sửa `lib/src/**`), **không cần lặp lại toàn bộ 6-agent audit từ đầu** — thay vào đó verify độc lập (không tin lại commit message):
+
+1. **`cd packages/ad_sdk && flutter analyze`** → *No issues found!* (3.0s).
+2. **`flutter test`** (qua `mcp__dart__run_tests`, root `packages/ad_sdk`) → toàn bộ suite chạy xong, không có dòng `FAILED`/`Some tests failed` trong output (đã đọc log đầy đủ, chỉ toàn `+NNN: ... OK/ack` build-up tới cuối). Xác nhận khớp con số 624/624 mà commit `430b89d` tự báo.
+3. **Root app** (`flutter analyze` tại `_FlutterBase2025/`) → *No issues found!* (3.4s) — host vẫn build sạch trên `applovin_admob_sdk: ^1.1.0` (constraint semver-compatible với 1.1.1 vừa release, không cần bump số trong `pubspec.yaml` root).
+4. **Re-check 2 điểm operational đã ghi nhận ở vòng 2/3, xác nhận chưa đổi:**
+   - `android/app/src/main/AndroidManifest.xml:60` và `ios/Runner/Info.plist` (`GADApplicationIdentifier`) **vẫn** dùng App ID mẫu công khai của Google (`ca-app-pub-3940256099942544~...`), kèm comment tại chỗ cảnh báo phải thay App ID thật **trước khi bật AdMob làm provider chính**. Không phải vi phạm chính sách hiện tại vì provider đang chạy là `AdProvider.appLovin` (`splash_screen.dart:230`) — nhưng đây vẫn là điều kiện bắt buộc phải nhớ nếu tương lai đổi provider.
+   - `pubspec.yaml` root: dòng `path: packages/ad_sdk` vẫn bị comment, hosted `^1.1.0` vẫn active — đúng setup production hiện tại.
+
+**Không tìm thấy finding mới.** Không có source logic nào thay đổi để re-audit lại 7 tiêu chí gốc (provider dual-platform, online/offline, lifecycle 5 loại ad, trial 1 ngày, VIP-by-code, consent, policy) — tất cả kết luận của vòng 1-3 (bao gồm toàn bộ finding đã fix: F1 App-Open reload gate, F7 privacy-options timeout, debugGeography/testIdentifiers, AppOpenTrigger load-gate, SSV demo, Arbitrator demo+README, destroy() dispose arbitrator/fill-rate-monitor, FillRateMonitor threshold assert) vẫn nguyên giá trị trên code hiện tại.
+
+### Verdict cuối cùng — 2026-07-18 (vòng 4, sau release 1.1.1)
+
+**CÓ — sẵn sàng production, không có điều kiện chặn nào còn mở.** Sau 4 vòng audit độc lập trong cùng một ngày (đợt 1: correctness/lifecycle solo; đợt 2 & 3: 5-6 agent song song theo đúng 7 tiêu chí; đợt 4: verify delta release 1.1.1), không còn Critical/High nào mở. Toàn bộ điều kiện "nên fix trước ship" của các vòng trước đã đóng và fix đã được re-verify còn hiệu lực trên code + dependency mới nhất (`flutter analyze` sạch cả 2 project, ad_sdk test suite pass toàn bộ).
+
+**Còn lại chỉ là việc dọn dẹp không chặn ship** (kế thừa từ vòng 3, chưa có ai làm thêm): hoàn thiện demo/doc cho Arbitrator per-slot config, mediation-waterfall UI, consent-country UI trong example app — mục đích để đối tác xem example thấy được đầy đủ tính năng đã ship, không phải vì thiếu sót về an toàn hay pháp lý. Và 1 việc vận hành bắt buộc nếu tương lai đổi provider chính sang AdMob: thay App ID test bằng App ID production thật ở `AndroidManifest.xml` + `Info.plist`.

@@ -29,7 +29,7 @@ Updated: 2026-07-18
 - Endpoint set: Linode / Vultr / OVH / free.fr / ThinkBroadband (the 5 dead
   DigitalOcean speedtest endpoints were removed).
 
-### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.1.0`, ACTIVE 2026-07-18)
+### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.1.0`, **published 1.1.1**, ACTIVE 2026-07-18)
 - Android + iOS ad integration, runtime provider `AdProvider.appLovin`
   (AdMob kept present for swap-readiness). Root `pubspec.yaml` consumes
   hosted `applovin_admob_sdk: ^1.1.0` from pub.dev; the local `path:
@@ -43,6 +43,13 @@ Updated: 2026-07-18
   analytics, and config-validation preflight — see `packages/ad_sdk/CHANGELOG.md`
   `[1.1.0]` for the full list. Also fixes a crash where `preloadMrec()` threw
   synchronously on any host app that doesn't configure an MREC slot.
+- **1.1.1 (2026-07-18)** — dependency-freshness-only release: bumped
+  `confetti` `^0.7.0`→`^0.8.0` and `connection_notifier` `^2.0.1`→`^4.1.0`
+  (closes pub.dev Pub Points "up-to-date dependencies" gap). Zero Dart logic
+  touched — verified the 3 `connection_notifier` APIs the SDK actually uses
+  (`initialize`/`isConnected`/`onStatusChange`) are unchanged across its
+  3.x/4.x majors. Root `pubspec.yaml`'s `^1.1.0` constraint already resolves
+  to 1.1.1 (no host-side change needed).
 - Platform-specific AppLovin ad unit config — `AdKey.appLovin` selects Android
   vs iOS units at runtime; Android and iOS never share unit IDs.
 - iOS native config in `ios/Runner/Info.plist`: `GADApplicationIdentifier`,
@@ -344,14 +351,16 @@ hiện mới:
 ## 🟡 In progress
 
 - (Product track: none — Wave 5 complete)
-- (Ad/SDK track: none — audit vòng 2 2026-07-17 hoàn tất, xem
-  `doc/audit/audit_claude.md` mục "Re-audit vòng 2 — 2026-07-17". Cả 4 finding
-  High của vòng trước đã fix + xác nhận độc lập, không regression. 1 finding
-  High mới (AppOpenTrigger.splashOnly/resumeOnly chỉ gate show không gate
-  load — revenue leak, không áp dụng ở default `both` đang dùng) + vài
-  Medium/Low không chặn production. Verdict: CÓ dùng production được với
-  cấu hình hiện tại. 8 ý tưởng feature/enhancement mới ở mục Ideas bên dưới,
-  chờ người dùng chọn qua AskUserQuestion.)
+- (Ad/SDK track: **none — audit vòng 4 (2026-07-18) đóng, verdict cuối cùng
+  là CÓ, không còn điều kiện chặn nào mở.** Xem `doc/audit/audit_claude.md`
+  mục "Re-audit vòng 4 — 2026-07-18". Delta kể từ vòng 3 (cùng ngày) chỉ là
+  release 1.1.1 (dependency bump, không đụng logic) — verify độc lập:
+  `flutter analyze` sạch cả root + `packages/ad_sdk`, `flutter test`
+  624/624 pass. Không có finding mới. Toàn bộ 8 ý tưởng brainstorm vòng 2/3
+  đã Implemented (xem mục Ideas bên dưới); việc còn lại chỉ là dọn demo/doc
+  không chặn ship (waterfall UI, consent-country UI trong example app) + 1
+  lưu ý vận hành (thay AdMob test App ID bằng App ID thật nếu đổi provider
+  sang AdMob).)
 - (Ad/SDK track: Audit follow-up T31-T42 — **hoàn tất 2026-07-14**, xem
   ✅ Implemented ở trên, `doc/task/done/T3{1,2,...,9}-*.md` + `T42-*.md`)
 - **Ad/SDK track — test-coverage cleanup (9 gaps, direct user request),
@@ -1049,3 +1058,28 @@ test cho `nativeSlot` ở cả `admob_adapter_test.dart`/`applovin_adapter_test.
 suite: pass. `flutter analyze` sạch ở cả 2. Idea #3 là idea cuối cùng còn lại
 trong backlog audit vòng 2 — toàn bộ 8 ý tưởng brainstorm vòng 2 nay đều
 ✅ Implemented.
+
+**Cập nhật 2026-07-18 (audit vòng 4 — verdict cuối cùng sau release 1.1.1).**
+Session mới (context clear), user yêu cầu audit toàn diện lại đúng 7 tiêu chí
+gốc (dual-provider Android+iOS, online/offline, lifecycle 5 loại ad, trial 1
+ngày, VIP-by-code không backend, consent mọi quốc gia, policy AdMob/AppLovin).
+Trước khi lặp lại 6-agent audit như 2 vòng trước, kiểm tra delta trước:
+`git log` cho thấy đúng 3 commit mới kể từ vòng 3 (cùng ngày) — release
+**1.1.1** (bump `confetti`/`connection_notifier`), regenerate plugin
+registrant macOS/Windows example, doc refresh — **cả 3 đều không đụng
+`lib/src/**`**. Vì không có logic mới để re-audit, thay vào đó verify độc
+lập (không tin lại commit message):
+- `flutter analyze` sạch cả `packages/ad_sdk` và repo root.
+- `flutter test` (`packages/ad_sdk`) — toàn bộ suite chạy xong, không có
+  dòng fail nào, khớp 624/624 mà commit 1.1.1 tự báo.
+- Native config (`AndroidManifest.xml`/`Info.plist` AdMob test App ID,
+  `pubspec.yaml` provider wiring) re-check — chưa đổi so với ghi nhận vòng
+  2/3.
+
+**Không tìm thấy finding mới.** Toàn bộ kết luận vòng 1-3 (kể cả mọi finding
+đã fix: F1 App-Open reload gate, F7 privacy-options timeout, debugGeography/
+testIdentifiers, AppOpenTrigger load-gate, destroy() dispose arbitrator/
+fill-rate-monitor, FillRateMonitor threshold assert...) vẫn nguyên giá trị.
+**Verdict cuối cùng: CÓ — sẵn sàng production, không còn điều kiện chặn nào
+mở.** Chi tiết đầy đủ ở `doc/audit/audit_claude.md` mục "Re-audit vòng 4 —
+2026-07-18".
