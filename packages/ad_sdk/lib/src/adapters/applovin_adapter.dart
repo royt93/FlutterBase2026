@@ -1079,6 +1079,14 @@ class AppLovinAdapter implements AdProviderAdapter {
   Future<void> preloadMrec() async {
     final cfg = _max;
     if (cfg == null) return;
+    if (cfg.mrecId.isEmpty) {
+      // Host app doesn't configure MREC — AppLovin's native MaxAdView throws
+      // a fatal (uncatchable, off the platform-channel call) IllegalArgumentException
+      // "No Ad Unit ID specified" if we call loadAd() with an empty id.
+      SafeLogger.d(
+          _logTag, 'preloadMrec $tag ⏭️ skipped — no mrecId configured');
+      return;
+    }
     SafeLogger.d(_logTag, 'preloadMrec $tag 🔄 id=${cfg.mrecId}');
     _ensureWidgetAdViewListener();
 

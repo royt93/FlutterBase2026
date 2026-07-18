@@ -6,6 +6,66 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-18
+
+### Added — Native Ad format v1 (`buildNative()`)
+- New `AdSlotType.native` + `AdScreen.buildNative()`. AdMob renders via
+  Google's `NativeAd`/`NativeTemplateStyle(templateType: TemplateType.medium)`
+  (same preload-then-`AdWidget` pattern as banner/MREC; the template
+  self-draws its own "Ad"/AdChoices label). AppLovin renders via a
+  self-contained `MaxNativeAdView` with a custom Dart child layout
+  (`MaxNativeAdIconView`/`TitleView`/`MediaView`/`BodyView`/
+  `CallToActionView`), for which the package self-draws its own "Ad"
+  compliance badge (mirrors MREC's `_MrecContainer` badge). v1 ships one
+  fixed layout — not a customizable editor. See README § "Native Ad (v1)".
+
+### Added — MREC ad format (`buildMrec()`)
+- Medium-rectangle banner variant (`AdSlotType.mrec`), same lifecycle shell
+  as banner (RouteAware pause/resume, VIP suppression, offline collapse,
+  auto-refresh gate).
+
+### Added — Smart Monetization Arbitrator + fill-rate monitor
+- `monetization_arbitrator.dart`: opt-in per-slot provider arbitration with a
+  guardrail against flapping between providers. `fill_rate_monitor.dart`:
+  tracks per-slot fill rate over a rolling window for arbitration decisions
+  and diagnostics.
+
+### Added — Mediation waterfall reporting
+- Adapters now surface mediation waterfall/network response data through the
+  existing `AdEvent` stream for host-app-side analytics.
+
+### Added — Consent-country analytics
+- Consent events now carry the resolved consent country (GDPR/CCPA scope) so
+  host apps can break down consent-rate metrics by region.
+
+### Added — Config validation preflight
+- `ad_diagnostics.dart` / `integration_self_check.dart` gained checks that
+  catch common misconfiguration (missing ad unit IDs, mismatched provider
+  config) before the SDK starts requesting ads.
+
+### Fixed — [High] `AppLovinAdapter.preloadMrec()` crashed the host app when MREC wasn't configured
+- `AdManager.initialize()` (and the VIP-loss handler) unconditionally
+  preload the MREC slot alongside banner, regardless of whether the host
+  app actually uses `buildMrec()`. For AppLovin, an unconfigured MREC
+  resolves `AppLovinConfig.mrecId` to its default empty string, and
+  AppLovin's native `MaxAdViewImpl.loadAd()` throws
+  `IllegalArgumentException: No Ad Unit ID specified` synchronously inside
+  an Android `Handler` callback — outside Dart's platform-channel
+  try/catch, so it crashed the whole process instead of surfacing as a
+  catchable Dart error. Any AppLovin-provider host app that doesn't
+  configure MREC (i.e. virtually all apps, since MREC only shipped this
+  release) would crash on every SDK init. `preloadMrec()` now skips the
+  native preload entirely when `cfg.mrecId` is empty.
+
+### Fixed — [High] `AppOpenTrigger.splashOnly`/`resumeOnly` only gated the SHOW path, not LOAD
+- `showAppOpenAd`/`showAppOpenAdOnResume` respected `appOpenTrigger`, but
+  `loadAppOpenAd()` (init/VIP-change/retry-refill) never checked it — under
+  `splashOnly`/`resumeOnly` the App Open slot kept getting refilled and could
+  sit `ready` indefinitely (AppLovin has no AdMob-style 4h TTL), wasting
+  network requests/fill quota. Default `both` was unaffected (both gates are
+  no-ops there). Now gated behind the same `appOpenTrigger` check as the show
+  path.
+
 ### Fixed — `redeemVip()` demo mode (`validator == null`) no longer accepts any key in release builds
 - Legacy `redeemVip()` accepts any key when `AdConfig.vipKeyValidator` is
   `null`, intended as a zero-config demo mode. A host app that forgot to wire

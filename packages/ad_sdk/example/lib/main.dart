@@ -76,6 +76,11 @@ final String _kAppLovinMrecId = Platform.isIOS
         defaultValue: 'YOUR_MREC_AD_UNIT_ID')
     : const String.fromEnvironment('APPLOVIN_MREC_ID_ANDROID',
         defaultValue: 'YOUR_MREC_AD_UNIT_ID');
+final String _kAppLovinNativeId = Platform.isIOS
+    ? const String.fromEnvironment('APPLOVIN_NATIVE_ID_IOS',
+        defaultValue: 'YOUR_NATIVE_AD_UNIT_ID')
+    : const String.fromEnvironment('APPLOVIN_NATIVE_ID_ANDROID',
+        defaultValue: 'YOUR_NATIVE_AD_UNIT_ID');
 
 /// Provider for this app — defaults to `AdProvider.appLovin` since AppLovin is
 /// the harder-to-exercise path (AdMob demo IDs are Google's public test
@@ -141,6 +146,7 @@ class DemoConfig {
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
         mrecId: 'ca-app-pub-3940256099942544/2247696110',
+        nativeId: 'ca-app-pub-3940256099942544/2247696110',
         // Optional per-platform overrides (T15) — omit to use the same id
         // on both platforms, as above:
         // androidBannerId: 'ca-app-pub-.../android-banner',
@@ -153,6 +159,7 @@ class DemoConfig {
         appOpenId: _kAppLovinAppOpenId,
         rewardedId: _kAppLovinRewardedId,
         mrecId: _kAppLovinMrecId,
+        nativeId: _kAppLovinNativeId,
       ),
       logLevel: AdLogLevel.verbose,
       onLog: LogBuffer.instance.sink,

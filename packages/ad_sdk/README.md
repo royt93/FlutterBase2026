@@ -1559,7 +1559,7 @@ See `MIGRATION.md` for a step-by-step guide.
 
 ## Support
 
-- **Bug reports**: open an issue on [GitHub](https://github.com/royt93/FlutterBase2025/issues) with `roy93~` log output, SDK version, and provider (admob/appLovin)
+- **Bug reports**: this package's source repo is private, so there's no public issue tracker — email `loitp@skyjoy.vn` with `roy93~` log output, SDK version, and provider (admob/appLovin). Best-effort, single maintainer, no SLA.
 - **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 11 self-contained demo pages, one per feature
 - **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management
 
