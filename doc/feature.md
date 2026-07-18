@@ -981,16 +981,24 @@ arbitrator/fill-rate-monitor) + 1 Low (threshold `FillRateMonitor` không
 validate). Agent E ban đầu báo 4/7 tính năng thiếu doc/demo, nhưng **verify
 tay bằng grep README + example app (2026-07-18) bác bỏ 1 claim**: AppOpenTrigger
 load-gate thực ra đã có doc sẵn từ vòng 2 (README dòng 621+633) — không cần
-sửa. **3 gap thật còn lại** (🟡 In progress, cần dọn trước khi coi cả 7 ý
-tưởng là "xong" đúng nghĩa):
-- Config validation (#8) — 2 warning mới chưa có doc, chỉ có comment code.
-- Arbitrator per-slot/guardrail (#5) — `SafetyDemoPage` chưa demo
-  `perSlotThresholdMicros`/guardrail (chỉ gọi constructor trần).
-- Mediation waterfall (#6) — chưa hiển thị ở `EventsDemoPage`.
-- Consent country (#7) — chưa có UI set/xem ở `ConsentDemoPage`.
+sửa.
+
+**Cập nhật 2026-07-18 (audit vòng 4, session mới) — 4 "gap" trên bị stale, đã
+đóng từ trước, verify lại bằng grep trực tiếp source (không dựa vào doc cũ):**
+- Config validation (#8) — **đã có doc**: README mục "Release-build safety
+  checks (config validation)" liệt kê đủ cả 2 warning mới
+  (`umpDebugGeography` còn set, `AppLovinConfig.sdkKey` rỗng).
+- Arbitrator per-slot/guardrail (#5) — **đã demo**: `SafetyDemoPage` gọi
+  `AdManager().enableArbitrator(MonetizationArbitrator(...
+  perSlotThresholdMicros: const {...`.
+- Mediation waterfall (#6) — **đã hiển thị**: `EventsDemoPage` đọc
+  `e.mediationWaterfall` và render trực tiếp trong dòng log.
+- Consent country (#7) — **đã có UI**: `ConsentDemoPage` hiển thị
+  `country=${s.country ?? ...}`.
 
 (MREC #2, Fill-rate monitor #4, và AppOpenTrigger đã hoàn thiện đầy đủ cả doc
-lẫn demo/doc tương ứng.)
+lẫn demo/doc tương ứng — cả 7 tính năng vòng 3 nay đều có doc + demo đầy đủ,
+0 gap còn mở.)
 
 #### New ideas (2026-07-18 audit vòng 3 brainstorm)
 
@@ -1023,6 +1031,16 @@ backlog).
 
 Cả `packages/ad_sdk` test suite (614/614) và `flutter analyze` sạch sau khi
 thêm 2 tính năng này.
+
+**Cập nhật 2026-07-18 (audit vòng 4, session mới) — đóng nốt gap demo/README
+cho 2 tính năng trên.** Grep trực tiếp `example/lib/main.dart` xác nhận SDK
+đã có code + test nhưng **không có demo page nào** dùng `diagnostics()` hay
+`runIntegrationSelfCheck()` — đây là gap thật duy nhất còn sót của cả backlog
+vòng 3 (khác 4 gap ở trên vốn đã bị stale/sai). Đã thêm `DiagnosticsDemoPage`
+(§18, mirror pattern `ComplianceDemoPage`) vào example app + mục README
+"Diagnostics & integration self-check" (giữa Fill-rate monitor và Native Ad
+v1). `flutter analyze` sạch trên `packages/ad_sdk/example`. Từ giờ **0 gap
+doc/demo còn mở** cho toàn bộ 7 tính năng vòng 3 + 2 ý tưởng brainstorm.
 
 **Cập nhật 2026-07-18 (Native Ad v1, #3) — ✅ Implemented — toàn bộ backlog
 audit vòng 2/3 đã xong.** Research trực tiếp trong source `google_mobile_ads`

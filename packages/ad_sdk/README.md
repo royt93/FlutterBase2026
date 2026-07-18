@@ -1057,6 +1057,41 @@ outage.
 There is no `disableFillRateMonitor` for host apps — same reasoning as the
 arbitrator above, it's a `@visibleForTesting` seam only.
 
+## Diagnostics & integration self-check
+
+`AdManager.diagnostics()` is a one-shot, read-only snapshot that combines the
+3 monetization signals above — mediation waterfall, fill rate, arbitrator
+stats — into a single `AdDiagnostics` object, so a partner can answer "why is
+eCPM low today" without cross-referencing 3 separate pages/subsystems:
+
+```dart
+final diag = AdManager().diagnostics();
+diag.lastWaterfallBySlot;        // most recent mediation waterfall per AdSlotType
+diag.fillRateBySlot;             // FillRateMonitor.fillRate per slot (empty map if monitor disabled)
+diag.arbitratorEstimatedEcpmMicros; // null if arbitrator disabled
+diag.arbitratorVetoRate;             // null if arbitrator disabled
+diag.toJson();                       // hand to a partner/reviewer
+```
+
+`AdManager.runIntegrationSelfCheck()` is a **debug-only** checklist (init →
+consent → per-ad-type load) so a partner integrating the SDK doesn't have to
+manually click through every demo page to confirm their `AdConfig` works on
+their device. It's a no-op returning a single `skipped` item outside debug
+builds, and deliberately never calls `destroy()` or grants/revokes VIP —
+those mutate live session/entitlement state, which would be a destructive
+side effect of what's meant to be a read-mostly sanity check.
+
+```dart
+final result = await AdManager().runIntegrationSelfCheck(
+  loadTimeout: const Duration(seconds: 15), // per-slot load timeout
+);
+result.allPassed;   // true if no item has SelfCheckStatus.fail
+result.items;        // List<SelfCheckItem>(name, status, detail)
+```
+
+See the example app's "Diagnostics & self-check" demo page for both APIs
+wired to a live UI.
+
 ## Native Ad (v1)
 
 `buildNative()` (or `NativeAdWidget` directly, outside `AdScreen`) renders a native ad —
