@@ -3,12 +3,12 @@
 Nguồn: `doc/audit/audit_claude.md`. Quy trình scrum theo thư mục:
 
 ```
-doc/task/todo/         → chưa làm
+doc/task/todo/         → chưa làm (không tồn tại hiện tại — mọi task đều đã xong, chỉ tạo lại khi có task mới)
 doc/task/inprogress/   → đang làm (di chuyển file sang đây khi bắt đầu)
 doc/task/done/         → xong (di chuyển file sang đây, tick hết acceptance criteria)
 ```
 
-**Cách dùng:** khi bắt đầu một task, `git mv` file từ `todo/` → `inprogress/` và đổi `Status:` trong file. Khi xong, `git mv` sang `done/`. 1 file = 1 task, tên `Txx-slug.md`.
+**Cách dùng:** khi bắt đầu một task mới, tạo file `Txx-slug.md` trực tiếp trong `todo/` (tạo thư mục nếu chưa có), rồi `git mv` sang `inprogress/` và đổi `Status:` trong file. Khi xong, `git mv` sang `done/`. 1 file = 1 task.
 
 ## Tiến độ (cập nhật 2026-07-07)
 - **P0: 5/5 XONG ✅** — T02, T08, T18, T01, T03.

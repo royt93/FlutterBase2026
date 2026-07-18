@@ -1,9 +1,9 @@
 # Prompt Template: Tích hợp `applovin_admob_sdk` vào project Flutter
 
-> **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/AD.MD`.
+> **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/feature.md` (nguồn state hiện tại — `doc/AD.MD` đã archive vì bị `feature.md` thay thế hoàn toàn).
 >
-> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-07-11):**
-> - Runtime SDK: `_FlutterBase2025` hiện dùng local `path: packages/ad_sdk` override, version `1.0.24` (dev/test in-repo, chưa publish). Latest **published** pub.dev vẫn là `^1.0.23` — đó là version partner ngoài dùng khi consume hosted. (1.0.21/1.0.22 chỉ có CHANGELOG, không publish; pub.dev nhảy thẳng 1.0.20 → 1.0.23.) Kiểm tra `pubspec.yaml` trực tiếp trước khi tin dòng nào đang active — dòng này đã từng lệch thực tế.
+> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-07-18):**
+> - Runtime SDK: `_FlutterBase2025` hiện dùng **hosted** `applovin_admob_sdk: ^1.1.0` từ pub.dev (path override sang `packages/ad_sdk` đã comment out). Package giờ **public** trên pub.dev, local copy trong repo đang ở `1.1.1`. Kiểm tra `pubspec.yaml` trực tiếp trước khi tin dòng nào đang active — dòng này đã từng lệch thực tế.
 > - ATT (App Tracking Transparency) đã tích hợp SẴN trong SDK: gọi `AdManager().requestAtt()` trong splash trước UMP (xem Step 8.3) — KHÔNG tự gọi `app_tracking_transparency`.
 > - Runtime provider: `AdProvider.appLovin`; `AdMobConfig` vẫn phải non-null để swap-ready.
 > - App-level native mediation plugin: `gma_mediation_applovin`.
@@ -40,10 +40,10 @@ Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimqu
 | Dart package name (từ `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | State management hiện tại | `<GetX | Provider | Riverpod | Bloc | none>` (ưu tiên GetX, nếu trống → AI hỏi) |
 | Default locale | `<vi_VN | en_US | ...>` (ưu tiên `vi_VN`, fallback `en_US`) |
-| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.19`; latest hiện tại = `1.0.23`. |
+| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.19`; latest hiện tại = `1.1.1` (hosted host app đang pin `^1.1.0`). |
 | Lib reference local (nếu monorepo) | `packages/ad_sdk/` |
 | File spec gốc của lib | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (lịch sử feature) + `packages/ad_sdk/MIGRATION.md` |
-| Sample app | `packages/ad_sdk/example/lib/main.dart` (11 demo pages, một trang một feature) |
+| Sample app | `packages/ad_sdk/example/lib/main.dart` (15 demo pages, một trang một feature) |
 | Build target debug | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, nếu target iOS) — cả 2 phải xanh |
 | Build target release | `flutter build apk --release --analyze-size` — verify size delta < 5MB so với baseline |
 | Provider chính (active runtime) | **`AdProvider.appLovin`** (ưu tiên cứng — KHÔNG đổi) |
@@ -513,7 +513,7 @@ AdConfig(
 
 Verify ở entry `__FIRST_INSTALL__` trong `vip.entries` sau init lần đầu (xem Step 10.6 — special entries).
 
-### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.0.23)
+### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.1.1)
 
 Mục tiêu: chặn user gỡ app + cài lại để nhận grace 24h vô hạn lần. Cơ chế per platform:
 

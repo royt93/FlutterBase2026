@@ -4,8 +4,8 @@
 > layout, `make coverage` and Codecov steps described below **do not exist** in
 > this repo. The host app now has a small `test/` directory at the repo root
 > (`test/vip_screen_widget_test.dart`), run with `flutter test` from the root.
-> The bulk of the real automated tests (225 unit/widget/integration tests across
-> 24 files) live in **`packages/ad_sdk/test/`** — run them with
+> The bulk of the real automated tests (624/624 passing across 62 files as of
+> 2026-07-18) live in **`packages/ad_sdk/test/`** — run them with
 > `cd packages/ad_sdk && flutter test`. CI (`.github/workflows/test.yml`) runs
 > both. This file is kept only as a future plan for broader host-app tests.
 >

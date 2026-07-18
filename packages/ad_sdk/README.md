@@ -14,7 +14,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 
 1. [Why this SDK](#why-this-sdk)
 2. [Known limitations — read before adopting](#known-limitations--read-before-adopting)
-3. [What's new in 1.0.23](#whats-new-in-1023)
+3. [What's new in 1.1.1](#whats-new-in-111)
 4. [Quick start (copy-paste in 6 steps)](#quick-start)
 5. [Configuration reference](#configuration-reference)
 6. [VIP system](#vip-system)
@@ -95,7 +95,17 @@ partners):** start with a small-traffic, time-boxed pilot on one app,
 watching the same dashboards above for a few weeks, rather than a
 wholesale integration on day one.
 
-## What's new in 1.0.23
+## What's new in 1.1.1
+
+- **1.1.1** — dependency freshness: `confetti` `^0.7.0` → `^0.8.0`,
+  `connection_notifier` `^2.0.1` → `^4.1.0`. No public API changes.
+- **1.1.0** — first **public** pub.dev release, plus: Native Ad format v1
+  (`buildNative()`), MREC (`buildMrec()`), Smart Monetization Arbitrator +
+  fill-rate monitor, mediation waterfall reporting, consent-country
+  analytics, and a config-validation preflight check. See the dedicated
+  sections below and `CHANGELOG.md` `[1.1.0]` for the full list.
+
+### What's new in 1.0.23 (historical)
 
 > **1.0.20** demoed the recommended `requestAtt() → requestUmpConsent() →
 > initialize()` ordering in the example splash (no library change). **1.0.21**,
@@ -169,7 +179,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.0.23
+  applovin_admob_sdk: ^1.1.1
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
@@ -1560,7 +1570,7 @@ See `MIGRATION.md` for a step-by-step guide.
 ## Support
 
 - **Bug reports**: this package's source repo is private, so there's no public issue tracker — email `loitp@skyjoy.vn` with `roy93~` log output, SDK version, and provider (admob/appLovin). Best-effort, single maintainer, no SLA.
-- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 11 self-contained demo pages, one per feature
+- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 15 self-contained demo pages, one per feature
 - **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management
 
 ---
