@@ -1,6 +1,6 @@
 # Feature Status
 
-Updated: 2026-07-13
+Updated: 2026-07-18
 
 > **Single source of truth** for feature decisions. Two tracks:
 > **🛜 Product** (the WiFi stress-tester itself) and **📣 Ad/SDK**
@@ -29,13 +29,20 @@ Updated: 2026-07-13
 - Endpoint set: Linode / Vultr / OVH / free.fr / ThinkBroadband (the 5 dead
   DigitalOcean speedtest endpoints were removed).
 
-### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.0.24`, ACTIVE 2026-07-16)
+### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.1.0`, ACTIVE 2026-07-18)
 - Android + iOS ad integration, runtime provider `AdProvider.appLovin`
   (AdMob kept present for swap-readiness). Root `pubspec.yaml` consumes
-  hosted `applovin_admob_sdk: ^1.0.24` from pub.dev; the local `path:
+  hosted `applovin_admob_sdk: ^1.1.0` from pub.dev; the local `path:
   packages/ad_sdk` override line is commented out. Check `pubspec.yaml`
   directly before trusting this — it has drifted stale before (flipped
-  back and forth twice already during T01-T44 dev).
+  back and forth multiple times during T01-T62 dev).
+- **1.1.0 (2026-07-18)** — package is now **public** on pub.dev (was
+  previously published but effectively dev-only/undiscoverable metadata);
+  this release adds Native Ad v1, MREC, Smart Monetization Arbitrator,
+  fill-rate monitor, mediation waterfall reporting, consent-country
+  analytics, and config-validation preflight — see `packages/ad_sdk/CHANGELOG.md`
+  `[1.1.0]` for the full list. Also fixes a crash where `preloadMrec()` threw
+  synchronously on any host app that doesn't configure an MREC slot.
 - Platform-specific AppLovin ad unit config — `AdKey.appLovin` selects Android
   vs iOS units at runtime; Android and iOS never share unit IDs.
 - iOS native config in `ios/Runner/Info.plist`: `GADApplicationIdentifier`,
