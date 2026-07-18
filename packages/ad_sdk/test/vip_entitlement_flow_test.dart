@@ -12,26 +12,40 @@
 // real except the SharedPreferences backing store, which is mocked in-memory.
 
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:applovin_admob_sdk/src/vip/vip_entry.dart';
 import 'package:applovin_admob_sdk/src/vip/vip_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AdPreferences prefs;
+  late _FakeVipEntriesStore store;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     prefs = await AdPreferences.getInstance();
+    store = _FakeVipEntriesStore(prefs);
     // Shared singleton store → wipe persisted entries for a clean slate.
-    await VipManager(prefs).revokeAll();
+    await VipManager(prefs, vipEntriesStore: store).revokeAll();
   });
 
   test('redeem activates entitlement and fires the reactive notifier',
       () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     expect(mgr.isActive, isFalse);
 
@@ -47,20 +61,20 @@ void main() {
   });
 
   test('entitlement survives a reload from persistence', () async {
-    final writer = VipManager(prefs);
+    final writer = VipManager(prefs, vipEntriesStore: store);
     await writer.load();
     await writer.addVip(key: 'KEY_PERSIST', duration: const Duration(hours: 1));
     expect(writer.isActive, isTrue);
 
     // Fresh manager reading the SAME backing store = app relaunch.
-    final reader = VipManager(prefs);
+    final reader = VipManager(prefs, vipEntriesStore: store);
     await reader.load();
     expect(reader.isActive, isTrue,
         reason: 'persisted entry must restore active state across instances');
   });
 
   test('latest-expiry-wins when the same key is redeemed twice', () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
 
     await mgr.addVip(key: 'DUP', duration: const Duration(hours: 1));
@@ -69,7 +83,7 @@ void main() {
         key: 'DUP', duration: const Duration(minutes: 10)); // earlier
 
     // Reload to inspect what actually persisted.
-    final reader = VipManager(prefs);
+    final reader = VipManager(prefs, vipEntriesStore: store);
     await reader.load();
     final expiry = reader.expiresAt;
     expect(expiry, isNotNull);
@@ -91,14 +105,14 @@ void main() {
       expiresAt: DateTime.now().add(const Duration(days: 1)),
       grantedAt: DateTime.now(),
     );
-    await prefs.setVipEntriesRaw(VipEntry.encodeList([expired, fresh]));
+    await store.setRaw(VipEntry.encodeList([expired, fresh]));
 
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
 
     // Still active because of LIVE, but STALE must be gone after purge.
     expect(mgr.isActive, isTrue);
-    final reader = VipManager(prefs);
+    final reader = VipManager(prefs, vipEntriesStore: store);
     await reader.load();
     expect(reader.isActive, isTrue);
     // Revoking LIVE should leave nothing active (STALE was already purged).
@@ -107,7 +121,7 @@ void main() {
   });
 
   test('revokeAll clears entitlement and notifies', () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     await mgr.addVip(key: 'KEY_A', duration: const Duration(days: 1));
     expect(mgr.isActive, isTrue);
@@ -115,7 +129,7 @@ void main() {
     await mgr.revokeAll();
     expect(mgr.isActive, isFalse);
 
-    final reader = VipManager(prefs);
+    final reader = VipManager(prefs, vipEntriesStore: store);
     await reader.load();
     expect(reader.isActive, isFalse, reason: 'revokeAll must persist the wipe');
   });
@@ -127,7 +141,7 @@ void main() {
     // DateTime.now() directly (no injected clock), so fakeAsync's virtual
     // clock would advance the Timer callback instantly while DateTime.now()
     // stays real, and the entry would not actually look expired yet.
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     await mgr.addVip(key: 'SOON', duration: const Duration(milliseconds: 200));
     expect(mgr.isActive, isTrue);
@@ -155,7 +169,7 @@ void main() {
 
     // This device's GAID is NOT in the legacy list — must not be promoted,
     // even though the legacy list itself contains other devices' GAIDs.
-    final theirs = VipManager(prefs);
+    final theirs = VipManager(prefs, vipEntriesStore: store);
     await theirs.load(currentDeviceGaid: 'device-c-not-in-list');
     expect(theirs.isActive, isFalse,
         reason: 'non-matching GAID must not be migrated to an entry');
@@ -165,7 +179,7 @@ void main() {
     // A second load() must be a no-op rescan-wise (isVipMigrated()==true
     // skip path) — reloading with a NOW-matching GAID must still not
     // retroactively promote, because migration only ever runs once.
-    final again = VipManager(prefs);
+    final again = VipManager(prefs, vipEntriesStore: store);
     await again.load(currentDeviceGaid: 'device-a-gaid');
     expect(again.isActive, isFalse,
         reason: 'migration flag already set — load() must not rescan');
@@ -174,7 +188,10 @@ void main() {
     // matching-GAID branch itself: promotion to a far-future LEGACY_ entry.
     await prefs.clearAllData();
     await prefs.saveGAIDList(['device-a-gaid', 'device-b-gaid']);
-    final mine = VipManager(prefs);
+    // Fresh install after clearAllData() → a brand-new store too, not the
+    // one still holding the (now-cleared) prior entries.
+    final freshStore = _FakeVipEntriesStore(prefs);
+    final mine = VipManager(prefs, vipEntriesStore: freshStore);
     await mine.load(currentDeviceGaid: 'device-a-gaid');
 
     expect(mine.isActive, isTrue,

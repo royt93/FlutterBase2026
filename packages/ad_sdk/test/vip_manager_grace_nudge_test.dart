@@ -5,25 +5,40 @@
 // vip_entitlement_flow_test.dart / vip_manager_robustness_test.dart.
 
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:applovin_admob_sdk/src/vip/vip_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AdPreferences prefs;
+  late _FakeVipEntriesStore store;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     prefs = await AdPreferences.getInstance();
+    store = _FakeVipEntriesStore(prefs);
     // Shared singleton store → wipe persisted entries for a clean slate.
-    await VipManager(prefs).revokeAll();
+    await VipManager(prefs, vipEntriesStore: store).revokeAll();
   });
 
   test('not due when remaining time is well above threshold', () async {
     final mgr = VipManager(prefs,
-        graceNudgeThreshold: const Duration(milliseconds: 100));
+        graceNudgeThreshold: const Duration(milliseconds: 100),
+        vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -39,7 +54,8 @@ void main() {
     // DateTime.now() directly, same rationale as the mid-session expiry
     // timer test in vip_entitlement_flow_test.dart.
     final mgr = VipManager(prefs,
-        graceNudgeThreshold: const Duration(milliseconds: 300));
+        graceNudgeThreshold: const Duration(milliseconds: 300),
+        vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -54,7 +70,8 @@ void main() {
 
   test('acknowledgeGraceNudge() persists and suppresses re-nudge', () async {
     final mgr = VipManager(prefs,
-        graceNudgeThreshold: const Duration(milliseconds: 300));
+        graceNudgeThreshold: const Duration(milliseconds: 300),
+        vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -68,7 +85,8 @@ void main() {
     // Reloading a fresh manager against the same persisted expiry must not
     // re-surface the nudge — the ack is keyed on expiresAt, not the instance.
     final reloaded = VipManager(prefs,
-        graceNudgeThreshold: const Duration(milliseconds: 300));
+        graceNudgeThreshold: const Duration(milliseconds: 300),
+        vipEntriesStore: store);
     await reloaded.load();
     addTearDown(reloaded.dispose);
     expect(reloaded.graceNudgeDueListenable.value, isFalse);
@@ -77,7 +95,8 @@ void main() {
   test('stacking to a new expiresAt makes the nudge due again after ack',
       () async {
     final mgr = VipManager(prefs,
-        graceNudgeThreshold: const Duration(milliseconds: 300));
+        graceNudgeThreshold: const Duration(milliseconds: 300),
+        vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -103,7 +122,8 @@ void main() {
 
   test('inactive/no-VIP state is never due', () async {
     final mgr = VipManager(prefs,
-        graceNudgeThreshold: const Duration(milliseconds: 300));
+        graceNudgeThreshold: const Duration(milliseconds: 300),
+        vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 

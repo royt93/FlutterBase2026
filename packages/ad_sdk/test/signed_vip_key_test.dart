@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/vip/_redeemed_key_ledger.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,17 @@ class _FakeRedeemedKeyLedger extends RedeemedKeyLedger {
 
   @override
   Future<void> markRedeemed(String kid) async => redeemed.add(kid);
+}
+
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
 }
 
 final _ed = Ed25519();
@@ -150,15 +162,17 @@ void main() {
 
   group('VipManager.redeemSignedKey', () {
     late AdPreferences prefs;
+    late _FakeVipEntriesStore store;
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       prefs = await AdPreferences.getInstance();
-      await VipManager(prefs).revokeAll();
+      store = _FakeVipEntriesStore(prefs);
+      await VipManager(prefs, vipEntriesStore: store).revokeAll();
     });
 
     test('valid key grants VIP', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -172,7 +186,7 @@ void main() {
     });
 
     test('same key id cannot be redeemed twice on this device', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -185,7 +199,7 @@ void main() {
     });
 
     test('distinct keys stack the VIP window', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -201,7 +215,7 @@ void main() {
     });
 
     test('concurrent double-redeem of the same key grants only once', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -220,7 +234,7 @@ void main() {
     });
 
     test('invalid key does not grant VIP', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -238,15 +252,15 @@ void main() {
 
       // "Session 1": redeem on a first VipManager instance, then dispose it —
       // its in-memory _signedKidsInFlight set dies with it.
-      final mgr1 = VipManager(prefs);
+      final mgr1 = VipManager(prefs, vipEntriesStore: store);
       await mgr1.load();
       final first = await mgr1.redeemSignedKey(code, publicKeyBase64: pub);
       mgr1.dispose();
       expect(first.ok, isTrue);
 
-      // "Session 2": brand-new VipManager over the SAME (persisted) prefs —
-      // nothing carries over except what was written to SharedPreferences.
-      final mgr2 = VipManager(prefs);
+      // "Session 2": brand-new VipManager over the SAME (persisted) store —
+      // nothing carries over except what was actually written to storage.
+      final mgr2 = VipManager(prefs, vipEntriesStore: store);
       await mgr2.load();
       addTearDown(mgr2.dispose);
       final second = await mgr2.redeemSignedKey(code, publicKeyBase64: pub);
@@ -262,11 +276,13 @@ void main() {
     // cover: an uninstall wipes `_prefs`, but the RedeemedKeyLedger's
     // Keychain-backed store (mocked here) survives.
     late AdPreferences prefs;
+    late _FakeVipEntriesStore store;
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       prefs = await AdPreferences.getInstance();
-      await VipManager(prefs).revokeAll();
+      store = _FakeVipEntriesStore(prefs);
+      await VipManager(prefs, vipEntriesStore: store).revokeAll();
     });
 
     test(
@@ -274,7 +290,8 @@ void main() {
         'the SharedPreferences ledger (this "install") has never seen it',
         () async {
       final ledger = _FakeRedeemedKeyLedger()..seed('pre-redeemed');
-      final mgr = VipManager(prefs, redeemedKeyLedger: ledger);
+      final mgr =
+          VipManager(prefs, redeemedKeyLedger: ledger, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -288,7 +305,8 @@ void main() {
     test('successful redeem marks the kid into the durable ledger too',
         () async {
       final ledger = _FakeRedeemedKeyLedger();
-      final mgr = VipManager(prefs, redeemedKeyLedger: ledger);
+      final mgr =
+          VipManager(prefs, redeemedKeyLedger: ledger, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -302,12 +320,14 @@ void main() {
 
   group('redeemSignedKey never logs the raw key string', () {
     late AdPreferences logPrefs;
+    late _FakeVipEntriesStore logStore;
     final captured = <String>[];
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       logPrefs = await AdPreferences.getInstance();
-      await VipManager(logPrefs).revokeAll();
+      logStore = _FakeVipEntriesStore(logPrefs);
+      await VipManager(logPrefs, vipEntriesStore: logStore).revokeAll();
       captured.clear();
       SafeLogger.configure(
         level: AdLogLevel.verbose,
@@ -318,7 +338,7 @@ void main() {
 
     test('valid redeem never logs the full code, only the (non-secret) kid',
         () async {
-      final mgr = VipManager(logPrefs);
+      final mgr = VipManager(logPrefs, vipEntriesStore: logStore);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -333,7 +353,7 @@ void main() {
     });
 
     test('invalid/malformed key redeem never logs the raw code', () async {
-      final mgr = VipManager(logPrefs);
+      final mgr = VipManager(logPrefs, vipEntriesStore: logStore);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -348,7 +368,7 @@ void main() {
     });
 
     test('already-used redeem attempt never logs the raw code', () async {
-      final mgr = VipManager(logPrefs);
+      final mgr = VipManager(logPrefs, vipEntriesStore: logStore);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -370,8 +390,9 @@ void main() {
         (tester) async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await AdPreferences.getInstance();
-      await VipManager(prefs).revokeAll();
-      final mgr = VipManager(prefs);
+      final store = _FakeVipEntriesStore(prefs);
+      await VipManager(prefs, vipEntriesStore: store).revokeAll();
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
 
       final code = await _mint(keyPair, seconds: 3600, kid: 'widget1');

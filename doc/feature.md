@@ -259,12 +259,15 @@ hiện mới:
   phí không giới hạn số máy; không có server nên không revoke được key đã
   mint. Giới hạn nội tại của mô hình offline, đã ghi trong T18. Chấp nhận vì
   app chưa có backend. `vip_manager.dart:475-528`, `signed_vip_key.dart:66-70`.
-- **F4 (Gemini, Medium) — VIP entries lưu plaintext JSON trong
-  SharedPreferences.** Checksum FNV-1a (T30) chỉ chống sửa tay ngây thơ, không
-  chống máy đã root/jailbreak tự set `expiresAt` xa tương lai. Chấp nhận cho
-  app không-backend (đánh đổi hợp lý theo yêu cầu "không server", nhưng vẫn là
-  revenue-integrity risk cần biết). `vip_entry.dart:50-60`,
-  `ad_preferences.dart`.
+- ~~**F4 (Gemini, Medium) — VIP entries lưu plaintext JSON trong
+  SharedPreferences.**~~ **✅ Đã sửa (2026-07-18)** — migrate sang
+  `flutter_secure_storage` (Keychain iOS / EncryptedSharedPreferences Android)
+  qua `VipEntriesStore` (`packages/ad_sdk/lib/src/vip/_vip_entries_store.dart`),
+  kèm migration 1 lần + xoá key cũ khi thành công. Verify: `run-as` xem trực
+  tiếp ciphertext trên Pixel 7 Pro + redeem→force-kill→relaunch giữ VIP trên cả
+  iOS Simulator và Android thật. Checksum FNV-1a (T30) không còn cần thiết cho
+  bản ghi mới (OS đã encrypt at-rest), chỉ giữ lại để đọc data cũ trong
+  migration path.
 - **F5 (Gemini, Medium) — COPPA gap ở lần cài đầu tiên nếu app "always
   child-directed".** Không có consent dialog nào set `isAgeRestrictedUser`
   trước install đầu → AppLovin init 1 lần với flag mặc định false (AppLovin
@@ -280,7 +283,20 @@ hiện mới:
   orchestration + consent + VIP gating + lifecycle observer + retry timers +
   arbitrator hook. Còn maintainable (tên tốt, comment dày) nhưng đã tới
   ngưỡng nên tách. Rủi ro: bảo trì dài hạn, không ảnh hưởng publish. Chấp
-  nhận, không refactor trong đợt này.
+  nhận, không refactor trong đợt này. **Cập nhật (2026-07-18)**: navigability
+  cải thiện bằng cách mở rộng 12 section-header comment (INITIALIZE, CONSENT,
+  DESTROY, APP OPEN, INTERSTITIAL, REWARDED, BANNER, MREC, LIFECYCLE OBSERVER,
+  RETRY TIMER, EVENT EMIT, CONNECTIVITY) thành mô tả 1-3 dòng thay vì chỉ có
+  tiêu đề trơn — chọn phương án nhẹ nhất trong 3 lựa chọn đưa ra qua
+  `AskUserQuestion`, **không tách file**. Rủi ro bảo trì dài hạn vẫn còn
+  (giảm bớt, chưa hết).
+- **AppLovin adapter — cảnh báo lặp lại khi 1 ad slot fail liên tục (2026-07-18).**
+  Thêm `AdSlot.consecutiveFailures` + `_logIfRepeatedFailure` (log-only, không
+  đổi hành vi retry/cap hiện có) trong
+  `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart` — giúp phát hiện
+  sớm slot bị Google/AppLovin từ chối liên tục (vd. policy issue) thay vì chờ
+  đến khi partner report doanh thu tụt. Verify: `flutter analyze` sạch,
+  `flutter test` 627/627.
 - **No-backend-model (T39) — Reward SSV chỉ có app-side plumbing, chưa có
   server verify.** `ssvUserId`/`ssvCustomData` đã thread xuyên suốt
   `AdManager.showRewardedAd`/`AdScreenState.showRewardedAd`, nhưng không có

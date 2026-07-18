@@ -342,6 +342,64 @@ void main() {
     });
   });
 
+  group('repeated-failure warning log (T44)', () {
+    final captured = <String>[];
+
+    setUp(() {
+      captured.clear();
+      SafeLogger.configure(
+        level: AdLogLevel.warning,
+        onLog: (level, tag, message) => captured.add(message),
+      );
+    });
+
+    tearDown(() => SafeLogger.resetForTest());
+
+    test('fires exactly once, on the 3rd consecutive load failure', () async {
+      await adapter.loadInterstitial();
+
+      bridge.inter!.onAdLoadFailedCallback('inter-id', _fakeError());
+      expect(
+          captured.any((m) => m.contains('consecutive load failures')), isFalse,
+          reason: '1st failure — too early');
+
+      bridge.inter!.onAdLoadFailedCallback('inter-id', _fakeError());
+      expect(
+          captured.any((m) => m.contains('consecutive load failures')), isFalse,
+          reason: '2nd failure — still too early');
+
+      bridge.inter!.onAdLoadFailedCallback('inter-id', _fakeError());
+      expect(captured.where((m) => m.contains('consecutive load failures')),
+          hasLength(1),
+          reason: '3rd failure — threshold hit, logs exactly once');
+
+      bridge.inter!.onAdLoadFailedCallback('inter-id', _fakeError());
+      expect(captured.where((m) => m.contains('consecutive load failures')),
+          hasLength(1),
+          reason: '4th failure — must not log again (== not >=)');
+    });
+
+    test('re-fires on a fresh streak after a success resets the counter',
+        () async {
+      await adapter.loadInterstitial();
+      for (var i = 0; i < 3; i++) {
+        bridge.inter!.onAdLoadFailedCallback('inter-id', _fakeError());
+      }
+      expect(captured.where((m) => m.contains('consecutive load failures')),
+          hasLength(1));
+
+      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      captured.clear();
+
+      for (var i = 0; i < 3; i++) {
+        bridge.inter!.onAdLoadFailedCallback('inter-id', _fakeError());
+      }
+      expect(captured.where((m) => m.contains('consecutive load failures')),
+          hasLength(1),
+          reason: 'success resets consecutiveFailures — streak counts fresh');
+    });
+  });
+
   // End-to-end: go through the REAL showAppOpen path (which arms the watchdog)
   // and then advance time with FakeAsync — closing the seam between "showAppOpen
   // arms the watchdog" and "the watchdog timing logic".

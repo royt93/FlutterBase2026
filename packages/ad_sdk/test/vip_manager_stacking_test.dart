@@ -15,20 +15,34 @@
 // collaborator is real (matches vip_entitlement_flow_test).
 
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:applovin_admob_sdk/src/vip/vip_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AdPreferences prefs;
+  late _FakeVipEntriesStore store;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     prefs = await AdPreferences.getInstance();
+    store = _FakeVipEntriesStore(prefs);
     // Shared singleton store → wipe persisted entries for a clean slate.
-    await VipManager(prefs).revokeAll();
+    await VipManager(prefs, vipEntriesStore: store).revokeAll();
   });
 
   // Helper: remaining time of the single active entry, in minutes.
@@ -39,7 +53,7 @@ void main() {
   }
 
   test('stack on a brand-new key behaves like a normal fresh add', () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -57,7 +71,7 @@ void main() {
 
   test('stack on an ACTIVE key accumulates: old expiry + new duration',
       () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -75,7 +89,7 @@ void main() {
   });
 
   test('stacking repeatedly keeps adding up', () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -94,7 +108,7 @@ void main() {
   test('stack produces a strictly longer window than the default (latest-wins)',
       () async {
     // Default branch: re-adding the SAME duration just keeps ~1h.
-    final plain = VipManager(prefs);
+    final plain = VipManager(prefs, vipEntriesStore: store);
     await plain.load();
     await plain.addVip(key: 'A', duration: const Duration(hours: 1));
     await plain.addVip(
@@ -102,10 +116,13 @@ void main() {
     final plainMin = remainingMinutes(plain);
     plain.dispose();
 
-    await VipManager(prefs).revokeAll();
+    // Fresh store for a genuinely clean slate — reusing `store` here would
+    // still carry the "plain" scenario's persisted entry underneath.
+    final freshStore = _FakeVipEntriesStore(prefs);
+    await VipManager(prefs, vipEntriesStore: freshStore).revokeAll();
 
     // Stack branch: the second add piles on top.
-    final stacked = VipManager(prefs);
+    final stacked = VipManager(prefs, vipEntriesStore: freshStore);
     await stacked.load();
     await stacked.addVip(key: 'A', duration: const Duration(hours: 1));
     await stacked.addVip(
@@ -122,7 +139,7 @@ void main() {
 
   test('stacking resets grantedAt to ~now (progress bar restarts each top-up)',
       () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -143,7 +160,7 @@ void main() {
   });
 
   test('stacked total survives a reload from persistence', () async {
-    final writer = VipManager(prefs);
+    final writer = VipManager(prefs, vipEntriesStore: store);
     await writer.load();
     await writer.addVip(key: 'P', duration: const Duration(hours: 2));
     await writer.addVip(
@@ -151,7 +168,7 @@ void main() {
     writer.dispose();
 
     // Fresh manager reading the same store = app relaunch.
-    final reader = VipManager(prefs);
+    final reader = VipManager(prefs, vipEntriesStore: store);
     await reader.load();
     addTearDown(reader.dispose);
 
@@ -163,7 +180,7 @@ void main() {
 
   test('stacking flips active state and fires the reactive notifier once',
       () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
     expect(mgr.isActive, isFalse);
@@ -182,7 +199,7 @@ void main() {
   test(
       'GLOBAL stacking: a different key extends from the latest expiry across '
       'all entries', () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -203,7 +220,7 @@ void main() {
       'trial + redeem: redeeming a paid code while the first-install trial '
       'is still active ADDS onto it rather than overwriting/shortening it',
       () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -241,7 +258,7 @@ void main() {
 
   test('GLOBAL stacking is order-independent (code first, then watch-ad)',
       () async {
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -256,7 +273,8 @@ void main() {
 
   test('GLOBAL stacking across different keys still respects the cap',
       () async {
-    final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 30));
+    final mgr = VipManager(prefs,
+        maxStackDuration: const Duration(days: 30), vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -270,7 +288,8 @@ void main() {
   });
 
   test('stacking is clamped to maxStackDuration when the cap is set', () async {
-    final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 7));
+    final mgr = VipManager(prefs,
+        maxStackDuration: const Duration(days: 7), vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -284,7 +303,8 @@ void main() {
   });
 
   test('no cap (null) → stacking is unbounded', () async {
-    final mgr = VipManager(prefs); // maxStackDuration null
+    final mgr =
+        VipManager(prefs, vipEntriesStore: store); // maxStackDuration null
     await mgr.load();
     addTearDown(mgr.dispose);
 
@@ -299,7 +319,7 @@ void main() {
   test('watch-ad fixed-key pattern: repeats accumulate into ONE entry',
       () async {
     // Mirrors `_onWatchAdForVip`: always the same key, always stack, +3d each.
-    final mgr = VipManager(prefs);
+    final mgr = VipManager(prefs, vipEntriesStore: store);
     await mgr.load();
     addTearDown(mgr.dispose);
 

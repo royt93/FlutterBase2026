@@ -328,6 +328,21 @@ class AppLovinAdapter implements AdProviderAdapter {
     // there is nothing to store on the adapter.
   }
 
+  // ─── Repeated-failure warning (log-only) ──────────────────────────────────
+  // Doesn't affect retry/backoff — that's already driven by
+  // `AdSlot.consecutiveFailures` itself. This just escalates from the routine
+  // per-attempt warning (logged unconditionally above) to a distinct line
+  // once a slot is clearly in a failure streak, so log monitoring can tell a
+  // one-off blip apart from a sustained outage.
+  static const int _kRepeatedFailureThreshold = 3;
+
+  void _logIfRepeatedFailure(String label, AdSlot slot, Object errCode) {
+    if (slot.consecutiveFailures == _kRepeatedFailureThreshold) {
+      SafeLogger.w(_logTag,
+          '$label $tag ⚠️ $_kRepeatedFailureThreshold consecutive load failures (last code=$errCode)');
+    }
+  }
+
   // ─── App Open ─────────────────────────────────────────────────────────────
 
   void _wireAppOpenListener(String unitId) {
@@ -345,6 +360,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.w(_logTag, 'appOpen $tag ❌ load failed code=${err.code}');
         appOpenSlot.markFailed();
+        _logIfRepeatedFailure('appOpen', appOpenSlot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,
           type: AdSlotType.appOpen,
@@ -623,6 +639,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.w(_logTag, 'inter $tag ❌ load failed code=${err.code}');
         interstitialSlot.markFailed();
+        _logIfRepeatedFailure('inter', interstitialSlot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,
           type: AdSlotType.interstitial,
@@ -797,6 +814,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.w(_logTag, 'rewarded $tag ❌ load failed code=${err.code}');
         rewardedSlot.markFailed();
+        _logIfRepeatedFailure('rewarded', rewardedSlot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,
           type: AdSlotType.rewarded,
@@ -1026,6 +1044,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         listenables.isLoaded.value = false;
         listenables.hasError.value = true;
         slot.markFailed();
+        _logIfRepeatedFailure(label, slot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,
           type: type,

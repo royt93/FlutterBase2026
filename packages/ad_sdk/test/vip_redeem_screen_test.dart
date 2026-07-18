@@ -6,12 +6,24 @@ import 'dart:convert';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final _ed = Ed25519();
+
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
+}
 
 Future<String> _pubB64(SimpleKeyPair kp) async =>
     base64Url.encode((await kp.extractPublicKey()).bytes);
@@ -33,10 +45,11 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await AdPreferences.getInstance();
-    await VipManager(prefs).revokeAll();
+    final store = _FakeVipEntriesStore(prefs);
+    await VipManager(prefs, vipEntriesStore: store).revokeAll();
     keyPair = await _ed.newKeyPair();
     pub = await _pubB64(keyPair);
-    vip = VipManager(prefs);
+    vip = VipManager(prefs, vipEntriesStore: store);
     await vip.load();
     AdManager().debugVipManager = vip;
   });

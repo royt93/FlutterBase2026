@@ -827,7 +827,9 @@ class AdManager with WidgetsBindingObserver {
       ValueNotifier<Object?>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  INITIALIZE
+  //  INITIALIZE — one-time async bootstrap: GAID, VIP load + migration,
+  //  consent bootstrap, adapter pick + init, first App Open/banner/mrec
+  //  preload, retry timer + connectivity watch. Guarded by `_isInitializing`.
   // ──────────────────────────────────────────────────────────────────────────
 
   /// Initialise the SDK. Idempotent: calling twice without [destroy] auto-cleans
@@ -1260,7 +1262,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  CONSENT (Phase 5)
+  //  CONSENT (Phase 5) — setConsent/UMP/privacy-options/ATT: the pipeline
+  //  that keeps `_canRequestAds`, both ad providers, and the persisted
+  //  ConsentManager state in sync with each other.
   // ──────────────────────────────────────────────────────────────────────────
 
   /// Update privacy / consent flags. Forwards to both providers.
@@ -1441,7 +1445,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  DESTROY
+  //  DESTROY — full teardown: disposes the adapter, VIP/arbitrator/fill-rate
+  //  managers, timers and the lifecycle observer, then resets in-memory
+  //  flags so a later initialize() starts clean.
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> destroy() async {
@@ -1521,7 +1527,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  CONNECTIVITY
+  //  CONNECTIVITY — `isConnected` getter only; falls back to the last value
+  //  the CONNECTIVITY WATCH (T08, below) observed if the detector isn't
+  //  ready yet or throws.
   // ──────────────────────────────────────────────────────────────────────────
 
   bool get isConnected {
@@ -1552,7 +1560,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  APP OPEN
+  //  APP OPEN — load/show/showOnResume, each gated by its own chain of
+  //  VIP/daily-cap/consent/connectivity/dialog-on-top checks before ever
+  //  touching the adapter.
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> loadAppOpenAd({void Function(bool loaded)? onAdLoaded}) async {
@@ -1780,7 +1790,8 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  INTERSTITIAL
+  //  INTERSTITIAL — load/show/canShow, mirroring the App Open gates (VIP,
+  //  consent, safety) plus the optional arbitrator nudge-to-VIP veto.
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> loadInterstitial() async {
@@ -1895,7 +1906,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  REWARDED
+  //  REWARDED — load/show/canShow, plus the on-demand load path used when a
+  //  VIP member watches an ad to extend their own VIP window
+  //  (`bypassVipGuard`).
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> loadRewardedAd() async {
@@ -2138,7 +2151,8 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  BANNER
+  //  BANNER — single load-if-needed entry point; state/cooldown/accessors
+  //  live in the "Banner accessors" section near the top of the class.
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> loadAdmobBannerIfNeeded(double widthPx) async {
@@ -2149,7 +2163,8 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  MREC
+  //  MREC — load-if-needed for MREC + native; state/accessors live in the
+  //  "MREC/Native accessors" sections near the top of the class.
   // ──────────────────────────────────────────────────────────────────────────
 
   Future<void> loadAdmobMrecIfNeeded(double widthPx) async {
@@ -2205,7 +2220,9 @@ class AdManager with WidgetsBindingObserver {
   bool isVIPMember() => _isVipMember;
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  LIFECYCLE OBSERVER
+  //  LIFECYCLE OBSERVER — WidgetsBindingObserver callbacks: pause/resume
+  //  forwarding to the adapter, resume-triggered App Open, and throttled
+  //  memory-pressure logging.
   // ──────────────────────────────────────────────────────────────────────────
 
   /// Tracks the previous lifecycle state so we can log transitions like
@@ -2347,7 +2364,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  RETRY TIMER
+  //  RETRY TIMER — self-rescheduling poll (every `_retryIntervalMs`) calling
+  //  `_retryRefillAds()`; the steady-state backstop behind the
+  //  faster CONNECTIVITY WATCH (T08, below) reconnect path.
   // ──────────────────────────────────────────────────────────────────────────
 
   void _startAdRetryTimer() {
@@ -2451,7 +2470,8 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  //  EVENT EMIT
+  //  EVENT EMIT — single `_emit()` chokepoint: records to the compliance
+  //  event log, then broadcasts on the public `events` stream.
   // ──────────────────────────────────────────────────────────────────────────
 
   void _emit(AdEvent event) {

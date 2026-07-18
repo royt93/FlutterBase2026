@@ -14,11 +14,23 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
+}
 
 /// `MobileAds._instance` is a lazily-initialized static field that fires an
 /// un-awaited `channel.invokeMethod('_init')` the first time anything in this
@@ -34,7 +46,7 @@ const _gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
 /// (not just detached) on AdManager re-init — see the "re-init disposes the
 /// previous VipManager" test.
 class _DisposeTrackingVipManager extends VipManager {
-  _DisposeTrackingVipManager(super.prefs);
+  _DisposeTrackingVipManager(super.prefs, {super.vipEntriesStore});
 
   bool disposed = false;
 
@@ -843,7 +855,8 @@ void main() {
       // adapter's native initialize() call — so this doesn't need any
       // platform-channel mocking to reach.
       final prefs = await AdPreferences.getInstance();
-      final oldVip = _DisposeTrackingVipManager(prefs);
+      final oldVip = _DisposeTrackingVipManager(prefs,
+          vipEntriesStore: _FakeVipEntriesStore(prefs));
       await oldVip.load(currentDeviceGaid: '');
       AdManager().debugVipManager = oldVip;
 

@@ -119,7 +119,10 @@ class AdPreferences {
     await _prefs?.setString(_keyConsentSettings, json);
   }
 
-  // ─── 2.x VIP entries (JSON-encoded list) ──────────────────────────────────
+  // ─── 2.x VIP entries — legacy checksum-prefixed SharedPreferences value ───
+  // Superseded by `VipEntriesStore` (flutter_secure_storage). Kept here only
+  // as the one-time migration source for installs that predate the secure
+  // storage move — see `getLegacyVipEntriesRawChecksumValidated` below.
 
   static const String _keyVipEntries = 'ad_sdk_vip_entries';
   static const String _keyVipMigrated = 'ad_sdk_vip_migrated_v2';
@@ -130,12 +133,19 @@ class AdPreferences {
   // SharedPreferences) is rejected instead of trusted again.
   static const String _keyVipEntriesChecksumMigrated =
       'ad_sdk_vip_entries_checksum_migrated_v1';
+  // Tracks whether the legacy SharedPreferences value above has been
+  // migrated into `VipEntriesStore`'s secure storage. Distinct from
+  // `_keyVipEntriesChecksumMigrated` (a different, older migration).
+  static const String _keyVipEntriesSecureMigrated =
+      'ad_sdk_vip_entries_secure_migrated_v1';
   static const String _tag = 'AdPreferences';
 
   // FNV-1a — deterministic across Dart/Flutter versions (unlike
   // `String.hashCode`, which isn't spec-guaranteed stable). This is a
   // tamper-*deterrent* against casual SharedPreferences editing, not a
-  // cryptographic guarantee against a rooted/jailbroken attacker.
+  // cryptographic guarantee against a rooted/jailbroken attacker. Only
+  // relevant to the legacy value below — new writes go to secure storage
+  // (OS-encrypted at rest) without a checksum.
   static int _fnv1a(String s) {
     const prime = 0x01000193;
     var hash = 0x811c9dc5;
@@ -148,28 +158,19 @@ class AdPreferences {
   static String _vipEntriesChecksum(String value) =>
       _fnv1a('$value|ad_sdk_vip_integrity_v1').toRadixString(16);
 
-  // Checksum + payload live in ONE key (`<checksum>|<json>`), written with a
-  // single `setString` call. Two separate keys would open a window — between
-  // the entries write and the checksum write — where a concurrent
-  // fire-and-forget save (see VipManager._save) could be read mid-flight,
-  // making the checksum look "mismatched" even though nothing was tampered.
-  String? getVipEntriesRaw() {
+  /// One-time read of the legacy checksum-prefixed value, for
+  /// `VipEntriesStore`'s migration path only. Same trust-once-bare-JSON /
+  /// checksum-validation behavior as before the secure-storage move.
+  String? getLegacyVipEntriesRawChecksumValidated() {
     final payload = _prefs?.getString(_keyVipEntries);
     if (payload == null) return null;
     if (payload.startsWith('[')) {
       if (_prefs?.getBool(_keyVipEntriesChecksumMigrated) ?? false) {
-        // The one-time trust-and-backfill window (below) already ran once —
-        // a raw JSON array showing up again means something wrote straight
-        // to SharedPreferences, bypassing the checksum. Reject it.
         SafeLogger.w(_tag,
             'VIP entries checksum mismatch — raw JSON after migration, ignoring as tampered');
         return null;
       }
-      // Pre-upgrade data written before this checksum existed — trust once,
-      // backfill into the new checksum-prefixed format, and close this
-      // window so it can't be reused later.
       unawaited(_prefs?.setBool(_keyVipEntriesChecksumMigrated, true));
-      unawaited(setVipEntriesRaw(payload));
       return payload;
     }
     final sep = payload.indexOf('|');
@@ -183,9 +184,17 @@ class AdPreferences {
     return raw;
   }
 
-  Future<void> setVipEntriesRaw(String json) async {
-    await _prefs?.setString(
-        _keyVipEntries, '${_vipEntriesChecksum(json)}|$json');
+  /// Remove the legacy SharedPreferences value once its content has been
+  /// safely copied into secure storage.
+  Future<void> clearLegacyVipEntriesRaw() async {
+    await _prefs?.remove(_keyVipEntries);
+  }
+
+  bool isVipEntriesSecureMigrated() =>
+      _prefs?.getBool(_keyVipEntriesSecureMigrated) ?? false;
+
+  Future<void> markVipEntriesSecureMigrated() async {
+    await _prefs?.setBool(_keyVipEntriesSecureMigrated, true);
   }
 
   bool isVipMigrated() => _prefs?.getBool(_keyVipMigrated) ?? false;

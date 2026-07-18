@@ -5,26 +5,40 @@
 // vip_entitlement_flow_test.dart / vip_manager_stacking_test.dart.
 
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:applovin_admob_sdk/src/vip/vip_entry.dart';
 import 'package:applovin_admob_sdk/src/vip/vip_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
+/// flutter_secure_storage platform channel.
+class _FakeVipEntriesStore extends VipEntriesStore {
+  _FakeVipEntriesStore(super.prefs);
+  String? _raw;
+  @override
+  Future<String?> getRaw() async => _raw;
+  @override
+  Future<void> setRaw(String json) async => _raw = json;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AdPreferences prefs;
+  late _FakeVipEntriesStore store;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     prefs = await AdPreferences.getInstance();
+    store = _FakeVipEntriesStore(prefs);
     // Shared singleton store → wipe persisted entries for a clean slate.
-    await VipManager(prefs).revokeAll();
+    await VipManager(prefs, vipEntriesStore: store).revokeAll();
   });
 
   group('non-positive duration rejected', () {
     test('addVip with Duration.zero fails the debug assert', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -35,7 +49,7 @@ void main() {
     });
 
     test('addVip with a negative duration fails the debug assert', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -49,7 +63,7 @@ void main() {
       // Assertions are disabled in some release-style harnesses; exercise the
       // guarded branch directly by tolerating either outcome and asserting
       // the invariant that matters: no dead/inverted entry survives.
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -72,16 +86,19 @@ void main() {
         expiresAt: DateTime.now().subtract(const Duration(days: 1)),
         grantedAt: DateTime.now().subtract(const Duration(days: 31)),
       );
-      await prefs.setVipEntriesRaw(VipEntry.encodeList([expired]));
+      await store.setRaw(VipEntry.encodeList([expired]));
 
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
       expect(mgr.entries, isEmpty);
+      // load()'s purge-triggered save is fire-and-forget (unawaited) in
+      // production, so give the queued write a turn to land before reading.
+      await Future<void>.delayed(Duration.zero);
       // The raw persisted JSON itself must be shrunk, not just the in-memory
-      // list — otherwise stale rows keep accumulating in SharedPreferences.
-      final persisted = VipEntry.decodeList(prefs.getVipEntriesRaw());
+      // list — otherwise stale rows keep accumulating in the store.
+      final persisted = VipEntry.decodeList(await store.getRaw());
       expect(persisted, isEmpty);
     });
 
@@ -97,9 +114,9 @@ void main() {
         expiresAt: DateTime.now().add(const Duration(milliseconds: 5)),
         grantedAt: DateTime.now().subtract(const Duration(minutes: 1)),
       );
-      await prefs.setVipEntriesRaw(VipEntry.encodeList([soonToExpire]));
+      await store.setRaw(VipEntry.encodeList([soonToExpire]));
 
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
       expect(mgr.entries.length, 1, reason: 'still active at load() time');
@@ -111,7 +128,7 @@ void main() {
 
       expect(mgr.entries.length, 1);
       expect(mgr.entries.single.key, 'FRESH');
-      final persisted = VipEntry.decodeList(prefs.getVipEntriesRaw());
+      final persisted = VipEntry.decodeList(await store.getRaw());
       expect(persisted.any((e) => e.key == 'SOON_STALE'), isFalse);
     });
 
@@ -124,16 +141,16 @@ void main() {
         expiresAt: DateTime.now().subtract(const Duration(hours: 1)),
         grantedAt: DateTime.now().subtract(const Duration(days: 2)),
       );
-      await prefs.setVipEntriesRaw(VipEntry.encodeList([expired]));
+      await store.setRaw(VipEntry.encodeList([expired]));
 
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
       await mgr.addVip(
           key: 'REDEEMED', duration: const Duration(days: 1), stack: true);
 
-      final persisted = VipEntry.decodeList(prefs.getVipEntriesRaw());
+      final persisted = VipEntry.decodeList(await store.getRaw());
       expect(persisted.length, 1);
       expect(persisted.single.key, 'REDEEMED');
     });
@@ -141,7 +158,8 @@ void main() {
 
   group('maxStackDuration cap scope', () {
     test('stacking clamps at the cap', () async {
-      final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 10));
+      final mgr = VipManager(prefs,
+          maxStackDuration: const Duration(days: 10), vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -157,7 +175,8 @@ void main() {
     test(
         'non-stacking grants are NOT capped by maxStackDuration, even when '
         'far beyond it', () async {
-      final mgr = VipManager(prefs, maxStackDuration: const Duration(days: 10));
+      final mgr = VipManager(prefs,
+          maxStackDuration: const Duration(days: 10), vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
@@ -200,14 +219,14 @@ void main() {
     test(
         'a real VipManager grant (local DateTime.now()) round-trips through '
         'persistence with the same absolute instant', () async {
-      final mgr = VipManager(prefs);
+      final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
       addTearDown(mgr.dispose);
 
       final entry =
           await mgr.addVip(key: 'RT', duration: const Duration(hours: 3));
 
-      final reader = VipManager(prefs);
+      final reader = VipManager(prefs, vipEntriesStore: store);
       await reader.load();
       addTearDown(reader.dispose);
 

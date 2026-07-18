@@ -429,7 +429,9 @@ class _SplashScreenState extends State<SplashScreen> {
       if (!_skipUmp) {
         try {
           final ump = await AdManager().requestUmpConsent();
-          debugPrint('UMP: canRequestAds=${ump.canRequestAds}');
+          debugPrint('UMP: canRequestAds=${ump.canRequestAds} '
+              'status=${ump.status} formShown=${ump.formShown} '
+              'error=${ump.error}');
         } catch (e) {
           debugPrint('UMP skipped: $e');
         }

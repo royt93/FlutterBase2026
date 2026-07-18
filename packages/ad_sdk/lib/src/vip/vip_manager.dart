@@ -7,6 +7,7 @@ import '../config/ad_config.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
 import '_redeemed_key_ledger.dart';
+import '_vip_entries_store.dart';
 import 'signed_vip_key.dart';
 import 'vip_dialog.dart';
 import 'vip_dialog_strings.dart';
@@ -14,7 +15,8 @@ import 'vip_entry.dart';
 
 /// VIP management — Phase 4 feature.
 ///
-/// Stores [VipEntry] list in SharedPreferences. A device is "VIP" if any
+/// Stores [VipEntry] list via [VipEntriesStore] (flutter_secure_storage). A
+/// device is "VIP" if any
 /// entry's `expiresAt` is in the future. While VIP is active, [AdManager]
 /// short-circuits **every** ad type (banner, app-open, interstitial, rewarded).
 ///
@@ -33,7 +35,9 @@ class VipManager {
     this.maxStackDuration,
     this.graceNudgeThreshold = const Duration(hours: 24),
     RedeemedKeyLedger? redeemedKeyLedger,
-  }) : _redeemedKeyLedger = redeemedKeyLedger ?? RedeemedKeyLedger();
+    VipEntriesStore? vipEntriesStore,
+  })  : _redeemedKeyLedger = redeemedKeyLedger ?? RedeemedKeyLedger(),
+        _vipEntriesStore = vipEntriesStore ?? VipEntriesStore(_prefs);
 
   static const String _tag = 'VipManager';
 
@@ -43,6 +47,10 @@ class VipManager {
   /// reinstall, unlike `_prefs`'s SharedPreferences-backed ledger. See
   /// `_redeemed_key_ledger.dart`.
   final RedeemedKeyLedger _redeemedKeyLedger;
+
+  /// Encrypted-at-rest storage (Keychain/Keystore) for the VIP entries list.
+  /// See `_vip_entries_store.dart`.
+  final VipEntriesStore _vipEntriesStore;
 
   /// Optional cap on the total window produced by [addVip] stacking — sourced
   /// from `AdConfig.maxVipStackDuration`. `null` = uncapped. See [addVip].
@@ -162,7 +170,7 @@ class VipManager {
   Future<void> load({String currentDeviceGaid = ''}) async {
     _entries
       ..clear()
-      ..addAll(VipEntry.decodeList(_prefs.getVipEntriesRaw()));
+      ..addAll(VipEntry.decodeList(await _vipEntriesStore.getRaw()));
 
     if (!_prefs.isVipMigrated()) {
       final legacyGaids = _prefs.getGAIDList();
@@ -197,7 +205,7 @@ class VipManager {
 
   Future<void> _save() {
     final task = _saveQueue.then((_) async {
-      await _prefs.setVipEntriesRaw(VipEntry.encodeList(_entries));
+      await _vipEntriesStore.setRaw(VipEntry.encodeList(_entries));
     });
     // Catch errors so the queue keeps working even if one save fails.
     _saveQueue = task.catchError((Object e) {
