@@ -34,6 +34,22 @@ void main() {
       expect(c.isAgeRestrictedUser, isTrue);
       expect(c.doNotSell, isTrue);
     });
+
+    test('country defaults to null and survives copyWith/toJson/fromJson', () {
+      const s = ConsentSettings();
+      expect(s.country, isNull);
+
+      final withCountry = s.copyWith(country: 'DE');
+      expect(withCountry.country, 'DE');
+
+      final json = withCountry.toJson();
+      expect(json['country'], 'DE');
+      expect(ConsentSettings.fromJson(json).country, 'DE');
+
+      final noCountryJson = s.toJson();
+      expect(noCountryJson['country'], isNull);
+      expect(ConsentSettings.fromJson(noCountryJson).country, isNull);
+    });
   });
 
   group('FirstInstallVipGrace', () {
@@ -45,7 +61,8 @@ void main() {
     test('a positive duration is enabled', () {
       expect(FirstInstallVipGrace.day.isEnabled, isTrue);
       expect(FirstInstallVipGrace.day.duration, const Duration(days: 1));
-      expect(FirstInstallVipGrace.debugShort.duration, const Duration(seconds: 30));
+      expect(FirstInstallVipGrace.debugShort.duration,
+          const Duration(seconds: 30));
     });
 
     test('zero / null duration is not enabled', () {

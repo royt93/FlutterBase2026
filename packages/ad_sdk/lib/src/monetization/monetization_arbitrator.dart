@@ -2,6 +2,8 @@ import 'dart:async';
 
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
+import '../state/ad_slot.dart';
+import '../utils/safe_logger.dart';
 
 /// Decision returned by [MonetizationArbitrator.decide].
 enum ArbitratorDecision {
@@ -32,8 +34,13 @@ class MonetizationArbitrator {
   MonetizationArbitrator({
     this.ecpmThresholdMicros =
         5000000, // $5.00 eCPM — v1 default, tune per app.
+    Map<AdSlotType, int> perSlotThresholdMicros = const {},
+    this.maxVetoRate = 0.5,
     int rollingWindowSize = 20,
-  }) : _rollingWindowSize = rollingWindowSize {
+    int decisionWindowSize = 20,
+  })  : _perSlotThresholdMicros = perSlotThresholdMicros,
+        _rollingWindowSize = rollingWindowSize,
+        _decisionWindowSize = decisionWindowSize {
     _sub = AdManager().events.listen(_onEvent);
   }
 
@@ -41,13 +48,33 @@ class MonetizationArbitrator {
   /// were a $1000-impression eCPM stat"), the arbitrator favors nudging VIP
   /// over showing a low-value ad — unless a registered likelihood estimator
   /// says the user is unlikely to convert anyway.
+  ///
+  /// Used as the fallback threshold for any slot not present in
+  /// [_perSlotThresholdMicros].
   final int ecpmThresholdMicros;
 
+  /// Above this fraction of vetoed decisions (within the trailing
+  /// [_decisionWindowSize] calls to [decide]), the guardrail trips: it
+  /// assumes the threshold is misconfigured (or eCPM is globally depressed)
+  /// and forces [ArbitratorDecision.showAd] rather than keep starving the
+  /// user of ads. Recovers automatically once the veto rate drops back down.
+  final double maxVetoRate;
+
+  final Map<AdSlotType, int> _perSlotThresholdMicros;
   final int _rollingWindowSize;
+  final int _decisionWindowSize;
 
   /// Trailing revenue-per-impression samples, most-recent last. Session-only
   /// — no persistence across app restarts (v1: not worth it, see class doc).
   final List<int> _samples = [];
+
+  /// Trailing decide() outcomes (true = vetoed), most-recent last. Feeds the
+  /// [maxVetoRate] guardrail below.
+  final List<bool> _decisions = [];
+
+  /// Whether the guardrail is currently overriding nudges to showAd — tracked
+  /// so the warning below logs once per trip, not once per decide() call.
+  bool _guardrailTripped = false;
 
   double Function()? _vipLikelihoodEstimator;
 
@@ -82,27 +109,62 @@ class MonetizationArbitrator {
     return sum ~/ _samples.length;
   }
 
-  /// Decide whether to show the ad or veto it in favor of a VIP nudge.
+  /// Current veto rate over the trailing [_decisionWindowSize] [decide]
+  /// calls (vetoed / total). `0` if no decisions have been made yet.
+  double get vetoRate {
+    if (_decisions.isEmpty) return 0;
+    return _decisions.where((v) => v).length / _decisions.length;
+  }
+
+  /// Decide whether to show the ad for [slot] or veto it in favor of a VIP
+  /// nudge.
   ///
   /// v1 heuristic (NOT machine learning): if a likelihood estimator is
   /// registered and reports a high conversion likelihood (> 0.5) while
-  /// trailing eCPM is below [ecpmThresholdMicros], nudge VIP instead of
-  /// showing a low-value ad to a user who's likely to convert anyway. With no
-  /// estimator registered, fall back to the plain "eCPM below threshold"
-  /// check.
-  ArbitratorDecision decide() {
+  /// trailing eCPM is below the threshold for [slot] (see
+  /// [_perSlotThresholdMicros], falling back to [ecpmThresholdMicros]), nudge
+  /// VIP instead of showing a low-value ad to a user who's likely to convert
+  /// anyway. With no estimator registered, fall back to the plain "eCPM below
+  /// threshold" check.
+  ///
+  /// Guardrail: if the trailing veto rate over the last [_decisionWindowSize]
+  /// decisions exceeds [maxVetoRate], this call is forced to [showAd]
+  /// regardless of the heuristic above — a misconfigured/too-high threshold
+  /// should never be allowed to suppress ads indefinitely.
+  ArbitratorDecision decide(AdSlotType slot) {
+    final threshold = _perSlotThresholdMicros[slot] ?? ecpmThresholdMicros;
     final ecpm = estimatedEcpmMicros;
     final estimator = _vipLikelihoodEstimator;
+    ArbitratorDecision decision;
     if (estimator == null) {
-      return ecpm > 0 && ecpm < ecpmThresholdMicros
+      decision = ecpm > 0 && ecpm < threshold
+          ? ArbitratorDecision.nudgeVip
+          : ArbitratorDecision.showAd;
+    } else {
+      final likelihood = estimator();
+      decision = (ecpm < threshold && likelihood > 0.5)
           ? ArbitratorDecision.nudgeVip
           : ArbitratorDecision.showAd;
     }
-    final likelihood = estimator();
-    if (ecpm < ecpmThresholdMicros && likelihood > 0.5) {
-      return ArbitratorDecision.nudgeVip;
+
+    if (decision == ArbitratorDecision.nudgeVip &&
+        _decisions.length >= _decisionWindowSize &&
+        vetoRate > maxVetoRate) {
+      decision = ArbitratorDecision.showAd;
+      if (!_guardrailTripped) {
+        _guardrailTripped = true;
+        SafeLogger.w('MonetizationArbitrator',
+            '⚠️ arbitrator guardrail tripped (vetoRate=$vetoRate > $maxVetoRate) — vetoing too often, falling back to showAd');
+      }
+    } else if (vetoRate <= maxVetoRate) {
+      _guardrailTripped = false;
     }
-    return ArbitratorDecision.showAd;
+
+    _decisions.add(decision == ArbitratorDecision.nudgeVip);
+    if (_decisions.length > _decisionWindowSize) {
+      _decisions.removeAt(0);
+    }
+    return decision;
   }
 
   /// Release the internal [AdManager().events] subscription. Call this if

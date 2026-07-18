@@ -86,6 +86,55 @@ void main() {
       expect(log.entries.map((e) => e['kind']), everyElement('ad_event'));
     });
 
+    test('AdRevenueEvent.mediationWaterfall is captured when present', () {
+      final log = AdEventLog(prefs);
+      log.recordEvent(AdRevenueEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        valueMicros: 5000,
+        currencyCode: 'USD',
+        precision: 'precise',
+        mediationWaterfall: const [
+          'com.google.ads.mediation.facebook.FacebookMediationAdapter',
+          'com.google.ads.mediation.admob.AdMobAdapter',
+        ],
+      ));
+
+      final entry = log.entries.single;
+      expect(entry['mediationWaterfall'], [
+        'com.google.ads.mediation.facebook.FacebookMediationAdapter',
+        'com.google.ads.mediation.admob.AdMobAdapter',
+      ]);
+    });
+
+    test('AdRevenueEvent.mediationWaterfall defaults to null', () {
+      final log = AdEventLog(prefs);
+      log.recordEvent(AdRevenueEvent(
+        providerTag: '[AppLovin]',
+        type: AdSlotType.rewarded,
+        placement: AdPlacement.unspecified,
+        valueMicros: 5000,
+        currencyCode: 'USD',
+      ));
+
+      expect(log.entries.single['mediationWaterfall'], isNull);
+    });
+
+    test('recordEvent captures consentCountry when supplied', () {
+      final log = AdEventLog(prefs);
+      log.recordEvent(loadEvent(), consentCountry: 'DE');
+
+      expect(log.entries.single['consentCountry'], 'DE');
+    });
+
+    test('recordEvent leaves consentCountry null when not supplied', () {
+      final log = AdEventLog(prefs);
+      log.recordEvent(loadEvent());
+
+      expect(log.entries.single['consentCountry'], isNull);
+    });
+
     test('recordSafetyBlock captures the block reason', () {
       final log = AdEventLog(prefs);
       log.recordSafetyBlock('Hourly cap: 3 ads', timestampMs: 2000);

@@ -201,7 +201,11 @@ class _FakePopupRoute extends PopupRoute<void> {
   Duration get transitionDuration => Duration.zero;
 }
 
-AdConfig _admobConfig({required bool dryRun, required bool testIds}) {
+AdConfig _admobConfig({
+  required bool dryRun,
+  required bool testIds,
+  AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
+}) {
   const realPrefix = 'ca-app-pub-9999999999999999';
   const testPrefix = 'ca-app-pub-3940256099942544';
   final p = testIds ? testPrefix : realPrefix;
@@ -214,6 +218,7 @@ AdConfig _admobConfig({required bool dryRun, required bool testIds}) {
       rewardedId: '$p/4444444444',
     ),
     safety: AdSafetyParams(dryRun: dryRun),
+    appOpenTrigger: appOpenTrigger,
   );
 }
 
@@ -452,6 +457,53 @@ void main() {
       );
       expect(w, isEmpty);
     });
+
+    // ── Idea #8: config validation / preflight checks ───────────────────────
+    test('release + umpDebugGeography set → one warning', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'ca-app-pub-9999999999999999/1111111111',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+          ),
+          umpDebugGeography: DebugGeography.debugGeographyEea,
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('umpDebugGeography'));
+    });
+
+    test('release + AppLovin empty sdkKey → one warning', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: '',
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('sdkKey'));
+    });
+
+    test(
+        'release + AdMob provider with empty AppLovin sdkKey (unrelated '
+        'field) → the AppLovin sdkKey guard does not fire', () {
+      final w = AdManager.releaseFootgunWarnings(
+        _admobConfig(dryRun: false, testIds: false),
+        isDebug: false,
+      );
+      expect(w, isEmpty);
+    });
   });
 
   group('VIP gating (via injected adapter + VipManager)', () {
@@ -519,6 +571,126 @@ void main() {
         onAdDismiss: (d) => dismissed = d,
       );
       expect(dismissed, isFalse);
+    });
+  });
+
+  group('AppOpenTrigger gating', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      await AdManager().destroy();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().markSplashInactive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+      AdManager().markSplashActive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    test('resumeOnly → showAppOpenAd(bypassSafety: true) is blocked', () async {
+      AdManager().debugConfig = _admobConfig(
+        dryRun: true,
+        testIds: true,
+        appOpenTrigger: AppOpenTrigger.resumeOnly,
+      );
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+      expect(dismissed, isFalse);
+      expect(adapter.showAppOpenCalls, 0);
+    });
+
+    test('splashOnly → showAppOpenAdOnResume() is a no-op', () {
+      AdManager().debugConfig = _admobConfig(
+        dryRun: true,
+        testIds: true,
+        appOpenTrigger: AppOpenTrigger.splashOnly,
+      );
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.showAppOpenCalls, 0);
+      expect(adapter.loadAppOpenCalls, 0);
+    });
+
+    test(
+        'both (default) → showAppOpenAd(bypassSafety: true) is NOT blocked '
+        'by the trigger gate', () async {
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+      expect(dismissed, isTrue);
+      expect(adapter.showAppOpenCalls, 1);
+    });
+
+    test(
+        'both (default) → showAppOpenAdOnResume() is NOT blocked by the '
+        'trigger gate (still gated by cold-start, as before)', () {
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.showAppOpenCalls, 0,
+          reason: 'cold start one-shot skip, unrelated to the trigger gate');
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1));
+    });
+
+    test(
+        'splashOnly + splash inactive → loadAppOpenAd() is a no-op '
+        '(High finding fix: load-gate, not just show-gate)', () async {
+      AdManager().debugConfig = _admobConfig(
+        dryRun: true,
+        testIds: true,
+        appOpenTrigger: AppOpenTrigger.splashOnly,
+      );
+      // setUp already calls markSplashInactive().
+      await AdManager().loadAppOpenAd();
+      expect(adapter.loadAppOpenCalls, 0);
+    });
+
+    test('splashOnly + splash active → loadAppOpenAd() still loads', () async {
+      AdManager().debugConfig = _admobConfig(
+        dryRun: true,
+        testIds: true,
+        appOpenTrigger: AppOpenTrigger.splashOnly,
+      );
+      AdManager().markSplashActive();
+      await AdManager().loadAppOpenAd();
+      expect(adapter.loadAppOpenCalls, 1);
+    });
+
+    test(
+        'resumeOnly + splash inactive → loadAppOpenAd() still loads '
+        '(same slot serves resume, no waste)', () async {
+      AdManager().debugConfig = _admobConfig(
+        dryRun: true,
+        testIds: true,
+        appOpenTrigger: AppOpenTrigger.resumeOnly,
+      );
+      await AdManager().loadAppOpenAd();
+      expect(adapter.loadAppOpenCalls, 1);
+    });
+
+    test('both + splash inactive → loadAppOpenAd() still loads', () async {
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      await AdManager().loadAppOpenAd();
+      expect(adapter.loadAppOpenCalls, 1);
     });
   });
 
@@ -1095,6 +1267,20 @@ void main() {
 
       expect(() => AdManager().debugEmit(rev(2000000)), returnsNormally);
       await tester.pump();
+    });
+  });
+
+  group('tcfConsentString', () {
+    test('reads the IABTCF_TCString Google UMP writes to native storage',
+        () async {
+      SharedPreferences.setMockInitialValues(
+          {'IABTCF_TCString': 'CPxxTestConsentString'});
+      expect(await AdManager().tcfConsentString, 'CPxxTestConsentString');
+    });
+
+    test('null when no TCF session has ever run', () async {
+      SharedPreferences.setMockInitialValues({});
+      expect(await AdManager().tcfConsentString, isNull);
     });
   });
 }

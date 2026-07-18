@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show DebugGeography;
 
 import '../consent/consent_dialog_strings.dart';
 import '../core/ad_safety_config.dart';
@@ -83,6 +84,22 @@ String resolvePlatformAdUnitId({
   return fallback;
 }
 
+/// Controls which App Open surfaces [AdManager] is allowed to trigger.
+enum AppOpenTrigger {
+  /// Both the splash App Open (`showAppOpenAd(bypassSafety: true)`) and the
+  /// background→foreground resume App Open (`showAppOpenAdOnResume`) fire
+  /// normally. Default — preserves pre-existing behavior.
+  both,
+
+  /// Only the background→foreground resume App Open fires; the splash App
+  /// Open is skipped.
+  resumeOnly,
+
+  /// Only the splash App Open fires; the background→foreground resume App
+  /// Open is skipped.
+  splashOnly,
+}
+
 /// AppLovin MAX ad-unit IDs.
 class AppLovinConfig {
   const AppLovinConfig({
@@ -91,6 +108,8 @@ class AppLovinConfig {
     required String interstitialId,
     required String appOpenId,
     required String rewardedId,
+    String mrecId = '',
+    String nativeId = '',
     this.androidBannerId,
     this.iosBannerId,
     this.androidInterstitialId,
@@ -99,10 +118,16 @@ class AppLovinConfig {
     this.iosAppOpenId,
     this.androidRewardedId,
     this.iosRewardedId,
+    this.androidMrecId,
+    this.iosMrecId,
+    this.androidNativeId,
+    this.iosNativeId,
   })  : _bannerId = bannerId,
         _interstitialId = interstitialId,
         _appOpenId = appOpenId,
-        _rewardedId = rewardedId;
+        _rewardedId = rewardedId,
+        _mrecId = mrecId,
+        _nativeId = nativeId;
 
   /// AppLovin SDK key (86 chars, from `dash.applovin.com/o/account`).
   final String sdkKey;
@@ -111,6 +136,8 @@ class AppLovinConfig {
   final String _interstitialId;
   final String _appOpenId;
   final String _rewardedId;
+  final String _mrecId;
+  final String _nativeId;
 
   /// Optional per-platform overrides. When unset (or empty), the
   /// platform-agnostic id passed to the constructor is used for both
@@ -123,6 +150,10 @@ class AppLovinConfig {
   final String? iosAppOpenId;
   final String? androidRewardedId;
   final String? iosRewardedId;
+  final String? androidMrecId;
+  final String? iosMrecId;
+  final String? androidNativeId;
+  final String? iosNativeId;
 
   String get bannerId => resolvePlatformAdUnitId(
         fallback: _bannerId,
@@ -155,6 +186,26 @@ class AppLovinConfig {
         isAndroid: Platform.isAndroid,
         isIos: Platform.isIOS,
       );
+
+  /// Optional — defaults to `''` (unlike [bannerId]) so existing configs stay
+  /// backward compatible. Fixed 300x250 MREC ad-unit id.
+  String get mrecId => resolvePlatformAdUnitId(
+        fallback: _mrecId,
+        androidId: androidMrecId,
+        iosId: iosMrecId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  /// Optional, defaults to `''` (unlike [bannerId]) so existing configs stay
+  /// backward compatible. Native ad-unit id.
+  String get nativeId => resolvePlatformAdUnitId(
+        fallback: _nativeId,
+        androidId: androidNativeId,
+        iosId: iosNativeId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
 }
 
 /// AdMob ad-unit IDs.
@@ -164,6 +215,8 @@ class AdMobConfig {
     required String interstitialId,
     required String appOpenId,
     String rewardedId = '',
+    String mrecId = '',
+    String nativeId = '',
     this.testDeviceIds = const [],
     this.androidBannerId,
     this.iosBannerId,
@@ -173,15 +226,23 @@ class AdMobConfig {
     this.iosAppOpenId,
     this.androidRewardedId,
     this.iosRewardedId,
+    this.androidMrecId,
+    this.iosMrecId,
+    this.androidNativeId,
+    this.iosNativeId,
   })  : _bannerId = bannerId,
         _interstitialId = interstitialId,
         _appOpenId = appOpenId,
-        _rewardedId = rewardedId;
+        _rewardedId = rewardedId,
+        _mrecId = mrecId,
+        _nativeId = nativeId;
 
   final String _bannerId;
   final String _interstitialId;
   final String _appOpenId;
   final String _rewardedId;
+  final String _mrecId;
+  final String _nativeId;
 
   /// AdMob's hashed-GAID test-device list. Avoids accidental "real impression"
   /// counts during development.
@@ -198,6 +259,10 @@ class AdMobConfig {
   final String? iosAppOpenId;
   final String? androidRewardedId;
   final String? iosRewardedId;
+  final String? androidMrecId;
+  final String? iosMrecId;
+  final String? androidNativeId;
+  final String? iosNativeId;
 
   String get bannerId => resolvePlatformAdUnitId(
         fallback: _bannerId,
@@ -227,6 +292,26 @@ class AdMobConfig {
         fallback: _rewardedId,
         androidId: androidRewardedId,
         iosId: iosRewardedId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  /// Optional — defaults to `''` (like [rewardedId]) so existing configs stay
+  /// backward compatible. Fixed 300x250 MREC ad-unit id.
+  String get mrecId => resolvePlatformAdUnitId(
+        fallback: _mrecId,
+        androidId: androidMrecId,
+        iosId: iosMrecId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  /// Optional — defaults to `''` (like [rewardedId]) so existing configs stay
+  /// backward compatible. Native ad-unit id.
+  String get nativeId => resolvePlatformAdUnitId(
+        fallback: _nativeId,
+        androidId: androidNativeId,
+        iosId: iosNativeId,
         isAndroid: Platform.isAndroid,
         isIos: Platform.isIOS,
       );
@@ -259,8 +344,11 @@ class AdConfig {
     this.consentDialogPostSplashDelay = const Duration(seconds: 1),
     this.autoRequestUmpConsent = false,
     this.umpTagForUnderAgeOfConsent = false,
+    this.umpDebugGeography,
+    this.umpTestIdentifiers = const [],
     this.disableAppLovinCmpFlow = true,
     this.enableCrashGuard = true,
+    this.appOpenTrigger = AppOpenTrigger.both,
   }) : assert(
           provider == AdProvider.appLovin ? appLovin != null : admob != null,
           'AppLovinConfig required when provider==appLovin; AdMobConfig required when provider==admob',
@@ -425,6 +513,17 @@ class AdConfig {
   /// is `true`. Set for child-directed / under-age audiences.
   final bool umpTagForUnderAgeOfConsent;
 
+  /// Forwarded to UMP as `debugGeography` when [autoRequestUmpConsent] is
+  /// `true` — lets QA simulate an EEA/UK device from any real location.
+  /// `null` (default) = no debug geography override.
+  final DebugGeography? umpDebugGeography;
+
+  /// Forwarded to UMP as `testIdentifiers` when [autoRequestUmpConsent] is
+  /// `true` — your test device's advertising-id hash, so Google serves the
+  /// debug consent form instead of counting the device as a real user.
+  /// Default `[]`.
+  final List<String> umpTestIdentifiers;
+
   /// When `true` (default), the AppLovin adapter disables AppLovin's **own**
   /// Terms & Privacy Policy (CMP) flow so it doesn't prompt on top of Google
   /// UMP — UMP is the single source of truth and its result is forwarded to
@@ -445,6 +544,14 @@ class AdConfig {
   /// Set `false` if the host app already installs its own global error
   /// handler and wants to own this itself.
   final bool enableCrashGuard;
+
+  // ─── App Open trigger ─────────────────────────────────────────────────────
+
+  /// Which App Open surfaces [AdManager] is allowed to trigger. Default
+  /// [AppOpenTrigger.both] — preserves existing behavior (splash App Open via
+  /// `showAppOpenAd(bypassSafety: true)` and background→foreground resume via
+  /// `showAppOpenAdOnResume()` both fire normally).
+  final AppOpenTrigger appOpenTrigger;
 
   /// Convenience getter.
   bool get isAdMob => provider == AdProvider.admob;

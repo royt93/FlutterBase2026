@@ -430,6 +430,28 @@ void main() {
       expect(() => a.banner.isLoaded.addListener(() {}), throwsFlutterError);
       expect(() => a.appLovinBannerAdViewId.addListener(() {}),
           throwsFlutterError);
+      expect(() => a.mrecSlot.state.addListener(() {}), throwsFlutterError);
+      expect(() => a.mrec.isLoaded.addListener(() {}), throwsFlutterError);
+      expect(
+          () => a.appLovinMrecAdViewId.addListener(() {}), throwsFlutterError);
+      expect(() => a.nativeSlot.state.addListener(() {}), throwsFlutterError);
+      expect(() => a.native.isLoaded.addListener(() {}), throwsFlutterError);
+    });
+  });
+
+  group('AppLovinAdapter native (no-op preload)', () {
+    test('preloadNative() is a no-op — MaxNativeAdView loads on mount',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      await a.preloadNative();
+      expect(a.native.isLoaded.value, isFalse);
+      expect(a.native.hasError.value, isFalse);
+      expect(a.buildAdmobNativeView(), isNull);
+      expect(a.appLovinNativeId, ''); // _config sets no nativeId
     });
   });
 

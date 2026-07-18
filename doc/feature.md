@@ -195,6 +195,45 @@ Updated: 2026-07-13
   `flutter analyze` clean, `flutter test` 79/79 pass (repo root — không có
   test nào assert số lượng SKAdNetworkIdentifier cụ thể).
 
+- **Audit 2026-07-17 — 4 finding High đã fix + 3 feature mới (2026-07-17).**
+  Audit toàn diện 5-agent song song theo checklist 7 điểm
+  (`doc/audit/audit_claude.md`); user chốt hướng qua 4 `AskUserQuestion`
+  (Q1-Q3: fix ngay + làm 3 feature; Q4: "chưa lên production, chờ hết High
+  trước"). Tất cả đã xong, điều kiện Q4 đã thỏa:
+  - **Fix — UMP EEA test gap.** `initialize()`'s `autoRequestUmpConsent`
+    branch (`ad_manager.dart`) trước đây không forward `debugGeography`/
+    `testIdentifiers` từ `AdConfig` vào lệnh gọi `requestUmpConsent()` nội bộ
+    → không cách nào test luồng UMP EEA qua config. Thêm 2 field mới
+    `AdConfig.umpDebugGeography`/`umpTestIdentifiers` + forward đúng vào lệnh
+    gọi + seam `debugLastAutoUmpParams` (`@visibleForTesting`) để test xác
+    nhận tham số soạn đúng (native UMP không có mock hook thật).
+  - **Fix — 3 gap ở app mẫu** (`packages/ad_sdk/example/lib/main.dart`): thêm
+    ô nhập SSV user id vào `RewardedDemoPage` (+ hiện "pending SSV
+    confirmation"); thêm nhánh `ArbitratorNudgeEvent` vào
+    `EventsDemoPage._describe()`; thêm nút "Enable Smart Arbitrator" vào
+    `SafetyDemoPage` gọi `AdManager().enableArbitrator(...)` + README mục mới
+    "Monetization Arbitrator (opt-in)".
+  - **Feature — `AppOpenTrigger` enum** (`both`/`resumeOnly`/`splashOnly`) trên
+    `AdConfig`, mặc định `both` (không đổi hành vi hiện tại). `resumeOnly`
+    chặn `showAppOpenAd(bypassSafety:true)` ở splash; `splashOnly` chặn
+    `showAppOpenAdOnResume()`.
+  - **Feature — `AdManager().tcfConsentString`** getter mới (đọc
+    `IABTCF_TCString` từ `SharedPreferences` — chuỗi TCF v2.3 thô UMP tự ghi,
+    không cần dependency mới) để host tự gửi cho bên thứ 3 cần nó.
+  - **Feature — AppLovin adaptive banner: xác nhận ĐÃ adaptive sẵn, không
+    phải thiếu sót.** Điều tra kỹ `applovin_bridge.dart` +
+    `banner_ad_widget.dart` + plugin `applovin_max` source: banner AppLovin
+    hiển thị qua `MaxAdView` widget, tự đọc `MediaQuery.of(context).size.width`
+    live tại build time (kể cả khi xoay màn hình) — thực ra adaptive tốt hơn
+    cách AdMob làm (AdMob phải reload thủ công khi đổi orientation). Tham số
+    `widthPx` bị bỏ (no-op) trong `loadBannerIfNeeded` không phải bug — nó
+    chưa từng là thứ điều khiển kích thước AppLovin thật. Quyết định: không
+    chế API giả, ghi rõ lý do vào README Pitfalls mục 7 thay vì sửa code.
+  Verified: `packages/ad_sdk` 572/572, `packages/ad_sdk/example` 16/16, host
+  root 79/79 — toàn bộ pass; `flutter analyze` clean cả 3 scope, zero
+  regression. **Q4 go/no-go:** điều kiện "hết finding High" giờ đã thỏa —
+  quyết định go-live vẫn cần user chốt riêng, không tự ý tiến hành.
+
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
 phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát
@@ -298,6 +337,14 @@ hiện mới:
 ## 🟡 In progress
 
 - (Product track: none — Wave 5 complete)
+- (Ad/SDK track: none — audit vòng 2 2026-07-17 hoàn tất, xem
+  `doc/audit/audit_claude.md` mục "Re-audit vòng 2 — 2026-07-17". Cả 4 finding
+  High của vòng trước đã fix + xác nhận độc lập, không regression. 1 finding
+  High mới (AppOpenTrigger.splashOnly/resumeOnly chỉ gate show không gate
+  load — revenue leak, không áp dụng ở default `both` đang dùng) + vài
+  Medium/Low không chặn production. Verdict: CÓ dùng production được với
+  cấu hình hiện tại. 8 ý tưởng feature/enhancement mới ở mục Ideas bên dưới,
+  chờ người dùng chọn qua AskUserQuestion.)
 - (Ad/SDK track: Audit follow-up T31-T42 — **hoàn tất 2026-07-14**, xem
   ✅ Implemented ở trên, `doc/task/done/T3{1,2,...,9}-*.md` + `T42-*.md`)
 - **Ad/SDK track — test-coverage cleanup (9 gaps, direct user request),
@@ -862,3 +909,136 @@ logged as deferred, not discarded.
   `AdConfig`/`AdManager` restructuring needed, just a second adapter instance +
   a comparison log sink; real per-slot routing (mentioned as a bigger lift) is
   explicitly out of scope for this version.
+
+#### New ideas (2026-07-17 audit vòng 2 brainstorm) — chờ chọn qua AskUserQuestion
+
+1. ~~**Adaptive banner size cho AppLovin** (S).~~ ✅ Không phải gap thật —
+   audit vòng 2 nhầm vì chỉ đọc `preloadWidgetAdView` (chỉ nhận `AdFormat`
+   enum, không nhận width) mà bỏ sót tầng widget: `_AppLovinMaxAdView` trong
+   `banner_ad_widget.dart` đã dùng `MaxAdView(isAdaptiveBannerEnabled: true)`,
+   tự đọc `MediaQuery` width lúc build (kể cả khi xoay màn hình) — banner
+   AppLovin **đã adaptive trong thực tế**, chỉ khác cơ chế AdMob (không qua
+   tham số `widthPx` truyền vào lúc load). Đã có sẵn README mục "AppLovin
+   banner width" giải thích đầy đủ; chỉ sửa 1 comment gây hiểu lầm ở
+   `applovin_adapter.dart:loadBannerIfNeeded` cho khớp (2026-07-17).
+2. **MREC ad format** (M). Thêm `AdSlotType.mrec` (300×250), mirror toàn bộ
+   lifecycle load/show/dispose đã có cho banner ở cả 2 adapter.
+3. **Native Ad format** (L). ✅ Implemented (2026-07-18, v1) — eCPM cao nhất,
+   effort/risk bảo trì cao nhất trong danh sách, cần asset-binding riêng
+   (title/icon/CTA/media view) và label "Ad/Sponsored" đúng pháp lý. Xem mục
+   "Cập nhật 2026-07-18 (Native Ad v1, #3)" cuối file.
+4. **Shadow fill-rate alert** (S-M). Mở rộng ý "Shadow eCPM comparison" ở
+   trên — nếu provider active liên tục fail-to-load trong khi shadow-provider
+   fill tốt, emit cảnh báo gợi ý switch provider.
+5. **Arbitrator per-slot threshold + veto-rate guardrail** (S). Ngưỡng eCPM
+   theo từng `AdSlotType` thay vì 1 ngưỡng chung; tự tắt tạm nếu veto-rate
+   vượt X% trong rolling window (chống estimator lỗi làm mất hết ad).
+6. **Mediation waterfall / adapter response reporting** (M). Surface
+   `getResponseInfo()` (AdMob) / waterfall callback (AppLovin) qua `AdEvent`
+   để partner debug "tại sao eCPM thấp hôm nay" ngay trong app.
+7. **GDPR consent analytics theo quốc gia** (S). Bổ sung Trust/Compliance
+   layer (T23-T26) — log consent decision kèm country code vào `AdEventLog`
+   để `ComplianceReport` show breakdown theo vùng.
+8. **Config validation / preflight check** (S). `AdConfig.validate()` (hoặc
+   tự chạy ở debug init) cảnh báo lỗi config phổ biến (test ad-unit ID sót
+   lại trong release, `firstInstallVipGrace` xung đột safety cap thấp bất
+   thường...) thay vì fail âm thầm lúc runtime.
+
+Đề xuất ưu tiên (rẻ + khép nợ cũ trước): #1 + #8 + #5, rồi tới #4/#2/#6/#7
+theo nhu cầu, #3 (Native Ad) sau cùng vì effort/risk cao nhất. Chi tiết đầy đủ
+kèm lợi ích/rủi ro/breaking-change ở `doc/audit/audit_claude.md` mục "(E)
+Feature/enhancement brainstorm vòng 2".
+
+**Cập nhật 2026-07-18 (sau audit vòng 3):** #2 (MREC), #4 (Fill-rate monitor),
+#5 (Arbitrator per-slot + guardrail), #6 (Mediation waterfall), #7 (Consent
+country), #8 (Config validation) — ✅ **Implemented**. #3 (Native Ad) ban đầu
+⏸️ **Deferred** — effort/risk cao nhất, cố tình để làm sau cùng.
+
+**Cập nhật 2026-07-18 (Native Ad v1 — #3) — ✅ Implemented.** Toàn bộ 8 ý
+tưởng brainstorm vòng 2 nay đã xong. Chi tiết đầy đủ (2 nhánh render khác
+nhau theo provider, test compliance nhãn "Ad") ở mục "Cập nhật 2026-07-18
+(Native Ad v1, #3)" phía dưới, cuối file.
+
+Audit vòng 3 (6 agent song song) xác nhận 0 Critical/High trên 7 tính năng
+vừa ship, fix live 1 Medium (`AdManager.destroy()` không dispose
+arbitrator/fill-rate-monitor) + 1 Low (threshold `FillRateMonitor` không
+validate). Agent E ban đầu báo 4/7 tính năng thiếu doc/demo, nhưng **verify
+tay bằng grep README + example app (2026-07-18) bác bỏ 1 claim**: AppOpenTrigger
+load-gate thực ra đã có doc sẵn từ vòng 2 (README dòng 621+633) — không cần
+sửa. **3 gap thật còn lại** (🟡 In progress, cần dọn trước khi coi cả 7 ý
+tưởng là "xong" đúng nghĩa):
+- Config validation (#8) — 2 warning mới chưa có doc, chỉ có comment code.
+- Arbitrator per-slot/guardrail (#5) — `SafetyDemoPage` chưa demo
+  `perSlotThresholdMicros`/guardrail (chỉ gọi constructor trần).
+- Mediation waterfall (#6) — chưa hiển thị ở `EventsDemoPage`.
+- Consent country (#7) — chưa có UI set/xem ở `ConsentDemoPage`.
+
+(MREC #2, Fill-rate monitor #4, và AppOpenTrigger đã hoàn thiện đầy đủ cả doc
+lẫn demo/doc tương ứng.)
+
+#### New ideas (2026-07-18 audit vòng 3 brainstorm)
+
+1. **Dashboard chẩn đoán hợp nhất** (S). Gộp waterfall + fill-rate + arbitrator
+   veto stats thành 1 `AdManager.diagnostics()` hoặc 1 debug-overlay panel duy
+   nhất — hiện là 3 tín hiệu rời rạc, partner phải tự ghép để trả lời "vì sao
+   eCPM thấp hôm nay".
+2. **Integration self-check tự động** (M). `AdManager.runIntegrationSelfCheck()`
+   (debug-mode) chạy init→consent→mỗi loại ad→VIP redeem→dispose, trả về 1
+   checklist pass/fail — thay vì partner phải tự click qua ~15 trang demo để
+   biết SDK hoạt động đúng trên máy họ.
+
+**Thứ tự đã chốt với user (2026-07-18):** dọn 5 gap doc/demo ở trên trước
+(rẻ nhất, không đụng logic) → rồi 2 ý tưởng brainstorm này (S/M effort, để
+integration self-check + dashboard sẵn sàng hỗ trợ verify khi làm việc khó
+nhất) → cuối cùng mới tới Native Ad v1 (#3, effort/risk cao nhất trong toàn bộ
+backlog).
+
+**Cập nhật (brainstorm vòng 3, cả 2 ý tưởng) — ✅ Implemented:**
+1. **Dashboard chẩn đoán hợp nhất** → `AdManager.diagnostics()` trả về
+   `AdDiagnostics` (waterfall mới nhất/slot + fill-rate/slot + arbitrator
+   estimated eCPM/veto-rate), export qua barrel công khai. Waterfall-indexing
+   được tách thành hàm pure `AdDiagnostics.lastWaterfallBySlotFrom()` (mirror
+   pattern `ComplianceReport.generate`) để test không cần `AdEventLog`/
+   `SharedPreferences` sống — `ad_diagnostics_test.dart` (7 test).
+2. **Integration self-check tự động** → `AdManager.runIntegrationSelfCheck()`
+   (debug-only) chạy checklist init→per-slot-load→VIP-wiring, trả
+   `SelfCheckResult`/`SelfCheckItem`/`SelfCheckStatus` (cũng export công khai)
+   — `integration_self_check_test.dart` (4 test).
+
+Cả `packages/ad_sdk` test suite (614/614) và `flutter analyze` sạch sau khi
+thêm 2 tính năng này.
+
+**Cập nhật 2026-07-18 (Native Ad v1, #3) — ✅ Implemented — toàn bộ backlog
+audit vòng 2/3 đã xong.** Research trực tiếp trong source `google_mobile_ads`
+7.0.0 và `applovin_max` 4.6.4 xác nhận giả định ban đầu ("1 layout Dart tuỳ
+biến dùng chung 2 provider") **sai kỹ thuật** — 2 provider dùng 2 cơ chế tích
+hợp khác nhau ở tầng render (không chỉ tầng adapter), dù dùng chung 1
+lifecycle-shell (gating VIP/offline/cooldown, mirror `MrecAdWidget`, bỏ hẳn
+route-pause/auto-refresh vì không áp dụng cho native):
+- **AdMob**: `NativeAd extends AdWithView` — giống hệt `BannerAd`/MREC, preload
+  rồi `AdWidget`. Dùng `NativeTemplateStyle(templateType: TemplateType.medium)`
+  — template tự vẽ nhãn "Ad"/AdChoices, package không vẽ thêm.
+- **AppLovin**: `MaxNativeAdView` là widget tự quản lý, load khi mount trực
+  tiếp từ `adUnitId` + layout Dart tuỳ biến (`MaxNativeAdIconView`/
+  `MaxNativeAdTitleView`/`MaxNativeAdMediaView`/`MaxNativeAdBodyView`/
+  `MaxNativeAdCallToActionView`) — **không** qua `preloadWidgetAdView`/adViewId
+  bridge banner/MREC dùng. Vì layout ở đây là Dart thật, package phải tự vẽ
+  nhãn "Ad" (mirror `_MrecContainer`'s badge) — đây cũng là format đầu tiên
+  cần test compliance-nhãn thật (trước đó **không có test nào** assert nhãn
+  "Ad" thực sự render, ở bất kỳ format nào).
+
+Đã thêm: `AdSlotType.native`, `nativeId` config (cả 2 provider), interface
+`nativeSlot`/`native`/`preloadNative()`/`buildAdmobNativeView()`/
+`appLovinNativeId` trên `AdProviderAdapter`, `NativeAdWidget` mới + fixed
+height 320px (khuyến nghị Google cho `TemplateType.medium`), `buildNative()`
+trên `AdScreen`, Native accessors facade trên `AdManager`, demo tile + trang
+trong example app, export công khai qua barrel, mục README "Native Ad (v1)"
+(nêu rõ v1 = layout cố định, không phải editor tuỳ biến). Test mới:
+`native_ad_widget_test.dart` (8 case, gồm 2 test compliance-nhãn "Ad" —
+AppLovin phải hiện, AdMob không được hiện đúp) + adapter slot-state-machine
+test cho `nativeSlot` ở cả `admob_adapter_test.dart`/`applovin_adapter_test.dart`.
+
+`packages/ad_sdk` test suite: 624/624 pass. `packages/ad_sdk/example` test
+suite: pass. `flutter analyze` sạch ở cả 2. Idea #3 là idea cuối cùng còn lại
+trong backlog audit vòng 2 — toàn bộ 8 ý tưởng brainstorm vòng 2 nay đều
+✅ Implemented.

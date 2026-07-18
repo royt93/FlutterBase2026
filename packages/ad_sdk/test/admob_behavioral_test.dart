@@ -35,6 +35,9 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
   void setPaidEventListener(void Function(num, String, String) cb) {}
 
   @override
+  List<String>? get mediationWaterfall => null;
+
+  @override
   void dispose() => disposeCount++;
 }
 

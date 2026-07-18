@@ -77,6 +77,12 @@ class ConsentManager {
       ValueNotifier<ConsentSettings>(ConsentSettings.unset);
 
   /// Current cached settings.
+  ///
+  /// [ConsentSettings.country] is never populated by this class — the SDK has
+  /// no way to determine a user's real country from UMP (only an EEA/non-EEA
+  /// classification, plus a debug-only override). A host app that wants
+  /// consent-country analytics must supply it itself, e.g.:
+  /// `set(current.copyWith(country: 'DE'))`.
   ConsentSettings get current => _current;
 
   /// Convenience — same as `current.hasBeenAsked`.

@@ -62,6 +62,21 @@ class ComplianceReport {
   final bool vipActive;
   final List<Map<String, dynamic>> events;
 
+  /// Count of [events] carrying a non-null `consentCountry`, grouped by that
+  /// value. `consentCountry` is host-supplied analytics (see
+  /// [ConsentSettings.country]) — not a real geolocation source, so this is
+  /// only as accurate as what the host app chose to attach.
+  Map<String, int> get consentCountByCountry {
+    final counts = <String, int>{};
+    for (final e in events) {
+      final country = e['consentCountry'];
+      if (country is String) {
+        counts[country] = (counts[country] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
   Map<String, dynamic> toJson() => {
         'generatedAt': generatedAt.toIso8601String(),
         'rangeFrom': rangeFrom?.toIso8601String(),
@@ -76,6 +91,7 @@ class ComplianceReport {
         },
         'vipActive': vipActive,
         'eventCount': events.length,
+        'consentCountByCountry': consentCountByCountry,
         'events': events,
       };
 

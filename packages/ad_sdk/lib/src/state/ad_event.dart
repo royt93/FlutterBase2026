@@ -89,6 +89,7 @@ class AdRevenueEvent extends AdEvent {
     required this.currencyCode,
     this.networkName,
     this.precision,
+    this.mediationWaterfall,
   });
 
   /// Revenue in micros (`$1.23` → `1_230_000`).
@@ -102,6 +103,16 @@ class AdRevenueEvent extends AdEvent {
 
   /// AdMob precision token (`'estimated'`, `'precise'`, ...). Null on AppLovin.
   final String? precision;
+
+  /// Adapter class names tried by the mediation waterfall for this impression.
+  ///
+  /// AdMob: the full ordered waterfall from `ResponseInfo.adapterResponses`
+  /// (one entry per adapter the mediation SDK attempted, winner last).
+  /// AppLovin MAX only reports the winning network per impression (no
+  /// step-by-step waterfall), so this is a single-element list containing
+  /// just that network name. Null if the underlying SDK call didn't return
+  /// response info.
+  final List<String>? mediationWaterfall;
 
   /// Convenience: `valueMicros / 1_000_000` as a double.
   double get value => valueMicros / 1000000.0;

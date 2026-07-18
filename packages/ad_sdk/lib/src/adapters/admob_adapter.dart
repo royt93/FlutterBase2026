@@ -84,6 +84,7 @@ class AdMobAdapter implements AdProviderAdapter {
         valueMicros: valueMicros.toInt(),
         currencyCode: currencyCode,
         precision: precision,
+        mediationWaterfall: ad.mediationWaterfall,
       ));
     });
   }
@@ -91,8 +92,8 @@ class AdMobAdapter implements AdProviderAdapter {
   /// Constructor-time paid-event callback for banner — used in
   /// [BannerAdListener] since [BannerAd] inherits from [AdWithView] which
   /// doesn't expose `onPaidEvent` as a setter.
-  OnPaidEventCallback _paidEventForBanner(AdPlacement placement) =>
-      (Ad _, double valueMicros, PrecisionType precision, String currencyCode) {
+  OnPaidEventCallback _paidEventForBanner(AdPlacement placement) => (Ad ad,
+          double valueMicros, PrecisionType precision, String currencyCode) {
         _emit(AdRevenueEvent(
           providerTag: tag,
           type: AdSlotType.banner,
@@ -100,6 +101,41 @@ class AdMobAdapter implements AdProviderAdapter {
           valueMicros: valueMicros.toInt(),
           currencyCode: currencyCode,
           precision: precision.name,
+          mediationWaterfall: ad.responseInfo?.adapterResponses
+              ?.map((r) => r.adapterClassName)
+              .toList(),
+        ));
+      };
+
+  /// Same as [_paidEventForBanner] but tags events [AdSlotType.mrec].
+  OnPaidEventCallback _paidEventForMrec(AdPlacement placement) => (Ad ad,
+          double valueMicros, PrecisionType precision, String currencyCode) {
+        _emit(AdRevenueEvent(
+          providerTag: tag,
+          type: AdSlotType.mrec,
+          placement: placement,
+          valueMicros: valueMicros.toInt(),
+          currencyCode: currencyCode,
+          precision: precision.name,
+          mediationWaterfall: ad.responseInfo?.adapterResponses
+              ?.map((r) => r.adapterClassName)
+              .toList(),
+        ));
+      };
+
+  /// Same as [_paidEventForBanner] but tags events [AdSlotType.native].
+  OnPaidEventCallback _paidEventForNative(AdPlacement placement) => (Ad ad,
+          double valueMicros, PrecisionType precision, String currencyCode) {
+        _emit(AdRevenueEvent(
+          providerTag: tag,
+          type: AdSlotType.native,
+          placement: placement,
+          valueMicros: valueMicros.toInt(),
+          currencyCode: currencyCode,
+          precision: precision.name,
+          mediationWaterfall: ad.responseInfo?.adapterResponses
+              ?.map((r) => r.adapterClassName)
+              .toList(),
         ));
       };
 
@@ -116,11 +152,39 @@ class AdMobAdapter implements AdProviderAdapter {
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
   @override
   final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  @override
+  final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
+  @override
+  final AdSlot nativeSlot = AdSlot(type: AdSlotType.native);
 
   // ─── Banner listenables ───────────────────────────────────────────────────
 
   @override
   final BannerListenables banner = BannerListenables(
+    isLoaded: ValueNotifier<bool>(false),
+    hasError: ValueNotifier<bool>(false),
+    adSize: ValueNotifier<Size?>(null),
+    autoRefreshEnabled: ValueNotifier<bool>(true),
+    visible: ValueNotifier<bool>(true),
+  );
+
+  // ─── MREC listenables ─────────────────────────────────────────────────────
+
+  @override
+  final BannerListenables mrec = BannerListenables(
+    isLoaded: ValueNotifier<bool>(false),
+    hasError: ValueNotifier<bool>(false),
+    adSize: ValueNotifier<Size?>(null),
+    autoRefreshEnabled: ValueNotifier<bool>(true),
+    visible: ValueNotifier<bool>(true),
+  );
+
+  // ─── Native listenables ───────────────────────────────────────────────────
+  // adSize/autoRefreshEnabled/visible are unused stubs — native ads have no
+  // adaptive size or auto-refresh ticker (see AdProviderAdapter.native doc).
+
+  @override
+  final BannerListenables native = BannerListenables(
     isLoaded: ValueNotifier<bool>(false),
     hasError: ValueNotifier<bool>(false),
     adSize: ValueNotifier<Size?>(null),
@@ -134,6 +198,9 @@ class AdMobAdapter implements AdProviderAdapter {
   GmaFullscreenAd? _interstitialAd;
   GmaFullscreenAd? _rewardedAd;
   BannerAd? _bannerAd; // banner stays on the native API
+  BannerAd?
+      _mrecAd; // MREC also uses the native BannerAd API, with AdSize.mediumRectangle
+  NativeAd? _nativeAd;
 
   // ─── Pending callbacks (one per slot at most) ─────────────────────────────
   void Function(bool dismissed)? _appOpenDismiss;
@@ -165,6 +232,25 @@ class AdMobAdapter implements AdProviderAdapter {
   ValueListenable<Object?> get appLovinBannerAdViewId => _appLovinAdViewIdStub;
   static final ValueNotifier<Object?> _appLovinAdViewIdStub =
       ValueNotifier<Object?>(null);
+
+  bool _mrecRoutePaused = false;
+
+  @override
+  bool get mrecRoutePaused => _mrecRoutePaused;
+
+  @override
+  void setMrecRoutePaused(bool paused) {
+    _mrecRoutePaused = paused;
+  }
+
+  @override
+  String? get appLovinMrecId => null; // AdMob only
+
+  @override
+  ValueListenable<Object?> get appLovinMrecAdViewId => _appLovinAdViewIdStub;
+
+  @override
+  String? get appLovinNativeId => null; // AdMob only
 
   // ──────────────────────────────────────────────────────────────────────────
   //  LIFECYCLE
@@ -213,6 +299,18 @@ class AdMobAdapter implements AdProviderAdapter {
       SafeLogger.w(_logTag, 'banner dispose threw: $e');
     }
     _bannerAd = null;
+    try {
+      _mrecAd?.dispose();
+    } catch (e) {
+      SafeLogger.w(_logTag, 'mrec dispose threw: $e');
+    }
+    _mrecAd = null;
+    try {
+      _nativeAd?.dispose();
+    } catch (e) {
+      SafeLogger.w(_logTag, 'native dispose threw: $e');
+    }
+    _nativeAd = null;
 
     // Fire any pending callbacks with `false` so callers don't hang.
     _appOpenDismiss?.call(false);
@@ -226,6 +324,8 @@ class AdMobAdapter implements AdProviderAdapter {
     interstitialSlot.reset();
     rewardedSlot.reset();
     bannerSlot.reset();
+    mrecSlot.reset();
+    nativeSlot.reset();
 
     banner.isLoaded.value = false;
     banner.hasError.value = false;
@@ -233,6 +333,16 @@ class AdMobAdapter implements AdProviderAdapter {
     banner.autoRefreshEnabled.value = true;
     banner.visible.value = true;
     _bannerRoutePaused = false;
+
+    mrec.isLoaded.value = false;
+    mrec.hasError.value = false;
+    mrec.adSize.value = null;
+    mrec.autoRefreshEnabled.value = true;
+    mrec.visible.value = true;
+    _mrecRoutePaused = false;
+
+    native.isLoaded.value = false;
+    native.hasError.value = false;
 
     // This adapter instance is discarded after dispose() — a fresh one is
     // constructed on the next initialize() — so it's safe to permanently
@@ -242,6 +352,10 @@ class AdMobAdapter implements AdProviderAdapter {
     rewardedSlot.dispose();
     bannerSlot.dispose();
     banner.dispose();
+    mrecSlot.dispose();
+    mrec.dispose();
+    nativeSlot.dispose();
+    native.dispose();
 
     _admob = null;
     _config = null;
@@ -907,6 +1021,192 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  //  MREC
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @override
+  Future<void> preloadMrec() async {
+    // AdMob MREC loads on widget mount when width is known — no preload here.
+    SafeLogger.d(_logTag, 'preloadMrec $tag (no-op for AdMob)');
+  }
+
+  @override
+  Future<void> loadMrecIfNeeded(double widthPx) async {
+    final cfg = _admob;
+    if (cfg == null) return;
+    if (_mrecAd != null) {
+      SafeLogger.d(_logTag, 'loadMrec $tag ⏭️ already cached');
+      return;
+    }
+    // Same beginLoad-before-create ordering as banner — see loadBannerIfNeeded.
+    if (!mrecSlot.beginLoad()) {
+      SafeLogger.d(
+          _logTag, 'loadMrec $tag ⏭️ already loading/showing or in cooldown');
+      return;
+    }
+    mrec.isLoaded.value = false;
+    SafeLogger.d(_logTag, 'loadMrec $tag 🔄');
+    try {
+      // MREC is a FIXED 300x250 size — no adaptive-size lookup (unlike banner).
+      const size = AdSize.mediumRectangle;
+      _mrecAd = BannerAd(
+        adUnitId: cfg.mrecId,
+        size: size,
+        request: AdRequest(
+          nonPersonalizedAds: _nonPersonalizedAds,
+          extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
+        ),
+        listener: BannerAdListener(
+          onPaidEvent: _paidEventForMrec(AdPlacement.unspecified),
+          onAdLoaded: (ad) {
+            SafeLogger.d(_logTag, 'loadMrec $tag ✅');
+            mrec.isLoaded.value = true;
+            mrec.hasError.value = false;
+            mrec.adSize.value =
+                Size(size.width.toDouble(), size.height.toDouble());
+            mrecSlot.markReady();
+            AdSafetyConfig.recordBannerImpression();
+            _emit(AdLoadEvent(
+              providerTag: tag,
+              type: AdSlotType.mrec,
+              placement: AdPlacement.unspecified,
+              success: true,
+            ));
+          },
+          onAdFailedToLoad: (ad, err) {
+            SafeLogger.w(_logTag, 'loadMrec $tag ❌ ${err.code}');
+            try {
+              ad.dispose();
+            } catch (_) {}
+            _mrecAd = null;
+            mrec.isLoaded.value = false;
+            mrec.hasError.value = true;
+            mrecSlot.markFailed();
+            _emit(AdLoadEvent(
+              providerTag: tag,
+              type: AdSlotType.mrec,
+              placement: AdPlacement.unspecified,
+              success: false,
+              errorCode: err.code,
+            ));
+          },
+          onAdOpened: (ad) {
+            SafeLogger.d(_logTag, 'mrec $tag 🎯 click');
+            AdSafetyConfig.recordAdClick();
+            _emit(AdClickEvent(
+              providerTag: tag,
+              type: AdSlotType.mrec,
+              placement: AdPlacement.unspecified,
+            ));
+          },
+          onAdClosed: (ad) => SafeLogger.d(_logTag, 'mrec $tag closed'),
+        ),
+      )..load();
+    } catch (e, st) {
+      SafeLogger.e(_logTag, 'loadMrec $tag THREW: $e\n$st');
+      mrec.hasError.value = true;
+      mrecSlot.markFailed();
+    }
+  }
+
+  @override
+  Widget? buildAdmobMrecView() {
+    final ad = _mrecAd;
+    if (ad == null) return null;
+    return SizedBox(
+      width: ad.size.width.toDouble(),
+      height: ad.size.height.toDouble(),
+      child: AdWidget(ad: ad),
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  NATIVE
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @override
+  Future<void> preloadNative() async {
+    final cfg = _admob;
+    if (cfg == null) return;
+    if (_nativeAd != null) {
+      SafeLogger.d(_logTag, 'preloadNative $tag ⏭️ already cached');
+      return;
+    }
+    if (!nativeSlot.beginLoad()) {
+      SafeLogger.d(_logTag,
+          'preloadNative $tag ⏭️ already loading/showing or in cooldown');
+      return;
+    }
+    native.isLoaded.value = false;
+    SafeLogger.d(_logTag, 'preloadNative $tag 🔄');
+    try {
+      _nativeAd = NativeAd(
+        adUnitId: cfg.nativeId,
+        request: AdRequest(
+          nonPersonalizedAds: _nonPersonalizedAds,
+          extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
+        ),
+        nativeTemplateStyle:
+            NativeTemplateStyle(templateType: TemplateType.medium),
+        listener: NativeAdListener(
+          onPaidEvent: _paidEventForNative(AdPlacement.unspecified),
+          onAdLoaded: (ad) {
+            SafeLogger.d(_logTag, 'preloadNative $tag ✅');
+            native.isLoaded.value = true;
+            native.hasError.value = false;
+            nativeSlot.markReady();
+            AdSafetyConfig.recordBannerImpression();
+            _emit(AdLoadEvent(
+              providerTag: tag,
+              type: AdSlotType.native,
+              placement: AdPlacement.unspecified,
+              success: true,
+            ));
+          },
+          onAdFailedToLoad: (ad, err) {
+            SafeLogger.w(_logTag, 'preloadNative $tag ❌ ${err.code}');
+            try {
+              ad.dispose();
+            } catch (_) {}
+            _nativeAd = null;
+            native.isLoaded.value = false;
+            native.hasError.value = true;
+            nativeSlot.markFailed();
+            _emit(AdLoadEvent(
+              providerTag: tag,
+              type: AdSlotType.native,
+              placement: AdPlacement.unspecified,
+              success: false,
+              errorCode: err.code,
+            ));
+          },
+          onAdClicked: (ad) {
+            SafeLogger.d(_logTag, 'native $tag 🎯 click');
+            AdSafetyConfig.recordAdClick();
+            _emit(AdClickEvent(
+              providerTag: tag,
+              type: AdSlotType.native,
+              placement: AdPlacement.unspecified,
+            ));
+          },
+          onAdClosed: (ad) => SafeLogger.d(_logTag, 'native $tag closed'),
+        ),
+      )..load();
+    } catch (e, st) {
+      SafeLogger.e(_logTag, 'preloadNative $tag THREW: $e\n$st');
+      native.hasError.value = true;
+      nativeSlot.markFailed();
+    }
+  }
+
+  @override
+  Widget? buildAdmobNativeView() {
+    final ad = _nativeAd;
+    if (ad == null) return null;
+    return AdWidget(ad: ad);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   //  LIFECYCLE HOOKS
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -914,6 +1214,9 @@ class AdMobAdapter implements AdProviderAdapter {
   void onAppPaused() {
     if (_bannerAd != null) {
       banner.visible.value = false;
+    }
+    if (_mrecAd != null) {
+      mrec.visible.value = false;
     }
   }
 
@@ -938,6 +1241,21 @@ class AdMobAdapter implements AdProviderAdapter {
       }
     } else if (_bannerAd != null) {
       banner.visible.value = true;
+    }
+
+    // Mirror for MREC — width doesn't matter (fixed size) but loadMrecIfNeeded
+    // still accepts it for interface parity.
+    if (mrec.hasError.value && _mrecAd == null) {
+      mrec.hasError.value = false;
+      loadMrecIfNeeded(0);
+    } else if (_mrecAd != null) {
+      mrec.visible.value = true;
+    }
+
+    // Mirror for Native — preloadNative() takes no width, unlike loadMrecIfNeeded.
+    if (native.hasError.value && _nativeAd == null) {
+      native.hasError.value = false;
+      preloadNative();
     }
   }
 }

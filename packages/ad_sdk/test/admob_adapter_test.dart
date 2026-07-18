@@ -100,6 +100,30 @@ void main() {
           throwsFlutterError);
       expect(
           () => adapter.banner.isLoaded.addListener(() {}), throwsFlutterError);
+      expect(
+          () => adapter.mrecSlot.state.addListener(() {}), throwsFlutterError);
+      expect(
+          () => adapter.mrec.isLoaded.addListener(() {}), throwsFlutterError);
+      expect(() => adapter.nativeSlot.state.addListener(() {}),
+          throwsFlutterError);
+      expect(
+          () => adapter.native.isLoaded.addListener(() {}), throwsFlutterError);
+    });
+  });
+
+  group('AdMobAdapter native slot', () {
+    test('beginLoad/markReady/markFailed drive nativeSlot state', () {
+      final adapter = AdMobAdapter();
+      expect(adapter.nativeSlot.beginLoad(), isTrue);
+      expect(adapter.nativeSlot.isLoading, isTrue);
+
+      adapter.nativeSlot.markReady();
+      expect(adapter.nativeSlot.value, AdSlotState.ready);
+
+      adapter.nativeSlot.reset();
+      expect(adapter.nativeSlot.beginLoad(), isTrue);
+      adapter.nativeSlot.markFailed();
+      expect(adapter.nativeSlot.value, AdSlotState.cooldown);
     });
   });
 }

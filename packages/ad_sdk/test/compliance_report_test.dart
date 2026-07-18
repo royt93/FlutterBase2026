@@ -55,6 +55,24 @@ void main() {
       expect(report.events, hasLength(1));
     });
 
+    test('consentCountByCountry counts non-null consentCountry, ignores null',
+        () {
+      final report = ComplianceReport.generate(
+        events: const [
+          {'kind': 'ad_event', 'timestampMs': 1, 'consentCountry': 'DE'},
+          {'kind': 'ad_event', 'timestampMs': 2, 'consentCountry': 'DE'},
+          {'kind': 'ad_event', 'timestampMs': 3, 'consentCountry': 'US'},
+          {'kind': 'ad_event', 'timestampMs': 4, 'consentCountry': null},
+          {'kind': 'ad_event', 'timestampMs': 5},
+        ],
+        safety: snapshot,
+        consent: ConsentSettings.unset,
+        vipActive: false,
+      );
+
+      expect(report.consentCountByCountry, {'DE': 2, 'US': 1});
+    });
+
     test('preserves the requested range even if no events fall inside it', () {
       final from = DateTime.utc(2026, 1, 1);
       final to = DateTime.utc(2026, 1, 2);

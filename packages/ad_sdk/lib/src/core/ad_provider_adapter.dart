@@ -102,9 +102,22 @@ abstract class AdProviderAdapter {
   AdSlot get interstitialSlot;
   AdSlot get rewardedSlot;
   AdSlot get bannerSlot;
+  AdSlot get mrecSlot;
+  AdSlot get nativeSlot;
 
   /// Banner reactive listenables for the [BannerAdWidget] tree.
   BannerListenables get banner;
+
+  /// MREC reactive listenables for the [MrecAdWidget] tree.
+  BannerListenables get mrec;
+
+  /// Native reactive listenables for the [NativeAdWidget] tree. Only
+  /// [BannerListenables.isLoaded]/[BannerListenables.hasError] are meaningful
+  /// here — native ads have no adaptive size, no auto-refresh ticker, and are
+  /// always visible once loaded, so [BannerListenables.adSize]/
+  /// [BannerListenables.autoRefreshEnabled]/[BannerListenables.visible] are
+  /// unused stub notifiers kept only for type parity with [banner]/[mrec].
+  BannerListenables get native;
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -191,6 +204,52 @@ abstract class AdProviderAdapter {
   /// AppLovin only: ID returned by `preloadWidgetAdView`. Drives whether
   /// `MaxAdView` mounts.
   ValueListenable<Object?> get appLovinBannerAdViewId;
+
+  // ─── MREC ──────────────────────────────────────────────────────────────────
+
+  /// AppLovin: preload widget-AdView. AdMob: no-op (MREC loads on widget mount).
+  Future<void> preloadMrec();
+
+  /// AdMob only: triggered when [MrecAdWidget] mounts and reports its width.
+  /// MREC is a FIXED 300x250 size — [widthPx] is accepted for interface
+  /// parity with [loadBannerIfNeeded] but ignored (no adaptive-size lookup).
+  Future<void> loadMrecIfNeeded(double widthPx);
+
+  /// AdMob: returns the live MREC widget, or null if none. AppLovin: always
+  /// returns null — UI side renders [MaxAdView] from [appLovinMrecId] +
+  /// [appLovinMrecAdViewId] notifier.
+  Widget? buildAdmobMrecView();
+
+  /// AppLovin only: notifies the platform that the user moved off-route so
+  /// auto-refresh should pause.
+  void setMrecRoutePaused(bool paused);
+  bool get mrecRoutePaused;
+
+  /// AppLovin only: ad-unit ID used by the [MrecAdWidget]'s `MaxAdView`.
+  String? get appLovinMrecId;
+
+  /// AppLovin only: ID returned by `preloadWidgetAdView`. Drives whether
+  /// `MaxAdView` mounts.
+  ValueListenable<Object?> get appLovinMrecAdViewId;
+
+  // ─── Native ────────────────────────────────────────────────────────────────
+
+  /// AdMob: preload a real `NativeAd` off-screen (mirrors [preloadMrec]).
+  /// AppLovin: no-op — `MaxNativeAdView` is a self-contained widget that
+  /// loads on mount, unlike AppLovin's banner/mrec `MaxAdView` bridge.
+  Future<void> preloadNative();
+
+  /// AdMob: returns the live native-ad widget (built from the preloaded
+  /// `NativeAd` + `NativeTemplateStyle`), or null if none. AppLovin: always
+  /// returns null — [NativeAdWidget] builds `MaxNativeAdView` directly from
+  /// [appLovinNativeId], with no adapter-level preload step or adViewId.
+  Widget? buildAdmobNativeView();
+
+  /// AppLovin only: ad-unit ID used directly by [NativeAdWidget]'s
+  /// `MaxNativeAdView`. Unlike [appLovinBannerId]/[appLovinMrecId] there is no
+  /// companion `appLovinNativeAdViewId` — native ads don't go through the
+  /// `preloadWidgetAdView`/adViewId bridge those formats use.
+  String? get appLovinNativeId;
 
   // ─── Lifecycle hooks (called by AdManager from WidgetsBindingObserver) ────
 

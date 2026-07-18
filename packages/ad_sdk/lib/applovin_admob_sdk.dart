@@ -28,11 +28,14 @@ export 'src/core/ad_safety_config.dart'
     show AdSafetyConfig, AdSafetyParams, AdSafetyResult, AdSafetySnapshot;
 export 'src/core/ad_screen.dart';
 export 'src/core/event_bus.dart';
+export 'src/core/integration_self_check.dart';
 export 'src/core/ump_consent.dart' show UmpConsentResult, requestUmpConsentFlow;
 export 'src/core/att_consent.dart'
     show AttStatus, AttResult, requestAttIfNeeded;
 
-// Monetization (opt-in Smart Monetization Arbitrator)
+// Monetization (opt-in Smart Monetization Arbitrator + fill-rate monitor)
+export 'src/monetization/ad_diagnostics.dart';
+export 'src/monetization/fill_rate_monitor.dart';
 export 'src/monetization/monetization_arbitrator.dart';
 // Re-export Google's UMP enums so callers don't need a direct google_mobile_ads import.
 export 'package:google_mobile_ads/google_mobile_ads.dart'
@@ -64,5 +67,7 @@ export 'src/vip/vip_redeem_screen.dart' show VipRedeemScreen, VipRedeemStrings;
 export 'src/widget/ad_loading_dialog.dart';
 export 'src/widget/banner_ad_widget.dart';
 export 'src/widget/debug_ad_overlay.dart';
+export 'src/widget/mrec_ad_widget.dart';
+export 'src/widget/native_ad_widget.dart';
 export 'src/widget/revenue_panel.dart';
 export 'src/widget/top_toast.dart';

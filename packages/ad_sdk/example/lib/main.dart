@@ -71,6 +71,11 @@ final String _kAppLovinRewardedId = Platform.isIOS
         defaultValue: 'YOUR_REWARDED_AD_UNIT_ID')
     : const String.fromEnvironment('APPLOVIN_REWARDED_ID_ANDROID',
         defaultValue: 'YOUR_REWARDED_AD_UNIT_ID');
+final String _kAppLovinMrecId = Platform.isIOS
+    ? const String.fromEnvironment('APPLOVIN_MREC_ID_IOS',
+        defaultValue: 'YOUR_MREC_AD_UNIT_ID')
+    : const String.fromEnvironment('APPLOVIN_MREC_ID_ANDROID',
+        defaultValue: 'YOUR_MREC_AD_UNIT_ID');
 
 /// Provider for this app — defaults to `AdProvider.appLovin` since AppLovin is
 /// the harder-to-exercise path (AdMob demo IDs are Google's public test
@@ -135,6 +140,7 @@ class DemoConfig {
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+        mrecId: 'ca-app-pub-3940256099942544/2247696110',
         // Optional per-platform overrides (T15) — omit to use the same id
         // on both platforms, as above:
         // androidBannerId: 'ca-app-pub-.../android-banner',
@@ -146,6 +152,7 @@ class DemoConfig {
         interstitialId: _kAppLovinInterstitialId,
         appOpenId: _kAppLovinAppOpenId,
         rewardedId: _kAppLovinRewardedId,
+        mrecId: _kAppLovinMrecId,
       ),
       logLevel: AdLogLevel.verbose,
       onLog: LogBuffer.instance.sink,
@@ -575,6 +582,22 @@ class HomePage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const BannerDemoPage())),
           ),
           DemoTile(
+            icon: Icons.crop_landscape,
+            title: 'MREC ad',
+            subtitle: 'Fixed 300x250 rectangle with route lifecycle',
+            color: Colors.blueGrey,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const MrecDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.view_agenda,
+            title: 'Native ad',
+            subtitle: 'AdMob template vs AppLovin custom layout',
+            color: Colors.brown,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const NativeDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.fullscreen,
             title: 'Interstitial ad',
             subtitle: 'Show + safety gate + counter',
@@ -760,6 +783,114 @@ class _BannerSecondScreenState extends AdScreenState<_BannerSecondScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// §6b  Demo: MREC
+// ═══════════════════════════════════════════════════════════════════════════
+
+class MrecDemoPage extends AdScreen {
+  const MrecDemoPage({super.key});
+
+  @override
+  State<MrecDemoPage> createState() => _MrecDemoPageState();
+}
+
+class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('MREC demo')),
+      body: Column(
+        children: [
+          buildMrec(),
+          Expanded(
+            child: ListView(
+              padding: _bottomSafe(context, EdgeInsets.zero),
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.navigate_next),
+                  title:
+                      const Text('Push another screen (verifies pause/resume)'),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const _MrecSecondScreen()),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'MREC is a fixed 300x250 rectangle. Push the second '
+                    'screen — it pauses on AppLovin / hides on AdMob. Pop '
+                    'back to resume.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MrecSecondScreen extends AdScreen {
+  const _MrecSecondScreen();
+
+  @override
+  State<_MrecSecondScreen> createState() => _MrecSecondScreenState();
+}
+
+class _MrecSecondScreenState extends AdScreenState<_MrecSecondScreen> {
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Second route')),
+        body: SafeArea(
+          top: false,
+          child: Column(children: [
+            const Expanded(
+                child: Center(child: Text('MREC pauses on previous'))),
+            buildMrec(),
+          ]),
+        ),
+      );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §6b  Demo: Native
+// ═══════════════════════════════════════════════════════════════════════════
+
+class NativeDemoPage extends AdScreen {
+  const NativeDemoPage({super.key});
+
+  @override
+  State<NativeDemoPage> createState() => _NativeDemoPageState();
+}
+
+class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Native demo')),
+      body: ListView(
+        padding: _bottomSafe(context, EdgeInsets.zero),
+        children: [
+          buildNative(),
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Native ad v1: fixed layout, no auto-refresh/route-pause. '
+              'AdMob renders its own template + "Ad" badge; AppLovin renders '
+              'a custom Dart layout with a package-drawn "Ad" badge.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // §7  Demo: Interstitial
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -847,12 +978,14 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
   final ValueNotifier<int> _coins = ValueNotifier<int>(0);
   final ValueNotifier<bool> _vipAutoGrant = ValueNotifier<bool>(false);
   final ValueNotifier<String> _last = ValueNotifier<String>('—');
+  final TextEditingController _ssvCtrl = TextEditingController();
 
   @override
   void dispose() {
     _coins.dispose();
     _vipAutoGrant.dispose();
     _last.dispose();
+    _ssvCtrl.dispose();
     super.dispose();
   }
 
@@ -860,7 +993,7 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Rewarded demo')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: _bottomSafe(context, const EdgeInsets.all(24)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -889,12 +1022,24 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
               ),
             ),
             const SizedBox(height: 12),
+            TextField(
+              controller: _ssvCtrl,
+              decoration: const InputDecoration(
+                labelText: 'SSV user id (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
             FilledButton(
               onPressed: () {
+                final ssvUserId = _ssvCtrl.text.isEmpty ? null : _ssvCtrl.text;
                 showRewardedAd(
                   vipAutoGrant: _vipAutoGrant.value,
+                  ssvUserId: ssvUserId,
                   onEarnedReward: (earned) {
-                    _last.value = earned ? 'earned 🏆' : 'skipped/blocked ❌';
+                    _last.value = earned
+                        ? 'earned 🏆${ssvUserId != null ? ' (pending SSV confirmation)' : ''}'
+                        : 'skipped/blocked ❌';
                     if (earned) _coins.value = _coins.value + 10;
                   },
                 );
@@ -1247,6 +1392,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
   final ValueNotifier<bool> _hasConsent = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _isAge = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _doNotSell = ValueNotifier<bool>(false);
+  final TextEditingController _countryController = TextEditingController();
 
   /// Bumped after setConsent so the "effective personalization" card below
   /// reflects the just-applied AdManager().consent state.
@@ -1266,6 +1412,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
     _isAge.dispose();
     _doNotSell.dispose();
     _appliedRev.dispose();
+    _countryController.dispose();
     super.dispose();
   }
 
@@ -1401,10 +1548,50 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                             'askedAt=${s.askedAt!.toLocal().toIso8601String().substring(0, 19)}',
                             style: const TextStyle(
                                 fontFamily: 'monospace', fontSize: 11)),
+                      Text(
+                          'country=${s.country ?? '(not set — host-supplied only, see below)'}',
+                          style: const TextStyle(
+                              fontFamily: 'monospace', fontSize: 11)),
                     ],
                   ),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Consent country analytics (T27) — SDK never infers this itself
+          // (UMP only exposes EEA/non-EEA); host app must supply it.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _countryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Consent country (e.g. DE, US)',
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonal(
+                  onPressed: () async {
+                    final country = _countryController.text.trim();
+                    await ConsentManager.instance.set(
+                      ConsentManager.instance.current
+                          .copyWith(country: country.isEmpty ? null : country),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(country.isEmpty
+                              ? 'Consent country cleared'
+                              : 'Consent country set to $country')));
+                    }
+                  },
+                  child: const Text('Set'),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
@@ -1472,10 +1659,16 @@ class SafetyDemoPage extends StatefulWidget {
 
 class _SafetyDemoPageState extends State<SafetyDemoPage> {
   final ValueNotifier<int> _refresh = ValueNotifier<int>(0);
+  final ValueNotifier<bool> _arbitratorEnabled =
+      ValueNotifier<bool>(AdManager().arbitrator != null);
+  final ValueNotifier<bool> _fillRateMonitorEnabled =
+      ValueNotifier<bool>(AdManager().fillRateMonitor != null);
 
   @override
   void dispose() {
     _refresh.dispose();
+    _arbitratorEnabled.dispose();
+    _fillRateMonitorEnabled.dispose();
     super.dispose();
   }
 
@@ -1593,6 +1786,76 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
                   ],
                 );
               },
+            ),
+            const SizedBox(height: 12),
+            const Text('Smart Monetization Arbitrator (opt-in)',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            ValueListenableBuilder<bool>(
+              valueListenable: _arbitratorEnabled,
+              builder: (_, enabled, __) {
+                final arbitrator = AdManager().arbitrator;
+                if (!enabled || arbitrator == null) {
+                  return const Text('disabled (default)',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 11));
+                }
+                return Text(
+                  'estimatedEcpm=${arbitrator.estimatedEcpmMicros}µ '
+                  'vetoRate=${arbitrator.vetoRate.toStringAsFixed(2)}\n'
+                  'perSlotThreshold: interstitial=8000000µ rewarded=3000000µ, '
+                  'maxVetoRate=0.5',
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              onPressed: () {
+                AdManager().enableArbitrator(MonetizationArbitrator(
+                  // Demo per-slot thresholds — rewarded ads tend to earn
+                  // more than interstitials, so give interstitial a higher
+                  // eCPM bar before nudging VIP. maxVetoRate is the
+                  // guardrail: if >50% of decisions veto, it stops vetoing
+                  // and falls back to showAd rather than starve the user.
+                  perSlotThresholdMicros: const {
+                    AdSlotType.interstitial: 8000000, // $8.00 eCPM
+                    AdSlotType.rewarded: 3000000, // $3.00 eCPM
+                  },
+                  maxVetoRate: 0.5,
+                ));
+                _arbitratorEnabled.value = true;
+                _refresh.value = _refresh.value + 1;
+              },
+              child:
+                  const Text('Enable Smart Arbitrator (per-slot + guardrail)'),
+            ),
+            const SizedBox(height: 12),
+            const Text('Fill-rate monitor (opt-in)',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            ValueListenableBuilder<bool>(
+              valueListenable: _fillRateMonitorEnabled,
+              builder: (_, enabled, __) {
+                final monitor = AdManager().fillRateMonitor;
+                if (!enabled || monitor == null) {
+                  return const Text('fill-rate monitor disabled (default)',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 11));
+                }
+                return Text(
+                  'interstitial=${monitor.fillRate(AdSlotType.interstitial).toStringAsFixed(2)} '
+                  'rewarded=${monitor.fillRate(AdSlotType.rewarded).toStringAsFixed(2)} '
+                  'appOpen=${monitor.fillRate(AdSlotType.appOpen).toStringAsFixed(2)}',
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              onPressed: () {
+                AdManager().enableFillRateMonitor(FillRateMonitor());
+                _fillRateMonitorEnabled.value = true;
+              },
+              child: const Text('Enable Fill-rate Monitor'),
             ),
             const SizedBox(height: 12),
             const Text('Latest fullscreen check',
@@ -2018,11 +2281,13 @@ class _EventTile extends StatelessWidget {
       );
     }
     if (e is AdRevenueEvent) {
+      final waterfall = e.mediationWaterfall;
       return (
         'REV \$',
         Colors.teal,
         '\$${e.value.toStringAsFixed(6)} ${e.currencyCode}'
-            '${e.networkName != null ? ' via ${e.networkName}' : ''}',
+            '${e.networkName != null ? ' via ${e.networkName}' : ''}'
+            '${waterfall != null && waterfall.isNotEmpty ? '\nwaterfall: ${waterfall.join(' > ')}' : ''}',
       );
     }
     if (e is AdAnomalyEvent) {
@@ -2030,6 +2295,13 @@ class _EventTile extends StatelessWidget {
         'ANOMALY',
         Colors.redAccent,
         'violation #${e.violationCount} · paused ${e.pauseDurationMs ~/ 60000}min',
+      );
+    }
+    if (e is ArbitratorNudgeEvent) {
+      return (
+        'NUDGE',
+        Colors.indigo,
+        'vetoed low-eCPM ad · trailing eCPM=\$${e.estimatedEcpmMicros / 1e6}',
       );
     }
     return ('?', Colors.grey, '');

@@ -14,6 +14,7 @@ class ConsentSettings {
     this.doNotSell = false,
     this.hasBeenAsked = false,
     this.askedAt,
+    this.country,
   });
 
   /// True if user agreed to personalized ads (GDPR / generic).
@@ -34,6 +35,16 @@ class ConsentSettings {
   /// When [hasBeenAsked] flipped true. Useful for analytics + GDPR audit
   /// trail (some regulators require timestamp evidence of consent capture).
   final DateTime? askedAt;
+
+  /// ISO country code for consent analytics (e.g. `'DE'`, `'US'`).
+  ///
+  /// The SDK does **not** self-derive the user's real country — UMP only
+  /// exposes an EEA/non-EEA classification plus a debug-only override, not a
+  /// real geolocation. This is only populated when `AdConfig.umpDebugGeography`
+  /// is set (test/QA), or when the host app supplies it itself (e.g. from
+  /// `Platform.localeName` or the host's own GeoIP service). Do not treat this
+  /// as accurate geolocation.
+  final String? country;
 
   /// Default for a fresh install: not asked yet, conservative non-personalized.
   static const ConsentSettings unset = ConsentSettings();
@@ -58,6 +69,7 @@ class ConsentSettings {
     bool? doNotSell,
     bool? hasBeenAsked,
     DateTime? askedAt,
+    String? country,
   }) =>
       ConsentSettings(
         hasUserConsent: hasUserConsent ?? this.hasUserConsent,
@@ -65,6 +77,7 @@ class ConsentSettings {
         doNotSell: doNotSell ?? this.doNotSell,
         hasBeenAsked: hasBeenAsked ?? this.hasBeenAsked,
         askedAt: askedAt ?? this.askedAt,
+        country: country ?? this.country,
       );
 
   /// Project to the runtime flag struct used by `applyConsentToProviders`.
@@ -80,6 +93,7 @@ class ConsentSettings {
         'doNotSell': doNotSell,
         'hasBeenAsked': hasBeenAsked,
         'askedAt': askedAt?.toIso8601String(),
+        'country': country,
       };
 
   factory ConsentSettings.fromJson(Map<String, dynamic> j) => ConsentSettings(
@@ -90,6 +104,7 @@ class ConsentSettings {
         askedAt: j['askedAt'] is String
             ? DateTime.tryParse(j['askedAt'] as String)
             : null,
+        country: j['country'] as String?,
       );
 
   static String encode(ConsentSettings s) => jsonEncode(s.toJson());

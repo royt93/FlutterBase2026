@@ -9,6 +9,8 @@ enum AdSlotType {
   interstitial,
   rewarded,
   banner,
+  mrec,
+  native,
 }
 
 /// Lifecycle states a single ad slot can be in.

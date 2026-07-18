@@ -19,14 +19,17 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 5. [Configuration reference](#configuration-reference)
 6. [VIP system](#vip-system)
 7. [Server-Side Verification (SSV) for rewarded ads](#server-side-verification-ssv-for-rewarded-ads)
-8. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
-9. [Debugging](#debugging)
-10. [Pitfalls — read before filing a bug](#pitfalls)
-11. [Public API surface](#public-api)
-12. [FAQ](#faq)
-13. [Migration from older versions](#migration)
-14. [Support](#support)
-15. [License](#license)
+8. [Monetization Arbitrator (opt-in)](#monetization-arbitrator-opt-in)
+9. [Fill-rate monitor (opt-in)](#fill-rate-monitor-opt-in)
+10. [Native Ad (v1)](#native-ad-v1)
+11. [Consent & compliance (GDPR / COPPA / CCPA)](#consent--compliance)
+12. [Debugging](#debugging)
+13. [Pitfalls — read before filing a bug](#pitfalls)
+14. [Public API surface](#public-api)
+15. [FAQ](#faq)
+16. [Migration from older versions](#migration)
+17. [Support](#support)
+18. [License](#license)
 
 ---
 
@@ -40,6 +43,8 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 | Google UMP form for EEA users | `AdManager().requestUmpConsent()` — wraps `google_mobile_ads`'s built-in `ConsentInformation` API |
 | Anti-fraud protection so AdMob doesn't suspend your account | Multi-layer safety gate: per-session/hour/day caps, throttle, CTR threshold, click-spam detection, progressive cooldown |
 | Banner that pauses on navigation and resumes on return | `buildBanner()` — hooks into the navigator and adapter lifecycle automatically |
+| Fixed 300×250 MREC ad with the same route-aware lifecycle | `buildMrec()` — same navigator/adapter hooks as `buildBanner()`, fixed size instead of adaptive |
+| Native ad that blends into your own UI | `buildNative()` — v1 fixed layout (see [Native Ad (v1)](#native-ad-v1)) |
 | Revenue tracking for LTV analytics | `Stream<AdEvent>` emits `AdRevenueEvent` per impression |
 | Sane behavior when Android kills the process under memory pressure | Smart App-Open timeout (lifecycle-aware), process-restart marker, detached state warning |
 
@@ -578,6 +583,13 @@ AdConfig({
   ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(),
   bool consentBarrierDismissible = false,
   Duration consentDialogPostSplashDelay = const Duration(seconds: 1),
+  bool autoRequestUmpConsent = false,
+  bool umpTagForUnderAgeOfConsent = false,
+  DebugGeography? umpDebugGeography,
+  List<String> umpTestIdentifiers = const [],
+
+  // ─── App Open trigger ───────────────────────────────────────────
+  AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
 
   // ─── Logging ────────────────────────────────────────────────────
   AdLogLevel logLevel = AdLogLevel.verbose,
@@ -605,6 +617,35 @@ AdConfig({
   int loadingBufferMs = 1000,
 })
 ```
+
+`umpDebugGeography` / `umpTestIdentifiers` are forwarded to Google UMP when `autoRequestUmpConsent: true` — set them the same way you would the equivalent params on `AdManager.requestUmpConsent()` (e.g. `umpDebugGeography: DebugGeography.debugGeographyEea` to simulate an EEA device from anywhere, `umpTestIdentifiers: ['<hashed-device-id>']` so Google serves the debug form for your test device).
+
+`appOpenTrigger` (see `AppOpenTrigger` below) controls which App Open surfaces the SDK is allowed to trigger — default `both` preserves existing behavior.
+
+### Release-build safety checks (config validation)
+
+`initialize()` runs a set of pure, static "footgun" checks against your `AdConfig` whenever the app is built in **release mode** (skipped entirely in debug) and logs an `🚨`-prefixed warning for each one it finds:
+
+- `AdSafetyParams.dryRun == true` — the entire safety layer (throttle/caps/CTR fraud) is bypassed.
+- AdMob ad-unit IDs still pointing at Google's public test IDs (`ca-app-pub-3940256099942544/…`).
+- `firstInstallVipGrace` disabled — new installs get no ad-free trial window.
+- `umpDebugGeography` still set — forces every real user into the EEA/test UMP consent flow.
+- `AppLovinConfig.sdkKey` empty while `provider: AdProvider.appLovin` — the native AppLovin MAX SDK fails to initialise.
+- Empty/malformed ad-unit IDs for the active provider.
+
+These checks are skipped entirely in debug builds (`kDebugMode == true`) — they only run once your build is compiled as profile/release — and each warning is logged via `SafeLogger.e` (so it shows up in whatever crash/log pipeline you've wired production builds into) plus an `assert()` as a redundant catch for anyone running a profile build with `--enable-asserts`. They never block `initialize()`, but each one is exactly the kind of copy-paste-from-a-test-config mistake that silently tanks revenue or earns a policy strike — watch your release logs for the `🚨` prefix after shipping.
+
+### `AppOpenTrigger`
+
+```dart
+AppOpenTrigger.both        // splash App Open + resume App Open both fire (DEFAULT)
+AppOpenTrigger.resumeOnly  // only the background→foreground resume App Open fires
+AppOpenTrigger.splashOnly  // only the splash App Open fires
+```
+
+`resumeOnly` blocks the splash's `showAppOpenAd(bypassSafety: true)` call; `splashOnly` blocks `showAppOpenAdOnResume()`. `both` is a no-op on both gates.
+
+`splashOnly` also stops `loadAppOpenAd()` from preloading once the splash has finished (tracked via `markSplashActive()`/`markSplashInactive()`) — since `showAppOpenAdOnResume()` always skips in this mode, any load after splash ends would never be shown, so it's skipped to avoid wasting quota/network. `resumeOnly` and `both` are unaffected — the same slot serves resume regardless of when it was preloaded.
 
 ### `FirstInstallVipGrace`
 
@@ -922,6 +963,118 @@ AdManager().showRewardedAd(
 );
 ```
 
+## Monetization Arbitrator (opt-in)
+
+**Default OFF.** An opt-in "Smart Monetization Arbitrator" that, at each
+fullscreen ad-show attempt (after every existing gate — including the safety
+layer — already passes), gets one more veto: show the ad, or nudge the host
+app to upsell VIP instead. It is a simple configurable eCPM-threshold rule,
+**not machine learning**: it compares a trailing eCPM estimate (built from the
+`AdRevenueEvent`s the SDK already emits) against an optional VIP-conversion-
+likelihood signal your app supplies — the SDK has no visibility into your
+purchase funnel, so it can't compute that signal itself.
+
+```dart
+AdManager().enableArbitrator(MonetizationArbitrator()); // ~$5 eCPM default threshold
+
+// Optional: tell the arbitrator how likely this user is to buy VIP (0.0–1.0).
+// Without this, it falls back to a plain "trailing eCPM below threshold" check.
+AdManager().arbitrator!.registerVipLikelihoodEstimator(() => myFunnelScore());
+```
+
+Interstitial and rewarded can use different eCPM thresholds via
+`perSlotThresholdMicros` — a rewarded ad is worth more to most users than an
+interstitial, so it's reasonable to require a higher trailing eCPM before
+showing one:
+
+```dart
+AdManager().enableArbitrator(MonetizationArbitrator(
+  ecpmThresholdMicros: 3000000, // fallback for any slot not listed below
+  perSlotThresholdMicros: {
+    AdSlotType.rewarded: 5000000, // rewarded needs a higher bar to show
+  },
+));
+```
+
+A `maxVetoRate` guardrail (default `0.5`) protects against a threshold set too
+high (or a genuine eCPM crash) starving users of ads indefinitely: once the
+veto rate over the trailing `decisionWindowSize` decisions (default `20`)
+exceeds `maxVetoRate`, the arbitrator forces `showAd` regardless of the
+eCPM/likelihood heuristic, and recovers automatically once the veto rate drops
+back down. A single warning logs the first time this trips per streak.
+
+`showInterstitial`/`showRewardedAd` only consult `arbitrator` when it's
+non-null — byte-for-byte no-op until `enableArbitrator` is called. When the
+arbitrator vetoes a show, the SDK emits an `ArbitratorNudgeEvent` (`type`,
+`placement`, `estimatedEcpmMicros`) on `AdManager().events` instead of
+showing the ad, so the host app can react with its own VIP upsell UI. The
+veto is skipped for the VIP watch-ad-to-extend-VIP bypass path
+(`bypassVipGuard: true`) — that flow is the user already spending their own
+time to earn more VIP, so vetoing it would defeat its purpose.
+
+There is no `disableArbitrator` for host apps — it exists only as a
+`@visibleForTesting` seam, since a session normally either wants the
+arbitrator on for its whole lifetime or not at all.
+
+## Fill-rate monitor (opt-in)
+
+**Default OFF.** A `FillRateMonitor` watches the trailing load success rate
+per `AdSlotType` for whichever provider is currently active, and alerts when
+it drops abnormally low — useful for catching a mediation/network outage or a
+misconfigured ad unit without waiting on a dashboard. It does **not** load a
+second provider in parallel to compare against ("shadow eCPM"): that would add
+real ad requests (extra policy risk, wasted quota) just to produce a number.
+Instead it only observes the `AdLoadEvent`s the SDK already emits.
+
+```dart
+final monitor = FillRateMonitor(); // 30% threshold, 20-event rolling window
+AdManager().enableFillRateMonitor(monitor);
+
+monitor.alerts.listen((alert) {
+  // alert.type, alert.fillRate, alert.threshold
+});
+
+// Read the current rate for a slot at any time:
+monitor.fillRate(AdSlotType.interstitial);
+```
+
+An alert fires once the first time a slot's trailing fill rate drops below
+`lowFillRateThreshold` within a full rolling window, then stays silent while
+the drop persists — it fires again only after the rate recovers above
+threshold and later drops a second time, so it never spams one continuous
+outage.
+
+There is no `disableFillRateMonitor` for host apps — same reasoning as the
+arbitrator above, it's a `@visibleForTesting` seam only.
+
+## Native Ad (v1)
+
+`buildNative()` (or `NativeAdWidget` directly, outside `AdScreen`) renders a native ad —
+same route-aware/VIP/offline gating as `buildMrec()`, but **the two providers render
+through fundamentally different mechanisms** because AdMob's and AppLovin's native APIs
+don't share a common Dart-side shape:
+
+- **AdMob**: `NativeAd extends AdWithView`, same base class as `BannerAd`/MREC. It's
+  preloaded off-screen with `NativeTemplateStyle(templateType: TemplateType.medium)` —
+  Google's built-in template — then shown via `AdWidget`. The template **draws its own
+  "Ad"/AdChoices attribution**; the package adds nothing on top of it.
+- **AppLovin**: `MaxNativeAdView` is a self-contained widget that loads on mount from
+  `adUnitId` + a custom Dart layout (`MaxNativeAdIconView`/`MaxNativeAdTitleView`/
+  `MaxNativeAdMediaView`/`MaxNativeAdBodyView`/`MaxNativeAdCallToActionView`, etc.) — it
+  does **not** go through the `preloadWidgetAdView` bridge banner/MREC use. Because the
+  layout is genuine custom Dart, the package **draws its own "Ad" badge** on this branch
+  (mirrors the MREC badge) to stay compliant.
+
+**v1 is a fixed layout, not a customizable editor** — both branches render at a fixed
+320px height (Google's recommended size for `TemplateType.medium`), and the AppLovin
+branch's asset arrangement (icon + title + rating row, media, body, CTA) is not
+configurable from host code. If you need a different arrangement, pull the raw ad
+object yourself (`AdManager().adapter?.buildAdmobNativeView()` for AdMob template
+swaps, or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative()`.
+
+There is also no route-pause/auto-refresh concept for native ads (unlike banner/MREC) —
+`buildNative()` loads once per mount and doesn't react to navigation.
+
 ## Consent & compliance
 
 The SDK supports three patterns. Pick whichever matches your release strategy.
@@ -1008,6 +1161,10 @@ if (!result.canRequestAds) {
 // Continue with AdManager().initialize(...) as normal
 ```
 
+Alternatively, set `AdConfig(autoRequestUmpConsent: true, umpDebugGeography: ..., umpTestIdentifiers: [...])` to let `AdManager().initialize()` run this flow for you before the first ad request — `umpDebugGeography`/`umpTestIdentifiers` are forwarded through to the same UMP call shown above.
+
+The raw IAB TCF v2.3 consent string Google UMP writes to native storage after a user completes the EEA form is available via `await AdManager().tcfConsentString` (`null` until a TCF session has run) — read-only, for forwarding to any third party (analytics, mediation outside AppLovin/AdMob) that needs the raw string.
+
 #### Per-app-id setup (do this for EVERY app, not just once)
 
 The UMP consent message is configured and **published per AdMob app ID** in
@@ -1059,6 +1216,29 @@ await AdManager().setConsent(AdConsent(
   doNotSell: false,            // CCPA: California user opts out of data sale
 ));
 ```
+
+### Consent country analytics (optional, host-supplied)
+
+`ConsentSettings.country` is an optional `String?` field (e.g. `'DE'`, `'US'`)
+you can attach for consent analytics — it flows through to
+`AdEventLog`/`ComplianceReport` as `consentCountry` on every logged event, and
+`ComplianceReport.consentCountByCountry` aggregates a count per country.
+
+**This is not real geolocation.** The SDK has no way to determine a user's
+actual country — Google UMP only exposes an EEA/non-EEA classification (plus
+a debug-only override via `AdConfig.umpDebugGeography`), and AppLovin exposes
+nothing at all. If you want this field populated, supply it yourself from
+whatever source you already trust (e.g. `Platform.localeName`, your own
+GeoIP service, or the billing address on file):
+
+```dart
+await ConsentManager.instance.set(
+  ConsentManager.instance.current.copyWith(country: 'DE'),
+);
+```
+
+Left `null` (the default) if you never set it — it's simply omitted from the
+aggregate, no crash, no placeholder value.
 
 ### Compliance checklist
 
@@ -1171,6 +1351,10 @@ If you initialize in `main` directly, the listener registration in your splash w
 
 The SDK's `_lastFullscreenDismissAt` is recorded by a slot-state watcher on the `showing → !showing` transition, not by adapter callbacks. This is the source of truth for the resume-guard window. If you wrap or override slot state mutation, ensure the transition still fires (`slot.markDismissed()` or equivalent).
 
+### 7. AppLovin banner width — `loadBannerIfNeeded(widthPx)` is a no-op by design
+
+`AdProviderAdapter.loadBannerIfNeeded(widthPx)` is only meaningful for AdMob (`AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(widthPx)` picks the pixel-perfect adaptive size at load time). AppLovin's implementation discards `widthPx` — this is not a gap, it's already handled at a different layer: the banner is rendered via `MaxAdView` with `isAdaptiveBannerEnabled: true` (the plugin's default) and no explicit `width`, so `applovin_max` reads the live `MediaQuery` screen width itself at build time (`max_ad_view.dart`'s `_getWidth()`), including on rotation. The one AppLovin API that *does* take an explicit width, `AppLovinMAX.setBannerWidth(adUnitId, width)`, only applies to the native overlay banner created via `createBanner`/`showBanner` — a separate code path this SDK does not use (it exclusively uses the embedded `MaxAdView` widget path), so wiring it in would touch dead API surface for no rendering change. Net effect: AppLovin banners here are adaptive-width in practice, just via automatic `MediaQuery` sizing at display time rather than an explicit width passed at load time like AdMob.
+
 ---
 
 ## Public API
@@ -1219,6 +1403,8 @@ class HomeScreen extends AdScreen {
 
 class _HomeScreenState extends AdScreenState<HomeScreen> {
   Widget buildBanner();                                  // anchored adaptive banner
+  Widget buildMrec();                                    // fixed 300x250 rectangle
+  Widget buildNative();                                  // fixed layout v1, see Native Ad (v1)
   void showInterstitialAd({required onDone, ...});       // pre-check + buffer + show
   Future<void> showRewardedAd({                          // pre-check + buffer + show
     required onEarnedReward,
@@ -1289,6 +1475,14 @@ AdManager().events.listen((event) {
 ```
 
 Event types: `AdLoadEvent`, `AdShowEvent`, `AdClickEvent`, `AdRewardEvent`, `AdRevenueEvent`.
+
+`AdRevenueEvent.mediationWaterfall` (`List<String>?`) reports the adapter
+class names the mediation SDK tried for that impression, winner last. On
+AdMob this is the full ordered waterfall from `ResponseInfo.adapterResponses`.
+**AppLovin MAX only reports the winning network per impression** — no
+step-by-step waterfall — so on AppLovin this is always a single-element list
+containing just `networkName`. Null if the underlying SDK call returned no
+response info.
 
 ---
 

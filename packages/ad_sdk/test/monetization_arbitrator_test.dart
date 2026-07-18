@@ -278,6 +278,108 @@ void main() {
           reason: 'VIP watch-ad-to-extend flow must never be vetoed');
     });
   });
+
+  group('per-slot threshold', () {
+    test(
+        'interstitial has its own threshold — same eCPM nudges interstitial '
+        'but shows rewarded', () async {
+      final arb = MonetizationArbitrator(
+        ecpmThresholdMicros: 1000000, // $1 default — too low to matter here
+        perSlotThresholdMicros: {AdSlotType.interstitial: 5000000},
+      );
+      AdManager().enableArbitrator(arb);
+      AdManager().debugEmit(_rev(2000000)); // $2 — below interstitial's $5
+      await Future<void>.delayed(Duration.zero);
+
+      bool? interstitialFlow;
+      await AdManager()
+          .showInterstitial(onDoneFlow: (v) => interstitialFlow = v);
+      expect(interstitialFlow, isFalse,
+          reason: 'interstitial threshold (\$5) not met by \$2 eCPM');
+      expect(adapter.showInterstitialCalls, 0);
+
+      bool? earned;
+      await AdManager().showRewardedAd(onEarnedReward: (e) => earned = e);
+      expect(earned, isTrue,
+          reason: 'rewarded falls back to the \$1 default threshold, met');
+      expect(adapter.showRewardedCalls, 1);
+    });
+  });
+
+  group('veto-rate guardrail', () {
+    test(
+        'after enough consecutive vetoes cross maxVetoRate, guardrail forces '
+        'showAd instead of nudgeVip', () async {
+      final arb = MonetizationArbitrator(
+        ecpmThresholdMicros: 5000000,
+        maxVetoRate: 0.5,
+        decisionWindowSize: 4,
+      );
+      AdManager().enableArbitrator(arb);
+      AdManager().debugEmit(_rev(100000)); // well below threshold — nudges
+      await Future<void>.delayed(Duration.zero);
+
+      // First 4 calls fill the decision window: veto rate hits 100% only
+      // once >= decisionWindowSize decisions have been recorded, so the
+      // guardrail can only trip starting on the call that would make the
+      // window full and over threshold.
+      final outcomes = <bool?>[];
+      for (var i = 0; i < 4; i++) {
+        bool? flow;
+        await AdManager().showInterstitial(onDoneFlow: (v) => flow = v);
+        outcomes.add(flow);
+      }
+      expect(outcomes, [false, false, false, false],
+          reason: 'window not yet at decisionWindowSize on the 4th call — '
+              'guardrail check only applies once length >= window');
+
+      // 5th call: window is full (4 decisions, all vetoed), veto rate 100%
+      // > 50% → guardrail forces showAd.
+      bool? flow5;
+      await AdManager().showInterstitial(onDoneFlow: (v) => flow5 = v);
+      expect(flow5, isTrue,
+          reason: 'guardrail tripped — forced showAd despite low eCPM');
+      expect(adapter.showInterstitialCalls, 1);
+    });
+
+    test('guardrail recovers once veto rate drops back under maxVetoRate',
+        () async {
+      final arb = MonetizationArbitrator(
+        ecpmThresholdMicros: 5000000,
+        maxVetoRate: 0.5,
+        decisionWindowSize: 2,
+      );
+
+      // Direct decide() calls — this test is about MonetizationArbitrator's
+      // own bookkeeping, not the AdManager pipeline (already covered above),
+      // so it skips AdSafetyConfig's fullscreen-show throttle entirely.
+
+      // Low eCPM → first 2 decisions veto, filling the window at 100%.
+      AdManager().debugEmit(_rev(100000));
+      await Future<void>.delayed(Duration.zero);
+      for (var i = 0; i < 2; i++) {
+        expect(
+            arb.decide(AdSlotType.interstitial), ArbitratorDecision.nudgeVip);
+      }
+      expect(arb.vetoRate, 1.0);
+
+      // 3rd decision: guardrail trips (forced showAd), which itself records
+      // as a non-veto — window becomes [veto, showAd], rate drops to 50%,
+      // no longer > maxVetoRate.
+      expect(arb.decide(AdSlotType.interstitial), ArbitratorDecision.showAd,
+          reason: 'guardrail trips on the 3rd call');
+      expect(arb.vetoRate, 0.5);
+
+      // Now raise eCPM above threshold — decisions naturally showAd from
+      // here on, so the window stays recovered without guardrail help.
+      AdManager().debugEmit(_rev(10000000)); // $10 — above threshold
+      await Future<void>.delayed(Duration.zero);
+      expect(arb.decide(AdSlotType.interstitial), ArbitratorDecision.showAd);
+      expect(arb.vetoRate, 0.0,
+          reason: 'window now [showAd, showAd] — fully recovered');
+      arb.dispose();
+    });
+  });
 }
 
 class _FakeVipTrue implements VipManager {

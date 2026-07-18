@@ -44,8 +44,15 @@ abstract class GmaFullscreenAd {
   void setPaidEventListener(
       void Function(num valueMicros, String currencyCode, String precision) cb);
 
+  /// Adapter class names from `ResponseInfo.adapterResponses`, winner last.
+  /// Null until the ad's response info is available.
+  List<String>? get mediationWaterfall;
+
   void dispose();
 }
+
+List<String>? _waterfallOf(Ad ad) =>
+    ad.responseInfo?.adapterResponses?.map((r) => r.adapterClassName).toList();
 
 /// Seam over the static GMA loaders + `MobileAds.instance`. [AdMobAdapter] loads
 /// every fullscreen ad through this interface; production uses [RealGmaBridge],
@@ -204,6 +211,9 @@ class _AppOpenWrap implements GmaFullscreenAd {
   }
 
   @override
+  List<String>? get mediationWaterfall => _waterfallOf(_ad);
+
+  @override
   void dispose() {
     _ad.fullScreenContentCallback = null;
     _ad.dispose();
@@ -231,6 +241,9 @@ class _InterstitialWrap implements GmaFullscreenAd {
     _ad.onPaidEvent = (ad, micros, precision, currency) =>
         cb(micros, currency, precision.name);
   }
+
+  @override
+  List<String>? get mediationWaterfall => _waterfallOf(_ad);
 
   @override
   void dispose() {
@@ -270,6 +283,9 @@ class _RewardedWrap implements GmaFullscreenAd {
     _ad.onPaidEvent = (ad, micros, precision, currency) =>
         cb(micros, currency, precision.name);
   }
+
+  @override
+  List<String>? get mediationWaterfall => _waterfallOf(_ad);
 
   @override
   void dispose() {

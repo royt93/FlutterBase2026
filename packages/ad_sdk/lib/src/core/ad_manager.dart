@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
     show ConsentStatus, DebugGeography;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../adapters/admob_adapter.dart';
 import '../adapters/applovin_adapter.dart';
@@ -16,6 +17,8 @@ import '../compliance/compliance_report.dart';
 import '../config/ad_config.dart';
 import '../consent/consent_manager.dart';
 import '../consent/consent_settings.dart';
+import '../monetization/ad_diagnostics.dart';
+import '../monetization/fill_rate_monitor.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
@@ -26,6 +29,7 @@ import '../vip/_first_install_guard.dart';
 import '../vip/vip_manager.dart';
 import '../widget/ad_loading_dialog.dart';
 import 'ad_consent.dart';
+import 'integration_self_check.dart';
 import 'ad_crash_guard.dart';
 import 'att_consent.dart';
 import 'ad_provider_adapter.dart';
@@ -142,6 +146,22 @@ class AdManager with WidgetsBindingObserver {
           'this is intentional, ignore; otherwise set it back to '
           'FirstInstallVipGrace.auto (or .day).');
     }
+    // A test-only UMP geography override left set forces EEA/test consent
+    // flow for every real user in production.
+    if (config.umpDebugGeography != null) {
+      warnings.add('🚨 AdConfig.umpDebugGeography is set '
+          '(${config.umpDebugGeography}) in a RELEASE build — this forces '
+          'UMP into EEA/test mode for every real user. Remove it before '
+          'shipping.');
+    }
+    // An empty AppLovin SDK key fails native init silently on some
+    // platforms — surface it loudly at the same layer as the ad-unit-id
+    // checks below.
+    if (config.provider == AdProvider.appLovin &&
+        (config.appLovin?.sdkKey.isEmpty ?? true)) {
+      warnings.add('🚨 AppLovinConfig.sdkKey is empty in a RELEASE build — '
+          'the AppLovin MAX SDK will fail to initialise natively.');
+    }
     warnings.addAll(_adUnitIdFootgunWarnings(config));
     return warnings;
   }
@@ -223,6 +243,121 @@ class AdManager with WidgetsBindingObserver {
     _arbitrator = null;
   }
 
+  /// Opt-in fill-rate monitor (default OFF) — `null` unless the host app
+  /// calls [enableFillRateMonitor]. Purely observational: it never affects
+  /// show/load gating, it only watches [events] and exposes trailing fill
+  /// rate + a low-fill-rate alert stream.
+  FillRateMonitor? _fillRateMonitor;
+
+  /// `null` by default — see [enableFillRateMonitor].
+  FillRateMonitor? get fillRateMonitor => _fillRateMonitor;
+
+  /// Opt in to the fill-rate monitor: starts tracking trailing load success
+  /// rate per [AdSlotType] from [events], and exposes [FillRateMonitor.alerts]
+  /// for a low-fill-rate warning.
+  void enableFillRateMonitor(FillRateMonitor monitor) {
+    _fillRateMonitor = monitor;
+  }
+
+  /// Test/host seam: clear a previously-registered fill-rate monitor.
+  @visibleForTesting
+  void disableFillRateMonitor() {
+    _fillRateMonitor?.dispose();
+    _fillRateMonitor = null;
+  }
+
+  /// One-shot snapshot combining mediation waterfall, fill rate, and
+  /// arbitrator stats — see [AdDiagnostics]. [fillRateBySlot] and the
+  /// arbitrator fields are empty/`null` when their subsystem was never
+  /// enabled; this never enables anything itself.
+  AdDiagnostics diagnostics() {
+    final monitor = _fillRateMonitor;
+    final arbitrator = _arbitrator;
+    return AdDiagnostics(
+      lastWaterfallBySlot: AdDiagnostics.lastWaterfallBySlotFrom(
+          _eventLog?.entries ?? const <Map<String, dynamic>>[]),
+      fillRateBySlot: monitor == null
+          ? const {}
+          : {for (final t in AdSlotType.values) t: monitor.fillRate(t)},
+      arbitratorEstimatedEcpmMicros: arbitrator?.estimatedEcpmMicros,
+      arbitratorVetoRate: arbitrator?.vetoRate,
+    );
+  }
+
+  /// Debug-only integration sanity check: verifies init/consent state, then
+  /// attempts an interstitial/rewarded/app-open load and waits for the
+  /// resulting [AdLoadEvent] on [events]. Lets a partner confirm their
+  /// [AdConfig] actually loads ads on their device without manually clicking
+  /// through the example app's demo pages.
+  ///
+  /// Deliberately read-mostly: it never calls [destroy] and never grants or
+  /// revokes a VIP entry (those mutate live session/entitlement state — too
+  /// destructive as a side effect of a sanity check) — it only reports
+  /// whether [vip] is wired up. Requires [initialize] to have already run;
+  /// no-ops (returns a single failing item) otherwise. Always skipped
+  /// outside debug builds.
+  Future<SelfCheckResult> runIntegrationSelfCheck({
+    Duration loadTimeout = const Duration(seconds: 15),
+  }) async {
+    if (!kDebugMode) {
+      return const SelfCheckResult([
+        SelfCheckItem('debug-mode gate', SelfCheckStatus.skipped,
+            'runIntegrationSelfCheck only runs in debug builds'),
+      ]);
+    }
+    if (!isInitialised) {
+      return const SelfCheckResult([
+        SelfCheckItem('SDK initialised', SelfCheckStatus.fail,
+            'call AdManager().initialize(...) before running this check'),
+      ]);
+    }
+
+    final consent = consentManager?.current;
+    final items = <SelfCheckItem>[
+      const SelfCheckItem('SDK initialised', SelfCheckStatus.pass),
+      SelfCheckItem(
+        'Consent flow ran',
+        (consent?.hasBeenAsked ?? false)
+            ? SelfCheckStatus.pass
+            : SelfCheckStatus.skipped,
+        (consent?.hasBeenAsked ?? false)
+            ? null
+            : 'consent dialog has not been shown yet this session',
+      ),
+      await _selfCheckLoad('Interstitial load', AdSlotType.interstitial,
+          loadInterstitial, loadTimeout),
+      await _selfCheckLoad(
+          'Rewarded load', AdSlotType.rewarded, loadRewardedAd, loadTimeout),
+      await _selfCheckLoad('App Open load', AdSlotType.appOpen,
+          () => loadAppOpenAd(), loadTimeout),
+      SelfCheckItem('VIP manager wired',
+          vip != null ? SelfCheckStatus.pass : SelfCheckStatus.fail),
+    ];
+    return SelfCheckResult(items);
+  }
+
+  Future<SelfCheckItem> _selfCheckLoad(String name, AdSlotType type,
+      Future<void> Function() load, Duration timeout) async {
+    final completer = Completer<bool>();
+    final sub = events.listen((e) {
+      if (e is AdLoadEvent && e.type == type && !completer.isCompleted) {
+        completer.complete(e.success);
+      }
+    });
+    await load();
+    final success =
+        await completer.future.timeout(timeout, onTimeout: () => false);
+    await sub.cancel();
+    return SelfCheckItem(
+      name,
+      success ? SelfCheckStatus.pass : SelfCheckStatus.fail,
+      success
+          ? null
+          : 'no successful AdLoadEvent for $name within '
+              '${timeout.inSeconds}s',
+    );
+  }
+
   // ─── Test seams ────────────────────────────────────────────────────────────
   /// Push an event onto [events] (lets a test drive consumers like RevenuePanel
   /// without a live native adapter).
@@ -244,6 +379,13 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugConfig(AdConfig? c) => _config = c;
 
+  /// Populated right before [initialize]'s `autoRequestUmpConsent` branch
+  /// calls [requestUmpConsent] internally — lets tests assert the config's
+  /// [AdConfig.umpDebugGeography]/[AdConfig.umpTestIdentifiers] are forwarded
+  /// without needing native UMP to actually succeed.
+  @visibleForTesting
+  Map<String, Object?>? debugLastAutoUmpParams;
+
   /// Consent manager — `null` until [initialize] completes. Owns the
   /// Cupertino consent dialog, persistence, and provider apply pipeline.
   /// Also accessible via static [ConsentManager.instance] once initialised.
@@ -251,6 +393,14 @@ class AdManager with WidgetsBindingObserver {
 
   /// Active consent flags. Default conservative until [setConsent] is called.
   AdConsent get consent => _consent;
+
+  /// Raw IAB TCF v2.3 consent string that Google UMP writes to native storage
+  /// after a user completes the EEA consent form, or `null` if no TCF session
+  /// has run yet (non-EEA users, or UMP never requested).
+  Future<String?> get tcfConsentString async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('IABTCF_TCString');
+  }
 
   /// Stream of every [AdEvent] (load / show / click / reward / revenue).
   Stream<AdEvent> get events => _eventStream.stream;
@@ -319,6 +469,12 @@ class AdManager with WidgetsBindingObserver {
 
   int _lastBannerLoadAt = 0;
   static const int _bannerLoadCooldownMs = 5000;
+
+  int _lastMrecLoadAt = 0;
+  static const int _mrecLoadCooldownMs = 5000;
+
+  int _lastNativeLoadAt = 0;
+  static const int _nativeLoadCooldownMs = 5000;
 
   bool _retryTimerActive = false;
   int _retryGen = 0;
@@ -410,6 +566,14 @@ class AdManager with WidgetsBindingObserver {
   /// don't leak `_lastBannerLoadAt` into each other.
   @visibleForTesting
   void debugResetBannerCooldown() => _lastBannerLoadAt = 0;
+
+  /// Test seam: same as [debugResetBannerCooldown] but for MREC.
+  @visibleForTesting
+  void debugResetMrecCooldown() => _lastMrecLoadAt = 0;
+
+  /// Test seam: same as [debugResetBannerCooldown] but for Native.
+  @visibleForTesting
+  void debugResetNativeCooldown() => _lastNativeLoadAt = 0;
 
   bool _isObserverAdded = false;
 
@@ -596,6 +760,65 @@ class AdManager with WidgetsBindingObserver {
       _adapter?.setBannerRoutePaused(paused);
 
   Widget? get admobBannerView => _adapter?.buildAdmobBannerView();
+
+  // ─── MREC accessors used by MrecAdWidget ─────────────────────────────────
+
+  bool canLoadMrec() {
+    if (_lastMrecLoadAt == 0) return true;
+    return DateTime.now().millisecondsSinceEpoch - _lastMrecLoadAt >=
+        _mrecLoadCooldownMs;
+  }
+
+  void recordMrecLoad() {
+    _lastMrecLoadAt = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  ValueListenable<bool> get mrecIsLoaded =>
+      _adapter?.mrec.isLoaded ?? _stubBoolFalse;
+
+  ValueListenable<bool> get mrecHasError =>
+      _adapter?.mrec.hasError ?? _stubBoolFalse;
+
+  ValueListenable<Size?> get mrecAdSize => _adapter?.mrec.adSize ?? _stubSize;
+
+  ValueListenable<bool> get mrecAutoRefreshEnabled =>
+      _adapter?.mrec.autoRefreshEnabled ?? _stubBoolTrue;
+
+  ValueListenable<bool> get mrecVisible =>
+      _adapter?.mrec.visible ?? _stubBoolTrue;
+
+  ValueListenable<Object?> get mrecAdViewId =>
+      _adapter?.appLovinMrecAdViewId ?? _stubObject;
+
+  String get appLovinMrecId => _adapter?.appLovinMrecId ?? '';
+
+  bool get mrecRoutePaused => _adapter?.mrecRoutePaused ?? false;
+
+  void setMrecRoutePaused(bool paused) => _adapter?.setMrecRoutePaused(paused);
+
+  Widget? get admobMrecView => _adapter?.buildAdmobMrecView();
+
+  // ─── Native accessors used by NativeAdWidget ─────────────────────────────
+
+  bool canLoadNative() {
+    if (_lastNativeLoadAt == 0) return true;
+    return DateTime.now().millisecondsSinceEpoch - _lastNativeLoadAt >=
+        _nativeLoadCooldownMs;
+  }
+
+  void recordNativeLoad() {
+    _lastNativeLoadAt = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  ValueListenable<bool> get nativeIsLoaded =>
+      _adapter?.native.isLoaded ?? _stubBoolFalse;
+
+  ValueListenable<bool> get nativeHasError =>
+      _adapter?.native.hasError ?? _stubBoolFalse;
+
+  String get appLovinNativeId => _adapter?.appLovinNativeId ?? '';
+
+  Widget? get admobNativeView => _adapter?.buildAdmobNativeView();
 
   static final ValueNotifier<bool> _stubBoolFalse = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> _stubBoolTrue = ValueNotifier<bool>(true);
@@ -882,9 +1105,17 @@ class AdManager with WidgetsBindingObserver {
       if (config.autoRequestUmpConsent) {
         SafeLogger.d(
             _tag, '🔐 autoRequestUmpConsent — running UMP before first load');
+        debugLastAutoUmpParams = {
+          'testMode': kDebugMode,
+          'tagForUnderAgeOfConsent': config.umpTagForUnderAgeOfConsent,
+          'debugGeography': config.umpDebugGeography,
+          'testIdentifiers': config.umpTestIdentifiers,
+        };
         await requestUmpConsent(
           testMode: kDebugMode,
           tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
+          debugGeography: config.umpDebugGeography,
+          testIdentifiers: config.umpTestIdentifiers,
         );
       }
 
@@ -917,9 +1148,10 @@ class AdManager with WidgetsBindingObserver {
       // `recordBannerImpression` counter (the banner widget itself does
       // suppress *display*, but the cache fill is unnecessary).
       if (_isVipMember) {
-        SafeLogger.d(_tag, '⏭️ banner preload skipped — VIP member');
+        SafeLogger.d(_tag, '⏭️ banner/mrec preload skipped — VIP member');
       } else {
         unawaited(adapter.preloadBanner());
+        unawaited(adapter.preloadMrec());
       }
 
       _scheduleFirstSecondaryLoad();
@@ -956,6 +1188,7 @@ class AdManager with WidgetsBindingObserver {
     unawaited(loadInterstitial());
     unawaited(loadRewardedAd());
     unawaited(ad.preloadBanner());
+    unawaited(ad.preloadMrec());
   }
 
   /// Attach listeners to the three fullscreen slots so we can record the real
@@ -1246,6 +1479,15 @@ class AdManager with WidgetsBindingObserver {
     // initialize()) matches destroy() being an explicit, deliberate teardown.
     _pendingConsentSettings = null;
 
+    // Same reasoning as VipManager above: a stale arbitrator/fill-rate-monitor
+    // left alive past destroy() would keep being consulted (or keep counting
+    // fill-rate samples) against a torn-down adapter, mixing pre-destroy data
+    // into whatever provider initialize() brings up next.
+    _arbitrator?.dispose();
+    _arbitrator = null;
+    _fillRateMonitor?.dispose();
+    _fillRateMonitor = null;
+
     _isSplashActive = false;
     _countInitSplashScreen = 0;
     _isFirstAdLoadTriggered = false;
@@ -1320,6 +1562,16 @@ class AdManager with WidgetsBindingObserver {
       onAdLoaded?.call(false);
       return;
     }
+    if (_config?.appOpenTrigger == AppOpenTrigger.splashOnly &&
+        !_isSplashActive) {
+      // splashOnly never shows via showAppOpenAdOnResume() (gated there), so
+      // any load after splash ends would never be shown — skip to avoid
+      // wasting quota/network on an ad that can't be used.
+      SafeLogger.d(_tag,
+          '⏭️ loadAppOpen skipped — appOpenTrigger=splashOnly, splash inactive');
+      onAdLoaded?.call(false);
+      return;
+    }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — VIP member');
       onAdLoaded?.call(false);
@@ -1358,6 +1610,12 @@ class AdManager with WidgetsBindingObserver {
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — VIP member');
+      onAdDismiss(false);
+      return;
+    }
+    if (bypassSafety && _config?.appOpenTrigger == AppOpenTrigger.resumeOnly) {
+      SafeLogger.d(
+          _tag, '⏭️ showAppOpen (splash) skipped — appOpenTrigger=resumeOnly');
       onAdDismiss(false);
       return;
     }
@@ -1417,6 +1675,11 @@ class AdManager with WidgetsBindingObserver {
     );
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ app-open on resume skipped — adapter null');
+      return;
+    }
+    if (_config?.appOpenTrigger == AppOpenTrigger.splashOnly) {
+      SafeLogger.d(
+          _tag, '⏭️ app-open on resume skipped — appOpenTrigger=splashOnly');
       return;
     }
     if (_isSplashActive) {
@@ -1585,7 +1848,8 @@ class AdManager with WidgetsBindingObserver {
     // enableArbitrator). Only consulted when a host app has registered one.
     final arbitrator = _arbitrator;
     if (arbitrator != null &&
-        arbitrator.decide() == ArbitratorDecision.nudgeVip) {
+        arbitrator.decide(AdSlotType.interstitial) ==
+            ArbitratorDecision.nudgeVip) {
       SafeLogger.d(_tag, '⏭️ showInterstitial vetoed — arbitrator nudgeVip');
       _emit(ArbitratorNudgeEvent(
         type: AdSlotType.interstitial,
@@ -1792,7 +2056,7 @@ class AdManager with WidgetsBindingObserver {
     final arbitrator = _arbitrator;
     if (!bypassVipGuard &&
         arbitrator != null &&
-        arbitrator.decide() == ArbitratorDecision.nudgeVip) {
+        arbitrator.decide(AdSlotType.rewarded) == ArbitratorDecision.nudgeVip) {
       SafeLogger.d(_tag, '⏭️ showRewarded vetoed — arbitrator nudgeVip');
       _emit(ArbitratorNudgeEvent(
         type: AdSlotType.rewarded,
@@ -1882,6 +2146,24 @@ class AdManager with WidgetsBindingObserver {
     if (ad == null) return;
     if (_isVipMember || !isConnected) return;
     await ad.loadBannerIfNeeded(widthPx);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  MREC
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<void> loadAdmobMrecIfNeeded(double widthPx) async {
+    final ad = _adapter;
+    if (ad == null) return;
+    if (_isVipMember || !isConnected) return;
+    await ad.loadMrecIfNeeded(widthPx);
+  }
+
+  Future<void> loadAdmobNativeIfNeeded() async {
+    final ad = _adapter;
+    if (ad == null) return;
+    if (_isVipMember || !isConnected) return;
+    await ad.preloadNative();
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -2173,7 +2455,8 @@ class AdManager with WidgetsBindingObserver {
   // ──────────────────────────────────────────────────────────────────────────
 
   void _emit(AdEvent event) {
-    _eventLog?.recordEvent(event);
+    _eventLog?.recordEvent(event,
+        consentCountry: _consentManager?.current.country);
     if (_eventStream.isClosed) return;
     _eventStream.add(event);
   }

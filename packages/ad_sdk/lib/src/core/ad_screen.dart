@@ -5,6 +5,8 @@ import '../state/ad_placement.dart';
 import '../utils/safe_logger.dart';
 import '../widget/ad_loading_dialog.dart';
 import '../widget/banner_ad_widget.dart';
+import '../widget/mrec_ad_widget.dart';
+import '../widget/native_ad_widget.dart';
 import '../widget/top_toast.dart';
 
 /// Base widget class for screens that use ads.
@@ -48,6 +50,20 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   Widget buildBanner() {
     SafeLogger.d(_tag, 'buildBanner $runtimeType');
     return const BannerAdWidget();
+  }
+
+  /// Returns a [MrecAdWidget] that manages its own lifecycle.
+  /// Place this anywhere in your widget tree.
+  Widget buildMrec() {
+    SafeLogger.d(_tag, 'buildMrec $runtimeType');
+    return const MrecAdWidget();
+  }
+
+  /// Returns a [NativeAdWidget] that manages its own lifecycle.
+  /// Place this anywhere in your widget tree.
+  Widget buildNative() {
+    SafeLogger.d(_tag, 'buildNative $runtimeType');
+    return const NativeAdWidget();
   }
 
   // ════════════════════════════════════════════════════

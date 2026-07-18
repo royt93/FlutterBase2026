@@ -24,9 +24,18 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _alChannel = MethodChannel('applovin_max');
+
+// Same codec requirement as ump_consent_test.dart — the plain default codec
+// can't decode ConsentRequestParameters, corrupting the call before our
+// handler sees it.
+final _umpChannel = MethodChannel(
+  'plugins.flutter.io/google_mobile_ads/ump',
+  StandardMethodCodec(UserMessagingCodec()),
+);
 
 // applyConsentToProviders() (ad_consent.dart) unconditionally touches
 // MobileAds.instance regardless of the active provider — pre-existing
@@ -60,6 +69,21 @@ void main() {
     });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_gmaChannel, (call) async => null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_umpChannel, (call) {
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return Future.value(null);
+        case 'ConsentInformation#canRequestAds':
+          return Future.value(true);
+        case 'ConsentInformation#getConsentStatus':
+          return Future.value(0); // unknown
+        case 'ConsentInformation#isConsentFormAvailable':
+          return Future.value(false);
+        default:
+          return Future.value(null);
+      }
+    });
   });
 
   tearDownAll(() {
@@ -67,6 +91,8 @@ void main() {
         .setMockMethodCallHandler(_alChannel, null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_gmaChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_umpChannel, null);
   });
 
   setUp(() async {
@@ -130,5 +156,38 @@ void main() {
     expect(AdManager().isInitialised, isTrue);
     expect(AdManager().consent.hasUserConsent, isTrue);
     expect(AdManager().consentManager!.current.hasUserConsent, isTrue);
+  });
+
+  // Audit finding: initialize()'s autoRequestUmpConsent branch called
+  // requestUmpConsent() without forwarding AdConfig.umpDebugGeography /
+  // AdConfig.umpTestIdentifiers, silently dropping EEA-debug-test config.
+  test(
+      'autoRequestUmpConsent forwards umpDebugGeography/umpTestIdentifiers '
+      'into the internal requestUmpConsent() call', () async {
+    SharedPreferences.setMockInitialValues({});
+
+    await AdManager().initialize(
+      config: const AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: 'test-sdk-key',
+          bannerId: 'banner-id',
+          interstitialId: 'interstitial-id',
+          appOpenId: 'appopen-id',
+          rewardedId: 'rewarded-id',
+        ),
+        safety: AdSafetyParams(dryRun: true),
+        autoRequestUmpConsent: true,
+        umpDebugGeography: DebugGeography.debugGeographyEea,
+        umpTestIdentifiers: ['TEST-ID'],
+      ),
+      onComplete: (_, __) {},
+    );
+
+    expect(AdManager().isInitialised, isTrue);
+    expect(AdManager().debugLastAutoUmpParams, isNotNull);
+    expect(AdManager().debugLastAutoUmpParams!['debugGeography'],
+        DebugGeography.debugGeographyEea);
+    expect(AdManager().debugLastAutoUmpParams!['testIdentifiers'], ['TEST-ID']);
   });
 }

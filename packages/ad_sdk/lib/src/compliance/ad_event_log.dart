@@ -48,7 +48,7 @@ class AdEventLog {
     }
   }
 
-  void recordEvent(AdEvent event, {int? timestampMs}) {
+  void recordEvent(AdEvent event, {int? timestampMs, String? consentCountry}) {
     _append({
       'kind': 'ad_event',
       'timestampMs': timestampMs ?? DateTime.now().millisecondsSinceEpoch,
@@ -56,6 +56,7 @@ class AdEventLog {
       'providerTag': event.providerTag,
       'slotType': event.type.name,
       'placement': event.placement.id,
+      'consentCountry': consentCountry,
       ..._eventExtra(event),
     });
   }
@@ -124,6 +125,7 @@ Map<String, dynamic> _eventExtra(AdEvent event) => switch (event) {
           'currencyCode': e.currencyCode,
           'networkName': e.networkName,
           'precision': e.precision,
+          'mediationWaterfall': e.mediationWaterfall,
         },
       AdAnomalyEvent e => {
           'reason': e.reason,
