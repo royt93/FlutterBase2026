@@ -721,19 +721,9 @@ hiện mới:
 
 ## 🚧 Blockers — config, not code
 
-- **UMP consent form NOT configured** for AdMob app ID (test ID sau T32
-  2026-07-14, trước đó là `ca-app-pub-3612191981543807~9731053733`). Device
-  log: `requestConsentInfoUpdate failed: ... no form(s) configured`. SDK
-  degrades gracefully (`canRequestAds=true`) but EU/EEA/UK users never see a
-  consent form. Configure + **publish** a UMP message in the AdMob dashboard
-  before an EEA release. Full steps in `doc/UMP_SETUP.md`. **Đã bàn giao user
-  tự làm trên AdMob console, ngày 2026-07-14** (thao tác console, cần login
-  tài khoản của user — Claude không tự làm được). Các bước ngắn gọn: đăng
-  nhập https://apps.admob.google.com → chọn app entry đúng App ID production
-  thật (sau khi hoàn tất checklist T32) → menu **Privacy & messaging** → chọn
-  **EU consent message** (hoặc mục GDPR tương ứng) → làm theo wizard tạo
-  message → bấm **Publish** ở bước cuối. Sau khi publish, đợi vài phút rồi
-  test lại app — log sẽ không còn dòng "no form(s) configured" nữa.
+- ~~**UMP consent form NOT configured** for AdMob app ID.~~ **✅ DONE
+  (xác nhận với user 2026-07-19).** User đã publish UMP consent message trên
+  AdMob console. Không còn blocking cho release EU/EEA.
 
 ## 🧑‍💻 Checklist thao tác tay — trước khi release thật (2026-07-15)
 
@@ -741,17 +731,21 @@ Ba việc dưới đây **Claude không tự làm được** (cần login consol
 user, hoặc là quyết định kinh doanh) — user tự làm theo thứ tự nào cũng được,
 không phụ thuộc lẫn nhau:
 
-1. **Đổi test Ad Unit ID / App ID → ID production thật.** Hiện
-   `AndroidManifest.xml`/`Info.plist` và app mẫu đang dùng App ID + ad-unit ID
-   **test** của Google/AppLovin (chốt qua T32, 2026-07-14) — an toàn để dev
-   nhưng sẽ không có doanh thu thật. Trước khi bật AdMob/AppLovin thật: vào
-   AdMob console lấy 2 App ID production (Android + iOS riêng), tạo bộ ad-unit
-   ID (banner/interstitial/rewarded/appopen) cho từng app, thay vào đúng các vị
-   trí đã ghi chú T32 trong `AndroidManifest.xml`/`Info.plist`/`main.dart`.
-2. **Publish UMP consent form trên AdMob console** — xem chi tiết ngay ở mục
-   Blockers phía trên (đã bàn giao 2026-07-14, cần xác nhận đã bấm Publish
-   thật chưa — nếu chưa chắc, kiểm tra log app có còn dòng "no form(s)
-   configured" không).
+1. ✅ **DONE (xác nhận + verify code 2026-07-19).** Host app (FastNet) đã
+   dùng App ID production thật
+   (`ca-app-pub-3004713799155145~9488250427`, cùng giá trị Android/iOS) và bộ
+   ad-unit ID AppLovin thật trong `AdKey.appLovinAndroid`/`appLovinIos`
+   (`lib/mckimquyen/common/const/ad_keys.dart`) — provider đang chạy runtime
+   là AppLovin (`AdConfig.provider`) nên đây là phần quyết định doanh thu.
+   Bộ `AdKey.adMob` (ad-unit ID fallback, dùng nếu sau này flip provider
+   sang AdMob) **vẫn đang là ID test của Google — có chủ đích**, chỉ cần đổi
+   khi thật sự chuyển provider. **Phát hiện phụ:** example app của SDK
+   (`packages/ad_sdk/example`) vẫn đang hardcode App ID production thật này
+   (đáng lẽ nên dùng App ID test) — tách thành ticket riêng, xem
+   `doc/task/todo/T44-example-app-real-admob-appid.md`.
+2. ✅ **DONE (xác nhận với user 2026-07-19).** Đã publish UMP consent form
+   trên AdMob console — xem mục Blockers phía trên (đã chuyển sang trạng thái
+   done).
 3. ✅ **DONE 2026-07-16 — Publish `packages/ad_sdk` v1.0.24 lên pub.dev + flip
    `pubspec.yaml`.** Root `pubspec.yaml` đã bỏ comment dòng hosted
    `applovin_admob_sdk: ^1.0.24` (pub.dev, sha256 `cc8ee183...`), comment lại
