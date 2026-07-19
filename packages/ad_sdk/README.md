@@ -70,17 +70,16 @@ be clear-eyed about the gap before depending on it for revenue:
   dismiss) can only be verified manually, not via CI. Everything else in the
   lifecycle (load, show, click, reward callbacks, VIP suppression, safety
   gating) is automated and re-run on every change.
-- **Known limitation:** `app_open_ad_test.dart` / `interstitial_ad_test.dart`
+- ~~**Known limitation:** `app_open_ad_test.dart` / `interstitial_ad_test.dart`
   / `rewarded_ad_test.dart` call `showXAd()` twice back-to-back without
-  waiting for the ad to finish loading first. Whether they exercise the real
-  show+dismiss path or fall into the safe "ad not ready, skip" fallback is a
-  coin-flip race against ad-network response time on the day they're run —
-  confirmed by log tracing across multiple runs where the fallback fired
-  every time. **A green PASS on these 3 tests does not by itself prove real
-  ad-display behavior was exercised for that run** — check the run's log for
-  `loadX ✅` landing before vs. after the `showXAd` attempts to know which
-  path actually executed. Fixing this properly means making the tests await
-  ad-ready (with a timeout) before tapping show, which has not been done.
+  waiting for the ad to finish loading first.~~ **Fixed (2026-07-19).** All
+  three now poll the slot (`_waitForAppOpenLoaded` / `_waitForInterstitialLoaded`
+  / `_waitForRewardedLoaded`) until `isReady` before tapping show, and fail
+  loudly instead of silently passing on the safe "ad not ready, skip"
+  fallback. Verified with a real run on a physical Android device against
+  live AdMob test ad units — log-confirmed real show+dismiss (including an
+  `earned=true` reward) for both cycles where the safety-throttle didn't
+  suppress the second fullscreen show.
 - **Limited real-world production history.** As of this writing the only
   first-party app running the hosted pub.dev release is this repo's own
   host app. If you're evaluating this for a partner or a new app, check that
@@ -704,6 +703,20 @@ decompiler cannot forge new valid keys. There is **no server and no shared
 secret** — a leaked *legitimate* key can still be reused on other devices (true
 global one-time-use needs a backend), but per-device reuse is blocked.
 
+> **Known limitation — Android reinstall replay.** Per-device one-time-use is
+> enforced by two layers: `AdPreferences` (`SharedPreferences`, wiped on
+> uninstall) plus a durable secondary ledger (`RedeemedKeyLedger`) that on
+> **iOS** survives uninstall via Keychain. On **Android there is no durable
+> ledger** — `RedeemedKeyLedger.isRedeemed`/`markRedeemed` are no-ops there, by
+> the same rationale as `FirstInstallGuard` (no local-only primitive survives
+> uninstall without an install-referrer plugin, for a narrow benefit). So a
+> leaked signed key **can be replayed an unlimited number of times on Android**
+> via uninstall + reinstall — each replay only grants the key's own encoded
+> `duration`, not permanent VIP, but it is not capped in count. Treat signed
+> keys like a coupon code that a screenshot can eventually leak, not like an
+> unforgeable one-time ticket, on Android. This is an accepted product
+> tradeoff (no backend = no reliable cross-reinstall Android signal), not a bug.
+
 **1. Generate a key pair once (keep the private key secret):**
 
 ```bash
@@ -975,7 +988,12 @@ AdManager().showRewardedAd(
 
 ## Monetization Arbitrator (opt-in)
 
-**Default OFF.** An opt-in "Smart Monetization Arbitrator" that, at each
+**Default OFF, production-safe.** Unlike the debug-only `RevenuePanel`
+overlay (gated on `kDebugMode`), the arbitrator has no debug/release
+distinction at all — it stays off purely because `enableArbitrator` was never
+called, and once called it runs identically in a release build. There is no
+separate "enable in production" step. An opt-in "Smart Monetization
+Arbitrator" that, at each
 fullscreen ad-show attempt (after every existing gate — including the safety
 layer — already passes), gets one more veto: show the ad, or nudge the host
 app to upsell VIP instead. It is a simple configurable eCPM-threshold rule,
@@ -1028,7 +1046,10 @@ arbitrator on for its whole lifetime or not at all.
 
 ## Fill-rate monitor (opt-in)
 
-**Default OFF.** A `FillRateMonitor` watches the trailing load success rate
+**Default OFF, production-safe** — same as the arbitrator above: no
+`kDebugMode` gating, it's off only until `enableFillRateMonitor` is called,
+and then it runs the same way in debug and release. A `FillRateMonitor`
+watches the trailing load success rate
 per `AdSlotType` for whichever provider is currently active, and alerts when
 it drops abnormally low — useful for catching a mediation/network outage or a
 misconfigured ad unit without waiting on a dashboard. It does **not** load a
@@ -1159,6 +1180,17 @@ AdConfig(
 )
 ```
 
+**F9 — no CCPA "Do Not Sell" toggle in this dialog, on purpose**: the
+built-in dialog (`showConsentDialog` in `consent_dialog.dart`) is
+intentionally binary (Allow/Reject) — see its own "Why binary only?"
+docstring for the reasoning (CCPA/COPPA are app-level properties set via
+[`ConsentManager.set`], not per-user toggles a generic dialog should expose).
+If your app needs a user-facing CCPA "Do Not Sell" switch, don't extend this
+dialog — the SDK's own `VipRedeemScreen` already has a working
+`CupertinoSwitch` for exactly this (`doNotSellValue`, wired to
+`AdManager().consent.doNotSell` / `setConsent(...)`), usable as a reference
+pattern for your own screen.
+
 ### Option 0 — iOS App Tracking Transparency (call FIRST on iOS)
 
 ATT is built into the SDK — do **not** call `app_tracking_transparency`
@@ -1209,6 +1241,8 @@ if (!result.canRequestAds) {
 Alternatively, set `AdConfig(autoRequestUmpConsent: true, umpDebugGeography: ..., umpTestIdentifiers: [...])` to let `AdManager().initialize()` run this flow for you before the first ad request — `umpDebugGeography`/`umpTestIdentifiers` are forwarded through to the same UMP call shown above.
 
 The raw IAB TCF v2.3 consent string Google UMP writes to native storage after a user completes the EEA form is available via `await AdManager().tcfConsentString` (`null` until a TCF session has run) — read-only, for forwarding to any third party (analytics, mediation outside AppLovin/AdMob) that needs the raw string.
+
+**F7 — why this SDK doesn't also forward the TC-string to AppLovin**: [Q18/setConsent](#option-2--google-ump-form-required-for-eea-users-on-admob) only syncs the boolean `hasUserConsent` flag to `AppLovinMAX.setHasUserConsent`, not the raw TC-string — and that's intentional, not a gap. AppLovin MAX SDK 12.0.0+ (this project pins native `13.2.0.1` / Flutter `applovin_max: ^4.6.4`, both well above that threshold) already auto-reads `IABTCF_TCString`, `IABTCF_gdprApplies`, and `IABTCF_AddtlConsent` directly from the platform's shared storage per the IAB standard, the moment UMP writes them — no app code has to relay it. `AdManager().tcfConsentString` above exists only as a manual escape hatch for a *third* party outside AppLovin/AdMob that also needs the raw string.
 
 #### Per-app-id setup (do this for EVERY app, not just once)
 
@@ -1291,6 +1325,7 @@ aggregate, no crash, no placeholder value.
 - [ ] Privacy Policy URL declared in App Store / Play Store listing
 - [ ] iOS App Tracking Transparency prompt shown via `AdManager().requestAtt()` in the splash, **before** `requestUmpConsent` / `AdManager().initialize` (see Option 0)
 - [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA). AdMob honours this per-request via `tagForChildDirectedTreatment`. AppLovin MAX 4.x has no runtime child-directed API, so (T40, 2026-07-13) `AppLovinAdapter` refuses to initialize at all when `true` is known **at init time** (persisted from a prior session) — every AppLovin ad surface then stays unavailable for the session (exposed via `AppLovinAdapter.disabledForChildUser`). **Known gap**: on a brand-new install with no persisted consent yet, an app that is *always* child-directed (no consent dialog at all) will still see AppLovin initialize once, since there's nothing yet to gate on — don't rely on this SDK for an always-child-directed app without adding your own explicit "child app" config ahead of `initialize()`.
+  - **This AdMob-vs-AppLovin handling asymmetry (per-request tag vs. full init abort) is intentional**, driven purely by what each provider's native SDK exposes — AdMob has a per-request COPPA flag, AppLovin MAX 4.x does not. It is not an inconsistency to "fix"; treat AppLovin's behavior (no ads at all for a known child-directed session) as the stricter, safer default for that provider.
 - [ ] If targeting EEA users, integrate UMP via Option 2 above
 - [ ] UMP consent message **published** (not just saved as draft) for *this app's* specific AdMob app ID — required again for every new app ID, see "Per-app-id setup" above
 - [x] **`example/` is not a production template** (T41, 2026-07-13): `example/lib/main.dart`'s AppLovin SDK key + ad-unit IDs are `YOUR_*` placeholders read via `String.fromEnvironment` — pass `--dart-define=APPLOVIN_SDK_KEY=...` (+ per-platform `_BANNER_ID_IOS`/`_BANNER_ID_ANDROID`/etc.) to exercise real ads locally; nothing real is committed to source. `example/lib/main.dart`'s safety preset (`kDemoSafetyParams`, 999 caps/CTR off) only applies with `--dart-define=QA_AD_STRESS=true` — default is `AdSafetyParams.auto`. Review both before copying this example into a real app.

@@ -234,6 +234,23 @@ AdConfig _admobConfig({
   );
 }
 
+AdConfig _consentConfig({
+  bool autoRequestUmpConsent = false,
+  bool disableAppLovinCmpFlow = true,
+}) {
+  return AdConfig(
+    provider: AdProvider.admob,
+    admob: const AdMobConfig(
+      bannerId: 'ca-app-pub-9999999999999999/1111111111',
+      interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+      appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+      rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+    ),
+    autoRequestUmpConsent: autoRequestUmpConsent,
+    disableAppLovinCmpFlow: disableAppLovinCmpFlow,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -345,6 +362,41 @@ void main() {
       expect(w, hasLength(1));
       expect(w.single, contains('banner'));
       expect(w.single, contains('empty'));
+    });
+  });
+
+  group('consentFootgunWarning (F4)', () {
+    test('default config + UMP never requested → warns', () {
+      final w = AdManager.consentFootgunWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        umpRequested: false,
+      );
+      expect(w, isNotNull);
+      expect(w, contains('No consent flow will run'));
+    });
+
+    test('UMP already requested → no warning', () {
+      final w = AdManager.consentFootgunWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        umpRequested: true,
+      );
+      expect(w, isNull);
+    });
+
+    test('autoRequestUmpConsent:true → no warning', () {
+      final w = AdManager.consentFootgunWarning(
+        _consentConfig(autoRequestUmpConsent: true),
+        umpRequested: false,
+      );
+      expect(w, isNull);
+    });
+
+    test('disableAppLovinCmpFlow:false → no warning', () {
+      final w = AdManager.consentFootgunWarning(
+        _consentConfig(disableAppLovinCmpFlow: false),
+        umpRequested: false,
+      );
+      expect(w, isNull);
     });
 
     test('release + AppLovin-shaped id on AdMob provider → format warning', () {
@@ -1280,6 +1332,41 @@ void main() {
 
       expect(() => AdManager().debugEmit(rev(2000000)), returnsNormally);
       await tester.pump();
+    });
+
+    testWidgets(
+        'F9: debugModeOverride:true still renders (matches default '
+        'kDebugMode behavior under flutter test)', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: RevenuePanel(
+              compact: true, showDecimals: false, debugModeOverride: true),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('Rev: \$0.00  /  0 imp'), findsOneWidget);
+    });
+
+    testWidgets(
+        'F9: debugModeOverride:false renders nothing and never subscribes',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: RevenuePanel(
+              compact: true, showDecimals: false, debugModeOverride: false),
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.byType(RevenuePanel), findsOneWidget);
+      expect(find.textContaining('Rev:'), findsNothing);
+      expect(find.byType(Card), findsNothing);
+
+      // Not subscribed → emitting revenue must not make text appear later.
+      AdManager().debugEmit(rev(1500000));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('Rev:'), findsNothing);
     });
   });
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:advertising_id/advertising_id.dart';
 import 'package:connection_notifier/connection_notifier.dart';
@@ -164,6 +165,27 @@ class AdManager with WidgetsBindingObserver {
     }
     warnings.addAll(_adUnitIdFootgunWarnings(config));
     return warnings;
+  }
+
+  /// F4 — AppLovin's own CMP is off, the SDK won't auto-run UMP, AND the
+  /// host never called [requestUmpConsent] before `initialize()` → EEA/UK
+  /// users would see NO consent form at all. Returns a warning message when
+  /// this footgun is hit, or `null` when consent coverage is fine. Pure +
+  /// static so it is unit-testable without running the full native init —
+  /// same pattern as [releaseFootgunWarnings].
+  @visibleForTesting
+  static String? consentFootgunWarning(AdConfig config,
+      {required bool umpRequested}) {
+    if (!config.disableAppLovinCmpFlow ||
+        config.autoRequestUmpConsent ||
+        umpRequested) {
+      return null;
+    }
+    return '🚨 No consent flow will run: AppLovin CMP is disabled, '
+        'autoRequestUmpConsent is false, and requestUmpConsent() was not '
+        'called before initialize(). EEA/UK users get NO consent form — '
+        'GDPR/UMP policy risk. Enable autoRequestUmpConsent, call '
+        'requestUmpConsent() first, or set disableAppLovinCmpFlow:false.';
   }
 
   /// T16: empty/malformed ad-unit-id checks, split out of
@@ -563,6 +585,11 @@ class AdManager with WidgetsBindingObserver {
   /// UMP never run). Runtime state, so it doesn't false-alarm hosts that gather
   /// consent correctly in their splash.
   bool _umpRequested = false;
+
+  /// F9 — set by [requestAtt]; used only to warn (never block) when
+  /// [requestUmpConsent] runs on iOS before ATT was requested, since callers
+  /// are only supposed to know the correct order via docstrings today.
+  bool _attRequested = false;
 
   /// Test seam: clear the banner load cooldown so tests sharing the singleton
   /// don't leak `_lastBannerLoadAt` into each other.
@@ -964,10 +991,12 @@ class AdManager with WidgetsBindingObserver {
         if (dur != null) {
           // Anti-uninstall-bypass guard. iOS: a Keychain flag persists
           // across uninstall, so the second install sees the flag and we
-          // skip re-granting. Android: Install Referrer with conservative
-          // skip on connection failure (Q3). Falls through to allow grace
-          // if no bypass signal is found, so legitimate first-time users
-          // still get their grace window.
+          // skip re-granting. Android: anti-bypass is intentionally
+          // disabled — every reinstall grants a fresh grace window (no
+          // Install Referrer check; see FirstInstallGuard doc comment for
+          // rationale). Falls through to allow grace if no bypass signal
+          // is found, so legitimate first-time users still get their
+          // grace window.
           final guard = FirstInstallGuard();
           final alreadyGranted = await guard.hasAlreadyGranted();
           if (alreadyGranted) {
@@ -1124,22 +1153,15 @@ class AdManager with WidgetsBindingObserver {
       }
 
       // Consent-coverage footgun (runtime, not config-static so it doesn't
-      // false-alarm hosts that gather consent in their splash): AppLovin's own
-      // CMP is off, the SDK won't auto-run UMP, AND the host never called
-      // requestUmpConsent() before init → EEA/UK users would see NO consent form
-      // at all. Loud warning; the fix is one of: autoRequestUmpConsent:true,
-      // call requestUmpConsent() before initialize(), or disableAppLovinCmpFlow:
-      // false.
-      if (config.disableAppLovinCmpFlow &&
-          !config.autoRequestUmpConsent &&
-          !_umpRequested) {
-        SafeLogger.w(
-            _tag,
-            '🚨 No consent flow will run: AppLovin CMP is disabled, '
-            'autoRequestUmpConsent is false, and requestUmpConsent() was not '
-            'called before initialize(). EEA/UK users get NO consent form — '
-            'GDPR/UMP policy risk. Enable autoRequestUmpConsent, call '
-            'requestUmpConsent() first, or set disableAppLovinCmpFlow:false.');
+      // false-alarm hosts that gather consent in their splash) — see
+      // [consentFootgunWarning].
+      final consentWarning =
+          consentFootgunWarning(config, umpRequested: _umpRequested);
+      if (consentWarning != null) {
+        SafeLogger.w(_tag, consentWarning);
+        // F4 — surface this loudly in dev/test builds (stripped in release,
+        // so production behavior is unchanged); the log above is easy to miss.
+        assert(false, consentWarning);
       }
 
       onComplete(true, _currentDeviceGAID);
@@ -1332,6 +1354,19 @@ class AdManager with WidgetsBindingObserver {
     List<String> testIdentifiers = const [],
     bool tagForUnderAgeOfConsent = false,
   }) async {
+    // F9 — log-only order check: ATT must run before UMP on iOS (see this
+    // method's docstring / [requestAtt]'s docstring), but this was only ever
+    // enforced by convention. Warn, don't block — a host that genuinely
+    // doesn't want ATT (e.g. no tracking at all) has no reason to call
+    // requestAtt() first.
+    if (Platform.isIOS && !_attRequested) {
+      SafeLogger.w(
+          _tag,
+          '⚠️ requestUmpConsent() called before requestAtt() on iOS — call '
+          'requestAtt() first so IDFA availability is settled before the '
+          'first ad request.');
+    }
+
     final result = await requestUmpConsentFlow(
       testMode: testMode,
       debugGeography: debugGeography,
@@ -1442,6 +1477,7 @@ class AdManager with WidgetsBindingObserver {
   /// for a user who granted GDPR consent but declined ATT.
   Future<AttResult> requestAtt() async {
     final result = await requestAttIfNeeded();
+    _attRequested = true;
     SafeLogger.d(_tag, () => 'ATT → ${result.status.name}');
     return result;
   }

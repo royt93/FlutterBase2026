@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
@@ -9,6 +10,10 @@ import '../state/ad_event.dart';
 /// revenue totals for the current session — useful in debug builds for
 /// end-of-day eyeball checks.
 ///
+/// F9 — gated on [kDebugMode]: renders nothing and never subscribes in a
+/// release build, so a host that leaves this mounted by accident doesn't
+/// leak session revenue figures to end users.
+///
 /// ```dart
 /// const RevenuePanel(showDecimals: true)
 /// ```
@@ -17,10 +22,17 @@ class RevenuePanel extends StatefulWidget {
     super.key,
     this.showDecimals = true,
     this.compact = false,
+    this.debugModeOverride,
   });
 
   final bool showDecimals;
   final bool compact;
+
+  /// Test-only seam — [kDebugMode] is a compile-time constant so it can't be
+  /// toggled from a running `flutter test`, mirroring the
+  /// `platformIsIosOverride` pattern in `att_consent.dart`.
+  @visibleForTesting
+  final bool? debugModeOverride;
 
   @override
   State<RevenuePanel> createState() => _RevenuePanelState();
@@ -31,10 +43,14 @@ class _RevenuePanelState extends State<RevenuePanel> {
   final ValueNotifier<int> _impressions = ValueNotifier<int>(0);
   StreamSubscription<AdEvent>? _sub;
 
+  bool get _isDebug => widget.debugModeOverride ?? kDebugMode;
+
   @override
   void initState() {
     super.initState();
-    _sub = AdManager().events.listen(_onEvent);
+    if (_isDebug) {
+      _sub = AdManager().events.listen(_onEvent);
+    }
   }
 
   void _onEvent(AdEvent event) {
@@ -56,6 +72,7 @@ class _RevenuePanelState extends State<RevenuePanel> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isDebug) return const SizedBox.shrink();
     return ValueListenableBuilder<double>(
       valueListenable: _totalUsd,
       builder: (context, total, _) {
@@ -80,8 +97,7 @@ class _RevenuePanelState extends State<RevenuePanel> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Session Revenue',
-                        style:
-                            TextStyle(fontSize: 12, color: Colors.grey)),
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
                     const SizedBox(height: 4),
                     Text(
                       '\$$formatted',
@@ -89,8 +105,8 @@ class _RevenuePanelState extends State<RevenuePanel> {
                           fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                     Text('$count impressions',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.grey)),
+                        style:
+                            const TextStyle(fontSize: 11, color: Colors.grey)),
                   ],
                 ),
               ),

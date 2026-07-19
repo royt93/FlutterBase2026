@@ -9,8 +9,9 @@ void main() {
     late SimpleEventBus bus;
 
     setUp(() {
-      // Reset singleton listeners between tests by removing all
+      // Reset singleton state (listeners + replay buffer) between tests.
       bus = SimpleEventBus();
+      bus.clearAll();
     });
 
     test('listener receives fired event', () {
@@ -90,6 +91,25 @@ void main() {
       };
       bus.listen(selfRemovingListener);
       expect(() => bus.fire(const BoolEvent(true)), returnsNormally);
+    });
+
+    test('late listener still receives the most recent fired event', () {
+      bus.fire(const BoolEvent(true));
+
+      BoolEvent? received;
+      bus.listen((e) => received = e);
+
+      expect(received?.value, isTrue);
+    });
+
+    test('clearAll() resets replay buffer', () {
+      bus.fire(const BoolEvent(true));
+      bus.clearAll();
+
+      BoolEvent? received;
+      bus.listen((e) => received = e);
+
+      expect(received, isNull);
     });
   });
 

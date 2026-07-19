@@ -12,7 +12,15 @@ import '../utils/safe_logger.dart';
 /// the UMP form for AdMob, or your own privacy modal for AppLovin).
 ///
 /// ### Compliance scope handled by SDK
-/// - **GDPR** (EEA): forwards `hasUserConsent` to AppLovin and AdMob `npa` extra.
+/// - **GDPR** (EEA): forwards `hasUserConsent` to AppLovin and AdMob `npa`
+///   extra. This is a boolean only — the raw IAB TCF v2.3 TC-string is
+///   **not** relayed here on purpose: AppLovin MAX SDK 12.0.0+ (this project
+///   is well above that, native 13.2.0.1 / Flutter applovin_max ^4.6.4)
+///   already auto-reads `IABTCF_TCString`/`IABTCF_gdprApplies`/
+///   `IABTCF_AddtlConsent` straight from platform storage the moment UMP
+///   writes them, so forwarding it here would be redundant. See
+///   [AdManager.tcfConsentString] for the manual read-only escape hatch a
+///   *third* party (outside AppLovin/AdMob) can use.
 /// - **COPPA** (children): `tagForChildDirectedTreatment` (AdMob). AppLovin 4.x
 ///   has no equivalent API — see the runtime warning logged below when
 ///   [AdConsent.isAgeRestrictedUser] is true (split-provider limitation).

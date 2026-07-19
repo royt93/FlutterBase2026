@@ -91,6 +91,11 @@ final String _kAppLovinNativeId = Platform.isIOS
 ///
 /// For integration-test runs that need to exercise the AdMob path, pass
 /// `--dart-define=AD_PROVIDER_ADMOB=true` instead of editing this constant.
+///
+/// F8 — this `--dart-define` compile-time switch is a dev/test convenience
+/// specific to this example app. Don't copy it verbatim into a real app: a
+/// production app almost always hard-codes one provider (or picks it from a
+/// remote config it controls), not an env flag toggled at build time.
 const AdProvider kProvider = bool.fromEnvironment('AD_PROVIDER_ADMOB')
     ? AdProvider.admob
     : AdProvider.appLovin;
