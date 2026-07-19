@@ -302,6 +302,22 @@ void main() {
         reason: 'total window clamped to the 7-day cap');
   });
 
+  test(
+      'T49: stack:false (default) is ALSO clamped to maxStackDuration '
+      'when a single grant alone exceeds the cap', () async {
+    final mgr = VipManager(prefs,
+        maxStackDuration: const Duration(days: 7), vipEntriesStore: store);
+    await mgr.load();
+    addTearDown(mgr.dispose);
+
+    // Single non-stacked grant whose own duration (30d) exceeds the 7d cap.
+    await mgr.addVip(key: 'D', duration: const Duration(days: 30));
+
+    final remainingHours = mgr.expiresAt!.difference(DateTime.now()).inHours;
+    expect(remainingHours, inInclusiveRange(167, 168),
+        reason: 'single-entry grant clamped to the 7-day cap too');
+  });
+
   test('no cap (null) → stacking is unbounded', () async {
     final mgr =
         VipManager(prefs, vipEntriesStore: store); // maxStackDuration null

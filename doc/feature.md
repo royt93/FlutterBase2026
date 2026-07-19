@@ -455,27 +455,41 @@ hiện mới:
   field-initializer, 3× bang `!` → null-safe pattern, History banner wrapped in
   `SafeArea`. `flutter analyze` = No issues found.
 
+### 📣 Ad/SDK — audit vòng 6 follow-up T47/T48/T49 (2026-07-19)
+- **T49 — `VipManager.addVip(stack: false)` giờ clamp `maxStackDuration`.**
+  Nhánh `stack: false` (Q14A "latest expiry wins") giờ clamp `now + duration`
+  về `now + maxStackDuration` giống hệt nhánh `stack: true` — 1 grant đơn lẻ
+  có `duration` tự nó vượt cap không còn bypass được cap nữa.
+  `packages/ad_sdk/lib/src/vip/vip_manager.dart`. Test mới trong
+  `vip_manager_stacking_test.dart` + sửa lại 1 test cũ trong
+  `vip_manager_robustness_test.dart` (test cũ khóa cứng đúng hành vi bug,
+  đổi tên + assertion sang hành vi đã fix).
+- **T48 — thêm test e2e cho VIP-trial 1-ngày.** Test mới trong
+  `ad_manager_core_test.dart` gọi `AdManager().initialize()` thật (config
+  AdMob + `FirstInstallVipGrace.day`) rồi assert `vip.isActive`/
+  `activeListenable.value`/`expiresAt` qua toàn bộ init flow thật (không chỉ
+  gọi `addVip()` cô lập). Phát hiện thêm 1 gotcha khi viết test: `AdPreferences`
+  cache instance dạng static singleton — phải gọi `AdPreferences.resetForTest()`
+  trong `setUp()`, nếu không state của 1 test trước rò rỉ sang (grace tưởng đã
+  applied từ trước, silently no-op).
+- **T47 — CI giờ chạy `integration_test/` trên Android emulator thật.** Job
+  mới `sdk-integration` trong `.github/workflows/test.yml` dùng
+  `reactivecircus/android-emulator-runner` (API 34, ubuntu-latest + KVM) chạy
+  `flutter test integration_test` trong `packages/ad_sdk/example` — 20 file
+  (mrec/native ad/arbitrator/fill-rate/consent-country/diagnostics demo…)
+  không còn phải chạy tay. Chưa verify chạy thật trên GitHub Actions (chưa
+  push) — cần theo dõi lượt CI đầu tiên sau khi merge.
+- 644 → 645 test trong `packages/ad_sdk` (full suite pass, không regression).
+
 ## 🟡 In progress
 
 - (Product track: none — Wave 5 complete)
 - (Ad/SDK track: **audit vòng 6 (2026-07-19) đóng, verdict cuối cùng là CÓ,
   release production được ngay.** Xem `doc/audit/audit_claude.md` mục
   "Re-audit vòng 6 — 2026-07-19". Làm rõ + đóng 1 nhầm lẫn 3-vòng (host App
-  ID là thật, example App ID trước đó vô tình rò rỉ ID host — đã fix). Còn
-  3 việc theo dõi, không chặn release:
-  - **T47 — CI chưa gate `integration_test/`.** `.github/workflows/test.yml`
-    chỉ chạy `flutter analyze` + `flutter test` (Dart VM); 21 file
-    integration_test (mrec/native ad/arbitrator/fill-rate/consent-country/
-    diagnostics demo…) vẫn phải chạy tay trên simulator/device thật.
-  - **T48 — thiếu 1 test e2e cho VIP-trial 1-ngày.** Không file test nào gọi
-    `AdManager().initialize()` với config mặc định rồi assert
-    `vip.isActive`/`activeListenable` để kiểm chứng trial tự động kích hoạt
-    qua toàn bộ init flow.
-  - **T49 — `VipManager.addVip(stack: false)` thiếu clamp `maxStackDuration`**
-    (nhánh `stack: true` có clamp, nhánh `false` không) — Low, chưa
-    exploitable vì call site duy nhất (`vip_redeem_screen.dart:263`) luôn
-    dùng `stack: true`.
-  Ngoài ra 1 High kỹ thuật vẫn mở: `dependency_overrides` pin dưới floor SDK
+  ID là thật, example App ID trước đó vô tình rò rỉ ID host — đã fix). 3 việc
+  theo dõi T47/T48/T49 đã fix — xem ✅ Implemented ở trên.
+  Còn 1 High kỹ thuật vẫn mở: `dependency_overrides` pin dưới floor SDK
   do xung đột `meta` với Flutter 3.35.1 — đã thử bump thật + revert (bằng
   chứng thực nghiệm), chờ Flutter SDK nâng `meta ^1.17.0`, re-check
   ~2026-10-13.)

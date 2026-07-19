@@ -173,8 +173,8 @@ void main() {
     });
 
     test(
-        'non-stacking grants are NOT capped by maxStackDuration, even when '
-        'far beyond it', () async {
+        'T49: non-stacking grants ARE ALSO capped by maxStackDuration, even '
+        'when the requested duration is far beyond it', () async {
       final mgr = VipManager(prefs,
           maxStackDuration: const Duration(days: 10), vipEntriesStore: store);
       await mgr.load();
@@ -185,8 +185,8 @@ void main() {
           await mgr.addVip(key: 'PLAIN', duration: const Duration(days: 365));
 
       final remainingDays = entry.expiresAt.difference(DateTime.now()).inDays;
-      expect(remainingDays, greaterThan(300),
-          reason: 'non-stacking path must ignore maxStackDuration entirely');
+      expect(remainingDays, inInclusiveRange(9, 10),
+          reason: 'non-stacking path must also respect maxStackDuration');
     });
   });
 

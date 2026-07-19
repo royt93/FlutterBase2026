@@ -217,6 +217,7 @@ AdConfig _admobConfig({
   required bool dryRun,
   required bool testIds,
   AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
+  FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto,
 }) {
   const realPrefix = 'ca-app-pub-9999999999999999';
   const testPrefix = 'ca-app-pub-3940256099942544';
@@ -231,6 +232,7 @@ AdConfig _admobConfig({
     ),
     safety: AdSafetyParams(dryRun: dryRun),
     appOpenTrigger: appOpenTrigger,
+    firstInstallVipGrace: firstInstallVipGrace,
   );
 }
 
@@ -923,6 +925,48 @@ void main() {
               'alive forever');
       expect(AdManager().vip, isNot(same(oldVip)),
           reason: 'a fresh VipManager must replace the disposed one');
+    });
+  });
+
+  group('T48: first-install VIP grace fires through the real init flow', () {
+    setUp(() async {
+      await AdManager().destroy();
+      SharedPreferences.setMockInitialValues({});
+      // AdPreferences caches its SharedPreferences instance in a static
+      // singleton — without this, an earlier test's
+      // markFirstInstallGraceApplied() leaks in and this test's grant
+      // silently no-ops.
+      AdPreferences.resetForTest();
+    });
+
+    tearDown(() async {
+      await AdManager().destroy();
+    });
+
+    test(
+        'fresh install + AdManager().initialize() auto-activates VIP for '
+        'the configured 1-day grace window', () async {
+      // kDebugMode is true under `flutter test`, so FirstInstallGuard
+      // short-circuits to "allow grace" without touching Keychain/secure
+      // storage — see FirstInstallGuard.hasAlreadyGranted().
+      await AdManager().initialize(
+        config: _admobConfig(
+          dryRun: true,
+          testIds: true,
+          firstInstallVipGrace: FirstInstallVipGrace.day,
+        ),
+        onComplete: (_, __) {},
+      );
+
+      final vip = AdManager().vip;
+      expect(vip, isNotNull);
+      expect(vip!.isActive, isTrue,
+          reason: 'first-install grace must auto-activate VIP through the '
+              'real initialize() flow, not just via addVip() called '
+              'directly in isolation');
+      expect(vip.activeListenable.value, isTrue);
+      final remainingHours = vip.expiresAt!.difference(DateTime.now()).inHours;
+      expect(remainingHours, inInclusiveRange(23, 24));
     });
   });
 

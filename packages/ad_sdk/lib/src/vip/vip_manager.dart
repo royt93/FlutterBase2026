@@ -331,6 +331,10 @@ class VipManager {
   /// - [stack] == false (default, **Q14A — latest expiry wins**): when an entry
   ///   with the same [key] exists, the new `now + duration` replaces it only if
   ///   it expires later; otherwise the existing (longer) entry is kept untouched.
+  ///   `now + duration` is clamped to `now + [maxStackDuration]` when that cap
+  ///   is set, same as the `stack: true` branch below (T49 — a single key
+  ///   whose encoded duration alone exceeds the cap must not bypass it just
+  ///   because it wasn't stacked).
   /// - [stack] == true (**global accumulate / cộng dồn toàn cục**): [duration]
   ///   is added on top of the **latest expiry across ALL active entries** (any
   ///   source — redeem key or watch-ad), so every grant extends one growing VIP
@@ -403,9 +407,19 @@ class VipManager {
       return stacked;
     }
 
+    var singleExpiry = now.add(duration);
+    final singleCap = maxStackDuration;
+    if (singleCap != null) {
+      final capExpiry = now.add(singleCap);
+      if (singleExpiry.isAfter(capExpiry)) {
+        singleExpiry = capExpiry;
+        SafeLogger.d(
+            _tag, 'addVip: single-entry clamped to cap ($singleCap) for $norm');
+      }
+    }
     final newEntry = VipEntry(
       key: norm,
-      expiresAt: now.add(duration),
+      expiresAt: singleExpiry,
       grantedAt: now,
     );
     if (existing >= 0) {
