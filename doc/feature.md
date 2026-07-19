@@ -248,6 +248,45 @@ Updated: 2026-07-18
   regression. **Q4 go/no-go:** điều kiện "hết finding High" giờ đã thỏa —
   quyết định go-live vẫn cần user chốt riêng, không tự ý tiến hành.
 
+- **T44 — Example app (`packages/ad_sdk/example`) hardcode App ID AdMob
+  production thật (2026-07-19).** Phát hiện phụ trong lúc audit checklist
+  AdMob console: `AndroidManifest.xml`/`Info.plist` của example app dùng
+  chung App ID production thật với host app
+  (`ca-app-pub-3004713799155145~9488250427`) dù toàn bộ ad-unit ID trong app
+  này đều là ID test — sai vì đây là app demo public, không nên gắn tài khoản
+  production thật. Fix: đổi sang App ID test công khai của Google
+  (`ca-app-pub-3940256099942544~3347511713` Android, `~1458002511` iOS).
+  Verify: `flutter analyze` clean, `app_boot_test.dart` 3/3 pass trên Pixel 7
+  Pro xác nhận SDK vẫn init khỏe với App ID mới. Xem
+  `doc/task/done/T44-example-app-real-admob-appid.md`. **Lưu ý số hiệu:** số
+  T44 này trùng với entry "T44" phía trên (`requestPrivacyOptionsFlow()`,
+  2026-07-15/16) — hai việc khác nhau, trùng số vì entry kia chỉ narrate
+  trong doc chứ chưa từng có file `doc/task/done/T44-*` riêng khi ticket T44
+  này được tạo. Không đổi số vì 3 commit/file liên quan đã merge — chỉ ghi
+  chú để tránh nhầm khi tra cứu sau này.
+
+- **T45 — 6 demo page trong example app thiếu integration test coverage
+  (2026-07-19).** Audit tìm ra Mrec, Native ad, Monetization Arbitrator,
+  Fill-Rate Monitor, consent-country, Diagnostics & self-check — ra mắt qua
+  nhiều đợt trước đó (T31-T41) — chưa có test nào. Thêm 6 file test mới theo
+  pattern sẵn có (navigate từ HomePage, thao tác control thật, assert state
+  thật của `AdManager()`/`ConsentManager`, không chỉ "không crash"). Phát
+  hiện + sửa 2 bug finder thật trong lúc viết test: `find.byType(FilledButton)`
+  không match `FilledButton.icon` (Flutter match theo `runtimeType` chính
+  xác, factory `.icon` build subclass riêng); và tiêu đề trùng giữa tile
+  HomePage và AppBar trang được push khiến `findsOneWidget` fail (do
+  `MaterialPageRoute` giữ trang cũ mounted offstage) — sửa bằng
+  `findsWidgets`. Verify: `flutter analyze` clean; cả 6 file chạy trên Pixel
+  7 Pro (`2B051FDH3006MU`) pass, 3 file phụ thuộc ad-network thật (mrec,
+  native, diagnostics) chạy lại lần 2 vẫn ổn định, không flaky. Xem
+  `doc/task/done/T45-example-missing-integration-tests-newer-demos.md`.
+
+- **T46 — `flutter_lints` lệch version giữa example app và parent package
+  (2026-07-19).** Example app pin `^4.0.0` trong khi `packages/ad_sdk`
+  (parent) đã lên `^6.0.0`. Fix: bump example app theo. Verify:
+  `flutter pub get` + `flutter analyze` clean, không phát sinh lint mới. Xem
+  `doc/task/done/T46-example-flutter-lints-version-drift.md`.
+
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
 phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát
@@ -741,8 +780,8 @@ không phụ thuộc lẫn nhau:
    sang AdMob) **vẫn đang là ID test của Google — có chủ đích**, chỉ cần đổi
    khi thật sự chuyển provider. **Phát hiện phụ:** example app của SDK
    (`packages/ad_sdk/example`) vẫn đang hardcode App ID production thật này
-   (đáng lẽ nên dùng App ID test) — tách thành ticket riêng, xem
-   `doc/task/todo/T44-example-app-real-admob-appid.md`.
+   (đáng lẽ nên dùng App ID test) — tách thành ticket riêng, ✅ **đã fix
+   2026-07-19**, xem `doc/task/done/T44-example-app-real-admob-appid.md`.
 2. ✅ **DONE (xác nhận với user 2026-07-19).** Đã publish UMP consent form
    trên AdMob console — xem mục Blockers phía trên (đã chuyển sang trạng thái
    done).
