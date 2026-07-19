@@ -56,6 +56,23 @@ Future<void> _revokeVipGraceAndClearConsentDialog(WidgetTester tester) async {
   }
 }
 
+/// Polls until the interstitial slot has actually finished loading (or gone
+/// to cooldown, meaning it gave up). Without this, tapping the show button
+/// races the background load — `showInterstitialAd` silently skips/no-ops
+/// when the slot isn't ready yet, so the test would "pass" without ever
+/// exercising the real show+dismiss flow. Mirrors `_waitForAppOpenLoaded` in
+/// app_open_ad_test.dart.
+Future<bool> _waitForInterstitialLoaded(WidgetTester tester) async {
+  for (var i = 0; i < 40; i++) {
+    await tester.pump(const Duration(milliseconds: 500));
+    final slot = AdManager().adapter?.interstitialSlot;
+    if (slot == null) continue;
+    if (slot.isReady) return true;
+    if (slot.isCooldown) return false;
+  }
+  return false;
+}
+
 /// Polls the interstitial slot back to a non-showing state (idle/ready/
 /// cooldown — anything other than `showing`). This test polls for up to 60s
 /// because a human must manually tap the ad's close button when it appears —
@@ -108,6 +125,9 @@ void main() {
     expect(showButton, findsOneWidget);
 
     // ── Cycle 1 ────────────────────────────────────────────────────────────
+    final loaded1 = await _waitForInterstitialLoaded(tester);
+    expect(loaded1, isTrue,
+        reason: 'interstitial must finish loading before Cycle 1 show');
     await tester.tap(showButton);
     await tester.pump(const Duration(milliseconds: 500));
     // A human taps the close/X button on the native ad when it appears.
@@ -118,6 +138,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     // ── Cycle 2 — proves no zombie/duplicate-load state lingers from cycle 1.
+    final loaded2 = await _waitForInterstitialLoaded(tester);
+    expect(loaded2, isTrue,
+        reason:
+            'interstitial must reload and finish loading before Cycle 2 show');
     await tester.tap(showButton);
     await tester.pump(const Duration(milliseconds: 500));
     await _waitForNotShowing(tester);

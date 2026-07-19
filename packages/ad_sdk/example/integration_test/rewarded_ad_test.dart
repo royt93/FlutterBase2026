@@ -57,6 +57,23 @@ Future<void> _revokeVipGraceAndClearConsentDialog(WidgetTester tester) async {
   }
 }
 
+/// Polls until the rewarded slot has actually finished loading (or gone to
+/// cooldown, meaning it gave up). Without this, tapping the show button
+/// races the background load — `showRewardedAd` silently skips/no-ops when
+/// the slot isn't ready yet, so the test would "pass" without ever
+/// exercising the real show+dismiss flow. Mirrors `_waitForAppOpenLoaded` in
+/// app_open_ad_test.dart.
+Future<bool> _waitForRewardedLoaded(WidgetTester tester) async {
+  for (var i = 0; i < 40; i++) {
+    await tester.pump(const Duration(milliseconds: 500));
+    final slot = AdManager().adapter?.rewardedSlot;
+    if (slot == null) continue;
+    if (slot.isReady) return true;
+    if (slot.isCooldown) return false;
+  }
+  return false;
+}
+
 /// This test polls for up to 60s because a human must manually tap the ad's
 /// close button when it appears — there is no automated real-device
 /// UI-automation tool available for iOS in this environment.
@@ -107,6 +124,9 @@ void main() {
     expect(showButton, findsOneWidget);
 
     // ── Cycle 1 ────────────────────────────────────────────────────────────
+    final loaded1 = await _waitForRewardedLoaded(tester);
+    expect(loaded1, isTrue,
+        reason: 'rewarded ad must finish loading before Cycle 1 show');
     await tester.tap(showButton);
     await tester.pump(const Duration(milliseconds: 500));
     // A human taps the close/X button on the native ad when it appears.
@@ -116,6 +136,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     // ── Cycle 2 — proves no zombie/duplicate-load state lingers from cycle 1.
+    final loaded2 = await _waitForRewardedLoaded(tester);
+    expect(loaded2, isTrue,
+        reason:
+            'rewarded ad must reload and finish loading before Cycle 2 show');
     await tester.tap(showButton);
     await tester.pump(const Duration(milliseconds: 500));
     await _waitForNotShowing(tester);
