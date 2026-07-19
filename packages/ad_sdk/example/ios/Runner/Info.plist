@@ -45,8 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Google's public test App ID (T44) — this is a dev/demo app, not the
+	     production account. -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3004713799155145~9488250427</string>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<!-- T41 — AppLovinSdkKey is optional here: the Dart code passes the real
 	     key programmatically (see _kAppLovinSdkKey in lib/main.dart), so this
 	     plist entry is unused unless the native SDK reads it as a fallback. -->
