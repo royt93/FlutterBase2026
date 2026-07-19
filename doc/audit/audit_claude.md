@@ -72,6 +72,8 @@ Nếu host quên set `autoRequestUmpConsent:true` hoặc quên tự gọi `reque
 - `packages/ad_sdk/lib/src/core/ad_manager.dart:967` — sửa comment stale nhắc "Install Referrer with conservative skip on connection failure (Q3)" (không khớp code thật) thành mô tả đúng: Android anti-bypass **intentionally disabled**, không có Install Referrer check, tham chiếu doc comment của `FirstInstallGuard`.
 - `flutter analyze` sạch sau khi sửa.
 
+**Update 2026-07-19 (SDK 1.2.1) — mitigation bổ sung, không thay đổi kết luận trên:** root cause F5 trùng với 1 complaint thật từ partner ("ads không hiện"). Vì grant Android vẫn hoàn toàn silent/log-only trước đây, user/partner test bằng reinstall không có cách nào biết vì sao ads biến mất trong 24h. Đã thêm `VipManager.firstInstallGrantDueListenable`/`lastFirstInstallGrantDuration`/`acknowledgeFirstInstallGrant()` (mirror `graceNudgeDueListenable`) + SnackBar 1 lần ở host khi grant xảy ra — **không chặn** hành vi fail-open đã ghi nhận ở trên (vẫn replay được không giới hạn qua reinstall), chỉ khiến mỗi lần grant *hiển thị rõ* thay vì im lặng. Verify: SDK 4 test mới pass, host analyze/test sạch, on-device (Samsung S24 Ultra) build+install+run+logcat sạch (không FATAL, lifecycle AdManager/VipManager bình thường). Xem `doc/feature.md` mục "First-install VIP grant-time notice".
+
 ### F6 — ✅ ĐÃ FIX (2026-07-19, doc-only) — [Medium] Fill-rate-monitor / monetization-arbitrator không có gate `kDebugMode`
 
 **File:** `packages/ad_sdk/lib/src/monetization/fill_rate_monitor.dart`, `monetization_arbitrator.dart`
