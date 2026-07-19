@@ -29,6 +29,28 @@ Future<void> _waitForInit(WidgetTester tester) async {
   fail('SDK must finish initialising on device');
 }
 
+// Every VIP redeem does a real flutter_secure_storage write (Android
+// Keystore-backed EncryptedSharedPreferences) before the UI updates. That's a
+// genuine platform-channel round-trip, not fake-clock work `tester.pump`
+// fast-forwards through — on a real device its first call can pay one-time
+// Keystore key-generation cost well past a guessed fixed pump duration (never
+// seen on iOS Simulator, which has no such keystore). Poll for the condition
+// instead of assuming a fixed duration is always enough.
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  int attempts = 20,
+  Duration step = const Duration(milliseconds: 250),
+}) async {
+  for (var i = 0; i < attempts; i++) {
+    if (condition()) return;
+    await tester.pump(step);
+  }
+  expect(condition(), isTrue,
+      reason:
+          'condition did not become true within ${attempts * step.inMilliseconds}ms');
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -67,14 +89,18 @@ void main() {
     await tester.scrollUntilVisible(quick7, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(quick7);
-    await tester.pump(const Duration(milliseconds: 700)); // validator delay
+    // Validator has a fixed 600ms delay (fake-clock, deterministic), but the
+    // success dialog only appears after addVip()'s real secure-storage write
+    // (Android Keystore-backed) resolves — a genuine platform-channel
+    // round-trip whose first call can be slow on real hardware. Poll instead
+    // of guessing a fixed duration is always enough.
+    final okButton = find.text('OK');
+    await _pumpUntil(tester, () => okButton.evaluate().isNotEmpty);
 
     // redeemVip() shows a blocking (barrierDismissible: false) success dialog
     // that only closes when its "OK" CupertinoDialogAction is tapped — it
     // otherwise sits on top of the whole page and swallows every further
     // tap (including the second quick-redeem button below).
-    final okButton = find.text('OK');
-    expect(okButton, findsOneWidget);
     await tester.tap(okButton);
     await tester.pumpAndSettle();
 
@@ -88,10 +114,8 @@ void main() {
     await tester.scrollUntilVisible(quick30, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(quick30);
-    await tester.pump(const Duration(milliseconds: 700));
-
     final okButton2 = find.text('OK');
-    expect(okButton2, findsOneWidget);
+    await _pumpUntil(tester, () => okButton2.evaluate().isNotEmpty);
     await tester.tap(okButton2);
     await tester.pumpAndSettle();
 
@@ -130,19 +154,26 @@ void main() {
     await tester.scrollUntilVisible(signed1d, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(signed1d);
-    await tester.pump(const Duration(milliseconds: 500));
+    // redeemSignedKey() resolves after a real secure-storage write (Android
+    // Keystore-backed) before setState()/the SnackBar appear — poll instead
+    // of assuming a fixed pump duration always covers that platform-channel
+    // round-trip (see _pumpUntil doc above _waitForInit).
+    final signedOk = find.textContaining('Signed key OK');
+    await _pumpUntil(tester, () => signedOk.evaluate().isNotEmpty);
 
     expect(AdManager().vip!.activeListenable.value, isTrue);
-    expect(find.textContaining('Signed key OK'), findsOneWidget);
+    expect(signedOk, findsOneWidget);
     // Let the first SnackBar fully animate out — ScaffoldMessenger queues a
-    // second SnackBar behind a still-showing one, so without this the
-    // "already used" SnackBar below may not be visible after only one pump.
-    await tester.pump(const Duration(seconds: 4));
+    // second SnackBar behind a still-showing one (250ms enter + 4000ms
+    // display + 250ms exit = 4500ms total), so without this the "already
+    // used" SnackBar below may not be visible yet.
+    await tester.pump(const Duration(milliseconds: 4600));
 
     // Redeeming the exact same signed key again on this device must be
     // rejected as already-used (per-device one-time-use guard, T18).
     await tester.tap(signed1d);
-    await tester.pump(const Duration(milliseconds: 500));
+    await _pumpUntil(tester,
+        () => find.textContaining('already used').evaluate().isNotEmpty);
     expect(find.textContaining('already used'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
