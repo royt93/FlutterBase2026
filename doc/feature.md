@@ -288,9 +288,9 @@ Updated: 2026-07-18
   `doc/task/done/T46-example-flutter-lints-version-drift.md`.
 
 - **Audit vòng 7 (2026-07-19) — 8.7/10, CÓ production-ready — F1/F3/F4/F6/F7/F8/F9
-  đã fix, ⚠️ CHƯA PUBLISH lên pub.dev.** Toàn bộ 9 finding của round 7
-  (F1-F9, gồm cả F2/F5 fix ở phiên trước) giờ đã fix: `event_bus.dart` replay
-  buffer cho late subscriber (F1); `ad_manager.dart` nâng cảnh báo consent
+  đã fix, ĐÃ PUBLISH pub.dev 1.2.0 và tích hợp vào host.** Toàn bộ 9 finding
+  của round 7 (F1-F9, gồm cả F2/F5 fix ở phiên trước) giờ đã fix: `event_bus.dart`
+  replay buffer cho late subscriber (F1); `ad_manager.dart` nâng cảnh báo consent
   misconfig thành `assert()` dev-time + log warning nếu gọi UMP trước ATT
   trên iOS (F4, F9); `revenue_panel.dart` gate `kDebugMode` qua
   `debugModeOverride` test seam (F9); `example/ios/Runner/Info.plist` đồng
@@ -300,13 +300,27 @@ Updated: 2026-07-18
   trên Samsung S24 Ultra (không crash, không real ad — R4 không kích hoạt) +
   iOS Simulator compile-only build SUCCEEDED. Chi tiết:
   `doc/audit/audit_claude.md`.
-  **Quan trọng — chưa live trong app:** đây là code local trong
-  `packages/ad_sdk/`; pubspec gốc (`pubspec.yaml`) vẫn consume **hosted
-  `applovin_admob_sdk: ^1.1.0` → published `1.1.1`** (path override tới
-  `packages/ad_sdk` vẫn comment out), nên các fix này **chưa** có trong app
-  đang chạy cho tới khi bump version + `dart pub publish` + đổi constraint ở
-  host. `packages/ad_sdk/CHANGELOG.md`'s `## [Unreleased]` đã ghi các thay
-  đổi này, chờ quyết định publish.
+  **Publish + tích hợp (2026-07-19):** `packages/ad_sdk` bump `1.1.1` →
+  `1.2.0`, `dart pub publish` lên pub.dev thành công; host `pubspec.yaml`
+  đổi constraint `applovin_admob_sdk: ^1.1.0` → `^1.2.0`. SDK 1.2.0 kéo theo
+  transitive deps mới đòi bump `connectivity_plus: ^6.1.1` → `^7.0.0` và
+  `confetti: ^0.7.0` → `^0.8.0` ở host (cả 2 xác nhận an toàn — connectivity_plus
+  chỉ dùng qua API ổn định trong `NetworkInfoService`, confetti không dùng
+  trực tiếp trong `lib/`), kéo theo phải bump Android toolchain: AGP
+  `8.9.1`→`8.12.1`, Gradle wrapper `8.11.1`→`8.13`, Kotlin `2.1.0`→`2.2.0`
+  (`connectivity_plus` 7.x yêu cầu). Trong lúc verify "test full", phát hiện
+  và fix thêm 1 lỗ hổng **không liên quan tới chuỗi bump trên**: 2 file test
+  host (`test/vip_screen_widget_test.dart`,
+  `test/wifi_stressor_screen_grace_nudge_test.dart`) construct `VipManager`
+  thật không inject fake `VipEntriesStore`, nên đâm vào
+  `flutter_secure_storage` platform channel thật trong môi trường
+  `flutter test` — channel này **treo vô thời hạn thay vì throw**
+  `MissingPluginException` (khác các plugin khác), gây timeout 10 phút/test.
+  `packages/ad_sdk`'s own test suite luôn né lỗi này bằng
+  `_FakeVipEntriesStore` (xem `vip_manager_robustness_test.dart`); 2 file host
+  trên thiếu pattern này — đã bổ sung theo đúng pattern có sẵn. Verify cuối:
+  `flutter pub get`/`analyze`/`build apk --debug` sạch, toàn bộ 80 test host
+  (`flutter test` repo root) pass, `packages/ad_sdk` vẫn 639/639.
 
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
