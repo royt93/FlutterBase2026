@@ -250,23 +250,39 @@ class _AppLovinMaxNativeView extends StatelessWidget {
       adUnitId: nativeId,
       listener: NativeAdListener(
         onAdLoadedCallback: (ad) {
-          SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ✅ ${ad.networkName}');
-          final adapter = AdManager().adapter;
-          adapter?.native.isLoaded.value = true;
-          adapter?.native.hasError.value = false;
+          try {
+            SafeLogger.d(
+                'NativeAdWidget', 'MaxNativeAdView ✅ ${ad.networkName}');
+            final adapter = AdManager().adapter;
+            adapter?.native.isLoaded.value = true;
+            adapter?.native.hasError.value = false;
+          } catch (e) {
+            SafeLogger.e('NativeAdWidget',
+                'onAdLoadedCallback: notifier disposed mid-flight? $e');
+          }
         },
         onAdLoadFailedCallback: (id, err) {
-          SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ❌ ${err.code}');
-          AdManager().adapter?.native.hasError.value = true;
+          try {
+            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ❌ ${err.code}');
+            AdManager().adapter?.native.hasError.value = true;
+          } catch (e) {
+            SafeLogger.e('NativeAdWidget',
+                'onAdLoadFailedCallback: notifier disposed mid-flight? $e');
+          }
         },
         onAdClickedCallback: (ad) {
-          SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 🎯 click');
-          AdSafetyConfig.recordAdClick();
-          AdManager().adapter?.eventSink?.call(AdClickEvent(
-                providerTag: '[AppLovin]',
-                type: AdSlotType.native,
-                placement: AdPlacement.unspecified,
-              ));
+          try {
+            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 🎯 click');
+            AdSafetyConfig.recordAdClick();
+            AdManager().adapter?.eventSink?.call(AdClickEvent(
+                  providerTag: '[AppLovin]',
+                  type: AdSlotType.native,
+                  placement: AdPlacement.unspecified,
+                ));
+          } catch (e) {
+            SafeLogger.e('NativeAdWidget',
+                'onAdClickedCallback: disposed mid-flight? $e');
+          }
         },
       ),
       child: Column(

@@ -380,6 +380,31 @@ void main() {
       arb.dispose();
     });
   });
+
+  group('enableArbitrator called twice disposes the previous instance', () {
+    test(
+        'replaced arbitrator stops receiving revenue events — its stream '
+        'subscription was cancelled, not leaked', () async {
+      final arb1 = MonetizationArbitrator();
+      AdManager().enableArbitrator(arb1);
+      AdManager().debugEmit(_rev(1000000)); // $1.00
+      await Future<void>.delayed(Duration.zero);
+      expect(arb1.estimatedEcpmMicros, 1000000,
+          reason: 'arb1 is active and received the event');
+
+      final arb2 = MonetizationArbitrator();
+      AdManager().enableArbitrator(arb2); // must dispose arb1 first
+
+      AdManager().debugEmit(_rev(9000000)); // $9.00, fed after the swap
+      await Future<void>.delayed(Duration.zero);
+
+      expect(arb1.estimatedEcpmMicros, 1000000,
+          reason: 'arb1 must be unsubscribed — a leaked subscription would '
+              'have updated it to the new average instead');
+      expect(arb2.estimatedEcpmMicros, 9000000,
+          reason: 'arb2 is now the sole active listener');
+    });
+  });
 }
 
 class _FakeVipTrue implements VipManager {

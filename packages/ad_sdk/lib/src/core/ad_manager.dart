@@ -233,6 +233,7 @@ class AdManager with WidgetsBindingObserver {
   /// Byte-for-byte no-op until this is called: [showInterstitial] and
   /// [showRewardedAd] only consult [arbitrator] when it's non-null.
   void enableArbitrator(MonetizationArbitrator arbitrator) {
+    _arbitrator?.dispose();
     _arbitrator = arbitrator;
   }
 
@@ -256,6 +257,7 @@ class AdManager with WidgetsBindingObserver {
   /// rate per [AdSlotType] from [events], and exposes [FillRateMonitor.alerts]
   /// for a low-fill-rate warning.
   void enableFillRateMonitor(FillRateMonitor monitor) {
+    _fillRateMonitor?.dispose();
     _fillRateMonitor = monitor;
   }
 

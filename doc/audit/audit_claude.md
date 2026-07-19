@@ -318,3 +318,81 @@ Vì delta chỉ là dependency-bump + doc + boilerplate regen (không có commit
 - **Cập nhật 2026-07-18 (session mới, re-verify bằng grep trực tiếp source):** 3/4 "gap doc/demo" nêu ở vòng 3 (Arbitrator per-slot config, mediation-waterfall UI, consent-country UI) hoá ra **đã đóng từ trước** — `SafetyDemoPage`/`EventsDemoPage`/`ConsentDemoPage` đều đã có code tương ứng, chỉ là doc chưa cập nhật theo kịp. Gap thật duy nhất còn lại là `AdManager.diagnostics()`/`runIntegrationSelfCheck()` — có code + 11 test nhưng chưa có demo/README — đã đóng ngay trong session này (`DiagnosticsDemoPage` §18 + mục README "Diagnostics & integration self-check"). Vậy: **0 gap doc/demo còn mở.**
 - **UMP consent form CHƯA publish trên AdMob console** (`doc/feature.md` mục Blockers, bàn giao user từ 2026-07-14, `doc/UMP_SETUP.md`) — đây **là điều kiện pháp lý đang treo thật**, không phải rủi ro lý thuyết: device log báo `no form(s) configured`, user EU/EEA/UK hiện không hề thấy consent dialog. SDK không crash (`canRequestAds=true` mặc định an toàn) nhưng nếu app có traffic thật từ EU trước khi form được publish, đó là vi phạm GDPR/UMP thật. Cần xác nhận đã publish xong **trước khi pilot rollout** nếu pilot có user châu Âu.
 - 1 việc vận hành bắt buộc nếu tương lai đổi provider chính sang AdMob: thay App ID test bằng App ID production thật ở `AndroidManifest.xml` + `Info.plist`.
+
+---
+
+## Re-audit vòng 5 — 2026-07-19 (4 agent song song, session mới sau compact, bao gồm audit test-coverage vs claim lần đầu)
+
+**Bối cảnh:** Session mới (context đã bị nén — không tin lại kết luận cũ), người dùng yêu cầu audit toàn diện lại đúng 7 tiêu chí gốc + lần đầu audit riêng "test coverage thực tế so với những gì SDK claim đã làm đúng". Dispatch 4 agent độc lập: (A) lifecycle/leak/offline (đọc lại toàn bộ, kể cả Native/MREC/Arbitrator/FillRateMonitor), (B) VIP/trial/security, (C) consent/policy + native config, (D) test coverage thực chạy `flutter test` + đối chiếu CI. Toàn bộ finding dưới đây đã được **tự tay verify lại bằng Read/Grep trực tiếp** (không chỉ tin báo cáo agent), đúng bài học rút ra từ vòng 3.
+
+### (A) Lifecycle/leak/offline — 2 finding Medium mới, đã verify tay
+
+- **[Medium — xác nhận đúng qua Read trực tiếp] `enableArbitrator()`/`enableFillRateMonitor()` không dispose instance cũ khi gọi 2 lần liên tiếp.**
+  File: `ad_manager.dart:235-237` (`void enableArbitrator(MonetizationArbitrator arbitrator) { _arbitrator = arbitrator; }`) và `:258-260` (tương tự cho `FillRateMonitor`). So sánh với `disableArbitrator()`/`disableFillRateMonitor()` (`:241-244`, `:264-267`) — 2 hàm này gọi đúng `.dispose()` trước khi null hóa, nhưng bị đánh dấu `@visibleForTesting`, **không phải API public cho host app dùng**.
+  **Kịch bản lỗi cụ thể:** host app (hoặc user bấm nhầm 2 lần) gọi `AdManager().enableArbitrator(MonetizationArbitrator(...))` lần thứ 2 mà không tự gọi `disableArbitrator()` trước (vì hàm đó không phải API công khai dành cho họ) — instance cũ bị ghi đè, nhưng `StreamSubscription` của nó tới `AdManager().events` **không bao giờ được cancel**, sống đến hết đời process. Đây đúng là điều `example/lib/main.dart:1832-1843` ("Enable Smart Arbitrator" button, không có double-tap guard) tái hiện được — verify lại: nút này thực sự không disable trước khi gọi lại `enableArbitrator`, nên bấm 2 lần trên UI thật là leak thật, không chỉ lý thuyết.
+  **Đề xuất:** cho `enableArbitrator`/`enableFillRateMonitor` tự dispose instance cũ trước khi gán instance mới (`_arbitrator?.dispose(); _arbitrator = arbitrator;`), giống hệt cách `destroy()` đã làm từ vòng 3. Đây là gap khác — vòng 3 chỉ fix đường `destroy()`, còn đường "gọi enable 2 lần mà không destroy() giữa chừng" chưa từng được đóng.
+
+- **[Medium] `NativeAdWidget` — `_AppLovinMaxNativeView`'s `NativeAdListener` ghi thẳng vào `ValueNotifier` toàn cục của adapter, không có try/catch hay check "đã dispose".**
+  File: `native_ad_widget.dart:252-270` — `onAdLoadedCallback`/`onAdLoadFailedCallback` gọi `AdManager().adapter?.native.isLoaded.value = true/false` và `.hasError.value = ...` trực tiếp, không bọc try/catch, không kiểm tra cờ "đã dispose" nào trước khi ghi (khác với các đường trong chính `applovin_adapter.dart` — nơi các ghi tương tự nằm bên trong adapter, được bảo vệ bởi thứ tự dispose "hủy listener native trước khi destroy ad").
+  **Kịch bản lỗi cụ thể:** `MaxNativeAdView` là platform view sống độc lập với vòng đời `AdManager`; nếu `AdManager().destroy()` chạy (dispose `adapter.native.isLoaded`/`hasError`) đúng lúc 1 native ad đang load dở dang và native SDK bắn callback `onAdLoadedCallback` trễ (race giữa platform-view teardown và network response — đã ghi nhận có thật ở AppLovin qua comment "Known gap" khác trong cùng SDK) → ghi vào `ValueNotifier` đã dispose → `FlutterError: A ValueNotifier was used after being disposed.` ném ra ngoài 1 callback native, không có `try/catch` nào chặn ở tầng Dart. So với `BannerAdWidget`/`MrecAdWidget` (không tự viết listener platform-view riêng, dựa hoàn toàn vào adapter đã có gate dispose-order), đây là điểm duy nhất trong 3 widget ad-view (banner/mrec/native) tự tay viết `NativeAdListener` không qua adapter.
+  **Đề xuất:** bọc mỗi callback trong try/catch (nuốt lỗi + log), hoặc thêm 1 check nhẹ (`try { ...} catch (_) {}`) trước khi ghi `ValueNotifier` — rủi ro thấp về xác suất (chỉ trúng khi `destroy()` trùng đúng lúc native load dở), nhưng hậu quả nếu trúng là crash chưa được test-case nào của `native_ad_widget_test.dart` cover (theo agent (D), test file này chỉ test mount/dispose/rebuild tuần tự, không có case "destroy() giữa lúc load dở").
+
+Xác nhận **lần thứ 4 độc lập** F1/F2 (App-Open/Interstitial/Rewarded auto-reload bỏ qua gate), AppOpenTrigger load-gate, và `destroy()` dispose arbitrator/fill-rate-monitor (vòng 3) vẫn đúng, không regression. Offline gate (`isConnected` ở mọi `loadX`) và MREC dispose vẫn khớp pattern banner.
+
+### (B) VIP/trial/security — không có lỗ hổng mới
+
+Đọc lại `vip_manager.dart`, `signed_vip_key.dart`, `_first_install_guard.dart`, `_redeemed_key_ledger.dart`, `_vip_entries_store.dart` — kiến trúc giữ nguyên: Ed25519 offline verify, one-time-use check-then-claim đồng bộ (không TOCTOU), trial 24h qua `FirstInstallGuard` fail-open có chủ đích, `maxVipStackDuration` được host set đúng 90 ngày ở `splash_screen.dart`. Không tìm ra hướng khai thác mới. Giữ nguyên kết luận "đủ an toàn cho production không-backend" từ các vòng trước.
+
+### (C) Consent/policy + native config — 1 finding High tái xác nhận còn tồn tại
+
+- **[High — xác nhận còn tồn tại, chưa fix] `dependency_overrides` ở root `pubspec.yaml:105-106` pin `applovin_max: 4.6.0` và `google_mobile_ads: 6.0.0` — cả 2 đều **thấp hơn floor mà chính `packages/ad_sdk/pubspec.yaml:16-17` khai báo** (`applovin_max: ^4.6.4`, `google_mobile_ads: ^7.0.0`).**
+  Verify tay bằng `grep` trực tiếp 2 file `pubspec.yaml` (2026-07-19): vẫn đúng như comment tại chỗ tự ghi nhận ("2.6.1 khớp applovin_max ^4.6.4/google_mobile_ads ^7.0.0 SDK tự khai... xung đột meta"). Vì `dependency_overrides` **thắng mọi constraint khác** trong `pubspec.yaml`, host app hiện tại build/run thực tế với native SDK **cũ hơn** những gì `ad_sdk` đã test/khai báo hỗ trợ — nghĩa là mọi kết luận "TCF v2.3 readiness dựa vào giữ bản mới" ở các vòng audit trước (vòng 2, mục B) **có thể không đúng trên build thật của host app** cho tới khi override được gỡ.
+  **Kịch bản lỗi cụ thể:** `google_mobile_ads 6.0.0` cũ hơn 7.0.0 có thể chưa mang đủ bản UMP SDK native ghi đúng key TCF v2.3 (`IABTCF_TCString`) mới nhất, hoặc thiếu fix policy compliance đã vá ở 7.x; `applovin_max 4.6.0` cũ hơn 4.6.4 có thể thiếu 1 fix cụ thể mà version floor 4.6.4 được chọn để có. Comment tại chỗ tự thừa nhận đây là workaround tạm cho 1 xung đột `meta` version, không phải quyết định chủ đích giữ bản cũ vì lý do ổn định.
+  **Đề xuất:** gỡ override ngay khi xung đột `meta`/`gma_mediation_applovin` được giải quyết (theo dõi ở `doc/feature.md` mục Deferred đã ghi) — đây là điều kiện nên đóng trước khi tin cậy đầy đủ vào các kết luận TCF/consent-policy của những vòng trước.
+
+Không có finding mới khác ở lens này — COPPA gate, ATT/UMP timeout, consent buffer, `doNotSell`/RDP propagation đều re-confirm đúng như các vòng trước.
+
+### (D) Test coverage thực tế vs claim — lần đầu audit riêng lens này, 2 finding Medium
+
+Chạy trực tiếp `cd packages/ad_sdk && flutter test` → **629/629 pass, 0 fail, không skip, không timeout.** Cao hơn con số 624 ghi ở vòng 4 (thêm test mới trong lúc đó). Đối chiếu 63 file test với 11 tính năng chính trong 7 tiêu chí gốc: coverage rất sâu và rộng (chi tiết matrix xem báo cáo agent gốc) — không tính năng nào thiếu test hoàn toàn.
+
+- **[Medium] CI (`​.github/workflows/test.yml`) chỉ chạy `flutter test` (Dart VM), không chạy 15 file `example/integration_test/*.dart`** (banner/interstitial/rewarded/app_open/vip_redeem/consent_dialog chạy thật trên simulator/device) — lớp test gần nhất với hành vi native thật chỉ chạy thủ công theo memory log, không gate PR nào.
+- **[Medium] VIP trial 1-ngày chỉ có unit test cho `FirstInstallGuard` đơn lẻ — không có test end-to-end xác nhận `AdManager().initialize()` với config mặc định thực sự tự cấp VIP 24h qua `firstInstallVipGrace`.** Guard đúng, nhưng wiring giữa `AdManager` và guard chưa được 1 test nào assert trực tiếp (`ad_manager_core_test.dart` chỉ test message cảnh báo config, không test hành vi cấp VIP thật).
+- **[Low]** `ump_consent_test.dart` chỉ 2 `test()` — mỏng hơn hẳn `att_consent_test.dart` (9 test) dù độ phức tạp tương đương.
+- **[Low]** Example app không có nút re-trigger UMP/ATT thủ công ngoài lần chạy splash đầu — khó QA lại nếu không reset simulator.
+
+### Verdict cập nhật — 2026-07-19 (vòng 5)
+
+**Vẫn là CÓ — sẵn sàng production, nhưng có 1 điều kiện High cần đóng sớm và 2 Medium nên vá trước khi mở rộng traffic.**
+
+So với vòng 4 (0 gap mở), vòng này — nhờ audit sâu hơn ở đúng 2 góc chưa từng có lens riêng trước đó (double-enable arbitrator, test-coverage-vs-CI) — phát hiện lại 4 điều kiện cần đóng:
+
+1. **(High, ưu tiên cao nhất)** Gỡ `dependency_overrides` pin `applovin_max: 4.6.0`/`google_mobile_ads: 6.0.0` xuống dưới floor của chính `ad_sdk` — đây là finding duy nhất ảnh hưởng trực tiếp tới độ tin cậy của mọi kết luận consent/TCF đã đưa ra ở 4 vòng trước, vì override thắng constraint.
+2. **(Medium)** `enableArbitrator()`/`enableFillRateMonitor()` tự dispose instance cũ trước khi gán mới — vá nốt phần "gọi enable 2 lần" mà fix `destroy()` ở vòng 3 chưa cover.
+3. **(Medium)** Bọc try/catch cho callback của `NativeAdListener` trong `native_ad_widget.dart` — đóng nốt góc dispose-race duy nhất còn lại trong 3 widget ad-view.
+4. **(Medium x2, vận hành/quy trình chứ không phải code)** Thêm CI job chạy `integration_test` trên simulator (ít nhất smoke subset mỗi PR); thêm 1 test end-to-end cho VIP trial 1-ngày xác nhận `AdManager().initialize()` thực sự tự cấp VIP đúng, không chỉ test guard đơn lẻ.
+
+Không có Critical nào ở vòng này. Không có finding nào lặp lại đã fix ở vòng 1-4 bị regression (F1/F2/AppOpenTrigger/destroy-dispose đều re-confirm đúng lần thứ 4-5 độc lập). Điều kiện pháp lý treo từ vòng 4 (UMP consent form chưa publish trên AdMob console cho EEA) **chưa được verify lại trong vòng này** — cần user xác nhận trạng thái hiện tại trước khi coi là đã đóng.
+
+### Fix áp dụng — 2026-07-19 (cùng ngày, theo yêu cầu user "fix luôn 3 finding code")
+
+User duyệt fix 3/4 điều kiện ở trên (loại trừ 2 mục #4 — thuộc quy trình CI/test, không phải code fix). Kết quả:
+
+- ✅ **#2 đã fix** — `ad_manager.dart`: `enableArbitrator()` và `enableFillRateMonitor()` giờ gọi `_arbitrator?.dispose();`/`_fillRateMonitor?.dispose();` trước khi gán instance mới, cùng pattern với `destroy()` (vòng 3) và `disableArbitrator()`/`disableFillRateMonitor()` sẵn có. Đóng hoàn toàn leak "gọi enable 2 lần liên tiếp không qua destroy()".
+- ✅ **#3 đã fix** — `native_ad_widget.dart:252-286`: cả 3 callback của `NativeAdListener` (`onAdLoadedCallback`, `onAdLoadFailedCallback`, `onAdClickedCallback`) giờ bọc try/catch, log qua `SafeLogger.e` với message "disposed mid-flight?" khi bắt lỗi — cùng convention đã dùng ở `ad_loading_dialog.dart`/`top_toast.dart`. Native ad load callback trễ sau `AdManager().destroy()` giờ không còn ném `FlutterError` ra ngoài platform-view callback nữa.
+- ⛔ **#1 KHÔNG fix được — xác nhận bằng thực nghiệm là bị chặn cứng ở tầng Flutter SDK, không phải do lười/quên.** Đã thử bump `applovin_max: 4.6.4`/`google_mobile_ads: 7.0.0`/`gma_mediation_applovin: 2.6.1` (đúng target mà comment tại chỗ đề xuất) rồi chạy `flutter pub get` thật — **thất bại đúng như comment dự đoán**: `gma_mediation_applovin >=2.6.0` đòi `meta ^1.17.0`, nhưng Flutter SDK 3.35.1 (bản CI đang pin) bundle `flutter_test` ép `meta 1.16.0` — xung đột ở tầng Dart resolver, chưa tới lượt CocoaPods/Gradle. Đã revert lại `pubspec.yaml` về nguyên trạng (`applovin_max: 4.6.0`/`google_mobile_ads: 6.0.0`/`gma_mediation_applovin: 2.5.1`) và `flutter pub get` lại thành công. Không có hướng nào sửa được ở tầng app ngay bây giờ — cần 1 trong 2: Flutter SDK nâng lên bản có `meta ^1.17.0`, hoặc `gma_mediation_applovin` hạ constraint `meta`. Giữ nguyên plan "thử lại ~2026-10-13" đã ghi sẵn trong comment của `pubspec.yaml`. **Finding #1 (High) vẫn mở** — không phải do chưa làm, mà do thực sự chưa có fix khả thi.
+
+Verify sau fix: `flutter analyze` (trong `packages/ad_sdk`) — "No issues found!". `flutter test` (trong `packages/ad_sdk`) — **629/629 pass**, không regression.
+
+**Trạng thái còn lại sau vòng fix này:** 1 High (dependency_overrides, chặn ở tầng SDK, chờ ~2026-10-13) + 2 Medium quy trình (CI integration_test, VIP-trial e2e test) — cả 3 đều không phải lỗi code có thể sửa trong session này. Kết luận sản xuất không đổi: **CÓ, dùng được cho production**, với điều kiện High vẫn cần theo dõi định kỳ chứ không chặn release.
+
+### Self-review diff + chấm điểm — 2026-07-19 (sau khi fix xong 3 finding)
+
+Tự audit lại diff bằng Read source thật (không chỉ tin lại claim của chính mình): `dispose()` của `MonetizationArbitrator`/`FillRateMonitor` an toàn khi gọi 2 lần (`StreamSubscription.cancel()` idempotent — verify tại `monetization_arbitrator.dart:172-174`, `fill_rate_monitor.dart:107-108`). `dart format --set-exit-if-changed` sạch cả 2 file. Điểm ban đầu: **8/10** — trừ 2 điểm vì (1) không có test regression cho chính leak vừa fix, (2) try/catch trong `native_ad_widget.dart` bọc phạm vi hơi rộng (gộp `AdSafetyConfig.recordAdClick()`/`eventSink` chung với phần ghi `ValueNotifier`, có thể nuốt im lặng bug không liên quan tới dispose — trade-off có sẵn trong codebase, không phải anti-pattern mới).
+
+**Đã đóng gap #1** (2026-07-19, cùng ngày): thêm 2 test regression —
+- `test/monetization_arbitrator_test.dart` — group `enableArbitrator called twice disposes the previous instance`: gọi `enableArbitrator(arb1)`, emit 1 revenue event, gọi `enableArbitrator(arb2)`, emit thêm 1 event nữa, assert `arb1.estimatedEcpmMicros` **không đổi** (chứng minh `arb1` đã bị unsubscribe, không còn nhận event).
+- `test/fill_rate_monitor_test.dart` — test tương tự cho `enableFillRateMonitor`, dùng `fillRate()` làm oracle.
+- **Verify test thật sự bắt được regression:** tạm thời revert dòng `_arbitrator?.dispose();` trong `ad_manager.dart`, chạy lại test → **FAIL** đúng như dự đoán (`Expected: <1000000> Actual: <5000000>` — arb1 bị leak, nhận cả event sau khi đã bị thay thế). Sau đó restore lại fix, test pass lại. Đây là bằng chứng thực nghiệm test có khả năng phát hiện regression, không phải test giả (tautological).
+
+Sau khi thêm 2 test: `flutter test` (packages/ad_sdk) — **631/631 pass**. Gap #2 (try/catch scope rộng) vẫn còn, chấp nhận được vì khớp convention sẵn có của codebase — không sửa trong vòng này.

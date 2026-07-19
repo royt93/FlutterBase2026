@@ -150,5 +150,30 @@ void main() {
       AdManager().enableFillRateMonitor(m);
       expect(AdManager().fillRateMonitor, same(m));
     });
+
+    test(
+        'calling enableFillRateMonitor twice disposes the previous instance '
+        '— it stops receiving load events', () async {
+      final m1 = FillRateMonitor(rollingWindowSize: 2);
+      AdManager().enableFillRateMonitor(m1);
+      AdManager().debugEmit(_load(AdSlotType.interstitial, true));
+      AdManager().debugEmit(_load(AdSlotType.interstitial, true));
+      await Future<void>.delayed(Duration.zero);
+      expect(m1.fillRate(AdSlotType.interstitial), 1.0,
+          reason: 'm1 is active and received both loads');
+
+      final m2 = FillRateMonitor(rollingWindowSize: 2);
+      AdManager().enableFillRateMonitor(m2); // must dispose m1 first
+
+      AdManager().debugEmit(_load(AdSlotType.interstitial, false));
+      AdManager().debugEmit(_load(AdSlotType.interstitial, false));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(m1.fillRate(AdSlotType.interstitial), 1.0,
+          reason: 'm1 must be unsubscribed — a leaked subscription would '
+              'have dragged this down to 0.0 from the post-swap failures');
+      expect(m2.fillRate(AdSlotType.interstitial), 0.0,
+          reason: 'm2 is now the sole active listener');
+    });
   });
 }
