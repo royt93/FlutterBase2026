@@ -406,16 +406,27 @@ hiện mới:
 ## 🟡 In progress
 
 - (Product track: none — Wave 5 complete)
-- (Ad/SDK track: **none — audit vòng 4 (2026-07-18) đóng, verdict cuối cùng
-  là CÓ, không còn điều kiện chặn nào mở.** Xem `doc/audit/audit_claude.md`
-  mục "Re-audit vòng 4 — 2026-07-18". Delta kể từ vòng 3 (cùng ngày) chỉ là
-  release 1.1.1 (dependency bump, không đụng logic) — verify độc lập:
-  `flutter analyze` sạch cả root + `packages/ad_sdk`, `flutter test`
-  624/624 pass. Không có finding mới. Toàn bộ 8 ý tưởng brainstorm vòng 2/3
-  đã Implemented (xem mục Ideas bên dưới); việc còn lại chỉ là dọn demo/doc
-  không chặn ship (waterfall UI, consent-country UI trong example app) + 1
-  lưu ý vận hành (thay AdMob test App ID bằng App ID thật nếu đổi provider
-  sang AdMob).)
+- (Ad/SDK track: **audit vòng 6 (2026-07-19) đóng, verdict cuối cùng là CÓ,
+  release production được ngay.** Xem `doc/audit/audit_claude.md` mục
+  "Re-audit vòng 6 — 2026-07-19". Làm rõ + đóng 1 nhầm lẫn 3-vòng (host App
+  ID là thật, example App ID trước đó vô tình rò rỉ ID host — đã fix). Còn
+  3 việc theo dõi, không chặn release:
+  - **T47 — CI chưa gate `integration_test/`.** `.github/workflows/test.yml`
+    chỉ chạy `flutter analyze` + `flutter test` (Dart VM); 21 file
+    integration_test (mrec/native ad/arbitrator/fill-rate/consent-country/
+    diagnostics demo…) vẫn phải chạy tay trên simulator/device thật.
+  - **T48 — thiếu 1 test e2e cho VIP-trial 1-ngày.** Không file test nào gọi
+    `AdManager().initialize()` với config mặc định rồi assert
+    `vip.isActive`/`activeListenable` để kiểm chứng trial tự động kích hoạt
+    qua toàn bộ init flow.
+  - **T49 — `VipManager.addVip(stack: false)` thiếu clamp `maxStackDuration`**
+    (nhánh `stack: true` có clamp, nhánh `false` không) — Low, chưa
+    exploitable vì call site duy nhất (`vip_redeem_screen.dart:263`) luôn
+    dùng `stack: true`.
+  Ngoài ra 1 High kỹ thuật vẫn mở: `dependency_overrides` pin dưới floor SDK
+  do xung đột `meta` với Flutter 3.35.1 — đã thử bump thật + revert (bằng
+  chứng thực nghiệm), chờ Flutter SDK nâng `meta ^1.17.0`, re-check
+  ~2026-10-13.)
 - (Ad/SDK track: Audit follow-up T31-T42 — **hoàn tất 2026-07-14**, xem
   ✅ Implemented ở trên, `doc/task/done/T3{1,2,...,9}-*.md` + `T42-*.md`)
 - **Ad/SDK track — test-coverage cleanup (9 gaps, direct user request),
