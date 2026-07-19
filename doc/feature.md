@@ -287,6 +287,27 @@ Updated: 2026-07-18
   `flutter pub get` + `flutter analyze` clean, không phát sinh lint mới. Xem
   `doc/task/done/T46-example-flutter-lints-version-drift.md`.
 
+- **Audit vòng 7 (2026-07-19) — 8.7/10, CÓ production-ready — F1/F3/F4/F6/F7/F8/F9
+  đã fix, ⚠️ CHƯA PUBLISH lên pub.dev.** Toàn bộ 9 finding của round 7
+  (F1-F9, gồm cả F2/F5 fix ở phiên trước) giờ đã fix: `event_bus.dart` replay
+  buffer cho late subscriber (F1); `ad_manager.dart` nâng cảnh báo consent
+  misconfig thành `assert()` dev-time + log warning nếu gọi UMP trước ATT
+  trên iOS (F4, F9); `revenue_panel.dart` gate `kDebugMode` qua
+  `debugModeOverride` test seam (F9); `example/ios/Runner/Info.plist` đồng
+  bộ 152 `SKAdNetworkItems` khớp host app (F8); phần còn lại (F3, F6, F7, 2
+  sub-item khác của F9) là doc-only trong `packages/ad_sdk/README.md`. Kết
+  quả: 639/639 test pass, `flutter analyze` clean, build+install+run thật
+  trên Samsung S24 Ultra (không crash, không real ad — R4 không kích hoạt) +
+  iOS Simulator compile-only build SUCCEEDED. Chi tiết:
+  `doc/audit/audit_claude.md`.
+  **Quan trọng — chưa live trong app:** đây là code local trong
+  `packages/ad_sdk/`; pubspec gốc (`pubspec.yaml`) vẫn consume **hosted
+  `applovin_admob_sdk: ^1.1.0` → published `1.1.1`** (path override tới
+  `packages/ad_sdk` vẫn comment out), nên các fix này **chưa** có trong app
+  đang chạy cho tới khi bump version + `dart pub publish` + đổi constraint ở
+  host. `packages/ad_sdk/CHANGELOG.md`'s `## [Unreleased]` đã ghi các thay
+  đổi này, chờ quyết định publish.
+
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
 phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát

@@ -6,6 +6,45 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-19
+
+### Added
+- `RevenuePanel` gained an optional `debugModeOverride` constructor param
+  (test-only seam, `@visibleForTesting`) so the widget's `kDebugMode` gate
+  can be exercised from `flutter test`.
+
+### Changed
+- `SimpleEventBus` now replays the last-fired event to a listener that
+  subscribes *after* the event already fired, closing a gap where late
+  subscribers silently missed init-completion signals. `clearAll()` (called
+  from `AdManager.destroy()`) resets the replay buffer.
+- `RevenuePanel` now fully gates on `kDebugMode` (or the override above): no
+  event subscription and `SizedBox.shrink()` render in release builds,
+  instead of only skipping the visual chrome.
+
+### Fixed
+- `ad_manager.dart` escalates the existing silent log warning for a
+  misconfigured consent flow (AppLovin CMP disabled, `autoRequestUmpConsent`
+  false, `requestUmpConsent()` never called before `initialize()`) to a
+  dev-time `assert()` — asserts strip in release, so production behavior is
+  unchanged, but dev/test builds now fail loudly instead of silently
+  shipping with no consent flow.
+- `requestUmpConsent()` now logs a warning if called before `requestAtt()`
+  on iOS (ATT must run first per platform policy) — log-only, non-blocking.
+
+### Docs
+- Clarified in the README: the AdMob-per-request-tag vs. AppLovin-full-abort
+  COPPA asymmetry is intentional (each provider's native API surface
+  differs), not an inconsistency; `enableFillRateMonitor`/`enableArbitrator`
+  are production-safe opt-in tools with no `kDebugMode` distinction; UMP→
+  AppLovin consent sync is boolean-only by design since AppLovin MAX SDK
+  12.0.0+ auto-reads the IAB TC-String directly; pointers to the existing
+  CCPA `CupertinoSwitch` pattern and `consent_dialog.dart`'s binary-only
+  rationale for hosts that need more UI; noted the Android VIP-key
+  reinstall-replay limitation.
+- `example/ios/Runner/Info.plist` synced from 50 → 152 `SKAdNetworkItems`
+  entries to match the host app.
+
 ## [1.1.1] - 2026-07-18
 
 ### Changed
