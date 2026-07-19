@@ -85,6 +85,23 @@ Updated: 2026-07-18
   `vip_manager_grace_nudge_test.dart` (5). Verified on Samsung SM-A507FN
   (debug build) — no crash, correctly hidden when remaining time is above
   threshold.
+- **First-install VIP grant-time notice (2026-07-19, SDK 1.2.1).** The
+  first-install VIP grace grant (`AdManager.initialize()` →
+  `vip.addVip(key: firstInstallVipKey, ...)`) used to be completely
+  silent/log-only — end users had no idea ads were suppressed, which was the
+  likely root cause of "ads don't show" partner complaints on fresh installs.
+  `VipManager` gains `firstInstallGrantDueListenable` +
+  `lastFirstInstallGrantDuration` + `acknowledgeFirstInstallGrant()`, mirroring
+  the grace-nudge pattern above but one-shot/not persisted (the grant call is
+  already guarded by `AdPreferences.isFirstInstallGraceApplied()`, so it
+  naturally fires once per legitimate install/reinstall). Host wires it in
+  `wifi_stressor_screen.dart` via `AdManager().initRevision` (re-attaches
+  across SDK re-init) + a one-shot `SnackBar`. Tests:
+  `vip_manager_first_install_grant_notice_test.dart` (4). Verified: host
+  `flutter analyze`/`flutter test` clean, SDK 639+4/643 pass, on-device
+  (Samsung S24 Ultra) build+install+launch+logcat clean — no crash, normal
+  AdManager/VipManager lifecycle (grant path itself not re-exercised on this
+  device since it already consumed its grace in earlier sessions).
 - **Native build pin (historical):** app ships `google_mobile_ads 6.0.0` +
   `gma_mediation_applovin 2.5.1` + `applovin_max 4.6.0` via `dependency_overrides`
   (SDK 1.0.23 declares GMA ^7 but the hosted Dart is GMA-6-compatible). The

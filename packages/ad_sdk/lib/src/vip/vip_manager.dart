@@ -70,6 +70,17 @@ class VipManager {
   /// [expiresAt]. See [acknowledgeGraceNudge].
   final ValueNotifier<bool> _graceNudgeDueNotifier = ValueNotifier<bool>(false);
 
+  /// True right after [AdManager] grants a first-install VIP grace window,
+  /// until the host acknowledges it. See [notifyFirstInstallGrant] and
+  /// [acknowledgeFirstInstallGrant].
+  final ValueNotifier<bool> _firstInstallGrantDueNotifier =
+      ValueNotifier<bool>(false);
+
+  /// Duration of the most recent first-install grant, for the host's notice
+  /// copy (e.g. "You got 24h ad-free!"). Null until [notifyFirstInstallGrant]
+  /// is called.
+  Duration? _lastFirstInstallGrantDuration;
+
   /// Serialises every prefs write — concurrent `addVip` / `revokeVip` calls
   /// would otherwise race. Each save reads `_entries` at the moment its
   /// queued task runs (capturing the latest state), and waits for the
@@ -133,6 +144,32 @@ class VipManager {
       unawaited(_prefs.setVipGraceNudgeAckExpiryMs(exp.millisecondsSinceEpoch));
     }
     _graceNudgeDueNotifier.value = false;
+  }
+
+  /// Listenable — true right after a first-install VIP grace window was
+  /// granted (see `AdManager.initialize()`), until the host acknowledges it
+  /// via [acknowledgeFirstInstallGrant]. Mirrors [graceNudgeDueListenable].
+  ValueListenable<bool> get firstInstallGrantDueListenable =>
+      _firstInstallGrantDueNotifier;
+
+  /// Duration of the most recent first-install grant, or null if none
+  /// happened this session. Read this from the [firstInstallGrantDueListenable]
+  /// listener to build the notice copy.
+  Duration? get lastFirstInstallGrantDuration => _lastFirstInstallGrantDuration;
+
+  /// Called by [AdManager] right after granting the first-install VIP
+  /// window. Not persisted like [acknowledgeGraceNudge] — this is a one-shot
+  /// in-session signal, and the grant itself is already guarded by
+  /// `AdPreferences.isFirstInstallGraceApplied()` so it naturally fires once
+  /// per (legitimate) install.
+  void notifyFirstInstallGrant(Duration duration) {
+    _lastFirstInstallGrantDuration = duration;
+    _firstInstallGrantDueNotifier.value = true;
+  }
+
+  /// Marks the current first-install grant notice as shown.
+  void acknowledgeFirstInstallGrant() {
+    _firstInstallGrantDueNotifier.value = false;
   }
 
   void _refreshGraceNudge() {

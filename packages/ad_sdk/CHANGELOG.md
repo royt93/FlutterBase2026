@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-19
+
+### Added
+- `VipManager.firstInstallGrantDueListenable` — fires once when the
+  first-install VIP grace window is granted (previously silent/log-only),
+  paired with `lastFirstInstallGrantDuration` and
+  `acknowledgeFirstInstallGrant()`. Mirrors the existing
+  `graceNudgeDueListenable` pattern. `AdManager.initialize()` now calls
+  `notifyFirstInstallGrant()` right after granting the window.
+
 ## [1.2.0] - 2026-07-19
 
 ### Added

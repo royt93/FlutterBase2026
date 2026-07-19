@@ -1011,6 +1011,7 @@ class AdManager with WidgetsBindingObserver {
               key: config.firstInstallVipKey,
               duration: dur,
             );
+            vip.notifyFirstInstallGrant(dur);
             // ORDER MATTERS — write the persistent anti-bypass marker
             // (Keychain on iOS) BEFORE the per-install prefs flag. If the
             // process is force-killed between these two writes, the worst
