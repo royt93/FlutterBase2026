@@ -401,6 +401,46 @@ void main() {
       expect(w, isNull);
     });
 
+    test('N2: consentExplicitlySet:true → no warning (custom consent UI)', () {
+      final w = AdManager.consentFootgunWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        umpRequested: false,
+        consentExplicitlySet: true,
+      );
+      expect(w, isNull);
+    });
+  });
+
+  group('N2: consent footgun runtime block', () {
+    setUp(() {
+      // Isolate from adapter/config state other groups may have left behind
+      // — this group only cares about the canRequestAds/_footgunBlocked
+      // interaction, not a real init flow.
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+    tearDown(() {
+      AdManager().debugFootgunBlocked = false;
+      AdManager().debugCanRequestAds = true;
+    });
+
+    test('footgun block alone makes canRequestAds false', () {
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugFootgunBlocked = true;
+      expect(AdManager().canRequestAds, isFalse);
+    });
+
+    test('setConsent() clears the footgun block and reopens the gate',
+        () async {
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugFootgunBlocked = true;
+      expect(AdManager().canRequestAds, isFalse);
+
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      expect(AdManager().canRequestAds, isTrue);
+    });
+
     test('release + AppLovin-shaped id on AdMob provider → format warning', () {
       final w = AdManager.releaseFootgunWarnings(
         const AdConfig(

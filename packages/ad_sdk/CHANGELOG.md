@@ -6,6 +6,28 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-07-20
+
+### Changed
+- `SafeLogger`'s default log level is now `kDebugMode`-based (verbose in
+  debug, warning-and-above in release) instead of always-verbose — a host
+  that never calls `AdManager.setLogLevel()` no longer leaks raw GAID and
+  other diagnostic detail into release logs by default.
+- The consent-coverage footgun (AppLovin CMP disabled + `autoRequestUmpConsent`
+  false + `requestUmpConsent()` never called before `initialize()`) now hard-
+  blocks ad requests in release builds (`kReleaseMode`), not just a dev-time
+  `assert()` (which strips in release and was previously log-only in
+  production). The block clears automatically the moment `setConsent()` is
+  called — directly by a host's own consent UI or internally by
+  `requestUmpConsent()` — and triggers a refill of any ad slots held back
+  while it was active.
+
+### Fixed
+- `NativeAdWidget`'s `MaxNativeAdView` listener callbacks now check
+  `adapter.isInitialised` before writing to its `ValueNotifier`s or firing a
+  click event, closing the same disposed-adapter race already guarded on the
+  AppLovin banner/mrec views.
+
 ## [1.2.1] - 2026-07-19
 
 ### Added

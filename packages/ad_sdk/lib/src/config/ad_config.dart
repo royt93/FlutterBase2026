@@ -325,7 +325,11 @@ class AdConfig {
     this.admob,
     this.vipDeviceGaids = const [],
     this.loadingBufferMs = 1000,
-    this.logLevel = AdLogLevel.verbose,
+    // N1: unsafe-by-default logging footgun — verbose in release would log
+    // raw GAID (ad_manager.dart's `GAID=$_currentDeviceGAID` line) unless the
+    // host explicitly overrides. Default to release-safe now; hosts that
+    // want verbose logs in release can still opt back in explicitly.
+    this.logLevel = kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning,
     this.logTagFilter,
     this.onLog,
     this.adNotReadyMessage = 'Ad not ready — please wait and try again.',

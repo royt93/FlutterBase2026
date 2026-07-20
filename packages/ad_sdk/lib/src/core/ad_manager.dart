@@ -175,10 +175,11 @@ class AdManager with WidgetsBindingObserver {
   /// same pattern as [releaseFootgunWarnings].
   @visibleForTesting
   static String? consentFootgunWarning(AdConfig config,
-      {required bool umpRequested}) {
+      {required bool umpRequested, bool consentExplicitlySet = false}) {
     if (!config.disableAppLovinCmpFlow ||
         config.autoRequestUmpConsent ||
-        umpRequested) {
+        umpRequested ||
+        consentExplicitlySet) {
       return null;
     }
     return '🚨 No consent flow will run: AppLovin CMP is disabled, '
@@ -573,18 +574,35 @@ class AdManager with WidgetsBindingObserver {
   /// Google policy: **never** request an ad while this is `false`.
   bool _canRequestAds = true;
 
-  /// See [_canRequestAds].
-  bool get canRequestAds => _canRequestAds;
+  /// N2 — real runtime block for the consent-coverage footgun (release
+  /// builds only; see [consentFootgunWarning]). Kept separate from
+  /// [_canRequestAds] because that field's true/false meaning is owned by
+  /// the UMP flow's actual result — merging the two would let the reopen
+  /// logic in [setConsent] stomp on a real "EEA user hasn't granted" `false`.
+  bool _footgunBlocked = false;
+
+  /// See [_canRequestAds] / [_footgunBlocked].
+  bool get canRequestAds => _canRequestAds && !_footgunBlocked;
 
   /// Test seam for the consent gate.
   @visibleForTesting
   set debugCanRequestAds(bool v) => _canRequestAds = v;
+
+  /// N2 test seam — forces the release-only footgun block without needing a
+  /// `kReleaseMode` build.
+  @visibleForTesting
+  set debugFootgunBlocked(bool v) => _footgunBlocked = v;
 
   /// Whether [requestUmpConsent] has ever run this process — used to detect the
   /// "no consent form anywhere" footgun at [initialize] time (AppLovin CMP off +
   /// UMP never run). Runtime state, so it doesn't false-alarm hosts that gather
   /// consent correctly in their splash.
   bool _umpRequested = false;
+
+  /// N2 — set true by [setConsent] itself, so the footgun check doesn't
+  /// false-block hosts running their OWN non-UMP consent UI who hand the
+  /// answer straight to [setConsent] instead of calling [requestUmpConsent].
+  bool _consentExplicitlySet = false;
 
   /// F9 — set by [requestAtt]; used only to warn (never block) when
   /// [requestUmpConsent] runs on iOS before ATT was requested, since callers
@@ -1059,7 +1077,7 @@ class AdManager with WidgetsBindingObserver {
       adapter.canReload = () =>
           !_isVipMember &&
           !AdSafetyConfig.dailyCapReached() &&
-          _canRequestAds &&
+          canRequestAds &&
           isConnected;
       // ponytail: native mediation SDK init (AppLovin/AdMob platform channel)
       // has no completion guarantee — an occasional native-side hang (seen
@@ -1156,12 +1174,21 @@ class AdManager with WidgetsBindingObserver {
       // Consent-coverage footgun (runtime, not config-static so it doesn't
       // false-alarm hosts that gather consent in their splash) — see
       // [consentFootgunWarning].
-      final consentWarning =
-          consentFootgunWarning(config, umpRequested: _umpRequested);
+      final consentWarning = consentFootgunWarning(config,
+          umpRequested: _umpRequested,
+          consentExplicitlySet: _consentExplicitlySet);
       if (consentWarning != null) {
         SafeLogger.w(_tag, consentWarning);
-        // F4 — surface this loudly in dev/test builds (stripped in release,
-        // so production behavior is unchanged); the log above is easy to miss.
+        // N2 — `assert()` below is stripped in release, so without this the
+        // gap was silent in production (log-only, ads still served with NO
+        // consent form ever shown to EEA/UK users). Hard-block ad requests
+        // in release until the host resolves consent — via
+        // requestUmpConsent(), a direct setConsent() call from their own
+        // consent UI (both clear [_footgunBlocked], see [setConsent]), or by
+        // fixing the config footgun itself.
+        if (kReleaseMode) _footgunBlocked = true;
+        // F4 — surface this loudly in dev/test builds (stripped in release);
+        // the log above is easy to miss.
         assert(false, consentWarning);
       }
 
@@ -1299,6 +1326,15 @@ class AdManager with WidgetsBindingObserver {
   /// (non-personalized ads everywhere).
   Future<void> setConsent(AdConsent consent) async {
     _consent = consent;
+    // N2 — an explicit setConsent() call IS a resolved consent flow (the
+    // host's own custom UI, or requestUmpConsent()'s own call into here) —
+    // clear the footgun block so a host that doesn't use requestUmpConsent()
+    // isn't stuck locked out in release. Deliberately does NOT touch
+    // `_canRequestAds` — that field's true/false is owned by the actual UMP
+    // result and must not be stomped by this generic reopen.
+    final wasFootgunBlocked = _footgunBlocked;
+    _consentExplicitlySet = true;
+    _footgunBlocked = false;
     SafeLogger.d(_tag, () => 'setConsent: $consent');
     final settings = ConsentSettings(
       hasUserConsent: consent.hasUserConsent,
@@ -1327,6 +1363,13 @@ class AdManager with WidgetsBindingObserver {
     await applyConsentToProviders(consent, config: _config);
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
     _adapter?.applyConsent(consent);
+    // N2 — the footgun block just cleared and ads may already be running;
+    // refill slots that were held back while it was blocked.
+    if (wasFootgunBlocked && canRequestAds && !_isVipMember) {
+      SafeLogger.d(
+          _tag, '🔓 consent footgun resolved → refilling held ad slots');
+      _retryRefillAds();
+    }
   }
 
   /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
@@ -1631,7 +1674,7 @@ class AdManager with WidgetsBindingObserver {
       onAdLoaded?.call(false);
       return;
     }
-    if (!_canRequestAds) {
+    if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — consent not granted (UMP)');
       onAdLoaded?.call(false);
       return;
@@ -1672,7 +1715,7 @@ class AdManager with WidgetsBindingObserver {
     // splash App Open with bypassSafety. The load gate already prevents loading,
     // this closes the window where a previously-loaded ad could show after
     // consent is revoked.
-    if (!_canRequestAds) {
+    if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — consent not granted (UMP)');
       onAdDismiss(false);
       return;
@@ -1847,7 +1890,7 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — daily cap reached');
       return;
     }
-    if (!_canRequestAds) {
+    if (!canRequestAds) {
       SafeLogger.d(
           _tag, '⏭️ loadInterstitial skipped — consent not granted (UMP)');
       return;
@@ -1876,7 +1919,7 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
-    if (!_canRequestAds) {
+    if (!canRequestAds) {
       SafeLogger.d(
           _tag, '⏭️ showInterstitial skipped — consent not granted (UMP)');
       onDoneFlow(false);
@@ -1964,7 +2007,7 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — daily cap reached');
       return;
     }
-    if (!_canRequestAds) {
+    if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — consent not granted (UMP)');
       return;
     }
@@ -2077,7 +2120,7 @@ class AdManager with WidgetsBindingObserver {
     }
     // T03 — no impression without consent. (The vipAutoGrant-no-ad path above
     // already returned; this only gates paths that would actually show an ad.)
-    if (!_canRequestAds) {
+    if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ showRewarded skipped — consent not granted (UMP)');
       onEarnedReward(false);
       return;

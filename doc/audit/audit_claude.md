@@ -119,3 +119,25 @@ Test dùng polling đúng chuẩn (`_waitForXLoaded`, tránh race-condition — 
 ## Kết luận
 
 Round 8 không tìm thấy Critical/High mới, xác nhận độc lập toàn bộ F1-F9 (round 7) vẫn đứng vững và T47/T48/T49 (code mới nhất) đúng đắn có test. 6 finding mới đều Medium/Low, phần lớn là "gap thiết kế đã biết, residual risk thấp cho app hiện tại nhưng đáng sửa cho SDK dùng rộng rãi hơn" (N1, N2, N5) hoặc "chưa kích hoạt nhưng nên dọn" (N3). Không có gì thay đổi kết luận tổng thể: **SDK này đủ chất lượng để dùng production**, ở mức 8.6/10 — chỉ chỉnh nhẹ so với round 7 (8.7) vì N1 sửa lại một claim round 7 đã nói sai (có log GAID, chỉ là được host tự che ở release).
+
+## Round 9 (2026-07-20) — xử lý toàn bộ N1-N6 + F7, kết luận cuối
+
+User chọn phạm vi tối đa: xử lý hết N1-N6 và F7 trong cùng 1 phiên. Kết quả từng finding:
+
+| # | Finding | Kết quả round 9 |
+|---|---------|------------------|
+| N1 | `SafeLogger` default verbose log GAID | ✅ **Fixed** — default log level giờ theo `kDebugMode` (verbose khi debug, warning khi release) thay vì hard-code verbose. Host không tự set `logLevel` giờ vẫn an toàn ở release. |
+| N2 | Consent footgun chỉ chặn bằng `assert()` (strip ở release) | ✅ **Fixed** — thêm hard-block runtime thật (`_footgunBlocked`, gate qua `kReleaseMode`) khi 1 host quên gọi UMP/CMP trước `initialize()`. Tự clear + refill slot ngay khi `setConsent()` được gọi (dù do host tự gọi hay do `requestUmpConsent()` nội bộ). |
+| N3 | `AdKey.adMob` (host app) còn test ID, "quả bom hẹn giờ" nếu đổi provider | ✅ **Verified, giữ nguyên có chủ đích** — đọc lại toàn bộ call site, xác nhận đây là config "sẵn sàng đổi provider" có TODO cảnh báo rõ, không phải bug tiềm ẩn bị quên. Quyết định: giữ nguyên, không xoá (đổi provider dễ hơn nếu giữ sẵn), không thêm runtime assert (over-engineering cho 1 giá trị test-ID tĩnh không đổi ngoài ý muốn). |
+| N4 | Native ad callback không check mounted trước ghi notifier | ✅ **Fixed** — callback `MaxNativeAdView`/`NativeAdListener` giờ guard `adapter.isInitialised` trước khi ghi `ValueNotifier`, cùng pattern đã áp dụng cho banner/mrec. |
+| N5 | CI chỉ chạy `integration_test/` trên Android, không có job iOS | ✅ **Fixed** — thêm job `sdk-integration-ios` (`.github/workflows/test.yml`) chạy cùng bộ `integration_test/` trên iOS Simulator (macOS runner, `iPhone 15`), dùng `SKIP_SPLASH_AD`/`SKIP_ATT`/`SKIP_UMP` dart-define để tránh kẹt splash-chain trên Simulator (ATT/UMP native prompt không tự trả lời được trên CI). |
+| N6 | CI "xanh" không chắc show/dismiss cycle đã chạy thật nếu ad không kịp fill | ✅ **Verified, đúng như audit tự nhận định — không cần fix code.** Audit gốc đã ghi rõ "giới hạn môi trường CI đã biết, không phải bug". Xác nhận SDK đã sẵn có test seam `debugSimulate*` (`@visibleForTesting`, trên cả `AdMobAdapter` và `AppLovinAdapter` cho interstitial/rewarded, chỉ `AdMobAdapter` có bản app-open) có thể dùng để làm CI deterministic nếu sau này cần — nhưng không wire vào vì finding gốc đánh giá Low/no-fix-needed, và closing gap hoàn toàn cho app-open trên AppLovin (provider mặc định của example app) sẽ cần viết code production mới không tồn tại — vượt effort mà finding này đáng nhận. Phát hiện phụ: `interstitial_ad_test.dart` đã tự hardening thành `expect(isTrue)` (hard assertion) độc lập từ sau round 8 — rủi ro đổi từ "false-green" sang "có thể flake khi ad chậm fill", không cần hành động thêm. |
+| F7 | TCF/IAB TC-String không sync, chỉ forward boolean | ✅ **Verified, giữ nguyên có chủ đích** — đọc lại `applovin_max` (13.6.3) + AdMob UMP, xác nhận TCF string được cả 2 SDK native tự đọc trực tiếp từ `SharedPreferences` theo chuẩn IAB (không cần app tự forward) — gap "chỉ forward boolean" trong audit gốc là mô tả sai một layer đã tự động; sửa lại nhận định trong tài liệu, không có code nào cần đổi. |
+
+**Kết quả đo lại (2026-07-20 tối):**
+- `flutter test` (`packages/ad_sdk`): **649/649 pass** (tăng từ 645, thêm test cho N2 hard-block + N4 guard).
+- `flutter analyze`: sạch tuyệt đối ở cả `packages/ad_sdk` và root repo.
+- `packages/ad_sdk` version: `1.2.1` → **`1.2.2`** (N1 + N2 + N4 là thay đổi hành vi thật, đủ để bump — xem `CHANGELOG.md`).
+- CI (`.github/workflows/test.yml`): 4 job — `sdk`, `sdk-integration` (Android), `sdk-integration-ios` (mới), `host`.
+
+**Verdict cuối round 9: CÓ, production-ready, 9.0/10** — cả 6 finding N1-N6 và F7 đều đã được xử lý (4 fixed bằng code thật: N1/N2/N4/N5; 3 verified-giữ-nguyên có chủ đích sau khi đọc lại: N3/N6/F7). Không còn finding Medium/High nào mở. Điểm tăng từ 8.6 vì đây là audit round đầu tiên đóng hết toàn bộ finding tồn đọng thay vì để lại một danh sách ưu tiên chưa xử lý.

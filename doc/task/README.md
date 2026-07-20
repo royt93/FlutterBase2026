@@ -10,6 +10,9 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
 
 **Cách dùng:** khi bắt đầu một task mới, tạo file `Txx-slug.md` trực tiếp trong `todo/` (tạo thư mục nếu chưa có), rồi `git mv` sang `inprogress/` và đổi `Status:` trong file. Khi xong, `git mv` sang `done/`. 1 file = 1 task.
 
+## Tiến độ (cập nhật 2026-07-20)
+- **Audit round 8 (N1-N6, F7): 7/7 XONG ✅** — T50 (N1 log level), T51 (N2 consent hard-block), T52 (N3 AdKey.adMob, giữ nguyên), T53 (N4 native ad guard), T54 (N5 CI iOS Simulator), T55 (N6, giữ nguyên), T56 (F7, giữ nguyên). `packages/ad_sdk` bump 1.2.1→1.2.2, 649/649 test pass. Xem `doc/audit/audit_claude.md` round 9.
+
 ## Tiến độ (cập nhật 2026-07-07)
 - **P0: 5/5 XONG ✅** — T02, T08, T18, T01, T03.
 - **Lifecycle/memory XONG ✅** — T11, T12, T13.

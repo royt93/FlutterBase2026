@@ -1,6 +1,6 @@
 name: applovin_admob_sdk
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Adapter pattern, state machine, VIP redeem with Cupertino dialog, GDPR/COPPA/CCPA flags, exponential backoff, AdEvent stream, debug overlay.
-version: 1.2.1
+version: 1.2.2
 
 
 environment:

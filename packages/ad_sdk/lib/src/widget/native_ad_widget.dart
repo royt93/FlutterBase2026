@@ -253,9 +253,13 @@ class _AppLovinMaxNativeView extends StatelessWidget {
           try {
             SafeLogger.d(
                 'NativeAdWidget', 'MaxNativeAdView ✅ ${ad.networkName}');
+            // N4: check isInitialised before writing — a disposed adapter
+            // (re-init/destroy race) has already torn down its notifiers,
+            // and this platform-view callback can fire after that.
             final adapter = AdManager().adapter;
-            adapter?.native.isLoaded.value = true;
-            adapter?.native.hasError.value = false;
+            if (adapter == null || !adapter.isInitialised) return;
+            adapter.native.isLoaded.value = true;
+            adapter.native.hasError.value = false;
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdLoadedCallback: notifier disposed mid-flight? $e');
@@ -264,7 +268,9 @@ class _AppLovinMaxNativeView extends StatelessWidget {
         onAdLoadFailedCallback: (id, err) {
           try {
             SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ❌ ${err.code}');
-            AdManager().adapter?.native.hasError.value = true;
+            final adapter = AdManager().adapter;
+            if (adapter == null || !adapter.isInitialised) return;
+            adapter.native.hasError.value = true;
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdLoadFailedCallback: notifier disposed mid-flight? $e');
@@ -274,11 +280,13 @@ class _AppLovinMaxNativeView extends StatelessWidget {
           try {
             SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 🎯 click');
             AdSafetyConfig.recordAdClick();
-            AdManager().adapter?.eventSink?.call(AdClickEvent(
-                  providerTag: '[AppLovin]',
-                  type: AdSlotType.native,
-                  placement: AdPlacement.unspecified,
-                ));
+            final adapter = AdManager().adapter;
+            if (adapter == null || !adapter.isInitialised) return;
+            adapter.eventSink?.call(AdClickEvent(
+              providerTag: '[AppLovin]',
+              type: AdSlotType.native,
+              placement: AdPlacement.unspecified,
+            ));
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdClickedCallback: disposed mid-flight? $e');
