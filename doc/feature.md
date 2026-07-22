@@ -339,6 +339,33 @@ Updated: 2026-07-18
   `flutter pub get`/`analyze`/`build apk --debug` sạch, toàn bộ 80 test host
   (`flutter test` repo root) pass, `packages/ad_sdk` vẫn 639/639.
 
+- **Audit vòng 8 (2026-07-19 đêm) — 8.6/10, CÓ production-ready — 6 finding
+  Medium/Low, không blocking.** Phát hiện round 7 từng tự nhận sai (N1: vẫn
+  còn log GAID ở một nhánh debug) cộng 5 finding mới khác. Chi tiết:
+  `doc/audit/audit_claude.md`.
+
+- **Audit vòng 9 (2026-07-20) — CÓ, 9.0/10, SDK bump `1.2.2` — cả 7 finding
+  đều đóng.** N1/N2/N4/N5 fixed thật; N3/N6/F7 xem lại và giữ nguyên (verified
+  as already-acceptable, không phải bỏ sót). 649/649 test pass.
+
+- **CI iOS integration-test job + 2 flake fix (2026-07-21, PR #2 merged vào
+  `main`).** Thêm job iOS Simulator integration test vào `.github/workflows/test.yml`
+  (song song job Android emulator có sẵn) và fix 1 flake Android emulator OOM.
+  Trong lúc làm CI xanh, phát hiện + fix thêm 3 lỗi không liên quan tới bump
+  ban đầu: (1) `AdManager().initialize()`'s `consentFootgunWarning` assert
+  trip trên iOS CI vì dart-define `SKIP_UMP=true` bỏ qua
+  `requestUmpConsent()` — fix: gọi `AdManager().setConsent(AdConsent.conservative)`
+  stub trước `initialize()` khi `_skipUmp` (`example/lib/main.dart`). (2)
+  `app_boot_test.dart` splash-timeout flake trên Android CI — root cause là
+  emulator contention sau 1 lần `adb uninstall` lỗi đẩy cold-start thật lên
+  ~37s, quá budget cũ 30s (app vẫn boot thành công, không phải bug logic) —
+  fix: nới poll budget 30s→45s. (3) `consent_country_demo_test.dart` tap
+  "Set" trượt trên iOS Simulator vì bàn phím ảo thật mở ra co Scaffold lại,
+  đẩy nút ra khỏi vùng đã `scrollUntilVisible` cho country field trước đó
+  (Android CI tắt bàn phím ảo nên không tái hiện) — fix: `scrollUntilVisible`
+  lại cho nút "Set" ngay trước khi tap. Kết quả cuối: cả 4 job CI xanh
+  (`ad_sdk`, `host app`, Android + iOS integration test).
+
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
 phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát
