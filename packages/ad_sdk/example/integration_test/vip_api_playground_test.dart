@@ -57,6 +57,15 @@ void main() {
   testWidgets(
       'quick-redeem buttons flip VIP active and stack across a second redeem',
       (tester) async {
+    // HomePage's demo list is a viewport-lazy ListView — "VIP API playground"
+    // isn't built at all at default phone height (see compliance_export_test.dart
+    // for the same issue). Use a tall synthetic viewport instead of requiring
+    // a real scroll gesture to find the tile.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -83,6 +92,12 @@ void main() {
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('VIP demo'), findsOneWidget);
+
+    // VipDemoPage is a fresh full-screen route — restore the real device
+    // viewport before hit-testing/scrolling it (see log_viewer_test.dart).
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    await tester.pump();
 
     // Quick redeem: TEST_VIP_7 (7 days, stack: true).
     final quick7 = find.textContaining('TEST_VIP_7');
@@ -128,6 +143,13 @@ void main() {
 
   testWidgets('signed key redeem grants VIP and rejects reuse on this device',
       (tester) async {
+    // HomePage's demo list is a viewport-lazy ListView — see comment in the
+    // test above for why this synthetic tall viewport is needed.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -149,6 +171,12 @@ void main() {
 
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
+
+    // VipDemoPage is a fresh full-screen route — restore the real device
+    // viewport before hit-testing/scrolling it (see log_viewer_test.dart).
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    await tester.pump();
 
     final signed1d = find.widgetWithText(FilledButton, 'signed 1d');
     await tester.scrollUntilVisible(signed1d, 200,

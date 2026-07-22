@@ -32,6 +32,15 @@ void main() {
   testWidgets(
       'setting a consent country reaches ConsentManager and re-renders the card',
       (tester) async {
+    // HomePage's demo list is a viewport-lazy ListView — "Consent / GDPR"
+    // isn't built at all at default phone height (see compliance_export_test.dart
+    // for the same issue). Use a tall synthetic viewport instead of requiring
+    // a real scroll gesture to find the tile.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -52,6 +61,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Consent demo'), findsOneWidget);
 
+    // ConsentDemoPage is a fresh full-screen route — restore the real device
+    // viewport before hit-testing it (see log_viewer_test.dart for why the
+    // synthetic size can't be trusted for a route mounted after it's set).
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    await tester.pump();
+
     final countryField =
         find.widgetWithText(TextField, 'Consent country (e.g. DE, US)');
     await tester.scrollUntilVisible(countryField, 200,
@@ -59,7 +75,14 @@ void main() {
     await tester.enterText(countryField, 'DE');
     await tester.pump();
 
+    // Entering text just opened the real software keyboard (iOS Simulator
+    // always shows one; the Android CI emulator has it disabled, which is why
+    // this only broke there). The Scaffold resizes for viewInsets.bottom,
+    // which can push "Set" out of the region we already scrolled into view
+    // for countryField — re-scroll it back before tapping.
     final setButton = find.widgetWithText(FilledButton, 'Set');
+    await tester.scrollUntilVisible(setButton, 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(setButton);
     await tester.pump(const Duration(milliseconds: 300));
 

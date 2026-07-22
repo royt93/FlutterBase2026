@@ -72,9 +72,17 @@ void main() {
     // Verbose log level during SDK init guarantees non-empty entries by now.
     expect(find.text('(no logs yet)'), findsNothing);
 
-    // Clear button empties the ring buffer live.
-    await tester.tap(find.byIcon(Icons.delete));
-    await tester.pump();
+    // Clear button empties the ring buffer live. LogBuffer is a single
+    // global sink for every SDK log call (main.dart), including background
+    // timers (ad retry, connectivity watcher) — on this real-device
+    // integration_test (real wall-clock, not fake-async), one of those can
+    // log a fresh entry in the gap between clear() and this assertion.
+    // Retry the clear instead of asserting on one racy pump.
+    for (var i = 0; i < 10; i++) {
+      await tester.tap(find.byIcon(Icons.delete));
+      await tester.pump();
+      if (find.text('(no logs yet)').evaluate().isNotEmpty) break;
+    }
     expect(find.text('(no logs yet)'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

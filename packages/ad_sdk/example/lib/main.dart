@@ -441,6 +441,16 @@ class _SplashScreenState extends State<SplashScreen> {
           debugPrint('UMP skipped: $e');
         }
       }
+      // When SKIP_UMP=true we never call requestUmpConsent() above, so
+      // AdManager's own consent-footgun check (ad_manager.dart's
+      // consentFootgunWarning) has no signal that consent was handled and
+      // trips `assert(false, ...)` inside initialize() (debug/test builds
+      // only — see F4/N2). That's a real safeguard for production hosts,
+      // but a false alarm for scripted test runs that deliberately skip the
+      // real dialog. Record a stub consent to satisfy the check.
+      if (_skipUmp) {
+        await AdManager().setConsent(AdConsent.conservative);
+      }
       // 3) Initialize the SDK (fires the EventBus completion event). Must run
       // even if the splash's hard-cap timer already navigated away (unmounting
       // this State) — otherwise a slow ATT/UMP dialog permanently skips SDK

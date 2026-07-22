@@ -51,14 +51,111 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # Flaky since ~2026-07-19: job gets killed mid-run with no test-failure
+      # output and no uploaded logs — the signature of the Linux OOM killer,
+      # not a real test failure (ubuntu-latest has 7GB RAM and no swap by
+      # default; emulator + KVM + `flutter test` across 20 integration_test/
+      # files can exceed that). Free up disk (unused dotnet/haskell/boost
+      # toolchains) before adding swap — the AVD's userdata partition alone
+      # needs ~7.4GB, so an oversized swapfile can starve emulator creation.
+      - name: Free disk space (headroom for swap + emulator userdata partition)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost
+          docker image prune -af || true
+          df -h /
+      - name: Add swap space (avoids OOM-killed emulator on GitHub-hosted runners)
+        run: |
+          sudo swapoff -a
+          sudo fallocate -l 3G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+      # Every test was failing identically at "SDK must finish initialising on
+      # device" (30s timeout) — logcat (captured below) showed the real cause:
+      # "SDK key provided is invalid (YOUR_86_CHAR_SDK_KEY_FROM_APPLOVIN_DASHBOARD)".
+      # No real AppLovin credentials are committed (see main.dart T41 comment)
+      # so the default AppLovin path can never init in CI. AD_PROVIDER_ADMOB
+      # switches to Google's public AdMob test ad-unit IDs, which need no
+      # secret and always init. (google_apis_playstore vs google_apis made no
+      # difference to this — reverted to the plain image.)
+      #
+      # app_open/interstitial/rewarded_ad_test.dart are excluded below: their
+      # own header comments say a HUMAN must manually tap the ad's close/X
+      # button for the test to pass — there's no unattended way to dismiss a
+      # real ad creative in headless CI, so they always time out here by
+      # design, not from a regression. Run them by hand on a real device/sim.
       - name: Run integration tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
+          ram-size: 2048M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           working-directory: packages/ad_sdk/example
-          script: flutter test integration_test
+          script: |
+            adb logcat -c
+            adb logcat > /tmp/logcat.txt &
+            flutter test $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$') --dart-define=AD_PROVIDER_ADMOB=true
+      - name: Upload logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-logcat
+          path: /tmp/logcat.txt
+          if-no-files-found: ignore
+
+  # N5 — the Android emulator job above never caught iOS-only regressions
+  # (e.g. the ATT/UMP no-timeout wedge, App-Open auto-redirect on iOS
+  # Simulator — see SKIP_ATT/SKIP_UMP/SKIP_SPLASH_AD dart-defines below).
+  # Runs the same integration_test suite on an iOS Simulator.
+  sdk-integration-ios:
+    name: ad_sdk example — integration tests (iOS Simulator)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: packages/ad_sdk/example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1'
+          channel: 'stable'
+      # connectivity_plus 7.3.0 (transitive via internet_connection_checker_plus)
+      # uses NWPath.isUltraConstrained, only in the iOS 26 SDK — the macos-15
+      # image ships Xcode 26.1.1 but doesn't default to it.
+      - name: Select Xcode 26.1.1
+        run: sudo xcode-select -s /Applications/Xcode_26.1.1.app
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Install CocoaPods dependencies
+        working-directory: packages/ad_sdk/example/ios
+        run: pod install
+      - name: Boot iOS Simulator
+        run: |
+          # macos-15's device list moved on from "iPhone 15" (not present in
+          # any runtime on this image) — "iPhone 16" is available on every
+          # runtime the image ships (18.5, 18.6, 26.0, 26.1, 26.2).
+          UDID=$(xcrun simctl list devices available | grep -m1 'iPhone 16' | grep -oE '[0-9A-F-]{36}')
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+      # interstitial/rewarded show+dismiss need a real ad fill, which the
+      # invalid placeholder AppLovin key (see Android job comment above) can
+      # never provide — same AD_PROVIDER_ADMOB switch to Google's public
+      # AdMob test ad-unit IDs fixes it here too.
+      # app_open/interstitial/rewarded_ad_test.dart need a human to manually
+      # tap the ad's close/X button (see their header comments) — excluded
+      # below, same reason as the Android job above.
+      - name: Run integration tests
+        run: |
+          flutter test $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$') \
+            -d "$SIMULATOR_UDID" \
+            --dart-define=SKIP_SPLASH_AD=true \
+            --dart-define=SKIP_ATT=true \
+            --dart-define=SKIP_UMP=true \
+            --dart-define=AD_PROVIDER_ADMOB=true
 
   # The host app is mostly UI-only (gated on static analysis) but now ships a
   # small test/ dir for screens with real logic (e.g. VipScreen stacking). It

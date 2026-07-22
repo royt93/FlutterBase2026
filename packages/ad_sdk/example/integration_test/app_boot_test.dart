@@ -29,9 +29,13 @@ void main() {
     // timer, so poll for the home page instead.
     await tester.pump();
 
+    // 90x500ms=45s: a slow CI emulator (e.g. contention right after an
+    // `adb uninstall` hiccup) can push cold start + splash init past 30s even
+    // though the app boots fine — seen on a real CI run reaching HomePage at
+    // ~37s, just past the old budget.
     final home = find.text('ad_sdk demo');
     var found = false;
-    for (var i = 0; i < 60; i++) {
+    for (var i = 0; i < 90; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (home.evaluate().isNotEmpty) {
         found = true;
@@ -40,7 +44,7 @@ void main() {
     }
 
     expect(found, isTrue,
-        reason: 'splash must navigate to HomePage within ~30s');
+        reason: 'splash must navigate to HomePage within ~45s');
     expect(tester.takeException(), isNull,
         reason: 'no uncaught exception during boot + SDK init');
   });

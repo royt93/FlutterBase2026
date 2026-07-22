@@ -29,6 +29,16 @@ void main() {
   testWidgets(
       'toggling consent switches + Apply propagates into AdManager().consent',
       (tester) async {
+    // HomePage's demo list is a viewport-lazy ListView — "Consent / GDPR"
+    // isn't built at all at default phone height (see
+    // consent_country_demo_test.dart for the same issue). Use a tall
+    // synthetic viewport instead of requiring a real scroll gesture to find
+    // the tile.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -48,6 +58,12 @@ void main() {
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Consent demo'), findsOneWidget);
+
+    // ConsentDemoPage is a fresh full-screen route — restore the real device
+    // viewport before hit-testing it (see consent_country_demo_test.dart).
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+    await tester.pump();
 
     // The three switches from ConsentDemoPage._row(...).
     expect(find.text('GDPR consent (hasUserConsent)'), findsOneWidget);

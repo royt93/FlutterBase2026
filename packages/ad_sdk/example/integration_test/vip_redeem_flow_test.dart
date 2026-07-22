@@ -64,6 +64,14 @@ void main() {
     expect(AdManager().isVIPMember(), isFalse);
     expect(AdManager().canShowInterstitial, isNotNull);
 
+    // The first-install VIP grant SnackBar (shown via the root
+    // ScaffoldMessenger, so it persists across route pushes) may still be
+    // animating here. Let it fully clear (250ms enter + 4000ms display +
+    // 250ms exit, see vip_api_playground_test.dart) before pushing
+    // VipRedeemScreen — otherwise its hit-test area can swallow the drag
+    // gesture scrollUntilVisible below sends to reach the redeem TextField.
+    await tester.pump(const Duration(milliseconds: 4600));
+
     final keyPair = await _ed.newKeyPair();
     final pub = await _pubB64(keyPair);
     final code = await _mint(keyPair, seconds: 120, kid: 'integration_kid');
