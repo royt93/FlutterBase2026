@@ -156,6 +156,28 @@ void main() {
     });
   });
 
+  group('_retryRefillAds offline guard (R10-C)', () {
+    test('does nothing while offline', () {
+      AdManager().debugConnectivityChanged(false);
+
+      AdManager().debugRetryRefillAds();
+
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 0);
+      expect(adapter.loadAppOpenCalls, 0);
+      expect(adapter.preloadBannerCalls, 0);
+    });
+
+    test('still refills while online', () {
+      AdManager().debugConnectivityChanged(true);
+
+      AdManager().debugRetryRefillAds();
+
+      expect(adapter.loadInterstitialCalls, greaterThan(0));
+      expect(adapter.loadRewardedCalls, greaterThan(0));
+    });
+  });
+
   // T10 — isConnected falls back to the last-known state (not a blind
   // optimistic `true`) when the native detector is unavailable/throws, which
   // is exactly what happens in this plugin-less test environment.

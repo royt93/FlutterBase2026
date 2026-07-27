@@ -566,6 +566,9 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugConnectivityReady(bool ready) => _connectivityReady = ready;
 
+  @visibleForTesting
+  void debugRetryRefillAds() => _retryRefillAds();
+
   // ─── Consent gate (T01) ────────────────────────────────────────────────────
   /// Whether ad requests are permitted by the consent flow, mirroring Google
   /// UMP's `ConsentInformation.canRequestAds()`. Defaults `true` so non-UMP
@@ -2540,6 +2543,9 @@ class AdManager with WidgetsBindingObserver {
   }
 
   void _retryRefillAds() {
+    // R10-C — don't even attempt a refill scan while offline; every load*()
+    // call below would just fail immediately and log noise.
+    if (!isConnected) return;
     final ad = _adapter;
     if (ad == null) return;
     // VIP members never load ads. Each load*() already guards on this, but
