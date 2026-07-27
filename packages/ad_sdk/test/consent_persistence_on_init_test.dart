@@ -105,6 +105,93 @@ void main() {
     await AdManager().destroy();
   });
 
+  // R10-A — requestUmpConsent()'s own doc comment says standard usage is to
+  // call it BEFORE initialize(). autoRequestUmpConsent:true used to run the
+  // UMP flow AFTER adapter.initialize() had already fired the first
+  // AppLovin/AdMob native init call, so that native init went out before EEA
+  // consent was known. This proves the UMP channel call now happens first.
+  //
+  // Must run FIRST in this file: package:applovin_max memoizes its
+  // initialize() call behind a static `_hasInitializeInvoked` flag with no
+  // test reset hook, so once any earlier test in this isolate has called
+  // AppLovinMAX.initialize(), later calls short-circuit without touching the
+  // method channel — this test would never observe 'al:initialize' again.
+  test('autoRequestUmpConsent:true runs UMP flow before adapter.initialize()',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final callOrder = <String>[];
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(_alChannel, (call) async {
+      if (call.method == 'initialize') {
+        callOrder.add('al:${call.method}');
+        return <String, dynamic>{};
+      }
+      return null;
+    });
+    messenger.setMockMethodCallHandler(_umpChannel, (call) {
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          callOrder.add('ump:${call.method}');
+          return Future.value(null);
+        case 'ConsentInformation#canRequestAds':
+          return Future.value(true);
+        case 'ConsentInformation#getConsentStatus':
+          return Future.value(0); // unknown
+        case 'ConsentInformation#isConsentFormAvailable':
+          return Future.value(false);
+        default:
+          return Future.value(null);
+      }
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(_alChannel, (call) async {
+        if (call.method == 'initialize') return <String, dynamic>{};
+        return null;
+      });
+      messenger.setMockMethodCallHandler(_umpChannel, (call) {
+        switch (call.method) {
+          case 'ConsentInformation#requestConsentInfoUpdate':
+            return Future.value(null);
+          case 'ConsentInformation#canRequestAds':
+            return Future.value(true);
+          case 'ConsentInformation#getConsentStatus':
+            return Future.value(0);
+          case 'ConsentInformation#isConsentFormAvailable':
+            return Future.value(false);
+          default:
+            return Future.value(null);
+        }
+      });
+    });
+
+    await AdManager().initialize(
+      config: const AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: 'test-sdk-key',
+          bannerId: 'banner-id',
+          interstitialId: 'interstitial-id',
+          appOpenId: 'appopen-id',
+          rewardedId: 'rewarded-id',
+        ),
+        safety: AdSafetyParams(dryRun: true),
+        autoRequestUmpConsent: true,
+      ),
+      onComplete: (_, __) {},
+    );
+
+    expect(AdManager().isInitialised, isTrue);
+    expect(
+      callOrder,
+      ['ump:ConsentInformation#requestConsentInfoUpdate', 'al:initialize'],
+      reason: 'UMP consent flow must resolve before the AppLovin/AdMob '
+          'adapter fires its first native init call, so that init already '
+          'reflects the user\'s EEA consent choice',
+    );
+  });
+
   test(
       'setConsent() called BEFORE initialize() survives the bootstrap '
       '(not overwritten by stale persisted data)', () async {

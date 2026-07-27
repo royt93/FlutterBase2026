@@ -1066,6 +1066,35 @@ class AdManager with WidgetsBindingObserver {
       _consentManager = consentMgr;
       _consent = consentMgr.adConsent;
 
+      // R10-A — SDK-owned UMP: run Google's consent flow before the adapter
+      // is even picked/initialised, matching requestUmpConsent()'s own
+      // docstring (call it before initialize()). Previously this ran AFTER
+      // adapter.initialize() below, so AppLovin/AdMob's native init request
+      // could go out before EEA/UK consent was known. Safe to run here:
+      // ConsentManager was just bootstrapped above, so requestUmpConsent()'s
+      // internal setConsent() call takes the direct `_consentManager!.set(...)`
+      // path (not the `_pendingConsentSettings` buffer), and `isInitialised`
+      // is still false at this point (adapter/`_config` unset), so setConsent
+      // early-returns before touching the adapter — nothing to apply yet.
+      // Opt-in; hosts that run UMP in their splash leave this false to avoid
+      // double-running.
+      if (config.autoRequestUmpConsent) {
+        SafeLogger.d(
+            _tag, '🔐 autoRequestUmpConsent — running UMP before adapter init');
+        debugLastAutoUmpParams = {
+          'testMode': kDebugMode,
+          'tagForUnderAgeOfConsent': config.umpTagForUnderAgeOfConsent,
+          'debugGeography': config.umpDebugGeography,
+          'testIdentifiers': config.umpTestIdentifiers,
+        };
+        await requestUmpConsent(
+          testMode: kDebugMode,
+          tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
+          debugGeography: config.umpDebugGeography,
+          testIdentifiers: config.umpTestIdentifiers,
+        );
+      }
+
       // Pick adapter, wire its event sink, then initialise. The resolved
       // GAID is forwarded so the AppLovin adapter can register this device
       // as a test device in debug builds (preserves 1.x policy compliance).
@@ -1149,26 +1178,6 @@ class AdManager with WidgetsBindingObserver {
         await consentMgr.set(pending, config: config);
         _consent = consentMgr.adConsent;
         _adapter?.applyConsent(_consent);
-      }
-
-      // T01 — SDK-owned UMP: run Google's consent flow before the first ad
-      // request and gate loading on canRequestAds. Opt-in; hosts that run UMP
-      // in their splash leave this false to avoid double-running.
-      if (config.autoRequestUmpConsent) {
-        SafeLogger.d(
-            _tag, '🔐 autoRequestUmpConsent — running UMP before first load');
-        debugLastAutoUmpParams = {
-          'testMode': kDebugMode,
-          'tagForUnderAgeOfConsent': config.umpTagForUnderAgeOfConsent,
-          'debugGeography': config.umpDebugGeography,
-          'testIdentifiers': config.umpTestIdentifiers,
-        };
-        await requestUmpConsent(
-          testMode: kDebugMode,
-          tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
-          debugGeography: config.umpDebugGeography,
-          testIdentifiers: config.umpTestIdentifiers,
-        );
       }
 
       // Consent-coverage footgun (runtime, not config-static so it doesn't
