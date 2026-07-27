@@ -12,6 +12,8 @@
 //   3. RevenuePanel — a real consumer of AdManager().events: feeding
 //      AdRevenueEvents through debugEmit must accumulate on screen.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
@@ -41,6 +43,8 @@ class _FakeVipEntriesStore extends VipEntriesStore {
 /// real `AdMobAdapter.initialize()` on the second `AdManager().initialize()`
 /// call, so this mock must be installed before any test runs.
 const _gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
+const _appLovinMaxChannel =
+    MethodChannel('com.applovin.applovin_max/applovin_max');
 
 /// Tracks whether [dispose] ran, to prove a stale VipManager is torn down
 /// (not just detached) on AdManager re-init — see the "re-init disposes the
@@ -175,6 +179,11 @@ class _FakeAdapter implements AdProviderAdapter {
   }
 
   @override
+  void applyConsent(AdConsent consent) {
+    // Fake implementation — no-op for test purposes.
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -259,11 +268,15 @@ void main() {
   setUpAll(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_gmaChannel, (call) async => null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_appLovinMaxChannel, (call) async => null);
   });
 
   tearDownAll(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_gmaChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_appLovinMaxChannel, null);
   });
 
   group('releaseFootgunWarnings', () {
@@ -1465,6 +1478,96 @@ void main() {
     test('null when no TCF session has ever run', () async {
       SharedPreferences.setMockInitialValues({});
       expect(await AdManager().tcfConsentString, isNull);
+    });
+  });
+
+  group('COPPA hard-stop', () {
+    test(
+        'isAgeRestrictedUser=true mid-session on AppLovin hard-stops '
+        '(AppLovin no runtime COPPA API — must hard-stop ad '
+        'requests instead of only logging warning)', () {
+      fakeAsync((async) {
+        final adapter = _FakeAdapter();
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'test-key',
+            bannerId: 'banner-id',
+            interstitialId: 'interstitial-id',
+            appOpenId: 'appopen-id',
+            rewardedId: 'rewarded-id',
+          ),
+        );
+
+        AdManager().debugCanRequestAds = true;
+
+        // Start the async setConsent call but don't await it —
+        // this triggers the hard-stop logic synchronously before
+        // any async work begins.
+        unawaited(AdManager().setConsent(
+          const AdConsent(
+            hasUserConsent: true,
+            isAgeRestrictedUser: true,
+            doNotSell: false,
+          ),
+        ));
+
+        // Check the hard-stop happened synchronously
+        expect(AdManager().canRequestAds, isFalse,
+            reason: 'AppLovin no runtime COPPA API — must hard-stop ad '
+                'requests instead of only logging warning');
+
+        // Complete any pending async work to avoid "test failed after
+        // completion" errors — but don't propagate exceptions.
+        async.elapse(const Duration(seconds: 1));
+        try {
+          // Ignore any errors from the pending future
+          async.flushMicrotasks();
+        } catch (_) {}
+      });
+    });
+
+    test(
+        'isAgeRestrictedUser=true mid-session on AdMob does NOT hard-stop '
+        '(AdMob receives tag via RequestConfiguration)', () {
+      fakeAsync((async) {
+        final adapter = _FakeAdapter();
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'ca-app-pub-9999999999999999/1111111111',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+          ),
+        );
+
+        AdManager().debugCanRequestAds = true;
+
+        // Start the async setConsent call but don't await it.
+        unawaited(AdManager().setConsent(
+          const AdConsent(
+            hasUserConsent: true,
+            isAgeRestrictedUser: true,
+            doNotSell: false,
+          ),
+        ));
+
+        // Check the hard-stop did NOT happen for AdMob
+        expect(AdManager().canRequestAds, isTrue,
+            reason: 'AdMob already receives COPPA tag via '
+                'RequestConfiguration — no hard-stop needed for provider');
+
+        // Complete any pending async work to avoid "test failed after
+        // completion" errors — but don't propagate exceptions.
+        async.elapse(const Duration(seconds: 1));
+        try {
+          // Ignore any errors from the pending future
+          async.flushMicrotasks();
+        } catch (_) {}
+      });
     });
   });
 }

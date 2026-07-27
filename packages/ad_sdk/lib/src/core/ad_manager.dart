@@ -1369,6 +1369,14 @@ class AdManager with WidgetsBindingObserver {
           '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
       return;
     }
+    // R10-B — AppLovin MAX 4.x has no runtime setIsAgeRestrictedUser API.
+    // When host flips isAgeRestrictedUser=true mid-session after AppLovin already initialised,
+    // we cannot forward the signal, so hard-stop ad requests instead.
+    if (!isAdMobProvider && consent.isAgeRestrictedUser) {
+      SafeLogger.d(
+          _tag, '🛑 COPPA child-directed on AppLovin → hard-stop ad requests');
+      _canRequestAds = false;
+    }
     await applyConsentToProviders(consent, config: _config);
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
     _adapter?.applyConsent(consent);
