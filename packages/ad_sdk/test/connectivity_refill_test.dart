@@ -5,8 +5,12 @@
 // timer. Driven through the debugConnectivityChanged seam so the native
 // connection_notifier plugin is not required in tests.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:connection_notifier/connection_notifier.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -270,6 +274,46 @@ void main() {
           reason: '_connectivityReady is process/plugin-level state, not '
               "tied to this AdManager instance's lifecycle — destroy() must "
               'not reset it, or every re-init would re-open the race window');
+    });
+  });
+
+  // R10-D — ConnectionNotifierTools.initialize() is a real third-party native
+  // plugin call, not an internal abstraction. Nothing bounded it before, so a
+  // stuck plugin (or platform channel) hung the SDK's connectivity watch
+  // forever. debugConnectivityInit lets us simulate that hang deterministically
+  // and prove the new 20s timeout unwedges it.
+  group('_startConnectivityWatch timeout (R10-D)', () {
+    tearDown(() {
+      AdManager().debugConnectivityInit = ConnectionNotifierTools.initialize;
+      AdManager().debugConnectivityReady = false;
+      SafeLogger.resetForTest();
+    });
+
+    test(
+        'degrades gracefully when the native init call never completes, '
+        'instead of hanging forever', () {
+      final warnings = <String>[];
+      SafeLogger.configure(
+        level: AdLogLevel.verbose,
+        onLog: (level, tag, message) {
+          if (level == AdLogLevel.warning) warnings.add(message);
+        },
+      );
+      AdManager().debugConnectivityInit = () => Completer<void>().future;
+
+      fakeAsync((async) {
+        AdManager().debugStartConnectivityWatch();
+        async.elapse(const Duration(seconds: 20));
+
+        expect(AdManager().debugConnectivityReady, isFalse,
+            reason: '_startConnectivityWatch must give up after 20s instead '
+                'of hanging forever on a stuck native plugin call');
+        expect(
+            warnings.any((w) => w.contains('connectivity watch unavailable')),
+            isTrue,
+            reason: 'the existing catch(e) branch must log the timeout the '
+                'same way it logs any other init failure');
+      });
     });
   });
 

@@ -520,6 +520,11 @@ class AdManager with WidgetsBindingObserver {
   /// this flag avoids the exception entirely instead of catching it.
   bool _connectivityReady = false;
 
+  /// Test seam: injectable native init call so tests can simulate a hung
+  /// `ConnectionNotifierTools.initialize()` without a real platform channel.
+  Future<void> Function() _connectivityInit =
+      ConnectionNotifierTools.initialize;
+
   final ValueNotifier<bool> _offlineNotifier = ValueNotifier<bool>(false);
 
   /// True while the device is offline — listenable mirror of [isConnected],
@@ -568,6 +573,22 @@ class AdManager with WidgetsBindingObserver {
 
   @visibleForTesting
   void debugRetryRefillAds() => _retryRefillAds();
+
+  /// Test seam: inject a fake `ConnectionNotifierTools.initialize()` so tests
+  /// can simulate a hung native init call (R10-D) without a real platform
+  /// channel.
+  @visibleForTesting
+  set debugConnectivityInit(Future<void> Function() fn) =>
+      _connectivityInit = fn;
+
+  /// Test seam: read whether `_startConnectivityWatch` has completed.
+  @visibleForTesting
+  bool get debugConnectivityReady => _connectivityReady;
+
+  /// Test seam: drive `_startConnectivityWatch` directly without a full
+  /// [initialize].
+  @visibleForTesting
+  Future<void> debugStartConnectivityWatch() => _startConnectivityWatch();
 
   // ─── Consent gate (T01) ────────────────────────────────────────────────────
   /// Whether ad requests are permitted by the consent flow, mirroring Google
@@ -2502,7 +2523,9 @@ class AdManager with WidgetsBindingObserver {
     // are usable. Nobody else calls this, so the SDK owns it. Best-effort: on
     // platforms/tests without the plugin we simply skip the live watch.
     try {
-      await ConnectionNotifierTools.initialize();
+      // R10-D — bound the native call the same way adapter.initialize() is
+      // bounded above: an unresponsive plugin must not hang the SDK forever.
+      await _connectivityInit().timeout(const Duration(seconds: 20));
       _connectivityReady = true;
       _lastConnected = ConnectionNotifierTools.isConnected;
       _offlineNotifier.value = !_lastConnected;
