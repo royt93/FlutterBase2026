@@ -24,21 +24,34 @@ import '../utils/safe_logger.dart';
 ///     of a vendor's apps and reinstalls, which would let a standalone-app
 ///     reinstall silently bypass the guard.
 ///
-///   • **Android — anti-bypass intentionally disabled.** The host app
-///     accepts that uninstall + reinstall on Android grants a fresh 24 h
-///     grace window. Android has no reliable local-only signal that
-///     survives uninstall (Keychain/EncryptedSharedPreferences wipe with
-///     the app, ANDROID_ID needs companion storage), and Play Install
-///     Referrer alone cannot distinguish a fresh install from a reinstall.
-///     Rather than pull in a plugin (`play_install_referrer`) that adds
-///     startup overhead and a small crash surface for zero anti-bypass
-///     benefit, we simply allow grace on every Android first-init.
+///   • **Android — no guard-class-level check; relies on OS Auto Backup
+///     of the grace flag instead.** This class (`FirstInstallGuard`) has no
+///     Android-side check of its own — there's no local-only signal
+///     (Keychain/EncryptedSharedPreferences wipe with the app on uninstall,
+///     ANDROID_ID needs companion storage) it could check here. Instead, the
+///     app declares Android Auto Backup (`android:allowBackup="true"` +
+///     `fullBackupContent`/`dataExtractionRules`, see
+///     `full_backup_content.xml` / `data_extraction_rules.xml`) covering
+///     `FlutterSharedPreferences.xml`, the file holding
+///     `AdPreferences.isFirstInstallGraceApplied()`'s flag — that flag IS
+///     the marker, and the grant gate (`AdManager.initialize()`) already
+///     checks it directly (`!prefs.isFirstInstallGraceApplied()`) before
+///     this guard is even consulted. On a reinstall to the same
+///     device+Google-account with backup/sync enabled, Android restores
+///     that file automatically before the app's first run, so the flag is
+///     already `true` and no fresh grace is granted — a best-effort,
+///     non-attacker-proof mitigation (see limitations below). Play Install
+///     Referrer alone was rejected as an alternative: it cannot distinguish
+///     a fresh install from a reinstall, and a dedicated plugin
+///     (`play_install_referrer`) would add startup overhead and a crash
+///     surface for no better guarantee than the Auto Backup path above.
 ///
 /// **Bypass-result matrix:**
 ///
 /// | Attempt                                      | iOS                        | Android                    |
 /// |----------------------------------------------|----------------------------|----------------------------|
-/// | Uninstall + reinstall (same device)          | block (Keychain flag)      | bypass (intentional, fail-open) |
+/// | Uninstall + reinstall (same device+account, backup enabled) | block (Keychain flag) | mitigated (Auto Backup restores the grace flag) |
+/// | Uninstall + reinstall (different account, or backup/sync disabled) | block (Keychain flag) | bypass (no signal survives) |
 /// | Single-app-per-vendor + IDFV reset           | block (we don't use IDFV)  | n/a                        |
 /// | "Erase All Content and Settings"             | bypass (Keychain wiped)    | bypass                     |
 ///
@@ -114,8 +127,8 @@ class FirstInstallGuard {
       // Anti-bypass intentionally disabled on Android. The host app
       // accepts uninstall + reinstall as a way to receive a fresh 24 h
       // grace window. See class doc comment for rationale.
-      SafeLogger.d(_tag,
-          '⏭️ Android — anti-bypass disabled by design, allow grace');
+      SafeLogger.d(
+          _tag, '⏭️ Android — anti-bypass disabled by design, allow grace');
       return false;
     }
     // Other platforms (web, desktop) — anti-bypass is mobile-only.
@@ -186,8 +199,8 @@ class FirstInstallGuard {
       }
       return false;
     } catch (e) {
-      SafeLogger.w(_tag,
-          '_checkIosKeychainFlag threw: $e — defaulting to allow grace');
+      SafeLogger.w(
+          _tag, '_checkIosKeychainFlag threw: $e — defaulting to allow grace');
       return false;
     }
   }

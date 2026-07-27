@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Auto Backup rules (legacy — Android 6 to 11, API 23-30).
+Replaced by `data_extraction_rules.xml` on API 31+.
+
+Same intent as the modern rules: include only the app's plain
+SharedPreferences (where the `applovin_admob_sdk` first-install grace flag
+lives). Explicit <include> means everything else in `sharedpref` —
+including EncryptedSharedPreferences ciphertext (unrecoverable without
+the device's Keystore key) — is excluded by default. Do NOT add explicit
+exclude tags for `FlutterSecureStorage.xml`: Android lint (FullBackupContent)
+rejects an exclude not nested under an included path and fails the release build.
+-->
+<full-backup-content>
+    <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
+</full-backup-content>
