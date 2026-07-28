@@ -366,6 +366,32 @@ Updated: 2026-07-18
   lại cho nút "Set" ngay trước khi tap. Kết quả cuối: cả 4 job CI xanh
   (`ad_sdk`, `host app`, Android + iOS integration test).
 
+- **Audit vòng 10 (2026-07-22) — 8.8/10, CÓ production-ready, 6 sub-agent
+  song song audit lại từ đầu (không kế thừa kết luận vòng 9).** 1 finding
+  High phạm vi hẹp (R10-A, chỉ ảnh hưởng nếu host bật
+  `autoRequestUmpConsent: true`), 3 Medium (R10-B COPPA đổi giữa phiên,
+  VIP Android-reinstall-replay đã biết, R10-F test-ID landmine đã biết),
+  còn lại Low/Info (R10-C/D/E/G). **Round 11 (2026-07-28) — cả 8 finding
+  đã đóng**, thực thi qua kế hoạch 9-task (superpowers
+  subagent-driven-development, trực tiếp trên `main`): đảo thứ tự UMP
+  consent trước init adapter (R10-A, `ad_manager.dart`); hard-stop
+  AppLovin khi COPPA đổi giữa phiên (R10-B, `setConsent()`); đồng bộ
+  Android Auto Backup config `packages/ad_sdk/example` với host + sửa doc
+  comment `_first_install_guard.dart` cho đúng thực tế (VIP
+  reinstall-replay — **vẫn là giới hạn kiến trúc đã ghi nhận, không phải
+  100% fix**, đúng ràng buộc no-backend); `assert()` debug chặn AdMob
+  test ID nếu lỡ chọn provider AdMob (R10-F, `splash_screen.dart`);
+  `NSUserTrackingUsageDescription` (iOS) viết lại tiếng Việt cụ thể hơn
+  (R10-G); `_retryRefillAds()` no-op hoàn toàn khi offline (R10-C);
+  timeout 20s cho `ConnectionNotifierTools.initialize()` (R10-D); doc
+  giải thích lý do interstitial/rewarded không có watchdog (R10-E).
+  Không thêm dependency mới (pub package/native lib), không
+  backend/server. Kết quả: 657/657 test pass, `flutter analyze` sạch cả
+  `packages/ad_sdk` và host, CI 4 job xanh, review toàn-branch cuối cùng
+  (model Opus, 10 commit) verdict "Ready to merge: YES" (0
+  Critical/Important, 3 Minor không chặn). Chi tiết:
+  `doc/audit/audit_claude.md` mục "Round 10" / "Round 11".
+
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
 phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát
