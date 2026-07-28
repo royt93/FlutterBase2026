@@ -174,3 +174,43 @@ Cả 6 agent đều đọc lại độc lập và xác nhận (không biết tr�
 **Verdict cuối: CÓ — SDK này đủ chất lượng để dùng production**, ở mức **8.8/10**. Kiến trúc adapter, lifecycle/dispose, offline-resilience, VIP-crypto đều vững chắc qua 3 lần audit độc lập liên tiếp (round 8, 9, 10) không tìm thấy Critical/High mới có phạm vi rộng. Việc cần làm trước khi mở rộng (không chặn ship hiện tại): (1) đảo thứ tự init trong path `autoRequestUmpConsent` nếu SDK sẽ được host khác dùng với cờ này bật; (2) thêm auto-disable AppLovin khi COPPA flag đổi giữa phiên; (3) dọn test-ID trong `AdMobConfig` nếu có kế hoạch đổi provider.
 
 **Verdict cuối round 9: CÓ, production-ready, 9.0/10** — cả 6 finding N1-N6 và F7 đều đã được xử lý (4 fixed bằng code thật: N1/N2/N4/N5; 3 verified-giữ-nguyên có chủ đích sau khi đọc lại: N3/N6/F7). Không còn finding Medium/High nào mở. Điểm tăng từ 8.6 vì đây là audit round đầu tiên đóng hết toàn bộ finding tồn đọng thay vì để lại một danh sách ưu tiên chưa xử lý.
+
+## Round 11 (2026-07-28)
+
+All 8 findings from Round 10 closed:
+
+- **R10-A (High)** — `autoRequestUmpConsent` now resolves before AppLovin/AdMob
+  adapter init. Fixed in `ad_manager.dart`'s `initialize()`; regression test
+  in `consent_persistence_on_init_test.dart`.
+- **R10-B (Medium)** — mid-session `isAgeRestrictedUser=true` on AppLovin now
+  hard-stops `canRequestAds` immediately (AppLovin has no runtime COPPA API).
+  Fixed in `ad_manager.dart`'s `setConsent()`; regression test in
+  `ad_manager_core_test.dart`.
+- **VIP Android reinstall replay (Medium, architectural)** — the example app
+  now mirrors the host app's Android Auto Backup configuration
+  (`full_backup_content.xml` / `data_extraction_rules.xml` covering
+  `FlutterSharedPreferences.xml`), and `_first_install_guard.dart`'s doc
+  comment now accurately describes this as the intended (best-effort,
+  non-attacker-proof) mitigation instead of describing Android as
+  unmitigated. **This remains a documented limitation, not a 100% fix**: a
+  reinstall on a different Google account, or with backup/sync disabled,
+  still bypasses the grace guard — there is no backend/server and no new
+  dependency involved, per the project's hard constraint.
+- **R10-F (Medium)** — a debug-only `assert()` in `splash_screen.dart` now
+  fails loudly if `AdProvider.admob` is ever activated while `AdKey.adMob`
+  still points at Google's public test ad unit IDs (the warning comment was
+  already present).
+- **R10-G (Low)** — `NSUserTrackingUsageDescription` in `Info.plist` rewritten
+  with specific, localized (vi_VN) copy instead of generic phrasing.
+- **R10-C (Low)** — `_retryRefillAds()` now no-ops entirely while offline.
+- **R10-D (Info)** — `ConnectionNotifierTools.initialize()` now bounded by a
+  20s timeout, matching the existing adapter-init timeout pattern.
+- **R10-E (Info)** — doc comment on
+  `debugSimulateInterstitialShowAndDismiss` expanded to explain why
+  interstitial/rewarded intentionally have no watchdog (App Open's hang risk
+  is silent-on-foreground; interstitial/rewarded loads are explicit-flow and
+  far more variable in duration).
+
+All 649+ pre-existing tests plus new regression tests for R10-A/B/C/D and
+the VIP Android reinstall-replay parity fix pass. CI (`sdk`,
+`sdk-integration`, `sdk-integration-ios`, `host`) green.
