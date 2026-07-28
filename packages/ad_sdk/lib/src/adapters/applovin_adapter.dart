@@ -769,14 +769,26 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
   }
 
-  /// Test seam: put the interstitial slot into `showing` with [onDone]
-  /// captured, then immediately simulate AppLovin's `onAdHiddenCallback` (or
-  /// `onAdDisplayFailedCallback` when [dismissed] is `false`) — the same
-  /// callback path `_wireInterstitialListener` drives in production. Unlike
-  /// App Open, there is no watchdog/timer here: AppLovin's fullscreen
-  /// interstitial callbacks are treated as reliable, so this hook only
-  /// exercises the plain `beginShow()` → `markDismissed()`/`markShowFailed()`
-  /// transition — the exact path a zombie-`showing` bug would corrupt.
+  /// Test seam: put interstitial slot into `showing`, [onDone]
+  /// captured, immediately simulate AppLovin's `onAdHiddenCallback` (or
+  /// `onAdDisplayFailedCallback` if [dismissed] is `false`) — same
+  /// callback path `_wireInterstitialListener` drives in production.
+  ///
+  /// Unlike App Open, there is no watchdog/timer here — **a deliberate
+  /// choice, not an oversight (R10-E)**. App Open's watchdog exists because
+  /// it fires automatically on app foreground with no user-visible loading
+  /// state, so a hang there is silent and needs a forced timeout to recover.
+  /// Interstitial/rewarded loads are triggered by explicit app flow (level
+  /// complete, reward request) with load times that are longer and far more
+  /// variable than App Open's (rewarded in particular can legitimately take
+  /// many seconds while AppLovin's waterfall mediates across networks) — a
+  /// symmetric watchdog here risks killing a slow-but-healthy load far more
+  /// often than it would recover a genuinely hung one, absent concrete
+  /// evidence of real interstitial/rewarded hangs in production telemetry.
+  /// AppLovin's fullscreen callbacks are treated as reliable for these two
+  /// surfaces, so this hook only exercises the plain `beginShow()` →
+  /// `markDismissed()`/`markShowFailed()` transition — the exact path a
+  /// zombie-`showing` bug would corrupt.
   @visibleForTesting
   void debugSimulateInterstitialShowAndDismiss(
     void Function(bool) onDone, {
