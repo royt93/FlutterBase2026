@@ -6,12 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Flutter app whose Dart package name is **`saigonphantomlabs`** (so imports look like `package:saigonphantomlabs/mckimquyen/...`). The display name shown in `MaterialApp` is "RoyApp".
 - The shipped feature is a **WiFi stress tester** (`lib/mckimquyen/widget/wifi_stressor/`) that hammers public CDN endpoints with parallel Dio downloads and charts throughput.
-- Targets Android + iOS. Project version in `pubspec.yaml` doubles as the Play/App Store build (currently `2026.06.17+20260617`; the version string is date-based `YYYY.MM.DD+YYYYMMDD` — bump both halves together on release).
+- Targets Android + iOS. Project version in `pubspec.yaml` doubles as the Play/App Store build (currently `2026.07.19+20260719`; the version string is date-based `YYYY.MM.DD+YYYYMMDD` — bump both halves together on release).
 - Default UI locale is `vi_VN`, fallback is `en_US`. Translations live in `lib/translations/` and are persisted via `LanguageService` (SharedPreferences).
 
 ## Common commands
 
-**Where the tests live:** most automated tests live in the **`packages/ad_sdk/` package** — 200+ unit/widget/integration tests under `packages/ad_sdk/test/` (run with `cd packages/ad_sdk && flutter test`). The host app (`lib/`) is largely UI-only and gated on `flutter analyze`, but it now also has a small **`test/` directory** at the repo root for screens with non-trivial logic — currently `test/vip_screen_widget_test.dart` (VipScreen widget + redeem/stacking integration tests; run with `flutter test` from the repo root). The `Makefile` still references a `test/unit|widget|integration` layout that does not exist; prefer `flutter`/the package tests directly.
+**Where the tests live:** three suites, all flat (no `unit/widget/integration` subfolders anywhere):
+
+| Suite | Path | How to run |
+|---|---|---|
+| Ad SDK (primary gate) | `packages/ad_sdk/test/` — 67 files, ~675 tests | `cd packages/ad_sdk && flutter test` |
+| Ad SDK on-device | `packages/ad_sdk/example/integration_test/` — 21 files | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
+| Host app | `test/` at repo root — 16 files | `flutter test` from repo root |
+
+Host `test/` is not just VIP any more: `wave1..wave5_*` cover the stressor's controllers/services/models/export, plus `vip_screen_widget_test.dart` and `wifi_stressor_screen_grace_nudge_test.dart`. `test_driver/integration_test.dart` exists but there is **no** host `integration_test/` directory. The `Makefile`'s `test*`/`coverage` targets still point at the non-existent `test/unit|widget|integration` layout — run `flutter test` directly instead.
 
 ```bash
 # Install + generate mocks
@@ -22,24 +30,34 @@ flutter packages pub run build_runner build --delete-conflicting-outputs
 flutter analyze
 dart format .
 
-# Run a single test file once tests exist
-flutter test path/to/foo_test.dart
+# Run a single test file / a single test by name
+flutter test test/wave2_export_test.dart
+flutter test test/wave2_export_test.dart --plain-name "substring of the test name"
 
 # Build
 flutter build apk --debug          # Android dev build
 flutter build apk --analyze-size   # size report
 
 # Release (Makefile wraps these — the Makefile's release targets are real & current)
-make release-aab                   # signed AAB for Play upload
+make release-aab                   # obfuscated AAB (+ split-debug-info to build/symbols — keep per release)
 make release-size                  # AAB + size analysis report
+# release-aab first runs check-admob-test-id: warns (does not block) if
+# AdProvider.admob is active while native config still ships Google's test App ID.
 
 # Clean rebuild
 flutter clean && flutter pub get
 ```
 
-> Note on the `Makefile`: its **`release-aab` / `release-size` / `analyze` / `format` / `clean`** targets are usable, but its **`test` / `test-unit` / `test-widget` / `test-integration` / `coverage`** targets point at a `test/unit|widget|integration` layout that does not exist — run `flutter test` (repo root) and `cd packages/ad_sdk && flutter test` directly instead.
+**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable** and has **four** jobs:
 
-**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable** and has two jobs: `sdk` (runs `flutter analyze` + `flutter test` inside `packages/ad_sdk` — the primary gate) and `host` (`flutter analyze` + `flutter test` at the repo root — the host test suite is small but now real). It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
+- `sdk` — `flutter analyze` + `flutter test` in `packages/ad_sdk`. Primary gate.
+- `sdk-integration` — the example app's `integration_test/` on an Android emulator. Needs KVM, disk cleanup and a 3GB swapfile on the runner (OOM-killer flake, see the inline comments before touching it). Forces `AD_PROVIDER_ADMOB` because no real AppLovin SDK key is committed, so the AppLovin path can never init in CI.
+- `sdk-integration-ios` — same tests on an iOS Simulator (Xcode 26.1.1 + CocoaPods).
+- `host` — `flutter analyze` + `flutter test` at the repo root.
+
+It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
+
+**Where the written history lives:** `doc/init.md` (project conventions — see the last section here), `doc/feature.md` + `doc/task/` (specs & completed task records), `doc/audit/` (numbered audit rounds — the ad SDK has been through 12; read the latest before re-litigating an SDK design decision), `doc/README_TESTING.md`, `doc/SPLASH_SETUP.md`, `doc/UMP_SETUP.md`.
 
 ## Architecture
 
@@ -78,8 +96,8 @@ This `mckimquyen/` namespace folder is where all app code lives. Subfolders are 
 The `applovin_admob_sdk` package is **dual-sourced**:
 
 - A local copy lives in `packages/ad_sdk/` (it is its own Flutter package with its own example app, README, tests).
-- The app currently consumes the **hosted `applovin_admob_sdk: ^1.0.23` from pub.dev** (active in `pubspec.yaml`; the local `path: packages/ad_sdk` override is commented out right below it). The local copy is kept in sync at `1.0.23` for dev/test. To ship SDK changes that haven't been published yet, uncomment the path override (and comment out the hosted line), then re-publish the bumped SDK version and flip the two lines back before a release.
-- `gma_mediation_applovin` must stay at the app level — it's a native mediation plugin and cannot be declared inside the sub-package.
+- The app currently consumes the **hosted `applovin_admob_sdk: ^1.2.2` from pub.dev** (active in `pubspec.yaml`; the local `path: packages/ad_sdk` override is commented out right below it). The local copy is kept in sync at `1.2.2` for dev/test. To ship SDK changes that haven't been published yet, uncomment the path override (and comment out the hosted line), then re-publish the bumped SDK version and flip the two lines back before a release.
+- `gma_mediation_applovin` must stay at the app level — it's a native mediation plugin and cannot be declared inside the sub-package. It is **pinned to `2.5.1` in `dependency_overrides`**: `>=2.6.0` needs `meta ^1.17.0`, but `flutter_test` from the CI-pinned Flutter 3.35.1 forces `meta 1.16.0`, so the bump fails at `flutter pub get`. Re-check only when the Flutter pin moves (details in the pubspec comment).
 
 The integration contract (see `packages/ad_sdk/README.md` for the full version):
 
@@ -89,7 +107,7 @@ The integration contract (see `packages/ad_sdk/README.md` for the full version):
 4. `SplashScreen` already implements the required pattern: hard-cap timer (8s), `AdManager().markSplashActive/Inactive()`, `incrementSplashCount()`, and `AdLoadingDialog.showAdBuffer()` before `showAppOpenAd(bypassSafety: true)`. If you touch this file, preserve the cancellation order: cancel the hard-cap timer **before** `showAppOpenAd`, and always call `markSplashInactive()` exactly once on navigation away.
 5. Any screen that displays ads should extend `AdScreen` + `AdScreenState` (instead of `StatefulWidget`/`State`) so it gets `buildBanner()`, `showInterstitialAd()`, and `showRewardedAd()`. RouteAware banner lifecycle is automatic when `adRouteObserver` is registered.
 6. The SDK has a built-in safety layer (daily/hourly/session caps, 30s throttle, CTR fraud, progressive cooldown). Don't try to bypass it except on the splash App Open ad (`bypassSafety: true`).
-7. App Open never stacks on top of a modal — `showAppOpenAdOnResume` checks `AdScreenRouteLogger.isDialogOnTop` and skips while a dialog is showing (SDK 1.0.23). The SDK's `_retryRefillAds` also returns early while a VIP entry is active so it doesn't reload suppressed slots.
+7. App Open never stacks on top of a modal — `showAppOpenAdOnResume` checks `AdScreenRouteLogger.isDialogOnTop` and skips while a dialog is showing. The SDK's `_retryRefillAds` also returns early while a VIP entry is active so it doesn't reload suppressed slots.
 
 ### VIP entitlement
 
