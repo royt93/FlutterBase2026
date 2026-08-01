@@ -39,10 +39,12 @@ screenshots:
       Ed25519-signed key or watch one rewarded ad for free VIP time; while VIP
       is active every ad surface is suppressed automatically.
     path: doc/screenshots/02_vip_redeem.png
+  # pub.dev rejects a description over 200 characters (server-side, not caught
+  # by `pub publish --dry-run`) — keep each one comfortably under that.
   - description: >-
-      The built-in ad-safety layer, showing live params next to the production
-      and debug presets — inter-ad throttle, session/hour/day caps, warmup and
-      resume delays, click-rate and CTR fraud limits, dry-run mode.
+      The built-in ad-safety layer: live params next to the production and debug
+      presets — inter-ad throttle, session/hour/day caps, warmup and resume
+      delays, click-rate and CTR fraud limits, dry-run.
     path: doc/screenshots/03_safety_status.png
 
 environment:
