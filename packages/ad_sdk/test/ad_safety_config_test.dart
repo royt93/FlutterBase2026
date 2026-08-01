@@ -383,4 +383,68 @@ void main() {
       }
     });
   });
+
+  // ─────────────────────────────────────────────────
+  // applyDryRunReleaseGuard (R12-A)
+  // ─────────────────────────────────────────────────
+  group('applyDryRunReleaseGuard (R12-A)', () {
+    test('forces dryRun off when dryRun=true and isRelease=true', () {
+      const dirty = AdSafetyParams(dryRun: true);
+      final guarded = AdSafetyConfig.applyDryRunReleaseGuard(
+        dirty,
+        isRelease: true,
+      );
+      expect(guarded.dryRun, isFalse);
+    });
+
+    test('leaves dryRun=true untouched when isRelease=false (debug/profile)',
+        () {
+      const dirty = AdSafetyParams(dryRun: true);
+      final guarded = AdSafetyConfig.applyDryRunReleaseGuard(
+        dirty,
+        isRelease: false,
+      );
+      expect(guarded.dryRun, isTrue);
+    });
+
+    test('leaves dryRun=false untouched regardless of isRelease', () {
+      const clean = AdSafetyParams(dryRun: false);
+      expect(
+        AdSafetyConfig.applyDryRunReleaseGuard(clean, isRelease: true).dryRun,
+        isFalse,
+      );
+      expect(
+        AdSafetyConfig.applyDryRunReleaseGuard(clean, isRelease: false).dryRun,
+        isFalse,
+      );
+    });
+
+    test('init(isRelease:) wires the guard end-to-end in both directions',
+        () async {
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(dryRun: true), isRelease: true);
+      expect(AdSafetyConfig.getStatusSnapshot().dryRun, isFalse);
+
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(dryRun: true), isRelease: false);
+      expect(AdSafetyConfig.getStatusSnapshot().dryRun, isTrue);
+    });
+
+    test(
+        'guard log still reaches onLog even when the host silenced '
+        'logLevel to none', () async {
+      final captured = <String>[];
+      SafeLogger.configure(
+        level: AdLogLevel.none,
+        onLog: (level, tag, message) => captured.add(message),
+      );
+      addTearDown(SafeLogger.resetForTest);
+
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(dryRun: true), isRelease: true);
+
+      expect(captured, isNotEmpty);
+      expect(captured.single, contains('forcing dryRun=false'));
+    });
+  });
 }

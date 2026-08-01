@@ -4,8 +4,10 @@
 // AppLovin/AdMob plugins.
 //
 // Covered:
-//   1. releaseFootgunWarnings — the loud release-build guards (dryRun, AdMob
-//      Google test IDs in release) as a pure function.
+//   1. releaseFootgunWarnings — the loud release-build guard for AdMob Google
+//      test IDs left in release, as a pure function. (dryRun-in-release is a
+//      separate, silent-correction guard now — see AdSafetyConfig.init()'s
+//      applyDryRunReleaseGuard.)
 //   2. VIP gating — every public load/show/canShow path must short-circuit when
 //      a VIP entry is active (the SDK's "VIP suppresses all ad surfaces"
 //      contract), including the documented canShowRewardedAd()==true quirk.
@@ -288,13 +290,15 @@ void main() {
       expect(w, isEmpty);
     });
 
-    test('release + dryRun → one warning about the safety bypass', () {
+    test(
+        'release + dryRun → no warning (R12-A: AdSafetyConfig.init forces '
+        'it off before this ever runs, so the old dryRun check was removed)',
+        () {
       final w = AdManager.releaseFootgunWarnings(
         _admobConfig(dryRun: true, testIds: false),
         isDebug: false,
       );
-      expect(w, hasLength(1));
-      expect(w.single, contains('dryRun'));
+      expect(w, isEmpty);
     });
 
     test('release + AdMob Google test IDs → one warning', () {
@@ -306,12 +310,15 @@ void main() {
       expect(w.single, contains('TEST'));
     });
 
-    test('release + dryRun + test IDs → both warnings fire', () {
+    test(
+        'release + dryRun + test IDs → only the test-ID warning fires '
+        '(dryRun is no longer checked here, see R12-A)', () {
       final w = AdManager.releaseFootgunWarnings(
         _admobConfig(dryRun: true, testIds: true),
         isDebug: false,
       );
-      expect(w, hasLength(2));
+      expect(w, hasLength(1));
+      expect(w.single, contains('TEST'));
     });
 
     test('release + production AdMob IDs + dryRun off → clean', () {
@@ -1020,6 +1027,106 @@ void main() {
       expect(vip.activeListenable.value, isTrue);
       final remainingHours = vip.expiresAt!.difference(DateTime.now()).inHours;
       expect(remainingHours, inInclusiveRange(23, 24));
+    });
+  });
+
+  group(
+      'initialize(isRelease:) wiring into AdSafetyConfig.init() '
+      '(R12-A audit round 12, self-review)', () {
+    setUp(() async {
+      await AdManager().destroy();
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+    });
+
+    tearDown(() async {
+      await AdManager().destroy();
+    });
+
+    test(
+        'a real initialize() call forwards isRelease through to '
+        'AdSafetyConfig.init() (cheaper direct coverage of the guard itself '
+        'is in ad_safety_config_test.dart)', () async {
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) {},
+        isRelease: true,
+      );
+
+      expect(AdSafetyConfig.getStatusSnapshot().dryRun, isFalse,
+          reason: 'proves the wiring/ordering invariant through the real '
+              'initialize() path, not just AdSafetyConfig.init() called '
+              'directly in isolation');
+    });
+  });
+
+  group(
+      'consent-footgun guard call site (R12-A audit round 5 — '
+      'isActuallyRelease(isRelease) at this call site was previously '
+      'unreachable by any test)', () {
+    // A real initialize() call always fails adapter init under `flutter
+    // test` (no native platform channel), so the consent-footgun guard at
+    // ad_manager.dart's `isActuallyRelease(isRelease)` call site can't be
+    // reached through initialize() itself — the 'N2: consent footgun
+    // runtime block' group above only drives `debugFootgunBlocked` directly.
+    // debugApplyConsentFootgunGuard() exercises that exact call site's
+    // decision directly instead.
+    setUp(() {
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugFootgunBlocked = false;
+    });
+    tearDown(() {
+      AdManager().debugFootgunBlocked = false;
+      AdManager().debugCanRequestAds = true;
+    });
+
+    test('debugApplyConsentFootgunGuard(isRelease: true) blocks ad requests',
+        () {
+      final mgr = AdManager();
+      expect(mgr.canRequestAds, isTrue);
+
+      mgr.debugApplyConsentFootgunGuard(true);
+
+      expect(mgr.canRequestAds, isFalse,
+          reason: 'a release build must block ad requests when the '
+              'consent-coverage footgun guard fires');
+    });
+
+    test(
+        'debugApplyConsentFootgunGuard(isRelease: false) leaves ad requests '
+        'unblocked', () {
+      final mgr = AdManager();
+      expect(mgr.canRequestAds, isTrue);
+
+      mgr.debugApplyConsentFootgunGuard(false);
+
+      expect(mgr.canRequestAds, isTrue,
+          reason: 'debug/profile builds stay in demo mode so hosts can '
+              'diagnose the footgun without being blocked');
+    });
+  });
+
+  group(
+      '_resetGuardState (R12-A audit round 6 — reinit-without-destroy() '
+      'branch used to skip _umpRequested/_consentExplicitlySet the way it '
+      'skipped _footgunBlocked pre-round-5)', () {
+    tearDown(() {
+      AdManager().debugFootgunBlocked = false;
+      AdManager().debugUmpRequested = false;
+      AdManager().debugConsentExplicitlySet = false;
+    });
+
+    test('debugResetGuardState() clears all three guard flags at once', () {
+      final mgr = AdManager();
+      mgr.debugFootgunBlocked = true;
+      mgr.debugUmpRequested = true;
+      mgr.debugConsentExplicitlySet = true;
+
+      mgr.debugResetGuardState();
+
+      expect(mgr.debugFootgunBlocked, isFalse);
+      expect(mgr.debugUmpRequested, isFalse);
+      expect(mgr.debugConsentExplicitlySet, isFalse);
     });
   });
 

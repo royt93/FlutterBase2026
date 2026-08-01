@@ -392,6 +392,92 @@ Updated: 2026-07-18
   Critical/Important, 3 Minor không chặn). Chi tiết:
   `doc/audit/audit_claude.md` mục "Round 10" / "Round 11".
 
+- **R12-A dryRun release guard (2026-07-28 → 2026-08-01, 9/10 cuối).**
+  `AdSafetyConfig.applyDryRunReleaseGuard()` tự ép `dryRun=false` trong release
+  build (`assert()` bị strip ở release nên không tự bảo vệ được) + log qua
+  `SafeLogger.critical()` (bỏ qua `AdLogLevel.none`). 5 vòng self-review hardening
+  dần: hợp nhất check `kReleaseMode` rải rác qua `isActuallyRelease()`; xoá 1
+  test vô nghĩa pass giả (AdMob mock luôn fail init trước khi chạm code nó
+  tuyên bố kiểm chứng); sửa bug rò rỉ state thật trong `destroy()`
+  (`_footgunBlocked`/`_umpRequested`/`_consentExplicitlySet` chưa từng được
+  reset); cập nhật `README.md` + comment đầu `ad_manager_core_test.dart` đang
+  mô tả sai hành vi dryRun cũ (warn-only) so với hành vi mới (silent
+  force-correct).
+  **Round 4 (2026-08-01, audit 8-finder-angle, 7/10 → 6 fix áp dụng):**
+  thread nốt `isRelease` vào 2 chỗ còn sót
+  (`ad_manager.dart` guard consent-footgun + `VipManager(...)` constructor)
+  — trước đó 2 call site này gọi `isActuallyRelease()` không tham số nên
+  luôn tương đương `kReleaseMode` thô (`false` khi `flutter test`); thêm
+  seam test `VipManager.debugRunValidator()` + 2 test thật cho guard này
+  (nhánh tương đương ở `ad_manager.dart:1228` **không thể** test end-to-end
+  vì `initialize()` luôn fail ở bước khởi tạo native adapter dưới
+  `flutter test` — giới hạn kiến trúc, đã ghi rõ trong comment thay vì giả
+  vờ có coverage); gộp `SafeLogger._shouldLog` nhận tham số `bypassLevel`
+  thay vì 2 nhánh trùng lặp trong `e()`; sửa số liệu sai
+  (662/662 · 10/10) trong `audit_claude.md` bằng ghi chú làm rõ đây là
+  snapshot cũ trước 3 vòng hardening sau; gộp nốt 1 đoạn comment lặp còn lại
+  trong `ad_safety_config.dart` (giải thích lý do `isRelease` không đánh dấu
+  `@visibleForTesting` ở `init()`) thành con trỏ về doc-comment của
+  `applyDryRunReleaseGuard()`. Kết quả cuối: 674/674 test pass ở
+  `packages/ad_sdk` (672 + 2 test mới), `flutter analyze` sạch cả 2 vùng.
+  Chi tiết: `doc/audit/audit_claude.md` mục "Round 12".
+  **Round 5 (2026-08-01, audit 8-finder-angle → 10 verifier, 7.5/10 → 2 fix
+  áp dụng):** `_footgunBlocked` bị rò state qua re-init — nhánh auto-dispose
+  của `initialize()` (khi gọi lại lần 2 mà không qua `destroy()`) đã reset
+  timer/connectivity-watch/adapter nhưng **quên** reset `_footgunBlocked`, nên
+  1 lần init cũ với `isRelease:true` (trip footgun) sẽ khoá ads vĩnh viễn dù
+  init sau đó `isRelease:false`; đã thêm `_footgunBlocked = false;` vào đúng
+  nhánh đó. `SafeLogger.critical()` vs `e(bypassLevel:true)` (finding đã
+  approve từ vòng trước nhưng chưa làm) — gộp thành `_e()` private dùng
+  chung, `bypassLevel` không còn public trên `e()`, chỉ `critical()` gọi được;
+  xoá 2 test trùng đã assert hành vi này qua `e(bypassLevel:true)`. 1 finding
+  PLAUSIBLE chấp nhận giữ nguyên: `applyDryRunReleaseGuard()` không dedup nên
+  re-init lặp lại sẽ log `critical()` nhiều lần — nhưng không có auto-retry
+  loop nào gọi `initialize()`/`AdSafetyConfig.init()` (`_retryRefillAds()`
+  không đụng tới), chỉ 1 lần gọi từ `splash_screen.dart` nên latent, không
+  active-triggered. Kết quả: 674/674 test pass, `flutter analyze` sạch host +
+  `packages/ad_sdk` — 1 warning `invalid_use_of_visible_for_testing_member` ở
+  `ad_manager.dart:1025` (pre-existing từ Round 4, `VipManager.isRelease` dùng
+  ở production call site, ngoài phạm vi 2 finding được duyệt vòng này) đã fix
+  ngay sau đó bằng cách xoá `@visibleForTesting` khỏi `isRelease` param trong
+  `vip_manager.dart`, mirror đúng pattern đã dùng ở `ad_safety_config.dart`
+  (`isRelease` không cần annotation vì an toàn đến từ `isActuallyRelease()`,
+  không phải từ compile-time restriction) — 674/674 test pass, 0 warning.
+  **Round 6 (2026-08-01, audit 8-finder-angle → 9 verifier, 2 CONFIRMED / 2
+  PLAUSIBLE / 5 REFUTED):** nhánh reinit-without-`destroy()` của
+  `initialize()` (dòng ~962) chỉ reset `_footgunBlocked` (fix Round 5) mà
+  **quên** `_umpRequested`/`_consentExplicitlySet` — cùng lớp bug vừa fix, chỉ
+  khác field: 1 init cũ đã request UMP/set consent xong, rồi re-init lần 2
+  (không qua `destroy()`) với config thật sự không gather consent, thì
+  `consentFootgunWarning()` vẫn đọc flag cũ = `true`, im lặng bỏ qua cảnh báo
+  EEA/UK consent-footgun đáng lẽ phải trigger `_applyConsentFootgunGuard()`.
+  Root cause: `destroy()` và nhánh reinit tự tay duy trì 2 danh sách reset
+  field riêng biệt — đúng cơ chế đã gây ra bug Round 5. Đã fix triệt để hơn
+  Round 5 (không chỉ patch thêm field): gộp 3 field guard-state
+  (`_footgunBlocked`/`_umpRequested`/`_consentExplicitlySet`) vào 1 method
+  dùng chung `_resetGuardState()`, gọi từ cả `destroy()` lẫn nhánh reinit —
+  không còn 2 danh sách tay để lệch nhau lần 3. Thêm debug getter/setter cho
+  `_umpRequested`/`_consentExplicitlySet` (mirror `debugFootgunBlocked` có
+  sẵn) + 1 test mới xác nhận `debugResetGuardState()` clear cả 3 flag cùng
+  lúc. Finding CONFIRMED thứ 2 (không cần fix thêm, chính là fix trên): thiếu
+  shared reset method — verify xác nhận `AdSafetyConfig` đã có pattern này
+  (`resetForReinit()`) làm đối chứng. 2 finding PLAUSIBLE giữ nguyên (rủi ro
+  thấp, không sửa): `releaseFootgunWarnings`/`consentFootgunWarning` có
+  ordering invariant giữa các bước trong `initialize()` chỉ enforce bằng
+  prose comment (không assert/type) nhưng mỗi hàm chỉ 1 call site tuần tự nên
+  khó vô tình vi phạm; đoạn doc-comment "barrel-export rationale" lặp lại
+  giữa `ad_safety_config.dart`/`vip_manager.dart` (style, không tác hại). 5
+  finding REFUTED: `SafeLogger.critical()` vẫn honor `tagFilter` (đã tài liệu
+  hoá rõ là cố ý, không phải promise gap); debug-wrapper pattern
+  (`debugApplyConsentFootgunGuard`/`debugRunValidator`) chỉ là 1 idiom lặp lại
+  20+ lần trong codebase, không phải duplicate logic giữa 2 file; tham số
+  `isRelease` thread qua 3 file là seam bắt buộc ở mỗi entry point test-
+  injectable, không gộp được; `initialize()` có `isRelease` public không phải
+  lỗ hổng bypass vì `isActuallyRelease() = isRelease || kReleaseMode` luôn
+  đóng lại ở release build thật; `bypassLevel` bool riêng tư tốt hơn thêm enum
+  `AdLogLevel.critical` (breaking change cho public config type). Kết quả:
+  675/675 test pass (674 + 1 test mới), `flutter analyze` sạch.
+
 ### ⚠️ Accepted risks — audit findings knowingly NOT fixed (2026-07-16)
 Người dùng đã xem từng mục qua `AskUserQuestion` và chọn **giữ nguyên** (không
 phải bug bị bỏ sót) — ghi lại ở đây để tránh audit vòng sau báo lại như phát

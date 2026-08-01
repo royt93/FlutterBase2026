@@ -12,6 +12,8 @@ typedef AdLogSink = void Function(AdLogLevel level, String tag, String message);
 /// - `logTagFilter: ['AdManager', 'AdSafety']` — only emit logs whose tag is in this list (`null` = all tags).
 /// - `onLog` — pipe SDK logs into Crashlytics / Sentry / your own logger.
 ///
+/// [critical] is the one exception to `logLevel` — see its doc for why.
+///
 /// All public methods accept either a `String` literal or a `String Function()`
 /// (lazy lambda). The lambda is **only invoked** when the log would actually
 /// be emitted, so expensive interpolation (`'state=${heavy()}'`) costs zero
@@ -37,29 +39,37 @@ class SafeLogger {
   // ─── Backward-compat shims ────────────────────────────────────────────────
 
   /// 1.x API: `setEnabled(true)` ≡ verbose; `setEnabled(false)` ≡ none.
-  @Deprecated('Use SafeLogger.configure(level: AdLogLevel.x). Will be removed in 3.0.')
+  @Deprecated(
+      'Use SafeLogger.configure(level: AdLogLevel.x). Will be removed in 3.0.')
   static void setEnabled(bool enabled) {
     _level = enabled ? AdLogLevel.verbose : AdLogLevel.none;
   }
 
   /// 1.x alias for [setEnabled].
-  @Deprecated('Use SafeLogger.configure(level: AdLogLevel.x). Will be removed in 3.0.')
+  @Deprecated(
+      'Use SafeLogger.configure(level: AdLogLevel.x). Will be removed in 3.0.')
   static void setVerbose(bool v) => setEnabled(v);
 
   // ─── Internals ────────────────────────────────────────────────────────────
 
-  static bool _shouldLog(AdLogLevel msgLevel, String tag) {
-    if (_level == AdLogLevel.none) return false;
-    final passes = switch (msgLevel) {
-      AdLogLevel.verbose => _level == AdLogLevel.verbose,
-      AdLogLevel.warning =>
-        _level == AdLogLevel.verbose || _level == AdLogLevel.warning,
-      AdLogLevel.error => _level == AdLogLevel.verbose ||
-          _level == AdLogLevel.warning ||
-          _level == AdLogLevel.error,
-      AdLogLevel.none => false,
-    };
-    if (!passes) return false;
+  /// [bypassLevel] skips the level gate entirely (still honors [_tagFilter])
+  /// — used by [critical] so a host that silenced all logging still learns
+  /// a safety guard fired.
+  static bool _shouldLog(AdLogLevel msgLevel, String tag,
+      {bool bypassLevel = false}) {
+    if (!bypassLevel) {
+      if (_level == AdLogLevel.none) return false;
+      final passes = switch (msgLevel) {
+        AdLogLevel.verbose => _level == AdLogLevel.verbose,
+        AdLogLevel.warning =>
+          _level == AdLogLevel.verbose || _level == AdLogLevel.warning,
+        AdLogLevel.error => _level == AdLogLevel.verbose ||
+            _level == AdLogLevel.warning ||
+            _level == AdLogLevel.error,
+        AdLogLevel.none => false,
+      };
+      if (!passes) return false;
+    }
     final filter = _tagFilter;
     if (filter != null && !filter.contains(tag)) return false;
     return true;
@@ -89,10 +99,23 @@ class SafeLogger {
   }
 
   /// Error. Accepts `String` or `String Function()`.
-  static void e(String tag, Object msg) {
-    if (!_shouldLog(AdLogLevel.error, tag)) return;
+  static void e(String tag, Object msg) => _e(tag, msg);
+
+  /// Security-critical event — bypasses [AdLogLevel.none] so a host that
+  /// silenced all logging still learns a safety guard fired (e.g. a
+  /// release build forcing `dryRun` back off). Still honors [tagFilter];
+  /// that's a deliberate per-tag scoping choice, unlike `none`, which is a
+  /// blanket kill switch not meant to hide safety-relevant events.
+  static void critical(String tag, Object msg) =>
+      _e(tag, msg, bypassLevel: true);
+
+  /// Shared `e()`/`critical()` implementation. [bypassLevel] is kept
+  /// private — only [critical] may skip the `logLevel` gate; `e()` never
+  /// exposes that as a public knob.
+  static void _e(String tag, Object msg, {bool bypassLevel = false}) {
+    if (!_shouldLog(AdLogLevel.error, tag, bypassLevel: bypassLevel)) return;
     final s = _resolve(msg);
-    debugPrint('roy93~ [$tag] ❌ $s');
+    debugPrint('roy93~ [$tag] ${bypassLevel ? '🚨' : '❌'} $s');
     _sink?.call(AdLogLevel.error, tag, s);
   }
 

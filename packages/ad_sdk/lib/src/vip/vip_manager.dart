@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../config/ad_config.dart';
 import '../utils/ad_preferences.dart';
+import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 import '_redeemed_key_ledger.dart';
 import '_vip_entries_store.dart';
@@ -30,14 +31,20 @@ import 'vip_entry.dart';
 /// Conflict policy (Q14A — latest expiry wins): adding a key that already
 /// exists keeps the entry whose `expiresAt` is the **latest** of the two.
 class VipManager {
+  // `isRelease` isn't `@visibleForTesting` here for the same barrel-export
+  // reason covered in `AdSafetyConfig.applyDryRunReleaseGuard`'s doc comment —
+  // safety comes from `isActuallyRelease`, not the annotation. `AdManager`
+  // (production code) legitimately forwards its own `isRelease` param here.
   VipManager(
     this._prefs, {
     this.maxStackDuration,
     this.graceNudgeThreshold = const Duration(hours: 24),
     RedeemedKeyLedger? redeemedKeyLedger,
     VipEntriesStore? vipEntriesStore,
+    bool isRelease = kReleaseMode,
   })  : _redeemedKeyLedger = redeemedKeyLedger ?? RedeemedKeyLedger(),
-        _vipEntriesStore = vipEntriesStore ?? VipEntriesStore(_prefs);
+        _vipEntriesStore = vipEntriesStore ?? VipEntriesStore(_prefs),
+        _isRelease = isRelease;
 
   static const String _tag = 'VipManager';
 
@@ -51,6 +58,10 @@ class VipManager {
   /// Encrypted-at-rest storage (Keychain/Keystore) for the VIP entries list.
   /// See `_vip_entries_store.dart`.
   final VipEntriesStore _vipEntriesStore;
+
+  /// Test-only override so [_runValidator]'s release-build guard can be
+  /// exercised under `flutter test` without a real release build.
+  final bool _isRelease;
 
   /// Optional cap on the total window produced by [addVip] stacking — sourced
   /// from `AdConfig.maxVipStackDuration`. `null` = uncapped. See [addVip].
@@ -593,7 +604,7 @@ class VipManager {
     Future<bool> Function(String key)? validator,
   ) async {
     if (validator == null) {
-      if (kReleaseMode) {
+      if (isActuallyRelease(_isRelease)) {
         // A plain assert() would be stripped from release builds — the
         // exact build where a forgotten validator matters most (free VIP
         // for any string). Refuse instead, so demo mode only ever applies
@@ -611,6 +622,16 @@ class VipManager {
     }
     return validator(key);
   }
+
+  /// Test seam for [_runValidator] — the no-validator/`isRelease` guard
+  /// above is otherwise only reachable through [redeemVip]'s full dialog
+  /// flow, which requires a widget pump under `flutter test`.
+  @visibleForTesting
+  Future<bool> debugRunValidator(
+    String key,
+    Future<bool> Function(String key)? validator,
+  ) =>
+      _runValidator(key, validator);
 
   Future<void> _showFailed(
     BuildContext context,

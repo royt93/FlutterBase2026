@@ -25,6 +25,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/ad_preferences.dart';
+import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 import '../vip/_first_install_guard.dart';
 import '../vip/vip_manager.dart';
@@ -112,17 +113,17 @@ class AdManager with WidgetsBindingObserver {
   /// Release-build footgun checks, returned as human-readable warnings.
   /// `initialize()` logs each (and asserts in non-release). Pure + static so it
   /// is unit-testable without running the full native init.
+  ///
+  /// Does NOT check `dryRun`: that guard now lives solely in
+  /// `AdSafetyConfig.init()` (R12-A), which `initialize()` always calls right
+  /// before this. Calling this method standalone — without having run
+  /// `AdSafetyConfig.init()` first — will NOT warn about a release build with
+  /// `dryRun: true`; it only covers the checks below (Google test ad unit IDs).
   @visibleForTesting
   static List<String> releaseFootgunWarnings(AdConfig config,
       {required bool isDebug}) {
     if (isDebug) return const [];
     final warnings = <String>[];
-    // dryRun disables the ENTIRE safety layer (throttle, caps, CTR fraud).
-    if (config.safety.dryRun) {
-      warnings.add('🚨 AdSafetyParams.dryRun is TRUE in a RELEASE build — the '
-          'entire safety layer is bypassed. This risks an AdMob/AppLovin ban. '
-          'Set dryRun:false before shipping.');
-    }
     // Google public TEST unit IDs must never serve in production AdMob.
     if (config.provider == AdProvider.admob) {
       const googleTestPrefix = 'ca-app-pub-3940256099942544';
@@ -617,16 +618,48 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugFootgunBlocked(bool v) => _footgunBlocked = v;
 
+  @visibleForTesting
+  bool get debugFootgunBlocked => _footgunBlocked;
+
+  /// The actual isRelease-gated decision from [initialize]'s consent-coverage
+  /// footgun (see the call site right after [consentFootgunWarning] returns
+  /// non-null). Factored out so [debugApplyConsentFootgunGuard] can exercise
+  /// it directly — a real [initialize] call never completes under
+  /// `flutter test` (no native adapter), so this branch was otherwise
+  /// unreachable by any test despite `isRelease` being threaded to it.
+  void _applyConsentFootgunGuard(bool isRelease) {
+    if (isActuallyRelease(isRelease)) _footgunBlocked = true;
+  }
+
+  /// Test seam for [_applyConsentFootgunGuard] — see its doc comment.
+  @visibleForTesting
+  void debugApplyConsentFootgunGuard(bool isRelease) =>
+      _applyConsentFootgunGuard(isRelease);
+
   /// Whether [requestUmpConsent] has ever run this process — used to detect the
   /// "no consent form anywhere" footgun at [initialize] time (AppLovin CMP off +
   /// UMP never run). Runtime state, so it doesn't false-alarm hosts that gather
   /// consent correctly in their splash.
   bool _umpRequested = false;
 
+  /// Test seam for [_umpRequested] — see [debugResetGuardState].
+  @visibleForTesting
+  set debugUmpRequested(bool v) => _umpRequested = v;
+
+  @visibleForTesting
+  bool get debugUmpRequested => _umpRequested;
+
   /// N2 — set true by [setConsent] itself, so the footgun check doesn't
   /// false-block hosts running their OWN non-UMP consent UI who hand the
   /// answer straight to [setConsent] instead of calling [requestUmpConsent].
   bool _consentExplicitlySet = false;
+
+  /// Test seam for [_consentExplicitlySet] — see [debugResetGuardState].
+  @visibleForTesting
+  set debugConsentExplicitlySet(bool v) => _consentExplicitlySet = v;
+
+  @visibleForTesting
+  bool get debugConsentExplicitlySet => _consentExplicitlySet;
 
   /// F9 — set by [requestAtt]; used only to warn (never block) when
   /// [requestUmpConsent] runs on iOS before ATT was requested, since callers
@@ -918,6 +951,7 @@ class AdManager with WidgetsBindingObserver {
   Future<void> initialize({
     required AdConfig config,
     required void Function(bool success, String gaid) onComplete,
+    @visibleForTesting bool isRelease = kReleaseMode,
   }) async {
     // Guard FIRST so concurrent calls during a teardown-then-reinit cycle
     // can't slip past `_disposeAdapter`'s await and leak two adapters.
@@ -938,6 +972,12 @@ class AdManager with WidgetsBindingObserver {
         _stopAdRetryTimer();
         _stopConnectivityWatch();
         await _disposeAdapter();
+        // R12-A audit round 6: reset via the same shared method destroy()
+        // uses, instead of a hand-copied field list — a second field
+        // (_umpRequested/_consentExplicitlySet) leaked past this branch in
+        // Round 6 the same way _footgunBlocked did in Round 5, because the
+        // two reset lists were maintained independently.
+        _resetGuardState();
       }
 
       // Phase 2: configure logger first so init logs respect the level.
@@ -961,10 +1001,14 @@ class AdManager with WidgetsBindingObserver {
           _eventLog!.recordAdaptiveSignal); // T26: adaptive-frequency signals
 
       // Phase 3: pipe safety params from config.
-      await AdSafetyConfig.init(prefs, params: config.safety);
+      await AdSafetyConfig.init(prefs,
+          params: config.safety, isRelease: isRelease);
       AdSafetyConfig.setAnomalySink(_emit); // T25: anomaly/fraud alert stream
 
       // ── Release footguns (loud, fire in release where it matters) ──────────
+      // isDebug: kDebugMode on purpose (not isActuallyRelease()) — these
+      // warnings must still fire in profile-mode builds, unlike the
+      // isActuallyRelease() call sites below, which gate release-only guards.
       for (final w in releaseFootgunWarnings(config, isDebug: kDebugMode)) {
         SafeLogger.e(_tag, w);
         assert(false, w);
@@ -995,8 +1039,8 @@ class AdManager with WidgetsBindingObserver {
       // wiring a new one — otherwise the old listener would leak.
       _vipManager?.activeListenable.removeListener(_onVipActiveChanged);
       _vipManager?.dispose();
-      final vip =
-          VipManager(prefs, maxStackDuration: config.maxVipStackDuration);
+      final vip = VipManager(prefs,
+          maxStackDuration: config.maxVipStackDuration, isRelease: isRelease);
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
@@ -1219,7 +1263,7 @@ class AdManager with WidgetsBindingObserver {
         // requestUmpConsent(), a direct setConsent() call from their own
         // consent UI (both clear [_footgunBlocked], see [setConsent]), or by
         // fixing the config footgun itself.
-        if (kReleaseMode) _footgunBlocked = true;
+        _applyConsentFootgunGuard(isRelease);
         // F4 — surface this loudly in dev/test builds (stripped in release);
         // the log above is easy to miss.
         assert(false, consentWarning);
@@ -1626,6 +1670,7 @@ class AdManager with WidgetsBindingObserver {
     _isInitializing = false;
     _consentDialogScheduled = false;
     _offlineNotifier.value = false;
+    _resetGuardState();
 
     if (_isObserverAdded) {
       WidgetsBinding.instance.removeObserver(this);
@@ -1633,6 +1678,26 @@ class AdManager with WidgetsBindingObserver {
     }
     SafeLogger.d(_tag, 'destroy() ✅');
   }
+
+  // R12-A audit round 6: single source of truth for the footgun/consent
+  // guard flags — destroy() and initialize()'s reinit-without-destroy()
+  // branch used to hand-copy this list independently, which is exactly how
+  // _footgunBlocked (Round 5) and _umpRequested/_consentExplicitlySet
+  // (Round 6) each went unreset on a re-init in turn. Otherwise a
+  // setConsent()/requestUmpConsent() call in one session permanently flips
+  // these for every initialize() after this destroy() or reinit.
+  void _resetGuardState() {
+    _footgunBlocked = false;
+    _umpRequested = false;
+    _consentExplicitlySet = false;
+  }
+
+  /// Test seam for [_resetGuardState] — exercised directly by
+  /// ad_manager_core_test.dart since a real reinit-without-destroy() can't
+  /// be driven through `initialize()` under `flutter test` (no native
+  /// adapter).
+  @visibleForTesting
+  void debugResetGuardState() => _resetGuardState();
 
   Future<void> _disposeAdapter() async {
     final old = _adapter;

@@ -237,4 +237,31 @@ void main() {
       expect(reloaded.grantedAt.toUtc(), entry.grantedAt.toUtc());
     });
   });
+
+  group(
+      'no-validator guard forwards isRelease (R12-A round 4 — '
+      'isActuallyRelease() was previously unthreaded here)', () {
+    test('isRelease: true refuses redemption instead of demo-mode success',
+        () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store, isRelease: true);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final ok = await mgr.debugRunValidator('ANY_KEY', null);
+      expect(ok, isFalse,
+          reason: 'a release build with no vipKeyValidator configured must '
+              'refuse every key, not silently grant free VIP');
+    });
+
+    test('isRelease: false keeps demo-mode success (debug/profile)', () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store, isRelease: false);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final ok = await mgr.debugRunValidator('ANY_KEY', null);
+      expect(ok, isTrue,
+          reason: 'debug/profile builds without a validator stay in demo '
+              'mode so hosts can wire the integration before shipping');
+    });
+  });
 }

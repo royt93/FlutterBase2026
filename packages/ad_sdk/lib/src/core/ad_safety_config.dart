@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../adaptive/adaptive_frequency.dart';
 import '../state/ad_event.dart';
 import '../utils/ad_preferences.dart';
+import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 
 /// Result of an ad safety check.
@@ -273,11 +274,45 @@ class AdSafetyConfig {
   static final ValueNotifier<int> policyRiskScore = ValueNotifier<int>(0);
 
   /// Initialize with optional custom [params].
+  /// R12-A: dryRun bypasses every real safety cap (session/hourly/daily/
+  /// throttle) — a `dryRun: true` left in by mistake for a release build
+  /// would silently disable ad-safety enforcement for every user. `assert`
+  /// is stripped in release mode (the exact mode this must catch), so this
+  /// forces it off at runtime instead of just asserting. [isRelease]
+  /// defaults to [kReleaseMode] and is only overridden by tests, since
+  /// `kReleaseMode` itself is always false under `flutter test`.
+  /// R12-A follow-up: this method and [init] are both re-exported by the
+  /// package barrel, so an external caller could otherwise pass
+  /// `isRelease: false` straight into a real release build to defeat this
+  /// guard. [isActuallyRelease] closes that: a caller-supplied [isRelease]
+  /// can only make the check MORE strict (simulate release while testing),
+  /// never less — a genuine release build always forces the guard on
+  /// regardless of what's passed in.
+  @visibleForTesting
+  static AdSafetyParams applyDryRunReleaseGuard(
+    AdSafetyParams params, {
+    bool isRelease = kReleaseMode,
+  }) {
+    if (params.dryRun && isActuallyRelease(isRelease)) {
+      // critical (not `e`): this must still reach AdConfig.onLog even if
+      // the host silenced logging with logLevel: AdLogLevel.none.
+      SafeLogger.critical(_tag,
+          '🚨 AdSafetyParams.dryRun=true in a release build — forcing dryRun=false to keep ad-safety caps enforced');
+      return params.copyWith(dryRun: false);
+    }
+    return params;
+  }
+
+  // `isRelease` isn't `@visibleForTesting` here for the same barrel-export
+  // reason covered in [applyDryRunReleaseGuard]'s doc comment above —
+  // safety comes from `isActuallyRelease`, not the annotation.
   static Future<void> init(
     AdPreferences prefs, {
     AdSafetyParams params = const AdSafetyParams(),
+    bool isRelease = kReleaseMode,
   }) async {
     _prefs = prefs;
+    params = applyDryRunReleaseGuard(params, isRelease: isRelease);
     _params = params;
     _suspiciousViolationCount = prefs.getSuspiciousCount();
     _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
