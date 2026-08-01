@@ -60,6 +60,15 @@ void main() {
     // DemoConfig.firstInstallVipGrace) — revoke to get a deterministic
     // starting point regardless of this device's install history.
     await AdManager().vip!.revokeAll();
+
+    // revokeAll() deliberately does NOT clear the anti-reuse ledger for
+    // redeemed signed-key ids, and on iOS that ledger lives in the Keychain,
+    // which survives uninstall by design. So the fixed `integration_kid` this
+    // test mints below is burned permanently on a simulator/device after the
+    // first run: every later run got VipRedeemStatus.alreadyUsed and could
+    // never flip VIP active again. Wipe the durable ledger through the SDK's
+    // own test hook so this test is rerunnable on the same device.
+    await AdManager().vip!.clearRedeemedKeyLedgerForTest();
     await tester.pump();
     expect(AdManager().isVIPMember(), isFalse);
     expect(AdManager().canShowInterstitial, isNotNull);
@@ -111,7 +120,25 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.text('ACTIVATE'));
-    await tester.pump(const Duration(milliseconds: 300));
+
+    // Redemption is asynchronous on a real device — Ed25519 verify, a real
+    // shared_preferences write through the platform channel, then the
+    // entries/active notifier fan-out. On mid-range Android that is well over
+    // 300ms (measured: still `VIP NOT ACTIVE` / isVIPMember=false at 300ms,
+    // both flipped by ~2.3s), so a fixed pump races the redeem. It only ever
+    // passed on the iOS Simulator, which runs on the host Mac's CPU. Poll for
+    // the redeem to actually land instead of guessing a duration.
+    var redeemed = false;
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (AdManager().isVIPMember() &&
+          find.text('VIP ACTIVE').evaluate().isNotEmpty) {
+        redeemed = true;
+        break;
+      }
+    }
+    expect(redeemed, isTrue,
+        reason: 'redeeming a valid signed key must flip VIP active');
 
     expect(find.text('VIP ACTIVE'), findsOneWidget);
     expect(AdManager().isVIPMember(), isTrue);

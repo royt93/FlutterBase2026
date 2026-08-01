@@ -75,16 +75,48 @@ void main() {
     await tester.enterText(countryField, 'DE');
     await tester.pump();
 
-    // Entering text just opened the real software keyboard (iOS Simulator
-    // always shows one; the Android CI emulator has it disabled, which is why
-    // this only broke there). The Scaffold resizes for viewInsets.bottom,
-    // which can push "Set" out of the region we already scrolled into view
-    // for countryField — re-scroll it back before tapping.
+    // Entering text opens the real software keyboard on a device/simulator and
+    // the Scaffold then resizes for viewInsets.bottom. While that inset is
+    // still animating, the rect a finder reports for "Set" is already stale by
+    // the time the pointer is dispatched — that is what produced the
+    // "derived an Offset that would not hit test" warning on iOS. Close the
+    // keyboard and wait for the inset to settle so the layout is stable before
+    // locating and tapping the button.
+    FocusManager.instance.primaryFocus?.unfocus();
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (MediaQuery.of(tester.element(find.byType(MaterialApp)))
+              .viewInsets
+              .bottom ==
+          0) {
+        break;
+      }
+    }
+
     final setButton = find.widgetWithText(FilledButton, 'Set');
     await tester.scrollUntilVisible(setButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(setButton);
-    await tester.pump(const Duration(milliseconds: 300));
+
+    // Everything this test asserts lands asynchronously and at different
+    // speeds per platform: ConsentManager.set() persists through a real
+    // platform channel before its listenable fans out (measured: already
+    // applied on the next frame on Android, ~300-600ms on the iOS Simulator),
+    // and the confirmation SnackBar is not built until a frame after the tap.
+    // A single fixed pump therefore raced a different assertion on each
+    // platform. Poll for all three observable effects instead, capped below
+    // the SnackBar's ~4s auto-dismiss so waiting cannot outlive what we assert.
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      final applied = ConsentManager.instance.current.country == 'DE';
+      final announced = find
+          .textContaining('Consent country set to DE')
+          .evaluate()
+          .isNotEmpty;
+      final rerendered =
+          find.textContaining('country=DE').evaluate().isNotEmpty;
+      if (applied && announced && rerendered) break;
+    }
 
     // Applied state must reach the real ConsentManager singleton.
     expect(ConsentManager.instance.current.country, 'DE');
