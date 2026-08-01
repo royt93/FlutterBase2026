@@ -167,26 +167,51 @@ jobs:
       # that price is being paid either way. What it buys is isolation — a
       # launch flake fails one file instead of hiding the other 17 — plus the
       # name of the file that actually broke.
+      #
+      # Each file also gets ONE retry, because the isolation above showed the
+      # flake is random rather than tied to a specific test: run 30697397657
+      # lost app_boot_test.dart, run 30704574568 lost
+      # fill_rate_monitor_demo_test.dart, both with the same signature (~12min
+      # of silent log, no Dart output at all, then the per-test timeout) while
+      # every other file passed. A retry is containment, not a cure — so every
+      # retry is logged as a ::warning naming the file, which is the only way
+      # to tell "the flake is getting worse" from "we are quietly papering over
+      # a real failure". A file that fails TWICE still fails the job.
       - name: Run integration tests
         run: |
-          failed=()
-          for f in $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$'); do
-            echo "::group::$f"
-            if flutter test "$f" \
+          run_one() {
+            flutter test "$1" \
               -d "$SIMULATOR_UDID" \
               --dart-define=SKIP_SPLASH_AD=true \
               --dart-define=SKIP_ATT=true \
               --dart-define=SKIP_UMP=true \
-              --dart-define=AD_PROVIDER_ADMOB=true; then
+              --dart-define=AD_PROVIDER_ADMOB=true
+          }
+          failed=()
+          retried=()
+          for f in $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$'); do
+            echo "::group::$f"
+            if run_one "$f"; then
+              echo "::endgroup::"
+              continue
+            fi
+            echo "::endgroup::"
+            echo "::warning file=$f::first attempt failed — retrying once (known CI simulator app-launch flake)"
+            retried+=("$f")
+            echo "::group::$f (retry)"
+            if run_one "$f"; then
               echo "::endgroup::"
             else
               echo "::endgroup::"
-              echo "::error file=$f::integration test failed"
+              echo "::error file=$f::integration test failed on both attempts"
               failed+=("$f")
             fi
           done
+          if [ ${#retried[@]} -ne 0 ]; then
+            echo "::warning::Files that needed a retry: ${retried[*]}"
+          fi
           if [ ${#failed[@]} -ne 0 ]; then
-            echo "Failed files: ${failed[*]}"
+            echo "Failed files (both attempts): ${failed[*]}"
             exit 1
           fi
 
