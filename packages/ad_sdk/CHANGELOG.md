@@ -6,6 +6,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-08-01
+
+Metadata only — no code, API or behaviour change from 1.2.3.
+
+### Changed
+- Shortened the package `description` and all three `screenshots:`
+  descriptions to under 160 characters. pub.dev enforces two different limits
+  and neither is reported by `pub publish --dry-run`: the upload API rejects
+  anything over 200 characters, while pana's scoring wants under 160 or it
+  drops 10 points from "Provide a valid pubspec.yaml" and another 10 from
+  "Package has an example and has no issues with screenshots". 1.2.3 uploaded
+  fine at 187-197 characters but scored 130/160 for that reason.
+
 ## [1.2.3] - 2026-08-01
 
 ### Fixed

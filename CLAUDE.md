@@ -52,7 +52,7 @@ flutter clean && flutter pub get
 
 - `sdk` — `flutter analyze` + `flutter test` in `packages/ad_sdk`. Primary gate.
 - `sdk-integration` — the example app's `integration_test/` on an Android emulator. Needs KVM, disk cleanup and a 3GB swapfile on the runner (OOM-killer flake, see the inline comments before touching it). Forces `AD_PROVIDER_ADMOB` because no real AppLovin SDK key is committed, so the AppLovin path can never init in CI.
-- `sdk-integration-ios` — same tests on an iOS Simulator (Xcode 26.1.1 + CocoaPods).
+- `sdk-integration-ios` — same tests on an iOS Simulator (Xcode 26.1.1 + CocoaPods). Unlike the Android job this one runs **one `flutter test` invocation per file**: with all 18 passed to a single invocation, one flaky app launch on the CI simulator hung until the 12-minute per-test timeout, took the next file down with `Failed to start Dart Development Service`, and hid the other 16. Splitting is nearly free (`flutter test` already relaunches the app between files) and names the file that broke.
 - `host` — `flutter analyze` + `flutter test` at the repo root.
 
 It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
@@ -96,7 +96,8 @@ This `mckimquyen/` namespace folder is where all app code lives. Subfolders are 
 The `applovin_admob_sdk` package is **dual-sourced**:
 
 - A local copy lives in `packages/ad_sdk/` (it is its own Flutter package with its own example app, README, tests).
-- The app currently consumes the **hosted `applovin_admob_sdk: ^1.2.2` from pub.dev** (active in `pubspec.yaml`; the local `path: packages/ad_sdk` override is commented out right below it). The local copy is kept in sync at `1.2.2` for dev/test. To ship SDK changes that haven't been published yet, uncomment the path override (and comment out the hosted line), then re-publish the bumped SDK version and flip the two lines back before a release.
+- The app currently consumes the **hosted `applovin_admob_sdk: ^1.2.4` from pub.dev** (active in `pubspec.yaml`; the local `path: packages/ad_sdk` override is commented out right below it). The local copy is kept in sync at `1.2.4` for dev/test. To ship SDK changes that haven't been published yet, uncomment the path override (and comment out the hosted line), then re-publish the bumped SDK version and flip the two lines back before a release.
+- **Publishing the SDK to pub.dev has two traps `--dry-run` does not catch** (it reported "0 warnings" right before both failures): the upload API rejects any `screenshots:` description over **200** characters, and pana/pub.dev scoring separately wants the package `description` **and** every screenshot description under **160** characters or it silently drops 10 points each from "valid pubspec.yaml" and "example and screenshots". Also expect `flutter pub get` to keep reporting `doesn't match any versions` for a minute or two after a successful upload — the pub.dev API already serves the new version while the CDN edge still caches the old listing. Just retry; `pub cache clean` is unrelated.
 - `gma_mediation_applovin` must stay at the app level — it's a native mediation plugin and cannot be declared inside the sub-package. It is **pinned to `2.5.1` in `dependency_overrides`**: `>=2.6.0` needs `meta ^1.17.0`, but `flutter_test` from the CI-pinned Flutter 3.35.1 forces `meta 1.16.0`, so the bump fails at `flutter pub get`. Re-check only when the Flutter pin moves (details in the pubspec comment).
 
 The integration contract (see `packages/ad_sdk/README.md` for the full version):

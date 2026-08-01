@@ -1,6 +1,9 @@
 name: applovin_admob_sdk
-description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Adapter pattern, state machine, VIP redeem with Cupertino dialog, GDPR/COPPA/CCPA flags, exponential backoff, AdEvent stream, debug overlay.
-version: 1.2.3
+# Must stay under 160 characters or pub.dev's "valid pubspec.yaml" check
+# drops 10 points (the upload API itself allows up to 200 — two different
+# limits, see the screenshots note below).
+description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Offline VIP redeem, GDPR/COPPA/CCPA consent, safety caps, AdEvent stream, debug overlay.
+version: 1.2.4
 
 # Monorepo: the package lives in packages/ad_sdk/ of the host app's repo, so
 # `repository` points at the subdirectory (pub.dev resolves it for the
@@ -29,22 +32,23 @@ platforms:
 # (--dart-define=AD_PROVIDER_ADMOB=true), so no debug banner and no real ad
 # inventory is shown.
 screenshots:
+  # TWO different length limits apply, and neither is caught by
+  # `pub publish --dry-run` (it reported 0 warnings at 207 chars):
+  #   • the upload API rejects anything over 200 chars outright;
+  #   • pana/pub.dev scoring wants under 160, or the "example and screenshots"
+  #     check drops 10 points even though the upload succeeded.
+  # Keep every description under 160.
   - description: >-
-      The example app's demo index — one page per ad surface (banner, MREC,
-      native, interstitial, rewarded, app open) plus revenue, slot-state,
-      event-stream, compliance and diagnostics tooling.
+      Demo index — one page per ad surface (banner, MREC, native, interstitial,
+      rewarded, app open) plus revenue, event-stream and diagnostics tooling.
     path: doc/screenshots/01_home.png
   - description: >-
-      VipRedeemScreen — the shared VIP entitlement UI. Redeem an offline
-      Ed25519-signed key or watch one rewarded ad for free VIP time; while VIP
-      is active every ad surface is suppressed automatically.
+      VipRedeemScreen — redeem an offline Ed25519-signed key or watch a rewarded
+      ad for VIP time. While VIP is active every ad surface is suppressed.
     path: doc/screenshots/02_vip_redeem.png
-  # pub.dev rejects a description over 200 characters (server-side, not caught
-  # by `pub publish --dry-run`) — keep each one comfortably under that.
   - description: >-
-      The built-in ad-safety layer: live params next to the production and debug
-      presets — inter-ad throttle, session/hour/day caps, warmup and resume
-      delays, click-rate and CTR fraud limits, dry-run.
+      The built-in ad-safety layer: live params vs the production and debug
+      presets — throttle, session/hour/day caps, CTR fraud limits, dry-run.
     path: doc/screenshots/03_safety_status.png
 
 environment:
