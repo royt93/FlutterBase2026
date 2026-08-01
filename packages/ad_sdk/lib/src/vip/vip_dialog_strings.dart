@@ -36,7 +36,8 @@ class VipDialogStrings {
   final String Function(String validUntil)? successMessageBuilder;
 
   String successMessage(String validUntil) =>
-      successMessageBuilder?.call(validUntil) ?? 'VIP active until $validUntil.';
+      successMessageBuilder?.call(validUntil) ??
+      'VIP active until $validUntil.';
 
   final String failedTitle;
   final String failedMessage;

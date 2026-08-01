@@ -38,21 +38,27 @@ class AdScreenRouteLogger extends NavigatorObserver {
   @override
   void didPush(Route route, Route? previousRoute) {
     if (route is PopupRoute) _popupDepth++;
-    SafeLogger.d(_tag, '➡️ PUSH: ${route.settings.name} '
+    SafeLogger.d(
+        _tag,
+        '➡️ PUSH: ${route.settings.name} '
         '(from: ${previousRoute?.settings.name}) popupDepth=$_popupDepth');
   }
 
   @override
   void didPop(Route route, Route? previousRoute) {
     if (route is PopupRoute && _popupDepth > 0) _popupDepth--;
-    SafeLogger.d(_tag, '⬅️ POP: ${route.settings.name} '
+    SafeLogger.d(
+        _tag,
+        '⬅️ POP: ${route.settings.name} '
         '(back to: ${previousRoute?.settings.name}) popupDepth=$_popupDepth');
   }
 
   @override
   void didRemove(Route route, Route? previousRoute) {
     if (route is PopupRoute && _popupDepth > 0) _popupDepth--;
-    SafeLogger.d(_tag, '🗑️ REMOVE: ${route.settings.name} '
+    SafeLogger.d(
+        _tag,
+        '🗑️ REMOVE: ${route.settings.name} '
         'popupDepth=$_popupDepth');
   }
 
@@ -60,7 +66,9 @@ class AdScreenRouteLogger extends NavigatorObserver {
   void didReplace({Route? newRoute, Route? oldRoute}) {
     if (oldRoute is PopupRoute && _popupDepth > 0) _popupDepth--;
     if (newRoute is PopupRoute) _popupDepth++;
-    SafeLogger.d(_tag, '🔄 REPLACE: ${oldRoute?.settings.name} '
+    SafeLogger.d(
+        _tag,
+        '🔄 REPLACE: ${oldRoute?.settings.name} '
         '→ ${newRoute?.settings.name} popupDepth=$_popupDepth');
   }
 }

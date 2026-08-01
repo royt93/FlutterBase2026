@@ -1,7 +1,49 @@
 name: applovin_admob_sdk
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Adapter pattern, state machine, VIP redeem with Cupertino dialog, GDPR/COPPA/CCPA flags, exponential backoff, AdEvent stream, debug overlay.
-version: 1.2.2
+version: 1.2.3
 
+# Monorepo: the package lives in packages/ad_sdk/ of the host app's repo, so
+# `repository` points at the subdirectory (pub.dev resolves it for the
+# "verified repository" badge and for source links).
+repository: https://github.com/royt93/FlutterBase2025/tree/main/packages/ad_sdk
+homepage: https://github.com/royt93/FlutterBase2025
+issue_tracker: https://github.com/royt93/FlutterBase2025/issues
+
+topics:
+  - ads
+  - admob
+  - applovin
+  - monetization
+  - mediation
+
+# Every runtime dependency (google_mobile_ads, applovin_max,
+# app_tracking_transparency, advertising_id) is Android/iOS-only, so declaring
+# this changes nothing pub.dev could not infer — it just stops a future
+# desktop/web-capable dependency from silently widening the advertised
+# platform list.
+platforms:
+  android:
+  ios:
+
+# Captured from example/ on a physical Android device in profile mode
+# (--dart-define=AD_PROVIDER_ADMOB=true), so no debug banner and no real ad
+# inventory is shown.
+screenshots:
+  - description: >-
+      The example app's demo index — one page per ad surface (banner, MREC,
+      native, interstitial, rewarded, app open) plus revenue, slot-state,
+      event-stream, compliance and diagnostics tooling.
+    path: doc/screenshots/01_home.png
+  - description: >-
+      VipRedeemScreen — the shared VIP entitlement UI. Redeem an offline
+      Ed25519-signed key or watch one rewarded ad for free VIP time; while VIP
+      is active every ad surface is suppressed automatically.
+    path: doc/screenshots/02_vip_redeem.png
+  - description: >-
+      The built-in ad-safety layer, showing live params next to the production
+      and debug presets — inter-ad throttle, session/hour/day caps, warmup and
+      resume delays, click-rate and CTR fraud limits, dry-run mode.
+    path: doc/screenshots/03_safety_status.png
 
 environment:
   sdk: '>=3.6.0 <4.0.0'

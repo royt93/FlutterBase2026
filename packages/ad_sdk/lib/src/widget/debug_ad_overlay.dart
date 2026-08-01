@@ -36,8 +36,7 @@ class DebugAdOverlay extends StatefulWidget {
   /// Process-wide toggle. Set to `false` to hide every [DebugAdOverlay]
   /// instance in the widget tree without rebuilding callers — handy from a
   /// debug shake-menu or an in-app dev console.
-  static final ValueNotifier<bool> globallyVisible =
-      ValueNotifier<bool>(true);
+  static final ValueNotifier<bool> globallyVisible = ValueNotifier<bool>(true);
 
   @override
   State<DebugAdOverlay> createState() => _DebugAdOverlayState();
@@ -138,7 +137,8 @@ class _Panel extends StatelessWidget {
                       style: TextStyle(fontWeight: FontWeight.bold)),
                   GestureDetector(
                     onTap: onClose,
-                    child: const Icon(Icons.close, color: Colors.white, size: 14),
+                    child:
+                        const Icon(Icons.close, color: Colors.white, size: 14),
                   ),
                 ],
               ),
@@ -185,7 +185,7 @@ class _SlotRows extends StatelessWidget {
   Widget _slotRow(String label, AdSlot slot) =>
       ValueListenableBuilder<AdSlotState>(
         valueListenable: slot.state,
-        builder: (context, state, _) =>
-            Text('$label ${state.name.padRight(9)} fails=${slot.consecutiveFailures}'),
+        builder: (context, state, _) => Text(
+            '$label ${state.name.padRight(9)} fails=${slot.consecutiveFailures}'),
       );
 }

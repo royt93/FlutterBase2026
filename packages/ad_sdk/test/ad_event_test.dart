@@ -56,7 +56,8 @@ void main() {
     expect(e.placement, AdPlacement.shop);
   });
 
-  test('AdRevenueEvent carries micros + currency + optional network/precision', () {
+  test('AdRevenueEvent carries micros + currency + optional network/precision',
+      () {
     const e = AdRevenueEvent(
       providerTag: '[AppLovin]',
       type: AdSlotType.banner,

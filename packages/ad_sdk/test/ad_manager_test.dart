@@ -71,7 +71,8 @@ void main() {
   });
 
   group('splash counters', () {
-    test('incrementSplashCount increases countInitSplashScreen by exactly 1', () {
+    test('incrementSplashCount increases countInitSplashScreen by exactly 1',
+        () {
       final before = mgr.countInitSplashScreen;
       mgr.incrementSplashCount();
       expect(mgr.countInitSplashScreen, before + 1);

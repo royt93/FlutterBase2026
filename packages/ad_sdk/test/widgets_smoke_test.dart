@@ -34,7 +34,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('TopToast.show overlays a toast and auto-dismisses', (tester) async {
+  testWidgets('TopToast.show overlays a toast and auto-dismisses',
+      (tester) async {
     await tester.pumpWidget(host(Builder(
       builder: (context) => ElevatedButton(
         onPressed: () =>

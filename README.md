@@ -15,7 +15,7 @@ a **WiFi stress tester** and serves ads through an in-repo, dual-provider ad SDK
 | Path | What it is |
 |---|---|
 | `lib/` | The host app (`saigonphantomlabs`). Bootstrap in `lib/main.dart`, ad setup in `lib/mckimquyen/widget/splash/splash_screen.dart`. |
-| `packages/ad_sdk/` | The **`applovin_admob_sdk`** package — the ad SDK, with its own README, example app and 225+ tests. |
+| `packages/ad_sdk/` | The **`applovin_admob_sdk`** package — the ad SDK, with its own README, example app and 675 tests. |
 | `doc/` | Project docs (see below). |
 | `.github/workflows/test.yml` | CI: runs the SDK's `flutter analyze` + `flutter test`, plus host `flutter analyze`. |
 
@@ -49,7 +49,7 @@ flutter run            # host app
 # Ad SDK package (where the automated tests live):
 cd packages/ad_sdk
 flutter analyze
-flutter test           # 225+ unit / widget / integration tests
+flutter test           # 675 unit / widget / integration tests
 ```
 
 ## Native config (required for ads)

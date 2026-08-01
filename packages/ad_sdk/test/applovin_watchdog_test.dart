@@ -44,7 +44,8 @@ void main() {
       expect(adapter.appOpenSlot.isShowing, isTrue);
 
       async.elapse(const Duration(seconds: 70)); // total 100s > 90s cap
-      expect(dismissed, isFalse, reason: 'only the 90s hard cap dismisses on iOS');
+      expect(dismissed, isFalse,
+          reason: 'only the 90s hard cap dismisses on iOS');
       expect(adapter.appOpenSlot.value, AdSlotState.cooldown);
     });
   });
@@ -57,7 +58,8 @@ void main() {
       adapter.debugStartAppOpenWatchdog((d) => dismissed = d);
 
       async.elapse(const Duration(seconds: 5)); // tick #1 → grace, re-arm
-      expect(dismissed, isNull, reason: 'first foreground tick is a grace period');
+      expect(dismissed, isNull,
+          reason: 'first foreground tick is a grace period');
 
       async.elapse(const Duration(seconds: 5)); // tick #2 (10s) → force-dismiss
       expect(dismissed, isFalse,
@@ -95,7 +97,8 @@ void main() {
 
       async.elapse(const Duration(seconds: 30));
       expect(dismissed, isNull,
-          reason: 'watcher must defer to the native dismiss, not force a result');
+          reason:
+              'watcher must defer to the native dismiss, not force a result');
     });
   });
 }

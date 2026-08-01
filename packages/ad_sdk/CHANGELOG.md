@@ -6,6 +6,43 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-08-01
+
+### Fixed
+- `autoRequestUmpConsent` was never honoured during `initialize()` — a host
+  that opted into automatic UMP now actually gets the consent request before
+  ad requests start (R10-A).
+- A COPPA flag set mid-session now hard-stops AppLovin ad requests instead of
+  only applying to the next SDK init (R10-B).
+- `_retryRefillAds()` returns immediately while the device is offline, instead
+  of burning retry budget on requests that cannot succeed (R10-C).
+- `ConnectionNotifierTools.initialize()` is bounded by a 20s timeout, so a
+  hung connectivity plugin can no longer stall SDK init indefinitely (R10-D).
+- `_footgunBlocked` leaked across re-init: one release-mode `initialize()`
+  could permanently block ads for every later init in the same process. The
+  same bug class then recurred for `_umpRequested` / `_consentExplicitlySet`,
+  so `destroy()` and the re-init branch now share one `_resetGuardState()`
+  instead of two hand-maintained reset lists.
+- `applyDryRunReleaseGuard()`'s `isRelease` is threaded into the last two call
+  sites (the `ad_manager.dart` consent-footgun guard and the `VipManager`
+  constructor) that still fell back to raw `kReleaseMode` under `flutter test`.
+
+### Changed
+- Example app now mirrors the host's Android Auto Backup configuration, so the
+  VIP-reinstall-replay path behaves the same in the example as in production.
+- `SafeLogger`: `critical()` and `e(bypassLevel: true)` consolidated onto one
+  internal `_e()`; `_shouldLog`'s `bypassLevel` branches merged.
+- `VipManager`'s `isRelease` parameter is no longer `@visibleForTesting`
+  (mirrors `ad_safety_config.dart` — the safety comes from
+  `isActuallyRelease()`, not from a compile-time restriction).
+- Added `repository` / `homepage` / `issue_tracker` / `topics` and an explicit
+  `platforms: android, ios` to the pubspec; whole package reformatted with
+  `dart format`. No API or runtime change.
+
+### Documentation
+- Explained why interstitial and rewarded ads intentionally have no watchdog,
+  unlike App Open (R10-E).
+
 ## [1.2.2] - 2026-07-20
 
 ### Changed
