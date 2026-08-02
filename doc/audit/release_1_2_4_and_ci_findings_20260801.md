@@ -293,8 +293,53 @@ UDID=$(xcrun simctl list devices available | grep -m1 'iPhone 16' | grep -oE '[0
 
 Đã sửa: chọn máy **bên trong block `-- iOS 26.1 --`** cho khớp Xcode, và fail kèm thông báo rõ nếu runtime đó biến mất — thay vì âm thầm tụt về 18.5. Không lấy "runtime mới nhất" vì như thế sẽ chọn 26.2, mới hơn Xcode đang dùng. Bộ chọn `awk` đã kiểm bằng định dạng `simctl list` thật: lấy đúng 26.1, bỏ qua cả 18.5 lẫn 26.2, và trả rỗng để guard kích hoạt khi runtime vắng mặt.
 
+> **Cập nhật:** ghim runtime 26.1 **không** dập được treo — xem mục 15. Lệch runtime vẫn là lỗi thật đáng sửa, nhưng nó không phải nguyên nhân.
+
 **Giả thuyết cho D, chưa kết luận:** `system.log` trống trơn cạnh `diagnosticd` ghim 43% CPU trỏ về phía phân hệ logging của simulator bị kẹt. Nếu đúng thì đó là nguyên nhân, vì `flutter` dò VM-service URI của app **qua log stream của thiết bị** — stream chết thì `flutter` chờ vô hạn bất kể app có launch hay không, và không dòng Dart nào lọt ra. Khớp mọi quan sát, nhưng vẫn chỉ là giả thuyết.
 
 Để phân giải, phần thu bổ sung `log show --last 15m` (đọc thẳng log store nên không phụ thuộc `system.log`) và lần retry chạy `-v` để nếu retry cũng treo thì biết `flutter` kẹt ở bước nào — install, launch, hay chờ VM service.
 
 - **D** (root cause treo launch): vẫn chưa xong, nhưng job iOS giờ **thu bằng chứng** khi một file phải retry — booted devices, `launchctl list`, danh sách tiến trình, và 3000 dòng cuối `CoreSimulator/<UDID>/system.log` — upload thành artifact `ios-simulator-diagnostics`. Dùng `if: always()` chứ không phải `if: failure()`, vì trường hợp cần đúng là lúc retry cứu được và job xanh. Chọn cách thu nhỏ và có mục tiêu vì `simctl diagnose` sinh hàng trăm MB mỗi lần.
+
+## 15. Cơ chế treo launch iOS — `apsd` dội log, và ghim runtime không cứu được
+
+`log show` thêm ở mục 14 trả lời ngay lần treo kế tiếp. Artifact `ios-simulator-diagnostics` của run `30734786580`, chụp đúng lúc `anomaly_event_test.dart` chạm timeout:
+
+- 20.000 dòng cuối chỉ phủ **3 giây** (06:06:58 → 06:07:01) — log đang bị dội
+- Nguồn áp đảo là **`apsd`** (Apple Push Service), riêng một thông điệp lặp **4250 lần trong 3 giây**:
+
+```
+<APSConnection: 0x...> Delivering connectionStatusChange from apsd: NO
+```
+
+- Dòng duy nhất nhắc tới app là `suggestd: Deleting all Interactions from com.example.adSdkExample` — dọn dẹp, không phải launch
+- Khớp với số CPU đo ở mục 14: `apsd` 31.7%, `diagnosticd` 42.9%
+
+**Chuỗi nhân quả:** runner CI không có đường tới máy chủ push của Apple → `apsd` thử lại trong vòng lặp chặt và fan-out kết quả ra mọi client đang lắng nghe → `diagnosticd` (daemon phục vụ `log stream`) ngốn CPU chạy theo → mà `flutter test` trên simulator **dò VM-service URI của app bằng cách đọc log stream của thiết bị** → stream bão hoà thì flutter không bao giờ thấy URI → chờ tới timeout, không một dòng Dart nào lọt ra.
+
+Cũng giải thích vì sao **file bị treo khác nhau mỗi lần** (đã thấy 6 file khác nhau): phụ thuộc lúc flutter attach có rơi đúng nhịp `apsd` đang spin hay không.
+
+**Ranh giới:** phần `apsd` dội log và `diagnosticd` ngốn CPU là **đo được**. Phần "và đó là thứ bóp nghẹt việc dò URI của flutter" là **suy luận** — mạnh, khớp mọi quan sát, nhưng chưa chứng minh trực tiếp.
+
+### 15.1 Ghim runtime 26.1 không phải bản sửa
+
+Mục 14 sửa việc job boot nhầm iOS 18.5. Cờ chạy đúng — log in `Booting iOS 26.1 simulator ED3FEDCC-...` — nhưng **run ngay sau đó vẫn treo**, ở `anomaly_event_test.dart`. Nên lệch runtime là một lỗi thật, đáng sửa vì CI chưa từng kiểm iOS hiện đại, **nhưng nó không phải nguyên nhân của treo**.
+
+### 15.2 iOS chậm vì cú treo, không phải vì 18 file
+
+Phân rã 40m29s của job iOS run `30734786580` theo mốc thời gian thật:
+
+| Khoảng | Thời lượng |
+|---|---|
+| Setup (checkout, flutter, `pod install`, boot sim) | ~2 phút |
+| `anomaly_event_test.dart` lần 1 — treo rồi timeout | **~17 phút** |
+| 18 file chạy thật, ~1 phút/file | ~19 phút |
+
+Bỏ cú treo đi thì job còn ~22 phút, ngang job Android (20m43s) cho cùng bộ file. Treo xảy ra ở **4/5 run gần nhất**, lần nào cũng đúng 12 phút chờ chết.
+
+### 15.3 Hai thay đổi đã áp
+
+1. **Tắt `apsd` trong simulator** sau khi boot (`launchctl stop com.apple.apsd`, kèm `|| true` để tên service đổi giữa các runtime không làm đỏ job). Vừa là phép kiểm giả thuyết vừa là bản sửa nếu suy luận đúng. Không có gì trong bộ test dùng push.
+2. **`--timeout 5m`** cho mỗi file, thay mặc định 12 phút của `integration_test`. Không sửa gì, chỉ **chặn thiệt hại**. Ngưỡng chọn theo số đo: mỗi file xong trong ~1 phút, chỗ chờ lâu nhất trong test là vòng poll 45s của `app_boot_test` cộng cold start — 5 phút còn dư biên rộng. File nào thật sự vượt 5 phút thì fail, và cái fail đó là thông tin chứ không phải nhiễu.
+
+Kỳ vọng nếu suy luận đúng: job iOS còn ~22 phút và không còn dòng `::warning::Files that needed a retry:`.
