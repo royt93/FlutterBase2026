@@ -118,14 +118,22 @@ jobs:
           # that failure yet, but it has the identical shape, and being green
           # today is not evidence the shape is safe. Retries are logged by name
           # so a real regression cannot hide behind "it passed on the retry".
+          #
+          # KEEP THIS POSIX sh. Unlike the iOS job's `run:` block (bash on the
+          # GitHub runner), android-emulator-runner executes `script:` with
+          # /bin/sh, which is dash on Ubuntu — no arrays. A first attempt used
+          # `failed=()` / `${#failed[@]}` and the job died in 3m31s with
+          # "The process '/usr/bin/sh' failed with exit code 2", which is
+          # dash's `Syntax error: "(" unexpected`. `bash -n` does not catch
+          # this; validate with `dash -n` (or just `dash`) instead.
           script: |
             adb logcat -c
             adb logcat > /tmp/logcat.txt &
             run_one() {
               flutter test "$1" --dart-define=AD_PROVIDER_ADMOB=true
             }
-            failed=()
-            retried=()
+            failed=""
+            retried=""
             for f in $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$'); do
               echo "::group::$f"
               if run_one "$f"; then
@@ -134,21 +142,21 @@ jobs:
               fi
               echo "::endgroup::"
               echo "::warning file=$f::first attempt failed — retrying once"
-              retried+=("$f")
+              retried="$retried $f"
               echo "::group::$f (retry)"
               if run_one "$f"; then
                 echo "::endgroup::"
               else
                 echo "::endgroup::"
                 echo "::error file=$f::integration test failed on both attempts"
-                failed+=("$f")
+                failed="$failed $f"
               fi
             done
-            if [ ${#retried[@]} -ne 0 ]; then
-              echo "::warning::Files that needed a retry: ${retried[*]}"
+            if [ -n "$retried" ]; then
+              echo "::warning::Files that needed a retry:$retried"
             fi
-            if [ ${#failed[@]} -ne 0 ]; then
-              echo "Failed files (both attempts): ${failed[*]}"
+            if [ -n "$failed" ]; then
+              echo "Failed files (both attempts):$failed"
               exit 1
             fi
       - name: Upload logcat
