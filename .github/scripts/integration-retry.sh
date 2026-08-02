@@ -51,10 +51,23 @@ for f in $files; do
     xcrun simctl spawn "$SIMULATOR_UDID" launchctl list > "$diag/launchctl-list.txt" 2>&1 || true
     ps aux | grep -E "Simulator|adSdkExample|dart|flutter" | grep -v grep > "$diag/processes.txt" 2>&1 || true
     tail -n 3000 "$HOME/Library/Logs/CoreSimulator/$SIMULATOR_UDID/system.log" > "$diag/system.log" 2>&1 || true
+    # system.log came back essentially EMPTY on the first hang we captured
+    # (run 30730904622: two lines, nothing at all across the 12-minute
+    # window) while diagnosticd inside the sim burned 42.9% CPU for 9m35s.
+    # `log show` reads the real log store instead of that file, so it is the
+    # one source that can confirm or kill the "the simulator's logging
+    # subsystem is wedged, so flutter never sees the VM-service URI"
+    # hypothesis. Tail-bounded because 15 minutes of os_log can be large.
+    xcrun simctl spawn "$SIMULATOR_UDID" log show --last 15m --style compact 2>&1 \
+      | tail -n 20000 > "$diag/log-show.txt" || true
   fi
 
+  # Retry verbosely: if the retry hangs too, `-v` shows which step flutter is
+  # stuck on (install, launch, or waiting for the VM service). A normal retry
+  # prints nothing useful about that, and the first attempt cannot be re-run
+  # after the fact.
   echo "::group::$f (retry)"
-  if flutter test "$f" "$@"; then
+  if flutter test "$f" -v "$@"; then
     echo "::endgroup::"
   else
     echo "::endgroup::"

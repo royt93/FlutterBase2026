@@ -163,10 +163,35 @@ jobs:
         run: pod install
       - name: Boot iOS Simulator
         run: |
-          # macos-15's device list moved on from "iPhone 15" (not present in
-          # any runtime on this image) — "iPhone 16" is available on every
-          # runtime the image ships (18.5, 18.6, 26.0, 26.1, 26.2).
-          UDID=$(xcrun simctl list devices available | grep -m1 'iPhone 16' | grep -oE '[0-9A-F-]{36}')
+          # Pin the RUNTIME, not just the device model. macos-15 ships iOS
+          # 18.5, 18.6, 26.0, 26.1 and 26.2, and "iPhone 16" exists under every
+          # one of them — so the old `grep -m1 'iPhone 16'` silently took the
+          # first match, which is iOS **18.5**. Diagnostics captured from a
+          # hung run (artifact ios-simulator-diagnostics, run 30730904622)
+          # confirmed it: the booted device was an iPhone 16 Pro on iOS 18.5
+          # while this job selects Xcode 26.1.1 above. Eight major versions of
+          # runtime/toolchain skew, and it also meant CI never actually
+          # exercised a current iOS.
+          #
+          # 26.1 to match Xcode 26.1.1 exactly — NOT "newest available", which
+          # would pick 26.2, a runtime newer than the selected Xcode.
+          #
+          # Fail loudly if it is gone rather than falling back to an older
+          # runtime: a red job that says why beats silently testing iOS 18
+          # again.
+          RUNTIME='iOS 26.1'
+          UDID=$(xcrun simctl list devices available \
+            | awk -v want="-- $RUNTIME --" '
+                $0 == want {inblock = 1; next}
+                /^-- / {inblock = 0}
+                inblock && /iPhone 16/ {print; exit}' \
+            | grep -oE '[0-9A-F-]{36}')
+          if [ -z "$UDID" ]; then
+            echo "::error::No iPhone 16 simulator under '$RUNTIME' on this image."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Booting $RUNTIME simulator $UDID"
           echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
       # interstitial/rewarded show+dismiss need a real ad fill, which the
