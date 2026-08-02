@@ -194,6 +194,33 @@ jobs:
           echo "Booting $RUNTIME simulator $UDID"
           echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+          # Silence Apple Push Service inside the simulator.
+          #
+          # This is the suspected cause of the 12-minute "app never started"
+          # hangs, and the evidence is in the log-show.txt captured from the
+          # hung run 30734786580: apsd logged
+          #     <APSConnection: 0x...> Delivering connectionStatusChange from apsd: NO
+          # **4250 times in 3 seconds**. The runner has no route to Apple's
+          # push servers, so apsd retries in a tight loop and fans the result
+          # out to every listening client. diagnosticd — the daemon that
+          # serves `log stream` — was pegged at 42.9% CPU keeping up with it.
+          #
+          # That matters because `flutter test` on a simulator discovers the
+          # app's VM-service URI by READING THE DEVICE LOG STREAM. Saturate
+          # the stream and flutter never sees the URI: no Dart output at all,
+          # then the 12-minute per-test timeout. Which is exactly the
+          # signature, including why a different file is hit each run — it
+          # depends on whether apsd happens to be spinning when flutter
+          # attaches.
+          #
+          # Nothing under test uses push notifications. `|| true` because the
+          # service name has moved between runtimes and a failure to stop it
+          # must not fail the job — worst case we are back to today's flake.
+          xcrun simctl spawn "$UDID" launchctl stop com.apple.apsd || true
+          xcrun simctl spawn "$UDID" launchctl print system 2>/dev/null \
+            | grep -c apsd || true
       # interstitial/rewarded show+dismiss need a real ad fill, which the
       # invalid placeholder AppLovin key (see Android job comment above) can
       # never provide — same AD_PROVIDER_ADMOB switch to Google's public

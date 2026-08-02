@@ -24,6 +24,20 @@
 # would have buried.
 set -u
 
+# Cut the dead wait when a file hangs. The default for integration_test is 12
+# minutes, and the hang burns every second of it while producing no output at
+# all — a hung run costs ~17 minutes including teardown, which on run
+# 30734786580 was 17 of the iOS job's 40. Measured against real timings: every
+# file finishes in ~1 minute wall clock (18 files in ~19 minutes once the hung
+# one is excluded), and the longest in-test waiting is app_boot_test's 45s poll
+# plus cold start. 5 minutes leaves a wide margin over that while cutting a
+# hang from 12 minutes to 5.
+#
+# This shortens the wait, it does not fix anything: a file that genuinely needs
+# longer than 5 minutes will now fail, and that failure would be real
+# information, not a false positive to paper over.
+TEST_TIMEOUT=5m
+
 files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$')
 
 failed=""
@@ -31,7 +45,7 @@ retried=""
 
 for f in $files; do
   echo "::group::$f"
-  if flutter test "$f" "$@"; then
+  if flutter test "$f" --timeout "$TEST_TIMEOUT" "$@"; then
     echo "::endgroup::"
     continue
   fi
@@ -67,7 +81,7 @@ for f in $files; do
   # prints nothing useful about that, and the first attempt cannot be re-run
   # after the fact.
   echo "::group::$f (retry)"
-  if flutter test "$f" -v "$@"; then
+  if flutter test "$f" -v --timeout "$TEST_TIMEOUT" "$@"; then
     echo "::endgroup::"
   else
     echo "::endgroup::"
