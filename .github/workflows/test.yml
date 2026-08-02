@@ -3,8 +3,25 @@ name: CI
 on:
   push:
     branches: [ main, develop ]
+    # A commit touching ONLY docs does not need two ~25-minute integration
+    # jobs: run 30708366878 spent 46 minutes of runner time on a single .md
+    # file. Note this skips a run only when EVERY changed path matches — a
+    # commit that touches code and docs together still runs the full suite.
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+
+# Pushing twice a few minutes apart used to leave two full runs (4 jobs each,
+# ~35 min) racing, which both wastes runners and makes "which run is current"
+# ambiguous. Supersede the older run instead.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # The ad SDK package owns all the automated tests (unit/widget/integration
@@ -95,10 +112,45 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           working-directory: packages/ad_sdk/example
+          # Same per-file isolation + one retry as the iOS job below, for the
+          # same reason: a single invocation lets one bad app launch hide every
+          # remaining file behind a 12-minute timeout. Android has not shown
+          # that failure yet, but it has the identical shape, and being green
+          # today is not evidence the shape is safe. Retries are logged by name
+          # so a real regression cannot hide behind "it passed on the retry".
           script: |
             adb logcat -c
             adb logcat > /tmp/logcat.txt &
-            flutter test $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$') --dart-define=AD_PROVIDER_ADMOB=true
+            run_one() {
+              flutter test "$1" --dart-define=AD_PROVIDER_ADMOB=true
+            }
+            failed=()
+            retried=()
+            for f in $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$'); do
+              echo "::group::$f"
+              if run_one "$f"; then
+                echo "::endgroup::"
+                continue
+              fi
+              echo "::endgroup::"
+              echo "::warning file=$f::first attempt failed — retrying once"
+              retried+=("$f")
+              echo "::group::$f (retry)"
+              if run_one "$f"; then
+                echo "::endgroup::"
+              else
+                echo "::endgroup::"
+                echo "::error file=$f::integration test failed on both attempts"
+                failed+=("$f")
+              fi
+            done
+            if [ ${#retried[@]} -ne 0 ]; then
+              echo "::warning::Files that needed a retry: ${retried[*]}"
+            fi
+            if [ ${#failed[@]} -ne 0 ]; then
+              echo "Failed files (both attempts): ${failed[*]}"
+              exit 1
+            fi
       - name: Upload logcat
         if: always()
         uses: actions/upload-artifact@v4
