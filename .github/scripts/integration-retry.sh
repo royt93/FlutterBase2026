@@ -24,19 +24,65 @@
 # would have buried.
 set -u
 
-# Cut the dead wait when a file hangs. The default for integration_test is 12
-# minutes, and the hang burns every second of it while producing no output at
-# all — a hung run costs ~17 minutes including teardown, which on run
-# 30734786580 was 17 of the iOS job's 40. Measured against real timings: every
-# file finishes in ~1 minute wall clock (18 files in ~19 minutes once the hung
-# one is excluded), and the longest in-test waiting is app_boot_test's 45s poll
-# plus cold start. 5 minutes leaves a wide margin over that while cutting a
-# hang from 12 minutes to 5.
-#
-# This shortens the wait, it does not fix anything: a file that genuinely needs
-# longer than 5 minutes will now fail, and that failure would be real
-# information, not a false positive to paper over.
+# Per-TEST timeout, i.e. once a test body is actually running. Kept because it
+# is the right bound for a test that hangs inside itself, but be clear about
+# what it does NOT do — see the note below. Every real test body finishes in
+# well under a minute; 5 leaves a wide margin.
 TEST_TIMEOUT=5m
+
+# `--timeout` above does NOT bound the hang, proven on run 30740897513: the
+# failure still read "TimeoutException after 0:12:00" with --timeout 5m in
+# effect. It is package:test's PER-TEST timeout, and the hang happens at the
+# loading stage — the test never starts, so that clock is not the one running.
+#
+# So bound it from outside instead, where nothing about flutter's internals
+# matters. Limits come from measured times on run 30738772564 (a clean run):
+# the first file in a shard costs up to ~500s because it pays the cold Xcode
+# build and first simulator install, every later file ran 69-144s. 10 minutes
+# and 5 minutes leave room above both without waiting out a 12-minute hang.
+FIRST_FILE_LIMIT_SECS=${FIRST_FILE_LIMIT_SECS:-600}
+FILE_LIMIT_SECS=${FILE_LIMIT_SECS:-300}
+
+# Run "$@", killing it after $1 seconds. Prefers coreutils timeout when the
+# runner has it (Ubuntu does, macOS does not) and falls back to a plain POSIX
+# watchdog. A killed command exits non-zero, which is exactly what the caller
+# already treats as a failed attempt.
+run_bounded() {
+  _limit=$1
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout -s KILL "$_limit" "$@"
+    return $?
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout -s KILL "$_limit" "$@"
+    return $?
+  fi
+  "$@" &
+  _cmd_pid=$!
+  # >/dev/null on the watchdog subshell: without it the subshell inherits this
+  # script's stdout and holds the pipe open, so a caller doing `script | grep`
+  # hangs after the script itself has finished. Caught while testing this.
+  ( sleep "$_limit"; kill -9 "$_cmd_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  _wd_pid=$!
+  wait "$_cmd_pid"
+  _status=$?
+  kill "$_wd_pid" 2>/dev/null
+  if [ "$_status" -eq 137 ]; then
+    # 137 = SIGKILL, i.e. the watchdog fired rather than the test failing.
+    # Worth naming in the log so a wall-clock kill is never mistaken for a
+    # test that legitimately failed.
+    #
+    # Note: `flutter` is a wrapper script, so killing it may leave the dart
+    # snapshot doing the real work behind. No cleanup is attempted here — a
+    # broad `pkill -f flutter` would kill an unrelated `flutter test` when
+    # someone runs this script on their own machine, and there is as yet no
+    # evidence orphans actually survive. If a kill turns out to poison the
+    # next file, that is the thing to look at.
+    echo "::warning::hit the ${_limit}s wall-clock limit and was killed"
+  fi
+  return $_status
+}
 
 files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$')
 
@@ -60,9 +106,16 @@ fi
 failed=""
 retried=""
 
+file_no=0
 for f in $files; do
+  file_no=$((file_no + 1))
+  if [ "$file_no" -eq 1 ]; then
+    limit=$FIRST_FILE_LIMIT_SECS
+  else
+    limit=$FILE_LIMIT_SECS
+  fi
   echo "::group::$f"
-  if flutter test "$f" --timeout "$TEST_TIMEOUT" "$@"; then
+  if run_bounded "$limit" flutter test "$f" --timeout "$TEST_TIMEOUT" "$@"; then
     echo "::endgroup::"
     continue
   fi
@@ -98,7 +151,7 @@ for f in $files; do
   # prints nothing useful about that, and the first attempt cannot be re-run
   # after the fact.
   echo "::group::$f (retry)"
-  if flutter test "$f" -v --timeout "$TEST_TIMEOUT" "$@"; then
+  if run_bounded "$limit" flutter test "$f" -v --timeout "$TEST_TIMEOUT" "$@"; then
     echo "::endgroup::"
   else
     echo "::endgroup::"
