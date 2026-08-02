@@ -227,6 +227,24 @@ Retry che cả hai; chỉ nhờ log `::warning` mới tách được:
 
 Đây chính là lý do bắt buộc log mọi lần retry. Nếu retry im lặng, một run xanh đã chôn luôn một assertion fail thật giữa đám flake hạ tầng.
 
+## 11.1 Lớp bug thứ hai cũng rải khắp suite — nhưng chỉ 2 chỗ thật sự đua
+
+Mục 5.1 sửa "pump cố định đua với ghi async" ở 2 file bị bắt quả tang. Rà lại toàn bộ: mẫu `pump(<cố định>)` rồi `expect` xuất hiện ở **10 file**, nhưng phần lớn **không** đua gì:
+
+- `banner_ad_test`, `mrec_ad_test`, `slot_state_panel_test` (bước reinit) — pump nằm trong vòng lặp poll sẵn rồi;
+- `pump(300ms)` rồi `expect(find.text('X demo'))` chỉ chờ hết route transition, mà text đích đã có trong tree từ frame đầu.
+
+Thu hẹp về **assertion trên state của manager** — thứ mà tap chỉ mới bắt đầu ghi — còn đúng 2 chỗ:
+
+| Vị trí | Assertion sau tap |
+|---|---|
+| `consent_dialog_test:94` | `expect(AdManager().consent.hasUserConsent, ...)` sau khi tap "Apply consent to providers" |
+| `slot_state_panel_test:94` | `expect(AdManager().adapter, isNull)` sau khi tap "Destroy SDK" |
+
+Cả hai đã chuyển sang poll có chặn trên. Chỗ consent cap 3s để không vượt SnackBar ~4s mà dòng kế assert. Chỗ slot_state chỉ đang lặp lại đúng cách mà bước re-initialise ngay dưới nó **đã** làm từ trước — bước destroy là chỗ duy nhất bị bỏ sót.
+
+Bài học: đếm số file khớp mẫu cho ra 10 và sẽ dẫn tới việc sửa 8 chỗ không hỏng. Lọc theo *thứ đang được assert* mới ra đúng 2.
+
 ## 12. Bẫy bash-vs-dash trong `android-emulator-runner`
 
 Commit `59f16a4` chép vòng lặp retry của job iOS sang job Android, gồm cả **mảng bash**. Job chết sau 3m31s:
@@ -237,7 +255,17 @@ The process '/usr/bin/sh' failed with exit code 2
 
 Job iOS chạy `run:` = bash trên runner GitHub; còn `android-emulator-runner` chạy `script:` bằng `/bin/sh`, tức **dash** trên Ubuntu — không có mảng. Reproduce cục bộ: `dash` trên đúng đoạn script đó trả `Syntax error: "(" unexpected`, exit 2.
 
-Sai lầm khi kiểm: dùng `bash -n`, thứ đương nhiên chấp nhận mảng. **Kiểm `script:` của job Android bằng `dash`, không phải `bash`.** Đã viết lại theo POSIX (chuỗi phân cách bằng dấu cách thay cho mảng) và verify bằng dash cả 2 nhánh.
+Sai lầm khi kiểm: dùng `bash -n`, thứ đương nhiên chấp nhận mảng. Viết lại theo POSIX (chuỗi phân cách bằng dấu cách thay cho mảng), verify bằng dash — **và vẫn đỏ**, với thông báo khác:
+
+```
+/usr/bin/sh: 1: Syntax error: end of file unexpected (expecting "}")
+```
+
+`sh: 1:` là mấu chốt: body tới `sh` đã bị **dồn về một dòng**, nên `run_one() { ... }` trải nhiều dòng không đóng được `}`. Tức có **hai** vấn đề chồng nhau ở block `script:` này, không phải một.
+
+Kết luận sau 2 lần hỏng: đừng viết inline nữa. Vòng lặp đã chuyển ra `.github/scripts/integration-retry.sh`, **cả job Android lẫn iOS gọi chung**, mỗi job truyền cờ `flutter test` của mình. Lợi ích quyết định: file kiểm được bằng đúng shell mà CI chạy. Đã verify `dash -n`, rồi chạy thật dưới `dash` với một `flutter` giả trên PATH — file sạch thì im lặng, fail-rồi-pass chỉ ra `::warning`, fail 2 lần ra `::error` + `Failed files (both attempts)` + exit 1, và 3 file cần người tap tay vẫn bị loại đúng.
+
+Điểm yếu chung của cả 2 lần: **cách kiểm**. `bash -n` chấp nhận mảng, và syntax check kiểu gì cũng không nhìn thấy được vấn đề quoting chỉ tồn tại bên trong action.
 
 ## 13. B và C đã làm, `concurrency` đã nghiệm thu
 
