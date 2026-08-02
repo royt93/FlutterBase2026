@@ -89,7 +89,18 @@ void main() {
     await tester.scrollUntilVisibleAndSettle(destroyButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(destroyButton);
-    await tester.pump(const Duration(milliseconds: 300));
+
+    // destroy() tears the adapter down asynchronously (timers, notifiers, then
+    // the native side) before the panel rebuilds. The re-initialise step below
+    // already polls for the same reason; a fixed pump here was the odd one out
+    // and is the pattern that broke two other tests on the slower CI hardware.
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (AdManager().adapter == null &&
+          find.text('SDK not initialised yet').evaluate().isNotEmpty) {
+        break;
+      }
+    }
 
     expect(AdManager().adapter, isNull);
     expect(find.text('SDK not initialised yet'), findsOneWidget);

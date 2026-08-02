@@ -88,7 +88,22 @@ void main() {
     await tester.scrollUntilVisibleAndSettle(applyButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(applyButton);
-    await tester.pump(const Duration(milliseconds: 300));
+
+    // Applying consent is asynchronous — it reaches AdManager().consent and
+    // then both providers before the confirmation SnackBar is built. A fixed
+    // pump raced exactly this in consent_country_demo_test on CI (the
+    // assertion read a value that had not landed yet), so poll instead,
+    // capped below the SnackBar's ~4s auto-dismiss so our own waiting cannot
+    // outlive what the next assertion looks for.
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      final applied = AdManager().consent.hasUserConsent == !startedConsented;
+      final announced = find
+          .textContaining('Consent applied to both providers')
+          .evaluate()
+          .isNotEmpty;
+      if (applied && announced) break;
+    }
 
     // Applied state must reach the real AdManager().consent surface.
     expect(AdManager().consent.hasUserConsent, !startedConsented);
