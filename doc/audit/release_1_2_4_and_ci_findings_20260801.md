@@ -271,4 +271,30 @@ Kết luận sau 2 lần hỏng: đừng viết inline nữa. Vòng lặp đã c
 
 - **B**: thêm `concurrency` group (`cancel-in-progress`) và `paths-ignore` cho `**.md` + `doc/**`. Quan sát được ngay: run `30729328644` chuyển sang `cancelled` khi push kế tiếp tới. Lý do có `paths-ignore`: run `30708366878` đốt 46 phút runner iOS + 25 phút Android để kiểm một commit chỉ có một file `.md`.
 - **C**: job Android dùng cùng cơ chế per-file + retry có log như iOS.
+## 14. Job iOS chạy sai runtime suốt từ đầu — iOS 18.5, không phải iOS hiện đại
+
+Phần thu bằng chứng ở mục 13 trả kết quả ngay lần treo đầu tiên. Artifact `ios-simulator-diagnostics` của run `30730904622`, chụp đúng lúc `banner_ad_test.dart` chạm timeout 12 phút:
+
+| Dữ kiện | Giá trị |
+|---|---|
+| Máy đang boot | iPhone 16 Pro, **iOS 18.5** |
+| App trong sim | không có (`launchctl list` không có `adSdkExample`) |
+| App trên host | không có tiến trình nào |
+| `system.log` của sim | 2 dòng, **không gì** suốt 12 phút treo |
+| CPU cao nhất trong sim | `diagnosticd` **42.9%**, tích luỹ **9m35s**; `apsd` 31.7% |
+
+**Lỗi thật, độc lập với flake:** job chọn Xcode 26.1.1 nhưng boot iOS 18.5. Câu lệnh cũ:
+
+```sh
+UDID=$(xcrun simctl list devices available | grep -m1 'iPhone 16' | grep -oE '[0-9A-F-]{36}')
+```
+
+`iPhone 16` tồn tại dưới **mọi** runtime image ship (18.5, 18.6, 26.0, 26.1, 26.2), và `simctl` liệt kê 18.5 trước — nên khớp theo model chưa bao giờ ghim được runtime. Lệch 8 phiên bản lớn giữa runtime và toolchain, và nghiêm trọng hơn: **job iOS sinh ra để bắt hồi quy riêng của iOS, mà chưa từng chạy trên iOS hiện đại.** Mọi kết quả iOS trong tài liệu này, kể cả các lần xanh, đều là trên 18.5.
+
+Đã sửa: chọn máy **bên trong block `-- iOS 26.1 --`** cho khớp Xcode, và fail kèm thông báo rõ nếu runtime đó biến mất — thay vì âm thầm tụt về 18.5. Không lấy "runtime mới nhất" vì như thế sẽ chọn 26.2, mới hơn Xcode đang dùng. Bộ chọn `awk` đã kiểm bằng định dạng `simctl list` thật: lấy đúng 26.1, bỏ qua cả 18.5 lẫn 26.2, và trả rỗng để guard kích hoạt khi runtime vắng mặt.
+
+**Giả thuyết cho D, chưa kết luận:** `system.log` trống trơn cạnh `diagnosticd` ghim 43% CPU trỏ về phía phân hệ logging của simulator bị kẹt. Nếu đúng thì đó là nguyên nhân, vì `flutter` dò VM-service URI của app **qua log stream của thiết bị** — stream chết thì `flutter` chờ vô hạn bất kể app có launch hay không, và không dòng Dart nào lọt ra. Khớp mọi quan sát, nhưng vẫn chỉ là giả thuyết.
+
+Để phân giải, phần thu bổ sung `log show --last 15m` (đọc thẳng log store nên không phụ thuộc `system.log`) và lần retry chạy `-v` để nếu retry cũng treo thì biết `flutter` kẹt ở bước nào — install, launch, hay chờ VM service.
+
 - **D** (root cause treo launch): vẫn chưa xong, nhưng job iOS giờ **thu bằng chứng** khi một file phải retry — booted devices, `launchctl list`, danh sách tiến trình, và 3000 dòng cuối `CoreSimulator/<UDID>/system.log` — upload thành artifact `ios-simulator-diagnostics`. Dùng `if: always()` chứ không phải `if: failure()`, vì trường hợp cần đúng là lúc retry cứu được và job xanh. Chọn cách thu nhỏ và có mục tiêu vì `simctl diagnose` sinh hàng trăm MB mỗi lần.
