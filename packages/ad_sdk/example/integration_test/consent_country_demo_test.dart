@@ -75,27 +75,41 @@ void main() {
     await tester.enterText(countryField, 'DE');
     await tester.pump();
 
-    // Entering text opens the real software keyboard on a device/simulator and
-    // the Scaffold then resizes for viewInsets.bottom. While that inset is
-    // still animating, the rect a finder reports for "Set" is already stale by
-    // the time the pointer is dispatched — that is what produced the
-    // "derived an Offset that would not hit test" warning on iOS. Close the
-    // keyboard and wait for the inset to settle so the layout is stable before
-    // locating and tapping the button.
+    // Two things move "Set" out from under the pointer between the moment a
+    // finder reads its rect and the moment the pointer is dispatched, and both
+    // produced "derived an Offset that would not hit test" with a null country
+    // afterwards:
+    //   • entering text opens the real keyboard, so the Scaffold resizes for
+    //     viewInsets.bottom (measured 0 -> 288 on the iOS Simulator);
+    //   • scrollUntilVisible drags in steps and leaves a ballistic
+    //     BouncingScrollPhysics animation still running afterwards.
+    // Dismissing the keyboard only fixes the first, and on the CI simulator the
+    // keyboard never appears at all (viewInsets stays 0) — so that run failed on
+    // the second cause while a local run, on much faster hardware where the
+    // fling had already settled, passed.
+    //
+    // Rather than enumerate every source of movement, wait until the button's
+    // rect stops changing. That covers both causes and any future one.
     FocusManager.instance.primaryFocus?.unfocus();
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-      if (MediaQuery.of(tester.element(find.byType(MaterialApp)))
-              .viewInsets
-              .bottom ==
-          0) {
-        break;
-      }
-    }
 
     final setButton = find.widgetWithText(FilledButton, 'Set');
     await tester.scrollUntilVisible(setButton, 200,
         scrollable: find.byType(Scrollable).first);
+
+    Rect? previous;
+    var stableFrames = 0;
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      final current = tester.getRect(setButton);
+      stableFrames = current == previous ? stableFrames + 1 : 0;
+      previous = current;
+      // Three identical frames in a row: layout has settled, not merely paused
+      // between two drag steps of an easing curve.
+      if (stableFrames >= 3) break;
+    }
+    expect(stableFrames >= 3, isTrue,
+        reason: 'the Set button never stopped moving, so a tap would race it');
+
     await tester.tap(setButton);
 
     // Everything this test asserts lands asynchronously and at different
