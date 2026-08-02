@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 final _ed = Ed25519();
 
 Future<String> _pubB64(SimpleKeyPair kp) async =>
@@ -99,7 +101,7 @@ void main() {
     // match 0), so the redeem TextField needs a real scroll-and-recheck loop
     // to bring it into the tree — not just a single ensureVisible, which
     // requires the finder to already match something.
-    await tester.scrollUntilVisible(
+    await tester.scrollUntilVisibleAndSettle(
       find.byType(TextField),
       200,
       scrollable: find.byType(Scrollable).first,

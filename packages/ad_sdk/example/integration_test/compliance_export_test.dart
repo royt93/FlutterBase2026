@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -73,7 +75,7 @@ void main() {
     expect(foundTile, isTrue,
         reason: 'HomePage must list the Compliance report tile');
 
-    await tester.scrollUntilVisible(tile, 200,
+    await tester.scrollUntilVisibleAndSettle(tile, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
     await tester.pumpAndSettle();

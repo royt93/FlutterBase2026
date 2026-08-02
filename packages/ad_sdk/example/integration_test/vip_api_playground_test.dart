@@ -21,6 +21,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -101,7 +103,7 @@ void main() {
 
     // Quick redeem: TEST_VIP_7 (7 days, stack: true).
     final quick7 = find.textContaining('TEST_VIP_7');
-    await tester.scrollUntilVisible(quick7, 200,
+    await tester.scrollUntilVisibleAndSettle(quick7, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(quick7);
     // Validator has a fixed 600ms delay (fake-clock, deterministic), but the
@@ -126,7 +128,7 @@ void main() {
     // Redeem a second key — global stacking should push the expiry further
     // out than the first redeem alone (TEST_VIP_7 + TEST_VIP_30 stacked).
     final quick30 = find.textContaining('TEST_VIP_30');
-    await tester.scrollUntilVisible(quick30, 200,
+    await tester.scrollUntilVisibleAndSettle(quick30, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(quick30);
     final okButton2 = find.text('OK');
@@ -179,7 +181,7 @@ void main() {
     await tester.pump();
 
     final signed1d = find.widgetWithText(FilledButton, 'signed 1d');
-    await tester.scrollUntilVisible(signed1d, 200,
+    await tester.scrollUntilVisibleAndSettle(signed1d, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(signed1d);
     // redeemSignedKey() resolves after a real secure-storage write (Android

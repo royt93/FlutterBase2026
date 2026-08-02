@@ -23,6 +23,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -91,7 +93,7 @@ void main() {
     // exact runtimeType, not `is`, so it never matches a plain FilledButton
     // finder for icon-labelled buttons.
     final diagButton = find.text('Run diagnostics()');
-    await tester.scrollUntilVisible(diagButton, 200,
+    await tester.scrollUntilVisibleAndSettle(diagButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(diagButton);
     await tester.pump(const Duration(milliseconds: 300));
@@ -105,7 +107,7 @@ void main() {
     // load for real on-device. Give it the same generous window the other
     // ad-load tests use.
     final selfCheckButton = find.text('Run runIntegrationSelfCheck()');
-    await tester.scrollUntilVisible(selfCheckButton, 200,
+    await tester.scrollUntilVisibleAndSettle(selfCheckButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(selfCheckButton);
     await tester.pump();

@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -83,7 +85,7 @@ void main() {
 
     final applyButton =
         find.widgetWithText(FilledButton, 'Apply consent to providers');
-    await tester.scrollUntilVisible(applyButton, 200,
+    await tester.scrollUntilVisibleAndSettle(applyButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(applyButton);
     await tester.pump(const Duration(milliseconds: 300));

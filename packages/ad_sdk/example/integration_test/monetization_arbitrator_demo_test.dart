@@ -19,6 +19,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -63,7 +65,7 @@ void main() {
     // either starting state but always assert the post-tap state is wired.
     final enableButton = find.widgetWithText(
         FilledButton, 'Enable Smart Arbitrator (per-slot + guardrail)');
-    await tester.scrollUntilVisible(enableButton, 200,
+    await tester.scrollUntilVisibleAndSettle(enableButton, 200,
         scrollable: find.byType(Scrollable).first);
 
     if (AdManager().arbitrator == null) {

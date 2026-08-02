@@ -18,6 +18,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -70,46 +72,20 @@ void main() {
 
     final countryField =
         find.widgetWithText(TextField, 'Consent country (e.g. DE, US)');
-    await tester.scrollUntilVisible(countryField, 200,
+    await tester.scrollUntilVisibleAndSettle(countryField, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.enterText(countryField, 'DE');
     await tester.pump();
 
-    // Two things move "Set" out from under the pointer between the moment a
-    // finder reads its rect and the moment the pointer is dispatched, and both
-    // produced "derived an Offset that would not hit test" with a null country
-    // afterwards:
-    //   • entering text opens the real keyboard, so the Scaffold resizes for
-    //     viewInsets.bottom (measured 0 -> 288 on the iOS Simulator);
-    //   • scrollUntilVisible drags in steps and leaves a ballistic
-    //     BouncingScrollPhysics animation still running afterwards.
-    // Dismissing the keyboard only fixes the first, and on the CI simulator the
-    // keyboard never appears at all (viewInsets stays 0) — so that run failed on
-    // the second cause while a local run, on much faster hardware where the
-    // fling had already settled, passed.
-    //
-    // Rather than enumerate every source of movement, wait until the button's
-    // rect stops changing. That covers both causes and any future one.
+    // Entering text opens the real keyboard, which resizes the Scaffold for
+    // viewInsets.bottom (measured 0 -> 288 on the iOS Simulator) and so moves
+    // "Set". Dismiss it; scrollUntilVisibleAndSettle then waits out both that
+    // inset animation and its own fling before we read the button's rect.
     FocusManager.instance.primaryFocus?.unfocus();
 
     final setButton = find.widgetWithText(FilledButton, 'Set');
-    await tester.scrollUntilVisible(setButton, 200,
+    await tester.scrollUntilVisibleAndSettle(setButton, 200,
         scrollable: find.byType(Scrollable).first);
-
-    Rect? previous;
-    var stableFrames = 0;
-    for (var i = 0; i < 60; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-      final current = tester.getRect(setButton);
-      stableFrames = current == previous ? stableFrames + 1 : 0;
-      previous = current;
-      // Three identical frames in a row: layout has settled, not merely paused
-      // between two drag steps of an easing curve.
-      if (stableFrames >= 3) break;
-    }
-    expect(stableFrames >= 3, isTrue,
-        reason: 'the Set button never stopped moving, so a tap would race it');
-
     await tester.tap(setButton);
 
     // Everything this test asserts lands asynchronously and at different

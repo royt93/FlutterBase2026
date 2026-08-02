@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 Future<void> _waitForInit(WidgetTester tester) async {
   for (var i = 0; i < 60; i++) {
     await tester.pump(const Duration(milliseconds: 500));
@@ -59,7 +61,7 @@ void main() {
     // tile list is long enough that this tile can render below the fold on
     // the default test viewport (same pattern already handled in
     // compliance_export_test.dart / safety_status_test.dart).
-    await tester.scrollUntilVisible(tile, 200,
+    await tester.scrollUntilVisibleAndSettle(tile, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
@@ -84,7 +86,7 @@ void main() {
     // Destroy → adapter goes null, panel falls back to the "not initialised"
     // message, without crashing.
     final destroyButton = find.widgetWithText(FilledButton, 'Destroy SDK');
-    await tester.scrollUntilVisible(destroyButton, 200,
+    await tester.scrollUntilVisibleAndSettle(destroyButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(destroyButton);
     await tester.pump(const Duration(milliseconds: 300));
