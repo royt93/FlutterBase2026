@@ -40,6 +40,23 @@ TEST_TIMEOUT=5m
 
 files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$')
 
+# Optional sharding: SHARD_TOTAL=3 SHARD_INDEX=0|1|2 runs a third of the files.
+#
+# Every file pays its own Xcode build because each one is a separate Dart
+# entrypoint — `flutter test integration_test/foo_test.dart` packages an app
+# whose main() IS that file, so no single binary can serve all of them, and
+# `flutter test` has no --use-application-binary to reuse one anyway. Measured
+# on run 30738772564: 18 builds, 879s total (14.6 min, avg 49s, first 117s) out
+# of a 41-minute job. Sequential, that cost cannot be removed — only spread.
+#
+# Round-robin (NR % total) rather than contiguous blocks: file durations vary
+# from 69s to 144s, and interleaving keeps the shards closer in length than
+# slicing the alphabetical list would.
+if [ -n "${SHARD_TOTAL:-}" ]; then
+  files=$(printf '%s\n' $files | awk -v t="$SHARD_TOTAL" -v i="${SHARD_INDEX:-0}" 'NR % t == i')
+  echo "Shard ${SHARD_INDEX:-0}/$SHARD_TOTAL — $(printf '%s\n' $files | wc -l | tr -d ' ') files"
+fi
+
 failed=""
 retried=""
 

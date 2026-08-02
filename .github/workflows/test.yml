@@ -140,8 +140,18 @@ jobs:
   # Simulator — see SKIP_ATT/SKIP_UMP/SKIP_SPLASH_AD dart-defines below).
   # Runs the same integration_test suite on an iOS Simulator.
   sdk-integration-ios:
-    name: ad_sdk example — integration tests (iOS Simulator)
+    name: ad_sdk example — iOS Simulator (shard ${{ matrix.shard }}/3)
     runs-on: macos-15
+    # Split across 3 runners. Every file pays its own ~49s Xcode build because
+    # each is a separate Dart entrypoint (measured on run 30738772564: 18
+    # builds, 14.6 min of a 41-min job) — that cost cannot be removed, only
+    # spread. Sharding takes the job from ~41 min to ~16-18 min wall clock and
+    # keeps per-file isolation, so a failure still names the file. Runners are
+    # free here: the repo is public.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     defaults:
       run:
         working-directory: packages/ad_sdk/example
@@ -236,6 +246,7 @@ jobs:
       # files behind a 12-minute timeout (run 30697397657).
       - name: Run integration tests
         run: |
+          SHARD_TOTAL=3 SHARD_INDEX=${{ matrix.shard }} \
           sh "$GITHUB_WORKSPACE/.github/scripts/integration-retry.sh" \
             -d "$SIMULATOR_UDID" \
             --dart-define=SKIP_SPLASH_AD=true \
@@ -251,7 +262,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-diagnostics
+          # Unique per shard: three jobs uploading the same artifact name
+          # would collide.
+          name: ios-simulator-diagnostics-shard-${{ matrix.shard }}
           path: /tmp/sim-diag
           if-no-files-found: ignore
 
