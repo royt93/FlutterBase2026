@@ -58,6 +58,24 @@ and several real bugs have been found and fixed through that process. That
 is not the same claim as "battle-tested in production by third parties" —
 be clear-eyed about the gap before depending on it for revenue:
 
+- **VIP anti-bypass is durable on iOS, weak on Android.** The one-time-use
+  ledger for redeemed keys and the first-install trial guard are backed by the
+  iOS Keychain, which survives an uninstall by design. Android has no
+  equivalent that works without a backend: both fall back to
+  `SharedPreferences`, so **clearing the app's data resets the 1-day trial and
+  lets an already-redeemed key be used again on that device**. Android Auto
+  Backup (`dataExtractionRules`) covers a Play Store reinstall, not "Clear
+  data", and only when backup is enabled and the same Google account is used.
+  Decide with that in mind before handing out keys at scale — and prefer AVP2
+  keys with a short `--valid-days`, since a key that has expired cannot be
+  reused no matter how the device is wiped.
+- **A leaked key is a leaked key.** Signature verification is offline and
+  sound — only the public key ships, so nobody can forge NEW keys by
+  decompiling the app. But without a backend there is no revocation: an AVP1
+  key that gets posted publicly works forever on every device that has not
+  already used it. AVP2 (default since 2.0.0) narrows this a lot by embedding
+  an expiry and an app binding in the signed payload, but a key that is shared
+  while still valid is still usable by whoever receives it.
 - **Ad-policy risk is not this SDK's to control.** It's a thin wrapper over
   AppLovin MAX and Google Mobile Ads. Fill rate, fraud detection accuracy,
   and account-level policy enforcement (suspensions, strikes) are decided by

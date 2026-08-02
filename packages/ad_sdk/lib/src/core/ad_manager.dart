@@ -609,6 +609,36 @@ class AdManager with WidgetsBindingObserver {
   /// See [_canRequestAds] / [_footgunBlocked].
   bool get canRequestAds => _canRequestAds && !_footgunBlocked;
 
+  /// True when ANY fullscreen surface already owns the screen — an App Open,
+  /// interstitial or rewarded ad, the SDK's own loading buffer, or a host
+  /// dialog/popup.
+  ///
+  /// One shared predicate for every `show*` path, because each path used to
+  /// carry its own subset and they had drifted: `showAppOpenAdOnResume` checked
+  /// the other two slots plus the dialog stack, while `showInterstitial` and
+  /// `showRewarded` each checked only themselves — so an interstitial could be
+  /// shown on top of a rewarded ad and vice versa. Stacking one fullscreen ad
+  /// on another is an AdMob and AppLovin policy violation, and
+  /// `AdSafetyConfig.canShowFullscreenAd()` cannot substitute: that is a
+  /// time-based frequency gate, not a state-based mutex.
+  ///
+  /// Keeping it in one place also means a fifth ad type added later is covered
+  /// by construction rather than by remembering to copy the condition.
+  String? get _fullscreenBusyReason {
+    final ad = _adapter;
+    if (ad == null) return null;
+    if (ad.appOpenSlot.isShowing) return 'app-open ad currently showing';
+    if (ad.interstitialSlot.isShowing) return 'interstitial currently showing';
+    if (ad.rewardedSlot.isShowing) return 'rewarded ad currently showing';
+    if (AdLoadingDialog.isShowing) return 'ad loading buffer showing';
+    if (AdScreenRouteLogger.isDialogOnTop) return 'a dialog/popup is on top';
+    return null;
+  }
+
+  /// Test seam for [_fullscreenBusyReason].
+  @visibleForTesting
+  String? get debugFullscreenBusyReason => _fullscreenBusyReason;
+
   /// Test seam for the consent gate.
   @visibleForTesting
   set debugCanRequestAds(bool v) => _canRequestAds = v;
@@ -641,6 +671,19 @@ class AdManager with WidgetsBindingObserver {
   /// UMP never run). Runtime state, so it doesn't false-alarm hosts that gather
   /// consent correctly in their splash.
   bool _umpRequested = false;
+
+  /// Last result returned by [requestUmpConsent] this process, so the
+  /// auto-request path (`skipIfAlreadyRequested: true`) can hand back what the
+  /// host already obtained instead of inventing a value or re-running the flow.
+  UmpConsentResult? _lastUmpResult;
+
+  /// True when the last [requestUmpConsent] attempt failed (network error or
+  /// the 20s timeout) — see [_onConnectivityChanged], which retries only then.
+  bool _umpAttemptFailed = false;
+
+  /// Test seam for [_umpAttemptFailed].
+  @visibleForTesting
+  bool get debugUmpAttemptFailed => _umpAttemptFailed;
 
   /// Test seam for [_umpRequested] — see [debugResetGuardState].
   @visibleForTesting
@@ -1155,12 +1198,47 @@ class AdManager with WidgetsBindingObserver {
           'debugGeography': config.umpDebugGeography,
           'testIdentifiers': config.umpTestIdentifiers,
         };
-        await requestUmpConsent(
-          testMode: kDebugMode,
-          tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
-          debugGeography: config.umpDebugGeography,
-          testIdentifiers: config.umpTestIdentifiers,
-        );
+        // C1 — never let the consent SDK take down SDK init. `google_mobile_ads`
+        // throws MissingPluginException from requestConsentInfoUpdate when the
+        // UMP channel is not registered (unit tests, and any host that has not
+        // wired the plugin), and requestUmpConsentFlow only catches UMP's own
+        // FormError, not a channel throw. Before autoRequestUmpConsent defaulted
+        // to true this was unreachable; now every host hits this line, so a
+        // throw here would abort initialize() for everyone.
+        //
+        // Degrading to "consent not obtained" is the safe direction: the
+        // canRequestAds gate keeps whatever UMP had cached, and C2's
+        // reconnect retry will try again.
+        // A plain try/catch is not enough. `requestConsentInfoUpdate` is a
+        // callback API returning void: when the UMP channel is missing it
+        // throws MissingPluginException from a future nobody awaits, so the
+        // error escapes as an UNHANDLED ZONE ERROR, not on the future we await
+        // here. Verified against the real stack — google_mobile_ads'
+        // UserMessagingChannel.requestConsentInfoUpdate reached via
+        // ump_consent.dart. runZonedGuarded is what actually contains it, and
+        // it is scoped to this one call rather than to init as a whole.
+        final umpDone = Completer<void>();
+        runZonedGuarded(() async {
+          try {
+            await requestUmpConsent(
+              skipIfAlreadyRequested: true,
+              testMode: kDebugMode,
+              tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
+              debugGeography: config.umpDebugGeography,
+              testIdentifiers: config.umpTestIdentifiers,
+            );
+          } finally {
+            if (!umpDone.isCompleted) umpDone.complete();
+          }
+        }, (e, _) {
+          SafeLogger.w(
+              _tag,
+              'auto UMP failed ($e) — continuing init; the consent gate keeps '
+              'its current value and the reconnect retry will try again');
+          _umpAttemptFailed = true;
+          if (!umpDone.isCompleted) umpDone.complete();
+        });
+        await umpDone.future;
       }
 
       // Pick adapter, wire its event sink, then initialise. The resolved
@@ -1482,7 +1560,23 @@ class AdManager with WidgetsBindingObserver {
     DebugGeography? debugGeography,
     List<String> testIdentifiers = const [],
     bool tagForUnderAgeOfConsent = false,
+    bool skipIfAlreadyRequested = false,
   }) async {
+    // C1 — `autoRequestUmpConsent` now defaults to true, so hosts that already
+    // call this themselves in their splash would otherwise run the whole UMP
+    // round trip twice. The auto path passes skipIfAlreadyRequested:true and
+    // bails when the host got there first; an explicit host call never skips,
+    // so "re-show the form from a Privacy screen" still works.
+    if (skipIfAlreadyRequested && _umpRequested) {
+      SafeLogger.d(_tag,
+          '⏭️ auto UMP skipped — host already called requestUmpConsent()');
+      return _lastUmpResult ??
+          const UmpConsentResult(
+            canRequestAds: true,
+            status: ConsentStatus.unknown,
+            error: 'already requested by host',
+          );
+    }
     // F9 — log-only order check: ATT must run before UMP on iOS (see this
     // method's docstring / [requestAtt]'s docstring), but this was only ever
     // enforced by convention. Warn, don't block — a host that genuinely
@@ -1519,11 +1613,40 @@ class AdManager with WidgetsBindingObserver {
     // dismissed without choosing) and `unknown` stay non-personalized.
     final hasConsent = result.status == ConsentStatus.obtained ||
         result.status == ConsentStatus.notRequired;
-    await setConsent(AdConsent(
-      hasUserConsent: hasConsent,
-      isAgeRestrictedUser: _consent.isAgeRestrictedUser,
-      doNotSell: _consent.doNotSell,
-    ));
+    // C2 — only write the mapping when the flow actually completed. On a failed
+    // attempt (no network, or the 20s timeout) UMP reports `unknown`, which
+    // maps to hasUserConsent=false and would OVERWRITE a choice the user
+    // already made in an earlier session: someone who consented, then opened
+    // the app with no network, would silently be downgraded to
+    // non-personalized ads. Leaving the persisted value alone is both the
+    // correct read of "we could not ask" and the conservative one, since the
+    // canRequestAds gate is set from UMP's own cached value either way.
+    //
+    // This was latent before autoRequestUmpConsent defaulted to true; now every
+    // host reaches it on a bad network.
+    // `unknown` means UMP could not determine anything — NOT that the user
+    // refused. Mapping it to hasUserConsent=false overwrote a choice the user
+    // had already made and persisted: the log reads
+    //   ConsentManager load → consent=true
+    //   UmpConsent done status=unknown
+    //   ConsentManager set  → consent=false
+    // i.e. a silent downgrade to non-personalized ads on every launch where
+    // UMP has no information. `required` is different and still maps to false:
+    // there the form is genuinely needed and was not completed.
+    final umpInconclusive =
+        result.error != null || result.status == ConsentStatus.unknown;
+    if (!umpInconclusive) {
+      await setConsent(AdConsent(
+        hasUserConsent: hasConsent,
+        isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+        doNotSell: _consent.doNotSell,
+      ));
+    } else {
+      SafeLogger.w(
+          _tag,
+          'UMP inconclusive (status=${result.status.name}, err=${result.error}) '
+          '— keeping the persisted consent value instead of downgrading it');
+    }
 
     // If the gate just opened (blocked → allowed) and we're already running,
     // refill the slots that were held back while consent was pending.
@@ -1531,6 +1654,11 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '🔓 consent granted → refilling held ad slots');
       _retryRefillAds();
     }
+    _lastUmpResult = result;
+    // C2 — remember a failed attempt so a later offline->online transition can
+    // retry it. `error != null` covers both a network failure and the 20s
+    // timeout inside requestUmpConsentFlow.
+    _umpAttemptFailed = result.error != null;
     return result;
   }
 
@@ -1888,17 +2016,14 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '⏭️ app-open on resume skipped — VIP member');
       return;
     }
-    if (ad.interstitialSlot.isShowing || ad.rewardedSlot.isShowing) {
-      SafeLogger.d(_tag,
-          '⏭️ app-open on resume skipped — interstitial/rewarded currently showing');
-      return;
-    }
-    // Don't stack a fullscreen App Open ad on top of a modal — consent dialog,
-    // VIP redeem confirmation, the SDK's own loading buffer, etc. Showing an ad
+    // C3 — same shared mutex the other two show paths now use. This path
+    // already had the full condition inline; it is the one the helper was
+    // extracted from. Covers stacking on another fullscreen ad AND on a modal
+    // (consent dialog, VIP confirmation, the SDK's own loading buffer) — an ad
     // over a dialog is bad UX and an AdMob policy risk.
-    if (AdLoadingDialog.isShowing || AdScreenRouteLogger.isDialogOnTop) {
-      SafeLogger.d(
-          _tag, '⏭️ app-open on resume skipped — a dialog/popup is on top');
+    final busyAO = _fullscreenBusyReason;
+    if (busyAO != null) {
+      SafeLogger.d(_tag, '⏭️ app-open on resume skipped — $busyAO');
       return;
     }
 
@@ -2031,8 +2156,11 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
-    if (ad.interstitialSlot.isShowing) {
-      SafeLogger.d(_tag, '⏭️ showInterstitial skipped — already showing');
+    // C3 — one shared mutex, not just "am I already showing". Before this,
+    // an interstitial could open on top of a rewarded ad or an App Open.
+    final busyI = _fullscreenBusyReason;
+    if (busyI != null) {
+      SafeLogger.d(_tag, '⏭️ showInterstitial skipped — $busyI');
       onDoneFlow(false);
       return;
     }
@@ -2234,9 +2362,14 @@ class AdManager with WidgetsBindingObserver {
     // Re-entrancy guard: a second call while the on-demand load OR the ad show
     // of a first call is still in flight would clobber state (two loaders, two
     // shows). Self-contained so the SDK is safe even without a caller-side lock.
-    if (_rewardedInFlight || ad.rewardedSlot.isShowing) {
-      SafeLogger.d(
-          _tag, '⏭️ showRewarded skipped — already showing / in flight');
+    // C3 — `_rewardedInFlight` still covers re-entrancy of THIS call (an
+    // on-demand load in flight is not yet "showing"); the shared mutex covers
+    // every other fullscreen surface, which this path used to ignore.
+    final busyR = _rewardedInFlight
+        ? 'rewarded load/show in flight'
+        : _fullscreenBusyReason;
+    if (busyR != null) {
+      SafeLogger.d(_tag, '⏭️ showRewarded skipped — $busyR');
       onEarnedReward(false);
       return;
     }
@@ -2622,6 +2755,15 @@ class AdManager with WidgetsBindingObserver {
       if (!isInitialised || _isVipMember) return;
       SafeLogger.d(
           _tag, '📶 network back online → refilling ad slots + banners');
+      // C2 — a UMP attempt that failed offline was never retried, so an EEA
+      // user whose first launch had no network never saw a consent form for
+      // the rest of the process: ads were refilled but the gate stayed at
+      // whatever UMP had cached. Retry only when the previous attempt actually
+      // failed, so a user who already answered is not shown the form again.
+      if (_umpAttemptFailed) {
+        SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
+        unawaited(requestUmpConsent());
+      }
       _retryRefillAds();
       // Banners re-run their init on an initRevision bump (the widget checks
       // isConnected in _initBanner); also nudge the adapter's banner preload.

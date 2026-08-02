@@ -229,6 +229,7 @@ AdConfig _admobConfig({
   required bool testIds,
   AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
   FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto,
+  bool autoRequestUmpConsent = true,
 }) {
   const realPrefix = 'ca-app-pub-9999999999999999';
   const testPrefix = 'ca-app-pub-3940256099942544';
@@ -244,6 +245,7 @@ AdConfig _admobConfig({
     safety: AdSafetyParams(dryRun: dryRun),
     appOpenTrigger: appOpenTrigger,
     firstInstallVipGrace: firstInstallVipGrace,
+    autoRequestUmpConsent: autoRequestUmpConsent,
   );
 }
 
@@ -388,13 +390,26 @@ void main() {
   });
 
   group('consentFootgunWarning (F4)', () {
-    test('default config + UMP never requested → warns', () {
+    // 2.0.0 — autoRequestUmpConsent now DEFAULTS to true, so a default config
+    // no longer trips the footgun; that is the whole point of the new default.
+    // Opt out of it explicitly to exercise the warning logic itself.
+    test('no consent flow configured + UMP never requested → warns', () {
       final w = AdManager.consentFootgunWarning(
-        _admobConfig(dryRun: true, testIds: true),
+        _admobConfig(dryRun: true, testIds: true, autoRequestUmpConsent: false),
         umpRequested: false,
       );
       expect(w, isNotNull);
       expect(w, contains('No consent flow will run'));
+    });
+
+    test('default config no longer warns (autoRequestUmpConsent defaults true)',
+        () {
+      final w = AdManager.consentFootgunWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        umpRequested: false,
+      );
+      expect(w, isNull,
+          reason: 'the 2.0.0 default runs UMP, so there IS a consent flow');
     });
 
     test('UMP already requested → no warning', () {

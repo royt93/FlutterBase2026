@@ -6,6 +6,82 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-02
+
+Breaking. Comes out of a full audit against seven production requirements
+(`doc/audit/audit_claude_20260802.md`), cross-checked by three independent
+agents, with every finding verified against the source.
+
+### Breaking
+
+- **`autoRequestUmpConsent` now defaults to `true`.** With the old defaults
+  (`false`, plus `disableAppLovinCmpFlow: true` and
+  `autoShowConsentDialog: true`) a host that changed nothing tripped the
+  consent-coverage footgun, which hard-blocks every ad request in a release
+  build — and the built-in dialog could not clear the block, because it applies
+  consent directly to the providers and never routes through `setConsent()`.
+  The result was a release that requested **zero ads, silently**: the `assert`
+  next to the block is stripped in release, leaving one log line. Hosts that
+  already call `requestUmpConsent()` themselves are detected and the automatic
+  call skips, so UMP still runs exactly once.
+- **`maxVipStackDuration` now defaults to 90 days** instead of `null`
+  (uncapped). Pass `null` explicitly for the old behaviour, knowing the only
+  remaining ceiling is the ~100-year sanity bound in the key parser.
+- **Signed VIP keys default to a new `AVP2` format** carrying an expiry and an
+  app binding inside the signed payload. `AVP1` keys already issued still
+  verify; `tool/vip_mint.dart` mints AVP2 unless `--v1` is passed.
+- New dependency: `package_info_plus`, used to read the bundle id that AVP2
+  keys are checked against.
+
+### Fixed
+
+- **Interstitial and rewarded ads could stack on each other.**
+  `showAppOpenAdOnResume` checked the other two fullscreen slots and the dialog
+  stack, but `showInterstitial` and `showRewarded` each checked only
+  themselves, so a call while another fullscreen ad was showing put one ad on
+  top of another — an AdMob and AppLovin policy violation.
+  `AdSafetyConfig.canShowFullscreenAd()` does not cover this: it is a
+  time-based frequency gate, not a state mutex. All three paths now share one
+  predicate.
+- **Banner/MREC/native loads ignored the consent, VIP, cap and connectivity
+  gate — in both adapters.** None of the ten load entry points consulted
+  `canReload`, so a resume after a banner error (or any other caller) could
+  fire an ad request while `canRequestAds` was false, while the user was VIP,
+  or past the daily cap. Requesting an ad with `canRequestAds == false` is a
+  UMP policy violation, and it was invisible from the UI because the widget
+  layer hides banners for VIP users anyway. The `canReload` seam existed on
+  `AdMobAdapter` but was dead code — only AppLovin ever called it.
+- **A failed UMP attempt was never retried.** On reconnect the SDK refilled ad
+  slots but not consent, so an EEA user whose first launch had no network never
+  saw a consent form for the rest of the process. Now retried on the
+  offline→online transition, and only when the previous attempt actually
+  failed, so a user who already answered is not asked again.
+- **A UMP status of `unknown` silently downgraded a stored consent.** `unknown`
+  means UMP could not determine anything, not that the user refused, but it
+  mapped to `hasUserConsent: false` and overwrote a choice the user had already
+  made — visible in the logs as `load → consent=true` followed by
+  `set → consent=false`. Inconclusive results now leave the persisted value
+  alone. `required` still maps to `false`: there the form is genuinely needed
+  and was not completed.
+- **The consent SDK could abort `initialize()`.**
+  `requestConsentInfoUpdate` is a callback API returning `void`; when the UMP
+  channel is not registered it throws from a future nobody awaits, so the error
+  escaped as an unhandled zone error that a `try`/`catch` around the call could
+  not catch. Unreachable while the default was `false`; now contained.
+
+### Documentation
+
+- `maxVipStackDuration`'s docstring claimed the non-stacking path was never
+  clamped. It was wrong — `VipManager.addVip` has clamped both paths since the
+  single-entry cap was added. (The year-2099 legacy-GAID migration grant really
+  is exempt, but because it constructs its `VipEntry` directly.)
+- README now states plainly that VIP anti-bypass is Keychain-durable on iOS and
+  weak on Android, where clearing app data resets both the trial and key reuse,
+  and that offline keys cannot be revoked.
+- The example's demo keypair is now marked as public knowledge and unsafe to
+  ship.
+
+
 ## [1.2.4] - 2026-08-01
 
 Metadata only — no code, API or behaviour change from 1.2.3.

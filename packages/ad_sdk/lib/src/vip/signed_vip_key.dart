@@ -7,7 +7,20 @@ import 'vip_entry.dart';
 
 /// A decoded, signature-verified VIP key.
 class SignedVipKey {
-  const SignedVipKey({required this.duration, required this.keyId});
+  const SignedVipKey({
+    required this.duration,
+    required this.keyId,
+    this.expiresAt,
+    this.bundleId,
+  });
+
+  /// When the KEY stops being redeemable (AVP2 only; `null` for AVP1, which
+  /// cannot express it). Distinct from the VIP window the key grants — that is
+  /// [duration], measured from the moment of redemption.
+  final DateTime? expiresAt;
+
+  /// App this key is restricted to (AVP2 only). `null` or empty = any app.
+  final String? bundleId;
 
   /// VIP window granted by this key.
   final Duration duration;
@@ -47,9 +60,23 @@ class SignedVipRedeemResult {
   bool get ok => status == VipRedeemStatus.success;
 }
 
-/// Wire format: `AVP1.<b64url(payload)>.<b64url(signature)>`
-/// where `payload` = UTF-8 of `"<seconds>|<keyId>"`.
-const String _prefix = 'AVP1';
+/// Wire formats, both accepted:
+///
+///   `AVP1.<b64url(payload)>.<b64url(signature)>`  payload = `<seconds>|<keyId>`
+///   `AVP2.<b64url(payload)>.<b64url(signature)>`  payload =
+///       `<seconds>|<keyId>|<expiresAtEpochSeconds>|<bundleId>`
+///
+/// AVP2 adds two bindings that AVP1 could not express, both INSIDE the signed
+/// payload so neither can be edited without invalidating the signature:
+///
+///   * `expiresAtEpochSeconds` — the key stops being redeemable at that
+///     instant. AVP1 keys never expire, so one leaked key was valid forever on
+///     every device that had not already used it.
+///   * `bundleId` — the key only works in that app. Empty string = any app.
+///
+/// AVP1 stays accepted so keys already handed out keep working.
+const String _prefixV1 = 'AVP1';
+const String _prefixV2 = 'AVP2';
 
 /// Upper bound so a corrupt/absurd key can't create a 10 000-year entry.
 const int _maxSeconds = 100 * 365 * 24 * 60 * 60; // ~100 years
@@ -71,10 +98,20 @@ final Ed25519 _ed25519 = Ed25519();
 Future<SignedVipKey> verifySignedVipKey(
   String code, {
   required String publicKeyBase64,
+
+  /// Bundle id of the running app, used to enforce an AVP2 key's app binding.
+  /// Empty/null skips the check — callers that cannot determine it still
+  /// verify the signature and the expiry.
+  String? currentBundleId,
+
+  /// Injectable clock so expiry can be tested without waiting.
+  DateTime? now,
 }) async {
   final parts = code.trim().split('.');
-  if (parts.length != 3 || parts[0] != _prefix) {
-    throw const VipKeyException('bad format (expected AVP1.<payload>.<sig>)');
+  final version = parts.isEmpty ? '' : parts[0];
+  if (parts.length != 3 || (version != _prefixV1 && version != _prefixV2)) {
+    throw const VipKeyException(
+        'bad format (expected AVP1|AVP2.<payload>.<sig>)');
   }
 
   final Uint8List payload;
@@ -110,13 +147,45 @@ Future<SignedVipKey> verifySignedVipKey(
     throw const VipKeyException('payload not UTF-8');
   }
   final f = text.split('|');
-  if (f.length != 2) throw const VipKeyException('bad payload shape');
+  final expectedFields = version == _prefixV2 ? 4 : 2;
+  if (f.length != expectedFields) {
+    throw const VipKeyException('bad payload shape');
+  }
   final seconds = int.tryParse(f[0]);
   final kid = f[1];
   if (seconds == null || seconds <= 0 || seconds > _maxSeconds || kid.isEmpty) {
     throw const VipKeyException('bad payload fields');
   }
-  return SignedVipKey(duration: Duration(seconds: seconds), keyId: kid);
+
+  if (version == _prefixV1) {
+    return SignedVipKey(duration: Duration(seconds: seconds), keyId: kid);
+  }
+
+  final expEpoch = int.tryParse(f[2]);
+  if (expEpoch == null || expEpoch <= 0) {
+    throw const VipKeyException('bad expiry field');
+  }
+  final expiresAt =
+      DateTime.fromMillisecondsSinceEpoch(expEpoch * 1000, isUtc: true);
+  final at = (now ?? DateTime.now()).toUtc();
+  if (!at.isBefore(expiresAt)) {
+    throw VipKeyException('key expired at ${expiresAt.toIso8601String()}');
+  }
+
+  final boundBundle = f[3];
+  if (boundBundle.isNotEmpty &&
+      currentBundleId != null &&
+      currentBundleId.isNotEmpty &&
+      boundBundle != currentBundleId) {
+    throw VipKeyException('key is bound to $boundBundle, not $currentBundleId');
+  }
+
+  return SignedVipKey(
+    duration: Duration(seconds: seconds),
+    keyId: kid,
+    expiresAt: expiresAt,
+    bundleId: boundBundle.isEmpty ? null : boundBundle,
+  );
 }
 
 Uint8List _b64urlDecode(String s) => base64Url.decode(base64Url.normalize(s));

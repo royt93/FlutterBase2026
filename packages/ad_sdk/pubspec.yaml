@@ -3,7 +3,7 @@ name: applovin_admob_sdk
 # drops 10 points (the upload API itself allows up to 200 — two different
 # limits, see the screenshots note below).
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Offline VIP redeem, GDPR/COPPA/CCPA consent, safety caps, AdEvent stream, debug overlay.
-version: 1.2.4
+version: 2.0.0
 
 # Monorepo: the package lives in packages/ad_sdk/ of the host app's repo, so
 # `repository` points at the subdirectory (pub.dev resolves it for the
@@ -75,6 +75,12 @@ dependencies:
   # on Play Store reinstall) — no plugin dependency needed.
   flutter_secure_storage: ^10.0.0       # iOS Keychain flag (survives uninstall by default)
   cryptography: ^2.9.0
+
+  # C6 — the signed VIP key binds to a bundle id so a leaked key cannot be used
+  # in a different app. Reading it here rather than taking it as a parameter
+  # keeps a host from passing the wrong value (or forgetting it, which would
+  # silently disable the check).
+  package_info_plus: ^9.0.0
   confetti: ^0.8.0
 
 dev_dependencies:

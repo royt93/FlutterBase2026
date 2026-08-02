@@ -4,8 +4,18 @@
 //   dart run tool/vip_mint.dart --priv <b64privkey> --days 30 [--kid abc123]
 //   dart run tool/vip_mint.dart --priv <b64privkey> --seconds 3600 --kid demo1
 //
-// Emits a key of the form:  AVP1.<b64url(payload)>.<b64url(signature)>
-// where payload = UTF-8 of "<seconds>|<kid>". The user redeems it via
+// Mints AVP2 by default:  AVP2.<b64url(payload)>.<b64url(signature)>
+// payload = UTF-8 of "<seconds>|<kid>|<expiresAtEpochSeconds>|<bundleId>"
+//
+//   --valid-days N   how long the KEY stays redeemable (default 30). Distinct
+//                    from --days, which is how long the VIP window lasts once
+//                    redeemed. This is what stops a leaked key working forever.
+//   --bundle ID      restrict the key to one app (e.g. com.roy.myapp).
+//                    Omit for any app.
+//   --v1             mint the old AVP1 format (no expiry, no app binding).
+//                    Only for compatibility with an old verifier.
+//
+// The user redeems it via
 // VipManager.redeemSignedKey(code, publicKeyBase64: <matching public key>).
 import 'dart:convert';
 
@@ -39,10 +49,28 @@ Future<void> main(List<String> args) async {
 
   final algo = Ed25519();
   final kp = await algo.newKeyPairFromSeed(seed);
-  final payload = utf8.encode('$seconds|$kid');
+  final mintV1 = opts.containsKey('v1');
+  final List<int> payload;
+  final String prefix;
+  if (mintV1) {
+    prefix = 'AVP1';
+    payload = utf8.encode('$seconds|$kid');
+  } else {
+    prefix = 'AVP2';
+    final validDays = int.tryParse(opts['valid-days'] ?? '') ?? 30;
+    if (validDays <= 0) _fail('--valid-days must be positive');
+    final expiresAt = DateTime.now()
+            .toUtc()
+            .add(Duration(days: validDays))
+            .millisecondsSinceEpoch ~/
+        1000;
+    // No '|' in the bundle id — it is the payload separator.
+    final bundle = (opts['bundle'] ?? '').replaceAll('|', '_');
+    payload = utf8.encode('$seconds|$kid|$expiresAt|$bundle');
+  }
   final sig = await algo.sign(payload, keyPair: kp);
   final code =
-      'AVP1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
+      '$prefix.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
 
   // ignore: avoid_print
   print(code);

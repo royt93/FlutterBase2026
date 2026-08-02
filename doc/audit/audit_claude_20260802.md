@@ -92,7 +92,11 @@ Trên Android, cả hai dựa vào `AdPreferences` (SharedPreferences). `CLAUDE.
 
 **Giảm nhẹ khả thi không cần server:** nhúng `expiresAt` vào payload đã ký (key hết hạn sau N ngày kể từ lúc mint), và/hoặc nhúng bundle-id.
 
-## 7. MEDIUM — `maxVipStackDuration` mặc định là **không giới hạn**, và chỉ chặn đường `stack: true`
+## 7. MEDIUM — `maxVipStackDuration` mặc định là **không giới hạn**
+
+> **ĐÍNH CHÍNH (cùng ngày, khi triển khai bản sửa):** phần "chỉ chặn đường `stack: true`" dưới đây **SAI**. Tôi trích docstring của `ad_config.dart` thay vì đọc code. Thực tế `VipManager.addVip` **đã clamp cả hai đường** từ lâu (`vip_manager.dart`, nhánh single-entry). Chính docstring mới là thứ lỗi thời, và đã được sửa. Grant migration year-2099 đúng là không bị clamp, nhưng vì nó tạo `VipEntry` trực tiếp chứ không qua `addVip` — không phải vì đường non-stack không được cap.
+>
+> Đây là lần thứ tư trong phiên tôi tin tài liệu thay vì đọc code. Giữ nguyên đoạn sai bên dưới để thấy rõ sai ở đâu.
 
 `ad_config.dart:403-415` — mặc định `null` = uncapped, và docstring tự cảnh báo: nó **chỉ** cap đường `stack: true`; `addVip`/`redeemVip` không-stack cấp thẳng `now + duration`, **không bao giờ** bị clamp. Trần duy nhất còn lại là `_maxSeconds` trong `signed_vip_key.dart` = **~100 năm**.
 

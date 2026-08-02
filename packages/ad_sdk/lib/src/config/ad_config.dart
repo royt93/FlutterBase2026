@@ -337,7 +337,7 @@ class AdConfig {
     this.safety = AdSafetyParams.auto,
     this.vipKeyValidator,
     this.vipDialogStrings = const VipDialogStrings(),
-    this.maxVipStackDuration,
+    this.maxVipStackDuration = const Duration(days: 90),
     this.splashMaxDuration = const Duration(seconds: 8),
     this.firstInstallVipGrace = FirstInstallVipGrace.auto,
     this.firstInstallVipKey = '__FIRST_INSTALL__',
@@ -346,7 +346,7 @@ class AdConfig {
     this.onPrivacyPolicyTap,
     this.consentBarrierDismissible = false,
     this.consentDialogPostSplashDelay = const Duration(seconds: 1),
-    this.autoRequestUmpConsent = false,
+    this.autoRequestUmpConsent = true,
     this.umpTagForUnderAgeOfConsent = false,
     this.umpDebugGeography,
     this.umpTestIdentifiers = const [],
@@ -400,18 +400,24 @@ class AdConfig {
   /// Strings used by the Cupertino VIP dialog. Override to localise.
   final VipDialogStrings vipDialogStrings;
 
-  /// Optional cap on the **total** VIP window produced by stacking
-  /// (`addVip(stack: true)` / `redeemVip(stack: true)`). When set, a stacked
-  /// grant never pushes the entry's expiry beyond `now + maxVipStackDuration`;
-  /// the excess is clamped (the entry is still extended up to the cap). `null`
-  /// (default) = uncapped.
+  /// Cap on the VIP window a grant may produce. A grant never pushes the
+  /// entry's expiry beyond `now + maxVipStackDuration`; the excess is clamped
+  /// (the entry is still extended up to the cap).
   ///
-  /// ⚠️ **This ONLY caps the `stack: true` path.** A common misreading is that
-  /// this bounds VIP duration in general — it does not. A plain (non-stacking,
-  /// default `stack: false`) `addVip`/`redeemVip` call grants its `duration`
-  /// as an absolute `now + duration` expiry and is **never** clamped by this
-  /// value, no matter how large `duration` is (e.g. the year-2099 legacy-GAID
-  /// migration grant in [VipManager.load] is unaffected).
+  /// Defaults to **90 days**. Pass `null` for uncapped — but understand what
+  /// that means: the only remaining ceiling is the ~100-year sanity bound
+  /// inside the signed-key parser, so one mis-minted or leaked key grants VIP
+  /// effectively forever.
+  ///
+  /// Applies to **both** paths: `stack: true` and a plain
+  /// (non-stacking) `addVip`/`redeemVip`. An earlier version of this docstring
+  /// claimed the non-stacking path was never clamped — that was wrong, see
+  /// `VipManager.addVip`, which has clamped both since the single-entry cap was
+  /// added.
+  ///
+  /// The year-2099 legacy-GAID migration grant in [VipManager.load] is genuinely
+  /// unaffected, but for a different reason than that docstring gave: it builds
+  /// its `VipEntry` directly rather than going through `addVip`.
   final Duration? maxVipStackDuration;
 
   // ─── Splash budget (Q32E) ─────────────────────────────────────────────────
@@ -508,9 +514,22 @@ class AdConfig {
   /// ([AdManager.requestUmpConsent]) **before** the first ad request and gates
   /// loading on `canRequestAds` — the SDK owns the whole consent flow (T01).
   ///
-  /// Default `false` so hosts that already run UMP in their splash (calling
-  /// [AdManager.requestUmpConsent] themselves) don't double-run it. Set `true`
-  /// to let the SDK drive UMP for you.
+  /// **Defaults to `true` since 2.0.0.** It used to default to `false`, which
+  /// combined with the other defaults (`disableAppLovinCmpFlow: true`,
+  /// `autoShowConsentDialog: true`) meant a host that changed nothing tripped
+  /// the consent-coverage footgun: in a release build that hard-blocks every
+  /// ad request, and the built-in dialog could not clear the block because it
+  /// never routed through `setConsent`. The result was a release with zero ad
+  /// requests and no signal — the assert next to it is stripped in release.
+  ///
+  /// Double-running is handled rather than avoided by staying off: hosts that
+  /// already call [AdManager.requestUmpConsent] in their own splash are
+  /// detected and the automatic call skips, so the UMP round trip still runs
+  /// exactly once.
+  ///
+  /// Set `false` only if you drive consent entirely yourself — and then you
+  /// must call [AdManager.requestUmpConsent] or [AdManager.setConsent] before
+  /// [AdManager.initialize], or ads stay blocked in release by design.
   final bool autoRequestUmpConsent;
 
   /// Forwarded to UMP as `tagForUnderAgeOfConsent` when [autoRequestUmpConsent]

@@ -116,9 +116,19 @@ const Map<String, Duration> kDemoVipKeys = {
   'TEST_VIP_90': Duration(days: 90),
 };
 
+/// ⚠️ DEMO KEYPAIR — DO NOT SHIP THIS.
+///
+/// This public key and the signed codes below are published in the SDK's
+/// example app, so they are public knowledge: any app that ships this exact
+/// public key grants VIP to anyone who pastes one of the demo codes.
+///
+/// Before releasing an app, generate your own keypair with
+/// `dart run tool/vip_keygen.dart`, keep the PRIVATE key off the repo, and
+/// mint real codes with `dart run tool/vip_mint.dart`. Only the public key
+/// belongs in your binary.
+///
 /// T18 — offline SIGNED VIP keys. The public key below verifies the keys; the
 /// matching private key (never shipped) minted them via tool/vip_mint.dart.
-/// DEMO keypair — generate your own with tool/vip_keygen.dart before release.
 const String kDemoVipPublicKey = 'nqmoUYYjAH_dVDcO5fZk8EagjLIq688hPbAzIYD0DWY=';
 const Map<String, String> kDemoSignedVipKeys = {
   '1d':

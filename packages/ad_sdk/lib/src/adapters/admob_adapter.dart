@@ -914,12 +914,38 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   Future<void> preloadBanner() async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'preloadBanner $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     // AdMob banner loads on widget mount when width is known — no preload here.
     SafeLogger.d(_logTag, 'preloadBanner $tag (no-op for AdMob)');
   }
 
   @override
   Future<void> loadBannerIfNeeded(double widthPx) async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(_logTag,
+          'loadBannerIfNeeded $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     final cfg = _admob;
     if (cfg == null) return;
     if (_bannerAd != null) {
@@ -1026,12 +1052,38 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   Future<void> preloadMrec() async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'preloadMrec $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     // AdMob MREC loads on widget mount when width is known — no preload here.
     SafeLogger.d(_logTag, 'preloadMrec $tag (no-op for AdMob)');
   }
 
   @override
   Future<void> loadMrecIfNeeded(double widthPx) async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'loadMrecIfNeeded $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     final cfg = _admob;
     if (cfg == null) return;
     if (_mrecAd != null) {
@@ -1126,6 +1178,19 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   Future<void> preloadNative() async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'preloadNative $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     final cfg = _admob;
     if (cfg == null) return;
     if (_nativeAd != null) {
@@ -1222,6 +1287,16 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void onAppResumed() {
+    // C4, second layer. The five load entry points below are each gated too,
+    // so this is defense-in-depth rather than the fix — it bails before the
+    // platform-view/width plumbing runs and makes the skip visible in one log
+    // line instead of several. Same rationale the SDK already applies in
+    // `_retryRefillAds`.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'onAppResumed $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     // Reload banner if it errored out (Fix #14 preserved).
     if (banner.hasError.value && _bannerAd == null) {
       banner.hasError.value = false;

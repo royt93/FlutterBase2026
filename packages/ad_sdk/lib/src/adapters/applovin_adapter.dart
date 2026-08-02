@@ -1070,6 +1070,19 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   Future<void> preloadBanner() async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'preloadBanner $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     final cfg = _max;
     if (cfg == null) return;
     SafeLogger.d(_logTag, 'preloadBanner $tag 🔄 id=${cfg.bannerId}');
@@ -1097,6 +1110,19 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   Future<void> loadBannerIfNeeded(double widthPx) async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(_logTag,
+          'loadBannerIfNeeded $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     // No-op by design, not a gap: the banner widget (`_AppLovinMaxAdView` in
     // banner_ad_widget.dart) renders via `MaxAdView(isAdaptiveBannerEnabled:
     // true)`, which reads the live MediaQuery width itself at build time —
@@ -1108,6 +1134,19 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   Future<void> preloadMrec() async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'preloadMrec $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     final cfg = _max;
     if (cfg == null) return;
     if (cfg.mrecId.isEmpty) {
@@ -1143,6 +1182,19 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   Future<void> loadMrecIfNeeded(double widthPx) async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'loadMrecIfNeeded $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     // No-op: AppLovin's MaxAdView is fixed-size (300x250) for MREC — there is
     // no adaptive width to forward, unlike AdMob's separate mrec code path.
   }
@@ -1152,6 +1204,19 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   Future<void> preloadNative() async {
+    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
+    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
+    // wired in AdManager). None of the banner/MREC/native entry points checked
+    // it, in EITHER adapter, so a resume after a banner error — or any other
+    // caller — could fire an ad request while consent was not granted, while
+    // the user was VIP, or after the daily cap. Requesting an ad with
+    // canRequestAds == false is a UMP policy violation, and it is invisible
+    // from the UI because the widget layer hides the banner for VIP anyway.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'preloadNative $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     // No-op: unlike banner/mrec's MaxAdView, MaxNativeAdView is a
     // self-contained widget that loads on mount via its own adUnitId +
     // listener — there is no `preloadWidgetAdView`/adViewId bridge to drive
@@ -1205,6 +1270,16 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   void onAppResumed() {
+    // C4, second layer. The five load entry points below are each gated too,
+    // so this is defense-in-depth rather than the fix — it bails before the
+    // platform-view/width plumbing runs and makes the skip visible in one log
+    // line instead of several. Same rationale the SDK already applies in
+    // `_retryRefillAds`.
+    if (!canReload()) {
+      SafeLogger.d(
+          _logTag, 'onAppResumed $tag \u23ed\ufe0f skipped — gate closed');
+      return;
+    }
     try {
       SafeLogger.d(
         _logTag,

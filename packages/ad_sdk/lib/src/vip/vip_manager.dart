@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../config/ad_config.dart';
 import '../utils/ad_preferences.dart';
@@ -551,7 +552,31 @@ class VipManager {
   }) async {
     SignedVipKey parsed;
     try {
-      parsed = await verifySignedVipKey(code, publicKeyBase64: publicKeyBase64);
+      // C6 — read the running app's bundle id so an AVP2 key bound to another
+      // app is rejected. Read here rather than taken as a parameter: a host
+      // that passed the wrong value, or omitted it, would silently disable the
+      // binding and never know. A failure to read degrades to "no bundle
+      // check" rather than blocking a legitimate redemption.
+      // Only AVP2 carries an app binding, so only AVP2 needs the platform
+      // call. Skipping it for AVP1 keeps the old path free of an extra async
+      // hop — which is not just a micro-optimisation: adding that hop
+      // unconditionally made three existing widget tests fail, because their
+      // pump sequence no longer landed after the redeem completed. Paying a
+      // platform round trip for a check that cannot apply was wrong anyway.
+      String? bundleId;
+      if (code.trim().startsWith('AVP2.')) {
+        try {
+          bundleId = (await PackageInfo.fromPlatform()).packageName;
+        } catch (e) {
+          SafeLogger.w(_tag,
+              'could not read bundle id ($e) — skipping the AVP2 app binding');
+        }
+      }
+      parsed = await verifySignedVipKey(
+        code,
+        publicKeyBase64: publicKeyBase64,
+        currentBundleId: bundleId,
+      );
     } on VipKeyException catch (e) {
       SafeLogger.w(_tag, 'redeemSignedKey invalid: ${e.message}');
       return SignedVipRedeemResult.invalid(e.message);
