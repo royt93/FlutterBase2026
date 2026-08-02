@@ -258,6 +258,19 @@ jobs:
             echo "::endgroup::"
             echo "::warning file=$f::first attempt failed — retrying once (known CI simulator app-launch flake)"
             retried+=("$f")
+            # Grab evidence BEFORE the retry relaunches the app and overwrites
+            # the interesting state. The hang has never reproduced locally
+            # (18/18 files pass three times on a local simulator), so CI is the
+            # only place this data exists — and without it "the app never
+            # started" is as far as the diagnosis can go. Small and targeted on
+            # purpose: `simctl diagnose` produces hundreds of MB per call.
+            diag="/tmp/sim-diag/$(basename "$f" .dart)"
+            mkdir -p "$diag"
+            date -u > "$diag/when.txt"
+            xcrun simctl list devices booted > "$diag/booted-devices.txt" 2>&1 || true
+            xcrun simctl spawn "$SIMULATOR_UDID" launchctl list > "$diag/launchctl-list.txt" 2>&1 || true
+            ps aux | grep -E "Simulator|adSdkExample|dart|flutter" | grep -v grep > "$diag/processes.txt" 2>&1 || true
+            tail -n 3000 "$HOME/Library/Logs/CoreSimulator/$SIMULATOR_UDID/system.log" > "$diag/system.log" 2>&1 || true
             echo "::group::$f (retry)"
             if run_one "$f"; then
               echo "::endgroup::"
@@ -274,6 +287,18 @@ jobs:
             echo "Failed files (both attempts): ${failed[*]}"
             exit 1
           fi
+
+      # `if: always()`, not `if: failure()`: the whole point is the case where
+      # the retry succeeded and the job is green, because that is exactly when
+      # the flake would otherwise leave no trace. Nothing is uploaded on a
+      # clean run — the directory only exists if some file needed a retry.
+      - name: Upload simulator diagnostics from retried files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-diagnostics
+          path: /tmp/sim-diag
+          if-no-files-found: ignore
 
   # The host app is mostly UI-only (gated on static analysis) but now ships a
   # small test/ dir for screens with real logic (e.g. VipScreen stacking). It
