@@ -1217,28 +1217,53 @@ class AdManager with WidgetsBindingObserver {
         // UserMessagingChannel.requestConsentInfoUpdate reached via
         // ump_consent.dart. runZonedGuarded is what actually contains it, and
         // it is scoped to this one call rather than to init as a whole.
-        final umpDone = Completer<void>();
+        // Do NOT await this. UMP can put a consent form on screen, and the
+        // user may take as long as they like — or never respond. Awaiting it
+        // stalled initialize() behind that form: CI run 30749745112 showed
+        // "consent form dismiss timed out after 20s" with adapter init only
+        // starting afterwards, which is a 20-second startup freeze for any
+        // real user who leaves the form sitting there.
+        //
+        // Running it concurrently is only safe because the gate is closed
+        // first: with the SDK owning the consent flow, canRequestAds starts
+        // false and no load*()/show*() can fire until UMP reports back. The
+        // UMP handler then opens the gate and refills the slots that were
+        // held. So the SDK becomes ready immediately and ads simply arrive a
+        // little later, instead of the whole app waiting.
+        //
+        // Only when the SDK owns consent. A host that sets
+        // autoRequestUmpConsent: false keeps the historical default of true —
+        // its own consent flow (or the release footgun guard) governs.
+        _canRequestAds = false;
+        SafeLogger.d(
+            _tag, '🔐 gate closed until UMP resolves (SDK-owned consent flow)');
         runZonedGuarded(() async {
-          try {
-            await requestUmpConsent(
-              skipIfAlreadyRequested: true,
-              testMode: kDebugMode,
-              tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
-              debugGeography: config.umpDebugGeography,
-              testIdentifiers: config.umpTestIdentifiers,
-            );
-          } finally {
-            if (!umpDone.isCompleted) umpDone.complete();
-          }
+          await requestUmpConsent(
+            skipIfAlreadyRequested: true,
+            testMode: kDebugMode,
+            tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
+            debugGeography: config.umpDebugGeography,
+            testIdentifiers: config.umpTestIdentifiers,
+          );
         }, (e, _) {
+          // requestConsentInfoUpdate is a callback API returning void: with no
+          // UMP channel registered it throws from a future nobody awaits, so
+          // the error arrives as an unhandled ZONE error that a try/catch
+          // around the call cannot see. Verified against the real stack in
+          // google_mobile_ads' UserMessagingChannel.
           SafeLogger.w(
               _tag,
-              'auto UMP failed ($e) — continuing init; the consent gate keeps '
-              'its current value and the reconnect retry will try again');
+              'auto UMP failed ($e) — reopening the gate so a broken consent '
+              'channel cannot silently block all ads; the reconnect retry will '
+              'try again');
           _umpAttemptFailed = true;
-          if (!umpDone.isCompleted) umpDone.complete();
+          // Fail OPEN here, deliberately. Failing closed would reproduce the
+          // exact bug this release fixes (C1): ads blocked forever with no
+          // signal. A channel that is not registered means UMP is not in play
+          // for this host at all, which is the non-EEA/non-UMP case the
+          // historical default of `true` was written for.
+          _canRequestAds = true;
         });
-        await umpDone.future;
       }
 
       // Pick adapter, wire its event sink, then initialise. The resolved
