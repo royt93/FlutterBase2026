@@ -112,53 +112,21 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           working-directory: packages/ad_sdk/example
-          # Same per-file isolation + one retry as the iOS job below, for the
-          # same reason: a single invocation lets one bad app launch hide every
-          # remaining file behind a 12-minute timeout. Android has not shown
-          # that failure yet, but it has the identical shape, and being green
-          # today is not evidence the shape is safe. Retries are logged by name
-          # so a real regression cannot hide behind "it passed on the retry".
+          # Same per-file isolation + one retry as the iOS job below — see
+          # .github/scripts/integration-retry.sh, which both jobs share.
           #
-          # KEEP THIS POSIX sh. Unlike the iOS job's `run:` block (bash on the
-          # GitHub runner), android-emulator-runner executes `script:` with
-          # /bin/sh, which is dash on Ubuntu — no arrays. A first attempt used
-          # `failed=()` / `${#failed[@]}` and the job died in 3m31s with
-          # "The process '/usr/bin/sh' failed with exit code 2", which is
-          # dash's `Syntax error: "(" unexpected`. `bash -n` does not catch
-          # this; validate with `dash -n` (or just `dash`) instead.
+          # Keep the body here to ONE command. Two attempts at an inline loop
+          # both died on this runner: bash arrays gave
+          # `Syntax error: "(" unexpected`, and after rewriting to POSIX a
+          # multi-line `run_one() { ... }` gave
+          # `/usr/bin/sh: 1: Syntax error: end of file unexpected (expecting })`
+          # — note "1:", the body reaches sh collapsed onto a single line.
+          # A script file sidesteps both and can be checked with `dash -n`.
           script: |
             adb logcat -c
             adb logcat > /tmp/logcat.txt &
-            run_one() {
-              flutter test "$1" --dart-define=AD_PROVIDER_ADMOB=true
-            }
-            failed=""
-            retried=""
-            for f in $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$'); do
-              echo "::group::$f"
-              if run_one "$f"; then
-                echo "::endgroup::"
-                continue
-              fi
-              echo "::endgroup::"
-              echo "::warning file=$f::first attempt failed — retrying once"
-              retried="$retried $f"
-              echo "::group::$f (retry)"
-              if run_one "$f"; then
-                echo "::endgroup::"
-              else
-                echo "::endgroup::"
-                echo "::error file=$f::integration test failed on both attempts"
-                failed="$failed $f"
-              fi
-            done
-            if [ -n "$retried" ]; then
-              echo "::warning::Files that needed a retry:$retried"
-            fi
-            if [ -n "$failed" ]; then
-              echo "Failed files (both attempts):$failed"
-              exit 1
-            fi
+            sh "$GITHUB_WORKSPACE/.github/scripts/integration-retry.sh" --dart-define=AD_PROVIDER_ADMOB=true
+
       - name: Upload logcat
         if: always()
         uses: actions/upload-artifact@v4
@@ -208,85 +176,20 @@ jobs:
       # app_open/interstitial/rewarded_ad_test.dart need a human to manually
       # tap the ad's close/X button (see their header comments) — excluded
       # below, same reason as the Android job above.
-      # One `flutter test` invocation PER FILE, not one for all 18.
       #
-      # Passing every file to a single invocation makes one bad app launch
-      # destroy the whole job. Observed on run 30697397657: after the first
-      # file finished, the app for app_boot_test.dart never started — 11
-      # minutes of completely silent log (not even AdManager's cold-start
-      # line) until the 12-minute per-test timeout fired, then banner_ad_test
-      # died with "Failed to start Dart Development Service" and
-      # "Unable to terminate com.example.adSdkExample ... found nothing to
-      # terminate". The remaining 16 files then ran fine, ~1min each with no
-      # upward drift, so this is a flaky app launch/teardown on the CI
-      # simulator, not resource exhaustion and not a Dart-side bug (the same
-      # 18 files pass 23/23 in a single invocation on a local simulator).
-      #
-      # Splitting costs almost nothing: the log shows `flutter test` already
-      # rebuilds and relaunches the app between files (a ~34s Xcode step), so
-      # that price is being paid either way. What it buys is isolation — a
-      # launch flake fails one file instead of hiding the other 17 — plus the
-      # name of the file that actually broke.
-      #
-      # Each file also gets ONE retry, because the isolation above showed the
-      # flake is random rather than tied to a specific test: run 30697397657
-      # lost app_boot_test.dart, run 30704574568 lost
-      # fill_rate_monitor_demo_test.dart, both with the same signature (~12min
-      # of silent log, no Dart output at all, then the per-test timeout) while
-      # every other file passed. A retry is containment, not a cure — so every
-      # retry is logged as a ::warning naming the file, which is the only way
-      # to tell "the flake is getting worse" from "we are quietly papering over
-      # a real failure". A file that fails TWICE still fails the job.
+      # One `flutter test` invocation PER FILE plus one retry — the loop lives
+      # in .github/scripts/integration-retry.sh, shared with the Android job,
+      # and carries the full rationale and the run IDs it came from. Short
+      # version: a single invocation let one bad app launch hide the other 17
+      # files behind a 12-minute timeout (run 30697397657).
       - name: Run integration tests
         run: |
-          run_one() {
-            flutter test "$1" \
-              -d "$SIMULATOR_UDID" \
-              --dart-define=SKIP_SPLASH_AD=true \
-              --dart-define=SKIP_ATT=true \
-              --dart-define=SKIP_UMP=true \
-              --dart-define=AD_PROVIDER_ADMOB=true
-          }
-          failed=()
-          retried=()
-          for f in $(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$'); do
-            echo "::group::$f"
-            if run_one "$f"; then
-              echo "::endgroup::"
-              continue
-            fi
-            echo "::endgroup::"
-            echo "::warning file=$f::first attempt failed — retrying once (known CI simulator app-launch flake)"
-            retried+=("$f")
-            # Grab evidence BEFORE the retry relaunches the app and overwrites
-            # the interesting state. The hang has never reproduced locally
-            # (18/18 files pass three times on a local simulator), so CI is the
-            # only place this data exists — and without it "the app never
-            # started" is as far as the diagnosis can go. Small and targeted on
-            # purpose: `simctl diagnose` produces hundreds of MB per call.
-            diag="/tmp/sim-diag/$(basename "$f" .dart)"
-            mkdir -p "$diag"
-            date -u > "$diag/when.txt"
-            xcrun simctl list devices booted > "$diag/booted-devices.txt" 2>&1 || true
-            xcrun simctl spawn "$SIMULATOR_UDID" launchctl list > "$diag/launchctl-list.txt" 2>&1 || true
-            ps aux | grep -E "Simulator|adSdkExample|dart|flutter" | grep -v grep > "$diag/processes.txt" 2>&1 || true
-            tail -n 3000 "$HOME/Library/Logs/CoreSimulator/$SIMULATOR_UDID/system.log" > "$diag/system.log" 2>&1 || true
-            echo "::group::$f (retry)"
-            if run_one "$f"; then
-              echo "::endgroup::"
-            else
-              echo "::endgroup::"
-              echo "::error file=$f::integration test failed on both attempts"
-              failed+=("$f")
-            fi
-          done
-          if [ ${#retried[@]} -ne 0 ]; then
-            echo "::warning::Files that needed a retry: ${retried[*]}"
-          fi
-          if [ ${#failed[@]} -ne 0 ]; then
-            echo "Failed files (both attempts): ${failed[*]}"
-            exit 1
-          fi
+          sh "$GITHUB_WORKSPACE/.github/scripts/integration-retry.sh" \
+            -d "$SIMULATOR_UDID" \
+            --dart-define=SKIP_SPLASH_AD=true \
+            --dart-define=SKIP_ATT=true \
+            --dart-define=SKIP_UMP=true \
+            --dart-define=AD_PROVIDER_ADMOB=true
 
       # `if: always()`, not `if: failure()`: the whole point is the case where
       # the retry succeeded and the job is green, because that is exactly when
