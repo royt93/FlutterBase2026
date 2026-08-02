@@ -1,5 +1,10 @@
 # Phát hành 1.2.3 + 1.2.4, sửa CI đỏ, đồng bộ plugin native (2026-08-01)
 
+> **Cập nhật 2026-08-02 — hai kết luận trong bản đầu đã sai, xem mục 10.**
+> Mục 5 nói fix `consent_country_demo_test` đã xong: **chưa**, nó vẫn đỏ trên CI
+> vì một nguyên nhân thứ hai. Mục 6 nói flake iOS chỉ có một loại: **có hai**.
+> Các mục dưới giữ nguyên như đã viết; phần đính chính nằm ở cuối.
+
 **Người thực hiện:** Claude (Opus 5), phiên làm việc liên tục cùng user.
 **Cách làm:** mọi kết luận dưới đây đều reproduce được — chạy thật trên iPhone 17 Pro Simulator + máy Android thật (TECNO BG6, API 33), hoặc đọc log CI/`pubspec.lock` thật. Chỗ nào là giả thuyết chưa chứng minh thì ghi rõ.
 
@@ -179,3 +184,63 @@ Cùng loại với `.flutter-plugins-dependencies` bị commit kèm đường d�
 | D | Root cause flake launch iOS | Chưa. Đã chặn bằng retry + log |
 
 Tham khảo ý kiến ngoài: codex và gemini (chạy độc lập, đọc cùng bản tóm tắt) đều xếp B và C vào top 3 và đều **chủ động hoãn A** vì cần kế hoạch thông báo consumer, hoãn **D** vì nguyên nhân gần chắc nằm ngoài repo.
+
+---
+
+# Đính chính và bổ sung (2026-08-02)
+
+## 10. Mục 5 sai: fix `consent_country_demo_test` chưa xong
+
+Run `30707984024` **xanh**, nhưng dòng `::warning` của cơ chế retry lộ ra file phải chạy lại là `consent_country_demo_test.dart` — và lần fail đầu **không phải** treo launch. Nó fail trong ~2 phút:
+
+```
+tap() ... derived an Offset (Offset(350.5, 568.0)) that would not hit test
+Expected: 'DE'
+  Actual: <null>
+```
+
+Fix ở mục 5.1 chỉ khử **một** nguồn dịch chuyển của nút: bàn phím mở làm Scaffold resize (`viewInsets` 0 → 288). Nhưng `scrollUntilVisible` kéo theo bước rời rạc và trả về **trong khi** cú pointer-up nó vừa gửi còn đang chạy animation ballistic của `BouncingScrollPhysics`. Trên simulator CI bàn phím **không hề lên** (`viewInsets` = 0) nên vòng chờ inset thoát ngay, chỉ còn cú fling — đúng thứ mà máy phát triển nhanh gấp ~3.4 lần không bao giờ gặp vì fling đã dừng trước khi tap đi.
+
+### 10.1 Đây là lớp bug cả suite, không phải một file
+
+Rà 18 file: **11 file** dùng đúng mẫu
+
+```dart
+await tester.scrollUntilVisible(target, 200, scrollable: ...);
+await tester.tap(target);
+```
+
+Chỉ `consent_country_demo_test` đã **quan sát được** fail theo cách này, nhưng nó chỉ lộ trên phần cứng đủ chậm, và giờ retry đã che. Đợi từng file tự đỏ thì mỗi vòng tốn ~45 phút.
+
+Sửa: gom phần chờ vào một extension dùng chung `scrollUntilVisibleAndSettle` (`packages/ad_sdk/example/integration_test/scroll_helpers.dart`) — cuộn xong thì pump tới khi rect của target **giống hệt nhau 3 frame liên tiếp** rồi mới trả về. Ba frame chứ không phải một, vì một lần trùng có thể rơi vào giữa hai bước của đường cong đang chạy. Mọi call site chỉ đổi tên method, nên chỗ tap nằm trong `if` (như `fill_rate_monitor_demo_test`) cũng được phủ.
+
+Nghiệm thu: `flutter analyze` sạch, full 18 file trên iOS Simulator **23/23 pass, 10m25s**.
+
+## 11. Mục 6 sai: có HAI loại flake, không phải một
+
+Retry che cả hai; chỉ nhờ log `::warning` mới tách được:
+
+| File | Lần fail đầu | Loại |
+|---|---|---|
+| `app_boot_test`, `fill_rate_monitor_demo_test`, `diagnostics_demo_test` | `TimeoutException after 0:12:00`, log im lặng tuyệt đối | treo launch — hạ tầng |
+| `consent_country_demo_test` | assertion + tap trượt, ~2 phút | **bug thật trong test** |
+
+Đây chính là lý do bắt buộc log mọi lần retry. Nếu retry im lặng, một run xanh đã chôn luôn một assertion fail thật giữa đám flake hạ tầng.
+
+## 12. Bẫy bash-vs-dash trong `android-emulator-runner`
+
+Commit `59f16a4` chép vòng lặp retry của job iOS sang job Android, gồm cả **mảng bash**. Job chết sau 3m31s:
+
+```
+The process '/usr/bin/sh' failed with exit code 2
+```
+
+Job iOS chạy `run:` = bash trên runner GitHub; còn `android-emulator-runner` chạy `script:` bằng `/bin/sh`, tức **dash** trên Ubuntu — không có mảng. Reproduce cục bộ: `dash` trên đúng đoạn script đó trả `Syntax error: "(" unexpected`, exit 2.
+
+Sai lầm khi kiểm: dùng `bash -n`, thứ đương nhiên chấp nhận mảng. **Kiểm `script:` của job Android bằng `dash`, không phải `bash`.** Đã viết lại theo POSIX (chuỗi phân cách bằng dấu cách thay cho mảng) và verify bằng dash cả 2 nhánh.
+
+## 13. B và C đã làm, `concurrency` đã nghiệm thu
+
+- **B**: thêm `concurrency` group (`cancel-in-progress`) và `paths-ignore` cho `**.md` + `doc/**`. Quan sát được ngay: run `30729328644` chuyển sang `cancelled` khi push kế tiếp tới. Lý do có `paths-ignore`: run `30708366878` đốt 46 phút runner iOS + 25 phút Android để kiểm một commit chỉ có một file `.md`.
+- **C**: job Android dùng cùng cơ chế per-file + retry có log như iOS.
+- **D** (root cause treo launch): vẫn chưa xong, nhưng job iOS giờ **thu bằng chứng** khi một file phải retry — booted devices, `launchctl list`, danh sách tiến trình, và 3000 dòng cuối `CoreSimulator/<UDID>/system.log` — upload thành artifact `ios-simulator-diagnostics`. Dùng `if: always()` chứ không phải `if: failure()`, vì trường hợp cần đúng là lúc retry cứu được và job xanh. Chọn cách thu nhỏ và có mục tiêu vì `simctl diagnose` sinh hàng trăm MB mỗi lần.
