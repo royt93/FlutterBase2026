@@ -343,3 +343,40 @@ Bỏ cú treo đi thì job còn ~22 phút, ngang job Android (20m43s) cho cùng 
 2. **`--timeout 5m`** cho mỗi file, thay mặc định 12 phút của `integration_test`. Không sửa gì, chỉ **chặn thiệt hại**. Ngưỡng chọn theo số đo: mỗi file xong trong ~1 phút, chỗ chờ lâu nhất trong test là vòng poll 45s của `app_boot_test` cộng cold start — 5 phút còn dư biên rộng. File nào thật sự vượt 5 phút thì fail, và cái fail đó là thông tin chứ không phải nhiễu.
 
 Kỳ vọng nếu suy luận đúng: job iOS còn ~22 phút và không còn dòng `::warning::Files that needed a retry:`.
+
+## 16. Kết cục CI: 48 → 30 phút, treo bị chặn tự động
+
+Hai khẳng định ở mục 15.3 **bị bác bỏ bởi run kế tiếp**, ghi lại để không ai tin nhầm:
+
+1. **`--timeout 5m` không chặn được treo.** Run `30740897513` vẫn báo `TimeoutException after 0:12:00` dù cờ đang bật. Lý do: đó là timeout **cấp test** của package:test, còn treo xảy ra ở pha **loading** — thân test chưa hề chạy nên đồng hồ đó không phải cái đang đếm.
+2. **Tắt `apsd` chưa chứng minh được là bản sửa.** Tôi gọi là "thành công" sau đúng 1 run sạch; run ngay sau treo lại 15 phút. Từ lúc tắt: 1 sạch, 1 treo, rồi 1 treo nữa. Có thể giảm tần suất (trước 4/5), nhưng số mẫu này không kết luận được.
+
+**Bản chặn thật: watchdog tầng shell** trong `.github/scripts/integration-retry.sh`. Bọc mỗi lần `flutter test` bằng giới hạn thời gian thực, không quan tâm flutter treo ở pha nào. Ngưỡng theo số đo: file đầu mỗi shard 600s (build Xcode nguội + cài simulator lần đầu tốn tới ~500s), file sau 300s (thực tế 69–144s). Dùng `timeout` của coreutils nếu có; runner macOS **không có** `timeout` lẫn `gtimeout` nên nhánh fallback POSIX mới là nhánh chạy thật.
+
+Đã kích hoạt trên CI (run `30742509321`, shard 1):
+
+```
+##[warning]hit the 300s wall-clock limit and was killed
+```
+
+và **không còn** `TimeoutException 0:12:00`.
+
+### 16.1 Chia 3 shard
+
+Mỗi file phải build Xcode riêng vì mỗi file là một Dart entrypoint — `flutter test foo_test.dart` đóng gói app có `main` chính là file đó. Không binary nào phục vụ được cả 18, và `flutter test` **không có** `--use-application-binary` (đã kiểm trên 3.35.1). Chi phí build chỉ chia được, không bỏ được. Chia round-robin (`NR % 3`) vì thời lượng file lệch 69–144s, xen kẽ thì 3 shard đều nhau hơn là cắt khối theo thứ tự chữ cái.
+
+### 16.2 Toàn chặng
+
+| Giai đoạn | Thời gian run |
+|---|---|
+| Ban đầu — 1 job, gộp 18 file | 35–48 phút, hay đỏ, một cú treo giấu 17 file |
+| Tách per-file + retry có log | 41–47 phút, xanh, nêu đích danh file hỏng |
+| Chia 3 shard | 34 phút |
+| + watchdog | **29m41s** — và 15–17 phút với shard không trúng treo |
+
+Phần còn lại (7 phút build nguội mỗi shard + 5 phút mỗi cú treo) trả giá giảm dần, nên dừng tối ưu ở đây.
+
+### 16.3 Còn mở
+
+- **Nguyên nhân gốc của treo:** chưa biết. Bằng chứng mạnh nhất vẫn là `apsd` dội log ở mục 15, và nó nằm trong phần Apple không sửa được. Hiện đã bị **chặn** (watchdog) và **hấp thụ** (retry), mọi lần đều có log nêu tên file.
+- **A:** nâng Flutter ≥3.38.1 → `google_mobile_ads` 9 → 160/160 pub.dev, đồng thời bỏ được override `applovin_max` và gỡ cờ `EnableImpeller` (xem `android/app/src/main/AndroidManifest.xml`). Là breaking cho consumer nên phải là 2.0.0.
