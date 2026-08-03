@@ -125,6 +125,28 @@ void main() {
       );
     });
 
+    // One app is not one bundle id: this repo ships
+    // com.saigonphantomlabs.base on iOS and com.roy.admobwrapper on Android.
+    // A key must be mintable for both, or every redemption on one platform
+    // fails after the keys are already out.
+    test('a key listing several bundle ids matches any of them', () async {
+      final code = await _mint(kp,
+          seconds: 60,
+          kid: 'b5',
+          expiresAt: now.add(const Duration(days: 1)),
+          bundle: 'com.saigonphantomlabs.base,com.roy.admobwrapper');
+      for (final id in ['com.saigonphantomlabs.base', 'com.roy.admobwrapper']) {
+        final parsed = await verifySignedVipKey(code,
+            publicKeyBase64: pub, now: now, currentBundleId: id);
+        expect(parsed.bundleId, contains(id));
+      }
+      await expectLater(
+        verifySignedVipKey(code,
+            publicKeyBase64: pub, now: now, currentBundleId: 'com.other.app'),
+        throwsA(isA<VipKeyException>()),
+      );
+    });
+
     test('an unbound key (empty bundle) works in any app', () async {
       final code = await _mint(kp,
           seconds: 60, kid: 'b3', expiresAt: now.add(const Duration(days: 1)));
@@ -176,6 +198,39 @@ void main() {
             publicKeyBase64: pub, now: now),
         throwsA(isA<VipKeyException>()
             .having((e) => e.message, 'message', contains('bad format'))),
+      );
+    });
+  });
+
+  // Key rotation: a host that has already handed out codes signed by an old
+  // keypair lists both public keys, so old codes keep working while new ones
+  // are minted from a private key that was never published.
+  group('multiple public keys', () {
+    test('a code verifies against any listed key, in either position',
+        () async {
+      final other = await _ed.newKeyPair();
+      final otherPub = await _pub(other);
+      final code = await _mint(kp,
+          seconds: 60, kid: 'rot', expiresAt: now.add(const Duration(days: 1)));
+
+      for (final list in ['$otherPub,$pub', '$pub,$otherPub']) {
+        final parsed =
+            await verifySignedVipKey(code, publicKeyBase64: list, now: now);
+        expect(parsed.keyId, 'rot');
+      }
+    });
+
+    test('a code signed by no listed key is still rejected', () async {
+      final other = await _ed.newKeyPair();
+      final otherPub = await _pub(other);
+      final third = await _pub(await _ed.newKeyPair());
+      final code = await _mint(kp,
+          seconds: 60, kid: 'bad', expiresAt: now.add(const Duration(days: 1)));
+      expect(
+        () => verifySignedVipKey(code,
+            publicKeyBase64: '$otherPub,$third', now: now),
+        throwsA(isA<VipKeyException>()
+            .having((e) => e.message, 'message', contains('signature'))),
       );
     });
   });

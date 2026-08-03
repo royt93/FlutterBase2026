@@ -123,21 +123,41 @@ Future<SignedVipKey> verifySignedVipKey(
     throw const VipKeyException('bad base64');
   }
 
-  final List<int> pubBytes;
-  try {
-    pubBytes = _b64AnyDecode(publicKeyBase64);
-  } catch (_) {
-    throw const VipKeyException('bad public key');
-  }
-  if (pubBytes.length != 32) {
-    throw const VipKeyException('public key must be 32 bytes (Ed25519)');
-  }
+  // Comma-separated = key rotation without invalidating codes already handed
+  // out: list the new public key first and keep the retired one after it. A
+  // code verifies if ANY listed key signed it.
+  //
+  // Rotation is only half a fix on its own. Whoever knows a retired key's
+  // codes can still redeem them for as long as that key stays listed — so
+  // rotating away from a LEAKED key means dropping it from this list, not just
+  // adding a new one ahead of it.
+  final keys = publicKeyBase64
+      .split(',')
+      .map((k) => k.trim())
+      .where((k) => k.isNotEmpty)
+      .toList();
+  if (keys.isEmpty) throw const VipKeyException('bad public key');
 
-  final pub = SimplePublicKey(pubBytes, type: KeyPairType.ed25519);
-  final ok = await _ed25519.verify(
-    payload,
-    signature: Signature(sig, publicKey: pub),
-  );
+  var ok = false;
+  for (final key in keys) {
+    final List<int> pubBytes;
+    try {
+      pubBytes = _b64AnyDecode(key);
+    } catch (_) {
+      throw const VipKeyException('bad public key');
+    }
+    if (pubBytes.length != 32) {
+      throw const VipKeyException('public key must be 32 bytes (Ed25519)');
+    }
+    ok = await _ed25519.verify(
+      payload,
+      signature: Signature(
+        sig,
+        publicKey: SimplePublicKey(pubBytes, type: KeyPairType.ed25519),
+      ),
+    );
+    if (ok) break;
+  }
   if (!ok) throw const VipKeyException('signature invalid');
 
   final String text;
@@ -172,12 +192,23 @@ Future<SignedVipKey> verifySignedVipKey(
     throw VipKeyException('key expired at ${expiresAt.toIso8601String()}');
   }
 
+  // Comma-separated, because one app is not one bundle id. This repo's own
+  // host app ships as `com.saigonphantomlabs.base` on iOS and
+  // `com.roy.admobwrapper` on Android, so a single-value binding would have
+  // rejected every redemption on whichever platform was not minted for — after
+  // the keys had already been handed out. Any listed id matches.
   final boundBundle = f[3];
-  if (boundBundle.isNotEmpty &&
+  final allowed = boundBundle
+      .split(',')
+      .map((b) => b.trim())
+      .where((b) => b.isNotEmpty)
+      .toList();
+  if (allowed.isNotEmpty &&
       currentBundleId != null &&
       currentBundleId.isNotEmpty &&
-      boundBundle != currentBundleId) {
-    throw VipKeyException('key is bound to $boundBundle, not $currentBundleId');
+      !allowed.contains(currentBundleId)) {
+    throw VipKeyException(
+        'key is bound to ${allowed.join(', ')}, not $currentBundleId');
   }
 
   return SignedVipKey(

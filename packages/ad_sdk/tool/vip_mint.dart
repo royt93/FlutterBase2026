@@ -10,7 +10,11 @@
 //   --valid-days N   how long the KEY stays redeemable (default 30). Distinct
 //                    from --days, which is how long the VIP window lasts once
 //                    redeemed. This is what stops a leaked key working forever.
-//   --bundle ID      restrict the key to one app (e.g. com.roy.myapp).
+//   --bundle IDS     restrict the key to your app(s). Comma-separate every
+//                    platform's id — iOS and Android bundle ids usually
+//                    DIFFER, and a key listing only one is rejected on the
+//                    other platform (e.g.
+//                    --bundle com.roy.app,com.roy.app.android).
 //                    Omit for any app.
 //   --v1             mint the old AVP1 format (no expiry, no app binding).
 //                    Only for compatibility with an old verifier.
@@ -64,7 +68,8 @@ Future<void> main(List<String> args) async {
             .add(Duration(days: validDays))
             .millisecondsSinceEpoch ~/
         1000;
-    // No '|' in the bundle id — it is the payload separator.
+    // No '|' in the bundle ids — it is the payload separator. Commas are
+    // kept: they separate the ids, any one of which may match.
     final bundle = (opts['bundle'] ?? '').replaceAll('|', '_');
     payload = utf8.encode('$seconds|$kid|$expiresAt|$bundle');
   }
