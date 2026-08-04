@@ -833,6 +833,25 @@ void main() {
       await AdManager().loadAppOpenAd();
       expect(adapter.loadAppOpenCalls, 1);
     });
+
+    test(
+        'C3: interstitial already showing → showAppOpenAd(bypassSafety: true) '
+        'is skipped instead of stacking on top of it', () async {
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      // beginShow() is only valid from `ready`, so warm the slot up first.
+      adapter.interstitialSlot.beginReload();
+      adapter.interstitialSlot.markReady();
+      adapter.interstitialSlot
+          .beginShow(); // another fullscreen ad owns the screen
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+      expect(dismissed, isFalse);
+      expect(adapter.showAppOpenCalls, 0,
+          reason: 'must consult the shared mutex, not just its own slot');
+    });
   });
 
   group('rewarded VIP-bypass (watch-ad to EXTEND VIP)', () {
@@ -1142,6 +1161,43 @@ void main() {
       expect(mgr.debugFootgunBlocked, isFalse);
       expect(mgr.debugUmpRequested, isFalse);
       expect(mgr.debugConsentExplicitlySet, isFalse);
+    });
+  });
+
+  group(
+      '_resetGuardState cancels _splashBudgetTimer (re-init timer leak '
+      'regression)', () {
+    // Before the fix, _resetGuardState() reset the footgun/UMP/consent flags
+    // but left `_splashBudgetTimer` running — only destroy() cancelled it
+    // explicitly. A reinit-without-destroy() (which also calls
+    // _resetGuardState()) would leave a stale timer alive that could later
+    // fire `_onSplashBudgetElapsed` → `markSplashInactive()` against the
+    // freshly re-initialized session.
+    tearDown(() {
+      AdManager().markSplashInactive();
+    });
+
+    test(
+        'timer armed by markSplashActive() does not fire '
+        'markSplashInactive() after debugResetGuardState()', () {
+      fakeAsync((async) {
+        final mgr = AdManager();
+        mgr.markSplashActive(); // arms _splashBudgetTimer (8s default)
+        expect(mgr.isSplashActive, isTrue);
+
+        mgr.debugResetGuardState();
+
+        // Pre-fix: the still-armed timer would fire at 8s and force
+        // isSplashActive back to false. Post-fix: _resetGuardState()
+        // already cancelled it, so nothing fires.
+        async.elapse(const Duration(seconds: 9));
+
+        expect(mgr.isSplashActive, isTrue,
+            reason: '_resetGuardState() must cancel the stale splash '
+                'budget timer, not just the guard flags — otherwise it '
+                'fires markSplashInactive() against the re-initialized '
+                'session');
+      });
     });
   });
 

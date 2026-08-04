@@ -233,5 +233,26 @@ void main() {
             .having((e) => e.message, 'message', contains('signature'))),
       );
     });
+
+    test(
+        'a malformed key earlier in the list is skipped, not fatal — the '
+        'later, correct key still verifies', () async {
+      final code = await _mint(kp,
+          seconds: 60,
+          kid: 'rot2',
+          expiresAt: now.add(const Duration(days: 1)));
+
+      // First entry is not valid base64 at all; second entry is well-formed
+      // base64 but not 32 bytes once decoded. Both used to throw immediately
+      // and never reach the real key that follows them.
+      const badBase64 = '!!!not-base64!!!';
+      final wrongLength = base64Url.encode(List<int>.filled(10, 1));
+      final parsed = await verifySignedVipKey(
+        code,
+        publicKeyBase64: '$badBase64,$wrongLength,$pub',
+        now: now,
+      );
+      expect(parsed.keyId, 'rot2');
+    });
   });
 }

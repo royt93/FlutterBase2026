@@ -160,4 +160,116 @@ void main() {
 
     await unwire(tester);
   });
+
+  testWidgets(
+      'cold VIP: another fullscreen ad starts showing DURING the on-demand '
+      'load → re-checked after load succeeds → bails out instead of '
+      'stacking on top of it', (tester) async {
+    await wire(tester);
+
+    bool? earned;
+    // Slot is IDLE (cold VIP — never preloaded). Kick off the bypass show.
+    AdManager().showRewardedAd(
+      bypassVipGuard: true,
+      onEarnedReward: (e) => earned = e,
+    );
+    await tester.pump(); // enter on-demand load + present dialog
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(fake.rewardedSlot.isLoading, isTrue);
+
+    // While the load is still pending, another fullscreen surface (e.g. an
+    // app-open ad on resume) grabs the screen. beginShow() is only valid from
+    // `ready`, so warm the slot up first.
+    fake.interstitialSlot.beginReload();
+    fake.interstitialSlot.markReady();
+    fake.interstitialSlot.beginShow();
+
+    // Now let the on-demand load resolve successfully.
+    fake.rewardedSlot.markReady();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(earned, isFalse,
+        reason: 're-check after load must catch the newly-busy mutex');
+    expect(fake.showRewardedCalls, 0,
+        reason: 'must not stack on the interstitial that started showing '
+            'during the load wait');
+
+    fake.interstitialSlot.markDismissed();
+    await unwire(tester);
+  });
+
+  testWidgets(
+      'cold VIP: AdLoadingDialog.show() throwing (torn-down navigator) '
+      'resets _rewardedInFlight instead of sticking it stuck true forever',
+      (tester) async {
+    // Regression test: before the fix, AdLoadingDialog.show(ctx) was called
+    // unguarded after `_rewardedInFlight = true`. If show() throws — e.g.
+    // Navigator.of(context, rootNavigator: true) finds no ancestor Navigator
+    // because the navigatorKey's context isn't wired into one — the flag
+    // never reset, permanently blocking every future showRewardedAd() call
+    // for the rest of the session.
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await AdPreferences.getInstance();
+    await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+    AdSafetyConfig.resetForReinit();
+
+    fake = _Fake();
+    AdManager().debugSetAdapter(fake);
+    AdManager().debugVipManager = _VipActive();
+
+    // Wire a navigatorKey whose context has NO Navigator ancestor, so
+    // `Navigator.of(context, rootNavigator: true)` inside
+    // AdLoadingDialog.show() throws a FlutterError.
+    final badKey = GlobalKey<NavigatorState>();
+    AdManager().setNavigatorKey(badKey);
+    await tester.pumpWidget(SizedBox(key: badKey));
+
+    bool? earned;
+    // Slot is IDLE — reaches the VIP bypass on-demand-load branch, which
+    // calls AdLoadingDialog.show(ctx) before waiting on the load.
+    await AdManager().showRewardedAd(
+      bypassVipGuard: true,
+      onEarnedReward: (e) => earned = e,
+    );
+
+    expect(earned, isFalse,
+        reason: 'show() throwing must fail this call, not crash or hang');
+    expect(fake.loadRewardedCalls, 0,
+        reason: 'must bail out before ever starting the on-demand load');
+
+    // AdLoadingDialog.show() sets its own `_isShowing` static true BEFORE
+    // the throwing showDialog() call. That flag feeds _fullscreenBusyReason,
+    // which gates every fullscreen ad surface (app open, interstitial,
+    // rewarded) — so the catch block must call resetState(), not just clear
+    // _rewardedInFlight, or this one failure deadlocks ALL of them, not only
+    // rewarded.
+    expect(AdLoadingDialog.isShowing, isFalse,
+        reason: 'catch block must call AdLoadingDialog.resetState(), not '
+            'just clear _rewardedInFlight, or every fullscreen ad surface '
+            'stays deadlocked for the rest of the session');
+
+    // The critical regression assertion: _rewardedInFlight must have been
+    // reset, so a SUBSEQUENT call (even with a working navigator this time)
+    // is not permanently blocked by the stuck flag.
+    await unwire(tester);
+    await wire(tester);
+    bool? secondEarned;
+    AdManager().showRewardedAd(
+      bypassVipGuard: true,
+      onEarnedReward: (e) => secondEarned = e,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget,
+        reason: '_rewardedInFlight must not still be stuck true — this '
+            'call must be able to reach the on-demand load path again');
+
+    fake.rewardedSlot.markReady();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(secondEarned, isTrue);
+
+    await unwire(tester);
+  });
 }

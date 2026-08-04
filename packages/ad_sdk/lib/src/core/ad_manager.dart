@@ -1595,12 +1595,20 @@ class AdManager with WidgetsBindingObserver {
     if (skipIfAlreadyRequested && _umpRequested) {
       SafeLogger.d(_tag,
           '⏭️ auto UMP skipped — host already called requestUmpConsent()');
-      return _lastUmpResult ??
+      final cached = _lastUmpResult ??
           const UmpConsentResult(
             canRequestAds: true,
             status: ConsentStatus.unknown,
             error: 'already requested by host',
           );
+      // C-skip — reached from initialize()'s auto-UMP block, which already
+      // set _canRequestAds = false before calling in here. The full-flow
+      // branch below restores it from a fresh result; this early-return skip
+      // branch must do the same from the CACHED result, or a host that
+      // follows the SDK's own documented pattern (call requestUmpConsent()
+      // manually, then initialize()) gets permanently locked out of ads.
+      _canRequestAds = cached.canRequestAds;
+      return cached;
     }
     // F9 — log-only order check: ATT must run before UMP on iOS (see this
     // method's docstring / [requestAtt]'s docstring), but this was only ever
@@ -1779,10 +1787,6 @@ class AdManager with WidgetsBindingObserver {
     // (otherwise BannerAdWidget would keep painting the stale provider's view
     // until something else triggers a rebuild).
     initRevision.value = initRevision.value + 1;
-    _resumeFallbackTimer?.cancel();
-    _resumeFallbackTimer = null;
-    _splashBudgetTimer?.cancel();
-    _splashBudgetTimer = null;
     _stopAdRetryTimer();
     _stopConnectivityWatch();
     AdLoadingDialog.resetState();
@@ -1839,10 +1843,20 @@ class AdManager with WidgetsBindingObserver {
   // (Round 6) each went unreset on a re-init in turn. Otherwise a
   // setConsent()/requestUmpConsent() call in one session permanently flips
   // these for every initialize() after this destroy() or reinit.
+  //
+  // _resumeFallbackTimer/_splashBudgetTimer joined this list for the same
+  // reason: they used to be cancelled only inside destroy(), so a re-init
+  // via the reinit-without-destroy() branch left a stale timer alive that
+  // could later fire markSplashInactive() or an app-open show against the
+  // freshly re-initialized adapter.
   void _resetGuardState() {
     _footgunBlocked = false;
     _umpRequested = false;
     _consentExplicitlySet = false;
+    _resumeFallbackTimer?.cancel();
+    _resumeFallbackTimer = null;
+    _splashBudgetTimer?.cancel();
+    _splashBudgetTimer = null;
   }
 
   /// Test seam for [_resetGuardState] — exercised directly by
@@ -1979,8 +1993,13 @@ class AdManager with WidgetsBindingObserver {
       onAdDismiss(false);
       return;
     }
-    if (ad.appOpenSlot.isShowing) {
-      SafeLogger.d(_tag, '⏭️ showAppOpen skipped — already showing');
+    // C3 — this is a direct show* entry point (called from splash and any
+    // host that wants an app-open impression outside the resume flow), so it
+    // must consult the same shared mutex as showInterstitial/showRewarded
+    // rather than only checking its own slot.
+    final busyAO = _fullscreenBusyReason;
+    if (busyAO != null) {
+      SafeLogger.d(_tag, '⏭️ showAppOpen skipped — $busyAO');
       onAdDismiss(false);
       return;
     }
@@ -2432,13 +2451,53 @@ class AdManager with WidgetsBindingObserver {
     // caller with a preloaded slot skips both the dialog and the wait.
     if (bypassVipGuard && !ad.rewardedSlot.isReady) {
       final ctx = _navigatorKey?.currentContext;
-      if (ctx != null) AdLoadingDialog.show(ctx);
+      if (ctx == null) {
+        // No live navigator context — can't show a blocking dialog, so the
+        // on-demand wait below runs with no loading UI at all. Rare (splash
+        // not yet attached, or the key was never wired) but silent otherwise,
+        // so at least surface it for diagnostics.
+        SafeLogger.w(_tag,
+            '⚠️ showRewarded (bypass) — no navigator context, on-demand load will run without a loading dialog');
+      }
+      if (ctx != null) {
+        // AdLoadingDialog.dismiss() wraps its Navigator pop in try/catch;
+        // show()'s showDialog call had no equivalent protection — if it
+        // throws (torn-down navigator, disposed context), _rewardedInFlight
+        // would stay stuck true and block every showRewardedAd() call for
+        // the rest of the session.
+        try {
+          AdLoadingDialog.show(ctx);
+        } catch (e) {
+          // resetState() (not just clearing our own flag) — show() already
+          // set AdLoadingDialog._isShowing = true before the throwing call,
+          // and that flag feeds _fullscreenBusyReason, which gates EVERY
+          // fullscreen ad surface (app open, interstitial, rewarded). Leaving
+          // it stuck true would deadlock all of them, not just rewarded.
+          AdLoadingDialog.resetState();
+          _rewardedInFlight = false;
+          SafeLogger.e(
+              _tag, '⏭️ showRewarded (bypass) — loading dialog failed: $e');
+          onEarnedReward(false);
+          return;
+        }
+      }
       final loaded =
           await _loadRewardedOnDemand(ad, timeout: onDemandLoadTimeout);
       AdLoadingDialog.dismiss();
       if (!loaded) {
         _rewardedInFlight = false;
         SafeLogger.d(_tag, '⏭️ showRewarded (bypass) — on-demand load failed');
+        onEarnedReward(false);
+        return;
+      }
+      // The on-demand load can take seconds, during which another fullscreen
+      // surface that doesn't check `_rewardedInFlight` (app-open, interstitial)
+      // may have started showing — re-check the shared mutex before actually
+      // presenting, or this ad would stack on top of it.
+      final busyAfterLoad = _fullscreenBusyReason;
+      if (busyAfterLoad != null) {
+        _rewardedInFlight = false;
+        SafeLogger.d(_tag, '⏭️ showRewarded (bypass) skipped — $busyAfterLoad');
         onEarnedReward(false);
         return;
       }

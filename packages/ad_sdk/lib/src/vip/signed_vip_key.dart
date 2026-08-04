@@ -3,7 +3,10 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../utils/safe_logger.dart';
 import 'vip_entry.dart';
+
+const String _tag = 'SignedVipKey';
 
 /// A decoded, signature-verified VIP key.
 class SignedVipKey {
@@ -138,16 +141,23 @@ Future<SignedVipKey> verifySignedVipKey(
       .toList();
   if (keys.isEmpty) throw const VipKeyException('bad public key');
 
+  // One malformed key in the rotation list (a stray comma, a bad copy-paste)
+  // must not take every OTHER key down with it — try each key and only give
+  // up once none of them verified.
   var ok = false;
-  for (final key in keys) {
+  for (var i = 0; i < keys.length; i++) {
+    final key = keys[i];
     final List<int> pubBytes;
     try {
       pubBytes = _b64AnyDecode(key);
     } catch (_) {
-      throw const VipKeyException('bad public key');
+      SafeLogger.d(_tag, 'rotation key #$i skipped: bad base64');
+      continue;
     }
     if (pubBytes.length != 32) {
-      throw const VipKeyException('public key must be 32 bytes (Ed25519)');
+      SafeLogger.d(_tag,
+          'rotation key #$i skipped: wrong length (${pubBytes.length}, expected 32)');
+      continue;
     }
     ok = await _ed25519.verify(
       payload,
