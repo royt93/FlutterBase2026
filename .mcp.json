@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "dart": {
-      "command": "/Users/loitran/development/flutter_sdk/flutter/bin/dart",
+      "command": "dart",
       "args": [
         "mcp-server"
       ]
