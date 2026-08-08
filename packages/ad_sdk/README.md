@@ -14,7 +14,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 
 1. [Why this SDK](#why-this-sdk)
 2. [Known limitations — read before adopting](#known-limitations--read-before-adopting)
-3. [What's new in 1.1.1](#whats-new-in-111)
+3. [What's new in 2.0.0](#whats-new-in-200)
 4. [Quick start (copy-paste in 6 steps)](#quick-start)
 5. [Configuration reference](#configuration-reference)
 6. [VIP system](#vip-system)
@@ -88,6 +88,24 @@ be clear-eyed about the gap before depending on it for revenue:
   dismiss) can only be verified manually, not via CI. Everything else in the
   lifecycle (load, show, click, reward callbacks, VIP suppression, safety
   gating) is automated and re-run on every change.
+- **AdMob rewarded test ads can get permanently stuck on Android, unrelated
+  to this SDK.** Manually verified 2026-08-08: an `AdMobAdapter`-shown
+  rewarded ad occasionally shows a frozen countdown label and a static
+  play-icon instead of a playing video — the video silently failed to start,
+  so the close button (drawn entirely by the native Google Mobile Ads SDK)
+  never renders, and neither the hardware back button nor any tap dismisses
+  it. This reproduced with `google_mobile_ads 7.0.0` and matches known
+  upstream reports
+  ([googleads-mobile-flutter#633](https://github.com/googleads/googleads-mobile-flutter/issues/633),
+  [#840](https://github.com/googleads/googleads-mobile-flutter/issues/840)):
+  the app-side code only calls `show()` and waits for the native
+  `onAdDismissedFullScreenContent` callback, which the native SDK never
+  fires if the underlying video never actually played. Confirmed this is not
+  reachable from Dart — there is no app-level close affordance to add. If you
+  hit this, it should self-clear on the next ad load/session; there is no
+  known reliable in-session recovery besides killing and relaunching the app.
+  Android interstitial ads were not affected (dismissed cleanly via back
+  button in the same test pass).
 - ~~**Known limitation:** `app_open_ad_test.dart` / `interstitial_ad_test.dart`
   / `rewarded_ad_test.dart` call `showXAd()` twice back-to-back without
   waiting for the ad to finish loading first.~~ **Fixed (2026-07-19).** All
@@ -112,7 +130,40 @@ partners):** start with a small-traffic, time-boxed pilot on one app,
 watching the same dashboards above for a few weeks, rather than a
 wholesale integration on day one.
 
-## What's new in 1.1.1
+## What's new in 2.0.0
+
+**Breaking.** Comes out of a full audit against seven production
+requirements (`doc/audit/audit_claude_20260802.md`), cross-checked by
+three independent agents, with every finding verified against source.
+
+- **`autoRequestUmpConsent` now defaults to `true`** (was `false`). The old
+  default meant a host that changed nothing could silently block ad
+  requests in release builds — the built-in consent dialog never cleared
+  the block because it applies consent directly to providers instead of
+  routing through `google_mobile_ads`'s `setConsent()`. Net effect: zero
+  ads requested, silently, since the diagnostic `assert` is stripped in
+  release. Hosts that already call `requestUmpConsent()` themselves are
+  auto-detected and the automatic call skips, so UMP still runs exactly
+  once.
+- **`maxVipStackDuration` now defaults to 90 days** instead of `null`
+  (uncapped). Pass `null` explicitly for the old behaviour.
+- **Signed VIP keys default to the new `AVP2` format**, which embeds expiry
+  and app binding inside the signed payload. Existing `AVP1` keys still
+  verify; `tool/vip_mint.dart` mints AVP2 unless `--v1` is passed.
+- New dependency: `package_info_plus` (reads the bundle id for AVP2
+  app-binding checks).
+
+**Fixed:**
+
+- **Interstitial and rewarded ads could stack on each other.**
+  `showAppOpenAdOnResume` guarded against showing over a dialog, but
+  `showInterstitial` and `showRewarded` each checked only their own slot —
+  two full-screen ads could be requested back-to-back and briefly overlap.
+  All three paths now share one state mutex.
+
+See `CHANGELOG.md` `[2.0.0]` for the full list.
+
+### What's new in 1.1.1 (historical)
 
 - **1.1.1** — dependency freshness: `confetti` `^0.7.0` → `^0.8.0`,
   `connection_notifier` `^2.0.1` → `^4.1.0`. No public API changes.
@@ -196,7 +247,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^1.1.1
+  applovin_admob_sdk: ^2.0.0
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
