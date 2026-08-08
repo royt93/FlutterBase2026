@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "dart": {
+      "command": "/Users/loitran/development/flutter_sdk/flutter/bin/dart",
+      "args": [
+        "mcp-server"
+      ]
+    },
+    "xcodebuild": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ],
+      "env": {
+        "XCODEBUILDMCP_ENABLED_WORKFLOWS": "simulator,debugging,ui-automation"
+      }
+    }
+  }
+}
