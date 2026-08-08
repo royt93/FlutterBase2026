@@ -30,12 +30,20 @@ Updated: 2026-07-18
   DigitalOcean speedtest endpoints were removed).
 
 ### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.1.0`, **published 1.1.1**, ACTIVE 2026-07-18)
-- Android + iOS ad integration, runtime provider `AdProvider.appLovin`
-  (AdMob kept present for swap-readiness). Root `pubspec.yaml` consumes
-  hosted `applovin_admob_sdk: ^1.1.0` from pub.dev; the local `path:
+- Android + iOS ad integration, runtime provider **`AdProvider.admob`**
+  (switched from `AdProvider.appLovin` 2026-08-08 — AppLovin kept present
+  for swap-readiness). Root `pubspec.yaml` consumes hosted
+  `applovin_admob_sdk: ^1.1.0` from pub.dev; the local `path:
   packages/ad_sdk` override line is commented out. Check `pubspec.yaml`
   directly before trusting this — it has drifted stale before (flipped
   back and forth multiple times during T01-T62 dev).
+- **Provider switch to AdMob (2026-08-08)** — `AdKey.adMob` (`ad_keys.dart`)
+  now holds real production AdMob ad unit IDs (banner/interstitial/
+  appOpen/rewarded), replacing Google's public test IDs. This satisfies the
+  debug-only `assert()` guard in `splash_screen.dart` (R10-F) that fails
+  loudly if `AdProvider.admob` is active while test IDs are still present —
+  the guard is unchanged, it simply no longer fires. `AdProvider.appLovin`
+  stays fully configured as the fallback/swap target.
 - **1.1.0 (2026-07-18)** — package is now **public** on pub.dev (was
   previously published but effectively dev-only/undiscoverable metadata);
   this release adds Native Ad v1, MREC, Smart Monetization Arbitrator,
@@ -657,6 +665,58 @@ hiện mới:
   extended assertions on the existing expand-panel test. 547/547 green,
   `flutter analyze` clean.
 
+## ✅ Implemented — Wave 6 (3 differentiation features + shared Hive migration) · DONE 2026-08-08
+
+### Shared — Hive schema migration (`roomTag` + `thermalStatus`)
+`TestResult` grew from 17 to 19 fields — `roomTag` (`String?`, index 17) and
+`thermalStatus` (`int?`, index 18, raw Android `PowerManager` thermal code
+0-6). `models/test_result.dart` (constructor/`copyWith`/`fromControllerData`/
+`toJson`/`fromJson` + new `thermalStatusFormatted` getter),
+`models/test_result_adapter.dart` (`writeByte(17)` → `writeByte(19)`, new
+read/write cases 17/18). Old Hive records simply lack keys 17/18 on read →
+`fields[17]`/`fields[18]` naturally resolve to `null`, no migration script
+needed — covered by `test/wave6_room_tag_test.dart`'s backward-compat
+round-trip test (constructs a fake pre-migration 17-field frame).
+
+### K. Walk-test room-tagging — `done`
+Bottom sheet after a test finishes (preset chips + custom text field,
+skippable) tags the result with a room/location label. New
+`presentation/room_comparison_screen.dart` groups tagged, successful results
+by room and shows avg/peak/min Mbps per room (reachable from
+`history_screen.dart`'s AppBar). Room badge (📍) surfaced in
+`timeline_item.dart` and `test_detail_screen.dart`. i18n:
+`room_tag_*`/`room_comparison_*` keys in both `en_us.dart`/`vi_vn.dart`.
+Tests: `test/wave6_room_tag_test.dart` (Hive round-trip + grouping/aggregation
+math, mirroring `RoomComparisonScreen`'s `byRoom` logic).
+
+### L. ISP-dispute PDF evidence export — `done`
+New "Export ISP Dispute Report" flow in `history_controller.dart`:
+date-range picker → `TestHistoryStorage.getResultsByDateRange()` (existing,
+reused as-is) → optional advertised-plan-speed prompt →
+`generateIspDisputeReport()` builds a PDF (header, generated timestamp, date
+range, test count, optional "% of tests below advertised speed", aggregate
+avg/peak/min stats, full per-test table via `pw.TableHelper.fromTextArray`,
+disclaimer footer) → shared via `share_plus`. Separate from the existing
+CSV/JSON/PDF export sheet (Wave 2) since it needs a date range first. i18n:
+`isp_dispute_*` keys. Tests: `test/wave6_isp_dispute_export_test.dart`
+(mirrors `wave2_export_test.dart`'s byte-stream/`%PDF`-header pattern,
+exercises `whereType<double>()` filtering on partially-null optional
+metrics + the advertised-speed `belowCount` branch).
+
+### M. Sustained-load thermal throttle detector — `done`
+Android-only (`Build.VERSION.SDK_INT >= Q`): new `"getThermalStatus"` case in
+`MainActivity.kt`'s wifi channel calling
+`PowerManager.getCurrentThermalStatus()`, wrapped `services/network_info_service.dart#getThermalStatus()`
+wrapper (iOS/pre-Q/channel-error → `null`, never conflated with "no
+throttling"). `stressor_controller.dart` polls every 10s during a run via
+`_pollThermalStatus()`, tracks the **worst** (highest-severity) status
+observed → stored on `TestResult.thermalStatus`. `(thermalStatus ?? 0) >= 2`
+(`THERMAL_STATUS_MODERATE`) gates a warning card in `test_detail_screen.dart`
+and a 🌡️ badge in `timeline_item.dart`; `null` always hides the warning,
+never shown as a false "confirmed OK". i18n: `thermal_warning_*` keys.
+Tests: `test/wave6_thermal_test.dart` (threshold gate across null/0/1/2-6,
+`thermalStatusFormatted` null-safety).
+
 ## ✅ Implemented — Wave 5 (network dashboard + chart types) · DONE 2026-06-16
 
 > Picked 2026-06-16 (Network Info dashboard + Chart types & visualization), built
@@ -986,18 +1046,20 @@ Ba việc dưới đây **Claude không tự làm được** (cần login consol
 user, hoặc là quyết định kinh doanh) — user tự làm theo thứ tự nào cũng được,
 không phụ thuộc lẫn nhau:
 
-1. ✅ **DONE (xác nhận + verify code 2026-07-19).** Host app (FastNet) đã
-   dùng App ID production thật
+1. ✅ **DONE (xác nhận + verify code 2026-07-19; provider switch 2026-08-08).**
+   Host app (FastNet) dùng App ID production thật
    (`ca-app-pub-3004713799155145~9488250427`, cùng giá trị Android/iOS) và bộ
    ad-unit ID AppLovin thật trong `AdKey.appLovinAndroid`/`appLovinIos`
-   (`lib/mckimquyen/common/const/ad_keys.dart`) — provider đang chạy runtime
-   là AppLovin (`AdConfig.provider`) nên đây là phần quyết định doanh thu.
-   Bộ `AdKey.adMob` (ad-unit ID fallback, dùng nếu sau này flip provider
-   sang AdMob) **vẫn đang là ID test của Google — có chủ đích**, chỉ cần đổi
-   khi thật sự chuyển provider. **Phát hiện phụ:** example app của SDK
-   (`packages/ad_sdk/example`) vẫn đang hardcode App ID production thật này
-   (đáng lẽ nên dùng App ID test) — tách thành ticket riêng, ✅ **đã fix
-   2026-07-19**, xem `doc/task/done/T44-example-app-real-admob-appid.md`.
+   (`lib/mckimquyen/common/const/ad_keys.dart`). **2026-08-08: provider đang
+   chạy runtime đổi từ AppLovin sang AdMob** (`AdProvider.admob` trong
+   `splash_screen.dart:229`) — `AdKey.adMob` giờ cũng là ad-unit ID production
+   thật (banner/interstitial/appOpen/rewarded dưới App ID trên), không còn là
+   ID test của Google nữa; AppLovin giữ nguyên bộ ID thật, đóng vai fallback
+   nếu sau này flip lại. R10-F debug `assert()` (`splash_screen.dart:305-312`)
+   không còn fire vì cả hai bộ ID giờ đều thật. **Phát hiện phụ:** example app
+   của SDK (`packages/ad_sdk/example`) vẫn đang hardcode App ID production
+   thật này (đáng lẽ nên dùng App ID test) — tách thành ticket riêng, ✅ **đã
+   fix 2026-07-19**, xem `doc/task/done/T44-example-app-real-admob-appid.md`.
 2. ✅ **DONE (xác nhận với user 2026-07-19).** Đã publish UMP consent form
    trên AdMob console — xem mục Blockers phía trên (đã chuyển sang trạng thái
    done).
@@ -1109,39 +1171,9 @@ dung 1.0.24 vẫn nằm nhầm dưới `## [Unreleased]`) — đã sửa.
 > success-vs-loss pie (Wave 5) · localization completeness audit (i18n 184/184
 > parity verified 2026-06-16).
 
-#### New ideas (2026-07-07 differentiation pass)
-- **Walk-test room-tagging mode.** Quick-succession tests (e.g. 5s each) with a
-  lightweight room/location label prompt between runs, then a bar-chart summary
-  ("Living room: 180 Mbps avg · Bedroom: 22 Mbps avg — 88% drop") so users can
-  pinpoint dead zones without leaving the app. Differentiating because it's a
-  *diagnostic workflow* generic speed-test apps don't offer — they test once and
-  stop; a stress tester already has the rapid-fire test loop this needs. Needs
-  one new nullable `roomTag` field on `TestResult`/Hive adapter (next free index
-  17) + a small tag-picker sheet reusing the existing history list UI. Effort: M
-  (~1 day) — no new native code, no new screen architecture, just a tag field +
-  a grouped-bar aggregation view.
-- **ISP-dispute evidence export.** A dedicated PDF report mode (reusing the
-  existing `pdf`-based export pipeline from Wave 2) that aggregates N historical
-  tests over a date range against the user's stated ISP-advertised plan speed,
-  computing "% of tests below promised speed," worst/median/best, and a
-  timestamped table — framed explicitly as evidence to hand to an ISP or
-  regulator, not just a personal chart. Differentiating because "prove my ISP
-  is underdelivering over time" is a use case a stress tester's persistent
-  history uniquely supports and no bundled speed-test app frames this way.
-  Effort: S–M (~4-6h) — reuses `generatePdf`/history storage, just needs a new
-  report template + one plan-speed input field.
-- **Sustained-load thermal/throttle detector.** During long-duration stress
-  runs (5m+ preset already exists), poll Android's
-  `PowerManager.getCurrentThermalStatus()` (API 29+, currently never wired to
-  the `com.saigonphantomlabs.base/wifi` channel) alongside speed samples, and
-  flag "throughput dropped after N minutes — possible router or phone thermal
-  throttling" instead of just showing a falling line on the chart. This is
-  something *only* a sustained stress tester can detect — a 10s speed test
-  never runs long enough to trigger throttling, so this is structurally
-  impossible for competing speed-test apps to offer. Effort: M (~1 day) — one
-  new native method (mirrors the existing `getRssi`/`getWifiInfo` pattern) +
-  a periodic sample alongside the existing latency probe Timer; iOS has no
-  public thermal API, so gate this Android-only like signal dBm already is.
+> Done (2026-08-08): walk-test room-tagging · ISP-dispute evidence export ·
+> sustained-load thermal/throttle detector — see "✅ Implemented — Wave 6"
+> below.
 
 ### 📣 Ad / SDK
 - ~~Ad health screen: SDK init state, loaded slots, consent state, VIP state,
