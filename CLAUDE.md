@@ -102,7 +102,7 @@ The `applovin_admob_sdk` package is **dual-sourced**:
   - **Dart level:** `gma_mediation_applovin >=2.6.0` needs `meta ^1.17.0` while `flutter_test` from the CI-pinned Flutter 3.35.1 forces `meta 1.16.0`. And `google_mobile_ads` **8 and 9** need Dart `>=3.10.0` + Flutter `>=3.38.1`, which 3.35.1 (Dart 3.9.x) cannot satisfy — so the last 10 pub.dev points are gated on a Flutter upgrade, which would also raise the SDK's own `environment` floor and so be breaking for consumers.
   - **CocoaPods level:** `applovin_max 4.6.4` requires `AppLovinSDK (= 13.6.3)`, but `gma_mediation_applovin 2.5.2` → `GoogleMobileAdsMediationAppLovin (~> 13.5.0.0)` → `AppLovinSDK (= 13.5.0)`. Both pin exact versions, so `pod install` cannot resolve them together — that is why `applovin_max` stays overridden to `4.6.0` even though the SDK declares `^4.6.4`.
   - Verify any change here with `flutter pub get` **and** `cd ios && pod install` **and** a real `flutter build apk` / `flutter build ios --simulator`: `pub get` succeeding proves nothing about the pod graph.
-- **`android/gradle.properties` hardcodes `org.gradle.java.home` to a specific machine's JDK path** (`/Users/loitran/.../openjdk-20.0.1`). Any other machine fails every Android build with "Java home supplied is invalid" until that line is repointed or removed. It is checked in, so fixing it is a real change, not a local tweak.
+- `android/gradle.properties` **used to** hardcode `org.gradle.java.home` to one machine's JDK path — fixed in `6d927c2` (2026-08-01), which dropped the property entirely so Gradle auto-detects / uses `JAVA_HOME` per machine. If this regresses, don't re-add a hardcoded path.
 
 The integration contract (see `packages/ad_sdk/README.md` for the full version):
 
