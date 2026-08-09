@@ -1,167 +1,154 @@
-# Prompt Template: Tích hợp `applovin_admob_sdk` vào project Flutter
+# Prompt Template: Integrating `applovin_admob_sdk` into a Flutter Project
 
-> **Partner handoff rule:** file này là prompt/chốt checklist gửi partner tích hợp SDK. Mỗi khi đổi SDK version, ad key, native config, splash flow, VIP flow, consent flow, hoặc phát hiện bug tích hợp mới, phải cập nhật file này cùng lúc với `doc/feature.md` (nguồn state hiện tại — `doc/AD.MD` đã archive vì bị `feature.md` thay thế hoàn toàn).
+> **Maintenance note:** this file is the complete, self-contained handoff given to a partner engineering team integrating this SDK. Whenever the SDK version, ad unit conventions, native config requirements, splash lifecycle, VIP flow, or consent flow changes, update this file at the same time.
 >
-> **State hiện tại của `_FlutterBase2025` (cập nhật 2026-07-18):**
-> - Runtime SDK: `_FlutterBase2025` hiện dùng **hosted** `applovin_admob_sdk: ^1.1.0` từ pub.dev (path override sang `packages/ad_sdk` đã comment out). Package giờ **public** trên pub.dev, local copy trong repo đang ở `1.1.1`. Kiểm tra `pubspec.yaml` trực tiếp trước khi tin dòng nào đang active — dòng này đã từng lệch thực tế.
-> - ATT (App Tracking Transparency) đã tích hợp SẴN trong SDK: gọi `AdManager().requestAtt()` trong splash trước UMP (xem Step 8.3) — KHÔNG tự gọi `app_tracking_transparency`.
-> - Runtime provider: `AdProvider.appLovin`; `AdMobConfig` vẫn phải non-null để swap-ready.
-> - App-level native mediation plugin: `gma_mediation_applovin`.
-> - iOS AppLovin MAX override hiện dùng `applovin_max: 4.6.0` để khớp mediation.
-> - Do not share AppLovin ad unit IDs across Android and iOS. Keep separate `AppLovinConfig` values per platform and select at runtime.
-> - Current Android AppLovin units: app-open `REDACTED_APPLOVIN_APPOPEN_ID`, banner `REDACTED_APPLOVIN_BANNER_ID`, interstitial `REDACTED_APPLOVIN_INTERSTITIAL_ID`, rewarded `REDACTED_APPLOVIN_REWARDED_ID`.
-> - Current iOS AppLovin units for `com.saigonphantomlabs.base`: app-open `REDACTED_APPLOVIN_IOS_APPOPEN_ID`, banner `REDACTED_APPLOVIN_IOS_BANNER_ID`, interstitial `REDACTED_APPLOVIN_IOS_INTERSTITIAL_ID`, rewarded `REDACTED_APPLOVIN_IOS_REWARDED_ID`.
-> - Android đã có `com.google.android.gms.ads.APPLICATION_ID`, `AD_ID`, `INTERNET`, `ACCESS_NETWORK_STATE`, và không được set `android:taskAffinity=""`.
-> - iOS bắt buộc có đủ trong `ios/Runner/Info.plist`: `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems`.
-> - Thiếu các key iOS trên là lỗi đã từng làm Android ads chạy nhưng iOS không work/không vào được runtime ads đúng cách.
-> - Trước khi release iOS, recheck official AdMob/AppLovin SKAdNetwork list vì mediation partner có thể yêu cầu thêm identifier.
-> - App host dùng trực tiếp SDK `SafeLogger` để log luôn có prefix `roy93~`, ví dụ `SafeLogger.d('SplashTrace', '...')`. Tối thiểu trace các mốc: `main()` start, `setNavigatorKey`, `runApp`, `Splash.initState`, hard-cap armed/fired, UMP start/done, `AdManager.initialize` start/done, EventBus result, App Open load/show/dismiss, navigate main, dispose.
+> **Filling in this template:** Section 0 below is where you record the *consuming* project's own values — SDK version pinned, provider choice, ad unit IDs, bundle ID, native config, logging setup, and so on. Do not carry over IDs, paths, or config from any other project. Every `<...>` placeholder must be filled with values that belong to the project you are integrating into.
 >
-> Template dùng chung cho mọi project **Flutter**. Trước khi đưa cho AI, **fill hết placeholder `<...>`** ở Section 0. VIP feature là **mandatory** — mọi project phải có VIP screen + first-install grace (SDK đã build-in, không re-implement).
-> UI của vip screen nên tận dụng screen có sẵn (hoặc enhance) theo /Users/loitran/AndroidStudioProjects/@mckimquyen/@playstore/@prodution/_FlutterBase2025/lib/mckimquyen/widget/vip/vip_screen.dart
-> 
-> 
-> **Rule cốt lõi (áp dụng toàn bộ codebase mới sinh):**
-> 1. **KHÔNG** dùng `setState` — bắt buộc `ValueNotifier<T>` + `ValueListenableBuilder` (hoặc equivalent reactive của state manager đang dùng — ưu tiên GetX `Rx<T>` + `Obx`).
-> 2. **KHÔNG** dùng `!` (bang operator) — bắt buộc null-safe pattern: `if (x case final v?)`, `final v = x; if (v == null) return;`, hoặc null-coalesce `??`.
-> 3. **KHÔNG** dùng `late` / `late final` — bắt buộc nullable field + init trong `initState`, đọc bằng local copy (`final c = _controller; if (c != null) ...`).
-> 4. **Ưu tiên** `AdProvider.appLovin` runtime, `AdMob` chỉ làm fallback (đổi bằng cách flip 1 dòng `AdConfig.provider`).
-> 5. **State management ưu tiên**: GetX (`Rx<T>` / `Obx` / `'.tr'` cho i18n / `Get.to` cho navigation). I18n key kiểu `'snake_case'.tr`.
-> 6. **Logger ưu tiên**: project's `SafeLogger` (qua `AdConfig.onLog`).
+> This template applies to any **Flutter** project. Before handing it to an AI agent, **fill in every `<...>` placeholder** in Section 0. The VIP feature is **mandatory** — every project must ship a VIP screen plus first-install grace (already built into the SDK — do not reimplement it).
+> If your project already has a VIP-related screen, reuse or enhance it following Step 10 below. If not, build a new one — the SDK also ships a ready-made `VipRedeemScreen` widget you can wrap directly (see the usage note in Step 10.2, and `packages/ad_sdk/README.md` if you happen to have the SDK's source available).
+>
+> **Core rules (apply to the entire generated codebase):**
+> 1. **Do NOT** use `setState` — use `ValueNotifier<T>` + `ValueListenableBuilder` instead (or the reactive equivalent of whatever state manager is in use — GetX `Rx<T>` + `Obx` preferred).
+> 2. **Do NOT** use `!` (the bang operator) — use a null-safe pattern instead: `if (x case final v?)`, `final v = x; if (v == null) return;`, or the null-coalescing operator `??`.
+> 3. **Do NOT** use `late` / `late final` — use a nullable field initialized in `initState` instead, read via a local copy (`final c = _controller; if (c != null) ...`).
+> 4. **Prefer** `AdProvider.appLovin` as the active runtime provider; treat AdMob as a fallback only (swap by flipping one line, `AdConfig.provider`).
+> 5. **Preferred state management**: GetX (`Rx<T>` / `Obx` / `'.tr'` for i18n / `Get.to` for navigation). i18n keys use `'snake_case'.tr`.
+> 6. **Preferred logger**: the project's own logger, wired through `AdConfig.onLog`. (One reference implementation names its logger `SafeLogger` and prefixes every line with a project tag, e.g. `roy93~` — that's just an example from one integration, not a requirement; use whatever logger convention your project already has.)
 
 ---
 
-## 0. Bối cảnh — fill trước khi chạy
-Phải đọc kỹ source code ở /Users/loitran/AndroidStudioProjects/@mckimquyen/@playstore/@prodution/_FlutterBase2025/packages
+## 0. Context — fill in before running
 
-| Field | Giá trị |
+Read the SDK source carefully before starting: the monorepo path `packages/ad_sdk/` if you have it available, otherwise the hosted package under `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<version>/`.
+
+| Field | Value |
 |---|---|
-| Project hiện tại (cwd, absolute path) | `<PROJECT_PATH>` |
-| Dart package name (từ `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
-| State management hiện tại | `<GetX | Provider | Riverpod | Bloc | none>` (ưu tiên GetX, nếu trống → AI hỏi) |
-| Default locale | `<vi_VN | en_US | ...>` (ưu tiên `vi_VN`, fallback `en_US`) |
-| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **AI fetch `https://pub.dev/api/packages/applovin_admob_sdk` hoặc `flutter pub outdated` lấy latest stable, fill ở đây trước khi chạy Step 1**. Tối thiểu `^1.0.19`; latest hiện tại = `1.1.1` (hosted host app đang pin `^1.1.0`). |
-| Lib reference local (nếu monorepo) | `packages/ad_sdk/` |
-| File spec gốc của lib | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (lịch sử feature) + `packages/ad_sdk/MIGRATION.md` |
-| Sample app | `packages/ad_sdk/example/lib/main.dart` (15 demo pages, một trang một feature) |
-| Build target debug | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, nếu target iOS) — cả 2 phải xanh |
-| Build target release | `flutter build apk --release --analyze-size` — verify size delta < 5MB so với baseline |
-| Provider chính (active runtime) | **`AdProvider.appLovin`** (ưu tiên cứng — KHÔNG đổi) |
-| Provider fallback | `AdProvider.adMob` (đổi `AdConfig.provider` để swap) |
-| AppLovin SDK key | `<hỏi user — dừng nếu thiếu>` (86 chars, lấy từ `dash.applovin.com → Account → Keys → SDK Key`) |
-| AppLovin Android banner ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
-| AppLovin Android interstitial ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
-| AppLovin Android app open ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
-| AppLovin Android rewarded ID | `<hỏi user — dừng nếu thiếu nếu target Android>` |
-| AppLovin iOS banner ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
-| AppLovin iOS interstitial ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
-| AppLovin iOS app open ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
-| AppLovin iOS rewarded ID | `<hỏi user — dừng nếu thiếu nếu target iOS>` |
-| AdMob `APPLICATION_ID` | `<hỏi user — nếu user không có AdMob account, dùng test App ID `ca-app-pub-3940256099942544~3347511713` + warning trong báo cáo cuối>` |
-| AdMob banner ID | `<hỏi user — dừng nếu thiếu>` (KHÔNG dùng test ID khi user có production ID) |
-| AdMob interstitial ID | `<hỏi user — dừng nếu thiếu>` |
-| AdMob app open ID | `<hỏi user — dừng nếu thiếu>` |
-| AdMob rewarded ID | `<hỏi user — dừng nếu thiếu>` |
-| Privacy Policy URL | `<hỏi user — dừng nếu thiếu>` (sẽ nhúng vào `ConsentDialogStrings.privacyPolicyUrl` + footer VIP screen) |
-| Splash hard cap (giây) | `<hỏi user, default 8>` (đồng bộ với `AdConfig.splashMaxDuration`) |
-| VIP key whitelist (plain) | `<hỏi user — list dạng "KEY: <duration>", vd "LOITP_30: 30 days, LOITP_3: 3 days">` |
-| Mức che giấu VIP key | Plaintext `Map<String, Duration>` trong `vip_keys.dart` (đơn giản, đủ cho project mới). `_FlutterBase2025` hiện dùng cơ chế mạnh hơn — Ed25519 signed keys (T18, không phải Base64 map) — chỉ áp dụng nếu user yêu cầu mức chống-forge cao hơn; xem `packages/ad_sdk/README.md` → "Signed VIP keys". |
+| Current project (cwd, absolute path) | `<PROJECT_PATH>` |
+| Dart package name (from `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
+| Current state management | `<GetX \| Provider \| Riverpod \| Bloc \| none>` (GetX preferred; if empty → ask the user) |
+| Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
+| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **fetch `https://pub.dev/api/packages/applovin_admob_sdk` (or run `flutter pub outdated`) to get the current latest stable version and fill it in here before running Step 1.** As of this writing (2026-08-09) the latest published version is `2.0.4` — treat that as a data point, not a hardcoded target; always use whatever is actually latest at integration time. |
+| Local library reference (if monorepo) | `packages/ad_sdk/` |
+| Library's own spec files | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (feature history) + `packages/ad_sdk/MIGRATION.md` |
+| Sample app | `packages/ad_sdk/example/lib/main.dart` (demo pages, one page per feature) |
+| Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
+| Release build target | `flutter build apk --release --analyze-size` — verify the size delta is < 5MB versus baseline |
+| Primary provider (active at runtime) | **`AdProvider.appLovin`** (hard preference — do not change) |
+| Fallback provider | `AdProvider.adMob` (swap by changing `AdConfig.provider`) |
+| AppLovin SDK key | `<ask the user — stop if missing>` (86 chars, from `dash.applovin.com → Account → Keys → SDK Key`) |
+| AppLovin Android banner ID | `<ask the user — stop if missing, if targeting Android>` |
+| AppLovin Android interstitial ID | `<ask the user — stop if missing, if targeting Android>` |
+| AppLovin Android app open ID | `<ask the user — stop if missing, if targeting Android>` |
+| AppLovin Android rewarded ID | `<ask the user — stop if missing, if targeting Android>` |
+| AppLovin iOS banner ID | `<ask the user — stop if missing, if targeting iOS>` |
+| AppLovin iOS interstitial ID | `<ask the user — stop if missing, if targeting iOS>` |
+| AppLovin iOS app open ID | `<ask the user — stop if missing, if targeting iOS>` |
+| AppLovin iOS rewarded ID | `<ask the user — stop if missing, if targeting iOS>` |
+| AdMob `APPLICATION_ID` | `<ask the user — if the user has no AdMob account, use Google's test App ID `ca-app-pub-3940256099942544~3347511713` + add a warning to the final report>` |
+| AdMob banner ID | `<ask the user — stop if missing>` (do NOT use a test ID once the user has a production ID) |
+| AdMob interstitial ID | `<ask the user — stop if missing>` |
+| AdMob app open ID | `<ask the user — stop if missing>` |
+| AdMob rewarded ID | `<ask the user — stop if missing>` |
+| Privacy Policy URL | `<ask the user — stop if missing>` (gets embedded into `ConsentDialogStrings.privacyPolicyUrl` + the VIP screen footer) |
+| Splash hard cap (seconds) | `<ask the user, default 8>` (must match `AdConfig.splashMaxDuration`) |
+| VIP key whitelist (plaintext) | `<ask the user — list in the form "KEY: <duration>", e.g. "PROMO30: 30 days, PROMO3: 3 days">` |
+| VIP key obfuscation level | Plaintext `Map<String, Duration>` in `vip_keys.dart` (simple, good enough for a new project). A stronger mechanism — Ed25519-signed keys, not a Base64 map — is also available if the user wants a higher anti-forgery bar; see `packages/ad_sdk/README.md` → "Signed VIP keys" (if you have the SDK source) or the hosted package's README on pub.dev. |
 
-**Rule cứng cho Section 0**:
+**Hard rules for Section 0**:
 
-1. **Cả AppLovin + AdMob config bắt buộc đầy đủ** trước khi setup `AdConfig` — `AppLovinConfig` và `AdMobConfig` đều phải non-null trong constructor (SDK constraint). Với AppLovin, **ad unit IDs phải tách Android/iOS** nếu app target cả hai platform; không dùng nhầm iOS units cho Android hoặc ngược lại. Cho phép swap provider không cần re-build template. Nếu user nói "chỉ có AppLovin" → AI vẫn hỏi AdMob IDs riêng từng cái, không tự fill test ID khi user có ID thật.
-2. **AdMob `APPLICATION_ID` exception**: nếu user không có AdMob account và xác nhận sẽ không serve AdMob ads → cho phép dùng test App ID `ca-app-pub-3940256099942544~3347511713` + ghi warning vào báo cáo cuối Step 12.
-3. Bất kỳ field nào còn ghi `<hỏi user — dừng nếu thiếu>`: AI **phải hỏi user trong chat** rồi **dừng chờ trả lời**, KHÔNG tự fill placeholder, KHÔNG dùng test ID khi user có production ID, KHÔNG bỏ qua.
-4. **Latest version**: AI fetch `pub.dev` API hoặc đọc `flutter pub outdated` để lấy version stable mới nhất ngay khi bắt đầu Step 1. Verify `>= 1.0.19` (minimum cứng do dependency contract).
-
----
-
-## Cấm (áp dụng mọi project)
-
-- Tự ý thêm ad slot mới ngoài các slot đã tồn tại trong code hiện tại.
-- Tự ý refactor code không liên quan đến tích hợp ad.
-- Tự ý nâng/hạ version SDK ngoài range đã chốt ở Section 0.
-- Tự ý đổi `AdConfig.provider` từ AppLovin sang AdMob khi user chưa yêu cầu.
-- Lặp lại đọc cùng 1 file > 1 lần với mục đích "double check" — review trên kết quả đã có, không re-read.
-- Tự thêm trigger interstitial mới (vd "show sau mỗi action X") nếu code cũ chưa có.
-- Tự fill ad ID bằng test ID hoặc placeholder khi user đã có production ID — phải hỏi user.
-- Bypass `AdSafetyParams.auto` ngoài 1 chỗ duy nhất là splash App Open ad (`bypassSafety: true`).
-- Re-implement first-install VIP grace trong app code — SDK đã có `firstInstallVipGrace: FirstInstallVipGrace.auto` (30s debug / 24h release). **Mandate dùng `auto`, KHÔNG override**.
-- Show App Open Ad **trên splash thuần** (vi phạm AdMob policy "Disallowed interstitial implementations") — phải qua flow `loadAppOpenAd → AdLoadingDialog.showAdBuffer → showAppOpenAd(bypassSafety: true)`.
-- Tự subscribe `WidgetsBindingObserver` lifecycle để show App Open trên resume — SDK đã hook sẵn, double-subscribe = double-show.
-- Tự thêm permission Android/iOS ngoài whitelist (xem Step 2 + Step 11), trừ permission **liên quan ad** với lý do rõ ràng (vd `ACCESS_WIFI_STATE` cho AppLovin GeoTargeting). Permission ngoài ad → hỏi user trước.
-- **Dùng `setState`, `!` (bang operator), `late` / `late final`** — vi phạm 3 rule cốt lõi ở đầu file. Step 11 sẽ grep + reject nếu phát hiện.
-- Hard-code user-facing strings (consent dialog, VIP UI, disclaimer) — bắt buộc qua `'snake_case_key'.tr` (GetX) và thêm key vào `vi_vn.dart` + `en_us.dart`.
+1. **Both AppLovin and AdMob config are mandatory** before setting up `AdConfig` — `AppLovinConfig` and `AdMobConfig` must both be non-null in the constructor (SDK constraint). For AppLovin, **ad unit IDs must be split per platform** if the app targets both; never reuse iOS units for Android or vice versa. This keeps provider swapping possible without rebuilding the template. If the user says "I only have AppLovin" → still ask for the AdMob IDs separately; never auto-fill a test ID when the user has a real one.
+2. **AdMob `APPLICATION_ID` exception**: if the user has no AdMob account and confirms they won't serve AdMob ads → it's fine to use Google's test App ID `ca-app-pub-3940256099942544~3347511713` + write a warning into the final report in Step 12.
+3. Any field still marked `<ask the user — stop if missing>`: the AI **must ask the user in chat** and then **stop and wait for an answer** — do not auto-fill the placeholder, do not use a test ID when the user has a production ID, do not skip it.
+4. **Latest version**: fetch the `pub.dev` API or read `flutter pub outdated` to get the latest stable version right when starting Step 1. Every feature referenced in this document (VIP stacking, `bypassVipGuard`, the anti-uninstall-bypass guard, ATT integration) is present in current releases, so there's no known minimum-version constraint beyond "use whatever is latest."
 
 ---
 
-## Step 1 — Đọc lib reference
+## Forbidden (applies to every project)
 
-- `ls` đệ quy `packages/ad_sdk/` (nếu monorepo) hoặc `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<VERSION>/` (nếu hosted).
-- Fetch `https://pub.dev/api/packages/applovin_admob_sdk` để verify latest stable, update Section 0 nếu cần.
-- Đọc `packages/ad_sdk/README.md` (Quick start + Configuration reference + Public API). Đặc biệt các call site:
+- Adding a new ad slot beyond the slots that already exist in the current code.
+- Refactoring code unrelated to the ad integration.
+- Bumping or downgrading the SDK version outside the range settled in Section 0.
+- Changing `AdConfig.provider` from AppLovin to AdMob without the user asking for it.
+- Re-reading the same file more than once for "double checking" — review the result you already have; don't re-read.
+- Adding a new interstitial trigger (e.g. "show after every action X") if the existing code doesn't already do that.
+- Filling an ad ID with a test ID or placeholder when the user already has a production ID — you must ask the user instead.
+- Bypassing `AdSafetyParams.auto` anywhere except the one sanctioned spot: the splash App Open ad (`bypassSafety: true`).
+- Re-implementing first-install VIP grace in app code — the SDK already has `firstInstallVipGrace: FirstInstallVipGrace.auto` (30s debug / 24h release). **Mandate using `auto`, do NOT override it.**
+- Showing an App Open Ad **directly on a bare splash screen** (this violates AdMob's "Disallowed interstitial implementations" policy) — it must go through the flow `loadAppOpenAd → AdLoadingDialog.showAdBuffer → showAppOpenAd(bypassSafety: true)`.
+- Subscribing to `WidgetsBindingObserver` lifecycle yourself to show App Open on resume — the SDK already hooks this; double-subscribing means double-showing.
+- Adding an Android/iOS permission beyond the whitelist (see Step 2 + Step 11), except for an ad-related permission with a clear justification (e.g. `ACCESS_WIFI_STATE` for AppLovin GeoTargeting). Any non-ad-related permission → ask the user first.
+- **Using `setState`, `!` (the bang operator), or `late` / `late final`** — this violates the three core rules at the top of this file. Step 11 will grep for these and reject the integration if found.
+- Hardcoding user-facing strings (consent dialog, VIP UI, disclaimer) — they must go through `'snake_case_key'.tr` (GetX) with the key added to both `vi_vn.dart` and `en_us.dart`.
+
+---
+
+## Step 1 — Read the reference library
+
+- `ls -R packages/ad_sdk/` (if you have the monorepo) or `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<VERSION>/` (if hosted).
+- Fetch `https://pub.dev/api/packages/applovin_admob_sdk` to verify the latest stable version and update Section 0 if needed.
+- Read `packages/ad_sdk/README.md` (Quick start + Configuration reference + Public API). Pay particular attention to these call sites:
   - Bootstrap: `AdManager().setNavigatorKey(key)`, `adRouteObserver`, `AdScreenRouteLogger()`, `SimpleEventBus().listen`, `AdManager().initialize(config:, onComplete:)`.
   - Splash flow: `markSplashActive` / `markSplashInactive` / `incrementSplashCount` / `countInitSplashScreen`, `loadAppOpenAd`, `AdLoadingDialog.showAdBuffer`, `showAppOpenAd(bypassSafety: true)`.
-  - Per-screen: `class XxxScreen extends AdScreen` → `class _XxxState extends AdScreenState<XxxScreen>` cấp `buildBanner()`, `showInterstitialAd(onDone:)`, `showRewardedAd(onEarnedReward:)`.
-  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` + `redeemVip` nhận `stack: bool` (default `false`)** — `stack: true` = **cộng dồn toàn cục**: `+duration` lên mốc hết hạn cao nhất của TẤT CẢ entry đang active (mọi nguồn dồn chung 1 timeline; vd còn 6 ngày + code 30 ngày ⇒ 36 ngày). `stack: false` giữ "latest-expiry-wins". Cap tuỳ chọn: **`AdConfig.maxVipStackDuration`** (default `null` = không cap) kẹp tổng `≤ now + cap`. (có từ bản publish 1.0.23; 1.0.21/1.0.22 không publish.)
-  - Rewarded khi đang VIP: `showRewardedAd(bypassVipGuard: true, ...)` cho phép VIP **chủ động** xem rewarded thật để gia hạn (SDK nạp ad on-demand + show loading dialog; default `false` giữ nguyên suppress). Tuỳ chỉnh `onDemandLoadTimeout` (default 15s). `showRewardedAd` đã **re-entrancy-safe** (chặn double-tap khi đang load/show). (có từ bản publish 1.0.23; 1.0.21/1.0.22 không publish.)
+  - Per-screen: `class XxxScreen extends AdScreen` → `class _XxxState extends AdScreenState<XxxScreen>` gives you `buildBanner()`, `showInterstitialAd(onDone:)`, `showRewardedAd(onEarnedReward:)`.
+  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` and `redeemVip` take a `stack: bool` (default `false`)** — `stack: true` means **global stacking**: `+duration` is added on top of the highest current expiry across ALL active entries (every source shares one timeline; e.g. 6 days left + a 30-day code ⇒ 36 days). `stack: false` keeps "latest-expiry-wins" semantics. Optional cap: **`AdConfig.maxVipStackDuration`** (default `null` = no cap) clamps the total to `≤ now + cap`. (Available in current SDK releases — check `CHANGELOG.md` if you need the exact version it landed in.)
+  - Rewarded while already VIP: `showRewardedAd(bypassVipGuard: true, ...)` lets a VIP user **voluntarily** watch a real rewarded ad to extend their window (the SDK loads the ad on-demand and shows a loading dialog; default `false` keeps the surface suppressed). Configurable `onDemandLoadTimeout` (default 15s). `showRewardedAd` is already **re-entrancy-safe** (blocks double-tap while loading/showing). (Available in current SDK releases — check `CHANGELOG.md` for the exact version.)
   - Consent: `AdManager().requestUmpConsent(testMode:, debugGeography:, testIdentifiers:)` + `ConsentManager.instance.showDialog(context)` + `AdConfig.autoShowConsentDialog` + `consentDialogStrings`.
-  - Safety: `AdSafetyParams.auto` (default, KHÔNG override).
+  - Safety: `AdSafetyParams.auto` (default, do NOT override).
   - Logger pipe: `AdConfig.onLog: (level, tag, msg) { ... }`.
-- Đọc `packages/ad_sdk/CHANGELOG.md` — phần "What's new" cho version đang dùng để biết feature mới (UMP wrapper, smart App-Open timeout, slot-state dismiss watcher, first-install grace, anti-bypass nếu có ở version đó, taskAffinity pitfall).
-- Đọc `packages/ad_sdk/example/lib/main.dart` để xem demo page nào active.
+- Read `packages/ad_sdk/CHANGELOG.md` — the "What's new" section for the version you're using, to learn about newer features (UMP wrapper, smart App-Open timeout, slot-state dismiss watcher, first-install grace, the anti-bypass guard if present in that version, the taskAffinity pitfall).
+- Read `packages/ad_sdk/example/lib/main.dart` to see which demo pages are active.
 
-**Output bắt buộc**: 1 đoạn ≤ 10 dòng tóm tắt API surface của lib và những thứ SDK tự quản (App Open auto qua `WidgetsBindingObserver`, banner auto pause/resume qua `adRouteObserver` + RouteAware, frequency cap qua multi-layer safety gate, VIP auto-expire `Timer`, consent dialog auto-show post-splash 1s, first-install grace, anti-bypass nếu version đó có).
+**Required output**: a summary of ≤ 10 lines covering the library's API surface and everything the SDK manages automatically (App Open auto-show via `WidgetsBindingObserver`, banner auto pause/resume via `adRouteObserver` + RouteAware, frequency caps via the multi-layer safety gate, VIP auto-expire via `Timer`, consent dialog auto-show ~1s post-splash, first-install grace, anti-bypass guard if that version has it).
 
-## Step 2 — Audit hiện trạng project
+## Step 2 — Audit the current state of the project
 
-Trả lời 8 câu (yes/no + dẫn chứng `file:line`):
+Answer 8 questions (yes/no + evidence as `file:line`):
 
-1. Project đã apply `applovin_admob_sdk` chưa? Hay vẫn còn SDK cũ (vd `google_mobile_ads` raw, custom `AdMobManager`, `AdsHelper`…)?
-2. `main.dart` đang gọi gì để init? Có `AdManager().setNavigatorKey(navigatorKey)` **trước** `runApp` không? Có `adRouteObserver` + `AdScreenRouteLogger()` trong `navigatorObservers` không?
-3. Splash screen có gọi `AdManager().initialize` (KHÔNG phải `main`)? Có `SimpleEventBus().listen` đăng ký **trước** `initialize` không? Có hard-cap timer + hot-restart guard (`countInitSplashScreen > 1`) không?
-4. Screen nào đang load banner / interstitial / rewarded bằng API nào? Đã extend `AdScreen` chưa?
-5. **Đã có VIP screen chưa?** Nếu có → AI sẽ **upgrade in-place** ở Step 10. Nếu chưa → tạo mới. Mô tả UI hiện tại nếu có.
-6. State management: project đang dùng GetX / Provider / Riverpod / Bloc / setState? Verify GetX có sẵn (`pubspec.yaml`) chưa — nếu chưa → AI sẽ thêm theo Q37.
-7. Project có `BaseStatefulState` (hoặc `BaseStatefulWidget`, `BaseScreen` tương đương) không? Vị trí? Helper gì sẵn (alert dialog, lifecycle log)? Nếu chưa có → AI sẽ tạo mới ở `lib/<DART_PACKAGE_NAME>/core/base_stateful_state.dart`.
-8. Project có `SafeLogger` (hoặc `Logger`, `Talker`, `LogUtils` tương đương) không? Vị trí? Method (`d`/`i`/`w`/`e`)? Nếu chưa có → AI sẽ tạo mới ở `lib/<DART_PACKAGE_NAME>/util/safe_logger.dart`.
+1. Has the project already adopted `applovin_admob_sdk`? Or is it still on an old SDK (e.g. raw `google_mobile_ads`, a custom `AdMobManager`, `AdsHelper`, ...)?
+2. What does `main.dart` currently call for init? Does it call `AdManager().setNavigatorKey(navigatorKey)` **before** `runApp`? Are `adRouteObserver` + `AdScreenRouteLogger()` present in `navigatorObservers`?
+3. Does the splash screen call `AdManager().initialize` (NOT `main`)? Is `SimpleEventBus().listen` registered **before** `initialize`? Is there a hard-cap timer + hot-restart guard (`countInitSplashScreen > 1`)?
+4. Which screens currently load banner / interstitial / rewarded, and with which API? Have they already been converted to extend `AdScreen`?
+5. **Is there a VIP screen already?** If yes → the AI will **upgrade it in place** in Step 10. If not → create a new one. Describe the current UI if one exists.
+6. State management: is the project using GetX / Provider / Riverpod / Bloc / setState? Verify whether GetX is already present (`pubspec.yaml`) — if not → the AI will add it per Q37.
+7. Does the project have a `BaseStatefulState` (or `BaseStatefulWidget`, `BaseScreen` equivalent)? Where is it? What helpers does it already provide (alert dialogs, lifecycle logging)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/core/base_stateful_state.dart`.
+8. Does the project have a `SafeLogger` (or `Logger`, `Talker`, `LogUtils` equivalent)? Where is it? Which methods (`d`/`i`/`w`/`e`)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/util/safe_logger.dart`.
 
-## Step 3 — Viết kế hoạch tích hợp vào `<PROJECT_PATH>/doc/AD.MD`
+## Step 3 — Write the integration plan into `<PROJECT_PATH>/doc/AD.MD`
 
-File đích: `<PROJECT_PATH>/doc/AD.MD` (tạo mới nếu chưa có; project `_FlutterBase2025` đã có file mẫu).
+Target file: `<PROJECT_PATH>/doc/AD.MD` (create it if it doesn't exist yet).
 
-Bắt buộc có các section:
+It must contain these sections:
 
-**(1) Touchpoint table** — mỗi slot 1 dòng. Nếu slot chưa tồn tại trong project, ghi `(chưa có)` ở cột "API cũ thay thế":
+**(1) Touchpoint table** — one row per slot. If a slot doesn't exist yet in the project, write `(none yet)` in the "Old API replaced" column:
 
-| Slot | File hiện tại | Trigger | API mới | API cũ thay thế |
+| Slot | Current file | Trigger | New API | Old API replaced |
 |---|---|---|---|---|
-| Banner | `<host screen>.dart` | `build()` của screen extend `AdScreen` | `buildBanner()` (wrap edge-to-edge — Step 4) | `<API cũ hoặc (chưa có)>` |
-| Interstitial | `<host screen>.dart` | `<trigger giữ nguyên>` | `showInterstitialAd(onDone: (shown) {...})` | `<API cũ>` |
-| App Open (cold) | Splash | sau `initialize` + `loadAppOpenAd` + `AdLoadingDialog.showAdBuffer` | `showAppOpenAd(bypassSafety: true, onAdDismiss:)` | `<API cũ hoặc (chưa có)>` |
-| App Open (resume) | SDK auto | `WidgetsBindingObserver` (SDK internal) | (không gọi thủ công) | `<API cũ hoặc (chưa có)>` |
-| Rewarded | VIP screen / clear-history button / etc. | user click | `showRewardedAd(onEarnedReward: (earned) {...})` | `<API cũ hoặc (chưa có)>` |
+| Banner | `<host screen>.dart` | `build()` of a screen extending `AdScreen` | `buildBanner()` (edge-to-edge wrap — Step 4) | `<old API or (none yet)>` |
+| Interstitial | `<host screen>.dart` | `<keep the existing trigger>` | `showInterstitialAd(onDone: (shown) {...})` | `<old API>` |
+| App Open (cold) | Splash | after `initialize` + `loadAppOpenAd` + `AdLoadingDialog.showAdBuffer` | `showAppOpenAd(bypassSafety: true, onAdDismiss:)` | `<old API or (none yet)>` |
+| App Open (resume) | SDK auto | `WidgetsBindingObserver` (SDK internal) | (never called manually) | `<old API or (none yet)>` |
+| Rewarded | VIP screen / clear-history button / etc. | user click | `showRewardedAd(onEarnedReward: (earned) {...})` | `<old API or (none yet)>` |
 
-**(2) Step-by-step plan** — 6 bước (Setup pubspec + native config, App init wiring + Consent + ATT, Splash flow, VIP UI + AdKey + i18n, Banner placement edge-to-edge, Interstitial/Rewarded triggers). Mỗi bước nói rõ file edit, hàm thêm, dòng xoá.
+**(2) Step-by-step plan** — 6 steps (Setup pubspec + native config, App init wiring + Consent + ATT, Splash flow, VIP UI + AdKey + i18n, Banner placement edge-to-edge, Interstitial/Rewarded triggers). Each step should state which files get edited, which functions get added, and which lines get removed.
 
-**(3) Bảng so sánh trước/sau** — tối thiểu 8 dòng (Provider, Architecture, App Open lifecycle, Consent UI + UMP, Memory leak risk, Frequency cap, VIP support, Banner pause/resume).
+**(3) Before/after comparison table** — at least 8 rows (Provider, Architecture, App Open lifecycle, Consent UI + UMP, Memory leak risk, Frequency cap, VIP support, Banner pause/resume).
 
-**(4) Thông tin cần user cấp** — list rõ những gì còn thiếu: ad unit ID, AppLovin SDK key, Privacy Policy URL, banner placement layout (top/bottom/anchored — default bottom), VIP key whitelist + duration mapping, splash hard-cap.
+**(4) Information still needed from the user** — a clear list of what's missing: ad unit IDs, AppLovin SDK key, Privacy Policy URL, banner placement layout (top/bottom/anchored — default bottom), VIP key whitelist + duration mapping, splash hard-cap.
 
-## Step 4 — Lifecycle requirement (rule cứng, áp dụng mọi project Flutter)
+## Step 4 — Lifecycle requirements (hard rule, applies to every Flutter project)
 
-### 4.1 — Bootstrap order trong `main.dart` (KHÔNG đổi thứ tự)
+### 4.1 — Bootstrap order in `main.dart` (do NOT reorder)
 
 ```dart
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. setNavigatorKey TRƯỚC runApp — bắt buộc
+  // 1. setNavigatorKey BEFORE runApp — mandatory
   AdManager().setNavigatorKey(navigatorKey);
 
-  // 2. ATT: KHÔNG gọi ở đây. Apple reject prompt hiện trên blank screen.
-  //    Gọi `AdManager().requestAtt()` trong SplashScreen (postFrame, trước
-  //    requestUmpConsent) — xem Step 4.2.4 và Step 8.3.
+  // 2. ATT: do NOT call it here. Apple will reject a prompt shown on a blank screen.
+  //    Call `AdManager().requestAtt()` inside SplashScreen (postFrame, before
+  //    requestUmpConsent) — see Step 4.2.4 and Step 8.3.
 
   // 3. Project bootstrap (wakelock, edge-to-edge, refresh rate)
   WakelockPlus.enable();
@@ -174,7 +161,7 @@ Future<void> main() async {
   // 5. Locale
   final savedLocale = await LanguageService.getSavedLanguage();
 
-  // 6. runApp với navigator + 2 observers
+  // 6. runApp with the navigator key + both observers
   runApp(GetMaterialApp(
     navigatorKey: navigatorKey,
     navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
@@ -186,9 +173,9 @@ Future<void> main() async {
 }
 ```
 
-Nếu thiếu `setNavigatorKey`, auto-show consent dialog và app-open-on-resume buffer sẽ silent fail.
+If `setNavigatorKey` is missing, the auto-show consent dialog and the app-open-on-resume buffer will silently fail.
 
-### 4.2 — Splash flow (rule cứng, mandate hot-restart guard)
+### 4.2 — Splash flow (hard rule, hot-restart guard is mandatory)
 
 ```dart
 class _SplashScreenState extends BaseStatefulState<SplashScreen> {
@@ -203,16 +190,16 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
     AdManager().markSplashActive();
     AdManager().incrementSplashCount();
 
-    // 4.2.1 — Hot-restart guard (mandate)
+    // 4.2.1 — Hot-restart guard (mandatory)
     if (AdManager().countInitSplashScreen > 1) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _goHome());
       return;
     }
 
-    // 4.2.2 — Hard cap timer (default 8s, đồng bộ với AdConfig.splashMaxDuration)
+    // 4.2.2 — Hard cap timer (default 8s, must match AdConfig.splashMaxDuration)
     _hardCap = Timer(const Duration(seconds: 8), _goHome);
 
-    // 4.2.3 — Subscribe TRƯỚC initialize
+    // 4.2.3 — Subscribe BEFORE initialize
     _busSub = SimpleEventBus().listen<BoolEvent>((e) {
       if (e.value) {
         _showSplashAppOpen();
@@ -221,17 +208,17 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
       }
     });
 
-    // 4.2.4 — ATT (iOS) → UMP → initialize. THỨ TỰ BẮT BUỘC.
+    // 4.2.4 — ATT (iOS) → UMP → initialize. MANDATORY ORDER.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // ATT trước UMP để IDFA settle trước first ad request. No-op Android.
-      // SDK tự nuốt lỗi → trả AttStatus.denied, không throw.
+      // ATT before UMP so IDFA settles before the first ad request. No-op on Android.
+      // The SDK swallows errors internally → returns AttStatus.denied, never throws.
       try {
         final att = await AdManager().requestAtt();
         SafeLogger.d('Splash', 'ATT status=${att.status.name}');
       } catch (e) {
         SafeLogger.w('Splash', 'ATT threw, continuing: $e');
       }
-      // testMode: false — để geo thật quyết định EEA (KHÔNG force EEA trong debug).
+      // testMode: false — let real geolocation decide EEA (do NOT force EEA in debug).
       try {
         await AdManager().requestUmpConsent(testMode: false);
       } catch (e) {
@@ -239,10 +226,10 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
       }
       AdManager().initialize(
         config: AdConfig(
-          provider: AdProvider.appLovin,                  // RULE #4 ưu tiên
+          provider: AdProvider.appLovin,                  // RULE #4 preference
           appLovin: AdKey.appLovin,                       // RULE #16 AdKey class
           adMob: AdKey.adMob,
-          // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — KHÔNG override
+          // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override
           // autoShowConsentDialog: true,                       // default
           consentDialogStrings: ConsentDialogStrings(
             title: 'consent_title'.tr,
@@ -278,11 +265,11 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
       if (!loaded) return _goHome();
       AdLoadingDialog.showAdBuffer(context, onComplete: () {
         if (!mounted) return _goHome();
-        // Cancel hard-cap TRƯỚC showAppOpenAd
+        // Cancel the hard-cap BEFORE showAppOpenAd
         _hardCap?.cancel();
         _hardCap = null;
         AdManager().showAppOpenAd(
-          bypassSafety: true,                   // CHỈ CHỖ NÀY được bypass
+          bypassSafety: true,                   // the ONLY place this is allowed
           onAdDismiss: (_) => _goHome(),
         );
       });
@@ -309,20 +296,20 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
 }
 ```
 
-### 4.3 — Splash UI (mandate disclaimer — Q27)
+### 4.3 — Splash UI (disclaimer is mandatory — Q27)
 
-Trên splash phải có text disclaimer trước khi App Open Ad show:
+The splash screen must show a disclaimer before the App Open Ad appears:
 
 ```dart
 Text(
-  'splash_ads_notice'.tr,    // i18n key bắt buộc
+  'splash_ads_notice'.tr,    // mandatory i18n key
   textAlign: TextAlign.center,
   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
 )
 LinearProgressIndicator(...)
 ```
 
-Translations bắt buộc thêm:
+Required translations to add:
 ```dart
 // vi_vn.dart
 'splash_ads_notice': 'Lưu ý: ứng dụng có thể hiển thị quảng cáo',
@@ -333,7 +320,7 @@ Translations bắt buộc thêm:
 ### 4.4 — Banner: extend `AdScreen` + edge-to-edge
 
 ```dart
-class HomeScreen extends AdScreen {  // KHÔNG StatefulWidget
+class HomeScreen extends AdScreen {  // NOT StatefulWidget
   const HomeScreen({super.key});
   @override State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -349,9 +336,9 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
     ),
   );
 
-  // Detect edge-to-edge (Q23 D): nếu app dùng UIUtils.initEdgeToEdge() →
-  // wrap với SafeArea(top: false, bottom: true) để banner ngồi trên gesture nav bar.
-  // Nếu app KHÔNG edge-to-edge → buildBanner() trần thoải mái.
+  // Detect edge-to-edge (Q23D): if the app uses UIUtils.initEdgeToEdge() →
+  // wrap with SafeArea(top: false, bottom: true) so the banner sits above the gesture nav bar.
+  // If the app is NOT edge-to-edge → buildBanner() bare is fine.
   Widget _buildBannerEdgeToEdge() {
     return SafeArea(
       top: false,
@@ -362,13 +349,13 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
 }
 ```
 
-### 4.5 — App Open khi quay lại foreground
+### 4.5 — App Open when returning to the foreground
 
-SDK đã hook `WidgetsBindingObserver`. **KHÔNG** tự subscribe lifecycle lần thứ 2 — tránh double-show.
+The SDK already hooks `WidgetsBindingObserver`. **Do NOT** subscribe to lifecycle a second time — that causes a double-show.
 
-Từ bản publish `1.0.23`: `showAppOpenAdOnResume` không show App Open chồng lên modal —
-nó kiểm tra `isDialogOnTop` (do `AdScreenRouteLogger` đếm số `PopupRoute` đang mở) +
-`AdLoadingDialog.isShowing` trước khi show; nếu đang có dialog/loading buffer ở trên thì bỏ qua.
+As of current SDK releases: `showAppOpenAdOnResume` will not show App Open on top of a modal —
+it checks `isDialogOnTop` (tracked by `AdScreenRouteLogger` counting open `PopupRoute`s) plus
+`AdLoadingDialog.isShowing` before showing; if a dialog or loading buffer is currently on top, it skips.
 
 ### 4.6 — Interstitial pattern
 
@@ -383,152 +370,152 @@ showInterstitialAd(onDone: (shown) {
 
 ### 4.7 — Rewarded pattern
 
-Chỉ load + show khi user bấm nút (vd VIP screen "Watch ad → 3 days VIP", clear history, unlock feature):
+Only load + show when the user taps a button (e.g. VIP screen "Watch ad → 3 days VIP", clear history, unlock a feature):
 
 ```dart
 showRewardedAd(onEarnedReward: (earned) {
   if (!earned) return;
-  // grant reward (vd grant VIP 3 ngày)
+  // grant the reward (e.g. grant 3 days of VIP)
   final vip = AdManager().vip;     // RULE #2 no `!`
   if (vip == null) return;
-  // Cộng dồn (stack): dùng KEY CỐ ĐỊNH (không timestamp) + `stack: true` →
-  // mỗi lần xem ad +3 ngày lên hạn hiện tại, gom về 1 entry (không rác list).
+  // Stacking: use a FIXED key (not a timestamp) + `stack: true` →
+  // every ad watch adds +3 days on top of the current expiry, collapsed into one entry (no list clutter).
   vip.addVip(key: 'REWARDED_VIP', duration: const Duration(days: 3), stack: true);
 });
 ```
 
-**Cộng dồn khi đang là VIP (optional, theo yêu cầu user).** Mặc định khi VIP active,
-SDK suppress mọi ad → nút "Watch ad" thường bị ẩn. Nếu muốn cho VIP **gia hạn bằng
-cách xem ad thật** (cộng dồn lúc còn hạn), giữ nút hiển thị và truyền
-`bypassVipGuard: true`:
+**Letting an active VIP user stack more time (optional, only if the user asks for it).** By default, while VIP is
+active the SDK suppresses all ads → the "Watch ad" button is usually hidden. If you want an active VIP to
+extend their window **by watching a real ad** (stacking on top of remaining time), keep the button visible
+and pass `bypassVipGuard: true`:
 
 ```dart
 showRewardedAd(
-  bypassVipGuard: true,            // VIP vẫn xem được rewarded THẬT (SDK nạp on-demand)
+  bypassVipGuard: true,            // an active VIP can still watch a REAL rewarded ad (SDK loads on demand)
   onEarnedReward: (earned) {
-    if (!earned) return;           // vẫn chỉ cấp khi xem hết ad — KHÔNG auto-grant
+    if (!earned) return;           // still only grants on a completed watch — never auto-grant
     AdManager().vip?.addVip(
       key: 'REWARDED_VIP', duration: const Duration(days: 3), stack: true);
   },
 );
 ```
 
-> ⚠️ KHÔNG tặng VIP chay khi đang VIP (vd ép `vipAutoGrant: true` rồi cộng dồn) —
-> = +N ngày vô hạn không xem ad, mất doanh thu + rủi ro policy. `bypassVipGuard`
-> vẫn chiếu ad thật nên hợp lệ; chống spam dựa vào safety cap fullscreen của SDK.
+> ⚠️ Do NOT hand out free VIP time to an already-VIP user (e.g. forcing `vipAutoGrant: true` and then stacking) —
+> that's +N days of infinite unwatched ad time, which costs revenue and carries policy risk. `bypassVipGuard`
+> still requires watching a real ad, so it's legitimate; anti-spam relies on the SDK's fullscreen safety cap.
 
-## Step 5 — Phạm vi thay thế (mandate replace all — Q11)
+## Step 5 — Scope of replacement (mandate replace-all — Q11)
 
-Project có SDK ad cũ → **bắt buộc replace toàn bộ** sang `applovin_admob_sdk`. Không coexist.
+If the project has an old ad SDK, it **must be fully replaced** with `applovin_admob_sdk`. No coexistence.
 
-Trước khi xoá file/class SDK cũ, **grep verify** không còn ai dùng:
+Before deleting any old SDK file/class, **grep-verify** nothing else still uses it:
 
-- Liệt kê file SDK cũ sẽ xoá (vd `lib/utils/ad_helper.dart`, `lib/services/admob_service.dart`, custom `AdMobManager`…).
-- Với mỗi file: `grep -r 'ClassName\|methodName' lib/` toàn project, xác nhận 0 reference, rồi mới xoá.
-- Xoá deps cũ trong `pubspec.yaml` (`google_mobile_ads`, `applovin_max`, `unity_ads`, etc.) trừ `gma_mediation_applovin` (bắt buộc app-level cho native mediation, KHÔNG xoá).
-- Không tự thêm banner/interstitial/rewarded ở screen khác ngoài chỗ SDK cũ đã có.
+- List the old SDK files that will be deleted (e.g. `lib/utils/ad_helper.dart`, `lib/services/admob_service.dart`, a custom `AdMobManager`, ...).
+- For each file: `grep -r 'ClassName\|methodName' lib/` across the whole project, confirm 0 references, then delete.
+- Remove old deps from `pubspec.yaml` (`google_mobile_ads`, `applovin_max`, `unity_ads`, etc.) except `gma_mediation_applovin` (mandatory at the app level for native mediation — do NOT remove it).
+- Don't add banner/interstitial/rewarded to any screen the old SDK wasn't already on.
 
 ## Step 6 — Build & memory check
 
 ### 6.1 — Build
 
-- `flutter analyze --fatal-infos` → 0 issue (mandate Q10)
-- `flutter build apk --debug` → xanh
-- `flutter build apk --release --analyze-size` → xanh, size delta < 5MB
-- (Nếu target iOS) `flutter build ios --debug --no-codesign` → xanh
+- `flutter analyze --fatal-infos` → 0 issues (mandate Q10)
+- `flutter build apk --debug` → green
+- `flutter build apk --release --analyze-size` → green, size delta < 5MB
+- (If targeting iOS) `flutter build ios --debug --no-codesign` → green
 
-### 6.2 — Memory leak review (4 điểm thủ công)
+### 6.2 — Memory leak review (4 manual checks)
 
-- Screen extend `AdScreen` có `super.dispose()` đúng cuối `dispose()` không?
-- VIP screen có cancel toàn bộ `Timer`, `AnimationController`, `StreamSubscription`, `TextEditingController.dispose()`, `FocusNode.dispose()`, `ValueNotifier.dispose()` trong `dispose()` không?
-- Splash có `_hardCap?.cancel()` + `_busSub?.cancel()` + `_navigated.dispose()` trong `dispose()` không?
-- `MaterialApp.navigatorKey` có giữ stale reference sau hot-restart không?
+- Does every screen extending `AdScreen` call `super.dispose()` at the end of `dispose()`?
+- Does the VIP screen cancel every `Timer`, `AnimationController`, `StreamSubscription`, `TextEditingController.dispose()`, `FocusNode.dispose()`, `ValueNotifier.dispose()` in `dispose()`?
+- Does the splash screen call `_hardCap?.cancel()` + `_busSub?.cancel()` + `_navigated.dispose()` in `dispose()`?
+- Does `MaterialApp.navigatorKey` hold a stale reference after a hot restart?
 
-Output: bảng "điểm review / kết luận / `file:line` dẫn chứng".
+Output: a table of "review item / conclusion / `file:line` evidence".
 
-## Step 7 — Policy check (5 rule cụ thể)
+## Step 7 — Policy check (5 specific rules)
 
-| # | Rule | Cách verify |
+| # | Rule | How to verify |
 |---|---|---|
-| 1 | Banner không che nội dung tương tác, edge-to-edge wrap đúng | Đọc layout host banner + verify SafeArea/Padding theo Step 4.4 |
-| 2 | App Open không show trên splash thuần — chỉ show sau loading buffer (`AdLoadingDialog.showAdBuffer`) trước khi navigate sang main, hoặc khi resume từ background (SDK auto) | Đọc Splash screen + verify flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` |
-| 3 | Interstitial không show liên tiếp dưới ngưỡng frequency cap | Tin `AdSafetyParams.auto` mặc định, ghi rõ giá trị (production: throttle 60s, session cap 6, hourly 3, daily 5) |
-| 4 | Rewarded chỉ trigger khi user bấm nút | Đọc VIP screen + bất kỳ trigger rewarded nào khác |
-| 5 | Disclaimer "may show ads" hiển thị trên Splash trước App Open | Đọc Splash UI |
+| 1 | Banner never obscures interactive content, edge-to-edge wrap is correct | Read the host banner layout + verify SafeArea/Padding per Step 4.4 |
+| 2 | App Open never shows on a bare splash — only after the loading buffer (`AdLoadingDialog.showAdBuffer`) right before navigating to main, or on resume from background (SDK auto) | Read the splash screen + verify the flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` |
+| 3 | Interstitial never shows back-to-back below the frequency cap threshold | Trust the `AdSafetyParams.auto` default, and record the exact values (production: 60s throttle, session cap 6, hourly cap 3, daily cap 5) |
+| 4 | Rewarded only triggers on a user tap | Read the VIP screen + check for any other rewarded trigger |
+| 5 | The "may show ads" disclaimer is shown on splash before App Open | Read the splash UI |
 
-Báo cáo: PASS/FAIL từng rule + `file:line` dẫn chứng.
+Report: PASS/FAIL for each rule + `file:line` evidence.
 
 ## Step 8 — Consent (UMP + auto-show dialog + iOS ATT)
 
-Wire **cả** 3:
+Wire up **all 3**:
 
 ### 8.1 — Cupertino auto-show dialog (default ON)
 
-Strings qua i18n `.tr` (Step 4.2 đã wire). Auto-show ~1s sau `markSplashInactive`. Skip điều kiện (auto): VIP active, `hasBeenAsked == true`, không có `navigatorKey`. Re-show từ Privacy settings: `await ConsentManager.instance.showDialog(context)`.
+Strings go through i18n `.tr` (already wired in Step 4.2). Auto-shows ~1s after `markSplashInactive`. Skip conditions (automatic): VIP active, `hasBeenAsked == true`, no `navigatorKey`. Re-show from Privacy settings via `await ConsentManager.instance.showDialog(context)`.
 
-### 8.2 — Google UMP form (mandate)
+### 8.2 — Google UMP form (mandatory)
 
-Đã gọi ở splash trước `initialize()` (Step 4.2.4). Test scenario tối thiểu cần ghi nhận trong báo cáo (KHÔNG cần chạy thực):
-- Non-EEA: skip dialog, ad load bình thường.
-- EEA, lần đầu: UMP form Google show → user chọn → cached ở `SharedPreferences`.
-- EEA, không internet: `requestConsentInfoUpdate` fail → catch → continue init.
+Already called in splash before `initialize()` (Step 4.2.4). Minimum test scenarios to record in the report (no need to actually run them):
+- Non-EEA: dialog skipped, ads load normally.
+- EEA, first launch: Google's UMP form shows → user chooses → cached in `SharedPreferences`.
+- EEA, no internet: `requestConsentInfoUpdate` fails → caught → init continues anyway.
 
-### 8.3 — iOS ATT (mandate, Q14A)
+### 8.3 — iOS ATT (mandatory, Q14A)
 
-ATT đã được tích hợp SẴN trong SDK (từ 1.0.19) — KHÔNG tự gọi
-`app_tracking_transparency` trực tiếp. Dùng `AdManager().requestAtt()`.
+ATT is already built into the SDK — do NOT call
+`app_tracking_transparency` directly yourself. Use `AdManager().requestAtt()`.
 
-- Dep `app_tracking_transparency` là transitive của SDK — KHÔNG cần add ở app.
-- Add `Info.plist` key `NSUserTrackingUsageDescription` (BẮT BUỘC, thiếu thì
-  prompt im lặng không hiện):
+- The `app_tracking_transparency` dependency is transitive from the SDK — do NOT add it at the app level.
+- Add the `Info.plist` key `NSUserTrackingUsageDescription` (MANDATORY — without it the
+  prompt is silently suppressed):
   ```xml
   <key>NSUserTrackingUsageDescription</key>
   <string>This identifier is used to deliver personalised ads.</string>
   ```
-- Gọi trong **SplashScreen postFrame, TRƯỚC `requestUmpConsent`** (Step 4.2.4) —
-  KHÔNG gọi trong `main()` trước `runApp`: **Apple reject** prompt hiện trên
+- Call it in **SplashScreen postFrame, BEFORE `requestUmpConsent`** (Step 4.2.4) —
+  do NOT call it in `main()` before `runApp`: **Apple will reject** a prompt shown on a
   blank screen.
   ```dart
-  final att = await AdManager().requestAtt();   // no-op trên Android
+  final att = await AdManager().requestAtt();   // no-op on Android
   // att.status: notSupported | notDetermined | restricted | denied | authorized
-  // att.idfa: String? (chỉ khi authorized); att.allowsTracking: bool
+  // att.idfa: String? (only when authorized); att.allowsTracking: bool
   ```
-- `requestAtt()` tự xử lý: non-iOS → `notSupported`; đã quyết định trước →
-  trả status cached, không re-prompt; lỗi/thiếu plugin → `denied` (không throw).
-- ATT KHÔNG đụng GDPR consent flag — native AppLovin/AdMob tự đọc ATT cho IDFA.
-- iOS user chọn "Ask App Not to Track" = fallback non-personalized / SKAdNetwork.
+- `requestAtt()` handles this internally: non-iOS → `notSupported`; already decided before →
+  returns the cached status, no re-prompt; error/missing plugin → `denied` (never throws).
+- ATT does NOT touch the GDPR consent flag — native AppLovin/AdMob read ATT for IDFA on their own.
+- If an iOS user picks "Ask App Not to Track", it falls back to non-personalized ads / SKAdNetwork.
 
-## Step 9 — First-install VIP grace + Anti-uninstall-bypass guard
+## Step 9 — First-install VIP grace + anti-uninstall-bypass guard
 
-### 9.1 — Grace config (SDK built-in, KHÔNG override)
+### 9.1 — Grace config (SDK built-in, do NOT reimplement)
 
-**KHÔNG** lưu flag `pref_first_launch_vip_granted` thủ công, **KHÔNG** gọi `vip.addVip(...)` trong `main()` để grant 1 ngày — SDK đã có `firstInstallVipGrace` mặc định `auto` (30s debug / 24h release).
+**Do NOT** store a manual `pref_first_launch_vip_granted` flag, and **do NOT** call `vip.addVip(...)` in `main()` to grant a day — the SDK already ships `firstInstallVipGrace` defaulting to `auto` (30s debug / 24h release).
 
 ```dart
 AdConfig(
-  // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — KHÔNG override (Q34)
+  // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override (Q34)
   // firstInstallVipKey: '__FIRST_INSTALL__',          // default
 )
 ```
 
-Verify ở entry `__FIRST_INSTALL__` trong `vip.entries` sau init lần đầu (xem Step 10.6 — special entries).
+Verify the `__FIRST_INSTALL__` entry appears in `vip.entries` after the first init (see Step 10.6 — special entries).
 
-### 9.2 — Anti-uninstall-bypass guard (SDK ≥ 1.0.17, latest 1.1.1)
+### 9.2 — Anti-uninstall-bypass guard (available since SDK 1.0.17 — check `CHANGELOG.md` for your version)
 
-Mục tiêu: chặn user gỡ app + cài lại để nhận grace 24h vô hạn lần. Cơ chế per platform:
+Goal: prevent a user from uninstalling + reinstalling the app to get an unlimited number of 24h grace windows. Mechanism per platform:
 
-| Platform | Mechanism | AI cần làm gì? |
+| Platform | Mechanism | What does the AI need to do? |
 |---|---|---|
-| **iOS** | SDK auto: ghi flag vào Keychain via `flutter_secure_storage`. Keychain persist qua uninstall by default. | ✅ Không làm gì (SDK tự handle) |
-| **Android** | **Host-app config**: AndroidManifest + 2 file XML để Auto Backup khôi phục `FlutterSharedPreferences.xml` qua reinstall cùng Google account. | ⚠️ **AI BẮT BUỘC config** (xem 9.3) |
+| **iOS** | SDK auto: writes a flag to the Keychain via `flutter_secure_storage`. Keychain persists across uninstall by default. | ✅ Nothing (the SDK handles it) |
+| **Android** | **Host-app config**: AndroidManifest + 2 XML files so Auto Backup can restore `FlutterSharedPreferences.xml` on reinstall under the same Google account. | ⚠️ **The AI MUST configure this** (see 9.3) |
 
-Hạn chế đã accept (documented):
-- Android: bypass nếu uninstall trong 24h đầu (Auto Backup chưa kịp chạy), hoặc user disable Backup, hoặc cross-account, hoặc factory reset. ~5-15% edge cases.
-- iOS: bypass chỉ khi "Erase All Content and Settings" hoặc encrypted backup restore lên device khác.
+Accepted limitations (documented):
+- Android: bypass is possible if the app is uninstalled within the first 24h (before Auto Backup has run), if the user disables Backup, across accounts, or after a factory reset. ~5-15% edge cases.
+- iOS: bypass is only possible via "Erase All Content and Settings" or restoring an encrypted backup onto a different device.
 
-### 9.3 — Android Auto Backup config (BẮT BUỘC nếu host target Android)
+### 9.3 — Android Auto Backup config (MANDATORY if the host targets Android)
 
-**(a) `android/app/src/main/AndroidManifest.xml`** — thêm 3 attribute vào `<application>`:
+**(a) `android/app/src/main/AndroidManifest.xml`** — add 3 attributes to `<application>`:
 
 ```xml
 <application
@@ -539,14 +526,14 @@ Hạn chế đã accept (documented):
     ...>
 ```
 
-Giải thích từng attribute:
-- `android:allowBackup="true"` — bật Google Auto Backup feature (BẮT BUỘC).
-- `android:fullBackupContent="@xml/full_backup_content"` — legacy rules cho Android 6-11 (API 23-30).
-- `android:dataExtractionRules="@xml/data_extraction_rules"` — modern rules cho Android 12+ (API 31+).
+What each attribute does:
+- `android:allowBackup="true"` — enables Google Auto Backup (MANDATORY).
+- `android:fullBackupContent="@xml/full_backup_content"` — legacy rules for Android 6-11 (API 23-30).
+- `android:dataExtractionRules="@xml/data_extraction_rules"` — modern rules for Android 12+ (API 31+).
 
-Nếu host app đang có `android:allowBackup="false"` → AI **phải hỏi user trước khi đổi** (có thể họ tắt vì compliance/privacy reason). Nếu user xác nhận đổi → set `true`.
+If the host app already has `android:allowBackup="false"` → the AI **must ask the user before changing it** (they may have turned it off for a compliance/privacy reason). If the user confirms → set it to `true`.
 
-**(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31), bắt buộc tạo file mới:
+**(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31), create this file if it doesn't exist:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -572,7 +559,7 @@ Nếu host app đang có `android:allowBackup="false"` → AI **phải hỏi use
 </data-extraction-rules>
 ```
 
-**(c) `android/app/src/main/res/xml/full_backup_content.xml`** — Android 6-11 legacy, bắt buộc tạo file mới:
+**(c) `android/app/src/main/res/xml/full_backup_content.xml`** — Android 6-11 legacy, create this file if it doesn't exist:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -588,46 +575,46 @@ Nếu host app đang có `android:allowBackup="false"` → AI **phải hỏi use
 </full-backup-content>
 ```
 
-**Note**: Cả 2 file `data_extraction_rules.xml` và `full_backup_content.xml` đều cần — Android pick file phù hợp dựa trên runtime API level. Không thể dùng 1 trong 2.
+**Note**: both `data_extraction_rules.xml` and `full_backup_content.xml` are needed — Android picks whichever file fits the runtime API level. You can't rely on just one.
 
-**Verify**: nếu host app đã có `res/xml/` directory với file backup khác (vd cho Firebase, Hive backup), AI **phải merge include/exclude entries** thay vì overwrite.
+**Verify**: if the host app already has a `res/xml/` directory with other backup files (e.g. for Firebase, Hive backup), the AI **must merge** the include/exclude entries rather than overwrite the file.
 
-### 9.4 — iOS — KHÔNG cần config gì thêm
+### 9.4 — iOS — no additional config needed
 
-SDK tự handle Keychain. Default `flutter_secure_storage` settings (`kSecAttrAccessibleAfterFirstUnlock`, no `synchronizable`, no `kSecAttrAccessGroup`) là chính xác cho anti-bypass. KHÔNG override.
+The SDK handles the Keychain itself. The default `flutter_secure_storage` settings (`kSecAttrAccessibleAfterFirstUnlock`, no `synchronizable`, no `kSecAttrAccessGroup`) are correct for anti-bypass. Do NOT override them.
 
-### 9.5 — Manual smoke test anti-bypass (release builds)
+### 9.5 — Manual smoke test for anti-bypass (release builds)
 
 **Android (Play Store internal track)**:
 ```bash
-# 1. Build signed AAB
+# 1. Build a signed AAB
 flutter build appbundle --release
 
-# 2. Upload Play Console Internal Testing, install qua Play Store
-# 3. Wait > 24h HOẶC trigger backup ngay:
+# 2. Upload to Play Console Internal Testing, install via Play Store
+# 3. Wait > 24h OR trigger a backup immediately:
 adb shell bmgr backupnow <package_name>
 
-# 4. Uninstall + reinstall qua Play Store
-# 5. Verify log: KHÔNG có "🎁 first-install VIP grace granted" → block hoạt động
-#                Hoặc app không có VIP entry __FIRST_INSTALL__ → đã skip
+# 4. Uninstall + reinstall via Play Store
+# 5. Verify the log: NO "🎁 first-install VIP grace granted" line → the block worked
+#                Or the app has no __FIRST_INSTALL__ VIP entry → it was skipped
 ```
 
-**iOS (TestFlight hoặc Xcode signed Ad Hoc)**:
+**iOS (TestFlight or an Xcode-signed Ad Hoc build)**:
 ```
-1. Tạm sửa firstInstallVipGrace = FirstInstallVipGrace.debugShort (30s) cho fast cycle
-2. Build release IPA, install qua Xcode/TestFlight
-3. Verify log "🎁 first-install VIP grace granted (30s, mode=release)"
-4. Đợi 30s → log "⏰ VIP entry expired"
-5. Uninstall app
-6. Reinstall qua Xcode/TestFlight
-7. Verify log "🛡️ Keychain flag present — prior install detected on this device"
-8. Verify log "🛡️ first-install VIP grace SKIPPED"
-9. Restore lại firstInstallVipGrace = .auto cho production
+1. Temporarily set firstInstallVipGrace = FirstInstallVipGrace.debugShort (30s) for a fast cycle
+2. Build a release IPA, install via Xcode/TestFlight
+3. Verify the log "🎁 first-install VIP grace granted (30s, mode=release)"
+4. Wait 30s → log "⏰ VIP entry expired"
+5. Uninstall the app
+6. Reinstall via Xcode/TestFlight
+7. Verify the log "🛡️ Keychain flag present — prior install detected on this device"
+8. Verify the log "🛡️ first-install VIP grace SKIPPED"
+9. Restore firstInstallVipGrace = .auto for production
 ```
 
-## Step 10 — UI/UX VIP management screen (chi tiết, mandatory)
+## Step 10 — VIP management screen UI/UX (detailed, mandatory)
 
-**VIP feature mandatory — không skip. Step 2 đã audit có hay chưa: nếu có thì upgrade in-place (project `_FlutterBase2025` đã có `lib/mckimquyen/widget/vip/vip_screen.dart` + `vip_keys.dart`), nếu chưa thì tạo mới.**
+**The VIP feature is mandatory — do not skip it. Step 2 already audited whether one exists: if so, upgrade it in place; if not, create a new one.**
 
 ### 10.1 — File structure (mandate)
 
@@ -635,7 +622,7 @@ adb shell bmgr backupnow <package_name>
 lib/<DART_PACKAGE_NAME>/
 ├── common/const/
 │   ├── ad_keys.dart              ← Q21A + Q29c — class AdKey
-│   └── color_constants.dart      ← (đã có trong project)
+│   └── color_constants.dart      ← (already in the project)
 ├── core/
 │   └── base_stateful_state.dart  ← Q36 — detect existing or create
 ├── util/
@@ -643,7 +630,7 @@ lib/<DART_PACKAGE_NAME>/
 └── widget/
     ├── splash/splash_screen.dart
     └── vip/
-        ├── vip_screen.dart       ← UI chính
+        ├── vip_screen.dart       ← main UI
         └── vip_keys.dart         ← validator + key map
 ```
 
@@ -690,48 +677,48 @@ abstract final class AdKey {
 
 **Usage:** `AdManager().initialize(config: AdConfig(provider: AdProvider.appLovin, appLovin: AdKey.appLovin, admob: AdKey.adMob, ...))`.
 
-### 10.3 — Cấu trúc UI (bắt buộc đủ 13 thành phần — Q19A + Q33A)
+### 10.3 — UI structure (13 components required — Q19A + Q33A)
 
-| # | Thành phần | Detail (Flutter idiom, no `setState`/`!`/`late`) |
+| # | Component | Detail (Flutter idiom, no `setState`/`!`/`late`) |
 |---|---|---|
-| 1 | Status header / Hero card | `ValueListenableBuilder<bool>` lắng nghe `vip?.activeListenable` (null-safe pattern). Active: gradient gold + crown icon `Icons.workspace_premium` + text 2 dòng (`'vip_active'.tr` + `'vip_until'.trParams({'date': formatted})`). Inactive: gradient xám + `'vip_free_user'.tr` |
-| 2 | Activation date row | `'Activated: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.grantedAt)}'` (ẩn nếu free). Dùng `package:intl`. Field name là `grantedAt` (SDK 1.0.18+), KHÔNG phải `startedAt` |
-| 3 | Expiry date row | `'Expires: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.expiresAt)}'` (ẩn nếu free) |
-| 4 | Progress bar (elapsed) | `LinearProgressIndicator` với `value = (now − entry.grantedAt) / (entry.expiresAt − entry.grantedAt)`, clamp `[0.0, 1.0]`. **3 mốc trên timeline ngang**: `start = entry.grantedAt` (mép trái, 0%), `end = entry.expiresAt` (mép phải, 100%), `current = now` (vị trí thanh fill). Bar **rỗng lúc vừa kích hoạt → đầy dần đến hết hạn** (elapsed semantic — match user mental model "progression toward expiry"). Tuyệt đối KHÔNG đảo formula thành `remaining/total` (đầy → rỗng) — UX confusing. Chỉ show khi VIP active. **KHÔNG cần `TweenAnimationBuilder`** — per-second tick từ `_now` đủ smooth (Δ ≪ 0.001%/s cho VIP 24h trở lên), TweenAnimationBuilder chỉ thêm overhead và làm chậm rebuild. Edge case `total ≤ 0` (clock skew / đã expire) → default `value = 1.0` (đầy = đã hết hạn) |
-| 5 | Countdown text | Dạng `12d 03h 24m 15s` — update bằng `Timer.periodic(Duration(seconds: 1), ...)` trong `initState`, `cancel()` trong `dispose`. State qua `ValueNotifier<Duration>` không qua `setState` |
-| 6 | TextField nhập key VIP | `TextEditingController` + `TextCapitalization.characters` (uppercase auto), prefix icon `Icons.confirmation_number`, suffix clear button. Nút "Kích hoạt" gọi `vip.redeemVip(context, key, duration, validator, strings, stack: true)` — `stack: true` cho **cộng dồn toàn cục**: `+duration` lên mốc hết hạn cao nhất của mọi entry (gồm watch-ad) thay vì reset. SDK đã handle Cupertino verifying/success/failed dialogs (success dialog báo hạn sau cộng dồn) |
-| 7 | Button "Watch ad → N days VIP" | Click → `showRewardedAd(onEarnedReward: (earned) {...})`. **Chỉ cấp VIP khi `earned == true`** (user xem hết rewarded). **KHÔNG** fallback sang interstitial để cấp thưởng — cấp VIP cho việc xem interstitial vi phạm rewarded policy của Google/AppLovin (làm mờ ranh giới rewarded/interstitial). Nếu rewarded không sẵn sàng → báo "thử lại sau". **Cộng dồn**: cấp qua key cố định `REWARDED_VIP` + `addVip(..., stack: true)` (gom 1 entry). Muốn cho VIP gia hạn lúc còn hạn → giữ nút hiển thị cả khi `active` + `showRewardedAd(bypassVipGuard: true, ...)` (xem 4.7). Pulse animation #1 |
-| 8 | Buy 30-day VIP (disabled) | `OutlinedButton.icon(icon: Icon(Icons.card_giftcard))` disabled, label `'vip_buy_30d_locked'.tr` ('Mua VIP 30 ngày — sắp ra mắt'). Wait IAP integration |
-| 9 | Buy 90-day VIP (disabled) | Tương tự #8 |
-| 10 | Buy 1-year VIP (disabled) | Tương tự #8 |
-| 11 | Buy lifetime VIP (disabled) | Tương tự #8 |
-| 12 | List active entries | `ValueListenableBuilder<List<VipEntry>>` (đăng ký từ `vip.activeStream` + local notifier). Mỗi entry 1 card với icon riêng (10.6), days/hours remaining, expires date, button revoke |
-| 13 | "Restore Purchase" (disabled) | `OutlinedButton.icon(icon: Icon(Icons.restore))` disabled, label `'vip_restore_locked'.tr` ('Khôi phục mua hàng — sắp ra mắt'). Placeholder cho IAP tương lai (Q33A) |
-| — | Button "Thu hồi tất cả VIP" | Material 3 `AlertDialog` confirm → `await vip.revokeAll()`. Disabled khi free user |
-| — | Toolbar badge "VIP" trên main screen | `ValueListenableBuilder<bool>(valueListenable: vip.activeListenable, ...)` — active: chip vàng `0xFFFFD60A`, inactive: outline trắng |
+| 1 | Status header / Hero card | `ValueListenableBuilder<bool>` listening to `vip?.activeListenable` (null-safe pattern). Active: gold gradient + crown icon `Icons.workspace_premium` + 2-line text (`'vip_active'.tr` + `'vip_until'.trParams({'date': formatted})`). Inactive: grey gradient + `'vip_free_user'.tr` |
+| 2 | Activation date row | `'Activated: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.grantedAt)}'` (hidden if free). Uses `package:intl`. The field is named `grantedAt` (SDK 1.0.18+), NOT `startedAt` |
+| 3 | Expiry date row | `'Expires: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.expiresAt)}'` (hidden if free) |
+| 4 | Progress bar (elapsed) | `LinearProgressIndicator` with `value = (now − entry.grantedAt) / (entry.expiresAt − entry.grantedAt)`, clamped to `[0.0, 1.0]`. **3 points on the horizontal timeline**: `start = entry.grantedAt` (left edge, 0%), `end = entry.expiresAt` (right edge, 100%), `current = now` (fill position). The bar starts **empty right after activation and fills up toward expiry** (elapsed semantics — matches the user's mental model of "progression toward expiry"). Absolutely do NOT invert the formula to `remaining/total` (full → empty) — that's confusing UX. Only show this when VIP is active. **No need for `TweenAnimationBuilder`** — a per-second tick from `_now` is smooth enough (Δ ≪ 0.001%/s for a 24h+ VIP window); `TweenAnimationBuilder` would only add overhead and slow rebuilds. Edge case `total ≤ 0` (clock skew / already expired) → default to `value = 1.0` (full = expired) |
+| 5 | Countdown text | Format like `12d 03h 24m 15s` — updated via `Timer.periodic(Duration(seconds: 1), ...)` in `initState`, `cancel()`'d in `dispose`. State goes through `ValueNotifier<Duration>`, never `setState` |
+| 6 | VIP key text field | `TextEditingController` + `TextCapitalization.characters` (auto-uppercase), prefix icon `Icons.confirmation_number`, suffix clear button. The "Activate" button calls `vip.redeemVip(context, key, duration, validator, strings, stack: true)` — `stack: true` for **global stacking**: `+duration` on top of the highest expiry across all entries (including watch-ad entries) instead of resetting. The SDK already handles the Cupertino verifying/success/failed dialogs (the success dialog reports the expiry after stacking) |
+| 7 | "Watch ad → N days VIP" button | Tap → `showRewardedAd(onEarnedReward: (earned) {...})`. **Only grant VIP when `earned == true`** (the user watched the rewarded ad to completion). **Do NOT** fall back to an interstitial to grant the reward — granting VIP for watching an interstitial violates Google/AppLovin's rewarded policy (it blurs the rewarded/interstitial line). If rewarded isn't ready → show "try again later". **Stacking**: grant via the fixed key `REWARDED_VIP` + `addVip(..., stack: true)` (collapses into one entry). To let an active VIP extend their window this way, keep the button visible even while `active` and use `showRewardedAd(bypassVipGuard: true, ...)` (see 4.7). Pulse animation #1 |
+| 8 | Buy 30-day VIP (disabled) | `OutlinedButton.icon(icon: Icon(Icons.card_giftcard))` disabled, label `'vip_buy_30d_locked'.tr` ('Buy 30-day VIP — coming soon'). Waiting on IAP integration |
+| 9 | Buy 90-day VIP (disabled) | Same as #8 |
+| 10 | Buy 1-year VIP (disabled) | Same as #8 |
+| 11 | Buy lifetime VIP (disabled) | Same as #8 |
+| 12 | List of active entries | `ValueListenableBuilder<List<VipEntry>>` (subscribed via `vip.activeStream` + a local notifier). Each entry is a card with its own icon (10.6), days/hours remaining, expiry date, and a revoke button |
+| 13 | "Restore Purchase" (disabled) | `OutlinedButton.icon(icon: Icon(Icons.restore))` disabled, label `'vip_restore_locked'.tr` ('Restore purchase — coming soon'). Placeholder for future IAP (Q33A) |
+| — | "Revoke all VIP" button | Material 3 `AlertDialog` confirm → `await vip.revokeAll()`. Disabled for free users |
+| — | "VIP" toolbar badge on the main screen | `ValueListenableBuilder<bool>(valueListenable: vip.activeListenable, ...)` — active: gold chip `0xFFFFD60A`, inactive: white outline |
 | — | Privacy Policy footer | `InkWell` → `url_launcher.launchUrl(Uri.parse(AdKey.privacyPolicyUrl), mode: LaunchMode.externalApplication)` |
 
-- TextField và dialog phải dùng Material 3 (`useMaterial3: true` trong `ThemeData`).
-- Sau khi kích hoạt VIP thành công, UI lập tức cập nhật qua `activeListenable` reactive — KHÔNG `setState`. Kèm confetti animation (Q18A) + `HapticFeedback.heavyImpact()`.
+- The text field and dialogs must use Material 3 (`useMaterial3: true` in `ThemeData`).
+- After a successful VIP activation, the UI must update immediately via the reactive `activeListenable` — never `setState`. Pair it with a confetti animation (Q18A) + `HapticFeedback.heavyImpact()`.
 
-#### Reference implementation cho row #4 (Progress bar — elapsed semantic)
+#### Reference implementation for row #4 (progress bar — elapsed semantics)
 
 ```dart
-/// 3 mốc trên timeline ngang [grantedAt ─── expiresAt]:
-///   start   = entry.grantedAt   (mép trái, value 0.0)
-///   end     = entry.expiresAt   (mép phải, value 1.0)
-///   current = now               (vị trí thanh fill)
+/// 3 points on the horizontal timeline [grantedAt ─── expiresAt]:
+///   start   = entry.grantedAt   (left edge, value 0.0)
+///   end     = entry.expiresAt   (right edge, value 1.0)
+///   current = now               (fill position)
 ///
 /// progress = (current − start) / (end − start)
-/// Bar RỖNG lúc vừa kích hoạt, ĐẦY DẦN đến lúc hết hạn.
+/// The bar is EMPTY right after activation, FILLS UP toward expiry.
 Widget _buildProgressBar(VipEntry entry) {
   return ValueListenableBuilder<DateTime>(
-    valueListenable: _now,  // ticker 1s, drives elapsed update
+    valueListenable: _now,  // 1s ticker, drives the elapsed update
     builder: (context, now, _) {
       final total = entry.expiresAt.difference(entry.grantedAt);
       final elapsed = now.difference(entry.grantedAt);
       final progress = total.inMilliseconds <= 0
-          ? 1.0  // expired / clock skew → render đầy
+          ? 1.0  // expired / clock skew → render full
           : (elapsed.inMilliseconds / total.inMilliseconds)
               .clamp(0.0, 1.0)
               .toDouble();
@@ -751,71 +738,71 @@ Widget _buildProgressBar(VipEntry entry) {
 }
 ```
 
-Visualization với VIP 30 ngày:
+Visualization for a 30-day VIP:
 ```
-T+0      [░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0% — vừa redeem
+T+0      [░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0% — just redeemed
 T+1d     [█░░░░░░░░░░░░░░░░░░░░░░░░░░]   3.3%
 T+15d    [██████████████░░░░░░░░░░░░░]   50%
 T+29d    [██████████████████████████░]   96.7%
 T+30d    [███████████████████████████]  100% — expired
 ```
 
-### 10.4 — Animation (bắt buộc đủ 5 — Flutter idiom, no `late`)
+### 10.4 — Animation (5 required — Flutter idiom, no `late`)
 
-| # | Animation | Cách impl | Trigger |
+| # | Animation | Implementation | Trigger |
 |---|---|---|---|
-| 1 | Pulse cho nút "Watch ad" | `AnimationController? _pulseController;` init trong `initState` với `duration: 1600ms` `..repeat(reverse: true)`. Local copy `final c = _pulseController; if (c != null) ... ScaleTransition(scale: Tween(1.0, 1.05).animate(c), ...)` | `initState` start, `dispose` cancel |
-| 2 | Slide-in từ dưới khi mở screen | `AnimationController? _entryController;` init `duration: 1100ms` `..forward()`. 3 section dùng chung 1 controller, mỗi section một `Interval(0.0, 0.4)`, `Interval(0.3, 0.7)`, `Interval(0.6, 1.0)` — fade-slide vào tuần tự | `initState` |
-| 3 | Crown icon shimmer | `AnimationController? _shimmerController;` init `duration: 3000ms` `..repeat()`. `RotationTransition` ±5° HOẶC `ShaderMask` với `LinearGradient` shimmer | `initState` repeat, `dispose` cancel |
-| 4 | Number count-up cho countdown | `TweenAnimationBuilder<double>` chạy khi value đổi đáng kể (mỗi phút) — KHÔNG mỗi giây để tránh build hot loop | Khi `Timer.periodic` chạm phút mới |
-| 5 | Confetti khi activate thành công | `package:confetti` (Q18A): `ConfettiController? _confettiController;` init `duration: 1000ms`. Trong `dispose`: `_confettiController?.dispose()`. Khi `redeemVip` hoặc `onEarnedReward` true → `_confettiController?.play()` + `HapticFeedback.heavyImpact()` (Flutter built-in, không cần `vibration` package) | Sau success |
+| 1 | Pulse on the "Watch ad" button | `AnimationController? _pulseController;` initialized in `initState` with `duration: 1600ms` `..repeat(reverse: true)`. Local copy pattern: `final c = _pulseController; if (c != null) ... ScaleTransition(scale: Tween(1.0, 1.05).animate(c), ...)` | `initState` starts it, `dispose` cancels it |
+| 2 | Slide-in from below when opening the screen | `AnimationController? _entryController;` init `duration: 1100ms` `..forward()`. 3 sections share one controller, each with its own `Interval(0.0, 0.4)`, `Interval(0.3, 0.7)`, `Interval(0.6, 1.0)` — fade-slide in sequentially | `initState` |
+| 3 | Crown icon shimmer | `AnimationController? _shimmerController;` init `duration: 3000ms` `..repeat()`. Either `RotationTransition` ±5° OR a `ShaderMask` with a shimmer `LinearGradient` | `initState` repeats it, `dispose` cancels it |
+| 4 | Number count-up for the countdown | `TweenAnimationBuilder<double>` runs only when the value changes meaningfully (once per minute) — NOT every second, to avoid a build hot loop | Whenever `Timer.periodic` crosses a new minute |
+| 5 | Confetti on successful activation | `package:confetti` (Q18A): `ConfettiController? _confettiController;` init `duration: 1000ms`. In `dispose`: `_confettiController?.dispose()`. On successful `redeemVip` or `onEarnedReward == true` → `_confettiController?.play()` + `HapticFeedback.heavyImpact()` (Flutter built-in, no need for the `vibration` package) | After success |
 
-Bonus (nice-to-have, không bắt buộc): ripple effect mặc định cho 2 button (Material 3 sẵn), gradient background động cho status header.
+Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (comes with Material 3), an animated gradient background for the status header.
 
-### 10.5 — Memory leak rule riêng cho VIP screen (KHÔNG dùng các pattern sau)
+### 10.5 — Memory leak rules specific to the VIP screen (do NOT use these patterns)
 
-- **KHÔNG `late` / `late final`** — bắt buộc nullable + check null mỗi lần đọc:
+- **NO `late` / `late final`** — use a nullable field + null-check on every read instead:
   ```dart
-  // ❌ KHÔNG
+  // ❌ DO NOT
   late AnimationController _pulseController;
-  // ✅ ĐÚNG
+  // ✅ CORRECT
   AnimationController? _pulseController;
-  // Khi dùng:
+  // When using it:
   final c = _pulseController;
   if (c == null) return const SizedBox.shrink();
   return ScaleTransition(scale: Tween(1.0, 1.05).animate(c), ...);
   ```
-- **KHÔNG `setState`** — bắt buộc `ValueNotifier<T>` + `ValueListenableBuilder` (hoặc GetX `Rx<T>` + `Obx`). Ví dụ countdown:
+- **NO `setState`** — use `ValueNotifier<T>` + `ValueListenableBuilder` instead (or GetX `Rx<T>` + `Obx`). Countdown example:
   ```dart
-  // ❌ KHÔNG
+  // ❌ DO NOT
   setState(() => _remaining = newDuration);
-  // ✅ ĐÚNG
+  // ✅ CORRECT
   final ValueNotifier<Duration> _remaining = ValueNotifier(Duration.zero);
   // ...
-  _remaining.value = newDuration;     // không trigger setState
+  _remaining.value = newDuration;     // does not trigger setState
   // Build:
   ValueListenableBuilder<Duration>(
     valueListenable: _remaining,
     builder: (_, d, __) => Text(_format(d)),
   )
   ```
-- **KHÔNG `!` (bang operator)**:
+- **NO `!` (the bang operator)**:
   ```dart
-  // ❌ KHÔNG
+  // ❌ DO NOT
   AdManager().vip!.redeemVip(...);
   _pulseController!.repeat();
-  // ✅ ĐÚNG (pattern matching Dart 3)
+  // ✅ CORRECT (Dart 3 pattern matching)
   if (AdManager().vip case final vip?) {
     vip.redeemVip(...);
   }
-  // hoặc local copy
+  // or a local copy
   final vip = AdManager().vip;
   if (vip == null) return;
   vip.redeemVip(...);
   ```
-- **KHÔNG `Future.delayed` cho countdown** — bắt buộc `Timer.periodic`, `cancel()` trong `dispose`.
-- **KHÔNG giữ rewarded callback dạng anonymous closure capture `this`** mà screen có thể `dispose()` trước khi callback fire — check `if (!mounted) return;` đầu callback.
-- **KHÔNG quên `controller.dispose()`** cho từng `AnimationController`, `TextEditingController`, `FocusNode`, `Timer`, `StreamSubscription`, `ValueNotifier`, `ConfettiController` trong `dispose()`. Pattern:
+- **NO `Future.delayed` for a countdown** — use `Timer.periodic` instead, with `cancel()` in `dispose`.
+- **Don't hold a rewarded callback as an anonymous closure capturing `this`** when the screen could be `dispose()`d before the callback fires — check `if (!mounted) return;` at the top of the callback.
+- **Don't forget to call `.dispose()`** on every `AnimationController`, `TextEditingController`, `FocusNode`, `Timer`, `StreamSubscription`, `ValueNotifier`, `ConfettiController` in `dispose()`. Pattern:
   ```dart
   @override
   void dispose() {
@@ -839,20 +826,20 @@ Bonus (nice-to-have, không bắt buộc): ripple effect mặc định cho 2 but
 `vip_keys.dart`:
 
 ```dart
-// Plaintext map (đơn giản):
+// Plaintext map (simple):
 final Map<String, Duration> kVipKeyMap = {
-  'LOITP_30': const Duration(days: 30),
-  'LOITP_3':  const Duration(days: 3),
+  'PROMO30': const Duration(days: 30),
+  'PROMO3':  const Duration(days: 3),
 };
 
-// HOẶC Base64-obfuscated map (mức che giấu cao hơn, đủ cho project mới):
+// OR a Base64-obfuscated map (a bit more obscured, good enough for a new project):
 // import 'dart:convert';
 // final Map<String, Duration> kVipKeyMap = {
 //   utf8.decode(base64Decode('OUZBMFE3RU4hMjdDTFgwNEAyMTk5M1kyVTBJNyNRMA==')):
 //       const Duration(days: 30),
 // };
-// `_FlutterBase2025` KHÔNG dùng pattern này nữa — đã chuyển sang Ed25519
-// signed-key (T18), xem `vip_keys.dart` + `packages/ad_sdk/README.md` → "Signed VIP keys".
+// A stronger option — Ed25519 signed keys instead of a plaintext/Base64 duration map —
+// is also available if you need it; see `packages/ad_sdk/README.md` → "Signed VIP keys".
 
 Future<bool> vipKeyValidator(String normalisedKey) async =>
     kVipKeyMap.containsKey(normalisedKey);
@@ -861,20 +848,20 @@ Duration? lookupVipKeyDuration(String normalisedKey) =>
     kVipKeyMap[normalisedKey];
 ```
 
-`VipManager.normaliseKey` (trim + uppercase) chạy trước validator → user gõ `loitp_30` hoặc ` LOITP_30 ` đều match.
+`VipManager.normaliseKey` (trim + uppercase) runs before the validator → a user typing `promo30` or ` PROMO30 ` will still match.
 
-**Special entries** (auto-managed bởi SDK, KHÔNG xoá thủ công):
+**Special entries** (auto-managed by the SDK, do NOT delete manually):
 
 | Key prefix | Source | UI label (i18n key) |
 |---|---|---|
-| `__FIRST_INSTALL__` | `firstInstallVipGrace.auto` (Step 9) | `'vip_entry_first_install'.tr` ('Quà tặng cài đặt mới') |
-| `LEGACY_<gaid>` | Auto-migrated từ `vipDeviceGaids` (nếu set) | `'vip_entry_legacy'.tr` ('Thiết bị QA') |
-| `REWARDED_VIP` (prefix `REWARDED_`) | Watch-ad reward (key cố định + `stack: true`) | `'vip_reward_entry'.tr` ('Phần thưởng xem quảng cáo') |
-| Khác | User redeem hoặc programmatic `addVip` | `entry.key` raw (mask 3 ký tự đầu) |
+| `__FIRST_INSTALL__` | `firstInstallVipGrace.auto` (Step 9) | `'vip_entry_first_install'.tr` ('New install gift') |
+| `LEGACY_<gaid>` | Auto-migrated from `vipDeviceGaids` (if set) | `'vip_entry_legacy'.tr` ('QA device') |
+| `REWARDED_VIP` (prefix `REWARDED_`) | Watch-ad reward (fixed key + `stack: true`) | `'vip_reward_entry'.tr` ('Ad-watch reward') |
+| Anything else | User redeem or programmatic `addVip` | `entry.key` raw (mask the first 3 characters) |
 
-### 10.7 — Translations (mandate vi + en — Q26)
+### 10.7 — Translations (mandatory: local + English — Q26)
 
-Thêm vào `lib/translations/vi_vn.dart` và `en_us.dart` (key snake_case):
+Add to `lib/translations/vi_vn.dart` and `en_us.dart` (snake_case keys):
 
 ```dart
 // VIP
@@ -899,13 +886,13 @@ Thêm vào `lib/translations/vi_vn.dart` và `en_us.dart` (key snake_case):
 'privacy_policy', 'cancel', 'confirm', 'ok',
 ```
 
-Các ngôn ngữ khác (zh / ja / ko / es / fr...) sẽ bổ sung ở SDK version sau — không add ở project này.
+Other languages (zh / ja / ko / es / fr, etc.) can be added in a later pass — don't add them for this integration.
 
-### 10.8 — Entry point từ AppBar
+### 10.8 — Entry point from the AppBar
 
 ```dart
-// Trong main screen (StressorHomePage / HomeScreen):
-final vip = AdManager().vip;     // null-safe, không `!`
+// In your app's main/home screen:
+final vip = AdManager().vip;     // null-safe, no `!`
 ValueListenableBuilder<bool>(
   valueListenable: vip?.activeListenable ?? ValueNotifier(false),
   builder: (_, active, __) => IconButton(
@@ -918,184 +905,153 @@ ValueListenableBuilder<bool>(
 )
 ```
 
-## Step 11 — Self-review & cập nhật `<PROJECT_PATH>/doc/AD.MD`
+## Step 11 — Self-review & update `<PROJECT_PATH>/doc/AD.MD`
 
-Review duy nhất 1 lần, KHÔNG lặp 3 lần. Checklist:
+One review pass only, do NOT repeat it 3 times. Checklist:
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + packages bắt buộc (Q37 → C):
-  - `get`, `intl`, `url_launcher`, `confetti`, `shared_preferences` (đã có nếu dùng GetX), SDK
-  - `app_tracking_transparency` là **transitive của SDK** — KHÔNG add ở app-level
-  - Cho VIP confetti/success feedback: **skip** thêm `vibration` riêng, dùng Flutter built-in `HapticFeedback.heavyImpact()`. Lưu ý: `_FlutterBase2025` VẪN có `vibration` như một dependency thật trong `pubspec.yaml` — dùng bởi `zoom_inkwell.dart` cho long-press haptic không liên quan VIP/ad. Dòng này chỉ áp dụng cho VIP UI, không phải "project không dùng vibration".
-- [ ] `AndroidManifest.xml` whitelist permissions (Q12B): `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Permission liên quan ad ngoài 3 cái này → có lý do rõ ràng. Permission ngoài ad → đã hỏi user.
-- [ ] `AndroidManifest.xml` có AdMob `APPLICATION_ID` meta-data (production hoặc test ID + warning Q6C)
-- [ ] `MainActivity` **KHÔNG** có `android:taskAffinity=""` (pitfall #1)
-- [ ] (Nếu iOS) `ios/Runner/Info.plist` có `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (đếm thật bằng `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, KHÔNG dùng con số cố định — danh sách mediation partner đổi theo thời gian; hiện tại ~50 entries)
-- [ ] (Nếu iOS) Podfile target ≥ 13.0
+- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + the required packages (Q37 → C):
+  - `get`, `intl`, `url_launcher`, `confetti`, `shared_preferences` (already present if using GetX), the SDK
+  - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level
+  - For VIP confetti/success feedback: **skip** adding a separate `vibration` package, use Flutter's built-in `HapticFeedback.heavyImpact()` instead. Note: some projects legitimately keep `vibration` as a real dependency in `pubspec.yaml` for an unrelated long-press haptic feature elsewhere in the app — that's fine and unrelated to VIP/ads; this rule only applies to the VIP UI itself.
+- [ ] `AndroidManifest.xml` permission whitelist (Q12B): `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Any ad-related permission beyond these 3 needs a clear justification. Any non-ad permission → ask the user first.
+- [ ] `AndroidManifest.xml` has the AdMob `APPLICATION_ID` meta-data (production or test ID + warning per Q6C)
+- [ ] `MainActivity` does **NOT** have `android:taskAffinity=""` (pitfall #1)
+- [ ] (If iOS) `ios/Runner/Info.plist` has `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (count them for real with `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, do NOT hardcode a number — the mediation partner list changes over time; currently ~50 entries)
+- [ ] (If iOS) Podfile targets ≥ 13.0
 
 ### 11.2 — Bootstrap
 
-- [ ] `main.dart`: `AdManager().setNavigatorKey` trước `runApp`, navigator observers đầy đủ (`adRouteObserver` + `AdScreenRouteLogger()`)
-- [ ] (Nếu iOS) `AdManager().requestAtt()` gọi trong **splash postFrame, trước `requestUmpConsent`** (KHÔNG gọi trong `main()` trước `runApp`)
-- [ ] Splash: `SimpleEventBus().listen` đăng ký TRƯỚC `initialize`, hard-cap (default 8s — Q24D), `markSplashActive/Inactive` đúng cặp, **hot-restart guard `countInitSplashScreen > 1`** (mandate — Q35A), App Open flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` đúng thứ tự
-- [ ] Splash UI có disclaimer `'splash_ads_notice'.tr` (Q27A)
-- [ ] `AdConfig.onLog` wire vào `SafeLogger` (Q9)
+- [ ] `main.dart`: `AdManager().setNavigatorKey` before `runApp`, navigator observers complete (`adRouteObserver` + `AdScreenRouteLogger()`)
+- [ ] (If iOS) `AdManager().requestAtt()` is called in **splash postFrame, before `requestUmpConsent`** (NOT called in `main()` before `runApp`)
+- [ ] Splash: `SimpleEventBus().listen` registered BEFORE `initialize`, hard-cap (default 8s — Q24D), `markSplashActive/Inactive` paired correctly, **hot-restart guard `countInitSplashScreen > 1`** (mandatory — Q35A), the App Open flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` in the right order
+- [ ] Splash UI has the `'splash_ads_notice'.tr` disclaimer (Q27A)
+- [ ] `AdConfig.onLog` is wired to the project's logger (Q9)
 
 ### 11.3 — Slot integration
 
-- [ ] Mọi screen có ad đều extend `AdScreen` + `AdScreenState`
-- [ ] Banner wrap edge-to-edge nếu app có `UIUtils.initEdgeToEdge()` (Q23D)
-- [ ] Mọi slot ad đã thay (grep tên SDK cũ không còn match)
-- [ ] Đã xoá deps SDK cũ trong `pubspec.yaml` (trừ `gma_mediation_applovin`)
-- [ ] 2 build target ở Section 0 đều xanh (debug + release)
-- [ ] `flutter analyze --fatal-infos` 0 issue
+- [ ] Every screen with an ad extends `AdScreen` + `AdScreenState`
+- [ ] Banner is wrapped edge-to-edge if the app uses `UIUtils.initEdgeToEdge()` (Q23D)
+- [ ] Every ad slot has been replaced (grepping the old SDK's name no longer matches anything)
+- [ ] Old SDK deps removed from `pubspec.yaml` (except `gma_mediation_applovin`)
+- [ ] Both build targets from Section 0 are green (debug + release)
+- [ ] `flutter analyze --fatal-infos` → 0 issues
 
 ### 11.4 — VIP + Consent
 
-- [ ] First-install VIP grace dùng SDK `auto`, KHÔNG override (Q34A)
-- [ ] `AdKey` class ở `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` chứa `appLovinAndroid`, `appLovinIos`, getter `appLovin` chọn theo platform, `adMob: AdMobConfig(...)`, `privacyPolicyUrl` (Q21A + Q29c)
-- [ ] VIP screen có **đủ 13 thành phần UI** (10.3) + **đủ 5 animation** (10.4) + **0 vi phạm memory leak rule** (10.5)
-- [ ] Translations vi + en đã thêm (10.7), 0 hard-code string user-facing (Q26)
-- [ ] AppBar icon VIP reactive theo `vip?.activeListenable` (10.8)
-- [ ] Consent: cả 3 wired (auto-show + UMP + iOS ATT)
+- [ ] First-install VIP grace uses the SDK's `auto`, not overridden (Q34A)
+- [ ] `AdKey` class at `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` contains `appLovinAndroid`, `appLovinIos`, a platform-selecting `appLovin` getter, `adMob: AdMobConfig(...)`, `privacyPolicyUrl` (Q21A + Q29c)
+- [ ] The VIP screen has **all 13 UI components** (10.3) + **all 5 animations** (10.4) + **0 violations of the memory leak rules** (10.5)
+- [ ] Translations for both locales added (10.7), 0 hardcoded user-facing strings (Q26)
+- [ ] The AppBar VIP icon is reactive via `vip?.activeListenable` (10.8)
+- [ ] Consent: all 3 pieces wired (auto-show + UMP + iOS ATT)
 
-### 11.5 — Code style enforcement (rule cốt lõi — Q3A + Q4D + Q28B)
+### 11.5 — Code style enforcement (core rule — Q3A + Q4D + Q28B)
 
-- [ ] `grep -rn 'setState' lib/` → 0 match (trừ `super.setState` trong `BaseStatefulState` framework code, nếu có)
-- [ ] `grep -rn '\!' lib/` review thủ công → 0 bang operator user-introduced (Dart syntax `!` cho `not equal !=` được phép, các pattern `expr!` khác cấm)
-- [ ] `grep -rn 'late ' lib/` → 0 match
-- [ ] `grep -rn 'late final' lib/` → 0 match
+- [ ] `grep -rn 'setState' lib/` → 0 matches (except `super.setState` inside `BaseStatefulState` framework code, if any)
+- [ ] `grep -rn '\!' lib/` manually reviewed → 0 user-introduced bang operators (Dart's `!=` "not equal" syntax is allowed; every other `expr!` pattern is forbidden)
+- [ ] `grep -rn 'late ' lib/` → 0 matches
+- [ ] `grep -rn 'late final' lib/` → 0 matches
 
-### 11.6 — Smoke test 5 bước (mandate Q31)
+### 11.6 — 5-step smoke test (mandatory Q31)
 
-Chạy 1 lần trên emulator hoặc device thật (debug build), record kết quả từng bước:
+Run it once on an emulator or a real device (debug build), recording the result of each step:
 
 ```
-1. Cold start app trên emulator/device (debug build).
-   Verify: console không có "FATAL", "Exception", splash render trong < 1s.
+1. Cold-start the app on an emulator/device (debug build).
+   Verify: console has no "FATAL"/"Exception", splash renders in < 1s.
 
-2. Đợi splash flow.
-   Verify: console log `🚀 AdManager singleton CREATED` xuất hiện đúng 1 lần.
-   Verify: log `splash_ads_notice` text show.
-   Verify: nếu network OK + ad load thành công → App Open Ad show, dismiss → vào main screen.
-   Verify: nếu hard-cap (8s) trigger → main screen show ngay, không stuck.
+2. Wait through the splash flow.
+   Verify: console log `🚀 AdManager singleton CREATED` appears exactly once.
+   Verify: the `splash_ads_notice` text is shown.
+   Verify: if network is OK and the ad loads successfully → App Open Ad shows, dismisses → enters main screen.
+   Verify: if the hard-cap (8s) fires → main screen shows immediately, no stuck state.
 
-3. Tap icon VIP 👑 ở AppBar → vào VipScreen.
-   Verify: countdown text update mỗi giây (qua ValueNotifier, không setState).
-   Verify: nếu first-install grace active → entry __FIRST_INSTALL__ hiện trong list với label `vip_entry_first_install`.tr.
+3. Tap the VIP 👑 icon in the AppBar → enters VipScreen.
+   Verify: countdown text updates every second (via ValueNotifier, not setState).
+   Verify: if first-install grace is active → the __FIRST_INSTALL__ entry appears in the list with label `vip_entry_first_install`.tr.
 
-4. Nhập key VIP hợp lệ (vd "LOITP_30") → tap "Kích hoạt".
-   Verify: Cupertino "Verifying" dialog show ≥ 400ms.
-   Verify: Success dialog show, list entry mới thêm vào.
-   Verify: AppBar icon VIP đổi màu vàng `0xFFFFD60A` ngay lập tức (reactive ValueListenableBuilder).
-   Verify: Hero card chuyển từ xám → gradient gold + crown shimmer animation chạy.
-   Verify: confetti animation trigger + heavy haptic feedback.
+4. Enter a valid VIP key (e.g. "PROMO30") → tap "Activate".
+   Verify: the Cupertino "Verifying" dialog shows for ≥ 400ms.
+   Verify: the success dialog shows, the new entry is added to the list.
+   Verify: the AppBar VIP icon turns gold `0xFFFFD60A` immediately (reactive ValueListenableBuilder).
+   Verify: the hero card transitions from grey → gold gradient + crown shimmer animation plays.
+   Verify: confetti animation fires + heavy haptic feedback.
 
-5. Tap "Thu hồi tất cả VIP" → confirm trong Material 3 dialog.
-   Verify: list entries empty.
-   Verify: AppBar icon VIP đổi về outline trắng ngay lập tức.
+5. Tap "Revoke all VIP" → confirm in the Material 3 dialog.
+   Verify: the entries list is empty.
+   Verify: the AppBar VIP icon reverts to a white outline immediately.
 ```
 
-Nếu có item FAIL → fix → check lại item đó (không re-check item đã PASS).
+If any item FAILs → fix it → re-check only that item (don't re-check items that already PASSed).
 
-## Step 12 — Báo cáo cuối (1 lần, ≤ 25 dòng)
+## Step 12 — Final report (once, ≤ 25 lines)
 
-Format cố định, **chỉ 2 section**:
+Fixed format, **only 2 sections**:
 
 ```
 ### Integration Result
 - Build: flutter analyze=<PASS|FAIL>, flutter build apk --debug=<PASS|FAIL>, flutter build apk --release=<PASS|FAIL>, (iOS) flutter build ios --debug=<PASS|FAIL>
 - Slots integrated: <N/M>
-- Policy: <5/5 hoặc list rule fail>
-- Memory review: <OK | list điểm nghi ngờ với file:line>
+- Policy: <5/5 or list failing rules>
+- Memory review: <OK | list suspect points with file:line>
 - VIP UI: <13/13 components, 5/5 animations | list missing>
 - Code style: setState=<0 match>, !=<count user-introduced>, late=<0 match>, late final=<0 match>
 - Smoke test: <5/5 PASS | step <X> FAIL: <reason>>
 - Translations: vi=<count keys>, en=<count keys>
 - Files changed: <count>, lines +<X> -<Y>
-- AdMob APPLICATION_ID: <production | test ID — user not have AdMob account>
+- AdMob APPLICATION_ID: <production | test ID — user has no AdMob account>
 
 ### Open questions for user
-- <key/id còn thiếu cụ thể>
-- <decision pending nếu có>
+- <specific key/id still missing>
+- <pending decision, if any>
 ```
 
-KHÔNG lặp lại "3 round". Step 11 checklist PASS hết → dừng. Có FAIL thì fix tới khi PASS rồi mới báo cáo.
+Do NOT repeat this "3 rounds" — once the Step 11 checklist is all PASS, stop. If there's a FAIL, fix it until it PASSes, then report.
 
 ---
 
-## Phụ lục A — Cheat sheet API mapping (Android Kotlin → Flutter Dart)
+## Appendix A — Cheat sheet: API mapping (Android Kotlin → Flutter Dart)
 
-Nếu user migrate từ project Android native dùng `_AdmobWrapper`, mapping nhanh:
+If the user is migrating from a native Android project using an `_AdmobWrapper`, here's a quick mapping:
 
 | Android (Kotlin) | Flutter (Dart) |
 |---|---|
 | `AdManager.setConfig(...)` | `AdManager().initialize(config: AdConfig(...))` |
 | `AdManager.requestConsentInfoUpdate(...)` | `AdManager().requestUmpConsent(...)` |
 | `AdManager.awaitSplashComplete()` | `SimpleEventBus().listen` + `loadAppOpenAd` + `showAppOpenAd(bypassSafety: true)` |
-| `AdManager.loadBanner(view, R.id.banner_container)` | `class _XxxState extends AdScreenState<Xxx>` → `buildBanner()` trong `build()` |
+| `AdManager.loadBanner(view, R.id.banner_container)` | `class _XxxState extends AdScreenState<Xxx>` → `buildBanner()` inside `build()` |
 | `AdManager.showInterstitial { ... }` | `showInterstitialAd(onDone: (shown) {...})` |
 | `AdManager.loadRewarded` + `showRewarded` | `showRewardedAd(onEarnedReward: (earned) {...})` |
 | `AdManager.activateVipByKey(base64)` | `AdManager().vip` (null-safe) → `redeemVip(context, key:, duration:, validator:, strings:)` |
-| `AdSafetyLimits(interstitialMinIntervalSec: 60, ...)` | `AdSafetyParams.production.copyWith(...)` (mặc định `auto`, KHÔNG override) |
-| `BuildConfig.IS_ENABLE_ADMOB` flag | Đổi `AdConfig.provider` (`AdProvider.appLovin` ↔ `AdProvider.adMob`) |
-| `Application.onCreate { AdManager.initialize() }` | `main()` chỉ `setNavigatorKey`, init trong `SplashScreen.initState()` |
-| `ProcessLifecycleOwner` cho App Open resume | SDK auto qua `WidgetsBindingObserver` — KHÔNG tự subscribe |
+| `AdSafetyLimits(interstitialMinIntervalSec: 60, ...)` | `AdSafetyParams.production.copyWith(...)` (defaults to `auto`, do NOT override) |
+| `BuildConfig.IS_ENABLE_ADMOB` flag | Flip `AdConfig.provider` (`AdProvider.appLovin` ↔ `AdProvider.adMob`) |
+| `Application.onCreate { AdManager.initialize() }` | `main()` only calls `setNavigatorKey`; init happens in `SplashScreen.initState()` |
+| `ProcessLifecycleOwner` for App Open resume | SDK auto via `WidgetsBindingObserver` — do NOT subscribe yourself |
 | Fragment + `onDestroyView` | `StatefulWidget` + `dispose()` |
 | `ObjectAnimator`, `ValueAnimator`, `CountDownTimer` | `AnimationController`, `TweenAnimationBuilder`, `Timer.periodic` |
 | `SharedPreferences.edit().putBoolean(...)` | `package:shared_preferences` `prefs.setBool(...)` |
 | `DateFormat.getDateInstance(MEDIUM)` | `package:intl` `DateFormat('dd/MM/yyyy')` |
 | `VibrationEffect.EFFECT_CLICK` | `HapticFeedback.heavyImpact()` (Flutter built-in) |
 | Material You (`com.google.android.material`) | Material 3 (`ThemeData(useMaterial3: true)`) |
-| Kotlin `lateinit var` | **CẤM** `late` — dùng nullable + check (Step 10.5) |
-| Kotlin `!!` | **CẤM** `!` — dùng pattern matching `if (x case final v?)` hoặc local copy |
-| `viewModel.observe { setState }` | `ValueListenableBuilder` + `ValueNotifier` (hoặc GetX `Obx` + `Rx<T>`) — **KHÔNG `setState`** |
+| Kotlin `lateinit var` | **FORBIDDEN** `late` — use nullable + check instead (Step 10.5) |
+| Kotlin `!!` | **FORBIDDEN** `!` — use pattern matching `if (x case final v?)` or a local copy |
+| `viewModel.observe { setState }` | `ValueListenableBuilder` + `ValueNotifier` (or GetX `Obx` + `Rx<T>`) — **never `setState`** |
 
-## Phụ lục B — Reference doc của project `_FlutterBase2025`
+## Appendix B — Where to find more detail
 
-Project này là reference implementation cho `applovin_admob_sdk` (hiện dev/test tại `1.0.24` qua local `path` override; latest publish trên pub.dev vẫn `^1.0.23`). Files đáng đọc:
+If you have the SDK's source available (either the monorepo at `packages/ad_sdk/` or a clone of it), these are worth reading directly:
 
-- `doc/AD.MD` — audit + as-is spec đầy đủ (touchpoint table, ad config, UMP flow, VIP system, policy compliance)
-- `lib/main.dart` — bootstrap pattern
-- `lib/mckimquyen/widget/splash/splash_screen.dart` — splash flow chuẩn (UMP + initialize + App Open + hard cap 8s + hot-restart guard)
-- `lib/mckimquyen/widget/wifi_stressor/wifi_stressor_screen.dart` — example screen extend `AdScreen` + buildBanner + showInterstitialAd + VIP icon
-- `lib/mckimquyen/widget/wifi_stressor/presentation/history_screen.dart` — example showRewardedAd
-- `lib/mckimquyen/widget/vip/vip_screen.dart` — **KHÔNG** phải 13-component screen tự chứa. Đây là thin wrapper (~80 dòng) bọc SDK's `VipRedeemScreen` — 13 thành phần ở Step 10.3 là spec của SDK's `VipRedeemScreen`, không phải file host này. "Restore Purchase" (row 13) **đã tồn tại** trong `VipRedeemScreen`, disabled ở UI (không phải "chưa build") — xem `packages/ad_sdk/lib/src/vip/` cho component thật
-- `lib/mckimquyen/widget/vip/vip_keys.dart` — **KHÔNG** phải Base64-obfuscated plaintext-duration map. Đây là Ed25519 signed-key config (T18): chỉ chứa public key (`kVipPublicKeyBase64`) để verify offline + demo signed keys (`kVipDemoKeys`) cho QA. Duration/redemption logic nằm trong SDK (`vip_manager.dart` + `_redeemed_key_ledger.dart`), không phải một `Map<String, Duration>` ở project này
-- `lib/translations/vi_vn.dart` + `en_us.dart` — i18n keys
-- `packages/ad_sdk/README.md` — full SDK API reference
+- `packages/ad_sdk/README.md` — full SDK API reference (Quick start + Configuration reference + Public API)
+- `packages/ad_sdk/CHANGELOG.md` — version-by-version feature history
+- `packages/ad_sdk/example/lib/main.dart` — a demo app with one page per feature, useful as a working reference for bootstrap, splash, banner/interstitial/rewarded, and VIP wiring
+- `packages/ad_sdk/lib/src/vip/` — the SDK's own `VipRedeemScreen` implementation, useful if you're wrapping it directly instead of building the 13-component screen from scratch (see the note in Step 10.2)
 
-## Phụ lục C — Ghi chú audit 2026-07-13/14 (accepted items, checklist trước khi bật AdMob thật)
+If you only have the hosted `applovin_admob_sdk` package (no source access), the equivalent material ships with the package itself:
 
-- **CẢNH BÁO (2026-08-09): mục dưới đây đã lỗi thời, để lại làm lịch sử.** T32 (2026-07-14) tạm chuyển sang test App ID của Google như mô tả dưới đây, nhưng commit `ea54d16` (2026-07-18) đã revert: `AndroidManifest.xml`, `Info.plist`, và `ad_keys.dart` hiện dùng `ca-app-pub-3004713799155145~9488250427` cho cả Android và iOS. Xác nhận với owner (2026-08-09): **Android là App ID production thật, ưu tiên hiện tại**; iOS đang tạm dùng lại giá trị của Android làm placeholder — có chủ đích, sẽ lấy App ID/ad-unit riêng cho iOS khi nào làm tới iOS, không phải lỗi cần sửa ngay. Còn thiếu chưa xác nhận: đã publish UMP/GDPR message cho App ID Android đó chưa (xem `doc/UMP_SETUP.md` bản 2026-08-09). Đọc `doc/UMP_SETUP.md` trước khi hành động, không dựa vào đoạn text cũ dưới đây.
+- The package's README and CHANGELOG on pub.dev (`https://pub.dev/packages/applovin_admob_sdk`)
+- The same files under your local `.pub-cache`, e.g. `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<version>/README.md` and `CHANGELOG.md`
+- The package's own `example/` directory (also mirrored into `.pub-cache`) for a working demo of every integration point covered in this document
 
-- ~~**AdMob App ID hiện là TEST ID (T32, 2026-07-14).**~~ `android/app/src/main/AndroidManifest.xml`'s `com.google.android.gms.ads.APPLICATION_ID` và `ios/Runner/Info.plist`'s `GADApplicationIdentifier` đang dùng test App ID chính thức của Google (`ca-app-pub-3940256099942544~3347511713` Android / `~1458002511` iOS) — quyết định có chủ đích, không phải bug, vì App ID production cũ trước đây bị dán trùng 1 giá trị cho cả 2 platform (sai, vì AdMob console cấp App ID riêng theo từng platform app entry). **Checklist khi làm tới iOS (không gấp, Android đang là ưu tiên):**
-  1. Vào https://apps.admob.com, tạo app entry iOS riêng, lấy App ID thật của nó (khác App ID Android).
-  2. Cập nhật `ios/Runner/Info.plist`'s `GADApplicationIdentifier` với giá trị đó.
-  3. Lấy 4 bộ ad-unit ID thật (banner/interstitial/appOpen/rewarded) riêng cho iOS từ console, điền vào `AdKey.adMob` — hiện file `lib/mckimquyen/common/const/ad_keys.dart` chưa tách `AdMobConfig` theo platform như `AppLovinConfig` đã làm, cần thêm khi đó.
-  4. Chạy lại `flutter analyze` + build iOS thử.
-
-- **Không có watchdog cho Interstitial/Rewarded — accepted risk (chốt
-  2026-07-14, không phải thiếu sót bị bỏ quên).** App Open có watchdog hard-cap
-  (18 lần × 5s = 90s tự thoát nếu native SDK không bao giờ gọi callback show/
-  dismiss — xem comment "hard cap"/"watchdog" trong `admob_adapter.dart` +
-  `applovin_adapter.dart`). Interstitial/Rewarded **không** có cơ chế tương tự
-  — nếu native SDK bên thứ 3 (Google/AppLovin) không bao giờ gọi callback
-  dismiss/fail (lỗi cực hiếm từ chính native SDK), app có thể bị kẹt ở trạng
-  thái "đang hiện quảng cáo" vô thời hạn cho riêng slot đó. User đã đánh giá
-  và **chấp nhận rủi ro này** vì tần suất xảy ra cực thấp và code hiện tại
-  (`admob_adapter.dart:598-605`, `:769`) đã ghi chú rõ đây là lựa chọn có chủ
-  đích, không phải bug. Nếu sau này muốn thêm watchdog cho 2 loại ad này, làm
-  theo đúng pattern watchdog của App Open (tìm comment "watchdog"/"hard cap"
-  trong 2 file adapter trên làm template).
-
-- **T39 — SSV (server-side verification) cho rewarded ad: phần app đã sẵn
-  sàng, chỉ chờ server (chốt 2026-07-14).** Nút export dữ liệu trong
-  `history_screen.dart` (xem quảng cáo rewarded để mở khoá) đã gửi kèm
-  `ssvUserId` — 1 ID ẩn danh, sinh 1 lần và lưu bền vững trên máy
-  (`SharedPreferencesUtil.getOrCreateSsvUserId()`), không gắn với tài khoản
-  thật nào. `ssvCustomData` vẫn để trống vì chưa có server xác minh. **Khi có
-  server thật:** chỉ cần cấu hình postback URL trên AdMob/AppLovin console trỏ
-  về server đó — **không cần sửa thêm code Flutter nào**, plumbing đã đầy đủ
-  từ `AdManager.showRewardedAd()` xuống tới UI.
+Either way, treat this `AD_PROMPT_FLUTTER.MD` file itself as the primary, self-contained spec — the SDK source (when available) is a secondary reference for implementation detail, not a prerequisite for following the steps above.

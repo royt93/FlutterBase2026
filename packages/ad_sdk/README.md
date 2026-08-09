@@ -772,6 +772,13 @@ decompiler cannot forge new valid keys. There is **no server and no shared
 secret** — a leaked *legitimate* key can still be reused on other devices (true
 global one-time-use needs a backend), but per-device reuse is blocked.
 
+> **Known limitation — redeem attempt requires connectivity.** The Ed25519
+> signature check itself needs no network, but `redeemSignedKey` rejects the
+> attempt outright while the device is offline (deliberate anti-abuse gate
+> added in 2.0.1, see CHANGELOG). A user holding a valid code in airplane mode
+> or with a weak signal cannot redeem until they reconnect — "offline" above
+> describes the verification, not the redemption flow end to end.
+
 > **Known limitation — Android reinstall replay.** Per-device one-time-use is
 > enforced by two layers: `AdPreferences` (`SharedPreferences`, wiped on
 > uninstall) plus a durable secondary ledger (`RedeemedKeyLedger`) that on

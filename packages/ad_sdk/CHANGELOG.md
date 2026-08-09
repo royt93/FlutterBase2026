@@ -6,6 +6,23 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-08-09
+
+Docs-only. No code changes. Prompted by an independent multi-agent audit
+(Claude/Codex/Gemini, `doc/audit/audit_*.md`) flagging that the pubspec
+description overclaimed "Offline VIP redeem".
+
+### Changed
+
+- pubspec `description` — "Offline VIP redeem" → "Offline-verified VIP
+  codes". The Ed25519 signature check is fully offline, but
+  `redeemSignedKey` has rejected the redeem *attempt* while offline since
+  2.0.1 (deliberate anti-abuse gate) — the old wording implied the whole
+  flow works offline, which it hasn't since that release.
+- README — added a "Known limitation — redeem attempt requires
+  connectivity" callout next to the signed-VIP-keys section, spelling out
+  the same distinction.
+
 ## [2.0.3] - 2026-08-09
 
 Docs-only. No code changes.
