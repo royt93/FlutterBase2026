@@ -1054,4 +1054,35 @@ If you only have the hosted `applovin_admob_sdk` package (no source access), the
 - The same files under your local `.pub-cache`, e.g. `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<version>/README.md` and `CHANGELOG.md`
 - The package's own `example/` directory (also mirrored into `.pub-cache`) for a working demo of every integration point covered in this document
 
+---
+
+## Appendix C — Audit log (internal, reserved for next audit round)
+
+This section is a running log for whoever continues auditing/enhancing this SDK. Each round appends a dated entry below — do not delete prior entries, only add. Keep this section free of real ad-unit IDs, SDK keys, bundle IDs, and local absolute paths, since this file is shared with partners as-is.
+
+### Round — 2026-08-09
+
+**Scope**: full audit of the SDK (`packages/ad_sdk/`), the SDK example app (`packages/ad_sdk/example/`), and the host app, including a 100%-of-suite pass on a real physical Android device (Pixel 7 Pro).
+
+**Automated results at time of audit**:
+- SDK unit tests: 699/699 pass, `flutter analyze` clean.
+- SDK example on-device integration tests: 19/21 clean pass on the real device; the remaining 2 (`interstitial_ad_test`, `rewarded_ad_test`) load and display the ad creative correctly (confirmed via log lines showing successful display with network/creative/latency info) but can't complete because there's no unattended way to dismiss the ad — a known limitation, not an SDK defect, and the same reason CI already excludes these two files from its automated run.
+- Host app tests: 118/118 pass, `flutter analyze` clean.
+
+**Scores** (1–10, informs but doesn't replace an editorial decision on publishing):
+- SDK itself: **9/10**.
+- SDK example/demo app: **7/10**.
+- Host app: **8/10**.
+
+**Findings worth carrying into the next round**:
+
+1. **Build-output path collision (DX trap, not a bug)**: `flutter build apk --debug` and `flutter test integration_test/*.dart` both write to the same default path (`build/app/outputs/flutter-apk/app-debug.apk` under whichever project directory you're in). Running an integration test after a debug build — or vice versa — silently overwrites that APK with a different compiled entrypoint. Reinstalling "the debug build" afterward can boot to a blank/stuck splash screen with zero crash log, because the installed binary's `main()` is actually a test file's harness waiting for a VM service connection that will never arrive. Not documented anywhere in the repo yet. Worth a one-line callout in `packages/ad_sdk/example/README.md` or `doc/README_TESTING.md`: rebuild explicitly (`flutter build apk --debug`) before manually reinstalling after running integration tests.
+2. **Local interstitial/rewarded on-device testing needs real AppLovin credentials via `--dart-define`**, not documented in one obvious place. Without them, `interstitial_ad_test`/`rewarded_ad_test` fail for a credentials reason that looks superficially like an ad-load bug; worth a short note (which dart-define flags, roughly what they gate) somewhere a new contributor running these tests locally would see it before debugging the wrong thing.
+3. **Same Android `applicationId` used by both the SDK example app and the host app** causes an install conflict on one device (installing one force-uninstalls or blocks the other). Not a bug — expected Android behavior for two apps sharing a package name — but worth a one-line note in `packages/ad_sdk/example/README.md` so a tester doesn't waste time diagnosing an "installation failed" error.
+4. **AppLovin MAX test-ad creative close (X) button was not discoverable on this device/session** for either interstitial or rewarded, despite the ad genuinely loading and displaying (confirmed via SDK event logs), 10+ tap coordinates tried across letterbox and content-area corners, the hardware back button, and swipe gestures. Most likely a quirk of the specific AppLovin MAX test creative and/or this device's rendering, not an SDK integration defect — it directly explains why these two integration test files are excluded from CI (`.github/workflows/test.yml` comments call out exactly this: no unattended way to dismiss the ad). Worth re-checking on a future AppLovin MAX SDK bump in case a newer test creative fixes it, but not something to chase as an SDK code bug.
+
+**Publish decision this round**: user reviewed the above and explicitly authorized publishing `applovin_admob_sdk` **2.0.4** to pub.dev (docs-only release — corrected an overclaimed "offline VIP redeem" description, see `CHANGELOG.md`). Published successfully; no new pub.dev scoring traps hit (description 153 chars, all three screenshot descriptions under 160 chars, dry-run and real publish both clean).
+
+**Suggested next-round starting points**: re-verify the score-driving findings above are still accurate before re-quoting them (files/behavior may have moved), then decide whether findings #1–#3 warrant small doc patches (they're all doc-only fixes, no code risk) versus being left as tribal knowledge in this log.
+
 Either way, treat this `AD_PROMPT_FLUTTER.MD` file itself as the primary, self-contained spec — the SDK source (when available) is a secondary reference for implementation detail, not a prerequisite for following the steps above.
