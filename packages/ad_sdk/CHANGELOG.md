@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-08-09
+
+Docs-only. No code changes.
+
+### Added
+
+- `example/README.md` — an index of the 16 demo pages in `example/lib/main.dart`
+  (one row per page: what it demonstrates), so the pub.dev "Example" tab has
+  something to navigate besides a 2,500+ line raw file.
+
 ## [2.0.1] - 2026-08-09
 
 Non-breaking bug fixes, cross-checked by three independent agents (Codex,

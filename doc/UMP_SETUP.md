@@ -3,7 +3,7 @@
 This is a **dashboard task** — no code change is needed. The SDK already calls
 `AdManager().requestUmpConsent()` in the splash (before the first ad request),
 but the consent **message has not been created** on the AdMob side, so the form
-never appears. Device logs originally showed this against the old (wrongly
+never appears. Device logs originally showed this against the first (wrongly
 duplicated) production App ID:
 
 ```
@@ -11,22 +11,28 @@ duplicated) production App ID:
 the input app ID. Received app ID: ca-app-pub-3612191981543807~9731053733
 ```
 
-**Since T32 (2026-07-14)** the app runs on Google's official **test** App IDs
-(`~3347511713` Android / `~1458002511` iOS — see `doc/feature.md` T32) while the
-real production App IDs (Android + iOS, separate per platform) are still
-pending setup. The steps below still apply once against **your real production
-App ID** — a UMP message configured against a test App ID is not meaningful
-for a real release. Do this as part of the "go live" checklist in
-`doc/feature.md` (§ "Checklist thao tác tay — trước khi release thật").
+**Correction (2026-08-09) — this doc was stale.** T32 (2026-07-14) had switched
+the app to Google's test App IDs as a stopgap. Commit `ea54d16` (2026-07-18)
+reverted that: `android/app/src/main/AndroidManifest.xml`,
+`ios/Runner/Info.plist`, and `lib/mckimquyen/common/const/ad_keys.dart` now all
+ship **`ca-app-pub-3004713799155145~9488250427`** — a real-looking production
+App ID, but the **same value on both Android and iOS**. That is the exact
+duplicate-App-ID mistake T32's comment warned about (AdMob issues a separate
+App ID per platform app entry); it was silently reintroduced, and no doc was
+updated to say so. **Do not assume a GDPR/UMP message has ever been published
+against this ID** — every doc up to today described the app as still running
+test IDs, so this specific ID likely was never configured on the AdMob
+dashboard either.
 
 The SDK degrades gracefully (`canRequestAds=true`), but **EU/EEA/UK users never
 see a consent form** → this must be fixed before an EEA release.
 
 ## What you need
 
-- AdMob account that owns your real **production** App ID (Android + iOS,
-  created after completing the T32 checklist — do NOT configure this against
-  the test App ID above).
+- AdMob console access. **First confirm whether `ca-app-pub-3004713799155145~9488250427`
+  is actually your real production Android app entry, and get the separate
+  real App ID for the iOS app entry** (create the iOS app entry in AdMob if it
+  doesn't exist yet) — do not leave both platforms pointing at one App ID.
 - The app's Privacy Policy URL (already wired in the app:
   `https://loitp.notion.site/Term-Privacy-Policy-...`).
 
