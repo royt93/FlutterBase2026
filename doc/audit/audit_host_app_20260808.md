@@ -118,6 +118,8 @@ Vì Hive `Box` operations chạy tuần tự trên cùng isolate (không phải 
 
 **Mức độ:** LOW — `setInt`/`setBool`/`setString` thiếu `await` là latent bug ảnh hưởng bất kỳ call site tương lai nào cần đọc-ngay-sau-khi-ghi, nhưng các call site hiện tại (`getOrCreateSsvUserId` ở `:15-23`, dùng nội bộ chờ qua await của chính hàm) không bị lộ triệu chứng vì không có tình huống đọc lại tức thời. `resetAllData()` là dead code, an toàn để xoá hoặc sửa `Future<void>` nếu định dùng lại.
 
+**ĐÃ ĐÓNG (2026-08-09):** Đọc lại trực tiếp `shared_preferences_util.dart` — `setInt`/`setBool`/`setString` đã có `await` đầy đủ trước `prefs.setX(...)`, phần "thiếu await" trong finding này không còn áp dụng cho code hiện tại (đã được fix ở đâu đó trước lần kiểm tra này, không rõ commit cụ thể). `resetAllData()` xác nhận grep 0 caller — đã xoá hẳn khỏi `shared_preferences_util.dart`.
+
 ---
 
 ## 5. Native channel error handling — sạch
@@ -161,6 +163,8 @@ Grep `\blate\b`, force-null `!`, `setState`, `Get.snack` trên toàn file: **0 m
 3/4 chỗ (`:43`, `:54`, `:78`) an toàn tại runtime nhờ guard liền kề nhưng đều là `!` theo nghĩa đen mà `doc/init.md` yêu cầu tránh — có thể thay bằng `?.`/gán trực tiếp trong nhánh đã null-check để tuân thủ đúng quy ước không cần đổi hành vi. Riêng `:11` là **thực sự unguarded** — mức rủi ro cao hơn 3 chỗ còn lại dù cùng file.
 
 Không tìm thấy `setState`/`late` trong file này (dòng 16 chỉ là comment nhắc "without setState", animation dùng `AnimationController`/`AnimatedBuilder` đúng pattern reactive).
+
+**ĐÃ ĐÓNG (2026-08-09):** Đọc lại trực tiếp `zoom_inkwell.dart` hiện tại — `:11` không còn dùng `child!` nữa. `zoomOnTap()` giờ extract `final zoomChild = child;` rồi `if (zoomChild == null) { throw ArgumentError('ZoomEffect.zoomOnTap requires InkWell.child.'); }` trước khi dùng `zoomChild` (không `!`) ở phần khởi tạo `_ZoomAnimation`. File chỉ còn 3 chỗ `!` (tương ứng `:43`/`:54`/`:78` cũ), cả 3 đều guard bởi null-check/early-return liền kề như audit đã ghi nhận. Không có unguarded `!` nào trong file. Không cần sửa code thêm — finding này không còn áp dụng.
 
 ### `Get.snack` — sạch toàn repo
 

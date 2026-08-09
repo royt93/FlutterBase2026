@@ -630,40 +630,28 @@ hiện mới:
 
 ## 🟡 In progress
 
-- (Product track: none — Wave 5 complete)
-- (Ad/SDK track: **audit vòng 6 (2026-07-19) đóng, verdict cuối cùng là CÓ,
-  release production được ngay.** Xem `doc/audit/audit_claude.md` mục
-  "Re-audit vòng 6 — 2026-07-19". Làm rõ + đóng 1 nhầm lẫn 3-vòng (host App
-  ID là thật, example App ID trước đó vô tình rò rỉ ID host — đã fix). 3 việc
-  theo dõi T47/T48/T49 đã fix — xem ✅ Implemented ở trên.
-  Còn 1 High kỹ thuật vẫn mở: `dependency_overrides` pin dưới floor SDK
-  do xung đột `meta` với Flutter 3.35.1 — đã thử bump thật + revert (bằng
-  chứng thực nghiệm), chờ Flutter SDK nâng `meta ^1.17.0`, re-check
-  ~2026-10-13.)
-- (Ad/SDK track: Audit follow-up T31-T42 — **hoàn tất 2026-07-14**, xem
-  ✅ Implemented ở trên, `doc/task/done/T3{1,2,...,9}-*.md` + `T42-*.md`)
-- **Ad/SDK track — test-coverage cleanup (9 gaps, direct user request),
-  picked 2026-07-13.** Not a bug/audit item — user asked to fill remaining
-  unit/widget test gaps across `packages/ad_sdk/` + its example app. All 9
-  done same day: `ad_route_observer_test.dart` (didRemove/didReplace),
-  `top_toast_test.dart` (new), `ad_manager_core_test.dart`
-  (showAppOpenAdOnResume guard chain, didHaveMemoryPressure, retry-timer via
-  `fake_async`, RevenuePanel compact:false + dispose-safety),
-  `debug_ad_overlay_test.dart` (new), `example/test/home_page_test.dart`
-  (new), `example/test/revenue_demo_page_test.dart` (new) +
-  `events_demo_anomaly_test.dart` (added empty-state case). Verified:
-  `flutter test` 542/542 green in `packages/ad_sdk`, 12/12 green in
-  `packages/ad_sdk/example`, `flutter analyze` clean in both.
-  Cross-checked against a separate coverage-audit agent afterward — found 2
-  more genuine gaps (audit's other claims were already covered): the real
-  `AdManager.didChangeAppLifecycleState()` dispatcher had no direct test
-  (only its inner `showAppOpenAdOnResume()` call was), and
-  `debug_ad_overlay_test.dart`'s expand-panel test didn't assert `_SlotRows`
-  content (`(no adapter)`/`VIP=`/`Safety:`). Both closed same day: new
-  `didChangeAppLifecycleState()` group (`_FakeAdapter` gained
-  `onAppPaused`/`onAppResumed` call counters + a `throwOnLifecycle` flag) +
-  extended assertions on the existing expand-panel test. 547/547 green,
-  `flutter analyze` clean.
+- **Product track (picked 2026-08-09):** Wave 7 — audit cleanup (done, see
+  ✅ Implemented above). Code done + `flutter analyze`/`dart format`/`flutter
+  test` clean for D1 (custom data-usage limit), D2 (personal benchmark vs
+  advertised ISP speed), D3 (multi-server selection) and D4 (auto-schedule,
+  reminder-only scope). D4 went through 2-lane independent AI review
+  (codex + claude; agy lane failed on a headless-permission error) after the
+  first pass — 4 real findings confirmed by reading code directly and fixed:
+  multi-weekday scheduling (was firing on only 1 of N selected weekdays),
+  dead cold-launch notification-tap routing, a race condition + silent
+  success-on-failure in `ScheduleController._persistAndReschedule()`, and an
+  enabled-with-zero-weekdays UI/state desync. Still pending: iOS on-device
+  verify of Wave 6 (Track C) and a real-device build-verify of D4 (notif
+  fires for every selected weekday + tap routes correctly from
+  foreground/background/cold-launch on both platforms) — needs R3 device
+  pick before running. UMP consent runtime test was deliberately deferred
+  until after D4 ("làm D4 trước, test consent sau"). See
+  `/Users/loitran/.claude/plans/starry-dazzling-duckling.md` for the full plan.
+- **Ad/SDK track:** none active — audit vòng 9 (2026-07-20) closed at 9.0/10,
+  T23-T26 confirmed implemented + green (see ✅ Implemented above). One
+  standing technical item: `dependency_overrides` pins `meta`/related deps
+  below the SDK's own floor because Flutter 3.35.1 forces `meta 1.16.0`;
+  blocked on a Flutter SDK upgrade, re-check ~2026-10-13.
 
 ## ✅ Implemented — Wave 6 (3 differentiation features + shared Hive migration) · DONE 2026-08-08
 
@@ -758,7 +746,8 @@ Tests: `test/wave6_thermal_test.dart` (threshold gate across null/0/1/2-6,
 > `flutter analyze` clean (host + ad_sdk), APK builds with the native channel.
 > i18n 184/184 parity.
 > **Deferred from this pick:** heatmap (performance over time) — needs a
-> history×time matrix + a custom painter; larger than this session.
+> history×time matrix + a custom painter; larger than this session. **Closed
+> the same day** — see "Wave 5 spec-audit round" below, `heatmap_screen.dart`.
 
 #### Wave 5 on-device verification + post-review polish (S24 Ultra, 2026-06-16)
 - **Verified live on Samsung S24 Ultra (Android 16):** Network Dashboard resolved
@@ -1160,8 +1149,6 @@ dung 1.0.24 vẫn nằm nhầm dưới `## [Unreleased]`) — đã sửa.
   networks list.
 - Multiple servers selection + auto-test scheduling (daily/weekly).
 - Custom test params (packet size, interval, timeout), data-usage limits.
-- Heatmap of performance over time (deferred from Wave 5 — needs history×time
-  matrix + custom painter).
 - Network dashboard extras: connected-devices count, router manufacturer/model
   (OUI lookup) — deferred (BSSID shown in Wave 5, vendor DB is heavy).
 - Light/dark theme toggle (app is currently dark-only by design).
@@ -1183,30 +1170,37 @@ dung 1.0.24 vẫn nằm nhầm dưới `## [Unreleased]`) — đã sửa.
   `ConsentDemoPage` (consent state), `VipDemoPage` (VIP state). Xây thêm 1
   màn hình gộp chỉ để tiện hơn — không đáng effort, sẽ duplicate UI có sẵn.
 
-#### 📋 Picked (2026-07-08) — "Trust & Analytics" layer
+#### ✅ Implemented (2026-08-09) — "Trust & Analytics" layer (T23-T26)
 Decision: after `doc/audit/audit_gemini.md` confirmed near-total compliance
 (T01-T22), package that strength into a partner-facing product feature instead
-of chasing incremental ops tricks. Broken into 4 tasks in `doc/task/todo/`,
-ordered by dependency:
-- **T23 — Compliance Report export.** Persist a rolling `AdEventLog` +
+of chasing incremental ops tricks. All 4 tasks were coded and merged earlier
+than this doc reflected — verified 2026-08-09 by reading the source directly
+and re-running the test suites (30/30 pass, `flutter test
+test/compliance_report_test.dart test/ad_safety_config_risk_score_test.dart
+test/ad_anomaly_event_test.dart test/adaptive_frequency_test.dart` in
+`packages/ad_sdk`); task files live in `doc/task/done/T23-...md` .. `T26-...md`:
+- **T23 — Compliance Report export.** `packages/ad_sdk/lib/src/compliance/`
+  (`ad_event_log.dart` rolling ring buffer + `compliance_report.dart`
   structured safety/consent snapshot, exportable as JSON — evidence a partner
-  can hand to Google/AppLovin during an account-suspension appeal. Foundation
-  for T24/T25.
-- **T24 — Real-time policy risk score.** Turn `AdSafetyConfig`'s existing
-  internal signals (CTR, violation count, rapid-resume) into a single 0-100
-  score exposed reactively, so partners see risk building *before* an external
-  policy strike.
-- **T25 — Anomaly/fraud alert stream.** `_triggerSuspiciousPause()` currently
-  only logs internally; emit a new `AdAnomalyEvent` on `AdManager().events` so
-  partners can pipe anomalies into their own alerting (Sentry, Slack, etc.).
-- **T26 — Adaptive frequency capping, Phase 1 only.** Instrumentation-only
-  proxy signals (session-length-after-ad, time-to-next-open) logged for
-  observation. Explicitly NOT auto-adjusting caps yet — no backend/LTV signal
-  exists to validate a bandit algorithm safely; Phase 2 (actual adaptive
-  capping) is deferred until Phase 1 data exists.
-
-Supersedes the two 💭 ideas below as the near-term priority — they remain
-logged as deferred, not discarded.
+  can hand to Google/AppLovin during an account-suspension appeal). Test:
+  `test/compliance_report_test.dart`.
+- **T24 — Real-time policy risk score.** `AdSafetyConfig.policyRiskScore`
+  (`ValueNotifier<int>`, `packages/ad_sdk/lib/src/core/ad_safety_config.dart`)
+  turns existing internal signals (CTR, violation count, rapid-resume) into a
+  single 0-100 score exposed reactively. Test:
+  `test/ad_safety_config_risk_score_test.dart`.
+- **T25 — Anomaly/fraud alert stream.** `AdAnomalyEvent`
+  (`packages/ad_sdk/lib/src/state/ad_event.dart`) emitted on
+  `AdManager().events` from `_triggerSuspiciousPause()` so partners can pipe
+  anomalies into their own alerting (Sentry, Slack, etc.). Test:
+  `test/ad_anomaly_event_test.dart`.
+- **T26 — Adaptive frequency capping, Phase 1 only.**
+  `AdaptiveFrequencySignals` (`packages/ad_sdk/lib/src/adaptive/
+  adaptive_frequency.dart`) — instrumentation-only proxy signals
+  (session-length-after-ad, time-to-next-open) logged for observation.
+  Explicitly NOT auto-adjusting caps yet — no backend/LTV signal exists to
+  validate a bandit algorithm safely; Phase 2 (actual adaptive capping) stays
+  deferred until Phase 1 data exists. Test: `test/adaptive_frequency_test.dart`.
 
 #### New ideas (2026-07-07 differentiation pass)
 - **Shadow eCPM comparison between AdMob and AppLovin.** Since
