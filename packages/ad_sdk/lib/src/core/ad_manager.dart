@@ -505,6 +505,23 @@ class AdManager with WidgetsBindingObserver {
   bool _retryTimerActive = false;
   int _retryGen = 0;
 
+  // ─── Init-failure auto-retry ──────────────────────────────────────────────
+  // A transient failure of `adapter.initialize()` (cold network, brief native
+  // SDK hiccup) previously left the SDK permanently un-initialised for the
+  // rest of the app session — `_startAdRetryTimer`/`_startConnectivityWatch`
+  // only start on the *success* path, so nothing ever retried `initialize()`
+  // itself. Bounded backoff retry closes that gap without risking an
+  // infinite retry loop on a persistently broken host config.
+  static const int _maxInitRetryAttempts = 3;
+  static const List<Duration> _initRetryDelays = [
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+  ];
+  int _initRetryAttempts = 0;
+  Timer? _initRetryTimer;
+  bool _isInternalInitRetryCall = false;
+
   // ─── Connectivity watch (T08) ─────────────────────────────────────────────
   StreamSubscription<bool>? _connectivitySub;
   Timer? _reconnectDebounceTimer;
@@ -996,13 +1013,29 @@ class AdManager with WidgetsBindingObserver {
     required void Function(bool success, String gaid) onComplete,
     @visibleForTesting bool isRelease = kReleaseMode,
   }) async {
-    // Guard FIRST so concurrent calls during a teardown-then-reinit cycle
-    // can't slip past `_disposeAdapter`'s await and leak two adapters.
+    // Read + clear the internal-retry flag before the early-return guard —
+    // otherwise a retry timer firing while another call already holds
+    // `_isInitializing` leaves the flag stuck `true` forever (this call
+    // returns without ever reaching the reset below), and the next
+    // legitimate host-initiated call gets misclassified as an internal
+    // retry and skips its retry-budget reset.
+    final isInternalRetry = _isInternalInitRetryCall;
+    _isInternalInitRetryCall = false;
+    // Guard so concurrent calls during a teardown-then-reinit cycle can't
+    // slip past `_disposeAdapter`'s await and leak two adapters.
     if (_isInitializing) {
       SafeLogger.w(_tag, 'initialize already in progress — skipping duplicate');
       return;
     }
     _isInitializing = true;
+    if (!isInternalRetry) {
+      // A fresh, host-initiated call resets the auto-retry budget — otherwise
+      // a legitimate manual retry right after the internal budget was
+      // exhausted would look like it's still "out of retries".
+      _initRetryAttempts = 0;
+      _initRetryTimer?.cancel();
+      _initRetryTimer = null;
+    }
     // Wrap the entire init body in try/finally so a thrown
     // `AdPreferences.getInstance` / `AdSafetyConfig.init` / `VipManager.load`
     // can't strand `_isInitializing=true` and block future inits.
@@ -1083,7 +1116,9 @@ class AdManager with WidgetsBindingObserver {
       _vipManager?.activeListenable.removeListener(_onVipActiveChanged);
       _vipManager?.dispose();
       final vip = VipManager(prefs,
-          maxStackDuration: config.maxVipStackDuration, isRelease: isRelease);
+          maxStackDuration: config.maxVipStackDuration,
+          isRelease: isRelease,
+          isConnectedCheck: () => isConnected);
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
@@ -1299,10 +1334,21 @@ class AdManager with WidgetsBindingObserver {
       }
       if (!ok) {
         SafeLogger.e(_tag, 'adapter init FAILED');
-        onComplete(false, _currentDeviceGAID);
-        SimpleEventBus().fire(const BoolEvent(false));
+        // Only report the terminal outcome to the host — `onComplete` is a
+        // 1.x callback contract meant to fire exactly once per host call.
+        // Firing it on every internal retry attempt (up to 4x: the first
+        // failure + 3 retries) would surprise hosts expecting a single
+        // success/failure signal.
+        if (!_scheduleInitRetryIfNeeded(config, onComplete, isRelease)) {
+          onComplete(false, _currentDeviceGAID);
+          SimpleEventBus().fire(const BoolEvent(false));
+        }
         return;
       }
+
+      _initRetryAttempts = 0;
+      _initRetryTimer?.cancel();
+      _initRetryTimer = null;
 
       _config = config;
       _adapter = adapter;
@@ -1393,11 +1439,47 @@ class AdManager with WidgetsBindingObserver {
       unawaited(_startConnectivityWatch());
     } catch (e, st) {
       SafeLogger.e(_tag, 'initialize THREW: $e\n$st');
-      onComplete(false, _currentDeviceGAID);
-      SimpleEventBus().fire(const BoolEvent(false));
+      if (!_scheduleInitRetryIfNeeded(config, onComplete, isRelease)) {
+        onComplete(false, _currentDeviceGAID);
+        SimpleEventBus().fire(const BoolEvent(false));
+      }
     } finally {
       _isInitializing = false;
     }
+  }
+
+  /// Schedules a bounded, backed-off retry of [initialize] after a failed
+  /// attempt (adapter init failure or a thrown exception). Caps at
+  /// [_maxInitRetryAttempts] so a persistently broken host config (bad ad
+  /// unit ids, missing native config) doesn't retry forever — it just waits
+  /// for the next app launch or an explicit host-initiated `initialize()`
+  /// call, same as before this fix existed. Returns whether a retry was
+  /// actually scheduled — callers use this to decide whether *they* still
+  /// need to report the failure to `onComplete` themselves (terminal
+  /// outcome) or leave it to the retry (non-terminal).
+  bool _scheduleInitRetryIfNeeded(
+    AdConfig config,
+    void Function(bool success, String gaid) onComplete,
+    bool isRelease,
+  ) {
+    if (_initRetryAttempts >= _maxInitRetryAttempts) {
+      SafeLogger.w(_tag,
+          'adapter init failed $_initRetryAttempts time(s) in a row — giving up auto-retry for this session');
+      return false;
+    }
+    final delay = _initRetryDelays[_initRetryAttempts];
+    _initRetryAttempts++;
+    SafeLogger.d(
+        _tag,
+        () =>
+            '⏲️ scheduling init retry #$_initRetryAttempts in ${delay.inSeconds}s');
+    _initRetryTimer?.cancel();
+    _initRetryTimer = Timer(delay, () {
+      _isInternalInitRetryCall = true;
+      unawaited(
+          initialize(config: config, onComplete: onComplete, isRelease: isRelease));
+    });
+    return true;
   }
 
   /// Fired when [VipManager.activeListenable] flips. We only care about the
@@ -1789,6 +1871,9 @@ class AdManager with WidgetsBindingObserver {
     initRevision.value = initRevision.value + 1;
     _stopAdRetryTimer();
     _stopConnectivityWatch();
+    _initRetryTimer?.cancel();
+    _initRetryTimer = null;
+    _initRetryAttempts = 0;
     AdLoadingDialog.resetState();
     AdScreenRouteLogger.resetState();
     AdSafetyConfig.resetForReinit();

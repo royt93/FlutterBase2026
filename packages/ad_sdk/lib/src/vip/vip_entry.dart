@@ -19,26 +19,38 @@ class VipEntry {
   final DateTime expiresAt;
   final DateTime grantedAt;
 
-  /// True if this entry is currently valid.
+  /// True if this entry is currently valid, evaluated against [now].
   ///
-  /// T17 anti clock-rollback: `grantedAt` is the immutable anchor. If the
-  /// wall clock now reads *before* `grantedAt`, the system clock was set
-  /// backwards after the grant — the naive `now.isBefore(expiresAt)` check
-  /// would let an expired-by-real-time entry "come back to life". Treat a
-  /// rolled-back clock as the entry having already been consumed rather
-  /// than granting extra time (fail-safe, not fail-open).
-  bool get isActive {
-    final now = DateTime.now();
+  /// T17 anti clock-rollback: `grantedAt` is the immutable anchor. If [now]
+  /// reads *before* `grantedAt`, the system clock was set backwards after the
+  /// grant — the naive `now.isBefore(expiresAt)` check would let an
+  /// expired-by-real-time entry "come back to life". Treat a rolled-back
+  /// clock as the entry having already been consumed rather than granting
+  /// extra time (fail-safe, not fail-open).
+  ///
+  /// This only catches a rollback to *before* the grant. A rollback to
+  /// somewhere *between* `grantedAt` and `expiresAt` — done after the entry
+  /// already expired in real time — passes this check undetected, because
+  /// from this entry's own point of view that's indistinguishable from a
+  /// legitimate still-active window. [VipManager] closes that gap by passing
+  /// a `now` that's already been clamped against a persisted high-water
+  /// mark, rather than a raw `DateTime.now()`.
+  bool isActiveAt(DateTime now) {
     if (now.isBefore(grantedAt)) return false;
     return now.isBefore(expiresAt);
   }
 
-  Duration get remaining {
-    final now = DateTime.now();
+  /// Convenience for callers that don't need the clock-rollback clamp
+  /// [VipManager] applies (e.g. tests constructing a bare [VipEntry]).
+  bool get isActive => isActiveAt(DateTime.now());
+
+  Duration remainingAt(DateTime now) {
     if (now.isBefore(grantedAt)) return Duration.zero;
     final d = expiresAt.difference(now);
     return d.isNegative ? Duration.zero : d;
   }
+
+  Duration get remaining => remainingAt(DateTime.now());
 
   /// Encodes [expiresAt]/[grantedAt] via the plain `DateTime.toIso8601String()`
   /// — i.e. in whatever zone the DateTime already carries. [VipManager]

@@ -1022,6 +1022,37 @@ void main() {
     });
   });
 
+  group('initialize() onComplete single-fire (init auto-retry fix)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    tearDown(() async {
+      // Init failure schedules a real (5s+) retry Timer — destroy() cancels
+      // it so it can't fire against a later test's state.
+      await AdManager().destroy();
+    });
+
+    test(
+        'onComplete is NOT fired on a failed attempt while auto-retry '
+        'budget remains — only on the terminal outcome', () async {
+      var callCount = 0;
+      await AdManager().initialize(
+        // Real adapter.initialize() always fails under `flutter test` (no
+        // native platform channel) — that failure path is exactly what
+        // schedules the auto-retry this test is pinning.
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) => callCount++,
+      );
+
+      expect(callCount, 0,
+          reason: 'the first failed attempt still has retry budget left '
+              '(_scheduleInitRetryIfNeeded returns true) — firing '
+              'onComplete here as well as on the eventual terminal outcome '
+              'would violate the "fires once" 1.x callback contract');
+    });
+  });
+
   group('T48: first-install VIP grace fires through the real init flow', () {
     setUp(() async {
       await AdManager().destroy();

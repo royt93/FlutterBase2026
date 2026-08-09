@@ -185,6 +185,31 @@ void main() {
       expect(r.entry, isNotNull);
     });
 
+    test('offline device is rejected before the key is even checked',
+        () async {
+      final mgr = VipManager(prefs,
+          vipEntriesStore: store, isConnectedCheck: () => false);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mint(keyPair, seconds: 7200, kid: 'offline1');
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.ok, isFalse);
+      expect(r.status, VipRedeemStatus.invalid);
+      expect(mgr.isActive, isFalse);
+
+      // The key must still be redeemable once the device is back online —
+      // being offline is not a "used" outcome, just a blocked attempt.
+      final mgrOnline = VipManager(prefs, vipEntriesStore: store);
+      await mgrOnline.load();
+      addTearDown(mgrOnline.dispose);
+      final retry = await mgrOnline.redeemSignedKey(code, publicKeyBase64: pub);
+      expect(retry.ok, isTrue,
+          reason: 'a key rejected only for being offline must still work '
+              'once connectivity returns');
+    });
+
     test('same key id cannot be redeemed twice on this device', () async {
       final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();

@@ -264,4 +264,45 @@ void main() {
               'mode so hosts can wire the integration before shipping');
     });
   });
+
+  group('anti clock-rollback — mid-window reactivation', () {
+    // T17's VipEntry.isActive only rejects a clock reading *before*
+    // grantedAt. It does NOT catch the more common abuse: let a grant
+    // expire in real time, then roll the clock back to any point still
+    // *inside* [grantedAt, expiresAt) — from the entry's own point of view
+    // that's indistinguishable from a legitimate still-active window.
+    // VipManager closes this by clamping `now` to a persisted high-water
+    // mark. We simulate "the device's clock was previously seen far in the
+    // future" by seeding that persisted mark directly, rather than actually
+    // moving the OS clock (which the SDK has no injectable seam for) — the
+    // clamping code path is identical either way.
+    test(
+        'entry inside its granted window is NOT active once a later '
+        'high-water clock mark has been observed', () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final now = DateTime.now();
+      await mgr.addVip(key: 'ROLLBACK', duration: const Duration(days: 10));
+      expect(mgr.isActive, isTrue,
+          reason: 'sanity check — freshly granted entry must start active');
+
+      // Simulate: the app already observed the clock at now+30d (e.g. the
+      // grant's own expiry timer or a later launch advanced the high-water
+      // mark), then the device clock got rolled back to `now` — still well
+      // inside the granted [now, now+10d) window.
+      await prefs.setVipMaxObservedClockMs(
+          now.add(const Duration(days: 30)).millisecondsSinceEpoch);
+
+      final reloaded = VipManager(prefs, vipEntriesStore: store);
+      await reloaded.load();
+      addTearDown(reloaded.dispose);
+
+      expect(reloaded.isActive, isFalse,
+          reason: 'a clock rolled back into the granted window after the '
+              'entry was observed to have already expired must NOT '
+              'resurrect it');
+    });
+  });
 }

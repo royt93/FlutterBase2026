@@ -234,6 +234,23 @@ class AdPreferences {
     await _prefs?.setInt(_keyVipGraceNudgeAckExpiryMs, expiryMs);
   }
 
+  // ─── VIP clock-rollback guard — high-water mark of the latest wall-clock
+  // time ever observed by [VipManager]. `DateTime.now()` reading *before*
+  // this stored value means the system clock was rolled back — clamping
+  // "now" to this mark stops a rolled-back clock from reviving a VIP/trial
+  // entry that already expired in real time (closes the window between
+  // `grantedAt` and `expiresAt`, which the `grantedAt`-anchor check alone
+  // does not cover).
+
+  static const String _keyVipMaxObservedClockMs = 'ad_sdk_vip_max_observed_clock_ms';
+
+  int? getVipMaxObservedClockMs() =>
+      _prefs?.getInt(_keyVipMaxObservedClockMs);
+
+  Future<void> setVipMaxObservedClockMs(int millisSinceEpoch) async {
+    await _prefs?.setInt(_keyVipMaxObservedClockMs, millisSinceEpoch);
+  }
+
   // ─── Compliance event log (T23, JSON-encoded ring buffer) ─────────────────
 
   static const String _keyComplianceLog = 'ad_sdk_compliance_event_log_v1';

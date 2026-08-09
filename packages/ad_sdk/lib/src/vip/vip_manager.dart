@@ -43,13 +43,27 @@ class VipManager {
     RedeemedKeyLedger? redeemedKeyLedger,
     VipEntriesStore? vipEntriesStore,
     bool isRelease = kReleaseMode,
+    bool Function()? isConnectedCheck,
   })  : _redeemedKeyLedger = redeemedKeyLedger ?? RedeemedKeyLedger(),
         _vipEntriesStore = vipEntriesStore ?? VipEntriesStore(_prefs),
-        _isRelease = isRelease;
+        _isRelease = isRelease,
+        // Default fail-open (`true`) — a caller that doesn't wire real
+        // connectivity (raw unit tests, hosts not yet on this SDK version)
+        // keeps today's behaviour. `AdManager` wires its own safe
+        // `isConnected` getter here in production, see [redeemSignedKey].
+        _isConnectedCheck = isConnectedCheck ?? (() => true);
 
   static const String _tag = 'VipManager';
 
   final AdPreferences _prefs;
+
+  /// Reports whether the device currently has network connectivity. Gates
+  /// [redeemSignedKey] — even though signature verification itself is fully
+  /// offline (Ed25519, no server call), requiring a network check at the
+  /// point of redemption was an explicit product decision to discourage
+  /// sharing one signed key across many devices with no connectivity signal
+  /// at all. Wired to `AdManager`'s own connectivity getter in production.
+  final bool Function() _isConnectedCheck;
 
   /// Durable (iOS Keychain) backstop for redeemed signed-key ids — survives
   /// reinstall, unlike `_prefs`'s SharedPreferences-backed ledger. See
@@ -131,12 +145,35 @@ class VipManager {
 
   /// Latest expiry across all active entries, or null if none active.
   DateTime? get expiresAt {
+    final now = _effectiveNow();
     DateTime? latest;
     for (final e in _entries) {
-      if (!e.isActive) continue;
+      if (!e.isActiveAt(now)) continue;
       if (latest == null || e.expiresAt.isAfter(latest)) latest = e.expiresAt;
     }
     return latest;
+  }
+
+  /// Returns `DateTime.now()` clamped against the highest wall-clock time
+  /// ever observed by this manager (persisted in [_prefs]). If the device
+  /// clock has been rolled backwards since the last time we looked — the
+  /// classic trial/VIP abuse move: let a grant expire in real time, then set
+  /// the clock back into the granted window — this returns the high-water
+  /// mark instead of the (lower) real clock, so [VipEntry.isActiveAt] still
+  /// sees the entry as expired. Otherwise records and returns the real time.
+  ///
+  /// This is a client-side, fully-offline mitigation: it cannot detect a
+  /// clock rolled back *before* the app was ever run on this device (no
+  /// prior high-water mark exists yet), only reactivation attempts made
+  /// after the app has already observed the later time once.
+  DateTime _effectiveNow() {
+    final real = DateTime.now();
+    final observedMs = _prefs.getVipMaxObservedClockMs();
+    if (observedMs != null && observedMs > real.millisecondsSinceEpoch) {
+      return DateTime.fromMillisecondsSinceEpoch(observedMs);
+    }
+    unawaited(_prefs.setVipMaxObservedClockMs(real.millisecondsSinceEpoch));
+    return real;
   }
 
   /// Read-only snapshot of all entries (for UI listing).
@@ -186,7 +223,7 @@ class VipManager {
 
   void _refreshGraceNudge() {
     final exp = expiresAt;
-    final now = DateTime.now();
+    final now = _effectiveNow();
     final due = isActive &&
         exp != null &&
         exp.isAfter(now) &&
@@ -264,8 +301,9 @@ class VipManager {
   }
 
   void _purgeExpired() {
+    final now = _effectiveNow();
     final before = _entries.length;
-    _entries.removeWhere((e) => !e.isActive);
+    _entries.removeWhere((e) => !e.isActiveAt(now));
     if (_entries.length != before) {
       SafeLogger.d(_tag, 'purgeExpired: removed ${before - _entries.length}');
       unawaited(_save());
@@ -274,7 +312,8 @@ class VipManager {
 
   void _refreshActive() {
     final wasActive = _activeNotifier.value;
-    final nowActive = _entries.any((e) => e.isActive);
+    final now = _effectiveNow();
+    final nowActive = _entries.any((e) => e.isActiveAt(now));
     if (wasActive != nowActive) {
       _activeNotifier.value = nowActive;
       if (!_activeStream.isClosed) _activeStream.add(nowActive);
@@ -294,9 +333,10 @@ class VipManager {
     _expiryTimer?.cancel();
     _expiryTimer = null;
 
+    final now = _effectiveNow();
     DateTime? earliest;
     for (final e in _entries) {
-      if (!e.isActive) continue;
+      if (!e.isActiveAt(now)) continue;
       if (earliest == null || e.expiresAt.isBefore(earliest)) {
         earliest = e.expiresAt;
       }
@@ -305,14 +345,14 @@ class VipManager {
     final exp = expiresAt;
     if (exp != null) {
       final nudgeFireAt = exp.subtract(graceNudgeThreshold);
-      if (nudgeFireAt.isAfter(DateTime.now()) &&
+      if (nudgeFireAt.isAfter(now) &&
           (earliest == null || nudgeFireAt.isBefore(earliest))) {
         earliest = nudgeFireAt;
       }
     }
     if (earliest == null) return;
 
-    final delay = earliest.difference(DateTime.now());
+    final delay = earliest.difference(now);
     if (delay <= Duration.zero) {
       // Already expired (clock skew or scheduling lag) — handle on next
       // microtask so we don't reentrantly call _purgeExpired.
@@ -388,8 +428,9 @@ class VipManager {
       // Global stacking: extend from the latest expiry across ALL active
       // entries (not just this key) so grants from every source add up.
       var base = now;
+      final effNow = _effectiveNow();
       for (final e in _entries) {
-        if (e.isActive && e.expiresAt.isAfter(base)) base = e.expiresAt;
+        if (e.isActiveAt(effNow) && e.expiresAt.isAfter(base)) base = e.expiresAt;
       }
       var newExpiry = base.add(duration);
       // Clamp to the optional total-window cap.
@@ -543,6 +584,11 @@ class VipManager {
   /// itself. Enforces **per-device one-time-use**: the same key id cannot be
   /// redeemed twice on this device.
   ///
+  /// Requires connectivity to even attempt redemption (checked via
+  /// [_isConnectedCheck], not a network call the key verification itself
+  /// needs) — a deliberate product gate against redeeming with the device
+  /// offline, not a technical requirement of the Ed25519 check.
+  ///
   /// Returns a [SignedVipRedeemResult] describing success / invalid / already
   /// used. On success the grant [stack]s onto the current window by default.
   Future<SignedVipRedeemResult> redeemSignedKey(
@@ -550,6 +596,12 @@ class VipManager {
     required String publicKeyBase64,
     bool stack = true,
   }) async {
+    if (!_isConnectedCheck()) {
+      SafeLogger.d(_tag, 'redeemSignedKey: rejected — device is offline');
+      return const SignedVipRedeemResult.invalid(
+          'no network connection — connect to the internet to redeem a VIP code');
+    }
+
     SignedVipKey parsed;
     try {
       // C6 — read the running app's bundle id so an AVP2 key bound to another
