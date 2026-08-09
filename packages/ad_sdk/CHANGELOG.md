@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-08-09
+
+Docs-only. No code changes.
+
+### Added
+
+- `example/README.md` — a Quickstart section with the minimal
+  `setNavigatorKey`/`navigatorObservers`/`requestUmpConsent`/`initialize`/
+  `buildBanner` snippet, so the pub.dev "Example" tab is self-contained
+  instead of only linking out to the package README.
+
 ## [2.0.2] - 2026-08-09
 
 Docs-only. No code changes.

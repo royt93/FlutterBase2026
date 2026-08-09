@@ -1,13 +1,15 @@
 # UMP / GDPR consent form setup
 
-**Status (2026-08-09): owner confirmed the GDPR message is published** against
-the Android production App ID (`ca-app-pub-3004713799155145~9488250427`). No
-longer a release blocker for Android. Recommended next step, not urgent: run
-the "How to verify it works" debug check below once to confirm the form
-actually renders end-to-end, since publishing on the dashboard and the SDK
-picking it up correctly on-device are two different things. iOS is still
-pending its own AdMob app entry (see `doc/AD_PROMPT_FLUTTER.MD` Phụ lục C) —
-redo this whole doc for iOS once that entry exists.
+**Status (2026-08-09): verified end-to-end.** Owner published the GDPR message
+against the Android production App ID
+(`ca-app-pub-3004713799155145~9488250427`), and the "How to verify it works"
+debug check below was run on a real device (Pixel 7 Pro) the same day: forced
+EEA debug geography rendered the consent form correctly, log confirmed
+`status=required, formShown=true`. The temporary test code has been reverted;
+splash runs `requestUmpConsent(testMode: false)` in production. **No longer a
+release blocker for Android.** iOS is still pending its own AdMob app entry
+(see `doc/AD_PROMPT_FLUTTER.MD` Phụ lục C) — redo this whole doc (including
+the verify step) for iOS once that entry exists.
 
 This is a **dashboard task** — no code change is needed. The SDK already calls
 `AdManager().requestUmpConsent()` in the splash (before the first ad request),
@@ -31,12 +33,12 @@ the real production Android app entry, and its 4 ad unit IDs in `ad_keys.dart`
 are real. iOS is intentionally deferred: it reuses the Android App ID/ad unit
 IDs as a placeholder for now and will get its own real AdMob app
 entry + ad units when iOS work is prioritized — not a bug to fix today.
-**Do not assume a GDPR/UMP message has ever been published against the Android
-App ID** — every doc up to today described the app as still running test IDs,
-so this specific ID may never have been configured on the AdMob dashboard.
 
-The SDK degrades gracefully (`canRequestAds=true`), but **EU/EEA/UK users never
-see a consent form** → this must be fixed before an EEA release.
+The GDPR message publish above has been verified end-to-end on a real device
+(see "How to verify it works") — forced EEA debug geography rendered the
+consent form correctly and logged `status=required, formShown=true`. This
+section is left below as history of how the gap was originally found; it no
+longer describes the current state.
 
 ## What you need
 
@@ -84,4 +86,5 @@ consent dialog appears. Once confirmed, revert the temporary `testMode` change
 
 - Splash call site: `lib/mckimquyen/widget/splash/splash_screen.dart` (the
   `requestUmpConsent(testMode: false)` block).
-- Tracked as the release blocker in `doc/feature.md` and `doc/AD.MD`.
+- Was tracked as a release blocker in `doc/feature.md` and `doc/AD.MD`; cleared
+  for Android per the verified status above.

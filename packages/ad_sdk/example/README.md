@@ -7,6 +7,31 @@ cd example
 flutter run
 ```
 
+## Quickstart
+
+```dart
+// Before runApp():
+AdManager().setNavigatorKey(navigatorKey);
+
+runApp(MaterialApp(
+  navigatorKey: navigatorKey,
+  navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
+  home: const SplashScreen(),
+));
+
+// Inside SplashScreen, before the first ad request:
+await AdManager().requestUmpConsent();
+AdManager().initialize(config: myConfig, onComplete: (success, gaid) {});
+
+// Any screen that shows ads extends AdScreen/AdScreenState instead of
+// StatefulWidget/State, then just:
+buildBanner();
+```
+
+See the "Banner ad" and "Consent / GDPR" demo pages for the full working
+version of this, and the package [`README.md`](../README.md) for `myConfig`
+and the rest of the integration contract.
+
 | Page | Demonstrates |
 |---|---|
 | Banner ad | Anchored adaptive banner, route-aware pause/resume lifecycle |
