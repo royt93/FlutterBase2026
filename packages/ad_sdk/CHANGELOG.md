@@ -6,6 +6,56 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-08-09
+
+Non-breaking bug fixes, cross-checked by three independent agents (Codex,
+agy, a second Claude instance) with every finding verified against the
+source. 698/698 tests pass; manually verified on a real Android device.
+
+### Fixed
+
+- **`AdManager.initialize()` bounded auto-retry.** A failed adapter init
+  (bad ad unit ids, missing native config, transient SDK error) now retries
+  up to 3 times with backoff (5s/15s/30s) before giving up for the session,
+  instead of leaving the host permanently uninitialized until the next app
+  launch or an explicit re-`initialize()` call.
+- **`onComplete` now fires exactly once per host-initiated `initialize()`
+  call.** Previously it could fire on every failed attempt in addition to
+  the terminal outcome (up to 4 times across the retry budget), violating
+  the 1.x callback contract of firing once with the final result.
+- **Stale internal-retry flag could leak into a later legitimate call.** A
+  retry timer firing while another `initialize()` call already held the
+  busy guard left `_isInternalInitRetryCall` stuck `true`, causing the next
+  real host-initiated call to be misclassified as an internal retry.
+- **`VipManager` clock-rollback guard applied consistently.** The
+  clock-rollback-resistant "now" getter (`_effectiveNow`, clamped against a
+  persisted high-water mark) was already used for expiry/stacking
+  calculations but was missed in `_refreshGraceNudge` and
+  `_scheduleNextExpiry`, which still read the raw device clock — a backward
+  clock jump could desync the grace-nudge and next-expiry timers from the
+  rest of the VIP state.
+
+### Changed
+
+- **`VipManager.redeemSignedKey` now rejects redemption attempts while the
+  device is offline**, returning `VipRedeemStatus.invalid` with a
+  "no network connection" message, before running Ed25519 signature
+  verification. Deliberate anti-abuse tightening — a host at 2.0.0 that
+  allowed a signed key to be redeemed while offline will see those attempts
+  rejected at 2.0.1. Ed25519 verification itself is still fully offline
+  (no server call, no shared secret); only the redemption *attempt* now
+  requires connectivity.
+
+### Known limitations (unchanged, not new in this release)
+
+- `VipManager.redeemVip`'s separate host-supplied-validator path is not
+  gated by the offline check above — only `redeemSignedKey` is. Consumers
+  using `redeemVip` with their own validator should apply their own
+  connectivity check if desired.
+- `AdManager.isConnected` optimistically returns `true` if read before the
+  connectivity watcher is ready, or if the platform check throws — a small
+  fail-open window on cold start.
+
 ## [2.0.0] - 2026-08-02
 
 Breaking. Comes out of a full audit against seven production requirements
