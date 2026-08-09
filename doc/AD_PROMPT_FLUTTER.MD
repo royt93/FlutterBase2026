@@ -1068,13 +1068,13 @@ Project này là reference implementation cho `applovin_admob_sdk` (hiện dev/t
 
 ## Phụ lục C — Ghi chú audit 2026-07-13/14 (accepted items, checklist trước khi bật AdMob thật)
 
-- **CẢNH BÁO (2026-08-09): mục dưới đây đã lỗi thời, để lại làm lịch sử.** T32 (2026-07-14) tạm chuyển sang test App ID của Google như mô tả dưới đây, nhưng commit `ea54d16` (2026-07-18) đã revert: `AndroidManifest.xml`, `Info.plist`, và `ad_keys.dart` hiện dùng `ca-app-pub-3004713799155145~9488250427` cho **cả Android và iOS** — đúng lỗi "1 App ID dùng chung 2 platform" mà mục này từng cảnh báo, bị tái diễn mà không cập nhật doc. Chưa rõ đây là App ID production thật hay tạm, và gần như chắc chưa từng publish UMP/GDPR message cho ID này (xem `doc/UMP_SETUP.md` bản cập nhật 2026-08-09). Đọc `doc/UMP_SETUP.md` trước khi hành động, không dựa vào đoạn text cũ dưới đây.
+- **CẢNH BÁO (2026-08-09): mục dưới đây đã lỗi thời, để lại làm lịch sử.** T32 (2026-07-14) tạm chuyển sang test App ID của Google như mô tả dưới đây, nhưng commit `ea54d16` (2026-07-18) đã revert: `AndroidManifest.xml`, `Info.plist`, và `ad_keys.dart` hiện dùng `ca-app-pub-3004713799155145~9488250427` cho cả Android và iOS. Xác nhận với owner (2026-08-09): **Android là App ID production thật, ưu tiên hiện tại**; iOS đang tạm dùng lại giá trị của Android làm placeholder — có chủ đích, sẽ lấy App ID/ad-unit riêng cho iOS khi nào làm tới iOS, không phải lỗi cần sửa ngay. Còn thiếu chưa xác nhận: đã publish UMP/GDPR message cho App ID Android đó chưa (xem `doc/UMP_SETUP.md` bản 2026-08-09). Đọc `doc/UMP_SETUP.md` trước khi hành động, không dựa vào đoạn text cũ dưới đây.
 
-- ~~**AdMob App ID hiện là TEST ID (T32, 2026-07-14).**~~ `android/app/src/main/AndroidManifest.xml`'s `com.google.android.gms.ads.APPLICATION_ID` và `ios/Runner/Info.plist`'s `GADApplicationIdentifier` đang dùng test App ID chính thức của Google (`ca-app-pub-3940256099942544~3347511713` Android / `~1458002511` iOS) — quyết định có chủ đích, không phải bug, vì App ID production cũ trước đây bị dán trùng 1 giá trị cho cả 2 platform (sai, vì AdMob console cấp App ID riêng theo từng platform app entry). **Checklist bắt buộc trước khi bật `AdConfig.provider: AdProvider.adMob` thật:**
-  1. Vào https://admob.google.com, lấy đúng App ID của app entry Android và app entry iOS (2 giá trị khác nhau).
-  2. Cập nhật lại 2 file trên với 2 giá trị đó (xoá comment "T32... tạm dùng test App ID").
-  3. Lấy 4 bộ ad-unit ID thật (banner/interstitial/appOpen/rewarded) riêng cho từng platform từ console, điền vào `AdMobConfig` trong `lib/mckimquyen/common/const/ad_keys.dart`.
-  4. Chạy lại `flutter analyze` + build thử để chắc không còn test ID nào sót.
+- ~~**AdMob App ID hiện là TEST ID (T32, 2026-07-14).**~~ `android/app/src/main/AndroidManifest.xml`'s `com.google.android.gms.ads.APPLICATION_ID` và `ios/Runner/Info.plist`'s `GADApplicationIdentifier` đang dùng test App ID chính thức của Google (`ca-app-pub-3940256099942544~3347511713` Android / `~1458002511` iOS) — quyết định có chủ đích, không phải bug, vì App ID production cũ trước đây bị dán trùng 1 giá trị cho cả 2 platform (sai, vì AdMob console cấp App ID riêng theo từng platform app entry). **Checklist khi làm tới iOS (không gấp, Android đang là ưu tiên):**
+  1. Vào https://apps.admob.com, tạo app entry iOS riêng, lấy App ID thật của nó (khác App ID Android).
+  2. Cập nhật `ios/Runner/Info.plist`'s `GADApplicationIdentifier` với giá trị đó.
+  3. Lấy 4 bộ ad-unit ID thật (banner/interstitial/appOpen/rewarded) riêng cho iOS từ console, điền vào `AdKey.adMob` — hiện file `lib/mckimquyen/common/const/ad_keys.dart` chưa tách `AdMobConfig` theo platform như `AppLovinConfig` đã làm, cần thêm khi đó.
+  4. Chạy lại `flutter analyze` + build iOS thử.
 
 - **Không có watchdog cho Interstitial/Rewarded — accepted risk (chốt
   2026-07-14, không phải thiếu sót bị bỏ quên).** App Open có watchdog hard-cap
