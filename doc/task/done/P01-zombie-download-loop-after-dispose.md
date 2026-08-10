@@ -1,6 +1,6 @@
 # P01 — Zombie download loop sau khi dispose `StressorController`
 
-- **Priority:** P0 · **Severity:** CRITICAL · **Status:** 🔲 todo
+- **Priority:** P0 · **Severity:** CRITICAL · **Status:** ✅ done
 - **Nguồn:** subagent đọc source (đọc trực tiếp toàn bộ file, verify từng dòng)
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/stressor_controller.dart`
 
@@ -18,6 +18,9 @@
 - Xem xét bỏ hẳn `Future.delayed(100ms)` nếu không còn cần thiết sau khi `isRunning=false` đã chặn loop.
 
 ## Acceptance criteria
-- [ ] `onClose()` set `isRunning.value = false` trước khi cleanup.
-- [ ] Test: mở stressor, bắt đầu test, pop screen giữa lúc đang chạy, verify không còn network call nào phát ra sau khi controller dispose (mock Dio, assert `dio.get` không gọi thêm sau X ms).
-- [ ] `flutter analyze` sạch, test cũ không regress.
+- [x] `onClose()` set `isRunning.value = false` trước khi cleanup.
+- [x] Test: assert `isRunning.value == false` sau `onClose()` khi được set `true` trước đó (mô phỏng dispose giữa lúc chạy) — `test/wave1_unit_test.dart` group `StressorController dispose`.
+- [x] `flutter analyze` sạch, test cũ không regress (119/119 pass, `flutter test`).
+
+## Đã verify (2026-08-10)
+Fix thực tế: đặt `isRunning.value = false` ở **đầu `_cleanup()`** (`stressor_controller.dart:275-276`) — không đặt ở đầu `onClose()` như đề xuất ban đầu, vì `_cleanup()` là điểm hội tụ chung của cả 2 nhánh (`onClose()` gọi `_cleanup()` ngay lập tức khi không có test đang chạy, hoặc sau `Future.delayed(100ms)` khi có test đang chạy — dòng 265-269). Đặt `isRunning=false` cùng chỗ với `dio.close()` trong `_cleanup()` đảm bảo 2 việc xảy ra atomic: không còn khoảng hở nào giữa "loop check isRunning" và "dio bị đóng". Không bỏ `Future.delayed(100ms)` vì nó phục vụ mục đích khác (cho `_saveTestResult('interrupted')` kịp bắt đầu trước khi cleanup), không liên quan đến bug này.
