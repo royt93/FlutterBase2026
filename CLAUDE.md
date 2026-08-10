@@ -15,11 +15,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Suite | Path | How to run |
 |---|---|---|
-| Ad SDK (primary gate) | `packages/ad_sdk/test/` — 67 files, ~675 tests | `cd packages/ad_sdk && flutter test` |
+| Ad SDK (primary gate) | `packages/ad_sdk/test/` — 69 files, ~699 tests | `cd packages/ad_sdk && flutter test` |
 | Ad SDK on-device | `packages/ad_sdk/example/integration_test/` — 22 files (21 test suites + shared `scroll_helpers.dart`) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
-| Host app | `test/` at repo root — 16 files | `flutter test` from repo root |
+| Host app | `test/` at repo root — 23 files | `flutter test` from repo root |
 
-Host `test/` is not just VIP any more: `wave1..wave5_*` cover the stressor's controllers/services/models/export, plus `vip_screen_widget_test.dart` and `wifi_stressor_screen_grace_nudge_test.dart`. `test_driver/integration_test.dart` exists but there is **no** host `integration_test/` directory. The `Makefile`'s `test*`/`coverage` targets still point at the non-existent `test/unit|widget|integration` layout — run `flutter test` directly instead.
+Host `test/` is not just VIP any more: `wave1..wave7_*` cover the stressor's controllers/services/models/export, plus `vip_screen_widget_test.dart` and `wifi_stressor_screen_grace_nudge_test.dart`. `test_driver/integration_test.dart` exists but there is **no** host `integration_test/` directory. The `Makefile`'s `test*`/`coverage` targets still point at the non-existent `test/unit|widget|integration` layout — run `flutter test` directly instead.
 
 ```bash
 # Install + generate mocks
@@ -52,7 +52,7 @@ flutter clean && flutter pub get
 
 - `sdk` — `flutter analyze` + `flutter test` in `packages/ad_sdk`. Primary gate.
 - `sdk-integration` — the example app's `integration_test/` on an Android emulator. Needs KVM, disk cleanup and a 3GB swapfile on the runner (OOM-killer flake, see the inline comments before touching it). Forces `AD_PROVIDER_ADMOB` because no real AppLovin SDK key is committed, so the AppLovin path can never init in CI.
-- `sdk-integration-ios` — same tests on an iOS Simulator (Xcode 26.1.1 + CocoaPods). Unlike the Android job this one runs **one `flutter test` invocation per file**: with all 18 passed to a single invocation, one flaky app launch on the CI simulator hung until the 12-minute per-test timeout, took the next file down with `Failed to start Dart Development Service`, and hid the other 16. Splitting is nearly free (`flutter test` already relaunches the app between files) and names the file that broke.
+- `sdk-integration-ios` — same tests on an iOS Simulator (Xcode 26.1.1 + CocoaPods), **sharded across 3 macOS runners** (`matrix.shard: [0,1,2]`, via `SHARD_TOTAL=3 SHARD_INDEX=...`). Unlike the Android job this one runs **one `flutter test` invocation per file** (`.github/scripts/integration-retry.sh`, shared with the Android job, plus one retry): with all files passed to a single invocation, one flaky app launch on the CI simulator hung until the 12-minute per-test timeout, took the next file down with `Failed to start Dart Development Service`, and hid the rest. Per-file isolation is nearly free (`flutter test` already relaunches the app between files) and names the file that broke; sharding cuts wall clock from ~41 min to ~16-18 min since each file pays its own ~49s Xcode build.
 - `host` — `flutter analyze` + `flutter test` at the repo root.
 
 It does **not** use `dart_code_metrics` or the old `test/unit|widget|integration` layout.
