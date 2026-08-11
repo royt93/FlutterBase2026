@@ -11,6 +11,9 @@ Dòng 17 gọi `Get.put(...)` không điều kiện trong `build()`, khác mọi
 - `network_dashboard_screen.dart:17` — thiếu guard.
 - Đối chiếu pattern đúng: `heatmap_screen.dart:35-37`, `benchmark_screen.dart:17-19`, `room_comparison_screen.dart:15-17`, `schedule_screen.dart:25-27`.
 
+## Bổ sung (2026-08-11, audit vòng 2 — claude CLI)
+Cùng gốc: `Get.put` rải rác trong `build()` ở nhiều screen khác nhau (không chỉ file này) khiến lifecycle controller không nhất quán — nên cân nhắc chuẩn hoá bằng GetX `Binding` (xem [[P45-standardize-getx-binding]] nếu tách task riêng) thay vì chỉ vá từng chỗ.
+
 ## Việc cần làm (đề xuất, chưa code)
 - Thêm guard `if (!Get.isRegistered<NetworkDashboardController>()) Get.put(...)` giống các screen khác.
 

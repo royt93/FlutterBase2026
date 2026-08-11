@@ -16,6 +16,9 @@
 - `room_comparison_screen.dart:49` — `r.roomTag!`.
 - `heatmap_screen.dart:27,30` — `Color.lerp(...)!` ×2.
 
+## Đã verify (2026-08-11, audit vòng 2 — claude CLI)
+`stressor_controller.dart:469` lệch dòng: đó là lời gọi `getThermalStatus()`, `!` thật nằm ở dòng `:470` (`_worstThermalStatus!`). Các vị trí khác trong danh sách không đổi.
+
 ## Việc cần làm (đề xuất, chưa code)
 - Thay từng `!` bằng null-safe pattern tương ứng (`??`, `if (x != null)`, pattern matching `if (x case final v?)`, hoặc early-return) theo case cụ thể.
 - `main.dart:101` có thể giữ nguyên nếu team chấp nhận đây là exception hợp lệ do ràng buộc từ Flutter API — cần quyết định rõ, ghi vào doc nếu chấp nhận ngoại lệ.

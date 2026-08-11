@@ -1,6 +1,6 @@
 # P10 — Doc trỏ tới `AppSnackbar` không tồn tại + snackbar pattern không nhất quán
 
-- **Priority:** P0 · **Severity:** HIGH · **Status:** 🔲 todo
+- **Priority:** P2 · **Severity:** HIGH · **Status:** 🔲 todo
 - **Nguồn:** **[đồng thuận toàn bộ 5 nguồn]** codex CLI, claude CLI, agy CLI, cả 2 subagent đọc source — tất cả độc lập chỉ ra cùng vấn đề.
 - **Files:** `CLAUDE.md`, `doc/init.md`, `lib/mckimquyen/util/ui_utils.dart`, `lib/mckimquyen/widget/wifi_stressor/wifi_stressor_screen.dart`, `lib/mckimquyen/widget/wifi_stressor/presentation/schedule_screen.dart`, `lib/mckimquyen/widget/wifi_stressor/presentation/test_detail_screen.dart`
 
@@ -8,7 +8,6 @@
 `CLAUDE.md` và `doc/init.md` đều ghi "dùng `AppSnackbar`, không dùng `Get.snack`" — nhưng verify trực tiếp (`grep -rn "class AppSnackbar" lib/`) cho kết quả **rỗng**: class này không tồn tại trong repo. Pattern thật đang dùng là `UIUtils.showToast` (`util/ui_utils.dart:907`). Đồng thời một số nơi lại dùng raw `ScaffoldMessenger.of(context).showSnackBar` thay vì `UIUtils.showToast`:
 - `wifi_stressor_screen.dart:127,147`
 - `schedule_screen.dart:107`
-- `test_detail_screen.dart` (theo agy CLI, cùng vị trí tương tự)
 
 Không có `Get.snack(` nào trong code (verify: đã grep sạch) — vế đó của quy ước không bị vi phạm, nhưng vế "dùng AppSnackbar" trỏ tới component ma, và 3 file trên còn dùng cách thứ 3 (raw `ScaffoldMessenger`) không khớp cả 2 pattern trong doc.
 
@@ -23,3 +22,9 @@ Khuyến nghị: hướng 1 (sửa doc) rẻ hơn, ít rủi ro regression hơn 
 - [ ] Quyết định hướng (sửa doc hoặc sửa code) — ghi lại lý do chọn.
 - [ ] Doc và code khớp nhau: không còn tài liệu nào trỏ tới component không tồn tại.
 - [ ] 3 vị trí dùng raw `ScaffoldMessenger.showSnackBar` chuyển sang pattern thống nhất của app.
+
+## Đã verify (2026-08-11, audit vòng 2 — codex CLI)
+`test_detail_screen.dart` KHÔNG có raw `ScaffoldMessenger` (claim ban đầu của agy CLI sai, đã bỏ khỏi bằng chứng). 3 vị trí thật đã grep lại đúng: `wifi_stressor_screen.dart:127,147`, `schedule_screen.dart:107`.
+
+## Quyết định (2026-08-11, user pick qua AskUserQuestion)
+Hạ `Priority` từ P0 → P2, giữ `Severity` HIGH. Lý do: P0 nghĩa là chặn phát hành — doc-drift + 2 chỗ snackbar lệch quy ước không crash, không chặn phát hành. Vẫn giữ severity HIGH vì doc sai (`CLAUDE.md`/`doc/init.md` nhắc class không tồn tại) có thể khiến dev/AI tương lai code theo hướng sai.

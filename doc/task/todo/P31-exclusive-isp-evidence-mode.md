@@ -12,6 +12,11 @@
 - Thiết kế format ký số: hash nội dung report, ký bằng key riêng của app (KHÔNG dùng chung private key VIP — cần key riêng để tránh rủi ro bảo mật nếu 2 mục đích dùng chung 1 key), đính kèm signature + public key vào file export để người nhận verify độc lập.
 - Quyết định format export cuối (PDF có ký số nhúng, hoặc file JSON/text + signature file riêng).
 
+## Bổ sung (2026-08-11, audit vòng 2 — subagent + agy CLI)
+2 nâng cấp thêm để cân nhắc khi thiết kế:
+- Loại trừ (hoặc đánh dấu riêng) các test bị `thermalStatus` throttle nặng khi tính "% dưới tốc độ cam kết" — nếu không, report có thể bị phản bác vì máy nóng làm chậm chứ không phải ISP.
+- Đính kèm QR code encode signature/public-key-fingerprint để người nhận verify nhanh bằng điện thoại, không cần công cụ riêng.
+
 ## Acceptance criteria
 - [ ] Report gộp được dữ liệu nhiều tuần, không bị cắt ở boundary ngày.
 - [ ] Report có signature xác minh được bằng public key đã công bố, phát hiện được nếu file bị chỉnh sửa sau khi export.

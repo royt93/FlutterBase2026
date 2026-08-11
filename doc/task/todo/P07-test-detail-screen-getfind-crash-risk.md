@@ -16,3 +16,6 @@ Dòng 598 gọi `Get.find<HistoryController>()` lúc xoá kết quả, giả đ�
 ## Acceptance criteria
 - [ ] Mở `TestDetailScreen` trực tiếp (không qua `HistoryScreen`) rồi bấm xoá — không crash.
 - [ ] Widget test dựng `TestDetailScreen` standalone (không pre-register `HistoryController`), verify hành vi xoá không throw.
+
+## Quyết định (2026-08-11, user pick qua AskUserQuestion)
+Làm [[P45-standardize-getx-binding]] trước (pilot `NetworkDashboardScreen`), rồi mới quay lại kiểm tra ticket này còn tồn không — nếu Binding chuẩn hoá đúng, guard đăng ký controller có thể tự áp dụng cho `TestDetailScreen` mà không cần vá riêng.

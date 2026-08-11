@@ -10,6 +10,9 @@ App có locale mặc định `vi_VN`, translation 2 file `en_us.dart`/`vi_vn.dar
 - `control_button_widget.dart:67` — text disclosure quảng cáo (`adMayAppearEn`) hardcode, không qua `.tr`.
 - `splash_screen.dart:457` — title `'FastNet\nSpeed Test'` hardcode, trong khi key `app_title` (đã có sẵn trong `en_us.dart`) đang chỉ dùng ở nơi khác, không dùng ở đây.
 
+## Bổ sung (2026-08-11, audit vòng 2 — subagent đọc source)
+Thêm 1 vị trí: `widgets/room_tag_bottom_sheet.dart` — danh sách preset room tag hardcode tiếng Anh/Việt trực tiếp trong code, không có key `.tr` nào (0 key liên quan trong `en_us.dart`/`vi_vn.dart`).
+
 ## Việc cần làm (đề xuất, chưa code)
 - Thêm key translation cho nội dung `_shareResult()` (cả `en_us.dart` và `vi_vn.dart`), đổi sang `.tr`.
 - Đổi `control_button_widget.dart:67` sang key `.tr` có sẵn hoặc tạo mới.

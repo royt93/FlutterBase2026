@@ -5,11 +5,15 @@
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/presentation/comparison_screen.dart`, `controllers/history_controller.dart:53-58`
 
 ## Vấn đề
-`comparison_screen.dart` không giới hạn số test được chọn để so sánh (`history_controller.dart:53-58`). Cột metric (dòng 247, 288, 325) không có `FittedBox`/ellipsis — khi so sánh nhiều test, text bị vỡ layout/clip.
+`comparison_screen.dart` không giới hạn số test được chọn để so sánh (`history_controller.dart:53-58`). Cột metric không có `FittedBox`/ellipsis — khi so sánh nhiều test, text bị vỡ layout/clip.
+
+## Đã verify (2026-08-11, audit vòng 2 — codex CLI)
+Line drift: header đã có `FittedBox` từ trước (`comparison_screen.dart:216`), phần còn thiếu là các value rows tại `:268`, `:310`, `:340` (không phải `:247/:288/:325` như ghi ban đầu). Số test so sánh vẫn không cap (`history_controller.dart:53`).
 
 ## Việc cần làm (đề xuất, chưa code)
 - Đặt giới hạn hợp lý số test so sánh cùng lúc (VD 2-4), disable checkbox khi đạt giới hạn, kèm thông báo.
-- Bọc text ở cột metric bằng `FittedBox`/`Text(overflow: TextOverflow.ellipsis)` để không vỡ layout khi tên dài.
+- Bọc text ở value rows (`comparison_screen.dart:268,310,340`) bằng `FittedBox`/`Text(overflow: TextOverflow.ellipsis)` để không vỡ layout khi tên dài.
+- Cân nhắc mở rộng bảng màu phân biệt test (hiện chỉ 5 màu, lặp lại nếu chọn ≥6 test — chưa verify kỹ, cần check khi sửa).
 
 ## Acceptance criteria
 - [ ] Chọn quá giới hạn test bị chặn với thông báo rõ ràng.

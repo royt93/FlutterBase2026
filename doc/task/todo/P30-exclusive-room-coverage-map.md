@@ -14,7 +14,15 @@ Biến flow gắn `roomTag` hiện tại (thủ công, rời rạc) thành 1 flo
 - Phụ thuộc: P24 (retro-tag test cũ) để không lãng phí dữ liệu lịch sử đã có; P17 (room × time grid) có thể tái dùng chung UI component.
 - Đây là feature lớn, cần 1 task riêng để thiết kế UI/UX chi tiết trước khi rã sang task con implement.
 
+## Bổ sung (2026-08-11, audit vòng 2 — codex CLI)
+2 hướng mở rộng đáng cân nhắc khi thiết kế UX (không phải task bắt buộc, ghi lại để không quên):
+- **Signed Room Walk Certificate**: xuất report tamper-evident (ký Ed25519, cùng nguyên lý [[P31-exclusive-isp-evidence-mode]]) chứng nhận đã walk-test đủ N phòng trong nhà — khác P31 ở việc trọng tâm là *coverage theo phòng*, không phải *ISP dispute*.
+- **Router Placement Experiment Mode**: dùng lại chính flow walk-test này để so sánh "trước/sau" khi user di chuyển router/mesh node — so từng phòng theo lịch sử `roomTag` đã lưu, không cần tính năng mới, chỉ cần UI filter theo khoảng thời gian đặt trước/sau 1 mốc.
+
 ## Acceptance criteria
 - [ ] Có thiết kế UX cụ thể (wireframe/flow) trước khi bắt đầu code.
 - [ ] User có thể hoàn thành 1 "walk test" qua ≥2 phòng và xem được bảng xếp hạng + gợi ý.
 - [ ] Tận dụng lại `room_comparison_screen.dart`/`room_tag_bottom_sheet.dart` hiện có, không viết lại từ đầu.
+
+## Quyết định (2026-08-11, user pick qua AskUserQuestion)
+[[P17-room-heatmap-merge]] (lưới phòng × thời gian) đã đóng và coi là Phase 1/nằm trong scope của ticket này — khi thiết kế UX cho walk-test flow, nhớ đưa luôn phần lưới phòng×thời gian của P17 vào, không code 2 lần.

@@ -18,3 +18,6 @@
 ## Acceptance criteria
 - [ ] Test mới gọi trực tiếp vào code path thật của `RoomComparisonScreen`, không viết lại logic song song.
 - [ ] Cố tình inject 1 bug giả vào `room_comparison_screen.dart` lúc dev để confirm test mới catch được (rồi revert) — sanity check test thật sự "ăn" vào code thật.
+
+## Quyết định (2026-08-11, user pick qua AskUserQuestion)
+Gộp chung 1 sprint test-debt với [[P13-wave7-test-coverage]] và [[P46-widget-tests-history-dashboard-screens]], làm cả 3 — không merge code (3 file/screen độc lập), chỉ gộp lịch/sprint vì cùng loại việc (viết test thật thay test giả lập/thiếu test).

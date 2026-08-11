@@ -1,6 +1,6 @@
 # P09 — `benchmark_screen.dart` chia 0 khi `maxY = 0`
 
-- **Priority:** P2 · **Severity:** MEDIUM · **Status:** 🔲 todo
+- **Priority:** P2 · **Severity:** MEDIUM · **Status:** ✅ done (đã fix trước khi ticket được ghi)
 - **Nguồn:** agy CLI (audit độc lập)
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/presentation/benchmark_screen.dart`
 
@@ -14,5 +14,8 @@ Dòng 170: `maxY = ceiling * 1.2`. Nếu chưa cấu hình advertised speed (`ad
 - Clamp `maxY` với giá trị floor tối thiểu (VD: `maxY = max(ceiling * 1.2, 10.0)`) để `horizontalInterval` không bao giờ chia 0.
 
 ## Acceptance criteria
-- [ ] Mở benchmark screen khi chưa có test nào / mọi tốc độ = 0 và chưa set advertised speed — không crash, chart render bình thường (trục Y có giá trị hợp lý, không NaN).
-- [ ] Widget test cover case list rỗng + speed toàn 0.
+- [x] Mở benchmark screen khi chưa có test nào / mọi tốc độ = 0 và chưa set advertised speed — không crash, chart render bình thường (trục Y có giá trị hợp lý, không NaN).
+- [ ] Widget test cover case list rỗng + speed toàn 0 (chưa xác nhận có test riêng).
+
+## Đã verify (2026-08-11, audit vòng 2 — codex CLI)
+Ticket đã lỗi thời ngay từ khi ghi (2026-08-10): `benchmark_screen.dart` đã guard `horizontalInterval`/`maxY` tại dòng `:194`, `:237` — không còn chia 0/NaN như mô tả. Đóng ticket, không cần code thêm. Giữ lại làm hồ sơ audit.

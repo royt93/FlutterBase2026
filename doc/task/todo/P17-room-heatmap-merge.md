@@ -1,6 +1,6 @@
 # P17 — Ghép Room Comparison + Heatmap thành lưới phòng × thời gian
 
-- **Priority:** P2 · **Severity:** — · **Status:** 🔲 todo
+- **Priority:** P2 · **Severity:** — · **Status:** ⛔ đóng — gộp làm Phase 1 của [[P30-exclusive-room-coverage-map]] (2026-08-11)
 - **Nguồn:** **[đồng thuận]** codex CLI + claude CLI + subagent đọc source
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/presentation/room_comparison_screen.dart`, `heatmap_screen.dart`, `models/test_result.dart` (field `roomTag`)
 
@@ -15,3 +15,6 @@
 ## Acceptance criteria
 - [ ] Xem được lưới phòng × thời gian với màu sắc theo tốc độ, tương tự tinh thần heatmap hiện tại.
 - [ ] Test có `roomTag` và test chưa gắn được xử lý rõ ràng, không mất dữ liệu khỏi view.
+
+## Quyết định (2026-08-11, user pick qua AskUserQuestion)
+Đóng ticket này, không code riêng. Lưới phòng × thời gian mô tả ở đây là bản thu nhỏ của [[P30-exclusive-room-coverage-map]] (⭐ walk-test flow + dead-zone map) — khi P30 được code, phần "Việc cần làm" ở trên coi như Phase 1/nằm trong scope của P30, không làm 2 lần.

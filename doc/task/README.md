@@ -12,7 +12,7 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
 
 **Hai track song song, đừng nhầm số ID:**
 - **`Txx`** — SDK `applovin_admob_sdk` (`packages/ad_sdk/`). Tất cả T01-T56 đã ✅ done, xem bảng "Backlog" bên dưới.
-- **`Pxx`** — Product/host app (`lib/mckimquyen/`, `lib/translations/`, `lib/main.dart`, `test/`), **không đụng `packages/ad_sdk/`**. Nguồn: audit độc lập 2026-08-10 (codex CLI, agy CLI, claude CLI, 2 subagent), tổng hợp tại `doc/task/BACKLOG-product-2026-08-10.md`. Hiện có **P01-P33**, toàn bộ đang `todo/`.
+- **`Pxx`** — Product/host app (`lib/mckimquyen/`, `lib/translations/`, `lib/main.dart`, `test/`), **không đụng `packages/ad_sdk/`**. Nguồn: audit độc lập 2026-08-10 (codex CLI, agy CLI, claude CLI, 2 subagent), tổng hợp tại `doc/task/BACKLOG-product-2026-08-10.md`. **Vòng 2 (2026-08-11)** re-audit lại toàn bộ + tìm mới, tổng hợp tại `doc/task/BACKLOG-product-2026-08-11.md` — đóng `P09` (đã fix trước khi ghi ticket), sửa bằng chứng `P10/P11/P13/P21`, thêm `P34-P56` (23 ticket mới). Hiện có **P01-P56** (1 done, 55 todo).
 
 ## Tiến độ (cập nhật 2026-07-20)
 - **Audit round 8 (N1-N6, F7): 7/7 XONG ✅** — T50 (N1 log level), T51 (N2 consent hard-block), T52 (N3 AdKey.adMob, giữ nguyên), T53 (N4 native ad guard), T54 (N5 CI iOS Simulator), T55 (N6, giữ nguyên), T56 (F7, giữ nguyên). `packages/ad_sdk` bump 1.2.1→1.2.2, 649/649 test pass. Xem `doc/audit/audit_claude.md` round 9.
