@@ -1,6 +1,6 @@
 # P36 — CSV/PDF export thiếu cột `roomTag`/`thermalStatus` (mất data so với JSON)
 
-- **Priority:** P2 · **Severity:** MEDIUM · **Status:** 🔲 todo
+- **Priority:** P2 · **Severity:** MEDIUM · **Status:** ✅ done (2026-08-11)
 - **Nguồn:** **[đồng thuận]** codex CLI + claude CLI
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/controllers/history_controller.dart`, `models/test_result.dart`
 
@@ -17,8 +17,11 @@
 - Áp dụng escape (xem [[P04-csv-export-no-escape]]) cho `roomTag` vì đây là free-text user nhập.
 
 ## Acceptance criteria
-- [ ] CSV/PDF export sau khi sửa chứa đủ field như JSON export (đối chiếu field-by-field).
-- [ ] Test export 1 kết quả có `roomTag` chứa dấu phẩy — verify không vỡ CSV (phụ thuộc P04 xong trước hoặc làm cùng lúc).
+- [x] CSV/PDF export sau khi sửa chứa đủ field như JSON export (đối chiếu field-by-field).
+- [x] Test export 1 kết quả có `roomTag` chứa dấu phẩy — verify không vỡ CSV (phụ thuộc P04 xong trước hoặc làm cùng lúc).
 
 ## Quyết định (2026-08-11, user pick qua AskUserQuestion)
 Gộp 1 PR sửa cả escape ([[P04-csv-export-no-escape]]) và thêm 2 cột ở đây — làm cùng lúc vì cột mới thêm (`roomTag`) chính là free-text cần escape, tách 2 PR dễ merge conflict.
+
+## Kết quả (2026-08-11)
+Thêm cột `Room`/`Thermal` vào CSV (`generateCsv`), PDF thường (`generatePdf`), và PDF ISP dispute (`generateIspDisputeReport`) — dùng `roomTag ?? ''` và `thermalStatusFormatted` có sẵn trên `TestResult`. Test: `test/wave2_export_test.dart`.

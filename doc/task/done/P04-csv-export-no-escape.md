@@ -1,6 +1,6 @@
 # P04 — CSV export không escape field
 
-- **Priority:** P1 · **Severity:** HIGH · **Status:** 🔲 todo
+- **Priority:** P1 · **Severity:** HIGH · **Status:** ✅ done (2026-08-11)
 - **Nguồn:** codex CLI (audit độc lập)
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/controllers/history_controller.dart`
 
@@ -17,8 +17,11 @@ Ngoài lỗi format, còn rủi ro **formula injection**: nếu field text (SSID
 - Thêm hàm escape CSV chuẩn (bọc field có chứa `,`/`"`/newline trong dấu ngoặc kép, double-quote ký tự `"` bên trong) trước khi join, áp dụng cho mọi field text (SSID, roomTag, status...).
 
 ## Acceptance criteria
-- [ ] SSID/room tag chứa dấu phẩy hoặc newline export ra CSV vẫn mở đúng cột trong Excel/Sheets.
-- [ ] Unit test: room tag `"Phòng, khách"` hoặc chứa `\n` → CSV parse lại ra đúng giá trị gốc.
+- [x] SSID/room tag chứa dấu phẩy hoặc newline export ra CSV vẫn mở đúng cột trong Excel/Sheets.
+- [x] Unit test: room tag `"Phòng, khách"` hoặc chứa `\n` → CSV parse lại ra đúng giá trị gốc.
 
 ## Quyết định (2026-08-11, user pick qua AskUserQuestion)
 Gộp 1 PR sửa cả escape (ticket này) và thêm cột `roomTag`/`thermalStatus` ([[P36-export-missing-roomtag-thermalstatus]]) — cùng đụng `history_controller.dart` phần export, tránh review/merge 2 lần trên cùng đoạn code.
+
+## Kết quả (2026-08-11)
+Thêm `_csvField()` trong `history_controller.dart`: bọc ngoặc kép khi field chứa `,`/`"`/newline (double-quote ký tự `"` bên trong), và tiền tố `'` khi field bắt đầu bằng `=`/`+`/`-`/`@` (chặn formula injection, theo bổ sung CWE-1236 của claude CLI). Áp dụng cho toàn bộ field CSV qua `.map(_csvField).join(',')`. Test: `test/wave2_export_test.dart` (4 test case mới: comma, quote, formula-injection, header cột mới).

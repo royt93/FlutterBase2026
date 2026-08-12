@@ -1,6 +1,6 @@
 # P05 — Khoảng ngày history/export loại bỏ test đúng ranh giới đầu/cuối
 
-- **Priority:** P2 · **Severity:** MEDIUM · **Status:** 🔲 todo
+- **Priority:** P2 · **Severity:** MEDIUM · **Status:** ✅ done (2026-08-11)
 - **Nguồn:** **[đồng thuận]** codex CLI + subagent đọc source (2 nguồn độc lập cùng chỉ ra đúng 1 vị trí)
 - **Files:** `lib/mckimquyen/widget/wifi_stressor/services/test_history_storage.dart`
 
@@ -17,8 +17,11 @@ Bug **cùng loại nhưng ở file khác**: `HistoryController._applyTimeRangeFi
 - Đổi thành inclusive: `!isBefore(start) && !isAfter(end)` (hoặc `isAfterOrEqual`/`isBeforeOrEqual` tương đương).
 
 ## Acceptance criteria
-- [ ] Test với timestamp đúng bằng `start`/`end` được include trong kết quả.
-- [ ] Unit test cover trường hợp boundary chính xác.
+- [x] Test với timestamp đúng bằng `start`/`end` được include trong kết quả.
+- [x] Unit test cover trường hợp boundary chính xác.
 
 ## Quyết định (2026-08-11, user pick qua AskUserQuestion)
 Gộp 1 helper dùng chung (VD `DateTimeRangeX.containsInclusive`), sửa cả 2 nơi (đây + [[P39-history-controller-date-filter-exclusive]]) trong 1 PR — dù khác file/code path, cùng 1 class bug nên tránh vá lặp logic inclusive-boundary ở 2 chỗ riêng.
+
+## Kết quả (2026-08-11)
+Thêm `DateTimeRangeExt` (`lib/mckimquyen/ext/date_time_ext.dart`, method `isInRangeInclusive`/`isOnOrAfter`). `test_history_storage.dart:getResultsByDateRange` dùng `isInRangeInclusive`. Test: `test/date_time_ext_test.dart`. `flutter analyze` sạch.
