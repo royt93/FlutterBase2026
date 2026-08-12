@@ -65,6 +65,7 @@ bin/
 /android/.kotlin/errors/errors-1758339244268.log
 /android/.kotlin/errors/errors-1758339594894.log
 /android/.kotlin/errors/errors-1758339756393.log
+/android/.kotlin/sessions/
 
 # C/C++ Build Cache (Android Gradle Plugin)
 **/.cxx/
