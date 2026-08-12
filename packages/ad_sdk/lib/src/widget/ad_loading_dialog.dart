@@ -25,6 +25,15 @@ class AdLoadingDialog {
   /// NavigatorState captured by [show] so [dismiss] can pop the right route.
   static NavigatorState? _activeNavigator;
 
+  /// The exact [Route] this dialog pushed. Removed by identity (see
+  /// [_removeDialogRoute]) instead of [NavigatorState.pop] — pop() always
+  /// removes whatever route is currently topmost, so if some other modal
+  /// (e.g. a bottom sheet triggered by an unrelated app flow) gets pushed on
+  /// top of this dialog during the buffer window, a plain pop() would close
+  /// that other route instead and strand this non-dismissable dialog on
+  /// screen forever.
+  static Route<void>? _activeRoute;
+
   /// Bumped by [resetState] to invalidate any [showAdBuffer] timer still
   /// waiting on its `Future.delayed` — without this, a `resetState()` pop
   /// mid-buffer leaves the old timer to fire later and pop whatever route
@@ -39,17 +48,40 @@ class AdLoadingDialog {
   /// navigator (which would then block a fresh dialog and freeze the UI).
   static void resetState() {
     final nav = _activeNavigator;
+    final route = _activeRoute;
     final wasShowing = _isShowing;
     _isShowing = false;
     _activeNavigator = null;
+    _activeRoute = null;
     _generation++;
-    if (wasShowing && nav != null) {
+    if (wasShowing && nav != null && route != null) {
       try {
-        nav.pop();
+        _removeDialogRoute(nav, route);
       } catch (e) {
         SafeLogger.w(_tag, 'resetState: pop failed (navigator disposed?): $e');
       }
     }
+  }
+
+  /// Pushes the loading dialog content as a [DialogRoute] and remembers it
+  /// (via [_activeRoute]) so it can later be removed by identity.
+  static Route<void> _pushDialogRoute(BuildContext context) {
+    final route = DialogRoute<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => _AdLoadingDialogContent(
+        loadingText: AdManager().config?.adLoadingMessage ?? 'Loading…',
+      ),
+    );
+    Navigator.of(context, rootNavigator: true).push(route);
+    return route;
+  }
+
+  /// Removes [route] by identity instead of [NavigatorState.pop] — see the
+  /// [_activeRoute] doc comment for why identity matters here.
+  static void _removeDialogRoute(NavigatorState nav, Route<void> route) {
+    nav.removeRoute(route);
   }
 
   /// Show a non-dismissable loading dialog that stays up until [dismiss] is
@@ -63,25 +95,21 @@ class AdLoadingDialog {
     }
     _isShowing = true;
     // Capture NavigatorState now (survives screen disposal — see showAdBuffer).
-    _activeNavigator = Navigator.of(context, rootNavigator: true);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.72),
-      builder: (ctx) => _AdLoadingDialogContent(
-        loadingText: AdManager().config?.adLoadingMessage ?? 'Loading…',
-      ),
-    );
+    final navigator = Navigator.of(context, rootNavigator: true);
+    _activeNavigator = navigator;
+    _activeRoute = _pushDialogRoute(context);
   }
 
   /// Dismiss a dialog opened by [show]. Safe no-op if nothing is showing.
   static void dismiss() {
     if (!_isShowing) return;
     final nav = _activeNavigator;
+    final route = _activeRoute;
     _activeNavigator = null;
+    _activeRoute = null;
     _isShowing = false;
     try {
-      nav?.pop();
+      if (nav != null && route != null) _removeDialogRoute(nav, route);
     } catch (e) {
       SafeLogger.e(_tag, 'dismiss: pop failed (navigator disposed?): $e');
     }
@@ -119,14 +147,8 @@ class AdLoadingDialog {
     _activeNavigator = navigator;
     final myGen = ++_generation;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withValues(alpha: 0.72),
-      builder: (ctx) => _AdLoadingDialogContent(
-        loadingText: AdManager().config?.adLoadingMessage ?? 'Loading…',
-      ),
-    );
+    final route = _pushDialogRoute(context);
+    _activeRoute = route;
 
     await Future.delayed(Duration(milliseconds: ms));
 
@@ -142,10 +164,14 @@ class AdLoadingDialog {
       return;
     }
 
-    // Always dismiss via pre-captured navigator — context.mounted is irrelevant here
+    // Always dismiss via pre-captured navigator/route — context.mounted is
+    // irrelevant here. Removing by identity (not navigator.pop()) matters:
+    // if some unrelated modal (e.g. a bottom sheet) got pushed on top of this
+    // dialog during the buffer wait above, pop() would close THAT route
+    // instead and strand this one on screen forever.
     SafeLogger.d(_tag, 'showAdBuffer: timer done, dismissing dialog');
     try {
-      navigator.pop();
+      _removeDialogRoute(navigator, route);
       SafeLogger.d(_tag, 'showAdBuffer: dialog dismissed ✅');
     } catch (e) {
       // Only reachable if the navigator itself was disposed (app shutting down)
@@ -153,6 +179,7 @@ class AdLoadingDialog {
     } finally {
       _isShowing = false;
       _activeNavigator = null;
+      _activeRoute = null;
     }
 
     // Always call onComplete — screen-side callers guard with mounted/isDisposed

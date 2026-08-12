@@ -2,6 +2,8 @@
 // mid-dialog destroy/re-init can't strand a non-dismissable loading dialog on
 // the navigator (which would block a fresh dialog and freeze the UI).
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/src/widget/ad_loading_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -169,6 +171,57 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       expect(completions, 1);
       expect(AdLoadingDialog.isShowing, isFalse);
+    });
+
+    // Reproduces the on-device freeze: an unrelated modal (e.g. the walk-test
+    // room-tag bottom sheet, triggered by a test finishing right as the app
+    // resumes from a system permission dialog) races in and stacks on top of
+    // the loading dialog mid-buffer. A plain `navigator.pop()` would close
+    // whatever is topmost (the unrelated modal) and strand this dialog on
+    // screen forever; identity-based removal must always remove its own
+    // route regardless of what got pushed on top of it.
+    testWidgets(
+        'a modal stacked on top mid-buffer is not the one removed '
+        '(stacked-popup regression)', (tester) async {
+      var onCompleteCalls = 0;
+      await pumpHost(tester, (context) {
+        AdLoadingDialog.showAdBuffer(
+          context,
+          durationMs: 200,
+          onComplete: () => onCompleteCalls++,
+        );
+      });
+
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pump();
+      expect(AdLoadingDialog.isShowing, isTrue);
+
+      final context = tester.element(find.byType(ElevatedButton));
+      unawaited(showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const Text('room tag sheet'),
+      ));
+      await tester.pump();
+      expect(find.text('room tag sheet'), findsOneWidget);
+
+      // Buffer timer elapses while the bottom sheet is still mid-entrance-
+      // transition. removeRoute() can't actually dispose a route while a
+      // route above it is still transitioning in (Navigator's
+      // canRemoveOrAdd gate in _flushHistoryUpdates) — it stays queued in
+      // the "removing" lifecycle state until the bottom sheet's own push
+      // TickerFuture completes and re-triggers a flush. So settle
+      // everything rather than guessing a fixed number of pumps.
+      await tester.pumpAndSettle();
+
+      expect(onCompleteCalls, 1);
+      expect(AdLoadingDialog.isShowing, isFalse);
+      expect(find.byType(CircularProgressIndicator), findsNothing,
+          reason: 'loading dialog must be gone even though it was not '
+              'the topmost route');
+      expect(find.text('room tag sheet'), findsOneWidget,
+          reason: 'the unrelated modal must survive untouched — a plain '
+              'pop() would have closed it instead, stranding the loading '
+              'dialog underneath');
     });
   });
 }
