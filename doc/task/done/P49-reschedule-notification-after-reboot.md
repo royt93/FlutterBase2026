@@ -14,3 +14,15 @@ Chưa xác nhận rõ hành vi hiện tại của `flutter_local_notifications`/
 ## Acceptance criteria
 - [ ] Xác nhận rõ hành vi hiện tại (có mất schedule sau reboot hay không) trước khi quyết định có cần code hay không.
 - [ ] Nếu cần: reboot thiết bị test thật, verify schedule vẫn bắn đúng giờ sau khi khôi phục.
+
+## Kết quả (2026-08-13)
+Đã verify: **không cần code thêm**. `android/app/src/main/AndroidManifest.xml` (dòng ~120-147) đã có
+sẵn `ScheduledNotificationBootReceiver` do package `flutter_local_notifications` tự đăng ký, lắng
+`BOOT_COMPLETED`/`MY_PACKAGE_REPLACED`/`QUICKBOOT_POWERON`, cộng permission `RECEIVE_BOOT_COMPLETED`
+(dòng 12). Receiver này tự đọc lại pending notification đã lưu (bao gồm các `zonedSchedule` do
+`NotificationService.scheduleReminder` tạo) và đăng ký lại alarm — hành vi built-in của plugin, không
+cần `ScheduleStorage` tự re-register thủ công.
+
+ponytail: chưa verify bằng reboot thiết bị thật (không có hardware trong môi trường này) — nếu về sau
+phát hiện notification không bắn sau reboot thật, điểm cần soi trước tiên là version
+`flutter_local_notifications` hiện dùng có regression ở receiver này, chứ không phải thiếu code app.

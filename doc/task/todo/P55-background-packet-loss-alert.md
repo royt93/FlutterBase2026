@@ -14,3 +14,12 @@ Ngoài schedule test tốc độ đầy đủ đã có ([[P19-schedule-multi-pre
 ## Acceptance criteria
 - [ ] Có kết luận rõ về giới hạn platform (tần suất tối đa khả thi) trước khi implement.
 - [ ] Tác vụ nền không làm tăng đáng kể pin/data usage đo được thực tế trên thiết bị.
+
+## Quyết định (2026-08-13)
+**Tạm hoãn, chưa implement.** Lý do: yêu cầu thêm dependency native mới (`workmanager`
+Android / `BGTaskScheduler` iOS) can thiệp sâu OS — rủi ro bị Apple/Google từ chối khi review
+app, tốn pin thêm, và chính acceptance criteria của ticket này bắt buộc phải đo pin/data thật
+trên thiết bị thật mới kết luận được có an toàn không. Không có thiết bị thật để đo trong môi
+trường hiện tại nên không thể tự tin ship. Đã hỏi ý kiến người dùng (non-tech) — chọn giữ ticket
+ở trạng thái `todo`, không code, chờ có điện thoại thật để tự đánh giá pin trước khi quyết định
+tiếp.

@@ -13,6 +13,14 @@
 - Đây là task lớn, cần thiết kế riêng trước khi ước lượng effort — không nên bắt đầu code ngay khi chưa rõ giới hạn platform.
 
 ## Acceptance criteria
-- [ ] Có kết luận rõ ràng về khả thi background execution trên cả Android + iOS trước khi implement.
+- [x] Có kết luận rõ ràng về khả thi background execution trên cả Android + iOS trước khi implement.
 - [ ] Nếu khả thi: test tự chạy đúng giờ đã lên lịch, kết quả lưu vào history như test thủ công.
-- [ ] Nếu không khả thi: implement phương án one-tap-run từ notification thay thế.
+- [x] Nếu không khả thi: implement phương án one-tap-run từ notification thay thế.
+
+## Kết quả (2026-08-13)
+Kết luận: background execution thật (chạy Dio download khi app đóng) không khả thi đáng tin cậy
+trên cả 2 platform (iOS gần như chặn hoàn toàn, Android cần foreground service riêng — quá tốn
+kém cho 1 tính năng nhắc lịch). Đã implement phương án one-tap thay thế: `NotificationService`
+có cờ `_pendingAutoRun` set khi user tap notification (cả cold-launch qua `splash_screen.dart`
+lẫn warm qua `main.dart`'s `onNotificationTapped`), `wifi_stressor_screen.dart`'s `initState`
+đọc + reset cờ này (`consumePendingAutoRun`) và tự gọi `controller.startStressTest()` nếu true.
