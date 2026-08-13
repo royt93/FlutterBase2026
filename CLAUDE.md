@@ -86,7 +86,7 @@ This `mckimquyen/` namespace folder is where all app code lives. Subfolders are 
 
 ### State, routing, persistence
 
-- **State**: GetX everywhere. Controllers extend `BaseController` (a thin `GetxController`). Screens extend `BaseStatefulState`. Per `doc/init.md`: do **not** use `setState`, `late`, or force-null (`!`); use GetX reactive vars instead. Use a project `AppSnackbar` (not `Get.snack`).
+- **State**: GetX everywhere. Controllers extend `BaseController` (a thin `GetxController`). Screens extend `BaseStatefulState`. Per `doc/init.md`: do **not** use `setState`, `late`, or force-null (`!`); use GetX reactive vars instead. Use `UIUtils.showToast` (not `Get.snack`, not raw `ScaffoldMessenger.showSnackBar`).
 - **Routing**: `GetMaterialApp` with `Transition.cupertino` and a 700ms transition duration. Use `Get.to/off/back`. Two `NavigatorObserver`s come from the ad SDK and are required for banner pause/resume.
 - **Persistence**: Hive (test history, key `test_history`, capped at 100 items via `TestHistoryStorage` singleton in `services/test_history_storage.dart`) + SharedPreferences (language, simple flags via `shared_preferences_util.dart`).
 - **Network**: Dio is used by the stressor for parallel downloads. `connectivity_plus` and `network_info_plus` provide signal/SSID info via `NetworkInfoService`.
@@ -141,7 +141,7 @@ VIP grants **stack globally** — `addVip`/`redeemVip` with `stack: true` add on
 
 ## Project conventions (from `doc/init.md`)
 
-- Prefer GetX reactive state over `setState`/`late`/`!`. Use `AppSnackbar`, not `Get.snack`.
+- Prefer GetX reactive state over `setState`/`late`/`!`. Use `UIUtils.showToast`, not `Get.snack` or raw `ScaffoldMessenger.showSnackBar`.
 - Khi cần thêm input formatter mới, mirror pattern trong `lib/mckimquyen/formatter/` (ví dụ `date_text_formatter.dart`). App hiện tại không có currency input nào.
 - New screens should match existing animation cadence so transitions feel uniform.
 - The `dependency_overrides: vector_math: ^2.2.0` line exists for a reason — don't remove it without checking whether a transitive dep regressed.
