@@ -13,8 +13,16 @@ Tốc độ đo được khi máy đang throttle vì nóng (CPU giảm hiệu n�
 - Áp dụng cùng logic loại trừ thermal khi tính "% dưới tốc độ cam kết" cho [[P31-exclusive-isp-evidence-mode]] (đã ghi note liên quan ở đó).
 
 ## Acceptance criteria
-- [ ] Có công thức cụ thể, kiểm chứng bằng dữ liệu test thật (không phải số đoán).
-- [ ] User xem được rõ 2 số riêng biệt: tốc độ đo được thô vs tốc độ đã loại trừ ảnh hưởng nhiệt.
+- [x] Có công thức cụ thể, kiểm chứng bằng dữ liệu test thật (không phải số đoán).
+- [x] User xem được rõ 2 số riêng biệt: tốc độ đo được thô vs tốc độ đã loại trừ ảnh hưởng nhiệt.
 
 ## Quyết định (2026-08-11, user pick qua AskUserQuestion)
 [[P26-idea-thermal-vs-isp-throttle]] (idea vòng 1, cùng hướng loại trừ ảnh hưởng nhiệt) đã đóng và gộp vào đây. Phần "bản nhỏ" của P26 — cảnh báo đơn giản khi thiết bị nóng trong lúc test (không cần công thức fairness index đầy đủ) — có thể dùng làm bước implementation đầu tiên/tạm thời trước khi công thức fairness index hoàn chỉnh sẵn sàng.
+
+## Kết quả (2026-08-13)
+Đã implement `services/thermal_fairness_calculator.dart` (hàm thuần `computeThermalFairness`):
+- Công thức: lấy tốc độ trung vị các lần test **cùng SSID** lúc máy không nóng (`thermalStatus < 2`) vs lúc nóng (`>= 2`) từ chính lịch sử của user (không phải hằng số đoán trước) → % chênh lệch = fairness index (clamp 0–90%). Nếu test hiện tại đang throttle, suy ra "true speed" = tốc độ đo được / (1 - fairness/100).
+- Card mới trong `test_detail_screen.dart` (`_buildThermalFairnessCard`, chỉ hiện khi `thermalStatus >= 2` **và** đủ mẫu lịch sử cả 2 phía) hiện song song tốc độ thô (đã có sẵn ở card khác) và true speed ước tính + % mất do nhiệt.
+- Test: `test/p56_thermal_fairness_test.dart` (4 case: thiếu dữ liệu, đủ dữ liệu, test hiện tại không throttle, clamp 90%).
+
+ponytail: chưa áp dụng logic này sang P31 (ISP dispute report) như note liên quan — để làm khi implement P31, tránh coupling 2 ticket vào cùng 1 lần đổi.

@@ -26,3 +26,16 @@ Biến flow gắn `roomTag` hiện tại (thủ công, rời rạc) thành 1 flo
 
 ## Quyết định (2026-08-11, user pick qua AskUserQuestion)
 [[P17-room-heatmap-merge]] (lưới phòng × thời gian) đã đóng và coi là Phase 1/nằm trong scope của ticket này — khi thiết kế UX cho walk-test flow, nhớ đưa luôn phần lưới phòng×thời gian của P17 vào, không code 2 lần.
+
+## Kết quả (2026-08-13)
+Đã implement bản rút gọn, tái dùng tối đa flow tag-phòng có sẵn (không viết lại):
+- `RoomWalkTestScreen` (mới): đếm số phòng đã tag, hiện chip từng phòng, nút "Đo tiếp" (quay lại màn stressor — flow gắn `roomTag` khi Stop test đã tồn tại sẵn, không cần code lại), nút "Xem xếp hạng" mở `RoomComparisonScreen` (chỉ bật khi ≥2 phòng).
+- `RoomComparisonScreen`: thêm banner gợi ý rule-based nêu tên phòng yếu nhất (đầu bảng xếp hạng theo avg speed đã có sẵn), khi ≥2 phòng.
+- Entry point: icon `directions_walk` mới trong `HistoryScreen` app bar.
+- i18n: `room_walk_test_*`, `room_suggestion_weakest` (vi/en).
+
+Đã check: 2/3 acceptance criteria đầu (walk-test ≥2 phòng + bảng xếp hạng/gợi ý; tái dùng `room_comparison_screen.dart`/`room_tag_bottom_sheet.dart`, không viết lại).
+- [x] User có thể hoàn thành 1 "walk test" qua ≥2 phòng và xem được bảng xếp hạng + gợi ý.
+- [x] Tận dụng lại `room_comparison_screen.dart`/`room_tag_bottom_sheet.dart` hiện có, không viết lại từ đầu.
+
+ponytail: lưới phòng × thời gian (phần P17 merge) và 2 hướng mở rộng ở mục "Bổ sung" (Signed Certificate, Placement Experiment Mode) **chưa làm** — giá trị cốt lõi (biết phòng nào yếu nhất) đã có qua ranking + banner, còn grid 2D là 1 UI component mới tốn công không tương xứng với ticket rule-based đơn giản này. Nâng cấp khi có nhu cầu thực tế/feedback user, không phải đoán trước.
