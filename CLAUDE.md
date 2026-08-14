@@ -17,9 +17,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|---|
 | Ad SDK (primary gate) | `packages/ad_sdk/test/` — 69 files, ~699 tests | `cd packages/ad_sdk && flutter test` |
 | Ad SDK on-device | `packages/ad_sdk/example/integration_test/` — 22 files (21 test suites + shared `scroll_helpers.dart`) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
-| Host app | `test/` at repo root — 23 files | `flutter test` from repo root |
+| Host app | `test/` at repo root — 47 files | `flutter test` from repo root |
 
-Host `test/` is not just VIP any more: `wave1..wave7_*` cover the stressor's controllers/services/models/export, plus `vip_screen_widget_test.dart` and `wifi_stressor_screen_grace_nudge_test.dart`. `test_driver/integration_test.dart` exists but there is **no** host `integration_test/` directory. The `Makefile`'s `test*`/`coverage` targets still point at the non-existent `test/unit|widget|integration` layout — run `flutter test` directly instead.
+Host `test/` is not just VIP any more: `wave1..wave7_*` cover the stressor's controllers/services/models/export, plus `vip_screen_widget_test.dart` and `wifi_stressor_screen_grace_nudge_test.dart`. `test_driver/integration_test.dart` exists but there is **no** host `integration_test/` directory. The `Makefile`'s `test`/`test-unit`/`test-widget`/`quick-test` targets all alias to a flat `flutter test` (no real unit|widget split); `test-integration` runs `test_driver/integration_test.dart`.
 
 ```bash
 # Install + generate mocks
