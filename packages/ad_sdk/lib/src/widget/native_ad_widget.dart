@@ -63,15 +63,15 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
       SafeLogger.d(_tag, '_initNative ⏭️ offline');
       return;
     }
-    if (!mgr.canLoadNative()) {
+    if (!mgr.canLoadNative(this)) {
       SafeLogger.d(_tag, '_initNative ⏭️ cooldown');
       return;
     }
-    mgr.recordNativeLoad();
+    mgr.recordNativeLoad(this);
     _allowed.value = true;
 
     if (mgr.isAdMobProvider) {
-      mgr.loadAdmobNativeIfNeeded();
+      mgr.loadAdmobNativeIfNeeded(this);
     } else {
       SafeLogger.d(
           _tag, '_initNative [AppLovin] MaxNativeAdView loads on mount');
@@ -80,6 +80,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
 
   @override
   void dispose() {
+    AdManager().disposeNativeInstance(this);
     _allowed.dispose();
     super.dispose();
   }
@@ -129,17 +130,17 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
 
   Widget _buildAdmob() {
     return ValueListenableBuilder<bool>(
-      valueListenable: AdManager().nativeHasError,
+      valueListenable: AdManager().nativeHasError(this),
       builder: (context, hasError, _) {
         if (hasError) return const SizedBox.shrink();
         return ValueListenableBuilder<bool>(
-          valueListenable: AdManager().nativeIsLoaded,
+          valueListenable: AdManager().nativeIsLoaded(this),
           builder: (context, loaded, _) {
             if (!loaded) {
               return const ShimmerView(
                   cornerRadius: 0, width: double.infinity, height: _height);
             }
-            final view = AdManager().admobNativeView;
+            final view = AdManager().admobNativeView(this);
             if (view == null) {
               return const SizedBox(height: _height, width: double.infinity);
             }
@@ -157,13 +158,14 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
 
   Widget _buildAppLovin() {
     return ValueListenableBuilder<bool>(
-      valueListenable: AdManager().nativeHasError,
+      valueListenable: AdManager().nativeHasError(this),
       builder: (context, hasError, _) {
         if (hasError) return const SizedBox.shrink();
         return _NativeContainer(
-          isLoaded: AdManager().nativeIsLoaded,
+          isLoaded: AdManager().nativeIsLoaded(this),
           child: () =>
-              _AppLovinMaxNativeView(nativeId: AdManager().appLovinNativeId),
+              _AppLovinMaxNativeView(
+                  nativeId: AdManager().appLovinNativeId, instanceKey: this),
         );
       },
     );
@@ -251,9 +253,15 @@ class _NativeContainer extends StatelessWidget {
 /// [AdProviderAdapter.native]'s `isLoaded`/`hasError` directly from its own
 /// listener callbacks — the adapter has no load flow of its own for native.
 class _AppLovinMaxNativeView extends StatelessWidget {
-  const _AppLovinMaxNativeView({required this.nativeId});
+  const _AppLovinMaxNativeView({required this.nativeId, required this.instanceKey});
 
   final String nativeId;
+
+  /// T65 (phase 1) — identifies which mounted [NativeAdWidget] this view
+  /// belongs to, so its load/error callbacks update only ITS OWN
+  /// isLoaded/hasError notifiers instead of a bundle shared across every
+  /// simultaneous native ad on screen.
+  final Object instanceKey;
 
   @override
   Widget build(BuildContext context) {
@@ -269,8 +277,8 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             // and this platform-view callback can fire after that.
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
-            adapter.native.isLoaded.value = true;
-            adapter.native.hasError.value = false;
+            adapter.native(instanceKey).isLoaded.value = true;
+            adapter.native(instanceKey).hasError.value = false;
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdLoadedCallback: notifier disposed mid-flight? $e');
@@ -281,7 +289,7 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ❌ ${err.code}');
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
-            adapter.native.hasError.value = true;
+            adapter.native(instanceKey).hasError.value = true;
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdLoadFailedCallback: notifier disposed mid-flight? $e');

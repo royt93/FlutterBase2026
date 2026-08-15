@@ -504,7 +504,13 @@ class AdManager with WidgetsBindingObserver {
   int _lastMrecLoadAt = 0;
   static const int _mrecLoadCooldownMs = 5000;
 
-  int _lastNativeLoadAt = 0;
+  // T65 (phase 1) — keyed by widget instance. This is a per-slot reload
+  // debounce (stop one widget's own rebuild loop from spamming reload
+  // attempts), NOT a shared policy budget like AdSafetyConfig's daily/hourly
+  // caps — so unlike those, it must NOT be shared across simultaneous
+  // NativeAdWidget instances, or a feed's 2nd+ item would always start out
+  // wrongly "on cooldown" because some OTHER item just loaded.
+  final Map<Object, int> _lastNativeLoadAtByKey = {};
   static const int _nativeLoadCooldownMs = 5000;
 
   bool _retryTimerActive = false;
@@ -746,7 +752,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam: same as [debugResetBannerCooldown] but for Native.
   @visibleForTesting
-  void debugResetNativeCooldown() => _lastNativeLoadAt = 0;
+  void debugResetNativeCooldown() => _lastNativeLoadAtByKey.clear();
 
   bool _isObserverAdded = false;
 
@@ -981,25 +987,32 @@ class AdManager with WidgetsBindingObserver {
 
   // ─── Native accessors used by NativeAdWidget ─────────────────────────────
 
-  bool canLoadNative() {
-    if (_lastNativeLoadAt == 0) return true;
-    return DateTime.now().millisecondsSinceEpoch - _lastNativeLoadAt >=
+  bool canLoadNative(Object key) {
+    final last = _lastNativeLoadAtByKey[key];
+    if (last == null) return true;
+    return DateTime.now().millisecondsSinceEpoch - last >=
         _nativeLoadCooldownMs;
   }
 
-  void recordNativeLoad() {
-    _lastNativeLoadAt = DateTime.now().millisecondsSinceEpoch;
+  void recordNativeLoad(Object key) {
+    _lastNativeLoadAtByKey[key] = DateTime.now().millisecondsSinceEpoch;
   }
 
-  ValueListenable<bool> get nativeIsLoaded =>
-      _adapter?.native.isLoaded ?? _stubBoolFalse;
+  // T65 (phase 1) — keyed by widget instance (see AdProviderAdapter.nativeSlot).
+  ValueListenable<bool> nativeIsLoaded(Object key) =>
+      _adapter?.native(key).isLoaded ?? _stubBoolFalse;
 
-  ValueListenable<bool> get nativeHasError =>
-      _adapter?.native.hasError ?? _stubBoolFalse;
+  ValueListenable<bool> nativeHasError(Object key) =>
+      _adapter?.native(key).hasError ?? _stubBoolFalse;
 
   String get appLovinNativeId => _adapter?.appLovinNativeId ?? '';
 
-  Widget? get admobNativeView => _adapter?.buildAdmobNativeView();
+  Widget? admobNativeView(Object key) => _adapter?.buildAdmobNativeView(key);
+
+  void disposeNativeInstance(Object key) {
+    _adapter?.disposeNativeInstance(key);
+    _lastNativeLoadAtByKey.remove(key);
+  }
 
   static final ValueNotifier<bool> _stubBoolFalse = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> _stubBoolTrue = ValueNotifier<bool>(true);
@@ -2699,11 +2712,11 @@ class AdManager with WidgetsBindingObserver {
     await ad.loadMrecIfNeeded(widthPx);
   }
 
-  Future<void> loadAdmobNativeIfNeeded() async {
+  Future<void> loadAdmobNativeIfNeeded(Object key) async {
     final ad = _adapter;
     if (ad == null) return;
     if (_isVipMember || !isConnected) return;
-    await ad.preloadNative();
+    await ad.preloadNative(key);
   }
 
   // ──────────────────────────────────────────────────────────────────────────

@@ -19,9 +19,10 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
-  @override
-  final AdSlot nativeSlot = AdSlot(type: AdSlotType.native);
 
+  // T65 (phase 1) — keyed by widget instance, mirroring the real adapters.
+  final Map<Object, AdSlot> nativeSlotsByKey = {};
+  final Map<Object, BannerListenables> nativeListenablesByKey = {};
   int loadNativeCalls = 0;
 
   @override
@@ -32,21 +33,37 @@ class _NativeCountingAdapter implements AdProviderAdapter {
     autoRefreshEnabled: ValueNotifier<bool>(true),
     visible: ValueNotifier<bool>(true),
   );
+
   @override
-  final BannerListenables native = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
+  AdSlot nativeSlot(Object key) =>
+      nativeSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.native));
+
+  @override
+  BannerListenables native(Object key) {
+    return nativeListenablesByKey.putIfAbsent(
+        key,
+        () => BannerListenables(
+              isLoaded: ValueNotifier<bool>(false),
+              hasError: ValueNotifier<bool>(false),
+              adSize: ValueNotifier<Size?>(null),
+              autoRefreshEnabled: ValueNotifier<bool>(true),
+              visible: ValueNotifier<bool>(true),
+            ));
+  }
+
+  @override
+  void disposeNativeInstance(Object key) {
+    nativeSlotsByKey.remove(key);
+    nativeListenablesByKey.remove(key);
+  }
 
   @override
   String get tag => 'counting';
   @override
-  Future<void> preloadNative() async => loadNativeCalls++;
+  Future<void> preloadNative(Object key) async => loadNativeCalls++;
   @override
-  Widget? buildAdmobNativeView() => null; // placeholder path, no native view
+  Widget? buildAdmobNativeView(Object key) =>
+      null; // placeholder path, no native view
   @override
   String? get appLovinNativeId => 'native-id';
   @override
@@ -118,6 +135,50 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(NativeAdWidget), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  // T65 — before the keyed refactor, two simultaneous NativeAdWidgets on
+  // AdMob shared one adapter-level NativeAd/AdSlot/BannerListenables bundle:
+  // google_mobile_ads would throw "This AdWidget is already in the Widget
+  // tree" once both mounted the same underlying ad. This fake adapter
+  // doesn't reproduce that exact platform-channel crash, but it does prove
+  // the widget layer now generates independent keys and independent state.
+  testWidgets(
+      'two simultaneous NativeAdWidgets on AdMob get independent slots, '
+      'no crash', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const SingleChildScrollView(
+      child: Column(
+        children: [NativeAdWidget(), NativeAdWidget()],
+      ),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(NativeAdWidget), findsNWidgets(2));
+    expect(adapter.nativeListenablesByKey.length, 2,
+        reason:
+            'each widget instance must get its own BannerListenables, not share one');
+    expect(adapter.loadNativeCalls, 2,
+        reason: 'each widget triggers its own load');
+    expect(tester.takeException(), isNull);
+
+    // One instance finishing loading must not affect the other.
+    adapter.nativeListenablesByKey.values.first.isLoaded.value = true;
+    await tester.pump();
+    final loadedStates =
+        adapter.nativeListenablesByKey.values.map((l) => l.isLoaded.value);
+    expect(loadedStates, containsAllInOrder([true, false]),
+        reason: 'flipping one instance loaded must not flip the other');
     expect(tester.takeException(), isNull);
   });
 
@@ -272,7 +333,7 @@ void main() {
       expect(find.text('Ad'), findsNothing);
 
       // Simulate MaxNativeAdView's onAdLoadedCallback firing.
-      adapter.native.isLoaded.value = true;
+      adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
       await tester.pump();
 
       expect(find.text('Ad'), findsOneWidget,
@@ -296,7 +357,7 @@ void main() {
       await tester.pumpWidget(host(const NativeAdWidget()));
       await tester.pump(const Duration(milliseconds: 50));
 
-      adapter.native.isLoaded.value = true;
+      adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
       await tester.pump();
 
       expect(find.text('Ad'), findsNothing,

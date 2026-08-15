@@ -492,8 +492,10 @@ void main() {
       expect(() => a.mrec.isLoaded.addListener(() {}), throwsFlutterError);
       expect(
           () => a.appLovinMrecAdViewId.addListener(() {}), throwsFlutterError);
-      expect(() => a.nativeSlot.state.addListener(() {}), throwsFlutterError);
-      expect(() => a.native.isLoaded.addListener(() {}), throwsFlutterError);
+      expect(() => a.nativeSlot('k').state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => a.native('k').isLoaded.addListener(() {}),
+          throwsFlutterError);
     });
   });
 
@@ -505,11 +507,27 @@ void main() {
       await a.initialize(_config);
       addTearDown(a.dispose);
 
-      await a.preloadNative();
-      expect(a.native.isLoaded.value, isFalse);
-      expect(a.native.hasError.value, isFalse);
-      expect(a.buildAdmobNativeView(), isNull);
+      await a.preloadNative('k');
+      expect(a.native('k').isLoaded.value, isFalse);
+      expect(a.native('k').hasError.value, isFalse);
+      expect(a.buildAdmobNativeView('k'), isNull);
       expect(a.appLovinNativeId, ''); // _config sets no nativeId
+    });
+
+    // T65 (phase 1) — two simultaneous NativeAdWidgets on AppLovin must not
+    // share isLoaded/hasError: before this fix both widgets read/wrote the
+    // same single BannerListenables bundle, so one ad finishing (or
+    // failing) would flip the OTHER widget's shimmer state too.
+    test('two different keys get independent BannerListenables', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      a.native('a').isLoaded.value = true;
+
+      expect(a.native('b').isLoaded.value, isFalse,
+          reason: 'key "b" must not see key "a" isLoaded=true');
     });
   });
 

@@ -104,26 +104,40 @@ void main() {
           () => adapter.mrecSlot.state.addListener(() {}), throwsFlutterError);
       expect(
           () => adapter.mrec.isLoaded.addListener(() {}), throwsFlutterError);
-      expect(() => adapter.nativeSlot.state.addListener(() {}),
+      expect(() => adapter.nativeSlot('k').state.addListener(() {}),
           throwsFlutterError);
-      expect(
-          () => adapter.native.isLoaded.addListener(() {}), throwsFlutterError);
+      expect(() => adapter.native('k').isLoaded.addListener(() {}),
+          throwsFlutterError);
     });
   });
 
   group('AdMobAdapter native slot', () {
     test('beginLoad/markReady/markFailed drive nativeSlot state', () {
       final adapter = AdMobAdapter();
-      expect(adapter.nativeSlot.beginLoad(), isTrue);
-      expect(adapter.nativeSlot.isLoading, isTrue);
+      expect(adapter.nativeSlot('k').beginLoad(), isTrue);
+      expect(adapter.nativeSlot('k').isLoading, isTrue);
 
-      adapter.nativeSlot.markReady();
-      expect(adapter.nativeSlot.value, AdSlotState.ready);
+      adapter.nativeSlot('k').markReady();
+      expect(adapter.nativeSlot('k').value, AdSlotState.ready);
 
-      adapter.nativeSlot.reset();
-      expect(adapter.nativeSlot.beginLoad(), isTrue);
-      adapter.nativeSlot.markFailed();
-      expect(adapter.nativeSlot.value, AdSlotState.cooldown);
+      adapter.nativeSlot('k').reset();
+      expect(adapter.nativeSlot('k').beginLoad(), isTrue);
+      adapter.nativeSlot('k').markFailed();
+      expect(adapter.nativeSlot('k').value, AdSlotState.cooldown);
+    });
+
+    // T65 (phase 1) — the whole point of the keyed refactor: two different
+    // keys must NOT share state.
+    test('two different keys get independent AdSlot/BannerListenables', () {
+      final adapter = AdMobAdapter();
+      adapter.nativeSlot('a').beginLoad();
+      adapter.nativeSlot('a').markReady();
+      adapter.native('a').isLoaded.value = true;
+
+      expect(adapter.nativeSlot('b').value, AdSlotState.idle,
+          reason: 'key "b" must start idle, unaffected by key "a" loading');
+      expect(adapter.native('b').isLoaded.value, isFalse,
+          reason: 'key "b" must not see key "a" isLoaded=true');
     });
   });
 }

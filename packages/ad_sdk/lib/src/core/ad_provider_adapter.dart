@@ -103,7 +103,13 @@ abstract class AdProviderAdapter {
   AdSlot get rewardedSlot;
   AdSlot get bannerSlot;
   AdSlot get mrecSlot;
-  AdSlot get nativeSlot;
+
+  /// T65 (phase 1) — keyed by widget instance so multiple simultaneous
+  /// [NativeAdWidget]s each get independent slot state, instead of one
+  /// [AdSlot] shared (and clobbered) across every mounted widget. Created
+  /// lazily on first access for a given [key]; call [disposeNativeInstance]
+  /// when the owning widget unmounts.
+  AdSlot nativeSlot(Object key);
 
   /// Banner reactive listenables for the [BannerAdWidget] tree.
   BannerListenables get banner;
@@ -111,13 +117,14 @@ abstract class AdProviderAdapter {
   /// MREC reactive listenables for the [MrecAdWidget] tree.
   BannerListenables get mrec;
 
-  /// Native reactive listenables for the [NativeAdWidget] tree. Only
-  /// [BannerListenables.isLoaded]/[BannerListenables.hasError] are meaningful
-  /// here — native ads have no adaptive size, no auto-refresh ticker, and are
-  /// always visible once loaded, so [BannerListenables.adSize]/
-  /// [BannerListenables.autoRefreshEnabled]/[BannerListenables.visible] are
-  /// unused stub notifiers kept only for type parity with [banner]/[mrec].
-  BannerListenables get native;
+  /// Native reactive listenables for the [NativeAdWidget] tree, keyed by
+  /// widget instance (see [nativeSlot]). Only [BannerListenables.isLoaded]/
+  /// [BannerListenables.hasError] are meaningful here — native ads have no
+  /// adaptive size, no auto-refresh ticker, and are always visible once
+  /// loaded, so [BannerListenables.adSize]/[BannerListenables.autoRefreshEnabled]/
+  /// [BannerListenables.visible] are unused stub notifiers kept only for type
+  /// parity with [banner]/[mrec].
+  BannerListenables native(Object key);
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -234,16 +241,25 @@ abstract class AdProviderAdapter {
 
   // ─── Native ────────────────────────────────────────────────────────────────
 
-  /// AdMob: preload a real `NativeAd` off-screen (mirrors [preloadMrec]).
-  /// AppLovin: no-op — `MaxNativeAdView` is a self-contained widget that
-  /// loads on mount, unlike AppLovin's banner/mrec `MaxAdView` bridge.
-  Future<void> preloadNative();
+  /// AdMob: preload a real `NativeAd` off-screen (mirrors [preloadMrec]),
+  /// keyed by widget instance (see [nativeSlot]) so each mounted
+  /// [NativeAdWidget] gets its own `NativeAd`. AppLovin: no-op —
+  /// `MaxNativeAdView` is a self-contained widget that loads on mount,
+  /// unlike AppLovin's banner/mrec `MaxAdView` bridge.
+  Future<void> preloadNative(Object key);
 
-  /// AdMob: returns the live native-ad widget (built from the preloaded
-  /// `NativeAd` + `NativeTemplateStyle`), or null if none. AppLovin: always
-  /// returns null — [NativeAdWidget] builds `MaxNativeAdView` directly from
-  /// [appLovinNativeId], with no adapter-level preload step or adViewId.
-  Widget? buildAdmobNativeView();
+  /// AdMob: returns the live native-ad widget for this [key] (built from the
+  /// preloaded `NativeAd` + `NativeTemplateStyle`), or null if none.
+  /// AppLovin: always returns null — [NativeAdWidget] builds
+  /// `MaxNativeAdView` directly from [appLovinNativeId], with no
+  /// adapter-level preload step or adViewId.
+  Widget? buildAdmobNativeView(Object key);
+
+  /// Release the `NativeAd`/slot/listenables for [key]. Call from
+  /// [NativeAdWidget]'s `dispose()` — otherwise every mounted-then-unmounted
+  /// widget instance (e.g. items scrolled out of a `ListView`) leaks its
+  /// map entry for the lifetime of the adapter.
+  void disposeNativeInstance(Object key);
 
   /// AppLovin only: ad-unit ID used directly by [NativeAdWidget]'s
   /// `MaxNativeAdView`. Unlike [appLovinBannerId]/[appLovinMrecId] there is no

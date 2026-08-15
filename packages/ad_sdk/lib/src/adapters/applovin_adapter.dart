@@ -79,8 +79,65 @@ class AppLovinAdapter implements AdProviderAdapter {
   final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
+
+  // T65 (phase 1) — one AdSlot/BannerListenables per NativeAdWidget instance.
+  // MaxNativeAdView loads on mount and is self-contained (this adapter never
+  // drives isLoaded/hasError itself, NativeAdWidget's own listener callbacks
+  // do — see native_ad_widget.dart), but that state still lived in ONE
+  // shared bundle: two simultaneous NativeAdWidgets on AppLovin wouldn't
+  // crash, but one ad finishing (or failing) would flip the OTHER widget's
+  // shimmer/loaded state too, since both read/wrote the same notifiers.
+  final Map<Object, AdSlot> _nativeSlotsByKey = {};
+  final Map<Object, BannerListenables> _nativeListenablesByKey = {};
+
+  // T65 (phase 1) — see AdMobAdapter's identical guard for the rationale:
+  // once disposed, must not silently resurrect a live bundle for an unseen
+  // key.
+  bool _nativeDisposed = false;
+  AdSlot? _disposedNativeSlot;
+  BannerListenables? _disposedNativeListenables;
+
+  AdSlot _nativeSlotFor(Object key) {
+    if (_nativeDisposed) {
+      return _disposedNativeSlot ??=
+          (AdSlot(type: AdSlotType.native)..dispose());
+    }
+    return _nativeSlotsByKey.putIfAbsent(
+        key, () => AdSlot(type: AdSlotType.native));
+  }
+
+  BannerListenables _nativeListenablesFor(Object key) {
+    if (_nativeDisposed) {
+      return _disposedNativeListenables ??= (BannerListenables(
+        isLoaded: ValueNotifier<bool>(false),
+        hasError: ValueNotifier<bool>(false),
+        adSize: ValueNotifier<Size?>(null),
+        autoRefreshEnabled: ValueNotifier<bool>(true),
+        visible: ValueNotifier<bool>(true),
+      )..dispose());
+    }
+    return _nativeListenablesByKey.putIfAbsent(
+        key,
+        () => BannerListenables(
+              isLoaded: ValueNotifier<bool>(false),
+              hasError: ValueNotifier<bool>(false),
+              adSize: ValueNotifier<Size?>(null),
+              autoRefreshEnabled: ValueNotifier<bool>(true),
+              visible: ValueNotifier<bool>(true),
+            ));
+  }
+
   @override
-  final AdSlot nativeSlot = AdSlot(type: AdSlotType.native);
+  AdSlot nativeSlot(Object key) => _nativeSlotFor(key);
+
+  @override
+  BannerListenables native(Object key) => _nativeListenablesFor(key);
+
+  @override
+  void disposeNativeInstance(Object key) {
+    _nativeSlotsByKey.remove(key)?.dispose();
+    _nativeListenablesByKey.remove(key)?.dispose();
+  }
 
   @override
   final BannerListenables banner = BannerListenables(
@@ -100,18 +157,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     visible: ValueNotifier<bool>(true),
   );
 
-  // ─── Native listenables ─────────────────────────────────────────────────
   // Unlike banner/mrec, MaxNativeAdView loads on mount and is self-contained
   // — this adapter never drives isLoaded/hasError itself, the widget layer
-  // sets them directly from MaxNativeAdView's own listener callbacks.
-  @override
-  final BannerListenables native = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
+  // sets them directly from MaxNativeAdView's own listener callbacks (see
+  // native(key) above).
 
   final ValueNotifier<AdViewId?> _bannerAdViewId =
       ValueNotifier<AdViewId?>(null);
@@ -285,7 +334,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     rewardedSlot.reset();
     bannerSlot.reset();
     mrecSlot.reset();
-    nativeSlot.reset();
+    for (final slot in _nativeSlotsByKey.values) {
+      slot.reset();
+    }
     banner.isLoaded.value = false;
     banner.hasError.value = false;
     banner.adSize.value = null;
@@ -313,8 +364,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     mrecSlot.dispose();
     mrec.dispose();
     _mrecAdViewId.dispose();
-    nativeSlot.dispose();
-    native.dispose();
+    for (final key in _nativeSlotsByKey.keys.toList()) {
+      disposeNativeInstance(key);
+    }
+    _nativeDisposed = true;
 
     _max = null;
     _config = null;
@@ -1203,7 +1256,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   Widget? buildAdmobMrecView() => null;
 
   @override
-  Future<void> preloadNative() async {
+  Future<void> preloadNative(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1225,7 +1278,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Widget? buildAdmobNativeView() => null;
+  Widget? buildAdmobNativeView(Object key) => null;
 
   @override
   void onAppPaused() {
