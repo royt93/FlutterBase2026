@@ -399,6 +399,11 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugVipManager(VipManager? m) => _vipManager = m;
 
+  /// Inject a (real, bootstrapped) ConsentManager so [_maybeScheduleConsentDialog]
+  /// can be exercised without running native [initialize].
+  @visibleForTesting
+  set debugConsentManager(ConsentManager? m) => _consentManager = m;
+
   /// Inject a config so [isInitialised] (`_config != null && _adapter != null`)
   /// can be flipped true in tests without running the native init — used to
   /// exercise the consent → adapter (`applyConsent`) wiring.
@@ -826,6 +831,14 @@ class AdManager with WidgetsBindingObserver {
         onPrivacyPolicyTap: cfg.onPrivacyPolicyTap,
       );
       _consent = mgr.adConsent;
+      // T60 — the built-in dialog is itself a resolved consent flow, same
+      // as an explicit setConsent() call (see its N2 comment above): a host
+      // with `autoRequestUmpConsent: false` that relies on this dialog
+      // instead of calling requestUmpConsent()/setConsent() manually would
+      // otherwise stay footgun-blocked for the rest of the release session
+      // even after the user answered.
+      _consentExplicitlySet = true;
+      _footgunBlocked = false;
     });
   }
 

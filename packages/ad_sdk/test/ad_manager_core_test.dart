@@ -1172,6 +1172,63 @@ void main() {
   });
 
   group(
+      'T60 — built-in consent dialog + autoRequestUmpConsent:false must '
+      'still clear the footgun block', () {
+    tearDown(() async {
+      await AdManager().destroy();
+    });
+
+    testWidgets(
+        'scheduled built-in dialog answered → canRequestAds recovers, not '
+        'stuck locked forever', (tester) async {
+      final prefs = await AdPreferences.getInstance();
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+      final mgr = AdManager();
+      mgr.debugConsentManager = consentMgr;
+      mgr.debugConfig = const AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+          bannerId: 'x',
+          interstitialId: 'x',
+          appOpenId: 'x',
+          rewardedId: 'x',
+        ),
+        // The exact narrow combo T60 is about: host runs UMP itself
+        // elsewhere (or forgets to), and relies on the SDK's built-in
+        // dialog — never calling requestUmpConsent()/setConsent() directly.
+        autoRequestUmpConsent: false,
+        autoShowConsentDialog: true,
+        consentDialogPostSplashDelay: Duration.zero,
+      );
+      // Simulate the release-mode footgun having tripped at init time
+      // (no consent form anywhere had run yet).
+      mgr.debugFootgunBlocked = true;
+      mgr.debugCanRequestAds = true;
+      expect(mgr.canRequestAds, isFalse, reason: 'footgun starts tripped');
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      mgr.setNavigatorKey(navigatorKey);
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const SizedBox(),
+      ));
+
+      mgr.markSplashInactive(); // schedules the built-in dialog (delay=0)
+      await tester.pumpAndSettle();
+
+      expect(find.text(ConsentDialogStrings.vi.title), findsOneWidget,
+          reason: 'built-in dialog must have been scheduled and shown');
+      await tester.tap(find.text(ConsentDialogStrings.vi.allowButton));
+      await tester.pumpAndSettle();
+
+      expect(mgr.canRequestAds, isTrue,
+          reason: 'user answered the built-in dialog — the footgun must '
+              'clear, not stay locked for the rest of the release session');
+    });
+  });
+
+  group(
       '_resetGuardState (R12-A audit round 6 — reinit-without-destroy() '
       'branch used to skip _umpRequested/_consentExplicitlySet the way it '
       'skipped _footgunBlocked pre-round-5)', () {
