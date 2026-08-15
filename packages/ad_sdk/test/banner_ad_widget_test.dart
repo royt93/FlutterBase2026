@@ -323,6 +323,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // T57 — a banner mounted on a route that is ALREADY current (e.g. the
+  // app's home/splash screen) never receives RouteAware's didPush(), because
+  // the route was pushed by the Navigator before this widget existed to
+  // subscribe to it. Previously `_admobIsTop` stayed false forever in that
+  // case, so an AdMob banner on the home screen never painted — only the
+  // permanently-collapsed placeholder branch.
+  testWidgets(
+      'AdMob banner mounted on an already-current route (never pushed) '
+      'still renders the ad, not the placeholder', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    adapter.banner.isLoaded.value = true;
+    adapter.banner.visible.value = true;
+    adapter.banner.adSize.value = const Size(320, 50);
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    // `host()` mounts BannerAdWidget directly as `home:` — never pushed via
+    // Navigator, so didPush() never fires for it.
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('Ad'), findsOneWidget,
+        reason: 'a banner on an already-current route must render '
+            'immediately instead of waiting for a didPush() that will '
+            'never fire');
+    expect(tester.takeException(), isNull);
+  });
+
   // VIP-suppresses-all-ads contract, banner leg: a VIP member must never see
   // a banner load, even with an initialised adapter/config that would
   // otherwise load one for a non-VIP user (see `_isVipMember` gate in

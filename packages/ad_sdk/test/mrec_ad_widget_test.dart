@@ -83,6 +83,37 @@ void main() {
         reason: 'uninitialised MREC must collapse to zero height');
   });
 
+  // T57 — mirrors the same coverage added to banner_ad_widget_test.dart: a
+  // MREC mounted on a route that's already current (never pushed) must still
+  // render, since RouteObserver.subscribe() fires didPush() synchronously
+  // regardless of whether the route was freshly pushed or already active
+  // (flutter/lib/src/widgets/routes.dart RouteObserver.subscribe).
+  testWidgets(
+      'AdMob mrec mounted on an already-current route (never pushed) '
+      'still renders the ad, not the placeholder', (tester) async {
+    final adapter = _MrecCountingAdapter();
+    adapter.mrec.isLoaded.value = true;
+    adapter.mrec.visible.value = true;
+    adapter.mrec.adSize.value = const Size(300, 250);
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetMrecCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const MrecAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('Ad'), findsOneWidget,
+        reason: 'a mrec on an already-current route must render '
+            'immediately instead of waiting for a didPush() that will '
+            'never fire');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('mounts and disposes without throwing', (tester) async {
     await tester.pumpWidget(host(const MrecAdWidget()));
     await tester.pumpAndSettle();
