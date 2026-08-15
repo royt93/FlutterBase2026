@@ -176,4 +176,64 @@ void main() {
 
     await expectLater(store.setRaw('[{"key":"A"}]'), completes);
   });
+
+  // T59 — a failed secure write must not be recorded as "migration done", or
+  // the data is lost forever: the very next read short-circuits to "no VIP"
+  // instead of retrying, even though nothing was ever actually persisted.
+  test(
+      'setRaw: secure write failure does NOT mark migrated, so a later '
+      'successful retry can still persist the grant', () async {
+    final storage = _MockSecureStorage();
+    var shouldFail = true;
+    String? persisted;
+    when(() => storage.write(key: any(named: 'key'), value: any(named: 'value')))
+        .thenAnswer((invocation) async {
+      if (shouldFail) throw StateError('keystore unavailable');
+      persisted = invocation.namedArguments[#value] as String;
+    });
+    when(() => storage.read(key: any(named: 'key')))
+        .thenAnswer((_) async => persisted);
+    final store = VipEntriesStore(prefs, secureStorage: storage);
+
+    // Keystore broken on the device right now — the VIP grant that just
+    // happened in memory (VipManager) can't be persisted this time.
+    await store.setRaw('[{"key":"NEW_GRANT"}]');
+    expect(prefs.isVipEntriesSecureMigrated(), isFalse,
+        reason: 'the write never landed anywhere — marking migrated here '
+            'would make the next getRaw() return null forever, even after '
+            'Keystore recovers');
+
+    // Keystore recovers (e.g. after a reboot) and the SDK retries the write
+    // on the next VIP-relevant call.
+    shouldFail = false;
+    await store.setRaw('[{"key":"NEW_GRANT"}]');
+    expect(await store.getRaw(), '[{"key":"NEW_GRANT"}]',
+        reason: 'once the write actually succeeds, the grant must be '
+            'readable back');
+  });
+
+  test(
+      'getRaw migration: secure write failure does NOT mark migrated, '
+      'leaving the legacy value in place for the next attempt', () async {
+    AdPreferences.resetForTest();
+    SharedPreferences.setMockInitialValues({
+      _legacyKey: _checksumPrefixed('[{"key":"LEGACY"}]'),
+    });
+    prefs = await AdPreferences.getInstance();
+    final storage = _MockSecureStorage();
+    when(() => storage.read(key: any(named: 'key')))
+        .thenAnswer((_) async => null);
+    when(() =>
+            storage.write(key: any(named: 'key'), value: any(named: 'value')))
+        .thenThrow(StateError('keystore unavailable'));
+    final store = VipEntriesStore(prefs, secureStorage: storage);
+
+    expect(await store.getRaw(), '[{"key":"LEGACY"}]',
+        reason: 'the in-memory value returned by THIS call is still correct');
+    expect(prefs.isVipEntriesSecureMigrated(), isFalse,
+        reason: 'the migration write failed — marking it done here strands '
+            'the still-present legacy value unreachable on every future read');
+    expect(prefs.getLegacyVipEntriesRawChecksumValidated(), isNotNull,
+        reason: 'legacy value must survive a failed migration attempt');
+  });
 }

@@ -50,13 +50,21 @@ class VipEntriesStore {
     }
 
     final legacy = _legacyPrefs.getLegacyVipEntriesRawChecksumValidated();
-    await _legacyPrefs.markVipEntriesSecureMigrated();
-
-    if (legacy != null) {
+    if (legacy == null) {
+      // Nothing to migrate — safe to mark done regardless of secure storage.
+      await _legacyPrefs.markVipEntriesSecureMigrated();
+    } else {
       final wrote = await _writeSecure(legacy);
-      // Only clear the legacy copy once the secure write actually landed —
-      // a failed write must leave it as the safety net for the next read.
-      if (wrote) await _legacyPrefs.clearLegacyVipEntriesRaw();
+      // T59: only mark the migration done — and only clear the legacy
+      // copy — once the secure write actually landed. A failed write must
+      // leave both the flag and the legacy value alone, or the still-present
+      // legacy data becomes permanently unreachable (this method returns
+      // null on every future call once the flag is set, never re-checking
+      // legacy) even though it was never actually migrated anywhere.
+      if (wrote) {
+        await _legacyPrefs.markVipEntriesSecureMigrated();
+        await _legacyPrefs.clearLegacyVipEntriesRaw();
+      }
     }
     return legacy;
   }
@@ -64,10 +72,17 @@ class VipEntriesStore {
   /// Persist [json] to secure storage (no checksum — the OS already
   /// encrypts this at rest, an unkeyed hash on top adds nothing).
   Future<void> setRaw(String json) async {
-    await _writeSecure(json);
+    final wrote = await _writeSecure(json);
+    // T59: only mark migrated when the write actually landed. Marking it
+    // unconditionally made a failed write indistinguishable from "no VIP
+    // data" forever after — getRaw() short-circuits to null once this flag
+    // is set, so a Keystore hiccup would permanently lose a grant that was
+    // never actually persisted anywhere. Leaving it unset lets the next
+    // setRaw()/getRaw() call retry once storage recovers.
+    //
     // Idempotent: a fresh install whose first VIP action is a write (not a
     // read) shouldn't later pay the legacy-fallback check on its first load().
-    await _legacyPrefs.markVipEntriesSecureMigrated();
+    if (wrote) await _legacyPrefs.markVipEntriesSecureMigrated();
   }
 
   Future<String?> _readSecure() async {
