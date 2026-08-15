@@ -217,15 +217,26 @@ class _NativeContainer extends StatelessWidget {
                       )
                     : const ShimmerView(cornerRadius: 2, width: 20, height: 13),
               ),
+              // T62 — `child()` (MaxNativeAdView) must always be mounted,
+              // not gated behind `loaded`: `loaded` is only ever flipped
+              // true BY MaxNativeAdView's own onAdLoadedCallback, so gating
+              // its mount behind that same flag is a deadlock — nothing
+              // else can ever set it (AppLovin's preloadNative() is a
+              // documented no-op). The shimmer is a visual overlay while
+              // loading, not a substitute for mounting the real view.
               SizedBox(
                 width: double.infinity,
                 height: _height,
-                child: loaded
-                    ? child()
-                    : const ShimmerView(
-                        cornerRadius: 0,
-                        width: double.infinity,
-                        height: _height),
+                child: Stack(
+                  children: [
+                    child(),
+                    if (!loaded)
+                      const ShimmerView(
+                          cornerRadius: 0,
+                          width: double.infinity,
+                          height: _height),
+                  ],
+                ),
               ),
             ],
           ),

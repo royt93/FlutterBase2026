@@ -3,6 +3,7 @@
 // no adaptive width, and AppLovin's MaxNativeAdView is self-contained).
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -164,6 +165,39 @@ void main() {
     expect(adapter.loadNativeCalls, 0,
         reason: 'AppLovin MaxNativeAdView loads itself on mount');
     expect(tester.takeException(), isNull);
+  });
+
+  // T62 — MaxNativeAdView "loads on mount" (its own dartdoc, and the
+  // comment above) only works if it actually GETS mounted. _NativeContainer
+  // gated `child()` behind `isLoaded`, but `isLoaded` is only ever flipped
+  // true BY MaxNativeAdView's own onAdLoadedCallback — a callback that can
+  // never fire if the widget carrying it is never built. AppLovin's
+  // preloadNative() is a documented no-op, so nothing else can break this
+  // cycle: native ads would never load on AppLovin, ever, in production.
+  testWidgets(
+      'AppLovin native view actually mounts on its own so it CAN load '
+      '(not stuck behind its own isLoaded gate)', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    // Deliberately NOT touching adapter.native.isLoaded — that's the whole
+    // point: in real production nothing else ever sets it, so MaxNativeAdView
+    // must mount on its own merit, before any load ever completes.
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(MaxNativeAdView), findsOneWidget,
+        reason: 'MaxNativeAdView must mount on its own so its own '
+            'onAdLoadedCallback can ever fire — gating it behind isLoaded '
+            'is a deadlock: nothing else can ever set isLoaded true');
   });
 
   testWidgets('native ad collapses offline and reloads on reconnect',
