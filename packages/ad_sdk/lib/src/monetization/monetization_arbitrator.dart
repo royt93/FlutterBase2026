@@ -103,10 +103,15 @@ class MonetizationArbitrator {
   /// Trailing eCPM estimate in micros, averaged over the last
   /// [_rollingWindowSize] [AdRevenueEvent]s seen this session. `0` if no
   /// revenue events have been observed yet.
+  ///
+  /// [AdRevenueEvent.valueMicros] is a single impression's revenue (T58: the
+  /// average of those is a per-impression figure, not an eCPM — eCPM is
+  /// revenue per *1000* impressions), so the per-impression average is
+  /// scaled by 1000 to become comparable to [ecpmThresholdMicros].
   int get estimatedEcpmMicros {
     if (_samples.isEmpty) return 0;
     final sum = _samples.fold<int>(0, (a, b) => a + b);
-    return sum ~/ _samples.length;
+    return sum * 1000 ~/ _samples.length;
   }
 
   /// Current veto rate over the trailing [_decisionWindowSize] [decide]

@@ -95,7 +95,9 @@ void main() {
 
     test('arbitrator enabled → estimatedEcpm/vetoRate populated', () async {
       AdManager().enableArbitrator(MonetizationArbitrator());
-      AdManager().debugEmit(_rev(2000000));
+      // T58: valueMicros is per-impression revenue; eCPM is per-1000, so a
+      // realistic 2_000 micros/impression reports as a $2.00 eCPM.
+      AdManager().debugEmit(_rev(2000));
       await Future<void>.delayed(Duration.zero);
 
       final d = AdManager().diagnostics();

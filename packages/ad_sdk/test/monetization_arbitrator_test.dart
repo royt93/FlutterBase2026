@@ -135,7 +135,7 @@ void main() {
 
     test('feeding revenue events with no arbitrator registered changes nothing',
         () async {
-      AdManager().debugEmit(_rev(100000)); // would be well below any threshold
+      AdManager().debugEmit(_rev(100)); // would be well below any threshold
       bool? flow;
       await AdManager().showInterstitial(onDoneFlow: (v) => flow = v);
       expect(flow, isTrue,
@@ -153,8 +153,8 @@ void main() {
 
     test('averages a sequence of AdRevenueEvents', () async {
       final arb = MonetizationArbitrator();
-      AdManager().debugEmit(_rev(1000000)); // $1.00
-      AdManager().debugEmit(_rev(3000000)); // $3.00
+      AdManager().debugEmit(_rev(1000)); // $1.00 CPM equivalent
+      AdManager().debugEmit(_rev(3000)); // $3.00 CPM equivalent
       // Broadcast-stream delivery is async (microtask) — flush.
       await Future<void>.delayed(Duration.zero);
       expect(arb.estimatedEcpmMicros, 2000000); // avg $2.00
@@ -163,12 +163,52 @@ void main() {
 
     test('rolling window truncates to the last N samples', () async {
       final arb = MonetizationArbitrator(rollingWindowSize: 2);
-      AdManager().debugEmit(_rev(10000000)); // dropped once window fills
-      AdManager().debugEmit(_rev(2000000));
-      AdManager().debugEmit(_rev(2000000));
+      AdManager().debugEmit(_rev(10000)); // dropped once window fills
+      AdManager().debugEmit(_rev(2000));
+      AdManager().debugEmit(_rev(2000));
       await Future<void>.delayed(Duration.zero);
       expect(arb.estimatedEcpmMicros, 2000000, reason: 'oldest sample evicted');
       arb.dispose();
+    });
+  });
+
+  group('T58 — eCPM unit conversion (per-impression revenue vs per-mille)', () {
+    // AdRevenueEvent.valueMicros is documented as a SINGLE impression's
+    // revenue ("$1.23" -> 1_230_000, see ad_event.dart). eCPM is revenue per
+    // 1000 impressions, so estimatedEcpmMicros must scale the per-impression
+    // average by 1000 -- not return the raw per-impression average as if it
+    // were already an eCPM figure.
+    test(
+        r'a real $5 CPM performance (5_000 micros/impression) reports as '
+        '5_000_000 micros eCPM, not 5_000', () async {
+      final arb = MonetizationArbitrator();
+      // $5 eCPM == $0.005 per single impression == 5_000 micros/impression.
+      AdManager().debugEmit(_rev(5000));
+      AdManager().debugEmit(_rev(5000));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(arb.estimatedEcpmMicros, 5000000,
+          reason: r'5_000 micros/impression is a real $5 CPM performance — '
+              'reporting it as 5_000 micros would make it look 1000x worse '
+              'than it actually is');
+      arb.dispose();
+    });
+
+    test(
+        r'a real $5 CPM performance does not get vetoed at a $5 CPM threshold',
+        () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      AdManager().enableArbitrator(arb);
+      // Realistic per-impression revenue for a genuine $5 eCPM stream.
+      AdManager().debugEmit(_rev(5000));
+      await Future<void>.delayed(Duration.zero);
+
+      bool? flow;
+      await AdManager().showInterstitial(onDoneFlow: (v) => flow = v);
+      expect(flow, isTrue,
+          reason: 'ad actually performing at the threshold eCPM must show, '
+              'not be vetoed as if it were 1000x below threshold');
+      expect(adapter.showInterstitialCalls, 1);
     });
   });
 
@@ -178,7 +218,7 @@ void main() {
         'onDoneFlow(false)', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100000)); // $0.10 — well below threshold
+      AdManager().debugEmit(_rev(100)); // $0.10 CPM equivalent — well below threshold
       await Future<void>.delayed(Duration.zero);
 
       final events = <AdEvent>[];
@@ -203,7 +243,7 @@ void main() {
         'onEarnedReward(false)', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100000));
+      AdManager().debugEmit(_rev(100));
       await Future<void>.delayed(Duration.zero);
 
       final events = <AdEvent>[];
@@ -222,7 +262,7 @@ void main() {
     test('high trailing eCPM (above threshold) → ad shows normally', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(10000000)); // $10 — above threshold
+      AdManager().debugEmit(_rev(10000)); // $10 CPM equivalent — above threshold
       await Future<void>.delayed(Duration.zero);
 
       bool? flow;
@@ -237,7 +277,7 @@ void main() {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       arb.registerVipLikelihoodEstimator(() => 0.9);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100000));
+      AdManager().debugEmit(_rev(100));
       await Future<void>.delayed(Duration.zero);
 
       bool? flow;
@@ -252,7 +292,7 @@ void main() {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       arb.registerVipLikelihoodEstimator(() => 0.1);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100000));
+      AdManager().debugEmit(_rev(100));
       await Future<void>.delayed(Duration.zero);
 
       bool? flow;
@@ -267,7 +307,7 @@ void main() {
       AdManager().debugVipManager = _FakeVipTrue();
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100000)); // low eCPM, would normally nudge
+      AdManager().debugEmit(_rev(100)); // low eCPM, would normally nudge
       await Future<void>.delayed(Duration.zero);
 
       bool? earned;
@@ -288,7 +328,7 @@ void main() {
         perSlotThresholdMicros: {AdSlotType.interstitial: 5000000},
       );
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(2000000)); // $2 — below interstitial's $5
+      AdManager().debugEmit(_rev(2000)); // $2 CPM equivalent — below interstitial's $5
       await Future<void>.delayed(Duration.zero);
 
       bool? interstitialFlow;
@@ -316,7 +356,7 @@ void main() {
         decisionWindowSize: 4,
       );
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100000)); // well below threshold — nudges
+      AdManager().debugEmit(_rev(100)); // well below threshold — nudges
       await Future<void>.delayed(Duration.zero);
 
       // First 4 calls fill the decision window: veto rate hits 100% only
@@ -355,7 +395,7 @@ void main() {
       // so it skips AdSafetyConfig's fullscreen-show throttle entirely.
 
       // Low eCPM → first 2 decisions veto, filling the window at 100%.
-      AdManager().debugEmit(_rev(100000));
+      AdManager().debugEmit(_rev(100));
       await Future<void>.delayed(Duration.zero);
       for (var i = 0; i < 2; i++) {
         expect(
@@ -372,7 +412,7 @@ void main() {
 
       // Now raise eCPM above threshold — decisions naturally showAd from
       // here on, so the window stays recovered without guardrail help.
-      AdManager().debugEmit(_rev(10000000)); // $10 — above threshold
+      AdManager().debugEmit(_rev(10000)); // $10 CPM equivalent — above threshold
       await Future<void>.delayed(Duration.zero);
       expect(arb.decide(AdSlotType.interstitial), ArbitratorDecision.showAd);
       expect(arb.vetoRate, 0.0,
@@ -387,7 +427,7 @@ void main() {
         'subscription was cancelled, not leaked', () async {
       final arb1 = MonetizationArbitrator();
       AdManager().enableArbitrator(arb1);
-      AdManager().debugEmit(_rev(1000000)); // $1.00
+      AdManager().debugEmit(_rev(1000)); // $1.00 CPM equivalent
       await Future<void>.delayed(Duration.zero);
       expect(arb1.estimatedEcpmMicros, 1000000,
           reason: 'arb1 is active and received the event');
@@ -395,7 +435,7 @@ void main() {
       final arb2 = MonetizationArbitrator();
       AdManager().enableArbitrator(arb2); // must dispose arb1 first
 
-      AdManager().debugEmit(_rev(9000000)); // $9.00, fed after the swap
+      AdManager().debugEmit(_rev(9000)); // $9.00 CPM equivalent, fed after the swap
       await Future<void>.delayed(Duration.zero);
 
       expect(arb1.estimatedEcpmMicros, 1000000,
