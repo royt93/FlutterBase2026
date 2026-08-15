@@ -1,8 +1,8 @@
 # T63 — `destroy()` không reset đủ consent/ATT guard flag
 
 - **REQ:** audit round mới 2026-08-15 (codex)
-- **Priority:** P1 · **Status:** 🔲 todo — verified, plausible với phạm vi thu hẹp (2026-08-15)
-- **Files:** `packages/ad_sdk/lib/src/core/ad_manager.dart:617-627,686-727,1011-1057,1227-1301,1677-1705,1718-1776,1850-1853,1863-1945,2915-2935`; `packages/ad_sdk/test/ad_manager_core_test.dart:1174-1195`
+- **Priority:** P1 · **Status:** ✅ done (2026-08-15)
+- **Files:** `packages/ad_sdk/lib/src/core/ad_manager.dart` (`_resetGuardState`, `debugUmpAttemptFailed` setter mới), `packages/ad_sdk/test/ad_manager_core_test.dart`
 
 ## Vấn đề (Why)
 **PLAUSIBLE, nhưng tác động của bốn field không giống nhau.** `destroy()` gọi `_resetGuardState()` tại `ad_manager.dart:1915`, trong khi method này tại dòng 1937-1945 chỉ reset `_footgunBlocked`, `_umpRequested`, `_consentExplicitlySet` và hai timer. Nó không ghi lại `_canRequestAds` (khai báo dòng 617), `_lastUmpResult` (695), `_umpAttemptFailed` (699) hay `_attRequested` (727). Nhánh re-init không qua `destroy()` cũng dùng cùng method tại dòng 1043-1057, nên cả hai lifecycle đều giữ bốn giá trị này.
@@ -18,8 +18,10 @@ Consent đã persist trong `ConsentManager` được giữ qua `destroy()` có c
 
 ## Việc cần làm
 - [x] **Verify trước:** đối chiếu trực tiếp `destroy()`, `_resetGuardState()`, re-init branch và từng read/write site; xác nhận cả bốn field không được reset, đồng thời phân loại tác động như trên.
-- [ ] Bổ sung regression test cho `_canRequestAds` và `_umpAttemptFailed` qua destroy/re-init; nếu reset `_lastUmpResult`/`_attRequested`, test riêng semantics cache và warning thay vì gộp thành consent authorization.
-- [ ] Nếu confirm: bổ sung các flag còn thiếu vào `_resetGuardState()`.
+- [x] Bổ sung regression test cho `_canRequestAds` và `_umpAttemptFailed` qua `debugResetGuardState()`.
+- [x] Bổ sung 2 field có tác động chức năng thật vào `_resetGuardState()`.
 
-## Đã verify (2026-08-15)
-`flutter test test/native_ad_widget_test.dart test/ad_manager_core_test.dart` pass (97 tests). Test `_resetGuardState` hiện tại tại `ad_manager_core_test.dart:1174-1195` chỉ assert ba field đang được reset, không assert bốn field của ticket nên kết quả pass không bác bỏ finding.
+## Đã làm (2026-08-15, TDD)
+Chỉ fix `_canRequestAds` (reset về default `true`) và `_umpAttemptFailed` (reset về `false`) trong `_resetGuardState()` — đúng 2 field codex xác định có tác động chức năng thật. **Cố ý KHÔNG đụng `_lastUmpResult`/`_attRequested`**: theo phân tích verify ở trên, rủi ro của 2 field này thấp (cache-hit semantics và mất 1 warning thứ tự ATT→UMP, không phải gate chức năng), tự sửa thêm có thể đổi semantics cache không cần thiết ngoài scope ticket.
+
+Thêm setter `debugUmpAttemptFailed` (trước đó chỉ có getter) để test dựng được kịch bản "phiên trước có UMP attempt fail". Viết test trước (RED: `Expected: true, Actual: false` trên `canRequestAds` sau reset), fix, GREEN. `flutter test`: 709/709 pass, `flutter analyze` sạch.

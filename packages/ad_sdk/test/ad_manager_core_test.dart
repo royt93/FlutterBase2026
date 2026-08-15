@@ -1253,6 +1253,36 @@ void main() {
   });
 
   group(
+      'T63 — _resetGuardState leaves _canRequestAds/_umpAttemptFailed stale '
+      'across destroy()/re-init', () {
+    tearDown(() {
+      AdManager().debugCanRequestAds = true;
+    });
+
+    test(
+        'debugResetGuardState() also restores _canRequestAds to its '
+        'un-gated default and clears _umpAttemptFailed', () {
+      final mgr = AdManager();
+      // Simulate a session that ended with UMP having blocked ad requests
+      // and a failed UMP attempt (e.g. network error/timeout) still pending.
+      mgr.debugCanRequestAds = false;
+      mgr.debugUmpAttemptFailed = true;
+
+      mgr.debugResetGuardState();
+
+      expect(mgr.canRequestAds, isTrue,
+          reason: '_canRequestAds must return to its un-gated default '
+              '(true) on destroy()/re-init, or a host with '
+              'autoRequestUmpConsent:false has no assignment left to ever '
+              'reopen it — ad requests stay closed for the entire new '
+              'session');
+      expect(mgr.debugUmpAttemptFailed, isFalse,
+          reason: 'a stale failed-UMP-attempt flag from the previous '
+              'session must not carry into the new one');
+    });
+  });
+
+  group(
       '_resetGuardState cancels _splashBudgetTimer (re-init timer leak '
       'regression)', () {
     // Before the fix, _resetGuardState() reset the footgun/UMP/consent flags

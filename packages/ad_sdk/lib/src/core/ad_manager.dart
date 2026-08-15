@@ -707,6 +707,10 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   bool get debugUmpAttemptFailed => _umpAttemptFailed;
 
+  /// Test seam for [_umpAttemptFailed] — see [debugResetGuardState].
+  @visibleForTesting
+  set debugUmpAttemptFailed(bool v) => _umpAttemptFailed = v;
+
   /// Test seam for [_umpRequested] — see [debugResetGuardState].
   @visibleForTesting
   set debugUmpRequested(bool v) => _umpRequested = v;
@@ -1951,6 +1955,13 @@ class AdManager with WidgetsBindingObserver {
     _footgunBlocked = false;
     _umpRequested = false;
     _consentExplicitlySet = false;
+    // T63 — these two silently outlived destroy()/re-init, leaving a host
+    // with autoRequestUmpConsent:false no assignment left to ever reopen
+    // ad requests (stale `false` reads as "still gated" for the entire new
+    // session), and a stale failed-attempt flag from the old session.
+    // Restored to their declaration-time defaults (see field docs above).
+    _canRequestAds = true;
+    _umpAttemptFailed = false;
     _resumeFallbackTimer?.cancel();
     _resumeFallbackTimer = null;
     _splashBudgetTimer?.cancel();
