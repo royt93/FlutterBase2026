@@ -661,7 +661,7 @@ AdConfig({
   ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(),
   bool consentBarrierDismissible = false,
   Duration consentDialogPostSplashDelay = const Duration(seconds: 1),
-  bool autoRequestUmpConsent = false,
+  bool autoRequestUmpConsent = true,
   bool umpTagForUnderAgeOfConsent = false,
   DebugGeography? umpDebugGeography,
   List<String> umpTestIdentifiers = const [],
