@@ -2367,6 +2367,10 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) return false;
     if (_isVipMember) return false;
+    // T64 — a slot can finish loading+caching while consent was still
+    // granted, then have consent revoked before the actual show call. Cache
+    // readiness must not outlive consent.
+    if (!canRequestAds) return false;
     if (ad.interstitialSlot.isShowing) return false;
     if (AdLoadingDialog.isShowing) return false;
     final s = AdSafetyConfig.canShowFullscreenAd();
@@ -2656,7 +2660,14 @@ class AdManager with WidgetsBindingObserver {
   bool canShowRewardedAd() {
     final ad = _adapter;
     if (ad == null) return false;
+    // Deliberately BEFORE the consent check: this is a UI-gating quirk (the
+    // VIP watch-to-extend button), not a real ad path — see showRewardedAd's
+    // vipAutoGrant handling. Untouched by T64.
     if (_isVipMember) return true;
+    // T64 — a slot can finish loading+caching while consent was still
+    // granted, then have consent revoked before the actual show call. Cache
+    // readiness must not outlive consent.
+    if (!canRequestAds) return false;
     if (ad.rewardedSlot.isShowing) return false;
     if (AdLoadingDialog.isShowing) return false;
     final s = AdSafetyConfig.canShowFullscreenAd();

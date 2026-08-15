@@ -703,6 +703,50 @@ void main() {
     });
 
     test(
+        'T64 — consent revoked after an ad already loaded+cached → '
+        'canShowInterstitial() is false', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdManager().debugVipManager = _FakeVip(false);
+      adapter.interstitialSlot.beginLoad();
+      adapter.interstitialSlot.markReady();
+      expect(AdManager().canShowInterstitial(), isTrue,
+          reason: 'sanity check: ready + consent granted shows normally');
+
+      AdManager().debugCanRequestAds = false; // consent revoked mid-session
+      addTearDown(() => AdManager().debugCanRequestAds = true);
+
+      expect(AdManager().canShowInterstitial(), isFalse,
+          reason: 'a cached-ready ad must not show once consent is '
+              'revoked, even though it finished loading before that');
+    });
+
+    test(
+        'T64 — consent revoked after an ad already loaded+cached (non-VIP) '
+        '→ canShowRewardedAd() is false', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdManager().debugVipManager = _FakeVip(false);
+      adapter.rewardedSlot.beginLoad();
+      adapter.rewardedSlot.markReady();
+      expect(AdManager().canShowRewardedAd(), isTrue,
+          reason: 'sanity check: ready + consent granted shows normally');
+
+      AdManager().debugCanRequestAds = false; // consent revoked mid-session
+      addTearDown(() => AdManager().debugCanRequestAds = true);
+
+      expect(AdManager().canShowRewardedAd(), isFalse,
+          reason: 'a cached-ready ad must not show once consent is '
+              'revoked, even though it finished loading before that — the '
+              'documented VIP-bypass quirk above is untouched, this only '
+              'covers the real (non-VIP) ad path');
+    });
+
+    test(
         'VIP active → showAppOpenAd is skipped even with bypassSafety '
         '(never stacks on top of the no-ads state)', () async {
       AdManager().debugVipManager = _FakeVip(true);
