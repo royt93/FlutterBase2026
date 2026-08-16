@@ -140,6 +140,7 @@ Map<String, dynamic> _eventExtra(AdEvent event) => switch (event) {
       AdLoadEvent e => {'success': e.success, 'errorCode': e.errorCode},
       AdShowEvent e => {'success': e.success},
       AdClickEvent _ => const {},
+      AdSkipEvent e => {'action': e.action, 'reason': e.reason},
       AdRewardEvent e => {'label': e.label, 'amount': e.amount},
       AdRevenueEvent e => {
           'valueMicros': e.valueMicros,

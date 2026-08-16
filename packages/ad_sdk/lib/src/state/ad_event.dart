@@ -53,6 +53,28 @@ class AdShowEvent extends AdEvent {
   final bool success;
 }
 
+/// T77 — emitted whenever a `loadX`/`showX` call is gated/skipped before
+/// reaching the adapter (VIP suppression, safety cap, cooldown/busy,
+/// consent not granted, no network, ...), instead of only going through
+/// `SafeLogger`. Lets a host build a funnel/dashboard without parsing log
+/// text.
+class AdSkipEvent extends AdEvent {
+  const AdSkipEvent({
+    required super.providerTag,
+    required super.type,
+    required super.placement,
+    required this.action,
+    required this.reason,
+  });
+
+  /// `'load'` or `'show'`.
+  final String action;
+
+  /// Short machine-readable reason, e.g. `'vip'`, `'daily_cap'`, `'cooldown'`,
+  /// `'consent'`, `'no_network'`, `'adapter_null'`, `'busy'`.
+  final String reason;
+}
+
 class AdClickEvent extends AdEvent {
   const AdClickEvent({
     required super.providerTag,

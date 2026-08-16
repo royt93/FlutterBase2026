@@ -1224,6 +1224,108 @@ void main() {
     });
   });
 
+  // T77 — structured AdSkipEvent twin of the SafeLogger-only gate/skip
+  // decisions, so a host can build a funnel/dashboard without parsing logs.
+  group('AdSkipEvent (T77)', () {
+    late AdPreferences prefs;
+    late _FakeAdapter adapter;
+    late List<AdEvent> events;
+    late StreamSubscription<AdEvent> sub;
+
+    setUp(() async {
+      // AdPreferences.getInstance() caches its singleton across the whole
+      // test file — plain setMockInitialValues() alone doesn't rebind it,
+      // so daily-cap/suspicious-count state can otherwise leak between
+      // these tests (and from unrelated tests earlier in the file).
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugCanRequestAds = true;
+      events = <AdEvent>[];
+      sub = AdManager().events.listen(events.add);
+    });
+    tearDown(() async {
+      await sub.cancel();
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+    });
+
+    AdSkipEvent? lastSkip() {
+      final skips = events.whereType<AdSkipEvent>();
+      return skips.isEmpty ? null : skips.last;
+    }
+
+    test('load: VIP member emits an interstitial load skip with reason=vip',
+        () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      await AdManager().loadInterstitial();
+      await Future<void>.delayed(Duration.zero); // flush the broadcast stream
+
+      final skip = lastSkip();
+      expect(skip, isNotNull);
+      expect(skip!.type, AdSlotType.interstitial);
+      expect(skip.action, 'load');
+      expect(skip.reason, 'vip');
+    });
+
+    test('load: daily cap reached emits a rewarded load skip with '
+        'reason=daily_cap', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(maxFullscreenAdsPerDay: 0));
+      AdSafetyConfig.resetForReinit();
+
+      await AdManager().loadRewardedAd();
+      await Future<void>.delayed(Duration.zero);
+
+      final skip = lastSkip();
+      expect(skip, isNotNull);
+      expect(skip!.type, AdSlotType.rewarded);
+      expect(skip.action, 'load');
+      expect(skip.reason, 'daily_cap');
+    });
+
+    test('load: consent not granted emits a load skip with reason=consent',
+        () async {
+      AdManager().debugCanRequestAds = false;
+
+      await AdManager().loadInterstitial();
+      await Future<void>.delayed(Duration.zero);
+
+      final skip = lastSkip();
+      expect(skip, isNotNull);
+      expect(skip!.action, 'load');
+      expect(skip.reason, 'consent');
+    });
+
+    test(
+        'show: safety cooldown (progressive suspicious pause) emits a show '
+        'skip with reason=cooldown', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(maxClicksPerMinute: 2));
+      AdSafetyConfig.resetForReinit();
+
+      for (var i = 0; i < 3; i++) {
+        AdSafetyConfig.recordAdClick(); // 3rd click > cap → suspicious pause
+      }
+
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      await Future<void>.delayed(Duration.zero);
+
+      final skip = lastSkip();
+      expect(skip, isNotNull);
+      expect(skip!.action, 'show');
+      expect(skip.reason, 'cooldown');
+    });
+  });
+
   group('initialize() onComplete single-fire (init auto-retry fix)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

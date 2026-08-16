@@ -759,6 +759,27 @@ class AdManager with WidgetsBindingObserver {
   /// Only forces a fail if [slot] is STILL loading when the timer fires —
   /// if the native callback already resolved it (ready or cooldown), this
   /// is a no-op so a genuinely-loaded ad is never clobbered by a late timer.
+  /// T77 — structured twin of the `SafeLogger.d('⏭️ ... skipped — ...')`
+  /// lines throughout this file, so a host can build a gate/skip funnel
+  /// dashboard without parsing log text. [providerTag] defaults to a
+  /// `'[SDK]'` sentinel for the "adapter null" case, where no real
+  /// provider tag exists yet.
+  void _emitSkip(
+    AdSlotType type,
+    String action,
+    String reason, {
+    AdPlacement placement = AdPlacement.unspecified,
+    String? providerTag,
+  }) {
+    _emit(AdSkipEvent(
+      providerTag: providerTag ?? _adapter?.tag ?? '[SDK]',
+      type: type,
+      placement: placement,
+      action: action,
+      reason: reason,
+    ));
+  }
+
   void _armLoadWatchdog(String label, AdSlot slot, Duration timeout) {
     if (!slot.isLoading) return;
     Timer(timeout, () {
@@ -2195,6 +2216,7 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — adapter null');
+      _emitSkip(AdSlotType.appOpen, 'load', 'adapter_null');
       onAdLoaded?.call(false);
       return;
     }
@@ -2205,26 +2227,31 @@ class AdManager with WidgetsBindingObserver {
       // wasting quota/network on an ad that can't be used.
       SafeLogger.d(_tag,
           '⏭️ loadAppOpen skipped — appOpenTrigger=splashOnly, splash inactive');
+      _emitSkip(AdSlotType.appOpen, 'load', 'splash_only_inactive');
       onAdLoaded?.call(false);
       return;
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — VIP member');
+      _emitSkip(AdSlotType.appOpen, 'load', 'vip');
       onAdLoaded?.call(false);
       return;
     }
     if (AdSafetyConfig.dailyCapReached()) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — daily cap reached');
+      _emitSkip(AdSlotType.appOpen, 'load', 'daily_cap');
       onAdLoaded?.call(false);
       return;
     }
     if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.appOpen, 'load', 'consent');
       onAdLoaded?.call(false);
       return;
     }
     if (!isConnected) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — no network');
+      _emitSkip(AdSlotType.appOpen, 'load', 'no_network');
       onAdLoaded?.call(false);
       return;
     }
@@ -2242,17 +2269,22 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — adapter null');
+      _emitSkip(AdSlotType.appOpen, 'show', 'adapter_null',
+          placement: placement);
       onAdDismiss(false);
       return;
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — VIP member');
+      _emitSkip(AdSlotType.appOpen, 'show', 'vip', placement: placement);
       onAdDismiss(false);
       return;
     }
     if (bypassSafety && _config?.appOpenTrigger == AppOpenTrigger.resumeOnly) {
       SafeLogger.d(
           _tag, '⏭️ showAppOpen (splash) skipped — appOpenTrigger=resumeOnly');
+      _emitSkip(AdSlotType.appOpen, 'show', 'resume_only_trigger',
+          placement: placement);
       onAdDismiss(false);
       return;
     }
@@ -2262,6 +2294,7 @@ class AdManager with WidgetsBindingObserver {
     // consent is revoked.
     if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.appOpen, 'show', 'consent', placement: placement);
       onAdDismiss(false);
       return;
     }
@@ -2272,6 +2305,7 @@ class AdManager with WidgetsBindingObserver {
     final busyAO = _fullscreenBusyReason;
     if (busyAO != null) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — $busyAO');
+      _emitSkip(AdSlotType.appOpen, 'show', 'busy', placement: placement);
       onAdDismiss(false);
       return;
     }
@@ -2428,23 +2462,28 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — adapter null');
+      _emitSkip(AdSlotType.interstitial, 'load', 'adapter_null');
       return;
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — VIP member');
+      _emitSkip(AdSlotType.interstitial, 'load', 'vip');
       return;
     }
     if (AdSafetyConfig.dailyCapReached()) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — daily cap reached');
+      _emitSkip(AdSlotType.interstitial, 'load', 'daily_cap');
       return;
     }
     if (!canRequestAds) {
       SafeLogger.d(
           _tag, '⏭️ loadInterstitial skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.interstitial, 'load', 'consent');
       return;
     }
     if (!isConnected) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — no network');
+      _emitSkip(AdSlotType.interstitial, 'load', 'no_network');
       return;
     }
     await ad.loadInterstitial();
@@ -2460,17 +2499,22 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showInterstitial skipped — adapter null');
+      _emitSkip(AdSlotType.interstitial, 'show', 'adapter_null',
+          placement: placement);
       onDoneFlow(false);
       return;
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ showInterstitial skipped — VIP member');
+      _emitSkip(AdSlotType.interstitial, 'show', 'vip', placement: placement);
       onDoneFlow(false);
       return;
     }
     if (!canRequestAds) {
       SafeLogger.d(
           _tag, '⏭️ showInterstitial skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.interstitial, 'show', 'consent',
+          placement: placement);
       onDoneFlow(false);
       return;
     }
@@ -2479,6 +2523,7 @@ class AdManager with WidgetsBindingObserver {
     final busyI = _fullscreenBusyReason;
     if (busyI != null) {
       SafeLogger.d(_tag, '⏭️ showInterstitial skipped — $busyI');
+      _emitSkip(AdSlotType.interstitial, 'show', 'busy', placement: placement);
       onDoneFlow(false);
       return;
     }
@@ -2486,6 +2531,8 @@ class AdManager with WidgetsBindingObserver {
     if (!safety.canShow) {
       SafeLogger.d(_tag,
           () => '⏭️ showInterstitial blocked by safety: ${safety.reason}');
+      _emitSkip(AdSlotType.interstitial, 'show', 'cooldown',
+          placement: placement);
       onDoneFlow(false);
       return;
     }
@@ -2554,22 +2601,27 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — adapter null');
+      _emitSkip(AdSlotType.rewarded, 'load', 'adapter_null');
       return;
     }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — VIP member');
+      _emitSkip(AdSlotType.rewarded, 'load', 'vip');
       return;
     }
     if (AdSafetyConfig.dailyCapReached()) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — daily cap reached');
+      _emitSkip(AdSlotType.rewarded, 'load', 'daily_cap');
       return;
     }
     if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.rewarded, 'load', 'consent');
       return;
     }
     if (!isConnected) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — no network');
+      _emitSkip(AdSlotType.rewarded, 'load', 'no_network');
       return;
     }
     await ad.loadRewarded();
@@ -2659,6 +2711,8 @@ class AdManager with WidgetsBindingObserver {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showRewarded skipped — adapter null');
+      _emitSkip(AdSlotType.rewarded, 'show', 'adapter_null',
+          placement: placement);
       onEarnedReward(false);
       return;
     }
@@ -2673,6 +2727,7 @@ class AdManager with WidgetsBindingObserver {
           _tag,
           () =>
               '⏭️ showRewarded skipped — VIP member (vipAutoGrant=$vipAutoGrant)');
+      _emitSkip(AdSlotType.rewarded, 'show', 'vip', placement: placement);
       onEarnedReward(vipAutoGrant);
       return;
     }
@@ -2680,6 +2735,7 @@ class AdManager with WidgetsBindingObserver {
     // already returned; this only gates paths that would actually show an ad.)
     if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ showRewarded skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.rewarded, 'show', 'consent', placement: placement);
       onEarnedReward(false);
       return;
     }
@@ -2694,6 +2750,7 @@ class AdManager with WidgetsBindingObserver {
         : _fullscreenBusyReason;
     if (busyR != null) {
       SafeLogger.d(_tag, '⏭️ showRewarded skipped — $busyR');
+      _emitSkip(AdSlotType.rewarded, 'show', 'busy', placement: placement);
       onEarnedReward(false);
       return;
     }
@@ -2701,6 +2758,7 @@ class AdManager with WidgetsBindingObserver {
     if (!safety.canShow) {
       SafeLogger.d(
           _tag, () => '⏭️ showRewarded blocked by safety: ${safety.reason}');
+      _emitSkip(AdSlotType.rewarded, 'show', 'cooldown', placement: placement);
       onEarnedReward(false);
       return;
     }
