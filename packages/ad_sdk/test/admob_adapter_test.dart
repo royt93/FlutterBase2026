@@ -96,10 +96,10 @@ void main() {
           throwsFlutterError);
       expect(() => adapter.rewardedSlot.state.addListener(() {}),
           throwsFlutterError);
-      expect(() => adapter.bannerSlot.state.addListener(() {}),
+      expect(() => adapter.bannerSlot('k').state.addListener(() {}),
           throwsFlutterError);
       expect(
-          () => adapter.banner.isLoaded.addListener(() {}), throwsFlutterError);
+          () => adapter.banner('k').isLoaded.addListener(() {}), throwsFlutterError);
       expect(
           () => adapter.mrecSlot.state.addListener(() {}), throwsFlutterError);
       expect(
@@ -108,6 +108,36 @@ void main() {
           throwsFlutterError);
       expect(() => adapter.native('k').isLoaded.addListener(() {}),
           throwsFlutterError);
+    });
+  });
+
+  group('AdMobAdapter banner slot', () {
+    // T65 (phase 2) — same guarantee as native (phase 1): two different
+    // BannerAdWidget keys must not share AdSlot/BannerListenables state.
+    test('two different keys get independent AdSlot/BannerListenables', () {
+      final adapter = AdMobAdapter();
+      adapter.bannerSlot('a').beginLoad();
+      adapter.bannerSlot('a').markReady();
+      adapter.banner('a').isLoaded.value = true;
+
+      expect(adapter.bannerSlot('b').value, AdSlotState.idle,
+          reason: 'key "b" must start idle, unaffected by key "a" loading');
+      expect(adapter.banner('b').isLoaded.value, isFalse,
+          reason: 'key "b" must not see key "a" isLoaded=true');
+    });
+
+    test('disposeBannerInstance releases that key without affecting others',
+        () {
+      final adapter = AdMobAdapter();
+      adapter.bannerSlot('a').beginLoad();
+      adapter.bannerSlot('b').beginLoad();
+
+      adapter.disposeBannerInstance('a');
+
+      expect(adapter.bannerSlots.length, 1,
+          reason: 'only key "b" remains tracked after disposing "a"');
+      expect(adapter.bannerSlot('b').isLoading, isTrue,
+          reason: 'disposing key "a" must not touch key "b"');
     });
   });
 

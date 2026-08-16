@@ -15,8 +15,9 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlot;
   @override
   final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
 
@@ -72,7 +73,7 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   Future<void> preloadMrec() async {}
   // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
   @override
-  Future<void> preloadBanner() async {}
+  Future<void> preloadBanner(Object key) async {}
   @override
   Future<void> loadInterstitial() async {}
   @override

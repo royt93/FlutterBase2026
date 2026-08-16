@@ -150,25 +150,67 @@ class AdMobAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  // T65 (phase 2) — one AdSlot/BannerListenables per BannerAdWidget instance,
+  // same pattern as native (phase 1). See disposeBannerInstance/bannerSlot().
+  final Map<Object, AdSlot> _bannerSlotsByKey = {};
+  final Map<Object, BannerListenables> _bannerListenablesByKey = {};
+  bool _bannerDisposed = false;
+  AdSlot? _disposedBannerSlot;
+  BannerListenables? _disposedBannerListenables;
+
+  AdSlot _bannerSlotFor(Object key) {
+    if (_bannerDisposed) {
+      return _disposedBannerSlot ??=
+          (AdSlot(type: AdSlotType.banner)..dispose());
+    }
+    return _bannerSlotsByKey.putIfAbsent(
+        key, () => AdSlot(type: AdSlotType.banner));
+  }
+
+  BannerListenables _bannerListenablesFor(Object key) {
+    if (_bannerDisposed) {
+      return _disposedBannerListenables ??= (BannerListenables(
+        isLoaded: ValueNotifier<bool>(false),
+        hasError: ValueNotifier<bool>(false),
+        adSize: ValueNotifier<Size?>(null),
+        autoRefreshEnabled: ValueNotifier<bool>(true),
+        visible: ValueNotifier<bool>(true),
+      )..dispose());
+    }
+    return _bannerListenablesByKey.putIfAbsent(
+        key,
+        () => BannerListenables(
+              isLoaded: ValueNotifier<bool>(false),
+              hasError: ValueNotifier<bool>(false),
+              adSize: ValueNotifier<Size?>(null),
+              autoRefreshEnabled: ValueNotifier<bool>(true),
+              visible: ValueNotifier<bool>(true),
+            ));
+  }
+
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlotFor(key);
+
+  @override
+  Iterable<AdSlot> get bannerSlots => _bannerSlotsByKey.values;
+
+  @override
+  BannerListenables banner(Object key) => _bannerListenablesFor(key);
+
+  @override
+  void disposeBannerInstance(Object key) {
+    _bannerAdsByKey.remove(key)?.dispose();
+    _bannerSlotsByKey.remove(key)?.dispose();
+    _bannerListenablesByKey.remove(key)?.dispose();
+    _bannerRoutePausedByKey.remove(key);
+  }
+
   @override
   final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
 
   // T65 (phase 1) — one AdSlot per NativeAdWidget instance (see nativeSlot()
   // below), instead of one shared across every mounted widget.
   final Map<Object, AdSlot> _nativeSlotsByKey = {};
-
-  // ─── Banner listenables ───────────────────────────────────────────────────
-
-  @override
-  final BannerListenables banner = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
 
   // ─── MREC listenables ─────────────────────────────────────────────────────
 
@@ -246,7 +288,9 @@ class AdMobAdapter implements AdProviderAdapter {
   GmaFullscreenAd? _appOpenAd;
   GmaFullscreenAd? _interstitialAd;
   GmaFullscreenAd? _rewardedAd;
-  BannerAd? _bannerAd; // banner stays on the native API
+  // T65 (phase 2) — one BannerAd per BannerAdWidget instance, same reasoning
+  // as native's _nativeAdsByKey.
+  final Map<Object, BannerAd> _bannerAdsByKey = {};
   BannerAd?
       _mrecAd; // MREC also uses the native BannerAd API, with AdSize.mediumRectangle
   // T65 (phase 1) — one NativeAd per NativeAdWidget instance, instead of one
@@ -268,21 +312,24 @@ class AdMobAdapter implements AdProviderAdapter {
   Timer? _appOpenShowTimeout;
   static const Duration _appOpenShowHardCap = Duration(seconds: 90);
 
-  bool _bannerRoutePaused = false;
+  // T65 (phase 2) — one flag per BannerAdWidget instance (each has its own
+  // RouteAware subscription/route).
+  final Map<Object, bool> _bannerRoutePausedByKey = {};
 
   @override
-  bool get bannerRoutePaused => _bannerRoutePaused;
+  bool bannerRoutePaused(Object key) => _bannerRoutePausedByKey[key] ?? false;
 
   @override
-  void setBannerRoutePaused(bool paused) {
-    _bannerRoutePaused = paused;
+  void setBannerRoutePaused(Object key, bool paused) {
+    _bannerRoutePausedByKey[key] = paused;
   }
 
   @override
   String? get appLovinBannerId => null; // AdMob only
 
   @override
-  ValueListenable<Object?> get appLovinBannerAdViewId => _appLovinAdViewIdStub;
+  ValueListenable<Object?> appLovinBannerAdViewId(Object key) =>
+      _appLovinAdViewIdStub;
   static final ValueNotifier<Object?> _appLovinAdViewIdStub =
       ValueNotifier<Object?>(null);
 
@@ -346,12 +393,14 @@ class AdMobAdapter implements AdProviderAdapter {
     _interstitialAd = null;
     _disposeAd(_rewardedAd, 'rewarded');
     _rewardedAd = null;
-    try {
-      _bannerAd?.dispose();
-    } catch (e) {
-      SafeLogger.w(_logTag, 'banner dispose threw: $e');
+    for (final ad in _bannerAdsByKey.values) {
+      try {
+        ad.dispose();
+      } catch (e) {
+        SafeLogger.w(_logTag, 'banner dispose threw: $e');
+      }
     }
-    _bannerAd = null;
+    _bannerAdsByKey.clear();
     try {
       _mrecAd?.dispose();
     } catch (e) {
@@ -378,18 +427,22 @@ class AdMobAdapter implements AdProviderAdapter {
     appOpenSlot.reset();
     interstitialSlot.reset();
     rewardedSlot.reset();
-    bannerSlot.reset();
+    for (final slot in _bannerSlotsByKey.values) {
+      slot.reset();
+    }
     mrecSlot.reset();
     for (final slot in _nativeSlotsByKey.values) {
       slot.reset();
     }
 
-    banner.isLoaded.value = false;
-    banner.hasError.value = false;
-    banner.adSize.value = null;
-    banner.autoRefreshEnabled.value = true;
-    banner.visible.value = true;
-    _bannerRoutePaused = false;
+    for (final l in _bannerListenablesByKey.values) {
+      l.isLoaded.value = false;
+      l.hasError.value = false;
+      l.adSize.value = null;
+      l.autoRefreshEnabled.value = true;
+      l.visible.value = true;
+    }
+    _bannerRoutePausedByKey.clear();
 
     mrec.isLoaded.value = false;
     mrec.hasError.value = false;
@@ -404,8 +457,13 @@ class AdMobAdapter implements AdProviderAdapter {
     appOpenSlot.dispose();
     interstitialSlot.dispose();
     rewardedSlot.dispose();
-    bannerSlot.dispose();
-    banner.dispose();
+    // T65 (phase 2) — dispose every BannerAdWidget instance's slot/ad/
+    // listenables (already cleared _bannerAdsByKey above); disposeBannerInstance
+    // mutates the maps, so snapshot the keys first.
+    for (final key in _bannerSlotsByKey.keys.toList()) {
+      disposeBannerInstance(key);
+    }
+    _bannerDisposed = true;
     mrecSlot.dispose();
     mrec.dispose();
     // T65 (phase 1) — dispose every NativeAdWidget instance's slot/ad/
@@ -972,7 +1030,7 @@ class AdMobAdapter implements AdProviderAdapter {
   // ──────────────────────────────────────────────────────────────────────────
 
   @override
-  Future<void> preloadBanner() async {
+  Future<void> preloadBanner(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -991,7 +1049,7 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> loadBannerIfNeeded(double widthPx) async {
+  Future<void> loadBannerIfNeeded(Object key, double widthPx) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1007,29 +1065,31 @@ class AdMobAdapter implements AdProviderAdapter {
     }
     final cfg = _admob;
     if (cfg == null) return;
-    if (_bannerAd != null) {
+    if (_bannerAdsByKey.containsKey(key)) {
       SafeLogger.d(_logTag, 'loadBanner $tag ⏭️ already cached');
       return;
     }
+    final slot = _bannerSlotFor(key);
+    final listenables = _bannerListenablesFor(key);
     // Transition the slot to `loading` BEFORE creating the BannerAd. GMA's
     // onAdLoaded/onAdFailedToLoad can fire synchronously on a cached fill — if
     // beginLoad() ran AFTER ..load() it would overwrite the ready/cooldown
     // state the callback set and strand the slot in `loading` forever.
     // Use beginLoad (not beginReload) so a flapping banner still respects the
     // backoff window — banner reload is cheap to skip, unlike a spent fullscreen.
-    if (!bannerSlot.beginLoad()) {
+    if (!slot.beginLoad()) {
       SafeLogger.d(
           _logTag, 'loadBanner $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
-    banner.isLoaded.value = false;
+    listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadBanner $tag 🔄 width=$widthPx');
     try {
       final adaptive =
           await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
               widthPx.truncate());
       final size = adaptive ?? AdSize.banner;
-      _bannerAd = BannerAd(
+      _bannerAdsByKey[key] = BannerAd(
         adUnitId: cfg.bannerId,
         size: size,
         // Banner doesn't go through GmaBridge, so RDP extras are built locally
@@ -1043,11 +1103,11 @@ class AdMobAdapter implements AdProviderAdapter {
           onPaidEvent: _paidEventForBanner(AdPlacement.unspecified),
           onAdLoaded: (ad) {
             SafeLogger.d(_logTag, 'loadBanner $tag ✅');
-            banner.isLoaded.value = true;
-            banner.hasError.value = false;
-            banner.adSize.value =
+            listenables.isLoaded.value = true;
+            listenables.hasError.value = false;
+            listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
-            bannerSlot.markReady();
+            slot.markReady();
             // Counts towards CTR denominator (preserves original 1.x Fix J).
             AdSafetyConfig.recordBannerImpression();
             _emit(AdLoadEvent(
@@ -1062,10 +1122,10 @@ class AdMobAdapter implements AdProviderAdapter {
             try {
               ad.dispose();
             } catch (_) {}
-            _bannerAd = null;
-            banner.isLoaded.value = false;
-            banner.hasError.value = true;
-            bannerSlot.markFailed();
+            _bannerAdsByKey.remove(key);
+            listenables.isLoaded.value = false;
+            listenables.hasError.value = true;
+            slot.markFailed();
             _emit(AdLoadEvent(
               providerTag: tag,
               type: AdSlotType.banner,
@@ -1089,14 +1149,14 @@ class AdMobAdapter implements AdProviderAdapter {
       // Slot already transitioned to `loading` above (before BannerAd creation).
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadBanner $tag adaptive size THREW: $e\n$st');
-      banner.hasError.value = true;
-      bannerSlot.markFailed();
+      listenables.hasError.value = true;
+      slot.markFailed();
     }
   }
 
   @override
-  Widget? buildAdmobBannerView() {
-    final ad = _bannerAd;
+  Widget? buildAdmobBannerView(Object key) {
+    final ad = _bannerAdsByKey[key];
     if (ad == null) return null;
     return SizedBox(
       width: ad.size.width.toDouble(),
@@ -1338,8 +1398,10 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void onAppPaused() {
-    if (_bannerAd != null) {
-      banner.visible.value = false;
+    if (_bannerAdsByKey.isNotEmpty) {
+      for (final l in _bannerListenablesByKey.values) {
+        l.visible.value = false;
+      }
     }
     if (_mrecAd != null) {
       mrec.visible.value = false;
@@ -1358,25 +1420,30 @@ class AdMobAdapter implements AdProviderAdapter {
           _logTag, 'onAppResumed $tag \u23ed\ufe0f skipped — gate closed');
       return;
     }
-    // Reload banner if it errored out (Fix #14 preserved).
-    if (banner.hasError.value && _bannerAd == null) {
-      banner.hasError.value = false;
-      // Width is unknown here — caller (AdManager) supplies it via
-      // platformDispatcher when it forwards the resume.
-      // Prefer the app's implicit (primary) view — `views.first` can be the
-      // wrong window on foldables / iPad split-view / multi-window.
-      final dispatcher = WidgetsBinding.instance.platformDispatcher;
-      final view = dispatcher.implicitView ??
-          (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
-      if (view != null) {
-        final width = view.physicalSize.width / view.devicePixelRatio;
-        loadBannerIfNeeded(width);
-      } else {
-        SafeLogger.w(
-            _logTag, 'onAppResumed $tag no platform view — skip reload');
+    // Reload banner if it errored out (Fix #14 preserved). T65 (phase 2):
+    // retry every known instance key that's in error state, not just a
+    // single shared one.
+    for (final key in _bannerListenablesByKey.keys.toList()) {
+      final listenables = _bannerListenablesByKey[key]!;
+      if (listenables.hasError.value && !_bannerAdsByKey.containsKey(key)) {
+        listenables.hasError.value = false;
+        // Width is unknown here — caller (AdManager) supplies it via
+        // platformDispatcher when it forwards the resume.
+        // Prefer the app's implicit (primary) view — `views.first` can be the
+        // wrong window on foldables / iPad split-view / multi-window.
+        final dispatcher = WidgetsBinding.instance.platformDispatcher;
+        final view = dispatcher.implicitView ??
+            (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
+        if (view != null) {
+          final width = view.physicalSize.width / view.devicePixelRatio;
+          loadBannerIfNeeded(key, width);
+        } else {
+          SafeLogger.w(
+              _logTag, 'onAppResumed $tag no platform view — skip reload');
+        }
+      } else if (_bannerAdsByKey.containsKey(key)) {
+        listenables.visible.value = true;
       }
-    } else if (_bannerAd != null) {
-      banner.visible.value = true;
     }
 
     // Mirror for MREC — width doesn't matter (fixed size) but loadMrecIfNeeded

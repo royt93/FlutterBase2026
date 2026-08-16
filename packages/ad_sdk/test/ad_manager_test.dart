@@ -64,8 +64,8 @@ void main() {
 
   group('banner load cooldown', () {
     test('canLoadBanner is false immediately after recordBannerLoad', () {
-      mgr.recordBannerLoad();
-      expect(mgr.canLoadBanner(), isFalse,
+      mgr.recordBannerLoad('k');
+      expect(mgr.canLoadBanner('k'), isFalse,
           reason: 'within the cooldown window after a load');
     });
   });

@@ -498,7 +498,9 @@ class AdManager with WidgetsBindingObserver {
 
   GlobalKey<NavigatorState>? _navigatorKey;
 
-  int _lastBannerLoadAt = 0;
+  // T65 (phase 2) — keyed by widget instance, same reasoning as native's
+  // _lastNativeLoadAtByKey.
+  final Map<Object, int> _lastBannerLoadAtByKey = {};
   static const int _bannerLoadCooldownMs = 5000;
 
   int _lastMrecLoadAt = 0;
@@ -512,6 +514,18 @@ class AdManager with WidgetsBindingObserver {
   // wrongly "on cooldown" because some OTHER item just loaded.
   final Map<Object, int> _lastNativeLoadAtByKey = {};
   static const int _nativeLoadCooldownMs = 5000;
+
+  // T65 (phase 2) — SDK-init/VIP-expiry/reconnect proactively warm up a
+  // banner ahead of any widget mounting (so the first BannerAdWidget an app
+  // shows doesn't pay the full network-load latency). There's no widget key
+  // at those call sites, so they share this one sentinel key. A widget that
+  // later mounts still uses its own `this`-derived key (see
+  // BannerAdWidget._initBanner) — known trade-off: this sentinel's preloaded
+  // view isn't handed off to that widget, so the common single-banner case
+  // pays for two preloads (warm-up + the widget's own) instead of one. Real
+  // value is preserved for the tested behavior this replaces (reconnect
+  // must still trigger a preload attempt even with zero widgets mounted).
+  static final Object _globalBannerWarmupKey = Object();
 
   bool _retryTimerActive = false;
   int _retryGen = 0;
@@ -744,7 +758,7 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam: clear the banner load cooldown so tests sharing the singleton
   /// don't leak `_lastBannerLoadAt` into each other.
   @visibleForTesting
-  void debugResetBannerCooldown() => _lastBannerLoadAt = 0;
+  void debugResetBannerCooldown() => _lastBannerLoadAtByKey.clear();
 
   /// Test seam: same as [debugResetBannerCooldown] but for MREC.
   @visibleForTesting
@@ -911,42 +925,57 @@ class AdManager with WidgetsBindingObserver {
 
   // ─── Banner accessors used by BannerAdWidget ─────────────────────────────
 
-  bool canLoadBanner() {
-    if (_lastBannerLoadAt == 0) return true;
-    return DateTime.now().millisecondsSinceEpoch - _lastBannerLoadAt >=
+  // T65 (phase 2) — keyed by widget instance, same reasoning as native's
+  // canLoadNative: this is a per-slot reload debounce, not a shared policy
+  // budget, so it must not be shared across simultaneous BannerAdWidgets.
+  bool canLoadBanner(Object key) {
+    final last = _lastBannerLoadAtByKey[key];
+    if (last == null) return true;
+    return DateTime.now().millisecondsSinceEpoch - last >=
         _bannerLoadCooldownMs;
   }
 
-  void recordBannerLoad() {
-    _lastBannerLoadAt = DateTime.now().millisecondsSinceEpoch;
+  void recordBannerLoad(Object key) {
+    _lastBannerLoadAtByKey[key] = DateTime.now().millisecondsSinceEpoch;
   }
 
-  ValueListenable<bool> get bannerIsLoaded =>
-      _adapter?.banner.isLoaded ?? _stubBoolFalse;
+  ValueListenable<bool> bannerIsLoaded(Object key) =>
+      _adapter?.banner(key).isLoaded ?? _stubBoolFalse;
 
-  ValueListenable<bool> get bannerHasError =>
-      _adapter?.banner.hasError ?? _stubBoolFalse;
+  ValueListenable<bool> bannerHasError(Object key) =>
+      _adapter?.banner(key).hasError ?? _stubBoolFalse;
 
-  ValueListenable<Size?> get bannerAdSize =>
-      _adapter?.banner.adSize ?? _stubSize;
+  ValueListenable<Size?> bannerAdSize(Object key) =>
+      _adapter?.banner(key).adSize ?? _stubSize;
 
-  ValueListenable<bool> get bannerAutoRefreshEnabled =>
-      _adapter?.banner.autoRefreshEnabled ?? _stubBoolTrue;
+  ValueListenable<bool> bannerAutoRefreshEnabled(Object key) =>
+      _adapter?.banner(key).autoRefreshEnabled ?? _stubBoolTrue;
 
-  ValueListenable<bool> get bannerVisible =>
-      _adapter?.banner.visible ?? _stubBoolTrue;
+  ValueListenable<bool> bannerVisible(Object key) =>
+      _adapter?.banner(key).visible ?? _stubBoolTrue;
 
-  ValueListenable<Object?> get bannerAdViewId =>
-      _adapter?.appLovinBannerAdViewId ?? _stubObject;
+  ValueListenable<Object?> bannerAdViewId(Object key) =>
+      _adapter?.appLovinBannerAdViewId(key) ?? _stubObject;
 
   String get appLovinBannerId => _adapter?.appLovinBannerId ?? '';
 
-  bool get bannerRoutePaused => _adapter?.bannerRoutePaused ?? false;
+  bool bannerRoutePaused(Object key) =>
+      _adapter?.bannerRoutePaused(key) ?? false;
 
-  void setBannerRoutePaused(bool paused) =>
-      _adapter?.setBannerRoutePaused(paused);
+  void setBannerRoutePaused(Object key, bool paused) =>
+      _adapter?.setBannerRoutePaused(key, paused);
 
-  Widget? get admobBannerView => _adapter?.buildAdmobBannerView();
+  Widget? admobBannerView(Object key) => _adapter?.buildAdmobBannerView(key);
+
+  /// AppLovin only — AdMob's banner loads lazily via [loadAdmobBannerIfNeeded]
+  /// once the widget knows its width; this is a no-op there.
+  Future<void> preloadBanner(Object key) =>
+      _adapter?.preloadBanner(key) ?? Future<void>.value();
+
+  void disposeBannerInstance(Object key) {
+    _adapter?.disposeBannerInstance(key);
+    _lastBannerLoadAtByKey.remove(key);
+  }
 
   // ─── MREC accessors used by MrecAdWidget ─────────────────────────────────
 
@@ -1451,16 +1480,19 @@ class AdManager with WidgetsBindingObserver {
       onComplete(true, _currentDeviceGAID);
       SimpleEventBus().fire(const BoolEvent(true));
 
-      SafeLogger.d(_tag, 'triggering App Open + banner preload');
+      SafeLogger.d(_tag, 'triggering App Open + banner/mrec preload');
       unawaited(loadAppOpenAd());
-      // Banner preload also respects VIP — preloading while VIP is active
-      // wastes a network request, and on AppLovin it inflates the internal
-      // `recordBannerImpression` counter (the banner widget itself does
+      // Banner/mrec preload also respects VIP — preloading while VIP is
+      // active wastes a network request, and on AppLovin it inflates the
+      // internal `recordBannerImpression` counter (the widget itself does
       // suppress *display*, but the cache fill is unnecessary).
       if (_isVipMember) {
         SafeLogger.d(_tag, '⏭️ banner/mrec preload skipped — VIP member');
       } else {
-        unawaited(adapter.preloadBanner());
+        // T65 (phase 2) — no widget exists yet at this call site, so this
+        // proactive warm-up uses the shared sentinel key (see its doc
+        // comment for the accepted trade-off vs a real widget's own key).
+        unawaited(adapter.preloadBanner(_globalBannerWarmupKey));
         unawaited(adapter.preloadMrec());
       }
 
@@ -1533,7 +1565,9 @@ class AdManager with WidgetsBindingObserver {
     unawaited(loadAppOpenAd());
     unawaited(loadInterstitial());
     unawaited(loadRewardedAd());
-    unawaited(ad.preloadBanner());
+    // T65 (phase 2) — no widget key at this call site; shares the sentinel
+    // key (see its doc comment).
+    unawaited(ad.preloadBanner(_globalBannerWarmupKey));
     unawaited(ad.preloadMrec());
   }
 
@@ -1936,7 +1970,7 @@ class AdManager with WidgetsBindingObserver {
     _isSplashActive = false;
     _countInitSplashScreen = 0;
     _isFirstAdLoadTriggered = false;
-    _lastBannerLoadAt = 0;
+    _lastBannerLoadAtByKey.clear();
     _lastFullscreenDismissAt = 0;
     _rewardedInFlight = false;
     _isInitializing = false;
@@ -2693,11 +2727,11 @@ class AdManager with WidgetsBindingObserver {
   //  live in the "Banner accessors" section near the top of the class.
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<void> loadAdmobBannerIfNeeded(double widthPx) async {
+  Future<void> loadAdmobBannerIfNeeded(Object key, double widthPx) async {
     final ad = _adapter;
     if (ad == null) return;
     if (_isVipMember || !isConnected) return;
-    await ad.loadBannerIfNeeded(widthPx);
+    await ad.loadBannerIfNeeded(key, widthPx);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -2814,8 +2848,9 @@ class AdManager with WidgetsBindingObserver {
           '| adapter=${ad?.tag ?? "null"} '
           '| inter=${ad?.interstitialSlot.value.name ?? "?"} '
           '| rewarded=${ad?.rewardedSlot.value.name ?? "?"} '
-          '| appOpen=${ad?.appOpenSlot.value.name ?? "?"} '
-          '| banner=${ad?.bannerSlot.value.name ?? "?"}'
+          '| appOpen=${ad?.appOpenSlot.value.name ?? "?"}'
+          // T65 (phase 2): banner is now keyed per BannerAdWidget instance —
+          // no single slot to summarize here anymore.
           '$backgroundedFor',
     );
 
@@ -2896,7 +2931,6 @@ class AdManager with WidgetsBindingObserver {
           'inter=${ad.interstitialSlot.value.name} '
           'rewarded=${ad.rewardedSlot.value.name} '
           'appOpen=${ad.appOpenSlot.value.name} '
-          'banner=${ad.bannerSlot.value.name} '
           'vip=$_isVipMember',
     );
   }
@@ -2983,8 +3017,12 @@ class AdManager with WidgetsBindingObserver {
       }
       _retryRefillAds();
       // Banners re-run their init on an initRevision bump (the widget checks
-      // isConnected in _initBanner); also nudge the adapter's banner preload.
-      unawaited(_adapter?.preloadBanner() ?? Future<void>.value());
+      // isConnected in _initBanner); also nudge the adapter's banner preload
+      // for the case where no widget is mounted yet — T65 (phase 2): shares
+      // the sentinel key (see its doc comment), same trade-off as the other
+      // two keyless call sites.
+      unawaited(_adapter?.preloadBanner(_globalBannerWarmupKey) ??
+          Future<void>.value());
       initRevision.value = initRevision.value + 1;
     });
   }

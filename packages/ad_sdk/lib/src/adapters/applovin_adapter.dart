@@ -75,8 +75,75 @@ class AppLovinAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  // T65 (phase 2) — one AdSlot/BannerListenables/adViewId per BannerAdWidget
+  // instance, same reasoning as native (phase 1): AppLovin's banner had the
+  // identical singleton bug agy found on AdMob — one shared
+  // preloadWidgetAdView id, so two simultaneous BannerAdWidgets would fight
+  // over the same MaxAdView.
+  final Map<Object, AdSlot> _bannerSlotsByKey = {};
+  final Map<Object, BannerListenables> _bannerListenablesByKey = {};
+  final Map<Object, ValueNotifier<AdViewId?>> _bannerAdViewIdByKey = {};
+  final Map<Object, bool> _bannerRoutePausedByKey = {};
+
+  bool _bannerDisposed = false;
+  AdSlot? _disposedBannerSlot;
+  BannerListenables? _disposedBannerListenables;
+  final ValueNotifier<AdViewId?> _disposedBannerAdViewId =
+      ValueNotifier<AdViewId?>(null)..dispose();
+
+  AdSlot _bannerSlotFor(Object key) {
+    if (_bannerDisposed) {
+      return _disposedBannerSlot ??=
+          (AdSlot(type: AdSlotType.banner)..dispose());
+    }
+    return _bannerSlotsByKey.putIfAbsent(
+        key, () => AdSlot(type: AdSlotType.banner));
+  }
+
+  BannerListenables _bannerListenablesFor(Object key) {
+    if (_bannerDisposed) {
+      return _disposedBannerListenables ??= (BannerListenables(
+        isLoaded: ValueNotifier<bool>(false),
+        hasError: ValueNotifier<bool>(false),
+        adSize: ValueNotifier<Size?>(null),
+        autoRefreshEnabled: ValueNotifier<bool>(true),
+        visible: ValueNotifier<bool>(true),
+      )..dispose());
+    }
+    return _bannerListenablesByKey.putIfAbsent(
+        key,
+        () => BannerListenables(
+              isLoaded: ValueNotifier<bool>(false),
+              hasError: ValueNotifier<bool>(false),
+              adSize: ValueNotifier<Size?>(null),
+              autoRefreshEnabled: ValueNotifier<bool>(true),
+              visible: ValueNotifier<bool>(true),
+            ));
+  }
+
+  ValueNotifier<AdViewId?> _bannerAdViewIdFor(Object key) {
+    if (_bannerDisposed) return _disposedBannerAdViewId;
+    return _bannerAdViewIdByKey.putIfAbsent(
+        key, () => ValueNotifier<AdViewId?>(null));
+  }
+
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlotFor(key);
+
+  @override
+  Iterable<AdSlot> get bannerSlots => _bannerSlotsByKey.values;
+
+  @override
+  BannerListenables banner(Object key) => _bannerListenablesFor(key);
+
+  @override
+  void disposeBannerInstance(Object key) {
+    _bannerSlotsByKey.remove(key)?.dispose();
+    _bannerListenablesByKey.remove(key)?.dispose();
+    _bannerAdViewIdByKey.remove(key)?.dispose();
+    _bannerRoutePausedByKey.remove(key);
+  }
+
   @override
   final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
 
@@ -140,15 +207,6 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  final BannerListenables banner = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
-
-  @override
   final BannerListenables mrec = BannerListenables(
     isLoaded: ValueNotifier<bool>(false),
     hasError: ValueNotifier<bool>(false),
@@ -162,12 +220,11 @@ class AppLovinAdapter implements AdProviderAdapter {
   // sets them directly from MaxNativeAdView's own listener callbacks (see
   // native(key) above).
 
-  final ValueNotifier<AdViewId?> _bannerAdViewId =
-      ValueNotifier<AdViewId?>(null);
   final ValueNotifier<AdViewId?> _mrecAdViewId = ValueNotifier<AdViewId?>(null);
 
   @override
-  ValueListenable<Object?> get appLovinBannerAdViewId => _bannerAdViewId;
+  ValueListenable<Object?> appLovinBannerAdViewId(Object key) =>
+      _bannerAdViewIdFor(key);
 
   @override
   String? get appLovinBannerId => _max?.bannerId;
@@ -193,14 +250,12 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   Timer? _appOpenShowTimeout;
 
-  bool _bannerRoutePaused = false;
+  @override
+  bool bannerRoutePaused(Object key) => _bannerRoutePausedByKey[key] ?? false;
 
   @override
-  bool get bannerRoutePaused => _bannerRoutePaused;
-
-  @override
-  void setBannerRoutePaused(bool paused) {
-    _bannerRoutePaused = paused;
+  void setBannerRoutePaused(Object key, bool paused) {
+    _bannerRoutePausedByKey[key] = paused;
   }
 
   bool _mrecRoutePaused = false;
@@ -305,12 +360,16 @@ class AppLovinAdapter implements AdProviderAdapter {
 
     // Now destroy the native widget AdViews. Without this the native side
     // keeps the previous banner/mrec alive across destroy → re-init cycles.
-    final oldBannerId = _bannerAdViewId.value;
-    if (oldBannerId != null) {
-      try {
-        await _bridge.destroyWidgetAdView(oldBannerId);
-      } catch (e) {
-        SafeLogger.w(_logTag, 'destroyWidgetAdView (banner) threw: $e');
+    // T65 (phase 2) — every known BannerAdWidget instance's AdView, not just
+    // one shared id.
+    for (final adViewIdNotifier in _bannerAdViewIdByKey.values) {
+      final oldBannerId = adViewIdNotifier.value;
+      if (oldBannerId != null) {
+        try {
+          await _bridge.destroyWidgetAdView(oldBannerId);
+        } catch (e) {
+          SafeLogger.w(_logTag, 'destroyWidgetAdView (banner) threw: $e');
+        }
       }
     }
     final oldMrecId = _mrecAdViewId.value;
@@ -332,18 +391,24 @@ class AppLovinAdapter implements AdProviderAdapter {
     appOpenSlot.reset();
     interstitialSlot.reset();
     rewardedSlot.reset();
-    bannerSlot.reset();
+    for (final slot in _bannerSlotsByKey.values) {
+      slot.reset();
+    }
     mrecSlot.reset();
     for (final slot in _nativeSlotsByKey.values) {
       slot.reset();
     }
-    banner.isLoaded.value = false;
-    banner.hasError.value = false;
-    banner.adSize.value = null;
-    banner.autoRefreshEnabled.value = true;
-    banner.visible.value = true;
-    _bannerAdViewId.value = null;
-    _bannerRoutePaused = false;
+    for (final l in _bannerListenablesByKey.values) {
+      l.isLoaded.value = false;
+      l.hasError.value = false;
+      l.adSize.value = null;
+      l.autoRefreshEnabled.value = true;
+      l.visible.value = true;
+    }
+    for (final id in _bannerAdViewIdByKey.values) {
+      id.value = null;
+    }
+    _bannerRoutePausedByKey.clear();
     mrec.isLoaded.value = false;
     mrec.hasError.value = false;
     mrec.adSize.value = null;
@@ -358,9 +423,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     appOpenSlot.dispose();
     interstitialSlot.dispose();
     rewardedSlot.dispose();
-    bannerSlot.dispose();
-    banner.dispose();
-    _bannerAdViewId.dispose();
+    for (final key in _bannerSlotsByKey.keys.toList()) {
+      disposeBannerInstance(key);
+    }
+    _bannerDisposed = true;
     mrecSlot.dispose();
     mrec.dispose();
     _mrecAdViewId.dispose();
@@ -1070,59 +1136,98 @@ class AppLovinAdapter implements AdProviderAdapter {
     _bridge.setWidgetAdViewAdListener(WidgetAdViewAdListener(
       onAdLoadedCallback: (ad) {
         final isMrec = ad.adViewId == _mrecAdViewId.value;
-        final listenables = isMrec ? mrec : banner;
-        final slot = isMrec ? mrecSlot : bannerSlot;
-        final type = isMrec ? AdSlotType.mrec : AdSlotType.banner;
-        final label = isMrec ? 'mrec' : 'banner';
-        final isInitial = !listenables.isLoaded.value;
-        SafeLogger.d(
-          _logTag,
-          '$label $tag ${isInitial ? '✅ initial loaded' : '♻️ refreshed'} '
-          'adViewId=${ad.adViewId} network=${ad.networkName}',
-        );
-        listenables.isLoaded.value = true;
-        listenables.hasError.value = false;
-        final adSize = ad.size;
-        if (adSize != null) {
-          final sz = Size(adSize.width.toDouble(), adSize.height.toDouble());
-          if (listenables.adSize.value != sz) listenables.adSize.value = sz;
+        if (isMrec) {
+          _handleWidgetAdLoaded(
+              ad, mrec, mrecSlot, AdSlotType.mrec, 'mrec');
+          return;
         }
-        slot.markReady();
-        if (isInitial) AdSafetyConfig.recordBannerImpression();
-        _emit(AdLoadEvent(
-          providerTag: tag,
-          type: type,
-          placement: AdPlacement.unspecified,
-          success: true,
-        ));
-        _emitRevenueIfPresent(ad, type, AdPlacement.unspecified);
+        // T65 (phase 2) — disambiguate WHICH BannerAdWidget instance this
+        // callback belongs to by matching the adViewId the bridge just
+        // reported against each key's own notifier (reliable: adViewId is
+        // unique per successfully-created native view).
+        Object? matchedKey;
+        for (final entry in _bannerAdViewIdByKey.entries) {
+          if (entry.value.value == ad.adViewId) {
+            matchedKey = entry.key;
+            break;
+          }
+        }
+        if (matchedKey == null) {
+          SafeLogger.w(_logTag,
+              'banner $tag ✅ loaded but no matching widget key (stale callback?) — dropping');
+          return;
+        }
+        _handleWidgetAdLoaded(ad, _bannerListenablesFor(matchedKey),
+            _bannerSlotFor(matchedKey), AdSlotType.banner, 'banner');
       },
       onAdLoadFailedCallback: (id, err) {
         // AppLovin passes back the ad-unit id, not the adViewId, on failure —
         // match against the configured bannerId/mrecId instead.
         final isMrec = id == _max?.mrecId && id != _max?.bannerId;
-        final listenables = isMrec ? mrec : banner;
-        final slot = isMrec ? mrecSlot : bannerSlot;
-        final type = isMrec ? AdSlotType.mrec : AdSlotType.banner;
-        final label = isMrec ? 'mrec' : 'banner';
-        SafeLogger.w(_logTag, '$label $tag ❌ load failed code=${err.code}');
-        listenables.isLoaded.value = false;
-        listenables.hasError.value = true;
-        slot.markFailed();
-        _logIfRepeatedFailure(label, slot, err.code);
-        _emit(AdLoadEvent(
-          providerTag: tag,
-          type: type,
-          placement: AdPlacement.unspecified,
-          success: false,
-          errorCode: err.code.value,
-        ));
+        if (isMrec) {
+          _handleWidgetAdLoadFailed(mrec, mrecSlot, AdSlotType.mrec, 'mrec', err);
+          return;
+        }
+        // T65 (phase 2) — the bridge only reports the ad-unit id on failure,
+        // not a per-call correlation id, so a failed preload can't be
+        // attributed to one specific BannerAdWidget key when multiple are
+        // concurrently loading. Known limitation: mark every key currently
+        // mid-load as failed rather than leaving any stranded in `loading`.
+        for (final key in _bannerSlotsByKey.keys.toList()) {
+          final slot = _bannerSlotFor(key);
+          if (slot.isLoading) {
+            _handleWidgetAdLoadFailed(_bannerListenablesFor(key), slot,
+                AdSlotType.banner, 'banner', err);
+          }
+        }
       },
     ));
   }
 
+  void _handleWidgetAdLoaded(MaxAd ad, BannerListenables listenables,
+      AdSlot slot, AdSlotType type, String label) {
+    final isInitial = !listenables.isLoaded.value;
+    SafeLogger.d(
+      _logTag,
+      '$label $tag ${isInitial ? '✅ initial loaded' : '♻️ refreshed'} '
+      'adViewId=${ad.adViewId} network=${ad.networkName}',
+    );
+    listenables.isLoaded.value = true;
+    listenables.hasError.value = false;
+    final adSize = ad.size;
+    if (adSize != null) {
+      final sz = Size(adSize.width.toDouble(), adSize.height.toDouble());
+      if (listenables.adSize.value != sz) listenables.adSize.value = sz;
+    }
+    slot.markReady();
+    if (isInitial) AdSafetyConfig.recordBannerImpression();
+    _emit(AdLoadEvent(
+      providerTag: tag,
+      type: type,
+      placement: AdPlacement.unspecified,
+      success: true,
+    ));
+    _emitRevenueIfPresent(ad, type, AdPlacement.unspecified);
+  }
+
+  void _handleWidgetAdLoadFailed(BannerListenables listenables, AdSlot slot,
+      AdSlotType type, String label, MaxError err) {
+    SafeLogger.w(_logTag, '$label $tag ❌ load failed code=${err.code}');
+    listenables.isLoaded.value = false;
+    listenables.hasError.value = true;
+    slot.markFailed();
+    _logIfRepeatedFailure(label, slot, err.code);
+    _emit(AdLoadEvent(
+      providerTag: tag,
+      type: type,
+      placement: AdPlacement.unspecified,
+      success: false,
+      errorCode: err.code.value,
+    ));
+  }
+
   @override
-  Future<void> preloadBanner() async {
+  Future<void> preloadBanner(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1148,21 +1253,21 @@ class AppLovinAdapter implements AdProviderAdapter {
       );
       if (adViewId == null) {
         SafeLogger.w(_logTag, 'banner $tag ❌ preload returned null adViewId');
-        banner.hasError.value = true;
-        bannerSlot.markFailed();
+        _bannerListenablesFor(key).hasError.value = true;
+        _bannerSlotFor(key).markFailed();
         return;
       }
       SafeLogger.d(_logTag, 'banner $tag ✅ preload started adViewId=$adViewId');
-      _bannerAdViewId.value = adViewId;
+      _bannerAdViewIdFor(key).value = adViewId;
     } catch (e, st) {
       SafeLogger.e(_logTag, 'banner $tag preload THREW: $e\n$st');
-      banner.hasError.value = true;
-      bannerSlot.markFailed();
+      _bannerListenablesFor(key).hasError.value = true;
+      _bannerSlotFor(key).markFailed();
     }
   }
 
   @override
-  Future<void> loadBannerIfNeeded(double widthPx) async {
+  Future<void> loadBannerIfNeeded(Object key, double widthPx) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1183,7 +1288,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Widget? buildAdmobBannerView() => null;
+  Widget? buildAdmobBannerView(Object key) => null;
 
   @override
   Future<void> preloadMrec() async {
@@ -1291,8 +1396,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       SafeLogger.d(
         _logTag,
         () => 'onAppPaused $tag '
-            '| banner.autoRefresh=${banner.autoRefreshEnabled.value} '
-            '| bannerAdViewId=${_bannerAdViewId.value} '
+            '| bannerKeys=${_bannerAdViewIdByKey.length} '
             '| mrec.autoRefresh=${mrec.autoRefreshEnabled.value} '
             '| mrecAdViewId=${_mrecAdViewId.value} '
             '| inter=${interstitialSlot.value.name} '
@@ -1304,10 +1408,13 @@ class AppLovinAdapter implements AdProviderAdapter {
       SafeLogger.w(_logTag, 'onAppPaused diagnostic log threw: $e');
     }
     try {
-      if (_bannerAdViewId.value != null) {
-        banner.autoRefreshEnabled.value = false;
-        SafeLogger.d(_logTag, 'onAppPaused $tag — banner.autoRefresh disabled');
+      // T65 (phase 2) — every known BannerAdWidget instance, not just one.
+      for (final entry in _bannerAdViewIdByKey.entries) {
+        if (entry.value.value != null) {
+          _bannerListenablesFor(entry.key).autoRefreshEnabled.value = false;
+        }
       }
+      SafeLogger.d(_logTag, 'onAppPaused $tag — banner.autoRefresh disabled');
     } catch (e, st) {
       SafeLogger.e(_logTag, 'onAppPaused side-effect threw: $e\n$st');
     }
@@ -1337,10 +1444,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       SafeLogger.d(
         _logTag,
         () => 'onAppResumed $tag '
-            '| banner.hasError=${banner.hasError.value} '
-            '| banner.autoRefresh=${banner.autoRefreshEnabled.value} '
-            '| bannerAdViewId=${_bannerAdViewId.value} '
-            '| bannerRoutePaused=$_bannerRoutePaused '
+            '| bannerKeys=${_bannerAdViewIdByKey.length} '
             '| mrec.hasError=${mrec.hasError.value} '
             '| mrecAdViewId=${_mrecAdViewId.value} '
             '| mrecRoutePaused=$_mrecRoutePaused '
@@ -1352,24 +1456,30 @@ class AppLovinAdapter implements AdProviderAdapter {
       SafeLogger.w(_logTag, 'onAppResumed diagnostic log threw: $e');
     }
     try {
-      if (banner.hasError.value) {
-        SafeLogger.d(
-            _logTag, 'onAppResumed $tag — banner had error, recreating');
-        final oldId = _bannerAdViewId.value;
-        banner.hasError.value = false;
-        _bannerAdViewId.value = null;
-        banner.autoRefreshEnabled.value = true;
-        if (oldId != null) {
-          unawaited(_bridge.destroyWidgetAdView(oldId).catchError((e) {
-            SafeLogger.w(
-                _logTag, 'destroyWidgetAdView (onAppResumed) threw: $e');
-          }));
+      // T65 (phase 2) — every known BannerAdWidget instance, not just one.
+      for (final key in _bannerListenablesByKey.keys.toList()) {
+        final listenables = _bannerListenablesFor(key);
+        final adViewIdNotifier = _bannerAdViewIdFor(key);
+        if (listenables.hasError.value) {
+          SafeLogger.d(
+              _logTag, 'onAppResumed $tag — banner had error, recreating');
+          final oldId = adViewIdNotifier.value;
+          listenables.hasError.value = false;
+          adViewIdNotifier.value = null;
+          listenables.autoRefreshEnabled.value = true;
+          if (oldId != null) {
+            unawaited(_bridge.destroyWidgetAdView(oldId).catchError((e) {
+              SafeLogger.w(
+                  _logTag, 'destroyWidgetAdView (onAppResumed) threw: $e');
+            }));
+          }
+          preloadBanner(key);
+        } else if (adViewIdNotifier.value != null &&
+            !bannerRoutePaused(key)) {
+          listenables.autoRefreshEnabled.value = true;
+          SafeLogger.d(
+              _logTag, 'onAppResumed $tag — banner.autoRefresh re-enabled');
         }
-        preloadBanner();
-      } else if (_bannerAdViewId.value != null && !_bannerRoutePaused) {
-        banner.autoRefreshEnabled.value = true;
-        SafeLogger.d(
-            _logTag, 'onAppResumed $tag — banner.autoRefresh re-enabled');
       }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'onAppResumed side-effect threw: $e\n$st');

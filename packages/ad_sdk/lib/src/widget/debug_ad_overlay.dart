@@ -175,7 +175,8 @@ class _SlotRows extends StatelessWidget {
             _slotRow('AppOpen ', ad.appOpenSlot),
             _slotRow('Inter   ', ad.interstitialSlot),
             _slotRow('Rewarded', ad.rewardedSlot),
-            _slotRow('Banner  ', ad.bannerSlot),
+            // T65 (phase 2): banner is now keyed per BannerAdWidget instance
+            // — no single slot to show here, same as mrec/native already.
           ],
         );
       },

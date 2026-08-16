@@ -95,18 +95,23 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
       SafeLogger.d(_tag, '_initBanner ⏭️ offline');
       return;
     }
-    if (!mgr.canLoadBanner()) {
+    if (!mgr.canLoadBanner(this)) {
       SafeLogger.d(_tag, '_initBanner ⏭️ cooldown');
       return;
     }
-    mgr.recordBannerLoad();
+    mgr.recordBannerLoad(this);
     _allowed.value = true;
 
     if (mgr.isAdMobProvider) {
       final width = MediaQuery.of(ctx).size.width;
-      mgr.loadAdmobBannerIfNeeded(width);
+      mgr.loadAdmobBannerIfNeeded(this, width);
     } else {
-      SafeLogger.d(_tag, '_initBanner [AppLovin] uses preloaded view');
+      // T65 (phase 2) — each BannerAdWidget instance now triggers its own
+      // keyed preload on mount (mirrors NativeAdWidget), instead of relying
+      // on a global pre-warmed view that no longer has a single owner once
+      // banner supports multiple simultaneous instances.
+      SafeLogger.d(_tag, '_initBanner [AppLovin] preloading own instance');
+      mgr.preloadBanner(this);
     }
   }
 
@@ -116,7 +121,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void didPush() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
-      mgr.setBannerRoutePaused(false);
+      mgr.setBannerRoutePaused(this, false);
       // Re-enable auto-refresh if a previous didPushNext paused it
       // (e.g. user pushed → popped → re-pushed quickly).
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -136,7 +141,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void didPushNext() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
-      mgr.setBannerRoutePaused(true);
+      mgr.setBannerRoutePaused(this, true);
       _setAppLovinAutoRefresh(false);
     } else if (_admobIsTop.value) {
       _admobIsTop.value = false;
@@ -148,7 +153,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void didPopNext() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
-      mgr.setBannerRoutePaused(false);
+      mgr.setBannerRoutePaused(this, false);
       _setAppLovinAutoRefresh(true);
     } else if (!_admobIsTop.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -168,14 +173,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void _setAppLovinAutoRefresh(bool enabled) {
     final adapter = AdManager().adapter;
     if (adapter == null) return;
-    if (adapter.banner.autoRefreshEnabled.value != enabled) {
-      adapter.banner.autoRefreshEnabled.value = enabled;
+    final listenables = adapter.banner(this);
+    if (listenables.autoRefreshEnabled.value != enabled) {
+      listenables.autoRefreshEnabled.value = enabled;
     }
   }
 
   @override
   void dispose() {
     if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
+    AdManager().disposeBannerInstance(this);
     _admobIsTop.dispose();
     _initStarted.dispose();
     _allowed.dispose();
@@ -237,30 +244,30 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
       builder: (context, isTop, _) {
         if (!isTop) {
           return ValueListenableBuilder<Size?>(
-            valueListenable: AdManager().bannerAdSize,
+            valueListenable: AdManager().bannerAdSize(this),
             builder: (context, size, _) =>
                 SizedBox(height: (size?.height ?? 50) + 16),
           );
         }
         return ValueListenableBuilder<bool>(
-          valueListenable: AdManager().bannerHasError,
+          valueListenable: AdManager().bannerHasError(this),
           builder: (context, hasError, _) {
             if (hasError) return const SizedBox.shrink();
             return ValueListenableBuilder<bool>(
-              valueListenable: AdManager().bannerVisible,
+              valueListenable: AdManager().bannerVisible(this),
               builder: (context, visible, _) {
                 if (!visible) {
                   return ValueListenableBuilder<Size?>(
-                    valueListenable: AdManager().bannerAdSize,
+                    valueListenable: AdManager().bannerAdSize(this),
                     builder: (context, size, _) =>
                         SizedBox(height: (size?.height ?? 50) + 16),
                   );
                 }
                 return _BannerContainer(
-                  isLoaded: AdManager().bannerIsLoaded,
-                  adSize: AdManager().bannerAdSize,
+                  isLoaded: AdManager().bannerIsLoaded(this),
+                  adSize: AdManager().bannerAdSize(this),
                   child: () {
-                    final view = AdManager().admobBannerView;
+                    final view = AdManager().admobBannerView(this);
                     return view ?? const SizedBox.shrink();
                   },
                 );
@@ -276,20 +283,20 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   Widget _buildAppLovin() {
     return ValueListenableBuilder<bool>(
-      valueListenable: AdManager().bannerHasError,
+      valueListenable: AdManager().bannerHasError(this),
       builder: (context, hasError, _) {
         if (hasError) return const SizedBox.shrink();
         return ValueListenableBuilder<Object?>(
-          valueListenable: AdManager().bannerAdViewId,
+          valueListenable: AdManager().bannerAdViewId(this),
           builder: (context, adViewId, _) {
             if (adViewId == null) return const _ShimmerOnlyContainer();
             return _BannerContainer(
-              isLoaded: AdManager().bannerIsLoaded,
-              adSize: AdManager().bannerAdSize,
+              isLoaded: AdManager().bannerIsLoaded(this),
+              adSize: AdManager().bannerAdSize(this),
               child: () => _AppLovinMaxAdView(
                 adViewId: adViewId as AdViewId,
                 bannerId: AdManager().appLovinBannerId,
-                autoRefresh: AdManager().bannerAutoRefreshEnabled,
+                autoRefresh: AdManager().bannerAutoRefreshEnabled(this),
               ),
             );
           },

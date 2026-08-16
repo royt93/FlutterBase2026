@@ -2086,7 +2086,8 @@ class StatePanelDemoPage extends StatelessWidget {
             _slotCard('App Open', adapter.appOpenSlot),
             _slotCard('Interstitial', adapter.interstitialSlot),
             _slotCard('Rewarded', adapter.rewardedSlot),
-            _slotCard('Banner', adapter.bannerSlot),
+            // T65 (phase 2): banner is now keyed per BannerAdWidget instance
+            // — no single slot to show here, same as mrec/native already.
           ] else
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32),

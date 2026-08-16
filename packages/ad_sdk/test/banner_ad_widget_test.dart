@@ -26,26 +26,42 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
-  @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
-
+  // T65 (phase 2) — keyed by widget instance, mirroring the real adapters.
+  final Map<Object, AdSlot> bannerSlotsByKey = {};
+  final Map<Object, BannerListenables> bannerListenablesByKey = {};
   int loadBannerCalls = 0;
 
   @override
-  final BannerListenables banner = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
+  AdSlot bannerSlot(Object key) =>
+      bannerSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.banner));
+
+  @override
+  Iterable<AdSlot> get bannerSlots => bannerSlotsByKey.values;
+
+  @override
+  BannerListenables banner(Object key) => bannerListenablesByKey.putIfAbsent(
+      key,
+      () => BannerListenables(
+            isLoaded: ValueNotifier<bool>(false),
+            hasError: ValueNotifier<bool>(false),
+            adSize: ValueNotifier<Size?>(null),
+            autoRefreshEnabled: ValueNotifier<bool>(true),
+            visible: ValueNotifier<bool>(true),
+          ));
+
+  @override
+  void disposeBannerInstance(Object key) {
+    bannerSlotsByKey.remove(key);
+    bannerListenablesByKey.remove(key);
+  }
 
   @override
   String get tag => 'counting';
   @override
-  Future<void> loadBannerIfNeeded(double widthPx) async => loadBannerCalls++;
+  Future<void> loadBannerIfNeeded(Object key, double widthPx) async =>
+      loadBannerCalls++;
   @override
-  Future<void> preloadBanner() async {}
+  Future<void> preloadBanner(Object key) async {}
   // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
   @override
   Future<void> loadInterstitial() async {}
@@ -54,7 +70,8 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async {}
   @override
-  Widget? buildAdmobBannerView() => null; // placeholder path, no native view
+  Widget? buildAdmobBannerView(Object key) =>
+      null; // placeholder path, no native view
   @override
   void applyConsent(AdConsent consent) {}
   @override
@@ -100,6 +117,50 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(BannerAdWidget), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  // T65 — before the keyed refactor, two simultaneous BannerAdWidgets on
+  // AdMob shared one adapter-level BannerAd/AdSlot/BannerListenables bundle:
+  // google_mobile_ads would throw "This AdWidget is already in the Widget
+  // tree" once both mounted the same underlying ad. This fake adapter
+  // doesn't reproduce that exact platform-channel crash, but it does prove
+  // the widget layer now generates independent keys and independent state.
+  testWidgets(
+      'two simultaneous BannerAdWidgets on AdMob get independent slots, '
+      'no crash', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const SingleChildScrollView(
+      child: Column(
+        children: [BannerAdWidget(), BannerAdWidget()],
+      ),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(BannerAdWidget), findsNWidgets(2));
+    expect(adapter.bannerListenablesByKey.length, 2,
+        reason:
+            'each widget instance must get its own BannerListenables, not share one');
+    expect(adapter.loadBannerCalls, 2,
+        reason: 'each widget triggers its own load');
+    expect(tester.takeException(), isNull);
+
+    // One instance finishing loading must not affect the other.
+    adapter.bannerListenablesByKey.values.first.isLoaded.value = true;
+    await tester.pump();
+    final loadedStates =
+        adapter.bannerListenablesByKey.values.map((l) => l.isLoaded.value);
+    expect(loadedStates, containsAllInOrder([true, false]),
+        reason: 'flipping one instance loaded must not flip the other');
     expect(tester.takeException(), isNull);
   });
 
@@ -333,9 +394,6 @@ void main() {
       'AdMob banner mounted on an already-current route (never pushed) '
       'still renders the ad, not the placeholder', (tester) async {
     final adapter = _BannerCountingAdapter();
-    adapter.banner.isLoaded.value = true;
-    adapter.banner.visible.value = true;
-    adapter.banner.adSize.value = const Size(320, 50);
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _admobConfig;
     AdManager().debugCanRequestAds = true;
@@ -349,6 +407,14 @@ void main() {
     // Navigator, so didPush() never fires for it.
     await tester.pumpWidget(host(const BannerAdWidget()));
     await tester.pump(const Duration(milliseconds: 50));
+
+    // T65: the widget only owns its (keyed) listenables once mounted —
+    // simulate the load completing for its instance.
+    final listenables = adapter.bannerListenablesByKey.values.single;
+    listenables.isLoaded.value = true;
+    listenables.visible.value = true;
+    listenables.adSize.value = const Size(320, 50);
+    await tester.pump();
 
     expect(find.text('Ad'), findsOneWidget,
         reason: 'a banner on an already-current route must render '

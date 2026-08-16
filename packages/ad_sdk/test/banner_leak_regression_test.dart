@@ -34,26 +34,45 @@ class _CountingAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
-  @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
-
+  // T65 (phase 2) — keyed by widget instance, mirroring the real adapters.
+  // This file's whole purpose is leak auditing, so exposing these maps lets
+  // the test assert they don't grow unboundedly across mount/unmount cycles
+  // the way the ORIGINAL leak this file guards against would have.
+  final Map<Object, AdSlot> bannerSlotsByKey = {};
+  final Map<Object, BannerListenables> bannerListenablesByKey = {};
   int loadBannerCalls = 0;
 
   @override
-  final BannerListenables banner = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
+  AdSlot bannerSlot(Object key) =>
+      bannerSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.banner));
+
+  @override
+  Iterable<AdSlot> get bannerSlots => bannerSlotsByKey.values;
+
+  @override
+  BannerListenables banner(Object key) => bannerListenablesByKey.putIfAbsent(
+      key,
+      () => BannerListenables(
+            isLoaded: ValueNotifier<bool>(false),
+            hasError: ValueNotifier<bool>(false),
+            adSize: ValueNotifier<Size?>(null),
+            autoRefreshEnabled: ValueNotifier<bool>(true),
+            visible: ValueNotifier<bool>(true),
+          ));
+
+  @override
+  void disposeBannerInstance(Object key) {
+    bannerSlotsByKey.remove(key);
+    bannerListenablesByKey.remove(key);
+  }
 
   @override
   String get tag => 'counting-leak';
   @override
-  Future<void> loadBannerIfNeeded(double widthPx) async => loadBannerCalls++;
+  Future<void> loadBannerIfNeeded(Object key, double widthPx) async =>
+      loadBannerCalls++;
   @override
-  Future<void> preloadBanner() async {}
+  Future<void> preloadBanner(Object key) async {}
   @override
   Future<void> loadInterstitial() async {}
   @override
@@ -61,7 +80,8 @@ class _CountingAdapter implements AdProviderAdapter {
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async {}
   @override
-  Widget? buildAdmobBannerView() => null; // placeholder path, no native view
+  Widget? buildAdmobBannerView(Object key) =>
+      null; // placeholder path, no native view
   @override
   void applyConsent(AdConsent consent) {}
   @override
@@ -129,10 +149,28 @@ void main() {
           reason: 'cycle $i: no leaked/stale RouteAware callback may fire');
     }
 
-    // Cooldown-gated: repeated mounts of the same route must not stack
-    // duplicate banner loads. A leak that re-fires `_initBanner` on every
-    // remount would make this grow with `cycles` instead of staying tiny.
-    expect(adapter.loadBannerCalls, lessThanOrEqualTo(2),
-        reason: '$cycles mount/unmount cycles must not stack banner loads');
+    // T65 (phase 2) — this used to assert `<= 2` loads, relying on a single
+    // GLOBAL cooldown timer to coincidentally suppress reloads across
+    // separate mount cycles. That timer is now keyed per widget instance
+    // (deliberately — a feed of simultaneous banners must not have one
+    // instance's cooldown block another's first-ever load), so each of
+    // these 25 FRESH widget instances legitimately gets its own fresh
+    // cooldown state and loads exactly once. The real leak this file
+    // guards against — unbounded growth across cycles — is verified below
+    // by asserting the keyed maps return to empty, not by an artificially
+    // low call count.
+    expect(adapter.loadBannerCalls, cycles,
+        reason: 'each of the $cycles distinct widget instances loads '
+            'exactly once (no leaked cross-instance cooldown/cache)');
+
+    // T65 (phase 2) — the keyed refactor's own new leak risk: each mount
+    // creates a fresh widget State (a fresh map key). If dispose() didn't
+    // call disposeBannerInstance, this map would grow by one entry per
+    // cycle instead of returning to empty.
+    expect(adapter.bannerSlotsByKey, isEmpty,
+        reason: '$cycles mount/unmount cycles must not leak keyed AdSlots');
+    expect(adapter.bannerListenablesByKey, isEmpty,
+        reason:
+            '$cycles mount/unmount cycles must not leak keyed BannerListenables');
   });
 }

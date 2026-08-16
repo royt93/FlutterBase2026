@@ -168,8 +168,9 @@ class _E2EFakeAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlot;
 
   String? lastSsvCustomData;
   String? lastSsvUserId;

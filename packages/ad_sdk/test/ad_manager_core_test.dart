@@ -73,8 +73,9 @@ class _FakeAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlot;
 
   int loadInterstitialCalls = 0;
   int showInterstitialCalls = 0;
@@ -1575,7 +1576,7 @@ void main() {
       expect(adapter.appOpenSlot.isIdle, isTrue);
       expect(adapter.interstitialSlot.isIdle, isTrue);
       expect(adapter.rewardedSlot.isIdle, isTrue);
-      expect(adapter.bannerSlot.isIdle, isTrue);
+      expect(adapter.bannerSlot('k').isIdle, isTrue);
     });
 
     test('two calls back-to-back (inside the 60s throttle) never throw', () {

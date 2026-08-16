@@ -101,7 +101,18 @@ abstract class AdProviderAdapter {
   AdSlot get appOpenSlot;
   AdSlot get interstitialSlot;
   AdSlot get rewardedSlot;
-  AdSlot get bannerSlot;
+
+  /// T65 (phase 2) — keyed by widget instance, same pattern/rationale as
+  /// [nativeSlot]. Call [disposeBannerInstance] when the owning widget
+  /// unmounts.
+  AdSlot bannerSlot(Object key);
+
+  /// Every currently-tracked banner [AdSlot] (one per still-mounted
+  /// [BannerAdWidget] instance). Needed for callers that must act on ALL
+  /// instances without knowing their keys — e.g. [installAdCrashGuard]
+  /// recovering every stuck slot after a platform crash.
+  Iterable<AdSlot> get bannerSlots;
+
   AdSlot get mrecSlot;
 
   /// T65 (phase 1) — keyed by widget instance so multiple simultaneous
@@ -111,8 +122,9 @@ abstract class AdProviderAdapter {
   /// when the owning widget unmounts.
   AdSlot nativeSlot(Object key);
 
-  /// Banner reactive listenables for the [BannerAdWidget] tree.
-  BannerListenables get banner;
+  /// Banner reactive listenables for the [BannerAdWidget] tree, keyed by
+  /// widget instance (see [bannerSlot]).
+  BannerListenables banner(Object key);
 
   /// MREC reactive listenables for the [MrecAdWidget] tree.
   BannerListenables get mrec;
@@ -188,29 +200,40 @@ abstract class AdProviderAdapter {
   });
 
   // ─── Banner ────────────────────────────────────────────────────────────────
+  // T65 (phase 2) — every banner method is keyed by widget instance (see
+  // nativeSlot's doc for the pattern). Both providers had the identical
+  // singleton bug agy found on AdMob: AppLovin's preloadWidgetAdView/adViewId
+  // was also one shared id, so two simultaneous BannerAdWidgets would fight
+  // over the same MaxAdView. Call disposeBannerInstance when the owning
+  // widget unmounts.
 
-  /// AppLovin: preload widget-AdView. AdMob: no-op (banner loads on widget mount).
-  Future<void> preloadBanner();
+  /// AppLovin: preload widget-AdView for this [key]. AdMob: no-op (banner
+  /// loads on widget mount, via [loadBannerIfNeeded]).
+  Future<void> preloadBanner(Object key);
 
   /// AdMob only: triggered when [BannerAdWidget] mounts and reports its width.
-  Future<void> loadBannerIfNeeded(double widthPx);
+  Future<void> loadBannerIfNeeded(Object key, double widthPx);
 
-  /// AdMob: returns the live banner widget, or null if none. AppLovin:
-  /// always returns null — UI side renders [MaxAdView] from [appLovinBannerId]
-  /// + [appLovinBannerAdViewId] notifier.
-  Widget? buildAdmobBannerView();
+  /// AdMob: returns the live banner widget for [key], or null if none.
+  /// AppLovin: always returns null — UI side renders [MaxAdView] from
+  /// [appLovinBannerId] + [appLovinBannerAdViewId].
+  Widget? buildAdmobBannerView(Object key);
 
-  /// AppLovin only: notifies the platform that the user moved off-route so
-  /// auto-refresh should pause.
-  void setBannerRoutePaused(bool paused);
-  bool get bannerRoutePaused;
+  /// AppLovin only: notifies the platform that [key]'s widget moved
+  /// off-route so its auto-refresh should pause.
+  void setBannerRoutePaused(Object key, bool paused);
+  bool bannerRoutePaused(Object key);
 
   /// AppLovin only: ad-unit ID used by the [BannerAdWidget]'s `MaxAdView`.
   String? get appLovinBannerId;
 
-  /// AppLovin only: ID returned by `preloadWidgetAdView`. Drives whether
-  /// `MaxAdView` mounts.
-  ValueListenable<Object?> get appLovinBannerAdViewId;
+  /// AppLovin only: ID returned by `preloadWidgetAdView` for [key]. Drives
+  /// whether that instance's `MaxAdView` mounts.
+  ValueListenable<Object?> appLovinBannerAdViewId(Object key);
+
+  /// Release [key]'s banner ad/slot/listenables/adViewId. Call from
+  /// [BannerAdWidget]'s `dispose()`.
+  void disposeBannerInstance(Object key);
 
   // ─── MREC ──────────────────────────────────────────────────────────────────
 

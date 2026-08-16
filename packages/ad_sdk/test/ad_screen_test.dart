@@ -21,8 +21,11 @@ class _ReadyAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlot;
+  @override
+  Iterable<AdSlot> get bannerSlots => [_bannerSlot];
 
   int showInterstitialCalls = 0;
   int showRewardedCalls = 0;
@@ -35,20 +38,26 @@ class _ReadyAdapter implements AdProviderAdapter {
   @override
   bool get isInitialised => true;
 
-  @override
-  BannerListenables banner = BannerListenables(
+  final BannerListenables _banner = BannerListenables(
     isLoaded: ValueNotifier<bool>(false),
     hasError: ValueNotifier<bool>(false),
     adSize: ValueNotifier<Size?>(null),
     autoRefreshEnabled: ValueNotifier<bool>(true),
     visible: ValueNotifier<bool>(true),
   );
+  @override
+  BannerListenables banner(Object key) => _banner;
+
+  bool _bannerRoutePaused = false;
+  @override
+  bool bannerRoutePaused(Object key) => _bannerRoutePaused;
 
   @override
-  bool bannerRoutePaused = false;
+  void setBannerRoutePaused(Object key, bool paused) =>
+      _bannerRoutePaused = paused;
 
   @override
-  void setBannerRoutePaused(bool paused) => bannerRoutePaused = paused;
+  void disposeBannerInstance(Object key) {}
 
   @override
   Future<void> loadInterstitial() async {}

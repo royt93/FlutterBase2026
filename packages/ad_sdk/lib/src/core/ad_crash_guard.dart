@@ -29,7 +29,10 @@ void _recoverSlots() {
     adapter.appOpenSlot,
     adapter.interstitialSlot,
     adapter.rewardedSlot,
-    adapter.bannerSlot,
+    // T65 (phase 2): every currently-tracked BannerAdWidget instance, not
+    // just one — mrec/native still aren't covered here (pre-existing gap,
+    // unrelated to this refactor).
+    ...adapter.bannerSlots,
   ]) {
     if (slot.isShowing || slot.isLoading) {
       slot.markShowFailed();

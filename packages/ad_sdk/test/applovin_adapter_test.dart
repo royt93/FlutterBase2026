@@ -484,9 +484,11 @@ void main() {
       expect(() => a.interstitialSlot.state.addListener(() {}),
           throwsFlutterError);
       expect(() => a.rewardedSlot.state.addListener(() {}), throwsFlutterError);
-      expect(() => a.bannerSlot.state.addListener(() {}), throwsFlutterError);
-      expect(() => a.banner.isLoaded.addListener(() {}), throwsFlutterError);
-      expect(() => a.appLovinBannerAdViewId.addListener(() {}),
+      expect(() => a.bannerSlot('k').state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => a.banner('k').isLoaded.addListener(() {}),
+          throwsFlutterError);
+      expect(() => a.appLovinBannerAdViewId('k').addListener(() {}),
           throwsFlutterError);
       expect(() => a.mrecSlot.state.addListener(() {}), throwsFlutterError);
       expect(() => a.mrec.isLoaded.addListener(() {}), throwsFlutterError);
@@ -534,20 +536,42 @@ void main() {
   group('onAppResumed() recreates errored banner AdView (T34)', () {
     test('destroys the stale native AdView before preloading a replacement',
         () async {
-      await adapter.preloadBanner();
-      final oldId = adapter.appLovinBannerAdViewId.value;
+      await adapter.preloadBanner('k');
+      final oldId = adapter.appLovinBannerAdViewId('k').value;
       expect(oldId, isNotNull, reason: 'fake bridge preloads id=1');
 
-      adapter.banner.hasError.value = true;
+      adapter.banner('k').hasError.value = true;
       adapter.onAppResumed();
       await Future<void>.value(); // flush unawaited destroyWidgetAdView
 
       expect(bridge.destroyWidgetAdViewCalls, [oldId],
           reason: 'stale AdView must be destroyed exactly once, with the '
               'id that was current before the error-triggered recreate');
-      expect(adapter.banner.hasError.value, isFalse);
+      expect(adapter.banner('k').hasError.value, isFalse);
       expect(bridge.loadInterCalls, isEmpty,
           reason: 'sanity: only banner path touched');
+    });
+
+    // T65 (phase 2) — onAppResumed must recover EVERY known banner key that
+    // errored, not just one shared slot.
+    test('recovers multiple errored keys independently, leaves healthy '
+        'keys alone', () async {
+      await adapter.preloadBanner('a');
+      await adapter.preloadBanner('b');
+      await adapter.preloadBanner('healthy');
+      final oldA = adapter.appLovinBannerAdViewId('a').value;
+      final oldB = adapter.appLovinBannerAdViewId('b').value;
+
+      adapter.banner('a').hasError.value = true;
+      adapter.banner('b').hasError.value = true;
+      adapter.onAppResumed();
+      await Future<void>.value();
+
+      expect(bridge.destroyWidgetAdViewCalls, containsAll([oldA, oldB]));
+      expect(adapter.banner('a').hasError.value, isFalse);
+      expect(adapter.banner('b').hasError.value, isFalse);
+      expect(adapter.banner('healthy').hasError.value, isFalse,
+          reason: 'a key that never errored must be untouched');
     });
   });
 }

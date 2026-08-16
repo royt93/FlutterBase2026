@@ -24,8 +24,11 @@ class _FakeAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
-  final AdSlot bannerSlot = AdSlot(type: AdSlotType.banner);
+  AdSlot bannerSlot(Object key) => _bannerSlot;
+  @override
+  Iterable<AdSlot> get bannerSlots => [_bannerSlot];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -95,8 +98,8 @@ void main() {
     test(
         'recovers a loading slot to cooldown on an SDK-attributed platform error',
         () async {
-      adapter.bannerSlot.beginLoad();
-      expect(adapter.bannerSlot.isLoading, isTrue);
+      adapter.bannerSlot('k').beginLoad();
+      expect(adapter.bannerSlot('k').isLoading, isTrue);
 
       installAdCrashGuard();
       final err = await _genuineSdkError();
@@ -104,7 +107,7 @@ void main() {
           PlatformDispatcher.instance.onError!(err.error, err.stack);
 
       expect(handled, isTrue);
-      expect(adapter.bannerSlot.isCooldown, isTrue);
+      expect(adapter.bannerSlot('k').isCooldown, isTrue);
     });
 
     test('non-SDK FlutterError is NOT swallowed — chains to previous handler',
