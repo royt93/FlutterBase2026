@@ -37,9 +37,10 @@ export 'src/core/att_consent.dart'
 export 'src/monetization/ad_diagnostics.dart';
 export 'src/monetization/fill_rate_monitor.dart';
 export 'src/monetization/monetization_arbitrator.dart';
-// Re-export Google's UMP enums so callers don't need a direct google_mobile_ads import.
+// Re-export Google's UMP enums, and TemplateType (T73 — NativeAdWidget's
+// templateType param), so callers don't need a direct google_mobile_ads import.
 export 'package:google_mobile_ads/google_mobile_ads.dart'
-    show ConsentStatus, DebugGeography;
+    show ConsentStatus, DebugGeography, TemplateType;
 
 // State machine
 export 'src/state/ad_event.dart';

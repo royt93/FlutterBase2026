@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 
 import '../config/ad_config.dart';
 import '../state/ad_event.dart';
@@ -281,10 +282,12 @@ abstract class AdProviderAdapter {
 
   /// AdMob: preload a real `NativeAd` off-screen (mirrors [preloadMrec]),
   /// keyed by widget instance (see [nativeSlot]) so each mounted
-  /// [NativeAdWidget] gets its own `NativeAd`. AppLovin: no-op —
-  /// `MaxNativeAdView` is a self-contained widget that loads on mount,
-  /// unlike AppLovin's banner/mrec `MaxAdView` bridge.
-  Future<void> preloadNative(Object key);
+  /// [NativeAdWidget] gets its own `NativeAd`. [templateType] (T73) selects
+  /// Google's built-in native template layout/size — ignored by AppLovin.
+  /// AppLovin: no-op — `MaxNativeAdView` is a self-contained widget that
+  /// loads on mount, unlike AppLovin's banner/mrec `MaxAdView` bridge.
+  Future<void> preloadNative(Object key,
+      {TemplateType templateType = TemplateType.medium});
 
   /// AdMob: returns the live native-ad widget for this [key] (built from the
   /// preloaded `NativeAd` + `NativeTemplateStyle`), or null if none.

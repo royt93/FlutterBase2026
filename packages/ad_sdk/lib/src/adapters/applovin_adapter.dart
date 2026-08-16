@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 
 import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
@@ -1431,7 +1432,11 @@ class AppLovinAdapter implements AdProviderAdapter {
   Widget? buildAdmobMrecView(Object key) => null;
 
   @override
-  Future<void> preloadNative(Object key) async {
+  Future<void> preloadNative(Object key,
+      {TemplateType templateType = TemplateType.medium}) async {
+    // T73 — templateType is a Google/AdMob native-template concept; AppLovin
+    // has no equivalent (MaxNativeAdView is a self-contained custom-drawn
+    // layout), so it's accepted for interface compatibility and ignored.
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked

@@ -1,6 +1,7 @@
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
@@ -23,9 +24,23 @@ import 'shimmer_view.dart';
 /// Column(children: [buildNative(), ...])   // inside an AdScreenState
 /// // or directly:
 /// const NativeAdWidget()
+/// // in-feed / ListView (T73) — small template, no explicit height needed:
+/// const NativeAdWidget(templateType: TemplateType.small)
+/// // or fully custom height on either provider:
+/// const NativeAdWidget(height: 120)
 /// ```
 class NativeAdWidget extends StatefulWidget {
-  const NativeAdWidget({super.key});
+  const NativeAdWidget({super.key, this.templateType = TemplateType.medium, this.height});
+
+  /// AdMob's built-in native template layout. Ignored by AppLovin (no
+  /// equivalent concept — `MaxNativeAdView` is a custom-drawn layout).
+  /// Also picks this widget's default [height] when that's not set
+  /// explicitly: 320 for [TemplateType.medium], 90 for [TemplateType.small].
+  final TemplateType templateType;
+
+  /// Overrides the default height implied by [templateType] — applies to
+  /// both providers' layout, since AppLovin has no template concept at all.
+  final double? height;
 
   @override
   State<NativeAdWidget> createState() => _NativeAdWidgetState();
@@ -33,7 +48,10 @@ class NativeAdWidget extends StatefulWidget {
 
 class _NativeAdWidgetState extends State<NativeAdWidget> {
   static const String _tag = 'NativeAdWidget';
-  static const double _height = 320;
+
+  double get _height =>
+      widget.height ??
+      (widget.templateType == TemplateType.small ? 90 : 320);
 
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
   bool _initScheduled = false;
@@ -71,7 +89,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     _allowed.value = true;
 
     if (mgr.isAdMobProvider) {
-      mgr.loadAdmobNativeIfNeeded(this);
+      mgr.loadAdmobNativeIfNeeded(this, templateType: widget.templateType);
     } else {
       SafeLogger.d(
           _tag, '_initNative [AppLovin] MaxNativeAdView loads on mount');
@@ -137,12 +155,12 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
           valueListenable: AdManager().nativeIsLoaded(this),
           builder: (context, loaded, _) {
             if (!loaded) {
-              return const ShimmerView(
+              return ShimmerView(
                   cornerRadius: 0, width: double.infinity, height: _height);
             }
             final view = AdManager().admobNativeView(this);
             if (view == null) {
-              return const SizedBox(height: _height, width: double.infinity);
+              return SizedBox(height: _height, width: double.infinity);
             }
             return SizedBox(
                 height: _height, width: double.infinity, child: view);
@@ -163,6 +181,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
         if (hasError) return const SizedBox.shrink();
         return _NativeContainer(
           isLoaded: AdManager().nativeIsLoaded(this),
+          height: _height,
           child: () =>
               _AppLovinMaxNativeView(
                   nativeId: AdManager().appLovinNativeId, instanceKey: this),
@@ -176,12 +195,12 @@ class _NativeContainer extends StatelessWidget {
   const _NativeContainer({
     required this.isLoaded,
     required this.child,
+    required this.height,
   });
 
   final ValueListenable<bool> isLoaded;
   final Widget Function() child;
-
-  static const double _height = 320;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -228,15 +247,15 @@ class _NativeContainer extends StatelessWidget {
               // loading, not a substitute for mounting the real view.
               SizedBox(
                 width: double.infinity,
-                height: _height,
+                height: height,
                 child: Stack(
                   children: [
                     child(),
                     if (!loaded)
-                      const ShimmerView(
+                      ShimmerView(
                           cornerRadius: 0,
                           width: double.infinity,
-                          height: _height),
+                          height: height),
                   ],
                 ),
               ),

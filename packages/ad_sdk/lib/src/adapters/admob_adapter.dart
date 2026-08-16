@@ -269,6 +269,12 @@ class AdMobAdapter implements AdProviderAdapter {
 
   final Map<Object, BannerListenables> _nativeListenablesByKey = {};
 
+  // T73 — remembers each key's requested template, so the connectivity/
+  // resume retry path (which calls preloadNative(key) with no explicit
+  // templateType) reloads with the SAME template the widget originally
+  // asked for, instead of silently falling back to the medium default.
+  final Map<Object, TemplateType> _nativeTemplateTypeByKey = {};
+
   // T65 (phase 1) — once this adapter instance is disposed (discarded; a
   // fresh one is constructed on the next initialize()), any further call
   // must not silently resurrect a live slot/listenables bundle for a key
@@ -319,6 +325,7 @@ class AdMobAdapter implements AdProviderAdapter {
     _nativeAdsByKey.remove(key)?.dispose();
     _nativeSlotsByKey.remove(key)?.dispose();
     _nativeListenablesByKey.remove(key)?.dispose();
+    _nativeTemplateTypeByKey.remove(key);
   }
 
   // ─── Native ad objects ────────────────────────────────────────────────────
@@ -1349,7 +1356,9 @@ class AdMobAdapter implements AdProviderAdapter {
   // ──────────────────────────────────────────────────────────────────────────
 
   @override
-  Future<void> preloadNative(Object key) async {
+  Future<void> preloadNative(Object key,
+      {TemplateType templateType = TemplateType.medium}) async {
+    _nativeTemplateTypeByKey[key] = templateType;
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1386,7 +1395,7 @@ class AdMobAdapter implements AdProviderAdapter {
           extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
         ),
         nativeTemplateStyle:
-            NativeTemplateStyle(templateType: TemplateType.medium),
+            NativeTemplateStyle(templateType: templateType),
         listener: NativeAdListener(
           onPaidEvent: _paidEventForNative(AdPlacement.unspecified),
           onAdLoaded: (ad) {
@@ -1521,7 +1530,9 @@ class AdMobAdapter implements AdProviderAdapter {
       final listenables = _nativeListenablesByKey[key]!;
       if (listenables.hasError.value && !_nativeAdsByKey.containsKey(key)) {
         listenables.hasError.value = false;
-        preloadNative(key);
+        preloadNative(key,
+            templateType:
+                _nativeTemplateTypeByKey[key] ?? TemplateType.medium);
       }
     }
   }

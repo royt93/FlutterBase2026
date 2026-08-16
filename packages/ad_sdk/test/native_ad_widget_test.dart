@@ -60,8 +60,13 @@ class _NativeCountingAdapter implements AdProviderAdapter {
 
   @override
   String get tag => 'counting';
+  TemplateType? lastRequestedTemplateType;
   @override
-  Future<void> preloadNative(Object key) async => loadNativeCalls++;
+  Future<void> preloadNative(Object key,
+      {TemplateType templateType = TemplateType.medium}) async {
+    lastRequestedTemplateType = templateType;
+    loadNativeCalls++;
+  }
   @override
   Widget? buildAdmobNativeView(Object key) =>
       null; // placeholder path, no native view
@@ -183,6 +188,66 @@ void main() {
     expect(loadedStates, containsAllInOrder([true, false]),
         reason: 'flipping one instance loaded must not flip the other');
     expect(tester.takeException(), isNull);
+  });
+
+  // T73 — templateType/height configuration.
+  group('templateType / height (T73)', () {
+    setUp(() {
+      AdManager().debugSetAdapter(_NativeCountingAdapter());
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets('default (no params) keeps the original 320 height',
+        (tester) async {
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, 320);
+    });
+
+    testWidgets('templateType: small renders at the compact 90 height',
+        (tester) async {
+      await tester.pumpWidget(
+          host(const NativeAdWidget(templateType: TemplateType.small)));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, 90);
+    });
+
+    testWidgets('explicit height overrides the templateType default',
+        (tester) async {
+      await tester.pumpWidget(host(const NativeAdWidget(
+          templateType: TemplateType.small, height: 120)));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, 120,
+          reason: 'an explicit height must win over the templateType default');
+    });
+
+    testWidgets('AdMob: templateType is threaded through to the adapter',
+        (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(
+          host(const NativeAdWidget(templateType: TemplateType.small)));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.lastRequestedTemplateType, TemplateType.small);
+    });
   });
 
   testWidgets('repeated rebuilds trigger exactly one AdMob native load',

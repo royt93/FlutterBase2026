@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
-    show ConsentStatus, DebugGeography;
+    show ConsentStatus, DebugGeography, TemplateType;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../adapters/admob_adapter.dart';
@@ -2789,11 +2789,12 @@ class AdManager with WidgetsBindingObserver {
     await ad.loadMrecIfNeeded(key, widthPx);
   }
 
-  Future<void> loadAdmobNativeIfNeeded(Object key) async {
+  Future<void> loadAdmobNativeIfNeeded(Object key,
+      {TemplateType templateType = TemplateType.medium}) async {
     final ad = _adapter;
     if (ad == null) return;
     if (_isVipMember || !isConnected) return;
-    await ad.preloadNative(key);
+    await ad.preloadNative(key, templateType: templateType);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
