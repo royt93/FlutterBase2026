@@ -2912,6 +2912,145 @@ class AdManager with WidgetsBindingObserver {
         });
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  //  REWARDED INTERSTITIAL (T89, AdMob only) — Google's format shown at a
+  //  natural transition point, not behind an explicit "watch ad" tap. No
+  //  VIP-bypass-to-extend-VIP flow and no SSV params here (unlike
+  //  showRewardedAd) — see AdProviderAdapter.showRewardedInterstitial's doc
+  //  comment for why. AppLovin MAX has no equivalent ad unit type;
+  //  AppLovinAdapter's implementation is a documented no-op, so on that
+  //  provider this slot never becomes ready and showRewardedInterstitialAd
+  //  always reports `shown: false`.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  Future<void> loadRewardedInterstitialAd(
+      {Duration watchdog = const Duration(seconds: 30)}) async {
+    final ad = _adapter;
+    if (ad == null) {
+      SafeLogger.d(_tag, '⏭️ loadRewardedInterstitial skipped — adapter null');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'adapter_null');
+      return;
+    }
+    if (_isVipMember) {
+      SafeLogger.d(_tag, '⏭️ loadRewardedInterstitial skipped — VIP member');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'vip');
+      return;
+    }
+    if (AdSafetyConfig.dailyCapReached()) {
+      SafeLogger.d(
+          _tag, '⏭️ loadRewardedInterstitial skipped — daily cap reached');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'daily_cap');
+      return;
+    }
+    if (!canRequestAds) {
+      SafeLogger.d(_tag,
+          '⏭️ loadRewardedInterstitial skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'consent');
+      return;
+    }
+    if (!isConnected) {
+      SafeLogger.d(_tag, '⏭️ loadRewardedInterstitial skipped — no network');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'no_network');
+      return;
+    }
+    await ad.loadRewardedInterstitial();
+    _armLoadWatchdog(
+        'rewardedInterstitial', ad.rewardedInterstitialSlot, watchdog);
+  }
+
+  Future<void> showRewardedInterstitialAd({
+    required void Function(bool shown, bool earned) onDone,
+    AdPlacement placement = AdPlacement.unspecified,
+  }) async {
+    final ad = _adapter;
+    if (ad == null) {
+      SafeLogger.d(_tag, '⏭️ showRewardedInterstitial skipped — adapter null');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'adapter_null',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
+    if (_isVipMember) {
+      SafeLogger.d(_tag, '⏭️ showRewardedInterstitial skipped — VIP member');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'vip',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
+    if (!canRequestAds) {
+      SafeLogger.d(_tag,
+          '⏭️ showRewardedInterstitial skipped — consent not granted (UMP)');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'consent',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
+    final busyRI = _fullscreenBusyReason;
+    if (busyRI != null) {
+      SafeLogger.d(_tag, '⏭️ showRewardedInterstitial skipped — $busyRI');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'busy',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
+    final safety = AdSafetyConfig.canShowFullscreenAd();
+    if (!safety.canShow) {
+      SafeLogger.d(
+          _tag,
+          () =>
+              '⏭️ showRewardedInterstitial blocked by safety: ${safety.reason}');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'cooldown',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
+    final arbitrator = _arbitrator;
+    if (arbitrator != null &&
+        arbitrator.decide(AdSlotType.rewardedInterstitial) ==
+            ArbitratorDecision.nudgeVip) {
+      SafeLogger.d(
+          _tag, '⏭️ showRewardedInterstitial vetoed — arbitrator nudgeVip');
+      _emit(ArbitratorNudgeEvent(
+        type: AdSlotType.rewardedInterstitial,
+        placement: placement,
+        estimatedEcpmMicros: arbitrator.estimatedEcpmMicros,
+      ));
+      onDone(false, false);
+      return;
+    }
+    await ad.showRewardedInterstitial(onDone: (result) {
+      if (result.earned) {
+        AdSafetyConfig.recordFullscreenAdShown();
+        _emit(AdRewardEvent(
+          providerTag: ad.tag,
+          placement: placement,
+          label: result.label,
+          amount: result.amount,
+        ));
+      }
+      _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+      _emit(AdShowEvent(
+        providerTag: ad.tag,
+        type: AdSlotType.rewardedInterstitial,
+        placement: placement,
+        success: result.earned,
+      ));
+      onDone(true, result.earned);
+      unawaited(loadRewardedInterstitialAd());
+    });
+  }
+
+  bool canShowRewardedInterstitialAd() {
+    final ad = _adapter;
+    if (ad == null) return false;
+    if (_isVipMember) return false;
+    if (!canRequestAds) return false;
+    if (ad.rewardedInterstitialSlot.isShowing) return false;
+    final s = AdSafetyConfig.canShowFullscreenAd();
+    if (!s.canShow) return false;
+    return ad.rewardedInterstitialSlot.isReady;
+  }
+
   /// Whether a "watch rewarded ad" entry point should be enabled.
   ///
   /// ⚠️ Returns `true` for a VIP member even though no ad will actually play —

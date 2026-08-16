@@ -207,6 +207,24 @@ abstract class AdProviderAdapter {
     String? ssvUserId,
   });
 
+  // ─── Rewarded Interstitial (T89, AdMob only) ───────────────────────────────
+  // Google's "Rewarded Interstitial" format — shown at a natural transition
+  // point (e.g. between levels), not behind an explicit "watch ad" tap. No
+  // AppLovin MAX equivalent ad unit type exists; AppLovinAdapter implements
+  // these as documented no-ops (rewardedInterstitialSlot never leaves idle).
+  // No SSV params here (unlike showRewarded) — SSV exists to let a host's
+  // backend verify a DELIBERATE user action ("I watched this specific ad for
+  // this specific reward"); a natural-transition ad the user didn't opt into
+  // is a weaker signal for that use case, so it's left out of this first pass
+  // rather than exposing a param that would be misleading to rely on.
+  AdSlot get rewardedInterstitialSlot;
+
+  Future<void> loadRewardedInterstitial();
+
+  Future<void> showRewardedInterstitial({
+    required void Function(RewardResult result) onDone,
+  });
+
   // ─── Banner ────────────────────────────────────────────────────────────────
   // T65 (phase 2) — every banner method is keyed by widget instance (see
   // nativeSlot's doc for the pattern). Both providers had the identical

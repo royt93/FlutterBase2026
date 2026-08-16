@@ -912,6 +912,33 @@ final didRedeem = await AdManager().vip!.redeemVip(
 );
 ```
 
+### Rewarded Interstitial (AdMob only)
+
+Google's "Rewarded Interstitial" format — shown at a natural transition point
+(between levels, after a task completes, ...) rather than behind an explicit
+"watch ad" tap, while still granting a reward. Set
+`AdMobConfig(rewardedInterstitialId: '...')` and use the matching
+load/show/canShow trio:
+
+```dart
+AdManager().loadRewardedInterstitialAd();
+
+AdManager().showRewardedInterstitialAd(
+  onDone: (shown, earned) {
+    if (earned) grantCoins(10);
+  },
+);
+
+if (AdManager().canShowRewardedInterstitialAd()) { /* e.g. enable a CTA */ }
+```
+
+**AppLovin MAX has no equivalent ad unit type** — on that provider this is a
+documented no-op: `loadRewardedInterstitialAd()` never has anything to load,
+and `showRewardedInterstitialAd()` always calls back `(false, false)`. Unlike
+`showRewardedAd`, there's no VIP-bypass-to-extend-VIP flow and no SSV
+params for this ad type — see `AdProviderAdapter.showRewardedInterstitial`'s
+doc comment for why.
+
 ### Watch a rewarded ad to EXTEND VIP (even while already VIP)
 
 By default the SDK suppresses every ad for a VIP member, so a rewarded ad will

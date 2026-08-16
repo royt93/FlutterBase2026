@@ -76,6 +76,13 @@ class AppLovinAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  // T89 — no AppLovin MAX ad unit type maps to Google's "Rewarded
+  // Interstitial" format. This slot deliberately never leaves idle;
+  // loadRewardedInterstitial()/showRewardedInterstitial() below are
+  // documented no-ops, same pattern as native's preloadNative() no-op.
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
   // T65 (phase 2) — one AdSlot/BannerListenables/adViewId per BannerAdWidget
   // instance, same reasoning as native (phase 1): AppLovin's banner had the
   // identical singleton bug agy found on AdMob — one shared
@@ -1150,6 +1157,21 @@ class AppLovinAdapter implements AdProviderAdapter {
       _rewardedDone = null;
       cb?.call(RewardResult.skipped);
     }
+  }
+
+  // T89 — documented no-ops: AppLovin MAX has no "Rewarded Interstitial" ad
+  // unit type. rewardedInterstitialSlot never leaves idle, so
+  // AdManager.loadRewardedInterstitialAd()'s `beginLoad()` call (if it ever
+  // reached one) would simply never succeed — but these no-ops mean it never
+  // even gets that far.
+  @override
+  Future<void> loadRewardedInterstitial() async {}
+
+  @override
+  Future<void> showRewardedInterstitial({
+    required void Function(RewardResult result) onDone,
+  }) async {
+    onDone(RewardResult.skipped);
   }
 
   /// Test seam: put the rewarded slot into `showing` with [onDone] captured,

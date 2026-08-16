@@ -150,6 +150,9 @@ class AdMobAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
   // T65 (phase 2) — one AdSlot/BannerListenables per BannerAdWidget instance,
   // same pattern as native (phase 1). See disposeBannerInstance/bannerSlot().
   final Map<Object, AdSlot> _bannerSlotsByKey = {};
@@ -333,6 +336,7 @@ class AdMobAdapter implements AdProviderAdapter {
   GmaFullscreenAd? _appOpenAd;
   GmaFullscreenAd? _interstitialAd;
   GmaFullscreenAd? _rewardedAd;
+  GmaFullscreenAd? _rewardedInterstitialAd; // T89
   // T65 (phase 2) — one BannerAd per BannerAdWidget instance, same reasoning
   // as native's _nativeAdsByKey.
   final Map<Object, BannerAd> _bannerAdsByKey = {};
@@ -350,6 +354,7 @@ class AdMobAdapter implements AdProviderAdapter {
   void Function(bool dismissed)? _appOpenDismiss;
   void Function(bool shown)? _interstitialDone;
   void Function(RewardResult result)? _rewardedDone;
+  void Function(RewardResult result)? _rewardedInterstitialDone; // T89
 
   /// Safety watchdog for App Open show. GMA's `FullScreenContentCallback` is
   /// reliable, but on the rare occasion neither `onAdDismissed` nor
@@ -442,6 +447,8 @@ class AdMobAdapter implements AdProviderAdapter {
     _interstitialAd = null;
     _disposeAd(_rewardedAd, 'rewarded');
     _rewardedAd = null;
+    _disposeAd(_rewardedInterstitialAd, 'rewardedInterstitial');
+    _rewardedInterstitialAd = null;
     for (final ad in _bannerAdsByKey.values) {
       try {
         ad.dispose();
@@ -474,10 +481,13 @@ class AdMobAdapter implements AdProviderAdapter {
     _interstitialDone = null;
     _rewardedDone?.call(RewardResult.skipped);
     _rewardedDone = null;
+    _rewardedInterstitialDone?.call(RewardResult.skipped);
+    _rewardedInterstitialDone = null;
 
     appOpenSlot.reset();
     interstitialSlot.reset();
     rewardedSlot.reset();
+    rewardedInterstitialSlot.reset();
     for (final slot in _bannerSlotsByKey.values) {
       slot.reset();
     }
@@ -1054,6 +1064,138 @@ class AdMobAdapter implements AdProviderAdapter {
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
       _rewardedAd = null;
       rewardedSlot.markShowFailed();
+      fire(RewardResult.skipped);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  //  REWARDED INTERSTITIAL (T89, AdMob only)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @override
+  Future<void> loadRewardedInterstitial() async {
+    final cfg = _admob;
+    if (cfg == null) return;
+    if (_rewardedInterstitialAd != null) {
+      if (isAdFresh(
+          rewardedInterstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
+        return; // fresh — keep it
+      }
+      SafeLogger.d(_logTag,
+          'loadRewardedInterstitial $tag ♻️ expired (>${_fullscreenExpiryHours}h), disposing old');
+      _disposeAd(_rewardedInterstitialAd, 'rewardedInterstitial-expired');
+      _rewardedInterstitialAd = null;
+      rewardedInterstitialSlot.lastLoadedAt = null;
+    }
+    if (!rewardedInterstitialSlot.beginLoad()) return;
+    SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag 🔄');
+    try {
+      await _bridge.loadRewardedInterstitial(
+        cfg.rewardedInterstitialId,
+        nonPersonalizedAds: _nonPersonalizedAds,
+        restrictedDataProcessing: _restrictedDataProcessing,
+        onLoaded: (ad) {
+          SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag ✅');
+          _rewardedInterstitialAd = ad;
+          _wirePaidEvent(
+              ad, AdSlotType.rewardedInterstitial, AdPlacement.unspecified);
+          rewardedInterstitialSlot.markReady();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.rewardedInterstitial,
+            placement: AdPlacement.unspecified,
+            success: true,
+          ));
+        },
+        onFailed: (code, message) {
+          SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
+          _rewardedInterstitialAd = null;
+          rewardedInterstitialSlot.markFailed();
+          _emit(AdLoadEvent(
+            providerTag: tag,
+            type: AdSlotType.rewardedInterstitial,
+            placement: AdPlacement.unspecified,
+            success: false,
+            errorCode: code,
+          ));
+        },
+      );
+    } catch (e, st) {
+      SafeLogger.e(_logTag, 'loadRewardedInterstitial $tag THREW: $e\n$st');
+      _rewardedInterstitialAd = null;
+      rewardedInterstitialSlot.markFailed();
+    }
+  }
+
+  @override
+  Future<void> showRewardedInterstitial({
+    required void Function(RewardResult result) onDone,
+  }) async {
+    final ad = _rewardedInterstitialAd;
+    if (ad == null || !rewardedInterstitialSlot.isReady) {
+      SafeLogger.w(_logTag, 'showRewardedInterstitial $tag ⚠️ not ready');
+      onDone(RewardResult.skipped);
+      return;
+    }
+    if (!rewardedInterstitialSlot.beginShow()) {
+      SafeLogger.w(_logTag, 'showRewardedInterstitial $tag ⚠️ already showing');
+      onDone(RewardResult.skipped);
+      return;
+    }
+    _rewardedInterstitialDone = onDone;
+
+    var earned = false;
+    var fired = false;
+    void fire(RewardResult r) {
+      if (fired) return;
+      fired = true;
+      final cb = _rewardedInterstitialDone;
+      _rewardedInterstitialDone = null;
+      cb?.call(r);
+    }
+
+    try {
+      await ad.show(
+          GmaShowCallbacks(
+            onShowed: () =>
+                SafeLogger.d(_logTag, 'showRewardedInterstitial $tag ✅ shown'),
+            onDismissed: () {
+              SafeLogger.d(_logTag,
+                  'showRewardedInterstitial $tag 👋 dismissed (earned=$earned)');
+              _rewardedInterstitialAd = null;
+              _disposeAd(ad, 'rewardedInterstitial-after-dismiss');
+              rewardedInterstitialSlot.markDismissed();
+              if (!earned) fire(RewardResult.skipped);
+            },
+            onFailedToShow: (message) {
+              SafeLogger.w(_logTag,
+                  'showRewardedInterstitial $tag ❌ display failed: $message');
+              _rewardedInterstitialAd = null;
+              _disposeAd(ad, 'rewardedInterstitial-show-fail');
+              rewardedInterstitialSlot.markShowFailed();
+              fire(RewardResult.skipped);
+            },
+            onClicked: () {
+              SafeLogger.d(_logTag, 'showRewardedInterstitial $tag 🎯 click');
+              AdSafetyConfig.recordAdClick();
+              _emit(AdClickEvent(
+                providerTag: tag,
+                type: AdSlotType.rewardedInterstitial,
+                placement: AdPlacement.unspecified,
+              ));
+            },
+            onUserEarnedReward: (amount, type) {
+              SafeLogger.d(_logTag,
+                  'showRewardedInterstitial $tag 🏆 type=$type amount=$amount');
+              earned = true;
+              fire(RewardResult(earned: true, label: type, amount: amount));
+            },
+          ));
+    } catch (e, st) {
+      SafeLogger.e(
+          _logTag, 'showRewardedInterstitial $tag show THREW: $e\n$st');
+      _rewardedInterstitialAd = null;
+      rewardedInterstitialSlot.markShowFailed();
       fire(RewardResult.skipped);
     }
   }

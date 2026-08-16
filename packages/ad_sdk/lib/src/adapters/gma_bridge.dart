@@ -85,6 +85,17 @@ abstract class GmaBridge {
     required void Function(GmaFullscreenAd ad) onLoaded,
     required void Function(int code, String message) onFailed,
   });
+
+  /// T89 — same shape as [loadRewarded]; Google's Rewarded Interstitial
+  /// format (shown at a natural transition point, not behind an explicit
+  /// "watch ad" tap) is otherwise API-identical.
+  Future<void> loadRewardedInterstitial(
+    String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
+    required void Function(GmaFullscreenAd ad) onLoaded,
+    required void Function(int code, String message) onFailed,
+  });
 }
 
 /// CCPA restricted-data-processing signal, forwarded to AdMob per-request via
@@ -174,6 +185,27 @@ class RealGmaBridge implements GmaBridge {
       ),
     );
   }
+
+  @override
+  Future<void> loadRewardedInterstitial(
+    String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
+    required void Function(GmaFullscreenAd ad) onLoaded,
+    required void Function(int code, String message) onFailed,
+  }) {
+    return RewardedInterstitialAd.load(
+      adUnitId: adUnitId,
+      request: AdRequest(
+        nonPersonalizedAds: nonPersonalizedAds,
+        extras: _extrasFor(restrictedDataProcessing),
+      ),
+      rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
+        onAdLoaded: (ad) => onLoaded(_RewardedInterstitialWrap(ad)),
+        onAdFailedToLoad: (err) => onFailed(err.code, err.message),
+      ),
+    );
+  }
 }
 
 FullScreenContentCallback<T> _content<T extends Ad>(GmaShowCallbacks cb) {
@@ -234,6 +266,43 @@ class _InterstitialWrap implements GmaFullscreenAd {
     // ponytail: Interstitial has no SSV concept in GMA — same as App Open.
     _ad.fullScreenContentCallback = _content<InterstitialAd>(callbacks);
     return _ad.show();
+  }
+
+  @override
+  void setPaidEventListener(void Function(num, String, String) cb) {
+    _ad.onPaidEvent = (ad, micros, precision, currency) =>
+        cb(micros, currency, precision.name);
+  }
+
+  @override
+  List<String>? get mediationWaterfall => _waterfallOf(_ad);
+
+  @override
+  void dispose() {
+    _ad.fullScreenContentCallback = null;
+    _ad.dispose();
+  }
+}
+
+class _RewardedInterstitialWrap implements GmaFullscreenAd {
+  _RewardedInterstitialWrap(this._ad);
+
+  final RewardedInterstitialAd _ad;
+
+  @override
+  Future<void> show(
+    GmaShowCallbacks callbacks, {
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) {
+    // T89 — no SSV param exposed at the AdManager level for this ad type
+    // (see loadRewardedInterstitialAd/showRewardedInterstitialAd's doc
+    // comments for why); ssvCustomData/ssvUserId are always null here.
+    _ad.fullScreenContentCallback = _content<RewardedInterstitialAd>(callbacks);
+    return _ad.show(
+      onUserEarnedReward: (ad, reward) =>
+          callbacks.onUserEarnedReward?.call(reward.amount, reward.type),
+    );
   }
 
   @override

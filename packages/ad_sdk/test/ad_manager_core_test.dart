@@ -17,6 +17,7 @@
 import 'dart:async';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:fake_async/fake_async.dart';
@@ -151,6 +152,35 @@ class _FakeAdapter implements AdProviderAdapter {
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
     onDone(nextRewardEarned
+        ? const RewardResult(earned: true, label: 'coins', amount: 1)
+        : RewardResult.skipped);
+  }
+
+  // T89
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
+  int loadRewardedInterstitialCalls = 0;
+  int showRewardedInterstitialCalls = 0;
+  bool nextRewardedInterstitialEarned = true;
+
+  @override
+  Future<void> loadRewardedInterstitial() async {
+    loadRewardedInterstitialCalls++;
+    if (loadMarksReady) {
+      rewardedInterstitialSlot.beginReload();
+      rewardedInterstitialSlot.markReady();
+    }
+  }
+
+  @override
+  Future<void> showRewardedInterstitial({
+    required void Function(RewardResult result) onDone,
+  }) async {
+    showRewardedInterstitialCalls++;
+    rewardedInterstitialSlot.beginShow();
+    rewardedInterstitialSlot.markDismissed();
+    onDone(nextRewardedInterstitialEarned
         ? const RewardResult(earned: true, label: 'coins', amount: 1)
         : RewardResult.skipped);
   }
@@ -1407,6 +1437,98 @@ void main() {
             reason: 'a provider that never answers must not hang init '
                 'forever — the 5s timeout falls back to local params');
       });
+    });
+  });
+
+  // T89 — Rewarded Interstitial (AdMob only). Reuses the same gate shape as
+  // showInterstitial (no VIP-bypass/SSV, unlike showRewardedAd).
+  group('rewardedInterstitial (T89)', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugCanRequestAds = true;
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+    });
+
+    test('load: VIP member skips and emits reason=vip', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      await AdManager().loadRewardedInterstitialAd();
+
+      expect(adapter.loadRewardedInterstitialCalls, 0);
+    });
+
+    test('load: reaches the adapter when nothing gates it', () async {
+      await AdManager().loadRewardedInterstitialAd();
+
+      expect(adapter.loadRewardedInterstitialCalls, 1);
+    });
+
+    test('show: VIP member skips, never reaches the adapter', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      var shown = true, earned = true;
+      await AdManager().showRewardedInterstitialAd(
+          onDone: (s, e) {
+            shown = s;
+            earned = e;
+          });
+
+      expect(adapter.showRewardedInterstitialCalls, 0);
+      expect(shown, isFalse);
+      expect(earned, isFalse);
+    });
+
+    test('show: consent not granted skips, never reaches the adapter',
+        () async {
+      AdManager().debugCanRequestAds = false;
+      var shown = true;
+      await AdManager()
+          .showRewardedInterstitialAd(onDone: (s, __) => shown = s);
+
+      expect(adapter.showRewardedInterstitialCalls, 0);
+      expect(shown, isFalse);
+    });
+
+    test(
+        'show: reaching the adapter and earning the reward reports '
+        'shown=true, earned=true and reloads', () async {
+      adapter.nextRewardedInterstitialEarned = true;
+      bool? shown, earned;
+      await AdManager().showRewardedInterstitialAd(
+          onDone: (s, e) {
+            shown = s;
+            earned = e;
+          });
+
+      expect(adapter.showRewardedInterstitialCalls, 1);
+      expect(shown, isTrue);
+      expect(earned, isTrue);
+      expect(adapter.loadRewardedInterstitialCalls, 1,
+          reason: 'must reload after a completed show, same as rewarded');
+    });
+
+    test('AppLovin adapter: genuinely never supports this ad type', () {
+      final applovin = AppLovinAdapter();
+      expect(applovin.rewardedInterstitialSlot.isReady, isFalse);
+
+      bool? earned;
+      applovin.showRewardedInterstitial(
+          onDone: (result) => earned = result.earned);
+      expect(earned, isFalse,
+          reason: 'AppLovin MAX has no Rewarded Interstitial ad unit type — '
+              'this must always be a no-op, never actually show anything');
     });
   });
 

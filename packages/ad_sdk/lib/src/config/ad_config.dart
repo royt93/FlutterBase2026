@@ -215,6 +215,10 @@ class AdMobConfig {
     required String interstitialId,
     required String appOpenId,
     String rewardedId = '',
+    // T89 — AdMob-only "Rewarded Interstitial" ad unit id. Empty by
+    // default, same convention as rewardedId — an empty id means the host
+    // hasn't configured this ad type.
+    String rewardedInterstitialId = '',
     String mrecId = '',
     String nativeId = '',
     this.testDeviceIds = const [],
@@ -226,6 +230,8 @@ class AdMobConfig {
     this.iosAppOpenId,
     this.androidRewardedId,
     this.iosRewardedId,
+    this.androidRewardedInterstitialId,
+    this.iosRewardedInterstitialId,
     this.androidMrecId,
     this.iosMrecId,
     this.androidNativeId,
@@ -234,6 +240,7 @@ class AdMobConfig {
         _interstitialId = interstitialId,
         _appOpenId = appOpenId,
         _rewardedId = rewardedId,
+        _rewardedInterstitialId = rewardedInterstitialId,
         _mrecId = mrecId,
         _nativeId = nativeId;
 
@@ -241,6 +248,7 @@ class AdMobConfig {
   final String _interstitialId;
   final String _appOpenId;
   final String _rewardedId;
+  final String _rewardedInterstitialId;
   final String _mrecId;
   final String _nativeId;
 
@@ -259,6 +267,8 @@ class AdMobConfig {
   final String? iosAppOpenId;
   final String? androidRewardedId;
   final String? iosRewardedId;
+  final String? androidRewardedInterstitialId;
+  final String? iosRewardedInterstitialId;
   final String? androidMrecId;
   final String? iosMrecId;
   final String? androidNativeId;
@@ -292,6 +302,17 @@ class AdMobConfig {
         fallback: _rewardedId,
         androidId: androidRewardedId,
         iosId: iosRewardedId,
+        isAndroid: Platform.isAndroid,
+        isIos: Platform.isIOS,
+      );
+
+  /// T89 — empty means the host hasn't configured this ad type; adapter
+  /// treats an empty id the same way it already treats one for any other
+  /// ad type (load simply never succeeds).
+  String get rewardedInterstitialId => resolvePlatformAdUnitId(
+        fallback: _rewardedInterstitialId,
+        androidId: androidRewardedInterstitialId,
+        iosId: iosRewardedInterstitialId,
         isAndroid: Platform.isAndroid,
         isIos: Platform.isIOS,
       );

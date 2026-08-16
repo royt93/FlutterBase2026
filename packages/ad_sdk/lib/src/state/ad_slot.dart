@@ -11,6 +11,12 @@ enum AdSlotType {
   banner,
   mrec,
   native,
+  // T89 — AdMob only (Google's "Rewarded Interstitial" format: shown at a
+  // natural transition point, not behind an explicit "watch ad" tap).
+  // AppLovin MAX has no equivalent ad unit type — its adapter never
+  // transitions this slot out of idle. See AdManager's
+  // loadRewardedInterstitialAd/showRewardedInterstitialAd doc comments.
+  rewardedInterstitial,
 }
 
 /// Lifecycle states a single ad slot can be in.

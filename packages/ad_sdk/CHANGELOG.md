@@ -8,6 +8,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **Rewarded Interstitial ad type — AdMob only (T89).**
+  `AdMobConfig(rewardedInterstitialId: ...)` +
+  `AdManager().loadRewardedInterstitialAd()` /
+  `showRewardedInterstitialAd(onDone: (shown, earned) => ...)` /
+  `canShowRewardedInterstitialAd()`. Google's format shown at a natural
+  transition point rather than behind an explicit "watch ad" tap. AppLovin
+  MAX has no equivalent ad unit type — that adapter's implementation is a
+  documented no-op. No VIP-bypass-to-extend-VIP flow and no SSV params for
+  this ad type, unlike `showRewardedAd` (see the doc comments for why).
 - **`RemoteAdSafetyProvider` (T88).** Optional `AdManager().initialize(...,
   remoteSafetyProvider: ...)` hook so a host can adjust `AdSafetyParams`
   (daily/hourly caps, throttle, CTR threshold, ...) from a backend (Firebase

@@ -47,6 +47,7 @@ class FakeGmaBridge implements GmaBridge {
   FakeGmaFullscreenAd? lastAppOpen;
   FakeGmaFullscreenAd? lastInter;
   FakeGmaFullscreenAd? lastRewarded;
+  FakeGmaFullscreenAd? lastRewardedInterstitial;
 
   // Captured non-personalized (npa) flag from the most recent load per slot.
   bool? npaAppOpen;
@@ -103,6 +104,18 @@ class FakeGmaBridge implements GmaBridge {
     if (failNextLoad) return onFailed(3, 'no fill');
     final ad = FakeGmaFullscreenAd();
     lastRewarded = ad;
+    onLoaded(ad);
+  }
+
+  @override
+  Future<void> loadRewardedInterstitial(String id,
+      {required bool nonPersonalizedAds,
+      bool restrictedDataProcessing = false,
+      required void Function(GmaFullscreenAd) onLoaded,
+      required void Function(int, String) onFailed}) async {
+    if (failNextLoad) return onFailed(3, 'no fill');
+    final ad = FakeGmaFullscreenAd();
+    lastRewardedInterstitial = ad;
     onLoaded(ad);
   }
 }
@@ -220,6 +233,66 @@ void main() {
       await adapter.showRewarded(onDone: (r) => result = r);
 
       bridge.lastRewarded!.shown!.onDismissed!(); // no reward fired
+
+      expect(result, isNotNull);
+      expect(result!.earned, isFalse);
+    });
+  });
+
+  // T89 — Rewarded Interstitial (AdMob only). Mirrors the plain Rewarded
+  // group above; the adapter implementation is a close copy of
+  // loadRewarded/showRewarded, so the same earn/dismiss/fail behaviors must
+  // hold for this ad type too.
+  group('Rewarded Interstitial (T89)', () {
+    test('load success → slot ready, bridge received the fake ad', () async {
+      await adapter.loadRewardedInterstitial();
+
+      expect(adapter.rewardedInterstitialSlot.isReady, isTrue);
+      expect(bridge.lastRewardedInterstitial, isNotNull);
+    });
+
+    test('load failure → slot goes to cooldown, not stuck loading', () async {
+      bridge.failNextLoad = true;
+      await adapter.loadRewardedInterstitial();
+
+      expect(adapter.rewardedInterstitialSlot.isLoading, isFalse);
+      expect(adapter.rewardedInterstitialSlot.isReady, isFalse);
+    });
+
+    test('earning then dismiss → earned=true exactly once', () async {
+      await adapter.loadRewardedInterstitial();
+      var calls = 0;
+      RewardResult? result;
+      await adapter.showRewardedInterstitial(onDone: (r) {
+        calls++;
+        result = r;
+      });
+
+      bridge.lastRewardedInterstitial!.shown!.onUserEarnedReward!(5, 'gems');
+      bridge.lastRewardedInterstitial!.shown!.onDismissed!();
+
+      expect(result, isNotNull);
+      expect(result!.earned, isTrue);
+      expect(result!.amount, 5);
+      expect(result!.label, 'gems');
+      expect(calls, 1);
+    });
+
+    test('dismiss WITHOUT earning → skipped (no reward)', () async {
+      await adapter.loadRewardedInterstitial();
+      RewardResult? result;
+      await adapter.showRewardedInterstitial(onDone: (r) => result = r);
+
+      bridge.lastRewardedInterstitial!.shown!.onDismissed!();
+
+      expect(result, isNotNull);
+      expect(result!.earned, isFalse);
+    });
+
+    test('show without a loaded ad → skipped immediately, no throw',
+        () async {
+      RewardResult? result;
+      await adapter.showRewardedInterstitial(onDone: (r) => result = r);
 
       expect(result, isNotNull);
       expect(result!.earned, isFalse);

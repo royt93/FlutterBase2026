@@ -145,6 +145,14 @@ class _FakeGmaBridge implements GmaBridge {
     lastRewarded = ad;
     onLoaded(ad);
   }
+  @override
+  Future<void> loadRewardedInterstitial(String id,
+      {required bool nonPersonalizedAds,
+      bool restrictedDataProcessing = false,
+      required void Function(GmaFullscreenAd) onLoaded,
+      required void Function(int, String) onFailed}) async {
+    onLoaded(_FakeGmaFullscreenAd());
+  }
 }
 
 const _admobConfig = AdConfig(
