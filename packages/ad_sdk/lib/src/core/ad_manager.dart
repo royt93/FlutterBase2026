@@ -3042,6 +3042,13 @@ class AdManager with WidgetsBindingObserver {
       // two keyless call sites.
       unawaited(_adapter?.preloadBanner(_globalBannerWarmupKey) ??
           Future<void>.value());
+      // T67 — reconnect nudged the banner's AppLovin bridge-level preload
+      // cache above but never MREC's, so its cache stayed empty until the
+      // next SDK init / VIP-expiry preload. Native has no equivalent: both
+      // providers' preloadNative() are intentional no-ops (native loads on
+      // widget mount only), so there's nothing to refill there.
+      unawaited(_adapter?.preloadMrec(_globalMrecWarmupKey) ??
+          Future<void>.value());
       initRevision.value = initRevision.value + 1;
     });
   }

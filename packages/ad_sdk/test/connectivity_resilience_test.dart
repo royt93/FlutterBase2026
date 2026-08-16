@@ -34,6 +34,7 @@ class _CountingAdapter implements AdProviderAdapter {
   int loadRewardedCalls = 0;
   int loadAppOpenCalls = 0;
   int preloadBannerCalls = 0;
+  int preloadMrecCalls = 0;
 
   @override
   String get tag => 'counting';
@@ -47,6 +48,8 @@ class _CountingAdapter implements AdProviderAdapter {
       loadAppOpenCalls++;
   @override
   Future<void> preloadBanner(Object key) async => preloadBannerCalls++;
+  @override
+  Future<void> preloadMrec(Object key) async => preloadMrecCalls++;
   @override
   void applyConsent(AdConsent consent) {}
 

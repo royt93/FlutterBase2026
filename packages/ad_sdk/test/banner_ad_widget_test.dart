@@ -62,6 +62,8 @@ class _BannerCountingAdapter implements AdProviderAdapter {
       loadBannerCalls++;
   @override
   Future<void> preloadBanner(Object key) async {}
+  @override
+  Future<void> preloadMrec(Object key) async {}
   // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
   @override
   Future<void> loadInterstitial() async {}

@@ -1,7 +1,7 @@
 # T67 — Reconnect handler không chủ động refill `preloadMrec`/`preloadNative` khi mạng về
 
 - **REQ:** audit round mới 2026-08-15 (claude subagent), verify độc lập 2026-08-15
-- **Priority:** P2 · **Status:** 🔲 todo
+- **Priority:** P2 · **Status:** ✅ done
 - **Files:** `packages/ad_sdk/lib/src/core/ad_manager.dart` (`_onConnectivityChanged` L2917-2942, `_retryRefillAds` L2944-2974), `packages/ad_sdk/lib/src/adapters/applovin_adapter.dart` (`preloadMrec` L1136-1183), `packages/ad_sdk/lib/src/adapters/admob_adapter.dart` (`preloadMrec` L1054-1070 — no-op by design)
 
 ## Vấn đề (Why) — CONFIRMED, đã tinh chỉnh phạm vi
@@ -16,4 +16,13 @@ Tóm lại: bug có thật, nhưng nguyên nhân gốc không phải "mounted vs
 
 ## Việc cần làm
 - [x] **Verify trước:** test connectivity restore khi KHÔNG có widget mounted, xác nhận preload có tự refill hay không.
-- [ ] Nếu confirm: thêm `preloadMrec`/`preloadNative` refill vào `_retryRefillAds`/connectivity-restore handler.
+- [x] Nếu confirm: thêm `preloadMrec`/`preloadNative` refill vào `_retryRefillAds`/connectivity-restore handler.
+
+## Đã làm (2026-08-16)
+Thêm `unawaited(_adapter?.preloadMrec(_globalMrecWarmupKey) ?? Future<void>.value());` vào `_onConnectivityChanged` (ad_manager.dart), ngay sau lời gọi `preloadBanner` sẵn có — cùng sentinel key, cùng trade-off (đã dùng từ T65). `preloadNative` không thêm: cả 2 provider đều no-op có chủ đích (native chỉ load khi widget mount), xác nhận lại đúng phân tích gốc của ticket — phần "preloadNative" trong tiêu đề không áp dụng thật.
+
+**Giới hạn còn lại (out of scope, ghi nhận không mở rộng ticket):** fix này chỉ refill cache cấp bridge cho sentinel key (trường hợp "chưa có widget mount") — một `MrecAdWidget`/`BannerAdWidget` ĐÃ mount và đã lỗi (`hasError=true`, do `_allowed` bị set `true` ngay khi attempt bất kể sau đó fail) sẽ KHÔNG tự retry khi reconnect, chỉ hồi phục qua `onAppResumed()`. Đây là giới hạn chung của cả banner lẫn mrec (không phải riêng mrec), đối xứng với hành vi banner hiện tại — sửa triệt để cần thiết kế lại gate `_allowed` ở tầng widget cho cả 2 loại, rủi ro/phạm vi lớn hơn ticket này, không mở rộng ở đây.
+
+TDD: thêm `preloadMrecCalls` counter + assertion `greaterThan(0)` vào `connectivity_refill_test.dart` (RED trước: `Actual: <0>`). Fix lộ thêm 2 fake adapter test khác (`connectivity_resilience_test.dart`, `banner_ad_widget_test.dart`) thiếu override `preloadMrec` → `NoSuchMethodError` khi chạy full suite — thêm no-op override cho cả 2.
+
+`flutter test`: 723/723 pass, `flutter analyze` sạch.

@@ -32,6 +32,7 @@ class _CountingAdapter implements AdProviderAdapter {
   int loadRewardedCalls = 0;
   int loadAppOpenCalls = 0;
   int preloadBannerCalls = 0;
+  int preloadMrecCalls = 0;
 
   @override
   String get tag => 'counting';
@@ -45,6 +46,8 @@ class _CountingAdapter implements AdProviderAdapter {
       loadAppOpenCalls++;
   @override
   Future<void> preloadBanner(Object key) async => preloadBannerCalls++;
+  @override
+  Future<void> preloadMrec(Object key) async => preloadMrecCalls++;
   @override
   void applyConsent(AdConsent consent) {}
   @override
@@ -110,6 +113,10 @@ void main() {
       expect(adapter.loadRewardedCalls, greaterThan(0));
       expect(adapter.loadAppOpenCalls, greaterThan(0));
       expect(adapter.preloadBannerCalls, greaterThan(0));
+      // T67 — reconnect must also nudge MREC's AppLovin bridge-level preload
+      // cache (mirrors banner just above), not just interstitial/rewarded/
+      // appOpen slots.
+      expect(adapter.preloadMrecCalls, greaterThan(0));
       expect(AdManager().initRevision.value, rev0 + 1,
           reason: 'banners re-init on initRevision bump');
     });
