@@ -649,7 +649,7 @@ class AdSafetyConfig {
         'daily=$daily/${_params.maxFullscreenAdsPerDay}, '
         'CTR=$ctr%, '
         'clicks/min=${_clickTimestamps.length}, '
-        'violations=$_suspiciousViolationCount, '
+        'violations=${_decayedSuspiciousCountForDisplay()}, '
         'suspended=${DateTime.now().millisecondsSinceEpoch < _suspiciousPauseUntil}]';
   }
 
@@ -669,7 +669,7 @@ class AdSafetyConfig {
       clickThroughRate: ctr,
       suspiciousCtrThreshold: _params.suspiciousCtrThreshold,
       clicksLastMinute: _clickTimestamps.length,
-      suspiciousViolationCount: _suspiciousViolationCount,
+      suspiciousViolationCount: _decayedSuspiciousCountForDisplay(),
       isSuspended:
           DateTime.now().millisecondsSinceEpoch < _suspiciousPauseUntil,
       dryRun: _params.dryRun,
@@ -683,6 +683,32 @@ class AdSafetyConfig {
   /// this, a handful of old violations kept escalating the progressive
   /// cooldown exponent forever, since the only full reset was
   /// [resetForReinit] (rarely triggered in production).
+  /// T68 — test-only seam to simulate elapsed time since the last violation,
+  /// so decay behaviour (otherwise only reachable by waiting real hours) can
+  /// be exercised deterministically.
+  @visibleForTesting
+  static void debugSetLastViolationTimestamp(int epochMs) {
+    _lastViolationTimestamp = epochMs;
+  }
+
+  /// T68 — [_suspiciousViolationCount] is only lazily re-decayed inside
+  /// [_decayViolationCount], which runs on the *next* violation. Reading it
+  /// between two violations (e.g. for [getStatusSnapshot]/a compliance
+  /// report) could show a staler count than [_computeRiskScore]'s
+  /// real-time-decayed `violationComponent`, even though both are meant to
+  /// describe the same signal. This mirrors that real-time formula for
+  /// **display only** — it never mutates [_suspiciousViolationCount] itself.
+  static int _decayedSuspiciousCountForDisplay() {
+    if (_lastViolationTimestamp == 0 || _suspiciousViolationCount == 0) {
+      return _suspiciousViolationCount;
+    }
+    final hoursSince =
+        (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /
+            (60 * 60 * 1000);
+    final decayFactor = math.pow(0.5, hoursSince / 24);
+    return (_suspiciousViolationCount * decayFactor).round();
+  }
+
   static void _decayViolationCount() {
     if (_lastViolationTimestamp == 0) return;
     final hoursSince =

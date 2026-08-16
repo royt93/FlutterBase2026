@@ -228,6 +228,38 @@ void main() {
       expect(snapshotCount, greaterThan(0));
       expect(prefs.getSuspiciousCount(), snapshotCount);
     });
+
+    // T68 — `_decayViolationCount()` only re-runs on the NEXT violation, so
+    // reading the snapshot/compliance report between two violations after a
+    // long gap showed the stale raw count, while `policyRiskScore` computed
+    // fresh decay on every read. Snapshot must show the same real-time-decayed
+    // value, without mutating the stored (raw) counter used by the
+    // progressive-cooldown escalation.
+    test(
+        'getStatusSnapshot shows the real-time-decayed count between '
+        'violations, without mutating the stored raw counter', () {
+      for (var i = 0; i < 4; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      for (var i = 0; i < 4; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 2,
+          reason: 'sanity: 2 violations recorded back-to-back');
+
+      // Simulate 24h (one half-life) elapsed since the last violation, with
+      // no new violation in between — nothing lazily re-decays the stored
+      // counter in this window.
+      AdSafetyConfig.debugSetLastViolationTimestamp(
+          DateTime.now().millisecondsSinceEpoch - (24 * 60 * 60 * 1000));
+
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 1,
+          reason: 'snapshot must apply the same real-time decay '
+              'policyRiskScore uses, not the stale raw count');
+      expect(prefs.getSuspiciousCount(), 2,
+          reason: 'the stored raw counter itself must stay untouched — '
+              'this is a display-only decay');
+    });
   });
 
   // ─────────────────────────────────────────────────
