@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
+import '../core/integration_self_check.dart';
 import '../monetization/fill_rate_baseline_monitor.dart';
 import '../state/ad_slot.dart';
 
@@ -157,6 +158,8 @@ class _Panel extends StatelessWidget {
                 'splash=${AdManager().isSplashActive}',
               ),
               const _FillRateRegressionRows(),
+              const Divider(color: Colors.white24, height: 12),
+              const _DoctorSection(),
             ],
           ),
         ),
@@ -246,4 +249,72 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
       ),
     );
   }
+}
+
+/// T98 — manual "integration doctor" trigger + pass/fail results. NOT
+/// auto-run on mount: `runIntegrationSelfCheck()` actually attempts real ad
+/// loads (interstitial/rewarded/app-open), so it must only run when a
+/// developer explicitly asks for it, never as a side effect of opening the
+/// debug panel.
+class _DoctorSection extends StatefulWidget {
+  const _DoctorSection();
+
+  @override
+  State<_DoctorSection> createState() => _DoctorSectionState();
+}
+
+class _DoctorSectionState extends State<_DoctorSection> {
+  SelfCheckResult? _result;
+  bool _running = false;
+
+  Future<void> _run() async {
+    setState(() => _running = true);
+    final result = await AdManager().runIntegrationSelfCheck();
+    if (mounted) {
+      setState(() {
+        _result = result;
+        _running = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: _running ? null : _run,
+          child: Text(
+            _running ? '🩺 Running doctor…' : '🩺 Run integration doctor',
+            style: const TextStyle(
+                color: Colors.lightBlueAccent,
+                decoration: TextDecoration.underline),
+          ),
+        ),
+        if (result != null)
+          for (final item in result.items)
+            Text(
+              '${_statusIcon(item.status)} ${item.name}'
+              '${item.detail != null ? ' — ${item.detail}' : ''}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: _statusColor(item.status)),
+            ),
+      ],
+    );
+  }
+
+  String _statusIcon(SelfCheckStatus s) => switch (s) {
+        SelfCheckStatus.pass => '✅',
+        SelfCheckStatus.fail => '❌',
+        SelfCheckStatus.skipped => '⏭️',
+      };
+
+  Color _statusColor(SelfCheckStatus s) => switch (s) {
+        SelfCheckStatus.pass => Colors.lightGreenAccent,
+        SelfCheckStatus.fail => Colors.redAccent,
+        SelfCheckStatus.skipped => Colors.white70,
+      };
 }

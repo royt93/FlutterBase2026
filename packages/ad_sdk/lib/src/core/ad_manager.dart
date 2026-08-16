@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:advertising_id/advertising_id.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:connection_notifier/connection_notifier.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -479,8 +480,73 @@ class AdManager with WidgetsBindingObserver {
           () => loadAppOpenAd(), loadTimeout),
       SelfCheckItem('VIP manager wired',
           vip != null ? SelfCheckStatus.pass : SelfCheckStatus.fail),
+      _selfCheckNavigatorKey(),
+      _selfCheckRouteObserver(),
+      await _selfCheckAtt(),
     ];
     return SelfCheckResult(items);
+  }
+
+  /// T98 — the integration contract requires `setNavigatorKey` before
+  /// `runApp` (see README's "Integrate the SDK"). `skipped` (not `fail`)
+  /// when the key is set but not yet attached to a live tree — this method
+  /// runs from a widget's `initState`/build, so "not attached yet" can just
+  /// mean the check ran before the first frame, not a real misconfiguration.
+  SelfCheckItem _selfCheckNavigatorKey() {
+    final key = _navigatorKey;
+    if (key == null) {
+      return const SelfCheckItem('Navigator key wired', SelfCheckStatus.fail,
+          'call AdManager().setNavigatorKey(navigatorKey) before runApp — '
+          'see README "Integrate the SDK"');
+    }
+    if (key.currentContext == null) {
+      return const SelfCheckItem(
+          'Navigator key wired',
+          SelfCheckStatus.skipped,
+          'navigatorKey is set but not yet attached to a live Navigator — '
+          're-run this check after the first frame');
+    }
+    return const SelfCheckItem('Navigator key wired', SelfCheckStatus.pass);
+  }
+
+  /// T98 — `AdScreenRouteLogger` must be in `navigatorObservers` for RouteAware
+  /// banner lifecycle + the App-Open-never-stacks-on-a-dialog guard to work.
+  /// `AdScreenRouteLogger.navigationEventsObserved` only ever increments if an
+  /// instance is actually receiving callbacks from a real `Navigator`, so a
+  /// non-zero count is real evidence of correct wiring — `skipped` (not
+  /// `fail`) at zero, since this may just mean no route has pushed yet.
+  SelfCheckItem _selfCheckRouteObserver() {
+    if (AdScreenRouteLogger.navigationEventsObserved > 0) {
+      return const SelfCheckItem('Route observer wired', SelfCheckStatus.pass);
+    }
+    return const SelfCheckItem(
+        'Route observer wired',
+        SelfCheckStatus.skipped,
+        'no navigation events observed yet — add AdScreenRouteLogger() to '
+        'navigatorObservers, or re-run this check after a route has pushed');
+  }
+
+  /// T98 — read-only (never prompts) sanity check that the
+  /// `app_tracking_transparency` native plugin responds at all, catching a
+  /// broken iOS embed early. Deliberately does NOT call
+  /// `requestTrackingAuthorization()` — that shows the real system prompt,
+  /// which a passive diagnostic must never trigger as a side effect.
+  Future<SelfCheckItem> _selfCheckAtt() async {
+    if (!Platform.isIOS) {
+      return const SelfCheckItem(
+          'ATT status readable (iOS)', SelfCheckStatus.skipped, 'not iOS');
+    }
+    try {
+      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      return SelfCheckItem('ATT status readable (iOS)', SelfCheckStatus.pass,
+          'current=${status.name}');
+    } catch (e) {
+      return SelfCheckItem(
+          'ATT status readable (iOS)',
+          SelfCheckStatus.fail,
+          'threw: $e — check the app_tracking_transparency plugin is '
+          'embedded correctly (pod install / Info.plist)');
+    }
   }
 
   Future<SelfCheckItem> _selfCheckLoad(String name, AdSlotType type,
@@ -1157,6 +1223,12 @@ class AdManager with WidgetsBindingObserver {
   }
 
   GlobalKey<NavigatorState>? get navigatorKey => _navigatorKey;
+
+  /// Test seam — clears a previously-set navigator key so
+  /// `runIntegrationSelfCheck`'s "Navigator key wired" check (T98) can be
+  /// exercised as never-set, independent of test execution order.
+  @visibleForTesting
+  void debugClearNavigatorKey() => _navigatorKey = null;
 
   // ─── Banner accessors used by BannerAdWidget ─────────────────────────────
 

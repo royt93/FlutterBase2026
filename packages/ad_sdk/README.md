@@ -1448,13 +1448,17 @@ diag.arbitratorVetoRate;             // null if arbitrator disabled
 diag.toJson();                       // hand to a partner/reviewer
 ```
 
-`AdManager.runIntegrationSelfCheck()` is a **debug-only** checklist (init →
-consent → per-ad-type load) so a partner integrating the SDK doesn't have to
-manually click through every demo page to confirm their `AdConfig` works on
-their device. It's a no-op returning a single `skipped` item outside debug
-builds, and deliberately never calls `destroy()` or grants/revokes VIP —
-those mutate live session/entitlement state, which would be a destructive
-side effect of what's meant to be a read-mostly sanity check.
+`AdManager.runIntegrationSelfCheck()` is a **debug-only** "integration
+doctor" checklist (init → consent → navigator key → route observer → ATT
+plugin → per-ad-type load → VIP wiring) so a partner integrating the SDK
+doesn't have to manually click through every demo page to confirm their
+`AdConfig` and app-level wiring both work on their device. It's a no-op
+returning a single `skipped` item outside debug builds, and deliberately
+never calls `destroy()` or grants/revokes VIP — those mutate live
+session/entitlement state, which would be a destructive side effect of
+what's meant to be a mostly-read-only sanity check (the per-ad-type load
+checks are the one exception — they DO attempt real ad loads, same as
+clicking through the demo pages would).
 
 ```dart
 final result = await AdManager().runIntegrationSelfCheck(
@@ -1464,8 +1468,37 @@ result.allPassed;   // true if no item has SelfCheckStatus.fail
 result.items;        // List<SelfCheckItem>(name, status, detail)
 ```
 
-See the example app's "Diagnostics & self-check" demo page for both APIs
-wired to a live UI.
+Checks added in T98 (all read-only, never trigger a real ad load or an ATT
+prompt):
+
+- **Navigator key wired** — fails if `setNavigatorKey` was never called;
+  `skipped` (not `fail`) if it's set but not yet attached to a live
+  `Navigator` (e.g. the check ran before the first frame).
+- **Route observer wired** — `AdScreenRouteLogger` only ever receives
+  `didPush`/`didPop`/etc. callbacks if it's really in `navigatorObservers`, so
+  a non-zero navigation-event count is real evidence of correct wiring.
+  `skipped` (not `fail`) if no route has pushed yet.
+- **ATT status readable (iOS)** — confirms the `app_tracking_transparency`
+  native plugin responds at all (catches a broken iOS embed early).
+  Deliberately never calls `requestTrackingAuthorization()` — that shows the
+  real system prompt, which a passive diagnostic must never trigger.
+  `skipped` on non-iOS.
+
+**Deliberately out of scope for this pass** (a genuinely different, much
+larger engineering effort — flagged here rather than silently claimed done):
+SKAdNetwork/`Info.plist` entries, Android manifest permissions/meta-data, and
+cross-referencing the CocoaPods dependency graph against the pinning-wall
+constraints (see "Publishing to pub.dev" in `CLAUDE.md` / `tool/
+check_pinning_wall.sh`). None of these are readable from plain Dart at
+runtime — they'd need new native (Swift/Kotlin) platform-channel code to
+read the bundled `Info.plist`/`AndroidManifest.xml`, and the pod graph is a
+*build-time* concept with no runtime representation at all. `doctor` only
+ever reports on state this package can already see from Dart.
+
+The results are rendered directly in the built-in `DebugAdOverlay` — tap "🩺
+Run integration doctor" in the panel (not auto-run on open, since the
+per-ad-type checks attempt real loads). See also the example app's
+"Diagnostics & self-check" demo page for both APIs wired to a live UI.
 
 ## Native Ad (v1)
 

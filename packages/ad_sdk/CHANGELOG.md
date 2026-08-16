@@ -8,6 +8,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **Runtime integration doctor — `AdManager.runIntegrationSelfCheck` extended
+  (T98).** Flagship: 3 new read-only checks — "Navigator key wired" (fails if
+  `setNavigatorKey` was never called), "Route observer wired" (real evidence
+  via `AdScreenRouteLogger`'s new navigation-event counter, not just "was it
+  constructed"), and "ATT status readable (iOS)" (catches a broken
+  `app_tracking_transparency` native embed without ever showing the real
+  system prompt). Results now render directly in the built-in
+  `DebugAdOverlay` via a manual "🩺 Run integration doctor" tap (not
+  auto-run — the existing per-ad-type checks attempt real ad loads).
+  Deliberately does NOT add SKAdNetwork/`Info.plist`/`AndroidManifest.xml`/
+  pod-graph checks — those need new native platform-channel code (or, for
+  the pod graph, aren't a runtime concept at all); see README for the exact
+  reasoning.
 - **`FillRateBaselineMonitor` — 7-day on-device fill-rate/eCPM regression
   detector (T97).** Flagship: `AdManager().enableFillRateBaselineMonitor(...)`
   compares THIS SESSION's fill rate and average revenue-per-ad

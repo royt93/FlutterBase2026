@@ -43,10 +43,24 @@ class AdScreenRouteLogger extends NavigatorObserver {
   /// Reset the popup counter. Called by [AdManager.destroy] so a mid-dialog
   /// teardown (or hot restart) doesn't leave [isDialogOnTop] stuck true and
   /// permanently suppress App Open ads.
-  static void resetState() => _popupDepth = 0;
+  static void resetState() {
+    _popupDepth = 0;
+    _navigationEventsObserved = 0;
+  }
+
+  /// T98 — count of navigation callbacks (`didPush`/`didPop`/`didRemove`/
+  /// `didReplace`) seen since the last [resetState]. An instance of this
+  /// class only ever receives these if it was actually added to some
+  /// `Navigator`'s `observers` — so a non-zero count is evidence the host
+  /// app really did register `AdScreenRouteLogger()` in
+  /// `navigatorObservers`, used by `AdManager.runIntegrationSelfCheck`'s
+  /// "Route observer wired" check.
+  static int _navigationEventsObserved = 0;
+  static int get navigationEventsObserved => _navigationEventsObserved;
 
   @override
   void didPush(Route route, Route? previousRoute) {
+    _navigationEventsObserved++;
     if (route is PopupRoute) _popupDepth++;
     SafeLogger.d(
         _tag,
@@ -56,6 +70,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   @override
   void didPop(Route route, Route? previousRoute) {
+    _navigationEventsObserved++;
     if (route is PopupRoute && _popupDepth > 0) _popupDepth--;
     SafeLogger.d(
         _tag,
@@ -65,6 +80,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   @override
   void didRemove(Route route, Route? previousRoute) {
+    _navigationEventsObserved++;
     if (route is PopupRoute && _popupDepth > 0) _popupDepth--;
     SafeLogger.d(
         _tag,
@@ -74,6 +90,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   @override
   void didReplace({Route? newRoute, Route? oldRoute}) {
+    _navigationEventsObserved++;
     if (oldRoute is PopupRoute && _popupDepth > 0) _popupDepth--;
     if (newRoute is PopupRoute) _popupDepth++;
     SafeLogger.d(

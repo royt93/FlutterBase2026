@@ -7,6 +7,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart'
     show AdEventSink;
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,12 +90,19 @@ void main() {
     AdSafetyConfig.resetForReinit();
     adapter = _FakeAdapter();
     adapter.eventSink = AdManager().debugEmit;
+    // T98: isolate the "Route observer wired" check's static counter from
+    // whatever an earlier test in this file (or a widget it pumped) left
+    // behind.
+    AdScreenRouteLogger.resetState();
   });
 
   tearDown(() {
     AdManager().debugSetAdapter(null);
     AdManager().debugConfig = null;
     AdManager().debugVipManager = null;
+    // T98: a previous test's setNavigatorKey() must not leak into the next
+    // test — AdManager is a singleton and there is no other reset path.
+    AdManager().debugClearNavigatorKey();
   });
 
   test('fails fast when SDK not initialised', () async {
@@ -111,6 +119,11 @@ void main() {
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _config();
     AdManager().debugVipManager = _FakeVip();
+    // T98: without a navigator key set, the new "Navigator key wired" check
+    // would fail — a real host always calls setNavigatorKey before runApp.
+    // Not attached to a live tree here, so it reports `skipped`, not `pass`;
+    // that's fine, `skipped` doesn't affect `allPassed`.
+    AdManager().setNavigatorKey(GlobalKey<NavigatorState>());
 
     final result = await AdManager()
         .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
@@ -152,5 +165,91 @@ void main() {
         result.items.firstWhere((i) => i.name == 'Interstitial load');
     expect(interstitial.status, SelfCheckStatus.fail);
     expect(interstitial.detail, contains('Interstitial load'));
+  });
+
+  group('T98 — "doctor" checks', () {
+    test('Navigator key wired: fails when setNavigatorKey was never called',
+        () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      final item =
+          result.items.firstWhere((i) => i.name == 'Navigator key wired');
+      expect(item.status, SelfCheckStatus.fail);
+      expect(item.detail, contains('setNavigatorKey'));
+    });
+
+    test(
+        'Navigator key wired: skipped (not pass/fail) when set but not '
+        'attached to a live Navigator', () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+      AdManager().setNavigatorKey(GlobalKey<NavigatorState>());
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      final item =
+          result.items.firstWhere((i) => i.name == 'Navigator key wired');
+      expect(item.status, SelfCheckStatus.skipped);
+    });
+
+    test(
+        'Route observer wired: skipped when no navigation event has been '
+        'observed yet', () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      final item =
+          result.items.firstWhere((i) => i.name == 'Route observer wired');
+      expect(item.status, SelfCheckStatus.skipped);
+    });
+
+    test(
+        'Route observer wired: passes once AdScreenRouteLogger has actually '
+        'received a navigation callback', () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+
+      // A real Navigator only ever calls didPush/didPop/etc on an observer
+      // it was actually given — calling it directly here is the same signal
+      // runIntegrationSelfCheck relies on (navigationEventsObserved > 0),
+      // without needing a full pumped widget tree.
+      AdScreenRouteLogger().didPush(
+        MaterialPageRoute<void>(builder: (_) => const SizedBox()),
+        null,
+      );
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      final item =
+          result.items.firstWhere((i) => i.name == 'Route observer wired');
+      expect(item.status, SelfCheckStatus.pass);
+    });
+
+    test('ATT status readable (iOS): skipped on a non-iOS test host',
+        () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      final item = result.items
+          .firstWhere((i) => i.name == 'ATT status readable (iOS)');
+      expect(item.status, SelfCheckStatus.skipped);
+    });
   });
 }
