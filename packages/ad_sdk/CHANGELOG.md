@@ -8,6 +8,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`NativeAdWidget` gate-recheck behavior locked in by regression tests
+  (T100).** Verified: a consent revoke or later rebuild after the gate has
+  already passed (but before the native ad finishes loading) does not
+  retroactively cancel an in-flight load — consistent with
+  `BannerAdWidget`/`MrecAdWidget`, which gate `canRequestAds` only at
+  request time too, never reactively in `build()`. No code change; closed
+  as "current behavior consistent + acceptable" with 2 new tests
+  documenting it, per the ticket's own escape hatch.
 - **`monetization_arbitrator_test.dart` gains `showRewardedInterstitialAd`
   veto coverage (T99).** The `onLowValueAdVetoed`-style hook the ticket asked
   for already existed (`ArbitratorNudgeEvent` on `AdManager().events`, wired

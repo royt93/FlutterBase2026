@@ -433,6 +433,82 @@ void main() {
               'AdMob native template already draws its own "Ad"/AdChoices label');
     });
   });
+
+  group('T100 — gate re-check when state changes mid-flight', () {
+    testWidgets(
+        'consent revoked after the gate passes but before the native ad '
+        'finishes loading — the ad still renders once it loads', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 1,
+          reason: 'gate passed while consent was still granted');
+
+      // Consent revoked NOW — strictly after the load request already went
+      // out. A real ad network's own SDK already dispatched this request
+      // with whatever consent state applied at THAT moment; revoking
+      // consent afterwards cannot un-send it.
+      AdManager().debugCanRequestAds = false;
+
+      // The (already in-flight) native ad finishes loading.
+      adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
+      await tester.pump();
+
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, greaterThan(0),
+          reason:
+              'documents CURRENT behavior: an in-flight native load is not '
+              'retroactively cancelled by a later consent revoke. This is '
+              'not native-specific — BannerAdWidget/MrecAdWidget gate '
+              'canRequestAds only at request time too (see their own '
+              '_init-equivalent methods), never reactively in build(). '
+              'Changing this for native alone would make it MORE '
+              'inconsistent with the rest of the SDK, not less.');
+    });
+
+    testWidgets(
+        'a later consent revoke does not stop a SUBSEQUENT rebuild from '
+        'requesting a fresh load either — the gate is re-evaluated fresh '
+        'on the retry path, it is just never revoked once already granted',
+        (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = false; // starts WITHOUT consent
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 0,
+          reason: 'no consent yet — must not load');
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, 0);
+
+      // Consent granted later; a rebuild (route change, parent setState,
+      // ...) is what actually re-runs the gate — confirms the retry path
+      // in build() does re-check every condition fresh, not just cache the
+      // first failure forever.
+      AdManager().debugCanRequestAds = true;
+      await tester.pumpWidget(host(const NativeAdWidget(key: Key('rebuilt'))));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 1,
+          reason: 'the gate must be re-evaluated once consent is granted');
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager
