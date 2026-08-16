@@ -356,11 +356,35 @@ class AdSafetyConfig {
 
   /// Check whether a fullscreen ad (inter/rewarded/app-open) can be shown.
   /// Honours `params.dryRun` — if set, blocks are logged but always return ok.
+  ///
+  /// **Has a side effect**: a CTR-anomaly detection here re-arms the
+  /// suspicious-pause window (escalating on every call). Call this ONLY at
+  /// the moment of a genuine show attempt — for a UI-facing "should I enable
+  /// my ad button" query, use [canShowFullscreenAdPeek] instead. Polling
+  /// THIS one for that purpose was a real bug (2026-08-16 audit): since a
+  /// blocked ad never adds an impression, CTR can never recover on its own,
+  /// so every poll after each pause window naturally expires would
+  /// re-trigger and escalate the SAME violation forever, even with zero new
+  /// clicks — a permanent, ever-worsening lockout from nothing but reading
+  /// state.
   static AdSafetyResult canShowFullscreenAd() {
-    final result = _canShowFullscreenAdStrict();
+    final result = _canShowFullscreenAdStrict(recordViolation: true);
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(
           _tag, '⚠️ dryRun: would have blocked (${result.reason}) — allowing');
+      return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
+    }
+    return result;
+  }
+
+  /// Same checks as [canShowFullscreenAd], but **no side effects** — safe to
+  /// poll repeatedly (e.g. to drive a "Watch Ad" button's enabled state)
+  /// without re-arming/escalating the CTR-anomaly suspicious-pause window.
+  /// Use this for any "should I show/enable" query; reserve
+  /// [canShowFullscreenAd] for an actual show attempt.
+  static AdSafetyResult canShowFullscreenAdPeek() {
+    final result = _canShowFullscreenAdStrict(recordViolation: false);
+    if (!result.canShow && _params.dryRun) {
       return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
     }
     return result;
@@ -391,7 +415,8 @@ class AdSafetyConfig {
     unawaited(_prefs?.incrementPlacementDailyCount(placement.id));
   }
 
-  static AdSafetyResult _canShowFullscreenAdStrict() {
+  static AdSafetyResult _canShowFullscreenAdStrict(
+      {required bool recordViolation}) {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     if (now < _suspiciousPauseUntil) {
@@ -445,13 +470,15 @@ class AdSafetyConfig {
     if (_totalImpressions >= 5) {
       final ctr = _totalClicks.toDouble() / _totalImpressions.toDouble();
       if (ctr > _params.suspiciousCtrThreshold) {
-        _triggerSuspiciousPause(
-          'CTR anomaly: ${(ctr * 100).toInt()}% '
-          '(threshold: ${(_params.suspiciousCtrThreshold * 100).toInt()}%)',
-          // Same `ctr` value already feeds `ctrComponent` directly below —
-          // don't also inflate `violationComponent` for it.
-          countsTowardRiskScore: false,
-        );
+        if (recordViolation) {
+          _triggerSuspiciousPause(
+            'CTR anomaly: ${(ctr * 100).toInt()}% '
+            '(threshold: ${(_params.suspiciousCtrThreshold * 100).toInt()}%)',
+            // Same `ctr` value already feeds `ctrComponent` directly below —
+            // don't also inflate `violationComponent` for it.
+            countsTowardRiskScore: false,
+          );
+        }
         return AdSafetyResult(false, 'CTR too high: ${(ctr * 100).toInt()}%');
       }
     }

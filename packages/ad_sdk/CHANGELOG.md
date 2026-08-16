@@ -8,6 +8,24 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **`canShowInterstitial`/`canShowRewardedAd`/`canShowRewardedInterstitialAd`
+  could permanently escalate a CTR-anomaly lockout just from being polled —
+  caught by internal audit, 2026-08-16.** All 3 are read-only "should I
+  enable my ad button" queries, but internally called
+  `AdSafetyConfig.canShowFullscreenAd()` — the SAME function the actual show
+  flow uses, which has a side effect: on a CTR anomaly it re-arms an
+  escalating suspicious-pause window. Since a blocked ad never adds an
+  impression, CTR can never recover on its own, so every poll after each
+  pause window naturally expired re-triggered and escalated the exact same
+  violation forever, from nothing but a UI-enable-state check (e.g. a
+  "Watch Ad" button rebuilding on a timer) — zero new clicks required. Fixed
+  by adding `AdSafetyConfig.canShowFullscreenAdPeek()` (identical checks,
+  zero side effects — mirrors `dailyCapReached()`'s existing "safe to poll"
+  contract) and switching all 3 query methods to use it;
+  `AdManager`'s actual `showInterstitial`/`showRewardedAd`/
+  `showRewardedInterstitialAd` show flows are unchanged (still use the
+  side-effecting variant, correctly, since those represent a genuine show
+  attempt). 2 new tests in `test/ad_safety_config_test.dart`.
 - **[Security] VIP-key revocation list (CRL, T95) missing domain separation
   from VIP keys — caught by internal audit, 2026-08-16.** `verifySignedCrl`
   and `verifySignedVipKey` both verified an Ed25519 signature over the raw

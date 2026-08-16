@@ -375,6 +375,56 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────
+  // canShowFullscreenAdPeek — no side effects (2026-08-16 audit)
+  // ─────────────────────────────────────────────────
+  group('canShowFullscreenAdPeek', () {
+    test(
+        'repeated calls never increment the suspicious-violation count — '
+        'canShowFullscreenAd() (non-peek) does', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+      );
+      AdSafetyConfig.resetForReinit();
+
+      // Force a CTR anomaly: 100% CTR, well above the 0.5 threshold.
+      for (var i = 0; i < 5; i++) {
+        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordAdClick();
+      }
+
+      for (var i = 0; i < 10; i++) {
+        AdSafetyConfig.canShowFullscreenAdPeek();
+      }
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 0,
+          reason: 'peek must never record a violation, no matter how many '
+              'times it is called — a host polling this to drive a "Watch '
+              'Ad" button\'s enabled state must not itself worsen the '
+              'lockout');
+
+      AdSafetyConfig.canShowFullscreenAd();
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
+          greaterThan(0),
+          reason: 'the non-peek variant is unchanged — it must still record '
+              'a violation on a genuine show attempt');
+    });
+
+    test('reports the same canShow/reason as canShowFullscreenAd for a '
+        'non-anomalous state', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+
+      final peek = AdSafetyConfig.canShowFullscreenAdPeek();
+      final strict = AdSafetyConfig.canShowFullscreenAd();
+      expect(peek.canShow, strict.canShow);
+    });
+  });
+
+  // ─────────────────────────────────────────────────
   // dailyCapReached
   // ─────────────────────────────────────────────────
   group('dailyCapReached', () {

@@ -2864,7 +2864,11 @@ class AdManager with WidgetsBindingObserver {
     if (!canRequestAds) return false;
     if (ad.interstitialSlot.isShowing) return false;
     if (AdLoadingDialog.isShowing) return false;
-    final s = AdSafetyConfig.canShowFullscreenAd();
+    // Peek, not canShowFullscreenAd() — this is a read-only "should I enable
+    // my UI" query a host may poll repeatedly; the non-peek variant has a
+    // CTR-anomaly side effect that would otherwise re-arm/escalate a
+    // suspicious-pause window forever on every poll (2026-08-16 audit).
+    final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
     return ad.interstitialSlot.isReady;
   }
@@ -3308,7 +3312,8 @@ class AdManager with WidgetsBindingObserver {
     if (_isVipMember) return false;
     if (!canRequestAds) return false;
     if (ad.rewardedInterstitialSlot.isShowing) return false;
-    final s = AdSafetyConfig.canShowFullscreenAd();
+    // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
+    final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
     return ad.rewardedInterstitialSlot.isReady;
   }
@@ -3335,7 +3340,8 @@ class AdManager with WidgetsBindingObserver {
     if (!canRequestAds) return false;
     if (ad.rewardedSlot.isShowing) return false;
     if (AdLoadingDialog.isShowing) return false;
-    final s = AdSafetyConfig.canShowFullscreenAd();
+    // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
+    final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
     return ad.rewardedSlot.isReady;
   }
