@@ -1605,6 +1605,52 @@ void main() {
     });
   });
 
+  // T90 — deterministic provider A/B split, built on experimentBucket (T93).
+  group('pickProviderCohort (T90)', () {
+    setUp(() async {
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      await AdPreferences.getInstance();
+      AdManager().debugCurrentDeviceGAID = '';
+    });
+    tearDown(() {
+      AdManager().debugCurrentDeviceGAID = '';
+    });
+
+    test('is stable across repeated calls', () {
+      final first = AdManager().pickProviderCohort();
+      final second = AdManager().pickProviderCohort();
+      expect(second, first);
+    });
+
+    test('result is always a valid AdProvider', () {
+      expect(AdManager().pickProviderCohort(),
+          anyOf(AdProvider.admob, AdProvider.appLovin));
+    });
+
+    test('different keys can independently split the same install', () {
+      // Not a hardcoded "always admob" — the key participates in the hash
+      // (same guarantee experimentBucket already tests directly).
+      final seen = <AdProvider>{};
+      for (var i = 0; i < 50; i++) {
+        seen.add(AdManager().pickProviderCohort(key: 'experiment_$i'));
+      }
+      expect(seen, {AdProvider.admob, AdProvider.appLovin});
+    });
+
+    test('distributes across many distinct installs, not stuck on one '
+        'provider', () async {
+      final seen = <AdProvider>{};
+      for (var i = 0; i < 30; i++) {
+        SharedPreferences.setMockInitialValues({});
+        AdPreferences.resetForTest();
+        await AdPreferences.getInstance();
+        seen.add(AdManager().pickProviderCohort());
+      }
+      expect(seen, {AdProvider.admob, AdProvider.appLovin});
+    });
+  });
+
   group('initialize() onComplete single-fire (init auto-retry fix)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

@@ -299,6 +299,30 @@ class AdManager with WidgetsBindingObserver {
     return experiment.experimentBucket(installId, key, buckets: buckets);
   }
 
+  /// T90 — deterministic 50/50 provider A/B split, built on
+  /// [experimentBucket]. Call this BEFORE building [AdConfig] (provider is
+  /// fixed for the whole session once [initialize] runs) — the returned
+  /// value IS the `provider:` to construct it with:
+  ///
+  /// ```dart
+  /// final provider = AdManager().pickProviderCohort();
+  /// await AdManager().initialize(
+  ///   config: AdConfig(provider: provider, admob: ..., appLovin: ...),
+  ///   onComplete: (success, gaid) { /* ... */ },
+  /// );
+  /// ```
+  ///
+  /// Comparing eCPM/fill-rate between the two cohorts needs no new plumbing
+  /// here — every event on `AdManager().events` (see [AdEvent]'s doc comment
+  /// for the "pipe into your own analytics" pattern) already carries
+  /// `providerTag` (`'[AdMob]'`/`'[AppLovin]'`), so a host's own analytics
+  /// pipeline can group `AdLoadEvent.success`/`AdRevenueEvent.valueMicros` by
+  /// that field across its install base.
+  AdProvider pickProviderCohort({String key = 'provider_ab_test'}) =>
+      experimentBucket(key, buckets: 2) == 0
+          ? AdProvider.admob
+          : AdProvider.appLovin;
+
   /// Opt-in "Smart Monetization Arbitrator" (default OFF) — `null` unless the
   /// host app calls [enableArbitrator]. When `null`, [showInterstitial] and
   /// [showRewardedAd] behave exactly as if this feature didn't exist.

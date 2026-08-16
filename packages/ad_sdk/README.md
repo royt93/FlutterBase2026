@@ -912,6 +912,31 @@ final didRedeem = await AdManager().vip!.redeemVip(
 );
 ```
 
+### A/B testing AdMob vs AppLovin MAX (`pickProviderCohort`)
+
+Provider is fixed for the whole session once `initialize()` runs — pick a
+cohort BEFORE building `AdConfig`:
+
+```dart
+final provider = AdManager().pickProviderCohort(); // deterministic 50/50
+
+await AdManager().initialize(
+  config: AdConfig(
+    provider: provider,
+    admob: myAdMobConfig,       // both declared — only the picked one loads
+    appLovin: myAppLovinConfig,
+  ),
+  onComplete: (success, gaid) { /* ... */ },
+);
+```
+
+Comparing eCPM/fill-rate between the two cohorts needs no new plumbing —
+every event on `AdManager().events` already carries `providerTag`
+(`'[AdMob]'`/`'[AppLovin]'`), so your own analytics pipeline can group
+`AdLoadEvent.success`/`AdRevenueEvent.valueMicros` by that field across your
+install base. Built on `experimentBucket` below — same GAID/install-id
+fallback guarantee.
+
 ### A/B testing local knobs (`experimentBucket`)
 
 Deterministic bucket assignment for A/B testing `AdSafetyParams`/arbitrator

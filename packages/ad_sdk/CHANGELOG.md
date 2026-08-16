@@ -8,6 +8,10 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`AdManager().pickProviderCohort()` (T90).** Deterministic 50/50 AdMob vs
+  AppLovin MAX A/B split, built on `experimentBucket`. Pick before building
+  `AdConfig` (provider is fixed for the session). No new compliance-report
+  plumbing for comparing cohorts — every event already carries `providerTag`.
 - **`AdManager().experimentBucket(key, buckets: n)` (T93).** Deterministic,
   local-only A/B bucket assignment — hashes GAID (or a lazily-generated
   pseudonymous install id when GAID is empty/all-zeros) with `key`. No
