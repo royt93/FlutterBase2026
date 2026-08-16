@@ -1,4 +1,8 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+// T78 — Backoff is no longer part of the public barrel (internal detail of
+// AdSlot.beginLoad()'s default parameter); this package's own tests may
+// still reach into src/ directly.
+import 'package:applovin_admob_sdk/src/state/backoff.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

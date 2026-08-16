@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Removed
+
+- `Backoff` (from `src/state/backoff.dart`) is no longer exported from the
+  package barrel (T78). It was always an internal detail of
+  `AdSlot.beginLoad()`'s default cooldown parameter — not referenced by
+  any documented public API. If you constructed one directly, import
+  `package:applovin_admob_sdk/src/state/backoff.dart` instead.
+
 ## [2.0.4] - 2026-08-09
 
 Docs-only. No code changes. Prompted by an independent multi-agent audit

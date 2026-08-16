@@ -45,8 +45,13 @@ export 'package:google_mobile_ads/google_mobile_ads.dart'
 // State machine
 export 'src/state/ad_event.dart';
 export 'src/state/ad_placement.dart';
+// AdSlot/AdSlotType/AdSlotState stay public — they're the return types of
+// AdProviderAdapter.appOpenSlot/interstitialSlot/rewardedSlot, so anyone
+// implementing a custom adapter needs them. Backoff (T78) does not: it's
+// only an internal cooldown-calculation detail of AdSlot.beginLoad()'s
+// default parameter — nothing outside this package's own tests needs to
+// name the type.
 export 'src/state/ad_slot.dart';
-export 'src/state/backoff.dart';
 
 // Utilities
 export 'src/utils/safe_logger.dart' show SafeLogger, AdLogSink;
