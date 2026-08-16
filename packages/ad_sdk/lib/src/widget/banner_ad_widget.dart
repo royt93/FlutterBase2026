@@ -24,7 +24,16 @@ import 'shimmer_view.dart';
 /// - subscribes to [adRouteObserver] for route-aware pause/resume
 /// - delegates everything provider-specific to the active [AdProviderAdapter]
 class BannerAdWidget extends StatefulWidget {
-  const BannerAdWidget({super.key});
+  const BannerAdWidget({
+    super.key,
+    this.collapseAnimationDuration = const Duration(milliseconds: 250),
+  });
+
+  /// T91 — how long the banner takes to animate its height when it
+  /// collapses (no-fill, cooldown, VIP) or expands (a real ad becomes
+  /// ready), instead of an abrupt `SizedBox.shrink()` layout jump. Pass
+  /// `Duration.zero` to disable and get the old instant-jump behavior.
+  final Duration collapseAnimationDuration;
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -193,9 +202,31 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
-    // Outer subscription: initRevision — destroy → re-init (e.g. fresh init
-    // completing AFTER this widget mounted) forces a retry of _initBanner
-    // against the new adapter.
+    // T91 — one AnimatedSize around the whole subtree covers every
+    // collapse/expand transition below (VIP, gate, no-fill, cooldown, a real
+    // ad becoming ready) without needing to touch each individual
+    // SizedBox.shrink() site — whatever the child's intrinsic height was
+    // before vs. after a rebuild, this animates the difference.
+    //
+    // Duration.zero skips AnimatedSize entirely rather than passing it a
+    // zero-length AnimationController — the latter can complete within the
+    // same layout pass and re-dirty the RenderAnimatedSize while Flutter is
+    // still laying it out (a genuine framework-level re-entrant-layout
+    // assertion, not something callers can work around from outside).
+    if (widget.collapseAnimationDuration == Duration.zero) {
+      return _buildBanner(context);
+    }
+    return AnimatedSize(
+      duration: widget.collapseAnimationDuration,
+      alignment: Alignment.topCenter,
+      child: _buildBanner(context),
+    );
+  }
+
+  // Outer subscription: initRevision — destroy → re-init (e.g. fresh init
+  // completing AFTER this widget mounted) forces a retry of _initBanner
+  // against the new adapter.
+  Widget _buildBanner(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {

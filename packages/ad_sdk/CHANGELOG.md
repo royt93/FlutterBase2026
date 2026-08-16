@@ -8,6 +8,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`BannerAdWidget` collapse/expand animation (T91).** New
+  `collapseAnimationDuration` param (default 250ms) wraps the banner in
+  `AnimatedSize`, so no-fill/cooldown/VIP collapsing (and a real ad becoming
+  ready) animates the height change instead of an abrupt
+  `SizedBox.shrink()` layout jump. Pass `Duration.zero` for the old
+  instant-jump behavior.
 - **`AdManager().pickProviderCohort()` (T90).** Deterministic 50/50 AdMob vs
   AppLovin MAX A/B split, built on `experimentBucket`. Pick before building
   `AdConfig` (provider is fixed for the session). No new compliance-report

@@ -453,6 +453,78 @@ void main() {
         reason: 'VIP member must collapse to zero height, like uninitialised');
     expect(tester.takeException(), isNull);
   });
+
+  // T91 — collapsing/expanding must animate (AnimatedSize), not jump
+  // instantly, so the layout doesn't shift abruptly under surrounding
+  // content when a banner errors out or a real ad becomes ready.
+  testWidgets(
+      'collapsing on a load error animates the height down instead of '
+      'jumping straight to zero', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final listenables = adapter.bannerListenablesByKey.values.single;
+    listenables.isLoaded.value = true;
+    listenables.visible.value = true;
+    listenables.adSize.value = const Size(320, 50);
+    await tester.pumpAndSettle();
+
+    final loadedHeight = tester.getSize(find.byType(BannerAdWidget)).height;
+    expect(loadedHeight, greaterThan(0));
+
+    // Simulate a load error collapsing the banner.
+    listenables.hasError.value = true;
+    listenables.isLoaded.value = false;
+    await tester.pump(); // one frame in — animation just started
+    await tester.pump(const Duration(milliseconds: 100)); // mid-animation
+
+    final midHeight = tester.getSize(find.byType(BannerAdWidget)).height;
+    expect(midHeight, greaterThan(0));
+    expect(midHeight, lessThan(loadedHeight),
+        reason: 'still animating toward zero, not there yet and not still '
+            'at the fully-loaded height either');
+
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(BannerAdWidget)).height, 0,
+        reason: 'settles at zero once the collapse animation finishes');
+  });
+
+  testWidgets('collapseAnimationDuration: zero disables the animation '
+      '(instant jump, old behavior)', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(
+        host(const BannerAdWidget(collapseAnimationDuration: Duration.zero)));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final listenables = adapter.bannerListenablesByKey.values.single;
+    listenables.isLoaded.value = true;
+    listenables.visible.value = true;
+    listenables.adSize.value = const Size(320, 50);
+    await tester.pump();
+
+    expect(tester.getSize(find.byType(BannerAdWidget)).height, greaterThan(0),
+        reason: 'Duration.zero must still reach the final height '
+            'immediately, no animation frames needed');
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager
