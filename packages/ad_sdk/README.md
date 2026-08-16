@@ -911,6 +911,26 @@ re-entrancy-safe — a second tap while a load/show is in flight is rejected wit
 > instead grant VIP without an ad — that loses revenue and risks rewarded-ad
 > policy violations. Spam is bounded by the SDK's fullscreen safety caps.
 
+### Waiting for VIP to be ready
+
+`AdManager().vip` is `null` until SDK init completes. If a screen can render
+before that (e.g. it doesn't gate on the splash's init-completion event),
+listen to `vipReady` instead of polling `vip != null` yourself:
+
+```dart
+ValueListenableBuilder<bool>(
+  valueListenable: AdManager().vipReady,
+  builder: (_, ready, __) {
+    if (!ready) return const SizedBox.shrink();
+    return ValueListenableBuilder<bool>(
+      valueListenable: AdManager().vip!.activeListenable,
+      builder: (_, active, __) =>
+          active ? const VipBadge() : const SizedBox.shrink(),
+    );
+  },
+)
+```
+
 ### Check VIP state
 
 ```dart

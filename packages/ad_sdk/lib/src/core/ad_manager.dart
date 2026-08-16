@@ -241,6 +241,14 @@ class AdManager with WidgetsBindingObserver {
   /// VIP manager — `null` until [initialize] completes.
   VipManager? get vip => _vipManager;
 
+  /// T72 — fires exactly once `false → true` when [vip] transitions from
+  /// `null` to ready, so a screen that renders before SDK init completes
+  /// has a clear DX for "wait for VIP state" instead of polling
+  /// [initRevision] and re-checking `vip != null` itself. Reset to `false`
+  /// by [destroy] (mirrors [vip] itself going back to `null` there).
+  final ValueNotifier<bool> _vipReadyNotifier = ValueNotifier<bool>(false);
+  ValueListenable<bool> get vipReady => _vipReadyNotifier;
+
   /// Opt-in "Smart Monetization Arbitrator" (default OFF) — `null` unless the
   /// host app calls [enableArbitrator]. When `null`, [showInterstitial] and
   /// [showRewardedAd] behave exactly as if this feature didn't exist.
@@ -1205,6 +1213,7 @@ class AdManager with WidgetsBindingObserver {
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
+      _vipReadyNotifier.value = true;
       SafeLogger.d(_tag,
           () => 'VIP active=${vip.isActive} entries=${vip.entries.length}');
 
@@ -1970,6 +1979,7 @@ class AdManager with WidgetsBindingObserver {
     _vipManager?.activeListenable.removeListener(_onVipActiveChanged);
     _vipManager?.dispose();
     _vipManager = null;
+    _vipReadyNotifier.value = false;
 
     // ConsentManager singleton survives destroy() — its persisted state is
     // not tied to the adapter lifecycle, and clearing it would force a

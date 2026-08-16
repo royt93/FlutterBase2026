@@ -1067,6 +1067,36 @@ void main() {
     });
   });
 
+  // T72 — a screen that renders before SDK init completes had no clear way
+  // to be notified once AdManager().vip becomes non-null, other than
+  // polling initRevision and re-checking vip != null itself.
+  group('vipReady listenable (T72)', () {
+    test('fires false → true exactly once when vip becomes ready',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      await AdManager().destroy(); // guaranteed clean slate for this test
+      addTearDown(() => AdManager().destroy());
+
+      expect(AdManager().vip, isNull);
+      expect(AdManager().vipReady.value, isFalse);
+
+      final seen = <bool>[];
+      AdManager().vipReady.addListener(() => seen.add(AdManager().vipReady.value));
+
+      // Phase 4 (VipManager swap) runs unconditionally, before the real
+      // adapter's native initialize() call — no platform-channel mocking
+      // needed to reach it (mirrors the re-init test above).
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) {},
+      );
+
+      expect(AdManager().vip, isNotNull);
+      expect(AdManager().vipReady.value, isTrue);
+      expect(seen, [true], reason: 'must fire exactly once, false → true');
+    });
+  });
+
   group('initialize() onComplete single-fire (init auto-retry fix)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
