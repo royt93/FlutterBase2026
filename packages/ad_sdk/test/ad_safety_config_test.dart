@@ -382,6 +382,31 @@ void main() {
         expect(() => AdSafetyConfig.canShowAppOpenOnResume(), returnsNormally);
       }
     });
+
+    // T66 — Android can fire `resumed → inactive → resumed` with no
+    // intervening `paused` (a permission dialog, notification-shade drag).
+    // `_lastBackgroundTime` was only ever written by `recordAppWentBackground()`
+    // and never consumed, so a phantom second `resumed` reused the same
+    // (stale, or here just-consumed) timestamp and could pass the "resume
+    // too fast" gate — showing App Open mid-session with no real
+    // backgrounding at all.
+    test(
+        'blocks a phantom resumed that has no new paused since the last '
+        'check', () async {
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+
+      AdSafetyConfig.canShowAppOpenOnResume(); // consume cold start
+      AdSafetyConfig.recordAppWentBackground();
+      final real = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(real.canShow, isTrue,
+          reason: 'a genuine background → resume must still be allowed');
+
+      final phantom = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(phantom.canShow, isFalse,
+          reason: 'a second resumed with no new paused in between (no real '
+              'backgrounding) must be blocked, not reuse the prior timing');
+    });
   });
 
   // ─────────────────────────────────────────────────

@@ -238,6 +238,14 @@ class AdSafetyConfig {
   // (permission dialogs, notification-shade dips) would otherwise re-emit
   // stale signal data forever.
   static bool _backgroundToResumeSignalPending = false;
+  // T66 — separate one-shot flag gating the actual "resume too fast" show
+  // decision (not just the diagnostic signal above). Consumed by the first
+  // resume check after a real `paused`; a second `resumed` with no new
+  // `paused` in between (Android's `resumed → inactive → resumed` dip for a
+  // permission dialog/notification shade) finds this already consumed and
+  // is blocked outright, instead of reusing `_lastBackgroundTime` — which
+  // would otherwise look like a long-ago backgrounding and pass the gate.
+  static bool _pendingResumeGate = false;
   static bool _isColdStart = true;
   static final List<int> _clickTimestamps = [];
   static int _suspiciousPauseUntil = 0;
@@ -469,6 +477,18 @@ class AdSafetyConfig {
     }
 
     if (_lastBackgroundTime > 0) {
+      if (!_pendingResumeGate) {
+        // T66 — a `resumed` fired with no new `paused` since the last time
+        // we evaluated one (e.g. a permission dialog or notification-shade
+        // drag on Android, which never sends `paused`). There is no real
+        // backgrounding to measure for this resume, so block outright
+        // instead of reusing the previous (now stale) _lastBackgroundTime.
+        const reason =
+            'resume with no new background since the last check (spurious lifecycle event)';
+        SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
+        return const AdSafetyResult(false, reason);
+      }
+      _pendingResumeGate = false;
       final timeInBackground = now - _lastBackgroundTime;
       if (timeInBackground < _params.minTimeAppOpenResume) {
         final waitMs = _params.minTimeAppOpenResume - timeInBackground;
@@ -559,6 +579,7 @@ class AdSafetyConfig {
     final now = DateTime.now().millisecondsSinceEpoch;
     _lastBackgroundTime = now;
     _backgroundToResumeSignalPending = true;
+    _pendingResumeGate = true;
     SafeLogger.d(_tag, '📊 App went to background');
     // T26 Phase 1: proxy signal (a) — did this backgrounding happen shortly
     // after a fullscreen ad? Diagnostic only, no cap is affected.
@@ -611,6 +632,7 @@ class AdSafetyConfig {
     _lastFullscreenAdTime = 0;
     _lastBackgroundTime = 0;
     _backgroundToResumeSignalPending = false;
+    _pendingResumeGate = false;
     AdaptiveFrequencySignals.reset();
     SafeLogger.d(_tag, '🔄 Full reinit reset (coldStart restored)');
     _refreshRiskScore();
