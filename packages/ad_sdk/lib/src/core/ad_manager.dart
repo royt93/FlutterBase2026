@@ -1004,15 +1004,8 @@ class AdManager with WidgetsBindingObserver {
     ));
   }
 
-  void _armLoadWatchdog(String label, AdSlot slot, Duration timeout) {
-    if (!slot.isLoading) return;
-    Timer(timeout, () {
-      if (!slot.isLoading) return;
-      SafeLogger.w(_tag,
-          '⏱️ $label load watchdog fired after ${timeout.inSeconds}s — no native callback, forcing markFailed()');
-      slot.markFailed();
-    });
-  }
+  void _armLoadWatchdog(String label, AdSlot slot, Duration timeout) =>
+      slot.armLoadWatchdog(label, timeout);
 
   /// Test seam for the consent gate.
   @visibleForTesting

@@ -243,6 +243,78 @@ void main() {
     });
   });
 
+  // 2026-08-16 audit: the adapter-internal reloads above call the native
+  // bridge DIRECTLY (bypassing AdManager.loadX(), which is the only place a
+  // load watchdog otherwise gets armed — see the comment right below on
+  // canReload). If AppLovin's native SDK never calls back for one of these
+  // specific reloads, the slot would stay stuck `loading` forever with
+  // nothing to recover it. AdSlot.armLoadWatchdog must be armed directly at
+  // each of these reload sites too.
+  group('Load watchdog on adapter-internal reload (no AdManager in the loop)',
+      () {
+    test('appOpen: reload-after-display-fail recovers via watchdog if the '
+        'native callback never arrives', () {
+      fakeAsync((async) {
+        adapter.loadAppOpen();
+        async.flushMicrotasks();
+        bridge.appOpen!.onAdLoadedCallback(_fakeAd());
+        adapter.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+
+        // Triggers the internal reload — bridge.loadAppOpenAd is called
+        // again, but we deliberately never fire another callback for it.
+        bridge.appOpen!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+        expect(adapter.appOpenSlot.isLoading, isTrue);
+
+        async.elapse(const Duration(seconds: 29));
+        expect(adapter.appOpenSlot.isLoading, isTrue,
+            reason: 'watchdog must not fire before its 30s timeout');
+
+        async.elapse(const Duration(seconds: 2));
+        expect(adapter.appOpenSlot.isLoading, isFalse,
+            reason: 'watchdog must force the slot out of loading once the '
+                'native callback never arrives — otherwise it is stuck '
+                'forever');
+      });
+    });
+
+    test('interstitial: reload-after-display-fail recovers via watchdog if '
+        'the native callback never arrives', () {
+      fakeAsync((async) {
+        adapter.loadInterstitial();
+        async.flushMicrotasks();
+        bridge.inter!.onAdLoadedCallback(_fakeAd());
+        adapter.showInterstitial(onDone: (_) {});
+        async.flushMicrotasks();
+
+        bridge.inter!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+        expect(adapter.interstitialSlot.isLoading, isTrue);
+
+        async.elapse(const Duration(seconds: 31));
+        expect(adapter.interstitialSlot.isLoading, isFalse,
+            reason: 'watchdog must force the slot out of loading');
+      });
+    });
+
+    test('rewarded: reload-after-display-fail recovers via watchdog if the '
+        'native callback never arrives', () {
+      fakeAsync((async) {
+        adapter.loadRewarded();
+        async.flushMicrotasks();
+        bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+        adapter.showRewarded(onDone: (_) {});
+        async.flushMicrotasks();
+
+        bridge.rewarded!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+        expect(adapter.rewardedSlot.isLoading, isTrue);
+
+        async.elapse(const Duration(seconds: 31));
+        expect(adapter.rewardedSlot.isLoading, isFalse,
+            reason: 'watchdog must force the slot out of loading');
+      });
+    });
+  });
+
   // T-canReload: adapter-internal reload-on-dismiss/reload-on-fail paths call
   // the native bridge directly, bypassing AdManager's load*() gate methods
   // entirely. AdManager wires `canReload` to those same VIP/daily-cap/

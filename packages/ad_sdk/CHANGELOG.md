@@ -8,6 +8,22 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **AppLovin's internal reload-after-show-failure could leave a slot stuck
+  `loading` forever — caught by internal audit, 2026-08-16.** After a show
+  fails/dismisses, `AppLovinAdapter` reloads by calling the native bridge
+  DIRECTLY (`_bridge.loadAppOpenAd`/`loadInterstitial`/`loadRewardedAd`),
+  bypassing `AdManager.loadX()` entirely — which is the only place a load
+  watchdog otherwise gets armed (`_armLoadWatchdog`/T76). If AppLovin's
+  native SDK never calls back for one of these specific reloads (the exact
+  callback flakiness T76's watchdog exists to guard against), the slot had
+  no recovery path and stayed `loading` forever — every later load call is
+  a no-op while already loading. `AdMobAdapter` was unaffected (its load
+  path only has one call site, always AdManager-orchestrated). Fixed by
+  adding `AdSlot.armLoadWatchdog(label, timeout)` (the same logic
+  `AdManager._armLoadWatchdog` already had, now shared) and arming it
+  directly at all 6 adapter-internal reload sites (2 per ad type — one from
+  `onAdDisplayFailedCallback`, one from `onAdHiddenCallback`). 3 new tests
+  in `test/applovin_adapter_test.dart`.
 - **`canShowInterstitial`/`canShowRewardedAd`/`canShowRewardedInterstitialAd`
   could permanently escalate a CTR-anomaly lockout just from being polled —
   caught by internal audit, 2026-08-16.** All 3 are read-only "should I

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../utils/safe_logger.dart';
 import 'backoff.dart';
 
 /// Logical type of ad slot (one of the four ad placements supported by both
@@ -119,6 +122,31 @@ class AdSlot {
     if (isLoading || isShowing) return false;
     state.value = AdSlotState.loading;
     return true;
+  }
+
+  /// Forces this slot back out of `loading` after [timeout] if the native
+  /// SDK never calls back (neither [beginLoad] nor [beginReload] has any
+  /// internal timeout of its own — without this, a callback that never
+  /// arrives leaves the slot stuck in `loading` forever, since every later
+  /// `beginLoad`/`beginReload` call is a no-op while already loading).
+  ///
+  /// `AdManager`'s own `loadX()` methods already arm one of these
+  /// automatically. Call this directly ONLY from a load that intentionally
+  /// bypasses `AdManager`'s path — e.g. an adapter's internal
+  /// reload-after-show-failure, which calls the native SDK directly to skip
+  /// the cooldown backoff `AdManager.loadX()` would otherwise apply, but
+  /// must still not be allowed to hang forever if that reload's own
+  /// callback never fires either (2026-08-16 audit finding).
+  void armLoadWatchdog(String label, Duration timeout) {
+    if (!isLoading) return;
+    Timer(timeout, () {
+      if (!isLoading) return;
+      SafeLogger.w(
+          'AdSlot',
+          '⏱️ $label load watchdog fired after ${timeout.inSeconds}s — no '
+          'native callback, forcing markFailed()');
+      markFailed();
+    });
   }
 
   /// Mark load successful: slot becomes [AdSlotState.ready].

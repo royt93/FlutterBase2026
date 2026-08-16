@@ -585,6 +585,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         if (appOpenSlot.beginReload()) {
           try {
             _bridge.loadAppOpenAd(unitId);
+            // 2026-08-16 audit: this reload bypasses AdManager.loadAppOpenAd
+            // entirely, so THAT method's own watchdog-arming never runs for
+            // it. Without arming one directly here too, a native callback
+            // that never arrives would leave the slot stuck `loading` forever.
+            appOpenSlot.armLoadWatchdog('appOpen', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload appOpen threw: $e');
             appOpenSlot.markFailed();
@@ -628,6 +633,9 @@ class AppLovinAdapter implements AdProviderAdapter {
         if (appOpenSlot.beginLoad()) {
           try {
             _bridge.loadAppOpenAd(unitId);
+            // 2026-08-16 audit: same reasoning as onAdDisplayFailedCallback's
+            // reload above — bypasses AdManager.loadAppOpenAd's watchdog.
+            appOpenSlot.armLoadWatchdog('appOpen', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload appOpen threw: $e');
             appOpenSlot.markFailed();
@@ -866,6 +874,11 @@ class AppLovinAdapter implements AdProviderAdapter {
         if (interstitialSlot.beginReload()) {
           try {
             _bridge.loadInterstitial(unitId);
+            // 2026-08-16 audit: bypasses AdManager.loadInterstitialAd's
+            // watchdog — arm one directly so a native callback that never
+            // arrives can't leave the slot stuck `loading` forever.
+            interstitialSlot.armLoadWatchdog(
+                'interstitial', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload inter threw: $e');
             interstitialSlot.markFailed();
@@ -895,6 +908,10 @@ class AppLovinAdapter implements AdProviderAdapter {
         if (interstitialSlot.beginLoad()) {
           try {
             _bridge.loadInterstitial(unitId);
+            // 2026-08-16 audit: same reasoning as onAdDisplayFailedCallback's
+            // reload above — bypasses AdManager.loadInterstitialAd's watchdog.
+            interstitialSlot.armLoadWatchdog(
+                'interstitial', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload inter threw: $e');
             interstitialSlot.markFailed();
@@ -1040,6 +1057,10 @@ class AppLovinAdapter implements AdProviderAdapter {
         if (rewardedSlot.beginReload()) {
           try {
             _bridge.loadRewardedAd(unitId);
+            // 2026-08-16 audit: bypasses AdManager.loadRewardedAd's
+            // watchdog — arm one directly so a native callback that never
+            // arrives can't leave the slot stuck `loading` forever.
+            rewardedSlot.armLoadWatchdog('rewarded', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload rewarded threw: $e');
             rewardedSlot.markFailed();
@@ -1069,6 +1090,9 @@ class AppLovinAdapter implements AdProviderAdapter {
         if (rewardedSlot.beginLoad()) {
           try {
             _bridge.loadRewardedAd(unitId);
+            // 2026-08-16 audit: same reasoning as onAdDisplayFailedCallback's
+            // reload above — bypasses AdManager.loadRewardedAd's watchdog.
+            rewardedSlot.armLoadWatchdog('rewarded', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload rewarded threw: $e');
             rewardedSlot.markFailed();
