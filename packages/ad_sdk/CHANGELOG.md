@@ -8,6 +8,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`AdReadinessSplashController` (T94).** Officializes the splash-screen
+  orchestration boilerplate the README documented by hand — subscribe-
+  before-init, the hard-cap timer, `markSplashActive`/`incrementSplashCount`/
+  `markSplashInactive`, the re-entrant-splash guard, the buffered App Open
+  ad with `bypassSafety: true`. One `start()`/`onReady` call; your splash
+  screen still renders 100% its own UI. `dispose()` also clears the SDK's
+  splash-active state if the widget is torn down before `onReady` ever fires.
+  Also fixes two stale spots in the README found while writing this: a
+  broken code fence that had been splitting the `_SplashScreenState` example
+  in two (the "Per-platform ad-unit ids" section was accidentally inserted
+  mid-class, leaving the rest unfenced), and outdated wording claiming
+  `SimpleEventBus` never replays events to late subscribers — it does now
+  (see the "F1" comment in `event_bus.dart`).
 - **`AdSafetyParams.maxPerPlacementAdsPerDay` (T92).** Optional additional
   daily cap keyed by `AdPlacement`, checked alongside (never instead of) the
   existing global daily cap at show time. `null` by default — fully

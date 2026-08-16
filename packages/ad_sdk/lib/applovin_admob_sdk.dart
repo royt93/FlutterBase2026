@@ -72,6 +72,7 @@ export 'src/vip/vip_redeem_screen.dart' show VipRedeemScreen, VipRedeemStrings;
 
 // Widgets
 export 'src/widget/ad_loading_dialog.dart';
+export 'src/widget/ad_readiness_splash_controller.dart';
 export 'src/widget/banner_ad_widget.dart';
 export 'src/widget/debug_ad_overlay.dart';
 export 'src/widget/mrec_ad_widget.dart';

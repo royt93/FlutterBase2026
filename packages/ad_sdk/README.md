@@ -388,6 +388,13 @@ void main() {
 
 ### Step 5 — Initialize the SDK in `splash_screen.dart`
 
+> **Shortcut:** `AdReadinessSplashController` (below) wraps everything in
+> this section — the hard-cap timer, `markSplashActive`/`incrementSplashCount`
+> bookkeeping, the buffered App Open ad — behind one `start()`/`onReady()`
+> call, while still letting you render your own splash UI. Read this section
+> once to understand what it's doing, then consider using the controller
+> instead of copying the class below by hand.
+
 Create `lib/splash_screen.dart`. Replace the five `TODO` ad-unit IDs with values from your AppLovin dashboard. The AdMob IDs are Google's public test units and can be left as-is for verification:
 
 ```dart
@@ -428,8 +435,9 @@ class _SplashScreenState extends State<SplashScreen> {
     // `AdConfig.splashMaxDuration` (default 8 s).
     _hardCap = Timer(const Duration(seconds: 8), _goHome);
 
-    // ⚠️ Subscribe BEFORE calling initialize(). SimpleEventBus only
-    // delivers fire events to listeners that registered before the fire.
+    // Subscribe before calling initialize() (SimpleEventBus does replay its
+    // last-fired event to a late subscriber, but this ordering is simplest
+    // to reason about).
     SimpleEventBus().listen((BoolEvent e) {
       if (e.value) {
         _showSplashAppOpen();
@@ -475,29 +483,6 @@ class _SplashScreenState extends State<SplashScreen> {
         },
       );
     });
-```
-
-#### Per-platform ad-unit ids (T15)
-
-`bannerId`/`interstitialId`/`appOpenId`/`rewardedId` are used on **both**
-platforms by default — pass one id and it applies everywhere (fully backward
-compatible). If Android and iOS have different ad units, add the optional
-`android*Id`/`ios*Id` overrides; the SDK picks the right one via
-`Platform.isAndroid`/`Platform.isIOS` when the getter is read:
-
-```dart
-admob: const AdMobConfig(
-  bannerId: 'ca-app-pub-.../fallback-banner', // used if no override matches
-  interstitialId: 'ca-app-pub-.../fallback-interstitial',
-  appOpenId: 'ca-app-pub-.../fallback-app-open',
-  rewardedId: 'ca-app-pub-.../fallback-rewarded',
-  androidBannerId: 'ca-app-pub-.../android-banner',
-  iosBannerId: 'ca-app-pub-.../ios-banner',
-),
-```
-
-Same fields exist on `AppLovinConfig`. An override left `null` or `''` falls
-back to the single id above — no breaking changes for existing configs.
   }
 
   void _showSplashAppOpen() {
@@ -560,6 +545,69 @@ back to the single id above — no breaking changes for existing configs.
       );
 }
 ```
+
+#### Per-platform ad-unit ids (T15)
+
+`bannerId`/`interstitialId`/`appOpenId`/`rewardedId` are used on **both**
+platforms by default — pass one id and it applies everywhere (fully backward
+compatible). If Android and iOS have different ad units, add the optional
+`android*Id`/`ios*Id` overrides; the SDK picks the right one via
+`Platform.isAndroid`/`Platform.isIOS` when the getter is read:
+
+```dart
+admob: const AdMobConfig(
+  bannerId: 'ca-app-pub-.../fallback-banner', // used if no override matches
+  interstitialId: 'ca-app-pub-.../fallback-interstitial',
+  appOpenId: 'ca-app-pub-.../fallback-app-open',
+  rewardedId: 'ca-app-pub-.../fallback-rewarded',
+  androidBannerId: 'ca-app-pub-.../android-banner',
+  iosBannerId: 'ca-app-pub-.../ios-banner',
+),
+```
+
+Same fields exist on `AppLovinConfig`. An override left `null` or `''` falls
+back to the single id above — no breaking changes for existing configs.
+
+#### `AdReadinessSplashController` (T94) — the shortcut mentioned above
+
+Everything the `_SplashScreenState` class above does by hand — subscribing
+before `initialize()`, the hard-cap timer, `markSplashActive`/
+`incrementSplashCount`/`markSplashInactive`, the re-entrant-splash guard, the
+buffered App Open ad with `bypassSafety: true` — wrapped behind one
+`start()`/`onReady` call. Your splash screen still renders 100% its own UI:
+
+```dart
+class _SplashScreenState extends State<SplashScreen> {
+  final _controller = AdReadinessSplashController(config: myAdConfig);
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.start(context, onReady: _goHome);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose(); // also clears the SDK's splash-active state
+    super.dispose();
+  }
+
+  void _goHome() => Navigator.of(context)
+      .pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        backgroundColor: Colors.deepPurple,
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+}
+```
+
+Pass `showAppOpenOnReady: false` to skip the splash App Open ad and call
+`onReady` as soon as init completes. This is a convenience wrapper, not a
+replacement for the manual flow above — if your splash needs steps this
+doesn't cover (custom ATT/consent timing before `initialize()`, ...), write
+it by hand following the `_SplashScreenState` example instead.
 
 ### Step 6 — Show ads on any screen
 
@@ -1639,7 +1687,7 @@ If you forget, the auto-show consent dialog has no `BuildContext` to use and sil
 
 ### 5. Initialize the SDK in `SplashScreen`, not `main`
 
-The SDK fires a `BoolEvent` over `SimpleEventBus` when initialization completes. Listeners must be registered **before** the fire — `SimpleEventBus` does not buffer past events for late subscribers. The conventional pattern is:
+The SDK fires a `BoolEvent` over `SimpleEventBus` when initialization completes. `SimpleEventBus` does replay its most recently fired event to a listener that registers late, but the conventional (and simplest to reason about) pattern is still to register before triggering init:
 
 1. `splash.initState`: register the listener
 2. `splash.initState`: schedule `AdManager().initialize` via a post-frame callback
