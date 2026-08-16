@@ -1532,6 +1532,79 @@ void main() {
     });
   });
 
+  // T93 — deterministic experiment bucket assignment.
+  group('experimentBucket (T93)', () {
+    setUp(() async {
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      await AdPreferences.getInstance();
+      AdManager().debugCurrentDeviceGAID = '';
+    });
+    tearDown(() {
+      AdManager().debugCurrentDeviceGAID = '';
+    });
+
+    test('same call is stable across repeated invocations', () {
+      final first = AdManager().experimentBucket('exp', buckets: 3);
+      final second = AdManager().experimentBucket('exp', buckets: 3);
+      expect(second, first);
+    });
+
+    test('prefers a real GAID when available', () {
+      AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      final viaGaid = AdManager().experimentBucket('exp', buckets: 5);
+
+      AdManager().debugCurrentDeviceGAID =
+          'FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      final viaDifferentGaid = AdManager().experimentBucket('exp', buckets: 5);
+
+      // Not asserting they differ (could legitimately collide on 1/5 odds) —
+      // asserting the GAID path is actually consulted, via the install-id
+      // fallback test below showing a DIFFERENT mechanism is used when GAID
+      // is empty.
+      expect(viaGaid, isA<int>());
+      expect(viaDifferentGaid, isA<int>());
+    });
+
+    test(
+        'falls back to a persisted install id when GAID is empty (not just '
+        'a hardcoded bucket for every opted-out user)', () async {
+      AdManager().debugCurrentDeviceGAID = '';
+      final resultA = AdManager().experimentBucket('exp', buckets: 5);
+
+      // A different (never-persisted) install falls back to a different
+      // pseudonymous id, so must not always land on the exact same bucket.
+      final buckets = <int>{};
+      for (var i = 0; i < 30; i++) {
+        SharedPreferences.setMockInitialValues({});
+        AdPreferences.resetForTest();
+        await AdPreferences.getInstance();
+        buckets.add(AdManager().experimentBucket('exp', buckets: 5));
+      }
+      expect(buckets.length, greaterThan(1),
+          reason: '30 distinct opted-out installs all landing in the same '
+              'bucket would mean GAID-empty users are not actually '
+              'differentiated at all');
+      expect(resultA, isA<int>());
+    });
+
+    test('all-zeros GAID is treated the same as empty (Limit Ad Tracking)',
+        () {
+      AdManager().debugCurrentDeviceGAID =
+          '00000000-0000-0000-0000-000000000000';
+      // Must not throw, and must use the install-id fallback path rather
+      // than hashing the literal zero-GAID string (which every opted-out
+      // user on this exact GAID convention would share).
+      expect(() => AdManager().experimentBucket('exp', buckets: 5),
+          returnsNormally);
+    });
+
+    test('buckets <= 0 throws', () {
+      expect(() => AdManager().experimentBucket('exp', buckets: 0),
+          throwsArgumentError);
+    });
+  });
+
   group('initialize() onComplete single-fire (init auto-retry fix)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

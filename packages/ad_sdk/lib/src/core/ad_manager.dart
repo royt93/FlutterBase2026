@@ -26,6 +26,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/ad_preferences.dart';
+import '../utils/experiment_bucket.dart' as experiment;
 import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 import '../vip/_first_install_guard.dart';
@@ -269,6 +270,35 @@ class AdManager with WidgetsBindingObserver {
   final ValueNotifier<bool> _vipReadyNotifier = ValueNotifier<bool>(false);
   ValueListenable<bool> get vipReady => _vipReadyNotifier;
 
+  /// T93 — deterministic A/B bucket assignment for [key], in `[0, buckets)`.
+  /// Same result every call for the same `(key, buckets)` on this install —
+  /// lets a host A/B test `AdSafetyParams`/arbitrator thresholds without
+  /// integrating a remote-config backend (lighter than [RemoteAdSafetyProvider]
+  /// (T88) — purely local, no network).
+  ///
+  /// Prefers the real GAID when available (stable, no extra storage); falls
+  /// back to a lazily-generated pseudonymous install id persisted via
+  /// [AdPreferences] when GAID is empty/all-zeros (Limit Ad Tracking / no ATT
+  /// permission) — otherwise every opted-out user would collide into bucket
+  /// 0 of every experiment, biasing results for a potentially large fraction
+  /// of the audience.
+  ///
+  /// ```dart
+  /// final bucket = AdManager().experimentBucket('daily_cap_experiment', buckets: 2);
+  /// final safety = bucket == 0
+  ///     ? AdSafetyParams.production
+  ///     : AdSafetyParams.production.copyWith(maxFullscreenAdsPerDay: 8);
+  /// ```
+  int experimentBucket(String key, {required int buckets}) {
+    const zeroGaid = '00000000-0000-0000-0000-000000000000';
+    final gaid = _currentDeviceGAID.trim();
+    final installId = (gaid.isNotEmpty && gaid.toLowerCase() != zeroGaid)
+        ? gaid
+        : (AdPreferences.instanceOrNull?.getOrCreateExperimentInstallId() ??
+            gaid);
+    return experiment.experimentBucket(installId, key, buckets: buckets);
+  }
+
   /// Opt-in "Smart Monetization Arbitrator" (default OFF) — `null` unless the
   /// host app calls [enableArbitrator]. When `null`, [showInterstitial] and
   /// [showRewardedAd] behave exactly as if this feature didn't exist.
@@ -506,6 +536,11 @@ class AdManager with WidgetsBindingObserver {
   // ─── Common state ────────────────────────────────────────────────────────
 
   String _currentDeviceGAID = '';
+
+  /// Test seam for [_currentDeviceGAID] — real init fetches it via a
+  /// platform channel unavailable under `flutter test`.
+  @visibleForTesting
+  set debugCurrentDeviceGAID(String value) => _currentDeviceGAID = value;
 
   /// True if the current device is a VIP — combines VipManager state and the
   /// legacy GAID set (auto-migrated on first init, kept for 1.x parity).

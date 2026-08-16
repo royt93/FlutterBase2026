@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 import 'dart:convert' show utf8;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -295,4 +296,35 @@ class AdPreferences {
   }
 
   Future<void> clearAllData() async => _prefs?.clear();
+
+  // T93 — a stable pseudonymous per-install id for AdManager.experimentBucket
+  // to hash, independent of GAID (which is empty/all-zeros for a user who
+  // opted out of ad tracking — using GAID alone there would collide every
+  // opted-out user into the exact same A/B bucket).
+  static const String _keyExperimentInstallId = 'ad_sdk_experiment_install_id';
+  String? _experimentInstallIdCache;
+
+  /// Side effect: persists a freshly-generated id to disk on first call
+  /// (fire-and-forget, same pattern as `VipManager.expiresAt`) — same
+  /// getter-with-a-write-side-effect trade-off, documented here for the
+  /// same reason: cheap for normal use, avoid polling this at high frequency.
+  String getOrCreateExperimentInstallId() {
+    final cached = _experimentInstallIdCache;
+    if (cached != null) return cached;
+    final persisted = _prefs?.getString(_keyExperimentInstallId);
+    if (persisted != null && persisted.isNotEmpty) {
+      _experimentInstallIdCache = persisted;
+      return persisted;
+    }
+    final fresh = _generateRandomId();
+    _experimentInstallIdCache = fresh;
+    unawaited(_prefs?.setString(_keyExperimentInstallId, fresh));
+    return fresh;
+  }
+
+  static String _generateRandomId() {
+    final rand = math.Random.secure();
+    final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
 }

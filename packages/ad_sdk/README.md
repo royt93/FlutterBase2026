@@ -912,6 +912,27 @@ final didRedeem = await AdManager().vip!.redeemVip(
 );
 ```
 
+### A/B testing local knobs (`experimentBucket`)
+
+Deterministic bucket assignment for A/B testing `AdSafetyParams`/arbitrator
+thresholds without a remote-config backend (lighter than
+`RemoteAdSafetyProvider` above — purely local, no network):
+
+```dart
+final bucket = AdManager().experimentBucket('daily_cap_experiment', buckets: 2);
+final safety = bucket == 0
+    ? AdSafetyParams.production
+    : AdSafetyParams.production.copyWith(maxFullscreenAdsPerDay: 8);
+
+await AdManager().initialize(config: myConfig.copyWith(safety: safety), ...);
+```
+
+Same result every call for the same `(key, buckets)` on this install —
+prefers the real GAID when available, falls back to a lazily-generated
+pseudonymous id persisted locally when GAID is empty/all-zeros (Limit Ad
+Tracking / no ATT permission), so opted-out users still get distributed
+across buckets instead of all colliding into bucket 0.
+
 ### Rewarded Interstitial (AdMob only)
 
 Google's "Rewarded Interstitial" format — shown at a natural transition point

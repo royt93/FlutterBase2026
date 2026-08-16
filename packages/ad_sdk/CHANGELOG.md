@@ -8,6 +8,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`AdManager().experimentBucket(key, buckets: n)` (T93).** Deterministic,
+  local-only A/B bucket assignment — hashes GAID (or a lazily-generated
+  pseudonymous install id when GAID is empty/all-zeros) with `key`. No
+  network, no new dependency; lighter-weight than `RemoteAdSafetyProvider`
+  for hosts that just want to compare two local `AdSafetyParams`/arbitrator
+  configs.
 - **Rewarded Interstitial ad type — AdMob only (T89).**
   `AdMobConfig(rewardedInterstitialId: ...)` +
   `AdManager().loadRewardedInterstitialAd()` /

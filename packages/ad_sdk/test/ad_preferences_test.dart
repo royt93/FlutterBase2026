@@ -41,4 +41,42 @@ void main() {
     // here we just assert the second call does not throw and the flow is stable.
     expect(() => prefs.isFirstInstallGraceApplied(), returnsNormally);
   });
+
+  // T93 — backs AdManager().experimentBucket's GAID fallback.
+  group('getOrCreateExperimentInstallId (T93)', () {
+    test('returns the same id across repeated calls (in-memory cache)', () {
+      final first = prefs.getOrCreateExperimentInstallId();
+      final second = prefs.getOrCreateExperimentInstallId();
+      expect(second, first);
+    });
+
+    test('survives a fresh AdPreferences instance reading the same disk '
+        'store (simulates an app restart)', () async {
+      final first = prefs.getOrCreateExperimentInstallId();
+
+      // Same backing SharedPreferences store, but a brand-new AdPreferences
+      // wrapper — its in-memory cache starts empty, so this only passes if
+      // the id was actually persisted to disk, not just cached in memory.
+      AdPreferences.resetForTest();
+      final reloaded = await AdPreferences.getInstance();
+
+      expect(reloaded.getOrCreateExperimentInstallId(), first);
+    });
+
+    test('two different (never-persisted) installs get different ids',
+        () async {
+      final id = prefs.getOrCreateExperimentInstallId();
+
+      // A second, distinct store (different mock SharedPreferences) stands
+      // in for a different device/install, never having persisted an id.
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+      final other = await AdPreferences.getInstance();
+
+      expect(other.getOrCreateExperimentInstallId(), isNot(id),
+          reason: '128-bit random ids for two never-persisted installs '
+              'colliding is astronomically unlikely — this is really just '
+              'checking a fresh id gets generated, not a hardcoded constant');
+    });
+  });
 }
