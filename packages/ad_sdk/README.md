@@ -751,6 +751,25 @@ AdSafetyParams.production.copyWith(
 )                           // override individual knobs
 ```
 
+### Per-placement daily caps
+
+The caps above (daily/hourly/session) are global per ad type. To additionally
+limit a specific `AdPlacement` — e.g. showing at most one interstitial from
+your splash flow per day, on top of the global cap — set
+`maxPerPlacementAdsPerDay`:
+
+```dart
+// Note: no `const` here — AdPlacement's custom `==` means a map keyed by it
+// can't be a compile-time constant.
+AdSafetyParams.production.copyWith(
+  maxPerPlacementAdsPerDay: {AdPlacement.splash: 1},
+)
+```
+
+This is checked in **addition** to the global cap, never instead of it — a
+placement with no entry has no extra limit beyond the global one, and this
+whole feature is opt-in (`null` by default, fully backward-compatible).
+
 ### Remote-controlled `AdSafetyParams` (`RemoteAdSafetyProvider`)
 
 Adjust caps/frequency from a backend (Firebase Remote Config, a self-hosted

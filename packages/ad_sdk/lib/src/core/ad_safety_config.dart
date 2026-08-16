@@ -1,9 +1,11 @@
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
 import '../adaptive/adaptive_frequency.dart';
 import '../state/ad_event.dart';
+import '../state/ad_placement.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
@@ -112,6 +114,22 @@ class AdSafetyParams {
   /// backgrounding for the rest of the session after just one ad.
   final int adToBackgroundSignalWindowMs;
 
+  /// T92 — optional additional daily cap keyed by [AdPlacement], checked in
+  /// ADDITION to [maxFullscreenAdsPerDay] at show time — never instead of
+  /// it, and never looser (a placement with no entry here has no extra
+  /// limit beyond the global one). `null` (default) is fully
+  /// backward-compatible: no per-placement limiting at all.
+  ///
+  /// ```dart
+  /// AdSafetyParams(maxPerPlacementAdsPerDay: {AdPlacement.splash: 1})
+  /// ```
+  ///
+  /// **Cannot be used with a `const AdSafetyParams(...)` constructor call**
+  /// (unlike every other field here) — [AdPlacement] overrides `==`, and
+  /// Dart requires `const` map keys to have primitive identity. Construct a
+  /// regular (non-`const`) `AdSafetyParams(...)` instance when setting this.
+  final Map<AdPlacement, int>? maxPerPlacementAdsPerDay;
+
   const AdSafetyParams({
     this.minTimeBetweenFullscreenAds = 60000,
     this.maxFullscreenAdsPerSession = 6,
@@ -124,6 +142,7 @@ class AdSafetyParams {
     this.maxRapidResumesPerMinute = 3,
     this.dryRun = false,
     this.adToBackgroundSignalWindowMs = 300000,
+    this.maxPerPlacementAdsPerDay,
   });
 
   // ─── Presets ──────────────────────────────────────────────────────────────
@@ -176,6 +195,7 @@ class AdSafetyParams {
     int? maxRapidResumesPerMinute,
     bool? dryRun,
     int? adToBackgroundSignalWindowMs,
+    Map<AdPlacement, int>? maxPerPlacementAdsPerDay,
   }) {
     return AdSafetyParams(
       minTimeBetweenFullscreenAds:
@@ -197,6 +217,8 @@ class AdSafetyParams {
       dryRun: dryRun ?? this.dryRun,
       adToBackgroundSignalWindowMs:
           adToBackgroundSignalWindowMs ?? this.adToBackgroundSignalWindowMs,
+      maxPerPlacementAdsPerDay:
+          maxPerPlacementAdsPerDay ?? this.maxPerPlacementAdsPerDay,
     );
   }
 
@@ -350,6 +372,24 @@ class AdSafetyConfig {
   /// so preload doesn't burn network requests that can never convert.
   static bool dailyCapReached() =>
       (_prefs?.getDailyAdCount() ?? 0) >= _params.maxFullscreenAdsPerDay;
+
+  /// T92 — checked in ADDITION to [dailyCapReached]/[canShowFullscreenAd] at
+  /// show time, never in place of them. `false` (never blocks) if
+  /// [AdSafetyParams.maxPerPlacementAdsPerDay] has no entry for [placement] —
+  /// the global cap alone still applies as always.
+  static bool placementDailyCapReached(AdPlacement placement) {
+    final maxPerDay = _params.maxPerPlacementAdsPerDay?[placement];
+    if (maxPerDay == null) return false;
+    final counts = _prefs?.getPlacementDailyCounts() ?? const {};
+    return (counts[placement.id] ?? 0) >= maxPerDay;
+  }
+
+  /// Records a shown ad against [placement]'s per-placement counter. Safe to
+  /// call unconditionally — a placement with no configured cap just
+  /// accumulates a count nothing ever reads.
+  static void recordPlacementAdShown(AdPlacement placement) {
+    unawaited(_prefs?.incrementPlacementDailyCount(placement.id));
+  }
 
   static AdSafetyResult _canShowFullscreenAdStrict() {
     final now = DateTime.now().millisecondsSinceEpoch;

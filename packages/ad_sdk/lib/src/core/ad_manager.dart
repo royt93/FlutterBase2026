@@ -2415,6 +2415,17 @@ class AdManager with WidgetsBindingObserver {
         onAdDismiss(false);
         return;
       }
+      // T92 — additional per-placement daily cap, same bypassSafety
+      // exemption as the global cooldown check just above (a host that
+      // opted out of ALL safety for this call shouldn't get half-exempted).
+      if (AdSafetyConfig.placementDailyCapReached(placement)) {
+        SafeLogger.d(_tag,
+            '⏭️ showAppOpen skipped — placement daily cap reached ($placement)');
+        _emitSkip(AdSlotType.appOpen, 'show', 'placement_cap',
+            placement: placement);
+        onAdDismiss(false);
+        return;
+      }
     }
     SafeLogger.d(
         _tag,
@@ -2423,6 +2434,7 @@ class AdManager with WidgetsBindingObserver {
     await ad.showAppOpen(onDismiss: (dismissed) {
       if (dismissed) {
         AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordPlacementAdShown(placement); // T92
         _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
       }
       _emit(AdShowEvent(
@@ -2634,6 +2646,16 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
+    // T92 — additional per-placement daily cap, on top of (never instead
+    // of) the global one just above.
+    if (AdSafetyConfig.placementDailyCapReached(placement)) {
+      SafeLogger.d(_tag,
+          '⏭️ showInterstitial skipped — placement daily cap reached ($placement)');
+      _emitSkip(AdSlotType.interstitial, 'show', 'placement_cap',
+          placement: placement);
+      onDoneFlow(false);
+      return;
+    }
     // Opt-in Smart Monetization Arbitrator (default OFF — see
     // enableArbitrator). Only consulted when a host app has registered one.
     final arbitrator = _arbitrator;
@@ -2656,6 +2678,7 @@ class AdManager with WidgetsBindingObserver {
     await ad.showInterstitial(onDone: (shown) {
       if (shown) {
         AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordPlacementAdShown(placement); // T92
         _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
       }
       _emit(AdShowEvent(
@@ -2860,6 +2883,16 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
+    // T92 — additional per-placement daily cap, on top of (never instead
+    // of) the global one just above.
+    if (AdSafetyConfig.placementDailyCapReached(placement)) {
+      SafeLogger.d(_tag,
+          '⏭️ showRewarded skipped — placement daily cap reached ($placement)');
+      _emitSkip(AdSlotType.rewarded, 'show', 'placement_cap',
+          placement: placement);
+      onEarnedReward(false);
+      return;
+    }
     // Opt-in Smart Monetization Arbitrator (default OFF — see
     // enableArbitrator). Only consulted when a host app has registered one.
     // Deliberately NOT applied to the VIP watch-ad-to-extend-VIP bypass path
@@ -2949,6 +2982,7 @@ class AdManager with WidgetsBindingObserver {
           _rewardedInFlight = false;
           if (result.earned) {
             AdSafetyConfig.recordFullscreenAdShown();
+            AdSafetyConfig.recordPlacementAdShown(placement); // T92
             _emit(AdRewardEvent(
               providerTag: ad.tag,
               placement: placement,
@@ -3063,6 +3097,16 @@ class AdManager with WidgetsBindingObserver {
       onDone(false, false);
       return;
     }
+    // T92 — additional per-placement daily cap, on top of (never instead
+    // of) the global one just above.
+    if (AdSafetyConfig.placementDailyCapReached(placement)) {
+      SafeLogger.d(_tag,
+          '⏭️ showRewardedInterstitial skipped — placement daily cap reached ($placement)');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'placement_cap',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
     final arbitrator = _arbitrator;
     if (arbitrator != null &&
         arbitrator.decide(AdSlotType.rewardedInterstitial) ==
@@ -3080,6 +3124,7 @@ class AdManager with WidgetsBindingObserver {
     await ad.showRewardedInterstitial(onDone: (result) {
       if (result.earned) {
         AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordPlacementAdShown(placement); // T92
         _emit(AdRewardEvent(
           providerTag: ad.tag,
           placement: placement,

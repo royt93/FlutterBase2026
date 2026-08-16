@@ -504,4 +504,57 @@ void main() {
       expect(captured.single, contains('forcing dryRun=false'));
     });
   });
+
+  // T92 — additional per-placement daily cap, on top of the global one.
+  group('placementDailyCapReached / recordPlacementAdShown (T92)', () {
+    test('no configured cap for this placement never blocks', () async {
+      await AdSafetyConfig.init(prefs); // maxPerPlacementAdsPerDay: null
+      AdSafetyConfig.resetForReinit();
+
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+          isFalse,
+          reason: 'no cap configured for splash — must never block '
+              'regardless of how many were shown');
+    });
+
+    test('reaching the configured per-placement cap blocks only that '
+        'placement', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}));
+      AdSafetyConfig.resetForReinit();
+
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+          isFalse);
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+          isTrue);
+
+      // A DIFFERENT placement, never configured, must stay unaffected —
+      // the cap is per-placement, not a global rename.
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.home),
+          isFalse);
+    });
+
+    test('count survives a fresh init reading the same persisted store',
+        () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.shop: 2}));
+      AdSafetyConfig.resetForReinit();
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.shop);
+
+      // Re-init (simulates app restart) reading the same AdPreferences.
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.shop: 2}));
+      AdSafetyConfig.resetForReinit();
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.shop);
+
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.shop),
+          isTrue, reason: '2 recorded shows against a cap of 2');
+    });
+  });
 }

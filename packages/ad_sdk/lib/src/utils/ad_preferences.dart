@@ -1,5 +1,5 @@
 import 'dart:async' show unawaited;
-import 'dart:convert' show utf8;
+import 'dart:convert' show jsonDecode, jsonEncode, utf8;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -80,6 +80,42 @@ class AdPreferences {
     final current = getDailyAdCount();
     await _prefs?.setInt(_keyDailyAdCount, current + 1);
     await _prefs?.setString(_keyDailyDate, today);
+  }
+
+  // ─── Per-placement daily ad count (T92) ────────────────────────────────────
+  // Same day-rollover shape as the global counter above, but keyed by
+  // AdPlacement.id in a single JSON blob (placements are host-defined, open-
+  // ended strings — a dynamic-key-per-placement scheme would need its own
+  // "list of known keys" bookkeeping for no real benefit over one blob).
+
+  static const String _keyPlacementDailyCounts = 'ad_sdk_placement_daily_counts';
+  static const String _keyPlacementDailyDate = 'ad_sdk_placement_daily_date';
+
+  Map<String, int> getPlacementDailyCounts() {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final saved = _prefs?.getString(_keyPlacementDailyDate) ?? '';
+    if (saved != today) {
+      _prefs?.setString(_keyPlacementDailyDate, today);
+      _prefs?.setString(_keyPlacementDailyCounts, '{}');
+      return {};
+    }
+    final raw = _prefs?.getString(_keyPlacementDailyCounts);
+    if (raw == null) return {};
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return decoded.map((k, v) => MapEntry(k, v as int));
+    } catch (e) {
+      SafeLogger.w(_tag, 'discarding corrupt placement daily counts: $e');
+      return {};
+    }
+  }
+
+  Future<void> incrementPlacementDailyCount(String placementId) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final counts = getPlacementDailyCounts(); // handles rollover
+    counts[placementId] = (counts[placementId] ?? 0) + 1;
+    await _prefs?.setString(_keyPlacementDailyCounts, jsonEncode(counts));
+    await _prefs?.setString(_keyPlacementDailyDate, today);
   }
 
   int getSuspiciousCount() => _prefs?.getInt(_keySuspiciousCount) ?? 0;

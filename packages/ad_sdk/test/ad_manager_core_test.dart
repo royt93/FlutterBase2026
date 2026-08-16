@@ -1375,6 +1375,37 @@ void main() {
       expect(skip!.action, 'show');
       expect(skip.reason, 'cooldown');
     });
+
+    // T92 — per-placement daily cap, on top of the global one.
+    test(
+        'show: reaching the per-placement daily cap emits a show skip '
+        'with reason=placement_cap, without touching the global cap',
+        () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(
+              maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}));
+      AdSafetyConfig.resetForReinit();
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+
+      await AdManager().showInterstitial(
+          onDoneFlow: (_) {}, placement: AdPlacement.splash);
+      await Future<void>.delayed(Duration.zero);
+
+      final skip = lastSkip();
+      expect(skip, isNotNull);
+      expect(skip!.action, 'show');
+      expect(skip.reason, 'placement_cap');
+
+      // A DIFFERENT placement, with no cap configured, must still show
+      // normally — the global daily cap alone (5, from AdSafetyParams.debug's
+      // override above) is nowhere near reached.
+      events.clear();
+      await AdManager().showInterstitial(
+          onDoneFlow: (_) {}, placement: AdPlacement.home);
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap'),
+          isEmpty);
+    });
   });
 
   // T88 — remoteSafetyProvider lets a host plug in Firebase Remote

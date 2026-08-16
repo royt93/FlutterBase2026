@@ -8,6 +8,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`AdSafetyParams.maxPerPlacementAdsPerDay` (T92).** Optional additional
+  daily cap keyed by `AdPlacement`, checked alongside (never instead of) the
+  existing global daily cap at show time. `null` by default — fully
+  backward-compatible. Emits an `AdSkipEvent` with `reason: 'placement_cap'`
+  when it blocks. Note: can't be set via a `const AdSafetyParams(...)` call
+  (`AdPlacement`'s custom `==` isn't const-map-key-safe) — use a regular
+  constructor call or `.copyWith(...)`.
 - **`BannerAdWidget` collapse/expand animation (T91).** New
   `collapseAnimationDuration` param (default 250ms) wraps the banner in
   `AnimatedSize`, so no-fill/cooldown/VIP collapsing (and a real ad becoming
