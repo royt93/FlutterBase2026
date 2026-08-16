@@ -64,6 +64,25 @@ jobs:
           path: packages/ad_sdk/coverage/lcov.info
           if-no-files-found: warn
 
+  # T85 — CLAUDE.md documents a CocoaPods pinning wall (applovin_max's exact
+  # AppLovinSDK pin vs gma_mediation_applovin's), previously only verified by
+  # hand before each release. tool/pinning_check_app/ is a minimal consuming-
+  # app fixture reproducing the documented known-good combo (applovin_max
+  # held back via dependency_overrides) — this job runs `pod install`
+  # against it for real, so an incompatible version bump fails CI instead of
+  # surfacing at release time.
+  pinning-wall:
+    name: ad_sdk — CocoaPods pinning-wall check
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1'
+          channel: 'stable'
+      - name: Check pinning wall (pub get + pod install)
+        run: packages/ad_sdk/tool/check_pinning_wall.sh
+
   # T47 — the 20 integration_test/ files under packages/ad_sdk/example only ran
   # by hand on a simulator/device before this. Runs them on a real Android
   # emulator so real-device-shaped regressions (not just Dart-VM-reachable
