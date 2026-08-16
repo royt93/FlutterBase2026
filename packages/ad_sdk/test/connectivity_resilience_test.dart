@@ -26,12 +26,16 @@ class _CountingAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
   final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   AdSlot bannerSlot(Object key) => _bannerSlot;
 
   int loadInterstitialCalls = 0;
   int loadRewardedCalls = 0;
+  int loadRewardedInterstitialCalls = 0;
   int loadAppOpenCalls = 0;
   int preloadBannerCalls = 0;
   int preloadMrecCalls = 0;
@@ -43,6 +47,9 @@ class _CountingAdapter implements AdProviderAdapter {
   Future<void> loadInterstitial() async => loadInterstitialCalls++;
   @override
   Future<void> loadRewarded() async => loadRewardedCalls++;
+  @override
+  Future<void> loadRewardedInterstitial() async =>
+      loadRewardedInterstitialCalls++;
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async =>
       loadAppOpenCalls++;

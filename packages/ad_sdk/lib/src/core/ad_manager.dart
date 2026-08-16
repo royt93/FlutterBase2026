@@ -3685,6 +3685,17 @@ class AdManager with WidgetsBindingObserver {
     if (ad.rewardedSlot.isIdle || ad.rewardedSlot.isCooldown) {
       unawaited(loadRewardedAd());
     }
+    // 2026-08-16 audit: rewardedInterstitial (T89, AdMob-only) was missing
+    // from this backstop entirely — if its first load ever failed (no
+    // network, no-fill) and it was never shown, nothing else refills it.
+    // On AppLovin this slot never leaves idle by design (see
+    // AppLovinAdapter's documented no-op), so this is a harmless extra
+    // no-op call there, same as every other load*() call in this scan
+    // already tolerates per-provider no-ops.
+    if (ad.rewardedInterstitialSlot.isIdle ||
+        ad.rewardedInterstitialSlot.isCooldown) {
+      unawaited(loadRewardedInterstitialAd());
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────────

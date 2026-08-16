@@ -16,6 +16,9 @@ class _MrecCountingAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
   final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   AdSlot bannerSlot(Object key) => _bannerSlot;
@@ -62,6 +65,8 @@ class _MrecCountingAdapter implements AdProviderAdapter {
   Future<void> loadInterstitial() async {}
   @override
   Future<void> loadRewarded() async {}
+  @override
+  Future<void> loadRewardedInterstitial() async {}
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async {}
   @override

@@ -8,6 +8,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **Rewarded Interstitial (T89) was missing from the 5-minute connectivity
+  backstop refill entirely — caught by internal audit, 2026-08-16.**
+  `_retryRefillAds` only checked `appOpenSlot`/`interstitialSlot`/
+  `rewardedSlot` — if a rewardedInterstitial's first load ever failed
+  (no network / no-fill) and it was never shown, nothing would ever refill
+  it again. Added the same idle/cooldown check for
+  `rewardedInterstitialSlot`. 1 new assertion in
+  `test/connectivity_refill_test.dart`. (Also updated 4 test fake adapters
+  — `banner`/`mrec`/`native_ad_widget_test.dart`,
+  `connectivity_resilience_test.dart` — to implement
+  `rewardedInterstitialSlot`/`loadRewardedInterstitial` for real instead of
+  relying on `noSuchMethod`, since this change made them reachable for the
+  first time.)
 - **`NativeAdWidget` on AppLovin leaked a live `BannerListenables` bundle
   per scrolled-past native ad in a `ListView` — caught by internal audit,
   2026-08-16.** `MaxNativeAdView`'s listener callbacks re-resolve
