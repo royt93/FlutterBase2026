@@ -15,6 +15,7 @@ import '../adapters/applovin_adapter.dart';
 import '../adaptive/adaptive_frequency.dart';
 import '../compliance/ad_event_log.dart';
 import '../compliance/compliance_report.dart';
+import '../compliance/compliance_signing.dart';
 import '../config/ad_config.dart';
 import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
@@ -545,6 +546,18 @@ class AdManager with WidgetsBindingObserver {
       from: from,
       to: to,
     );
+  }
+
+  /// T96 — [exportComplianceReport] plus an on-device Ed25519 signature over
+  /// the exact exported JSON (tamper-evidence for a dispute appeal — see
+  /// [SignedComplianceReport]'s doc comment for the precise threat model).
+  /// Verify with `verifySignedComplianceReportJson` or
+  /// `tool/verify_compliance_report.dart`.
+  Future<SignedComplianceReport> exportSignedComplianceReport({
+    DateTime? from,
+    DateTime? to,
+  }) {
+    return signComplianceReport(exportComplianceReport(from: from, to: to));
   }
 
   /// Increments on every successful [initialize]. Widgets can listen so they

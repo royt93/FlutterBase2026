@@ -7,6 +7,7 @@ library;
 // Compliance report export (T23)
 export 'src/compliance/ad_event_log.dart';
 export 'src/compliance/compliance_report.dart';
+export 'src/compliance/compliance_signing.dart';
 
 // Configuration
 export 'src/config/ad_config.dart';

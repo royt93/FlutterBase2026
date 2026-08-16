@@ -1637,6 +1637,48 @@ await ConsentManager.instance.set(
 Left `null` (the default) if you never set it — it's simply omitted from the
 aggregate, no crash, no placeholder value.
 
+### Cryptographically-signed compliance report export (T96)
+
+`AdManager().exportComplianceReport(...)` builds a `ComplianceReport` — the
+evidence bundle to hand an ad network's support team when an account gets
+flagged (consent state, safety-layer snapshot, raw ad-event history for the
+window). `exportSignedComplianceReport(...)` wraps the same report with an
+on-device Ed25519 signature, so an edit made to the exported file AFTER the
+SDK produced it is detectable:
+
+```dart
+final signed = await AdManager().exportSignedComplianceReport(
+  from: DateTime.now().subtract(const Duration(days: 7)),
+);
+final bundleJson = signed.toJsonString(pretty: true);
+// hand bundleJson (or write it to a file) to the ad network's dispute form.
+```
+
+The signing key is minted once per install and persisted via
+`flutter_secure_storage` — no configuration needed. Anyone (you, or the ad
+network reviewer) can verify a bundle independently:
+
+```dart
+final ok = await verifySignedComplianceReportJson(bundleJson);
+```
+
+or from the command line:
+
+```bash
+dart run tool/verify_compliance_report.dart path/to/exported_bundle.json
+# → VALID or INVALID
+```
+
+**Threat model — read before treating this as proof of anything more than
+internal consistency.** The signing key lives on the same device that
+produces the report, and travels WITH the exported bundle. This proves the
+exported JSON matches exactly what the SDK generated at `generatedAt` — it
+stops a casual after-the-fact hand-edit of the file before you submit it. It
+is **not** non-repudiation: a device owner who controls the app also controls
+the signing key, so this cannot prove the events themselves weren't
+fabricated by someone with that level of access. Treat it as "this file is
+unmodified since export", not "this device's history is definitely genuine".
+
 ### Compliance checklist
 
 - [ ] `app-ads.txt` placed at the root of your app's domain

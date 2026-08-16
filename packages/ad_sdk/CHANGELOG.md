@@ -8,6 +8,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **Cryptographically-signed compliance report export — `AdManager.exportSignedComplianceReport` (T96).**
+  Flagship: wraps the existing `exportComplianceReport` bundle with an
+  on-device Ed25519 signature (key minted once per install, persisted via
+  `flutter_secure_storage`) so an edit made to the exported JSON AFTER export
+  is detectable — tamper-evidence for an ad-network dispute appeal. Verify
+  with `verifySignedComplianceReportJson` or the new standalone
+  `tool/verify_compliance_report.dart` CLI. See README's "Cryptographically-
+  signed compliance report export" for the precise (deliberately limited)
+  threat model this does and doesn't cover.
 - **VIP key revocation list (CRL) — `VipManager.refreshRevocationList` (T95).**
   Flagship: an offline-signed revocation list closing the SDK's known
   leaked-key gap (a redeemable-forever `kid` once shared) without a backend.

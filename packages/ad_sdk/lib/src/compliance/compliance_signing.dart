@@ -1,0 +1,124 @@
+import 'dart:convert';
+
+import 'package:cryptography/cryptography.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../utils/safe_logger.dart';
+import 'compliance_report.dart';
+
+const String _tag = 'ComplianceSigning';
+const String _secureKeySeed = 'ad_sdk_compliance_signing_key_v1';
+final Ed25519 _ed25519 = Ed25519();
+
+/// T96 — a [ComplianceReport] plus an on-device Ed25519 signature over its
+/// exact exported JSON, proving the file wasn't hand-edited after the SDK
+/// produced it.
+///
+/// **Threat model**: this is tamper-*evidence* for a dispute appeal (the
+/// exported bytes match what the SDK generated at [ComplianceReport.
+/// generatedAt]), not non-repudiation — the signing key lives on the same
+/// device that generates the report, so whoever controls the device also
+/// controls the key that would need to re-sign a forged copy. It stops a
+/// casual after-the-fact edit of the exported file, not a device owner
+/// determined to fabricate evidence from scratch.
+class SignedComplianceReport {
+  const SignedComplianceReport({
+    required this.reportJson,
+    required this.publicKeyBase64,
+    required this.signatureBase64,
+  });
+
+  /// The EXACT compact JSON string that was signed (== the [ComplianceReport]
+  /// this was built from, via [ComplianceReport.toJsonString]). Kept
+  /// verbatim — not re-derived from a parsed object — so verification never
+  /// depends on JSON re-serialization producing byte-identical output.
+  final String reportJson;
+
+  /// Base64url Ed25519 public key that verifies [signatureBase64]. Travels
+  /// WITH the bundle (untrusted input to the verifier) — see the class doc
+  /// for what that does and doesn't prove.
+  final String publicKeyBase64;
+
+  /// Base64url Ed25519 signature over `utf8.encode(reportJson)`.
+  final String signatureBase64;
+
+  Map<String, dynamic> toJson() => {
+        'reportJson': reportJson,
+        'publicKeyBase64': publicKeyBase64,
+        'signatureBase64': signatureBase64,
+      };
+
+  String toJsonString({bool pretty = false}) {
+    final encoder =
+        pretty ? const JsonEncoder.withIndent('  ') : const JsonEncoder();
+    return encoder.convert(toJson());
+  }
+}
+
+/// Signs [report] with an on-device Ed25519 key pair, minting and persisting
+/// one (via `flutter_secure_storage`) on first use if none exists yet. The
+/// key is stable across exports on the same install, so re-exporting the
+/// same window later still verifies against the same public key.
+Future<SignedComplianceReport> signComplianceReport(
+  ComplianceReport report, {
+  FlutterSecureStorage? secureStorage,
+}) async {
+  final storage = secureStorage ?? const FlutterSecureStorage();
+  final keyPair = await _loadOrCreateKeyPair(storage);
+  final reportJson = report.toJsonString();
+  final sig = await _ed25519.sign(utf8.encode(reportJson), keyPair: keyPair);
+  final pub = await keyPair.extractPublicKey();
+  return SignedComplianceReport(
+    reportJson: reportJson,
+    publicKeyBase64: base64Url.encode(pub.bytes),
+    signatureBase64: base64Url.encode(sig.bytes),
+  );
+}
+
+Future<SimpleKeyPair> _loadOrCreateKeyPair(FlutterSecureStorage storage) async {
+  try {
+    final existing = await storage.read(key: _secureKeySeed);
+    if (existing != null) {
+      final seed = base64Url.decode(base64Url.normalize(existing));
+      return _ed25519.newKeyPairFromSeed(seed);
+    }
+  } catch (e) {
+    SafeLogger.w(
+        _tag, 'could not read stored signing key, minting a new one: $e');
+  }
+  final fresh = await _ed25519.newKeyPair();
+  try {
+    final seed = await fresh.extractPrivateKeyBytes();
+    await storage.write(key: _secureKeySeed, value: base64Url.encode(seed));
+  } catch (e) {
+    SafeLogger.w(
+        _tag, 'could not persist signing key (will re-mint next export): $e');
+  }
+  return fresh;
+}
+
+/// Verifies a bundle produced by [SignedComplianceReport.toJson] /
+/// [SignedComplianceReport.toJsonString]. Returns `true` only if
+/// `signatureBase64` verifies against `publicKeyBase64` over
+/// `utf8.encode(reportJson)` exactly as stored — never throws, any malformed
+/// input is simply not valid.
+Future<bool> verifySignedComplianceReportJson(String bundleJson) async {
+  try {
+    final decoded = jsonDecode(bundleJson) as Map<String, dynamic>;
+    final reportJson = decoded['reportJson'] as String;
+    final pubBytes = base64Url
+        .decode(base64Url.normalize(decoded['publicKeyBase64'] as String));
+    final sigBytes = base64Url
+        .decode(base64Url.normalize(decoded['signatureBase64'] as String));
+    if (pubBytes.length != 32) return false;
+    return await _ed25519.verify(
+      utf8.encode(reportJson),
+      signature: Signature(
+        sigBytes,
+        publicKey: SimplePublicKey(pubBytes, type: KeyPairType.ed25519),
+      ),
+    );
+  } catch (_) {
+    return false;
+  }
+}
