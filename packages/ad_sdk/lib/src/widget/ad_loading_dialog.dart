@@ -230,6 +230,15 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
     // DefaultTextStyle (theme font) — without it Flutter falls back to a
     // blocky raw-renderer font with red underlines (the "yellow-text-on-red-
     // underline debug look") and the dialog renders broken.
+    // T74 — a floating "glass" bubble over whatever's behind it (often a
+    // splash/ad, not necessarily the host's own screen), so it doesn't
+    // adopt the theme's surface/text colors directly. Instead it tints
+    // itself light-on-dark or dark-on-light based on Theme.of(context)'s
+    // brightness, keeping the same glass look with sensible contrast in
+    // both cases. `Theme.of` always resolves to at least Flutter's default
+    // (light) ThemeData, so this needs no extra fallback for a themeless host.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final base = isDark ? Colors.white : Colors.black;
     return Material(
       type: MaterialType.transparency,
       child: PopScope(
@@ -243,10 +252,10 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                     width: 120,
                     height: 120,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.10),
+                      color: base.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
+                        color: base.withValues(alpha: 0.18),
                         width: 1.2,
                       ),
                       boxShadow: [
@@ -266,17 +275,16 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                           child: CircularProgressIndicator(
                             strokeWidth: 3.5,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white.withValues(alpha: 0.90),
+                              base.withValues(alpha: 0.90),
                             ),
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.18),
+                            backgroundColor: base.withValues(alpha: 0.18),
                           ),
                         ),
                         const SizedBox(height: 14),
                         Text(
                           widget.loadingText,
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.82),
+                            color: base.withValues(alpha: 0.82),
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
                             letterSpacing: 0.3,
