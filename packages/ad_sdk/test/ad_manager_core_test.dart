@@ -1554,6 +1554,32 @@ void main() {
       expect(adapter.onAppPausedCalls, 1);
       expect(adapter.onAppResumedCalls, 1);
     });
+
+    // T70 — a debounced compliance-log write must be flushed to disk before
+    // the process could be killed while backgrounded, not left pending.
+    test('paused flushes a pending debounced compliance-log write', () async {
+      // Reuse the AdPreferences singleton the enclosing setUp already bound
+      // to a mock SharedPreferences — re-calling setMockInitialValues here
+      // would reset the plugin-level mock store out from under it.
+      final prefs = await AdPreferences.getInstance();
+      final eventLog = AdEventLog(prefs);
+      AdManager().debugEventLog = eventLog;
+      addTearDown(() => AdManager().debugEventLog = null);
+
+      // AdPreferences is a process-wide singleton shared across this whole
+      // test file, so the compliance-log key may already hold data from an
+      // earlier test — assert on this event's own marker, not on nullness.
+      const marker = 'T70-flush-on-pause-marker';
+      eventLog.recordSafetyBlock(marker);
+      expect(prefs.getComplianceLogRaw() ?? '', isNot(contains(marker)),
+          reason: 'sanity: still inside the debounce window');
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(prefs.getComplianceLogRaw() ?? '', contains(marker),
+          reason: 'paused must force-flush the pending debounced write');
+    });
   });
 
   group('didHaveMemoryPressure()', () {

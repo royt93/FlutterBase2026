@@ -442,6 +442,11 @@ class AdManager with WidgetsBindingObserver {
   /// [initialize] completes.
   AdEventLog? _eventLog;
 
+  /// T70 — test seam so didChangeAppLifecycleState's flush-on-pause wiring
+  /// can be verified without needing a full SDK init.
+  @visibleForTesting
+  set debugEventLog(AdEventLog? log) => _eventLog = log;
+
   /// Build a [ComplianceReport] from everything the SDK already tracks:
   /// consent state, safety-cap counters, VIP status, and the ad-event/
   /// safety-block history for `[from, to]` (open-ended if omitted).
@@ -1997,6 +2002,15 @@ class AdManager with WidgetsBindingObserver {
     _offlineNotifier.value = false;
     _resetGuardState();
 
+    // T70 — same reasoning as vipManager/consentManager/arbitrator above: a
+    // stale _eventLog left alive past destroy() would keep being flushed
+    // (didChangeAppLifecycleState's paused handler calls flush() whenever
+    // _eventLog is non-null) and mix pre-destroy events into whatever
+    // provider initialize() brings up next. Flush first so nothing queued
+    // in its debounce window is lost.
+    unawaited(_eventLog?.flush());
+    _eventLog = null;
+
     if (_isObserverAdded) {
       WidgetsBinding.instance.removeObserver(this);
       _isObserverAdded = false;
@@ -2887,6 +2901,9 @@ class AdManager with WidgetsBindingObserver {
 
     if (ad == null) return;
     if (state == AppLifecycleState.paused) {
+      // T70 — flush any debounced compliance-log write now, before the
+      // process could be killed while backgrounded.
+      unawaited(_eventLog?.flush() ?? Future<void>.value());
       AdSafetyConfig.recordAppWentBackground();
       try {
         ad.onAppPaused();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../adaptive/adaptive_frequency.dart';
@@ -28,6 +29,14 @@ class AdEventLog {
   /// `_append`s can't race their `setString` writes and finish out of
   /// order — each persist always encodes the latest [_entries] snapshot.
   Future<void> _persistChain = Future.value();
+
+  /// T70 — debounces the actual disk write: rapid successive events (e.g. a
+  /// burst of impression/click/revenue events) reset this timer instead of
+  /// each triggering their own `jsonEncode` + `setString` of the whole
+  /// (up to [_maxEntries]-sized) log. [flush] forces an immediate write —
+  /// call it before anything that could kill the process (app backgrounding).
+  static const Duration _debounceWindow = Duration(seconds: 1);
+  Timer? _debounceTimer;
 
   /// Read-only view of every log entry, oldest first.
   List<Map<String, dynamic>> get entries => List.unmodifiable(_entries);
@@ -85,16 +94,28 @@ class AdEventLog {
     if (_entries.length > _maxEntries) {
       _entries.removeRange(0, _entries.length - _maxEntries);
     }
-    _schedulePersist();
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceWindow, _schedulePersist);
   }
 
   void _schedulePersist() {
+    _debounceTimer = null;
     _persistChain = _persistChain.then((_) => _persist()).catchError((e) {
       SafeLogger.w(_tag, 'compliance log persist failed: $e');
     });
   }
 
   Future<void> _persist() => _prefs.setComplianceLogRaw(jsonEncode(_entries));
+
+  /// Forces an immediate write, skipping (and cancelling) any pending
+  /// debounce window. Call before anything that could kill the process —
+  /// e.g. the host app backgrounding — so a debounced event isn't lost.
+  Future<void> flush() async {
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _schedulePersist();
+    await _persistChain;
+  }
 
   /// Entries with `timestampMs` inside `[from, to]` (inclusive). Null bounds
   /// are open-ended.

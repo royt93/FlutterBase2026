@@ -8,6 +8,7 @@ import 'package:applovin_admob_sdk/src/state/ad_event.dart';
 import 'package:applovin_admob_sdk/src/state/ad_placement.dart';
 import 'package:applovin_admob_sdk/src/state/ad_slot.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -203,8 +204,9 @@ void main() {
     test('reloads previously persisted entries from AdPreferences', () async {
       final first = AdEventLog(prefs);
       first.recordEvent(loadEvent(), timestampMs: 42);
-      // recordEvent persists fire-and-forget; give the microtask a turn.
-      await Future<void>.delayed(Duration.zero);
+      // T70 — recordEvent debounces the actual disk write now; flush()
+      // forces it immediately instead of waiting out the debounce window.
+      await first.flush();
 
       final second = AdEventLog(prefs);
       expect(second.entries, hasLength(1));
@@ -241,7 +243,7 @@ void main() {
       for (var i = 0; i < 20; i++) {
         log.recordEvent(loadEvent(), timestampMs: i);
       }
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await log.flush();
 
       final reloaded = AdEventLog(prefs);
       expect(reloaded.entries, hasLength(20));
@@ -254,12 +256,65 @@ void main() {
     test('empties the in-memory log and the persisted copy', () async {
       final log = AdEventLog(prefs);
       log.recordEvent(loadEvent());
-      await Future<void>.delayed(Duration.zero);
       await log.clear();
 
       expect(log.entries, isEmpty);
       final reloaded = AdEventLog(prefs);
       expect(reloaded.entries, isEmpty);
+    });
+  });
+
+  // T70 — recordEvent used to jsonEncode + setString the whole (up to
+  // 5,000-entry) log on every single ad event. High-frequency apps could
+  // burn CPU/disk I/O on the main isolate. Writes now debounce and coalesce.
+  group('debounced persist (T70)', () {
+    test('rapid events within the debounce window do not hit disk yet',
+        () {
+      fakeAsync((async) {
+        final log = AdEventLog(prefs);
+        log.recordEvent(loadEvent(), timestampMs: 1);
+        async.elapse(const Duration(milliseconds: 500));
+        log.recordEvent(loadEvent(), timestampMs: 2);
+        async.elapse(const Duration(milliseconds: 500));
+
+        expect(prefs.getComplianceLogRaw(), isNull,
+            reason: 'still inside the debounce window — nothing written '
+                'to disk yet');
+      });
+    });
+
+    test('coalesces rapid events into a single write after the window',
+        () {
+      fakeAsync((async) {
+        final log = AdEventLog(prefs);
+        for (var i = 0; i < 5; i++) {
+          log.recordEvent(loadEvent(), timestampMs: i);
+          async.elapse(const Duration(milliseconds: 100));
+        }
+        // Past the debounce window from the LAST event, with no new event
+        // resetting it again.
+        async.elapse(const Duration(seconds: 2));
+
+        final persisted = jsonDecode(prefs.getComplianceLogRaw()!) as List;
+        expect(persisted, hasLength(5),
+            reason: 'one coalesced write must contain every queued event');
+      });
+    });
+
+    test('flush() forces an immediate write without waiting for the window',
+        () async {
+      final log = AdEventLog(prefs);
+      log.recordEvent(loadEvent(), timestampMs: 1);
+      expect(prefs.getComplianceLogRaw(), isNull);
+
+      await log.flush();
+
+      expect(prefs.getComplianceLogRaw(), isNotNull);
+    });
+
+    test('flush() with nothing pending is a harmless no-op', () async {
+      final log = AdEventLog(prefs);
+      await expectLater(log.flush(), completes);
     });
   });
 }
