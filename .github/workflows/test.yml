@@ -43,7 +43,26 @@ jobs:
       - name: Analyze
         run: flutter analyze
       - name: Run tests
-        run: flutter test
+        run: flutter test --coverage
+      # T83 — no threshold gate yet, just a number every run so a coverage
+      # regression is visible over time instead of living only in an
+      # occasional manual audit note. lcov.info itself is the artifact;
+      # the summary line is just for a quick look without downloading it.
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/lcov.info ]; then
+            awk -F: '/^LF:/{lf+=$2} /^LH:/{lh+=$2} END{
+              if (lf > 0) printf "Line coverage: %d/%d (%.1f%%)\n", lh, lf, (lh/lf)*100
+            }' coverage/lcov.info | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ad_sdk-coverage-lcov
+          path: packages/ad_sdk/coverage/lcov.info
+          if-no-files-found: warn
 
   # T47 — the 20 integration_test/ files under packages/ad_sdk/example only ran
   # by hand on a simulator/device before this. Runs them on a real Android
