@@ -8,6 +8,20 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **`NativeAdWidget` on AppLovin leaked a live `BannerListenables` bundle
+  per scrolled-past native ad in a `ListView` — caught by internal audit,
+  2026-08-16.** `MaxNativeAdView`'s listener callbacks re-resolve
+  `adapter.native(instanceKey)` on EVERY invocation (unlike
+  `BannerAdWidget`/`MrecAdWidget`, which capture their listenables ONCE at
+  load start), so a callback that arrived after `disposeNativeInstance(key)`
+  already removed the map entry would silently `putIfAbsent` a brand new,
+  never-disposed bundle for that permanently-gone (per-widget-instance) key
+  — unbounded, one leak per native ad scrolled past (T73's in-feed use
+  case). `AdMobAdapter` was unaffected (captures its listenables/slot
+  locals once, doesn't re-resolve per callback). Fixed by tracking disposed
+  keys in `AppLovinAdapter` and returning the shared already-disposed
+  placeholder for any of them instead of auto-vivifying a fresh one. 1 new
+  test in `test/applovin_adapter_test.dart`.
 - **AppLovin's internal reload-after-show-failure could leave a slot stuck
   `loading` forever — caught by internal audit, 2026-08-16.** After a show
   fails/dismisses, `AppLovinAdapter` reloads by calling the native bridge

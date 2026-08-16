@@ -605,6 +605,35 @@ void main() {
       expect(a.native('b').isLoaded.value, isFalse,
           reason: 'key "b" must not see key "a" isLoaded=true');
     });
+
+    // 2026-08-16 audit: MaxNativeAdView's listener callbacks (native_ad_widget
+    // .dart) re-resolve adapter.native(instanceKey) on EVERY invocation, not
+    // just once at load start — so a callback arriving after
+    // disposeNativeInstance(key) must NOT silently resurrect a brand new,
+    // never-disposed BannerListenables for that permanently-gone key. That
+    // would leak one live ValueNotifier bundle per native ad a ListView
+    // scrolls past (T73's exact in-feed use case).
+    test('a key looked up again after disposeNativeInstance() never gets a '
+        'fresh live BannerListenables (no resurrection leak)', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      final key = Object();
+      a.native(key).isLoaded.value = true; // materializes a live entry
+      a.disposeNativeInstance(key);
+
+      // A late callback (post-dispose) looking the key up again must get an
+      // ALREADY-disposed bundle back, not a fresh live one — proven by the
+      // write throwing, exactly like every other "disposed mid-flight" path
+      // this adapter already handles (see the try/catch in
+      // native_ad_widget.dart's onAdLoadedCallback).
+      expect(() => a.native(key).isLoaded.value = true, throwsA(anything),
+          reason: 'looking up an already-disposed key must never silently '
+              'allocate a new, permanently-unreachable live listenables '
+              'bundle');
+    });
   });
 
   group('onAppResumed() recreates errored banner AdView (T34)', () {

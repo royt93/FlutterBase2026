@@ -233,8 +233,20 @@ class AppLovinAdapter implements AdProviderAdapter {
   AdSlot? _disposedNativeSlot;
   BannerListenables? _disposedNativeListenables;
 
+  // 2026-08-16 audit: MaxNativeAdView's listener callbacks (native_ad_widget
+  // .dart) re-resolve `adapter.native(instanceKey)` on EVERY callback
+  // invocation, not just once at load start (unlike AdMobAdapter's
+  // preloadNative, which captures its `listenables`/`slot` locals once).
+  // Without tracking disposed keys here, a callback that arrives after
+  // `disposeNativeInstance(key)` already removed the map entry would
+  // silently `putIfAbsent` a BRAND NEW, never-disposed `BannerListenables`
+  // for that (permanently gone, per-widget-instance) key — an unbounded
+  // leak for any screen that scrolls many native ads through a `ListView`
+  // (T73's exact use case).
+  final Set<Object> _disposedNativeKeys = {};
+
   AdSlot _nativeSlotFor(Object key) {
-    if (_nativeDisposed) {
+    if (_nativeDisposed || _disposedNativeKeys.contains(key)) {
       return _disposedNativeSlot ??=
           (AdSlot(type: AdSlotType.native)..dispose());
     }
@@ -243,7 +255,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   BannerListenables _nativeListenablesFor(Object key) {
-    if (_nativeDisposed) {
+    if (_nativeDisposed || _disposedNativeKeys.contains(key)) {
       return _disposedNativeListenables ??= (BannerListenables(
         isLoaded: ValueNotifier<bool>(false),
         hasError: ValueNotifier<bool>(false),
@@ -271,6 +283,7 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   void disposeNativeInstance(Object key) {
+    _disposedNativeKeys.add(key);
     _nativeSlotsByKey.remove(key)?.dispose();
     _nativeListenablesByKey.remove(key)?.dispose();
   }
