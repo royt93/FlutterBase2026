@@ -1355,6 +1355,37 @@ void main() {
               'onComplete here as well as on the eventual terminal outcome '
               'would violate the "fires once" 1.x callback contract');
     });
+
+    // T80 — regression test for the 2.0.1 fix described in CHANGELOG.md:
+    // "Stale internal-retry flag could leak into a later legitimate call."
+    // A retry timer firing while another initialize() call already held
+    // _isInitializing left _isInternalInitRetryCall stuck true, so the
+    // NEXT real host-initiated call was misclassified as an internal retry
+    // (skipping its retry-budget reset). Before the fix, this test goes red:
+    // the flag stays true because it was read/cleared AFTER the
+    // _isInitializing early-return guard instead of before it.
+    test(
+        'an internal retry racing an in-progress initialize() call must '
+        'not leak _isInternalInitRetryCall into the next real call',
+        () async {
+      AdManager().debugSimulateInternalRetryRaceWithBusyGuard();
+      expect(AdManager().debugIsInternalInitRetryCall, isTrue,
+          reason: 'sanity: the race is set up');
+
+      var callCount = 0;
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) => callCount++,
+      );
+
+      expect(AdManager().debugIsInternalInitRetryCall, isFalse,
+          reason: 'must be cleared even though this call hit the '
+              '_isInitializing early-return — otherwise the NEXT real call '
+              'would be misclassified as an internal retry');
+      expect(callCount, 0,
+          reason: 'the _isInitializing early-return must not fire '
+              'onComplete either — it never even attempted a real init');
+    });
   });
 
   group('T48: first-install VIP grace fires through the real init flow', () {

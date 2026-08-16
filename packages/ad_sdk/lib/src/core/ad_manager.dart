@@ -584,6 +584,21 @@ class AdManager with WidgetsBindingObserver {
   Timer? _initRetryTimer;
   bool _isInternalInitRetryCall = false;
 
+  /// T80 — regression seam for the 2.0.1 fix: simulates an internal retry
+  /// timer firing while another `initialize()` call already holds the busy
+  /// guard (`_isInitializing`) — the exact race that used to strand
+  /// `_isInternalInitRetryCall` at `true` forever, since the flag was read
+  /// AFTER the early-return guard instead of before it.
+  @visibleForTesting
+  void debugSimulateInternalRetryRaceWithBusyGuard() {
+    _isInitializing = true;
+    _isInternalInitRetryCall = true;
+  }
+
+  /// Test seam for [_isInternalInitRetryCall].
+  @visibleForTesting
+  bool get debugIsInternalInitRetryCall => _isInternalInitRetryCall;
+
   // ─── Connectivity watch (T08) ─────────────────────────────────────────────
   StreamSubscription<bool>? _connectivitySub;
   Timer? _reconnectDebounceTimer;
