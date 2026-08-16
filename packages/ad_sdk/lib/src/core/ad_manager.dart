@@ -16,6 +16,7 @@ import '../adaptive/adaptive_frequency.dart';
 import '../compliance/ad_event_log.dart';
 import '../compliance/compliance_report.dart';
 import '../config/ad_config.dart';
+import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
 import '../consent/consent_settings.dart';
 import '../monetization/ad_diagnostics.dart';
@@ -1208,6 +1209,10 @@ class AdManager with WidgetsBindingObserver {
   Future<void> initialize({
     required AdConfig config,
     required void Function(bool success, String gaid) onComplete,
+    // T88 — optional hook for remotely-controlled AdSafetyParams overrides
+    // (Firebase Remote Config, a self-hosted config API, ...). See
+    // RemoteAdSafetyProvider's doc comment for the full contract.
+    RemoteAdSafetyProvider? remoteSafetyProvider,
     @visibleForTesting bool isRelease = kReleaseMode,
   }) async {
     // Read + clear the internal-retry flag before the early-return guard —
@@ -1274,8 +1279,27 @@ class AdManager with WidgetsBindingObserver {
           _eventLog!.recordAdaptiveSignal); // T26: adaptive-frequency signals
 
       // Phase 3: pipe safety params from config.
+      // T88 — a remote provider gets a bounded window to answer; a slow or
+      // failing backend must never block SDK init. Validated + merged onto
+      // config.safety — the local values are always the fallback.
+      var effectiveSafety = config.safety;
+      if (remoteSafetyProvider != null) {
+        try {
+          final overrides = await remoteSafetyProvider
+              .fetchSafetyParamOverrides()
+              .timeout(const Duration(seconds: 5));
+          if (overrides != null) {
+            effectiveSafety =
+                applyRemoteSafetyOverrides(config.safety, overrides);
+            SafeLogger.d(_tag, '🌐 remote AdSafetyParams overrides applied');
+          }
+        } catch (e) {
+          SafeLogger.w(_tag,
+              '⚠️ remoteSafetyProvider failed, using local AdSafetyParams: $e');
+        }
+      }
       await AdSafetyConfig.init(prefs,
-          params: config.safety, isRelease: isRelease);
+          params: effectiveSafety, isRelease: isRelease);
       AdSafetyConfig.setAnomalySink(_emit); // T25: anomaly/fraud alert stream
 
       // ── Release footguns (loud, fire in release where it matters) ──────────

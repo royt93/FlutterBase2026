@@ -25,6 +25,27 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// T88 — fakes for remoteSafetyProvider tests.
+class _FakeRemoteSafetyProvider implements RemoteAdSafetyProvider {
+  _FakeRemoteSafetyProvider(this._overrides);
+  final Map<String, dynamic> _overrides;
+  @override
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async =>
+      _overrides;
+}
+
+class _ThrowingRemoteSafetyProvider implements RemoteAdSafetyProvider {
+  @override
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async =>
+      throw StateError('remote config backend unreachable');
+}
+
+class _HangingRemoteSafetyProvider implements RemoteAdSafetyProvider {
+  @override
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() =>
+      Completer<Map<String, dynamic>?>().future; // never completes
+}
+
 /// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
 /// flutter_secure_storage platform channel.
 class _FakeVipEntriesStore extends VipEntriesStore {
@@ -1323,6 +1344,69 @@ void main() {
       expect(skip, isNotNull);
       expect(skip!.action, 'show');
       expect(skip.reason, 'cooldown');
+    });
+  });
+
+  // T88 — remoteSafetyProvider lets a host plug in Firebase Remote
+  // Config/a custom backend to adjust AdSafetyParams without an app
+  // store release. Validated + merged onto config.safety; a failing or
+  // slow provider must never block init.
+  group('remoteSafetyProvider (T88)', () {
+    setUp(() async {
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+    });
+    tearDown(() async {
+      await AdManager().destroy();
+    });
+
+    test('valid overrides are applied to AdSafetyConfig before init proceeds',
+        () async {
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) {},
+        remoteSafetyProvider:
+            _FakeRemoteSafetyProvider({'maxFullscreenAdsPerDay': 1}),
+      );
+
+      AdSafetyConfig.recordFullscreenAdShown();
+      expect(AdSafetyConfig.dailyCapReached(), isTrue,
+          reason: 'remote override of maxFullscreenAdsPerDay=1 must be '
+              'the value AdSafetyConfig actually initialised with');
+    });
+
+    test('a throwing provider falls back to local AdSafetyParams, does not '
+        'block init', () async {
+      var callCount = 0;
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) => callCount++,
+        remoteSafetyProvider: _ThrowingRemoteSafetyProvider(),
+      );
+
+      // Local config.safety here is AdSafetyParams.debug-ish (dryRun:true,
+      // testIds:true via _admobConfig) — the exact point is just that init
+      // proceeded to the point of scheduling the (failing, no native
+      // channel) adapter connect instead of crashing on the provider.
+      expect(AdSafetyConfig.dailyCapReached(), isFalse,
+          reason: 'provider failure must fall back to local params, not '
+              'leave AdSafetyConfig uninitialised');
+    });
+
+    test('a provider slower than the 5s timeout falls back to local params',
+        () {
+      fakeAsync((async) {
+        unawaited(AdManager().initialize(
+          config: _admobConfig(dryRun: true, testIds: true),
+          onComplete: (_, __) {},
+          remoteSafetyProvider: _HangingRemoteSafetyProvider(),
+        ));
+        async.elapse(const Duration(seconds: 6));
+
+        expect(AdSafetyConfig.dailyCapReached(), isFalse,
+            reason: 'a provider that never answers must not hang init '
+                'forever — the 5s timeout falls back to local params');
+      });
     });
   });
 

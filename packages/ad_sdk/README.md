@@ -751,6 +751,38 @@ AdSafetyParams.production.copyWith(
 )                           // override individual knobs
 ```
 
+### Remote-controlled `AdSafetyParams` (`RemoteAdSafetyProvider`)
+
+Adjust caps/frequency from a backend (Firebase Remote Config, a self-hosted
+config API, ...) without an app store release. Implement the interface with
+whatever remote-config mechanism you already use — the SDK takes no
+dependency on any specific one:
+
+```dart
+class MyRemoteSafetyProvider implements RemoteAdSafetyProvider {
+  @override
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async {
+    final remote = FirebaseRemoteConfig.instance;
+    await remote.fetchAndActivate();
+    final json = remote.getString('ad_safety_params');
+    return json.isEmpty ? null : jsonDecode(json) as Map<String, dynamic>;
+  }
+}
+
+await AdManager().initialize(
+  config: myConfig,
+  onComplete: (success, gaid) { /* ... */ },
+  remoteSafetyProvider: MyRemoteSafetyProvider(),
+);
+```
+
+The provider gets a 5s window; a slow, throwing, or `null`-returning
+provider falls back to `config.safety` unchanged — a remote-config outage
+must never block SDK init. Each returned key is independently validated
+(non-negative durations/counts, `suspiciousCtrThreshold` inside `[0, 1]`) —
+an unknown key or a value that fails validation is silently skipped, not
+fatal, keeping the local value for just that field.
+
 ### `AdLogLevel`
 
 ```dart

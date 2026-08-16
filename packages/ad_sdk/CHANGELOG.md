@@ -6,6 +6,18 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Added
+
+- **`RemoteAdSafetyProvider` (T88).** Optional `AdManager().initialize(...,
+  remoteSafetyProvider: ...)` hook so a host can adjust `AdSafetyParams`
+  (daily/hourly caps, throttle, CTR threshold, ...) from a backend (Firebase
+  Remote Config, a self-hosted API, ...) without an app store release.
+  Provider-agnostic — no new dependency added. A slow (>5s), throwing, or
+  `null`-returning provider falls back to the local `config.safety`
+  unchanged; each override key is independently validated. Ad-unit-ID
+  remote override was considered but is out of scope for this first pass —
+  see the ticket for why.
+
 ### Removed
 
 - `Backoff` (from `src/state/backoff.dart`) is no longer exported from the

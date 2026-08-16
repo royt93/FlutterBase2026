@@ -10,6 +10,7 @@ export 'src/compliance/compliance_report.dart';
 
 // Configuration
 export 'src/config/ad_config.dart';
+export 'src/config/remote_ad_safety_provider.dart';
 export 'src/config/ad_log_level.dart';
 
 // Consent (binary dialog + manager)
