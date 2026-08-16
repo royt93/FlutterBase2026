@@ -336,6 +336,75 @@ void main() {
     });
   });
 
+  // 2026-08-16 audit: _startConnectivityWatch is called `unawaited` from
+  // initialize(), which can itself finish well before this up-to-20s await
+  // resolves — so two overlapping initialize() calls could each start their
+  // own overlapping _startConnectivityWatch() invocation. Whichever resolved
+  // LAST used to silently overwrite _connectivitySub, leaking the other's
+  // subscription forever.
+  group('_startConnectivityWatch overlapping-call race (2026-08-16 audit)',
+      () {
+    tearDown(() {
+      AdManager().debugConnectivityInit = ConnectionNotifierTools.initialize;
+      AdManager().debugConnectivityReady = false;
+    });
+
+    test(
+        'an older call resolving AFTER a newer one already started must not '
+        'touch ready state at all (it bails before ever reaching it)',
+        () {
+      var calls = 0;
+      // Future.delayed (not a manually-completed Completer) so its Timer is
+      // driven the same fakeAsync-instrumented way as the real 20s timeout
+      // below it — call A (older, dispatched first) resolves LAST.
+      AdManager().debugConnectivityInit = () {
+        calls++;
+        return calls == 1
+            ? Future<void>.delayed(const Duration(seconds: 10))
+            : Future<void>.delayed(const Duration(seconds: 2));
+      };
+
+      fakeAsync((async) {
+        AdManager().debugStartConnectivityWatch(); // call A: gen 1
+        AdManager().debugStartConnectivityWatch(); // call B: gen 2
+
+        // call B (newer, 2s delay) resolves first and proceeds normally.
+        async.elapse(const Duration(seconds: 3));
+        expect(AdManager().debugConnectivityReady, isTrue,
+            reason: 'the winning (latest) call must work normally');
+
+        // call A (older, 10s delay) resolves last — must detect it is no
+        // longer the latest generation and bail out without touching
+        // anything B already set.
+        async.elapse(const Duration(seconds: 8));
+        expect(AdManager().debugConnectivityReady, isTrue,
+            reason: 'a stale call resolving after the winner must never '
+                'undo what the winner already set');
+      });
+    });
+
+    test(
+        'a pending call resolving after _stopConnectivityWatch() was called '
+        'must not resurrect ready state either', () {
+      AdManager().debugConnectivityInit =
+          () => Future<void>.delayed(const Duration(seconds: 5));
+
+      fakeAsync((async) {
+        AdManager().debugStartConnectivityWatch();
+        async.elapse(const Duration(seconds: 1));
+
+        AdManager().debugStopConnectivityWatch();
+        async.elapse(const Duration(seconds: 5)); // the delayed init resolves
+
+        expect(AdManager().debugConnectivityReady, isFalse,
+            reason: 'a start call already stopped must not resurrect ready '
+                'state or a subscription once its stale await finally '
+                'resolves');
+        expect(AdManager().debugHasConnectivitySubscription, isFalse);
+      });
+    });
+  });
+
   group('widget: banner reacts to reconnect via initRevision', () {
     testWidgets('a widget listening to initRevision rebuilds on reconnect',
         (tester) async {

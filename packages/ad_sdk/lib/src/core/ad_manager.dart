@@ -812,6 +812,9 @@ class AdManager with WidgetsBindingObserver {
   StreamSubscription<bool>? _connectivitySub;
   Timer? _reconnectDebounceTimer;
 
+  /// Guards the race in [_startConnectivityWatch] below (2026-08-16 audit).
+  int _connectivityWatchGen = 0;
+
   /// Last connectivity state seen by [_onConnectivityChanged]. Seeded `true`
   /// (optimistic) so the very first event only triggers a refill on a genuine
   /// offline→online transition.
@@ -889,10 +892,23 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   bool get debugConnectivityReady => _connectivityReady;
 
+  @visibleForTesting
+  int get debugConnectivityWatchGen => _connectivityWatchGen;
+
   /// Test seam: drive `_startConnectivityWatch` directly without a full
   /// [initialize].
   @visibleForTesting
   Future<void> debugStartConnectivityWatch() => _startConnectivityWatch();
+
+  /// Test seam: drive `_stopConnectivityWatch` directly.
+  @visibleForTesting
+  void debugStopConnectivityWatch() => _stopConnectivityWatch();
+
+  /// Test seam: whether a live connectivity subscription is currently held
+  /// (2026-08-16 audit — proves an overlapping `_startConnectivityWatch`
+  /// call that lost the race never resurrects one).
+  @visibleForTesting
+  bool get debugHasConnectivitySubscription => _connectivitySub != null;
 
   // ─── Consent gate (T01) ────────────────────────────────────────────────────
   /// Whether ad requests are permitted by the consent flow, mirroring Google
@@ -3592,10 +3608,26 @@ class AdManager with WidgetsBindingObserver {
     // ConnectionNotifierTools must be initialised before its stream/isConnected
     // are usable. Nobody else calls this, so the SDK owns it. Best-effort: on
     // platforms/tests without the plugin we simply skip the live watch.
+    //
+    // This is called `unawaited` from `initialize()`, which can itself
+    // finish (and reset `_isInitializing`) well before this up-to-20s await
+    // resolves — so a SECOND `initialize()` call can start a second overlapping
+    // invocation of this method before the first one's `await` below returns
+    // (2026-08-16 audit). Whichever resolved LAST would otherwise silently
+    // overwrite `_connectivitySub` with its own, leaking the other's
+    // subscription forever. The generation token below makes a call that
+    // loses the race bail out before ever subscribing, instead of clobbering
+    // (or being clobbered by) a newer one.
+    final myGen = ++_connectivityWatchGen;
     try {
       // R10-D — bound the native call the same way adapter.initialize() is
       // bounded above: an unresponsive plugin must not hang the SDK forever.
       await _connectivityInit().timeout(const Duration(seconds: 20));
+      if (myGen != _connectivityWatchGen) {
+        SafeLogger.d(_tag,
+            'connectivity watch: a newer call already won, discarding this one');
+        return;
+      }
       _connectivityReady = true;
       _lastConnected = ConnectionNotifierTools.isConnected;
       _offlineNotifier.value = !_lastConnected;
@@ -3609,6 +3641,7 @@ class AdManager with WidgetsBindingObserver {
   }
 
   void _stopConnectivityWatch() {
+    _connectivityWatchGen++;
     _connectivitySub?.cancel();
     _connectivitySub = null;
     _reconnectDebounceTimer?.cancel();

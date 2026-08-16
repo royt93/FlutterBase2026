@@ -8,6 +8,20 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **`_startConnectivityWatch` could leak a `StreamSubscription` across two
+  overlapping `initialize()` calls — caught by internal audit, 2026-08-16.**
+  It's called `unawaited` from `initialize()`, which can itself finish (and
+  reset its own re-entry guard) well before this method's up-to-20s
+  connectivity-plugin-init await resolves. A second `initialize()` call
+  starting before the first's watch resolved could overlap two invocations
+  of this method; whichever resolved last silently overwrote
+  `_connectivitySub`, leaking the other's subscription forever. Added a
+  generation token (same pattern as `enableFillRateBaselineMonitor`'s fix
+  above) so a call that loses the race bails out before ever subscribing,
+  instead of clobbering (or being clobbered by) a newer one;
+  `_stopConnectivityWatch` also bumps it so a still-pending start can't
+  resurrect state after a stop. 2 new tests in
+  `test/connectivity_refill_test.dart`.
 - **Rewarded Interstitial (T89) was missing from the 5-minute connectivity
   backstop refill entirely — caught by internal audit, 2026-08-16.**
   `_retryRefillAds` only checked `appOpenSlot`/`interstitialSlot`/
