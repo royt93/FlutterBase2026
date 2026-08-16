@@ -144,6 +144,13 @@ class VipManager {
   Stream<bool> get activeStream => _activeStream.stream;
 
   /// Latest expiry across all active entries, or null if none active.
+  ///
+  /// **Side effect:** each read calls [_effectiveNow], which persists the
+  /// current wall-clock time to disk as the new anti-clock-rollback
+  /// high-water mark (unless the clock actually rolled back, in which case
+  /// nothing is written). This is intentional and cheap for normal UI reads,
+  /// but avoid polling this getter at high frequency (e.g. every frame/tick)
+  /// — each read schedules a `SharedPreferences` write.
   DateTime? get expiresAt {
     final now = _effectiveNow();
     DateTime? latest;
