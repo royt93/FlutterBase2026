@@ -796,6 +796,15 @@ class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
                     style: TextStyle(color: Colors.grey),
                   ),
                 ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    'Second instance below — proves both banners load and '
+                    'refresh independently (T65 keyed-by-instance).',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                buildBanner(),
               ],
             ),
           ),
@@ -869,6 +878,15 @@ class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
                     style: TextStyle(color: Colors.grey),
                   ),
                 ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    'Second instance below — proves both MRECs load '
+                    'independently (T65 keyed-by-instance).',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                buildMrec(),
               ],
             ),
           ),
@@ -929,6 +947,15 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
               style: TextStyle(color: Colors.grey),
             ),
           ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              'Second instance below — proves both natives load '
+              'independently (T65 keyed-by-instance).',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          buildNative(),
         ],
       ),
     );
