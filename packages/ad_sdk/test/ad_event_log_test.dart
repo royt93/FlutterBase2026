@@ -198,6 +198,26 @@ void main() {
           log.inRange(from: DateTime.fromMillisecondsSinceEpoch(200));
       expect(filtered.map((e) => e['timestampMs']), [200, 300]);
     });
+
+    // T79 — the open-ended upper bound used to be `1 << 62`, unsafe if this
+    // package ever compiles to Web/Wasm (JS numbers only represent integers
+    // exactly up to 2^53-1). Confirms the replacement constant still
+    // behaves as "no upper bound" for any realistic timestamp.
+    test(
+        'open-ended to still includes a realistic present-day timestamp '
+        '(2^53-1 safe-integer sentinel, not the old 1 << 62)', () {
+      final log = AdEventLog(prefs);
+      // A real, present-day epoch-ms value — comfortably below 2^53-1
+      // (~9.007e15) but was ALSO comfortably below the old `1 << 62`
+      // (~4.6e18). What matters is that the new, smaller-but-still-huge
+      // sentinel doesn't accidentally exclude anything realistic.
+      final now = DateTime.now().millisecondsSinceEpoch;
+      log.recordEvent(loadEvent(), timestampMs: now);
+
+      final filtered =
+          log.inRange(from: DateTime.fromMillisecondsSinceEpoch(0));
+      expect(filtered.map((e) => e['timestampMs']), [now]);
+    });
   });
 
   group('persistence', () {

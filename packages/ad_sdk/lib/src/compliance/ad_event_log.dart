@@ -117,12 +117,19 @@ class AdEventLog {
     await _persistChain;
   }
 
+  /// T79 — max safe integer a JS `Number` can represent exactly
+  /// (`2^53 - 1`). Android/iOS `int` is 64-bit and wouldn't need this, but
+  /// a future Web/Wasm target would silently lose precision past this
+  /// point — using it as the open-ended upper bound is safe everywhere
+  /// (no real `timestampMs` will ever approach it) and costs nothing today.
+  static const int _maxSafeIntegerMs = 9007199254740991; // 2^53 - 1
+
   /// Entries with `timestampMs` inside `[from, to]` (inclusive). Null bounds
   /// are open-ended.
   List<Map<String, dynamic>> inRange({DateTime? from, DateTime? to}) {
     if (from == null && to == null) return entries;
     final fromMs = from?.millisecondsSinceEpoch ?? 0;
-    final toMs = to?.millisecondsSinceEpoch ?? (1 << 62);
+    final toMs = to?.millisecondsSinceEpoch ?? _maxSafeIntegerMs;
     return _entries.where((e) {
       final ts = e['timestampMs'] as int;
       return ts >= fromMs && ts <= toMs;
