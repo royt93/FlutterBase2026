@@ -1164,6 +1164,66 @@ void main() {
     });
   });
 
+  // T76 — the on-demand rewarded path already has its own load timeout
+  // (onDemandLoadTimeout); a regular background preload had none — if the
+  // native SDK's callback never fires, the slot was stuck in `loading`
+  // forever, never picked up by the existing backoff/retry logic (which
+  // only reacts to AdSlot.markFailed()).
+  group('load watchdog (T76)', () {
+    late _FakeAdapter adapter;
+
+    setUp(() {
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugCanRequestAds = true;
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+    });
+
+    test(
+        'a rewarded preload whose native callback never fires is forced to '
+        'fail after the watchdog window', () {
+      fakeAsync((async) {
+        adapter.hangLoad = true; // simulates a silent native SDK
+        AdManager().loadRewardedAd(watchdog: const Duration(seconds: 10));
+        async.flushMicrotasks();
+
+        expect(adapter.rewardedSlot.isLoading, isTrue,
+            reason: 'sanity: the load actually started');
+
+        async.elapse(const Duration(seconds: 9));
+        expect(adapter.rewardedSlot.isLoading, isTrue,
+            reason: 'still inside the watchdog window');
+
+        async.elapse(const Duration(seconds: 2));
+        expect(adapter.rewardedSlot.value, AdSlotState.cooldown,
+            reason: 'watchdog must force markFailed() once the window '
+                'elapses with no native callback');
+      });
+    });
+
+    test(
+        'a rewarded preload that resolves normally is never touched by the '
+        'watchdog', () {
+      fakeAsync((async) {
+        adapter.loadMarksReady = true;
+        AdManager().loadRewardedAd(watchdog: const Duration(seconds: 10));
+        async.flushMicrotasks();
+
+        expect(adapter.rewardedSlot.value, AdSlotState.ready);
+
+        async.elapse(const Duration(seconds: 11));
+        expect(adapter.rewardedSlot.value, AdSlotState.ready,
+            reason: 'a late-firing watchdog must not clobber a real ready ad');
+      });
+    });
+  });
+
   group('initialize() onComplete single-fire (init auto-retry fix)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

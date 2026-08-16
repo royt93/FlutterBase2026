@@ -750,6 +750,25 @@ class AdManager with WidgetsBindingObserver {
     ad.rewardedSlot.state.removeListener(_recomputeFullscreenBusy);
   }
 
+  /// T76 — the on-demand rewarded path (`_loadRewardedOnDemand`) already has
+  /// its own timeout; a REGULAR preload (`loadInterstitial`/`loadRewardedAd`/
+  /// `loadAppOpenAd`) had none — if the native SDK's callback never fires,
+  /// [slot] is stuck in [AdSlotState.loading] forever, never retried by the
+  /// existing backoff logic (which only reacts to [AdSlot.markFailed]).
+  ///
+  /// Only forces a fail if [slot] is STILL loading when the timer fires —
+  /// if the native callback already resolved it (ready or cooldown), this
+  /// is a no-op so a genuinely-loaded ad is never clobbered by a late timer.
+  void _armLoadWatchdog(String label, AdSlot slot, Duration timeout) {
+    if (!slot.isLoading) return;
+    Timer(timeout, () {
+      if (!slot.isLoading) return;
+      SafeLogger.w(_tag,
+          '⏱️ $label load watchdog fired after ${timeout.inSeconds}s — no native callback, forcing markFailed()');
+      slot.markFailed();
+    });
+  }
+
   /// Test seam for the consent gate.
   @visibleForTesting
   set debugCanRequestAds(bool v) => _canRequestAds = v;
@@ -2170,7 +2189,9 @@ class AdManager with WidgetsBindingObserver {
   //  touching the adapter.
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<void> loadAppOpenAd({void Function(bool loaded)? onAdLoaded}) async {
+  Future<void> loadAppOpenAd(
+      {void Function(bool loaded)? onAdLoaded,
+      Duration watchdog = const Duration(seconds: 30)}) async {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — adapter null');
@@ -2210,6 +2231,7 @@ class AdManager with WidgetsBindingObserver {
     // Adapter emits AdLoadEvent itself on listener fire — orchestrator only
     // forwards the boolean callback to the caller (avoids double-emit).
     await ad.loadAppOpen(onAdLoaded: onAdLoaded);
+    _armLoadWatchdog('appOpen', ad.appOpenSlot, watchdog);
   }
 
   Future<void> showAppOpenAd({
@@ -2401,7 +2423,8 @@ class AdManager with WidgetsBindingObserver {
   //  consent, safety) plus the optional arbitrator nudge-to-VIP veto.
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<void> loadInterstitial() async {
+  Future<void> loadInterstitial(
+      {Duration watchdog = const Duration(seconds: 30)}) async {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — adapter null');
@@ -2425,6 +2448,7 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     await ad.loadInterstitial();
+    _armLoadWatchdog('interstitial', ad.interstitialSlot, watchdog);
   }
 
   /// Show an interstitial. [placement] tags the call for analytics
@@ -2525,7 +2549,8 @@ class AdManager with WidgetsBindingObserver {
   //  (`bypassVipGuard`).
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<void> loadRewardedAd() async {
+  Future<void> loadRewardedAd(
+      {Duration watchdog = const Duration(seconds: 30)}) async {
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — adapter null');
@@ -2548,6 +2573,7 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     await ad.loadRewarded();
+    _armLoadWatchdog('rewarded', ad.rewardedSlot, watchdog);
   }
 
   /// Force-load a rewarded ad ignoring the VIP suppression and wait until it
