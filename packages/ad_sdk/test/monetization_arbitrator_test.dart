@@ -30,12 +30,16 @@ class _FakeAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
   final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   AdSlot bannerSlot(Object key) => _bannerSlot;
 
   int showInterstitialCalls = 0;
   int showRewardedCalls = 0;
+  int showRewardedInterstitialCalls = 0;
 
   @override
   String get tag => 'fake';
@@ -65,6 +69,22 @@ class _FakeAdapter implements AdProviderAdapter {
     showRewardedCalls++;
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
+    onDone(const RewardResult(earned: true, label: 'coins', amount: 1));
+  }
+
+  @override
+  Future<void> loadRewardedInterstitial() async {
+    rewardedInterstitialSlot.beginReload();
+    rewardedInterstitialSlot.markReady();
+  }
+
+  @override
+  Future<void> showRewardedInterstitial({
+    required void Function(RewardResult result) onDone,
+  }) async {
+    showRewardedInterstitialCalls++;
+    rewardedInterstitialSlot.beginShow();
+    rewardedInterstitialSlot.markDismissed();
     onDone(const RewardResult(earned: true, label: 'coins', amount: 1));
   }
 
@@ -256,6 +276,37 @@ void main() {
       expect(earned, isFalse);
       expect(adapter.showRewardedCalls, 0);
       expect(events.whereType<ArbitratorNudgeEvent>(), hasLength(1));
+
+      await sub.cancel();
+    });
+
+    test(
+        'showRewardedInterstitialAd (T89 slot): native show skipped, '
+        'ArbitratorNudgeEvent fires, onDone(false, false)', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      AdManager().enableArbitrator(arb);
+      AdManager().debugEmit(_rev(100));
+      await Future<void>.delayed(Duration.zero);
+
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+
+      bool? shown;
+      bool? earned;
+      await AdManager().showRewardedInterstitialAd(
+          onDone: (s, e) {
+            shown = s;
+            earned = e;
+          });
+
+      expect(shown, isFalse, reason: 'vetoed — signals "not shown"');
+      expect(earned, isFalse);
+      expect(adapter.showRewardedInterstitialCalls, 0,
+          reason: 'native show call must be skipped');
+      expect(events.whereType<ArbitratorNudgeEvent>(), hasLength(1));
+      expect(
+          events.whereType<ArbitratorNudgeEvent>().single.type,
+          AdSlotType.rewardedInterstitial);
 
       await sub.cancel();
     });

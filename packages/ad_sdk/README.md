@@ -1349,14 +1349,16 @@ exceeds `maxVetoRate`, the arbitrator forces `showAd` regardless of the
 eCPM/likelihood heuristic, and recovers automatically once the veto rate drops
 back down. A single warning logs the first time this trips per streak.
 
-`showInterstitial`/`showRewardedAd` only consult `arbitrator` when it's
-non-null — byte-for-byte no-op until `enableArbitrator` is called. When the
-arbitrator vetoes a show, the SDK emits an `ArbitratorNudgeEvent` (`type`,
-`placement`, `estimatedEcpmMicros`) on `AdManager().events` instead of
-showing the ad, so the host app can react with its own VIP upsell UI. The
-veto is skipped for the VIP watch-ad-to-extend-VIP bypass path
-(`bypassVipGuard: true`) — that flow is the user already spending their own
-time to earn more VIP, so vetoing it would defeat its purpose.
+`showInterstitial`/`showRewardedAd`/`showRewardedInterstitialAd` (T89's
+AdMob-only slot) only consult `arbitrator` when it's non-null — byte-for-byte
+no-op until `enableArbitrator` is called. When the arbitrator vetoes a show,
+the SDK emits an `ArbitratorNudgeEvent` (`type`, `placement`,
+`estimatedEcpmMicros`) on `AdManager().events` instead of showing the ad, so
+the host app can react with its own VIP upsell UI — the SDK never draws this
+UI itself, purely a signal (T99). The veto is skipped for the VIP
+watch-ad-to-extend-VIP bypass path (`bypassVipGuard: true`) — that flow is
+the user already spending their own time to earn more VIP, so vetoing it
+would defeat its purpose.
 
 There is no `disableArbitrator` for host apps — it exists only as a
 `@visibleForTesting` seam, since a session normally either wants the

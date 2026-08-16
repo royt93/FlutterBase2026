@@ -8,6 +8,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`monetization_arbitrator_test.dart` gains `showRewardedInterstitialAd`
+  veto coverage (T99).** The `onLowValueAdVetoed`-style hook the ticket asked
+  for already existed (`ArbitratorNudgeEvent` on `AdManager().events`, wired
+  at all 3 fullscreen show call sites since T89 added the rewarded-
+  interstitial slot) — this closes the one real gap, a missing test for the
+  rewarded-interstitial veto path, and documents `showRewardedInterstitialAd`
+  explicitly in the README's arbitrator section.
 - **Runtime integration doctor — `AdManager.runIntegrationSelfCheck` extended
   (T98).** Flagship: 3 new read-only checks — "Navigator key wired" (fails if
   `setNavigatorKey` was never called), "Route observer wired" (real evidence
