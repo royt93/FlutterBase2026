@@ -236,4 +236,77 @@ void main() {
     expect(prefs.getLegacyVipEntriesRawChecksumValidated(), isNotNull,
         reason: 'legacy value must survive a failed migration attempt');
   });
+
+  // T71 — some devices (cheap/custom ROMs) have a permanently broken
+  // Keystore: `_writeSecure` fails every time, not just transiently. Before
+  // this fix, T59 correctly stopped that from being recorded as "migrated",
+  // but there was still nowhere else to persist the grant at all — it only
+  // ever lived in memory for the current app run.
+  group('fallback storage (T71)', () {
+    test(
+        'setRaw: secure write fails repeatedly → grant still readable via '
+        'fallback storage on a later getRaw()', () async {
+      final storage = _MockSecureStorage();
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => null);
+      when(() => storage.write(
+              key: any(named: 'key'), value: any(named: 'value')))
+          .thenThrow(StateError('keystore permanently unavailable'));
+      final store = VipEntriesStore(prefs, secureStorage: storage);
+
+      await store.setRaw('[{"key":"FALLBACK_GRANT"}]');
+
+      // A fresh store instance (simulating the next app launch) must still
+      // recover the grant, purely from AdPreferences fallback — secure
+      // storage never had it and never will on this device.
+      final relaunched = VipEntriesStore(prefs, secureStorage: storage);
+      expect(await relaunched.getRaw(), '[{"key":"FALLBACK_GRANT"}]');
+    });
+
+    test(
+        'fallback data is not marked as a completed secure migration '
+        '(T59 invariant preserved)', () async {
+      final storage = _MockSecureStorage();
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => null);
+      when(() => storage.write(
+              key: any(named: 'key'), value: any(named: 'value')))
+          .thenThrow(StateError('keystore unavailable'));
+      final store = VipEntriesStore(prefs, secureStorage: storage);
+
+      await store.setRaw('[{"key":"A"}]');
+
+      expect(prefs.isVipEntriesSecureMigrated(), isFalse,
+          reason: 'must stay retriable — a fallback write is not a real '
+              'secure-storage migration');
+    });
+
+    test(
+        'once Keystore recovers, a successful secure write clears the '
+        'stale fallback copy', () async {
+      final storage = _MockSecureStorage();
+      var shouldFail = true;
+      String? persisted;
+      when(() => storage.write(
+              key: any(named: 'key'), value: any(named: 'value')))
+          .thenAnswer((invocation) async {
+        if (shouldFail) throw StateError('keystore unavailable');
+        persisted = invocation.namedArguments[#value] as String;
+      });
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => persisted);
+      final store = VipEntriesStore(prefs, secureStorage: storage);
+
+      await store.setRaw('[{"key":"OLD"}]'); // Keystore broken → fallback
+      expect(prefs.getVipEntriesFallbackRaw(), isNotNull);
+
+      shouldFail = false;
+      await store.setRaw('[{"key":"NEW"}]'); // Keystore recovers
+
+      expect(prefs.getVipEntriesFallbackRaw(), isNull,
+          reason: 'a successful secure write must drop the now-stale '
+              'fallback copy');
+      expect(await store.getRaw(), '[{"key":"NEW"}]');
+    });
+  });
 }

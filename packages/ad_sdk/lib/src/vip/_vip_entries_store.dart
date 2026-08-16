@@ -43,6 +43,14 @@ class VipEntriesStore {
     final secure = await _readSecure();
     if (secure != null) return secure;
 
+    // T71 — some devices have a permanently broken Keystore: `setRaw()`
+    // falls back to AdPreferences (checksum-prefixed) whenever the secure
+    // write fails. Check it before the one-time legacy-migration logic
+    // below, since a device whose Keystore never works will also never
+    // complete that migration (`_writeSecure` fails there identically).
+    final fallback = _legacyPrefs.getVipEntriesFallbackRaw();
+    if (fallback != null) return fallback;
+
     if (_legacyPrefs.isVipEntriesSecureMigrated()) {
       // Migration already ran — secure storage being empty here is a
       // legitimate "no VIP" state, never fall back to the legacy key again.
@@ -64,6 +72,11 @@ class VipEntriesStore {
       if (wrote) {
         await _legacyPrefs.markVipEntriesSecureMigrated();
         await _legacyPrefs.clearLegacyVipEntriesRaw();
+      } else {
+        // T71 — Keystore broken on this device: preserve the data via
+        // fallback storage too, so it's still readable even though secure
+        // storage never got it (and never will, on this device).
+        await _legacyPrefs.setVipEntriesFallbackRaw(legacy);
       }
     }
     return legacy;
@@ -82,7 +95,16 @@ class VipEntriesStore {
     //
     // Idempotent: a fresh install whose first VIP action is a write (not a
     // read) shouldn't later pay the legacy-fallback check on its first load().
-    if (wrote) await _legacyPrefs.markVipEntriesSecureMigrated();
+    if (wrote) {
+      await _legacyPrefs.markVipEntriesSecureMigrated();
+      // T71 — Keystore just recovered (or always worked): drop any stale
+      // fallback copy so a future getRaw() doesn't prefer outdated data.
+      await _legacyPrefs.clearVipEntriesFallbackRaw();
+    } else {
+      // T71 — Keystore broken: fall back to AdPreferences (checksum-
+      // prefixed) so a legitimate VIP grant isn't lost entirely.
+      await _legacyPrefs.setVipEntriesFallbackRaw(json);
+    }
   }
 
   Future<String?> _readSecure() async {

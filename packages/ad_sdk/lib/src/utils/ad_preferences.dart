@@ -197,6 +197,39 @@ class AdPreferences {
     await _prefs?.setBool(_keyVipEntriesSecureMigrated, true);
   }
 
+  // T71 — some Android devices (cheap/custom ROMs with a broken Keystore)
+  // can't read/write flutter_secure_storage at all. Distinct key from the
+  // legacy one above (that one is a one-time migration source with its own
+  // "trust bare JSON once" semantics); this is an ongoing fallback landing
+  // spot `VipEntriesStore` writes to whenever its secure write fails, so a
+  // legitimate VIP grant isn't lost entirely on such a device. Same
+  // checksum scheme as the legacy value — a light tamper deterrent, not
+  // encryption (this device's Keystore is already known broken).
+  static const String _keyVipEntriesFallback = 'ad_sdk_vip_entries_fallback_v1';
+
+  Future<void> setVipEntriesFallbackRaw(String json) async {
+    final checksum = _vipEntriesChecksum(json);
+    await _prefs?.setString(_keyVipEntriesFallback, '$checksum|$json');
+  }
+
+  String? getVipEntriesFallbackRaw() {
+    final payload = _prefs?.getString(_keyVipEntriesFallback);
+    if (payload == null) return null;
+    final sep = payload.indexOf('|');
+    if (sep == -1) return null;
+    final raw = payload.substring(sep + 1);
+    if (payload.substring(0, sep) != _vipEntriesChecksum(raw)) {
+      SafeLogger.w(
+          _tag, 'VIP entries fallback checksum mismatch — ignoring as tampered');
+      return null;
+    }
+    return raw;
+  }
+
+  Future<void> clearVipEntriesFallbackRaw() async {
+    await _prefs?.remove(_keyVipEntriesFallback);
+  }
+
   bool isVipMigrated() => _prefs?.getBool(_keyVipMigrated) ?? false;
 
   Future<void> markVipMigrated() async {
