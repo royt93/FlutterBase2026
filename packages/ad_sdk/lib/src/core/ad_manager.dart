@@ -503,7 +503,9 @@ class AdManager with WidgetsBindingObserver {
   final Map<Object, int> _lastBannerLoadAtByKey = {};
   static const int _bannerLoadCooldownMs = 5000;
 
-  int _lastMrecLoadAt = 0;
+  // T65 (phase 3) — keyed by widget instance, same reasoning as banner's
+  // _lastBannerLoadAtByKey.
+  final Map<Object, int> _lastMrecLoadAtByKey = {};
   static const int _mrecLoadCooldownMs = 5000;
 
   // T65 (phase 1) — keyed by widget instance. This is a per-slot reload
@@ -526,6 +528,9 @@ class AdManager with WidgetsBindingObserver {
   // value is preserved for the tested behavior this replaces (reconnect
   // must still trigger a preload attempt even with zero widgets mounted).
   static final Object _globalBannerWarmupKey = Object();
+
+  /// T65 (phase 3) — same rationale as [_globalBannerWarmupKey], for MREC.
+  static final Object _globalMrecWarmupKey = Object();
 
   bool _retryTimerActive = false;
   int _retryGen = 0;
@@ -762,7 +767,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam: same as [debugResetBannerCooldown] but for MREC.
   @visibleForTesting
-  void debugResetMrecCooldown() => _lastMrecLoadAt = 0;
+  void debugResetMrecCooldown() => _lastMrecLoadAtByKey.clear();
 
   /// Test seam: same as [debugResetBannerCooldown] but for Native.
   @visibleForTesting
@@ -979,40 +984,54 @@ class AdManager with WidgetsBindingObserver {
 
   // ─── MREC accessors used by MrecAdWidget ─────────────────────────────────
 
-  bool canLoadMrec() {
-    if (_lastMrecLoadAt == 0) return true;
-    return DateTime.now().millisecondsSinceEpoch - _lastMrecLoadAt >=
-        _mrecLoadCooldownMs;
+  // T65 (phase 3) — keyed by widget instance, same reasoning as banner's
+  // canLoadBanner.
+  bool canLoadMrec(Object key) {
+    final last = _lastMrecLoadAtByKey[key];
+    if (last == null) return true;
+    return DateTime.now().millisecondsSinceEpoch - last >= _mrecLoadCooldownMs;
   }
 
-  void recordMrecLoad() {
-    _lastMrecLoadAt = DateTime.now().millisecondsSinceEpoch;
+  void recordMrecLoad(Object key) {
+    _lastMrecLoadAtByKey[key] = DateTime.now().millisecondsSinceEpoch;
   }
 
-  ValueListenable<bool> get mrecIsLoaded =>
-      _adapter?.mrec.isLoaded ?? _stubBoolFalse;
+  ValueListenable<bool> mrecIsLoaded(Object key) =>
+      _adapter?.mrec(key).isLoaded ?? _stubBoolFalse;
 
-  ValueListenable<bool> get mrecHasError =>
-      _adapter?.mrec.hasError ?? _stubBoolFalse;
+  ValueListenable<bool> mrecHasError(Object key) =>
+      _adapter?.mrec(key).hasError ?? _stubBoolFalse;
 
-  ValueListenable<Size?> get mrecAdSize => _adapter?.mrec.adSize ?? _stubSize;
+  ValueListenable<Size?> mrecAdSize(Object key) =>
+      _adapter?.mrec(key).adSize ?? _stubSize;
 
-  ValueListenable<bool> get mrecAutoRefreshEnabled =>
-      _adapter?.mrec.autoRefreshEnabled ?? _stubBoolTrue;
+  ValueListenable<bool> mrecAutoRefreshEnabled(Object key) =>
+      _adapter?.mrec(key).autoRefreshEnabled ?? _stubBoolTrue;
 
-  ValueListenable<bool> get mrecVisible =>
-      _adapter?.mrec.visible ?? _stubBoolTrue;
+  ValueListenable<bool> mrecVisible(Object key) =>
+      _adapter?.mrec(key).visible ?? _stubBoolTrue;
 
-  ValueListenable<Object?> get mrecAdViewId =>
-      _adapter?.appLovinMrecAdViewId ?? _stubObject;
+  ValueListenable<Object?> mrecAdViewId(Object key) =>
+      _adapter?.appLovinMrecAdViewId(key) ?? _stubObject;
 
   String get appLovinMrecId => _adapter?.appLovinMrecId ?? '';
 
-  bool get mrecRoutePaused => _adapter?.mrecRoutePaused ?? false;
+  bool mrecRoutePaused(Object key) => _adapter?.mrecRoutePaused(key) ?? false;
 
-  void setMrecRoutePaused(bool paused) => _adapter?.setMrecRoutePaused(paused);
+  void setMrecRoutePaused(Object key, bool paused) =>
+      _adapter?.setMrecRoutePaused(key, paused);
 
-  Widget? get admobMrecView => _adapter?.buildAdmobMrecView();
+  Widget? admobMrecView(Object key) => _adapter?.buildAdmobMrecView(key);
+
+  /// AppLovin only — AdMob's MREC loads lazily via [loadAdmobMrecIfNeeded]
+  /// once the widget knows its width; this is a no-op there.
+  Future<void> preloadMrec(Object key) =>
+      _adapter?.preloadMrec(key) ?? Future<void>.value();
+
+  void disposeMrecInstance(Object key) {
+    _adapter?.disposeMrecInstance(key);
+    _lastMrecLoadAtByKey.remove(key);
+  }
 
   // ─── Native accessors used by NativeAdWidget ─────────────────────────────
 
@@ -1493,7 +1512,7 @@ class AdManager with WidgetsBindingObserver {
         // proactive warm-up uses the shared sentinel key (see its doc
         // comment for the accepted trade-off vs a real widget's own key).
         unawaited(adapter.preloadBanner(_globalBannerWarmupKey));
-        unawaited(adapter.preloadMrec());
+        unawaited(adapter.preloadMrec(_globalMrecWarmupKey));
       }
 
       _scheduleFirstSecondaryLoad();
@@ -1568,7 +1587,7 @@ class AdManager with WidgetsBindingObserver {
     // T65 (phase 2) — no widget key at this call site; shares the sentinel
     // key (see its doc comment).
     unawaited(ad.preloadBanner(_globalBannerWarmupKey));
-    unawaited(ad.preloadMrec());
+    unawaited(ad.preloadMrec(_globalMrecWarmupKey));
   }
 
   /// Attach listeners to the three fullscreen slots so we can record the real
@@ -2739,11 +2758,11 @@ class AdManager with WidgetsBindingObserver {
   //  "MREC/Native accessors" sections near the top of the class.
   // ──────────────────────────────────────────────────────────────────────────
 
-  Future<void> loadAdmobMrecIfNeeded(double widthPx) async {
+  Future<void> loadAdmobMrecIfNeeded(Object key, double widthPx) async {
     final ad = _adapter;
     if (ad == null) return;
     if (_isVipMember || !isConnected) return;
-    await ad.loadMrecIfNeeded(widthPx);
+    await ad.loadMrecIfNeeded(key, widthPx);
   }
 
   Future<void> loadAdmobNativeIfNeeded(Object key) async {

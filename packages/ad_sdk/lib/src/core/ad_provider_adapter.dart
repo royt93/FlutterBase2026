@@ -113,7 +113,14 @@ abstract class AdProviderAdapter {
   /// recovering every stuck slot after a platform crash.
   Iterable<AdSlot> get bannerSlots;
 
-  AdSlot get mrecSlot;
+  /// T65 (phase 3) — keyed by widget instance, same pattern/rationale as
+  /// [bannerSlot]. Call [disposeMrecInstance] when the owning widget
+  /// unmounts.
+  AdSlot mrecSlot(Object key);
+
+  /// Every currently-tracked mrec [AdSlot] (one per still-mounted
+  /// [MrecAdWidget] instance). Same rationale as [bannerSlots].
+  Iterable<AdSlot> get mrecSlots;
 
   /// T65 (phase 1) — keyed by widget instance so multiple simultaneous
   /// [NativeAdWidget]s each get independent slot state, instead of one
@@ -127,7 +134,7 @@ abstract class AdProviderAdapter {
   BannerListenables banner(Object key);
 
   /// MREC reactive listenables for the [MrecAdWidget] tree.
-  BannerListenables get mrec;
+  BannerListenables mrec(Object key);
 
   /// Native reactive listenables for the [NativeAdWidget] tree, keyed by
   /// widget instance (see [nativeSlot]). Only [BannerListenables.isLoaded]/
@@ -236,31 +243,39 @@ abstract class AdProviderAdapter {
   void disposeBannerInstance(Object key);
 
   // ─── MREC ──────────────────────────────────────────────────────────────────
+  // T65 (phase 3) — every mrec method is keyed by widget instance, mirroring
+  // banner (phase 2) exactly: MREC uses the same BannerListenables bundle and
+  // had the identical singleton bug on both providers.
 
-  /// AppLovin: preload widget-AdView. AdMob: no-op (MREC loads on widget mount).
-  Future<void> preloadMrec();
+  /// AppLovin: preload widget-AdView for this [key]. AdMob: no-op (MREC
+  /// loads on widget mount, via [loadMrecIfNeeded]).
+  Future<void> preloadMrec(Object key);
 
   /// AdMob only: triggered when [MrecAdWidget] mounts and reports its width.
   /// MREC is a FIXED 300x250 size — [widthPx] is accepted for interface
   /// parity with [loadBannerIfNeeded] but ignored (no adaptive-size lookup).
-  Future<void> loadMrecIfNeeded(double widthPx);
+  Future<void> loadMrecIfNeeded(Object key, double widthPx);
 
-  /// AdMob: returns the live MREC widget, or null if none. AppLovin: always
-  /// returns null — UI side renders [MaxAdView] from [appLovinMrecId] +
-  /// [appLovinMrecAdViewId] notifier.
-  Widget? buildAdmobMrecView();
+  /// AdMob: returns the live MREC widget for [key], or null if none.
+  /// AppLovin: always returns null — UI side renders [MaxAdView] from
+  /// [appLovinMrecId] + [appLovinMrecAdViewId].
+  Widget? buildAdmobMrecView(Object key);
 
-  /// AppLovin only: notifies the platform that the user moved off-route so
-  /// auto-refresh should pause.
-  void setMrecRoutePaused(bool paused);
-  bool get mrecRoutePaused;
+  /// AppLovin only: notifies the platform that [key]'s widget moved
+  /// off-route so its auto-refresh should pause.
+  void setMrecRoutePaused(Object key, bool paused);
+  bool mrecRoutePaused(Object key);
 
   /// AppLovin only: ad-unit ID used by the [MrecAdWidget]'s `MaxAdView`.
   String? get appLovinMrecId;
 
-  /// AppLovin only: ID returned by `preloadWidgetAdView`. Drives whether
-  /// `MaxAdView` mounts.
-  ValueListenable<Object?> get appLovinMrecAdViewId;
+  /// AppLovin only: ID returned by `preloadWidgetAdView` for [key]. Drives
+  /// whether that instance's `MaxAdView` mounts.
+  ValueListenable<Object?> appLovinMrecAdViewId(Object key);
+
+  /// Release [key]'s mrec ad/slot/listenables/adViewId. Call from
+  /// [MrecAdWidget]'s `dispose()`.
+  void disposeMrecInstance(Object key);
 
   // ─── Native ────────────────────────────────────────────────────────────────
 

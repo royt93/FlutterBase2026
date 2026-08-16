@@ -205,23 +205,61 @@ class AdMobAdapter implements AdProviderAdapter {
     _bannerRoutePausedByKey.remove(key);
   }
 
+  // T65 (phase 3) — one AdSlot/BannerListenables per MrecAdWidget instance,
+  // same pattern as banner (phase 2).
+  final Map<Object, AdSlot> _mrecSlotsByKey = {};
+  final Map<Object, BannerListenables> _mrecListenablesByKey = {};
+  bool _mrecDisposed = false;
+  AdSlot? _disposedMrecSlot;
+  BannerListenables? _disposedMrecListenables;
+
+  AdSlot _mrecSlotFor(Object key) {
+    if (_mrecDisposed) {
+      return _disposedMrecSlot ??= (AdSlot(type: AdSlotType.mrec)..dispose());
+    }
+    return _mrecSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.mrec));
+  }
+
+  BannerListenables _mrecListenablesFor(Object key) {
+    if (_mrecDisposed) {
+      return _disposedMrecListenables ??= (BannerListenables(
+        isLoaded: ValueNotifier<bool>(false),
+        hasError: ValueNotifier<bool>(false),
+        adSize: ValueNotifier<Size?>(null),
+        autoRefreshEnabled: ValueNotifier<bool>(true),
+        visible: ValueNotifier<bool>(true),
+      )..dispose());
+    }
+    return _mrecListenablesByKey.putIfAbsent(
+        key,
+        () => BannerListenables(
+              isLoaded: ValueNotifier<bool>(false),
+              hasError: ValueNotifier<bool>(false),
+              adSize: ValueNotifier<Size?>(null),
+              autoRefreshEnabled: ValueNotifier<bool>(true),
+              visible: ValueNotifier<bool>(true),
+            ));
+  }
+
   @override
-  final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
+  AdSlot mrecSlot(Object key) => _mrecSlotFor(key);
+
+  @override
+  Iterable<AdSlot> get mrecSlots => _mrecSlotsByKey.values;
+
+  @override
+  BannerListenables mrec(Object key) => _mrecListenablesFor(key);
+
+  @override
+  void disposeMrecInstance(Object key) {
+    _mrecAdsByKey.remove(key)?.dispose();
+    _mrecSlotsByKey.remove(key)?.dispose();
+    _mrecListenablesByKey.remove(key)?.dispose();
+  }
 
   // T65 (phase 1) — one AdSlot per NativeAdWidget instance (see nativeSlot()
   // below), instead of one shared across every mounted widget.
   final Map<Object, AdSlot> _nativeSlotsByKey = {};
-
-  // ─── MREC listenables ─────────────────────────────────────────────────────
-
-  @override
-  final BannerListenables mrec = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
 
   // ─── Native listenables ───────────────────────────────────────────────────
   // adSize/autoRefreshEnabled/visible are unused stubs — native ads have no
@@ -291,8 +329,10 @@ class AdMobAdapter implements AdProviderAdapter {
   // T65 (phase 2) — one BannerAd per BannerAdWidget instance, same reasoning
   // as native's _nativeAdsByKey.
   final Map<Object, BannerAd> _bannerAdsByKey = {};
-  BannerAd?
-      _mrecAd; // MREC also uses the native BannerAd API, with AdSize.mediumRectangle
+  // T65 (phase 3) — one BannerAd per MrecAdWidget instance, same reasoning as
+  // banner's _bannerAdsByKey. MREC also uses the native BannerAd API, with
+  // AdSize.mediumRectangle.
+  final Map<Object, BannerAd> _mrecAdsByKey = {};
   // T65 (phase 1) — one NativeAd per NativeAdWidget instance, instead of one
   // shared across every mounted widget (was the root cause of the "This
   // AdWidget is already in the Widget tree" crash with 2+ simultaneous
@@ -333,21 +373,23 @@ class AdMobAdapter implements AdProviderAdapter {
   static final ValueNotifier<Object?> _appLovinAdViewIdStub =
       ValueNotifier<Object?>(null);
 
-  bool _mrecRoutePaused = false;
+  // T65 (phase 3) — one flag per MrecAdWidget instance, mirroring banner.
+  final Map<Object, bool> _mrecRoutePausedByKey = {};
 
   @override
-  bool get mrecRoutePaused => _mrecRoutePaused;
+  bool mrecRoutePaused(Object key) => _mrecRoutePausedByKey[key] ?? false;
 
   @override
-  void setMrecRoutePaused(bool paused) {
-    _mrecRoutePaused = paused;
+  void setMrecRoutePaused(Object key, bool paused) {
+    _mrecRoutePausedByKey[key] = paused;
   }
 
   @override
   String? get appLovinMrecId => null; // AdMob only
 
   @override
-  ValueListenable<Object?> get appLovinMrecAdViewId => _appLovinAdViewIdStub;
+  ValueListenable<Object?> appLovinMrecAdViewId(Object key) =>
+      _appLovinAdViewIdStub;
 
   @override
   String? get appLovinNativeId => null; // AdMob only
@@ -401,12 +443,14 @@ class AdMobAdapter implements AdProviderAdapter {
       }
     }
     _bannerAdsByKey.clear();
-    try {
-      _mrecAd?.dispose();
-    } catch (e) {
-      SafeLogger.w(_logTag, 'mrec dispose threw: $e');
+    for (final ad in _mrecAdsByKey.values) {
+      try {
+        ad.dispose();
+      } catch (e) {
+        SafeLogger.w(_logTag, 'mrec dispose threw: $e');
+      }
     }
-    _mrecAd = null;
+    _mrecAdsByKey.clear();
     for (final ad in _nativeAdsByKey.values) {
       try {
         ad.dispose();
@@ -430,7 +474,9 @@ class AdMobAdapter implements AdProviderAdapter {
     for (final slot in _bannerSlotsByKey.values) {
       slot.reset();
     }
-    mrecSlot.reset();
+    for (final slot in _mrecSlotsByKey.values) {
+      slot.reset();
+    }
     for (final slot in _nativeSlotsByKey.values) {
       slot.reset();
     }
@@ -444,12 +490,14 @@ class AdMobAdapter implements AdProviderAdapter {
     }
     _bannerRoutePausedByKey.clear();
 
-    mrec.isLoaded.value = false;
-    mrec.hasError.value = false;
-    mrec.adSize.value = null;
-    mrec.autoRefreshEnabled.value = true;
-    mrec.visible.value = true;
-    _mrecRoutePaused = false;
+    for (final l in _mrecListenablesByKey.values) {
+      l.isLoaded.value = false;
+      l.hasError.value = false;
+      l.adSize.value = null;
+      l.autoRefreshEnabled.value = true;
+      l.visible.value = true;
+    }
+    _mrecRoutePausedByKey.clear();
 
     // This adapter instance is discarded after dispose() — a fresh one is
     // constructed on the next initialize() — so it's safe to permanently
@@ -464,8 +512,11 @@ class AdMobAdapter implements AdProviderAdapter {
       disposeBannerInstance(key);
     }
     _bannerDisposed = true;
-    mrecSlot.dispose();
-    mrec.dispose();
+    // T65 (phase 3) — same pattern as banner above.
+    for (final key in _mrecSlotsByKey.keys.toList()) {
+      disposeMrecInstance(key);
+    }
+    _mrecDisposed = true;
     // T65 (phase 1) — dispose every NativeAdWidget instance's slot/ad/
     // listenables (already cleared _nativeAdsByKey above); disposeNativeInstance
     // mutates the maps, so snapshot the keys first.
@@ -1170,7 +1221,7 @@ class AdMobAdapter implements AdProviderAdapter {
   // ──────────────────────────────────────────────────────────────────────────
 
   @override
-  Future<void> preloadMrec() async {
+  Future<void> preloadMrec(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1189,7 +1240,7 @@ class AdMobAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> loadMrecIfNeeded(double widthPx) async {
+  Future<void> loadMrecIfNeeded(Object key, double widthPx) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1205,22 +1256,24 @@ class AdMobAdapter implements AdProviderAdapter {
     }
     final cfg = _admob;
     if (cfg == null) return;
-    if (_mrecAd != null) {
+    if (_mrecAdsByKey.containsKey(key)) {
       SafeLogger.d(_logTag, 'loadMrec $tag ⏭️ already cached');
       return;
     }
+    final slot = _mrecSlotFor(key);
+    final listenables = _mrecListenablesFor(key);
     // Same beginLoad-before-create ordering as banner — see loadBannerIfNeeded.
-    if (!mrecSlot.beginLoad()) {
+    if (!slot.beginLoad()) {
       SafeLogger.d(
           _logTag, 'loadMrec $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
-    mrec.isLoaded.value = false;
+    listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadMrec $tag 🔄');
     try {
       // MREC is a FIXED 300x250 size — no adaptive-size lookup (unlike banner).
       const size = AdSize.mediumRectangle;
-      _mrecAd = BannerAd(
+      _mrecAdsByKey[key] = BannerAd(
         adUnitId: cfg.mrecId,
         size: size,
         request: AdRequest(
@@ -1231,11 +1284,11 @@ class AdMobAdapter implements AdProviderAdapter {
           onPaidEvent: _paidEventForMrec(AdPlacement.unspecified),
           onAdLoaded: (ad) {
             SafeLogger.d(_logTag, 'loadMrec $tag ✅');
-            mrec.isLoaded.value = true;
-            mrec.hasError.value = false;
-            mrec.adSize.value =
+            listenables.isLoaded.value = true;
+            listenables.hasError.value = false;
+            listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
-            mrecSlot.markReady();
+            slot.markReady();
             AdSafetyConfig.recordBannerImpression();
             _emit(AdLoadEvent(
               providerTag: tag,
@@ -1249,10 +1302,10 @@ class AdMobAdapter implements AdProviderAdapter {
             try {
               ad.dispose();
             } catch (_) {}
-            _mrecAd = null;
-            mrec.isLoaded.value = false;
-            mrec.hasError.value = true;
-            mrecSlot.markFailed();
+            _mrecAdsByKey.remove(key);
+            listenables.isLoaded.value = false;
+            listenables.hasError.value = true;
+            slot.markFailed();
             _emit(AdLoadEvent(
               providerTag: tag,
               type: AdSlotType.mrec,
@@ -1275,14 +1328,14 @@ class AdMobAdapter implements AdProviderAdapter {
       )..load();
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadMrec $tag THREW: $e\n$st');
-      mrec.hasError.value = true;
-      mrecSlot.markFailed();
+      listenables.hasError.value = true;
+      slot.markFailed();
     }
   }
 
   @override
-  Widget? buildAdmobMrecView() {
-    final ad = _mrecAd;
+  Widget? buildAdmobMrecView(Object key) {
+    final ad = _mrecAdsByKey[key];
     if (ad == null) return null;
     return SizedBox(
       width: ad.size.width.toDouble(),
@@ -1403,8 +1456,10 @@ class AdMobAdapter implements AdProviderAdapter {
         l.visible.value = false;
       }
     }
-    if (_mrecAd != null) {
-      mrec.visible.value = false;
+    if (_mrecAdsByKey.isNotEmpty) {
+      for (final l in _mrecListenablesByKey.values) {
+        l.visible.value = false;
+      }
     }
   }
 
@@ -1447,12 +1502,16 @@ class AdMobAdapter implements AdProviderAdapter {
     }
 
     // Mirror for MREC — width doesn't matter (fixed size) but loadMrecIfNeeded
-    // still accepts it for interface parity.
-    if (mrec.hasError.value && _mrecAd == null) {
-      mrec.hasError.value = false;
-      loadMrecIfNeeded(0);
-    } else if (_mrecAd != null) {
-      mrec.visible.value = true;
+    // still accepts it for interface parity. T65 (phase 3): every known
+    // instance key, not just a single shared one.
+    for (final key in _mrecListenablesByKey.keys.toList()) {
+      final listenables = _mrecListenablesByKey[key]!;
+      if (listenables.hasError.value && !_mrecAdsByKey.containsKey(key)) {
+        listenables.hasError.value = false;
+        loadMrecIfNeeded(key, 0);
+      } else if (_mrecAdsByKey.containsKey(key)) {
+        listenables.visible.value = true;
+      }
     }
 
     // Mirror for Native — preloadNative() takes no width, unlike

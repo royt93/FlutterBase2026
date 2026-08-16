@@ -490,10 +490,12 @@ void main() {
           throwsFlutterError);
       expect(() => a.appLovinBannerAdViewId('k').addListener(() {}),
           throwsFlutterError);
-      expect(() => a.mrecSlot.state.addListener(() {}), throwsFlutterError);
-      expect(() => a.mrec.isLoaded.addListener(() {}), throwsFlutterError);
-      expect(
-          () => a.appLovinMrecAdViewId.addListener(() {}), throwsFlutterError);
+      expect(() => a.mrecSlot('k').state.addListener(() {}),
+          throwsFlutterError);
+      expect(() => a.mrec('k').isLoaded.addListener(() {}),
+          throwsFlutterError);
+      expect(() => a.appLovinMrecAdViewId('k').addListener(() {}),
+          throwsFlutterError);
       expect(() => a.nativeSlot('k').state.addListener(() {}),
           throwsFlutterError);
       expect(() => a.native('k').isLoaded.addListener(() {}),
@@ -572,6 +574,22 @@ void main() {
       expect(adapter.banner('b').hasError.value, isFalse);
       expect(adapter.banner('healthy').hasError.value, isFalse,
           reason: 'a key that never errored must be untouched');
+    });
+  });
+
+  group('AppLovinAdapter mrec (keyed)', () {
+    // T65 (phase 3) — same guarantee as banner: two different MrecAdWidget
+    // keys must not share BannerListenables.
+    test('two different keys get independent BannerListenables', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      a.mrec('a').isLoaded.value = true;
+
+      expect(a.mrec('b').isLoaded.value, isFalse,
+          reason: 'key "b" must not see key "a" isLoaded=true');
     });
   });
 }

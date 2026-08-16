@@ -18,16 +18,16 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   AdSlot bannerSlot(Object key) => _bannerSlot;
+  final AdSlot _mrecSlot = AdSlot(type: AdSlotType.mrec);
   @override
-  final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
+  AdSlot mrecSlot(Object key) => _mrecSlot;
 
   // T65 (phase 1) — keyed by widget instance, mirroring the real adapters.
   final Map<Object, AdSlot> nativeSlotsByKey = {};
   final Map<Object, BannerListenables> nativeListenablesByKey = {};
   int loadNativeCalls = 0;
 
-  @override
-  final BannerListenables mrec = BannerListenables(
+  final BannerListenables _mrec = BannerListenables(
     isLoaded: ValueNotifier<bool>(false),
     hasError: ValueNotifier<bool>(false),
     adSize: ValueNotifier<Size?>(null),
@@ -68,9 +68,11 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   @override
   String? get appLovinNativeId => 'native-id';
   @override
-  Future<void> loadMrecIfNeeded(double widthPx) async {}
+  BannerListenables mrec(Object key) => _mrec;
   @override
-  Future<void> preloadMrec() async {}
+  Future<void> loadMrecIfNeeded(Object key, double widthPx) async {}
+  @override
+  Future<void> preloadMrec(Object key) async {}
   // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
   @override
   Future<void> preloadBanner(Object key) async {}
@@ -81,7 +83,7 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async {}
   @override
-  Widget? buildAdmobMrecView() => null;
+  Widget? buildAdmobMrecView(Object key) => null;
   @override
   void applyConsent(AdConsent consent) {}
   @override

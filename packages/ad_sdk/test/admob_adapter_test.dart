@@ -101,9 +101,9 @@ void main() {
       expect(
           () => adapter.banner('k').isLoaded.addListener(() {}), throwsFlutterError);
       expect(
-          () => adapter.mrecSlot.state.addListener(() {}), throwsFlutterError);
+          () => adapter.mrecSlot('k').state.addListener(() {}), throwsFlutterError);
       expect(
-          () => adapter.mrec.isLoaded.addListener(() {}), throwsFlutterError);
+          () => adapter.mrec('k').isLoaded.addListener(() {}), throwsFlutterError);
       expect(() => adapter.nativeSlot('k').state.addListener(() {}),
           throwsFlutterError);
       expect(() => adapter.native('k').isLoaded.addListener(() {}),
@@ -137,6 +137,35 @@ void main() {
       expect(adapter.bannerSlots.length, 1,
           reason: 'only key "b" remains tracked after disposing "a"');
       expect(adapter.bannerSlot('b').isLoading, isTrue,
+          reason: 'disposing key "a" must not touch key "b"');
+    });
+  });
+
+  group('AdMobAdapter mrec slot', () {
+    // T65 (phase 3) — same guarantee as banner/native: two different keys
+    // must not share AdSlot/BannerListenables state.
+    test('two different keys get independent AdSlot/BannerListenables', () {
+      final adapter = AdMobAdapter();
+      adapter.mrecSlot('a').beginLoad();
+      adapter.mrecSlot('a').markReady();
+      adapter.mrec('a').isLoaded.value = true;
+
+      expect(adapter.mrecSlot('b').value, AdSlotState.idle,
+          reason: 'key "b" must start idle, unaffected by key "a" loading');
+      expect(adapter.mrec('b').isLoaded.value, isFalse,
+          reason: 'key "b" must not see key "a" isLoaded=true');
+    });
+
+    test('disposeMrecInstance releases that key without affecting others', () {
+      final adapter = AdMobAdapter();
+      adapter.mrecSlot('a').beginLoad();
+      adapter.mrecSlot('b').beginLoad();
+
+      adapter.disposeMrecInstance('a');
+
+      expect(adapter.mrecSlots.length, 1,
+          reason: 'only key "b" remains tracked after disposing "a"');
+      expect(adapter.mrecSlot('b').isLoading, isTrue,
           reason: 'disposing key "a" must not touch key "b"');
     });
   });

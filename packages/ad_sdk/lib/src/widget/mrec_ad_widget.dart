@@ -85,18 +85,21 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
       SafeLogger.d(_tag, '_initMrec ⏭️ offline');
       return;
     }
-    if (!mgr.canLoadMrec()) {
+    if (!mgr.canLoadMrec(this)) {
       SafeLogger.d(_tag, '_initMrec ⏭️ cooldown');
       return;
     }
-    mgr.recordMrecLoad();
+    mgr.recordMrecLoad(this);
     _allowed.value = true;
 
     if (mgr.isAdMobProvider) {
       final width = MediaQuery.of(ctx).size.width;
-      mgr.loadAdmobMrecIfNeeded(width);
+      mgr.loadAdmobMrecIfNeeded(this, width);
     } else {
-      SafeLogger.d(_tag, '_initMrec [AppLovin] uses preloaded view');
+      // T65 (phase 3) — each MrecAdWidget instance now triggers its own
+      // keyed preload on mount, mirroring BannerAdWidget.
+      SafeLogger.d(_tag, '_initMrec [AppLovin] preloading own instance');
+      mgr.preloadMrec(this);
     }
   }
 
@@ -106,7 +109,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void didPush() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
-      mgr.setMrecRoutePaused(false);
+      mgr.setMrecRoutePaused(this, false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _setAppLovinAutoRefresh(true);
@@ -124,7 +127,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void didPushNext() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
-      mgr.setMrecRoutePaused(true);
+      mgr.setMrecRoutePaused(this, true);
       _setAppLovinAutoRefresh(false);
     } else if (_admobIsTop.value) {
       _admobIsTop.value = false;
@@ -136,7 +139,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void didPopNext() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
-      mgr.setMrecRoutePaused(false);
+      mgr.setMrecRoutePaused(this, false);
       _setAppLovinAutoRefresh(true);
     } else if (!_admobIsTop.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -156,14 +159,16 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void _setAppLovinAutoRefresh(bool enabled) {
     final adapter = AdManager().adapter;
     if (adapter == null) return;
-    if (adapter.mrec.autoRefreshEnabled.value != enabled) {
-      adapter.mrec.autoRefreshEnabled.value = enabled;
+    final listenables = adapter.mrec(this);
+    if (listenables.autoRefreshEnabled.value != enabled) {
+      listenables.autoRefreshEnabled.value = enabled;
     }
   }
 
   @override
   void dispose() {
     if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
+    AdManager().disposeMrecInstance(this);
     _admobIsTop.dispose();
     _initStarted.dispose();
     _allowed.dispose();
@@ -217,30 +222,30 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
       builder: (context, isTop, _) {
         if (!isTop) {
           return ValueListenableBuilder<Size?>(
-            valueListenable: AdManager().mrecAdSize,
+            valueListenable: AdManager().mrecAdSize(this),
             builder: (context, size, _) =>
                 SizedBox(height: (size?.height ?? 250) + 16),
           );
         }
         return ValueListenableBuilder<bool>(
-          valueListenable: AdManager().mrecHasError,
+          valueListenable: AdManager().mrecHasError(this),
           builder: (context, hasError, _) {
             if (hasError) return const SizedBox.shrink();
             return ValueListenableBuilder<bool>(
-              valueListenable: AdManager().mrecVisible,
+              valueListenable: AdManager().mrecVisible(this),
               builder: (context, visible, _) {
                 if (!visible) {
                   return ValueListenableBuilder<Size?>(
-                    valueListenable: AdManager().mrecAdSize,
+                    valueListenable: AdManager().mrecAdSize(this),
                     builder: (context, size, _) =>
                         SizedBox(height: (size?.height ?? 250) + 16),
                   );
                 }
                 return _MrecContainer(
-                  isLoaded: AdManager().mrecIsLoaded,
-                  adSize: AdManager().mrecAdSize,
+                  isLoaded: AdManager().mrecIsLoaded(this),
+                  adSize: AdManager().mrecAdSize(this),
                   child: () {
-                    final view = AdManager().admobMrecView;
+                    final view = AdManager().admobMrecView(this);
                     return view ?? const SizedBox.shrink();
                   },
                 );
@@ -256,20 +261,20 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
 
   Widget _buildAppLovin() {
     return ValueListenableBuilder<bool>(
-      valueListenable: AdManager().mrecHasError,
+      valueListenable: AdManager().mrecHasError(this),
       builder: (context, hasError, _) {
         if (hasError) return const SizedBox.shrink();
         return ValueListenableBuilder<Object?>(
-          valueListenable: AdManager().mrecAdViewId,
+          valueListenable: AdManager().mrecAdViewId(this),
           builder: (context, adViewId, _) {
             if (adViewId == null) return const _ShimmerOnlyMrecContainer();
             return _MrecContainer(
-              isLoaded: AdManager().mrecIsLoaded,
-              adSize: AdManager().mrecAdSize,
+              isLoaded: AdManager().mrecIsLoaded(this),
+              adSize: AdManager().mrecAdSize(this),
               child: () => _AppLovinMaxMrecView(
                 adViewId: adViewId as AdViewId,
                 mrecId: AdManager().appLovinMrecId,
-                autoRefresh: AdManager().mrecAutoRefreshEnabled,
+                autoRefresh: AdManager().mrecAutoRefreshEnabled(this),
               ),
             );
           },

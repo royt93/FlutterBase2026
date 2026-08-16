@@ -19,26 +19,42 @@ class _MrecCountingAdapter implements AdProviderAdapter {
   final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   AdSlot bannerSlot(Object key) => _bannerSlot;
-  @override
-  final AdSlot mrecSlot = AdSlot(type: AdSlotType.mrec);
-
+  // T65 (phase 3) — keyed by widget instance, mirroring the real adapters.
+  final Map<Object, AdSlot> mrecSlotsByKey = {};
+  final Map<Object, BannerListenables> mrecListenablesByKey = {};
   int loadMrecCalls = 0;
 
   @override
-  final BannerListenables mrec = BannerListenables(
-    isLoaded: ValueNotifier<bool>(false),
-    hasError: ValueNotifier<bool>(false),
-    adSize: ValueNotifier<Size?>(null),
-    autoRefreshEnabled: ValueNotifier<bool>(true),
-    visible: ValueNotifier<bool>(true),
-  );
+  AdSlot mrecSlot(Object key) =>
+      mrecSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.mrec));
+
+  @override
+  Iterable<AdSlot> get mrecSlots => mrecSlotsByKey.values;
+
+  @override
+  BannerListenables mrec(Object key) => mrecListenablesByKey.putIfAbsent(
+      key,
+      () => BannerListenables(
+            isLoaded: ValueNotifier<bool>(false),
+            hasError: ValueNotifier<bool>(false),
+            adSize: ValueNotifier<Size?>(null),
+            autoRefreshEnabled: ValueNotifier<bool>(true),
+            visible: ValueNotifier<bool>(true),
+          ));
+
+  @override
+  void disposeMrecInstance(Object key) {
+    mrecSlotsByKey.remove(key);
+    mrecListenablesByKey.remove(key);
+  }
 
   @override
   String get tag => 'counting';
   @override
-  Future<void> loadMrecIfNeeded(double widthPx) async => loadMrecCalls++;
+  Future<void> loadMrecIfNeeded(Object key, double widthPx) async =>
+      loadMrecCalls++;
   @override
-  Future<void> preloadMrec() async {}
+  Future<void> preloadMrec(Object key) async {}
   // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
   @override
   Future<void> preloadBanner(Object key) async {}
@@ -49,7 +65,8 @@ class _MrecCountingAdapter implements AdProviderAdapter {
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async {}
   @override
-  Widget? buildAdmobMrecView() => null; // placeholder path, no native view
+  Widget? buildAdmobMrecView(Object key) =>
+      null; // placeholder path, no native view
   @override
   void applyConsent(AdConsent consent) {}
   @override
@@ -93,9 +110,6 @@ void main() {
       'AdMob mrec mounted on an already-current route (never pushed) '
       'still renders the ad, not the placeholder', (tester) async {
     final adapter = _MrecCountingAdapter();
-    adapter.mrec.isLoaded.value = true;
-    adapter.mrec.visible.value = true;
-    adapter.mrec.adSize.value = const Size(300, 250);
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _admobConfig;
     AdManager().debugCanRequestAds = true;
@@ -107,6 +121,14 @@ void main() {
 
     await tester.pumpWidget(host(const MrecAdWidget()));
     await tester.pump(const Duration(milliseconds: 50));
+
+    // T65: the widget only owns its (keyed) listenables once mounted —
+    // simulate the load completing for its instance.
+    final listenables = adapter.mrecListenablesByKey.values.single;
+    listenables.isLoaded.value = true;
+    listenables.visible.value = true;
+    listenables.adSize.value = const Size(300, 250);
+    await tester.pump();
 
     expect(find.text('Ad'), findsOneWidget,
         reason: 'a mrec on an already-current route must render '
@@ -123,6 +145,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(MrecAdWidget), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  // T65 — before the keyed refactor, two simultaneous MrecAdWidgets on
+  // AdMob shared one adapter-level BannerAd/AdSlot/BannerListenables bundle
+  // (MREC reuses banner's native BannerAd API) and would crash the same way.
+  testWidgets(
+      'two simultaneous MrecAdWidgets on AdMob get independent slots, '
+      'no crash', (tester) async {
+    final adapter = _MrecCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetMrecCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const SingleChildScrollView(
+      child: Column(
+        children: [MrecAdWidget(), MrecAdWidget()],
+      ),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(MrecAdWidget), findsNWidgets(2));
+    expect(adapter.mrecListenablesByKey.length, 2,
+        reason:
+            'each widget instance must get its own BannerListenables, not share one');
+    expect(adapter.loadMrecCalls, 2,
+        reason: 'each widget triggers its own load');
+    expect(tester.takeException(), isNull);
+
+    // One instance finishing loading must not affect the other.
+    adapter.mrecListenablesByKey.values.first.isLoaded.value = true;
+    await tester.pump();
+    final loadedStates =
+        adapter.mrecListenablesByKey.values.map((l) => l.isLoaded.value);
+    expect(loadedStates, containsAllInOrder([true, false]),
+        reason: 'flipping one instance loaded must not flip the other');
     expect(tester.takeException(), isNull);
   });
 
