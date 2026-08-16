@@ -6,6 +6,45 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+
+- **[Security] VIP-key revocation list (CRL, T95) missing domain separation
+  from VIP keys — caught by internal audit, 2026-08-16.** `verifySignedCrl`
+  and `verifySignedVipKey` both verified an Ed25519 signature over the raw
+  payload bytes with no format tag mixed in. A CRL's payload shape
+  (`<issuedAtEpoch>|<kids>`) is identical to an AVP1 VIP key's shape
+  (`<seconds>|<kid>`) — since a CRL is *designed* to be broadcast publicly
+  (no secrecy requirement), anyone who observed a real signed CRL could
+  relabel its prefix from `CRL1` to `AVP1` and redeem it as a real VIP key
+  valid for however many "seconds" the CRL's `issuedAt` epoch happened to
+  equal (tens of years). Fixed by signing/verifying `"CRL1|" + payload`
+  instead of the payload alone for CRLs specifically — AVP1/AVP2 signing is
+  deliberately left untouched (changing it would break every VIP key a host
+  app has already minted and distributed; CRL had not shipped yet, so no
+  migration is needed for it either). `tool/vip_crl_mint.dart` updated to
+  match, and now also sanitizes `|` out of `--kids` like `vip_mint.dart`
+  already does for `--kid`. 2 new regression tests in
+  `test/vip_revocation_test.dart` lock in both directions (CRL→AVP1 and
+  AVP1→CRL1 relabeling both now rejected).
+- **`AdManager.enableFillRateBaselineMonitor` race leaked the loser of two
+  overlapping calls — caught by internal audit, 2026-08-16.** The method
+  awaits `AdPreferences.getInstance()` before constructing its monitor;
+  calling it twice without awaiting the first left whichever call resolved
+  first's instance orphaned (its `AdManager().events` subscription never
+  cancelled, silently persisting to `SharedPreferences` forever) once the
+  second call's assignment overwrote the field. Fixed with a generation
+  token so only the call that resolves *last* wins, and any loser disposes
+  its own instance instead of leaking it; `disableFillRateBaselineMonitor`
+  and `destroy()` also bump the token so an in-flight `enable` call can't
+  resurrect a monitor after either wins. 3 new tests in the new
+  `test/ad_manager_fill_rate_baseline_test.dart`.
+- **`AdManager`'s ATT doctor check (T98) had no upper bound on a hung
+  platform channel — caught by internal audit, 2026-08-16.** `_selfCheckAtt`
+  now wraps the read in `.timeout(const Duration(seconds: 5))` — every
+  `runIntegrationSelfCheck` item is awaited sequentially, so a channel that
+  never completes would otherwise hang the entire doctor run indefinitely
+  instead of failing just this one item.
+
 ### Added
 
 - **`NativeAdWidget` gate-recheck behavior locked in by regression tests

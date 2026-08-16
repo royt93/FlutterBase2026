@@ -247,6 +247,15 @@ class VipRevocationList {
 
 const String _prefixCrl = 'CRL1';
 
+/// The ACTUAL bytes signed/verified for a CRL — `"CRL1|"` prepended to the
+/// raw payload, so a CRL's signature can never be replayed as a valid AVP1
+/// key signature over the same payload bytes. Kept in sync with
+/// `tool/vip_crl_mint.dart`, which duplicates this transformation (tool
+/// scripts are deliberately dependency-free from this Flutter-adjacent
+/// file — see that file's own comment).
+Uint8List _crlSignedMessage(Uint8List payload) =>
+    Uint8List.fromList([...utf8.encode('$_prefixCrl|'), ...payload]);
+
 /// Verify an **offline signed** VIP-key revocation list against
 /// [publicKeyBase64] (same comma-separated Ed25519 rotation-key format
 /// [verifySignedVipKey] accepts — the same private key mints both keys and
@@ -255,6 +264,19 @@ const String _prefixCrl = 'CRL1';
 ///
 /// Payload is `<issuedAtEpochSeconds>|<comma-separated kid list>`. Throws
 /// [VipKeyException] when malformed or the signature doesn't verify.
+///
+/// **Domain separation**: what's actually signed/verified is
+/// `"$_prefixCrl|"` prepended to the raw payload bytes, NOT the payload
+/// alone — otherwise a genuine, publicly-broadcast CRL (this format has no
+/// secrecy requirement by design) could be relabeled with the `AVP1` prefix
+/// and redeemed as a real VIP key: CRL's `<issuedAt>|<kids>` shape splits
+/// into exactly 2 pipe-delimited fields, identical to AVP1's
+/// `<seconds>|<kid>` shape, and [verifySignedVipKey] verifies the SAME raw
+/// payload bytes with no prefix mixed into the signed message. AVP1/AVP2
+/// deliberately do NOT get this same treatment — that would change what
+/// already-minted, already-shipped VIP keys sign over, breaking every key a
+/// host app has already distributed. Only CRL1 is new (never shipped
+/// before this fix), so only its signing scheme needs to change.
 Future<VipRevocationList> verifySignedCrl(
   String code, {
   required String publicKeyBase64,
@@ -272,6 +294,7 @@ Future<VipRevocationList> verifySignedCrl(
   } catch (_) {
     throw const VipKeyException('bad base64');
   }
+  final signedMessage = _crlSignedMessage(payload);
 
   final keys = publicKeyBase64
       .split(',')
@@ -290,7 +313,7 @@ Future<VipRevocationList> verifySignedCrl(
     }
     if (pubBytes.length != 32) continue;
     ok = await _ed25519.verify(
-      payload,
+      signedMessage,
       signature: Signature(
         sig,
         publicKey: SimplePublicKey(pubBytes, type: KeyPairType.ed25519),

@@ -49,7 +49,10 @@ void main() {
     required List<String> kids,
   }) async {
     final payload = utf8.encode('$issuedAtEpoch|${kids.join(',')}');
-    final sig = await ed.sign(payload, keyPair: kp);
+    // Domain-separated: sign "CRL1|" + payload, not payload alone — see
+    // signed_vip_key.dart's _crlSignedMessage doc comment for why.
+    final signedMessage = utf8.encode('CRL1|') + payload;
+    final sig = await ed.sign(signedMessage, keyPair: kp);
     return 'CRL1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
   }
 
@@ -135,6 +138,53 @@ void main() {
           reason: 'should reject "$bad"',
         );
       }
+    });
+
+    // Security regression: a CRL is designed to be broadcast PUBLICLY (any
+    // device fetches it, no secrecy requirement), so if its signature were
+    // over the raw payload alone (no domain separation from the VIP-key
+    // format), anyone who observed one could relabel its prefix from CRL1
+    // to AVP1 and redeem it as a real VIP key — a CRL's
+    // "<issuedAtEpoch>|<kids>" shape splits into exactly the same 2
+    // pipe-delimited fields as AVP1's "<seconds>|<kid>" shape.
+    test(
+        'a genuine CRL cannot be relabeled as an AVP1 key and redeemed for '
+        'VIP (domain separation)', () async {
+      final crl = await mintCrl(keyPair,
+          issuedAtEpoch: 1766000000, kids: ['whatever']);
+      final parts = crl.split('.');
+      final forgedAsVipKey = 'AVP1.${parts[1]}.${parts[2]}';
+
+      expect(
+        () => verifySignedVipKey(forgedAsVipKey, publicKeyBase64: pub),
+        throwsA(isA<VipKeyException>()),
+        reason:
+            "a CRL's signature must not verify as a valid AVP1 key signature "
+            'over the same payload bytes',
+      );
+    });
+
+    test(
+        'a genuine AVP1 VIP key cannot be relabeled as a CRL and applied as '
+        'a revocation list', () async {
+      // AVP1's raw "<seconds>|<kid>" shape is the exact 2-field shape that
+      // collides with CRL's "<issuedAt>|<kids>" — mint the actual AVP1
+      // format directly (mintVipKey above mints AVP2, which isn't the
+      // colliding shape).
+      final avp1Payload = utf8.encode('3600|x');
+      final avp1Sig = await ed.sign(avp1Payload, keyPair: keyPair);
+      final vipKey =
+          'AVP1.${base64Url.encode(avp1Payload)}.${base64Url.encode(avp1Sig.bytes)}';
+      final parts = vipKey.split('.');
+      final forgedAsCrl = 'CRL1.${parts[1]}.${parts[2]}';
+
+      expect(
+        () => verifySignedCrl(forgedAsCrl, publicKeyBase64: pub),
+        throwsA(isA<VipKeyException>()),
+        reason:
+            'an AVP1 key signature must not verify as a valid CRL signature '
+            'over the same payload bytes',
+      );
     });
   });
 

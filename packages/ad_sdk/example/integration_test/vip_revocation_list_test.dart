@@ -60,7 +60,10 @@ void main() {
     Future<String> mintCrl(
         {required int issuedAtEpoch, required List<String> kids}) async {
       final payload = utf8.encode('$issuedAtEpoch|${kids.join(',')}');
-      final sig = await ed.sign(payload, keyPair: keyPair);
+      // Domain-separated: sign "CRL1|" + payload, not payload alone — see
+      // signed_vip_key.dart's _crlSignedMessage doc comment for why.
+      final signedMessage = utf8.encode('CRL1|') + payload;
+      final sig = await ed.sign(signedMessage, keyPair: keyPair);
       return 'CRL1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
     }
 

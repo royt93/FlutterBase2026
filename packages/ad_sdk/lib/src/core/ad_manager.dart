@@ -387,26 +387,51 @@ class AdManager with WidgetsBindingObserver {
   FillRateBaselineMonitor? get fillRateBaselineMonitor =>
       _fillRateBaselineMonitor;
 
+  /// Guards the race below — bumped by every [enableFillRateBaselineMonitor]
+  /// / [disableFillRateBaselineMonitor] call so a call that started earlier
+  /// can detect a later one already won and dispose its own (otherwise
+  /// orphaned) instance instead of overwriting the field.
+  int _fillRateBaselineMonitorGen = 0;
+
   /// Opt in to the fill-rate/eCPM baseline regression detector. Needs
   /// `AdPreferences` (internal, hence `async` rather than host-constructed
   /// like [enableFillRateMonitor]) — safe to call any time after
   /// `initialize()`.
+  ///
+  /// Safe to call twice back-to-back without awaiting the first call: the
+  /// `await AdPreferences.getInstance()` below is a real suspension point,
+  /// so two overlapping calls could otherwise both read the OLD
+  /// `_fillRateBaselineMonitor` before either writes the new one — the
+  /// loser's instance would replace the field without ever disposing the
+  /// winner's, leaking its `AdManager().events` subscription forever. The
+  /// generation token below makes whichever call's `await` resolves LAST
+  /// win, and makes the other dispose its own (now-orphaned) instance
+  /// instead.
   Future<void> enableFillRateBaselineMonitor({
     double regressionThreshold = 0.2,
     int minSamples = 5,
   }) async {
-    _fillRateBaselineMonitor?.dispose();
+    final myGen = ++_fillRateBaselineMonitorGen;
     final prefs = await AdPreferences.getInstance();
-    _fillRateBaselineMonitor = FillRateBaselineMonitor(
+    final monitor = FillRateBaselineMonitor(
       prefs,
       regressionThreshold: regressionThreshold,
       minSamples: minSamples,
     );
+    if (myGen != _fillRateBaselineMonitorGen) {
+      // A later call (or disableFillRateBaselineMonitor) already won while
+      // we were awaiting — don't clobber it, and don't leak this instance.
+      monitor.dispose();
+      return;
+    }
+    _fillRateBaselineMonitor?.dispose();
+    _fillRateBaselineMonitor = monitor;
   }
 
   /// Test/host seam: clear a previously-enabled baseline monitor.
   @visibleForTesting
   void disableFillRateBaselineMonitor() {
+    _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;
   }
@@ -531,13 +556,20 @@ class AdManager with WidgetsBindingObserver {
   /// broken iOS embed early. Deliberately does NOT call
   /// `requestTrackingAuthorization()` — that shows the real system prompt,
   /// which a passive diagnostic must never trigger as a side effect.
+  ///
+  /// Bounded by an explicit `.timeout(...)` — unlike `_selfCheckLoad`'s
+  /// `AdLoadEvent` wait, a hung platform channel here has no other signal to
+  /// race against, and every item in `runIntegrationSelfCheck` is awaited
+  /// sequentially, so a channel that never completes would otherwise hang
+  /// the entire self-check indefinitely instead of just this one item.
   Future<SelfCheckItem> _selfCheckAtt() async {
     if (!Platform.isIOS) {
       return const SelfCheckItem(
           'ATT status readable (iOS)', SelfCheckStatus.skipped, 'not iOS');
     }
     try {
-      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      final status = await AppTrackingTransparency.trackingAuthorizationStatus
+          .timeout(const Duration(seconds: 5));
       return SelfCheckItem('ATT status readable (iOS)', SelfCheckStatus.pass,
           'current=${status.name}');
     } catch (e) {
@@ -2312,6 +2344,7 @@ class AdManager with WidgetsBindingObserver {
     _arbitrator = null;
     _fillRateMonitor?.dispose();
     _fillRateMonitor = null;
+    _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;
 

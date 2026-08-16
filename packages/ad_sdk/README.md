@@ -1451,8 +1451,8 @@ diag.toJson();                       // hand to a partner/reviewer
 ```
 
 `AdManager.runIntegrationSelfCheck()` is a **debug-only** "integration
-doctor" checklist (init → consent → navigator key → route observer → ATT
-plugin → per-ad-type load → VIP wiring) so a partner integrating the SDK
+doctor" checklist (init → consent → per-ad-type load → VIP wiring →
+navigator key → route observer → ATT plugin) so a partner integrating the SDK
 doesn't have to manually click through every demo page to confirm their
 `AdConfig` and app-level wiring both work on their device. It's a no-op
 returning a single `skipped` item outside debug builds, and deliberately
