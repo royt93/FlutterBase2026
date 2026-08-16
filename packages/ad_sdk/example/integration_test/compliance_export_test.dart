@@ -46,6 +46,30 @@ void main() {
     expect(report.toJsonString(), contains('"generatedAt"'));
   });
 
+  // T96 (smoke test, 2026-08-16) — exportSignedComplianceReport signs via
+  // flutter_secure_storage (real Keychain/Keystore on-device, unlike the
+  // fake in-memory storage every unit test uses). First call also pays the
+  // one-time key-mint + persist cost — a genuine platform-channel round
+  // trip that unit tests can't exercise at all.
+  testWidgets(
+      'exportSignedComplianceReport signs against real secure storage and '
+      'verifies', (tester) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+
+    final signed = await AdManager().exportSignedComplianceReport();
+    final bundleJson = signed.toJsonString();
+
+    expect(await verifySignedComplianceReportJson(bundleJson), isTrue);
+
+    // Signing again on the SAME device must reuse the SAME persisted key —
+    // proves the secure-storage round trip actually persisted, not just
+    // minted a throwaway in-memory key for this one call.
+    final signedAgain = await AdManager().exportSignedComplianceReport();
+    expect(signedAgain.publicKeyBase64, signed.publicKeyBase64);
+  });
+
   testWidgets('Compliance report demo page generates a report on-device',
       (tester) async {
     // Tall synthetic viewport: HomePage's ListView is a lazy Sliver under the
