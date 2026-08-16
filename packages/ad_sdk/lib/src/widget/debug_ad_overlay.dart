@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
+import '../monetization/fill_rate_baseline_monitor.dart';
 import '../state/ad_slot.dart';
 
 /// Small floating panel showing realtime SDK state — only renders when
@@ -153,6 +156,7 @@ class _Panel extends StatelessWidget {
                 'init=${AdManager().isInitialised}  '
                 'splash=${AdManager().isSplashActive}',
               ),
+              const _FillRateRegressionRows(),
             ],
           ),
         ),
@@ -189,4 +193,57 @@ class _SlotRows extends StatelessWidget {
         builder: (context, state, _) => Text(
             '$label ${state.name.padRight(9)} fails=${slot.consecutiveFailures}'),
       );
+}
+
+/// T97 — renders any active `FillRateBaselineMonitor` regression alerts.
+/// Empty (renders nothing) when the monitor is disabled or nothing is
+/// currently regressed — never adds a "no alerts" placeholder line.
+class _FillRateRegressionRows extends StatefulWidget {
+  const _FillRateRegressionRows();
+
+  @override
+  State<_FillRateRegressionRows> createState() =>
+      _FillRateRegressionRowsState();
+}
+
+class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
+  StreamSubscription<FillRateRegressionAlert>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = AdManager().fillRateBaselineMonitor?.alerts.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final alerts = AdManager().fillRateBaselineMonitor?.activeAlerts ?? const {};
+    if (alerts.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final alert in alerts.values)
+            Text(
+              '⚠️ ${alert.type.name} '
+              '${alert.fillRateRegressed ? 'fill ${(alert.sessionFillRate * 100).toStringAsFixed(0)}% '
+                  'vs 7d ${(alert.baselineFillRate * 100).toStringAsFixed(0)}%' : ''}'
+              '${alert.fillRateRegressed && alert.revenueRegressed ? '  ' : ''}'
+              '${alert.revenueRegressed ? 'rev ${alert.sessionAvgRevenueMicros} '
+                  'vs 7d ${alert.baselineAvgRevenueMicros}µ' : ''}',
+              style: const TextStyle(color: Colors.orangeAccent),
+            ),
+        ],
+      ),
+    );
+  }
 }

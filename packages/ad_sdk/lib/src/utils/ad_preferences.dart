@@ -364,6 +364,70 @@ class AdPreferences {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
+  // ─── Fill-rate/eCPM 7-day baseline (T97) ─────────────────────────────────
+  // One JSON blob keyed by ISO date ('YYYY-MM-DD') then AdSlotType.name,
+  // each holding {attempts, successes, revenueMicros, revenueCount}. Pruned
+  // to the last [_fillRateBaselineDays] on every read — same "one blob,
+  // rolled over lazily on access" shape as the per-placement counts above,
+  // just keyed by day instead of by placement.
+
+  static const String _keyFillRateBaselineHistory =
+      'ad_sdk_fill_rate_baseline_history_v1';
+  static const int _fillRateBaselineDays = 7;
+
+  /// `{date: {slotTypeName: {attempts, successes, revenueMicros,
+  /// revenueCount}}}`, already pruned to the last [_fillRateBaselineDays]
+  /// calendar days. Corrupt storage degrades to an empty history (no
+  /// baseline to compare against, never a fabricated one).
+  Map<String, Map<String, Map<String, int>>> getFillRateBaselineHistory() {
+    final raw = _prefs?.getString(_keyFillRateBaselineHistory);
+    if (raw == null) return {};
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final cutoff =
+          DateTime.now().subtract(const Duration(days: _fillRateBaselineDays));
+      final result = <String, Map<String, Map<String, int>>>{};
+      decoded.forEach((date, perType) {
+        final parsed = DateTime.tryParse(date);
+        if (parsed == null || parsed.isBefore(cutoff)) return;
+        final typeMap = <String, Map<String, int>>{};
+        (perType as Map<String, dynamic>).forEach((type, counts) {
+          typeMap[type] = (counts as Map<String, dynamic>)
+              .map((k, v) => MapEntry(k, v as int));
+        });
+        result[date] = typeMap;
+      });
+      return result;
+    } catch (e) {
+      SafeLogger.w(_tag, 'discarding corrupt fill-rate baseline history: $e');
+      return {};
+    }
+  }
+
+  /// Adds today's [attempts]/[successes]/[revenueMicros]/[revenueCount] deltas
+  /// (each defaulting to 0 — callers pass only what changed) onto today's
+  /// bucket for [slotTypeName], creating it if absent.
+  Future<void> recordFillRateBaselineSample({
+    required String slotTypeName,
+    int attempts = 0,
+    int successes = 0,
+    int revenueMicros = 0,
+    int revenueCount = 0,
+  }) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final history = getFillRateBaselineHistory(); // already pruned
+    final todayMap = Map<String, Map<String, int>>.from(history[today] ?? {});
+    final existing = Map<String, int>.from(todayMap[slotTypeName] ??
+        {'attempts': 0, 'successes': 0, 'revenueMicros': 0, 'revenueCount': 0});
+    existing['attempts'] = (existing['attempts'] ?? 0) + attempts;
+    existing['successes'] = (existing['successes'] ?? 0) + successes;
+    existing['revenueMicros'] = (existing['revenueMicros'] ?? 0) + revenueMicros;
+    existing['revenueCount'] = (existing['revenueCount'] ?? 0) + revenueCount;
+    todayMap[slotTypeName] = existing;
+    history[today] = todayMap;
+    await _prefs?.setString(_keyFillRateBaselineHistory, jsonEncode(history));
+  }
+
   // ─── VIP key revocation list (CRL) cache — T95 ───────────────────────────
   // Caches the RAW signed CRL code (not the parsed plaintext) so it gets
   // re-verified against the Ed25519 public key on every read — never trust

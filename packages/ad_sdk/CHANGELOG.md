@@ -8,6 +8,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **`FillRateBaselineMonitor` — 7-day on-device fill-rate/eCPM regression
+  detector (T97).** Flagship: `AdManager().enableFillRateBaselineMonitor(...)`
+  compares THIS SESSION's fill rate and average revenue-per-ad
+  (`AdRevenueEvent.valueMicros`) against a rolling 7-calendar-day baseline
+  persisted locally — fully on-device, no backend, no shadow ad requests.
+  Fires an alert once per slot the first time it regresses by at least
+  `regressionThreshold` (default 20%) below the device's own baseline, needs
+  `minSamples` on both sides before trusting a comparison, and excludes
+  today's own in-progress day from its own baseline. Wired into
+  `AdDiagnostics.fillRateRegressionBySlot` and rendered directly in the
+  built-in `DebugAdOverlay`.
 - **Cryptographically-signed compliance report export — `AdManager.exportSignedComplianceReport` (T96).**
   Flagship: wraps the existing `exportComplianceReport` bundle with an
   on-device Ed25519 signature (key minted once per install, persisted via

@@ -37,6 +37,7 @@ export 'src/core/att_consent.dart'
 
 // Monetization (opt-in Smart Monetization Arbitrator + fill-rate monitor)
 export 'src/monetization/ad_diagnostics.dart';
+export 'src/monetization/fill_rate_baseline_monitor.dart';
 export 'src/monetization/fill_rate_monitor.dart';
 export 'src/monetization/monetization_arbitrator.dart';
 // Re-export Google's UMP enums, and TemplateType (T73 — NativeAdWidget's

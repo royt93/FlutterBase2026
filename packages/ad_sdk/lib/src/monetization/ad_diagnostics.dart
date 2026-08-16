@@ -1,16 +1,18 @@
 import '../state/ad_slot.dart';
+import 'fill_rate_baseline_monitor.dart';
 
-/// One-shot snapshot combining the 3 monetization signals that otherwise
-/// live in separate opt-in subsystems — mediation waterfall, fill rate, and
-/// arbitrator veto stats — so a partner can answer "why is eCPM low today"
-/// without cross-referencing 3 different pages. Built by
-/// `AdManager.diagnostics()`.
+/// One-shot snapshot combining the monetization signals that otherwise live
+/// in separate opt-in subsystems — mediation waterfall, fill rate, 7-day
+/// baseline regressions, and arbitrator veto stats — so a partner can answer
+/// "why is eCPM low today" without cross-referencing several different
+/// pages. Built by `AdManager.diagnostics()`.
 class AdDiagnostics {
   const AdDiagnostics({
     required this.lastWaterfallBySlot,
     required this.fillRateBySlot,
     this.arbitratorEstimatedEcpmMicros,
     this.arbitratorVetoRate,
+    this.fillRateRegressionBySlot = const {},
   });
 
   /// Most recent `AdRevenueEvent.mediationWaterfall` seen per slot (from the
@@ -29,12 +31,27 @@ class AdDiagnostics {
   /// `null` if `AdManager.arbitrator` is disabled.
   final double? arbitratorVetoRate;
 
+  /// T97 — active fill-rate/eCPM regression alerts vs. this device's own
+  /// trailing 7-day baseline, keyed by slot. Empty if
+  /// `AdManager.fillRateBaselineMonitor` is disabled OR nothing is currently
+  /// regressed.
+  final Map<AdSlotType, FillRateRegressionAlert> fillRateRegressionBySlot;
+
   Map<String, dynamic> toJson() => {
         'lastWaterfallBySlot':
             lastWaterfallBySlot.map((k, v) => MapEntry(k.name, v)),
         'fillRateBySlot': fillRateBySlot.map((k, v) => MapEntry(k.name, v)),
         'arbitratorEstimatedEcpmMicros': arbitratorEstimatedEcpmMicros,
         'arbitratorVetoRate': arbitratorVetoRate,
+        'fillRateRegressionBySlot': fillRateRegressionBySlot.map((k, v) =>
+            MapEntry(k.name, {
+              'sessionFillRate': v.sessionFillRate,
+              'baselineFillRate': v.baselineFillRate,
+              'sessionAvgRevenueMicros': v.sessionAvgRevenueMicros,
+              'baselineAvgRevenueMicros': v.baselineAvgRevenueMicros,
+              'fillRateRegressed': v.fillRateRegressed,
+              'revenueRegressed': v.revenueRegressed,
+            })),
       };
 
   /// Pure indexing helper — the most recent `AdRevenueEvent.mediationWaterfall`

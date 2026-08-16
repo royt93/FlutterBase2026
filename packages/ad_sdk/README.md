@@ -1396,6 +1396,42 @@ outage.
 There is no `disableFillRateMonitor` for host apps — same reasoning as the
 arbitrator above, it's a `@visibleForTesting` seam only.
 
+### 7-day fill-rate/eCPM baseline regression detector (T97)
+
+`FillRateMonitor` above only ever looks at the current session (a trailing
+rolling window). `FillRateBaselineMonitor` answers a different question:
+**"is THIS session unusually bad compared to what this exact device normally
+sees?"** — entirely on-device, no backend, no shadow ad requests, consistent
+with the SDK's offline-first design elsewhere (VIP Ed25519 signing, the
+client-side safety layer).
+
+```dart
+await AdManager().enableFillRateBaselineMonitor(
+  regressionThreshold: 0.2, // session metric 20%+ worse than baseline → alert
+  minSamples: 5,            // need at least 5 samples on BOTH sides to compare
+);
+
+AdManager().fillRateBaselineMonitor?.alerts.listen((alert) {
+  // alert.type, alert.sessionFillRate, alert.baselineFillRate,
+  // alert.sessionAvgRevenueMicros, alert.baselineAvgRevenueMicros,
+  // alert.fillRateRegressed, alert.revenueRegressed
+});
+
+// One-shot snapshot (what the debug overlay renders):
+AdManager().fillRateBaselineMonitor?.activeAlerts;
+```
+
+It persists a rolling 7-calendar-day history per `AdSlotType` (attempts,
+successes, and average revenue-per-ad from `AdRevenueEvent.valueMicros`)
+locally via `AdPreferences`, and compares it against THIS session's tally so
+far — excluding today's own in-progress day from the baseline, so a session
+never gets (dis)compared against itself. Needs `minSamples` on both sides
+before it trusts a comparison, and — like `FillRateMonitor` — fires once per
+slot on a new regression, then stays quiet while it persists. Already wired
+into `AdManager.diagnostics()` (`fillRateRegressionBySlot`) and the built-in
+`DebugAdOverlay`, so enabling it is the only integration step needed to see
+it in the panel.
+
 ## Diagnostics & integration self-check
 
 `AdManager.diagnostics()` is a one-shot, read-only snapshot that combines the

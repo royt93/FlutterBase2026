@@ -21,6 +21,7 @@ import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
 import '../consent/consent_settings.dart';
 import '../monetization/ad_diagnostics.dart';
+import '../monetization/fill_rate_baseline_monitor.dart';
 import '../monetization/fill_rate_monitor.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
@@ -375,6 +376,40 @@ class AdManager with WidgetsBindingObserver {
     _fillRateMonitor = null;
   }
 
+  /// Opt-in 7-day fill-rate/eCPM baseline regression detector (T97, default
+  /// OFF) — `null` unless [enableFillRateBaselineMonitor] was called.
+  /// Compares this session against this device's own persisted trailing
+  /// 7-day history; see [FillRateBaselineMonitor]'s doc comment.
+  FillRateBaselineMonitor? _fillRateBaselineMonitor;
+
+  /// `null` by default — see [enableFillRateBaselineMonitor].
+  FillRateBaselineMonitor? get fillRateBaselineMonitor =>
+      _fillRateBaselineMonitor;
+
+  /// Opt in to the fill-rate/eCPM baseline regression detector. Needs
+  /// `AdPreferences` (internal, hence `async` rather than host-constructed
+  /// like [enableFillRateMonitor]) — safe to call any time after
+  /// `initialize()`.
+  Future<void> enableFillRateBaselineMonitor({
+    double regressionThreshold = 0.2,
+    int minSamples = 5,
+  }) async {
+    _fillRateBaselineMonitor?.dispose();
+    final prefs = await AdPreferences.getInstance();
+    _fillRateBaselineMonitor = FillRateBaselineMonitor(
+      prefs,
+      regressionThreshold: regressionThreshold,
+      minSamples: minSamples,
+    );
+  }
+
+  /// Test/host seam: clear a previously-enabled baseline monitor.
+  @visibleForTesting
+  void disableFillRateBaselineMonitor() {
+    _fillRateBaselineMonitor?.dispose();
+    _fillRateBaselineMonitor = null;
+  }
+
   /// One-shot snapshot combining mediation waterfall, fill rate, and
   /// arbitrator stats — see [AdDiagnostics]. [fillRateBySlot] and the
   /// arbitrator fields are empty/`null` when their subsystem was never
@@ -382,6 +417,7 @@ class AdManager with WidgetsBindingObserver {
   AdDiagnostics diagnostics() {
     final monitor = _fillRateMonitor;
     final arbitrator = _arbitrator;
+    final baselineMonitor = _fillRateBaselineMonitor;
     return AdDiagnostics(
       lastWaterfallBySlot: AdDiagnostics.lastWaterfallBySlotFrom(
           _eventLog?.entries ?? const <Map<String, dynamic>>[]),
@@ -390,6 +426,8 @@ class AdManager with WidgetsBindingObserver {
           : {for (final t in AdSlotType.values) t: monitor.fillRate(t)},
       arbitratorEstimatedEcpmMicros: arbitrator?.estimatedEcpmMicros,
       arbitratorVetoRate: arbitrator?.vetoRate,
+      fillRateRegressionBySlot:
+          baselineMonitor?.activeAlerts ?? const {},
     );
   }
 
@@ -2202,6 +2240,8 @@ class AdManager with WidgetsBindingObserver {
     _arbitrator = null;
     _fillRateMonitor?.dispose();
     _fillRateMonitor = null;
+    _fillRateBaselineMonitor?.dispose();
+    _fillRateBaselineMonitor = null;
 
     _isSplashActive = false;
     _countInitSplashScreen = 0;
