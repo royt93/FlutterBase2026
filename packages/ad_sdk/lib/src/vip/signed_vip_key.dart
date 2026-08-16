@@ -229,6 +229,102 @@ Future<SignedVipKey> verifySignedVipKey(
   );
 }
 
+/// Decoded, signature-verified VIP-key **revocation list** (CRL, T95).
+/// Distinct type from [SignedVipKey] — carries a set of revoked `kid`s to
+/// check redemption attempts against, not a redeemable grant itself.
+class VipRevocationList {
+  const VipRevocationList({required this.revokedKeyIds, required this.issuedAt});
+
+  /// `kid`s that must no longer be accepted by [verifySignedVipKey]-gated
+  /// redemption, even though their signature still verifies fine.
+  final Set<String> revokedKeyIds;
+
+  /// When this list was minted — lets [VipManager.refreshRevocationList]
+  /// reject a replayed OLDER signed CRL that would otherwise hide a newer
+  /// revocation.
+  final DateTime issuedAt;
+}
+
+const String _prefixCrl = 'CRL1';
+
+/// Verify an **offline signed** VIP-key revocation list against
+/// [publicKeyBase64] (same comma-separated Ed25519 rotation-key format
+/// [verifySignedVipKey] accepts — the same private key mints both keys and
+/// CRLs via `tool/vip_mint.dart` / `tool/vip_crl_mint.dart`, so no new key
+/// material is needed).
+///
+/// Payload is `<issuedAtEpochSeconds>|<comma-separated kid list>`. Throws
+/// [VipKeyException] when malformed or the signature doesn't verify.
+Future<VipRevocationList> verifySignedCrl(
+  String code, {
+  required String publicKeyBase64,
+}) async {
+  final parts = code.trim().split('.');
+  if (parts.length != 3 || parts[0] != _prefixCrl) {
+    throw const VipKeyException('bad CRL format');
+  }
+
+  final Uint8List payload;
+  final Uint8List sig;
+  try {
+    payload = _b64urlDecode(parts[1]);
+    sig = _b64urlDecode(parts[2]);
+  } catch (_) {
+    throw const VipKeyException('bad base64');
+  }
+
+  final keys = publicKeyBase64
+      .split(',')
+      .map((k) => k.trim())
+      .where((k) => k.isNotEmpty)
+      .toList();
+  if (keys.isEmpty) throw const VipKeyException('bad public key');
+
+  var ok = false;
+  for (final key in keys) {
+    final List<int> pubBytes;
+    try {
+      pubBytes = _b64AnyDecode(key);
+    } catch (_) {
+      continue;
+    }
+    if (pubBytes.length != 32) continue;
+    ok = await _ed25519.verify(
+      payload,
+      signature: Signature(
+        sig,
+        publicKey: SimplePublicKey(pubBytes, type: KeyPairType.ed25519),
+      ),
+    );
+    if (ok) break;
+  }
+  if (!ok) throw const VipKeyException('signature invalid');
+
+  final String text;
+  try {
+    text = utf8.decode(payload);
+  } catch (_) {
+    throw const VipKeyException('bad payload encoding');
+  }
+  final sep = text.indexOf('|');
+  if (sep == -1) throw const VipKeyException('bad CRL payload');
+  final issuedEpoch = int.tryParse(text.substring(0, sep));
+  if (issuedEpoch == null || issuedEpoch <= 0) {
+    throw const VipKeyException('bad CRL issuedAt');
+  }
+  final revoked = text
+      .substring(sep + 1)
+      .split(',')
+      .map((k) => k.trim())
+      .where((k) => k.isNotEmpty)
+      .toSet();
+  return VipRevocationList(
+    revokedKeyIds: revoked,
+    issuedAt:
+        DateTime.fromMillisecondsSinceEpoch(issuedEpoch * 1000, isUtc: true),
+  );
+}
+
 Uint8List _b64urlDecode(String s) => base64Url.decode(base64Url.normalize(s));
 
 List<int> _b64AnyDecode(String s) {

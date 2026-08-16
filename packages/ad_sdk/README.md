@@ -69,13 +69,16 @@ be clear-eyed about the gap before depending on it for revenue:
   Decide with that in mind before handing out keys at scale — and prefer AVP2
   keys with a short `--valid-days`, since a key that has expired cannot be
   reused no matter how the device is wiped.
-- **A leaked key is a leaked key.** Signature verification is offline and
-  sound — only the public key ships, so nobody can forge NEW keys by
-  decompiling the app. But without a backend there is no revocation: an AVP1
-  key that gets posted publicly works forever on every device that has not
-  already used it. AVP2 (default since 2.0.0) narrows this a lot by embedding
-  an expiry and an app binding in the signed payload, but a key that is shared
-  while still valid is still usable by whoever receives it.
+- **A leaked key is a leaked key — mitigated, not eliminated, by the
+  revocation list (T95).** Signature verification is offline and sound — only
+  the public key ships, so nobody can forge NEW keys by decompiling the app.
+  AVP2 (default since 2.0.0) already narrows the blast radius by embedding an
+  expiry and an app binding in the signed payload. On top of that,
+  `VipManager.refreshRevocationList` lets you push a small signed list of
+  revoked `kid`s (see [Revoking a leaked key](#revoking-a-leaked-key)) — but a
+  key that's shared and redeemed *before* you notice and revoke it is still
+  usable by whoever redeemed it first; the list only stops *further*
+  redemptions of that `kid`, it does not claw back a grant already made.
 - **Ad-policy risk is not this SDK's to control.** It's a thin wrapper over
   AppLovin MAX and Google Mobile Ads. Fill rate, fraud detection accuracy,
   and account-level policy enforcement (suspensions, strikes) are decided by
@@ -1134,6 +1137,53 @@ await AdManager().vip!.revokeVip('PURCHASED_PREMIUM_${transactionId}');
 // All entries (e.g., logout)
 await AdManager().vip!.revokeAll();
 ```
+
+### Revoking a leaked key (CRL) — T95
+
+`redeemSignedKey` is fully offline — great for forge-proofing, but it means a
+leaked key normally stays redeemable forever (or until its AVP2 `--valid-days`
+expiry). `VipManager.refreshRevocationList` closes that gap with a small,
+**also offline-signed** revocation list (CRL) — no server, no new key
+material, same private key that mints VIP keys mints the CRL too.
+
+1. **Mint the CRL offline** whenever you learn a `kid` leaked (same private
+   key as `tool/vip_mint.dart`, never commit it):
+   ```bash
+   dart run tool/vip_crl_mint.dart --priv <b64privkey> --kids leaked-kid-1,leaked-kid-2
+   # → CRL1.<payload>.<signature>
+   ```
+2. **Host the raw output** anywhere you like (a static JSON/text endpoint,
+   Firebase Remote Config, ...) — implement `VipRevocationProvider` to fetch
+   it:
+   ```dart
+   class MyCrlProvider implements VipRevocationProvider {
+     @override
+     Future<String?> fetchSignedCrl() async {
+       final resp = await http.get(Uri.parse('https://example.com/vip_crl.txt'));
+       return resp.statusCode == 200 ? resp.body.trim() : null;
+     }
+   }
+   ```
+3. **Refresh periodically** (once/day is plenty — this is a slow-moving
+   blocklist, not a live check):
+   ```dart
+   Timer.periodic(const Duration(hours: 24), (_) {
+     AdManager().vip?.refreshRevocationList(
+       publicKeyBase64: myVipPublicKey, // same key(s) passed to redeemSignedKey
+       revocationProvider: MyCrlProvider(),
+     );
+   });
+   ```
+
+Verified CRLs are cached to disk (re-verified against the public key on every
+read, never trusted un-signed) so a revoked `kid` stays blocked across app
+restarts without a fresh fetch. **Fails open on every error** — no provider,
+fetch throws, fetch returns `null`, bad signature, or a replayed/older CRL
+(anti-rollback: an older signed CRL can never undo a newer revocation already
+applied) — a network hiccup must never block a legitimate redemption. This
+only stops *future* redemptions of a revoked `kid`; a device that already
+redeemed it before the CRL update keeps its granted VIP window (see the
+[Known limitations](#known-limitations--read-before-adopting) note above).
 
 ### Disable first-install grace
 

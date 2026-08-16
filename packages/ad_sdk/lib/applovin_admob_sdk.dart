@@ -64,11 +64,14 @@ export 'src/vip/signed_vip_key.dart'
         SignedVipRedeemResult,
         VipKeyException,
         VipRedeemStatus,
+        VipRevocationList,
+        verifySignedCrl,
         verifySignedVipKey;
 export 'src/vip/vip_dialog_strings.dart';
 export 'src/vip/vip_entry.dart';
 export 'src/vip/vip_manager.dart';
 export 'src/vip/vip_redeem_screen.dart' show VipRedeemScreen, VipRedeemStrings;
+export 'src/vip/vip_revocation_provider.dart';
 
 // Widgets
 export 'src/widget/ad_loading_dialog.dart';

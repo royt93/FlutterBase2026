@@ -363,4 +363,17 @@ class AdPreferences {
     final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
+
+  // ─── VIP key revocation list (CRL) cache — T95 ───────────────────────────
+  // Caches the RAW signed CRL code (not the parsed plaintext) so it gets
+  // re-verified against the Ed25519 public key on every read — never trust
+  // unsigned cached data, even data this same SDK wrote itself.
+
+  static const String _keyVipRevocationCache = 'ad_sdk_vip_revocation_cache_v1';
+
+  String? getVipRevocationCacheRaw() => _prefs?.getString(_keyVipRevocationCache);
+
+  Future<void> setVipRevocationCacheRaw(String code) async {
+    await _prefs?.setString(_keyVipRevocationCache, code);
+  }
 }

@@ -8,6 +8,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Added
 
+- **VIP key revocation list (CRL) — `VipManager.refreshRevocationList` (T95).**
+  Flagship: an offline-signed revocation list closing the SDK's known
+  leaked-key gap (a redeemable-forever `kid` once shared) without a backend.
+  Mint with `tool/vip_crl_mint.dart` using the SAME Ed25519 private key as
+  `tool/vip_mint.dart` — no new key material. Host fetches the raw signed CRL
+  via a new `VipRevocationProvider` interface (mirrors `RemoteAdSafetyProvider`'s
+  shape) and calls `refreshRevocationList` periodically (once/day suggested);
+  verified CRLs are cached to disk and re-verified on every read, and a
+  revoked `kid` is rejected by `redeemSignedKey` going forward. Fails open on
+  every error (no provider, fetch throw, `null`, bad signature, replayed/older
+  CRL) — never blocks a legitimate redemption. Does not claw back a grant
+  already made before the revocation landed. See README's "Revoking a leaked
+  key (CRL)".
 - **`AdReadinessSplashController` (T94).** Officializes the splash-screen
   orchestration boilerplate the README documented by hand — subscribe-
   before-init, the hard-cap timer, `markSplashActive`/`incrementSplashCount`/

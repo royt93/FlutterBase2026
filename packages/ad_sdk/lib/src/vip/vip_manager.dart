@@ -14,6 +14,7 @@ import 'signed_vip_key.dart';
 import 'vip_dialog.dart';
 import 'vip_dialog_strings.dart';
 import 'vip_entry.dart';
+import 'vip_revocation_provider.dart';
 
 /// VIP management — Phase 4 feature.
 ///
@@ -116,6 +117,19 @@ class VipManager {
   /// Concurrency guard for [redeemVip] — a double-tap would otherwise stack
   /// two verifying dialogs and confuse the navigator pop sequence.
   bool _redeemInFlight = false;
+
+  /// `kid`s currently revoked, per the last verified CRL (T95) — either
+  /// loaded from [_prefs]'s cache or freshly fetched by
+  /// [refreshRevocationList]. Empty until either happens.
+  Set<String> _revokedKeyIds = <String>{};
+
+  /// `issuedAt` of the CRL currently backing [_revokedKeyIds], so
+  /// [refreshRevocationList] can reject a replayed OLDER signed CRL.
+  DateTime? _revocationIssuedAt;
+
+  /// Guards the one-time load of any cached CRL from disk — see
+  /// [_ensureCachedRevocationLoaded].
+  bool _revocationCacheLoaded = false;
 
   /// Key ids currently mid-redeem in [redeemSignedKey]. The check + insert is
   /// synchronous (no await between), so in Dart's single-threaded model a
@@ -644,6 +658,15 @@ class VipManager {
       return SignedVipRedeemResult.invalid('$e');
     }
 
+    // T95 — CRL check. Uses the SAME publicKeyBase64 already passed in for
+    // key verification above (the private key mints both keys and CRLs), so
+    // no extra config is needed from the host.
+    await _ensureCachedRevocationLoaded(publicKeyBase64);
+    if (_revokedKeyIds.contains(parsed.keyId)) {
+      SafeLogger.d(_tag, 'redeemSignedKey: kid ${parsed.keyId} is revoked');
+      return const SignedVipRedeemResult.invalid('key revoked');
+    }
+
     // Atomic one-time-use claim: check persisted + in-flight, then claim the
     // kid synchronously (no await in between) so a concurrent double-redeem of
     // the same key can't slip through and grant twice.
@@ -681,6 +704,79 @@ class VipManager {
     } finally {
       _signedKidsInFlight.remove(parsed.keyId);
     }
+  }
+
+  /// Loads any cached signed CRL from disk (offline-first) exactly once per
+  /// manager instance, re-verifying it against [publicKeyBase64] before
+  /// trusting it. A verify failure (corrupt storage, tampered value) degrades
+  /// to an empty revoked set rather than blocking redemption — fail-open.
+  Future<void> _ensureCachedRevocationLoaded(String publicKeyBase64) async {
+    if (_revocationCacheLoaded) return;
+    _revocationCacheLoaded = true;
+    final raw = _prefs.getVipRevocationCacheRaw();
+    if (raw == null) return;
+    try {
+      final parsed = await verifySignedCrl(raw, publicKeyBase64: publicKeyBase64);
+      _revokedKeyIds = parsed.revokedKeyIds;
+      _revocationIssuedAt = parsed.issuedAt;
+    } catch (e) {
+      SafeLogger.w(_tag, 'cached CRL failed to verify, ignoring: $e');
+    }
+  }
+
+  /// T95 — flagship: fetches a fresh signed VIP-key revocation list (CRL) via
+  /// [revocationProvider], verifies it against [publicKeyBase64] (same
+  /// Ed25519 key(s) — comma-separated rotation list — [redeemSignedKey]
+  /// already uses), and if it verifies AND is newer than whatever is
+  /// currently cached, persists it and applies it to future
+  /// [redeemSignedKey] calls.
+  ///
+  /// Call this periodically from the host app (once/day is plenty — see
+  /// [VipRevocationProvider]'s doc comment for a `Timer.periodic` example).
+  ///
+  /// **Fails open on every error** — fetch throws, fetch returns null, bad
+  /// signature, stale/older `issuedAt` — leaving the previously cached (or
+  /// empty) revocation list untouched. A network hiccup or missing CRL
+  /// infrastructure must never block a legitimate redemption; this only ever
+  /// narrows what's accepted, on top of an already-offline-first base.
+  Future<void> refreshRevocationList({
+    required String publicKeyBase64,
+    required VipRevocationProvider revocationProvider,
+  }) async {
+    await _ensureCachedRevocationLoaded(publicKeyBase64);
+
+    String? raw;
+    try {
+      raw = await revocationProvider.fetchSignedCrl();
+    } catch (e) {
+      SafeLogger.w(_tag, 'refreshRevocationList: fetch threw: $e');
+      return;
+    }
+    if (raw == null) return;
+
+    VipRevocationList parsed;
+    try {
+      parsed = await verifySignedCrl(raw, publicKeyBase64: publicKeyBase64);
+    } catch (e) {
+      SafeLogger.w(
+          _tag, 'refreshRevocationList: fetched CRL failed to verify: $e');
+      return;
+    }
+
+    final cachedIssuedAt = _revocationIssuedAt;
+    if (cachedIssuedAt != null && !parsed.issuedAt.isAfter(cachedIssuedAt)) {
+      SafeLogger.d(_tag,
+          'refreshRevocationList: fetched CRL is not newer than cached — ignoring');
+      return;
+    }
+
+    _revokedKeyIds = parsed.revokedKeyIds;
+    _revocationIssuedAt = parsed.issuedAt;
+    await _prefs.setVipRevocationCacheRaw(raw);
+    SafeLogger.d(
+        _tag,
+        () =>
+            'refreshRevocationList: applied ${parsed.revokedKeyIds.length} revoked kid(s)');
   }
 
   Future<bool> _runValidator(
