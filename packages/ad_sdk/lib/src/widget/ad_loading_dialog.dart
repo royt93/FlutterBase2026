@@ -15,12 +15,22 @@ class AdLoadingDialog {
   /// Guard against concurrent calls (e.g. double-tap).
   /// If a dialog is already showing, the new call skips the dialog and
   /// immediately invokes [onComplete] — the caller still runs its ad flow.
-  static bool _isShowing = false;
+  static bool _isShowingField = false;
+  static bool get _isShowing => _isShowingField;
+  static set _isShowing(bool value) {
+    _isShowingField = value;
+    isShowingNotifier.value = value;
+  }
 
   /// Whether a loading dialog is currently on screen.
   /// Used by [AdManager.canShowInterstitial] / [canShowRewardedAd] to block
   /// a second ad flow while the first dialog buffer is still active.
   static bool get isShowing => _isShowing;
+
+  /// T75 — reactive mirror of [isShowing], so [AdManager.fullscreenBusy]
+  /// (and any other listener) can react to it without polling.
+  static final ValueNotifier<bool> isShowingNotifier =
+      ValueNotifier<bool>(false);
 
   /// NavigatorState captured by [show] so [dismiss] can pop the right route.
   static NavigatorState? _activeNavigator;

@@ -25,7 +25,17 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   /// Number of [PopupRoute]s currently on the stack. Clamped at 0 so a stray
   /// pop/remove can never drive it negative and wedge the counter.
-  static int _popupDepth = 0;
+  static int _popupDepthField = 0;
+  static int get _popupDepth => _popupDepthField;
+  static set _popupDepth(int value) {
+    _popupDepthField = value;
+    isDialogOnTopNotifier.value = value > 0;
+  }
+
+  /// T75 — reactive mirror of [isDialogOnTop], so [AdManager.fullscreenBusy]
+  /// (and any other listener) can react to it without polling.
+  static final ValueNotifier<bool> isDialogOnTopNotifier =
+      ValueNotifier<bool>(false);
 
   /// `true` when at least one dialog/popup route is currently presented.
   static bool get isDialogOnTop => _popupDepth > 0;

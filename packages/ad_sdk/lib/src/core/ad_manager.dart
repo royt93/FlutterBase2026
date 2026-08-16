@@ -66,6 +66,12 @@ class AdManager with WidgetsBindingObserver {
     print('roy93~ [$_tag] 🚀 AdManager singleton CREATED — '
         'new Flutter process / cold start at ${DateTime.fromMillisecondsSinceEpoch(ts).toIso8601String()}');
     _ensureObserverAdded();
+    // T75 — these two live for the whole process (unlike the adapter, which
+    // is re-wired by the `_adapter` setter above on every init/destroy), so
+    // wiring them once here is enough.
+    AdLoadingDialog.isShowingNotifier.addListener(_recomputeFullscreenBusy);
+    AdScreenRouteLogger.isDialogOnTopNotifier
+        .addListener(_recomputeFullscreenBusy);
   }
 
   static final AdManager _instance = AdManager._internal();
@@ -92,7 +98,20 @@ class AdManager with WidgetsBindingObserver {
   // ─── Config + adapter ────────────────────────────────────────────────────
 
   AdConfig? _config;
-  AdProviderAdapter? _adapter;
+  AdProviderAdapter? _adapterField;
+
+  /// T75 — every assignment (real init, `destroy()`'s reset, and the
+  /// `debugSetAdapter` test seam) funnels through this setter so
+  /// [fullscreenBusy]'s slot listeners always stay attached to whichever
+  /// adapter is actually live, without touching any of those call sites.
+  AdProviderAdapter? get _adapter => _adapterField;
+  set _adapter(AdProviderAdapter? value) {
+    _detachFullscreenBusySlotListeners();
+    _adapterField = value;
+    _attachFullscreenBusySlotListeners();
+    _recomputeFullscreenBusy();
+  }
+
   VipManager? _vipManager;
   ConsentManager? _consentManager;
   AdConsent _consent = AdConsent.conservative;
@@ -698,6 +717,38 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam for [_fullscreenBusyReason].
   @visibleForTesting
   String? get debugFullscreenBusyReason => _fullscreenBusyReason;
+
+  /// T75 — public, read-only mirror of [_fullscreenBusyReason] (as a plain
+  /// `bool`) so a host app can disable its own fullscreen-ad CTA or avoid
+  /// opening a competing dialog while the SDK's mutex is held, instead of
+  /// only being able to check it at the moment it calls a show method.
+  ///
+  /// Kept in sync by [_recomputeFullscreenBusy], called whenever any of
+  /// [_fullscreenBusyReason]'s five inputs changes: the three fullscreen ad
+  /// slots (via [_attachFullscreenBusySlotListeners], re-wired on every
+  /// adapter swap by the `_adapter` setter above), [AdLoadingDialog]'s and
+  /// [AdScreenRouteLogger]'s own notifiers (wired once in [_internal]).
+  final ValueNotifier<bool> fullscreenBusy = ValueNotifier<bool>(false);
+
+  void _recomputeFullscreenBusy() {
+    fullscreenBusy.value = _fullscreenBusyReason != null;
+  }
+
+  void _attachFullscreenBusySlotListeners() {
+    final ad = _adapterField;
+    if (ad == null) return;
+    ad.appOpenSlot.state.addListener(_recomputeFullscreenBusy);
+    ad.interstitialSlot.state.addListener(_recomputeFullscreenBusy);
+    ad.rewardedSlot.state.addListener(_recomputeFullscreenBusy);
+  }
+
+  void _detachFullscreenBusySlotListeners() {
+    final ad = _adapterField;
+    if (ad == null) return;
+    ad.appOpenSlot.state.removeListener(_recomputeFullscreenBusy);
+    ad.interstitialSlot.state.removeListener(_recomputeFullscreenBusy);
+    ad.rewardedSlot.state.removeListener(_recomputeFullscreenBusy);
+  }
 
   /// Test seam for the consent gate.
   @visibleForTesting

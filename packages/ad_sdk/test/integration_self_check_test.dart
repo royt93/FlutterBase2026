@@ -18,6 +18,15 @@ class _FakeAdapter implements AdProviderAdapter {
   @override
   AdEventSink? eventSink;
 
+  // T75 — AdManager's _adapter setter now reads these on every
+  // debugSetAdapter() call to wire fullscreenBusy's slot listeners.
+  @override
+  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
+  @override
+  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
+  @override
+  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+
   /// Slots this fake reports a successful load for; anything else never
   /// fires an AdLoadEvent, so the self-check's wait times out (mirrors a
   /// real ad network failing to fill).

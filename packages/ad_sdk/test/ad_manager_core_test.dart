@@ -1097,6 +1097,73 @@ void main() {
     });
   });
 
+  // T75 — public reactive mirror of the internal fullscreen-mutex reason,
+  // so a host can disable its own CTA / avoid a competing dialog while the
+  // SDK holds it, instead of only checking at the moment it calls show().
+  group('fullscreenBusy listenable (T75)', () {
+    late _FakeAdapter adapter;
+
+    setUp(() {
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugVipManager = _FakeVip(false);
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugVipManager = null;
+      AdScreenRouteLogger.resetState();
+      AdLoadingDialog.resetState();
+    });
+
+    test('reflects a fullscreen ad slot entering/leaving the showing state',
+        () {
+      expect(AdManager().fullscreenBusy.value, isFalse);
+
+      adapter.interstitialSlot.beginLoad();
+      adapter.interstitialSlot.markReady();
+      adapter.interstitialSlot.beginShow();
+      expect(AdManager().fullscreenBusy.value, isTrue,
+          reason: 'an interstitial actually showing must count as busy');
+
+      adapter.interstitialSlot.markDismissed();
+      expect(AdManager().fullscreenBusy.value, isFalse);
+    });
+
+    testWidgets('reflects AdLoadingDialog.show()/dismiss()', (tester) async {
+      late BuildContext ctx;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(builder: (c) {
+            ctx = c;
+            return const SizedBox.shrink();
+          }),
+        ),
+      ));
+
+      expect(AdManager().fullscreenBusy.value, isFalse);
+      AdLoadingDialog.show(ctx);
+      await tester.pump();
+      expect(AdManager().fullscreenBusy.value, isTrue,
+          reason: 'the buffering dialog itself must count as fullscreen-busy');
+
+      AdLoadingDialog.dismiss();
+      await tester.pump();
+      expect(AdManager().fullscreenBusy.value, isFalse);
+    });
+
+    test('reflects AdScreenRouteLogger popup push/pop', () {
+      expect(AdManager().fullscreenBusy.value, isFalse);
+
+      final route = _FakePopupRoute();
+      AdScreenRouteLogger().didPush(route, null);
+      expect(AdManager().fullscreenBusy.value, isTrue,
+          reason: 'a dialog on top of the navigator stack must count as busy');
+
+      AdScreenRouteLogger().didPop(route, null);
+      expect(AdManager().fullscreenBusy.value, isFalse);
+    });
+  });
+
   group('initialize() onComplete single-fire (init auto-retry fix)', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

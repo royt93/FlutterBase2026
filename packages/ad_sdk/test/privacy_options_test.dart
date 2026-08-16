@@ -20,6 +20,16 @@ class _RecordingAdapter implements AdProviderAdapter {
   void applyConsent(AdConsent consent) => applied.add(consent);
   @override
   String get tag => 'recording';
+
+  // T75 — AdManager's _adapter setter now reads these on every
+  // debugSetAdapter() call to wire fullscreenBusy's slot listeners.
+  @override
+  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
+  @override
+  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
+  @override
+  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
