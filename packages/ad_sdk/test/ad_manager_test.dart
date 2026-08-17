@@ -70,6 +70,32 @@ void main() {
     });
   });
 
+  // 2026-08-16 audit: destroy() only cleared the banner cooldown map, missing
+  // mrec/native (all 3 added together at T65) — a destroy() + fresh
+  // initialize() within the cooldown window (without unmounting the widget)
+  // would leave MREC/Native inconsistently "still on cooldown" vs Banner.
+  group('destroy() clears every per-widget-key cooldown map (2026-08-16 audit)',
+      () {
+    test('banner/mrec/native cooldowns are all cleared by destroy()',
+        () async {
+      mgr.recordBannerLoad('k');
+      mgr.recordMrecLoad('k');
+      mgr.recordNativeLoad('k');
+      expect(mgr.canLoadBanner('k'), isFalse);
+      expect(mgr.canLoadMrec('k'), isFalse);
+      expect(mgr.canLoadNative('k'), isFalse);
+
+      await mgr.destroy();
+
+      expect(mgr.canLoadBanner('k'), isTrue);
+      expect(mgr.canLoadMrec('k'), isTrue,
+          reason: 'mrec cooldown must be cleared by destroy() same as banner');
+      expect(mgr.canLoadNative('k'), isTrue,
+          reason:
+              'native cooldown must be cleared by destroy() same as banner');
+    });
+  });
+
   group('splash counters', () {
     test('incrementSplashCount increases countInitSplashScreen by exactly 1',
         () {

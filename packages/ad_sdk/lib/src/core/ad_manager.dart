@@ -1473,6 +1473,15 @@ class AdManager with WidgetsBindingObserver {
         _stopAdRetryTimer();
         _stopConnectivityWatch();
         await _disposeAdapter();
+        // 2026-08-16 audit: ConsentManager itself is a persistent static
+        // singleton (`ConsentManager.bootstrap` reuses `_instance` unless
+        // `resetForTest()` ran) — surviving THIS re-init just like the
+        // adapter is torn down and recreated. Without removing the listener
+        // here first, the fresh `addListener(_syncConsentToAdapter)` below
+        // would stack onto the SAME live `ConsentManager` instance, so N
+        // re-inits (without an intervening destroy()) fire _syncConsentToAdapter
+        // N times per consent change.
+        _consentManager?.listenable.removeListener(_syncConsentToAdapter);
         // R12-A audit round 6: reset via the same shared method destroy()
         // uses, instead of a hand-copied field list — a second field
         // (_umpRequested/_consentExplicitlySet) leaked past this branch in
@@ -2361,6 +2370,12 @@ class AdManager with WidgetsBindingObserver {
     _countInitSplashScreen = 0;
     _isFirstAdLoadTriggered = false;
     _lastBannerLoadAtByKey.clear();
+    // 2026-08-16 audit: mrec/native cooldown maps were missing here — a
+    // destroy() + fresh initialize() within the cooldown window (without
+    // unmounting the widget) would inconsistently treat MREC/Native as
+    // still "on cooldown" while Banner correctly reset.
+    _lastMrecLoadAtByKey.clear();
+    _lastNativeLoadAtByKey.clear();
     _lastFullscreenDismissAt = 0;
     _rewardedInFlight = false;
     _isInitializing = false;

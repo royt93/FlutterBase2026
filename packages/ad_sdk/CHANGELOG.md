@@ -8,6 +8,25 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **P2 audit cleanup (2026-08-16), two minor findings.**
+  - `destroy()` only cleared the banner load-cooldown map, missing
+    mrec/native (all 3 added together at T65) — a `destroy()` + fresh
+    `initialize()` within the cooldown window (without unmounting the
+    widget) left MREC/Native inconsistently "still on cooldown" vs Banner.
+    1 new test in `test/ad_manager_test.dart`.
+  - Re-entering `initialize()` a second time without an intervening
+    `destroy()` (the "auto-disposing previous" branch) didn't remove the
+    consent listener before re-adding it — since `ConsentManager` is itself
+    a persistent static singleton (survives this branch same as the
+    adapter is torn down and recreated), N such re-inits left N copies of
+    the listener stacked on it, each firing `applyConsent` redundantly per
+    consent change. Fixed by removing it first, mirroring `destroy()`'s own
+    cleanup. Not independently unit-tested: reaching the listener
+    registration requires a real native adapter `initialize()` call to
+    succeed first, which isn't reachable in this repo's plain
+    `flutter test` environment (native plugin channels are unavailable) —
+    verified correct by code inspection (exact mirror of `destroy()`'s
+    already-tested `removeListener` call) rather than by a new test.
 - **`_startConnectivityWatch` could leak a `StreamSubscription` across two
   overlapping `initialize()` calls — caught by internal audit, 2026-08-16.**
   It's called `unawaited` from `initialize()`, which can itself finish (and
