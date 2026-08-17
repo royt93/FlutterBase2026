@@ -8,6 +8,25 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ### Fixed
 
+- **Fork-review of the 2026-08-16 audit fixes (2026-08-17): stale load-watchdog
+  timer race in `AdSlot.armLoadWatchdog()`.** The watchdog `Timer` created by
+  the previous fix kept no handle, so re-arming it (the adapter's own
+  internal reload-after-show-failure path does this) left the earlier
+  timer alive. If a fast reload started well inside the first timer's
+  window, the stale timer could still fire and call `markFailed()` against
+  the *new* loading attempt, cutting its real timeout short. `AdSlot` now
+  cancels any previously-armed watchdog before arming a new one, and
+  `dispose()` cancels a still-pending watchdog too (it previously could fire
+  `markFailed()` — a `state.value` write — against an already-disposed
+  `ValueNotifier`). 2 new tests in `test/ad_slot_test.dart`. Also tightened
+  2 existing tests from the same audit round that didn't actually regress
+  if their fix were reverted (`test/vip_revocation_test.dart`'s CRL→AVP1
+  relabeling test — documented why that direction is inherently protected
+  by Ed25519 rather than by the fix; `test/connectivity_refill_test.dart`'s
+  overlapping-call race test — strengthened to assert on the log line the
+  discard branch emits, since `_connectivityReady` alone reads identically
+  with or without the fix in this unit-test environment).
+
 - **P2 audit cleanup (2026-08-16), two minor findings.**
   - `destroy()` only cleared the banner load-cooldown map, missing
     mrec/native (all 3 added together at T65) — a `destroy()` + fresh

@@ -347,12 +347,12 @@ void main() {
     tearDown(() {
       AdManager().debugConnectivityInit = ConnectionNotifierTools.initialize;
       AdManager().debugConnectivityReady = false;
+      SafeLogger.resetForTest();
     });
 
     test(
         'an older call resolving AFTER a newer one already started must not '
-        'touch ready state at all (it bails before ever reaching it)',
-        () {
+        'touch ready state at all (it bails before ever reaching it)', () {
       var calls = 0;
       // Future.delayed (not a manually-completed Completer) so its Timer is
       // driven the same fakeAsync-instrumented way as the real 20s timeout
@@ -363,6 +363,16 @@ void main() {
             ? Future<void>.delayed(const Duration(seconds: 10))
             : Future<void>.delayed(const Duration(seconds: 2));
       };
+
+      // 2026-08-17 fork-review: _connectivityReady ends up `true` either way
+      // in this test environment (both the winner and a stale call compute
+      // it from the same static isConnected before anything downstream ever
+      // throws on the missing native plugin) — so that assertion alone would
+      // still pass with the generation-token guard removed. The guard's only
+      // observable effect here is the log line it emits on the discard path,
+      // so capture logs to actually pin the fix.
+      final logs = <String>[];
+      SafeLogger.configure(onLog: (level, tag, message) => logs.add(message));
 
       fakeAsync((async) {
         AdManager().debugStartConnectivityWatch(); // call A: gen 1
@@ -380,6 +390,10 @@ void main() {
         expect(AdManager().debugConnectivityReady, isTrue,
             reason: 'a stale call resolving after the winner must never '
                 'undo what the winner already set');
+        expect(
+            logs.any((m) => m.contains('a newer call already won')), isTrue,
+            reason: 'the stale call must actually take the discard branch, '
+                'not silently fall through to the normal path');
       });
     });
 

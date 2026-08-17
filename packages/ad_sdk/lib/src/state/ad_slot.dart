@@ -139,7 +139,13 @@ class AdSlot {
   /// callback never fires either (2026-08-16 audit finding).
   void armLoadWatchdog(String label, Duration timeout) {
     if (!isLoading) return;
-    Timer(timeout, () {
+    // 2026-08-17 fork-review audit: cancel any watchdog still pending from an
+    // earlier arm on this slot — otherwise a stale timer from a load that
+    // already moved on (e.g. this same reload path re-arming its own
+    // watchdog before the previous one's deadline) fires markFailed()
+    // against the NEW loading window early.
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer(timeout, () {
       if (!isLoading) return;
       SafeLogger.w(
           'AdSlot',
@@ -148,6 +154,8 @@ class AdSlot {
       markFailed();
     });
   }
+
+  Timer? _watchdogTimer;
 
   /// Mark load successful: slot becomes [AdSlotState.ready].
   void markReady() {
@@ -222,6 +230,7 @@ class AdSlot {
   /// is torn down — an undisposed `ValueNotifier` leaks its listeners for the
   /// adapter's lifetime.
   void dispose() {
+    _watchdogTimer?.cancel();
     state.dispose();
   }
 

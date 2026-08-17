@@ -3,6 +3,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 // AdSlot.beginLoad()'s default parameter); this package's own tests may
 // still reach into src/ directly.
 import 'package:applovin_admob_sdk/src/state/backoff.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -119,6 +120,49 @@ void main() {
         () => s.state.addListener(() {}),
         throwsFlutterError,
       );
+    });
+  });
+
+  // 2026-08-17 fork-review audit: armLoadWatchdog() kept no handle on the
+  // Timer it created, so re-arming (adapter's internal reload path arms a
+  // fresh watchdog while an earlier one is still pending) left the stale
+  // timer alive to fire markFailed() on the NEW loading window early.
+  group('armLoadWatchdog (2026-08-17 fork-review audit)', () {
+    test(
+        're-arming cancels the previous watchdog — a stale timer must not '
+        'fail a fresh reload window early', () {
+      fakeAsync((async) {
+        final s = AdSlot(type: AdSlotType.interstitial)..beginLoad();
+        s.armLoadWatchdog('first', const Duration(seconds: 30));
+
+        async.elapse(const Duration(seconds: 20));
+        // reload starts before the first watchdog's 30s deadline elapses
+        s.markShowFailed();
+        s.beginReload();
+        s.armLoadWatchdog('second', const Duration(seconds: 30));
+
+        // total 31s since start = past the FIRST watchdog's original 30s
+        // deadline, but only 11s into the second one's own 30s window.
+        async.elapse(const Duration(seconds: 11));
+        expect(s.isLoading, isTrue,
+            reason: 'the stale first watchdog must not have fired '
+                'markFailed() early');
+
+        // now past the second watchdog's real deadline too.
+        async.elapse(const Duration(seconds: 20));
+        expect(s.isCooldown, isTrue);
+      });
+    });
+
+    test('dispose() cancels a pending watchdog so it never fires on a '
+        'disposed notifier', () {
+      fakeAsync((async) {
+        final s = AdSlot(type: AdSlotType.interstitial)..beginLoad();
+        s.armLoadWatchdog('x', const Duration(seconds: 30));
+        s.dispose();
+        expect(() => async.elapse(const Duration(seconds: 31)),
+            returnsNormally);
+      });
     });
   });
 

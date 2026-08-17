@@ -147,6 +147,14 @@ void main() {
     // to AVP1 and redeem it as a real VIP key — a CRL's
     // "<issuedAtEpoch>|<kids>" shape splits into exactly the same 2
     // pipe-delimited fields as AVP1's "<seconds>|<kid>" shape.
+    //
+    // 2026-08-17 fork-review note: this direction's protection is an
+    // inherent property of Ed25519 (exact-byte verification) once mintCrl
+    // signs "CRL1|"+payload — verifySignedVipKey (AVP1) itself was never
+    // touched by the fix, so this test doesn't regress if _crlSignedMessage
+    // is reverted. The test that actually pins the production fix is the
+    // reverse direction below (a genuine AVP1 key relabeled as a CRL,
+    // verified through the real verifySignedCrl).
     test(
         'a genuine CRL cannot be relabeled as an AVP1 key and redeemed for '
         'VIP (domain separation)', () async {
