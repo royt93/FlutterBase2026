@@ -66,9 +66,12 @@ void main() {
     }
 
     expect(find.text('Banner demo'), findsOneWidget);
-    expect(find.byType(BannerAdWidget), findsNWidgets(2),
+    expect(find.byType(BannerAdWidget, skipOffstage: false), findsNWidgets(2),
         reason: 'demo page must mount two independent BannerAdWidget '
-            'instances (T65)');
+            'instances (T65) — skipOffstage:false because an unfilled/VIP-'
+            'suppressed instance collapses to a zero-height SizedBox.shrink(), '
+            'and two stacked zero-height widgets confuse the default filter '
+            '(2026-08-18 fork-review)');
     expect(tester.takeException(), isNull);
   });
 
@@ -84,9 +87,9 @@ void main() {
     }
 
     expect(find.text('MREC demo'), findsOneWidget);
-    expect(find.byType(MrecAdWidget), findsNWidgets(2),
+    expect(find.byType(MrecAdWidget, skipOffstage: false), findsNWidgets(2),
         reason: 'demo page must mount two independent MrecAdWidget instances '
-            '(T65)');
+            '(T65) — skipOffstage:false, see the Banner test above');
     expect(tester.takeException(), isNull);
   });
 
@@ -102,9 +105,9 @@ void main() {
     }
 
     expect(find.text('Native demo'), findsOneWidget);
-    expect(find.byType(NativeAdWidget), findsNWidgets(2),
+    expect(find.byType(NativeAdWidget, skipOffstage: false), findsNWidgets(2),
         reason: 'demo page must mount two independent NativeAdWidget instances '
-            '(T65)');
+            '(T65) — skipOffstage:false, see the Banner test above');
     expect(tester.takeException(), isNull);
   });
 }
