@@ -30,8 +30,16 @@ Future<String> _mint(SimpleKeyPair kp,
   return 'AVP1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
 }
 
+// On a real device the splash flow can hit BOTH the real ATT system prompt
+// AND a real UMP consent form before initialize() ever completes -- each
+// has its own internal 20s timeout when nothing dismisses it headlessly (see
+// AttConsent's `requestAttIfNeeded` / UmpConsent's dismiss-timeout log line),
+// so worst case is ~40s of that alone before init even starts resolving.
+// Budget well past that (same fix already applied in
+// debug_overlay_doctor_test.dart -- 2026-08-18 fork-review: this file hit the
+// tighter 30s window's real failure mode on-device).
 Future<void> _waitForInit(WidgetTester tester) async {
-  for (var i = 0; i < 60; i++) {
+  for (var i = 0; i < 180; i++) {
     await tester.pump(const Duration(milliseconds: 500));
     if (AdManager().isInitialised) return;
   }

@@ -1,11 +1,12 @@
 // On-device integration test for the Slot state panel demo
 // (StatePanelDemoPage).
 //
-// Asserts the live AdSlot state panel renders the real adapter's four slots
-// (App Open / Interstitial / Rewarded / Banner) and that the manual
-// destroy/reinit controls actually reach `AdManager()` — destroy nulls the
-// adapter (panel falls back to "SDK not initialised yet"), reinit restores it
-// — without crashing.
+// Asserts the live AdSlot state panel renders the real adapter's three
+// singleton slots (App Open / Interstitial / Rewarded — banner/mrec/native
+// became per-widget-instance in T65 and have no single slot to show here)
+// and that the manual destroy/reinit controls actually reach `AdManager()`
+// — destroy nulls the adapter (panel falls back to "SDK not initialised
+// yet"), reinit restores it — without crashing.
 //
 // Run with:
 //   flutter test integration_test/slot_state_panel_test.dart -d <device-or-sim-id>
@@ -18,8 +19,16 @@ import 'package:integration_test/integration_test.dart';
 
 import 'scroll_helpers.dart';
 
+// On a real device the splash flow can hit BOTH the real ATT system prompt
+// AND a real UMP consent form before initialize() ever completes -- each
+// has its own internal 20s timeout when nothing dismisses it headlessly (see
+// AttConsent's `requestAttIfNeeded` / UmpConsent's dismiss-timeout log line),
+// so worst case is ~40s of that alone before init even starts resolving.
+// Budget well past that (same fix already applied in
+// debug_overlay_doctor_test.dart -- 2026-08-18 fork-review: this file hit the
+// tighter 30s window's real failure mode on-device).
 Future<void> _waitForInit(WidgetTester tester) async {
-  for (var i = 0; i < 60; i++) {
+  for (var i = 0; i < 180; i++) {
     await tester.pump(const Duration(milliseconds: 500));
     if (AdManager().isInitialised) return;
   }
@@ -74,14 +83,15 @@ void main() {
             of: find.byType(AppBar), matching: find.text('Slot state panel')),
         findsOneWidget);
 
-    // Real adapter is live — provider tag + all four slot cards render.
+    // Real adapter is live — provider tag + the three singleton slot cards
+    // render. No "Banner" card: T65 made banner/mrec/native per-widget-
+    // instance, so there's no single slot left for this panel to show.
     final adapter = AdManager().adapter;
     expect(adapter, isNotNull);
     expect(find.textContaining('Provider: ${adapter!.tag}'), findsOneWidget);
     expect(find.text('App Open'), findsOneWidget);
     expect(find.text('Interstitial'), findsOneWidget);
     expect(find.text('Rewarded'), findsOneWidget);
-    expect(find.text('Banner'), findsOneWidget);
 
     // Destroy → adapter goes null, panel falls back to the "not initialised"
     // message, without crashing.
