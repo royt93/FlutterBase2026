@@ -4,9 +4,43 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-08-19
 
 ### Fixed
+
+- **2026-08-19 audit: App Open (and interstitial/rewarded/rewarded-interstitial)
+  could be shown stale past their expiry window.** The 4h/1h `isAdFresh`
+  check was only ever consulted when *loading* (reuse-if-fresh) — `show*()`
+  never checked it, so a ready ad that sat unused past expiry (app
+  backgrounded a long time, then resumed) could still be shown. For App
+  Open specifically this violates Google's documented policy of discarding
+  and reloading rather than showing a stale ad. Fixed for all 4 AdMob
+  fullscreen types: a stale ready slot is now discarded (native ad
+  disposed, slot marked failed → cooldown, eligible for reload) instead of
+  shown.
+- **2026-08-19 audit: `showAppOpenAdOnResume()` bypassed the daily/session
+  safety cap outside the one case (splash) this SDK's own contract
+  allows.** It always called `showAppOpenAd(bypassSafety: true, ...)`, so a
+  resume-triggered App Open skipped the daily/hourly/session cap and
+  CTR-fraud pause entirely while still counting toward the cap via
+  `recordFullscreenAdShown()` — an asymmetric bypass. Fixed to
+  `bypassSafety: false`; the resume-specific timing gates
+  (`canShowAppOpenOnResume`) are unchanged and still apply.
+- **2026-08-19 audit: AppLovin banner/MREC widgets leaked their native
+  `MaxAdView` on normal disposal.** `disposeBannerInstance`/
+  `disposeMrecInstance` released only the Dart-side `AdSlot`/
+  `BannerListenables`/`ValueNotifier` — they never called
+  `destroyWidgetAdView`, so every `BannerAdWidget`/`MrecAdWidget` that
+  permanently unmounts leaked the native ad view. AdMob's equivalent path
+  was already correct. Fixed to release the native `AdViewId` on dispose.
+- **2026-08-19 audit: `requestAtt()`-before-UMP ordering had no
+  release-build footgun.** Forgetting to call `requestAtt()` before
+  `initialize()`/`requestUmpConsent()` on iOS was only ever a
+  `SafeLogger.w` inside `requestUmpConsent()` itself — easy to miss.
+  Added `attOrderFootgunWarning`, wired into `initialize()` alongside the
+  existing consent footgun check (loud in every build, not release-gated
+  to a hard block since this is a revenue/attribution risk, not a
+  legal-compliance one like the consent footgun).
 
 - **Fork-review of the 2026-08-16 audit fixes (2026-08-17): stale load-watchdog
   timer race in `AdSlot.armLoadWatchdog()`.** The watchdog `Timer` created by
