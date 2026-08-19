@@ -2717,7 +2717,14 @@ class AdManager with WidgetsBindingObserver {
           return;
         }
         unawaited(showAppOpenAd(
-          bypassSafety: true,
+          // 2026-08-19 audit (Finding 4/6): this used to be bypassSafety:
+          // true, letting a resume-triggered App Open skip the daily/
+          // hourly/session cap entirely while still counting toward it via
+          // recordFullscreenAdShown() below — an asymmetric bypass outside
+          // the one case (splash) this repo's own contract allows. The
+          // resume-specific timing gates (canShowAppOpenOnResume above)
+          // still apply either way; this only restores the shared cap.
+          bypassSafety: false,
           onAdDismiss: (_) => unawaited(loadAppOpenAd()),
         ));
       });
@@ -2737,7 +2744,14 @@ class AdManager with WidgetsBindingObserver {
           return;
         }
         unawaited(showAppOpenAd(
-          bypassSafety: true,
+          // 2026-08-19 audit (Finding 4/6): this used to be bypassSafety:
+          // true, letting a resume-triggered App Open skip the daily/
+          // hourly/session cap entirely while still counting toward it via
+          // recordFullscreenAdShown() below — an asymmetric bypass outside
+          // the one case (splash) this repo's own contract allows. The
+          // resume-specific timing gates (canShowAppOpenOnResume above)
+          // still apply either way; this only restores the shared cap.
+          bypassSafety: false,
           onAdDismiss: (_) => unawaited(loadAppOpenAd()),
         ));
       });

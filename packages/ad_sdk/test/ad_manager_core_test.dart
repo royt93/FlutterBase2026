@@ -2126,6 +2126,35 @@ void main() {
 
       expect(adapter.showAppOpenCalls, 1);
     });
+
+    // 2026-08-19 audit (Finding 4/6): showAppOpenAdOnResume() always called
+    // showAppOpenAd(bypassSafety: true) — not just the splash flow — so a
+    // resume-triggered App Open skipped the daily/hourly/session fullscreen
+    // cap entirely while still counting toward it via
+    // recordFullscreenAdShown(), an asymmetric bypass that contradicts this
+    // repo's own contract ("don't bypass except the splash App Open ad").
+    testWidgets(
+        'resume-triggered app-open is blocked once the daily fullscreen cap '
+        'is reached, unlike the splash path\'s deliberate bypass',
+        (tester) async {
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(maxFullscreenAdsPerDay: 0));
+      AdSafetyConfig.resetForReinit();
+
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+
+      AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
+      adapter.loadAppOpenCalls = 0;
+
+      AdManager().showAppOpenAdOnResume(); // schedules the 1s fallback timer
+      await tester.pump(const Duration(seconds: 1, milliseconds: 100));
+
+      expect(adapter.showAppOpenCalls, 0,
+          reason: 'a resume-triggered App Open must respect the daily '
+              'fullscreen cap the same as every other show path');
+    });
   });
 
   group('didChangeAppLifecycleState()', () {
