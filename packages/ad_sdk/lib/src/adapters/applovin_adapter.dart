@@ -148,7 +148,17 @@ class AppLovinAdapter implements AdProviderAdapter {
   void disposeBannerInstance(Object key) {
     _bannerSlotsByKey.remove(key)?.dispose();
     _bannerListenablesByKey.remove(key)?.dispose();
-    _bannerAdViewIdByKey.remove(key)?.dispose();
+    final adViewId = _bannerAdViewIdByKey.remove(key);
+    final id = adViewId?.value;
+    adViewId?.dispose();
+    // 2026-08-19 audit (Finding 5): this used to stop at the Dart-side
+    // state above, never releasing the native AdView — every
+    // BannerAdWidget that permanently unmounts leaked it on AppLovin.
+    if (id != null) {
+      unawaited(_bridge.destroyWidgetAdView(id).catchError((e) {
+        SafeLogger.w(_logTag, 'destroyWidgetAdView (banner dispose) threw: $e');
+      }));
+    }
     _bannerRoutePausedByKey.remove(key);
   }
 
@@ -212,7 +222,15 @@ class AppLovinAdapter implements AdProviderAdapter {
   void disposeMrecInstance(Object key) {
     _mrecSlotsByKey.remove(key)?.dispose();
     _mrecListenablesByKey.remove(key)?.dispose();
-    _mrecAdViewIdByKey.remove(key)?.dispose();
+    final adViewId = _mrecAdViewIdByKey.remove(key);
+    final id = adViewId?.value;
+    adViewId?.dispose();
+    // 2026-08-19 audit (Finding 5): see disposeBannerInstance above.
+    if (id != null) {
+      unawaited(_bridge.destroyWidgetAdView(id).catchError((e) {
+        SafeLogger.w(_logTag, 'destroyWidgetAdView (mrec dispose) threw: $e');
+      }));
+    }
     _mrecRoutePausedByKey.remove(key);
   }
 

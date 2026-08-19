@@ -678,6 +678,58 @@ void main() {
     });
   });
 
+  // 2026-08-19 audit (Finding 5): disposeBannerInstance/disposeMrecInstance
+  // disposed only the Dart-side AdSlot/BannerListenables/ValueNotifier —
+  // they never called destroyWidgetAdView, so every BannerAdWidget/
+  // MrecAdWidget that permanently unmounts leaked its native MaxAdView.
+  group('disposeBannerInstance/disposeMrecInstance destroy the native '
+      'AdView (2026-08-19 audit)', () {
+    test('disposeBannerInstance destroys the native AdView, not just the '
+        'Dart-side state', () async {
+      await adapter.preloadBanner('k');
+      final id = adapter.appLovinBannerAdViewId('k').value;
+      expect(id, isNotNull, reason: 'fake bridge preloads id=1');
+
+      adapter.disposeBannerInstance('k');
+      await Future<void>.value(); // flush unawaited destroyWidgetAdView
+
+      expect(bridge.destroyWidgetAdViewCalls, [id],
+          reason: 'permanently disposing a BannerAdWidget instance must '
+              'release its native AdView, not just the Dart-side state');
+    });
+
+    test('disposeMrecInstance destroys the native AdView, not just the '
+        'Dart-side state', () async {
+      // Local adapter/config: the shared top-level `_config` has no
+      // mrecId, so the shared `adapter` always no-ops preloadMrec.
+      final mrecBridge = FakeAppLovinBridge();
+      final mrecAdapter = AppLovinAdapter(bridge: mrecBridge);
+      await mrecAdapter.initialize(const AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: 'sdk',
+          bannerId: 'banner-id',
+          interstitialId: 'inter-id',
+          appOpenId: 'appopen-id',
+          rewardedId: 'rewarded-id',
+          mrecId: 'mrec-id',
+        ),
+      ));
+      addTearDown(mrecAdapter.dispose);
+
+      await mrecAdapter.preloadMrec('k');
+      final id = mrecAdapter.appLovinMrecAdViewId('k').value;
+      expect(id, isNotNull, reason: 'fake bridge preloads id=1');
+
+      mrecAdapter.disposeMrecInstance('k');
+      await Future<void>.value();
+
+      expect(mrecBridge.destroyWidgetAdViewCalls, [id],
+          reason: 'permanently disposing a MrecAdWidget instance must '
+              'release its native AdView, not just the Dart-side state');
+    });
+  });
+
   group('AppLovinAdapter mrec (keyed)', () {
     // T65 (phase 3) — same guarantee as banner: two different MrecAdWidget
     // keys must not share BannerListenables.
