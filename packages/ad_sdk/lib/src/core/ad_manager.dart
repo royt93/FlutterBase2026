@@ -214,6 +214,27 @@ class AdManager with WidgetsBindingObserver {
         'requestUmpConsent() first, or set disableAppLovinCmpFlow:false.';
   }
 
+  /// F9 hardened (2026-08-19 audit, Finding 7) — [requestUmpConsent] already
+  /// logs a `SafeLogger.w` the moment it runs before [requestAtt] on iOS,
+  /// but that log is easy to miss and fires the same in every build. This
+  /// surfaces the same condition as a release-build footgun (same "loud in
+  /// release" contract as [releaseFootgunWarnings]/[consentFootgunWarning])
+  /// so a host that never calls `requestAtt()` at all gets a harder-to-miss
+  /// signal. Does not block ad requests — unlike a missing consent flow,
+  /// this is a revenue/attribution risk (native SDKs already gate IDFA use
+  /// on ATT status themselves), not a legal-compliance block. Pure + static
+  /// so it is unit-testable without running the full native init.
+  @visibleForTesting
+  static String? attOrderFootgunWarning(
+      {required bool attRequested, required bool isIos}) {
+    if (!isIos || attRequested) return null;
+    return '🚨 requestAtt() was never called before initialize() completed '
+        'on iOS — IDFA availability is unsettled for the first ad '
+        'request(s), losing attribution/revenue. Call '
+        'AdManager().requestAtt() in your splash screen before '
+        'initialize()/requestUmpConsent().';
+  }
+
   /// T16: empty/malformed ad-unit-id checks, split out of
   /// [releaseFootgunWarnings] purely to keep that function short — same
   /// "loud in release" contract applies (caller logs ERROR + asserts debug).
@@ -1870,6 +1891,16 @@ class AdManager with WidgetsBindingObserver {
         // F4 — surface this loudly in dev/test builds (stripped in release);
         // the log above is easy to miss.
         assert(false, consentWarning);
+      }
+
+      // 2026-08-19 audit (Finding 7) — see [attOrderFootgunWarning]. Not
+      // release-blocked like the consent footgun above: this is a
+      // revenue/attribution risk, not a legal-compliance one.
+      final attWarning = attOrderFootgunWarning(
+          attRequested: _attRequested, isIos: Platform.isIOS);
+      if (attWarning != null) {
+        SafeLogger.w(_tag, attWarning);
+        assert(false, attWarning);
       }
 
       onComplete(true, _currentDeviceGAID);

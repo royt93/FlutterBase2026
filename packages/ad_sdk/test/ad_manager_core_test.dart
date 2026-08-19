@@ -498,6 +498,27 @@ void main() {
     });
   });
 
+  // 2026-08-19 audit (Finding 7): requestAtt()-before-UMP ordering was only
+  // ever a `SafeLogger.w` inside requestUmpConsent() itself — easy to miss,
+  // and not release-gated the way this SDK's other real footguns are.
+  group('attOrderFootgunWarning (2026-08-19 audit, Finding 7)', () {
+    test('iOS + requestAtt() never called → warns', () {
+      final w = AdManager.attOrderFootgunWarning(attRequested: false, isIos: true);
+      expect(w, isNotNull);
+      expect(w, contains('requestAtt()'));
+    });
+
+    test('iOS + requestAtt() already called → no warning', () {
+      final w = AdManager.attOrderFootgunWarning(attRequested: true, isIos: true);
+      expect(w, isNull);
+    });
+
+    test('Android → no warning regardless (ATT is iOS-only)', () {
+      final w = AdManager.attOrderFootgunWarning(attRequested: false, isIos: false);
+      expect(w, isNull);
+    });
+  });
+
   group('N2: consent footgun runtime block', () {
     setUp(() {
       // Isolate from adapter/config state other groups may have left behind
