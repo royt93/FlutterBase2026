@@ -544,17 +544,18 @@ If the host app already has `android:allowBackup="false"` → the AI **must ask 
   on the same Google account restores the flag and skips re-granting
   a fresh 24h grace window.
 
-  Excludes FlutterSecureStorage.xml because EncryptedSharedPreferences
-  ciphertext is unrecoverable without the device-bound Keystore key.
+  Do NOT add an <exclude> for FlutterSecureStorage.xml here: an explicit
+  <include> already excludes everything else in the `sharedpref` domain by
+  default (its EncryptedSharedPreferences ciphertext is unrecoverable
+  without the device-bound Keystore key anyway), and a sibling <exclude>
+  not nested under an included path is redundant at best.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
     </device-transfer>
 </data-extraction-rules>
 ```
@@ -567,11 +568,15 @@ If the host app already has `android:allowBackup="false"` → the AI **must ask 
   Legacy Auto Backup rules (Android 6-11, API 23-30).
   Replaced by data_extraction_rules.xml on API 31+.
   Same intent: include host SharedPreferences (where the SDK first-install
-  grace flag lives), exclude EncryptedSharedPreferences ciphertext.
+  grace flag lives) — everything else in `sharedpref`, including
+  EncryptedSharedPreferences ciphertext, is excluded by default.
+
+  Do NOT add an explicit <exclude> for FlutterSecureStorage.xml: Android
+  lint's FullBackupContent check rejects an <exclude> that isn't nested
+  under an included path and FAILS THE RELEASE BUILD.
 -->
 <full-backup-content>
     <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
 </full-backup-content>
 ```
 
@@ -918,7 +923,7 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 - [ ] `AndroidManifest.xml` permission whitelist (Q12B): `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Any ad-related permission beyond these 3 needs a clear justification. Any non-ad permission → ask the user first.
 - [ ] `AndroidManifest.xml` has the AdMob `APPLICATION_ID` meta-data (production or test ID + warning per Q6C)
 - [ ] `MainActivity` does **NOT** have `android:taskAffinity=""` (pitfall #1)
-- [ ] (If iOS) `ios/Runner/Info.plist` has `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (count them for real with `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, do NOT hardcode a number — the mediation partner list changes over time; currently ~50 entries)
+- [ ] (If iOS) `ios/Runner/Info.plist` has `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (count them for real with `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, do NOT hardcode a number — the mediation partner list changes over time; currently 152 entries as of 2026-08-19)
 - [ ] (If iOS) Podfile targets ≥ 13.0
 
 ### 11.2 — Bootstrap
