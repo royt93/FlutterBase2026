@@ -346,6 +346,44 @@ If your host app extends `BaseStatefulState` and follows the same convention, re
 
 This is a project policy, not an SDK requirement. The SDK itself follows it but does not enforce it on host apps.
 
+### 7. 2.0.0 breaking changes (defaults changed)
+
+Three defaults changed in 2.0.0. Existing code still compiles — nothing was
+removed — but behavior differs from 1.x if you relied on the old default.
+
+**`AdConfig.autoRequestUmpConsent`: `false` → `true`.** 2.0.0+ runs UMP's
+consent flow automatically inside `initialize()` unless you opt out:
+
+```diff
+  AdConfig(
++   autoRequestUmpConsent: false, // restore the 1.x behavior — you call
++                                 // requestUmpConsent() yourself
+  );
+```
+
+If your splash already calls `requestUmpConsent()` manually and you didn't
+set this flag, 2.0.0 now runs consent **twice** on cold start (once
+automatically, once from your call) — set `autoRequestUmpConsent: false` to
+avoid the duplicate, or delete your manual call to use the new automatic
+flow.
+
+**Signed VIP key format: AVP1 → AVP2 by default.** `tool/vip_mint.dart`
+mints `AVP2.<payload>.<signature>` keys by default now (was `AVP1` before).
+`verifySignedVipKey` still accepts both formats — **already-issued AVP1 keys
+keep working**, this only affects newly-minted keys. Pass `--v1` to
+`vip_mint.dart` if you specifically need the old format (no expiry, no
+bundle-id binding — AVP2 added both).
+
+**`AdConfig.maxVipStackDuration`: `null` (uncapped) → `Duration(days: 90)`.**
+If you use `stack: true` on `addVip`/`redeemVip` (see §1.0.22 above) and
+relied on unlimited stacking, set it back explicitly:
+
+```diff
+  AdConfig(
++   maxVipStackDuration: null, // restore uncapped stacking
+  );
+```
+
 ---
 
 ## Common issues
@@ -413,7 +451,7 @@ Yes. 1.0.15 has zero breaking changes. The new behaviors (auto consent dialog, f
 
 ### Should I migrate to 2.0?
 
-The 2.0 release line is currently unreleased (the public stable line is 1.0.23). When 2.0 ships, it will remove all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API. If you have already migrated to the modern VipManager API in 1.0.15, the 2.0 upgrade will be trivial.
+Yes — 2.0 has shipped (currently 2.0.4) and is the actively-maintained line. It removed all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API — and changed 3 defaults, see [§7 above](#7-200-breaking-changes-defaults-changed). If you already migrated to the modern VipManager API in 1.0.15, the 2.0 upgrade is close to a drop-in replacement.
 
 ### How do I roll back from 1.0.15?
 
