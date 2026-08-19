@@ -13,10 +13,13 @@ import '../utils/safe_logger.dart';
 /// uninstall + reinstall to redeem the same signed key repeatedly. This
 /// ledger mirrors the `FirstInstallGuard` pattern (see
 /// `_first_install_guard.dart`): iOS gets a Keychain-backed set of redeemed
-/// key ids that survives reinstall; Android intentionally has no durable
-/// backstop here for the same reason `FirstInstallGuard` doesn't — no local
-/// primitive survives uninstall without pulling in a install-referrer plugin
-/// for a narrow benefit. `AdPreferences` remains the check on Android.
+/// key ids that survives reinstall; Android has no *class-local* backstop
+/// here, but `AdPreferences`'s redeemed-key list (the check this class
+/// defers to on Android) lives in the same `SharedPreferences` →
+/// `FlutterSharedPreferences.xml` file that `FirstInstallGuard`'s doc
+/// comment describes a host app backing up via Android Auto Backup — a host
+/// that wires that manifest config (see README's "Disable first-install
+/// grace" section) gets this ledger's protection transitively, for free.
 ///
 /// Never throws to callers; any internal error degrades to "not redeemed"
 /// (fail open) so a storage hiccup never locks a legitimate key out.
