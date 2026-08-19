@@ -8,6 +8,7 @@
 //     force dismiss(false)" path can be exercised end-to-end without GMA.
 
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
+import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart';
 import 'package:applovin_admob_sdk/src/state/ad_slot.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -82,6 +83,94 @@ void main() {
       // Past the original cap — the cancelled timer must NOT fire again.
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(calls, 1, reason: 'cancelled watchdog must not double-fire');
+    });
+  });
+
+  // 2026-08-19 audit (Finding 3): the 4h/1h isAdFresh expiry was only ever
+  // consulted when *loading* (reuse-if-fresh); showAppOpen/showInterstitial/
+  // showRewarded/showRewardedInterstitial never checked it, so an ad that
+  // sat `ready` past its expiry (e.g. app backgrounded for hours, then
+  // resumed) could still be shown stale — violating Google's App Open
+  // "discard and reload after ~4h, never show stale" policy.
+  group('AdMobAdapter show*() reject a stale-but-ready slot (2026-08-19 audit)',
+      () {
+    void markReadyAt(AdSlot slot, DateTime loadedAt) {
+      slot.beginLoad();
+      slot.markReady();
+      slot.lastLoadedAt = loadedAt;
+    }
+
+    test('showAppOpen discards a stale ready ad instead of showing it',
+        () async {
+      final adapter = AdMobAdapter();
+      markReadyAt(
+          adapter.appOpenSlot, DateTime.now().subtract(const Duration(hours: 5)));
+
+      bool? dismissed;
+      await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
+
+      expect(dismissed, isFalse, reason: 'a stale ad must never be shown');
+      expect(adapter.appOpenSlot.value, AdSlotState.cooldown,
+          reason: 'a stale ready slot must be discarded (cooldown → '
+              'eligible for reload), not left ready as if nothing happened');
+    });
+
+    test('showAppOpen still shows a genuinely fresh ready ad', () async {
+      final adapter = AdMobAdapter();
+      markReadyAt(adapter.appOpenSlot,
+          DateTime.now().subtract(const Duration(minutes: 5)));
+
+      bool? dismissed;
+      await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
+
+      // No real GMA ad object exists in this unit-test environment, so the
+      // pre-existing `ad == null` guard still rejects the show — the point
+      // of this test is only that it's rejected for THAT reason, not
+      // discarded as stale (slot must stay `ready`, not flip to cooldown).
+      expect(dismissed, isFalse);
+      expect(adapter.appOpenSlot.value, AdSlotState.ready,
+          reason: 'a fresh ready slot must not be discarded by the '
+              'staleness check');
+    });
+
+    test('showInterstitial discards a stale ready ad instead of showing it',
+        () async {
+      final adapter = AdMobAdapter();
+      markReadyAt(adapter.interstitialSlot,
+          DateTime.now().subtract(const Duration(hours: 2)));
+
+      bool? shown;
+      await adapter.showInterstitial(onDone: (s) => shown = s);
+
+      expect(shown, isFalse);
+      expect(adapter.interstitialSlot.value, AdSlotState.cooldown);
+    });
+
+    test('showRewarded discards a stale ready ad instead of showing it',
+        () async {
+      final adapter = AdMobAdapter();
+      markReadyAt(adapter.rewardedSlot,
+          DateTime.now().subtract(const Duration(hours: 2)));
+
+      RewardResult? result;
+      await adapter.showRewarded(onDone: (r) => result = r);
+
+      expect(result, RewardResult.skipped);
+      expect(adapter.rewardedSlot.value, AdSlotState.cooldown);
+    });
+
+    test(
+        'showRewardedInterstitial discards a stale ready ad instead of '
+        'showing it', () async {
+      final adapter = AdMobAdapter();
+      markReadyAt(adapter.rewardedInterstitialSlot,
+          DateTime.now().subtract(const Duration(hours: 2)));
+
+      RewardResult? result;
+      await adapter.showRewardedInterstitial(onDone: (r) => result = r);
+
+      expect(result, RewardResult.skipped);
+      expect(adapter.rewardedInterstitialSlot.value, AdSlotState.cooldown);
     });
   });
 

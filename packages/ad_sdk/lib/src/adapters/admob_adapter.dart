@@ -668,6 +668,25 @@ class AdMobAdapter implements AdProviderAdapter {
   @override
   Future<void> showAppOpen(
       {required void Function(bool dismissed) onDismiss}) async {
+    // 2026-08-19 audit (Finding 3): isAdFresh was only ever consulted when
+    // *loading* (reuse-if-fresh, above) — a `ready` slot could sit stale for
+    // hours (app backgrounded a long time, then resumed) and still be shown
+    // here, violating Google's App Open "discard and reload after ~4h,
+    // never show stale" policy. Checked before the `ad == null` guard below
+    // so it fires independent of that check.
+    if (appOpenSlot.isReady &&
+        !isAdFresh(appOpenSlot.lastLoadedAt, _appOpenExpiryHours)) {
+      SafeLogger.d(_logTag,
+          'showAppOpen $tag ♻️ ready ad is stale (>${_appOpenExpiryHours}h) — discarding instead of showing');
+      if (_appOpenAd != null) {
+        _disposeAd(_appOpenAd, 'appOpen-stale-at-show');
+        _appOpenAd = null;
+      }
+      appOpenSlot.lastLoadedAt = null;
+      appOpenSlot.markFailed();
+      onDismiss(false);
+      return;
+    }
     final ad = _appOpenAd;
     if (ad == null || !appOpenSlot.isReady) {
       SafeLogger.w(_logTag,
@@ -846,6 +865,20 @@ class AdMobAdapter implements AdProviderAdapter {
   @override
   Future<void> showInterstitial(
       {required void Function(bool shown) onDone}) async {
+    // 2026-08-19 audit (Finding 3, same shape as showAppOpen above).
+    if (interstitialSlot.isReady &&
+        !isAdFresh(interstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
+      SafeLogger.d(_logTag,
+          'showInterstitial $tag ♻️ ready ad is stale (>${_fullscreenExpiryHours}h) — discarding instead of showing');
+      if (_interstitialAd != null) {
+        _disposeAd(_interstitialAd, 'interstitial-stale-at-show');
+        _interstitialAd = null;
+      }
+      interstitialSlot.lastLoadedAt = null;
+      interstitialSlot.markFailed();
+      onDone(false);
+      return;
+    }
     final ad = _interstitialAd;
     if (ad == null || !interstitialSlot.isReady) {
       SafeLogger.w(_logTag, 'showInterstitial $tag ⚠️ not ready');
@@ -992,6 +1025,20 @@ class AdMobAdapter implements AdProviderAdapter {
     String? ssvCustomData,
     String? ssvUserId,
   }) async {
+    // 2026-08-19 audit (Finding 3, same shape as showAppOpen above).
+    if (rewardedSlot.isReady &&
+        !isAdFresh(rewardedSlot.lastLoadedAt, _fullscreenExpiryHours)) {
+      SafeLogger.d(_logTag,
+          'showRewarded $tag ♻️ ready ad is stale (>${_fullscreenExpiryHours}h) — discarding instead of showing');
+      if (_rewardedAd != null) {
+        _disposeAd(_rewardedAd, 'rewarded-stale-at-show');
+        _rewardedAd = null;
+      }
+      rewardedSlot.lastLoadedAt = null;
+      rewardedSlot.markFailed();
+      onDone(RewardResult.skipped);
+      return;
+    }
     final ad = _rewardedAd;
     if (ad == null || !rewardedSlot.isReady) {
       SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ not ready');
@@ -1131,6 +1178,21 @@ class AdMobAdapter implements AdProviderAdapter {
   Future<void> showRewardedInterstitial({
     required void Function(RewardResult result) onDone,
   }) async {
+    // 2026-08-19 audit (Finding 3, same shape as showAppOpen above).
+    if (rewardedInterstitialSlot.isReady &&
+        !isAdFresh(
+            rewardedInterstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
+      SafeLogger.d(_logTag,
+          'showRewardedInterstitial $tag ♻️ ready ad is stale (>${_fullscreenExpiryHours}h) — discarding instead of showing');
+      if (_rewardedInterstitialAd != null) {
+        _disposeAd(_rewardedInterstitialAd, 'rewardedInterstitial-stale-at-show');
+        _rewardedInterstitialAd = null;
+      }
+      rewardedInterstitialSlot.lastLoadedAt = null;
+      rewardedInterstitialSlot.markFailed();
+      onDone(RewardResult.skipped);
+      return;
+    }
     final ad = _rewardedInterstitialAd;
     if (ad == null || !rewardedInterstitialSlot.isReady) {
       SafeLogger.w(_logTag, 'showRewardedInterstitial $tag ⚠️ not ready');
