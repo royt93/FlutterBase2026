@@ -1,35 +1,67 @@
 # Feature Status
 
-Updated: 2026-07-18
+Updated: 2026-08-19
 
-> **Single source of truth** for feature decisions. Two tracks:
-> **🛜 Product** (the WiFi stress-tester itself) and **📣 Ad/SDK**
-> (`applovin_admob_sdk` + VIP integration).
+> **Single source of truth** for `applovin_admob_sdk` feature decisions
+> (Ad/SDK + VIP integration only).
+>
+> **Historical note:** this file was originally written when this repo also
+> contained a WiFi stress-tester host app developed alongside the SDK. That
+> app has since been extracted into its own separate repo and now consumes
+> the SDK as a published pub.dev dependency; this repo's root holds no app
+> code of its own anymore. Sections that described the host app's own
+> product features (network diagnostics, speed charts, history/export, room
+> tagging, etc. — nothing to do with ads/VIP/consent) have been removed
+> below as out of scope for this repo. Older dated entries below that
+> discuss the SDK's own features/fixes sometimes still reference that former
+> host app's files (e.g. `wifi_stressor_screen.dart`, `lib/mckimquyen/...`)
+> for historical context — those files no longer exist in this repo, but the
+> SDK-side fix/feature being described is still accurate and kept for the
+> audit trail. See `packages/ad_sdk/CHANGELOG.md` for the authoritative,
+> up-to-date version history (current: **2.1.0**) and `doc/audit/` for the
+> full audit-round history.
 >
 > **Coding rules for every Picked item** (from `doc/init.md` + `doc/TODO.md`):
-> no `print`/`debugPrint` → use `SafeLogger`; no `Get.snack` → use `AppSnackbar`
-> / `UIUtils.showToast`; no `late` → nullable + init; no `setState` → GetX
-> `Rx`/`Obx`; no force-null `!`; no memory leak; **full vi + en i18n** for every
-> new user-facing string.
+> no `print`/`debugPrint` → use `SafeLogger`; no `late` → nullable + init; no
+> force-null `!`; no memory leak; **full vi + en i18n** for every new
+> user-facing string in `packages/ad_sdk/example`.
 
 ---
 
 ## ✅ Implemented
 
-### 🛜 Product — WiFi stress tester
-- Core flow: parallel Dio download stress test, configurable parallel
-  connections (default 50), realtime Mbps + total bytes + duration, live speed
-  line chart. Per-URL failure tracking + retry backoff.
-- History (Hive, capped at 100 via `TestHistoryStorage`): summary stats card,
-  line chart, timeline list.
-- Test detail screen: avg / peak / min / median speed, network info,
-  speed-over-time chart.
-- Network info: SSID, IP, estimated frequency, **signal dBm** (Wave 3 native
-  channel), latency/jitter/DNS/packet-loss (Wave 2–3).
-- Endpoint set: Linode / Vultr / OVH / free.fr / ThinkBroadband (the 5 dead
-  DigitalOcean speedtest endpoints were removed).
+> (This section originally opened with a "🛜 Product — WiFi stress tester"
+> block describing the former host app's own speed-test/network-diagnostics
+> features — parallel download stress test, history/Hive storage, network
+> info dashboard, etc. None of that is part of this SDK; it described a
+> different app that now lives in its own separate repo. Removed as out of
+> scope for this repo — see `doc/task/` / `doc/archive/` if the historical
+> detail is ever needed.)
 
-### 📣 Ad / SDK — `applovin_admob_sdk` (hosted pub.dev `^1.1.0`, **published 1.1.1**, ACTIVE 2026-07-18)
+### 📣 Ad / SDK — `applovin_admob_sdk` (current: **2.1.0**, see `packages/ad_sdk/CHANGELOG.md`)
+
+> The version/host-app details in this specific bullet block below (pub.dev
+> `^1.1.0`/`1.1.1`, "ACTIVE 2026-07-18") are a snapshot from when this entry
+> was first written and are stale — kept as historical context for the
+> narrative that follows. Current SDK version is 2.1.0.
+
+- **2.1.0 (2026-08-19) — same-day audit + fix pass** (`doc/audit/audit_claude_20260819.md`,
+  `CHANGELOG.md`): App Open (and interstitial/rewarded/rewarded-interstitial)
+  could be shown stale past their 4h/1h freshness window because `isAdFresh`
+  was only checked on load-reuse, never at `show*()` time — fixed for all 4
+  AdMob fullscreen types. `showAppOpenAdOnResume()` always called
+  `showAppOpenAd(bypassSafety: true, ...)`, bypassing the daily/hourly/session
+  cap and CTR-fraud pause outside the one case (splash) this SDK's own
+  contract allows — fixed to `bypassSafety: false` for the resume path.
+  AppLovin banner/MREC widgets leaked their native `MaxAdView` on normal
+  disposal (`disposeBannerInstance`/`disposeMrecInstance` never called
+  `destroyWidgetAdView`) — fixed. Added `attOrderFootgunWarning` (loud, not
+  release-gated) for the previously log-only `requestAtt()`-before-UMP
+  ordering footgun. 849 → 857 tests passing, `flutter analyze` clean.
+  Also fixed a stale load-watchdog timer race in `AdSlot.armLoadWatchdog()`
+  and 2 minor P2 cleanup items (destroy() cooldown maps, duplicate consent
+  listener on re-init) landed just before this round.
+
 - Android + iOS ad integration, runtime provider **`AdProvider.admob`**
   (switched from `AdProvider.appLovin` 2026-08-08 — AppLovin kept present
   for swap-readiness). Root `pubspec.yaml` consumes hosted
@@ -591,16 +623,9 @@ hiện mới:
   `flutter clean && flutter pub get`) và CocoaPods sandbox desync sau đó (fix:
   `cd ios && pod install`).
 
-### 🔐 Session 2026-06-15 — security + policy hardening
-- **Keystore credentials** moved out of `android/app/build.gradle` into
-  `android/key.properties` (loaded by gradle) + `key.properties.example`
-  template. `key.properties` is intentionally **tracked** (private repo, user
-  decision); `build.gradle` no longer holds plaintext passwords.
-- **Interstitial policy:** removed from the Stop button — interstitials now fire
-  **only on a real screen transition** (opening History). Start was already clean.
-- **Code-style cleanup** (wifi_stressor module): 2× `late final` → nullable /
-  field-initializer, 3× bang `!` → null-safe pattern, History banner wrapped in
-  `SafeArea`. `flutter analyze` = No issues found.
+> (A "🔐 Session 2026-06-15 — security + policy hardening" block was removed
+> here — it covered the former host app's own keystore/gradle setup and a
+> `wifi_stressor` module code-style cleanup, unrelated to this SDK.)
 
 ### 📣 Ad/SDK — audit vòng 6 follow-up T47/T48/T49 (2026-07-19)
 - **T49 — `VipManager.addVip(stack: false)` giờ clamp `maxStackDuration`.**
@@ -630,446 +655,31 @@ hiện mới:
 
 ## 🟡 In progress
 
-- **Product track (picked 2026-08-09):** Wave 7 — audit cleanup (done, see
-  ✅ Implemented above). Code done + `flutter analyze`/`dart format`/`flutter
-  test` clean for D1 (custom data-usage limit), D2 (personal benchmark vs
-  advertised ISP speed), D3 (multi-server selection) and D4 (auto-schedule,
-  reminder-only scope). D4 went through 2-lane independent AI review
-  (codex + claude; agy lane failed on a headless-permission error) after the
-  first pass — 4 real findings confirmed by reading code directly and fixed:
-  multi-weekday scheduling (was firing on only 1 of N selected weekdays),
-  dead cold-launch notification-tap routing, a race condition + silent
-  success-on-failure in `ScheduleController._persistAndReschedule()`, and an
-  enabled-with-zero-weekdays UI/state desync. Still pending: iOS on-device
-  verify of Wave 6 (Track C) and a real-device build-verify of D4 (notif
-  fires for every selected weekday + tap routes correctly from
-  foreground/background/cold-launch on both platforms) — needs R3 device
-  pick before running. UMP consent runtime test was deliberately deferred
-  until after D4 ("làm D4 trước, test consent sau"). See
-  `/Users/loitran/.claude/plans/starry-dazzling-duckling.md` for the full plan.
-- **Ad/SDK track:** none active — audit vòng 9 (2026-07-20) closed at 9.0/10,
-  T23-T26 confirmed implemented + green (see ✅ Implemented above). One
-  standing technical item: `dependency_overrides` pins `meta`/related deps
-  below the SDK's own floor because Flutter 3.35.1 forces `meta 1.16.0`;
-  blocked on a Flutter SDK upgrade, re-check ~2026-10-13.
+> (A "Product track" bullet describing the former host app's Wave 7 work —
+> data-usage limits, benchmark-vs-ISP, multi-server selection, auto-schedule
+> reminders — was removed here as out of scope; it described a different
+> app's roadmap, now in a separate repo.)
 
-## ✅ Implemented — Wave 6 (3 differentiation features + shared Hive migration) · DONE 2026-08-08
+- **Ad/SDK track:** as of the 2026-08-19 audit + fix pass (`doc/audit/audit_claude_20260819.md`),
+  the 3 real findings from that round are fixed (App Open staleness,
+  `showAppOpenAdOnResume` safety-cap bypass, AppLovin banner/MREC native-view
+  leak — see the 2.1.0 entry above), 857/857 tests passing. Open, non-blocking
+  items: ATT-before-UMP ordering enforced only by a (now louder) warning, not
+  a hard block; `MIGRATION.md` still missing guidance for 2.0.0's own 3
+  breaking changes; the published pub.dev listing needs a new version cut to
+  pick up everything since 2.0.4. One standing technical item unchanged from
+  prior rounds: `gma_mediation_applovin >=2.6.0` needs `meta ^1.17.0` while
+  Flutter 3.35.1's `flutter_test` forces `meta 1.16.0` — blocked on a Flutter
+  SDK upgrade, re-check ~2026-10-13 (see this repo's own `CLAUDE.md` for the
+  full current pinning-wall detail).
 
-### Shared — Hive schema migration (`roomTag` + `thermalStatus`)
-`TestResult` grew from 17 to 19 fields — `roomTag` (`String?`, index 17) and
-`thermalStatus` (`int?`, index 18, raw Android `PowerManager` thermal code
-0-6). `models/test_result.dart` (constructor/`copyWith`/`fromControllerData`/
-`toJson`/`fromJson` + new `thermalStatusFormatted` getter),
-`models/test_result_adapter.dart` (`writeByte(17)` → `writeByte(19)`, new
-read/write cases 17/18). Old Hive records simply lack keys 17/18 on read →
-`fields[17]`/`fields[18]` naturally resolve to `null`, no migration script
-needed — covered by `test/wave6_room_tag_test.dart`'s backward-compat
-round-trip test (constructs a fake pre-migration 17-field frame).
-
-### K. Walk-test room-tagging — `done`
-Bottom sheet after a test finishes (preset chips + custom text field,
-skippable) tags the result with a room/location label. New
-`presentation/room_comparison_screen.dart` groups tagged, successful results
-by room and shows avg/peak/min Mbps per room (reachable from
-`history_screen.dart`'s AppBar). Room badge (📍) surfaced in
-`timeline_item.dart` and `test_detail_screen.dart`. i18n:
-`room_tag_*`/`room_comparison_*` keys in both `en_us.dart`/`vi_vn.dart`.
-Tests: `test/wave6_room_tag_test.dart` (Hive round-trip + grouping/aggregation
-math, mirroring `RoomComparisonScreen`'s `byRoom` logic).
-
-### L. ISP-dispute PDF evidence export — `done`
-New "Export ISP Dispute Report" flow in `history_controller.dart`:
-date-range picker → `TestHistoryStorage.getResultsByDateRange()` (existing,
-reused as-is) → optional advertised-plan-speed prompt →
-`generateIspDisputeReport()` builds a PDF (header, generated timestamp, date
-range, test count, optional "% of tests below advertised speed", aggregate
-avg/peak/min stats, full per-test table via `pw.TableHelper.fromTextArray`,
-disclaimer footer) → shared via `share_plus`. Separate from the existing
-CSV/JSON/PDF export sheet (Wave 2) since it needs a date range first. i18n:
-`isp_dispute_*` keys. Tests: `test/wave6_isp_dispute_export_test.dart`
-(mirrors `wave2_export_test.dart`'s byte-stream/`%PDF`-header pattern,
-exercises `whereType<double>()` filtering on partially-null optional
-metrics + the advertised-speed `belowCount` branch).
-
-### M. Sustained-load thermal throttle detector — `done`
-Android-only (`Build.VERSION.SDK_INT >= Q`): new `"getThermalStatus"` case in
-`MainActivity.kt`'s wifi channel calling
-`PowerManager.getCurrentThermalStatus()`, wrapped `services/network_info_service.dart#getThermalStatus()`
-wrapper (iOS/pre-Q/channel-error → `null`, never conflated with "no
-throttling"). `stressor_controller.dart` polls every 10s during a run via
-`_pollThermalStatus()`, tracks the **worst** (highest-severity) status
-observed → stored on `TestResult.thermalStatus`. `(thermalStatus ?? 0) >= 2`
-(`THERMAL_STATUS_MODERATE`) gates a warning card in `test_detail_screen.dart`
-and a 🌡️ badge in `timeline_item.dart`; `null` always hides the warning,
-never shown as a false "confirmed OK". i18n: `thermal_warning_*` keys.
-Tests: `test/wave6_thermal_test.dart` (threshold gate across null/0/1/2-6,
-`thermalStatusFormatted` null-safety).
-
-## ✅ Implemented — Wave 5 (network dashboard + chart types) · DONE 2026-06-16
-
-> Picked 2026-06-16 (Network Info dashboard + Chart types & visualization), built
-> same day. New files: `models/network_dashboard.dart`,
-> `controllers/network_dashboard_controller.dart`,
-> `presentation/network_dashboard_screen.dart`, `widgets/loss_pie_widget.dart`,
-> `test/wave5_{unit,widget}_test.dart`. Touched: `MainActivity.kt`
-> (getNetworkDetails), `services/network_info_service.dart`, `speed_chart.dart`,
-> `presentation/test_detail_screen.dart`, `wifi_stressor_screen.dart` (router
-> AppBar icon), translations. Also polished `common/v/pulse_container.dart`
-> (`late`→nullable).
-
-### I. Network Info dashboard — `done`
-- [x] Native `getNetworkDetails` (MainActivity.kt): gateway IP + DNS1/DNS2 + BSSID
-      via `DhcpInfo` + `WifiInfo.bssid`; int→dotted IPv4; placeholder MAC
-      `02:00:00:00:00:00` (no location perm) → null.
-- [x] `NetworkInfoService`: `getNetworkDashboard()` gathers base info + native
-      gateway/dns/bssid + **public IP** (Dio GET ipify, 5s timeout, null on fail)
-      + link speed. Pure helpers `isLikelyIpv4` / `dnsListOf` `@visibleForTesting`.
-- [x] `NetworkDashboard` model (live, **not** Hive-persisted → no adapter/schema
-      migration). `NetworkDashboardController` (GetX Rx, refresh guard).
-- [x] `NetworkDashboardScreen`: Connection / Addresses / DNS cards + per-row
-      copy-to-clipboard + refresh button. Entry = `Icons.router` on main AppBar
-      (no interstitial — info screen).
-- [x] i18n vi/en (`net_*`). Tests in `wave5_unit_test.dart`.
-
-### J. Chart types & visualization — `done`
-- [x] `SpeedChart` now StatefulWidget with line / area / bar toggle (state via
-      `ValueNotifier`, **no setState**). Bar chart downsamples to `maxBars=48`
-      buckets (`downsample` `@visibleForTesting`). Live running chart passes
-      `showTypeToggle:false` (keeps data-points counter).
-- [x] `LossPieWidget` — success-vs-loss pie (fl_chart `PieChart`) from
-      `packetLossPct`; rendered in `test_detail` only when not null. Pure
-      `successOf` `@visibleForTesting`.
-- [x] i18n vi/en (`packet_pie_title`, `packet_success`). Tests in
-      `wave5_widget_test.dart` (toggle line→bar, hidden toggle, pie + legends).
-
-> **Wave 5 COMPLETE (2026-06-16).** 72/72 host tests green, ad_sdk 225/225,
-> `flutter analyze` clean (host + ad_sdk), APK builds with the native channel.
-> i18n 184/184 parity.
-> **Deferred from this pick:** heatmap (performance over time) — needs a
-> history×time matrix + a custom painter; larger than this session. **Closed
-> the same day** — see "Wave 5 spec-audit round" below, `heatmap_screen.dart`.
-
-#### Wave 5 on-device verification + post-review polish (S24 Ultra, 2026-06-16)
-- **Verified live on Samsung S24 Ultra (Android 16):** Network Dashboard resolved
-  gateway `192.168.92.1`, DNS, BSSID `a2:05:...`, public IP `118.69.32.232`,
-  signal/freq/channel/link-speed (458 Mbps) — all native data correct. Chart
-  toggle line/area/bar + success-vs-loss pie (100%) render + switch smoothly.
-  Interstitial-only-on-History confirmed. **Zero** app crash/ANR/`E/flutter`
-  across the session (only system `serviceDiscovery`/`NearbySharing` noise).
-- **3 review nits fixed + re-verified on device:**
-  1. **Public IP fallback** — `getPublicIp` now iterates `publicIpProviders`
-     (ipify → ifconfig.me → icanhazip), first valid IPv4 wins (was single
-     provider → silent N/A if blocked).
-  2. **Parallel fetch** — `getNetworkDashboard` starts connectionType / base /
-     wifi / details / publicIp as concurrent hot futures (public IP's ≤5s no
-     longer serializes behind the fast native calls).
-  3. **Signal-quality i18n unified** — `TestResult.signalQuality` now returns
-     lowercase tier keys (`excellent`/`good`/`fair`/`poor`) like
-     `NetworkDashboard`; test-detail row translates via `signal_<tier>` (device
-     shows "-33 dBm (Xuất sắc)", was untranslated "(Excellent)"); share text
-     uses `capitalizeFirst` to stay an English report.
-  - Tests: +2 in `wave5_unit_test.dart` (TestResult tier keys, publicIpProviders
-    shape). `DhcpInfo` kept (deprecated but reliable) — noted for a future move
-    to `ConnectivityManager.getLinkProperties`.
-
-#### Wave 5 spec-audit round (2026-06-16) — closed the deferred sub-items
-> Audit vs the chosen option text surfaced 2 named-but-undelivered sub-items
-> (router vendor OUI, heatmap) + 3 minor issues. All addressed + re-verified on
-> S24 Ultra. **79/79 host tests, analyze clean, i18n 192/192.**
-- **Router vendor (OUI)** — `NetworkInfoService.vendorOf(bssid)` + `ouiVendors`
-  map (~40 common router/AP makers). Guards **locally-administered/randomized
-  MAC** (0x02 bit) → null (real-world routers often randomize, incl. the test
-  device — vendor row then hidden by design). `NetworkDashboard.vendor` + "Hãng"
-  row (only when non-null). Tests: 4 (known/randomized/unknown/malformed).
-- **Heatmap** (`presentation/heatmap_screen.dart`) — each test = a 24-cell strip
-  (reuses `SpeedChart.downsample`, now a plain public util) coloured red→amber→
-  green by speed vs global peak; legend + per-row time/avg label. Entry = grid
-  icon on History AppBar. `heatmapColor` `@visibleForTesting` (3 tests). i18n
-  `heatmap_*`. On device: 3 rows render, startup-ramp amber → sustained green.
-- **3 nits fixed:** (a) parallel reorder so BSSID isn't fetched before location
-  permission resolves (await base first; publicIp still overlapped); (b)
-  `connectionType` localized (`net_type_wifi/mobile/ethernet/unknown` — device
-  shows "WiFi"); (c) `getPublicIp` closes its Dio in `finally`.
-- **Still deferred:** connected-devices count (needs ARP scan, unreliable);
-  OUI DB is a starter list (extend as needed).
-
-## ✅ Implemented — Polish + Wave 4 · DONE 2026-06-16
-
-> New: `services/upload_speed_service.dart`, `presentation/ad_health_screen.dart`,
-> `test/wave4_*` (upload/alerts/ad_health). Touched: model+adapter (uploadMbps),
-> stressor_controller (upload probe + alerts), control_panel (upload tile + alert
-> chips), test_detail/comparison/history_controller (upload col), MainActivity.kt
-> (getWifiInfo), network_info_service (band/channel), translations.
-
-### P. Polish — `done`
-- [x] P1 De-nested the test-detail speed chart (was card-inside-card + 2 headers);
-      now `SpeedChart` stands alone (single card/header). — `done`
-- [x] P2 Native `getWifiInfo` (rssi + frequency MHz + link speed); Dart
-      `bandOf`/`channelOf` derive real `NetworkInfo.frequency` (2.4/5/6 GHz) +
-      `channel`. Tests added (band/channel/map). — `done`
-
-### Wave 4 (picked)
-- [x] **Upload speed test** — `done`. `UploadSpeedService` (POST 1MB to Cloudflare
-      `__up`, throughput) probed every 5s under load; `TestResult.uploadMbps`
-      (adapter field 16) + running tile + detail row + comparison row + CSV col +
-      i18n `upload_speed`. Tests `test/wave4_upload_test.dart`.
-- [x] **Real-time alerts** — `done`. Threshold chips (Off/5/10/20/50 Mbps) in the
-      control panel; low-speed toast fires once when avg drops below (after 5s,
-      resets on recovery); test-complete toast on stop/auto-stop. In-app toasts
-      (toastification) — no OS-notification plugin needed. `shouldAlertLowSpeed`
-      `@visibleForTesting`. Tests `test/wave4_alerts_test.dart`.
-- [x] **Ad-health / debug screen** — built then **REMOVED per user (2026-06-16)**:
-      verified working on device (SDK/slots/VIP/consent live), but it's a
-      dev/debug tool — exposing it on the production AppBar is clutter + leaks
-      internal ad state to end-users. Screen + icon + test + i18n all removed.
-      (If needed later, re-add gated behind `kDebugMode`.)
-
-> **Polish + Wave 4 COMPLETE (2026-06-16).** Upload speed + alerts + polish
-> shipped; ad-health built+verified then removed as a debug-only tool. analyze
-> clean, APK builds.
-
-## ✅ Implemented — Wave 2 (measurement + export) · DONE 2026-06-16
-
-> Started + completed 2026-06-16. New files: `services/latency_service.dart`,
-> `models/network_quality.dart`, `test/wave2_{latency,quality,export}_test.dart`.
-> Touched: `models/test_result(_adapter).dart`, `stressor_controller.dart`,
-> `controllers/history_controller.dart`, `widgets/control_panel_widget.dart`,
-> `presentation/{test_detail,comparison}_screen.dart`, translations, `pubspec.yaml`
-> (`pdf`).
-
-### D. Ping/Latency + Jitter realtime — `done`
-- [x] D1 `LatencyService`: HTTP GET round-trip probe (Cloudflare trace), ms; null
-      on failure. Pure static `jitter`/`average`. — `done`
-- [x] D2 Controller: `latencyMs`/`jitterMs`/`latencyHistory` Rx + 2s probe Timer
-      during a run (cancelled in stop/cleanup, service closed); jitter = mean |Δ|.
-      — `done`
-- [x] D3 Model+adapter: `TestResult.avgLatencyMs`/`jitterMs` (fields 12/13,
-      backward-safe null read) + `fromControllerData`/`copyWith`/`toJson`/`fromJson`
-      + `latencyFormatted`/`jitterFormatted`. — `done`
-- [x] D4 UI: latency + jitter metric tiles (running panel) + detail screen rows.
-      — `done`
-- [x] D5 i18n vi/en (`latency`,`jitter`) + tests `test/wave2_latency_test.dart`
-      (8: jitter/average math + model round-trip/format/backward-compat). — `done`
-> Note: latency is measured *under load* (during the download stress) → reflects
-> bufferbloat, intentionally. Probe runs in parallel with downloads.
-
-### E. Network Quality Score A–F — `done`
-- [x] `NetworkQuality.compute` (pure): speed 50pts + latency 30pts + jitter 20pts
-      → 0-100 score → grade A/B/C/D/F + colour. Null latency → speed-only on a
-      100 scale. — `done`
-- [x] UI: grade badge on the test-detail performance card (white pill, coloured
-      letter + score) + a coloured grade row in the comparison table (+ latency/
-      jitter rows). — `done`
-- [x] i18n `quality_score` + tests `test/wave2_quality_test.dart` (6: tiers,
-      boundaries, null-latency, caps). — `done`
-
-### F. Export CSV / JSON / PDF — `done`
-- [x] `exportData` now opens a dark bottom-sheet format picker (CSV/JSON/PDF) →
-      `_exportAs(fmt)` writes temp file + shares (share_plus). — `done`
-- [x] CSV: added Latency/Jitter/Quality columns. JSON: indented array of
-      `TestResult.toJson` (incl. latency). PDF: `pdf: ^3.12.0` — A4 MultiPage
-      table (#, time, avg, peak, latency, jitter, grade, status). — `done`
-- [x] Generators made `@visibleForTesting` (`generateCsv`/`generateJson`/
-      `generatePdf`); i18n `export_choose_format`; tests
-      `test/wave2_export_test.dart` (3: CSV headers/rows, JSON parse+round-trip,
-      PDF %PDF magic). — `done`
-
-> **Wave 2 COMPLETE (2026-06-16).** Latency+jitter, A–F quality score, 3-format
-> export. `flutter analyze` clean, APK builds.
-
-#### Wave 2 tests + bug fixes (2026-06-16)
-- Added **widget + integration tests**: `test/wave2_widget_test.dart` (latency/
-  jitter tiles, detail quality badge, export bottom-sheet) +
-  `test/wave2_integration_test.dart` (select 2 → comparison shows latency + A–F
-  grades end-to-end). **40/40 host tests green.**
-- 🐛 **Fixed custom-duration dialog crash** (`_dependents.isEmpty` assertion): the
-  dialog disposed its `TextEditingController` in a `.then()` while the `TextField`
-  was still mounted. Rewrote as a `_CustomDurationDialog` StatefulWidget that
-  disposes in `State.dispose()`. Regression test added in `wave1_widget_test.dart`
-  (open→fill→OK→`pumpAndSettle`). Verified on S24 Ultra: 45s entered → no crash →
-  `45s` chip selected.
-- 🐛 **Fixed pre-existing detail-screen overflow** (233px): `SpeedChart` was forced
-  into `SizedBox(height:200)` but needed ~420px → added `chartHeight` param
-  (detail uses 180).
-- 🐛 Added missing i18n key `ok` (the OK button rendered as lowercase "ok").
-- **On-device (S24 Ultra):** latency `268 ms` + jitter `362 ms` tiles live during
-  a run (high = under-load bufferbloat, by design), gauge hero animates, auto-stop
-  fires, custom dialog no longer crashes. No `_dependents`/assertion/FlutterError
-  in logcat (only expected per-loop DioException on cancel).
-
-## ✅ Implemented — Wave 1 (Quick wins) · DONE 2026-06-16
-
-> Started 2026-06-15, completed 2026-06-16. Pure Dart/Flutter on existing data —
-> no new native code or heavy packages. Files: `widgets/control_panel_widget.dart`,
-> `widgets/speedometer_gauge_widget.dart` (new), `presentation/comparison_screen.dart`
-> (new), `controllers/history_controller.dart`, `widgets/timeline_item.dart`,
-> `presentation/history_screen.dart`, `stressor_controller.dart`, translations,
-> `test/wave1_{unit,widget,integration}_test.dart` (new).
-
-### A. Test duration presets — `done`
-- [x] A1 Controller: `Rx<int?> selectedDurationSec` + preset list + auto-stop in
-      `_updateTotalSpeed` (re-entrancy guarded). — `done`
-- [x] A2 UI: ChoiceChip preset selector (Unlimited/15s/30s/1m/5m) + custom dialog
-      (local `TextEditingController` disposed, digits-only). running_time tile now
-      shows `elapsed / total` when a preset is set. — `done`
-- [x] A3 i18n: vi + en keys (`duration_label`, `duration_unlimited`,
-      `duration_custom`, `duration_custom_title`, `duration_custom_hint`). — `done`
-- [x] A4 `flutter analyze` = No issues found. — `done`
-
-### B. Speedometer gauge realtime — `done`
-- [x] B1 `SpeedometerGaugeWidget` (CustomPainter) reactive to `speedMbps` via
-      `Obx`; auto-scale max (50/100/200/500/1000/2000), colour by quality. — `done`
-- [x] B2 Integrated into running view above the line chart. — `done`
-- [x] B3 `flutter analyze` = No issues found. — `done`
-
-### C. Comparison view — `done`
-- [x] C1 History: multi-select mode (`selectionMode`/`selectedIds`/`selectedResults`
-      in controller; compare toggle in AppBar; check indicator on `TimelineItem`;
-      bottom compare bar enabled at ≥2). — `done`
-- [x] C2 `ComparisonScreen`: colour legend + overlaid speed-over-time LineChart +
-      metrics table with best-value highlight. — `done`
-- [x] C3 i18n vi + en (`comparison_title`, `compare_*`, `cmp_*`). — `done`
-- [x] C4 `flutter analyze` = No issues found. Also fixed 3 pre-existing force-null
-      `!` in `history_controller`/`test_detail_screen` while here. — `done`
-
-### T. Tests (unit + widget + integration) — `done`
-> Host tests in repo-root `test/` (`flutter test`). 18/18 pass (12 new + 6 VIP).
-- [x] T1 Unit `test/wave1_unit_test.dart`: gauge `niceMax`/`speedColor`,
-      `StressorController.shouldAutoStop` + `selectedDurationSec`, HistoryController
-      selection (`toggleSelectionMode`/`toggleSelect`/`selectedResults`). — `done`
-- [x] T2 Widget `test/wave1_widget_test.dart`: duration chips render + tap updates
-      controller + hidden while running, gauge renders value + CustomPaint,
-      comparison screen metric rows + LineChart. — `done`
-- [x] T3 Integration `test/wave1_integration_test.dart`: select 2 of 3 tests →
-      `selectedResults` → ComparisonScreen renders both, excludes the third. — `done`
-- [x] Refactor for testability: `shouldAutoStop` (`@visibleForTesting`), gauge
-      `niceMax`/`speedColor` made static-public. — `done`
-
-### Wave 1 exit — `done`
-- [x] `flutter analyze` clean (lib + test). — `done`
-- [x] `flutter test` green (18/18). — `done`
-- [x] `flutter build apk --debug`. — `done`
-- [x] On-device smoke — Pixel 7 Pro + S24 Ultra (Android 16). — `done`
-  - A: chips render, select 15s, `0:03 / 0:15` elapsed/total, **auto-stop**
-    (`⏱️ Duration preset 15s reached → auto-stop` → `Test result saved`). ✅
-  - B: speedometer gauge realtime on device (needle + colour band: 75→amber,
-    26→red). ✅
-  - C: selection mode (compare icon → X, entry check + blue border, bottom bar
-    `Đã chọn N`, compare disabled at <2), then **ComparisonScreen verified with 2
-    real entries** — colour legend (#1 blue / #2 green), overlaid speed-over-time
-    chart (2 lines), metrics table with best-value highlight (avg/peak/min/median
-    + duration + downloaded). ✅
-  - first-install grace 30s + interstitial-only-on-History confirmed in log. ✅
-
-> **Wave 1 COMPLETE (2026-06-16).** All three features coded, tested (18/18),
-> analyzed clean, built, and verified end-to-end on real devices.
-
-### Wave 1 UI polish — dark theme unify (2026-06-16) · `done`
-> The WiFi main screen used a light cream `Card` (app theme is `ThemeData.light`)
-> floating over the dark space background, clashing with the dark-slate History/
-> Comparison screens. Unified everything to the dark design system
-> (bg #0F172A · card #1E293B · accent #3B82F6).
-- Control panel: cream `Card` → dark `Container` (#1E293B, subtle border), white
-  text, dark dropdown (`dropdownColor`).
-- Duration chips: default Material `ChoiceChip` → custom dark chips — selected =
-  solid blue accent + white, unselected = #0F172A + white70, animated.
-- Speedometer gauge: now the **hero** when running (size 260, top, replaces the
-  idle status circle); removed the redundant "Tốc độ hiện tại" metric row; fixed
-  the "Mbps" label colour (was black → white70); gauge `size` param added.
-- `MetricTileWidget`: white/white70 text on dark; green metric icons kept.
-- `SpeedChart` (live) + `collecting_data`: cream `Card` → dark, readable text.
-- Comparison + History charts: softened the harsh black `FlBorderData` to
-  white-12%; comparison legend squares rounded.
-- Verified on device (S24 Ultra): cohesive dark control panel + accent chips +
-  gauge hero. `flutter analyze` clean, `flutter test` 12/12 Wave 1 still green.
-
-#### UI refinements (user feedback, 2026-06-16)
-- Connection-count picker: bare underlined `DropdownButton` → rounded pill
-  (#0F172A, 12px corners, subtle border, `borderRadius` on the popup too).
-- Speedometer gauge value overlap fixed: redesigned from a 270° dial (value
-  Stacked over the hub/needle/background art) to a **180° semicircle with the
-  value number in a `Column` directly below the arc** — number can no longer
-  overlap the needle/arc/background. Verified on device.
-- Gauge smooth animation: `TweenAnimationBuilder` (450ms easeOutCubic) interpolates
-  needle/arc/number/colour between value changes (no more jumps on each 500ms
-  controller tick). `begin: null` → first build shows target instantly (tests stay
-  green).
-
-## ✅ Implemented — Wave 3 (native measurement) · DONE 2026-06-16
-
-> New: `MainActivity.kt` MethodChannel, `test/wave3_{signal,dns_loss}_test.dart`.
-> Touched: `latency_service.dart` (DNS), `network_info_service.dart` (RSSI channel),
-> `stressor_controller.dart`, `models/test_result(_adapter).dart`,
-> `presentation/{test_detail,comparison}_screen.dart`, `controllers/history_controller.dart`
-> (CSV cols), translations.
-
-### G. Signal strength dBm (native) — `done`
-- [x] `MainActivity.kt`: MethodChannel `com.saigonphantomlabs.base/wifi` →
-      `getRssi` returns `WifiManager.connectionInfo.rssi` (null if ≥0 / error).
-- [x] `NetworkInfoService.getSignalStrength()` (`@visibleForTesting`) invokes it;
-      iOS has no handler → caught → null. Wired into `getCurrentNetworkInfo`
-      (was hard-coded `null`). Detail Network-Info row already renders it.
-- [x] Tests `test/wave3_signal_test.dart` (4, channel-mocked: negative kept,
-      0/positive→null, null→null, PlatformException→null). APK builds (Kotlin OK).
-
-### H. DNS resolution + Packet loss — `done`
-- [x] `LatencyService.dnsLookup()` (timed `InternetAddress.lookup`, null on fail).
-- [x] Controller: `dnsMs`/`packetLossPct`/`dnsHistory` + probe-attempt/failure
-      counters; packet-loss = failed/total probes %, DNS = avg. Persisted to
-      `TestResult.dnsMs`/`packetLossPct` (adapter fields 14/15, backward-safe).
-- [x] UI: detail rows + comparison rows + CSV columns; i18n `dns_time`,
-      `packet_loss`. Tests `test/wave3_dns_loss_test.dart` (7).
-
-> **Wave 3 COMPLETE (2026-06-16).** 49/49 host tests green, analyze clean, APK
-> builds with the native channel.
-
-## 🚧 Blockers — config, not code
-
-- ~~**UMP consent form NOT configured** for AdMob app ID.~~ **✅ DONE
-  (xác nhận với user 2026-07-19).** User đã publish UMP consent message trên
-  AdMob console. Không còn blocking cho release EU/EEA.
-
-## 🧑‍💻 Checklist thao tác tay — trước khi release thật (2026-07-15)
-
-Ba việc dưới đây **Claude không tự làm được** (cần login console/pub.dev của
-user, hoặc là quyết định kinh doanh) — user tự làm theo thứ tự nào cũng được,
-không phụ thuộc lẫn nhau:
-
-1. ✅ **DONE (xác nhận + verify code 2026-07-19; provider switch 2026-08-08).**
-   Host app (FastNet) dùng App ID production thật
-   (`ca-app-pub-3004713799155145~9488250427`, cùng giá trị Android/iOS) và bộ
-   ad-unit ID AppLovin thật trong `AdKey.appLovinAndroid`/`appLovinIos`
-   (`lib/mckimquyen/common/const/ad_keys.dart`). **2026-08-08: provider đang
-   chạy runtime đổi từ AppLovin sang AdMob** (`AdProvider.admob` trong
-   `splash_screen.dart:229`) — `AdKey.adMob` giờ cũng là ad-unit ID production
-   thật (banner/interstitial/appOpen/rewarded dưới App ID trên), không còn là
-   ID test của Google nữa; AppLovin giữ nguyên bộ ID thật, đóng vai fallback
-   nếu sau này flip lại. R10-F debug `assert()` (`splash_screen.dart:305-312`)
-   không còn fire vì cả hai bộ ID giờ đều thật. **Phát hiện phụ:** example app
-   của SDK (`packages/ad_sdk/example`) vẫn đang hardcode App ID production
-   thật này (đáng lẽ nên dùng App ID test) — tách thành ticket riêng, ✅ **đã
-   fix 2026-07-19**, xem `doc/task/done/T44-example-app-real-admob-appid.md`.
-2. ✅ **DONE (xác nhận với user 2026-07-19).** Đã publish UMP consent form
-   trên AdMob console — xem mục Blockers phía trên (đã chuyển sang trạng thái
-   done).
-3. ✅ **DONE 2026-07-16 — Publish `packages/ad_sdk` v1.0.24 lên pub.dev + flip
-   `pubspec.yaml`.** Root `pubspec.yaml` đã bỏ comment dòng hosted
-   `applovin_admob_sdk: ^1.0.24` (pub.dev, sha256 `cc8ee183...`), comment lại
-   dòng `path: packages/ad_sdk`; `flutter pub get`/`flutter analyze` clean.
-   Đã smoke-test on-device xác nhận — xem mục "Smoke-test on-device 4 lượt"
-   ngay bên dưới mục "On-device verification".
-
-## ⏸️ Deferred
-
-- Recheck native ad SDK majors (AppLovinSDK / Google Mobile Ads) each quarter —
-  confirm whether the CocoaPods/Dart version pins in `dependency_overrides`
-  (root `pubspec.yaml`) can be relaxed now that upstream has moved. Retested
-  2026-07-10: still blocked (`gma_mediation_applovin >=2.6.0` needs
-  `meta ^1.17.0`, Flutter SDK 3.35.1's `flutter_test` pins `meta 1.16.0`). See
-  `doc/audit/audit_partner_lead_20260710.md` finding #2/#3. **Lần kiểm tra kế
-  tiếp: ~2026-10-13** (3 tháng sau lần audit 2026-07-13, chốt qua
-  `AskUserQuestion`) — thử lại `flutter pub get` sau khi bump 3 package trên
-  theo version SDK tự khai báo.
+> (Sections below — "Implemented — Wave 6/5/4/2/1/3", "Blockers", the manual
+> release checklist, and the old dependency-recheck "Deferred" item — covered
+> the former WiFi-stress-tester host app (network dashboards, chart types,
+> room tagging, ISP-dispute export, thermal detection, its production AdMob
+> App ID rollout, its root `pubspec.yaml`) and have been removed as out of
+> scope for this SDK-only repo. See `doc/task/` / `doc/archive/` for the
+> historical record if ever needed.)
 
 ## ❌ Skipped
 
@@ -1144,23 +754,10 @@ dung 1.0.24 vẫn nằm nhầm dưới `## [Unreleased]`) — đã sửa.
 
 > Unstructured pool — promote to Picked with a clear scope before implementing.
 
-### 🛜 Product
-- Benchmarking / leaderboard: compare against ISP advertised speeds; fastest
-  networks list.
-- Multiple servers selection + auto-test scheduling (daily/weekly).
-- Custom test params (packet size, interval, timeout), data-usage limits.
-- Network dashboard extras: connected-devices count, router manufacturer/model
-  (OUI lookup) — deferred (BSSID shown in Wave 5, vendor DB is heavy).
-- Light/dark theme toggle (app is currently dark-only by design).
-
-> Done: Upload vs Download (Wave 4) · Real-time alerts (Wave 4) · Network Info
-> dashboard public-IP/gateway/DNS/BSSID (Wave 5) · bar/area chart types +
-> success-vs-loss pie (Wave 5) · localization completeness audit (i18n 184/184
-> parity verified 2026-06-16).
-
-> Done (2026-08-08): walk-test room-tagging · ISP-dispute evidence export ·
-> sustained-load thermal/throttle detector — see "✅ Implemented — Wave 6"
-> below.
+> (A "🛜 Product" idea list — benchmarking/leaderboard, multi-server
+> scheduling, custom test params, network-dashboard extras, theme toggle —
+> was removed here as out of scope; it was the former WiFi-stress-tester host
+> app's backlog, now in a separate repo.)
 
 ### 📣 Ad / SDK
 - ~~Ad health screen: SDK init state, loaded slots, consent state, VIP state,

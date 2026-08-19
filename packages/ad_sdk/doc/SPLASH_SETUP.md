@@ -1,3 +1,21 @@
+> ⚠️ **STALE / WRONG REPO SCOPE (checked 2026-08-19).** Everything below is
+> native splash **image/icon asset** config (`flutter_native_splash.yaml`,
+> Android `styles-v31`, PIL-rendered WebP frames) for the old WiFi Stressor /
+> `mckimquyen` host app. That app no longer lives in this repo — per
+> `CLAUDE.md` it now lives in its own separate repo — and none of the paths
+> below (`android/app/src/main/res/...`, `assets/images/bkg_2.png`) exist in
+> `packages/ad_sdk`. This doc does **not** describe the `applovin_admob_sdk`
+> splash **integration contract** (the SDK-side API a consuming app's splash
+> screen must call): `AdManager().setNavigatorKey(navigatorKey)` before
+> `runApp`, then in the splash `markSplashActive()` / `markSplashInactive()`,
+> `incrementSplashCount()`, `AdLoadingDialog.showAdBuffer()` before
+> `showAppOpenAd(bypassSafety: true)` — see `packages/ad_sdk/README.md`. Also
+> note: on iOS, call `AdManager().requestAtt()` **before**
+> `requestUmpConsent()`/`initialize()` — a 2026-08-19 audit added
+> `AdManager.attOrderFootgunWarning` which logs a warning if UMP consent runs
+> before ATT was requested. Kept here only as a historical reference for
+> re-standing-up the host app's native splash asset pipeline elsewhere.
+
 # Splash screen setup (flutter_native_splash)
 
 Cấu hình splash theo từng nền tảng. Nguồn chân lý: `flutter_native_splash.yaml` (repo root).

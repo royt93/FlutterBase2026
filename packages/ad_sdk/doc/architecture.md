@@ -62,7 +62,7 @@ A deep-dive into the internals of `applovin_admob_sdk`. Read this if you intend 
 
 ## State machine
 
-Every ad slot (`appOpen`, `interstitial`, `rewarded`, `banner`) holds an `AdSlot` instance with a single state at any time:
+Every ad slot (`appOpen`, `interstitial`, `rewarded`, `rewardedInterstitial`, `banner`, `mrec`, `native`) holds an `AdSlot` instance with a single state at any time. `appOpen`/`interstitial`/`rewarded`/`rewardedInterstitial` are singleton fields on the adapter (one ad, app-wide), but `banner`/`mrec`/`native` are keyed by a per-widget `Object` instance key (`Map<Object, AdSlot>` on `AdMobAdapter`/`AppLovinAdapter`) — each `BannerWidget`/`MrecWidget`/`NativeAdWidget` instance gets its own `AdSlot`, not one shared per app:
 
 ```
                 ┌─────────┐
@@ -102,7 +102,7 @@ Wrapping state in a `ValueNotifier<AdSlotState>` enables reactive widgets to ren
 
 ```dart
 ValueListenableBuilder<AdSlotState>(
-  valueListenable: AdManager().adapter!.bannerSlot.state,
+  valueListenable: AdManager().adapter!.bannerSlot(instanceKey).state,
   builder: (_, state, __) => state == AdSlotState.ready
       ? const BannerWidget()
       : const Skeleton(),
@@ -171,7 +171,7 @@ Key invariants of this flow:
 
 ## Lifecycle observer
 
-`AdManager` implements `WidgetsBindingObserver` and listens to `didChangeAppLifecycleState`. On `resumed`, it:
+`AdManager` mixes in `WidgetsBindingObserver` (`class AdManager with WidgetsBindingObserver`) and listens to `didChangeAppLifecycleState`. On `resumed`, it:
 
 1. Logs the transition with full state (`prev → current`, slot states, VIP, splash flag, backgrounded duration).
 2. Calls `adapter.onAppResumed()` (re-enables banner auto-refresh, rebuilds banner if it errored).
@@ -208,8 +208,8 @@ Every `showFullscreen*` call hits `AdSafetyConfig.canShowFullscreenAd()`, which 
 5. **Per-day cap** — persisted in SharedPreferences across launches. Default 5 ads.
 6. **Throttle** — minimum milliseconds between fullscreen ads. Default 60 seconds.
 7. **CTR threshold** — auto-pause if `clicks / impressions > suspiciousCtrThreshold`. Default 30%.
-8. **Click rate** — flag if `clicksPerMinute > maxClicksPerMinute`. Default 3.
-9. **Rapid resume rate** — flag if `resumesPerMinute > maxRapidResumesPerMinute`. Default 5.
+
+Click rate and rapid resume rate are **not** gates inside `canShowFullscreenAd()` — they're separate anomaly signals. `recordClick()` flags a click-spam anomaly if `clicksPerMinute > maxClicksPerMinute` (default 3) and escalates the suspicious-pause window (gate 1) directly; rapid-resume detection lives entirely in `canShowAppOpenOnResume()` below, where `maxRapidResumesPerMinute` defaults to **3**, not 5.
 
 Result is `AdSafetyResult(canShow, reason)`. `dryRun` mode logs the reason but always returns `true` (QA only — never enable in production).
 
@@ -299,7 +299,7 @@ Conflict policy: by default, when adding a key that already exists, the entry wh
 │  → re-check: VIP became active during the 1s window? → skip    │
 │  → re-check: navigator.currentContext null? → skip + log warn  │
 │  → ConsentManager.showDialog(ctx)                              │
-│     → showCupertinoDialog (binary Allow / Reject)              │
+│     → showGeneralDialog + custom Material dialog (Allow/Reject)│
 │     → user picks                                               │
 │     → ConsentSettings.copyWith(hasBeenAsked: true, askedAt: …) │
 │     → persist to SharedPreferences                             │
@@ -396,7 +396,12 @@ The adapter-callback writes are still kept as belt-and-braces fallback (they can
 
 | Version | Status | Highlights |
 |---|---|---|
-| 1.0.23 | Current stable | App Open ad never stacks on a modal (`AdScreenRouteLogger.isDialogOnTop` + `AdLoadingDialog.isShowing` → skip); `_retryRefillAds` bails early for VIP members. |
+| 2.1.0 | Current stable (2026-08-19) | 2026-08-19 audit fixes: stale ready App Open/interstitial/rewarded ads past their 4h/1h freshness window are now discarded and reloaded instead of shown; `showAppOpenAdOnResume` no longer bypasses the daily/hourly/session safety cap (splash's `bypassSafety: true` is now the *only* sanctioned bypass); `AdSlot.armLoadWatchdog` cancels a stale prior watchdog before re-arming; AppLovin banner/MREC native-view dispose fix. |
+| 2.0.1–2.0.4 | Stable | Docs-only pub.dev-scoring fixes, plus `VipManager.redeemSignedKey` now rejects redemption while offline (Ed25519 verification itself stays fully offline — only the redemption *attempt* needs connectivity), an init-retry-guard fix, and a clock-rollback fix for VIP grace-nudge scheduling. |
+| 2.0.0 | Stable (breaking) | `autoRequestUmpConsent` now defaults `true`; `maxVipStackDuration` now defaults to 90 days (was uncapped); signed VIP keys default to the `AVP2` format (expiry + app binding in the signed payload, `AVP1` still verifies); interstitial/rewarded now share one mutex with App Open so they can't stack; banner/MREC/native reloads now honor the consent/VIP/cap/connectivity gate. |
+| 1.1.0–1.2.4 | Stable | MREC + Native Ad (v1) formats added (`AdSlotType.mrec`/`.native`), each keyed by a per-widget instance `Object` (the "T65" keyed-instance refactor — banner/mrec/native went from one shared `AdSlot` per app to `Map<Object, AdSlot>`); Smart Monetization Arbitrator + fill-rate monitor; mediation waterfall reporting; consent-coverage footgun hard-blocks release builds; VIP grace-period expiry nudge; durable iOS Keychain redeemed-key ledger. |
+| 1.0.24 | Stable | Auto-reload paths (App Open/Interstitial/Rewarded) now gated behind `canReload()` (VIP/cap/consent/connectivity) instead of firing straight from native dismiss callbacks; ATT/UMP native awaits gained a 20s timeout so a hung native callback can no longer stall `initialize()` forever. |
+| 1.0.23 | Stable | App Open ad never stacks on a modal (`AdScreenRouteLogger.isDialogOnTop` + `AdLoadingDialog.isShowing` → skip); `_retryRefillAds` bails early for VIP members. |
 | 1.0.22 | Stable (changelog only — not published to pub.dev) | VIP global time stacking (opt-in `stack` flag + `AdConfig.maxVipStackDuration` cap); `bypassVipGuard` on `showRewardedAd` (rewarded-while-VIP, on-demand load + `onDemandLoadTimeout`). |
 | 1.0.21 | Stable (changelog only — not published to pub.dev) | Dependency refresh (`google_mobile_ads` ^7.0.0, `flutter_secure_storage` ^10.0.0, `applovin_max` ^4.6.4); dropped deprecated `encryptedSharedPreferences` option; added tests. |
 | 1.0.20 | Stable | Example-only release — example splash demos `requestAtt → requestUmpConsent → initialize`. No library/API change vs 1.0.19. |
@@ -405,9 +410,8 @@ The adapter-callback writes are still kept as belt-and-braces fallback (they can
 | 1.0.16 | Stable | Documentation-only release. Full English rewrite of README, MIGRATION, and architecture. No runtime code changes vs 1.0.15. |
 | 1.0.15 | Stable | Cupertino consent dialog, UMP wrapper, first-install VIP grace, smart App-Open timeout, slot-state dismiss watcher, granular diagnostic logs |
 | 1.0.14 | Previous stable | Adapter pattern + state machine, VIP system with redeem dialog, consent flag forwarding, Stream of `AdEvent`, debug overlay |
-| 2.0.0 | Unreleased | Will remove all `@Deprecated` symbols listed in `CHANGELOG.md` (legacy GAID-based VIP API, duplicate `ad_sdk.dart` barrel) |
 
-The SDK follows [Semantic Versioning](https://semver.org/). 1.0.x bumps are patch releases — backwards-compatible bug fixes and additive features. 2.0.0 will be a major release with breaking changes (deprecated symbol removal).
+The SDK follows [Semantic Versioning](https://semver.org/). See `CHANGELOG.md` for the full, unabridged history (this table only calls out the highlights of each stable line); a handful of `@Deprecated` legacy-GAID-VIP symbols still remain in `lib/` pending a future major removal.
 
 ---
 

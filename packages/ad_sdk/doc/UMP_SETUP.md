@@ -1,5 +1,23 @@
 # UMP / GDPR consent form setup
 
+> ⚠️ **STALE / WRONG REPO SCOPE (checked 2026-08-19).** This whole doc is an
+> AdMob-**console dashboard** task for the old WiFi Stressor / `mckimquyen`
+> host app's specific App ID (`ca-app-pub-3004713799155145~...`) and its
+> `lib/mckimquyen/widget/splash/splash_screen.dart`. That app no longer lives
+> in this repo — per `CLAUDE.md` it now lives in its own separate repo — so
+> none of the file paths below exist in `packages/ad_sdk`. Kept only as
+> historical reference for redoing this dashboard step for a different app.
+>
+> What's still true and relevant to the **SDK itself**: `AdConfig.autoRequestUmpConsent`
+> defaults to `true` (as of SDK 2.0.0+, current in 2.1.0 —
+> see `lib/src/config/ad_config.dart`), so `AdManager().initialize()` calls
+> `requestUmpConsent()` internally unless a host explicitly sets
+> `autoRequestUmpConsent: false` or already called `requestUmpConsent()` /
+> `setConsent()` itself before `initialize()`. On iOS, call
+> `AdManager().requestAtt()` before `requestUmpConsent()`/`initialize()` —
+> calling UMP consent before ATT logs a warning (`attOrderFootgunWarning`,
+> added in the 2026-08-19 audit).
+
 **Status (2026-08-09): verified end-to-end.** Owner published the GDPR message
 against the Android production App ID
 (`ca-app-pub-3004713799155145~9488250427`), and the "How to verify it works"

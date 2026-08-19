@@ -1,3 +1,11 @@
+> ⚠️ **STALE / WRONG REPO SCOPE (checked 2026-08-19).** These are feature
+> ideas for the old WiFi Stressor host app (network speedometer, ping
+> monitoring, WiFi comparison, etc.), not for `applovin_admob_sdk`. That app
+> no longer lives in this repo — per `CLAUDE.md` it now lives in its own
+> separate repo — so none of these items are actionable here. None of them
+> appear in `packages/ad_sdk/CHANGELOG.md`. Kept only as historical reference;
+> not a pending-work list for this package.
+
 Dựa trên code hiện tại của WiFi Stressor, đây là các ý tưởng mở rộng:
 
 không dùng print/debugPrint, hãy dùng class Logger

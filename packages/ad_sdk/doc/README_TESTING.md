@@ -2,12 +2,18 @@
 
 > ⚠️ **OUTDATED / ASPIRATIONAL.** The `test/unit`, `test/widget`, `test/integration`
 > layout, `make coverage` and Codecov steps described below **do not exist** in
-> this repo. The host app now has a small `test/` directory at the repo root
-> (`test/vip_screen_widget_test.dart`), run with `flutter test` from the root.
-> The bulk of the real automated tests (624/624 passing across 62 files as of
-> 2026-07-18) live in **`packages/ad_sdk/test/`** — run them with
-> `cd packages/ad_sdk && flutter test`. CI (`.github/workflows/test.yml`) runs
-> both. This file is kept only as a future plan for broader host-app tests.
+> this repo. The host app (WiFi Stressor / `mckimquyen`) no longer lives in
+> this repo at all — per `CLAUDE.md` it now lives in its own separate repo, so
+> there is no host-app `test/` directory here anymore (verified 2026-08-19:
+> repo root has no `test/` dir).
+> The real automated tests (860/860 passing across 76 files as of 2026-08-19,
+> SDK v2.1.0) live in **`packages/ad_sdk/test/`** — run them with
+> `cd packages/ad_sdk && flutter test`. There's also a 25-file on-device suite
+> at `packages/ad_sdk/example/integration_test/`. CI (`.github/workflows/test.yml`,
+> at the repo root) runs `sdk` (analyze + test, primary gate), `sdk-integration`
+> (Android emulator) and `sdk-integration-ios` (iOS Simulator, sharded across 3
+> runners). This file is otherwise kept only as a future plan for broader
+> host-app tests, which are now out of scope for this repo.
 >
 > The newest file, `ad_manager_core_test.dart`, drives the orchestrator through
 > its `@visibleForTesting` seams (`debugSetAdapter` / `debugVipManager` /
