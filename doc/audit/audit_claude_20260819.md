@@ -72,7 +72,7 @@
 | # | Finding | Status | Commit |
 |---|---|---|---|
 | 1 | Android trial anti-abuse | **Retracted** — already correctly implemented (Auto Backup manifest wiring exists in the example, documented in README) | n/a |
-| 2 | Android VIP-replay anti-abuse | **Retracted** — same Auto Backup wiring covers it transitively; fixed a stale doc comment claiming otherwise | `4fbbbec`-adjacent (doc-only, uncommitted at audit-write time — see below) |
+| 2 | Android VIP-replay anti-abuse | **Retracted** — same Auto Backup wiring covers it transitively; fixed a stale doc comment claiming otherwise | `a6d27f3` (doc-only) |
 | 3 | App Open (and interstitial/rewarded/rewarded-interstitial) shown stale past expiry | **Fixed** — freshness now checked at show time, not just load-reuse, for all 4 AdMob fullscreen types | `05326ed` |
 | 4 | `showAppOpenAdOnResume` bypassed the daily/session cap | **Fixed** — `bypassSafety: false` for the resume path; only the splash flow still bypasses | `6ca3d78` |
 | 5 | AppLovin banner/MREC native-view leak on dispose | **Fixed** — `destroyWidgetAdView` now called from both dispose paths | `5fb7a58` |
