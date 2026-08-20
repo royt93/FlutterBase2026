@@ -749,6 +749,16 @@ class HomePage extends StatelessWidget {
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const DiagnosticsDemoPage())),
           ),
+          DemoTile(
+            icon: Icons.fingerprint,
+            title: 'AdMob test-device hash',
+            subtitle: 'GAID vs the logcat-only AdMob test-device hash',
+            color: Colors.pink,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const TestDeviceHashDemoPage())),
+          ),
         ],
       ),
     );
@@ -2607,6 +2617,41 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §17  AdMob test-device hash — no build-mode gate, unlike DebugAdOverlay,
+//      since the SDK API this demos is meant to work in release too.
+// ═══════════════════════════════════════════════════════════════════════════
+
+class TestDeviceHashDemoPage extends StatelessWidget {
+  const TestDeviceHashDemoPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final gaid = AdManager().currentDeviceGaid;
+    final hint = AdManager().adMobTestDeviceHashHint();
+    return Scaffold(
+      appBar: AppBar(title: const Text('AdMob test-device hash')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Current device GAID',
+                style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            SelectableText(gaid.isEmpty ? '(empty — init not done yet, or LAT on)' : gaid),
+            const SizedBox(height: 20),
+            Text('adMobTestDeviceHashHint()',
+                style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Expanded(child: SingleChildScrollView(child: SelectableText(hint))),
+          ],
+        ),
       ),
     );
   }
