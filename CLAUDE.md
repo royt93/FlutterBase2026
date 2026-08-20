@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project context
 
 - This repo is the **source of `applovin_admob_sdk`** — a dual-provider ad SDK (AppLovin MAX + Google AdMob) for Flutter, targeting Android + iOS. Published to pub.dev.
-- The package itself lives in `packages/ad_sdk/` — its own Flutter package with its own `pubspec.yaml`, `README.md`, `CHANGELOG.md`, `MIGRATION.md`, `example/` app, and tests. This repo root holds no app code of its own (the host app that consumes this SDK — a WiFi stress tester, formerly developed alongside this SDK in the same repo — now lives in its own separate repo and depends on the published pub.dev package, not on this repo directly).
+- The package itself lives in `packages/ad_sdk/` — its own Flutter package with its own `pubspec.yaml`, `README.md`, `CHANGELOG.md`, `example/` app, and tests (the migration guide lives inside `doc/AD_PROMPT_FLUTTER.MD` → Appendix D, merged from the former standalone `MIGRATION.md` on 2026-08-20). This repo root holds no app code of its own (the host app that consumes this SDK — a WiFi stress tester, formerly developed alongside this SDK in the same repo — now lives in its own separate repo and depends on the published pub.dev package, not on this repo directly).
 - `gma_mediation_applovin` (native AdMob↔AppLovin mediation plugin) and `applovin_max`/`AppLovinSDK` version pinning live at the **consuming app's** level (`dependency_overrides`), not here — see the pinning-wall notes below for why those exact versions matter when a consuming app upgrades.
 
 ## Common commands

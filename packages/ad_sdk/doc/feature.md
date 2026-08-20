@@ -665,9 +665,12 @@ hiện mới:
   `showAppOpenAdOnResume` safety-cap bypass, AppLovin banner/MREC native-view
   leak — see the 2.1.0 entry above), 857/857 tests passing. Open, non-blocking
   items: ATT-before-UMP ordering enforced only by a (now louder) warning, not
-  a hard block; `MIGRATION.md` still missing guidance for 2.0.0's own 3
-  breaking changes; the published pub.dev listing needs a new version cut to
-  pick up everything since 2.0.4. One standing technical item unchanged from
+  a hard block; the published pub.dev listing needs a new version cut to
+  pick up everything since 2.0.4. (2026-08-20: re-checked the old
+  `MIGRATION.md`'s "2.0.0 breaking changes" §7 — it already covered all 3
+  2.0.0 defaults; that prior claim of missing guidance was stale. The file
+  was since merged into `doc/AD_PROMPT_FLUTTER.MD` → Appendix D per a direct
+  user request, unrelated to that claim.) One standing technical item unchanged from
   prior rounds: `gma_mediation_applovin >=2.6.0` needs `meta ^1.17.0` while
   Flutter 3.35.1's `flutter_test` forces `meta 1.16.0` — blocked on a Flutter
   SDK upgrade, re-check ~2026-10-13 (see this repo's own `CLAUDE.md` for the

@@ -29,7 +29,7 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
 | Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
 | `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **fetch `https://pub.dev/api/packages/applovin_admob_sdk` (or run `flutter pub outdated`) to get the current latest stable version and fill it in here before running Step 1.** As of this writing (2026-08-09) the latest published version is `2.0.4` — treat that as a data point, not a hardcoded target; always use whatever is actually latest at integration time. |
 | Local library reference (if monorepo) | `packages/ad_sdk/` |
-| Library's own spec files | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (feature history) + `packages/ad_sdk/MIGRATION.md` |
+| Library's own spec files | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (feature history) + this file's Appendix D (migration guide) |
 | Sample app | `packages/ad_sdk/example/lib/main.dart` (demo pages, one page per feature) |
 | Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
 | Release build target | `flutter build apk --release --analyze-size` — verify the size delta is < 5MB versus baseline |
@@ -1050,6 +1050,7 @@ If you have the SDK's source available (either the monorepo at `packages/ad_sdk/
 
 - `packages/ad_sdk/README.md` — full SDK API reference (Quick start + Configuration reference + Public API)
 - `packages/ad_sdk/CHANGELOG.md` — version-by-version feature history
+- This file's Appendix D — step-by-step upgrade guide between versions (merged from the former standalone `MIGRATION.md`)
 - `packages/ad_sdk/example/lib/main.dart` — a demo app with one page per feature, useful as a working reference for bootstrap, splash, banner/interstitial/rewarded, and VIP wiring
 - `packages/ad_sdk/lib/src/vip/` — the SDK's own `VipRedeemScreen` implementation, useful if you're wrapping it directly instead of building the 13-component screen from scratch (see the note in Step 10.2)
 
@@ -1091,3 +1092,454 @@ This section is a running log for whoever continues auditing/enhancing this SDK.
 **Suggested next-round starting points**: re-verify the score-driving findings above are still accurate before re-quoting them (files/behavior may have moved), then decide whether findings #1–#3 warrant small doc patches (they're all doc-only fixes, no code risk) versus being left as tribal knowledge in this log.
 
 Either way, treat this `AD_PROMPT_FLUTTER.MD` file itself as the primary, self-contained spec — the SDK source (when available) is a secondary reference for implementation detail, not a prerequisite for following the steps above.
+
+## Appendix D — Migration guide (version history, merged from `MIGRATION.md` on 2026-08-20)
+
+Practical step-by-step guides for upgrading from older versions of `applovin_admob_sdk`. This appendix replaces the former standalone `MIGRATION.md` — that file was deleted; `README.md`'s Migration section and this repo's root `CLAUDE.md` both now point here.
+
+### Table of contents
+
+- [1.0.20 → 1.0.21 → 1.0.22 → 1.0.23](#d-1020--1021--1022--1023) — backward-compatible; opt-in VIP stacking / rewarded-while-VIP; auto App-Open-skip-on-dialog
+- [1.0.18 → 1.0.19 → 1.0.20](#d-1018--1019--1020) — iOS ATT (action needed for iOS); example-only 1.0.20
+- [1.0.15 → 1.0.16](#d-1015--1016) — documentation-only release
+- [1.0.14 → 1.0.15](#d-1014--1015) — no breaking changes; opt-in new features
+- [1.x → 2.x (legacy upgrade path)](#d-1x--2x) — auto-migrating; old calls still work
+- [Latest fix-only release](#d6--latest-fix-only-release-audit-rounds-2026-08-192026-08-20) — no breaking changes; 3 audit fixes
+- [Common issues](#d-common-issues)
+- [FAQ](#d-faq)
+
+---
+
+### D.1 — 1.0.20 → 1.0.21 → 1.0.22 → 1.0.23
+
+**No breaking changes.** Bump the version and `flutter pub get` — nothing else is
+required. (Heads-up: 1.0.21/1.0.22 are documented but were never published to
+pub.dev; the public line jumped 1.0.20 → 1.0.23, which carries all the changes
+below.)
+
+**1.0.21** refreshes dependencies (`google_mobile_ads` → `^7.0.0`,
+`flutter_secure_storage` → `^10.0.0`, `applovin_max` → `^4.6.4`) and drops the
+deprecated `encryptedSharedPreferences` AndroidOptions flag (flutter_secure_storage
+10 auto-migrates). No public-API change.
+
+**1.0.22** adds three opt-in knobs (all default to the pre-1.0.22 behaviour):
+- `VipManager.addVip` / `redeemVip` gained a `stack` flag. With `stack: true` the
+  grant **accumulates onto the latest expiry across all active entries** (global
+  stacking) instead of the default latest-expiry-wins replacement.
+- `AdConfig.maxVipStackDuration` (default `null` = uncapped) clamps the total
+  stacked window to `now + maxVipStackDuration`.
+- `AdManager().showRewardedAd` gained `bypassVipGuard` (default `false`): a VIP
+  member can voluntarily watch a **real** rewarded ad. The slot is loaded on
+  demand behind a blocking dialog; tune the wait with `onDemandLoadTimeout`
+  (default 15 s).
+
+**1.0.23** is automatic (no action): the App Open ad now **skips while any dialog
+or modal is on top** (`AdScreenRouteLogger.isDialogOnTop` + `AdLoadingDialog.isShowing`),
+and the `_retryRefillAds` periodic scan bails early for VIP members.
+
+### D.2 — 1.0.18 → 1.0.19 → 1.0.20
+
+**No breaking changes.** Bump the version and `flutter pub get`.
+
+**iOS action needed (1.0.19):** to use App Tracking Transparency,
+1. Add `NSUserTrackingUsageDescription` to `ios/Runner/Info.plist`.
+2. In your splash (after the first frame, **before** `requestUmpConsent` and
+   `initialize`), call:
+   ```dart
+   final att = await AdManager().requestAtt(); // no-op on Android, never throws
+   ```
+   `requestAtt()` returns `AttResult { status, idfa, allowsTracking }`. It is
+   decoupled from the GDPR consent flag — the native SDKs read ATT directly.
+
+Also in 1.0.19: the iOS App-Open watchdog fix and AppLovin reload-after-display-fail
+fix are automatic (no action). The rewarded-ad reward is now granted **only** when
+a rewarded ad completes (`earned == true`) — if your code relied on an
+interstitial-as-reward fallback, remove it.
+
+**1.0.20** is example-only (no library change).
+
+### D.3 — 1.0.15 → 1.0.16
+
+**Documentation-only release.** No runtime code changes. Upgrading is a one-line version bump:
+
+```diff
+ dependencies:
+-  applovin_admob_sdk: ^1.0.15
++  applovin_admob_sdk: ^1.0.16
+```
+
+```bash
+flutter pub get
+```
+
+That is the entire upgrade. Public API surface and bundled assets are byte-for-byte identical to 1.0.15.
+
+**What changed:**
+
+- `README.md` — full English rewrite, restructured into 13 sections with copy-paste quick start
+- `MIGRATION.md` (now this appendix) — full English rewrite
+- `doc/architecture.md` — full English rewrite, deeper coverage of the 1.0.15 changes
+- `CHANGELOG.md` — added 1.0.16 entry
+
+If you previously copy-pasted snippets from the old README in your own internal documentation, you may want to refresh from the new version. Otherwise nothing to do.
+
+---
+
+### D.4 — 1.0.14 → 1.0.15
+
+**No breaking changes.** All public API in 1.0.14 continues to compile and behave the same way in 1.0.15. The new features are opt-in and the new defaults are designed to be conservative.
+
+**Step 1 — Bump the dependency**
+
+In your app's `pubspec.yaml`:
+
+```diff
+ dependencies:
+-  applovin_admob_sdk: ^1.0.14
++  applovin_admob_sdk: ^1.0.16
+```
+
+Then:
+
+```bash
+flutter pub get
+```
+
+**Step 2 — Audit your AndroidManifest.xml**
+
+If your `MainActivity` declaration contains `android:taskAffinity=""`, **remove it**. This is the most important change in this upgrade.
+
+```diff
+ <activity
+     android:name=".MainActivity"
+     android:exported="true"
+     android:launchMode="singleTop"
+-    android:taskAffinity=""
+     android:theme="@style/LaunchTheme"
+     ...>
+```
+
+**Why this matters**: AppLovin's `AppLovinFullscreenActivity` inherits the application's default task affinity (the package name). With `android:taskAffinity=""` on `MainActivity`, the two activities live in different Android tasks. When the user presses HOME during an ad and reopens the app, then dismisses the ad, Android cannot find a previous activity to return to and drops the user to the launcher. Users perceive this as a crash even though the process is still alive.
+
+This bug was masked in 1.0.14 because few users actually backgrounded mid-ad. We added detailed lifecycle logging in 1.0.15 that surfaced the issue in our QA, and the fix is removing this one attribute.
+
+If you do not have `android:taskAffinity=""`, you have nothing to do for this step.
+
+**Step 3 — Verify nothing regressed**
+
+Run your app, navigate to a screen that shows an interstitial, and:
+
+1. Tap "Show ad"
+2. Watch the ad fully (do not press HOME)
+3. Tap the ad's close (×) button
+
+The app should return to your screen seamlessly. If it does, you are done.
+
+If you want to also verify the new background/foreground robustness:
+
+1. Tap "Show ad"
+2. Press HOME button (background the app while ad is showing)
+3. Wait 30+ seconds
+4. Reopen the app via launcher
+5. Tap (×) to dismiss the ad
+
+The app should return to your screen, not the launcher. If it drops you to the launcher, recheck Step 2 above.
+
+**Step 4 (optional) — Adopt new features**
+
+The following are opt-in and disabled by default for backwards compatibility, except where noted:
+
+*Cupertino consent dialog (default ON).* Enabled by default. The SDK auto-shows a clean Cupertino dialog ~1 second after `markSplashInactive`, persists the user's choice, and skips for VIP users. **No code change required.**
+
+To localize:
+
+```dart
+AdConfig(
+  consentDialogStrings: ConsentDialogStrings.vi,  // Vietnamese pre-canned
+  // or supply your own strings struct
+)
+```
+
+To disable (e.g., if you have your own consent UI):
+
+```dart
+AdConfig(
+  autoShowConsentDialog: false,
+)
+```
+
+*First-install VIP grace (default ON).* Enabled by default. New installs see no ads for 30 seconds in debug builds and 24 hours in release builds. **No code change required.**
+
+To customize:
+
+```dart
+AdConfig(
+  // Force 12 hours in both modes
+  firstInstallVipGrace: const FirstInstallVipGrace(Duration(hours: 12)),
+)
+
+// Or disable entirely
+AdConfig(
+  firstInstallVipGrace: FirstInstallVipGrace.disabled,
+)
+```
+
+*Google UMP wrapper (opt-in).* If your app targets EEA users, you must integrate Google's UMP form. The SDK now wraps the API:
+
+```dart
+// In your splash, BEFORE AdManager().initialize:
+final result = await AdManager().requestUmpConsent(
+  testMode: kDebugMode,
+  debugGeography: kDebugMode ? DebugGeography.debugGeographyEea : null,
+);
+
+if (!result.canRequestAds) {
+  // User did not consent. Skip ad init or init in non-personalized mode.
+  return;
+}
+
+// Continue with AdManager().initialize(...) as normal
+```
+
+This requires no extra dependency since `google_mobile_ads` 6.x ships UMP support.
+
+*Smart App-Open timeout (default ON).* The fixed 10-second timeout has been replaced with a lifecycle-aware polling timeout (5-second tick, 90-second hard cap). **No code change required.** This eliminates false-positive force-dismisses when users click an ad and are sent to a browser for 20+ seconds.
+
+*Slot-state dismiss watcher (default ON).* The SDK now records the dismiss timestamp from slot-state transitions instead of adapter callbacks. **No code change required.** This fixes a subtle bug where the rewarded ad's onDone callback fired at reward-earned time (not dismiss time), causing the resume-guard window to leak through and an app-open ad to show right after the rewarded.
+
+---
+
+### D.5 — 1.x → 2.x
+
+The 2.x series is mostly source-compatible with 1.x. Existing call sites compile and behave the same; old methods that no longer fit the architecture are deprecated rather than removed (will be removed in 3.0).
+
+**1. Update the import.** The 1.x package exposed two identical entry points; 2.x keeps only one:
+
+```diff
+- import 'package:applovin_admob_sdk/ad_sdk.dart';
++ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+```
+
+**2. Logger configuration.**
+
+```diff
+- SafeLogger.setEnabled(true);
++ // Configured automatically via AdConfig.logLevel — no manual call needed.
+```
+
+The new logger supports four levels with lazy interpolation (zero CPU cost when the level is suppressed):
+
+```dart
+AdConfig(
+  logLevel: AdLogLevel.warning,                 // verbose | warning | error | none
+  logTagFilter: ['AdManager', 'AdSafety'],      // optional allow-list
+  onLog: (level, tag, message) {
+    Sentry.captureMessage('[$tag] $message');   // pipe into your observability stack
+  },
+);
+```
+
+**3. VIP API.** The 1.x VIP API used the device's GAID as the identity. The 2.x API uses arbitrary keys with explicit expiry, allowing per-user, per-purchase, or per-promo-code grants.
+
+1.x:
+
+```dart
+AdManager().addVIPMember(['gaid-1', 'gaid-2']);
+final isVip = AdManager().isVIPMember();
+```
+
+2.x / 1.0.15:
+
+```dart
+// Programmatic add — for purchase / restore flows
+await AdManager().vip!.addVip(
+  key: 'PURCHASED_PREMIUM_${transactionId}',
+  duration: const Duration(days: 365),
+);
+
+// Cupertino dialog redeem — for user-input promo keys
+await AdManager().vip!.redeemVip(
+  context,
+  key: userInputKey,
+  duration: const Duration(days: 30),
+  validator: (key) => myServer.verifyVipKey(key),
+  strings: AdManager().config?.vipDialogStrings ?? const VipDialogStrings(),
+);
+
+// Check
+if (AdManager().vip?.isActive ?? false) {
+  // user is VIP
+}
+
+// Reactive UI
+ValueListenableBuilder<bool>(
+  valueListenable: AdManager().vip!.activeListenable,
+  builder: (_, active, __) => active ? VipBadge() : SizedBox.shrink(),
+);
+```
+
+**Auto-migration**: any existing 1.x GAID list is automatically converted to `VipEntry` records (year-2099 expiry) on the first 2.x init. You do not need to write migration code. Only entries whose GAID matches the current device's GAID are preserved as active VIP — this matches the 1.x behavior exactly. The legacy methods (`addVIPMember`, `isVIPMember`) remain available but emit `@Deprecated` warnings.
+
+**4. Consent flags.** The 1.x SDK had no first-class consent support. 2.x introduces `AdConsent` which is forwarded to both providers:
+
+```dart
+await AdManager().setConsent(AdConsent(
+  hasUserConsent: true,        // GDPR
+  isAgeRestrictedUser: false,  // COPPA
+  doNotSell: false,            // CCPA
+));
+```
+
+The default before any `setConsent` call is `AdConsent.conservative` (all flags false), which yields non-personalized ads everywhere — a safe default that does not require user action.
+
+**5. State machine — banner refactored.** If you previously read banner state via raw bool getters (`bannerLoaded`, `bannerHasError`, etc.), switch to the listenables:
+
+```diff
+- if (AdManager().bannerLoaded) { ... }
++ ValueListenableBuilder<bool>(
++   valueListenable: AdManager().adapter!.banner.isLoaded,
++   builder: (_, loaded, __) => loaded ? BannerView() : Skeleton(),
++ );
+```
+
+Or simpler: extend `AdScreen` and use `buildBanner()` which handles all this automatically.
+
+**6. Project conventions — no `late` / `!` / `setState`.** If your host app extends `BaseStatefulState` and follows the same convention, replace `late` and force-null with nullable:
+
+```diff
+- late final FooController controller;
+- @override void initState() { controller = FooController(); }
+- @override Widget build(_) => Text(controller.value);
+
++ FooController? controller;
++ @override void initState() { controller = FooController(); }
++ @override Widget build(_) {
++   final c = controller;
++   if (c == null) return const SizedBox.shrink();
++   return Text(c.value);
++ }
+```
+
+This is a project policy, not an SDK requirement. The SDK itself follows it but does not enforce it on host apps.
+
+**7. 2.0.0 breaking changes (defaults changed).** Three defaults changed in 2.0.0. Existing code still compiles — nothing was removed — but behavior differs from 1.x if you relied on the old default.
+
+`AdConfig.autoRequestUmpConsent`: `false` → `true`. 2.0.0+ runs UMP's consent flow automatically inside `initialize()` unless you opt out:
+
+```diff
+  AdConfig(
++   autoRequestUmpConsent: false, // restore the 1.x behavior — you call
++                                 // requestUmpConsent() yourself
+  );
+```
+
+If your splash already calls `requestUmpConsent()` manually and you didn't set this flag, 2.0.0 now runs consent **twice** on cold start (once automatically, once from your call) — set `autoRequestUmpConsent: false` to avoid the duplicate, or delete your manual call to use the new automatic flow.
+
+Signed VIP key format: AVP1 → AVP2 by default. `tool/vip_mint.dart` mints `AVP2.<payload>.<signature>` keys by default now (was `AVP1` before). `verifySignedVipKey` still accepts both formats — **already-issued AVP1 keys keep working**, this only affects newly-minted keys. Pass `--v1` to `vip_mint.dart` if you specifically need the old format (no expiry, no bundle-id binding — AVP2 added both).
+
+`AdConfig.maxVipStackDuration`: `null` (uncapped) → `Duration(days: 90)`. If you use `stack: true` on `addVip`/`redeemVip` (see D.1 above) and relied on unlimited stacking, set it back explicitly:
+
+```diff
+  AdConfig(
++   maxVipStackDuration: null, // restore uncapped stacking
+  );
+```
+
+---
+
+### D.6 — Latest fix-only release (audit rounds 2026-08-19/2026-08-20)
+
+**No breaking changes.** Bump to whatever is the current latest published version on `https://pub.dev/api/packages/applovin_admob_sdk` and `flutter pub get` (do not hardcode a version number here — check the API for what's actually live, per the Section 0 note). This release line is fix-only, from the 2026-08-19/2026-08-20 audit rounds: App Open (and the other 3 fullscreen AdMob types) now re-checks freshness at *show* time, not just at load time, so a ready ad that sat past its 4h/1h expiry window is discarded and reloaded instead of shown; `showAppOpenAdOnResume` no longer bypasses the daily/hourly/session safety cap outside the splash flow (`bypassSafety: true` is now splash-only); AppLovin banner/MREC widgets no longer leak the native `MaxAdView` on disposal or on repeated preload of an already-live slot. No action needed beyond the version bump — see `CHANGELOG.md` for the exact version these landed in once published.
+
+---
+
+### D.7 — Common issues
+
+**"Build failed — `applovin_admob_sdk` is not in the dependency cache"**
+
+Pub.dev typically takes up to 10 minutes to index a newly published version. If you upgrade right after a release, wait a few minutes and re-run `flutter pub get`. If the issue persists, force a fresh fetch:
+
+```bash
+flutter pub cache clean -f
+flutter pub get
+```
+
+**"Build failed — `Unexpected token` in `build.gradle.kts`"**
+
+Likely the `minSdk` or `targetSdk` is set with Groovy syntax (`minSdk 24`) in a Kotlin DSL file. Use Kotlin syntax (`minSdk = 24`).
+
+**"App crashes when user backgrounds during an ad"**
+
+See `README.md` → Pitfalls → 1. Most likely you have `android:taskAffinity=""` on `MainActivity`. Remove it.
+
+**Ads not loading on iOS**
+
+Verify `Info.plist` contains `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`, and `GADApplicationIdentifier`. Verify Podfile targets iOS 13 or newer and you ran `pod install`.
+
+**"Inter ad doesn't show — `canShow=false`"**
+
+Run with `AdConfig.logLevel = AdLogLevel.verbose` and check the log for `⏭️ showInterstitial blocked by safety: <reason>`. The reason tells you exactly which gate denied the show:
+
+- `Suspended: Xs remaining` — progressive cooldown active because of a recent CTR/click anomaly. Wait it out or call `AdSafetyConfig.resetSession()` in QA.
+- `Session too young: wait Xs` — `minSessionDurationBeforeAd` not yet elapsed.
+- `Session limit: N ads` — hit `maxFullscreenAdsPerSession`.
+- `Hourly cap: N ads` — hit `maxFullscreenAdsPerHour`.
+- `Daily limit: N ads` — hit `maxFullscreenAdsPerDay` (persisted across launches).
+- `Throttle: wait Xms` — too soon after the previous fullscreen ad.
+
+**"VIP grace not expiring in dev"**
+
+Default debug grace is 30 seconds. Wipe app data to start fresh:
+
+```bash
+adb shell pm clear com.your.package
+flutter run
+```
+
+Watch the log for `🎁 first-install VIP grace granted (30s, mode=debug)` and `⏰ VIP entry expired — purging + refreshing` 30 seconds later.
+
+**Banner shows but no banner widget visible**
+
+Check that the banner is not being clipped by an oversized `Column` or `SafeArea` somewhere in the tree. The default banner height is 50–90dp depending on the device's adaptive size.
+
+If the banner truly never loaded, you'll see `[BannerAdWidget] _initBanner ⏭️ <reason>` in the log:
+
+- `⏭️ VIP` — VIP user, banner suppressed by design
+- `⏭️ cooldown` — recent banner load failure, waiting for backoff
+- `⏭️ already cached` — preloaded banner exists, will be reused on next mount
+
+---
+
+### D.8 — FAQ
+
+**Will my 1.0.14 code keep working in 1.0.15?**
+
+Yes. 1.0.15 has zero breaking changes. The new behaviors (auto consent dialog, first-install grace) are opt-in defaults that you can disable if they conflict with your existing UX.
+
+**Should I migrate to 2.x?**
+
+Yes — 2.x has shipped and is the actively-maintained line (check `https://pub.dev/api/packages/applovin_admob_sdk` for the current latest published version). 2.0.0 removed all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API — and changed 3 defaults, see [D.5 §7 above](#d5--1x--2x). If you already migrated to the modern VipManager API in 1.0.15, the 2.x upgrade is close to a drop-in replacement.
+
+**How do I roll back from 1.0.15?**
+
+Pin to the previous version in `pubspec.yaml`:
+
+```yaml
+applovin_admob_sdk: 1.0.14
+```
+
+Then `flutter pub get`. The SDK does not write to SharedPreferences in a forward-incompatible way, so persisted state (VIP entries, consent settings, daily ad count) will degrade gracefully if you downgrade. The only loss is the consent-settings JSON record, which 1.0.14 does not read — your users will be re-prompted via your existing consent UI on the downgrade.
+
+**Can I run 1.0.15 alongside an older version in a monorepo?**
+
+Yes, as long as each app pins its own version in `pubspec.yaml`. The SDK is a single Dart package; no native module conflicts.
+
+**Why is `flutter analyze` failing right after I upgrade to a freshly-published version?**
+
+pub.dev takes up to 10 minutes to index a new release. Wait a few minutes and re-run.
+
+**Need help?**
+
+- Open an issue on [GitHub](https://github.com/royt93/FlutterBase2025/issues) with the `roy93~` log output, your SDK version, and which provider (admob / appLovin)
+- See `README.md` for the integration walkthrough
+- See `doc/architecture.md` for the internals (state machine, lifecycle, safety gate)

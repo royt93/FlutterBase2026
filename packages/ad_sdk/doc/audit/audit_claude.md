@@ -42,8 +42,10 @@
 `vip_manager.dart:636-660` (`redeemSignedKey`) không truyền `now:` vào `verifySignedVipKey`, nên `signed_vip_key.dart:195-206` fallback `DateTime.now()` chưa qua clamp của `_effectiveNow()`. Redeem-time expiry check dùng đồng hồ thiết bị thô — user chỉnh lùi đồng hồ có thể redeem key đã hết hạn hoặc kéo dài hạn dùng giả.
 **Fix:** `redeemSignedKey` giờ truyền `now: _effectiveNow()` vào lời gọi `verifySignedVipKey` (vip_manager.dart:717). Test mới `test/signed_vip_key_test.dart` — "AVP2 key past its absolute expiry is rejected even when the device's high-water clock mark, not raw DateTime.now(), is what catches it (M2)" — mint key AVP2 (payload có thêm field expEpoch/boundBundle, chưa có coverage nào trước đó test AVP2 format) với expiry hợp lệ theo đồng hồ thô nhưng đã hết hạn theo high-water mark đã seed sẵn; xác nhận test fail nếu revert `now:` về `null` (dùng raw clock), pass với fix. `flutter analyze`: 0 issues. `flutter test`: 861/861 pass, không regression.
 
-### M3 — AppLovin không có khái niệm ad-freshness; App Open show từ slot `ready` không re-check tuổi tại thời điểm show
+### M3 — AppLovin không có khái niệm ad-freshness; App Open show từ slot `ready` không re-check tuổi tại thời điểm show — **ĐÃ DOCUMENT 2026-08-20**
 Đã fix cho AdMob (commit `05326ed`, 08-19: freshness check giờ chạy ở show-time cho cả 4 loại fullscreen AdMob, không chỉ ở load/reuse). AppLovin (MAX) hoàn toàn không có concept freshness — không phải bug của SDK (native AppLovin SDK không expose timestamp) nhưng **là gap chính sách thực tế**: nếu provider = AppLovin, App Open có thể hiển thị ad đã cache rất lâu. Ghi nhận là giới hạn cố hữu của nền tảng AppLovin, không phải lỗi code có thể tự sửa trong SDK này.
+
+**Xử lý:** user chọn "chỉ document" (recommended) — thêm bullet vào README.md "Known limitations — read before adopting" nêu rõ gap này, để host tự quyết định có accept risk hay không trước khi ship với provider AppLovin. Không sửa code.
 
 ### M4 — Rewarded Interstitial trên AppLovin báo `shown: true` giả **[cross-confirmed: lane C M9 + external-claude m3]** — **ĐÃ FIX 2026-08-20**
 `applovin_adapter.dart:1226-1230` (`showRewardedInterstitial`) là no-op ngay lập tức gọi `onDone(RewardResult.skipped)` (AppLovin MAX không có format này) nhưng orchestrator ở `ad_manager.dart` hard-code `shown: true` bất kể kết quả thật. Host code không phân biệt được "đã hiển thị nhưng không có reward" với "provider không hỗ trợ format này".
@@ -56,11 +58,17 @@ Re-verify: `applovin_adapter.dart` `preloadBanner`/`preloadMrec` (trước fix, 
 ### M6 — `showAppOpenAdOnResume` từng bypass toàn bộ safety cap ngoài phạm vi splash — **đã fix**
 `ad_manager.dart:2719-2722` (bản cũ trước 08-19) luôn gọi `showAppOpenAd(bypassSafety: true, ...)` bất kể là splash hay resume thường. Đã fix commit `6ca3d78` (08-19): resume path giờ dùng `bypassSafety: false`, chỉ splash flow còn bypass. **Giữ mục này để ai đọc CHANGELOG không tưởng đây còn mở.**
 
-### M7 — CHANGELOG `[Unreleased]` (13 feature + batch fix security 08-16/17) chưa publish lên pub.dev tại thời điểm audit 08-19 — **cập nhật: đã release 2.1.0**
-Tại thời điểm audit 08-19, pub.dev còn serve 2.0.4, thiếu fix domain-separation CRL/VIP-key, stale-watchdog fix, connectivity-race fix. Git log hiện tại cho thấy `2.1.0` đã được release (`51e79e6`, `95c12e8`, 2026-08-19). **Vẫn cần xác nhận thủ công trên trang pub.dev** rằng phiên bản đã lên thật (không chỉ commit local) trước khi coi finding này đã đóng — CDN pub.dev có thể lag vài phút theo ghi chú trong CLAUDE.md.
+### M7 — CHANGELOG `[Unreleased]` (13 feature + batch fix security 08-16/17) chưa publish lên pub.dev tại thời điểm audit 08-19 — **VẪN CHƯA PUBLISH (xác nhận 2026-08-20, `curl https://pub.dev/api/packages/applovin_admob_sdk`)**
+Tại thời điểm audit 08-19, pub.dev còn serve 2.0.4, thiếu fix domain-separation CRL/VIP-key, stale-watchdog fix, connectivity-race fix. Git log local cho thấy `2.1.0` đã được commit (`51e79e6`, `95c12e8`, 2026-08-19) và CHANGELOG.md đã có mục `[2.1.0]` — **nhưng đây chỉ là commit local, không phải publish thật.**
 
-### M8 — Undocumented breaking API change (tự phát hiện)
-`MIGRATION.md` không đề cập 3 breaking change tự nêu trong CHANGELOG 2.0.0 (`autoRequestUmpConsent` default `false→true`, VIP key format `AVP1→AVP2`, `maxVipStackDuration` default `null→90 days`). Host upgrade từ 1.x không có hướng dẫn cho bất kỳ thay đổi nào trong 3 cái này; file FAQ vẫn ghi "2.0 hiện chưa release" dù 2.0.4/2.1.0 đã release từ lâu.
+**Xác nhận trực tiếp 2026-08-20**: `curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.0.4"`, danh sách 33 version công khai kết thúc ở `2.0.4`, không có `2.1.0`. Trước đó audit ghi "đã release" chỉ dựa vào git log local, chưa từng gọi API xác minh — sai. Finding này **vẫn mở**: cần chạy `flutter pub publish` thật (`packages/ad_sdk/`, xem mục "Publishing to pub.dev" ở `CLAUDE.md`) trước khi bất kỳ app nào pull `applovin_admob_sdk` qua pub.dev (không phải git ref/path) có thể nhận được các fix Blocker/Major đã làm trong 2 vòng audit 08-19/08-20.
+
+### M8 — Undocumented breaking API change (tự phát hiện) — **RE-VERIFY 2026-08-20: premise sai, đã xử lý theo yêu cầu khác**
+Claim gốc: `MIGRATION.md` không đề cập 3 breaking change tự nêu trong CHANGELOG 2.0.0 (`autoRequestUmpConsent` default `false→true`, VIP key format `AVP1→AVP2`, `maxVipStackDuration` default `null→90 days`).
+
+**Re-verify:** đọc lại `MIGRATION.md` mục "1.x → 2.x" → §7 "2.0.0 breaking changes (defaults changed)" — cả 3 default nêu trên đã được ghi đầy đủ ở đó kèm code diff hướng dẫn revert từng cái. Claim gốc **sai** (có thể do đọc audit trước không mở hết file, hoặc mục §7 được thêm sau lần audit đó — không xác minh được lịch sử chính xác). FAQ cũng không ghi "2.0 hiện chưa release" như claim — dòng thật là "Yes — 2.0 has shipped (currently 2.0.4)".
+
+**Xử lý:** user chọn phương án khác hẳn (không phải fix nội dung thiếu, vì không có gì thiếu) — xoá `MIGRATION.md`, gộp toàn bộ nội dung vào `doc/AD_PROMPT_FLUTTER.MD` (Appendix D), cập nhật mọi tham chiếu (`README.md`, root `CLAUDE.md`, Section 0 + Appendix B của chính file đó). Đã thêm mục D.6 "2.0.4 → 2.1.0" mới (chưa từng có ở `MIGRATION.md` cũ) để không mất tính liên tục lịch sử version. FAQ's "currently 2.0.4" cập nhật thành "currently 2.1.0". Docs-only, không có code path chạy qua nên không cần `flutter test`.
 
 ### M9 — ATT trigger ngầm qua `advertising_id` package, độc lập với `requestAtt()` (tự phát hiện) — **ĐÃ FIX 2026-08-20**
 `ad_manager.dart:1570-1584` gọi `AdvertisingId.id(true)`; xác nhận qua source `advertising_id-2.7.1/ios/.../SwiftAdvertisingIdPlugin.swift:8-22` — hàm này tự gọi `ATTrackingManager.requestTrackingAuthorization` **native** bất cứ khi nào status chưa `.authorized`, không phụ thuộc vào việc host có gọi SDK's `requestAtt()` Dart method hay chưa.
@@ -72,8 +80,10 @@ Quyết định defer được tách thành pure static function `AdManager.shou
 
 `flutter analyze`: 0 issues. `flutter test`: 868/868 pass, không regression.
 
-### M10 — CRL không thể thu hồi ngược grant đã cấp (đã biết, ghi lại rõ)
+### M10 — CRL không thể thu hồi ngược grant đã cấp (đã biết, ghi lại rõ) — **ĐÃ DOCUMENT (xác nhận 2026-08-20, không cần sửa thêm)**
 Xem mục "Known limitations" — không phải bug, nhưng cần liệt kê ở đây vì ảnh hưởng mức Major tới bảo mật VIP nếu 1 key private bị lộ và cần blocklist khẩn.
+
+**Xử lý:** user chọn "chỉ document" (recommended). Xác nhận README.md's "Revoking a leaked key (CRL)" section (mục T95, gần cuối file) + "Known limitations" đã ghi rõ hạn chế này từ trước ("a user who redeemed it before the CRL update keeps its granted VIP window") — không cần thêm gì. Không sửa code.
 
 ---
 

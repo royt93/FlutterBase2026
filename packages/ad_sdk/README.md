@@ -79,6 +79,14 @@ be clear-eyed about the gap before depending on it for revenue:
   key that's shared and redeemed *before* you notice and revoke it is still
   usable by whoever redeemed it first; the list only stops *further*
   redemptions of that `kid`, it does not claw back a grant already made.
+- **AppLovin MAX has no ad-freshness concept — App Open (and other formats)
+  can show a long-cached creative on that provider.** The `isAdFresh`
+  4h/1h staleness check that AdMob's four fullscreen slots re-verify at
+  *show* time (not just at load time) has no equivalent on AppLovin: the
+  native MAX SDK exposes no load timestamp to check against. This is a
+  platform gap, not a bug in this package — if `AdConfig.provider` is
+  `AdProvider.appLovin`, a `ready` slot can be shown regardless of how long
+  it has sat cached.
 - **Ad-policy risk is not this SDK's to control.** It's a thin wrapper over
   AppLovin MAX and Google Mobile Ads. Fill rate, fraud detection accuracy,
   and account-level policy enforcement (suspensions, strikes) are decided by
@@ -2058,7 +2066,7 @@ That was a bug in 1.0.14 — sub-second waits truncated to zero. Fixed in 1.0.15
 
 ## Migration
 
-See `MIGRATION.md` for a step-by-step guide.
+See `doc/AD_PROMPT_FLUTTER.MD` → Appendix D for a step-by-step guide (merged from the former `MIGRATION.md`, 2026-08-20).
 
 - **1.0.14 → 1.0.15** — no breaking change. Update the version, run `flutter pub get`, optionally remove `android:taskAffinity=""` from `MainActivity`.
 - **1.0.1x → 1.0.19** — no breaking change. New optional `AdManager().requestAtt()` for iOS ATT (call in splash before UMP); add `NSUserTrackingUsageDescription` to `Info.plist` if targeting iOS. iOS App-Open watchdog fix is automatic.
