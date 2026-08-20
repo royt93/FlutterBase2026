@@ -1437,7 +1437,17 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag, 'banner $tag ✅ preload started adViewId=$adViewId');
-      _bannerAdViewIdFor(key).value = adViewId;
+      final notifier = _bannerAdViewIdFor(key);
+      final oldId = notifier.value;
+      notifier.value = adViewId;
+      // M5 fix (audit_claude.md, 2026-08-20): preloadBanner can be called
+      // again for a key that already has a live adViewId (VIP-expiry
+      // preload, connectivity-restore refill) — overwriting the notifier
+      // without destroying the old native AdView first leaked it exactly
+      // like B1, just from a different call path.
+      if (oldId != null && oldId != adViewId) {
+        unawaited(_destroyWidgetAdViewWhenDetached(oldId, 'banner'));
+      }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'banner $tag preload THREW: $e\n$st');
       _bannerListenablesFor(key).hasError.value = true;
@@ -1509,7 +1519,13 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag, 'mrec $tag ✅ preload started adViewId=$adViewId');
-      _mrecAdViewIdFor(key).value = adViewId;
+      final notifier = _mrecAdViewIdFor(key);
+      final oldId = notifier.value;
+      notifier.value = adViewId;
+      // M5 fix — see the matching comment in preloadBanner above.
+      if (oldId != null && oldId != adViewId) {
+        unawaited(_destroyWidgetAdViewWhenDetached(oldId, 'mrec'));
+      }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'mrec $tag preload THREW: $e\n$st');
       _mrecListenablesFor(key).hasError.value = true;

@@ -71,6 +71,17 @@ class FakeAppLovinBridge implements AppLovinBridge {
   }
 }
 
+/// FakeAppLovinBridge's preloadWidgetAdView always returns the constant
+/// adViewId `1`, which hides M5-style bugs (old-id-equals-new-id looks like
+/// a no-op). This variant hands out a fresh id per call, like the real
+/// native bridge does.
+class _IncrementingIdBridge extends FakeAppLovinBridge {
+  int _next = 1;
+  @override
+  Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) async =>
+      _next++;
+}
+
 MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact',
     'cid', 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
 
@@ -675,6 +686,68 @@ void main() {
       expect(adapter.banner('b').hasError.value, isFalse);
       expect(adapter.banner('healthy').hasError.value, isFalse,
           reason: 'a key that never errored must be untouched');
+    });
+  });
+
+  // M5 (audit_claude.md, 2026-08-20): preloadBanner/preloadMrec can be
+  // called again for a key that already has a live adViewId — VIP-expiry
+  // preload (_onVipActiveChanged) and connectivity-restore refill
+  // (_onConnectivityChanged) both re-nudge the shared warmup key
+  // unconditionally, unlike onAppResumed's error-recovery path above which
+  // nulls the notifier first. Overwriting the notifier without destroying
+  // the old native AdView leaked it, independent of B1.
+  group('preloadBanner/preloadMrec re-preload with an already-live adViewId '
+      '(M5)', () {
+    test('preloadBanner destroys the previous adViewId instead of just '
+        'overwriting it', () async {
+      final b = _IncrementingIdBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      await a.preloadBanner('k');
+      final oldId = a.appLovinBannerAdViewId('k').value;
+      expect(oldId, isNotNull);
+
+      await a.preloadBanner('k');
+      final newId = a.appLovinBannerAdViewId('k').value;
+      await Future<void>.value(); // flush unawaited destroyWidgetAdView
+
+      expect(newId, isNot(oldId));
+      expect(b.destroyWidgetAdViewCalls, [oldId],
+          reason: 're-preloading a key with a live adViewId must destroy '
+              'the stale native AdView, not just orphan it');
+    });
+
+    test('preloadMrec destroys the previous adViewId instead of just '
+        'overwriting it', () async {
+      final b = _IncrementingIdBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(const AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: 'sdk',
+          bannerId: 'banner-id',
+          interstitialId: 'inter-id',
+          appOpenId: 'appopen-id',
+          rewardedId: 'rewarded-id',
+          mrecId: 'mrec-id',
+        ),
+      ));
+      addTearDown(a.dispose);
+
+      await a.preloadMrec('k');
+      final oldId = a.appLovinMrecAdViewId('k').value;
+      expect(oldId, isNotNull);
+
+      await a.preloadMrec('k');
+      final newId = a.appLovinMrecAdViewId('k').value;
+      await Future<void>.value();
+
+      expect(newId, isNot(oldId));
+      expect(b.destroyWidgetAdViewCalls, [oldId],
+          reason: 're-preloading a key with a live adViewId must destroy '
+              'the stale native AdView, not just orphan it');
     });
   });
 
