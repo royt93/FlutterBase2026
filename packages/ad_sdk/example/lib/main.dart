@@ -2630,6 +2630,12 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
 class TestDeviceHashDemoPage extends StatelessWidget {
   const TestDeviceHashDemoPage({super.key});
 
+  void _copy(BuildContext context, String label, String value) {
+    Clipboard.setData(ClipboardData(text: value));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$label copied to clipboard')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final gaid = AdManager().currentDeviceGaid;
@@ -2645,11 +2651,23 @@ class TestDeviceHashDemoPage extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             SelectableText(gaid.isEmpty ? '(empty — init not done yet, or LAT on)' : gaid),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy GAID (not the AdMob hash!)'),
+              onPressed: gaid.isEmpty ? null : () => _copy(context, 'GAID', gaid),
+            ),
             const SizedBox(height: 20),
             Text('adMobTestDeviceHashHint()',
                 style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
             Expanded(child: SingleChildScrollView(child: SelectableText(hint))),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy hint text'),
+              onPressed: () => _copy(context, 'Hint', hint),
+            ),
           ],
         ),
       ),
