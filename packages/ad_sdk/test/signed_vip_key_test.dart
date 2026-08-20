@@ -53,6 +53,17 @@ Future<String> _mint(SimpleKeyPair kp,
   return 'AVP1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
 }
 
+/// AVP2 payload = `<seconds>|<kid>|<expEpochSeconds>|<boundBundleCsv>`.
+Future<String> _mintV2(SimpleKeyPair kp,
+    {required int seconds,
+    required String kid,
+    required int expEpochSeconds,
+    String boundBundle = ''}) async {
+  final payload = utf8.encode('$seconds|$kid|$expEpochSeconds|$boundBundle');
+  final sig = await _ed.sign(payload, keyPair: kp);
+  return 'AVP2.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -183,6 +194,36 @@ void main() {
       expect(r.status, VipRedeemStatus.success);
       expect(mgr.isActive, isTrue);
       expect(r.entry, isNotNull);
+    });
+
+    test(
+        'AVP2 key past its absolute expiry is rejected even when the '
+        "device's high-water clock mark, not raw DateTime.now(), is what "
+        'catches it (M2)', () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      // Key's absolute expiry is 5 minutes from now by the raw clock —
+      // still "valid" if redeemSignedKey used DateTime.now() directly.
+      final expEpochSeconds = (nowMs ~/ 1000) + 300;
+      final code = await _mintV2(keyPair,
+          seconds: 3600, kid: 'v2expired', expEpochSeconds: expEpochSeconds);
+
+      // Simulate a clock previously observed 10 minutes ahead of "now" —
+      // same technique as the anti-rollback tests above: seed the
+      // persisted high-water mark directly rather than move the OS clock.
+      await prefs.setVipMaxObservedClockMs(nowMs + 600000);
+
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.ok, isFalse,
+          reason: 'redeemSignedKey must clamp through the anti-rollback '
+              'high-water mark (_effectiveNow), not the raw device clock, '
+              "when checking an AVP2 key's absolute expiry");
+      expect(r.status, VipRedeemStatus.invalid);
+      expect(mgr.isActive, isFalse);
     });
 
     test('offline device is rejected before the key is even checked',

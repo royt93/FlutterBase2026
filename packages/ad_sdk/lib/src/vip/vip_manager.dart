@@ -711,6 +711,10 @@ class VipManager {
         code,
         publicKeyBase64: publicKeyBase64,
         currentBundleId: bundleId,
+        // M2 fix (audit_claude.md, 2026-08-20) — without this, expiry used
+        // the raw device clock, bypassing _effectiveNow()'s anti-rollback
+        // clamp: winding the clock back could redeem an already-expired key.
+        now: _effectiveNow(),
       );
     } on VipKeyException catch (e) {
       SafeLogger.w(_tag, 'redeemSignedKey invalid: ${e.message}');
