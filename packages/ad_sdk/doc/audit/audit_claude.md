@@ -62,10 +62,15 @@ Tại thời điểm audit 08-19, pub.dev còn serve 2.0.4, thiếu fix domain-s
 ### M8 — Undocumented breaking API change (tự phát hiện)
 `MIGRATION.md` không đề cập 3 breaking change tự nêu trong CHANGELOG 2.0.0 (`autoRequestUmpConsent` default `false→true`, VIP key format `AVP1→AVP2`, `maxVipStackDuration` default `null→90 days`). Host upgrade từ 1.x không có hướng dẫn cho bất kỳ thay đổi nào trong 3 cái này; file FAQ vẫn ghi "2.0 hiện chưa release" dù 2.0.4/2.1.0 đã release từ lâu.
 
-### M9 — ATT trigger ngầm qua `advertising_id` package, độc lập với `requestAtt()` (tự phát hiện)
+### M9 — ATT trigger ngầm qua `advertising_id` package, độc lập với `requestAtt()` (tự phát hiện) — **ĐÃ FIX 2026-08-20**
 `ad_manager.dart:1570-1584` gọi `AdvertisingId.id(true)`; xác nhận qua source `advertising_id-2.7.1/ios/.../SwiftAdvertisingIdPlugin.swift:8-22` — hàm này tự gọi `ATTrackingManager.requestTrackingAuthorization` **native** bất cứ khi nào status chưa `.authorized`, không phụ thuộc vào việc host có gọi SDK's `requestAtt()` Dart method hay chưa.
 **Vì sao đáng chú ý:** SDK có thể trigger prompt ATT hệ thống iOS **sớm hơn** ý định của host (nếu host gọi initialize trước khi họ tự quyết định thời điểm show ATT prompt theo Apple guideline "show trong context phù hợp"), gây risk UX/App Review nếu prompt xuất hiện đột ngột không có giải thích trước.
-**Sửa:** tối thiểu là document rõ hành vi này trong README; lý tưởng là cho phép host defer việc gọi `AdvertisingId.id(true)` tới sau khi `requestAtt()` chạy.
+
+**Fix:** người dùng chọn phương án invasive hơn (sửa code, không chỉ document). `initialize()` giờ chỉ gọi thẳng `AdvertisingId.id(true)` khi an toàn; nếu đang chạy iOS, `requestAtt()` **chưa** được host gọi, và status ATT đọc được (read-only, không tự trigger) là `TrackingStatus.notDetermined`, GAID fetch bị defer (`_gaidFetchDeferredForAtt = true`, cờ whitelist VIP theo `config.vipDeviceGaids` cũng skip trong lượt này). `requestAtt()` sau khi set `_attRequested = true` sẽ tự resolve GAID bị defer (`_resolveDeviceGaid()`) và re-run whitelist check (`_applyConfigVipGaidWhitelist`) — nên host theo đúng thứ tự khuyến nghị (`requestAtt()` trước `initialize()`) không bị ảnh hưởng gì (status đã quyết, `deferGaidForAtt` luôn false).
+
+Quyết định defer được tách thành pure static function `AdManager.shouldDeferGaidFetch({required bool isIos, required bool attRequested, required TrackingStatus? attStatus})` (cùng pattern với `attOrderFootgunWarning`) để unit-test được không cần mock `Platform.isIOS`/native ATT channel. Test mới: `test/ad_manager_core_test.dart` group `shouldDeferGaidFetch (M9)` — 5 case (iOS+notDetermined+chưa gọi requestAtt → defer; đã gọi requestAtt → không defer; ATT đã quyết (authorized) → không defer; status null/không đọc được → không defer; Android → luôn không defer).
+
+`flutter analyze`: 0 issues. `flutter test`: 868/868 pass, không regression.
 
 ### M10 — CRL không thể thu hồi ngược grant đã cấp (đã biết, ghi lại rõ)
 Xem mục "Known limitations" — không phải bug, nhưng cần liệt kê ở đây vì ảnh hưởng mức Major tới bảo mật VIP nếu 1 key private bị lộ và cần blocklist khẩn.

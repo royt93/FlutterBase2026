@@ -16,6 +16,7 @@
 
 import 'dart:async';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
@@ -519,6 +520,47 @@ void main() {
     test('Android → no warning regardless (ATT is iOS-only)', () {
       final w = AdManager.attOrderFootgunWarning(attRequested: false, isIos: false);
       expect(w, isNull);
+    });
+  });
+
+  // M9 (audit_claude.md, 2026-08-20): AdvertisingId.id(true) triggers its own
+  // ATT prompt on iOS independent of requestAtt() — defer the GAID fetch
+  // until ATT is actually decided, but only when deferring is necessary.
+  group('shouldDeferGaidFetch (M9)', () {
+    test('iOS + ATT notDetermined + requestAtt not called → defer', () {
+      final defer = AdManager.shouldDeferGaidFetch(
+          isIos: true,
+          attRequested: false,
+          attStatus: TrackingStatus.notDetermined);
+      expect(defer, isTrue);
+    });
+
+    test('iOS + requestAtt already called → do not defer', () {
+      final defer = AdManager.shouldDeferGaidFetch(
+          isIos: true,
+          attRequested: true,
+          attStatus: TrackingStatus.notDetermined);
+      expect(defer, isFalse);
+    });
+
+    test('iOS + ATT already decided (authorized) → do not defer', () {
+      final defer = AdManager.shouldDeferGaidFetch(
+          isIos: true, attRequested: false, attStatus: TrackingStatus.authorized);
+      expect(defer, isFalse);
+    });
+
+    test('iOS + ATT status unreadable (null) → do not defer', () {
+      final defer =
+          AdManager.shouldDeferGaidFetch(isIos: true, attRequested: false, attStatus: null);
+      expect(defer, isFalse);
+    });
+
+    test('Android → never defer regardless of ATT status', () {
+      final defer = AdManager.shouldDeferGaidFetch(
+          isIos: false,
+          attRequested: false,
+          attStatus: TrackingStatus.notDetermined);
+      expect(defer, isFalse);
     });
   });
 

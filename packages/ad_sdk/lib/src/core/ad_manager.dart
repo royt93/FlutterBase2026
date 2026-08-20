@@ -235,6 +235,24 @@ class AdManager with WidgetsBindingObserver {
         'initialize()/requestUmpConsent().';
   }
 
+  /// M9 (audit_claude.md, 2026-08-20) — [initialize]'s GAID fetch used to
+  /// call `AdvertisingId.id(true)` unconditionally, but on iOS that plugin
+  /// triggers its own ATT prompt as a side effect whenever status isn't
+  /// `.authorized` — a second, hidden ATT trigger independent of whether the
+  /// host called [requestAtt] first. Deferring is only safe/necessary when
+  /// ATT is still undecided AND the host hasn't already called [requestAtt]
+  /// (which means the real trigger has already fired, or never will on this
+  /// platform). Pure + static so it is unit-testable without a native ATT
+  /// status read.
+  @visibleForTesting
+  static bool shouldDeferGaidFetch(
+      {required bool isIos,
+      required bool attRequested,
+      required TrackingStatus? attStatus}) {
+    if (!isIos || attRequested) return false;
+    return attStatus == TrackingStatus.notDetermined;
+  }
+
   /// T16: empty/malformed ad-unit-id checks, split out of
   /// [releaseFootgunWarnings] purely to keep that function short — same
   /// "loud in release" contract applies (caller logs ERROR + asserts debug).
@@ -1126,6 +1144,13 @@ class AdManager with WidgetsBindingObserver {
   /// are only supposed to know the correct order via docstrings today.
   bool _attRequested = false;
 
+  /// M9 (audit_claude.md, 2026-08-20) — true when [initialize] skipped its
+  /// device-GAID fetch because ATT was still undecided and the host hadn't
+  /// called [requestAtt] yet. Set so [requestAtt] can resolve the GAID (and
+  /// re-run the config VIP-GAID whitelist check) once ATT is actually
+  /// decided, instead of never resolving it at all.
+  bool _gaidFetchDeferredForAtt = false;
+
   /// Test seam: clear the banner load cooldown so tests sharing the singleton
   /// don't leak `_lastBannerLoadAt` into each other.
   @visibleForTesting
@@ -1446,6 +1471,48 @@ class AdManager with WidgetsBindingObserver {
   //  preload, retry timer + connectivity watch. Guarded by `_isInitializing`.
   // ──────────────────────────────────────────────────────────────────────────
 
+  /// Fetches [_currentDeviceGAID] via the `advertising_id` plugin. Callable
+  /// from [initialize] directly, or from [requestAtt] when M9's defer above
+  /// kicked in.
+  Future<void> _resolveDeviceGaid() async {
+    try {
+      // ponytail: native advertising-id platform channel call, same
+      // unbounded-hang risk as the adapter init below (observed hanging
+      // on iOS Simulator, e.g. with ATT left notDetermined) — bound it so
+      // a hang degrades to "no GAID" instead of stalling init forever.
+      final id = await AdvertisingId.id(true).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => null,
+      );
+      _currentDeviceGAID = id ?? '';
+    } on PlatformException catch (e) {
+      SafeLogger.w(_tag, () => 'GAID PlatformException: $e');
+    } catch (e) {
+      SafeLogger.w(_tag, () => 'GAID error: $e');
+    }
+    SafeLogger.d(_tag, () => 'GAID=$_currentDeviceGAID');
+  }
+
+  /// First-init: import VIP GAIDs from `config.vipDeviceGaids` (release
+  /// builds only). Only entries whose GAID matches THIS device (per
+  /// [_currentDeviceGAID]) are persisted as active VIP — matching 1.x
+  /// behaviour exactly. No-op once already run (`isAddVIPMemberFirstInitSuccess`).
+  Future<void> _applyConfigVipGaidWhitelist(
+      AdConfig config, VipManager vip, AdPreferences prefs) async {
+    if (prefs.isAddVIPMemberFirstInitSuccess()) return;
+    if (kDebugMode || config.vipDeviceGaids.isEmpty) return;
+    final myGaid = _currentDeviceGAID.trim().toUpperCase();
+    for (final gaid in config.vipDeviceGaids) {
+      if (gaid.trim().isEmpty) continue;
+      if (gaid.trim().toUpperCase() != myGaid) continue;
+      await vip.addVip(
+        key: 'CONFIG_${gaid.trim()}',
+        duration: const Duration(days: 365 * 50),
+      );
+    }
+    await prefs.addVIPMemberFirstInitSuccess();
+  }
+
   /// Initialise the SDK. Idempotent: calling twice without [destroy] auto-cleans
   /// the previous adapter first.
   ///
@@ -1575,22 +1642,35 @@ class AdManager with WidgetsBindingObserver {
       // Resolve device GAID FIRST — VIP migration + first-init both need it
       // to preserve 1.x's per-device matching semantic (a `vipDeviceGaids`
       // entry only marks the device VIP when its own GAID matches).
-      try {
-        // ponytail: native advertising-id platform channel call, same
-        // unbounded-hang risk as the adapter init below (observed hanging
-        // on iOS Simulator, e.g. with ATT left notDetermined) — bound it so
-        // a hang degrades to "no GAID" instead of stalling init forever.
-        final id = await AdvertisingId.id(true).timeout(
-          const Duration(seconds: 10),
-          onTimeout: () => null,
-        );
-        _currentDeviceGAID = id ?? '';
-      } on PlatformException catch (e) {
-        SafeLogger.w(_tag, () => 'GAID PlatformException: $e');
-      } catch (e) {
-        SafeLogger.w(_tag, () => 'GAID error: $e');
+      //
+      // M9 (audit_claude.md, 2026-08-20) — on iOS, `advertising_id`'s native
+      // plugin triggers the real ATT system prompt itself whenever status is
+      // still `.notDetermined`, independent of whether the host has decided
+      // to call `requestAtt()` yet. Calling it unconditionally here meant
+      // initialize() (which the integration contract requires running from
+      // splash) could pop the ATT prompt before the host chose to, breaking
+      // Apple's "show ATT in the right context" guidance. Read the status
+      // first (read-only, no prompt) and defer the fetch — and the
+      // GAID-dependent config-whitelist check below — to [requestAtt] when
+      // it's still undecided and the host hasn't called requestAtt() yet.
+      TrackingStatus? attStatus;
+      if (Platform.isIOS && !_attRequested) {
+        try {
+          attStatus = await AppTrackingTransparency.trackingAuthorizationStatus;
+        } catch (_) {
+          attStatus = null;
+        }
       }
-      SafeLogger.d(_tag, () => 'GAID=$_currentDeviceGAID');
+      if (shouldDeferGaidFetch(
+          isIos: Platform.isIOS,
+          attRequested: _attRequested,
+          attStatus: attStatus)) {
+        _gaidFetchDeferredForAtt = true;
+        SafeLogger.d(_tag,
+            () => '⏸️ GAID fetch deferred until requestAtt() runs (M9)');
+      } else {
+        await _resolveDeviceGaid();
+      }
 
       // Phase 4: load VIP manager + auto-migrate (matched against this GAID).
       // Detach + dispose any pre-existing VipManager (re-init path) before
@@ -1608,22 +1688,13 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag,
           () => 'VIP active=${vip.isActive} entries=${vip.entries.length}');
 
-      // First-init: import VIP GAIDs from config (release builds only).
-      // Only entries whose GAID matches THIS device are persisted as active
-      // VIP — matching 1.x behaviour exactly.
-      if (!prefs.isAddVIPMemberFirstInitSuccess()) {
-        if (!kDebugMode && config.vipDeviceGaids.isNotEmpty) {
-          final myGaid = _currentDeviceGAID.trim().toUpperCase();
-          for (final gaid in config.vipDeviceGaids) {
-            if (gaid.trim().isEmpty) continue;
-            if (gaid.trim().toUpperCase() != myGaid) continue;
-            await vip.addVip(
-              key: 'CONFIG_${gaid.trim()}',
-              duration: const Duration(days: 365 * 50),
-            );
-          }
-          await prefs.addVIPMemberFirstInitSuccess();
-        }
+      // First-init: import VIP GAIDs from config (release builds only). Only
+      // entries whose GAID matches THIS device are persisted as active VIP —
+      // matching 1.x behaviour exactly. Skipped when the GAID fetch above was
+      // deferred (M9) — [requestAtt] runs it once the real GAID is known, so
+      // this doesn't get marked done against an empty GAID.
+      if (!_gaidFetchDeferredForAtt) {
+        await _applyConfigVipGaidWhitelist(config, vip, prefs);
       }
 
       // First-install VIP grace. Fires once per install — see
@@ -2353,6 +2424,19 @@ class AdManager with WidgetsBindingObserver {
     final result = await requestAttIfNeeded();
     _attRequested = true;
     SafeLogger.d(_tag, () => 'ATT → ${result.status.name}');
+    // M9 — resolve the GAID fetch initialize() deferred (ATT was still
+    // undecided at init time) now that ATT has actually been decided, and
+    // re-run the config VIP-GAID whitelist check that depends on it.
+    if (_gaidFetchDeferredForAtt) {
+      _gaidFetchDeferredForAtt = false;
+      await _resolveDeviceGaid();
+      final config = _config;
+      final vip = _vipManager;
+      if (config != null && vip != null) {
+        final prefs = await AdPreferences.getInstance();
+        await _applyConfigVipGaidWhitelist(config, vip, prefs);
+      }
+    }
     return result;
   }
 
