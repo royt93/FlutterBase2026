@@ -68,13 +68,15 @@ class VipManager {
   /// at all. Wired to `AdManager`'s own connectivity getter in production.
   final bool Function() _isConnectedCheck;
 
-  /// Wall-clock reading taken the instant this manager was constructed, and
-  /// the monotonic stopwatch started alongside it. Together they let
-  /// [_effectiveNow] tell "device clock actually progressed" apart from "the
-  /// wall clock jumped" *while this process has been alive* — see
-  /// [_effectiveNow]'s doc comment for why that matters.
-  final int _sessionAnchorRealMs;
-  final Stopwatch _sessionClockStopwatch;
+  /// Wall-clock reading taken at construction (and re-taken on every
+  /// foreground resume by [resyncSessionClock]), paired with a monotonic
+  /// stopwatch (re)started alongside it. Together they let [_effectiveNow]
+  /// tell "device clock actually progressed" apart from "the wall clock
+  /// jumped" *within the current foreground session* — see [_effectiveNow]'s
+  /// doc comment for why that matters, and [resyncSessionClock] for why this
+  /// resets on resume rather than staying pinned to construction time.
+  int _sessionAnchorRealMs;
+  Stopwatch _sessionClockStopwatch;
 
   /// Durable (iOS Keychain) backstop for redeemed signed-key ids — survives
   /// reinstall, unlike `_prefs`'s SharedPreferences-backed ledger. See
@@ -211,11 +213,14 @@ class VipManager {
   /// has actually passed. When they disagree (an in-session clock edit),
   /// the monotonic-anchored estimate is used instead, so the edit is never
   /// written to the high-water mark and self-corrects the moment the clock
-  /// is fixed. This only covers edits made *while the app process stays
-  /// alive* — a jump made, then the app killed and relaunched, then
-  /// corrected, anchors a fresh (bogus) session and isn't caught; that
-  /// residual gap needs a native monotonic-uptime source to close and isn't
-  /// attempted here.
+  /// is fixed. This only covers edits made *while the app is foregrounded
+  /// and this manager's clock anchor hasn't been resynced* — see
+  /// [resyncSessionClock] for why a background/resume cycle deliberately
+  /// resets this anchor rather than accumulating drift across it. A jump
+  /// made, then the app killed and relaunched (or backgrounded and
+  /// resumed), then corrected, anchors a fresh (bogus) session and isn't
+  /// caught; that residual gap needs a native monotonic-uptime source to
+  /// close and isn't attempted here.
   DateTime _effectiveNow() {
     final real = DateTime.now();
     final expectedMs =
@@ -233,6 +238,25 @@ class VipManager {
     }
     unawaited(_prefs.setVipMaxObservedClockMs(trusted.millisecondsSinceEpoch));
     return trusted;
+  }
+
+  /// Re-anchors [_effectiveNow]'s drift check to "now" — call on every
+  /// foreground resume (wired from [AdManager.didChangeAppLifecycleState]).
+  ///
+  /// [Stopwatch] measures OS uptime (`CLOCK_MONOTONIC` on Android,
+  /// `mach_absolute_time` on iOS), which **stops advancing while the device
+  /// is asleep/suspended** — unlike [DateTime.now], which keeps advancing
+  /// through sleep same as any wall clock. Without this resync, a phone
+  /// merely being locked for longer than the drift slack makes
+  /// [_effectiveNow] mistake that ordinary sleep gap for a wall-clock jump,
+  /// discard the (correct) real time, and freeze the high-water mark at a
+  /// stale value — silently extending VIP time on every lock/unlock cycle.
+  /// Resetting the anchor on resume drops drift detection back to only
+  /// covering edits made while the app is actively foregrounded, which is
+  /// the scenario B3 was written for (see [_effectiveNow]'s doc comment).
+  void resyncSessionClock() {
+    _sessionAnchorRealMs = DateTime.now().millisecondsSinceEpoch;
+    _sessionClockStopwatch = Stopwatch()..start();
   }
 
   /// Read-only snapshot of all entries (for UI listing).

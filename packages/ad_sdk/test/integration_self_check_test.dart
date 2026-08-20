@@ -27,6 +27,9 @@ class _FakeAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
 
   /// Slots this fake reports a successful load for; anything else never
   /// fires an AdLoadEvent, so the self-check's wait times out (mirrors a

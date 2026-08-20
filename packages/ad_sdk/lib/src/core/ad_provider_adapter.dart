@@ -15,6 +15,7 @@ class RewardResult {
     this.label,
     this.amount,
     this.pendingServerConfirmation = false,
+    this.shown = true,
   });
   final bool earned;
   final String? label;
@@ -26,6 +27,18 @@ class RewardResult {
   /// signal to treat, not this SDK's `earned` flag alone. Purely
   /// informational: this SDK does not verify anything server-side itself.
   final bool pendingServerConfirmation;
+
+  /// False only when the ad was never actually displayed to the user at all
+  /// (unsupported format, not ready, already showing) — as opposed to
+  /// `earned: false` alone, which also covers a real display the user
+  /// dismissed without earning a reward. Defaults `true` because most
+  /// [RewardResult]s — including the shared [skipped] sentinel, used by both
+  /// genuine no-reward dismissals and true not-shown cases — describe a real
+  /// show attempt; construct with `shown: false` explicitly at the specific
+  /// call sites that skip the show entirely (see
+  /// AppLovinAdapter.showRewardedInterstitial, T89 — AppLovin has no
+  /// Rewarded Interstitial ad format).
+  final bool shown;
 
   static const RewardResult skipped = RewardResult(earned: false);
 }

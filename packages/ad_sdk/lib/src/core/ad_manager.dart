@@ -970,6 +970,12 @@ class AdManager with WidgetsBindingObserver {
     if (ad.appOpenSlot.isShowing) return 'app-open ad currently showing';
     if (ad.interstitialSlot.isShowing) return 'interstitial currently showing';
     if (ad.rewardedSlot.isShowing) return 'rewarded ad currently showing';
+    // M1 fix (audit_claude.md, 2026-08-20): was missing here, so a rewarded
+    // interstitial could show while another fullscreen ad was already up —
+    // ad stacking, a policy violation on both AdMob and AppLovin.
+    if (ad.rewardedInterstitialSlot.isShowing) {
+      return 'rewarded interstitial currently showing';
+    }
     if (AdLoadingDialog.isShowing) return 'ad loading buffer showing';
     if (AdScreenRouteLogger.isDialogOnTop) return 'a dialog/popup is on top';
     return null;
@@ -985,7 +991,7 @@ class AdManager with WidgetsBindingObserver {
   /// only being able to check it at the moment it calls a show method.
   ///
   /// Kept in sync by [_recomputeFullscreenBusy], called whenever any of
-  /// [_fullscreenBusyReason]'s five inputs changes: the three fullscreen ad
+  /// [_fullscreenBusyReason]'s six inputs changes: the four fullscreen ad
   /// slots (via [_attachFullscreenBusySlotListeners], re-wired on every
   /// adapter swap by the `_adapter` setter above), [AdLoadingDialog]'s and
   /// [AdScreenRouteLogger]'s own notifiers (wired once in [_internal]).
@@ -1001,6 +1007,7 @@ class AdManager with WidgetsBindingObserver {
     ad.appOpenSlot.state.addListener(_recomputeFullscreenBusy);
     ad.interstitialSlot.state.addListener(_recomputeFullscreenBusy);
     ad.rewardedSlot.state.addListener(_recomputeFullscreenBusy);
+    ad.rewardedInterstitialSlot.state.addListener(_recomputeFullscreenBusy);
   }
 
   void _detachFullscreenBusySlotListeners() {
@@ -1009,6 +1016,7 @@ class AdManager with WidgetsBindingObserver {
     ad.appOpenSlot.state.removeListener(_recomputeFullscreenBusy);
     ad.interstitialSlot.state.removeListener(_recomputeFullscreenBusy);
     ad.rewardedSlot.state.removeListener(_recomputeFullscreenBusy);
+    ad.rewardedInterstitialSlot.state.removeListener(_recomputeFullscreenBusy);
   }
 
   /// T76 — the on-demand rewarded path (`_loadRewardedOnDemand`) already has
@@ -3374,7 +3382,7 @@ class AdManager with WidgetsBindingObserver {
         placement: placement,
         success: result.earned,
       ));
-      onDone(true, result.earned);
+      onDone(result.shown, result.earned);
       unawaited(loadRewardedInterstitialAd());
     });
   }
@@ -3528,6 +3536,14 @@ class AdManager with WidgetsBindingObserver {
     }
     if (state == AppLifecycleState.paused) {
       _lastPausedAtMs = DateTime.now().millisecondsSinceEpoch;
+    }
+    if (state == AppLifecycleState.resumed) {
+      // B3 follow-up (audit_claude.md, 2026-08-20) — Stopwatch-based drift
+      // detection in VipManager._effectiveNow misreads a normal sleep/
+      // background gap as clock tamper (monotonic uptime clock pauses
+      // during suspend; wall clock doesn't). Re-anchor on every resume so
+      // drift detection only covers time spent actively foregrounded.
+      _vipManager?.resyncSessionClock();
     }
 
     // ⚠️ Critical: this lifecycle log MUST not throw. AppLovin's overlay

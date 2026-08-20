@@ -34,6 +34,9 @@ class _CountingAdapter implements AdProviderAdapter {
   final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
   // T65 (phase 2) — keyed by widget instance, mirroring the real adapters.
   // This file's whole purpose is leak auditing, so exposing these maps lets
   // the test assert they don't grow unboundedly across mount/unmount cycles

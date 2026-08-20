@@ -1257,7 +1257,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   Future<void> showRewardedInterstitial({
     required void Function(RewardResult result) onDone,
   }) async {
-    onDone(RewardResult.skipped);
+    onDone(const RewardResult(earned: false, shown: false));
   }
 
   /// Test seam: put the rewarded slot into `showing` with [onDone] captured,
