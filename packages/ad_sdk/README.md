@@ -1852,6 +1852,8 @@ Without `SKAdNetworkItems` in `Info.plist`, AdMob and AppLovin will not serve ad
 
 Unlike AdMob, AppLovin requires a real account and real ad unit IDs. To avoid being charged for development impressions, register your test device in `dash.applovin.com → MAX → Test Mode`. The SDK auto-registers the current device's GAID in debug builds via `AppLovinMAX.setTestDeviceAdvertisingIds(...)` so this is mostly handled for you.
 
+**AdMob's own test-device allowlist (`RequestConfiguration.setTestDeviceIds()`) needs a different, unrelated ID — not the GAID above.** Google has no public formula for it; the only way to get it is to trigger one ad request on the physical device and read the hex hash the native SDK itself prints to logcat (tag `Ads`), in both debug and release builds. `AdManager().adMobTestDeviceHashHint()` returns that instruction plus the device's current GAID (clearly labeled — mixing the two up sends a QA device live production ads instead of test ads) — call it from your own debug UI when you need to walk through this. `AdManager().currentDeviceGaid` exposes the raw GAID alone.
+
 ### 4. `setNavigatorKey` must be called before `runApp`
 
 If you forget, the auto-show consent dialog has no `BuildContext` to use and silently skips. The dialog will eventually surface on a future launch, but better to wire it correctly the first time.

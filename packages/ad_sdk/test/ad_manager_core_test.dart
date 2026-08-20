@@ -564,6 +564,31 @@ void main() {
     });
   });
 
+  group('adMobTestDeviceHashHint / currentDeviceGaid', () {
+    tearDown(() {
+      AdManager().debugCurrentDeviceGAID = '';
+    });
+
+    test('currentDeviceGaid reflects the resolved GAID', () {
+      AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      expect(AdManager().currentDeviceGaid, 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE');
+    });
+
+    test('hint explains there is no formula and points at logcat tag Ads', () {
+      final hint = AdManager().adMobTestDeviceHashHint();
+      expect(hint, contains('logcat'));
+      expect(hint, contains('Ads'));
+      expect(hint, contains('setTestDeviceIds'));
+    });
+
+    test('hint includes current GAID but says it is not valid there', () {
+      AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      final hint = AdManager().adMobTestDeviceHashHint();
+      expect(hint, contains('AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'));
+      expect(hint, contains('NOT valid'));
+    });
+  });
+
   group('N2: consent footgun runtime block', () {
     setUp(() {
       // Isolate from adapter/config state other groups may have left behind

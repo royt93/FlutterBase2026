@@ -754,6 +754,36 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugCurrentDeviceGAID(String value) => _currentDeviceGAID = value;
 
+  /// Current device's GAID, resolved during [initialize]. Empty string
+  /// before init completes or when the device has Limit Ad Tracking on.
+  ///
+  /// **Not the AdMob test-device hash below** — a different Google ID with
+  /// no public formula, only usable for this SDK's own VIP whitelist and
+  /// AppLovin MAX's `setTestDeviceAdvertisingIds`. Mixing the two up sends
+  /// QA devices live production ads instead of test ads.
+  String get currentDeviceGaid => _currentDeviceGAID;
+
+  /// Instructions for finding this device's AdMob test-device hash — the
+  /// opaque hex string `RequestConfiguration.setTestDeviceIds()` needs.
+  ///
+  /// Google Mobile Ads has no public API or formula for this value: it only
+  /// ever surfaces once, printed by the native SDK itself to logcat (tag
+  /// `Ads`) the first time this device requests an ad and isn't already
+  /// recognized as a test device — works identically in debug and release
+  /// builds since it's the native ad-serving SDK doing the printing, not
+  /// this package. Call this to render that guidance in your own debug UI
+  /// alongside [currentDeviceGaid] (labeled separately, since the two are
+  /// not interchangeable).
+  String adMobTestDeviceHashHint() {
+    return 'AdMob test-device hash has no public formula — trigger one ad '
+        'request on this device, then check logcat for tag "Ads":\n'
+        '  I Ads: Use RequestConfiguration.Builder().setTestDeviceIds('
+        'Arrays.asList("<HASH>")) to get test ads on this device.\n'
+        'That <HASH> is the value for setTestDeviceIds(). '
+        'This device\'s GAID ($currentDeviceGaid) is a different ID and is '
+        'NOT valid there.';
+  }
+
   /// True if the current device is a VIP — combines VipManager state and the
   /// legacy GAID set (auto-migrated on first init, kept for 1.x parity).
   bool get _isVipMember => _vipManager?.isActive ?? false;

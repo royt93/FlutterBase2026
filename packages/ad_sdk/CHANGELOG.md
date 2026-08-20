@@ -4,6 +4,17 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `AdManager().currentDeviceGaid` and `AdManager().adMobTestDeviceHashHint()` —
+  the latter returns instructions (device's current GAID included, clearly
+  labeled) for finding this device's AdMob test-device hash via logcat tag
+  `Ads`, since Google has no public API/formula for that hash. Intended for
+  a host app's own debug UI; distinct from the GAID, which is not valid for
+  AdMob's `RequestConfiguration.setTestDeviceIds()`.
+
 ## [2.1.0] - 2026-08-19
 
 ### Fixed
