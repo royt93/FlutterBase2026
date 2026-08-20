@@ -2623,15 +2623,16 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §17  AdMob test-device hash — no build-mode gate, unlike DebugAdOverlay,
+// §19  AdMob test-device hash — no build-mode gate, unlike DebugAdOverlay,
 //      since the SDK API this demos is meant to work in release too.
 // ═══════════════════════════════════════════════════════════════════════════
 
 class TestDeviceHashDemoPage extends StatelessWidget {
   const TestDeviceHashDemoPage({super.key});
 
-  void _copy(BuildContext context, String label, String value) {
-    Clipboard.setData(ClipboardData(text: value));
+  Future<void> _copy(BuildContext context, String label, String value) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text('$label copied to clipboard')));
   }
@@ -2650,12 +2651,14 @@ class TestDeviceHashDemoPage extends StatelessWidget {
             Text('Current device GAID',
                 style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 4),
-            SelectableText(gaid.isEmpty ? '(empty — init not done yet, or LAT on)' : gaid),
+            SelectableText(
+                gaid.isEmpty ? '(empty — init not done yet, or LAT on)' : gaid),
             const SizedBox(height: 8),
             ElevatedButton.icon(
               icon: const Icon(Icons.copy),
               label: const Text('Copy GAID (not the AdMob hash!)'),
-              onPressed: gaid.isEmpty ? null : () => _copy(context, 'GAID', gaid),
+              onPressed:
+                  gaid.isEmpty ? null : () => _copy(context, 'GAID', gaid),
             ),
             const SizedBox(height: 20),
             Text('adMobTestDeviceHashHint()',

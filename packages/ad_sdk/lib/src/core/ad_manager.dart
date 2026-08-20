@@ -332,9 +332,8 @@ class AdManager with WidgetsBindingObserver {
   ///     : AdSafetyParams.production.copyWith(maxFullscreenAdsPerDay: 8);
   /// ```
   int experimentBucket(String key, {required int buckets}) {
-    const zeroGaid = '00000000-0000-0000-0000-000000000000';
     final gaid = _currentDeviceGAID.trim();
-    final installId = (gaid.isNotEmpty && gaid.toLowerCase() != zeroGaid)
+    final installId = (gaid.isNotEmpty && gaid.toLowerCase() != _zeroGaid)
         ? gaid
         : (AdPreferences.instanceOrNull?.getOrCreateExperimentInstallId() ??
             gaid);
@@ -754,33 +753,49 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugCurrentDeviceGAID(String value) => _currentDeviceGAID = value;
 
+  /// Placeholder GAID Android/iOS return in place of a real one once Limit
+  /// Ad Tracking (or ATT-denied) suppresses it — never a real device's GAID,
+  /// so callers should treat it the same as "no GAID" rather than a value.
+  static const _zeroGaid = '00000000-0000-0000-0000-000000000000';
+
   /// Current device's GAID, resolved during [initialize]. Empty string
-  /// before init completes or when the device has Limit Ad Tracking on.
+  /// before init completes, when the device has Limit Ad Tracking on, or
+  /// when ATT/consent hasn't cleared the platform to hand one over — all of
+  /// which the platform itself may report as [_zeroGaid] rather than an
+  /// empty string, so that placeholder is normalized to `''` here too.
   ///
   /// **Not the AdMob test-device hash below** — a different Google ID with
   /// no public formula, only usable for this SDK's own VIP whitelist and
   /// AppLovin MAX's `setTestDeviceAdvertisingIds`. Mixing the two up sends
   /// QA devices live production ads instead of test ads.
-  String get currentDeviceGaid => _currentDeviceGAID;
+  String get currentDeviceGaid {
+    final gaid = _currentDeviceGAID.trim();
+    return gaid.toLowerCase() == _zeroGaid ? '' : gaid;
+  }
 
   /// Instructions for finding this device's AdMob test-device hash — the
   /// opaque hex string `RequestConfiguration.setTestDeviceIds()` needs.
   ///
   /// Google Mobile Ads has no public API or formula for this value: it only
-  /// ever surfaces once, printed by the native SDK itself to logcat (tag
-  /// `Ads`) the first time this device requests an ad and isn't already
-  /// recognized as a test device — works identically in debug and release
-  /// builds since it's the native ad-serving SDK doing the printing, not
-  /// this package. Call this to render that guidance in your own debug UI
-  /// alongside [currentDeviceGaid] (labeled separately, since the two are
-  /// not interchangeable).
+  /// ever surfaces once, printed by the native SDK itself to the platform
+  /// log (Android logcat tag `Ads`; iOS: the same message from the native
+  /// Google Mobile Ads SDK in the Xcode/Console log) the first time this
+  /// device requests an ad and isn't already recognized as a test device —
+  /// works identically in debug and release builds since it's the native
+  /// ad-serving SDK doing the printing, not this package. Call this to
+  /// render that guidance in your own debug UI alongside [currentDeviceGaid]
+  /// (labeled separately, since the two are not interchangeable).
   String adMobTestDeviceHashHint() {
+    final gaid = currentDeviceGaid;
+    final gaidLabel =
+        gaid.isEmpty ? '(not resolved yet, or Limit Ad Tracking is on)' : gaid;
     return 'AdMob test-device hash has no public formula — trigger one ad '
-        'request on this device, then check logcat for tag "Ads":\n'
+        'request on this device, then check the platform log for tag "Ads" '
+        '(Android logcat; iOS Xcode/Console shows the same message):\n'
         '  I Ads: Use RequestConfiguration.Builder().setTestDeviceIds('
         'Arrays.asList("<HASH>")) to get test ads on this device.\n'
         'That <HASH> is the value for setTestDeviceIds(). '
-        'This device\'s GAID ($currentDeviceGaid) is a different ID and is '
+        'This device\'s GAID ($gaidLabel) is a different ID and is '
         'NOT valid there.';
   }
 

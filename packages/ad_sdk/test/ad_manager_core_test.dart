@@ -570,8 +570,16 @@ void main() {
     });
 
     test('currentDeviceGaid reflects the resolved GAID', () {
-      AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
-      expect(AdManager().currentDeviceGaid, 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE');
+      AdManager().debugCurrentDeviceGAID =
+          'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      expect(AdManager().currentDeviceGaid,
+          'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE');
+    });
+
+    test('currentDeviceGaid normalizes the all-zero GUID to empty', () {
+      AdManager().debugCurrentDeviceGAID =
+          '00000000-0000-0000-0000-000000000000';
+      expect(AdManager().currentDeviceGaid, isEmpty);
     });
 
     test('hint explains there is no formula and points at logcat tag Ads', () {
@@ -582,10 +590,18 @@ void main() {
     });
 
     test('hint includes current GAID but says it is not valid there', () {
-      AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      AdManager().debugCurrentDeviceGAID =
+          'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
       final hint = AdManager().adMobTestDeviceHashHint();
       expect(hint, contains('AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'));
       expect(hint, contains('NOT valid'));
+    });
+
+    test('hint shows a placeholder instead of an empty GAID', () {
+      AdManager().debugCurrentDeviceGAID =
+          '00000000-0000-0000-0000-000000000000';
+      final hint = AdManager().adMobTestDeviceHashHint();
+      expect(hint, contains('not resolved yet, or Limit Ad Tracking is on'));
     });
   });
 
