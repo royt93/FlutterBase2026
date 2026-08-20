@@ -155,9 +155,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     // state above, never releasing the native AdView — every
     // BannerAdWidget that permanently unmounts leaked it on AppLovin.
     if (id != null) {
-      unawaited(_bridge.destroyWidgetAdView(id).catchError((e) {
-        SafeLogger.w(_logTag, 'destroyWidgetAdView (banner dispose) threw: $e');
-      }));
+      unawaited(_destroyWidgetAdViewWhenDetached(id, 'banner'));
     }
     _bannerRoutePausedByKey.remove(key);
   }
@@ -227,11 +225,44 @@ class AppLovinAdapter implements AdProviderAdapter {
     adViewId?.dispose();
     // 2026-08-19 audit (Finding 5): see disposeBannerInstance above.
     if (id != null) {
-      unawaited(_bridge.destroyWidgetAdView(id).catchError((e) {
-        SafeLogger.w(_logTag, 'destroyWidgetAdView (mrec dispose) threw: $e');
-      }));
+      unawaited(_destroyWidgetAdViewWhenDetached(id, 'mrec'));
     }
     _mrecRoutePausedByKey.remove(key);
+  }
+
+  // B1 fix (audit_claude.md, 2026-08-20): AppLovin's native side refuses to
+  // destroy a widget AdView while it's still attached to the view hierarchy
+  // (`hasContainerView()` true — verified against applovin_max's Android/iOS
+  // plugin source), which is exactly the state a AdView is in the instant its
+  // owning widget's State.dispose() runs (detach from the platform view tree
+  // completes slightly later). destroyWidgetAdView above used to just log and
+  // give up on that rejection, leaking the native AdView on every dispose
+  // that happened while the ad was still on screen — the common case, not an
+  // edge case. Retrying a few times with backoff gives the detach time to
+  // actually finish before we give up for good.
+  static const List<Duration> _destroyRetryDelays = [
+    Duration(milliseconds: 200),
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+  ];
+
+  Future<void> _destroyWidgetAdViewWhenDetached(
+    AdViewId id,
+    String what, {
+    int attempt = 0,
+  }) async {
+    try {
+      await _bridge.destroyWidgetAdView(id);
+    } catch (e) {
+      if (attempt >= _destroyRetryDelays.length) {
+        SafeLogger.w(_logTag,
+            'destroyWidgetAdView ($what dispose) still failing after $attempt '
+            'retries, giving up: $e');
+        return;
+      }
+      await Future<void>.delayed(_destroyRetryDelays[attempt]);
+      return _destroyWidgetAdViewWhenDetached(id, what, attempt: attempt + 1);
+    }
   }
 
   // T65 (phase 1) — one AdSlot/BannerListenables per NativeAdWidget instance.

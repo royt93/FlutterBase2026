@@ -1687,6 +1687,23 @@ class AdManager with WidgetsBindingObserver {
       _consentManager = consentMgr;
       _consent = consentMgr.adConsent;
 
+      // B2 fix (audit_claude.md) — a caller (e.g. requestUmpConsent(), or a
+      // host's own setConsent(isAgeRestrictedUser: true) for COPPA) may have
+      // run *before* this initialize() call bootstrapped ConsentManager
+      // above, in which case it was buffered into _pendingConsentSettings
+      // instead of being lost (see [setConsent]). Replay it here — BEFORE
+      // the adapter is picked/initialised below — so isAgeRestrictedUser
+      // reflects the host's real, already-communicated intent for the very
+      // call that gates AppLovin's fail-closed COPPA init. Replaying this
+      // after adapter.initialize() (as it used to) let a host's pre-init
+      // isAgeRestrictedUser: true arrive too late to gate that init at all.
+      final pendingConsent = _pendingConsentSettings;
+      if (pendingConsent != null) {
+        _pendingConsentSettings = null;
+        await consentMgr.set(pendingConsent, config: config);
+        _consent = consentMgr.adConsent;
+      }
+
       // R10-A — SDK-owned UMP: run Google's consent flow before the adapter
       // is even picked/initialised, matching requestUmpConsent()'s own
       // docstring (call it before initialize()). Previously this ran AFTER
@@ -1858,19 +1875,6 @@ class AdManager with WidgetsBindingObserver {
       // Sync per-request personalization (AdMob npa=1) into the adapter so the
       // App Open / banner preloads below carry the correct consent state.
       _adapter?.applyConsent(consentMgr.adConsent);
-
-      // T42 — a caller (e.g. requestUmpConsent()) may have set fresh consent
-      // *before* this initialize() call bootstrapped ConsentManager above,
-      // in which case it was buffered into _pendingConsentSettings instead
-      // of being lost. Re-apply it now so it wins over the just-loaded,
-      // possibly-stale persisted data.
-      final pending = _pendingConsentSettings;
-      if (pending != null) {
-        _pendingConsentSettings = null;
-        await consentMgr.set(pending, config: config);
-        _consent = consentMgr.adConsent;
-        _adapter?.applyConsent(_consent);
-      }
 
       // Consent-coverage footgun (runtime, not config-static so it doesn't
       // false-alarm hosts that gather consent in their splash) — see

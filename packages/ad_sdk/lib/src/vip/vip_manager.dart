@@ -52,7 +52,9 @@ class VipManager {
         // connectivity (raw unit tests, hosts not yet on this SDK version)
         // keeps today's behaviour. `AdManager` wires its own safe
         // `isConnected` getter here in production, see [redeemSignedKey].
-        _isConnectedCheck = isConnectedCheck ?? (() => true);
+        _isConnectedCheck = isConnectedCheck ?? (() => true),
+        _sessionAnchorRealMs = DateTime.now().millisecondsSinceEpoch,
+        _sessionClockStopwatch = Stopwatch()..start();
 
   static const String _tag = 'VipManager';
 
@@ -65,6 +67,14 @@ class VipManager {
   /// sharing one signed key across many devices with no connectivity signal
   /// at all. Wired to `AdManager`'s own connectivity getter in production.
   final bool Function() _isConnectedCheck;
+
+  /// Wall-clock reading taken the instant this manager was constructed, and
+  /// the monotonic stopwatch started alongside it. Together they let
+  /// [_effectiveNow] tell "device clock actually progressed" apart from "the
+  /// wall clock jumped" *while this process has been alive* — see
+  /// [_effectiveNow]'s doc comment for why that matters.
+  final int _sessionAnchorRealMs;
+  final Stopwatch _sessionClockStopwatch;
 
   /// Durable (iOS Keychain) backstop for redeemed signed-key ids — survives
   /// reinstall, unlike `_prefs`'s SharedPreferences-backed ledger. See
@@ -187,14 +197,42 @@ class VipManager {
   /// clock rolled back *before* the app was ever run on this device (no
   /// prior high-water mark exists yet), only reactivation attempts made
   /// after the app has already observed the later time once.
+  ///
+  /// Naively committing every forward-moving [DateTime.now] reading to the
+  /// mark has a self-inflicted failure mode: if the wall clock jumps far
+  /// forward (fat-fingered in Settings, a DST/NTP glitch, a QA test) and is
+  /// then corrected back to the true time, the mark is now stuck in that
+  /// bogus future — freezing every VIP entry's remaining time (or expiring
+  /// it outright) until the *real* clock organically catches up, which can
+  /// be a very long wait. To avoid committing a spurious jump, a forward
+  /// reading is only trusted as-is when it's consistent with the monotonic
+  /// [_sessionClockStopwatch] elapsed since this manager was constructed —
+  /// i.e. wall-clock time and real elapsed time agree that this much time
+  /// has actually passed. When they disagree (an in-session clock edit),
+  /// the monotonic-anchored estimate is used instead, so the edit is never
+  /// written to the high-water mark and self-corrects the moment the clock
+  /// is fixed. This only covers edits made *while the app process stays
+  /// alive* — a jump made, then the app killed and relaunched, then
+  /// corrected, anchors a fresh (bogus) session and isn't caught; that
+  /// residual gap needs a native monotonic-uptime source to close and isn't
+  /// attempted here.
   DateTime _effectiveNow() {
     final real = DateTime.now();
+    final expectedMs =
+        _sessionAnchorRealMs + _sessionClockStopwatch.elapsedMilliseconds;
+    const sessionDriftSlack = Duration(minutes: 10);
+    final trusted =
+        (real.millisecondsSinceEpoch - expectedMs).abs() <=
+            sessionDriftSlack.inMilliseconds
+        ? real
+        : DateTime.fromMillisecondsSinceEpoch(expectedMs);
+
     final observedMs = _prefs.getVipMaxObservedClockMs();
-    if (observedMs != null && observedMs > real.millisecondsSinceEpoch) {
+    if (observedMs != null && observedMs > trusted.millisecondsSinceEpoch) {
       return DateTime.fromMillisecondsSinceEpoch(observedMs);
     }
-    unawaited(_prefs.setVipMaxObservedClockMs(real.millisecondsSinceEpoch));
-    return real;
+    unawaited(_prefs.setVipMaxObservedClockMs(trusted.millisecondsSinceEpoch));
+    return trusted;
   }
 
   /// Read-only snapshot of all entries (for UI listing).

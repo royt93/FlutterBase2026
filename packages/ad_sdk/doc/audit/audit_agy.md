@@ -73,5 +73,78 @@ Round 2 tập trung sâu vào 7 khu vực audit chính (dual-provider, offline/o
 Điều kiện bắt buộc trước khi deploy production:
 1. **Publish version 2.1.0 lên pub.dev** (hoặc pin git ref `main`) — code tại `main` (2.1.0) production-grade, nhưng app không được pull `2.0.4` từ pub.dev vì thiếu các fix 08-16 đến 08-19.
 2. Đóng gap Android trial/VIP-replay Auto Backup opt-in (thêm cảnh báo runtime nếu thiếu, hoặc chấp nhận rủi ro có ghi rõ trong README cho từng app).
-3. **Xác minh lại bug 1.2 (eCPM scale) và 1.4 (VipEntriesStore nuốt lỗi Keystore) trước khi ship** — 2 bug round 1 chưa được round 2 xác nhận đã fix, và nếu còn đúng, mức độ nghiêm trọng đủ để nâng thành điều kiện bắt buộc chứ không chỉ backlog.
+3. ~~**Xác minh lại bug 1.2 (eCPM scale) và 1.4 (VipEntriesStore nuốt lỗi Keystore) trước khi ship**~~ — **ĐÃ HOÀN THÀNH Ở ROUND 3 (2026-08-20)**: Toàn bộ 6 backlog bug từ Round 1 (bao gồm 1.2 và 1.4) đã được verify trực tiếp trên mã nguồn: 5 bug đã fix, 1 bug refuted (không phải bug). Nguy cơ Blocker từ eCPM đã hoàn toàn được loại bỏ.
 4. Đối với Rewarded Interstitial trên AppLovin: thêm log cảnh báo rõ ràng khi provider không hỗ trợ, tránh host nhầm với lỗi ready bình thường.
+
+---
+
+## Round 3 re-verify (2026-08-20)
+
+Đã kiểm tra trực tiếp toàn bộ source code thực tế và test suite cho cả 6 bug từ Round 1 còn tồn đọng trong backlog. Kết quả: **5/6 bug ĐÃ FIX** trong các task từ 2026-08-15 đến 2026-08-16 (có test suite khoá hành vi đi kèm), **1/6 KHÔNG PHẢI BUG** (Refuted do claim gốc hiểu sai hành vi đồng bộ của Flutter SDK `RouteObserver`).
+
+### Bảng tổng hợp trạng thái Round 3
+
+| # | Bug / Finding Round 1 | Trạng thái (CONFIRMED CÒN MỞ / ĐÃ FIX / KHÔNG PHẢI BUG) | Evidence file:line | Severity nếu còn mở |
+|---|---|---|---|---|
+| 1.1 | `_admobIsTop` không init đúng khi banner/MREC mount ngay trên route hiện tại → hiện khoảng trắng tạm thời | **KHÔNG PHẢI BUG** (REFUTED) | `lib/src/widget/banner_ad_widget.dart:73-82,130-146,274-280`<br>`lib/src/widget/mrec_ad_widget.dart:73-82,109-124,238-245`<br>`doc/task/done/T57-admob-top-flag-first-route.md`<br>`test/banner_ad_widget_test.dart:180-220` | N/A |
+| 1.2 | (Ưu tiên cao) `MonetizationArbitrator` lệch tỷ lệ eCPM ×1000 → veto gần 100% ad | **ĐÃ FIX** (Fixed 2026-08-15 trong T58) | `lib/src/monetization/monetization_arbitrator.dart:111-115`<br>`test/monetization_arbitrator_test.dart:196-234`<br>`doc/task/done/T58-monetization-arbitrator-ecpm-unit-scale.md` | N/A (Đã giải quyết nguy cơ Blocker) |
+| 1.3 | `ConsentManager.set()` hoặc flow show consent dialog không clear `_footgunBlocked` sau khi user đồng ý consent | **ĐÃ FIX** (Fixed 2026-08-15 trong T60 / N2) | `lib/src/core/ad_manager.dart:1227-1228,2087-2089`<br>`doc/task/done/T60-consent-footgun-builtin-dialog-narrow-config.md`<br>`test/ad_manager_core_test.dart` | N/A |
+| 1.4 | `VipEntriesStore.setRaw` nuốt lỗi khi ghi Keystore/secure storage thất bại nhưng vẫn đánh dấu đã migrate | **ĐÃ FIX** (Fixed 2026-08-15 trong T59 + T71) | `lib/src/vip/_vip_entries_store.dart:65-81,88-108`<br>`test/vip_entries_store_test.dart:183-255`<br>`doc/task/done/T59-vip-entries-store-swallow-write-failure.md`<br>`doc/task/done/T71-vip-entries-store-fallback-storage.md` | N/A |
+| 1.5 | Nhiều instance `NativeAdWidget`/`BannerAdWidget` cùng lúc trên AdMob provider bị crash do adapter dùng singleton field `_nativeAd`/`_bannerAd` | **ĐÃ FIX** (Fixed 2026-08-16 trong T65) | `lib/src/adapters/admob_adapter.dart:158-159,213-214,265-279,342-351`<br>`lib/src/widget/banner_ad_widget.dart:66-70`<br>`lib/src/widget/native_ad_widget.dart`<br>`doc/task/done/T65-native-banner-widget-instance-conflict.md`<br>`example/integration_test/multi_instance_ad_test.dart` | N/A |
+| 1.6 | `_lastBackgroundTime` bị stale khi Android fire event paused/resumed liên tiếp nhanh (app switcher, multi-window) | **ĐÃ FIX** (Fixed 2026-08-16 trong T66) | `lib/src/core/ad_safety_config.dart:263-270,546-567,645-650`<br>`test/ad_safety_config_test.dart:468-492`<br>`doc/task/done/T66-safety-config-last-background-time-stale.md` | N/A |
+
+### Chi tiết phân tích & Bằng chứng mã nguồn Round 3
+
+1. **Bug 1.1 (`_admobIsTop` route initialization) — KHÔNG PHẢI BUG (REFUTED):**
+   - **Cơ chế hoạt động:** Trong Flutter SDK (`RouteObserver.subscribe(routeAware, route)`), `subscribers.add(routeAware)` luôn gọi `routeAware.didPush()` đồng bộ ngay lập tức khi đăng ký lần đầu, bất kể route đó là route mới push hay route đã active từ trước.
+   - **Mã nguồn:** Trong `banner_ad_widget.dart:78` và `mrec_ad_widget.dart:78`, `adRouteObserver.subscribe(this, route)` được gọi trong `didChangeDependencies()`. Ngay sau đó `didPush()` (`banner_ad_widget.dart:141-144`, `mrec_ad_widget.dart:118-121`) kích hoạt postFrameCallback gán `_admobIsTop.value = true`.
+   - **Xác nhận:** Đã có test khóa hành vi trong `banner_ad_widget_test.dart` và `mrec_ad_widget_test.dart` (xem chi tiết tại `doc/task/done/T57-admob-top-flag-first-route.md`).
+
+2. **Bug 1.2 (`MonetizationArbitrator` eCPM scale ×1000) — ĐÃ FIX (T58):**
+   - **Nguyên nhân gốc:** `AdRevenueEvent.valueMicros` lưu doanh thu của **1 impression** (vd 5,000 micros = $0.005), trong khi `ecpmThresholdMicros` so sánh theo mốc eCPM chuẩn (**1,000 impressions**, vd 5,000,000 micros = $5.00 eCPM).
+   - **Mã nguồn đã fix:** Tại `packages/ad_sdk/lib/src/monetization/monetization_arbitrator.dart:111-115`:
+     ```dart
+     int get estimatedEcpmMicros {
+       if (_samples.isEmpty) return 0;
+       final sum = _samples.fold<int>(0, (a, b) => a + b);
+       return sum * 1000 ~/ _samples.length;
+     }
+     ```
+   - **Xác nhận:** Đã nhân `sum * 1000` đúng chuẩn eCPM. Unit test `T58 — eCPM unit conversion` trong `test/monetization_arbitrator_test.dart:196-234` kiểm tra ad đạt $5 eCPM không bị veto nhầm ở threshold $5 eCPM.
+
+3. **Bug 1.3 (`ConsentManager` / `_footgunBlocked` clearance) — ĐÃ FIX (T60):**
+   - **Cơ chế đã fix:** Cờ `_footgunBlocked` được giải phóng (`= false`) và `_consentExplicitlySet = true` tại tất cả các luồng hoàn tất consent:
+     - `AdManager._maybeScheduleConsentDialog()` (`ad_manager.dart:1227-1228`) sau khi dialog built-in đóng lại.
+     - `AdManager.setConsent()` (`ad_manager.dart:2087-2089`) khi host app gọi hoặc từ `requestUmpConsentFlow()` (`ad_manager.dart:2244`).
+   - **Xác nhận:** Không còn trường hợp user đã tương tác consent hợp lệ mà vẫn bị kẹt `_footgunBlocked` ở release mode. Đã có regression test trong `test/ad_manager_core_test.dart`.
+
+4. **Bug 1.4 (`VipEntriesStore.setRaw` nuốt lỗi Keystore) — ĐÃ FIX (T59 + T71):**
+   - **Mã nguồn đã fix:** Tại `packages/ad_sdk/lib/src/vip/_vip_entries_store.dart:88-108`:
+     ```dart
+     Future<void> setRaw(String json) async {
+       final wrote = await _writeSecure(json);
+       if (wrote) {
+         await _legacyPrefs.markVipEntriesSecureMigrated();
+         await _legacyPrefs.clearVipEntriesFallbackRaw();
+       } else {
+         await _legacyPrefs.setVipEntriesFallbackRaw(json);
+       }
+     }
+     ```
+   - Tương tự trong `getRaw()` (`_vip_entries_store.dart:65-81`), chỉ clear legacy data và đánh dấu migrated khi `_writeSecure(legacy)` thành công (`wrote == true`).
+   - **Xác nhận:** Khi Keystore/Keychain lỗi, hệ thống không đánh dấu migrated sai sự thật và lưu trữ dự phòng qua checksum-prefixed fallback storage (T71), đảm bảo VIP grant không bị mất. Kiểm chứng qua `test/vip_entries_store_test.dart:183-255`.
+
+5. **Bug 1.5 (Nhiều `NativeAdWidget`/`BannerAdWidget` crash trên AdMob) — ĐÃ FIX (T65):**
+   - **Mã nguồn đã fix:** `AdMobAdapter` (`packages/ad_sdk/lib/src/adapters/admob_adapter.dart:158-159, 213-214, 265-279, 342-351`) đã thay thế toàn bộ singleton ad instances bằng keyed map:
+     - `final Map<Object, BannerAd> _bannerAdsByKey = {};`
+     - `final Map<Object, BannerAd> _mrecAdsByKey = {};`
+     - `final Map<Object, NativeAd> _nativeAdsByKey = {};`
+     - Kèm theo các map quản lý slot, listenables và route pause riêng cho từng instance key.
+   - **Xác nhận:** Hỗ trợ N instance đồng thời độc lập. Đã xác nhận qua unit tests, widget tests, integration test `example/integration_test/multi_instance_ad_test.dart` và test thực tế trên Pixel 7 Pro.
+
+6. **Bug 1.6 (`_lastBackgroundTime` stale khi resume nhanh) — ĐÃ FIX (T66):**
+   - **Mã nguồn đã fix:** Thêm cờ one-shot `_pendingResumeGate` trong `packages/ad_sdk/lib/src/core/ad_safety_config.dart:263-270`.
+     - `recordAppWentBackground()` (`ad_safety_config.dart:645-650`) set `_pendingResumeGate = true`.
+     - `_canShowAppOpenOnResumeStrict` (`ad_safety_config.dart:546-558`) kiểm tra: nếu `_pendingResumeGate == false` (phantom resume từ notification shade/permission dialog không qua `paused`), lệnh show bị chặn ngay lập tức với lý do `spurious lifecycle event`, tránh dùng lại timestamp `_lastBackgroundTime` cũ từ trước đó.
+   - **Xác nhận:** Test xác thực tại `test/ad_safety_config_test.dart:468-492` ("blocks a phantom resumed that has no new paused since the last check").
+
