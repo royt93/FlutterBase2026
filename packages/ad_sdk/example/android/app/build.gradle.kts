@@ -1,7 +1,35 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing key lives outside this repo, in the private
+// royt93/myKeyStore repo. `keystore.local.properties` (gitignored) points at
+// where that repo is cloned on this machine; see
+// keystore.local.properties.example. Missing pointer or missing
+// keystore.properties inside it → falls back to debug signing below.
+val keystoreLocalProperties = Properties()
+val keystoreLocalPropertiesFile = rootProject.file("keystore.local.properties")
+if (keystoreLocalPropertiesFile.exists()) {
+    keystoreLocalPropertiesFile.inputStream().use { keystoreLocalProperties.load(it) }
+}
+val myKeyStoreDir = keystoreLocalProperties.getProperty("myKeyStoreDir")
+val releaseKeystoreFile = if (myKeyStoreDir != null) {
+    file("$myKeyStoreDir/com.roy.admobwrapper/keystore.jks")
+} else null
+val releaseKeystoreProperties = Properties()
+val releaseKeystorePropertiesFile = if (myKeyStoreDir != null) {
+    file("$myKeyStoreDir/com.roy.admobwrapper/keystore.properties")
+} else null
+val hasReleaseSigning = releaseKeystoreFile != null &&
+    releaseKeystoreFile.exists() &&
+    releaseKeystorePropertiesFile != null &&
+    releaseKeystorePropertiesFile.exists()
+if (hasReleaseSigning) {
+    releaseKeystorePropertiesFile!!.inputStream().use { releaseKeystoreProperties.load(it) }
 }
 
 android {
@@ -33,9 +61,30 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = requireNotNull(releaseKeystoreProperties.getProperty("storePassword")) {
+                    "keystore.properties missing storePassword"
+                }
+                keyAlias = requireNotNull(releaseKeystoreProperties.getProperty("keyAlias")) {
+                    "keystore.properties missing keyAlias"
+                }
+                keyPassword = requireNotNull(releaseKeystoreProperties.getProperty("keyPassword")) {
+                    "keystore.properties missing keyPassword"
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

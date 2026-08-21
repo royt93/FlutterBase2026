@@ -12,3 +12,7 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Per-machine pointer to the private royt93/myKeyStore clone — see
+# keystore.local.properties.example.
+keystore.local.properties
