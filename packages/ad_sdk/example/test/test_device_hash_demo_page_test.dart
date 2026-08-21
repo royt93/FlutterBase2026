@@ -74,4 +74,33 @@ void main() {
     expect(clipboardText, contains('logcat'));
     expect(find.text('Hint copied to clipboard'), findsOneWidget);
   });
+
+  // Issue 3 — _resetGuardState() (run by destroy()) must clear the stale
+  // GAID it left over from the previous session. This page reads
+  // AdManager().currentDeviceGaid directly in build(), so it's the most
+  // direct proof the clear is actually observable by something a user could
+  // be looking at, not just an internal field.
+  testWidgets(
+      'GAID displayed collapses to the placeholder once the guard state is '
+      'reset', (tester) async {
+    AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+    await pumpPage(tester);
+    expect(find.text('AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'), findsOneWidget);
+
+    AdManager().debugResetGuardState();
+    // StatelessWidget — nothing subscribes to a listenable for this value,
+    // and MaterialApp.home only seeds the Navigator's initial route ONCE:
+    // pumping the same MaterialApp(home: ...) again does not rebuild the
+    // page. Unmount everything first (a different root widget type) so the
+    // next pumpPage() creates a genuinely fresh page, reading the value
+    // anew — the same as a real navigation back to this page after a
+    // destroy()/re-init would.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpPage(tester);
+
+    expect(find.text('(empty — init not done yet, or LAT on)'),
+        findsOneWidget,
+        reason: 'a stale GAID surviving past destroy() would keep showing '
+            'here as if the SDK still had it');
+  });
 }

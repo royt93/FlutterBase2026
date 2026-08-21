@@ -1148,9 +1148,12 @@ await AdManager().vip!.revokeAll();
 
 ### Revoking a leaked key (CRL) — T95
 
-`redeemSignedKey` is fully offline — great for forge-proofing, but it means a
-leaked key normally stays redeemable forever (or until its AVP2 `--valid-days`
-expiry). `VipManager.refreshRevocationList` closes that gap with a small,
+`redeemSignedKey`'s Ed25519 signature check is fully offline (see the
+"deliberate anti-abuse gate" note above — the method still refuses to redeem
+while the device itself is offline), which is great for forge-proofing, but it
+means a leaked key normally stays redeemable forever (or until its AVP2
+`--valid-days` expiry). `VipManager.refreshRevocationList` closes that gap
+with a small,
 **also offline-signed** revocation list (CRL) — no server, no new key
 material, same private key that mints VIP keys mints the CRL too.
 

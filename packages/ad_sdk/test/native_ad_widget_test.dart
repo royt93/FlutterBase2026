@@ -441,8 +441,9 @@ void main() {
 
   group('T100 — gate re-check when state changes mid-flight', () {
     testWidgets(
-        'consent revoked after the gate passes but before the native ad '
-        'finishes loading — the ad still renders once it loads', (tester) async {
+        'consent revoked after the gate passes disposes the mounted instance '
+        'immediately, before any in-flight load can land and render',
+        (tester) async {
       final adapter = _NativeCountingAdapter();
       AdManager().debugSetAdapter(adapter);
       AdManager().debugConfig = _admobConfig;
@@ -458,26 +459,26 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
       expect(adapter.loadNativeCalls, 1,
           reason: 'gate passed while consent was still granted');
+      // AppLovin native has no adapter-level "slot" — the widget only ever
+      // reads/writes listenables via adapter.native(key). nativeSlotsByKey
+      // stays empty on this path; nativeListenablesByKey is the map that
+      // actually tracks the mounted instance.
+      expect(adapter.nativeListenablesByKey, isNotEmpty);
 
       // Consent revoked NOW — strictly after the load request already went
       // out. A real ad network's own SDK already dispatched this request
       // with whatever consent state applied at THAT moment; revoking
-      // consent afterwards cannot un-send it.
+      // consent afterwards cannot un-send it. Audit fix: the widget no
+      // longer waits for that in-flight load to land and render anyway — it
+      // reactively disposes its mounted instance the moment the gate closes.
       AdManager().debugCanRequestAds = false;
-
-      // The (already in-flight) native ad finishes loading.
-      adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
       await tester.pump();
 
-      expect(tester.getSize(find.byType(NativeAdWidget)).height, greaterThan(0),
-          reason:
-              'documents CURRENT behavior: an in-flight native load is not '
-              'retroactively cancelled by a later consent revoke. This is '
-              'not native-specific — BannerAdWidget/MrecAdWidget gate '
-              'canRequestAds only at request time too (see their own '
-              '_init-equivalent methods), never reactively in build(). '
-              'Changing this for native alone would make it MORE '
-              'inconsistent with the rest of the SDK, not less.');
+      expect(adapter.nativeListenablesByKey, isEmpty,
+          reason: 'disposeNativeInstance must run as soon as the gate closes');
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, 0,
+          reason: 'widget collapses immediately, not just once a still-'
+              'in-flight load happens to land');
     });
 
     testWidgets(
@@ -512,6 +513,55 @@ void main() {
 
       expect(adapter.loadNativeCalls, 1,
           reason: 'the gate must be re-evaluated once consent is granted');
+    });
+
+    testWidgets(
+        'consent revoked while mounted disposes the instance and collapses; '
+        'reopening reloads a fresh one', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 1);
+      final listenables = adapter.nativeListenablesByKey.values.single;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(300, 250);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, greaterThan(0),
+          reason: 'loaded native ad is visible before consent is revoked');
+
+      AdManager().debugCanRequestAds = false;
+      await tester.pumpAndSettle();
+
+      expect(adapter.nativeListenablesByKey, isEmpty,
+          reason: 'disposeNativeInstance must run as soon as the gate closes');
+      expect(tester.getSize(find.byType(NativeAdWidget)).height, 0,
+          reason: 'mounted native ad collapses immediately on consent '
+              'revoke, not just when it happens to unmount');
+
+      // The per-widget 30s throttle is keyed by `this` and survived the
+      // dispose above (it isn't part of consent state) — reset it here the
+      // same way a real 30s wait would, so the reload assertion below is
+      // isolated to the consent-gate behavior under test.
+      AdManager().debugResetNativeCooldown();
+      AdManager().debugCanRequestAds = true;
+      // Not pumpAndSettle: the reloaded native ad goes back through the
+      // placeholder shimmer, which animates forever.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 2,
+          reason: 'reopening the gate re-triggers a fresh load');
     });
   });
 }

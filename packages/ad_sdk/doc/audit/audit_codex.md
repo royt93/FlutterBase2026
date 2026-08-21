@@ -1,3 +1,77 @@
+# Round 4 — audit độc lập từ đầu, Codex CLI riêng biệt (2026-08-21, v2.2.0)
+
+**Phạm vi/phương pháp.** Đây là vòng đọc source độc lập của agent `codex`, được gọi riêng, không giả định agent khác đã review. Đã đọc `../../CLAUDE.md`, toàn bộ ba file lịch sử audit, rồi tự kiểm tra implementation hiện tại của `AdManager`, hai adapter, widget của từng format, consent/UMP/ATT, safety, trial/VIP/CRL và public API mới từ commit `558dda0`. Không build device/simulator và không sửa source. Worktree đã có sẵn thay đổi không liên quan ở `example/pubspec.lock`; vòng audit không đụng vào file đó.
+
+**Gate thực chạy ngày 2026-08-21:** `flutter analyze` **PASS — 0 issues**; `flutter test` **PASS — 873/873 tests** (`All tests passed`, exit 0, khoảng 1m28s). Con số cũ 860/868 không còn hiện hành.
+
+## Blocker
+
+Không phát hiện Blocker mới theo nghĩa có thể forge chữ ký Ed25519, cấp reward giả, hoặc stack hai fullscreen ad trên đường chính. Fullscreen mutex hiện bao gồm cả rewarded-interstitial; AdMob re-check freshness lúc show; dispose theo instance tồn tại cho banner/MREC/native ở cả hai adapter.
+
+## Major — còn mở, phải xử lý trước production ship
+
+### M1 — VIP code không redeem được offline, trái yêu cầu sản phẩm “must work fully offline” — **RE-CONFIRMED / đổi verdict cũ**
+
+`VipManager.redeemSignedKey()` trả `invalid` ngay khi `_isConnectedCheck()` false, trước parse, `PackageInfo`, Ed25519 verify, CRL cache và ledger. Đây là gate nhân tạo; crypto và persistence không cần mạng. README cũng tự mâu thuẫn: `README.md:885-890` thừa nhận redemption bị chặn offline, nhưng `README.md:1151` gọi `redeemSignedKey` “fully offline”. Audit cũ đánh dấu “không phải bug” vì coi đó là product choice; vòng này user nêu yêu cầu rõ rằng activation phải hoạt động hoàn toàn offline, nên đây là Major không còn tranh luận.
+
+**Evidence:** `lib/src/vip/vip_manager.dart:664-686`; verify local tại `:688-725`; cached CRL/ledger/grant tại `:727-769`; `README.md:877-890,1151-1155`.
+
+**Minimum fix:** bỏ connectivity precondition khỏi `redeemSignedKey`; vẫn dùng CRL đã cache (nếu có), Ed25519 local và ledger local. Network chỉ nên dùng cho `refreshRevocationList`, không phải redemption.
+
+### M2 — SDK-owned UMP fail-open khi platform channel lỗi — **RE-CONFIRMED CÒN MỞ**
+
+Auto UMP đóng gate ở `_canRequestAds=false`, nhưng `runZonedGuarded` error handler gán lại `true` nếu callback/platform channel ném lỗi. “Missing plugin” không chứng minh user là non-EEA hay đã consent; cùng nhánh cũng bắt lỗi channel/runtime thật trên thiết bị. Adapter được init ngay sau đó và `canReload` nhận gate đã mở, vì vậy ad request có thể đi ra khi consent state chưa xác định. Đây là fail-open về pháp lý, không chỉ availability.
+
+**Evidence:** `lib/src/core/ad_manager.dart:1843-1898` (đóng gate/chạy UMP), `:1899-1917` (error handler mở gate), `:1920-1931` (adapter + reload gate tiếp tục init).
+
+**Minimum fix:** giữ gate đóng khi UMP lỗi/inconclusive nếu SDK đã được cấu hình sở hữu consent; surface lỗi/retry rõ ràng. Nếu muốn hỗ trợ app cố ý không dùng UMP, đó phải là config explicit và release footgun guard riêng, không suy ra từ channel failure.
+
+### M3 — Consent revoke/COPPA change giữa session không dỡ creative đã cache/mounted; AppLovin banner có thể tiếp tục auto-refresh — **NEW / CONFIRMED**
+
+`setConsent()` cập nhật provider flags và chặn *request mới* (`_canRequestAds=false` cho AppLovin child user), nhưng không dispose/hide các fullscreen slot đã `ready`, banner/MREC/native đã mount, hoặc reset widget `_allowed`. Ba widget chỉ subscribe `initRevision`, VIP và adapter listenables; chúng không subscribe `canRequestAds`. Sau `_allowed=true`, gate consent không được re-check trong render path. Với AppLovin banner/MREC, route lifecycle vẫn có thể để native auto-refresh bật; đó là request path nằm trong native `MaxAdView`, ngoài `adapter.canReload`. Fullscreen show methods currently re-check `canRequestAds`, nên creative không show qua orchestrator while false, nhưng stale cached data remains and can later be shown if gate reopens without a privacy-safe reload.
+
+**Evidence:** `lib/src/core/ad_manager.dart:2204-2260`; `lib/src/widget/banner_ad_widget.dart:89-123,226-258,315-332`; `lib/src/widget/mrec_ad_widget.dart:70-103,159-205,260-279`; `lib/src/widget/native_ad_widget.dart:66-96,108-134,177-188`; `lib/src/adapters/applovin_adapter.dart:1408-1455,1483-1533`.
+
+**Minimum fix:** on consent becoming non-requestable or child-restricted, atomically hide/dispose all mounted display ads, stop AppLovin auto-refresh, discard all cached fullscreen creatives, and require fresh loads only after the gate reopens. Add regression tests for both providers and all seven formats.
+
+### M4 — Public GAID API có thể trả identifier cũ ở trạng thái “not resolved”/sau destroy — **NEW, API `558dda0`**
+
+`currentDeviceGaid` đã normalize all-zero ID thành empty (tốt), và iOS `.notDetermined` có defer để tránh prompt ATT ngầm (tốt). Tuy nhiên `_currentDeviceGAID` không được clear khi bắt đầu resolve, trong catch/timeout failure, khi defer vì ATT, hoặc trong `destroy()`. Vì vậy sau một init thành công, `destroy()` vẫn để getter/hint lộ raw advertising ID; re-init mà fetch lỗi/defer tiếp tục trả ID của session/provider/privacy state cũ. Doc contract nói empty trước init/không resolved, nhưng implementation vi phạm. API hoạt động ở release và `adMobTestDeviceHashHint()` nhúng raw GAID vào chuỗi, dễ bị host đưa vào UI/log/support telemetry. Tests mới chỉ kiểm tra happy path + zero normalization/text; không khóa teardown/failure/deferred behavior.
+
+**Evidence:** backing field/getter/hint `lib/src/core/ad_manager.dart:749-800`; resolve chỉ assignment khi success/null và catch giữ nguyên `:1519-1538`; ATT defer `:1701-1718`; `destroy()` không clear field `:2494-2571`; tests `test/ad_manager_core_test.dart` group `adMobTestDeviceHashHint / currentDeviceGaid`.
+
+**Privacy assessment:** LAT/ATT-denied all-zero placeholder không bị public API trả ra — phần này đúng. Rủi ro thật là stale real ID và release-surface disclosure, không phải tự bypass ATT để lấy ID mới.
+
+**Minimum fix:** clear field synchronously on destroy, before every resolve attempt, and when fetch is deferred/throws/times out; ideally return a typed state (`unresolved`/`unavailable`/`available`) rather than overloading empty string. Hint should not embed the raw GAID by default, or must be explicitly debug-only/redacted with a separate opt-in accessor.
+
+## Minor — còn mở
+
+### m1 — Empty AppLovin banner/native unit IDs vẫn có đường vào native widget/load
+
+MREC có hard guard `mrecId.isEmpty`, nhưng banner preload calls `preloadWidgetAdView(cfg.bannerId, ...)` không guard, và native builds `MaxNativeAdView(adUnitId: nativeId)` trực tiếp. Release-footgun warnings log/assert but do not block in release. A host that omits an optional-looking surface then accidentally mounts its widget can get native error/crash behavior instead of a safe no-op.
+
+**Evidence:** `lib/src/adapters/applovin_adapter.dart:1408-1433` versus MREC guard `:1497-1506`; `lib/src/widget/native_ad_widget.dart:177-188,274-289`; warning-only validation `lib/src/core/ad_manager.dart:256-301,1678-1685`.
+
+### m2 — `currentDeviceGaid` naming/docs are Android-centric and encourage production exposure
+
+The value is described as GAID even on iOS, where the underlying advertising identifier is IDFA. README says callers may surface it in their “own debug UI” but API/hint remain callable in release and the hint explicitly advertises release logging. This is not a direct consent bypass after zero normalization, but is weak privacy-by-design guidance for a raw persistent identifier.
+
+**Evidence:** `lib/src/core/ad_manager.dart:761-800`; `README.md:1851-1855`.
+
+## Re-verification of older material
+
+- **Still fixed/correct:** pending COPPA consent is replayed before adapter init (`ad_manager.dart:1803-1829`); AppLovin refuses init when known child-restricted; AdMob uses child-directed RequestConfiguration plus per-request NPA/RDP; fullscreen busy mutex includes app-open/interstitial/rewarded/rewarded-interstitial and modal/loading-dialog state (`:1030-1082`); App Open resume checks the modal mutex and safety; AdMob fullscreen show-time freshness exists; adapter `dispose()` tears down keyed ads/listenables/slots.
+- **Still a disclosed limitation, accepted only if product accepts it:** AppLovin exposes no load timestamp; SDK can show long-cached MAX fullscreen creatives (`README.md:82-89`). This conflicts with a strict cross-provider freshness requirement, but the package documents it. A production integration requiring a hard freshness SLA should not enable AppLovin until the wrapper records its own load-success timestamp and expires the slot locally.
+- **Trial/replay:** 1-day release grant and mid-session expiry are implemented. iOS uses Keychain; Android remains dependent on host Auto Backup and is bypassable via Clear Data/disabled backup/cross-account reinstall. Documentation is now explicit (`README.md:61-71,1207-1218`), so this is not hidden, but it is not attacker-proof.
+- **VIP crypto:** Ed25519 verification is genuine local public-key verification; AVP2 signs duration, key id, absolute redeem expiry and bundle binding; rotation accepts comma-separated public keys; signed CRL has domain separation and issued-at anti-rollback. Residual limits remain: AVP1 has no expiry/app binding; bundle-id read failure fails open; CRL cannot claw back an already granted window; Android ledger is reinstall-replayable without restored backup; clock defense cannot solve manipulation before first observation/across every process/background boundary without trusted time.
+- **Offline ad resilience:** load paths check connectivity/gates and reconnect retry is generation-guarded; network/bridge waits inspected are bounded or callback-driven. No evidence of an offline retry storm was found. This does not cure M1: VIP redemption itself is deliberately blocked offline.
+
+## Verdict
+
+**NO — không an toàn để ship production as-is theo các yêu cầu audit này.** Minimum trước ship: (1) make signed VIP redemption genuinely offline; (2) make SDK-owned UMP fail closed on channel/fetch failure; (3) dispose/hide and invalidate all mounted/cached ads on consent/COPPA revocation; (4) clear/redesign the new GAID public state so no stale real identifier is exposed after destroy/failure/defer. For a strict stale-ad policy, also add wrapper-owned freshness timestamps for AppLovin or disable that provider. Only after those fixes plus targeted regression tests and a fresh analyze/test run should v2.2.0 be considered production-ready.
+
+---
+
 # Audit độc lập `applovin_admob_sdk` — codex CLI (bản hợp nhất)
 
 Hợp nhất `audit_codex.md` (round 1, ~2026-08-09, local version 2.0.3, pub.dev khi đó 1.2.2) và `audit_codex_20260815.md` (round 2, 2026-08-15, version 2.0.4, 700 test pass). **codex CLI không chạy được round 3 trong phiên audit 08-19/20 này** (quota OpenAI hết, trả về "usage limit — resets Aug 20 2026") — file này KHÔNG có góp ý mới từ codex sau 08-15; phần "cross-check" dưới đây là do Claude tự re-verify trực tiếp source trong phiên 08-19/20.

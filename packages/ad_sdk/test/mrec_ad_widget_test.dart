@@ -292,6 +292,57 @@ void main() {
         reason: 'VIP member must collapse to zero height, like uninitialised');
     expect(tester.takeException(), isNull);
   });
+
+  group('T101 — consent gate closes/reopens mid-session (mrec)', () {
+    testWidgets(
+        'consent revoked while mounted disposes the instance and collapses; '
+        'reopening reloads a fresh one', (tester) async {
+      final adapter = _MrecCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      await tester.pumpWidget(host(const MrecAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadMrecCalls, 1);
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(300, 250);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(MrecAdWidget)).height, greaterThan(0),
+          reason: 'loaded mrec is visible before consent is revoked');
+
+      AdManager().debugCanRequestAds = false;
+      await tester.pumpAndSettle();
+
+      expect(adapter.mrecListenablesByKey, isEmpty,
+          reason: 'disposeMrecInstance must run as soon as the gate closes');
+      expect(tester.getSize(find.byType(MrecAdWidget)).height, 0,
+          reason: 'mounted mrec collapses immediately on consent revoke, '
+              'not just when it happens to unmount');
+
+      // The per-widget 30s throttle is keyed by `this` and survived the
+      // dispose above (it isn't part of consent state) — reset it here the
+      // same way a real 30s wait would, so the reload assertion below is
+      // isolated to the consent-gate behavior under test.
+      AdManager().debugResetMrecCooldown();
+      AdManager().debugCanRequestAds = true;
+      // Not pumpAndSettle: the reloaded mrec goes back through the
+      // placeholder shimmer, which animates forever.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadMrecCalls, 2,
+          reason: 'reopening the gate re-triggers a fresh load');
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager

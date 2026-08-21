@@ -46,6 +46,37 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState');
+    AdManager().canRequestAdsListenable.addListener(_onCanRequestAdsChanged);
+  }
+
+  /// Audit fix — see [BannerAdWidget]'s twin of this method.
+  void _onCanRequestAdsChanged() {
+    final mgr = AdManager();
+    if (mgr.canRequestAds) {
+      if (!_allowed.value &&
+          !_initScheduled &&
+          mgr.isInitialised &&
+          !mgr.isVIPMember()) {
+        _initScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _initScheduled = false;
+          if (!mounted) return;
+          _initMrec(context);
+        });
+        // This listener fires from AdManager's own state change, not from
+        // this widget's build phase, so nothing else is guaranteed to have
+        // a frame scheduled — without this, addPostFrameCallback's callback
+        // can sit queued forever and the reload silently never happens.
+        WidgetsBinding.instance.scheduleFrame();
+      }
+      return;
+    }
+    if (_allowed.value) {
+      SafeLogger.w(
+          _tag, '🔒 consent gate closed — disposing mounted mrec instance');
+      mgr.disposeMrecInstance(this);
+      _allowed.value = false;
+    }
   }
 
   @override
@@ -167,6 +198,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
 
   @override
   void dispose() {
+    AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
     AdManager().disposeMrecInstance(this);
     _admobIsTop.dispose();

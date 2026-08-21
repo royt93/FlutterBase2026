@@ -65,6 +65,41 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState');
+    AdManager().canRequestAdsListenable.addListener(_onCanRequestAdsChanged);
+  }
+
+  /// Audit fix — consent revoke used to leave an already-loaded banner
+  /// mounted and refreshing with no verified consent basis; the gate was
+  /// only ever checked once, in [_initBanner], on first mount. Disposes the
+  /// live instance the moment the gate closes, and re-runs [_initBanner]
+  /// once it reopens.
+  void _onCanRequestAdsChanged() {
+    final mgr = AdManager();
+    if (mgr.canRequestAds) {
+      if (!_allowed.value &&
+          !_initScheduled &&
+          mgr.isInitialised &&
+          !mgr.isVIPMember()) {
+        _initScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _initScheduled = false;
+          if (!mounted) return;
+          _initBanner(context);
+        });
+        // This listener fires from AdManager's own state change, not from
+        // this widget's build phase, so nothing else is guaranteed to have
+        // a frame scheduled — without this, addPostFrameCallback's callback
+        // can sit queued forever and the reload silently never happens.
+        WidgetsBinding.instance.scheduleFrame();
+      }
+      return;
+    }
+    if (_allowed.value) {
+      SafeLogger.w(_tag,
+          '🔒 consent gate closed — disposing mounted banner instance');
+      mgr.disposeBannerInstance(this);
+      _allowed.value = false;
+    }
   }
 
   @override
@@ -190,6 +225,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   @override
   void dispose() {
+    AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
     AdManager().disposeBannerInstance(this);
     _admobIsTop.dispose();

@@ -530,6 +530,62 @@ void main() {
         reason: 'Duration.zero must still reach the final height '
             'immediately, no animation frames needed');
   });
+
+  // Audit fix — consent revoke mid-session used to leave an already-loaded
+  // banner mounted, visible and still auto-refreshing, since the gate was
+  // only ever checked once on first mount. BannerAdWidget now subscribes to
+  // AdManager().canRequestAdsListenable and reactively disposes the live
+  // instance the moment the gate closes, then reloads once it reopens.
+  group('T101 — consent gate closes/reopens mid-session (banner)', () {
+    testWidgets(
+        'consent revoked while mounted disposes the instance and collapses; '
+        'reopening reloads a fresh one', (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      await tester.pumpWidget(host(const BannerAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(320, 50);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byType(BannerAdWidget)).height, greaterThan(0),
+          reason: 'loaded banner is visible before consent is revoked');
+
+      AdManager().debugCanRequestAds = false;
+      await tester.pumpAndSettle();
+
+      expect(adapter.bannerListenablesByKey, isEmpty,
+          reason: 'disposeBannerInstance must run as soon as the gate closes');
+      expect(tester.getSize(find.byType(BannerAdWidget)).height, 0,
+          reason: 'mounted banner collapses immediately on consent revoke, '
+              'not just when it happens to unmount');
+
+      // The per-widget 30s throttle is keyed by `this` and survived the
+      // dispose above (it isn't part of consent state) — reset it here the
+      // same way a real 30s wait would, so the reload assertion below is
+      // isolated to the consent-gate behavior under test.
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugCanRequestAds = true;
+      // Not pumpAndSettle: the reloaded banner goes back through the
+      // placeholder shimmer, which animates forever.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'reopening the gate re-triggers a fresh load');
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager

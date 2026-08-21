@@ -674,6 +674,15 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   Map<String, Object?>? debugLastAutoUmpParams;
 
+  /// When set, the `autoRequestUmpConsent` branch throws this instead of
+  /// actually calling [requestUmpConsent] — lets tests drive the fail-open
+  /// ([MissingPluginException]) vs fail-closed (anything else) branch of the
+  /// `runZonedGuarded` error handler without a real UMP channel or a real
+  /// consent-fetch failure. See that handler's comments for why the split
+  /// matters (compliance: fail-closed unless UMP is provably not wired).
+  @visibleForTesting
+  Object? debugForceAutoUmpError;
+
   /// Consent manager — `null` until [initialize] completes. Owns the
   /// Cupertino consent dialog, persistence, and provider apply pipeline.
   /// Also accessible via static [ConsentManager.instance] once initialised.
@@ -1002,6 +1011,26 @@ class AdManager with WidgetsBindingObserver {
   /// Google policy: **never** request an ad while this is `false`.
   bool _canRequestAds = true;
 
+  /// Audit fix — reactive mirror of [_canRequestAds]. [BannerAdWidget],
+  /// [MrecAdWidget] and [NativeAdWidget] subscribe to this so an
+  /// already-mounted, already-loaded instance auto-disposes the moment
+  /// consent is revoked mid-session, instead of only ever checking the gate
+  /// once on first mount (which left a stale ad — and, on AppLovin, its
+  /// native auto-refresh ticker — running with no verified consent basis).
+  /// Every write to [_canRequestAds] must go through [_updateCanRequestAds]
+  /// so this stays in sync.
+  final ValueNotifier<bool> _canRequestAdsNotifier = ValueNotifier<bool>(true);
+
+  /// See [_canRequestAdsNotifier].
+  ValueListenable<bool> get canRequestAdsListenable => _canRequestAdsNotifier;
+
+  void _updateCanRequestAds(bool value) {
+    _canRequestAds = value;
+    if (_canRequestAdsNotifier.value != value) {
+      _canRequestAdsNotifier.value = value;
+    }
+  }
+
   /// N2 — real runtime block for the consent-coverage footgun (release
   /// builds only; see [consentFootgunWarning]). Kept separate from
   /// [_canRequestAds] because that field's true/false meaning is owned by
@@ -1117,7 +1146,7 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam for the consent gate.
   @visibleForTesting
-  set debugCanRequestAds(bool v) => _canRequestAds = v;
+  set debugCanRequestAds(bool v) => _updateCanRequestAds(v);
 
   /// N2 test seam — forces the release-only footgun block without needing a
   /// `kReleaseMode` build.
@@ -1885,10 +1914,13 @@ class AdManager with WidgetsBindingObserver {
         // Only when the SDK owns consent. A host that sets
         // autoRequestUmpConsent: false keeps the historical default of true —
         // its own consent flow (or the release footgun guard) governs.
-        _canRequestAds = false;
+        _updateCanRequestAds(false);
         SafeLogger.d(
             _tag, '🔐 gate closed until UMP resolves (SDK-owned consent flow)');
         runZonedGuarded(() async {
+          if (debugForceAutoUmpError != null) {
+            throw debugForceAutoUmpError!;
+          }
           await requestUmpConsent(
             skipIfAlreadyRequested: true,
             testMode: kDebugMode,
@@ -1902,18 +1934,33 @@ class AdManager with WidgetsBindingObserver {
           // the error arrives as an unhandled ZONE error that a try/catch
           // around the call cannot see. Verified against the real stack in
           // google_mobile_ads' UserMessagingChannel.
-          SafeLogger.w(
-              _tag,
-              'auto UMP failed ($e) — reopening the gate so a broken consent '
-              'channel cannot silently block all ads; the reconnect retry will '
-              'try again');
           _umpAttemptFailed = true;
-          // Fail OPEN here, deliberately. Failing closed would reproduce the
-          // exact bug this release fixes (C1): ads blocked forever with no
-          // signal. A channel that is not registered means UMP is not in play
-          // for this host at all, which is the non-EEA/non-UMP case the
-          // historical default of `true` was written for.
-          _canRequestAds = true;
+          // Fail OPEN only for MissingPluginException — that specifically means
+          // the UMP channel is not registered (unit tests, or a host that never
+          // wired google_mobile_ads), i.e. UMP is not in play for this host at
+          // all, which is the non-EEA/non-UMP case the historical default of
+          // `true` was written for.
+          //
+          // Any OTHER exception (network error, malformed response, UMP SDK
+          // bug) means the channel IS wired but the consent fetch itself
+          // failed — failing open there would ship ads with no verified
+          // consent decision, a real GDPR exposure. Stay fail-closed and let
+          // the reconnect retry (C2) try again once connectivity/whatever
+          // caused it recovers.
+          if (e is MissingPluginException) {
+            SafeLogger.w(
+                _tag,
+                'auto UMP failed — no UMP channel registered ($e); reopening '
+                'the gate (fail-open) since UMP is not wired for this host');
+            _updateCanRequestAds(true);
+          } else {
+            SafeLogger.critical(
+                _tag,
+                'auto UMP failed ($e) — keeping the gate CLOSED (fail-closed); '
+                'this looks like a real consent-fetch failure, not a missing '
+                'plugin, so ads stay blocked until the reconnect retry '
+                'succeeds');
+          }
         });
       }
 
@@ -2246,7 +2293,7 @@ class AdManager with WidgetsBindingObserver {
     if (!isAdMobProvider && consent.isAgeRestrictedUser) {
       SafeLogger.d(
           _tag, '🛑 COPPA child-directed on AppLovin → hard-stop ad requests');
-      _canRequestAds = false;
+      _updateCanRequestAds(false);
     }
     await applyConsentToProviders(consent, config: _config);
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
@@ -2307,7 +2354,7 @@ class AdManager with WidgetsBindingObserver {
       // branch must do the same from the CACHED result, or a host that
       // follows the SDK's own documented pattern (call requestUmpConsent()
       // manually, then initialize()) gets permanently locked out of ads.
-      _canRequestAds = cached.canRequestAds;
+      _updateCanRequestAds(cached.canRequestAds);
       return cached;
     }
     // F9 — log-only order check: ATT must run before UMP on iOS (see this
@@ -2335,7 +2382,7 @@ class AdManager with WidgetsBindingObserver {
     // load*() consults [_canRequestAds].
     _umpRequested = true;
     final wasBlocked = !_canRequestAds;
-    _canRequestAds = result.canRequestAds;
+    _updateCanRequestAds(result.canRequestAds);
     SafeLogger.d(
         _tag,
         () =>
@@ -2430,7 +2477,7 @@ class AdManager with WidgetsBindingObserver {
     final result = await requestPrivacyOptionsFlow();
 
     final wasBlocked = !_canRequestAds;
-    _canRequestAds = result.canRequestAds;
+    _updateCanRequestAds(result.canRequestAds);
     SafeLogger.d(
         _tag,
         () =>
@@ -2593,12 +2640,20 @@ class AdManager with WidgetsBindingObserver {
     // ad requests (stale `false` reads as "still gated" for the entire new
     // session), and a stale failed-attempt flag from the old session.
     // Restored to their declaration-time defaults (see field docs above).
-    _canRequestAds = true;
+    _updateCanRequestAds(true);
     _umpAttemptFailed = false;
     _resumeFallbackTimer?.cancel();
     _resumeFallbackTimer = null;
     _splashBudgetTimer?.cancel();
     _splashBudgetTimer = null;
+    // Audit fix: a stale GAID from the previous session used to survive
+    // destroy()/re-init, so currentDeviceGaid (and adMobTestDeviceHashHint())
+    // could report a device's ad ID after the SDK claimed to be torn down —
+    // a privacy leak past the point consent should be re-evaluated at.
+    if (_currentDeviceGAID.isNotEmpty) {
+      SafeLogger.d(_tag, 'resetGuardState: clearing stale GAID');
+    }
+    _currentDeviceGAID = '';
   }
 
   /// Test seam for [_resetGuardState] — exercised directly by

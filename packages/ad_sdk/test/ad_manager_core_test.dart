@@ -2081,6 +2081,30 @@ void main() {
   });
 
   group(
+      '_resetGuardState clears stale GAID (audit fix — privacy leak past '
+      "destroy())", () {
+    tearDown(() {
+      AdManager().debugCurrentDeviceGAID = '';
+    });
+
+    test(
+        'debugResetGuardState() clears currentDeviceGaid left over from the '
+        'previous session', () {
+      final mgr = AdManager();
+      mgr.debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      expect(mgr.currentDeviceGaid, isNotEmpty);
+
+      mgr.debugResetGuardState();
+
+      expect(mgr.currentDeviceGaid, isEmpty,
+          reason: 'a stale GAID from the previous session must not survive '
+              'destroy()/re-init — reporting a device\'s ad ID after the '
+              'SDK claims to be torn down is a privacy leak past the point '
+              'consent should be re-evaluated at');
+    });
+  });
+
+  group(
       '_resetGuardState cancels _splashBudgetTimer (re-init timer leak '
       'regression)', () {
     // Before the fix, _resetGuardState() reset the footgun/UMP/consent flags
@@ -2114,6 +2138,38 @@ void main() {
                 'fires markSplashInactive() against the re-initialized '
                 'session');
       });
+    });
+  });
+
+  group(
+      'Issue 3 — _resetGuardState clears the stale GAID (privacy leak past '
+      'destroy())', () {
+    tearDown(() => AdManager().debugCurrentDeviceGAID = '');
+
+    test('debugResetGuardState() clears _currentDeviceGAID', () {
+      final mgr = AdManager();
+      mgr.debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      expect(mgr.currentDeviceGaid, isNotEmpty);
+
+      mgr.debugResetGuardState();
+
+      expect(mgr.currentDeviceGaid, isEmpty,
+          reason: 'a stale GAID from the previous session must not survive '
+              'destroy()/re-init — reporting it past the point consent '
+              'should be re-evaluated at is a privacy leak');
+    });
+
+    test('a real destroy() (not just the debug seam) clears it too',
+        () async {
+      final mgr = AdManager();
+      mgr.debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+
+      await mgr.destroy();
+
+      expect(mgr.currentDeviceGaid, isEmpty,
+          reason: 'destroy() calls _resetGuardState() internally — this '
+              'proves the real public entry point, not only the debug '
+              'seam, clears the GAID');
     });
   });
 

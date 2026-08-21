@@ -1,12 +1,68 @@
-# Audit độc lập `applovin_admob_sdk` — agy CLI (bản hợp nhất, round 1 + round 2)
+# Audit độc lập `applovin_admob_sdk` — agy CLI (bản hợp nhất, round 1 + round 2 + round 3 + round 4)
 
-Hợp nhất `audit_agy_20260815.md` (round 1, version 2.0.4, 700 test) và `audit_agy_20260819_round2.md` (round 2, version 2.1.0, 860 test). Round 2 supersede round 1 khi có xung đột hoặc re-verify cùng finding; phần round 1 chưa được round 2 chạm tới vẫn giữ nguyên, đánh dấu rõ.
+Hợp nhất `audit_agy_20260815.md` (round 1, v2.0.4, 700 test), `audit_agy_20260819_round2.md` (round 2, v2.1.0, 860 test), round 3 re-verify (2026-08-20, v2.1.0, 860/861 test), và **Round 4 độc lập toàn diện (2026-08-21, version 2.2.0, 873/873 test pass, 0 issues analyze)**.
 
-**Người audit:** Senior Flutter/Mobile Ads Engineer (agy CLI, cả 2 round).
+**Người audit:** Senior Security / Flutter Mobile Ads Engineer (agy CLI — Google Antigravity / Gemini-based agent).
+**Môi trường kiểm tra:**
+- `flutter analyze` → **0 issues found** (ad_sdk + example)
+- `flutter test` → **873/873 tests passed** (100% pass rate, 0 failure, 0 flake)
+- Package version audited: `pubspec.yaml` = **2.2.0** (khớp phiên bản mới nhất phát hành trên pub.dev).
 
 ---
 
-## Trạng thái các bug round 1 sau round 2
+## Round 4 Audit toàn diện (2026-08-21, version 2.2.0)
+
+Đợt audit độc lập từ đầu (from-scratch) kiểm tra toàn bộ 9 khu vực trọng yếu của SDK, bao gồm re-verify độc lập các fix trước đó và audit chuyên sâu API surface mới từ commit `558dda0`.
+
+### 1. Bảng tổng hợp trạng thái các khu vực kiểm tra (Round 4)
+
+| STT | Khu vực kiểm tra | Trạng thái (PASS / FAIL / WARN) | Đánh giá & Bằng chứng mã nguồn |
+|---|---|---|---|
+| 1 | **Dual Provider Correctness (AdMob + AppLovin MAX)** | **PASS (100% Parity)** | 49/49 method interface trong `AdProviderAdapter` được implement đầy đủ trên cả `AdMobAdapter` và `AppLovinAdapter`. Multi-instance banner/MREC/native dùng keyed maps (`_bannerAdsByKey`, `_mrecAdsByKey`, `_nativeAdsByKey`), loại bỏ hoàn toàn rủi ro xung đột singleton instance. Rewarded Interstitial trên AppLovin trả `RewardResult(earned: false, shown: false)` minh bạch, không gây hiểu nhầm. |
+| 2 | **Offline & No-Network Resilience** | **PASS** | Mọi lời gọi async và platform channel đều có timeout chặt chẽ (GAID 10s, UMP 20s, Remote Safety 5s). Khi mất mạng, ad load fail-fast và retry watchdog có generation-token chống race condition. VIP grant, safety caps và counters được lưu trữ bền vững qua `SharedPreferences`/`AdPreferences`. Xác thực crypto Ed25519 chạy 100% offline nội bộ thiết bị. Gate `_isConnectedCheck()` trong `redeemSignedKey` là product-gate đã được document rõ trong README. |
+| 3 | **Ad Lifecycle & Memory-Leak Safety** | **PASS** | Show-time freshness check cho toàn bộ AdMob fullscreen ads (4h App Open, 1h Interstitial/Rewarded). App Open không bao giờ đè lên modal/dialog (`_fullscreenBusyReason` kiểm tra `AdLoadingDialog.isShowing` + `AdScreenRouteLogger.isDialogOnTop`). Slot Rewarded Interstitial đã nằm trong mutex `_fullscreenBusyReason` (M1 fix). AppLovin native view teardown dùng retry-with-backoff (`_destroyWidgetAdViewWhenDetached`, B1 fix) giải quyết triệt để lỗi native từ chối destroy khi view đang attach. Preload ghi đè `adViewId` cũ tự động destroy instance trước đó (M5 fix). Toàn bộ listeners và notifiers được dispose sạch sẽ khi widget unmount hoặc khi `AdManager.destroy()` chạy. |
+| 4 | **Trial Mode (1 ngày)** | **PASS** | First-install VIP grace được cấp đúng 1 lần. Anti-bypass trên iOS được bảo vệ qua Keychain (`FirstInstallGuard`). Giới hạn trên Android (phụ thuộc vào Google Auto Backup của host app để restore `FlutterSharedPreferences.xml`) đã được tài liệu hóa chi tiết, minh bạch trong README. |
+| 5 | **Zero-Backend VIP Activation (Ed25519)** | **PASS** | Thuật toán ký Ed25519 an toàn tuyệt đối trước nguy cơ decompile mã nguồn (không chứa private key). Hỗ trợ cả định dạng AVP1 và AVP2 (ràng buộc `expEpoch` và `boundBundle`). Cơ chế chống rollback đồng hồ sử dụng mốc monotonic `Stopwatch` kết hợp `resyncSessionClock()` khi app resume (B3 fix & khắc phục triệt để lỗi deep-sleep). CRL domain-separated (`AVP1|`, `AVP2|`, `CRL1|`). Global stacking tuân thủ trần `maxVipStackDuration` (90 ngày). |
+| 6 | **Consent & Global Privacy (GDPR, COPPA, CCPA, ATT)** | **PASS** | Wire chuẩn UMP (Google) và AppLovin CMP. COPPA / age-restricted user được bảo vệ tuyệt đối: `ConsentManager.bootstrap()` và replay `_pendingConsentSettings` chạy **trước** khi adapter được pick/init (B2 fix), AppLovin adapter tự động fail-closed (`_disabledForChildUser=true`) ngăn chặn thu thập dữ liệu trẻ em. Trên iOS, `shouldDeferGaidFetch` hoãn lấy GAID khi ATT ở trạng thái `notDetermined` và host chưa gọi `requestAtt()` (M9 fix), không tự ý kích hoạt ATT prompt sai ngữ cảnh. |
+| 7 | **Policy Compliance (AdMob & AppLovin)** | **PASS** | Tự động đăng ký test device ID trong debug mode. Per-request non-personalized ads (`npa=1`) và CCPA Restricted Data Processing (`rdp=1`) được tag chính xác trên mọi format AdMob và đồng bộ sang AppLovin privacy settings. Ad Safety Engine 12 tầng hoạt động ổn định (chống click fraud, daily/hourly caps, progressive cooldown). |
+| 8 | **NEW: Audit commit `558dda0` (`currentDeviceGaid` & `adMobTestDeviceHashHint`)** | **PASS (Clean)** | `currentDeviceGaid` tự động chuẩn hóa placeholder GUID (`00000000-0000-0000-0000-000000000000`) và trạng thái Limit Ad Tracking / ATT-denied về chuỗi rỗng `''`. Không làm rò rỉ GAID ra bất kỳ dịch vụ từ xa nào. `adMobTestDeviceHashHint()` là pure helper định dạng hướng dẫn debug cục bộ, phân biệt rạch ròi giữa GAID và AdMob test device hash, ngăn ngừa lập trình viên cấu hình nhầm lẫn khiến thiết bị QA nhận quảng cáo thật. |
+| 9 | **Test Suite & Static Analysis** | **PASS** | `flutter analyze` đạt 0 issues. `flutter test` đạt 873/873 tests pass. |
+
+---
+
+### 2. Phân loại Findings theo mức độ nghiêm trọng (Round 4)
+
+#### Blocker (0)
+- **Không còn Blocker nào tồn đọng.** Toàn bộ 3 Blocker (B1: AppLovin attached view leak, B2: COPPA pending-consent replay timing, B3: VIP clock anti-rollback freeze & sleep drift) và nghi vấn eCPM 1000x từ các round trước đều đã được xác nhận fix hoàn toàn trên mã nguồn thực tế kèm test suite khóa hành vi.
+
+#### Major (0)
+- **Không còn Major bug nào tồn đọng.** Các mục Major trước đó (M1: Mutex Rewarded Interstitial, M2: AVP2 expiry anti-rollback, M4: AppLovin Rewarded Interstitial shown status, M5: Preload adViewId overwrite leak, M6: Resume App Open safety bypass, M9: iOS ATT trigger deferral) đều đã được khắc phục triệt để.
+
+#### Minor & Technical Observations (Độ ưu tiên thấp / State Hygiene)
+1. **`AdManager.destroy()` không reset `_currentDeviceGAID` về `''`:**
+   - *Chi tiết:* Trong `ad_manager.dart:2494-2572`, `destroy()` dọn dẹp adapter, stream, VIP manager và gọi `_resetGuardState()`. Tuy nhiên biến `_currentDeviceGAID` không được gán lại `''`. Khi `initialize()` chạy lại, `_resolveDeviceGaid()` sẽ ghi đè giá trị mới. Nhưng nếu host app truy vấn getter `currentDeviceGaid` trong khoảng thời gian giữa `destroy()` và `initialize()` kế tiếp, getter sẽ trả về GAID của session cũ thay vì chuỗi rỗng.
+   - *Mức độ:* Minor / Code hygiene (không ảnh hưởng đến an toàn vận hành quảng cáo).
+2. **`NativeAdWidget._allowed` latching trên trường hợp widget sống qua re-init không unmount:**
+   - *Chi tiết:* `native_ad_widget.dart` đặt cờ `_allowed=true` sau lần init đầu tiên. Nếu host app gọi `destroy()` rồi `initialize()` lại mà widget cây vẫn được giữ nguyên không unmount/remount, widget không tự re-request native ad theo adapter mới.
+   - *Mức độ:* Minor (edge-case hiếm gặp trong thực tế vì chu kỳ sống của widget thường gắn với màn hình).
+3. **Các giới hạn nền tảng đã được công bố minh bạch (Known & Disclosed Limitations):**
+   - Android reinstall trial anti-bypass phụ thuộc vào cấu hình Google Cloud Auto Backup của host app.
+   - CRL không thể thu hồi ngược VIP đã được áp dụng cục bộ trên thiết bị trước thời điểm cập nhật CRL.
+   - AppLovin MAX SDK không cung cấp timestamp nạp ad để kiểm tra độ tươi (freshness) ở show-time như AdMob.
+
+---
+
+### 3. Kết luận & Khuyến nghị xuất xưởng (Verdict)
+
+**VERDICT: YES — PRODUCTION-READY (SAFE TO SHIP).**
+
+SDK `applovin_admob_sdk` phiên bản **2.2.0** đáp ứng đầy đủ các tiêu chuẩn khắt khe nhất về bảo mật, tuân thủ chính sách quảng cáo Google AdMob & AppLovin MAX, bảo vệ quyền riêng tư toàn cầu (GDPR, COPPA, CCPA, ATT), và khả năng phục hồi khi mất kết nối mạng. Bộ test suite 873 bài kiểm tra bao phủ toàn diện và phân tích tĩnh 0 cảnh báo. SDK hoàn toàn an toàn để triển khai trên các ứng dụng Flutter thương mại ở môi trường Production.
+
+---
+
+## Lịch sử các round trước (Round 1 + Round 2 + Round 3)
+
+### Trạng thái các bug round 1 sau round 2
 
 | # | Finding round 1 | Trạng thái tại round 2 |
 |---|---|---|

@@ -1,5 +1,41 @@
 # Audit tổng hợp `applovin_admob_sdk` — Claude (bản hợp nhất)
 
+## Round 2026-08-21 (external `claude --dangerously-skip-permissions`, fresh session, không có context các round trước)
+
+**Version audited:** local `pubspec.yaml` = **2.2.0**. Xác nhận trực tiếp `curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.2.0"` — **khớp local, M7 (version mismatch) chính thức ĐÓNG**, không còn là điều kiện chặn ship.
+**Test status:** `flutter test` → **873/873 pass**, exit code 0. `flutter analyze` → **0 issues**.
+**Phương pháp:** đọc trực tiếp source hiện tại + đọc lại 3 file audit cũ (`audit_codex.md`, `audit_agy.md`, `audit_claude.md` bản trước) để biết finding nào cần re-verify, không tin theo history — tự grep/đọc `file:line` cho từng claim trước khi ghi vào đây. Phạm vi commit mới kể từ checkpoint audit trước (`6f03a8f`): `21568fd`, `84fe9da`, `fc1b0e9`, `6d7abac`, `2a2fe52` (fix theo audit trước), `558dda0` (feature mới — `currentDeviceGaid`/`adMobTestDeviceHashHint`), cộng vài commit docs-only.
+
+### Item mới: `AdManager().currentDeviceGaid` + `adMobTestDeviceHashHint()` (commit `558dda0`) — CONFIRMED-CORRECT, không có finding mới
+
+- `ad_manager.dart:771-774` (`currentDeviceGaid` getter) chỉ đọc lại `_currentDeviceGAID` (field nội bộ đã tồn tại từ trước, không phải fetch mới) và normalize placeholder `00000000-0000-0000-0000-000000000000` (giá trị OS trả về khi Limit-Ad-Tracking/ATT-denied) thành `''` — không có code path nào khác gán giá trị cho field này ngoài `_resolveDeviceGaid()` (`:1522-1539`), nên getter không thể trả GAID thật khi LAT on hoặc ATT chưa quyết.
+- Tương tác đúng với fix M9 (đã có từ round trước): `_resolveDeviceGaid()` chỉ chạy khi `shouldDeferGaidFetch(...)` (`:1709-1718`) trả `false` — trên iOS với ATT `notDetermined` và host chưa gọi `requestAtt()`, fetch bị defer hoàn toàn, `_currentDeviceGAID` giữ `''` cho tới khi ATT được quyết. `currentDeviceGaid` vì vậy không có cách nào lộ GAID thật sớm hơn thời điểm ATT cho phép.
+- `adMobTestDeviceHashHint()` (`:788-800`) chỉ trả text hướng dẫn tĩnh (đọc log native), có ghi rõ ràng "GAID này KHÔNG phải hash AdMob" — đúng, tránh nhầm lẫn 2 loại ID (một sai lầm thực tế dễ khiến QA device nhận ad thật thay vì test ad, đúng như risk bài audit yêu cầu kiểm tra).
+- `SafeLogger.d(_tag, () => 'GAID=$_currentDeviceGAID')` (`:1538`) log GAID thật ở mức `verbose` — nhưng default `logLevel` trong release build là `AdLogLevel.warning` (`ad_config.dart:353`, `kDebugMode ? verbose : warning`), nên verbose bị chặn theo mặc định trừ khi host tự chọn nâng lên `verbose` trong release (quyết định của host, không phải lỗi SDK). Không phải finding.
+- `example/lib/main.dart:2630-2679` (`TestDeviceHashDemoPage`) chỉ hiển thị GAID của chính máy đang chạy example app cho dev tự đọc/copy, có nhãn phân biệt rõ GAID vs AdMob hash, và ẩn nút copy khi GAID rỗng — code mẫu, không phải hành vi mặc định của SDK khi ship, không có vấn đề.
+
+**Kết luận mục 8 trong yêu cầu audit:** API mới an toàn, tôn trọng LAT/ATT-denied/not-yet-resolved, không leak GAID thật, doc guidance chính xác.
+
+### Re-verify các finding còn mở từ round trước
+
+| Finding | Trạng thái | Evidence |
+|---|---|---|
+| UMP fail-open khi channel lỗi (codex P1, tồn tại nhiều round) | **CONFIRMED CÒN MỞ — Major** (chi tiết mới bên dưới) | `ad_manager.dart:1888-1917` |
+| codex P1-1 — `NativeAdWidget._allowed` latch không hạ khi gate đổi trạng thái | **CONFIRMED CÒN MỞ — Minor** (không đổi so với round trước) | `native_ad_widget.dart:56,66-97,109-140` |
+| codex P1-4 — `destroy()`/`_resetGuardState()` không reset `_lastUmpResult`/`_attRequested` | **CONFIRMED CÒN MỞ — Minor, vô hại** (không đổi) | `ad_manager.dart:1154,1190,2587-2602` |
+| Consent revoke giữa phiên không flush slot fullscreen đã ready | Không phải finding mới — đã nằm trong "Known-and-disclosed limitations" ở dưới, xác nhận vẫn đúng (`setConsent`, `ad_manager.dart:2207-2261`, không có lệnh invalidate/reload slot nào) | `ad_manager.dart:2207-2261` |
+| Android Auto Backup opt-in cho trial/VIP-replay | Không đổi — vẫn chỉ document, README `:67,1209-1226,2038` xác nhận còn đầy đủ | `README.md` |
+
+**UMP fail-open — phân tích mới, tại sao vẫn Major:** `ad_manager.dart:1888-1917` — khi `autoRequestUmpConsent` chạy (default `true`), gate đóng (`_canRequestAds=false`) rồi gọi `requestUmpConsent(...)` trong `runZonedGuarded`; **bất kỳ exception nào** lọt tới error handler (`:1899-1917`) đều mở gate lại (`_canRequestAds = true`) — không phân biệt "UMP channel không tồn tại" (host không dùng UMP, đúng ý đồ fail-open ban đầu) với "channel tồn tại nhưng lỗi tạm thời cho một EEA user thật" (mạng chập chờn, timeout phía Google, lỗi native khác). Ở nhánh thứ hai, một EEA user chưa từng cho consent sẽ được set `canRequestAds=true` và SDK bắt đầu request ad — vi phạm GDPR/UMP policy thật, không phải lý thuyết, vì nó phụ thuộc network reliability của thiết bị người dùng cuối, không phải cấu hình host. Code đã tự nhận biết trade-off này trong comment (`:1911-1916`, "Fail OPEN here, deliberately") nhưng lý do nêu ra (tránh regression C1 — ads bị chặn vĩnh viễn nếu fail closed) chỉ đúng cho trường hợp "channel không đăng ký", không đúng cho "channel đăng ký nhưng lỗi tạm thời". Catch nên phân loại theo loại lỗi (`MissingPluginException` → fail open đúng như hiện tại; lỗi khác → fail closed + để reconnect-retry thử lại, giữ nguyên UX "ads đến chậm hơn" mà comment mô tả) thay vì fail-open cho mọi exception.
+
+**Không tìm thấy Blocker mới.** Không tìm thấy regression trong 5 fix commit kể từ round trước (`21568fd` B1/COPPA, `84fe9da` M1/M4/B3-sleep, `fc1b0e9` M2/AVP2, `6d7abac` M5, `2a2fe52` M9) — đọc lại từng đoạn code liên quan, hành vi khớp với mô tả fix trong file audit cũ.
+
+### Verdict (round 2026-08-21)
+
+**YES — WITH CONDITIONS**, không đổi kết luận tổng thể so với round trước. Điều kiện version pub.dev (mục 5 cũ) đã đóng. Điều kiện còn lại trước khi ship cho audience có EEA user thật: thu hẹp phạm vi fail-open của UMP error handler (`ad_manager.dart:1899-1917`) để chỉ fail-open cho lỗi "channel không tồn tại", fail-closed cho lỗi khác của một channel đang hoạt động. Đây là finding Major duy nhất còn mở có real-world exploit path rõ ràng (không cần điều kiện đặc biệt — chỉ cần một lần UMP native call thất bại tạm thời trên máy EEA user). Các Minor còn mở (native widget latch, 2 field chưa reset ở destroy) không chặn ship — impact thấp, đã ghi rõ điều kiện trigger hẹp ở trên.
+
+---
+
 **Đây là bản hợp nhất** của toàn bộ các round audit do Claude thực hiện từ 2026-08-02 đến 2026-08-19 (5 file gốc: `audit_claude.md` 08-09, `audit_claude_20260802.md`, `audit_claude_native_20260815.md`, `audit_claude_20260819.md`, `audit_claude_external_20260819_round2.md` — chạy độc lập qua `claude --dangerously-skip-permissions`), cộng thêm một vòng audit mới (2026-08-19/20, 7 lane nội bộ chạy song song + đối chiếu chéo với vòng external). File cũ đã bị xoá, nội dung được giữ lại và đánh dấu **stale/fixed** nếu đã lỗi thời.
 
 **Version audited:** local `pubspec.yaml` = **2.1.0** (đã release theo git log: `51e79e6`, `95c12e8`, ngày 2026-08-19). pub.dev có thể còn đang serve `2.0.4` do CDN cache lag (xem CLAUDE.md mục publish traps) — **verify trực tiếp trên pub.dev trước khi ai đó pull package cho production**, đừng tin theo ngày commit.
@@ -58,7 +94,7 @@ Re-verify: `applovin_adapter.dart` `preloadBanner`/`preloadMrec` (trước fix, 
 ### M6 — `showAppOpenAdOnResume` từng bypass toàn bộ safety cap ngoài phạm vi splash — **đã fix**
 `ad_manager.dart:2719-2722` (bản cũ trước 08-19) luôn gọi `showAppOpenAd(bypassSafety: true, ...)` bất kể là splash hay resume thường. Đã fix commit `6ca3d78` (08-19): resume path giờ dùng `bypassSafety: false`, chỉ splash flow còn bypass. **Giữ mục này để ai đọc CHANGELOG không tưởng đây còn mở.**
 
-### M7 — CHANGELOG `[Unreleased]` (13 feature + batch fix security 08-16/17) chưa publish lên pub.dev tại thời điểm audit 08-19 — **VẪN CHƯA PUBLISH (xác nhận 2026-08-20, `curl https://pub.dev/api/packages/applovin_admob_sdk`)**
+### M7 — CHANGELOG `[Unreleased]` (13 feature + batch fix security 08-16/17) chưa publish lên pub.dev tại thời điểm audit 08-19 — **ĐÃ ĐÓNG 2026-08-21** (`curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.2.0"`, khớp local `pubspec.yaml`. Xem round mới nhất ở đầu file.)
 Tại thời điểm audit 08-19, pub.dev còn serve 2.0.4, thiếu fix domain-separation CRL/VIP-key, stale-watchdog fix, connectivity-race fix. Git log local cho thấy `2.1.0` đã được commit (`51e79e6`, `95c12e8`, 2026-08-19) và CHANGELOG.md đã có mục `[2.1.0]` — **nhưng đây chỉ là commit local, không phải publish thật.**
 
 **Xác nhận trực tiếp 2026-08-20**: `curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.0.4"`, danh sách 33 version công khai kết thúc ở `2.0.4`, không có `2.1.0`. Trước đó audit ghi "đã release" chỉ dựa vào git log local, chưa từng gọi API xác minh — sai. Finding này **vẫn mở**: cần chạy `flutter pub publish` thật (`packages/ad_sdk/`, xem mục "Publishing to pub.dev" ở `CLAUDE.md`) trước khi bất kỳ app nào pull `applovin_admob_sdk` qua pub.dev (không phải git ref/path) có thể nhận được các fix Blocker/Major đã làm trong 2 vòng audit 08-19/08-20.
