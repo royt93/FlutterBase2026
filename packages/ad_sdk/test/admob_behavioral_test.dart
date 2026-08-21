@@ -44,6 +44,9 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
 class FakeGmaBridge implements GmaBridge {
   bool failNextLoad = false;
 
+  // Captured from the most recent updateRequestConfiguration() call.
+  List<String>? capturedTestDeviceIds;
+
   FakeGmaFullscreenAd? lastAppOpen;
   FakeGmaFullscreenAd? lastInter;
   FakeGmaFullscreenAd? lastRewarded;
@@ -63,7 +66,9 @@ class FakeGmaBridge implements GmaBridge {
   @override
   Future<void> initialize() async {}
   @override
-  Future<void> updateRequestConfiguration(List<String> ids) async {}
+  Future<void> updateRequestConfiguration(List<String> ids) async {
+    capturedTestDeviceIds = ids;
+  }
 
   @override
   Future<void> loadAppOpen(String id,
@@ -140,6 +145,43 @@ void main() {
     bridge = FakeGmaBridge();
     adapter = AdMobAdapter(bridge: bridge);
     expect(await adapter.initialize(_config), isTrue);
+  });
+
+  group('QA test-device hashes (always merged into RequestConfiguration)',
+      () {
+    test('no custom testDeviceIds configured → the 7 known QA hashes still '
+        'go to AdMob', () {
+      expect(bridge.capturedTestDeviceIds, isNotNull);
+      for (final hash in kQaTestDeviceHashes) {
+        expect(bridge.capturedTestDeviceIds, contains(hash));
+      }
+    });
+
+    test('a host app\'s own custom testDeviceIds are merged with, not '
+        'replaced by, the QA hashes', () async {
+      final customBridge = FakeGmaBridge();
+      final customAdapter = AdMobAdapter(bridge: customBridge);
+      const customConfig = AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+          bannerId: 'b',
+          interstitialId: 'i',
+          appOpenId: 'ao',
+          rewardedId: 'r',
+          testDeviceIds: ['host-apps-own-test-device'],
+        ),
+      );
+
+      expect(await customAdapter.initialize(customConfig), isTrue);
+
+      expect(customBridge.capturedTestDeviceIds,
+          contains('host-apps-own-test-device'),
+          reason: 'the merge must not drop what the host app configured');
+      for (final hash in kQaTestDeviceHashes) {
+        expect(customBridge.capturedTestDeviceIds, contains(hash),
+            reason: 'the merge must not drop the always-on QA fleet either');
+      }
+    });
   });
 
   group('Interstitial dismiss resolution', () {

@@ -208,6 +208,23 @@ class AppLovinConfig {
       );
 }
 
+/// This team's own QA device fleet (see the private `myKeyStore` repo) —
+/// physical devices real testers use across every app built on this SDK.
+/// Always merged into [AdMobConfig.effectiveTestDeviceIds] so a request from
+/// one of these devices resolves as an AdMob test ad no matter what a
+/// consuming app configures, so manual QA on real hardware never counts as
+/// real impressions/clicks and never risks AdMob's invalid-activity rate
+/// limiting.
+const List<String> kQaTestDeviceHashes = [
+  '813DCF48B3E486F15A60676D49A2AB09', // Samsung SM-A507FN (A50s)
+  'E165942547A491D06E43E24870B990B2', // OPPO CPH1989 (Reno2 series)
+  'C3632968623F0B44E87CE401A06AC8F9', // TCL 9032X
+  '4A2AA8832A7FE9D7805081AD03C9CE68', // Xiaomi 23028RN4DG
+  'DEE1D0C6AEA4CA5C94FA4D709087A3AC', // vivo V2352A
+  '5D2E85389997C743F9CC33DF5F70D736', // ZTE Blade A52
+  'EB7B6504801B5E518C4CE6D519ED325C', // Samsung SM-A115F
+];
+
 /// AdMob ad-unit IDs.
 class AdMobConfig {
   const AdMobConfig({
@@ -255,6 +272,12 @@ class AdMobConfig {
   /// AdMob's hashed-GAID test-device list. Avoids accidental "real impression"
   /// counts during development.
   final List<String> testDeviceIds;
+
+  /// [testDeviceIds] plus [kQaTestDeviceHashes] — use this (not
+  /// [testDeviceIds] directly) anywhere a native call needs the actual list
+  /// to register with AdMob.
+  List<String> get effectiveTestDeviceIds =>
+      {...testDeviceIds, ...kQaTestDeviceHashes}.toList();
 
   /// Optional per-platform overrides. When unset (or empty), the
   /// platform-agnostic id passed to the constructor is used for both

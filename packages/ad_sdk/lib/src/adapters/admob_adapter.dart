@@ -425,7 +425,11 @@ class AdMobAdapter implements AdProviderAdapter {
     }
     try {
       await _bridge.initialize();
-      await _bridge.updateRequestConfiguration(cfg.testDeviceIds);
+      await _bridge.updateRequestConfiguration(cfg.effectiveTestDeviceIds);
+      SafeLogger.d(_logTag,
+          'initialize $tag testDeviceIds: ${cfg.testDeviceIds.length} from '
+          'host config + ${kQaTestDeviceHashes.length} QA fleet (always on) '
+          '= ${cfg.effectiveTestDeviceIds.length} total');
       _config = config;
       _admob = cfg;
       SafeLogger.d(_logTag, 'initialize $tag ✅');

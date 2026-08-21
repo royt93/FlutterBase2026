@@ -106,7 +106,8 @@ Future<void> applyConsentToProviders(
 
   // ─── AdMob ───────────────────────────────────────────────────────────────
   try {
-    final testDeviceIds = config?.admob?.testDeviceIds ?? const <String>[];
+    final testDeviceIds =
+        config?.admob?.effectiveTestDeviceIds ?? const <String>[];
     final cfg = RequestConfiguration(
       // Preserve test-device registration across consent updates.
       testDeviceIds: testDeviceIds,

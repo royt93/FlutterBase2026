@@ -4,6 +4,37 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-08-21
+
+### Added
+
+- `AdMobConfig.effectiveTestDeviceIds` / `kQaTestDeviceHashes` — this team's
+  own QA device fleet's AdMob test-device hashes are now always merged into
+  `RequestConfiguration.testDeviceIds` on every `initialize()`/consent
+  re-apply, regardless of what a host app configures in `testDeviceIds`.
+  Keeps manual QA on real hardware from ever counting as real
+  impressions/clicks (and the invalid-activity rate-limit risk that comes
+  with it), without the host app having to know or maintain the list.
+
+### Fixed
+
+- **Audit fix — `initialize()`'s `autoRequestUmpConsent` branch could fail
+  open on a real consent-fetch error, not just an unwired UMP channel.**
+  Any exception used to fail the gate open; now only `MissingPluginException`
+  (channel genuinely not wired) fails open — every other exception (a real
+  UMP fetch failure) fails closed, so a network hiccup can no longer
+  silently ship ads with no verified consent decision.
+- **Audit fix — `destroy()`/`_resetGuardState()` left the previous session's
+  device GAID behind.** A stale GAID surviving past teardown into the next
+  `initialize()` is a privacy leak; it's now cleared as part of guard-state
+  reset.
+- **Audit fix — reopening the `canRequestAdsListenable` gate mid-session
+  never triggered a frame in `BannerAdWidget`/`MrecAdWidget`/
+  `NativeAdWidget`.** `_onCanRequestAdsChanged()`'s reload path relied on
+  `addPostFrameCallback`, which does not itself schedule a frame — the
+  reload silently no-opped until some unrelated frame happened to fire.
+  Fixed by calling `WidgetsBinding.instance.scheduleFrame()` alongside it.
+
 ## [2.2.0] - 2026-08-20
 
 ### Added
