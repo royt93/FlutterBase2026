@@ -110,6 +110,39 @@ void main() {
       expect(adapter.interstitialSlot.isCooldown, isTrue);
     });
 
+    // MJ23 + B1 (second independent review). The fake's `mrecSlots` /
+    // `nativeSlots` getters were added because the interface required them to
+    // compile, and nothing asserted them — so deleting the three slot families
+    // from `_recoverSlots` left the whole suite green. That is verbatim the
+    // "fake captured data and nobody asserted it" mistake the commit adding
+    // them claimed to have learned from. This is the assert.
+    test('MJ23: recovers rewardedInterstitial, MREC and native slots too',
+        () async {
+      for (final slot in [
+        adapter.rewardedInterstitialSlot,
+        adapter.mrecSlots.first,
+        adapter.nativeSlots.first,
+      ]) {
+        slot.beginLoad();
+        slot.markReady();
+        slot.beginShow();
+        expect(slot.isShowing, isTrue);
+      }
+
+      installAdCrashGuard();
+      final err = await _genuineSdkError();
+      FlutterError.onError!(FlutterErrorDetails(
+        exception: err.error,
+        stack: err.stack,
+      ));
+
+      expect(adapter.rewardedInterstitialSlot.isCooldown, isTrue,
+          reason: 'these three formats have no show-watchdog by design, so '
+              'this pass is their ONLY way out of a stuck `showing`');
+      expect(adapter.mrecSlots.first.isCooldown, isTrue);
+      expect(adapter.nativeSlots.first.isCooldown, isTrue);
+    });
+
     test(
         'recovers a loading slot to cooldown on an SDK-attributed platform error',
         () async {
