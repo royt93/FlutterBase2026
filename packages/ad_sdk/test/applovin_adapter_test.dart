@@ -681,6 +681,50 @@ void main() {
           reason: 'looking up an already-disposed key must never silently '
               'allocate a new, permanently-unreachable live listenables '
               'bundle');
+
+      // No per-key allocation happened either: every dead key shares the one
+      // disposed sentinel, so nothing accumulated in the maps.
+      final otherDead = Object();
+      a.native(otherDead).isLoaded.value = true; // materialize, then kill it
+      a.disposeNativeInstance(otherDead);
+      expect(identical(a.native(key), a.native(otherDead)), isTrue,
+          reason: 'two dead keys must resolve to the SAME disposed sentinel, '
+              'proving no map entry was created for either');
+    });
+
+    // Regression (2026-08-22): the tombstone above must not outlive the
+    // widget. The key is the NativeAdWidget's State object and it IS reused —
+    // _onPersonalisationWithdrawn() disposes the instance and then re-inits
+    // the SAME `this`, and the consent-gate close/reopen path does the same.
+    // With a permanent tombstone the native ad never came back for that
+    // widget and its callbacks wrote to disposed ValueNotifiers. Driven
+    // through AdManager because that is the exact pair of calls the widget
+    // makes: disposeNativeInstance(this), then recordNativeLoad(this) from
+    // _initNative().
+    test('a disposed key re-loaded by the same live widget gets a USABLE '
+        'slot/listenables back (recordNativeLoad lifts the tombstone)',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+      final mgr = AdManager();
+      mgr.debugSetAdapter(a);
+      addTearDown(() => mgr.debugSetAdapter(null));
+
+      final key = Object();
+      a.native(key).isLoaded.value = true;
+      mgr.disposeNativeInstance(key); // widget drops the live instance
+
+      mgr.recordNativeLoad(key); // ...and re-inits the SAME State object
+
+      final revived = a.native(key);
+      expect(() => revived.isLoaded.value = true, returnsNormally,
+          reason: 'a re-inited widget must get live listenables, not the '
+              'permanently-disposed sentinel');
+      expect(revived.isLoaded.value, isTrue);
+      expect(a.nativeSlot(key).beginLoad(), isTrue,
+          reason: 'its AdSlot must be usable again too');
     });
   });
 

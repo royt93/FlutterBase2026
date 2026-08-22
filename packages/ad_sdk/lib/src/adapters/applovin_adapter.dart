@@ -295,6 +295,17 @@ class AppLovinAdapter implements AdProviderAdapter {
   // for that (permanently gone, per-widget-instance) key — an unbounded
   // leak for any screen that scrolls many native ads through a `ListView`
   // (T73's exact use case).
+  //
+  // A tombstone must NOT be permanent, though: the key is the widget's State
+  // object and it IS legitimately reused — NativeAdWidget disposes the
+  // instance and then re-inits the SAME `this` when personalisation is
+  // withdrawn, and again when the consent gate closes then reopens. Left
+  // permanent, the native ad never came back for that widget and its
+  // callbacks wrote to disposed ValueNotifiers. [reviveNativeInstance] lifts
+  // the tombstone (and drops the strong ref to the State object with it) on
+  // the mount signal every re-init already sends, which always arrives
+  // before any callback can resolve the key again — the same trap the AdMob
+  // banner side hit, fixed there with slot identity (MJ21/B-2).
   final Set<Object> _disposedNativeKeys = {};
 
   AdSlot _nativeSlotFor(Object key) {
@@ -339,6 +350,16 @@ class AppLovinAdapter implements AdProviderAdapter {
     _nativeSlotsByKey.remove(key)?.dispose();
     _nativeListenablesByKey.remove(key)?.dispose();
   }
+
+  /// Lift [key]'s [disposeNativeInstance] tombstone because a live widget is
+  /// (re)starting a load for it. Called from `AdManager.recordNativeLoad`.
+  ///
+  /// Deliberately NOT on [AdProviderAdapter]: that interface is exported, so
+  /// a new member there is a source-breaking change for anyone implementing
+  /// it, and AdMob would only ever supply an empty body (it guards a
+  /// mid-load dispose with slot identity — see `identical(_bannerSlotsByKey
+  /// [key], slot)` in admob_adapter.dart — and keeps no tombstone to lift).
+  void reviveNativeInstance(Object key) => _disposedNativeKeys.remove(key);
 
   // Unlike banner/mrec, MaxNativeAdView loads on mount and is self-contained
   // — this adapter never drives isLoaded/hasError itself, the widget layer

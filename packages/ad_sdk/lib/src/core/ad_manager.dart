@@ -1672,6 +1672,15 @@ class AdManager with WidgetsBindingObserver {
 
   void recordNativeLoad(Object key) {
     _lastNativeLoadAtByKey[key] = DateTime.now().millisecondsSinceEpoch;
+    // NativeAdWidget calls this on every mount AND every re-init (withdrawn
+    // personalisation, consent gate reopening), so it is the one signal that
+    // says "a live widget owns this key again" as opposed to "a late callback
+    // for a widget that is gone" — which is exactly what AppLovinAdapter's
+    // native tombstone needs to tell apart. Without lifting it here the
+    // re-inited widget keeps getting a permanently-disposed bundle back.
+    // AdMob has no tombstone to lift (slot identity guards it instead).
+    final adapter = _adapter;
+    if (adapter is AppLovinAdapter) adapter.reviveNativeInstance(key);
   }
 
   // T65 (phase 1) — keyed by widget instance (see AdProviderAdapter.nativeSlot).
