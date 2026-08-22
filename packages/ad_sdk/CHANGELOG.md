@@ -34,6 +34,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `addPostFrameCallback`, which does not itself schedule a frame — the
   reload silently no-opped until some unrelated frame happened to fire.
   Fixed by calling `WidgetsBinding.instance.scheduleFrame()` alongside it.
+- **Audit fix — `MonetizationArbitrator`'s with-estimator branch could veto
+  ads at zero eCPM.** The no-estimator branch already guarded on
+  `ecpm > 0`; the with-estimator branch was missing the same guard, so a
+  session with no revenue events yet (`ecpm == 0`) could still have ads
+  vetoed whenever the host's likelihood estimator reported > 0.5. Both
+  branches now require `ecpm > 0` before vetoing.
 
 ## [2.2.0] - 2026-08-20
 
