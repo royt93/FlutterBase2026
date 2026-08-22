@@ -202,6 +202,7 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void disposeBannerInstance(Object key) {
+    _disposedBannerKeys.add(key);
     _bannerAdsByKey.remove(key)?.dispose();
     _bannerSlotsByKey.remove(key)?.dispose();
     _bannerListenablesByKey.remove(key)?.dispose();
@@ -269,14 +270,27 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void disposeMrecInstance(Object key) {
+    _disposedMrecKeys.add(key);
     _mrecAdsByKey.remove(key)?.dispose();
     _mrecSlotsByKey.remove(key)?.dispose();
     _mrecListenablesByKey.remove(key)?.dispose();
+    // Minor (round 5) — banner removes its route-paused entry, AppLovin removes
+    // both; only AdMob-MREC leaked one per disposed widget.
+    _mrecRoutePausedByKey.remove(key);
   }
 
   // T65 (phase 1) — one AdSlot per NativeAdWidget instance (see nativeSlot()
   // below), instead of one shared across every mounted widget.
   final Map<Object, AdSlot> _nativeSlotsByKey = {};
+
+  /// MJ21 — keys whose owning widget has already been disposed. A load that is
+  /// mid-`await` when that happens would otherwise finish and write a fresh ad
+  /// into `_bannerAdsByKey`/`_mrecAdsByKey` for a dead key: nothing disposes it
+  /// afterwards (the widget is gone) and its callbacks touch listenables that
+  /// have been disposed. The native path already had this guard; banner and
+  /// MREC were missed, and they are the ones a fast scroll churns through.
+  final Set<Object> _disposedBannerKeys = {};
+  final Set<Object> _disposedMrecKeys = {};
 
   // ─── Native listenables ───────────────────────────────────────────────────
   // adSize/autoRefreshEnabled/visible are unused stubs — native ads have no
@@ -1481,6 +1495,15 @@ class AdMobAdapter implements AdProviderAdapter {
       final adaptive =
           await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
               widthPx.truncate());
+      // MJ21 — the adaptive-size lookup above is a real suspension point, and
+      // a fast scroll disposes this widget during it. Without this check the
+      // continuation builds an ad for a key nobody owns any more: nothing ever
+      // disposes it, and its callbacks write to disposed ValueNotifiers.
+      if (_disposedBannerKeys.contains(key)) {
+        SafeLogger.d(_logTag,
+            'loadBanner $tag ⏭️ widget was disposed mid-load — dropping');
+        return;
+      }
       final size = adaptive ?? AdSize.banner;
       _bannerAdsByKey[key] = BannerAd(
         adUnitId: cfg.bannerId,

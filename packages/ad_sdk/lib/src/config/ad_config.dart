@@ -215,6 +215,16 @@ class AppLovinConfig {
 /// consuming app configures, so manual QA on real hardware never counts as
 /// real impressions/clicks and never risks AdMob's invalid-activity rate
 /// limiting.
+/// ⚠️ DELIBERATE PRODUCT FEATURE — do NOT gate this behind a release check.
+///
+/// Flagged as a Blocker by a round-5 audit ("device hashes shipped in a public
+/// package, always on in release, no opt-out"). The trade-offs are known and
+/// accepted by the product owner: these hashes are public on pub.dev, and any
+/// device in this list earns no revenue in ANY app built on this SDK. The
+/// reason it stays always-on is that QA runs on real hardware in release
+/// builds, and a manual tester's tap must never count as a real click —
+/// invalid-activity rate limiting is a far more expensive failure than a
+/// handful of test devices. Documented for consumers in README.md.
 const List<String> kQaTestDeviceHashes = [
   '813DCF48B3E486F15A60676D49A2AB09', // Samsung SM-A507FN (A50s)
   'E165942547A491D06E43E24870B990B2', // OPPO CPH1989 (Reno2 series)

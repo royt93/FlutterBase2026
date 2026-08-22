@@ -1541,6 +1541,24 @@ swaps, or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative
 There is also no route-pause/auto-refresh concept for native ads (unlike banner/MREC) —
 `buildNative()` loads once per mount and doesn't react to navigation.
 
+## Built-in QA test devices (read this before measuring revenue)
+
+This package **always** merges a fixed list of AdMob test-device hashes into
+`RequestConfiguration.testDeviceIds`, in release builds too. They are the
+maintainers' own QA handsets (`kQaTestDeviceHashes` in
+`lib/src/config/ad_config.dart` — the list is public, on pub.dev, and readable
+by anyone).
+
+Why it exists: manual QA runs on real hardware against release builds, and a
+tester's tap must never be counted as a real click. Getting rate-limited for
+invalid activity is far more expensive than a handful of devices that serve
+test ads.
+
+What it costs you: if one of those devices ever ends up in the hands of a real
+user of **your** app, that user will only ever see test ads and will never
+generate revenue. There is currently no opt-out. If that trade-off does not
+work for you, fork the package and empty `kQaTestDeviceHashes`.
+
 ## Consent & compliance
 
 The SDK supports three patterns. Pick whichever matches your release strategy.

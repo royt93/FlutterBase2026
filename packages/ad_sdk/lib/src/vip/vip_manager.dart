@@ -682,6 +682,14 @@ class VipManager {
     required String publicKeyBase64,
     bool stack = true,
   }) async {
+    // ⚠️ DELIBERATE PRODUCT GATE — do NOT "fix" this.
+    //
+    // Three independent audit agents have now flagged this twice as a bug
+    // ("Ed25519 verification is offline, so why require network?"). The
+    // signature check IS fully offline; requiring connectivity to *redeem* is
+    // a product decision by the owner of this SDK, not an oversight. Removing
+    // it changes agreed product behaviour. If a future audit disagrees, take
+    // it to the product owner rather than to this line.
     if (!_isConnectedCheck()) {
       SafeLogger.d(_tag, 'redeemSignedKey: rejected — device is offline');
       return const SignedVipRedeemResult.invalid(
