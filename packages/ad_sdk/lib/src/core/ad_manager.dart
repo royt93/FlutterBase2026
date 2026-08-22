@@ -1282,6 +1282,16 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugUmpAttemptFailed(bool v) => _umpAttemptFailed = v;
 
+  @visibleForTesting
+  bool get debugUmpFormAbandoned => _umpFormAbandoned;
+
+  /// Test seam for [_recheckAbandonedUmpForm] (M-3) — the periodic backstop
+  /// and reconnect call sites are themselves timer/plugin-driven and out of
+  /// proportion to drive in a test just to reach this; this calls the real
+  /// method directly.
+  @visibleForTesting
+  Future<void> debugRecheckAbandonedUmpForm() => _recheckAbandonedUmpForm();
+
   /// Counts [_scheduleNextRetry]'s periodic UMP backstop firing — driving the
   /// real [requestUmpConsent] round trip in a test needs a full UMP channel
   /// mock (out of proportion here, see other UMP tests), so this is the test
@@ -2778,7 +2788,22 @@ class AdManager with WidgetsBindingObserver {
       testIdentifiers: testIdentifiers,
       tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
     );
+    await _applyUmpConsentResult(result);
+    return result;
+  }
 
+  /// Shared tail of a UMP round trip — applies [result] to the gate, the
+  /// persisted consent, the refill-on-unblock path, and the retry/abandon
+  /// bookkeeping. Used both by a full [_requestUmpConsent] flow and by
+  /// [_recheckAbandonedUmpForm]'s form-less recheck, so the two can never
+  /// drift apart on what "applying a UMP result" means.
+  ///
+  /// [cameFromAbandonedFormRecheck] changes only how [_umpFormAbandoned] is
+  /// updated — see that flag's own doc comment and [_recheckAbandonedUmpForm].
+  Future<void> _applyUmpConsentResult(
+    UmpConsentResult result, {
+    bool cameFromAbandonedFormRecheck = false,
+  }) async {
     // T01 — the compliance gate. Google policy: do NOT request ads when
     // canRequestAds is false (EEA user who hasn't granted a basis). Every
     // load*() consults [_canRequestAds].
@@ -2855,18 +2880,47 @@ class AdManager with WidgetsBindingObserver {
     // consent-value decision cannot drift apart again.
     _umpAttemptFailed =
         result.error != null || umpInconclusive || !result.canRequestAds;
-    // Assigned (not just set) so a later flow that completes normally clears
-    // it — otherwise one timeout would mute the backstop for the whole session.
-    _umpFormAbandoned =
-        result.formShown && (result.error?.contains('timed out') ?? false);
-    if (_umpFormAbandoned) {
-      SafeLogger.w(
-          _tag,
-          '⚠️ consent form abandoned by our own timeout — the native form may '
-          'still be on screen, so the periodic backstop will not re-present '
-          'one');
+    if (cameFromAbandonedFormRecheck) {
+      // M-3 (independent review) — `!umpInconclusive` is the WRONG condition
+      // here: a still-unanswered form reads back status=required, which is
+      // conclusive (no error, not `unknown`) but not resolved. Clearing on
+      // that would let the very next backstop tick call the full flow and
+      // present a SECOND form on top of the one still on screen — the exact
+      // bug this flag exists to prevent. Only `required` means "still
+      // pending"; obtained/notRequired (and even a fresh `unknown`) all mean
+      // the abandoned form is no longer the open question.
+      if (result.status != ConsentStatus.required) _umpFormAbandoned = false;
+    } else {
+      // Assigned (not just set) so a later flow that completes normally
+      // clears it — otherwise one timeout would mute the backstop forever.
+      _umpFormAbandoned =
+          result.formShown && (result.error?.contains('timed out') ?? false);
+      if (_umpFormAbandoned) {
+        SafeLogger.w(
+            _tag,
+            '⚠️ consent form abandoned by our own timeout — the native form '
+            'may still be on screen, so the periodic backstop will not '
+            're-present one');
+      }
     }
-    return result;
+  }
+
+  /// M-3 (independent review) — recovers from [_umpFormAbandoned] without
+  /// risking a second native form on top of one that may still be on
+  /// screen. `Future.timeout` cannot close a native dialog, so once our own
+  /// dismiss timeout fires, calling the full UMP flow again (which may
+  /// present a form) is unsafe; but muting the backstop forever — the
+  /// previous behaviour — meant a user who answered the still-open form 10
+  /// seconds after our timeout lost every ad for the rest of the session.
+  /// This only reads what Google's SDK already knows locally (no form, no
+  /// network round trip), so it is always safe to call on every tick.
+  Future<void> _recheckAbandonedUmpForm() async {
+    final result = await recheckUmpConsentStatus();
+    SafeLogger.d(
+        _tag,
+        () => '🔁 rechecking abandoned UMP form (no form presented) → '
+            'status=${result.status.name} canRequestAds=${result.canRequestAds}');
+    await _applyUmpConsentResult(result, cameFromAbandonedFormRecheck: true);
   }
 
   /// Whether UMP already got an answer out of this user, or decided none was
@@ -4337,11 +4391,17 @@ class AdManager with WidgetsBindingObserver {
           isConnected &&
           !_isVipMember &&
           !_umpAnswered &&
-          !_umpFormAbandoned &&
           _umpBackstopRetryCount < _maxUmpBackstopRetries) {
-        SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
-        _umpBackstopRetryCount++;
-        unawaited(_retryUmpConsent());
+        if (_umpFormAbandoned) {
+          // M-3 — a form may still be on screen; recheck status instead of
+          // risking a second one. Not counted against the retry budget: it
+          // never touches the network or the native form.
+          unawaited(_recheckAbandonedUmpForm());
+        } else {
+          SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
+          _umpBackstopRetryCount++;
+          unawaited(_retryUmpConsent());
+        }
       }
       _retryRefillAds();
       _scheduleNextRetry(gen);
@@ -4455,8 +4515,14 @@ class AdManager with WidgetsBindingObserver {
       // whatever UMP had cached. Retry only when the previous attempt actually
       // failed, so a user who already answered is not shown the form again.
       if (_umpAttemptFailed && !_umpAnswered) {
-        SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
-        unawaited(_retryUmpConsent());
+        if (_umpFormAbandoned) {
+          // M-3 — same reasoning as the periodic backstop: a form may still
+          // be on screen, so recheck instead of risking a second one.
+          unawaited(_recheckAbandonedUmpForm());
+        } else {
+          SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
+          unawaited(_retryUmpConsent());
+        }
       }
       _retryRefillAds();
       // Banners re-run their init on an initRevision bump (the widget checks

@@ -212,6 +212,21 @@ Future<UmpConsentResult> requestUmpConsentFlow({
   );
 }
 
+/// Re-reads UMP's current decision WITHOUT presenting a form or making a
+/// network request — a pure local read of what Google's SDK already knows.
+///
+/// M-3 (independent review, 2026-08-22 audit): used by [AdManager] to
+/// recover from an abandoned consent form (its own dismiss timeout fired,
+/// but a native form may still be on screen). `Future.timeout` cannot close
+/// that dialog, so calling [requestUmpConsentFlow] again there would risk
+/// presenting a SECOND form on top of it; this never does, so it is always
+/// safe to call, including on every periodic backstop tick.
+Future<UmpConsentResult> recheckUmpConsentStatus() async {
+  final canRequestAds = await ConsentInformation.instance.canRequestAds();
+  final status = await ConsentInformation.instance.getConsentStatus();
+  return UmpConsentResult(canRequestAds: canRequestAds, status: status);
+}
+
 /// Result of [requestPrivacyOptionsFlow].
 class PrivacyOptionsResult {
   const PrivacyOptionsResult({

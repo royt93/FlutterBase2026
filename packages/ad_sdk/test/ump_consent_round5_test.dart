@@ -250,6 +250,73 @@ void main() {
     });
   });
 
+  group('M-3 — abandoned-form recovery does not mute the whole session', () {
+    tearDown(() => debugFormDismissTimeoutOverride = null);
+
+    test(
+        'user answering the still-open form after our timeout is picked up '
+        'by the recheck, not muted forever', () async {
+      status = _statusRequired;
+      canRequestAds = false;
+      formAvailable = true;
+      // Our own dismiss timeout fires long before the native form is
+      // actually dismissed — the exact "form abandoned" scenario.
+      debugFormDismissTimeoutOverride = const Duration(milliseconds: 20);
+      final formDismiss = Completer<Object?>();
+      messenger.setMockMethodCallHandler(_umpChannel, (call) {
+        umpCalls.add(call.method);
+        switch (call.method) {
+          case 'ConsentInformation#requestConsentInfoUpdate':
+            return Future.value(null);
+          case 'ConsentInformation#canRequestAds':
+            return Future.value(canRequestAds);
+          case 'ConsentInformation#getConsentStatus':
+            return Future.value(status);
+          case 'ConsentInformation#isConsentFormAvailable':
+            return Future.value(formAvailable);
+          case 'UserMessagingPlatform#loadAndShowConsentFormIfRequired':
+            return formDismiss.future; // never resolves on its own
+          default:
+            return Future.value(null);
+        }
+      });
+
+      final r = await AdManager().requestUmpConsent();
+      expect(r.formShown, isTrue);
+      expect(AdManager().debugUmpFormAbandoned, isTrue,
+          reason: 'sanity: our own timeout must have fired first');
+
+      // The recheck must not clear the mute while the user genuinely still
+      // hasn't answered — status/canRequestAds haven't changed yet.
+      umpCalls.clear();
+      await AdManager().debugRecheckAbandonedUmpForm();
+      expect(
+        umpCalls,
+        isNot(contains(
+            'UserMessagingPlatform#loadAndShowConsentFormIfRequired')),
+        reason: 'M-3: recheck must never present a form — one may still be '
+            'on screen',
+      );
+      expect(AdManager().debugUmpFormAbandoned, isTrue,
+          reason: 'still unanswered — must stay muted so a later backstop '
+              'tick keeps rechecking instead of presenting a second form');
+
+      // The user now answers the still-open native form — reflected purely
+      // in what canRequestAds()/getConsentStatus() report, same as the real
+      // SDK would after a form dismiss.
+      status = _statusObtained;
+      canRequestAds = true;
+      await AdManager().debugRecheckAbandonedUmpForm();
+
+      expect(AdManager().debugUmpFormAbandoned, isFalse,
+          reason: 'M-3: the whole point of this fix — once resolved, the '
+              'mute must actually lift, not persist for the rest of the '
+              'session');
+      expect(AdManager().canRequestAds, isTrue);
+      expect(AdManager().debugUmpAttemptFailed, isFalse);
+    });
+  });
+
   group('MJ8 — one consent flow at a time', () {
     test('concurrent callers join the same in-flight request', () async {
       status = _statusRequired;
