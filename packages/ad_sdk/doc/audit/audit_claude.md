@@ -375,6 +375,135 @@ Với ràng buộc "không server/backend", các bypass MJ11/MJ12 và Android cl
 
 ---
 
+# MJ32 (finding mới, phát hiện khi verify vòng quyết định)
+
+**SDK có thể hiện lại popup consent mỗi lần mở app cho user EEA đã đồng ý.**
+
+**Evidence:** `lib/src/core/ump_consent.dart:129-146` — gate duy nhất trước khi `form.show()` là `isConsentFormAvailable()`. Theo doc của plugin (`google_mobile_ads-7.0.0/lib/src/ump/consent_information.dart:49-50`), hàm đó nghĩa là *"true if a ConsentForm is available"* — **không** phải "consent is required". Sau khi user đã đồng ý, form vẫn còn available (đó chính là cơ chế cho mục "Privacy Options" hoạt động — SDK cũng dùng nó ở `:234-259`).
+
+Comment tại `:123-126` tự nêu giả định *"notRequired/obtained: form rarely available, no-op"* — đây là **giả định, không có bảo đảm nào**.
+
+Plugin **đã có sẵn** API đúng: `ConsentForm.loadAndShowConsentFormIfRequired` (`google_mobile_ads-7.0.0/lib/src/ump/consent_form.dart:63-70`) — chính là hàm Google tạo ra để chỉ hiện form khi thật sự cần, và là cách làm khuyến nghị trong doc chính thức. SDK không dùng.
+
+**Tại sao chưa ai phát hiện:** CI ép `AD_PROVIDER_ADMOB` và không có geo EEA thật; ở non-EEA thì UMP trả `notRequired` và không có form ⇒ đường này không bao giờ chạy trong test. 891 test Dart cũng không chạm tới hành vi native của UMP.
+
+## MJ32 — ĐÃ KIỂM CHỨNG THỰC NGHIỆM: **CONFIRMED**, nâng lên Blocker
+
+Chạy trên Pixel 7 Pro (`2B051FDH3006MU`), debug build, `debugGeography: debugGeographyEea` + `testIdentifiers: ['9005AD1E37B82BBBCF70A3B34C485083']`, provider AdMob.
+
+**Lần 1** (dữ liệu app đã xoá sạch): `status: required` → form UMP thật hiện ra → bấm **Consent**.
+
+**Lần 2** (cold restart, `am force-stop` + relaunch, **không** xoá dữ liệu):
+```
+[UmpConsent] consent status: obtained
+[UmpConsent] ⚠️ consent form: consent form dismiss timed out after 20s
+[UmpConsent] ✅ done canRequestAds=true status=obtained formShown=true
+```
+Screenshot xác nhận form hiện lại nguyên vẹn trên màn hình dù `status == obtained`.
+
+⇒ **User EEA bị hiện popup consent mỗi lần mở app, vĩnh viễn.** Không phải rủi ro lý thuyết. Đây là vi phạm nguyên tắc không nag của UMP/GDPR và là lỗi UX nghiêm trọng — **nâng từ finding cần xác minh lên BLOCKER**.
+
+**Quyết định:** giữ khối load/show thủ công, thêm điều kiện `status == ConsentStatus.required` trước khi `form.show()` (giữ được tín hiệu `formShown` mà BL1 và m11 phụ thuộc). Gộp vào commit 1.
+
+---
+
+# MJ33 (finding mới, phát hiện trong lúc kiểm chứng MJ32)
+
+**Timeout chờ đóng form consent là 20 giây — ngắn hơn thời gian đọc thực tế của một form GDPR.**
+
+**Evidence:** `lib/src/core/ump_consent.dart:153-156`.
+
+Form UMP thật liệt kê **206 đối tác** + mục "Learn more" có thể mở rộng. Quan sát trực tiếp trong lần chạy thứ nhất: người dùng bấm chậm hơn 20s ⇒ SDK bỏ cuộc **trong khi form vẫn đang hiển thị trên màn hình**, trả `error='consent form dismiss timed out after 20s'` và chốt `canRequestAds=false, status=required`, tức quyết định gate được đưa ra trước khi user kịp trả lời.
+
+Timeout này tồn tại vì lý do chính đáng (comment `:147-152`: iOS Simulator từng treo vĩnh viễn khi không có ai tap). Nhưng 20s áp cho **người dùng thật** là quá ngắn.
+
+**Tương tác với BL1:** sau bản sửa BL1, `error != null` ⇒ `_umpAttemptFailed = true` ⇒ retry — và nếu MJ32 chưa sửa thì retry sẽ hiện form **lần nữa** trong lúc form đầu còn trên màn hình.
+
+**Minimum fix:** nâng timeout cho đường có form thật lên mức hợp với người đọc (đề xuất 180s), giữ mức ngắn chỉ cho môi trường test; hoặc bỏ timeout khi form đã thực sự `show()` thành công và chỉ giữ timeout cho bước `loadConsentForm`.
+
+---
+
+# Trạng thái triển khai — Commit 1 (2026-08-22)
+
+**Đã fix + verify: BL1, m11, MJ8, MJ32, MJ33, và phần retry của MJ3.**
+
+Gate: `flutter analyze` 0 issues, `flutter test` **897/897 pass** (thêm 6 test mới trong `test/ump_consent_round5_test.dart`).
+
+**Verify trên hardware thật** (Pixel 7 Pro, `debugGeography: debugGeographyEea`, `testIdentifiers: ['9005AD1E37B82BBBCF70A3B34C485083']`, provider AdMob) — A/B trên cùng thiết bị, cùng state:
+
+| Kịch bản | Trước fix | Sau fix |
+|---|---|---|
+| Cold restart, consent đã cấp | `status=obtained formShown=true` + form hiện lại trên màn hình | `consent form not required (status=obtained) — skip`, `formShown=false`, App Open ad chạy bình thường |
+| Fresh install, geo EEA | form hiện | form **vẫn hiện** (đường pháp lý không bị phá) |
+| Để form mở 59 giây | `consent form dismiss timed out after 20s` khi form còn trên màn hình | không có timeout; nhận đúng lựa chọn của user |
+
+Ghi chú: sau khi bấm "Do not consent", UMP trả `canRequestAds=true status=obtained` — đúng, vì vẫn được serve ad non-personalized. Nên nhánh m11 không bị kích hoạt ở ca này; logic cờ được phủ bằng unit test.
+
+Ngoài ra `MJ3` mới xong **một nửa** (retry replay params). Nửa còn lại — set `tagForUnderAgeOfConsent` lên `RequestConfiguration` của GMA (MJ4) — vẫn thuộc commit 2.
+
+---
+
+# Quyết định Round 5 (chốt với product owner, 2026-08-22)
+
+## Hai mục được xác định là TÍNH NĂNG CÓ CHỦ Ý, không phải bug
+
+Ghi rõ ở đây để các vòng audit sau (và các agent độc lập) **không flag lại**:
+
+1. **`redeemSignedKey` yêu cầu có mạng** (`vip_manager.dart:685-689`) — **product gate có chủ ý**, không phải giới hạn kỹ thuật. Ed25519 verify vốn chạy offline được; gate này là quyết định sản phẩm. **Việc cần làm:** sửa `README.md:1151` bỏ chữ "fully offline" cho khớp với `:885-890`, và làm rõ comment tại `vip_manager.dart:673-676` là *deliberate product gate — do not "fix"*. Ba agent độc lập (claude/codex/agy) đều đã flag mục này ở round 4 và round 5 → dấu hiệu chú thích hiện tại chưa đủ rõ.
+2. **`kQaTestDeviceHashes` always-on** (`ad_config.dart:218-227`) — **tính năng có chủ ý**: QA trên hardware thật không bao giờ được tính thành impression/click thật, kể cả ở release build. **Việc cần làm:** document ở README (hiện chỉ có ở `CHANGELOG.md:11-12`) và ghi rõ trong comment rằng đây là chủ ý, kèm đánh đổi đã biết (8 hash public trên pub.dev; máy trong danh sách không tạo doanh thu).
+
+## Bảng quyết định
+
+| # | Vấn đề | Quyết định |
+|---|---|---|
+| BL1 | UMP gate kẹt đóng cả session | Sửa: `_umpAttemptFailed = error != null \|\| umpInconclusive \|\| !canRequestAds` |
+| BL2 | Consent-footgun gate fail-open | Sửa: chỉ áp dụng `disableAppLovinCmpFlow` khi provider là AppLovin |
+| BL3 | QA test-device hashes | **Tính năng** — giữ nguyên, document README |
+| MJ10 | VIP redeem chặn offline | **Tính năng** — giữ gate, sửa README cho khớp |
+| m11 | Retry popup vô hạn | Sửa cả hai: cap 5 lần + không retry nếu `formShown` |
+| MJ1 | AppLovin nhận privacy flags sau init | Truyền `AdConsent` vào `adapter.initialize()` như param |
+| MJ2 | `tcfConsentString` luôn null | Sửa đọc đúng native store (cần verify trên máy thật cả 2 OS) |
+| MJ3+MJ4 | TFUA rơi ở retry + không tới GMA | Sửa cả hai |
+| MJ5 | `_consent` stale xoá CCPA/COPPA | Cả hai: đồng bộ trong listener + đọc qua ConsentManager ở 2 call site |
+| MJ6 | Ad đã cache vẫn show sau khi rút quyền | Huỷ ad đã tải khi quyền bị rút |
+| MJ7 | COPPA AppLovin một chiều | Khởi động lại AppLovin khi cờ đổi chiều |
+| MJ8 | UMP chạy chồng lượt | Chỉ cho 1 lượt xin phép tại một thời điểm |
+| MJ9 | Clock-forward poisoning | **Đổi sang mô hình đếm thời lượng còn lại** (việc lớn nhất) |
+| MJ11 | Fallback store giả mạo được | Chặn trần 90 ngày cho dữ liệu từ nơi dự phòng |
+| MJ12 | iOS: mốc chống rollback yếu hơn entitlement | Lưu mốc vào cùng nơi an toàn với dữ liệu VIP |
+| MJ13+MJ14 | CRL không revoke được + không timeout | Sửa cả hai |
+| MJ15 | App Open callback muộn giết ad mới | Identity guard `identical(_appOpenAd, ad)` ở mọi nhánh |
+| MJ16 | `showAdBuffer` throw ⇒ khoá fullscreen | Cả hai: set cờ sau khi push + try/catch gọi `onComplete()` |
+| MJ17 | `dismiss()` thiếu `_generation++` | `_generation++` + call site rewarded chỉ dismiss khi tự show |
+| MJ18 | AppLovin mất reward | Bê cặp cờ `earned`/`fired` của AdMob sang |
+| MJ19 | Adapter orphan khi init fail | `await adapter.dispose()` trước `return` |
+| MJ20 | Banner/MREC/native kẹt "đang tải" | Cả hai: watchdog 30s + cho `_retryRefillAds` quét 3 loại này |
+| MJ21 | Race dispose-during-await | Mở rộng tombstone-set của native sang banner + MREC |
+| MJ22 | Crash guard ăn mất crash của host | Cờ `_installed` + release chain xuống `previousOnError` |
+| MJ23 | Slot kẹt `showing` | Bổ sung loại còn thiếu vào `_recoverSlots` (2 dòng) |
+| MJ24+MJ25 | Watchdog arm sau `await` + catch không dispose | Sửa cả hai |
+| MJ26 | App Open sau khi user click ad | Ghi nhậy thời điểm click, chặn 30s sau đó |
+| MJ27 | `bypassSafety` bỏ luôn fraud gate | Tách fraud-check ra khỏi caps; fraud-check không ai được miễn |
+| MJ28 | `resetSession()` xoá fraud state | Tách: chỉ reset counter phiên; sửa nút ở example |
+| MJ29 | CI chết, iOS chưa verify | **Ship dựa trên 891 test + Android tay** (chấp nhận rủi ro có chủ ý) |
+| MJ30 | `doc/` publish lên pub.dev | `.pubignore` loại `doc/` (trừ screenshots) + `test/` |
+| MJ31 | GMA 7 vs 9.1 | Lên kế hoạch nâng, chưa làm đợt này |
+| MJ32 | Popup consent có thể hiện lại mỗi launch | Kiểm chứng thật bằng `debugGeography` trước, rồi quyết |
+| Minor nhóm 1 | Rò rỉ bộ nhớ nhỏ | Sửa hết 7 mục |
+| Minor nhóm 2 | Độ tươi + đồng hồ | Sửa 3 mục phía AdMob, giữ nguyên AppLovin (đúng thiết kế) |
+| Minor nhóm 3 | Consent + ổn định nhỏ | Sửa hết 9 mục |
+| Minor nhóm 4 | Tài liệu + app mẫu + VIP nhỏ | Sửa tài liệu + app mẫu + 2 mục VIP; **bỏ** nhóm hiệu năng |
+
+## Ghi chú phụ thuộc khi triển khai
+
+- **m11 phụ thuộc BL1** — phải làm cùng lượt, nếu không bản sửa BL1 sẽ tạo ra retry vô hạn.
+- **MJ8 phụ thuộc BL1** — BL1 làm đường retry chạy thường xuyên hơn ⇒ xác suất chạy chồng tăng.
+- **MJ32 chồng lấn MJ3 và m11** — cả ba đụng cùng khối `ump_consent.dart` / `requestUmpConsent`; quyết MJ32 trước khi sửa hai mục kia, hoặc làm cùng lượt.
+- **MJ2 và mục "đọc tín hiệu riêng tư các bạng Mỹ" (Minor 3) cùng một loại khó** — đều phải đọc đúng native store, khác nhau giữa Android và iOS, và **không xác minh được bằng test Dart**. Với quyết định MJ29 (bỏ kiểm thử iOS), hai mục này là phần rủi ro cao nhất trong cả đợt: nên verify tay trên máy thật, ít nhất Android.
+- **MJ9 là redesign, không phải patch** — nên làm thành commit riêng, có bước chuyển đổi dữ liệu cho user đang giữ VIP.
+
+---
+
 # Lịch sử ngắn
 
 - **Đóng trong round 5** (tự verify, không re-litigate): UMP "mọi exception đều fail-open"; stale GAID qua destroy/re-init; banner/MREC/native không phản ứng gate consent; AdMob banner/MREC reload xong vẫn hidden; eCPM=0 nudge; exception một listener chặn listener khác trong `fire()`; VIP clock-**rollback** (chiều lùi — chiều tiến là MJ9, bug khác); mutex fullscreen thiếu rewarded-interstitial; multi-instance singleton conflict.
