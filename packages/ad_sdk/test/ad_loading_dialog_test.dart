@@ -140,6 +140,88 @@ void main() {
       expect(AdLoadingDialog.isShowing, isFalse);
     });
 
+    // MJ16 + M4 (second independent review). This was the highest-cost fix in
+    // the round with no test at all: `_isShowing` used to be raised BEFORE
+    // `Navigator.of()` / the route push, neither guarded, and every caller is
+    // fire-and-forget. One throw and `_fullscreenBusyReason` reported "ad
+    // loading buffer showing" for the rest of the session — blocking ALL FOUR
+    // fullscreen formats — while `onComplete` never ran, hanging whatever
+    // awaited it (a splash, in the documented integration flow).
+    testWidgets('MJ16: a failed present leaves no stuck flag and still '
+        'completes', (tester) async {
+      var onCompleteCalls = 0;
+      // A context with no Navigator above it: `Navigator.of` throws, which is
+      // exactly the class of failure the guard exists for.
+      await tester.pumpWidget(
+        Builder(
+          builder: (context) {
+            AdLoadingDialog.showAdBuffer(
+              context,
+              durationMs: 100,
+              onComplete: () => onCompleteCalls++,
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+      await tester.pump();
+
+      expect(AdLoadingDialog.isShowing, isFalse,
+          reason: 'a stuck flag here blocks every fullscreen ad for the rest '
+              'of the session');
+      expect(onCompleteCalls, 1,
+          reason: 'showAdBuffer documents onComplete as ALWAYS called; a '
+              'splash awaiting it would otherwise hang');
+    });
+
+    // MJ17 — `dismiss()` did not bump `_generation` the way `resetState()`
+    // does, so a sleeping showAdBuffer timer woke up believing it was still
+    // current and ran its `finally`, clearing `_isShowing`/`_activeNavigator`/
+    // `_activeRoute` that by then belonged to a NEWER dialog. That dialog was
+    // then unclosable — `barrierDismissible: false`, `PopScope(canPop: false)`,
+    // and `dismiss()` early-returns on `!_isShowing`. Frozen UI, no way out.
+    testWidgets('MJ17: dismiss() invalidates a sleeping buffer timer',
+        (tester) async {
+      // First press starts a buffered dialog; second press puts up an
+      // untimed one via show() — which is what the rewarded on-demand path
+      // does, and is the real shape of this bug.
+      var pressCount = 0;
+      await pumpHost(tester, (context) {
+        if (pressCount++ == 0) {
+          AdLoadingDialog.showAdBuffer(context, durationMs: 500,
+              onComplete: () {});
+        } else {
+          AdLoadingDialog.show(context);
+        }
+      });
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pump();
+      expect(AdLoadingDialog.isShowing, isTrue);
+
+      // Someone else takes this dialog down mid-buffer via dismiss().
+      AdLoadingDialog.dismiss();
+      await tester.pumpAndSettle();
+      expect(AdLoadingDialog.isShowing, isFalse);
+
+      // A NEW, UNTIMED dialog goes up before the old timer wakes. Only the
+      // first buffer's timer is still alive, so anything that clears state
+      // after this point can only be that stale timer.
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pump();
+      expect(AdLoadingDialog.isShowing, isTrue);
+
+      // The FIRST buffer's timer now elapses. It must recognise itself as
+      // stale and leave the new dialog's state alone.
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(AdLoadingDialog.isShowing, isTrue,
+          reason: 'the stale timer cleared state belonging to the new dialog, '
+              'which then could not be dismissed by anything');
+      expect(tester.takeException(), isNull);
+      AdLoadingDialog.resetState();
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('normal path: timer elapses, dialog pops, onComplete fires',
         (tester) async {
       var onCompleteCalls = 0;
