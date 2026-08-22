@@ -29,10 +29,17 @@ void _recoverSlots() {
     adapter.appOpenSlot,
     adapter.interstitialSlot,
     adapter.rewardedSlot,
-    // T65 (phase 2): every currently-tracked BannerAdWidget instance, not
-    // just one — mrec/native still aren't covered here (pre-existing gap,
-    // unrelated to this refactor).
+    // MJ23 — rewardedInterstitial, mrec and native were all missing. This is
+    // the only recovery path for a slot stuck `showing`: those three formats
+    // have no show-watchdog (deliberately — a rewarded ad can legitimately be
+    // on screen for minutes), so if the callback that would have moved the
+    // slot on is the very thing that crashed, the slot stayed `showing`
+    // forever and no further ad of that format could ever be requested.
+    adapter.rewardedInterstitialSlot,
+    // T65 (phase 2): every currently-tracked widget instance, not just one.
     ...adapter.bannerSlots,
+    ...adapter.mrecSlots,
+    ...adapter.nativeSlots,
   ]) {
     if (slot.isShowing || slot.isLoading) {
       slot.markShowFailed();

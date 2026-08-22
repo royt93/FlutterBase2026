@@ -118,6 +118,14 @@ class AdLoadingDialog {
     _activeNavigator = null;
     _activeRoute = null;
     _isShowing = false;
+    // MJ17 — invalidate any [showAdBuffer] timer still sleeping, exactly as
+    // [resetState] does. Without this, that timer woke up, saw its generation
+    // was still current, and ran its `finally` — clearing `_isShowing` /
+    // `_activeNavigator` / `_activeRoute` that by then belonged to a NEWER
+    // dialog. The new dialog was then unclosable: `barrierDismissible: false`
+    // plus `PopScope(canPop: false)`, and dismiss() early-returns on
+    // `!_isShowing`. The UI froze with no way out.
+    _generation++;
     try {
       if (nav != null && route != null) _removeDialogRoute(nav, route);
     } catch (e) {
@@ -145,7 +153,6 @@ class AdLoadingDialog {
       return;
     }
 
-    _isShowing = true;
     SafeLogger.d(_tag, 'showAdBuffer: showing dialog, bufferMs=$ms');
 
     // ✅ FIX 2 (from 1.0.8): capture NavigatorState BEFORE any async gap.
@@ -153,11 +160,33 @@ class AdLoadingDialog {
     // NOT by the screen's State. It survives even when the screen is disposed.
     // Old code: checked `context.mounted` AFTER await → if screen was disposed
     // during the wait, pop() was skipped → dialog hangs forever.
-    final navigator = Navigator.of(context, rootNavigator: true);
+    //
+    // MJ16 — `_isShowing = true` used to be set ABOVE this, and neither call
+    // below was guarded. Both can throw (no Navigator in this context, a
+    // deactivated widget), and every caller is fire-and-forget, so a throw
+    // left `_isShowing` stuck true forever: `_fullscreenBusyReason` then
+    // reported "ad loading buffer showing" for the rest of the session,
+    // blocking ALL FOUR fullscreen formats — and `onComplete` never ran, so a
+    // splash awaiting it hung too. Two changes: the flag is only raised once
+    // the route actually exists, and a throw still honours the docstring's
+    // promise that `onComplete` is always called.
+    final NavigatorState navigator;
+    final int myGen;
+    final Route<dynamic> route;
+    try {
+      navigator = Navigator.of(context, rootNavigator: true);
+      myGen = ++_generation;
+      route = _pushDialogRoute(context);
+    } catch (e, st) {
+      SafeLogger.e(_tag, 'showAdBuffer: could not present the dialog: $e\n$st');
+      _isShowing = false;
+      _activeNavigator = null;
+      _activeRoute = null;
+      onComplete();
+      return;
+    }
+    _isShowing = true;
     _activeNavigator = navigator;
-    final myGen = ++_generation;
-
-    final route = _pushDialogRoute(context);
     _activeRoute = route;
 
     await Future.delayed(Duration(milliseconds: ms));

@@ -6,9 +6,56 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-Round-5 audit, commit 2 of 6 — the rest of the consent surface.
+Round-5 audit, commits 2–3: the rest of the consent surface, then the
+fullscreen-lifecycle failures that could kill a surface for a whole session.
 
-### Fixed
+### Fixed — lifecycle (commit 3)
+
+- **App Open could die for the rest of the session, and leak two native ads
+  doing it.** After the 90 s hard cap force-dismissed a show, AdManager
+  reloaded and a new ad took the field — and then the abandoned ad's native
+  callback arrived and cleared that field unconditionally, destroying the
+  replacement. `appOpenSlot` still reported ready, so `showAppOpen` returned
+  false against a null ad forever, and `_retryRefillAds` only refills
+  idle/cooldown slots so nothing repaired it. Callbacks now clear the field
+  only while it still points at their own ad, and the watchdog disposes the ad
+  it gives up on instead of just forgetting it.
+- **The App Open watchdog was armed after `await ad.show(...)`.** If the
+  platform call itself never resolved — the exact hang the watchdog exists for
+  — it was never armed at all. Armed before the await now.
+- **`AdLoadingDialog.showAdBuffer` could block every fullscreen ad for the
+  session.** It set `_isShowing = true` before `Navigator.of()` and the route
+  push, neither guarded, and every caller is fire-and-forget: a throw left the
+  flag stuck true, so `_fullscreenBusyReason` reported "ad loading buffer
+  showing" forever, and `onComplete` never ran — hanging a splash that awaited
+  it. The flag is now raised only once the route exists, and a failure still
+  calls `onComplete` as the docstring promises.
+- **`AdLoadingDialog.dismiss()` could strand a later dialog with no way to
+  close it.** Unlike `resetState()` it did not bump the generation, so a
+  sleeping `showAdBuffer` timer woke up, believed it was still current, and
+  cleared state belonging to a NEWER dialog — which then had
+  `barrierDismissible: false`, `PopScope(canPop: false)` and a `dismiss()`
+  that early-returns: a frozen UI. The rewarded on-demand path also stopped
+  dismissing dialogs it never opened.
+- **A failed `initialize()` left the adapter alive.** AppLovin wires its four
+  native listeners before awaiting SDK init, so on the 20 s timeout branch the
+  native side could still come up and keep calling into slots this manager had
+  abandoned — up to four orphans across the retry chain, each holding ~15 live
+  `ValueNotifier`s.
+- **Banner / MREC / native could sit "loading" forever.** They had no load
+  watchdog (all four fullscreen formats do), so a GMA listener that never fired
+  left the slot refusing every later `beginLoad()` and the widget showing its
+  shimmer placeholder with `hasError` false. Now bounded at 30 s, which lands
+  the slot in `cooldown` — a state a remount retries.
+- **The crash guard's slot recovery skipped rewarded-interstitial, MREC and
+  native.** That pass is the *only* recovery for a slot stuck `showing`, since
+  those formats deliberately have no show-watchdog; if the callback that would
+  have advanced the slot was the thing that crashed, it stayed stuck.
+- **Four `show*` catch blocks dropped the ad without disposing it**, leaking
+  the native object. Reachable: `gma_bridge` awaits `setServerSideOptions()`
+  before showing, and a platform call can throw.
+
+### Fixed — consent (commit 2)
 
 - **The consent-footgun guard was fail-open on AdMob.** It treated
   `disableAppLovinCmpFlow: false` as proof that a consent flow existed, but

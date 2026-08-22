@@ -251,6 +251,9 @@ class AdMobAdapter implements AdProviderAdapter {
   Iterable<AdSlot> get mrecSlots => _mrecSlotsByKey.values;
 
   @override
+  Iterable<AdSlot> get nativeSlots => _nativeSlotsByKey.values;
+
+  @override
   BannerListenables mrec(Object key) => _mrecListenablesFor(key);
 
   // Test seam: hand back the real BannerAdListener created by
@@ -374,6 +377,12 @@ class AdMobAdapter implements AdProviderAdapter {
   /// AppLovin adapter's hard-cap watchdog.
   Timer? _appOpenShowTimeout;
   static const Duration _appOpenShowHardCap = Duration(seconds: 90);
+
+  /// MJ20 — load deadline for the widget-backed formats (banner / mrec /
+  /// native). 30 s is well past a real fill on a slow network, and by then the
+  /// user has scrolled away anyway; the point is that the slot ends up in
+  /// `cooldown` (retryable) instead of stuck `loading` (permanently refusing).
+  static const Duration _widgetLoadWatchdog = Duration(seconds: 30);
 
   // T65 (phase 2) — one flag per BannerAdWidget instance (each has its own
   // RouteAware subscription/route).
@@ -761,6 +770,13 @@ class AdMobAdapter implements AdProviderAdapter {
       return;
     }
     _appOpenDismiss = onDismiss;
+    // MJ24 — armed BEFORE the show, not after. This used to sit below the
+    // `await ad.show(...)`, so if the platform call itself never resolved (the
+    // hang this watchdog exists to survive) the watchdog was never armed at
+    // all and `_appOpenDismiss` stayed pending forever — on the resume path
+    // there is no other recovery timer. Safe to arm early: the callbacks below
+    // cancel it, and it verifies callback identity before firing.
+    _armAppOpenWatchdog(onDismiss);
     try {
       await ad.show(GmaShowCallbacks(
         onShowed: () => SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown'),
@@ -774,12 +790,19 @@ class AdMobAdapter implements AdProviderAdapter {
           if (_appOpenDismiss == null) {
             SafeLogger.d(_logTag,
                 'showAppOpen $tag 👋 dismissed (late — watchdog already handled this show)');
-            _appOpenAd = null;
+            // MJ15 — do NOT clear `_appOpenAd` here. By the time a late
+            // callback lands, the watchdog has already resolved this cycle and
+            // AdManager has reloaded, so the field holds a *different, ready*
+            // ad. Clearing it left `appOpenSlot` reporting ready with no ad
+            // behind it, and showAppOpen then returned false forever:
+            // `_retryRefillAds` only refills an idle/cooldown slot, so nothing
+            // ever repaired it. App Open was dead for the rest of the session.
+            _clearAppOpenIfSame(ad);
             _disposeAd(ad, 'appOpen-after-dismiss-late');
             return;
           }
           SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
-          _appOpenAd = null;
+          _clearAppOpenIfSame(ad);
           _disposeAd(ad, 'appOpen-after-dismiss');
           appOpenSlot.markDismissed();
           final cb = _appOpenDismiss;
@@ -789,7 +812,10 @@ class AdMobAdapter implements AdProviderAdapter {
         onFailedToShow: (message) {
           _appOpenShowTimeout?.cancel();
           _appOpenShowTimeout = null;
-          _appOpenAd = null;
+          // MJ15 — this clear used to sit ABOVE the late-arrival check, so it
+          // ran unconditionally and could wipe a freshly reloaded ad even more
+          // easily than the onDismissed path.
+          _clearAppOpenIfSame(ad);
           // Late arrival (see onDismissed above) — watchdog already resolved.
           if (_appOpenDismiss == null) {
             SafeLogger.w(_logTag,
@@ -814,20 +840,31 @@ class AdMobAdapter implements AdProviderAdapter {
           ));
         },
       ));
-      // Safety net: if neither dismiss nor fail callback fires (rare GMA /
-      // mediation hang), force-dismiss after the hard cap so the caller — which
-      // on the resume path has no other recovery timer — never hangs.
-      _armAppOpenWatchdog(onDismiss);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showAppOpen $tag show THREW: $e\n$st');
       _appOpenShowTimeout?.cancel();
       _appOpenShowTimeout = null;
-      _appOpenAd = null;
+      _clearAppOpenIfSame(ad);
+      // MJ25 — the local `ad` is the last reference; dropping it without
+      // disposing leaks the native ad. Reachable: gma_bridge awaits
+      // setServerSideOptions() before show, and a platform call can throw.
+      _disposeAd(ad, 'appOpen-show-threw');
       appOpenSlot.markShowFailed();
       final cb = _appOpenDismiss;
       _appOpenDismiss = null;
       cb?.call(false);
     }
+  }
+
+  /// MJ15 — clears `_appOpenAd` only while it still points at [ad].
+  ///
+  /// Every callback below captures the ad it was created for, but the field
+  /// moves on: the watchdog can resolve a show and AdManager can load a
+  /// replacement before a late native callback arrives. Clearing
+  /// unconditionally then destroyed the *replacement*, leaving `appOpenSlot`
+  /// ready with nothing behind it — a state nothing repairs.
+  void _clearAppOpenIfSame(GmaFullscreenAd? ad) {
+    if (identical(_appOpenAd, ad)) _appOpenAd = null;
   }
 
   /// Arms the App Open show watchdog. Captures [captured] (the *local*
@@ -842,7 +879,12 @@ class AdMobAdapter implements AdProviderAdapter {
       if (_appOpenDismiss != captured) return; // already resolved / replaced
       SafeLogger.w(_logTag,
           'showAppOpen $tag ⏰ HARD CAP — no dismiss callback, force dismiss(false)');
+      // MJ15 — this used to null the field without disposing, leaking the
+      // native ad. The ad is abandoned here (its callbacks may still fire
+      // late), so it has to be released, not just forgotten.
+      final abandoned = _appOpenAd;
       _appOpenAd = null;
+      _disposeAd(abandoned, 'appOpen-hard-cap');
       appOpenSlot.markShowFailed();
       _appOpenDismiss = null;
       captured(false);
@@ -864,6 +906,23 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @visibleForTesting
   bool get debugWatchdogArmed => _appOpenShowTimeout != null;
+
+  /// MJ15 test seam: stands in for "AdManager reloaded after the watchdog
+  /// force-dismissed", so a test can assert a late native callback cannot
+  /// destroy the replacement ad.
+  @visibleForTesting
+  void debugSetAppOpenAd(GmaFullscreenAd? ad) => _appOpenAd = ad;
+
+  @visibleForTesting
+  GmaFullscreenAd? get debugAppOpenAd => _appOpenAd;
+
+  /// MJ15 test seam: replays a late `onDismissed`/`onFailedToShow` for an ad
+  /// this adapter has already abandoned.
+  @visibleForTesting
+  void debugSimulateLateAppOpenCallback(GmaFullscreenAd staleAd) {
+    _clearAppOpenIfSame(staleAd);
+    _disposeAd(staleAd, 'test-late-callback');
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
   //  INTERSTITIAL
@@ -986,7 +1045,9 @@ class AdMobAdapter implements AdProviderAdapter {
       ));
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showInterstitial $tag THREW: $e\n$st');
-      _interstitialAd = null;
+      // MJ25 — dispose, don't just forget: `ad` is the last reference.
+      if (identical(_interstitialAd, ad)) _interstitialAd = null;
+      _disposeAd(ad, 'interstitial-show-threw');
       interstitialSlot.markShowFailed();
       final cb = _interstitialDone;
       _interstitialDone = null;
@@ -1170,7 +1231,9 @@ class AdMobAdapter implements AdProviderAdapter {
           ));
     } catch (e, st) {
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
-      _rewardedAd = null;
+      // MJ25 — dispose, don't just forget: `ad` is the last reference.
+      if (identical(_rewardedAd, ad)) _rewardedAd = null;
+      _disposeAd(ad, 'rewarded-show-threw');
       rewardedSlot.markShowFailed();
       fire(RewardResult.skipped);
     }
@@ -1317,7 +1380,11 @@ class AdMobAdapter implements AdProviderAdapter {
     } catch (e, st) {
       SafeLogger.e(
           _logTag, 'showRewardedInterstitial $tag show THREW: $e\n$st');
-      _rewardedInterstitialAd = null;
+      // MJ25 — dispose, don't just forget: `ad` is the last reference.
+      if (identical(_rewardedInterstitialAd, ad)) {
+        _rewardedInterstitialAd = null;
+      }
+      _disposeAd(ad, 'rewardedInterstitial-show-threw');
       rewardedInterstitialSlot.markShowFailed();
       fire(RewardResult.skipped);
     }
@@ -1405,6 +1472,13 @@ class AdMobAdapter implements AdProviderAdapter {
           _logTag, 'loadBanner $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
+    // MJ20 — banner/mrec/native depended entirely on GMA calling a listener
+    // back. `beginLoad()` has no timeout of its own (AdSlot says so), the
+    // fullscreen formats all arm this watchdog, and `_retryRefillAds` never
+    // scanned these three slots — so a listener that never fired left the slot
+    // `loading` forever, every later beginLoad() refused, and the widget sat on
+    // its shimmer placeholder for the rest of the session with hasError false.
+    slot.armLoadWatchdog('banner', _widgetLoadWatchdog);
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadBanner $tag 🔄 width=$widthPx');
     try {
@@ -1548,6 +1622,8 @@ class AdMobAdapter implements AdProviderAdapter {
           _logTag, 'loadMrec $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
+    // MJ20 — see loadBanner.
+    slot.armLoadWatchdog('mrec', _widgetLoadWatchdog);
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadMrec $tag 🔄');
     try {
@@ -1661,6 +1737,8 @@ class AdMobAdapter implements AdProviderAdapter {
           'preloadNative $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
+    // MJ20 — see loadBanner.
+    slot.armLoadWatchdog('native', _widgetLoadWatchdog);
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'preloadNative $tag 🔄');
     try {

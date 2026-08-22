@@ -214,6 +214,9 @@ class AppLovinAdapter implements AdProviderAdapter {
   Iterable<AdSlot> get mrecSlots => _mrecSlotsByKey.values;
 
   @override
+  Iterable<AdSlot> get nativeSlots => _nativeSlotsByKey.values;
+
+  @override
   BannerListenables mrec(Object key) => _mrecListenablesFor(key);
 
   @override

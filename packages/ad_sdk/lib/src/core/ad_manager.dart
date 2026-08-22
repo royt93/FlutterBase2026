@@ -2140,6 +2140,25 @@ class AdManager with WidgetsBindingObserver {
       }
       if (!ok) {
         SafeLogger.e(_tag, 'adapter init FAILED');
+        // MJ19 — release the adapter we just built. AppLovinAdapter wires its
+        // four native listeners BEFORE awaiting the SDK init, so on the 20 s
+        // timeout branch the native side can still come up afterwards and
+        // those listeners keep firing into slots this manager has already
+        // abandoned. With up to 4 attempts that meant up to 4 orphaned
+        // adapters, each holding ~15 live ValueNotifiers. dispose() is
+        // documented as safe to call before/after initialize, but a
+        // half-initialised SDK is exactly where it might throw, so it cannot
+        // be allowed to mask the init failure.
+        //
+        // Disposes the LOCAL `adapter`, not `_adapter`: the field is only
+        // assigned further down, once init has succeeded, so on this branch it
+        // still holds whatever the previous session left (usually null) and
+        // must not be touched.
+        try {
+          await adapter.dispose();
+        } catch (e) {
+          SafeLogger.w(_tag, 'disposing the failed adapter threw: $e');
+        }
         // Only report the terminal outcome to the host — `onComplete` is a
         // 1.x callback contract meant to fire exactly once per host call.
         // Firing it on every internal retry attempt (up to 4x: the first
@@ -3655,6 +3674,7 @@ class AdManager with WidgetsBindingObserver {
         SafeLogger.w(_tag,
             '⚠️ showRewarded (bypass) — no navigator context, on-demand load will run without a loading dialog');
       }
+      var shownOwnDialog = false;
       if (ctx != null) {
         // AdLoadingDialog.dismiss() wraps its Navigator pop in try/catch;
         // show()'s showDialog call had no equivalent protection — if it
@@ -3663,6 +3683,7 @@ class AdManager with WidgetsBindingObserver {
         // the rest of the session.
         try {
           AdLoadingDialog.show(ctx);
+          shownOwnDialog = true;
         } catch (e) {
           // resetState() (not just clearing our own flag) — show() already
           // set AdLoadingDialog._isShowing = true before the throwing call,
@@ -3679,7 +3700,12 @@ class AdManager with WidgetsBindingObserver {
       }
       final loaded =
           await _loadRewardedOnDemand(ad, timeout: onDemandLoadTimeout);
-      AdLoadingDialog.dismiss();
+      // MJ17 — only dismiss a dialog THIS call put up. It used to fire
+      // unconditionally, including when `show()` was skipped for a null
+      // context, so during the on-demand rewarded load (up to 15 s, and not
+      // covered by `_fullscreenBusyReason`) it could tear down a buffer dialog
+      // that a resume had opened for something else entirely.
+      if (shownOwnDialog) AdLoadingDialog.dismiss();
       if (!loaded) {
         _rewardedInFlight = false;
         SafeLogger.d(_tag, '⏭️ showRewarded (bypass) — on-demand load failed');
@@ -4328,6 +4354,14 @@ class AdManager with WidgetsBindingObserver {
         ad.rewardedInterstitialSlot.isCooldown) {
       unawaited(loadRewardedInterstitialAd());
     }
+    // MJ20 note: this scan still covers only the four fullscreen slots.
+    // Nudging stalled banner/mrec/native slots from here as well was tried and
+    // dropped — the watchdog added in AdMobAdapter is the root-cause fix (the
+    // slot now lands in `cooldown`, which a widget remount retries, instead of
+    // being stuck `loading` and refusing every later beginLoad forever), and
+    // reaching those slot collections from here forces the new getter onto
+    // ~15 test fakes for a second, redundant recovery path. Revisit only if a
+    // real stall survives a remount.
   }
 
   // ──────────────────────────────────────────────────────────────────────────

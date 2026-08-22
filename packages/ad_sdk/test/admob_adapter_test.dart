@@ -17,7 +17,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec;
 
-import 'admob_behavioral_test.dart' show FakeGmaBridge;
+import 'admob_behavioral_test.dart'
+    show FakeGmaBridge, FakeGmaFullscreenAd;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -71,6 +72,46 @@ void main() {
       expect(adapter.appOpenSlot.value, AdSlotState.cooldown,
           reason: 'markShowFailed → cooldown');
       expect(adapter.debugWatchdogArmed, isFalse, reason: 'timer self-cleared');
+    });
+
+    // MJ15 (round 5 audit). The watchdog force-dismisses, AdManager reloads,
+    // and a NEW ad lands in `_appOpenAd` — and only THEN does the abandoned
+    // ad's native callback arrive. That late callback used to clear
+    // `_appOpenAd` unconditionally, destroying the replacement: the slot still
+    // reported ready, showAppOpen() returned false against a null ad forever,
+    // and `_retryRefillAds` only refills idle/cooldown slots, so nothing ever
+    // repaired it. App Open was dead for the rest of the session.
+    test('a late callback for an abandoned ad must not clear the replacement',
+        () async {
+      final adapter = AdMobAdapter();
+      bool? dismissed;
+      final abandoned = FakeGmaFullscreenAd();
+      adapter.debugSetAppOpenAd(abandoned);
+      adapter.debugSimulateAppOpenShowAndArmWatchdog(
+        (d) => dismissed = d,
+        const Duration(milliseconds: 20),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(dismissed, isFalse);
+      expect(adapter.debugAppOpenAd, isNull,
+          reason: 'the hard cap abandons (and disposes) the ad it gave up on');
+      expect(abandoned.disposeCount, 1,
+          reason: 'the watchdog used to null the field WITHOUT disposing — '
+              'that leaked the native ad');
+
+      // AdManager reloads: a fresh ad takes the field.
+      final replacement = FakeGmaFullscreenAd();
+      adapter.debugSetAppOpenAd(replacement);
+
+      // Now the old ad's native callback finally lands.
+      adapter.debugSimulateLateAppOpenCallback(abandoned);
+
+      expect(adapter.debugAppOpenAd, same(replacement),
+          reason: 'THE regression: a callback for a stale ad cleared whatever '
+              'the field happened to hold');
+      expect(replacement.disposeCount, 0,
+          reason: 'and it must not be disposed either');
     });
 
     test('dispose cancels the watchdog — it never fires twice', () async {

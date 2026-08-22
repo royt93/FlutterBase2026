@@ -143,6 +143,11 @@ abstract class AdProviderAdapter {
   /// when the owning widget unmounts.
   AdSlot nativeSlot(Object key);
 
+  /// Every currently-tracked native [AdSlot]. Same rationale as [bannerSlots]
+  /// — added for MJ23, which found [installAdCrashGuard]'s recovery pass
+  /// covering banners but not mrec or native.
+  Iterable<AdSlot> get nativeSlots;
+
   /// Banner reactive listenables for the [BannerAdWidget] tree, keyed by
   /// widget instance (see [bannerSlot]).
   BannerListenables banner(Object key);

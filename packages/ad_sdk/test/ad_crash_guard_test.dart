@@ -33,6 +33,18 @@ class _FakeAdapter implements AdProviderAdapter {
   @override
   Iterable<AdSlot> get bannerSlots => [_bannerSlot];
 
+  // MJ23 — the recovery pass now covers mrec and native too, which is the
+  // whole point of that fix: those slots have no show-watchdog, so a crash in
+  // the callback that would have advanced them used to strand them `showing`
+  // for the rest of the process.
+  final AdSlot _mrecSlot = AdSlot(type: AdSlotType.mrec);
+  @override
+  Iterable<AdSlot> get mrecSlots => [_mrecSlot];
+
+  final AdSlot _nativeSlot = AdSlot(type: AdSlotType.native);
+  @override
+  Iterable<AdSlot> get nativeSlots => [_nativeSlot];
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
