@@ -1206,6 +1206,40 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   int get debugUmpBackstopRetryCount => _umpBackstopRetryCount;
 
+  /// m11 — cap on [_scheduleNextRetry]'s UMP backstop. 5 attempts at the 5 min
+  /// poll interval covers the first ~25 minutes, which is well past any real
+  /// "flaky network on first launch"; the reconnect path stays available for
+  /// anything later. Same bounded-retry shape as [_maxInitRetryAttempts] and
+  /// AdSlot's backoff — an unbounded auto-retry that can present UI is exactly
+  /// what this guard exists to prevent.
+  static const int _maxUmpBackstopRetries = 5;
+
+  /// Params of the most recent [requestUmpConsent] call, replayed by
+  /// [_retryUmpConsent].
+  ///
+  /// MJ3 (round 5 audit) — both retry sites used to call `requestUmpConsent()`
+  /// with no arguments, silently dropping `tagForUnderAgeOfConsent`: a
+  /// child-directed app that hit a retry then gathered consent through the
+  /// wrong form, and the consent it collected was not valid for an under-age
+  /// audience. It also dropped `debugGeography`/`testIdentifiers`, which made
+  /// a failed EEA-debug run impossible to reproduce.
+  ({
+    bool testMode,
+    DebugGeography? debugGeography,
+    List<String> testIdentifiers,
+    bool tagForUnderAgeOfConsent,
+  })? _lastUmpParams;
+
+  /// In-flight [requestUmpConsent] call, so concurrent callers join it instead
+  /// of starting a second consent flow.
+  ///
+  /// MJ8 (round 5 audit) — `_umpRequested` is only set *after* the round trip
+  /// completes, so the reconnect path, the periodic backstop and a host's own
+  /// call could each start their own flow: two consent forms in a row, and two
+  /// racing writes to the gate and to persisted consent. The BL1 fix makes the
+  /// retry paths fire more often, so this stopped being theoretical.
+  Future<UmpConsentResult>? _umpInFlight;
+
   /// Test seam for [_umpRequested] — see [debugResetGuardState].
   @visibleForTesting
   set debugUmpRequested(bool v) => _umpRequested = v;
@@ -2345,6 +2379,44 @@ class AdManager with WidgetsBindingObserver {
     List<String> testIdentifiers = const [],
     bool tagForUnderAgeOfConsent = false,
     bool skipIfAlreadyRequested = false,
+  }) {
+    // MJ8 — one consent flow at a time. Concurrent callers join the in-flight
+    // one rather than presenting a second form; see [_umpInFlight].
+    final inFlight = _umpInFlight;
+    if (inFlight != null) {
+      SafeLogger.d(
+          _tag, '⏭️ UMP already in flight — joining the existing request');
+      return inFlight;
+    }
+    final started = _requestUmpConsent(
+      testMode: testMode,
+      debugGeography: debugGeography,
+      testIdentifiers: testIdentifiers,
+      tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
+      skipIfAlreadyRequested: skipIfAlreadyRequested,
+    ).whenComplete(() => _umpInFlight = null);
+    _umpInFlight = started;
+    return started;
+  }
+
+  /// Replays the most recent [requestUmpConsent] params — see [_lastUmpParams].
+  Future<UmpConsentResult> _retryUmpConsent() {
+    final p = _lastUmpParams;
+    if (p == null) return requestUmpConsent();
+    return requestUmpConsent(
+      testMode: p.testMode,
+      debugGeography: p.debugGeography,
+      testIdentifiers: p.testIdentifiers,
+      tagForUnderAgeOfConsent: p.tagForUnderAgeOfConsent,
+    );
+  }
+
+  Future<UmpConsentResult> _requestUmpConsent({
+    required bool testMode,
+    required DebugGeography? debugGeography,
+    required List<String> testIdentifiers,
+    required bool tagForUnderAgeOfConsent,
+    required bool skipIfAlreadyRequested,
   }) async {
     // C1 — `autoRequestUmpConsent` now defaults to true, so hosts that already
     // call this themselves in their splash would otherwise run the whole UMP
@@ -2381,6 +2453,15 @@ class AdManager with WidgetsBindingObserver {
           'requestAtt() first so IDFA availability is settled before the '
           'first ad request.');
     }
+
+    // MJ3 — remember what this call used so a retry replays it instead of
+    // falling back to the defaults. See [_lastUmpParams].
+    _lastUmpParams = (
+      testMode: testMode,
+      debugGeography: debugGeography,
+      testIdentifiers: testIdentifiers,
+      tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
+    );
 
     final result = await requestUmpConsentFlow(
       testMode: testMode,
@@ -2448,10 +2529,33 @@ class AdManager with WidgetsBindingObserver {
     }
     _lastUmpResult = result;
     // C2 — remember a failed attempt so a later offline->online transition can
-    // retry it. `error != null` covers both a network failure and the 20s
-    // timeout inside requestUmpConsentFlow.
-    _umpAttemptFailed = result.error != null;
+    // retry it. `error != null` covers both a network failure and the timeout
+    // inside requestUmpConsentFlow.
+    //
+    // BL1 (round 5 audit) — `error != null` alone was not enough. When UMP
+    // resolves from cache without being able to serve a form (a flaky first
+    // launch in the EEA), requestUmpConsentFlow returns error == null with
+    // canRequestAds == false. Both retry paths gate on this flag, so that
+    // combination wedged the gate shut for the entire session: zero ads, and
+    // no way back short of an app restart even once the network returned.
+    // Reuses `umpInconclusive` from above so the retry decision and the
+    // consent-value decision cannot drift apart again.
+    _umpAttemptFailed =
+        result.error != null || umpInconclusive || !result.canRequestAds;
     return result;
+  }
+
+  /// Whether UMP already got an answer out of this user, or decided none was
+  /// needed. `obtained` covers **both** accept and reject.
+  ///
+  /// m11 (round 5 audit) — the BL1 fix above widened [_umpAttemptFailed] to
+  /// include "gate still closed", which is also the state of an EEA user who
+  /// legitimately chose to reject. Without this check the retry paths would
+  /// re-run the consent flow every 5 minutes for the rest of the session,
+  /// re-presenting a form that user has already answered.
+  bool get _umpAnswered {
+    final s = _lastUmpResult?.status;
+    return s == ConsentStatus.obtained || s == ConsentStatus.notRequired;
   }
 
   /// Whether Google requires a durable "Privacy Options" entry point (e.g. a
@@ -2655,6 +2759,12 @@ class AdManager with WidgetsBindingObserver {
     _updateCanRequestAds(true);
     _umpAttemptFailed = false;
     _umpBackstopRetryCount = 0;
+    // Round 5: these follow the same rule as the two above — a stale in-flight
+    // marker would make every later requestUmpConsent() join a future that can
+    // never complete, and stale params would be replayed into the new session.
+    _umpInFlight = null;
+    _lastUmpParams = null;
+    _lastUmpResult = null;
     _resumeFallbackTimer?.cancel();
     _resumeFallbackTimer = null;
     _splashBudgetTimer?.cancel();
@@ -3871,10 +3981,16 @@ class AdManager with WidgetsBindingObserver {
       // where the connectivity plugin never fires that transition (see
       // _startConnectivityWatch's best-effort skip) would otherwise never
       // retry UMP at all. Same guards _retryRefillAds uses below.
-      if (_umpAttemptFailed && isConnected && !_isVipMember) {
+      // m11 — bounded, and never for a user who already answered. See
+      // [_umpAnswered] and [_maxUmpBackstopRetries].
+      if (_umpAttemptFailed &&
+          isConnected &&
+          !_isVipMember &&
+          !_umpAnswered &&
+          _umpBackstopRetryCount < _maxUmpBackstopRetries) {
         SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
         _umpBackstopRetryCount++;
-        unawaited(requestUmpConsent());
+        unawaited(_retryUmpConsent());
       }
       _retryRefillAds();
       _scheduleNextRetry(gen);
@@ -3952,9 +4068,9 @@ class AdManager with WidgetsBindingObserver {
       // the rest of the process: ads were refilled but the gate stayed at
       // whatever UMP had cached. Retry only when the previous attempt actually
       // failed, so a user who already answered is not shown the form again.
-      if (_umpAttemptFailed) {
+      if (_umpAttemptFailed && !_umpAnswered) {
         SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
-        unawaited(requestUmpConsent());
+        unawaited(_retryUmpConsent());
       }
       _retryRefillAds();
       // Banners re-run their init on an initRevision bump (the widget checks

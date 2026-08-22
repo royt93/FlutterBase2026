@@ -4,6 +4,12 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../utils/safe_logger.dart';
 
+/// How long [requestUmpConsentFlow] waits for the user to answer the consent
+/// form once UMP has said one is required. Bounds a person reading a GDPR
+/// form, not a network call — see the call site for why it is far longer than
+/// the 20 s guards on the network steps.
+const Duration _formDismissTimeout = Duration(seconds: 180);
+
 /// Result of [requestUmpConsentFlow].
 class UmpConsentResult {
   const UmpConsentResult({
@@ -29,8 +35,12 @@ class UmpConsentResult {
   /// proceed with ad initialization despite a non-null [error].
   final String? error;
 
-  /// True if the consent form was actually presented to the user during
-  /// this call (vs. cached / not required).
+  /// True if this call handed the consent form to UMP to present, i.e. the
+  /// status going in was [ConsentStatus.required] (vs. cached / not required,
+  /// where no form is requested at all).
+  ///
+  /// Prefer [status] for "has this user answered": `obtained` covers both
+  /// accept and reject, and unlike this flag it survives across sessions.
   final bool formShown;
 
   bool get isObtained => status == ConsentStatus.obtained;
@@ -120,45 +130,60 @@ Future<UmpConsentResult> requestUmpConsentFlow({
   final status = await ConsentInformation.instance.getConsentStatus();
   SafeLogger.d(tag, () => 'consent status: ${status.name}');
 
-  // Step 2 — if a form is available, load + show. We try regardless of
-  // status because:
-  //  - notRequired/obtained: form rarely available, no-op
-  //  - required: form expected, must show before first ad
+  // Step 2 — hand the "does this user actually need to see a form?" decision
+  // to UMP itself, via Google's own `loadAndShowConsentFormIfRequired`.
+  //
+  // This used to gate on `isConsentFormAvailable()` + an unconditional
+  // `form.show()`. That is wrong, and was confirmed wrong on a real device
+  // (Pixel 7 Pro, debugGeography EEA): `isConsentFormAvailable()` reports
+  // whether a form *exists*, not whether consent is *required*, and a form
+  // stays available after the user has consented — that availability is
+  // exactly what backs the Privacy Options entry point below. So an EEA user
+  // who had already consented was shown the consent form again on EVERY
+  // launch, logging `status=obtained formShown=true` each time. Re-presenting
+  // a form the user already answered is both a bad experience and against
+  // UMP's own guidance.
+  //
+  // The `status == required` guard in front of the call is not redundant with
+  // the API's internal "if required" check: it keeps the common case (non-EEA,
+  // or already-answered) from paying a platform round trip at all.
   bool formShown = false;
   String? formError;
-  final available = await ConsentInformation.instance.isConsentFormAvailable();
-  if (available) {
+  if (status == ConsentStatus.required) {
     final dismissCompleter = Completer<String?>();
-    ConsentForm.loadConsentForm(
-      (ConsentForm form) {
-        try {
-          form.show((FormError? err) {
-            dismissCompleter.complete(
-                err == null ? null : '${err.errorCode}:${err.message}');
-          });
-          formShown = true;
-        } catch (e) {
-          dismissCompleter.complete('show threw: $e');
-        }
-      },
-      (FormError err) => dismissCompleter
-          .complete('load failed: ${err.errorCode}:${err.message}'),
-    );
-    // Timeout guard: the form-dismiss callback only fires once the user taps
-    // through Google's native form, which can hang indefinitely if the form
-    // is served but nothing ever dismisses it (observed on iOS Simulator with
-    // no automated tap-through). Without this, requestUmpConsentFlow() never
-    // returns and callers who sequence UMP → initialize() (see example app)
-    // never reach initialize().
+    // Deliberately NOT awaited — same reasoning as requestPrivacyOptionsFlow()
+    // below: the native call only returns once the form is dismissed, so
+    // awaiting it here would bypass the timeout entirely.
+    unawaited(ConsentForm.loadAndShowConsentFormIfRequired((FormError? err) {
+      if (dismissCompleter.isCompleted) return;
+      dismissCompleter
+          .complete(err == null ? null : '${err.errorCode}:${err.message}');
+    }).catchError((Object e) {
+      if (!dismissCompleter.isCompleted) {
+        dismissCompleter.complete('loadAndShowConsentFormIfRequired threw: $e');
+      }
+    }));
+    formShown = true;
+    // Timeout guard, deliberately much longer than step 1's. A cap still has
+    // to exist — an iOS Simulator with nothing tapping through never dismisses
+    // the form, which used to hang this flow (and, transitively, splash init)
+    // forever. But this cap bounds a *human reading a GDPR form* (206
+    // partners, an expandable "Learn more"), not a network call: the
+    // no-network case is already bounded by step 1's 20 s above, and nothing
+    // here even starts until UMP has said consent is required. At 20 s the
+    // flow was observed abandoning a form that was still on screen and
+    // resolving the ad gate before the user had answered.
     formError = await dismissCompleter.future.timeout(
-      const Duration(seconds: 20),
-      onTimeout: () => 'consent form dismiss timed out after 20s',
+      _formDismissTimeout,
+      onTimeout: () => 'consent form dismiss timed out after '
+          '${_formDismissTimeout.inSeconds}s',
     );
     if (formError != null) {
       SafeLogger.w(tag, 'consent form: $formError');
     }
   } else {
-    SafeLogger.d(tag, 'consent form not available — skip');
+    SafeLogger.d(
+        tag, () => 'consent form not required (status=${status.name}) — skip');
   }
 
   final finalStatus = await ConsentInformation.instance.getConsentStatus();

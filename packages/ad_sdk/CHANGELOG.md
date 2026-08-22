@@ -4,6 +4,59 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Audit round 5 — the consent form was re-shown on every launch to an
+  EEA/UK user who had already answered it.** The flow gated on
+  `isConsentFormAvailable()`, which reports whether a form *exists*, not
+  whether consent is *required* — and a form stays available after consent,
+  because that is what backs the Privacy Options entry point. Confirmed on a
+  real device (Pixel 7 Pro, `debugGeography: debugGeographyEea`): a cold
+  restart with consent already granted logged `status=obtained
+  formShown=true` and put the form back on screen. Now uses Google's own
+  `ConsentForm.loadAndShowConsentFormIfRequired` behind a
+  `status == required` guard, so an already-answered user is never asked
+  again and the common (non-EEA) case skips the platform call entirely.
+- **Audit round 5 — the consent gate could stay shut for a whole session
+  with no way to recover.** `_umpAttemptFailed` was `result.error != null`
+  alone, but UMP returns `error == null` with `canRequestAds == false`
+  whenever it resolves from cache without being able to serve a form — the
+  ordinary "flaky network on first launch in the EEA" case. Both retry paths
+  gate on that flag, so the gate stayed closed for the rest of the process:
+  **zero ads, no self-heal short of an app restart**, even once the network
+  came back. It now also covers an inconclusive result and a still-closed
+  gate.
+- **Audit round 5 — the consent form gave the user only 20 s to answer.**
+  The dismiss timeout was shared with the network steps, so a person reading
+  a real GDPR form (206 partners, an expandable "Learn more") had the flow
+  abandoned out from under them, resolving the ad gate before they had
+  chosen. Split out to 180 s for the human step; the no-network case is
+  still bounded by the 20 s guard on `requestConsentInfoUpdate`, and a cap
+  still exists so an unattended simulator cannot hang the flow forever.
+- **Audit round 5 — the UMP retry paths could run several consent flows at
+  once, and dropped `tagForUnderAgeOfConsent` when they did.** Concurrent
+  callers now join the in-flight request instead of presenting a second
+  form and racing each other's writes to the gate; retries replay the
+  params of the original call, so a child-directed app no longer collects
+  consent through the wrong form (which would not have been valid for an
+  under-age audience) and an EEA-debug run stays reproducible.
+- **Audit round 5 — the periodic UMP backstop was unbounded.** With the
+  widened failure flag above, an EEA user who legitimately chose "reject"
+  also reads as "gate closed", so the backstop would have re-run the consent
+  flow every 5 minutes for the rest of the session. It is now capped, and
+  never re-runs for a user UMP already got an answer from.
+
+### Added
+
+- `example`: `--dart-define=UMP_EEA_DEBUG=true --dart-define=UMP_TEST_ID=<hash>`
+  drives the real EEA consent path on a test device. Without it a tester
+  outside the EEA can never reach UMP's `required` branch, so every EEA-only
+  code path stays unexercised — that blind spot is what let the two consent
+  bugs above ship. `UMP_TEST_ID` is the hashed device id UMP prints to the
+  log on first run.
+
 ## [2.3.0] - 2026-08-21
 
 ### Added

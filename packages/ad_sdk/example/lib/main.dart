@@ -105,6 +105,15 @@ const AdProvider kProvider = bool.fromEnvironment('AD_PROVIDER_ADMOB')
 /// disabled. Pass `--dart-define=QA_AD_STRESS=true` to enable it locally.
 const bool kQaAdStress = bool.fromEnvironment('QA_AD_STRESS');
 
+// QA seam for the EEA consent path. Without it, a tester outside the EEA can
+// never reach UMP's `required` branch: UMP resolves `notRequired`, no form is
+// served, and every EEA-only code path stays unexercised (that blind spot is
+// what let two consent bugs ship). `UMP_TEST_ID` is the hashed device id UMP
+// prints to the log on first run — required, or debugGeography is ignored.
+//   flutter run --dart-define=UMP_EEA_DEBUG=true --dart-define=UMP_TEST_ID=<hash>
+const bool kUmpEeaDebug = bool.fromEnvironment('UMP_EEA_DEBUG');
+const String kUmpTestId = String.fromEnvironment('UMP_TEST_ID');
+
 /// Placeholder privacy-policy link shown by the consent dialog demo.
 /// Real apps should point this at their own published policy.
 const String kDemoPrivacyPolicyUrl = 'https://example.com/privacy';
@@ -186,6 +195,9 @@ class DemoConfig {
       adNotReadyMessage: 'Ad not ready — please wait.',
       adLoadingMessage: 'Loading…',
       splashMaxDuration: const Duration(seconds: 8),
+      umpDebugGeography:
+          kUmpEeaDebug ? DebugGeography.debugGeographyEea : null,
+      umpTestIdentifiers: kUmpTestId.isEmpty ? const [] : const [kUmpTestId],
       // T41 — the loose preset (999 caps, 2 s throttle, 0 s warm-up) only
       // applies with --dart-define=QA_AD_STRESS=true, so QA can pound the
       // buttons on demand without every debug/release build shipping with
@@ -443,7 +455,15 @@ class _SplashScreenState extends State<SplashScreen> {
       // 2) Google UMP consent form for EEA/UK users — before the first ad request.
       if (!_skipUmp) {
         try {
-          final ump = await AdManager().requestUmpConsent();
+          final ump = await AdManager().requestUmpConsent(
+            // See kUmpEeaDebug — debugGeography is only honoured when
+            // testMode is on, and only for a device in testIdentifiers.
+            testMode: kUmpEeaDebug,
+            debugGeography:
+                kUmpEeaDebug ? DebugGeography.debugGeographyEea : null,
+            testIdentifiers:
+                kUmpTestId.isEmpty ? const [] : const [kUmpTestId],
+          );
           debugPrint('UMP: canRequestAds=${ump.canRequestAds} '
               'status=${ump.status} formShown=${ump.formShown} '
               'error=${ump.error}');
