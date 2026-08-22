@@ -263,6 +263,10 @@ class _AppOpenWrap implements GmaFullscreenAd {
   @override
   void dispose() {
     _ad.fullScreenContentCallback = null;
+    // m36 — onPaidEvent has to go too: a paid-event that lands after dispose
+    // still fires the closure set by setPaidEventListener, which _emit()s
+    // revenue through the adapter's event sink for an ad that no longer exists.
+    _ad.onPaidEvent = null;
     _ad.dispose();
   }
 }
@@ -295,6 +299,10 @@ class _InterstitialWrap implements GmaFullscreenAd {
   @override
   void dispose() {
     _ad.fullScreenContentCallback = null;
+    // m36 — onPaidEvent has to go too: a paid-event that lands after dispose
+    // still fires the closure set by setPaidEventListener, which _emit()s
+    // revenue through the adapter's event sink for an ad that no longer exists.
+    _ad.onPaidEvent = null;
     _ad.dispose();
   }
 }
@@ -332,6 +340,10 @@ class _RewardedInterstitialWrap implements GmaFullscreenAd {
   @override
   void dispose() {
     _ad.fullScreenContentCallback = null;
+    // m36 — onPaidEvent has to go too: a paid-event that lands after dispose
+    // still fires the closure set by setPaidEventListener, which _emit()s
+    // revenue through the adapter's event sink for an ad that no longer exists.
+    _ad.onPaidEvent = null;
     _ad.dispose();
   }
 }
@@ -374,6 +386,10 @@ class _RewardedWrap implements GmaFullscreenAd {
   @override
   void dispose() {
     _ad.fullScreenContentCallback = null;
+    // m36 — onPaidEvent has to go too: a paid-event that lands after dispose
+    // still fires the closure set by setPaidEventListener, which _emit()s
+    // revenue through the adapter's event sink for an ad that no longer exists.
+    _ad.onPaidEvent = null;
     _ad.dispose();
   }
 }

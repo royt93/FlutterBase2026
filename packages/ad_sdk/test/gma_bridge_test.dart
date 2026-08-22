@@ -17,7 +17,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 // AdMessageCodec isn't exported from the public API — needed to construct a
 // mock channel matching the plugin's own codec.
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
-    show AdMessageCodec;
+    show AdMessageCodec, instanceManager;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -110,6 +110,87 @@ void main() {
     final request = calls.single.arguments['request'] as AdRequest;
     expect(request.nonPersonalizedAds, isTrue);
     expect(request.extras, isNull);
+  });
+
+  // m36 (audit_claude.md MINOR) — every _XxxWrap.dispose() nulled
+  // fullScreenContentCallback but left onPaidEvent wired, so a paid-event
+  // arriving after the ad was disposed still ran the closure
+  // setPaidEventListener installed and _emit()ed revenue for a dead ad.
+  //
+  // Unlike the rest of this file these tests reach the real _XxxWrap: they
+  // drive the plugin's own platform->Dart `onAdEvent`/`onAdLoaded` dispatch to
+  // obtain the wrap the production onLoaded callback builds, and then fire the
+  // exact field the plugin's own _invokePaidEvent invokes
+  // (`ad.onPaidEvent?.call(...)`) — not a substitute of our own.
+  group('m36 — dispose() unwires onPaidEvent', () {
+    Future<void> checkDisposeUnwiresPaidEvent(
+      String label,
+      Future<void> Function(void Function(GmaFullscreenAd ad) onLoaded) load,
+    ) async {
+      calls.clear();
+      GmaFullscreenAd? wrap;
+      await load((a) => wrap = a);
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as AdWithoutView;
+
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId,
+            'eventName': 'onAdLoaded',
+            'responseInfo': null,
+          }),
+        ),
+        (_) {},
+      );
+      expect(wrap, isNotNull,
+          reason: '$label: onAdLoaded must hand back the production wrap');
+
+      var paidEvents = 0;
+      wrap!.setPaidEventListener((_, __, ___) => paidEvents++);
+      expect(ad.onPaidEvent, isNotNull, reason: '$label: listener wired');
+
+      wrap!.dispose();
+
+      expect(ad.onPaidEvent, isNull,
+          reason: '$label: dispose() must unwire onPaidEvent');
+      ad.onPaidEvent?.call(ad, 1234, PrecisionType.estimated, 'USD');
+      expect(paidEvents, 0,
+          reason: '$label: a paid-event after dispose must not reach the sink');
+    }
+
+    test('app open', () async {
+      await checkDisposeUnwiresPaidEvent(
+        'appOpen',
+        (onLoaded) => bridge.loadAppOpen('unit-open',
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+      );
+    });
+
+    test('interstitial', () async {
+      await checkDisposeUnwiresPaidEvent(
+        'interstitial',
+        (onLoaded) => bridge.loadInterstitial('unit-inter',
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+      );
+    });
+
+    test('rewarded', () async {
+      await checkDisposeUnwiresPaidEvent(
+        'rewarded',
+        (onLoaded) => bridge.loadRewarded('unit-rewarded',
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+      );
+    });
+
+    test('rewarded interstitial', () async {
+      await checkDisposeUnwiresPaidEvent(
+        'rewardedInterstitial',
+        (onLoaded) => bridge.loadRewardedInterstitial('unit-ri',
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+      );
+    });
   });
 
   test('GmaShowCallbacks stores every callback field', () {
