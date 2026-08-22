@@ -562,6 +562,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     appOpenSlot.reset();
     interstitialSlot.reset();
     rewardedSlot.reset();
+    // Round 5 Minor — AppLovin never even reset this slot (AdMob did). It
+    // stays idle by design on MAX, but a stale state across teardown is still
+    // wrong.
+    rewardedInterstitialSlot.reset();
     for (final slot in _bannerSlotsByKey.values) {
       slot.reset();
     }
@@ -600,6 +604,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     appOpenSlot.dispose();
     interstitialSlot.dispose();
     rewardedSlot.dispose();
+    // Round 5 Minor — this slot was reset but never disposed, leaking its
+    // ValueNotifier's listeners on every provider switch / destroy+re-init.
+    rewardedInterstitialSlot.dispose();
     for (final key in _bannerSlotsByKey.keys.toList()) {
       disposeBannerInstance(key);
     }

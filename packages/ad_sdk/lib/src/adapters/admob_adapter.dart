@@ -577,6 +577,9 @@ class AdMobAdapter implements AdProviderAdapter {
     appOpenSlot.dispose();
     interstitialSlot.dispose();
     rewardedSlot.dispose();
+    // Round 5 Minor — this slot was reset but never disposed, leaking its
+    // ValueNotifier's listeners on every provider switch / destroy+re-init.
+    rewardedInterstitialSlot.dispose();
     // T65 (phase 2) — dispose every BannerAdWidget instance's slot/ad/
     // listenables (already cleared _bannerAdsByKey above); disposeBannerInstance
     // mutates the maps, so snapshot the keys first.
@@ -811,12 +814,12 @@ class AdMobAdapter implements AdProviderAdapter {
             // behind it, and showAppOpen then returned false forever:
             // `_retryRefillAds` only refills an idle/cooldown slot, so nothing
             // ever repaired it. App Open was dead for the rest of the session.
-            _clearAppOpenIfSame(ad);
+            _appOpenAd = null;
             _disposeAd(ad, 'appOpen-after-dismiss-late');
             return;
           }
           SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
-          _clearAppOpenIfSame(ad);
+          _appOpenAd = null;
           _disposeAd(ad, 'appOpen-after-dismiss');
           appOpenSlot.markDismissed();
           final cb = _appOpenDismiss;
@@ -829,7 +832,7 @@ class AdMobAdapter implements AdProviderAdapter {
           // MJ15 — this clear used to sit ABOVE the late-arrival check, so it
           // ran unconditionally and could wipe a freshly reloaded ad even more
           // easily than the onDismissed path.
-          _clearAppOpenIfSame(ad);
+          _appOpenAd = null;
           // Late arrival (see onDismissed above) — watchdog already resolved.
           if (_appOpenDismiss == null) {
             SafeLogger.w(_logTag,
@@ -858,7 +861,7 @@ class AdMobAdapter implements AdProviderAdapter {
       SafeLogger.e(_logTag, 'showAppOpen $tag show THREW: $e\n$st');
       _appOpenShowTimeout?.cancel();
       _appOpenShowTimeout = null;
-      _clearAppOpenIfSame(ad);
+      _appOpenAd = null;
       // MJ25 — the local `ad` is the last reference; dropping it without
       // disposing leaks the native ad. Reachable: gma_bridge awaits
       // setServerSideOptions() before show, and a platform call can throw.
