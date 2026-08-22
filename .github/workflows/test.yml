@@ -199,6 +199,7 @@ jobs:
         with:
           flutter-version: '3.35.1'
           channel: 'stable'
+          cache: true
       # connectivity_plus 7.3.0 (transitive via internet_connection_checker_plus)
       # uses NWPath.isUltraConstrained, only in the iOS 26 SDK — the macos-15
       # image ships Xcode 26.1.1 but doesn't default to it.
@@ -206,6 +207,19 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_26.1.1.app
       - name: Install dependencies
         run: flutter pub get
+      # T87: caches ~/.cocoapods (downloaded pod sources) and the local Pods/
+      # dir, keyed on Podfile.lock — pod install re-resolves either way but
+      # skips re-downloading AppLovinSDK/GoogleMobileAds source archives,
+      # which is most of this step's wall time. Does not touch the
+      # simulator boot/log-stream logic below, so it can't reintroduce the
+      # apsd/DDS flakiness those fixes were for.
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/ad_sdk/example/ios/Pods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('packages/ad_sdk/example/ios/Podfile.lock') }}
       - name: Install CocoaPods dependencies
         working-directory: packages/ad_sdk/example/ios
         run: pod install
