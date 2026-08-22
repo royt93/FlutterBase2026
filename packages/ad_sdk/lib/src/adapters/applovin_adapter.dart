@@ -647,15 +647,32 @@ class AppLovinAdapter implements AdProviderAdapter {
     // Round 5 Minor — this slot was reset but never disposed, leaking its
     // ValueNotifier's listeners on every provider switch / destroy+re-init.
     rewardedInterstitialSlot.dispose();
-    for (final key in _bannerSlotsByKey.keys.toList()) {
+    // m24 (audit_claude.md MINOR) — the slot map alone is not the key set:
+    // `banner(key)`/`mrec(key)`/`native(key)` and
+    // `appLovinBannerAdViewId(key)`/`appLovinMrecAdViewId(key)` each create
+    // their own per-key entry independently of `bannerSlot(key)`, so a key
+    // that was only ever asked for those had its ValueNotifiers left
+    // undisposed here. Union of every per-key map.
+    for (final key in <Object>{
+      ..._bannerSlotsByKey.keys,
+      ..._bannerListenablesByKey.keys,
+      ..._bannerAdViewIdByKey.keys,
+    }) {
       disposeBannerInstance(key);
     }
     _bannerDisposed = true;
-    for (final key in _mrecSlotsByKey.keys.toList()) {
+    for (final key in <Object>{
+      ..._mrecSlotsByKey.keys,
+      ..._mrecListenablesByKey.keys,
+      ..._mrecAdViewIdByKey.keys,
+    }) {
       disposeMrecInstance(key);
     }
     _mrecDisposed = true;
-    for (final key in _nativeSlotsByKey.keys.toList()) {
+    for (final key in <Object>{
+      ..._nativeSlotsByKey.keys,
+      ..._nativeListenablesByKey.keys,
+    }) {
       disposeNativeInstance(key);
     }
     _nativeDisposed = true;

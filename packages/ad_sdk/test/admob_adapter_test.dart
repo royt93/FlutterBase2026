@@ -205,6 +205,29 @@ void main() {
       expect(() => adapter.native('k').isLoaded.addListener(() {}),
           throwsFlutterError);
     });
+
+    // m24 (audit_claude.md MINOR) — dispose()'s key loop only walked the SLOT
+    // maps, but banner(key)/mrec(key)/native(key) create a BannerListenables
+    // bundle independently of bannerSlot(key). A key that was only ever asked
+    // for its listenables had its five ValueNotifiers left alive for good.
+    // The bundles must be resolved BEFORE dispose — afterwards every getter
+    // hands back the shared pre-disposed singleton, which hides the leak (that
+    // is exactly why the test above passes either way).
+    test('m24 — listenables created without a slot are disposed too', () async {
+      final adapter = AdMobAdapter();
+      final banner = adapter.banner('lonely-banner');
+      final mrec = adapter.mrec('lonely-mrec');
+      final native = adapter.native('lonely-native');
+
+      await adapter.dispose();
+
+      expect(() => banner.isLoaded.addListener(() {}), throwsFlutterError,
+          reason: 'banner listenables with no slot must still be disposed');
+      expect(() => mrec.isLoaded.addListener(() {}), throwsFlutterError,
+          reason: 'mrec listenables with no slot must still be disposed');
+      expect(() => native.isLoaded.addListener(() {}), throwsFlutterError,
+          reason: 'native listenables with no slot must still be disposed');
+    });
   });
 
   group('AdMobAdapter banner slot', () {

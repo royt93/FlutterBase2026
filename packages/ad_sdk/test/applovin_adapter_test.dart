@@ -631,6 +631,39 @@ void main() {
       expect(() => a.native('k').isLoaded.addListener(() {}),
           throwsFlutterError);
     });
+
+    // m24 (audit_claude.md MINOR) — dispose()'s key loop only walked the SLOT
+    // maps, but banner(key)/mrec(key)/native(key) and
+    // appLovinBannerAdViewId(key) each create their own per-key entry
+    // independently. A key that was only ever asked for those (the notifiers
+    // must be resolved BEFORE dispose — afterwards every getter hands back the
+    // shared pre-disposed singleton, which hides the leak) had its
+    // ValueNotifiers left alive for good.
+    test('m24 — per-key notifiers created without a slot are disposed too',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+
+      final banner = a.banner('lonely-banner');
+      final mrec = a.mrec('lonely-mrec');
+      final native = a.native('lonely-native');
+      final bannerAdViewId = a.appLovinBannerAdViewId('lonely-banner-id');
+      final mrecAdViewId = a.appLovinMrecAdViewId('lonely-mrec-id');
+
+      await a.dispose();
+
+      expect(() => banner.isLoaded.addListener(() {}), throwsFlutterError,
+          reason: 'banner listenables with no slot must still be disposed');
+      expect(() => mrec.isLoaded.addListener(() {}), throwsFlutterError,
+          reason: 'mrec listenables with no slot must still be disposed');
+      expect(() => native.isLoaded.addListener(() {}), throwsFlutterError,
+          reason: 'native listenables with no slot must still be disposed');
+      expect(() => bannerAdViewId.addListener(() {}), throwsFlutterError,
+          reason: 'banner adViewId with no slot must still be disposed');
+      expect(() => mrecAdViewId.addListener(() {}), throwsFlutterError,
+          reason: 'mrec adViewId with no slot must still be disposed');
+    });
   });
 
   group('AppLovinAdapter native (no-op preload)', () {

@@ -576,20 +576,34 @@ class AdMobAdapter implements AdProviderAdapter {
     rewardedInterstitialSlot.dispose();
     // T65 (phase 2) — dispose every BannerAdWidget instance's slot/ad/
     // listenables (already cleared _bannerAdsByKey above); disposeBannerInstance
-    // mutates the maps, so snapshot the keys first.
-    for (final key in _bannerSlotsByKey.keys.toList()) {
+    // mutates the maps, so the set literal snapshots the keys first.
+    //
+    // m24 (audit_claude.md MINOR) — the slot map alone is not the key set:
+    // `banner(key)`/`mrec(key)`/`native(key)` create a BannerListenables
+    // bundle independently of `bannerSlot(key)`, so any key that was only ever
+    // asked for its listenables had its five ValueNotifiers left undisposed
+    // here. Union of both maps.
+    for (final key in <Object>{
+      ..._bannerSlotsByKey.keys,
+      ..._bannerListenablesByKey.keys,
+    }) {
       disposeBannerInstance(key);
     }
     _bannerDisposed = true;
     // T65 (phase 3) — same pattern as banner above.
-    for (final key in _mrecSlotsByKey.keys.toList()) {
+    for (final key in <Object>{
+      ..._mrecSlotsByKey.keys,
+      ..._mrecListenablesByKey.keys,
+    }) {
       disposeMrecInstance(key);
     }
     _mrecDisposed = true;
     // T65 (phase 1) — dispose every NativeAdWidget instance's slot/ad/
-    // listenables (already cleared _nativeAdsByKey above); disposeNativeInstance
-    // mutates the maps, so snapshot the keys first.
-    for (final key in _nativeSlotsByKey.keys.toList()) {
+    // listenables (already cleared _nativeAdsByKey above); same union as above.
+    for (final key in <Object>{
+      ..._nativeSlotsByKey.keys,
+      ..._nativeListenablesByKey.keys,
+    }) {
       disposeNativeInstance(key);
     }
     _nativeDisposed = true;
