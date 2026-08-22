@@ -221,6 +221,25 @@ class VipManager {
   /// resumed), then corrected, anchors a fresh (bogus) session and isn't
   /// caught; that residual gap needs a native monotonic-uptime source to
   /// close and isn't attempted here.
+  // KNOWN LIMITATION, DELIBERATELY NOT CLOSED (MJ9, decided 2026-08-22).
+  // A clock set forward BEFORE this app's first ever launch is indistinguishable
+  // from the truth: there is no prior high-water mark to contradict it, and with
+  // the product's "VIP works fully offline, no server" constraint there is no
+  // second time source to ask. The mark then stays parked in that bogus future
+  // and an entry granted against it effectively never expires.
+  //
+  // Do not "fix" this by switching to a monotonic duration budget: `Stopwatch`
+  // is the only monotonic clock in pure Dart and it dies with the process, so
+  // the budget would stop draining across an app kill — turning every VIP
+  // permanent, which is worse. Closing it properly needs a native uptime source
+  // (see this method's doc comment), which would make this pure-Dart package a
+  // plugin with native code.
+  //
+  // The worthwhile follow-up is NOT anti-cheat: it is capping how far ahead of
+  // real time the mark is allowed to sit, which fixes the PAYING-customer case
+  // in the doc comment above (an honest NTP/DST glitch while the app is closed
+  // freezes or voids their remaining VIP). Rationale, rejected alternatives and
+  // the trade-off are recorded in doc/audit/audit_claude.md § MJ9.
   DateTime _effectiveNow() {
     final real = DateTime.now();
     final expectedMs =

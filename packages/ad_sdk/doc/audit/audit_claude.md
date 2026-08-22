@@ -138,6 +138,22 @@ Mọi `show*`/`load*` check `canRequestAds` (đủ kín), nhưng khi user chỉ 
 
 Kịch bản: máy mới cài → Settings đặt clock +1 năm (F) trước lần chạy đầu → mark = F, trial grant `[F, F+24h]` (`ad_manager.dart:1814-1817` → `addVip` dùng `_effectiveNow`) → sửa clock về thật (T). Từ đó `observedMs(F) > trusted(T)` ⇒ `_effectiveNow()` trả **F mãi mãi** (`:236-238`) ⇒ `isActiveAt(F)` luôn true, `_scheduleNextExpiry`/`_handleExpiry` cũng tính bằng F nên purge không bao giờ chạy. Với `redeemSignedKey`, clamp `maxStackDuration` là `now.add(cap)` = `F+90d` nên cũng vô hiệu.
 
+---
+
+#### QUYẾT ĐỊNH 2026-08-22: KHÔNG SỬA VÒNG NÀY — hoãn có chủ ý, không phải bỏ sót
+
+Chủ sản phẩm đã đọc phân tích và chọn hoãn. Reviewer sau **đừng mở lại MJ9 như một finding mới** — hãy đọc hết mục này trước.
+
+**Bản fix từng được chốt ("đổi sang đếm thời lượng còn lại theo đồng hồ monotonic") KHÔNG thực thi được trong package này.** Monotonic clock duy nhất trong Dart thuần là `Stopwatch`, và nó chết theo process; package cố ý thuần Dart (không `android/`, không `ios/`, không MethodChannel) nên không đọc được uptime hệ thống. Đếm thời lượng bằng `Stopwatch` sẽ khiến VIP thành **vĩnh viễn** cho bất kỳ ai kill app — sai theo chiều ngược lại và tệ hơn hiện trạng. Chính `_effectiveNow`'s doc comment (`:219-223`) đã ghi: khoảng hở còn lại *"needs a native monotonic-uptime source to close and isn't attempted here"*, và `:198-201` ghi rằng đồng hồ bị đổi **trước lần chạy đầu** thì offline không thể phát hiện (chưa có mốc nào để so). Đây là giới hạn kiến trúc của yêu cầu "VIP không server/backend", không phải chỗ chưa làm.
+
+**Đã cân nhắc và loại:**
+- *Đếm theo giờ foreground* — miễn nhiễm với đổi giờ, nhưng đổi nghĩa sản phẩm ("1 ngày" thành "24 giờ dùng", có thể kéo hàng tháng) và VIP bán theo tháng không dùng được. Bị loại.
+- *Thêm native uptime* — đúng gốc nhưng biến package thành plugin có native, rủi ro build cho mọi app consumer, và uptime cũng reset khi reboot nên vẫn phải kết hợp. Bị loại.
+
+**Việc đáng làm khi quay lại — và nó KHÔNG phải chống cheat:** đặt trần cho high-water mark (bỏ mark khi nó đi trước giờ thật quá một ngưỡng, ví dụ 7 ngày). Giá trị thật của nó là vá nhánh **khách đã trả tiền bị mất VIP oan**: comment `:204-209` mô tả đúng ca này — đồng hồ máy nhảy tiến do lỗi thật (DST/NTP glitch, pin CMOS, máy reset ngày) rồi được sửa về, mark đóng băng ở tương lai rác, và VIP của khách bị đóng băng thời gian còn lại hoặc bị coi là hết hạn cho tới khi giờ thật đuổi kịp. Cơ chế chống-drift hiện tại chỉ bắt được edit xảy ra **trong lúc app đang foreground**; lỗi NTP khi app đang tắt thì không bắt được. Ưu điểm thực thi: ~20 dòng, **không đổi định dạng dữ liệu nên không cần migration**, do đó không có đường nào làm mất VIP người đã mua.
+
+**Rủi ro giữ nguyên hiện trạng, nói thẳng:** VIP tắt *toàn bộ* ad surface, nên một người khai thác được = một người bị lấy khỏi doanh thu suốt thời gian đó, không phải mất một ngày trial. Khai thác chỉ cần vào Settings đổi ngày, không cần root. Đánh giá của chủ sản phẩm: tần suất thực tế rất thấp, và ưu tiên 9 mục rò rỉ lifecycle (ảnh hưởng mọi người dùng ở mọi phiên) trước là đúng thứ tự.
+
 Doc comment `:219-223` **tự thừa nhận** residual gap ("A jump made, then the app killed and relaunched… anchors a fresh (bogus) session and isn't caught"), nhưng chỉ nhận chiều "user *mất* VIP", không nhận chiều "user *được* VIP vô hạn".
 
 **Tại sao là Major (không phải Blocker):** không có exposure pháp lý/policy; chỉ là monetization bypass. Nhưng đây là finding **duy nhất không cần root**, nên là finding VIP đáng ưu tiên nhất.
