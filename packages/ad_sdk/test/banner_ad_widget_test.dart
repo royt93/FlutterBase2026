@@ -225,6 +225,51 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // M1 (2026-08-22 audit) — consent_withdrawal_discard_test.dart only ever
+  // asserted that AdManager.personalisationRevision's counter increments; no
+  // test drove the actual listener in this file that the fix lives in. Before
+  // the fix, withdrawing personalisation left an already-loaded, personalised
+  // banner mounted and auto-refreshing with no re-verified consent basis —
+  // `canRequestAdsListenable` doesn't fire for this (the gate itself stays
+  // open), so nothing else in this widget would have dropped it.
+  testWidgets(
+      'withdrawing personalisation drops the mounted, loaded banner instance',
+      (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 1);
+    final key = adapter.bannerListenablesByKey.keys.single;
+    adapter.bannerListenablesByKey[key]!.isLoaded.value = true;
+    await tester.pump();
+
+    AdManager().personalisationRevision.value =
+        AdManager().personalisationRevision.value + 1;
+    await tester.pump();
+
+    expect(adapter.bannerListenablesByKey.containsKey(key), isFalse,
+        reason: 'M1: the real widget listener must dispose the mounted '
+            'instance — the personalised ad it was showing has no verified '
+            'consent basis any more');
+    expect(tester.takeException(), isNull);
+
+    // Re-init runs on the next frame (gate is still open) — a fresh, un-
+    // personalised load must replace the dropped one, not leave the widget
+    // permanently blank.
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 2,
+        reason: 'a fresh load must replace the dropped instance');
+  });
+
   // T14 — the banner's own enclosing route can change (e.g. replaced by a
   // new route, or the banner subtree is re-parented under a different
   // route/dialog). Previously `_routeSubscribed` was a one-shot latch: once
