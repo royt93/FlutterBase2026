@@ -14,8 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Suite | Path | How to run |
 |---|---|---|
-| SDK (primary gate) | `packages/ad_sdk/test/` — 69 files, ~699 tests | `cd packages/ad_sdk && flutter test` |
-| SDK on-device | `packages/ad_sdk/example/integration_test/` — 22 files (21 test suites + shared `scroll_helpers.dart`) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
+| SDK (primary gate) | `packages/ad_sdk/test/` — 78 files, ~890 tests | `cd packages/ad_sdk && flutter test` |
+| SDK on-device | `packages/ad_sdk/example/integration_test/` — 27 files (26 test suites + shared `scroll_helpers.dart`) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
 
 ```bash
 cd packages/ad_sdk
@@ -28,9 +28,10 @@ flutter pub get
 flutter test integration_test/
 ```
 
-**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable**, three jobs:
+**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable**, four jobs:
 
 - `sdk` — `flutter analyze` + `flutter test` in `packages/ad_sdk`. Primary gate.
+- `pinning-wall` — runs `packages/ad_sdk/tool/check_pinning_wall.sh` (`pub get` + `pod install`) against `tool/pinning_check_app/`, a minimal consuming-app fixture reproducing the documented known-good AppLovin/GMA version combo, so an incompatible pin bump fails CI instead of surfacing at release time.
 - `sdk-integration` — the example app's `integration_test/` on an Android emulator. Needs KVM, disk cleanup and a 3GB swapfile on the runner (OOM-killer flake, see the inline comments before touching it). Forces `AD_PROVIDER_ADMOB` because no real AppLovin SDK key is committed, so the AppLovin path can never init in CI.
 - `sdk-integration-ios` — same tests on an iOS Simulator (Xcode 26.1.1 + CocoaPods), **sharded across 3 macOS runners** (`matrix.shard: [0,1,2]`, via `SHARD_TOTAL=3 SHARD_INDEX=...`). Unlike the Android job this one runs **one `flutter test` invocation per file** (`.github/scripts/integration-retry.sh`, shared with the Android job, plus one retry): with all files passed to a single invocation, one flaky app launch on the CI simulator hung until the 12-minute per-test timeout, took the next file down with `Failed to start Dart Development Service`, and hid the rest. Per-file isolation is nearly free (`flutter test` already relaunches the app between files) and names the file that broke; sharding cuts wall clock from ~41 min to ~16-18 min since each file pays its own ~49s Xcode build.
 
@@ -52,7 +53,7 @@ The full contract lives in `packages/ad_sdk/README.md` — summary:
 
 1. Consuming app calls `AdManager().setNavigatorKey(navigatorKey)` before `runApp`.
 2. Consuming app adds `adRouteObserver` and `AdScreenRouteLogger()` to `navigatorObservers`.
-3. **SDK init must happen inside the consuming app's splash screen, not in `main()`** — `SimpleEventBus` only delivers init-completion events to listeners that registered before init started.
+3. **SDK init must happen inside the consuming app's splash screen, not in `main()`** — `SimpleEventBus` replays the most recent init-completion event to a listener that subscribes late, but still needs a listener registered before/during init to react to it as it happens.
 4. Splash should implement: hard-cap timer, `AdManager().markSplashActive/Inactive()`, `incrementSplashCount()`, `AdLoadingDialog.showAdBuffer()` before `showAppOpenAd(bypassSafety: true)`.
 5. Any screen displaying ads should extend `AdScreen` + `AdScreenState` (instead of `StatefulWidget`/`State`) to get `buildBanner()`, `showInterstitialAd()`, `showRewardedAd()`. RouteAware banner lifecycle is automatic when `adRouteObserver` is registered.
 6. Built-in safety layer (daily/hourly/session caps, 30s throttle, CTR fraud, progressive cooldown) — don't bypass except the splash App Open ad (`bypassSafety: true`).

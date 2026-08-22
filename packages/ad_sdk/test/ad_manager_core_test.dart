@@ -25,6 +25,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // T88 — fakes for remoteSafetyProvider tests.
@@ -2495,6 +2496,69 @@ void main() {
         async.elapse(const Duration(minutes: 15));
         expect(adapter.loadInterstitialCalls, 1,
             reason: 'no further ticks once the timer generation has moved on');
+      });
+    });
+
+    // Regression: _onConnectivityChanged only retries a failed UMP attempt
+    // on an observed offline→online transition. A platform/test where that
+    // transition never fires (see _startConnectivityWatch's best-effort
+    // skip) left a failed UMP attempt permanently un-retried. Fix: the
+    // periodic poll backstops it too.
+    group('UMP retry backstop (2026-08-22 audit)', () {
+      final umpChannel = MethodChannel(
+        'plugins.flutter.io/google_mobile_ads/ump',
+        StandardMethodCodec(UserMessagingCodec()),
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+      setUp(() {
+        messenger.setMockMethodCallHandler(umpChannel, (call) {
+          switch (call.method) {
+            case 'ConsentInformation#requestConsentInfoUpdate':
+              return Future<void>.value();
+            case 'ConsentInformation#isConsentFormAvailable':
+              return Future.value(false);
+            case 'ConsentInformation#canRequestAds':
+              return Future.value(true);
+            case 'ConsentInformation#getConsentStatus':
+              return Future.value(3); // notRequired
+            default:
+              return Future.value(null);
+          }
+        });
+      });
+
+      tearDown(() {
+        messenger.setMockMethodCallHandler(umpChannel, null);
+        AdManager().debugUmpAttemptFailed = false;
+      });
+
+      test('retries requestUmpConsent on the periodic poll when a prior '
+          'attempt failed', () {
+        fakeAsync((async) {
+          AdManager().debugUmpAttemptFailed = true;
+          AdManager().debugStartAdRetryTimer();
+
+          async.elapse(const Duration(minutes: 5));
+          async.flushMicrotasks();
+
+          expect(AdManager().debugUmpBackstopRetryCount, 1,
+              reason: 'a failed UMP attempt must be retried by the '
+                  'periodic backstop poll, not just the connectivity watch');
+        });
+      });
+
+      test('does not retry when the last UMP attempt did not fail', () {
+        fakeAsync((async) {
+          AdManager().debugUmpAttemptFailed = false;
+          AdManager().debugStartAdRetryTimer();
+
+          async.elapse(const Duration(minutes: 5));
+          async.flushMicrotasks();
+
+          expect(AdManager().debugUmpBackstopRetryCount, 0);
+        });
       });
     });
   });

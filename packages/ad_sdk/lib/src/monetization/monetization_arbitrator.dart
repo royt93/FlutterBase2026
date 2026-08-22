@@ -147,7 +147,7 @@ class MonetizationArbitrator {
           : ArbitratorDecision.showAd;
     } else {
       final likelihood = estimator();
-      decision = (ecpm < threshold && likelihood > 0.5)
+      decision = (ecpm > 0 && ecpm < threshold && likelihood > 0.5)
           ? ArbitratorDecision.nudgeVip
           : ArbitratorDecision.showAd;
     }

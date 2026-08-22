@@ -7,6 +7,12 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/ad_consent.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+// AdMessageCodec isn't exported from the public API — same workaround as
+// gma_bridge_test.dart, needed to decode the real MobileAds#
+// updateRequestConfiguration call args (RequestConfiguration uses this
+// custom codec, not the default StandardMethodCodec).
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show AdMessageCodec;
 
 void main() {
   group('AdConsent', () {
@@ -95,6 +101,73 @@ void main() {
       expect(warning, isEmpty,
           reason: 'the warning is conditional on the age-restricted flag, '
               'not unconditional noise on every consent apply');
+    });
+  });
+
+  group(
+      'applyConsentToProviders testDeviceIds re-apply '
+      '(consent re-apply test gap, 2026-08-22 audit)', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const alChannel = MethodChannel('applovin_max');
+    // Must match the production channel's codec (AdMessageCodec) — it's the
+    // only way to decode RequestConfiguration's testDeviceIds argument, see
+    // gma_bridge_test.dart.
+    final gmaChannel = MethodChannel(
+      'plugins.flutter.io/google_mobile_ads',
+      StandardMethodCodec(AdMessageCodec()),
+    );
+
+    final calls = <MethodCall>[];
+
+    setUp(() {
+      calls.clear();
+      messenger.setMockMethodCallHandler(alChannel, (call) async => null);
+      messenger.setMockMethodCallHandler(gmaChannel, (call) async {
+        calls.add(call);
+        return null;
+      });
+    });
+
+    tearDown(() {
+      messenger.setMockMethodCallHandler(alChannel, null);
+      messenger.setMockMethodCallHandler(gmaChannel, null);
+    });
+
+    const config = AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(
+        bannerId: 'b',
+        interstitialId: 'i',
+        appOpenId: 'ao',
+        testDeviceIds: ['host-device-1'],
+      ),
+    );
+
+    test(
+        'mid-session re-apply (e.g. a later setConsent call) still forwards '
+        'the QA fleet hashes alongside the host device id, not just on the '
+        'first call', () async {
+      // First call — mirrors the initial consent apply at SDK init.
+      await applyConsentToProviders(AdConsent.conservative, config: config);
+      // Second call with a DIFFERENT consent value — mirrors a mid-session
+      // setConsent() (e.g. host's own consent UI, or a UMP re-prompt answer).
+      await applyConsentToProviders(AdConsent.fullyAccepted, config: config);
+
+      expect(calls.length, 2);
+      for (final call in calls) {
+        final ids = List<String>.from(call.arguments['testDeviceIds'] as List);
+        expect(ids, contains('host-device-1'),
+            reason: 'must not drop the host-configured test device on '
+                're-apply');
+        for (final hash in kQaTestDeviceHashes) {
+          expect(ids, contains(hash),
+              reason: 'must not drop the always-on QA fleet hashes on '
+                  're-apply');
+        }
+      }
     });
   });
 }

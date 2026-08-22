@@ -253,6 +253,17 @@ class AdMobAdapter implements AdProviderAdapter {
   @override
   BannerListenables mrec(Object key) => _mrecListenablesFor(key);
 
+  // Test seam: hand back the real BannerAdListener created by
+  // loadBannerIfNeeded/loadMrecIfNeeded so a test can fire its onAdLoaded /
+  // onAdFailedToLoad directly, without driving the native GMA plugin.
+  @visibleForTesting
+  BannerAdListener? debugBannerListenerFor(Object key) =>
+      _bannerAdsByKey[key]?.listener;
+
+  @visibleForTesting
+  BannerAdListener? debugMrecListenerFor(Object key) =>
+      _mrecAdsByKey[key]?.listener;
+
   @override
   void disposeMrecInstance(Object key) {
     _mrecAdsByKey.remove(key)?.dispose();
@@ -1371,6 +1382,14 @@ class AdMobAdapter implements AdProviderAdapter {
             SafeLogger.d(_logTag, 'loadBanner $tag ✅');
             listenables.isLoaded.value = true;
             listenables.hasError.value = false;
+            // T-visible — onAppPaused() blanks `visible` for every key with a
+            // live listener, but onAppResumed()'s error-reload branch never
+            // sets it back (only its "ad already alive" branch does). Set it
+            // here too so a resume-triggered reload that succeeds actually
+            // shows the ad, instead of staying stuck behind an empty
+            // placeholder until an unrelated pause/resume cycle happens to
+            // hit the other branch.
+            listenables.visible.value = true;
             listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
             slot.markReady();
@@ -1501,6 +1520,9 @@ class AdMobAdapter implements AdProviderAdapter {
             SafeLogger.d(_logTag, 'loadMrec $tag ✅');
             listenables.isLoaded.value = true;
             listenables.hasError.value = false;
+            // T-visible — see the matching comment in loadBannerIfNeeded's
+            // onAdLoaded above.
+            listenables.visible.value = true;
             listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
             slot.markReady();

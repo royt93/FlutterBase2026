@@ -1183,7 +1183,10 @@ class AdManager with WidgetsBindingObserver {
   UmpConsentResult? _lastUmpResult;
 
   /// True when the last [requestUmpConsent] attempt failed (network error or
-  /// the 20s timeout) — see [_onConnectivityChanged], which retries only then.
+  /// the 20s timeout) — retried by [_onConnectivityChanged] on the next
+  /// offline→online transition, and as a backstop by [_scheduleNextRetry]'s
+  /// periodic poll for platforms/tests where the connectivity plugin never
+  /// fires that transition.
   bool _umpAttemptFailed = false;
 
   /// Test seam for [_umpAttemptFailed].
@@ -1193,6 +1196,15 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam for [_umpAttemptFailed] — see [debugResetGuardState].
   @visibleForTesting
   set debugUmpAttemptFailed(bool v) => _umpAttemptFailed = v;
+
+  /// Counts [_scheduleNextRetry]'s periodic UMP backstop firing — driving the
+  /// real [requestUmpConsent] round trip in a test needs a full UMP channel
+  /// mock (out of proportion here, see other UMP tests), so this is the test
+  /// seam for "did the backstop actually retry".
+  int _umpBackstopRetryCount = 0;
+
+  @visibleForTesting
+  int get debugUmpBackstopRetryCount => _umpBackstopRetryCount;
 
   /// Test seam for [_umpRequested] — see [debugResetGuardState].
   @visibleForTesting
@@ -2642,6 +2654,7 @@ class AdManager with WidgetsBindingObserver {
     // Restored to their declaration-time defaults (see field docs above).
     _updateCanRequestAds(true);
     _umpAttemptFailed = false;
+    _umpBackstopRetryCount = 0;
     _resumeFallbackTimer?.cancel();
     _resumeFallbackTimer = null;
     _splashBudgetTimer?.cancel();
@@ -3853,6 +3866,16 @@ class AdManager with WidgetsBindingObserver {
   void _scheduleNextRetry(int gen) {
     Future.delayed(Duration(milliseconds: _retryIntervalMs), () {
       if (gen != _retryGen || !_retryTimerActive || !isInitialised) return;
+      // C2 backstop — _onConnectivityChanged only retries a failed UMP
+      // attempt on an observed offline→online transition. A platform/test
+      // where the connectivity plugin never fires that transition (see
+      // _startConnectivityWatch's best-effort skip) would otherwise never
+      // retry UMP at all. Same guards _retryRefillAds uses below.
+      if (_umpAttemptFailed && isConnected && !_isVipMember) {
+        SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
+        _umpBackstopRetryCount++;
+        unawaited(requestUmpConsent());
+      }
       _retryRefillAds();
       _scheduleNextRetry(gen);
     });

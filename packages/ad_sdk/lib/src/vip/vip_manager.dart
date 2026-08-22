@@ -492,7 +492,11 @@ class VipManager {
     bool stack = false,
   }) async {
     final norm = normaliseKey(key);
-    final now = DateTime.now();
+    // T-clock — must go through _effectiveNow(), not a raw DateTime.now():
+    // otherwise turning the device clock forward, redeeming any VIP grant,
+    // then turning it back grants an effectively permanent VIP (expiresAt
+    // gets baked from the tampered clock and is never recomputed).
+    final now = _effectiveNow();
     assert(duration > Duration.zero,
         'VipManager.addVip: duration must be > 0 (got $duration) for key=$norm');
     if (duration <= Duration.zero) {
@@ -511,9 +515,8 @@ class VipManager {
       // Global stacking: extend from the latest expiry across ALL active
       // entries (not just this key) so grants from every source add up.
       var base = now;
-      final effNow = _effectiveNow();
       for (final e in _entries) {
-        if (e.isActiveAt(effNow) && e.expiresAt.isAfter(base)) base = e.expiresAt;
+        if (e.isActiveAt(now) && e.expiresAt.isAfter(base)) base = e.expiresAt;
       }
       var newExpiry = base.add(duration);
       // Clamp to the optional total-window cap.

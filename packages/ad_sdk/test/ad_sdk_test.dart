@@ -102,6 +102,18 @@ void main() {
       expect(received?.value, isTrue);
     });
 
+    test('throwing listener does not block other listeners (Fix #43)', () {
+      final received = <bool>[];
+      void throwing(BoolEvent e) => throw StateError('boom');
+      void ok(BoolEvent e) => received.add(e.value);
+
+      bus.listen(throwing);
+      bus.listen(ok);
+
+      expect(() => bus.fire(const BoolEvent(true)), returnsNormally);
+      expect(received, [true]);
+    });
+
     test('clearAll() resets replay buffer', () {
       bus.fire(const BoolEvent(true));
       bus.clearAll();

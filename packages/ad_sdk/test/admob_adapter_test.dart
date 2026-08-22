@@ -7,10 +7,17 @@
 //     `debugSimulateAppOpenShowAndArmWatchdog`, so the "no dismiss callback →
 //     force dismiss(false)" path can be exercised end-to-end without GMA.
 
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
-import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart';
-import 'package:applovin_admob_sdk/src/state/ad_slot.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+// AdMessageCodec isn't exported from the public API — same workaround as
+// gma_bridge_test.dart, needed to match the plugin's own channel codec.
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show AdMessageCodec;
+
+import 'admob_behavioral_test.dart' show FakeGmaBridge;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -286,6 +293,69 @@ void main() {
           reason: 'key "b" must start idle, unaffected by key "a" loading');
       expect(adapter.native('b').isLoaded.value, isFalse,
           reason: 'key "b" must not see key "a" isLoaded=true');
+    });
+  });
+
+  // Regression for the "visible stuck false" bug: onAppPaused() blanks
+  // `visible` for every key with a live listener; onAppResumed()'s
+  // error-reload branch never set it back (only its "ad already alive"
+  // branch did) — a resume-triggered reload that succeeded stayed hidden
+  // behind an empty placeholder. Fix: onAdLoaded sets `visible.value = true`
+  // itself. Drives the REAL BannerAdListener created by loadMrecIfNeeded
+  // (via debugMrecListenerFor) — not a re-implemented copy — so reverting the
+  // production fix fails this test.
+  group('AdMobAdapter mrec visible (T-visible regression, 2026-08-22 audit)',
+      () {
+    const config = AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(
+        bannerId: 'b',
+        interstitialId: 'i',
+        appOpenId: 'ao',
+        mrecId: 'm',
+      ),
+    );
+    final channel = MethodChannel(
+      'plugins.flutter.io/google_mobile_ads',
+      StandardMethodCodec(AdMessageCodec()),
+    );
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+    setUp(() {
+      // BannerAd.load() fires a real (unawaited) platform call — MREC has no
+      // adaptive-size lookup, so this is the only channel traffic to stub.
+      messenger.setMockMethodCallHandler(channel, (call) async => null);
+    });
+
+    tearDown(() {
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+
+    test('onAdLoaded sets visible=true after a resume-triggered reload',
+        () async {
+      final adapter = AdMobAdapter(bridge: FakeGmaBridge());
+      expect(await adapter.initialize(config), isTrue);
+      addTearDown(adapter.dispose);
+
+      // Simulate the state a paused-then-errored MREC is left in.
+      adapter.mrec('k').visible.value = false;
+
+      await adapter.loadMrecIfNeeded('k', 0);
+      final listener = adapter.debugMrecListenerFor('k');
+      expect(listener, isNotNull,
+          reason: 'loadMrecIfNeeded must have created the real BannerAd');
+
+      final dummyAd = BannerAd(
+        adUnitId: 'm',
+        size: AdSize.mediumRectangle,
+        request: const AdRequest(),
+        listener: const BannerAdListener(),
+      );
+      listener!.onAdLoaded!(dummyAd);
+
+      expect(adapter.mrec('k').visible.value, isTrue,
+          reason: 'a successful load must make the MREC visible again');
     });
   });
 }

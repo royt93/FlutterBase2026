@@ -305,4 +305,44 @@ void main() {
               'resurrect it');
     });
   });
+
+  group('addVip must grant against the anti-rollback clock, not a raw one',
+      () {
+    // Regression for: addVip() used to compute expiresAt from a raw
+    // DateTime.now(), bypassing the high-water-mark clamp _effectiveNow()
+    // applies everywhere else in this class. Simulate "the app already
+    // observed the clock far in the future" (same technique as the group
+    // above) *before* granting — a real forward clock edit followed by a
+    // grant would leave exactly this high-water mark behind. If addVip used
+    // the raw clock, the new grant's expiresAt would be anchored to "now"
+    // (i.e. before the high-water mark) instead of to the mark itself.
+    test('new grant is anchored to the high-water mark when it is ahead of '
+        'the raw clock', () async {
+      final now = DateTime.now();
+      final farFuture = now.add(const Duration(days: 365));
+      await prefs.setVipMaxObservedClockMs(farFuture.millisecondsSinceEpoch);
+
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      const duration = Duration(days: 10);
+      await mgr.addVip(key: 'CLOCK-TAMPER', duration: duration);
+
+      final entry = mgr.entries.single;
+      expect(
+        entry.expiresAt.isAfter(farFuture),
+        isTrue,
+        reason: 'expiresAt must be computed from the high-water-mark clock '
+            '(farFuture + duration), not from the raw wall clock — '
+            'otherwise winding the clock forward, granting any VIP, then '
+            'winding it back yields an effectively permanent VIP',
+      );
+      expect(
+        (entry.expiresAt.difference(farFuture) - duration).abs(),
+        lessThan(const Duration(seconds: 1)),
+        reason: 'expiresAt should be ~high-water-mark + duration',
+      );
+    });
+  });
 }
