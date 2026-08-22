@@ -3661,6 +3661,14 @@ class AdManager with WidgetsBindingObserver {
     // suspicious-pause window forever on every poll (2026-08-16 audit).
     final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
+    // m18 — `ready` alone is not showable: a cached AdMob ad expires after 1h
+    // and showInterstitial() discards it instead of showing it. Reporting
+    // `true` for one just makes a polling host enable a button that does
+    // nothing. Same `is AdMobAdapter` shape as reviveNativeInstance above —
+    // AppLovin has no documented cache expiry.
+    if (ad is AdMobAdapter && !ad.isFullscreenSlotFresh(ad.interstitialSlot)) {
+      return false;
+    }
     return ad.interstitialSlot.isReady;
   }
 
@@ -4144,6 +4152,10 @@ class AdManager with WidgetsBindingObserver {
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
+    // m18 — see canShowInterstitial.
+    if (ad is AdMobAdapter && !ad.isFullscreenSlotFresh(ad.rewardedSlot)) {
+      return false;
+    }
     return ad.rewardedSlot.isReady;
   }
 

@@ -18,6 +18,7 @@ import 'dart:async';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
@@ -966,6 +967,46 @@ void main() {
               'revoked, even though it finished loading before that — the '
               'documented VIP-bypass quirk above is untouched, this only '
               'covers the real (non-VIP) ad path');
+    });
+
+    // m18 (audit_claude.md MINOR) — canShowInterstitial/canShowRewardedAd are
+    // read-only "should I enable my UI" queries a host may poll. They only
+    // asked `isReady`, so a cached AdMob ad that aged past the 1h content
+    // validity while being polled still reported `true` — and the show path
+    // then discarded it instead of showing it, leaving the host with a button
+    // that does nothing. Needs the REAL AdMobAdapter: the expiry rule is
+    // AdMob's, AppLovin/MAX documents none.
+    test('m18 — a stale (>1h) ready AdMob slot is not reported as showable',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdManager().debugVipManager = _FakeVip(false);
+
+      final admob = AdMobAdapter();
+      AdManager().debugSetAdapter(admob);
+
+      for (final slot in [admob.interstitialSlot, admob.rewardedSlot]) {
+        slot.beginLoad();
+        slot.markReady();
+      }
+      expect(AdManager().canShowInterstitial(), isTrue,
+          reason: 'sanity check: a freshly loaded ad is showable');
+      expect(AdManager().canShowRewardedAd(), isTrue,
+          reason: 'sanity check: a freshly loaded ad is showable');
+
+      // Same `ready` slots, now past AdMob's 1h content validity.
+      final stale = DateTime.now().subtract(const Duration(hours: 2));
+      admob.interstitialSlot.lastLoadedAt = stale;
+      admob.rewardedSlot.lastLoadedAt = stale;
+
+      expect(AdManager().canShowInterstitial(), isFalse,
+          reason: 'showInterstitial() would discard this ad rather than show '
+              'it, so the peek must not claim it is showable');
+      expect(AdManager().canShowRewardedAd(), isFalse,
+          reason: 'showRewarded() would discard this ad rather than show it, '
+              'so the peek must not claim it is showable');
     });
 
     test(

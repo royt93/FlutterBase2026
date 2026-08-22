@@ -701,6 +701,19 @@ class AdMobAdapter implements AdProviderAdapter {
     return age.inHours < maxHours;
   }
 
+  /// Whether the cached interstitial/rewarded/rewarded-interstitial ad backing
+  /// [slot] is still inside AdMob's 1h content-validity window.
+  ///
+  /// m18 — `AdManager.canShowInterstitial()`/`canShowRewardedAd()` are
+  /// read-only "should I enable my UI" queries a host may poll, and a `ready`
+  /// slot can hold an ad that aged out while it was being polled. The show
+  /// paths already refuse to show a stale ad, so without this the host enables
+  /// a button that then does nothing. Kept as a member (not a free function) so
+  /// the expiry constant stays private to this adapter, and AdMob-only because
+  /// AppLovin/MAX owns its own cache and documents no expiry (see m17).
+  bool isFullscreenSlotFresh(AdSlot slot) =>
+      isAdFresh(slot.lastLoadedAt, _fullscreenExpiryHours);
+
   @override
   Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
     final cfg = _admob;
