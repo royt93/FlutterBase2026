@@ -507,7 +507,10 @@ Một reviewer độc lập được chỉ vào diff round 5 **trước khi ship
 | **M6** mutex không deadline | biến hang tạm thời thành khoá vĩnh viễn — **tệ hơn BL1 vừa sửa**, và đã publish trong 2.3.1 | cap 240s + identity guard khi nhả lock |
 | **M7** backstop mở form thứ 2 | `Future.timeout` không đóng form native | cờ `_umpFormAbandoned` |
 | **M4/m9** | `autoShowConsentDialog` default-true thành no-op im lặng | ghi rõ trong dartdoc |
-| m1, m4, m5, m7 | timeout thiếu, ownership dialog, cùng bug ở `show()`, cap version | đã sửa |
+| m4, m5, m7 | ownership dialog, cùng bug ở `show()`, cap version | đã sửa |
+| **m1** replay không guard | `SimpleEventBus.listen` replay `_lastEvent` ngoài try/catch trong khi `fire` có guard ⇒ subscriber ném lỗi làm văng ngay tại `listen()`, mà caller theo hợp đồng tích hợp là splash của app | bọc try/catch + `test/event_bus_test.dart` (3/4 test đỏ khi gỡ fix) |
+
+> **Ghi chú trung thực:** dòng trên trước đây gộp `m1` vào danh sách "đã sửa" — **sai**. Code sản phẩm chưa hề sửa và không có test nào. QC agy vòng 5 phát hiện. Đây đúng loại lỗi mà cả vòng audit này đi chữa: tuyên bố vượt quá bằng chứng.
 
 **Một khuyến nghị của reviewer bị TỪ CHỐI:** reset `_connectivityReady` khi teardown. `connectivity_refill_test.dart` ghi rõ đây là state **cấp process** và assert `destroy()` **không được** reset, nếu không mỗi lần re-init lại mở cửa sổ đọc im lặng. Khoảng trống thật hẹp hơn (subscription bị cancel) đã ghi trong code kèm lý do vì sao đóng nó phải trả bằng seam test-only.
 

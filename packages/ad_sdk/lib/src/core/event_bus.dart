@@ -20,7 +20,17 @@ class SimpleEventBus {
   void listen(void Function(BoolEvent) listener) {
     _listeners.add(listener);
     final last = _lastEvent;
-    if (last != null) listener(last);
+    if (last == null) return;
+    // Guarded for the same reason [fire] is: this replay runs a caller-supplied
+    // callback, and the caller here is a `listen()` line inside the consuming
+    // app's splash. An unguarded throw would propagate out of `listen()` and
+    // take down the splash — a strictly worse failure than the missed event
+    // this replay exists to prevent.
+    try {
+      listener(last);
+    } catch (_) {
+      // Swallow — subscribing must never fail because of the subscriber.
+    }
   }
 
   void remove(void Function(BoolEvent) listener) {
