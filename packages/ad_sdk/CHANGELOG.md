@@ -4,7 +4,30 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.2]
+
+### Fixed — independent review, round 3
+
+Two independent QC passes over the round-5 work found these. As above, each
+claim is backed by a test verified red against its own reverted fix.
+
+- **AppLovin native ads never came back after a consent change.** Withdrawing
+  personalisation consent (or closing and reopening the consent gate) makes the
+  widget drop its live native instance and immediately re-load — reusing the
+  same instance key, because that key *is* the widget's `State`. A tombstone
+  added to stop late callbacks from resurrecting a dead key was permanent, so
+  the reload got a disposed slot and disposed `ValueNotifier`s instead: the ad
+  never returned for the rest of that widget's life, and callbacks wrote to
+  disposed notifiers. The tombstone is now lifted when a live widget re-loads
+  the key, while a late callback for a key nobody revived still gets the shared
+  disposed sentinel — so the leak the tombstone exists to prevent still cannot
+  happen. AdMob was unaffected (it guards by slot identity, not by key).
+- **A throwing event-bus subscriber could take down the splash screen.**
+  `SimpleEventBus.fire` guarded every listener so one failure couldn't block
+  the others, but the later-added replay in `listen` did not — so a subscriber
+  that threw escaped straight out of `listen()` into its caller. Per the
+  integration contract that caller is a `listen()` line in the consuming app's
+  splash. Guarded, matching `fire`.
 
 ### Fixed — independent review, round 2
 
