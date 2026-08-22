@@ -2242,6 +2242,14 @@ class AdManager with WidgetsBindingObserver {
       await consentMgr.applyToProviders(config: _config);
       // Sync per-request personalization (AdMob npa=1) into the adapter so the
       // App Open / banner preloads below carry the correct consent state.
+      // B-1 (second independent review) — this is the FIRST push of consent
+      // down to the adapter, and it happens before the listener that maintains
+      // `_lastAppliedConsent` is attached. Leaving it unseeded here is why the
+      // withdrawal guard stayed dead for the two commonest paths: a host that
+      // grants consent before initialize() (the order this SDK's own docs
+      // recommend), and a returning user whose consent was already persisted.
+      // Proven by probe: both read `_lastAppliedConsent == null`.
+      _lastAppliedConsent = consentMgr.adConsent;
       _adapter?.applyConsent(consentMgr.adConsent);
 
       // Consent-coverage footgun (runtime, not config-static so it doesn't

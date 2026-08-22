@@ -202,7 +202,6 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void disposeBannerInstance(Object key) {
-    _disposedBannerKeys.add(key);
     _bannerAdsByKey.remove(key)?.dispose();
     _bannerSlotsByKey.remove(key)?.dispose();
     _bannerListenablesByKey.remove(key)?.dispose();
@@ -270,7 +269,6 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void disposeMrecInstance(Object key) {
-    _disposedMrecKeys.add(key);
     _mrecAdsByKey.remove(key)?.dispose();
     _mrecSlotsByKey.remove(key)?.dispose();
     _mrecListenablesByKey.remove(key)?.dispose();
@@ -283,14 +281,6 @@ class AdMobAdapter implements AdProviderAdapter {
   // below), instead of one shared across every mounted widget.
   final Map<Object, AdSlot> _nativeSlotsByKey = {};
 
-  /// MJ21 — keys whose owning widget has already been disposed. A load that is
-  /// mid-`await` when that happens would otherwise finish and write a fresh ad
-  /// into `_bannerAdsByKey`/`_mrecAdsByKey` for a dead key: nothing disposes it
-  /// afterwards (the widget is gone) and its callbacks touch listenables that
-  /// have been disposed. The native path already had this guard; banner and
-  /// MREC were missed, and they are the ones a fast scroll churns through.
-  final Set<Object> _disposedBannerKeys = {};
-  final Set<Object> _disposedMrecKeys = {};
 
   // ─── Native listenables ───────────────────────────────────────────────────
   // adSize/autoRefreshEnabled/visible are unused stubs — native ads have no
@@ -814,12 +804,12 @@ class AdMobAdapter implements AdProviderAdapter {
             // behind it, and showAppOpen then returned false forever:
             // `_retryRefillAds` only refills an idle/cooldown slot, so nothing
             // ever repaired it. App Open was dead for the rest of the session.
-            _appOpenAd = null;
+            _clearAppOpenIfSame(ad);
             _disposeAd(ad, 'appOpen-after-dismiss-late');
             return;
           }
           SafeLogger.d(_logTag, 'showAppOpen $tag 👋 dismissed');
-          _appOpenAd = null;
+          _clearAppOpenIfSame(ad);
           _disposeAd(ad, 'appOpen-after-dismiss');
           appOpenSlot.markDismissed();
           final cb = _appOpenDismiss;
@@ -832,7 +822,7 @@ class AdMobAdapter implements AdProviderAdapter {
           // MJ15 — this clear used to sit ABOVE the late-arrival check, so it
           // ran unconditionally and could wipe a freshly reloaded ad even more
           // easily than the onDismissed path.
-          _appOpenAd = null;
+          _clearAppOpenIfSame(ad);
           // Late arrival (see onDismissed above) — watchdog already resolved.
           if (_appOpenDismiss == null) {
             SafeLogger.w(_logTag,
@@ -861,7 +851,7 @@ class AdMobAdapter implements AdProviderAdapter {
       SafeLogger.e(_logTag, 'showAppOpen $tag show THREW: $e\n$st');
       _appOpenShowTimeout?.cancel();
       _appOpenShowTimeout = null;
-      _appOpenAd = null;
+      _clearAppOpenIfSame(ad);
       // MJ25 — the local `ad` is the last reference; dropping it without
       // disposing leaks the native ad. Reachable: gma_bridge awaits
       // setServerSideOptions() before show, and a platform call can throw.
@@ -1502,7 +1492,16 @@ class AdMobAdapter implements AdProviderAdapter {
       // a fast scroll disposes this widget during it. Without this check the
       // continuation builds an ad for a key nobody owns any more: nothing ever
       // disposes it, and its callbacks write to disposed ValueNotifiers.
-      if (_disposedBannerKeys.contains(key)) {
+      //
+      // B-2 (second independent review) — the first attempt used a permanent
+      // per-key tombstone set, which was a REGRESSION: the key is the State
+      // object and it IS legitimately reused (withdrawing consent, or the
+      // consent gate closing then reopening, both dispose the instance and then
+      // re-init the SAME widget), so every later load was dropped and the
+      // banner disappeared for good. Slot identity asks the real question —
+      // "is this still the load I started?" — with no bookkeeping that can
+      // outlive the widget.
+      if (!identical(_bannerSlotsByKey[key], slot)) {
         SafeLogger.d(_logTag,
             'loadBanner $tag ⏭️ widget was disposed mid-load — dropping');
         return;
