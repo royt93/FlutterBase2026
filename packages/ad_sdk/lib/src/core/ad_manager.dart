@@ -4124,6 +4124,13 @@ class AdManager with WidgetsBindingObserver {
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
+    // m18 — see canShowInterstitial. This peek was missed when m18 wired the
+    // other two (round-3 QC finding): without it a host polling this method
+    // gets `true` for an ad the show path would discard as stale.
+    if (ad is AdMobAdapter &&
+        !ad.isFullscreenSlotFresh(ad.rewardedInterstitialSlot)) {
+      return false;
+    }
     return ad.rewardedInterstitialSlot.isReady;
   }
 

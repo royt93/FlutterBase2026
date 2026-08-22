@@ -1010,6 +1010,36 @@ void main() {
     });
 
     test(
+        'm18 — rewardedInterstitial gets the same staleness check as the '
+        'other two', () async {
+      // Round-3 QC finding: m18 wired the freshness check into
+      // canShowInterstitial and canShowRewardedAd but not into
+      // canShowRewardedInterstitialAd, leaving one of the three fullscreen
+      // peeks still able to answer "showable" for an ad the show path would
+      // immediately discard — the exact host-visible symptom m18 was about.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdManager().debugVipManager = _FakeVip(false);
+
+      final admob = AdMobAdapter();
+      AdManager().debugSetAdapter(admob);
+
+      admob.rewardedInterstitialSlot.beginLoad();
+      admob.rewardedInterstitialSlot.markReady();
+      expect(AdManager().canShowRewardedInterstitialAd(), isTrue,
+          reason: 'sanity check: a freshly loaded ad is showable');
+
+      admob.rewardedInterstitialSlot.lastLoadedAt =
+          DateTime.now().subtract(const Duration(hours: 2));
+
+      expect(AdManager().canShowRewardedInterstitialAd(), isFalse,
+          reason: 'past AdMob\'s 1h content validity the show path discards '
+              'this ad, so the peek must not claim it is showable');
+    });
+
+    test(
         'VIP active → showAppOpenAd is skipped even with bypassSafety '
         '(never stacks on top of the no-ads state)', () async {
       AdManager().debugVipManager = _FakeVip(true);
