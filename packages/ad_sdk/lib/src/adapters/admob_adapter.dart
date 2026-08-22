@@ -785,8 +785,14 @@ class AdMobAdapter implements AdProviderAdapter {
         _disposeAd(_appOpenAd, 'appOpen-stale-at-show');
         _appOpenAd = null;
       }
-      appOpenSlot.lastLoadedAt = null;
-      appOpenSlot.markFailed();
+      // m15 (audit_claude.md MINOR) — an expiry is NOT a load failure.
+      // markFailed() bumped consecutiveFailures and stamped lastErrorAt, so
+      // the refill AdManager fires from this very onDone/onDismiss callback
+      // hit a cooldown window the discard itself had just created, and the
+      // slot stayed empty until the periodic retry timer. reset() empties the
+      // slot (state → idle, lastLoadedAt/lastErrorAt cleared) without
+      // poisoning the backoff — the load path never failed.
+      appOpenSlot.reset();
       onDismiss(false);
       return;
     }
@@ -1035,8 +1041,14 @@ class AdMobAdapter implements AdProviderAdapter {
         _disposeAd(_interstitialAd, 'interstitial-stale-at-show');
         _interstitialAd = null;
       }
-      interstitialSlot.lastLoadedAt = null;
-      interstitialSlot.markFailed();
+      // m15 (audit_claude.md MINOR) — an expiry is NOT a load failure.
+      // markFailed() bumped consecutiveFailures and stamped lastErrorAt, so
+      // the refill AdManager fires from this very onDone/onDismiss callback
+      // hit a cooldown window the discard itself had just created, and the
+      // slot stayed empty until the periodic retry timer. reset() empties the
+      // slot (state → idle, lastLoadedAt/lastErrorAt cleared) without
+      // poisoning the backoff — the load path never failed.
+      interstitialSlot.reset();
       onDone(false);
       return;
     }
@@ -1197,8 +1209,14 @@ class AdMobAdapter implements AdProviderAdapter {
         _disposeAd(_rewardedAd, 'rewarded-stale-at-show');
         _rewardedAd = null;
       }
-      rewardedSlot.lastLoadedAt = null;
-      rewardedSlot.markFailed();
+      // m15 (audit_claude.md MINOR) — an expiry is NOT a load failure.
+      // markFailed() bumped consecutiveFailures and stamped lastErrorAt, so
+      // the refill AdManager fires from this very onDone/onDismiss callback
+      // hit a cooldown window the discard itself had just created, and the
+      // slot stayed empty until the periodic retry timer. reset() empties the
+      // slot (state → idle, lastLoadedAt/lastErrorAt cleared) without
+      // poisoning the backoff — the load path never failed.
+      rewardedSlot.reset();
       onDone(RewardResult.skipped);
       return;
     }
@@ -1353,8 +1371,14 @@ class AdMobAdapter implements AdProviderAdapter {
         _disposeAd(_rewardedInterstitialAd, 'rewardedInterstitial-stale-at-show');
         _rewardedInterstitialAd = null;
       }
-      rewardedInterstitialSlot.lastLoadedAt = null;
-      rewardedInterstitialSlot.markFailed();
+      // m15 (audit_claude.md MINOR) — an expiry is NOT a load failure.
+      // markFailed() bumped consecutiveFailures and stamped lastErrorAt, so
+      // the refill AdManager fires from this very onDone/onDismiss callback
+      // hit a cooldown window the discard itself had just created, and the
+      // slot stayed empty until the periodic retry timer. reset() empties the
+      // slot (state → idle, lastLoadedAt/lastErrorAt cleared) without
+      // poisoning the backoff — the load path never failed.
+      rewardedInterstitialSlot.reset();
       onDone(RewardResult.skipped);
       return;
     }

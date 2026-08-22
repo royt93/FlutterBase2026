@@ -172,9 +172,11 @@ void main() {
       await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
 
       expect(dismissed, isFalse, reason: 'a stale ad must never be shown');
-      expect(adapter.appOpenSlot.value, AdSlotState.cooldown,
-          reason: 'a stale ready slot must be discarded (cooldown → '
-              'eligible for reload), not left ready as if nothing happened');
+      expect(adapter.appOpenSlot.value, AdSlotState.idle,
+          reason: 'a stale ready slot must be discarded (idle → immediately '
+              'eligible for reload), not left ready as if nothing happened. '
+              'm15 — it used to land in cooldown, which is a *failure* state '
+              'and blocked the very refill the discard needs');
     });
 
     test('showAppOpen still shows a genuinely fresh ready ad', () async {
@@ -205,7 +207,7 @@ void main() {
       await adapter.showInterstitial(onDone: (s) => shown = s);
 
       expect(shown, isFalse);
-      expect(adapter.interstitialSlot.value, AdSlotState.cooldown);
+      expect(adapter.interstitialSlot.value, AdSlotState.idle);
     });
 
     test('showRewarded discards a stale ready ad instead of showing it',
@@ -218,7 +220,7 @@ void main() {
       await adapter.showRewarded(onDone: (r) => result = r);
 
       expect(result, RewardResult.skipped);
-      expect(adapter.rewardedSlot.value, AdSlotState.cooldown);
+      expect(adapter.rewardedSlot.value, AdSlotState.idle);
     });
 
     test(
@@ -232,7 +234,47 @@ void main() {
       await adapter.showRewardedInterstitial(onDone: (r) => result = r);
 
       expect(result, RewardResult.skipped);
-      expect(adapter.rewardedInterstitialSlot.value, AdSlotState.cooldown);
+      expect(adapter.rewardedInterstitialSlot.value, AdSlotState.idle);
+    });
+
+    // m15 (audit_claude.md MINOR) — the discard above recorded the expiry as a
+    // load *failure* (markFailed): consecutiveFailures++ and lastErrorAt=now.
+    // AdManager fires the refill from the very onDone/onDismiss callback this
+    // discard invokes, so `beginLoad()` then hit a 15s+ backoff window the
+    // discard itself had just created and the slot stayed empty until the
+    // periodic retry timer.
+    test('m15 — a stale discard does not poison the reload backoff', () async {
+      final stale = DateTime.now().subtract(const Duration(hours: 5));
+
+      final appOpen = AdMobAdapter();
+      markReadyAt(appOpen.appOpenSlot, stale);
+      await appOpen.showAppOpen(onDismiss: (_) {});
+      expect(appOpen.appOpenSlot.consecutiveFailures, 0,
+          reason: 'appOpen: an expiry is not a load failure');
+      expect(appOpen.appOpenSlot.lastErrorAt, isNull);
+      expect(appOpen.appOpenSlot.beginLoad(), isTrue,
+          reason: 'appOpen: the refill right after the discard must be allowed');
+
+      final inter = AdMobAdapter();
+      markReadyAt(inter.interstitialSlot, stale);
+      await inter.showInterstitial(onDone: (_) {});
+      expect(inter.interstitialSlot.consecutiveFailures, 0);
+      expect(inter.interstitialSlot.beginLoad(), isTrue,
+          reason: 'interstitial: refill after discard must be allowed');
+
+      final rewarded = AdMobAdapter();
+      markReadyAt(rewarded.rewardedSlot, stale);
+      await rewarded.showRewarded(onDone: (_) {});
+      expect(rewarded.rewardedSlot.consecutiveFailures, 0);
+      expect(rewarded.rewardedSlot.beginLoad(), isTrue,
+          reason: 'rewarded: refill after discard must be allowed');
+
+      final ri = AdMobAdapter();
+      markReadyAt(ri.rewardedInterstitialSlot, stale);
+      await ri.showRewardedInterstitial(onDone: (_) {});
+      expect(ri.rewardedInterstitialSlot.consecutiveFailures, 0);
+      expect(ri.rewardedInterstitialSlot.beginLoad(), isTrue,
+          reason: 'rewardedInterstitial: refill after discard must be allowed');
     });
   });
 
