@@ -12,6 +12,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart'
     show TagForChildDirectedTreatment, TagForUnderAgeOfConsent;
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -505,6 +506,46 @@ void main() {
           reason: 'armed BEFORE the await, so a hung platform call still has a '
               'way out. Armed after, this is the one case that gets none.');
       addTearDown(() => adapter.dispose());
+    });
+  });
+
+  // M-4 (independent review) — `_armAppOpenWatchdog`'s hard-cap timer used to
+  // read `_appOpenAd` fresh when it fired and compare that field to itself
+  // (`_clearAppOpenIfSame(_appOpenAd)`), which is trivially always true, i.e.
+  // no guard at all. No load/show path today can actually swap `_appOpenAd`
+  // out from under a still-armed watchdog (see the method's own doc comment
+  // for why), so `debugReplaceAppOpenAdUnsafe` pokes the field directly to
+  // construct the scenario the identity check exists to guard — a regression
+  // backstop against a future change that reintroduces that possibility.
+  group('M-4: the hard-cap watchdog must not touch a swapped-in ad', () {
+    test('fires against the ad it was armed for, not whatever _appOpenAd is '
+        'when it goes off', () {
+      fakeAsync((async) {
+        adapter.loadAppOpen();
+        async.flushMicrotasks();
+        final original = bridge.lastAppOpen!;
+        original.hangOnShow = true;
+
+        bool? dismissed;
+        unawaited(adapter.showAppOpen(onDismiss: (d) => dismissed = d));
+        async.flushMicrotasks();
+        expect(adapter.debugWatchdogArmed, isTrue);
+
+        // Something else takes the field while this show's watchdog is still
+        // the pending one — unreachable via any real path today, but exactly
+        // what the identity check must survive if that ever changes.
+        final swappedIn = FakeGmaFullscreenAd();
+        adapter.debugReplaceAppOpenAdUnsafe(swappedIn);
+
+        async.elapse(const Duration(seconds: 91));
+
+        expect(dismissed, isFalse, reason: 'the hard cap must still fire');
+        expect(swappedIn.disposeCount, 0,
+            reason: 'M-4: the watchdog must never dispose an ad it was not '
+                'armed for, no matter what _appOpenAd holds when it fires');
+        expect(original.disposeCount, 1,
+            reason: 'the ad actually abandoned must still be released');
+      });
     });
   });
 

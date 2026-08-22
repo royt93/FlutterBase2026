@@ -787,7 +787,7 @@ class AdMobAdapter implements AdProviderAdapter {
     // all and `_appOpenDismiss` stayed pending forever — on the resume path
     // there is no other recovery timer. Safe to arm early: the callbacks below
     // cancel it, and it verifies callback identity before firing.
-    _armAppOpenWatchdog(onDismiss);
+    _armAppOpenWatchdog(ad, onDismiss);
     try {
       await ad.show(GmaShowCallbacks(
         onShowed: () => SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown'),
@@ -882,7 +882,19 @@ class AdMobAdapter implements AdProviderAdapter {
   /// onDismiss) and verifies identity before firing, so a watchdog left over
   /// from a previous show can never resolve a newer show's callback. [cap] is
   /// overridable for tests.
-  void _armAppOpenWatchdog(void Function(bool) captured, {Duration? cap}) {
+  ///
+  /// M-4 (independent review) — [ad] must be the specific ad this show call
+  /// was for, captured at arm time. The timer body used to read `_appOpenAd`
+  /// fresh when it fired and compare that field to itself
+  /// (`_clearAppOpenIfSame(_appOpenAd)`), which is trivially always true —
+  /// not a guard at all. It happened to be harmless only because nothing else
+  /// reassigns `_appOpenAd` while `_appOpenDismiss == captured` still holds;
+  /// that coincidence is not something a future change here can be trusted to
+  /// preserve, and the same identity check every other call site in this file
+  /// uses in a closure-captured `ad` (see `showAppOpen`'s onDismissed/
+  /// onFailedToShow above) costs nothing extra to apply here too.
+  void _armAppOpenWatchdog(GmaFullscreenAd? ad, void Function(bool) captured,
+      {Duration? cap}) {
     _appOpenShowTimeout?.cancel();
     _appOpenShowTimeout = Timer(cap ?? _appOpenShowHardCap, () {
       _appOpenShowTimeout = null;
@@ -899,9 +911,8 @@ class AdMobAdapter implements AdProviderAdapter {
       // would leak, which is the leak MJ15 was written to close. Double
       // dispose is harmless — `_disposeAd` swallows throws — so releasing here
       // and again from a late callback is the cheaper trade.
-      final abandoned = _appOpenAd;
-      _clearAppOpenIfSame(abandoned);
-      _disposeAd(abandoned, 'appOpen-hard-cap');
+      _clearAppOpenIfSame(ad);
+      _disposeAd(ad, 'appOpen-hard-cap');
       appOpenSlot.markShowFailed();
       _appOpenDismiss = null;
       captured(false);
@@ -918,11 +929,19 @@ class AdMobAdapter implements AdProviderAdapter {
     appOpenSlot.markReady();
     appOpenSlot.beginShow();
     _appOpenDismiss = onDismiss;
-    _armAppOpenWatchdog(onDismiss, cap: cap);
+    _armAppOpenWatchdog(_appOpenAd, onDismiss, cap: cap);
   }
 
   @visibleForTesting
   bool get debugWatchdogArmed => _appOpenShowTimeout != null;
+
+  /// M-4 test seam: forces `_appOpenAd` to point at a different ad than the
+  /// one the currently-armed watchdog was started for, without going through
+  /// any real load/show path (none of them can reach this state today — see
+  /// `_armAppOpenWatchdog`'s doc comment). Exists purely so the identity
+  /// guard itself is exercised, as a regression backstop.
+  @visibleForTesting
+  void debugReplaceAppOpenAdUnsafe(GmaFullscreenAd ad) => _appOpenAd = ad;
 
   // ──────────────────────────────────────────────────────────────────────────
   //  INTERSTITIAL
