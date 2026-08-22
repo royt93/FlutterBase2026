@@ -17,17 +17,103 @@
 //         the flow at them.
 //  MJ8  — concurrent callers must join one in-flight flow instead of each
 //         starting their own (two consent forms, two racing gate writes).
+//  M6   — (2026-08-22 audit, independent review) the mutex itself had no
+//         deadline: `_requestUmpConsent` awaits `setConsent()` ->
+//         `ConsentManager.set()` -> `_applyToProviders()` ->
+//         `MobileAds.instance.updateRequestConfiguration()`, none of which is
+//         bounded, so a hang there joined every later caller to a future that
+//         could never complete — worse than the BL1 lockout this round set
+//         out to fix. The fix wraps the whole flow in a 240s `.timeout`, and
+//         releases the lock only if the completing call still owns it
+//         (`identical(_umpInFlight, started)`), since `_resetGuardState()`
+//         (a re-init) can null it out from under a still-hung older call.
 //
 // Same fake-channel setup as ump_skip_branch_lockout_test.dart: AppLovin
 // provider, because AdMobAdapter needs far more native state than a method
 // channel can fake under `flutter test`.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Always succeeds instantly — only used to get `AdManager` into an
+/// initialised state so `_resetGuardState()` is reachable through the real
+/// re-init path, not a hand-rolled call to a private method.
+class _InstantAdapter implements AdProviderAdapter {
+  @override
+  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
+  @override
+  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
+  @override
+  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
+  @override
+  AdEventSink? eventSink;
+  @override
+  bool Function() canReload = () => true;
+  @override
+  String get tag => '[instant]';
+
+  @override
+  Future<bool> initialize(
+    AdConfig config, {
+    String deviceGaid = '',
+    bool isAgeRestrictedUser = false,
+    AdConsent? consent,
+  }) async =>
+      true;
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  void applyConsent(AdConsent consent) {}
+
+  // initialize() unconditionally kicks these off on success (post-init
+  // App Open + banner/mrec warm-up) — no-op so that doesn't throw through
+  // noSuchMethod and schedule a real background retry timer that outlives
+  // this test.
+  @override
+  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {}
+  @override
+  Future<void> preloadBanner(Object key) async {}
+  @override
+  Future<void> preloadMrec(Object key) async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+const _appLovinConfig = AdConfig(
+  provider: AdProvider.appLovin,
+  autoRequestUmpConsent: false,
+  enableCrashGuard: false,
+  // AppLovin's own CMP counts as consent coverage (consentFootgunWarning),
+  // so re-initialising mid-test (simulating a host destroy()+initialize()
+  // while UMP is stuck) doesn't trip the unrelated "no consent flow will
+  // run" assert on every re-entry — that assert isn't what these tests are
+  // about.
+  disableAppLovinCmpFlow: false,
+  // Not under test here, and its 30s real-time expiry timer would otherwise
+  // race the slower tests in this file (they take several real seconds).
+  firstInstallVipGrace: FirstInstallVipGrace.disabled,
+  appLovin: AppLovinConfig(
+    sdkKey: 'key',
+    bannerId: 'b',
+    interstitialId: 'i',
+    appOpenId: 'ao',
+    rewardedId: 'r',
+  ),
+);
 
 const _alChannel = MethodChannel('applovin_max');
 const _gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
@@ -90,6 +176,7 @@ void main() {
   });
 
   tearDown(() async {
+    AdManager.debugAdapterFactory = null;
     await AdManager().destroy();
     messenger.setMockMethodCallHandler(_alChannel, null);
     messenger.setMockMethodCallHandler(_gmaChannel, null);
@@ -197,6 +284,64 @@ void main() {
       expect(umpCalls, contains('ConsentInformation#requestConsentInfoUpdate'),
           reason: 'a stale in-flight future would silently swallow every '
               'later call — worse than the bug being fixed');
+    });
+  });
+
+  group('M6 — the 240s cap on the mutex itself', () {
+    // A full AdManager.initialize() (VipManager, FirstInstallGuard, GAID...)
+    // does not settle inside a fakeAsync zone (some of that chain does not
+    // resolve through plain microtask/timer pumping), so bootstrap for real
+    // outside fakeAsync first; only the requestUmpConsent() chain itself
+    // (already proven to behave under fakeAsync by the MJ8 tests above) runs
+    // inside the fakeAsync block that needs virtual-time control.
+    setUp(() async {
+      AdManager.debugAdapterFactory = (config) => _InstantAdapter();
+      await AdManager()
+          .initialize(config: _appLovinConfig, onComplete: (_, __) {});
+      expect(AdManager().isInitialised, isTrue);
+      umpCalls.clear();
+    });
+
+    test(
+        'a hang deep in setConsent() (AdMob updateRequestConfiguration) '
+        'releases the lock after 240s instead of never', () {
+      fakeAsync((async) {
+        status = _statusObtained;
+        canRequestAds = true;
+        // The unbounded step M6 targets: not UMP's own form flow (which has
+        // its own inner timeouts) but the tail of setConsent() ->
+        // ConsentManager.set() -> _applyToProviders() ->
+        // MobileAds.instance.updateRequestConfiguration(), which had none.
+        messenger.setMockMethodCallHandler(_gmaChannel, (call) {
+          if (call.method == 'MobileAds#updateRequestConfiguration') {
+            return Completer<void>().future; // never completes
+          }
+          return Future<void>.value();
+        });
+
+        UmpConsentResult? result;
+        unawaited(AdManager().requestUmpConsent().then((r) => result = r));
+        async.elapse(const Duration(seconds: 241));
+
+        expect(result, isNotNull,
+            reason: 'M6: the 240s cap must release the lock instead of '
+                'hanging forever');
+        expect(result!.error, contains('240s'));
+
+        // Prove the lock itself was actually released — a later call must
+        // start a fresh flow, not join a dead future forever.
+        messenger.setMockMethodCallHandler(_gmaChannel, (call) async => null);
+        umpCalls.clear();
+        UmpConsentResult? second;
+        unawaited(AdManager().requestUmpConsent().then((r) => second = r));
+        async.elapse(const Duration(seconds: 1));
+
+        expect(second, isNotNull);
+        expect(
+            umpCalls, contains('ConsentInformation#requestConsentInfoUpdate'),
+            reason: 'a released lock must let a later call actually run '
+                'again, not join the timed-out future');
+      });
     });
   });
 }
