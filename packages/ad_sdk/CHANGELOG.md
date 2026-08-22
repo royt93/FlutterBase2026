@@ -4,7 +4,11 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.1] - 2026-08-22
+
+Consent-path hotfix. Every item below was found by the round-5 audit and the
+first two were reproduced on real hardware (Pixel 7 Pro, `debugGeography:
+debugGeographyEea`, real UMP forms) before and after the fix.
 
 ### Fixed
 
