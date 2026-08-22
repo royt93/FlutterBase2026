@@ -267,6 +267,10 @@ class AdMobAdapter implements AdProviderAdapter {
   BannerAdListener? debugMrecListenerFor(Object key) =>
       _mrecAdsByKey[key]?.listener;
 
+  @visibleForTesting
+  NativeAdListener? debugNativeListenerFor(Object key) =>
+      _nativeAdsByKey[key]?.listener;
+
   @override
   void disposeMrecInstance(Object key) {
     _mrecAdsByKey.remove(key)?.dispose();

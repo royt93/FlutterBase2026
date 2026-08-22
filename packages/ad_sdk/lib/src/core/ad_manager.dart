@@ -677,6 +677,12 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   void debugSetAdapter(AdProviderAdapter? adapter) => _adapter = adapter;
 
+  /// Override which adapter instance `initialize()` builds, so a test can
+  /// observe what happens to it (e.g. that a failed init disposes it) without
+  /// a live native plugin. Defaults to the real selection below.
+  @visibleForTesting
+  static AdProviderAdapter Function(AdConfig config)? debugAdapterFactory;
+
   /// Inject a VipManager so the VIP-suppression branches are unit-testable.
   @visibleForTesting
   set debugVipManager(VipManager? m) => _vipManager = m;
@@ -2137,7 +2143,9 @@ class AdManager with WidgetsBindingObserver {
       // Pick adapter, wire its event sink, then initialise. The resolved
       // GAID is forwarded so the AppLovin adapter can register this device
       // as a test device in debug builds (preserves 1.x policy compliance).
-      final adapter = config.isAdMob ? AdMobAdapter() : AppLovinAdapter();
+      final adapter = debugAdapterFactory != null
+          ? debugAdapterFactory!(config)
+          : (config.isAdMob ? AdMobAdapter() : AppLovinAdapter());
       adapter.eventSink = _emit;
       // Same gate loadAppOpenAd()/loadInterstitial()/loadRewardedAd() consult
       // below — adapters that auto-reload from an internal dismiss/fail
