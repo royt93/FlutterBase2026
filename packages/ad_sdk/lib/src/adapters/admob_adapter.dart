@@ -426,6 +426,7 @@ class AdMobAdapter implements AdProviderAdapter {
     AdConfig config, {
     String deviceGaid = '',
     bool isAgeRestrictedUser = false,
+    AdConsent? consent,
   }) async {
     // ponytail: no gate needed here — COPPA is honoured per-request via
     // tagForChildDirectedTreatment in ad_consent.dart, not at init time.
@@ -436,7 +437,23 @@ class AdMobAdapter implements AdProviderAdapter {
     }
     try {
       await _bridge.initialize();
-      await _bridge.updateRequestConfiguration(cfg.effectiveTestDeviceIds);
+      // m8 — this used to pass only the test-device ids, and
+      // RequestConfiguration replaces the whole configuration rather than
+      // merging into it, so it wiped the COPPA tag that AdManager's
+      // consent bootstrap had just set. Harmless today only because no ad
+      // request happens between here and the post-init apply — exactly the
+      // fragile ordering ad_consent.dart's own comment warns about. Carry the
+      // tags through so this call can never be the thing that drops them.
+      await _bridge.updateRequestConfiguration(
+        cfg.effectiveTestDeviceIds,
+        tagForChildDirectedTreatment:
+            (isAgeRestrictedUser || consent?.isAgeRestrictedUser == true)
+                ? TagForChildDirectedTreatment.yes
+                : TagForChildDirectedTreatment.no,
+        tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent
+            ? TagForUnderAgeOfConsent.yes
+            : TagForUnderAgeOfConsent.unspecified,
+      );
       SafeLogger.d(_logTag,
           'initialize $tag testDeviceIds: ${cfg.testDeviceIds.length} from '
           'host config + ${kQaTestDeviceHashes.length} QA fleet (always on) '
@@ -581,6 +598,35 @@ class AdMobAdapter implements AdProviderAdapter {
           'restrictedDataProcessing=$_restrictedDataProcessing '
           '(hasUserConsent=${consent.hasUserConsent}, doNotSell=${consent.doNotSell})',
     );
+  }
+
+  @override
+  Future<void> discardCachedFullscreenAds() async {
+    // Only ever touches a slot that is `ready` — i.e. loaded and waiting. A
+    // slot that is `showing` has an ad on screen (killing that would break the
+    // user's session and, for rewarded, cost them their reward), and one that
+    // is `loading` has an in-flight request whose callback still owns it.
+    var discarded = 0;
+    void drop(AdSlot slot, GmaFullscreenAd? ad, String label,
+        void Function() clear) {
+      if (!slot.isReady) return;
+      _disposeAd(ad, 'consent-withdrawn-$label');
+      clear();
+      slot.reset();
+      discarded++;
+    }
+
+    drop(appOpenSlot, _appOpenAd, 'appOpen', () => _appOpenAd = null);
+    drop(interstitialSlot, _interstitialAd, 'interstitial',
+        () => _interstitialAd = null);
+    drop(rewardedSlot, _rewardedAd, 'rewarded', () => _rewardedAd = null);
+    drop(rewardedInterstitialSlot, _rewardedInterstitialAd,
+        'rewardedInterstitial', () => _rewardedInterstitialAd = null);
+
+    SafeLogger.d(
+        _logTag,
+        () => 'discardCachedFullscreenAds [AdMob] — dropped $discarded '
+            'cached ad(s) so the next request carries the new consent state');
   }
 
   void _disposeAd(GmaFullscreenAd? ad, String label) {

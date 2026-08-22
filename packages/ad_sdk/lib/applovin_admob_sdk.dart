@@ -31,7 +31,12 @@ export 'src/core/ad_safety_config.dart'
 export 'src/core/ad_screen.dart';
 export 'src/core/event_bus.dart';
 export 'src/core/integration_self_check.dart';
-export 'src/core/ump_consent.dart' show UmpConsentResult, requestUmpConsentFlow;
+export 'src/core/ump_consent.dart'
+    show
+        UmpConsentResult,
+        requestUmpConsentFlow,
+        // On-device test harnesses only — see its doc comment.
+        debugFormDismissTimeoutOverride;
 export 'src/core/att_consent.dart'
     show AttStatus, AttResult, requestAttIfNeeded;
 

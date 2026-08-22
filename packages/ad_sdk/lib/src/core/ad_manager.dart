@@ -9,7 +9,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
     show ConsentStatus, DebugGeography, TemplateType;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../adapters/admob_adapter.dart';
 import '../adapters/applovin_adapter.dart';
@@ -42,6 +41,7 @@ import 'att_consent.dart';
 import 'ad_provider_adapter.dart';
 import 'ad_route_observer.dart';
 import 'ad_safety_config.dart';
+import 'iab_storage.dart';
 import 'event_bus.dart';
 import 'ump_consent.dart';
 import 'ump_consent.dart' as core_ump;
@@ -198,20 +198,32 @@ class AdManager with WidgetsBindingObserver {
   /// this footgun is hit, or `null` when consent coverage is fine. Pure +
   /// static so it is unit-testable without running the full native init —
   /// same pattern as [releaseFootgunWarnings].
+  /// BL2 (round 5 audit) — `disableAppLovinCmpFlow` is read in exactly one
+  /// place in this package (`AppLovinAdapter.initialize`), so on AdMob it
+  /// means nothing at all. Testing `!config.disableAppLovinCmpFlow`
+  /// unconditionally therefore let a legal config — `provider: admob`,
+  /// `autoRequestUmpConsent: false`, `disableAppLovinCmpFlow: false` — return
+  /// `null` here, which skips the guard entirely and leaves `_canRequestAds`
+  /// at its default `true`: EEA/UK users served ads with no consent flow of
+  /// any kind, and no warning either. Fail-open in the exact branch this
+  /// guard exists to close. Now only counts AppLovin's CMP as consent
+  /// coverage when AppLovin is actually the active provider.
   @visibleForTesting
   static String? consentFootgunWarning(AdConfig config,
       {required bool umpRequested, bool consentExplicitlySet = false}) {
-    if (!config.disableAppLovinCmpFlow ||
+    final appLovinCmpCovers = config.provider == AdProvider.appLovin &&
+        !config.disableAppLovinCmpFlow;
+    if (appLovinCmpCovers ||
         config.autoRequestUmpConsent ||
         umpRequested ||
         consentExplicitlySet) {
       return null;
     }
-    return '🚨 No consent flow will run: AppLovin CMP is disabled, '
-        'autoRequestUmpConsent is false, and requestUmpConsent() was not '
-        'called before initialize(). EEA/UK users get NO consent form — '
-        'GDPR/UMP policy risk. Enable autoRequestUmpConsent, call '
-        'requestUmpConsent() first, or set disableAppLovinCmpFlow:false.';
+    return '🚨 No consent flow will run: autoRequestUmpConsent is false, '
+        'requestUmpConsent() was not called before initialize(), and no CMP '
+        'covers this provider (${config.provider.name}). EEA/UK users get NO '
+        'consent form — GDPR/UMP policy risk. Enable autoRequestUmpConsent, '
+        'or call requestUmpConsent() before initialize().';
   }
 
   /// F9 hardened (2026-08-19 audit, Finding 7) — [requestUmpConsent] already
@@ -249,8 +261,21 @@ class AdManager with WidgetsBindingObserver {
       {required bool isIos,
       required bool attRequested,
       required TrackingStatus? attStatus}) {
-    if (!isIos || attRequested) return false;
-    return attStatus == TrackingStatus.notDetermined;
+    if (!isIos) return false;
+    // m7 (round 5 audit) — `attStatus == null` means the ATT status read
+    // itself threw, i.e. we do NOT know whether the user has been asked. That
+    // used to fall through to `false`, which sent initialize() straight into
+    // `AdvertisingId.id(true)` — the `true` asks the plugin to trigger the ATT
+    // prompt — so a failed status read could pop Apple's tracking dialog from
+    // inside initialize(), out of the host's control and possibly before its
+    // UI is ready. Unknown has to be treated like notDetermined: defer.
+    //
+    // Same for `attRequested == true` with a status still notDetermined: the
+    // ATT call timed out (att_consent.dart's own guard) so the user has not
+    // actually answered, and asking again is not ours to do here.
+    if (attStatus == TrackingStatus.notDetermined) return true;
+    if (attRequested) return false;
+    return attStatus == null;
   }
 
   /// T16: empty/malformed ad-unit-id checks, split out of
@@ -694,10 +719,26 @@ class AdManager with WidgetsBindingObserver {
   /// Raw IAB TCF v2.3 consent string that Google UMP writes to native storage
   /// after a user completes the EEA consent form, or `null` if no TCF session
   /// has run yet (non-EEA users, or UMP never requested).
-  Future<String?> get tcfConsentString async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('IABTCF_TCString');
-  }
+  Future<String?> get tcfConsentString => IabStorage.read(
+        IabStorage.keyTcfString,
+      );
+
+  /// Raw IAB Global Privacy Platform header string (the US-states signal), or
+  /// `null` if no CMP has written one. See [IabStorage] — the SDK deliberately
+  /// does not decode it.
+  Future<String?> get gppConsentString => IabStorage.read(
+        IabStorage.keyGppString,
+      );
+
+  /// Whether the IAB US Privacy string says this user opted out of sale, or
+  /// `null` when no such string exists (which is not the same answer).
+  ///
+  /// m10 (round 5 audit) — `AdConsent.doNotSell` is only ever set by the host,
+  /// so [exportComplianceReport] reported `doNotSell: false` for a California
+  /// user who had opted out through a CMP. Both native SDKs read the real
+  /// signal themselves, so ads behaved correctly; the compliance report was
+  /// the thing that lied. Hosts can now reconcile the two.
+  Future<bool?> get usPrivacyOptedOut => IabStorage.usPrivacyOptedOut();
 
   /// Stream of every [AdEvent] (load / show / click / reward / revenue).
   Stream<AdEvent> get events => _eventStream.stream;
@@ -1177,6 +1218,13 @@ class AdManager with WidgetsBindingObserver {
   /// consent correctly in their splash.
   bool _umpRequested = false;
 
+  /// m6 — whether an auto-UMP flow has been *started* this process, as opposed
+  /// to [_umpRequested] which only flips once one has completed. Read by the
+  /// consent-footgun check, which runs while the un-awaited auto flow may
+  /// still be in flight. Kept separate because [_umpRequested] also gates
+  /// `requestUmpConsent(skipIfAlreadyRequested: true)`'s early return.
+  bool _umpFlowStarted = false;
+
   /// Last result returned by [requestUmpConsent] this process, so the
   /// auto-request path (`skipIfAlreadyRequested: true`) can hand back what the
   /// host already obtained instead of inventing a value or re-running the flow.
@@ -1335,6 +1383,22 @@ class AdManager with WidgetsBindingObserver {
     if (!cfg.autoShowConsentDialog) return;
     if (mgr.hasBeenAsked) return;
     if (_consentDialogScheduled) return;
+    // m9 (round 5 audit) — never run two consent flows at once. This built-in
+    // dialog is a plain two-button sheet: it is NOT a Google-certified CMP and
+    // produces no TCF consent string, so a "yes" collected here is not a valid
+    // legal basis in the EEA — yet it was written straight through to
+    // AppLovin's setHasUserConsent. The path in was easy to hit: when UMP came
+    // back inconclusive (no network) requestUmpConsent deliberately leaves the
+    // persisted value alone, so `hasBeenAsked` stayed false and this dialog
+    // then asked an EEA user itself. If UMP owns consent, it owns it in every
+    // outcome — including the ones where it could not decide.
+    if (cfg.autoRequestUmpConsent || _umpRequested || _umpFlowStarted) {
+      SafeLogger.d(
+          _tag,
+          '⏭️ consent dialog skipped — UMP is the consent source '
+          '(the built-in dialog is not a TCF CMP)');
+      return;
+    }
     if (_isVipMember) {
       SafeLogger.d(
           _tag, '⏭️ consent dialog skipped — VIP member (no ads anyway)');
@@ -1776,7 +1840,14 @@ class AdManager with WidgetsBindingObserver {
       TrackingStatus? attStatus;
       if (Platform.isIOS && !_attRequested) {
         try {
-          attStatus = await AppTrackingTransparency.trackingAuthorizationStatus;
+          // m13 (round 5 audit) — bounded, matching what [_selfCheckAtt]
+          // already does to this exact call for exactly this reason: a wedged
+          // platform channel would otherwise hang initialize() with no
+          // deadline of its own. Together with m7, a timeout now lands as
+          // `null` → "unknown" → defer the GAID fetch, which is the safe
+          // answer rather than the fast one.
+          attStatus = await AppTrackingTransparency.trackingAuthorizationStatus
+              .timeout(const Duration(seconds: 5));
         } catch (_) {
           attStatus = null;
         }
@@ -1836,7 +1907,20 @@ class AdManager with WidgetsBindingObserver {
           // is found, so legitimate first-time users still get their
           // grace window.
           final guard = FirstInstallGuard();
-          final alreadyGranted = await guard.hasAlreadyGranted();
+          // m13 — bounded: this reads the iOS Keychain through
+          // flutter_secure_storage, and a Keychain read can genuinely block
+          // (notably before first unlock after a reboot). `true` on timeout is
+          // the conservative answer: skip the grant rather than hand out a
+          // second trial window to what may be a reinstall.
+          final alreadyGranted = await guard
+              .hasAlreadyGranted()
+              .timeout(const Duration(seconds: 5), onTimeout: () {
+            SafeLogger.w(
+                _tag,
+                'first-install guard read timed out — skipping the grace '
+                'grant rather than risking a duplicate');
+            return true;
+          });
           if (alreadyGranted) {
             await prefs.markFirstInstallGraceApplied();
             SafeLogger.d(
@@ -1963,6 +2047,15 @@ class AdManager with WidgetsBindingObserver {
         _updateCanRequestAds(false);
         SafeLogger.d(
             _tag, '🔐 gate closed until UMP resolves (SDK-owned consent flow)');
+        // m6 — record that a flow has *started* here, not when it finishes.
+        // The auto flow below is deliberately not awaited, so
+        // consentFootgunWarning() (which runs a few lines further down) could
+        // otherwise fire while UMP was still in flight and warn that no
+        // consent flow exists when one was already underway. Deliberately a
+        // separate flag from `_umpRequested`: that one gates the
+        // skipIfAlreadyRequested early-return, so setting it here would make
+        // the call below skip itself and no consent flow would run at all.
+        _umpFlowStarted = true;
         runZonedGuarded(() async {
           if (debugForceAutoUmpError != null) {
             throw debugForceAutoUmpError!;
@@ -2035,6 +2128,10 @@ class AdManager with WidgetsBindingObserver {
               config,
               deviceGaid: _currentDeviceGAID,
               isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+              // MJ1 — hand the adapter the full consent state so it can apply
+              // the flags its own SDK wants set before native init, instead of
+              // waiting for applyToProviders() further down.
+              consent: consentMgr.adConsent,
             )
             .timeout(const Duration(seconds: 20));
       } on TimeoutException {
@@ -2097,7 +2194,9 @@ class AdManager with WidgetsBindingObserver {
       // false-alarm hosts that gather consent in their splash) — see
       // [consentFootgunWarning].
       final consentWarning = consentFootgunWarning(config,
-          umpRequested: _umpRequested,
+          // m6 — an auto flow that has started but not yet completed still
+          // counts as consent coverage.
+          umpRequested: _umpRequested || _umpFlowStarted,
           consentExplicitlySet: _consentExplicitlySet);
       if (consentWarning != null) {
         SafeLogger.w(_tag, consentWarning);
@@ -2298,6 +2397,10 @@ class AdManager with WidgetsBindingObserver {
   /// Default value before the first call is [AdConsent.conservative]
   /// (non-personalized ads everywhere).
   Future<void> setConsent(AdConsent consent) async {
+    // MJ7 — capture this BEFORE the assignment below: the AppLovin COPPA check
+    // further down needs the value the provider was actually initialised with,
+    // and `_consent` is overwritten on the next line.
+    final previousAgeRestricted = _consent.isAgeRestrictedUser;
     _consent = consent;
     // N2 — an explicit setConsent() call IS a resolved consent flow (the
     // host's own custom UI, or requestUmpConsent()'s own call into here) —
@@ -2336,6 +2439,35 @@ class AdManager with WidgetsBindingObserver {
     // R10-B — AppLovin MAX 4.x has no runtime setIsAgeRestrictedUser API.
     // When host flips isAgeRestrictedUser=true mid-session after AppLovin already initialised,
     // we cannot forward the signal, so hard-stop ad requests instead.
+    //
+    // MJ7 (round 5 audit) — that hard stop was one-way. A host correcting the
+    // flag back to false (the user fixed a mistyped birth date) left every
+    // AppLovin surface dead for the rest of the process, with no route back
+    // short of destroy() + initialize() and nothing in the log saying why.
+    // Re-initialising is the only real fix: the flag is only readable by MAX
+    // at SDK init, so the adapter has to be rebuilt to carry the new value in
+    // either direction. Cheap because `initialize()` already handles the
+    // re-init-without-destroy path (it disposes the old adapter, stops the
+    // timers and resets guard state).
+    final cfg = _config;
+    if (!isAdMobProvider &&
+        _adapter != null &&
+        cfg != null &&
+        consent.isAgeRestrictedUser != previousAgeRestricted) {
+      SafeLogger.w(
+          _tag,
+          '🔄 COPPA child-directed flipped to ${consent.isAgeRestrictedUser} '
+          'on AppLovin — MAX only reads this at SDK init, so re-initialising '
+          'the adapter to carry it');
+      if (consent.isAgeRestrictedUser) {
+        // Close the gate first: nothing may request an ad between here and the
+        // re-init completing.
+        _updateCanRequestAds(false);
+      }
+      await applyConsentToProviders(consent, config: cfg);
+      unawaited(initialize(config: cfg, onComplete: (_, __) {}));
+      return;
+    }
     if (!isAdMobProvider && consent.isAgeRestrictedUser) {
       SafeLogger.d(
           _tag, '🛑 COPPA child-directed on AppLovin → hard-stop ad requests');
@@ -2356,8 +2488,39 @@ class AdManager with WidgetsBindingObserver {
   /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
   /// into the provider adapter so AdMob's per-request `npa` flag tracks every
   /// consent change (dialog answer, set/reset, privacy screen).
-  void _syncConsentToAdapter() =>
-      _adapter?.applyConsent(_consentManager?.adConsent ?? _consent);
+  void _syncConsentToAdapter() {
+    // MJ5 (round 5 audit) — `_consent` and `_consentManager` were two
+    // independent sources of truth for the same thing. `_consent` was only
+    // written by setConsent()/initialize(), never by the public
+    // `ConsentManager.set()`/`reset()`, so a host that set `doNotSell: true`
+    // through ConsentManager had it silently reverted the next time anything
+    // rebuilt an AdConsent from `_consent` — a UMP backstop retry, or
+    // showPrivacyOptions(). That path wrote doNotSell=false back to disk, to
+    // AdMob's `rdp` extra and to AppLovin's setDoNotSell: a CCPA opt-out
+    // dropped without a trace. This listener already fires on every consent
+    // change from every route, so adopting the value here fixes every reader
+    // of `_consent` at once rather than the two call sites the audit found.
+    final latest = _consentManager?.adConsent;
+    final downgraded = latest != null &&
+        _consent.hasUserConsent &&
+        !latest.hasUserConsent;
+    if (latest != null) _consent = latest;
+    _adapter?.applyConsent(latest ?? _consent);
+
+    // MJ6 — applyConsent above only changes what FUTURE requests carry. Ads
+    // already loaded under the old (personalised) consent were still shown,
+    // and banners kept auto-refreshing, because ad age was the only thing that
+    // could discard them. Withdrawal has to invalidate the cache too.
+    if (downgraded) {
+      SafeLogger.w(
+          _tag,
+          '🔒 personalisation withdrawn — discarding cached fullscreen ads '
+          'and rebuilding inline ads');
+      unawaited(_adapter?.discardCachedFullscreenAds() ?? Future<void>.value());
+      // Banner/MREC/native widgets re-run their init on an initRevision bump.
+      initRevision.value = initRevision.value + 1;
+    }
+  }
 
   /// Run Google's UMP (User Messaging Platform) consent flow and auto-apply
   /// the result. Wraps [requestUmpConsentFlow] — see its doc for details.
@@ -2509,10 +2672,14 @@ class AdManager with WidgetsBindingObserver {
     final umpInconclusive =
         result.error != null || result.status == ConsentStatus.unknown;
     if (!umpInconclusive) {
+      // MJ5 — carry the CCPA/COPPA flags over from whichever source is
+      // freshest. UMP only ever decides `hasUserConsent`; rebuilding the other
+      // two from a stale `_consent` is how a doNotSell opt-out got dropped.
+      final current = _consentManager?.adConsent ?? _consent;
       await setConsent(AdConsent(
         hasUserConsent: hasConsent,
-        isAgeRestrictedUser: _consent.isAgeRestrictedUser,
-        doNotSell: _consent.doNotSell,
+        isAgeRestrictedUser: current.isAgeRestrictedUser,
+        doNotSell: current.doNotSell,
       ));
     } else {
       SafeLogger.w(
@@ -2601,10 +2768,13 @@ class AdManager with WidgetsBindingObserver {
 
     final hasConsent = result.status == ConsentStatus.obtained ||
         result.status == ConsentStatus.notRequired;
+    // MJ5 — see requestUmpConsent(): read the freshest CCPA/COPPA flags rather
+    // than rebuilding them from a possibly-stale `_consent`.
+    final current = _consentManager?.adConsent ?? _consent;
     await setConsent(AdConsent(
       hasUserConsent: hasConsent,
-      isAgeRestrictedUser: _consent.isAgeRestrictedUser,
-      doNotSell: _consent.doNotSell,
+      isAgeRestrictedUser: current.isAgeRestrictedUser,
+      doNotSell: current.doNotSell,
     ));
 
     if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
@@ -2750,6 +2920,7 @@ class AdManager with WidgetsBindingObserver {
   void _resetGuardState() {
     _footgunBlocked = false;
     _umpRequested = false;
+    _umpFlowStarted = false;
     _consentExplicitlySet = false;
     // T63 — these two silently outlived destroy()/re-init, leaving a host
     // with autoRequestUmpConsent:false no assignment left to ever reopen
@@ -2765,6 +2936,12 @@ class AdManager with WidgetsBindingObserver {
     _umpInFlight = null;
     _lastUmpParams = null;
     _lastUmpResult = null;
+    // m5 — `_attRequested` outlived teardown too. A stale `true` makes
+    // shouldDeferGaidFetch() believe ATT has already been answered in the new
+    // session, so initialize() reads the GAID without waiting for a decision,
+    // and attOrderFootgunWarning() stops warning a host that never calls
+    // requestAtt(). Both are the exact wrong answers after a reset.
+    _attRequested = false;
     _resumeFallbackTimer?.cancel();
     _resumeFallbackTimer = null;
     _splashBudgetTimer?.cancel();
@@ -3994,6 +4171,25 @@ class AdManager with WidgetsBindingObserver {
       }
       _retryRefillAds();
       _scheduleNextRetry(gen);
+      // m12 — _startConnectivityWatch() is called exactly once, from
+      // initialize(), and is best-effort: a plugin init that throws or times
+      // out leaves _connectivityReady false forever. isConnected then falls
+      // back to its optimistic `true` seed, so the SDK believes it is always
+      // online — every offline load just fails into backoff — and the
+      // refill-on-reconnect fast path is gone for the whole session. One
+      // re-attempt per poll tick costs nothing when it is already up, and is
+      // idempotent (the generation token inside handles overlap).
+      //
+      // Deliberately LAST, and with its own error sink: this is opportunistic
+      // repair, so it must never be able to skip the refill scan or the
+      // reschedule above — doing it first stopped the timer dead on any
+      // platform where the connectivity plugin is absent.
+      if (!_connectivityReady) {
+        SafeLogger.d(_tag, '📶 connectivity watch not ready — re-attempting');
+        unawaited(_startConnectivityWatch().catchError((Object e) {
+          SafeLogger.d(_tag, () => 'connectivity re-attempt failed: $e');
+        }));
+      }
     });
   }
 

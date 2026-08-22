@@ -60,7 +60,14 @@ List<String>? _waterfallOf(Ad ad) =>
 abstract class GmaBridge {
   Future<void> initialize();
 
-  Future<void> updateRequestConfiguration(List<String> testDeviceIds);
+  /// Note that `RequestConfiguration` REPLACES the whole configuration rather
+  /// than merging, so every field the caller cares about has to be passed on
+  /// every call — see m8 in AdMobAdapter.initialize.
+  Future<void> updateRequestConfiguration(
+    List<String> testDeviceIds, {
+    int? tagForChildDirectedTreatment,
+    int? tagForUnderAgeOfConsent,
+  });
 
   Future<void> loadAppOpen(
     String adUnitId, {
@@ -117,9 +124,17 @@ class RealGmaBridge implements GmaBridge {
   }
 
   @override
-  Future<void> updateRequestConfiguration(List<String> testDeviceIds) {
+  Future<void> updateRequestConfiguration(
+    List<String> testDeviceIds, {
+    int? tagForChildDirectedTreatment,
+    int? tagForUnderAgeOfConsent,
+  }) {
     return MobileAds.instance.updateRequestConfiguration(
-      RequestConfiguration(testDeviceIds: testDeviceIds),
+      RequestConfiguration(
+        testDeviceIds: testDeviceIds,
+        tagForChildDirectedTreatment: tagForChildDirectedTreatment,
+        tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
+      ),
     );
   }
 

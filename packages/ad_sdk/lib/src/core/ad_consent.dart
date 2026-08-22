@@ -114,12 +114,23 @@ Future<void> applyConsentToProviders(
       tagForChildDirectedTreatment: c.isAgeRestrictedUser
           ? TagForChildDirectedTreatment.yes
           : TagForChildDirectedTreatment.no,
-      // NOTE: `tagForUnderAgeOfConsent` (TFUA) models the EEA "under age of
-      // consent" concept — an axis this SDK does not currently expose a
-      // dedicated flag for. It must NOT be derived from `doNotSell` (CCPA):
-      // CCPA opt-out is handled per-request via RDP in AdMobAdapter/GmaBridge
-      // instead. Leaving this unset (default `unspecified`) avoids incorrectly
-      // flagging non-EEA CCPA opt-outs as EEA under-age-of-consent users.
+      // MJ4 (round 5 audit) — TFUA models the EEA "under age of consent"
+      // concept. It used to be left unset here on the grounds that this SDK
+      // exposed no flag for that axis, but it does:
+      // `AdConfig.umpTagForUnderAgeOfConsent`. That value only ever reached
+      // UMP's ConsentRequestParameters, so a host that declared an under-age
+      // audience got the right consent form and then had every ad request go
+      // out with no under-age signal on it at all — which is the half Google
+      // actually requires on the request configuration.
+      //
+      // Only `yes` is ever asserted. Absent an explicit declaration the answer
+      // stays `unspecified` rather than `no`: claiming a user is NOT under the
+      // age of consent is a statement about them we have no basis for. It is
+      // still never derived from `doNotSell` (CCPA) — that is a different
+      // jurisdiction and a different axis, handled per-request via RDP.
+      tagForUnderAgeOfConsent: config?.umpTagForUnderAgeOfConsent == true
+          ? TagForUnderAgeOfConsent.yes
+          : TagForUnderAgeOfConsent.unspecified,
     );
     await MobileAds.instance.updateRequestConfiguration(cfg);
     SafeLogger.d(tag,

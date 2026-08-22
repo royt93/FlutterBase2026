@@ -19,6 +19,7 @@ import 'dart:async';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
+import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
 import 'package:fake_async/fake_async.dart';
@@ -27,6 +28,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 // T88 — fakes for remoteSafetyProvider tests.
 class _FakeRemoteSafetyProvider implements RemoteAdSafetyProvider {
@@ -309,9 +312,17 @@ AdConfig _admobConfig({
 AdConfig _consentConfig({
   bool autoRequestUmpConsent = false,
   bool disableAppLovinCmpFlow = true,
+  AdProvider provider = AdProvider.admob,
 }) {
   return AdConfig(
-    provider: AdProvider.admob,
+    provider: provider,
+    appLovin: const AppLovinConfig(
+      sdkKey: 'test-sdk-key',
+      bannerId: 'al-banner',
+      interstitialId: 'al-inter',
+      appOpenId: 'al-appopen',
+      rewardedId: 'al-rewarded',
+    ),
     admob: const AdMobConfig(
       bannerId: 'ca-app-pub-9999999999999999/1111111111',
       interstitialId: 'ca-app-pub-9999999999999999/2222222222',
@@ -485,12 +496,39 @@ void main() {
       expect(w, isNull);
     });
 
-    test('disableAppLovinCmpFlow:false → no warning', () {
+    // BL2 (round 5 audit). This pair used to be a single test asserting that
+    // `disableAppLovinCmpFlow: false` silenced the warning for ANY provider —
+    // which encoded the bug: the flag is only ever read by
+    // AppLovinAdapter.initialize, so on AdMob it grants imaginary consent
+    // coverage. That combination (admob + autoRequestUmpConsent:false +
+    // disableAppLovinCmpFlow:false) is a config the SDK accepts silently, and
+    // it left `_canRequestAds` at its default `true`: EEA/UK users served ads
+    // with no consent flow at all, and no warning to say so.
+    test('BL2: disableAppLovinCmpFlow:false on AppLovin → no warning', () {
       final w = AdManager.consentFootgunWarning(
-        _consentConfig(disableAppLovinCmpFlow: false),
+        _consentConfig(
+          disableAppLovinCmpFlow: false,
+          provider: AdProvider.appLovin,
+        ),
         umpRequested: false,
       );
-      expect(w, isNull);
+      expect(w, isNull,
+          reason: 'AppLovin CMP is genuinely a consent flow when AppLovin is '
+              'the active provider');
+    });
+
+    test('BL2: disableAppLovinCmpFlow:false on AdMob still warns', () {
+      final w = AdManager.consentFootgunWarning(
+        _consentConfig(
+          disableAppLovinCmpFlow: false,
+          provider: AdProvider.admob,
+        ),
+        umpRequested: false,
+      );
+      expect(w, isNotNull,
+          reason: 'an AppLovin-only flag cannot cover consent on AdMob — '
+              'this is the fail-open the guard exists to catch');
+      expect(w, contains('admob'));
     });
 
     test('N2: consentExplicitlySet:true → no warning (custom consent UI)', () {
@@ -536,12 +574,23 @@ void main() {
       expect(defer, isTrue);
     });
 
-    test('iOS + requestAtt already called → do not defer', () {
+    // m7 (round 5 audit). Both of the next two used to assert `isFalse` —
+    // "do not defer" — which meant initialize() went on to call
+    // `AdvertisingId.id(true)`, and that `true` asks the plugin to raise
+    // Apple's ATT prompt. So the SDK could pop the tracking dialog itself,
+    // outside the host's control, in exactly the two states where it has no
+    // business doing so.
+    test('m7: iOS + requestAtt called but status still notDetermined → defer',
+        () {
       final defer = AdManager.shouldDeferGaidFetch(
           isIos: true,
           attRequested: true,
           attStatus: TrackingStatus.notDetermined);
-      expect(defer, isFalse);
+      expect(defer, isTrue,
+          reason: 'requestAtt() ran but the status never moved off '
+              'notDetermined, i.e. the prompt timed out (att_consent.dart has '
+              'its own guard for that) and the user never actually answered. '
+              'A real answer lands as authorized/denied/restricted.');
     });
 
     test('iOS + ATT already decided (authorized) → do not defer', () {
@@ -550,10 +599,23 @@ void main() {
       expect(defer, isFalse);
     });
 
-    test('iOS + ATT status unreadable (null) → do not defer', () {
-      final defer =
-          AdManager.shouldDeferGaidFetch(isIos: true, attRequested: false, attStatus: null);
-      expect(defer, isFalse);
+    test('m7: iOS + ATT status unreadable (null) → defer', () {
+      final defer = AdManager.shouldDeferGaidFetch(
+          isIos: true, attRequested: false, attStatus: null);
+      expect(defer, isTrue,
+          reason: 'null means the status read itself threw, so we do NOT know '
+              'whether the user has been asked. Unknown must be treated like '
+              'notDetermined — the alternative is triggering the ATT prompt '
+              'from inside initialize() on a guess.');
+    });
+
+    test('m7: iOS + ATT unreadable but requestAtt already ran → do not defer',
+        () {
+      final defer = AdManager.shouldDeferGaidFetch(
+          isIos: true, attRequested: true, attStatus: null);
+      expect(defer, isFalse,
+          reason: 'the host already ran the prompt, so reading the GAID '
+              'cannot raise a second one — the only reason to defer is gone');
     });
 
     test('Android → never defer regardless of ATT status', () {
@@ -2458,6 +2520,15 @@ void main() {
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
       AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      // m12 (round 5 audit) — the poll tick now re-attempts the connectivity
+      // watch whenever it is not up yet, so these tests can no longer rely on
+      // it never starting. Left alone, the checker runs for real under
+      // `flutter test`, every HTTP probe comes back 400, and it concludes the
+      // device is offline — which makes `canReload()` false and silently
+      // starves every later refill (the symptom was a second tick that loaded
+      // nothing). Declaring the watch ready keeps `isConnected` at its
+      // optimistic value, which is what these assertions are actually about.
+      AdManager().debugConnectivityReady = true;
     });
 
     tearDown(() {
@@ -2736,17 +2807,71 @@ void main() {
     });
   });
 
-  group('tcfConsentString', () {
-    test('reads the IABTCF_TCString Google UMP writes to native storage',
-        () async {
-      SharedPreferences.setMockInitialValues(
-          {'IABTCF_TCString': 'CPxxTestConsentString'});
+  // MJ2 + m10 (round 5 audit). These used to drive the reads through
+  // `SharedPreferences.setMockInitialValues`, which made them pass while the
+  // production code could not possibly work: the legacy API reads a different
+  // store on Android and prefixes every key with `flutter.` on iOS, so
+  // `tcfConsentString` returned null on every real device. A mock that answers
+  // a question the real store never sees is worse than no test — it is what
+  // kept this broken through four audit rounds.
+  //
+  // These drive the same async platform interface the production code uses, so
+  // a regression in *which store is read* still cannot be caught here — that
+  // part is only provable on a device (verified on Android; iOS not run, see
+  // MJ29). What they do lock is the parsing and the fail-soft contract.
+  group('IAB consent strings (MJ2/m10)', () {
+    setUp(() {
+      IabStorage.debugResetForTest();
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.empty();
+    });
+
+    test('tcfConsentString returns the string UMP wrote', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABTCF_TCString': 'CPxxTestConsentString'});
       expect(await AdManager().tcfConsentString, 'CPxxTestConsentString');
     });
 
-    test('null when no TCF session has ever run', () async {
-      SharedPreferences.setMockInitialValues({});
+    test('tcfConsentString is null when no TCF session has ever run', () async {
       expect(await AdManager().tcfConsentString, isNull);
+    });
+
+    test('an empty string reads as absent, not as a valid consent string',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({'IABTCF_TCString': ''});
+      expect(await AdManager().tcfConsentString, isNull);
+    });
+
+    test('usPrivacyOptedOut: `1YYN` → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABUSPrivacy_String': '1YYN'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test('usPrivacyOptedOut: `1YNN` → not opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABUSPrivacy_String': '1YNN'});
+      expect(await AdManager().usPrivacyOptedOut, isFalse);
+    });
+
+    test('usPrivacyOptedOut: no string → null, NOT false', () async {
+      expect(await AdManager().usPrivacyOptedOut, isNull,
+          reason: '"no signal" and "signal says they did not opt out" are '
+              'different answers, and a compliance report must not conflate '
+              'them — reporting a definite `false` we cannot back up is the '
+              'bug m10 is about');
+    });
+
+    test('usPrivacyOptedOut: malformed string → null rather than a guess',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABUSPrivacy_String': '1'});
+      expect(await AdManager().usPrivacyOptedOut, isNull);
     });
   });
 

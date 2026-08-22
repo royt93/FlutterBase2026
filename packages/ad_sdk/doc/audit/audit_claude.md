@@ -443,6 +443,35 @@ Ngoài ra `MJ3` mới xong **một nửa** (retry replay params). Nửa còn l�
 
 ---
 
+# Trạng thái triển khai — Commit 2 (2026-08-22)
+
+**Đã fix: BL2, MJ1, MJ2, MJ4, MJ5, MJ6, MJ7, m5, m6, m7, m8, m9, m10, m12, m13 (phần timeout ATT + Keychain).**
+
+Gate: `flutter analyze` 0 issues, `flutter test` **904/904 pass**.
+
+**Verify trên hardware thật** (Pixel 7 Pro, EEA debug geography): MJ2 trả về chuỗi TCF v2 thật `CQpWQEAQpWQEAEsACBENCtFoAP_g…` đọc từ kho mặc định của app — trước fix luôn `null`. `usPrivacyOptedOut`/`gpp` trả `null` đúng như hợp đồng (user EEA giả lập, không có CMP nào ghi tín hiệu US).
+
+⚠️ **Nhánh iOS của MJ2/m10 chưa được chạy trên thiết bị** — theo đúng logic của plugin nhưng chưa verify, xem MJ29.
+
+## Ba test cũ phải sửa vì chúng mã hoá chính hành vi sai
+
+Đáng ghi lại, vì đây là lý do các vòng audit trước không bắt được:
+
+1. `consentFootgunWarning (F4) disableAppLovinCmpFlow:false → no warning` — khẳng định cấu hình AdMob fail-open là **đúng**. Nay tách thành 2 test: AppLovin thì không cảnh báo, AdMob thì phải cảnh báo.
+2. `shouldDeferGaidFetch iOS + ATT status unreadable (null) → do not defer` — tức chấp nhận việc SDK tự bật popup theo dõi của Apple khi không đọc được trạng thái.
+3. `tcfConsentString reads the IABTCF_TCString...` — dùng `setMockInitialValues`, tức **trả lời một câu hỏi mà kho thật không bao giờ nhận được**. Test này pass suốt 4 vòng audit trong khi code không thể chạy đúng trên bất kỳ thiết bị nào. Nay dùng `InMemorySharedPreferencesAsync` — chính platform interface mà production dùng.
+
+Bài học: một mock trả lời sai tầng thì tệ hơn không có test.
+
+## Phát sinh trong lúc triển khai
+
+- **MJ33 có tác dụng phụ với test tự động**: nâng timeout lên 180s làm một lần chạy integration trên thiết bị mất 3,5 phút (harness không tap được dialog native nên đợi hết). Đã thêm `debugFormDismissTimeoutOverride` cho harness.
+- **m12 làm hỏng 3 test retry-timer** theo cách không hiển nhiên: re-attempt khiến connectivity checker chạy thật trong `flutter test`, mọi HTTP probe trả 400 nên kết luận offline, `canReload()` false và mọi refill sau đó im lặng không làm gì. Đã dùng seam `debugConnectivityReady` sẵn có.
+- **MJ7 gần như sai**: `setConsent` gán `_consent = consent` ngay dòng đầu, nên phép so sánh "cờ có đổi chiều không" luôn false. Phải chụp giá trị cũ trước khi gán.
+- **MJ2 cần khai báo `shared_preferences_android`** — package đã nằm sẵn trong mọi build Android (nó *là* phần thực thi của `shared_preferences`), nhưng lớp `SharedPreferencesAsyncAndroidOptions` không được re-export. Đây là API tầng thực thi, không phải API công khai ⇒ nợ kỹ thuật: nâng `shared_preferences` lớn có thể phải sửa lại.
+
+---
+
 # Quyết định Round 5 (chốt với product owner, 2026-08-22)
 
 ## Hai mục được xác định là TÍNH NĂNG CÓ CHỦ Ý, không phải bug

@@ -4,6 +4,105 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Round-5 audit, commit 2 of 6 — the rest of the consent surface.
+
+### Fixed
+
+- **The consent-footgun guard was fail-open on AdMob.** It treated
+  `disableAppLovinCmpFlow: false` as proof that a consent flow existed, but
+  that flag is only ever read by `AppLovinAdapter.initialize`, so on AdMob it
+  means nothing. The combination `provider: admob` +
+  `autoRequestUmpConsent: false` + `disableAppLovinCmpFlow: false` — a config
+  the SDK accepts silently — produced no warning and left `canRequestAds` at
+  its default `true`: EEA/UK users served ads with no consent flow at all.
+  AppLovin's CMP now only counts when AppLovin is the active provider.
+- **AppLovin received its privacy flags after `AppLovinMAX.initialize`, not
+  before.** On an ordinary cold start (host never called `setConsent`, so
+  nothing was buffered) the post-init `applyToProviders` was the first time
+  AppLovin heard about consent — MAX documents these as init-time settings.
+  `AdProviderAdapter.initialize` now takes the consent state so each adapter
+  can apply it in the order its own SDK requires.
+- **`tagForUnderAgeOfConsent` never reached AdMob.**
+  `AdConfig.umpTagForUnderAgeOfConsent` only fed UMP's consent form, so an app
+  declaring an under-age audience got the right form and then sent every ad
+  request out with no under-age signal. Now set on `RequestConfiguration` —
+  only ever as `yes`; absent an explicit declaration it stays `unspecified`
+  rather than asserting `no`.
+- **A UMP re-run could silently wipe a CCPA opt-out or the COPPA flag.**
+  `AdManager._consent` was a second source of truth that
+  `ConsentManager.set()`/`reset()` never updated, so anything rebuilding an
+  `AdConsent` from it (a UMP backstop retry, `showPrivacyOptions()`) wrote
+  `doNotSell: false` back to disk, to AdMob's `rdp` extra and to AppLovin's
+  `setDoNotSell`. The two are now kept in sync at the single point every
+  consent change already flows through.
+- **Withdrawing personalisation mid-session did not invalidate already-loaded
+  ads.** `applyConsent` only affects future requests, so the personalised
+  app-open/interstitial/rewarded ads already in the cache were still shown and
+  banners kept refreshing; ad age was the only thing that could discard them.
+  New `AdProviderAdapter.discardCachedFullscreenAds()` runs on a
+  `true → false` transition, alongside an `initRevision` bump for inline ads.
+  Never touches an ad that is on screen.
+- **COPPA on AppLovin was a one-way door.** Setting `isAgeRestrictedUser: true`
+  correctly hard-stops ad requests (MAX 4.x has no runtime API for it), but
+  correcting the flag back to `false` left every AppLovin surface dead for the
+  rest of the process with nothing in the log to say why. The adapter is now
+  re-initialised when the flag changes in either direction.
+- **`tcfConsentString` always returned `null` on real devices.** It read
+  through the legacy `SharedPreferences` API, which on Android reads its own
+  private file (UMP writes to the app's *default* store) and on iOS prefixes
+  every key with `flutter.` (UMP writes none). Its unit test passed against
+  `setMockInitialValues`, so the API looked wired for four audit rounds while
+  answering `null` to every caller. Now reads the platform's own store —
+  verified on Android hardware, returning a real TCF v2 string.
+- **iOS: a failed ATT status read could trigger Apple's tracking prompt from
+  inside `initialize()`.** An unreadable status fell through to "do not defer",
+  which then called `AdvertisingId.id(true)` — and that `true` asks the plugin
+  to raise the ATT prompt, outside the host's control. Unknown is now treated
+  like `notDetermined`, as is a `notDetermined` that survives a timed-out
+  `requestAtt()`. The status read itself is now bounded at 5 s, matching what
+  the self-check already did to the same call.
+- **The built-in consent dialog could ask an EEA user on UMP's behalf.** It is
+  a two-button sheet, not a certified CMP, and produces no TCF string — yet a
+  "yes" from it was written through to AppLovin. It is now skipped whenever UMP
+  owns consent, including when UMP came back inconclusive (the path that made
+  this reachable).
+- **A one-time connectivity-watch failure disabled the fast path for the whole
+  session.** `_startConnectivityWatch()` was called exactly once and is
+  best-effort, so a plugin init that threw left `isConnected` pinned to its
+  optimistic seed: every offline load just failed into backoff and
+  refill-on-reconnect never happened. The poll tick now re-attempts it.
+- The consent-footgun check no longer races the un-awaited auto-UMP flow, the
+  first-install Keychain read is bounded at 5 s (failing safe: skip the grant),
+  and `_attRequested` is reset by `destroy()` like the other guard flags.
+
+### Added
+
+- `AdManager.usPrivacyOptedOut` and `AdManager.gppConsentString` — the IAB US
+  Privacy and GPP signals a CMP leaves in platform storage.
+  `usPrivacyOptedOut` returns `null` when no string exists, deliberately
+  distinct from `false`: `AdConsent.doNotSell` is host-set only, so
+  `exportComplianceReport` reported `doNotSell: false` for a California user
+  who had opted out through a CMP. GPP is exposed raw rather than decoded —
+  mis-parsing a privacy signal is worse than not parsing one.
+- `debugFormDismissTimeoutOverride` — lets an on-device harness cap the
+  consent-form wait, since no harness can tap a native dialog and would
+  otherwise sit out the full 180 s.
+
+### Changed
+
+- `AdProviderAdapter` gains `consent:` on `initialize` and a new
+  `discardCachedFullscreenAds()`; `GmaBridge.updateRequestConfiguration` now
+  takes the COPPA/TFUA tags (`RequestConfiguration` replaces rather than merges,
+  so passing only test-device ids wiped them). Breaking only for a custom
+  adapter or bridge implementation.
+- Declares `shared_preferences_android` directly. It is already in every
+  Android build as the implementation of `shared_preferences`; the direct
+  dependency exists solely because `SharedPreferencesAsyncAndroidOptions` —
+  the only way to point a read at the app's default preference file, where UMP
+  writes — is not re-exported by `shared_preferences`.
+
 ## [2.3.1] - 2026-08-22
 
 Consent-path hotfix. Every item below was found by the round-5 audit and the

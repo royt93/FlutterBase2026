@@ -28,8 +28,18 @@ class FakeAppLovinBridge implements AppLovinBridge {
   final List<String> showRewardedCalls = [];
   String? lastShowRewardedCustomData;
 
+  /// MJ1 — ordered log of the privacy/init calls, so a test can assert that
+  /// consent reaches MAX *before* SDK init rather than after it.
+  final List<String> initOrder = [];
+
   @override
-  Future<void> initialize(String sdkKey) async {}
+  Future<void> initialize(String sdkKey) async => initOrder.add('initialize');
+  @override
+  void setHasUserConsent(bool hasConsent) =>
+      initOrder.add('setHasUserConsent($hasConsent)');
+  @override
+  void setDoNotSell(bool doNotSell) =>
+      initOrder.add('setDoNotSell($doNotSell)');
   @override
   void setTestDeviceAdvertisingIds(List<String> ids) {}
 

@@ -467,6 +467,12 @@ class _SplashScreenState extends State<SplashScreen> {
           debugPrint('UMP: canRequestAds=${ump.canRequestAds} '
               'status=${ump.status} formShown=${ump.formShown} '
               'error=${ump.error}');
+          // The IAB strings a CMP leaves behind. Worth printing in the sample:
+          // these are what a third-party SDK asks the host for, and until the
+          // round-5 audit the getters silently returned null on every device.
+          debugPrint('IAB: tcf=${await AdManager().tcfConsentString} '
+              'usPrivacyOptedOut=${await AdManager().usPrivacyOptedOut} '
+              'gpp=${await AdManager().gppConsentString}');
         } catch (e) {
           debugPrint('UMP skipped: $e');
         }

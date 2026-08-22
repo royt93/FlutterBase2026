@@ -11,6 +11,14 @@ abstract class AppLovinBridge {
   Future<void> initialize(String sdkKey);
   void setTestDeviceAdvertisingIds(List<String> ids);
 
+  /// GDPR consent and CCPA do-not-sell. MAX documents both as settings to
+  /// apply **before** [initialize]; [AppLovinAdapter.initialize] does exactly
+  /// that (MJ1). `applyConsentToProviders` still calls the same static APIs
+  /// afterwards for every later consent change — these live on the bridge so
+  /// the pre-init ordering is assertable in a test.
+  void setHasUserConsent(bool hasConsent);
+  void setDoNotSell(bool doNotSell);
+
   /// Enable/disable AppLovin's OWN Terms & Privacy Policy (CMP) flow. The SDK
   /// disables it when Google UMP is the consent source (T01) to avoid a double
   /// consent prompt. See [AppLovinBridge].
@@ -47,6 +55,13 @@ class RealAppLovinBridge implements AppLovinBridge {
   @override
   void setTestDeviceAdvertisingIds(List<String> ids) =>
       AppLovinMAX.setTestDeviceAdvertisingIds(ids);
+
+  @override
+  void setHasUserConsent(bool hasConsent) =>
+      AppLovinMAX.setHasUserConsent(hasConsent);
+
+  @override
+  void setDoNotSell(bool doNotSell) => AppLovinMAX.setDoNotSell(doNotSell);
 
   @override
   void setTermsAndPrivacyPolicyFlowEnabled(bool enabled) =>

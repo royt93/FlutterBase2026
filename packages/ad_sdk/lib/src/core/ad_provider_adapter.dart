@@ -172,15 +172,36 @@ abstract class AdProviderAdapter {
   /// init time (T40). AdMob honours this via `tagForChildDirectedTreatment`
   /// after init; AppLovin MAX 4.x has no equivalent runtime API and instead
   /// skips native init entirely when true — see [AppLovinAdapter.initialize].
+  /// [consent] is the state to apply **before** the native SDK starts, not
+  /// after. MJ1 (round 5 audit): [AdManager.initialize] applied consent to the
+  /// providers only after this call returned, so on an ordinary cold start
+  /// `AppLovinMAX.initialize(sdkKey)` ran having received no privacy flags at
+  /// all — AppLovin MAX documents them as init-time settings. Only the adapter
+  /// knows the right ordering for its own SDK, so it takes the state and
+  /// decides; `isAgeRestrictedUser` stays for source compatibility but is
+  /// redundant with `consent.isAgeRestrictedUser`.
   Future<bool> initialize(
     AdConfig config, {
     String deviceGaid = '',
     bool isAgeRestrictedUser = false,
+    AdConsent? consent,
   });
 
   /// Release native resources, native listeners, and reset all slot state.
   /// Must be safe to call before [initialize], or after a previous [dispose].
   Future<void> dispose();
+
+  /// Throw away fullscreen ads that are loaded but not yet shown, leaving
+  /// their slots ready to load again.
+  ///
+  /// MJ6 (round 5 audit): [applyConsent] only affects *future* requests, so a
+  /// user who withdrew personalisation mid-session was still shown the
+  /// personalised app-open/interstitial/rewarded ads already sitting in the
+  /// cache. Ad age was the only thing that could discard them. Unlike
+  /// [dispose] the adapter stays usable afterwards — this is a targeted
+  /// invalidation, not teardown. Must be a no-op when nothing is cached, and
+  /// must never touch an ad that is currently on screen.
+  Future<void> discardCachedFullscreenAds();
 
   /// Apply privacy/consent state that affects **per-request** ad
   /// personalization. Called by [AdManager] whenever consent changes (init,

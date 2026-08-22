@@ -62,6 +62,13 @@ void main() {
         return;
       }
 
+      // No harness can tap a native dialog, so if a form does get presented
+      // this run would otherwise sit out the full 180 s human-reading budget
+      // (MJ33). Cap it: the assertions below are about whether a form is
+      // presented at all, never about waiting for an answer.
+      debugFormDismissTimeoutOverride = const Duration(seconds: 5);
+      addTearDown(() => debugFormDismissTimeoutOverride = null);
+
       // Deliberately does NOT boot the example app: this exercises the UMP
       // flow directly, so a form (if one were wrongly presented) cannot be
       // hidden behind the splash's own 8 s hard cap.
@@ -110,6 +117,20 @@ void main() {
               'flow is still presenting (or waiting on) a form');
       expect(r.canRequestAds, isTrue,
           reason: 'consent obtained must leave the ad gate open');
+
+      // MJ2 — the only place this can actually be proven. `tcfConsentString`
+      // used to read through the legacy SharedPreferences API, which looks in
+      // a different store on Android and prefixes every key with `flutter.`
+      // on iOS, so it returned null on every real device while its unit test
+      // passed against a mock. Consent is obtained here, so UMP has written
+      // an IAB TCF string — if this is null the read is pointed at the wrong
+      // store again.
+      final tcf = await AdManager().tcfConsentString;
+      expect(tcf, isNotNull,
+          reason: 'UMP has an obtained consent decision on this device, so it '
+              'has written IABTCF_TCString. Null means we are reading the '
+              'wrong store — the exact regression MJ2 fixed.');
+      expect(tcf, isNotEmpty);
     },
   );
 }

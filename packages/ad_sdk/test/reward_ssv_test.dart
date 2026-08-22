@@ -30,6 +30,10 @@ class _FakeAppLovinBridge implements AppLovinBridge {
   @override
   Future<void> initialize(String sdkKey) async {}
   @override
+  void setHasUserConsent(bool hasConsent) {}
+  @override
+  void setDoNotSell(bool doNotSell) {}
+  @override
   void setTestDeviceAdvertisingIds(List<String> ids) {}
   @override
   void setTermsAndPrivacyPolicyFlowEnabled(bool enabled) {}
@@ -122,7 +126,11 @@ class _FakeGmaBridge implements GmaBridge {
   @override
   Future<void> initialize() async {}
   @override
-  Future<void> updateRequestConfiguration(List<String> ids) async {}
+  Future<void> updateRequestConfiguration(
+    List<String> ids, {
+    int? tagForChildDirectedTreatment,
+    int? tagForUnderAgeOfConsent,
+  }) async {}
   @override
   Future<void> loadAppOpen(String id,
       {required bool nonPersonalizedAds,

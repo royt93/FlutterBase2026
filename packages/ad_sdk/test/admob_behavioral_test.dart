@@ -63,11 +63,22 @@ class FakeGmaBridge implements GmaBridge {
   bool? rdpInter;
   bool? rdpRewarded;
 
+  // m8 — RequestConfiguration replaces rather than merges, so these must
+  // travel with every updateRequestConfiguration call or the tags get wiped.
+  int? capturedCoppaTag;
+  int? capturedTfuaTag;
+
   @override
   Future<void> initialize() async {}
   @override
-  Future<void> updateRequestConfiguration(List<String> ids) async {
+  Future<void> updateRequestConfiguration(
+    List<String> ids, {
+    int? tagForChildDirectedTreatment,
+    int? tagForUnderAgeOfConsent,
+  }) async {
     capturedTestDeviceIds = ids;
+    capturedCoppaTag = tagForChildDirectedTreatment;
+    capturedTfuaTag = tagForUnderAgeOfConsent;
   }
 
   @override

@@ -400,8 +400,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     AdConfig config, {
     String deviceGaid = '',
     bool isAgeRestrictedUser = false,
+    AdConsent? consent,
   }) async {
-    if (isAgeRestrictedUser) {
+    if (isAgeRestrictedUser || consent?.isAgeRestrictedUser == true) {
       _disabledForChildUser = true;
       SafeLogger.e(
         _logTag,
@@ -433,6 +434,27 @@ class AppLovinAdapter implements AdProviderAdapter {
         SafeLogger.w(_logTag, 'setTermsAndPrivacyPolicyFlowEnabled failed: $e');
       }
     }
+    // MJ1 — privacy flags must reach MAX BEFORE its SDK init, which is why
+    // this is here and not left to AdManager's post-init applyToProviders():
+    // on an ordinary cold start (host never called setConsent, so nothing was
+    // buffered) that post-init call was the FIRST time AppLovin heard about
+    // consent, i.e. `_bridge.initialize` below had already run and made its
+    // first request to MAX without it. AppLovin documents these as init-time
+    // settings. Still idempotent with the later call.
+    if (consent != null) {
+      try {
+        _bridge.setHasUserConsent(consent.hasUserConsent);
+        _bridge.setDoNotSell(consent.doNotSell);
+        SafeLogger.d(
+            _logTag,
+            () => 'privacy flags applied pre-init '
+                '(consent=${consent.hasUserConsent}, '
+                'doNotSell=${consent.doNotSell})');
+      } catch (e) {
+        // Never block init on this — the post-init apply still runs.
+        SafeLogger.w(_logTag, 'pre-init privacy flags failed: $e');
+      }
+    }
     try {
       await _bridge.initialize(cfg.sdkKey);
       SafeLogger.d(_logTag, 'initialize $tag ✅ SDK ready');
@@ -456,6 +478,31 @@ class AppLovinAdapter implements AdProviderAdapter {
       _config = null;
       return false;
     }
+  }
+
+  @override
+  Future<void> discardCachedFullscreenAds() async {
+    // MAX caches fullscreen ads natively and exposes no Dart handle to throw
+    // one away, so there is nothing to dispose here. Resetting the ready slots
+    // is still worth doing: it forces the next show to go through a fresh
+    // load* call rather than serving whatever MAX already holds, which is the
+    // part this SDK can actually control.
+    var reset = 0;
+    for (final slot in <AdSlot>[
+      appOpenSlot,
+      interstitialSlot,
+      rewardedSlot,
+      rewardedInterstitialSlot,
+    ]) {
+      if (!slot.isReady) continue;
+      slot.reset();
+      reset++;
+    }
+    SafeLogger.d(
+        _logTag,
+        () => 'discardCachedFullscreenAds [AppLovin] — reset $reset ready '
+            'slot(s); MAX owns its own cache, so this only guarantees the '
+            'next show re-requests');
   }
 
   @override

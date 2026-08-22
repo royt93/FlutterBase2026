@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../utils/safe_logger.dart';
@@ -8,7 +9,17 @@ import '../utils/safe_logger.dart';
 /// form once UMP has said one is required. Bounds a person reading a GDPR
 /// form, not a network call — see the call site for why it is far longer than
 /// the 20 s guards on the network steps.
-const Duration _formDismissTimeout = Duration(seconds: 180);
+const Duration kFormDismissTimeout = Duration(seconds: 180);
+
+/// Overrides [kFormDismissTimeout]. Exists for automated on-device runs: a
+/// harness cannot tap a native dialog, so it would otherwise sit out the full
+/// 180 s on every EEA-path test (observed: a 3.5-minute integration run).
+/// Never set this in production — the long wait is the point.
+@visibleForTesting
+Duration? debugFormDismissTimeoutOverride;
+
+Duration get _formDismissTimeout =>
+    debugFormDismissTimeoutOverride ?? kFormDismissTimeout;
 
 /// Result of [requestUmpConsentFlow].
 class UmpConsentResult {
