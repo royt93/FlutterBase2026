@@ -639,3 +639,41 @@ MJ24, MJ19, MJ20, M2, M3-onTimeout, M6 mutex, M7, m1, m4, m5, MJ21, m9, M1-nửa
 ## Đường đi đã chốt
 
 Mỗi phiên mới làm **1 nhóm**, kết phiên bằng **1 reviewer độc lập**. Ưu tiên: (1) test cho 13 fix còn lại, (2) M-3, (3) 9 mục rò rỉ, (4) MJ9 — để sau khi CI sống (tháng sau).
+
+---
+
+# BÀN GIAO — tiếp nối phiên 2026-08-22 (cùng ngày, agent khác)
+
+**Gate:** `flutter analyze` sạch, `flutter test` **934/934** (+12 so với 922 baseline đầu phiên). 8 commit mới, **chưa push**.
+
+## Đã làm — VIỆC 1 (test cho fix chưa kiểm chứng)
+
+Tất cả đều qua **revert-để-thấy-đỏ** (hoàn nguyên đúng dòng fix, chạy đúng test, xác nhận đỏ, phục hồi, xác nhận xanh lại) trước khi commit — ghi trong từng commit message:
+
+- **MJ19** — `adapter.dispose()` khi init fail. Test: `ad_manager_init_dispose_test.dart`. Thêm seam `AdManager.debugAdapterFactory`.
+- **MJ20 + M3** — watchdog 30s banner/mrec/native + dọn cache ad chết. Test: `admob_widget_load_watchdog_test.dart` (fakeAsync, cả 3 loại). Thêm seam `debugNativeListenerFor`.
+- **MJ21** — race dispose-during-await banner (identical-slot guard). Cùng file trên.
+- **M2** — khối COPPA re-init phải nằm TRƯỚC early-return `!isInitialised`. Test: `ad_manager_coppa_recover_test.dart`, dùng adapter giả mô phỏng đúng hành vi từ chối init của AppLovin.
+- **M6** — mutex `_umpInFlight` timeout 240s tự chữa. Test: `ump_consent_round5_test.dart` (fakeAsync, hang thật ở `MobileAds#updateRequestConfiguration`). **Phần identity-guard (`identical(_umpInFlight, started)`) KHÔNG viết được test tin cậy** — cần `_resetGuardState()` thật (chỉ gọi được qua `initialize()` đầy đủ), và `initialize()` đầy đủ không chạy xong bên trong `fakeAsync` (một số await không tiến qua được bằng pump microtask/timer thường); bản real-time thì đụng timer VIP/retry thật của SDK gây flaky. Đã thử và bỏ — xem comment trong commit.
+- **m5** — `AdLoadingDialog.show()` (không phải `showAdBuffer`) phải raise `_isShowing` sau khi route tồn tại. Test: `ad_loading_dialog_test.dart`.
+- **M1 (nửa còn lại, banner)** — widget listener thật trong `banner_ad_widget.dart` phải dispose instance khi `personalisationRevision` đổi, không chỉ đếm counter. Test: `banner_ad_widget_test.dart`. **mrec/native chưa làm** — cùng pattern, cùng fix, chỉ khác file.
+- **m4** — đã đọc kỹ, **không viết test**: `busyR` (`_fullscreenBusyReason`, kiểm `AdLoadingDialog.isShowing`) đã chặn hoàn toàn việc vào nhánh này khi có dialog người khác đang hiện, và toàn bộ đường từ đó tới `AdLoadingDialog.show(ctx)` là đồng bộ (không `await`) nên không có cách nào interleave. Kết luận: fix đúng về mặt phòng thủ nhưng **không reachable qua bất kỳ đường thật nào hiện tại** — cùng loại với M-4 (xem dưới), khác ở chỗ M-4 tôi vẫn viết được test bằng debug seam vì nó chỉ cần 1 object field bị ghi đè, còn m4 cần bypass được cả một gate ở tầng trên mà không có seam hợp lý để làm vậy mà không trùng lặp chính logic cần test.
+
+## Đã làm — VIỆC 2 (3 finding còn mở) — XONG CẢ 3
+
+- **M-3** (đúng như audit gọi tên trùng — cũng chính là **M7** trong bảng fix-list) — `_umpFormAbandoned` khoá backstop cả phiên là **lỗi thật**. Đã chọn hướng (a): thêm `recheckUmpConsentStatus()` (đọc local, không form, không network) trong `ump_consent.dart`; cả backstop lẫn đường reconnect giờ gọi recheck thay vì bỏ qua hoàn toàn khi `_umpFormAbandoned`. Refactor: tách phần đuôi chung của `_requestUmpConsent`/`_recheckAbandonedUmpForm` ra `_applyUmpConsentResult` để 2 đường không lệch nhau logic. Điều kiện clear cờ đúng là `status != required` (không phải `!umpInconclusive` — một form chưa trả lời đọc lại vẫn `error=null, status=required`, tức "conclusive" nhưng chưa resolve). Test: `ump_consent_round5_test.dart`, group `M-3`. Reconnect trước đây **không** check cờ này — đã fix nốt cho nhất quán với backstop.
+- **M-4** — `_armAppOpenWatchdog`'s timer đọc `_appOpenAd` tươi rồi so với chính nó ⇒ vô nghĩa. Đã truy ra tại sao thử trước làm đỏ MJ15 nhưng **lần này áp fix (truyền `ad` làm tham số, capture tại thời điểm arm) không làm đỏ bất kỳ test nào** — đã chạy full suite xác nhận. Không reachable qua đường thật hiện tại (đã phân tích: state-guard + identity check `_appOpenDismiss != captured` đã đủ bảo vệ trong mọi trường hợp hiện có), nên viết test bằng seam mới `debugReplaceAppOpenAdUnsafe` để phòng hồi quy tương lai. Test: `admob_behavioral_test.dart`, group `M-4`.
+- **Canary tautology** — `iab_storage_canary_test.dart` tự tạo options rồi assert chính nó. Đã tách `IabStorage.androidOptionsFor(fileName)` (`@visibleForTesting`, sản xuất chính là hàm `_open()` gọi), test giờ gọi hàm production thật. Revert-để-thấy-đỏ: xoá `fileName` khỏi lời gọi ⇒ cả 3 test trong file đỏ.
+
+## CHƯA làm (do hết ngân sách phiên, không phải do khó/không biết cách)
+
+- **m4** — xem phân tích trên, không unreachable-nhưng-untestable, mà **unreachable qua production path hiện tại**; không viết test giả tạo.
+- **M1 cho mrec/native** — cùng pattern với banner, chưa làm.
+- **VIỆC 3 — 9 mục rò rỉ lifecycle** — CHƯA BẮT ĐẦU. Danh sách ứng viên (từ bảng MINOR có sẵn, chưa verify lại `file:line` hiện tại): m21 (`_disposedNativeKeys` phình vô hạn), m22 (`_destroyWidgetAdViewWhenDetached` Future.delayed không cancel), m36 (`onPaidEvent` không null trong dispose), m24 (`BannerListenables` rò không có slot), m16 (`isAdFresh` wall-clock), m15 (expiry tính là failure, đầu độc backoff — `beginReload()` là API đúng), m18 (`canShowInterstitial/canShowRewardedAd` không check freshness), có thể thêm m19/m20/m23/m25 tuỳ agent kế tiếp chọn đủ 9. **Việc đầu tiên của phiên sau: đọc lại các dòng này trong code hiện tại (đã trải qua nhiều fix từ phiên này, số dòng chắc chắn lệch) trước khi tin bất kỳ `file:line` nào ở trên.**
+- **VIỆC 4 — MJ9 (VIP clock-forward poisoning, redesign)** — CHƯA BẮT ĐẦU. Đây là mục **rủi ro cao nhất** trong toàn bộ audit (dữ liệu thật của user đã mua VIP, sai là mất không hoàn nguyên được). Task gốc yêu cầu: nếu không chắc, DỪNG và ghi lý do thay vì đoán. Quyết định của phiên này: **dừng, không đoán**, để lại cho phiên có đủ ngân sách thời gian làm cẩn thận theo đúng yêu cầu (commit riêng, test migration + test lỗ hổng, không trộn việc khác).
+
+## Bài học phiên này
+
+1. **M-4 và m4 cùng một lớp bug** ("so sánh/gate với chính field vừa đọc, hoặc gate đã đủ mạnh ở tầng trên khiến fix bên dưới không reachable") — nhưng chỉ M-4 viết được test không giả tạo (seam ghi đè 1 field, không trùng logic). m4 cần bypass một gate nhiều điều kiện; không có cách làm vậy mà không tự viết lại một phần logic gate đó — nên bỏ, ghi lại lý do thay vì ép một test không phản ánh thực tế.
+2. **fakeAsync không tương thích với `AdManager().initialize()` đầy đủ.** Nhiều lần thử wrap toàn bộ init flow (VipManager, FirstInstallGuard, GAID...) trong `fakeAsync` bị treo ở giữa chừng dù không có lỗi rõ ràng. Cách né: bootstrap thật (real async, ngoài `fakeAsync`) trước, chỉ đưa đúng phần cần kiểm soát thời gian ảo (ví dụ `requestUmpConsent()`) vào trong `fakeAsync`.
+3. **`config.disableAppLovinCmpFlow` mặc định `true`** — nghĩa là mặc định consentFootgunWarning() coi AppLovin KHÔNG có CMP che phủ. Test dùng AppLovin provider mà không tắt `autoRequestUmpConsent` phải set `disableAppLovinCmpFlow: false` hoặc gọi `requestUmpConsent()` trước, nếu không assert(false) sẽ nổ mỗi lần `initialize()` chạy.

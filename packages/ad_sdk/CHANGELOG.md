@@ -6,6 +6,49 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed — independent review, round 2
+
+A second independent reviewer went over the round-5 diff after it shipped
+(same discipline as the first: every claim below is backed by a test that
+fails against the reverted fix, not taken on trust).
+
+- **An abandoned consent form could mute the UMP gate for the rest of the
+  session.** The round-1 fix for "the backstop could present a second form on
+  top of one our own timeout couldn't close" simply stopped retrying entirely
+  once that happened — worse than not having the fix at all: a user who
+  answered the still-open native form 10 seconds later got zero ads until an
+  app restart, whereas the un-patched backstop at least kept retrying and
+  could reopen the gate. Both the periodic backstop and the reconnect retry
+  (which never checked this state at all) now recheck Google's local,
+  already-cached consent decision — no form, no network call — so they can
+  self-heal without risking a second dialog.
+- **The App Open hard-cap watchdog compared a field to itself.** It read
+  `_appOpenAd` fresh when the timer fired and checked that value against
+  itself, which is always true and guards nothing. Not reachable through any
+  load/show path today (other guards happen to cover it), but a maintenance
+  hazard for the next change here — fixed to capture the specific ad at arm
+  time, same as every other call site in the file already does.
+- **A test canary asserted its own hand-rolled copy of a config object,
+  never production's.** Deleting the field it exists to guard from the real
+  code left the test green. The production build is now exposed for the test
+  to call directly.
+
+### Fixed — 8 of 12 round-5 fixes that shipped with no regression test
+
+Same review found a large fraction of round-5's diff was revertible in bulk
+with the suite staying green — the fix existed but nothing exercised it. Each
+one below now has a test verified red against its own reverted fix:
+
+adapter-orphan-on-failed-init disposal, the new banner/MREC/native load
+watchdog (plus its dead-cache cleanup and a dispose-during-await race in the
+banner path), the AppLovin COPPA re-init reachability fix, the UMP mutex's
+240 s self-heal timeout, `AdLoadingDialog.show()`'s flag-ordering fix, and
+the banner widget's consent-withdrawal listener (the fix already existed;
+only a counter was asserted, not the widget behaviour it drives). Two related
+fixes — the identical one for MREC/native widgets, and a rewarded-dialog
+ownership check that turned out to be unreachable through any current call
+path — remain unverified; see `doc/audit/audit_claude.md`'s handover section.
+
 Round-5 audit, commits 2–3: the rest of the consent surface, then the
 fullscreen-lifecycle failures that could kill a surface for a whole session.
 
@@ -53,8 +96,10 @@ invariant (see below).
   call that owns it.
 - **After the 180 s form timeout the periodic backstop could present a second
   consent form** on top of the first, which `Future.timeout` does not close.
-  The backstop now stands down in that state; a reconnect or an explicit host
-  call still retries.
+  The backstop now recognises that state and rechecks Google's already-cached
+  consent decision (no form, no network call) instead of presenting another
+  one — see "Fixed — independent review, round 2" below for why the first cut
+  of this (standing down entirely) was itself a regression.
 - Smaller ones from the same review: the IAB read's deadline now covers
   `PackageInfo` (an unbounded channel it was skipping), `AdLoadingDialog.show()`
   got the same flag-ordering fix its sibling already had, the rewarded path no
