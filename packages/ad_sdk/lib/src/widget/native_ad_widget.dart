@@ -19,6 +19,20 @@ import 'shimmer_view.dart';
 /// branches render at a fixed height (Google's recommended 320 for
 /// `TemplateType.medium`).
 ///
+/// **No `RouteAware` here, deliberately (m25, decided 2026-08-23).** Banner and
+/// MREC implement it because they own an auto-refresh ticker that would keep
+/// requesting ads behind a covering route. Native has no such ticker, so there
+/// is nothing to pause — the only thing route-awareness could add is destroying
+/// the ad view while it is covered, and that trades the cache for a reload:
+/// AdMob keeps the loaded ad in the adapter's `_nativeAdsByKey`, so tearing it
+/// down on every push discards a ready ad and costs a fresh request (plus a
+/// blank gap) each time the user comes back, while AppLovin cannot cache at all
+/// — no preload bridge — so it would reload unconditionally. Neither buys an
+/// impression. The case that genuinely needs teardown, a long feed of natives,
+/// is already handled: `ListView` disposes off-screen items, which routes
+/// through `disposeNativeInstance`. What remains held is one ad view per
+/// mounted screen. See doc/audit/audit_claude.md § m25.
+///
 /// Place anywhere in your screen tree:
 /// ```dart
 /// Column(children: [buildNative(), ...])   // inside an AdScreenState

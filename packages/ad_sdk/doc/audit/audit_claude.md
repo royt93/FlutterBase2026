@@ -777,3 +777,26 @@ Dựng app Flutter mới, kéo `applovin_admob_sdk: ^2.3.2` **từ pub.dev** (kh
 Đây là kiểm chứng mà 952 unit test và `--dry-run` **không** thay được: `--dry-run` từng báo "0 warnings" ngay trước hai lần upload thất bại thật, và `pub get` xanh không nói gì về pod graph.
 
 Kết quả kèm theo: `tool/check_pinning_wall.sh` được siết (`a93f40a`) — trước đó chỉ chạy `pub get` + `pod install` và **tin vào exit code**. CocoaPods exit 0 ngay khi tìm được *một* giải pháp, kể cả giải pháp âm thầm dịch pod ta muốn giữ. Script giờ assert version `AppLovinSDK` thực sự giải ra, và **đã kiểm cả hai chiều**: đặt kỳ vọng sai ⇒ exit 1 kèm tên pin lệch; đặt đúng ⇒ exit 0. Thêm build thật sau cờ `--with-builds` (tắt mặc định, ~8 phút).
+
+---
+
+## m25 — native `RouteAware`: QUYẾT ĐỊNH KHÔNG LÀM (2026-08-23)
+
+Reviewer trước để mở mục này với lý do "cần chủ sản phẩm quyết vì đánh đổi fill-rate/impression". Sau khi đọc code thì đánh đổi đó **không cân** như tưởng, nên ghi lại kết luận kèm dữ kiện để không phải điều tra lại.
+
+**Vì sao banner/MREC có `RouteAware` mà native không cần:** banner và MREC **sở hữu bộ đếm tự làm mới**, nên khi bị route khác che, chúng sẽ tiếp tục nạp ad mới trong lúc không ai nhìn — pause là để chặn việc đó. Native **không có ticker** (`native_ad_widget.dart` dartdoc, và không tồn tại `setNativeRoutePaused` ở bất kỳ đâu trong `lib/`). Không có gì để "tạm dừng".
+
+**Thứ duy nhất `RouteAware` có thể thêm cho native là huỷ ad view khi bị che — và nó đánh đổi chính cái cache đang có:**
+
+| Provider | Hiện trạng | Nếu huỷ khi bị che |
+|---|---|---|
+| AdMob | ad đã nạp nằm trong `_nativeAdsByKey` của adapter ⇒ quay lại là hiện ngay | xoá cache ⇒ mỗi lần quay lại tốn 1 request + khoảng trống chờ |
+| AppLovin | `MaxNativeAdView` tự chứa, **không có preload bridge** nên vốn không cache được | nạp lại vô điều kiện, mỗi lần quay lại |
+
+Không chiều nào mua thêm được impression. Người dùng đi qua lại nhiều lần thì thành đốt request mà không tăng doanh thu.
+
+**Ca thật sự cần teardown đã được xử lý:** một feed dài toàn native — `ListView` đã tự dispose item rời khỏi vùng nhìn, và đường đó đi qua `disposeNativeInstance`. Phần còn giữ chỉ là **một ad view cho mỗi màn hình đang mount**.
+
+**Đã cân nhắc và loại:** huỷ sau một khoảng chờ (~30s bị che). Được cả hai chiều về lý thuyết, nhưng cần thêm một timer phải track/cancel — đúng loại lỗi vừa phải sửa ở **m22** (`Future.delayed` không cancel, gọi vào bridge đã teardown). Không đáng đổi một lỗi đã biết lấy một khoản tiết kiệm bộ nhớ nhỏ.
+
+Chú thích do-not-fix đã đặt trong dartdoc của `NativeAdWidget`.
