@@ -690,7 +690,15 @@ class AdMobAdapter implements AdProviderAdapter {
   @visibleForTesting
   static bool isAdFresh(DateTime? loadedAt, int maxHours, {DateTime? now}) {
     if (loadedAt == null) return false;
-    return (now ?? DateTime.now()).difference(loadedAt).inHours < maxHours;
+    final age = (now ?? DateTime.now()).difference(loadedAt);
+    // m16 (audit_claude.md MINOR) — `lastLoadedAt` is a wall-clock stamp, so a
+    // backwards clock change (manual, or an NTP correction) makes `age`
+    // negative and `age.inHours < maxHours` true forever: the ad reads "fresh"
+    // for the rest of the session and both the reuse-on-load and the
+    // refuse-to-show-stale guards stop working. A negative age means the true
+    // age is unknowable, so treat the cached ad as stale and reload.
+    if (age.isNegative) return false;
+    return age.inHours < maxHours;
   }
 
   @override

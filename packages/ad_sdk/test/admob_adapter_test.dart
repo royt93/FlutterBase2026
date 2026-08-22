@@ -51,6 +51,61 @@ void main() {
         isFalse,
       );
     });
+
+    // m16 (audit_claude.md MINOR) — `lastLoadedAt` is a wall-clock stamp, so a
+    // backwards clock change puts it in the future: `difference()` goes
+    // negative and `< maxHours` stayed true forever, leaving the ad "fresh"
+    // for the rest of the session.
+    test('m16 — a loadedAt in the future (clock moved back) is NOT fresh', () {
+      expect(
+        AdMobAdapter.isAdFresh(base.add(const Duration(hours: 2)), 1,
+            now: base),
+        isFalse,
+        reason: 'negative age means the real age is unknowable — reload',
+      );
+      expect(
+        AdMobAdapter.isAdFresh(base.add(const Duration(days: 30)), 4,
+            now: base),
+        isFalse,
+      );
+    });
+  });
+
+  // m16, behaviourally: the clock-jump case needs no injected `now` — stamping
+  // lastLoadedAt in the future is exactly the state a backwards clock change
+  // leaves the slot in.
+  group('m16 — clock moved backwards does not make a stale ad look fresh', () {
+    test('showAppOpen discards a slot whose loadedAt is in the future',
+        () async {
+      final adapter = AdMobAdapter();
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+      adapter.appOpenSlot.lastLoadedAt =
+          DateTime.now().add(const Duration(hours: 2));
+
+      bool? dismissed;
+      await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
+
+      expect(dismissed, isFalse, reason: 'must not be shown');
+      expect(adapter.appOpenSlot.lastLoadedAt, isNull,
+          reason: 'only the stale-discard branch clears lastLoadedAt — with a '
+              'negative age the freshness check waved the ad through instead');
+    });
+
+    test('showInterstitial discards a slot whose loadedAt is in the future',
+        () async {
+      final adapter = AdMobAdapter();
+      adapter.interstitialSlot.beginLoad();
+      adapter.interstitialSlot.markReady();
+      adapter.interstitialSlot.lastLoadedAt =
+          DateTime.now().add(const Duration(hours: 2));
+
+      bool? shown;
+      await adapter.showInterstitial(onDone: (s) => shown = s);
+
+      expect(shown, isFalse);
+      expect(adapter.interstitialSlot.lastLoadedAt, isNull);
+    });
   });
 
   group('AdMobAdapter App Open watchdog', () {
