@@ -688,7 +688,9 @@ Tất cả đều qua **revert-để-thấy-đỏ** (hoàn nguyên đúng dòng 
 
 - **m4** — xem phân tích trên, không unreachable-nhưng-untestable, mà **unreachable qua production path hiện tại**; không viết test giả tạo.
 - **M1 cho mrec/native** — cùng pattern với banner, chưa làm.
-- **VIỆC 3 — 9 mục rò rỉ lifecycle** — CHƯA BẮT ĐẦU. Danh sách ứng viên (từ bảng MINOR có sẵn, chưa verify lại `file:line` hiện tại): m21 (`_disposedNativeKeys` phình vô hạn), m22 (`_destroyWidgetAdViewWhenDetached` Future.delayed không cancel), m36 (`onPaidEvent` không null trong dispose), m24 (`BannerListenables` rò không có slot), m16 (`isAdFresh` wall-clock), m15 (expiry tính là failure, đầu độc backoff — `beginReload()` là API đúng), m18 (`canShowInterstitial/canShowRewardedAd` không check freshness), có thể thêm m19/m20/m23/m25 tuỳ agent kế tiếp chọn đủ 9. **Việc đầu tiên của phiên sau: đọc lại các dòng này trong code hiện tại (đã trải qua nhiều fix từ phiên này, số dòng chắc chắn lệch) trước khi tin bất kỳ `file:line` nào ở trên.**
+> ⚠️ **HAI DÒNG NGAY DƯỚI ĐÃ LỖI THỜI — đọc mục "BÀN GIAO — VIỆC 3" bên dưới thay thế.** VIỆC 3 đã **XONG** (6 fix + 3 mục xác định không phải bug, commit `ea8b3cc`…`08b2087`) và VIỆC 4 / MJ9 đã có **quyết định không sửa kèm lý do** (`8021d82`, xem § MJ9 ở trên). Giữ lại nguyên văn để thấy trạng thái lúc đó, không phải để tin là hiện trạng.
+
+- **VIỆC 3 — 9 mục rò rỉ lifecycle** — CHƯA BẮT ĐẦU *(lỗi thời, xem cảnh báo trên)*. Danh sách ứng viên (từ bảng MINOR có sẵn, chưa verify lại `file:line` hiện tại): m21 (`_disposedNativeKeys` phình vô hạn), m22 (`_destroyWidgetAdViewWhenDetached` Future.delayed không cancel), m36 (`onPaidEvent` không null trong dispose), m24 (`BannerListenables` rò không có slot), m16 (`isAdFresh` wall-clock), m15 (expiry tính là failure, đầu độc backoff — `beginReload()` là API đúng), m18 (`canShowInterstitial/canShowRewardedAd` không check freshness), có thể thêm m19/m20/m23/m25 tuỳ agent kế tiếp chọn đủ 9. **Việc đầu tiên của phiên sau: đọc lại các dòng này trong code hiện tại (đã trải qua nhiều fix từ phiên này, số dòng chắc chắn lệch) trước khi tin bất kỳ `file:line` nào ở trên.**
 - **VIỆC 4 — MJ9 (VIP clock-forward poisoning, redesign)** — CHƯA BẮT ĐẦU. Đây là mục **rủi ro cao nhất** trong toàn bộ audit (dữ liệu thật của user đã mua VIP, sai là mất không hoàn nguyên được). Task gốc yêu cầu: nếu không chắc, DỪNG và ghi lý do thay vì đoán. Quyết định của phiên này: **dừng, không đoán**, để lại cho phiên có đủ ngân sách thời gian làm cẩn thận theo đúng yêu cầu (commit riêng, test migration + test lỗ hổng, không trộn việc khác).
 
 ## Bài học phiên này
@@ -730,3 +732,48 @@ Mọi `file:line` trong bảng MINOR ở trên đã được **định vị lạ
 
 1. `packages/ad_sdk/example/pubspec.lock` bị `flutter pub get` ghi lại (`ad_sdk 2.3.1` → `2.3.2`) mỗi lần chạy `flutter analyze`/`flutter test`. File đang commit ở `2.3.1`. Phiên này `git checkout` nó trước mỗi commit để giữ tree sạch — hoặc commit lại một lần cho xong.
 2. Còn tồn (không thuộc VIỆC 3): **M1 cho mrec/native**, **m4** (unreachable, đã ghi lý do), **VIỆC 4 / MJ9** (VIP clock-forward — vẫn chưa bắt đầu, vẫn là mục rủi ro cao nhất), và các mục MINOR chưa xử: m1–m14, m17, m21 (đã fix ở `e300c76`), m26–m35, m37, m38.
+
+---
+
+# QC vòng 3 (26 commit) + smoke bản published 2.3.2 — 2026-08-23
+
+## Điểm từ hai reviewer độc lập, chạy tuần tự trên cùng `git diff e7fed4f..HEAD`
+
+| Reviewer | Điểm | Finding |
+|---|---|---|
+| agy | **8.5/10** | 1 Major thật (xem dưới) |
+| codex | **8.0/10** | Không Blocker/Major mới; trừ điểm ở câu chữ claim M-4 và ở việc một phần "đỏ" của thí nghiệm tổng hợp đến từ compile-error do mất test seam, không phải hành vi |
+
+Lần đầu cả hai reviewer cùng ở mức 8+. Bốn vòng trước: 6, 5, 5, và 8.5/5.
+
+## Con số quyết định — đã đảo hẳn
+
+| | Vòng 1 | Vòng 3 |
+|---|---|---|
+| Fix revert được **mà suite vẫn xanh** | **20/24** | **0/22** |
+| Revert đồng thời toàn bộ `lib/` | — | agy: **90/951 test đỏ** · codex: **19 suite đỏ** (14 assertion + 5 compile) |
+
+Hai con số aggregate lệch nhau vì hai reviewer đếm khác đơn vị (test lẻ vs suite). Điểm chung quan trọng: **không còn fix nào lọt lưới khi revert đơn lẻ**.
+
+Lưu ý công bằng của codex đáng ghi lại: một phần "đỏ" của thí nghiệm tổng hợp là **compile error do xoá `@visibleForTesting` seam**, không phải test bắt được hành vi sai. Thí nghiệm aggregate vì vậy là chỉ báo thô; con số đáng tin là 0/22 khi revert từng fix.
+
+## Major agy tìm ra — đã sửa (`391ea52`)
+
+`canShowRewardedInterstitialAd` **thiếu** kiểm freshness, trong khi `canShowInterstitial` và `canShowRewardedAd` đã có. m18 wire vào 2/3 format fullscreen rồi tuyên bố xong ⇒ format thứ ba vẫn trả `true` cho ad mà đường show sẽ loại ngay — đúng triệu chứng host-visible mà m18 được viết ra để xoá. Test viết trước, quan sát đỏ (`Expected: false / Actual: <true>`) trước khi thêm guard.
+
+**Bài học lặp lại lần thứ năm:** dạng lỗi hay lọt nhất không phải "quên sửa" mà là **"sửa phần lớn rồi tưởng là hết"**. Nên với mỗi fix áp cho một họ (3 format fullscreen, 4 call site, 2 provider), phải đếm rõ họ đó có mấy phần tử và đã áp đủ chưa.
+
+## Smoke bản published 2.3.2 trên app consumer thật
+
+Dựng app Flutter mới, kéo `applovin_admob_sdk: ^2.3.2` **từ pub.dev** (không phải path local), kèm combo known-good `gma_mediation_applovin 2.5.2` + `dependency_overrides: applovin_max 4.6.0`.
+
+| Cửa | Kết quả |
+|---|---|
+| `flutter pub get` | ✅ resolve 2.3.2, `applovin_max 4.6.0`, `gma 2.5.2`, `google_mobile_ads 7.0.0`, `meta 1.16.0` |
+| `pod install` | ✅ 16 pod — `AppLovinSDK 13.5.0` thoả **cả hai** pin tuyệt đối (`applovin_max` và `GoogleMobileAdsMediationAppLovin 13.5.0.0`) |
+| `flutter build apk --debug` | ✅ |
+| `flutter build ios --simulator --debug` | ✅ |
+
+Đây là kiểm chứng mà 952 unit test và `--dry-run` **không** thay được: `--dry-run` từng báo "0 warnings" ngay trước hai lần upload thất bại thật, và `pub get` xanh không nói gì về pod graph.
+
+Kết quả kèm theo: `tool/check_pinning_wall.sh` được siết (`a93f40a`) — trước đó chỉ chạy `pub get` + `pod install` và **tin vào exit code**. CocoaPods exit 0 ngay khi tìm được *một* giải pháp, kể cả giải pháp âm thầm dịch pod ta muốn giữ. Script giờ assert version `AppLovinSDK` thực sự giải ra, và **đã kiểm cả hai chiều**: đặt kỳ vọng sai ⇒ exit 1 kèm tên pin lệch; đặt đúng ⇒ exit 0. Thêm build thật sau cờ `--with-builds` (tắt mặc định, ~8 phút).
