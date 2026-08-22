@@ -24,14 +24,13 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 
 void main() {
   test('the Android options API IabStorage depends on still exists', () {
-    // Compile-time canary: every name below is load-bearing in
-    // IabStorage._open(). A rename breaks the build here rather than silently
-    // sending the read to the wrong store.
-    const options = SharedPreferencesAsyncAndroidOptions(
-      backend: SharedPreferencesAndroidBackendLibrary.SharedPreferences,
-      originalSharedPreferencesOptions:
-          AndroidSharedPreferencesStoreOptions(fileName: 'pkg_preferences'),
-    );
+    // M-2 (independent review) — this used to build its OWN options object
+    // and assert on that, so deleting `fileName` from IabStorage._open()
+    // entirely still left this test green: it was checking its own
+    // hand-rolled copy, never production. Calling the real production
+    // method means a future edit to _open() that drops or renames anything
+    // here fails this test for real.
+    final options = IabStorage.androidOptionsFor('pkg_preferences');
 
     expect(options.backend,
         SharedPreferencesAndroidBackendLibrary.SharedPreferences,

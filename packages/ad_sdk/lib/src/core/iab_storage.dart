@@ -62,6 +62,26 @@ class IabStorage {
     _androidFileName = null;
   }
 
+  /// Builds the options that point a read at the app's DEFAULT Android
+  /// preference file (`PreferenceManager.getDefaultSharedPreferences`) —
+  /// the only store UMP writes IAB strings to — instead of
+  /// `SharedPreferencesAsync`'s DataStore default, a different file entirely.
+  ///
+  /// A standalone, `@visibleForTesting` method (not inlined into [_open]) so
+  /// a test can assert against the exact object production builds, instead
+  /// of a hand-rolled copy that could drift from it silently — the "canary"
+  /// test that did that used to pass even after `fileName` was deleted from
+  /// this class (2026-08-22 audit, independent review, M-2).
+  @visibleForTesting
+  static SharedPreferencesAsyncAndroidOptions androidOptionsFor(
+      String fileName) {
+    return SharedPreferencesAsyncAndroidOptions(
+      backend: SharedPreferencesAndroidBackendLibrary.SharedPreferences,
+      originalSharedPreferencesOptions:
+          AndroidSharedPreferencesStoreOptions(fileName: fileName),
+    );
+  }
+
   static Future<SharedPreferencesAsync?> _open() async {
     final existing = _store;
     if (existing != null) return existing;
@@ -72,13 +92,7 @@ class IabStorage {
         _androidFileName ??=
             '${(await PackageInfo.fromPlatform()).packageName}_preferences';
         _store = SharedPreferencesAsync(
-          options: SharedPreferencesAsyncAndroidOptions(
-            backend: SharedPreferencesAndroidBackendLibrary.SharedPreferences,
-            originalSharedPreferencesOptions:
-                AndroidSharedPreferencesStoreOptions(
-              fileName: _androidFileName,
-            ),
-          ),
+          options: androidOptionsFor(_androidFileName!),
         );
       } else {
         _store = SharedPreferencesAsync();
