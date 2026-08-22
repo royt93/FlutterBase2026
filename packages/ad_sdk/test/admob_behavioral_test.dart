@@ -10,12 +10,20 @@ import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
     show TagForChildDirectedTreatment, TagForUnderAgeOfConsent;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeGmaFullscreenAd implements GmaFullscreenAd {
   GmaShowCallbacks? shown;
   int showCount = 0;
   int disposeCount = 0;
+
+  /// MJ25 + M5 (second independent review) — the fake had no way to make
+  /// `show()` throw, so the four `show* THREW` catch branches were untestable
+  /// and shipped unverified. The throw is reachable in production:
+  /// `gma_bridge` awaits `setServerSideOptions()` before showing, and a
+  /// platform call can fail.
+  bool throwOnShow = false;
 
   // Captured SSV params from the most recent show() call.
   String? lastSsvCustomData;
@@ -27,6 +35,7 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
     String? ssvCustomData,
     String? ssvUserId,
   }) async {
+    if (throwOnShow) throw PlatformException(code: 'show-failed');
     shown = callbacks;
     showCount++;
     lastSsvCustomData = ssvCustomData;
@@ -453,6 +462,50 @@ void main() {
       second.shown!.onDismissed!();
       expect(shownOk, isTrue);
       addTearDown(() => adapter.dispose());
+    });
+  });
+
+  // MJ25 + M5 (second independent review). All four `show*` catch branches used
+  // to drop the ad object without disposing it, leaking the native ad. The
+  // local `ad` is the last reference at that point, so "forget" and "leak" are
+  // the same thing.
+  group('MJ25: a show() that throws still disposes the ad', () {
+    test('interstitial', () async {
+      await adapter.loadInterstitial();
+      final ad = bridge.lastInter!..throwOnShow = true;
+      bool? done;
+      await adapter.showInterstitial(onDone: (d) => done = d);
+      expect(done, isFalse, reason: 'caller must be resolved, not left hanging');
+      expect(ad.disposeCount, 1, reason: 'the native ad would otherwise leak');
+      expect(adapter.interstitialSlot.isShowing, isFalse);
+    });
+
+    test('rewarded', () async {
+      await adapter.loadRewarded();
+      final ad = bridge.lastRewarded!..throwOnShow = true;
+      RewardResult? result;
+      await adapter.showRewarded(onDone: (r) => result = r);
+      expect(result, RewardResult.skipped);
+      expect(ad.disposeCount, 1);
+    });
+
+    test('app open', () async {
+      await adapter.loadAppOpen();
+      final ad = bridge.lastAppOpen!..throwOnShow = true;
+      bool? dismissed;
+      await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
+      expect(dismissed, isFalse);
+      expect(ad.disposeCount, 1);
+      addTearDown(() => adapter.dispose());
+    });
+
+    test('rewarded interstitial', () async {
+      await adapter.loadRewardedInterstitial();
+      final ad = bridge.lastRewardedInterstitial!..throwOnShow = true;
+      RewardResult? result;
+      await adapter.showRewardedInterstitial(onDone: (r) => result = r);
+      expect(result, RewardResult.skipped);
+      expect(ad.disposeCount, 1);
     });
   });
 
