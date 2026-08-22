@@ -8,6 +8,8 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart'
+    show TagForChildDirectedTreatment, TagForUnderAgeOfConsent;
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeGmaFullscreenAd implements GmaFullscreenAd {
@@ -195,6 +197,49 @@ void main() {
     });
   });
 
+  // m8 (round 5) + M5 (independent review) — the fake captured these tags so
+  // this could be asserted; nothing read them until now. RequestConfiguration
+  // REPLACES rather than merges, so passing only test-device ids wiped whatever
+  // COPPA/TFUA state had just been set.
+  group('m8: RequestConfiguration carries the COPPA/TFUA tags', () {
+    test('child-directed init sends tagForChildDirectedTreatment=yes',
+        () async {
+      final b = FakeGmaBridge();
+      final a = AdMobAdapter(bridge: b);
+      expect(
+        await a.initialize(_config,
+            consent: const AdConsent(isAgeRestrictedUser: true)),
+        isTrue,
+      );
+      expect(b.capturedCoppaTag, TagForChildDirectedTreatment.yes);
+      addTearDown(() => a.dispose());
+    });
+
+    test('umpTagForUnderAgeOfConsent:true sends TFUA=yes', () async {
+      final b = FakeGmaBridge();
+      final a = AdMobAdapter(bridge: b);
+      expect(
+        await a.initialize(const AdConfig(
+          provider: AdProvider.admob,
+          umpTagForUnderAgeOfConsent: true,
+          admob: AdMobConfig(
+              bannerId: 'b', interstitialId: 'i', appOpenId: 'ao',
+              rewardedId: 'r'),
+        )),
+        isTrue,
+      );
+      expect(b.capturedTfuaTag, TagForUnderAgeOfConsent.yes);
+      addTearDown(() => a.dispose());
+    });
+
+    test('no declaration → TFUA stays unspecified, never a bare "no"',
+        () async {
+      expect(bridge.capturedTfuaTag, TagForUnderAgeOfConsent.unspecified,
+          reason: 'claiming a user is NOT under the age of consent is a '
+              'statement we have no basis for');
+    });
+  });
+
   group('Interstitial dismiss resolution', () {
     test('dismiss → onDone(true) and the ad is disposed', () async {
       await adapter.loadInterstitial();
@@ -363,6 +408,50 @@ void main() {
 
       expect(dismissed, isTrue);
       expect(bridge.lastAppOpen!.disposeCount, 1);
+      addTearDown(() => adapter.dispose());
+    });
+  });
+
+  // MJ15 (round 5 audit) + M5 (independent review). Drives the REAL
+  // GmaShowCallbacks the adapter registered — an earlier version of this test
+  // called a debug seam that re-implemented the two lines under test, so
+  // deleting the fix from the real callbacks left it green.
+  group('App Open late callback (MJ15)', () {
+    test('a late duplicate callback must not clear a reloaded ad', () async {
+      await adapter.loadAppOpen();
+      final first = bridge.lastAppOpen!;
+
+      await adapter.showAppOpen(onDismiss: (_) {});
+      // Resolve this show normally: `_appOpenDismiss` is now null, which is the
+      // state the hard-cap watchdog also leaves behind.
+      first.shown!.onDismissed!();
+      expect(first.disposeCount, 1);
+
+      // AdManager reloads — a different ad object takes the field.
+      await adapter.loadAppOpen();
+      final second = bridge.lastAppOpen!;
+      expect(identical(first, second), isFalse,
+          reason: 'the fake bridge must hand out a fresh ad per load');
+      expect(adapter.appOpenSlot.isReady, isTrue);
+
+      // Now the FIRST ad's native callback fires again, late.
+      first.shown!.onDismissed!();
+
+      expect(adapter.appOpenSlot.isReady, isTrue,
+          reason: 'the reloaded ad must still be showable');
+      expect(second.disposeCount, 0,
+          reason: 'the replacement must not be disposed by a stale callback');
+
+      // The decisive check: the ad the adapter would actually show. Before the
+      // fix `_appOpenAd` was nulled here while the slot stayed ready, so
+      // showAppOpen() returned false against a null ad forever.
+      bool? shownOk;
+      await adapter.showAppOpen(onDismiss: (d) => shownOk = d);
+      expect(second.showCount, 1,
+          reason: 'THE regression: a stale callback cleared _appOpenAd, so this '
+              'show found nothing and bailed');
+      second.shown!.onDismissed!();
+      expect(shownOk, isTrue);
       addTearDown(() => adapter.dispose());
     });
   });

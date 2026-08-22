@@ -502,6 +502,18 @@ class AdConfig {
 
   // ─── Consent dialog ───────────────────────────────────────────────────────
 
+  /// ⚠️ **With the default `autoRequestUmpConsent: true` this flag has NO
+  /// effect at all** — the dialog is skipped whenever UMP owns consent, which
+  /// with both defaults on means always. It only does something for a host
+  /// that sets `autoRequestUmpConsent: false` and does not call
+  /// `requestUmpConsent()` itself.
+  ///
+  /// That is deliberate (m9, round-5 audit): this dialog is a plain two-button
+  /// sheet, not a Google-certified CMP, and it produces no IAB TCF string — so
+  /// a "yes" collected here is not a valid legal basis in the EEA, yet it used
+  /// to be written straight through to AppLovin's `setHasUserConsent`. Running
+  /// it alongside UMP meant two consent flows disagreeing about the same user.
+  ///
   /// If true, the SDK auto-presents the Cupertino consent dialog **after the
   /// splash flow finishes** (triggered by [AdManager.markSplashInactive] +
   /// [consentDialogPostSplashDelay]). The dialog therefore lands on whatever

@@ -93,7 +93,10 @@ class IabStorage {
   /// Reads one IAB string, or `null` if absent/unreadable.
   static Future<String?> read(String key) async {
     try {
-      final store = await _open();
+      // m1 — `_open()` itself awaits PackageInfo.fromPlatform() on Android,
+      // another unbounded platform channel, so the deadline has to cover it
+      // rather than only the getString below.
+      final store = await _open().timeout(const Duration(seconds: 5));
       if (store == null) return null;
       // Bounded for the same reason every other platform call in this SDK is:
       // a wedged channel must not hang a caller that is only asking for

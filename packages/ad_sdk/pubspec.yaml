@@ -76,7 +76,12 @@ dependencies:
   # talk to are the wrong ones. Deliberately a wide constraint: this is a
   # platform-implementation package, so pinning it narrowly would be one more
   # wall for a consuming app to hit (see CLAUDE.md on the pinning wall).
-  shared_preferences_android: '>=2.4.0 <3.0.0'
+  # m7 — no upper cap on purpose. A `<3.0.0` bound here becomes a NEW pinning
+  # wall for every consuming app the moment shared_preferences requires
+  # shared_preferences_android 3.x (see CLAUDE.md on the pinning wall). The
+  # canary test in test/iab_storage_canary_test.dart is what catches an API
+  # break instead.
+  shared_preferences_android: '>=2.4.0'
   advertising_id: ^2.7.1
   connection_notifier: ^4.1.0
 

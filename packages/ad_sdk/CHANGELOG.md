@@ -9,6 +9,70 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 Round-5 audit, commits 2–3: the rest of the consent surface, then the
 fullscreen-lifecycle failures that could kill a surface for a whole session.
 
+### Fixed — issues found by an independent review of the fixes above
+
+An independent reviewer was pointed at the round-5 diff before it shipped. It
+found that three of the flagship fixes did not work on their own main path, and
+that one of them made a transient hang permanent. All of it was confirmed by
+reading the code, not taken on trust — and one of the reviewer's own
+recommendations was rejected after reading the test that documents the opposite
+invariant (see below).
+
+- **The "withdrawing personalisation discards cached ads" fix was dead code.**
+  It compared `_consent` against the incoming consent inside the listener, but
+  `setConsent()` assigns `_consent` *first* and only then calls
+  `ConsentManager.set()`, whose `ValueNotifier` notifies synchronously — so the
+  listener always saw the new value on both sides and the guard could never
+  fire. Every withdrawal route (`showPrivacyOptions()`, `requestUmpConsent()`,
+  a host's own `setConsent`) goes through exactly that sequence, so personalised
+  fullscreen ads already in the cache were still shown. Now compares against
+  what was last actually applied to the adapter, which no assignment order can
+  break. Regression test included, and verified to fail against the old code.
+- **Its inline-ad half was a no-op too.** Bumping `initRevision` cannot rebuild
+  a banner that is already showing: each widget's listener only re-inits when it
+  has no ad, and withdrawing personalisation does not close the `canRequestAds`
+  gate that would clear that state. A dedicated `personalisationRevision`
+  signal now tells banner/MREC/native to drop their live instance and reload.
+- **The COPPA-on-AppLovin recovery could not be reached.** `setConsent()`
+  returned early when the SDK was not initialised, *above* the block that
+  rebuilds the adapter — but the child-directed abort is exactly what leaves it
+  uninitialised, so the host's later "not a child after all" call returned
+  before the recovery ran. The block now runs first, and the last known-good
+  config survives adapter teardown so there is something to rebuild from.
+- **The new banner/MREC/native load watchdog relabelled the slot without
+  clearing the dead ad.** `loadBanner` early-returns while the key is still in
+  `_bannerAdsByKey`, so the cached-but-dead ad blocked every later load for
+  that widget instance; only a remount (which produces a new key) appeared to
+  recover. The watchdog now drops the ad object as `onAdFailedToLoad` does.
+- **The UMP in-flight mutex had no deadline** — the one guard added this round
+  without one. `setConsent` → `_persist()` → `updateRequestConfiguration` are
+  all unbounded, so a single wedged channel meant every later
+  `requestUmpConsent()` joined a future that could never complete: the gate
+  would stay shut with no self-heal, strictly worse than the lockout this round
+  set out to fix. Now capped at 240 s, and the lock is only released by the
+  call that owns it.
+- **After the 180 s form timeout the periodic backstop could present a second
+  consent form** on top of the first, which `Future.timeout` does not close.
+  The backstop now stands down in that state; a reconnect or an explicit host
+  call still retries.
+- Smaller ones from the same review: the IAB read's deadline now covers
+  `PackageInfo` (an unbounded channel it was skipping), `AdLoadingDialog.show()`
+  got the same flag-ordering fix its sibling already had, the rewarded path no
+  longer claims ownership of a dialog it did not open, and the App Open hard cap
+  clears the field by identity like the callbacks do.
+
+### Changed — after the review
+
+- `AdConfig.autoShowConsentDialog` now documents that it has **no effect** with
+  the default `autoRequestUmpConsent: true`. The behaviour was introduced above
+  on purpose — the built-in dialog is not a certified CMP and produces no TCF
+  string — but shipping a default-true flag that silently does nothing, with no
+  word in its own doc, is its own kind of trap.
+- `shared_preferences_android` is declared without an upper bound. A `<3.0.0`
+  cap would become a new pinning wall for every consuming app the moment
+  `shared_preferences` requires 3.x. A compile-time canary test guards the
+  platform API this package leans on instead.
+
 ### Fixed — lifecycle (commit 3)
 
 - **App Open could die for the rest of the session, and leak two native ads

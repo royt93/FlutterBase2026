@@ -137,7 +137,13 @@ class AdSlot {
   /// the cooldown backoff `AdManager.loadX()` would otherwise apply, but
   /// must still not be allowed to hang forever if that reload's own
   /// callback never fires either (2026-08-16 audit finding).
-  void armLoadWatchdog(String label, Duration timeout) {
+  /// [onTimeout] runs immediately before `markFailed()` when the deadline is
+  /// hit. M3 (independent review): moving the slot to `cooldown` is not enough
+  /// on its own for the widget-backed formats — the adapter also caches the
+  /// dead ad object per key and early-returns on it, so without a hook to
+  /// clear that cache the slot state change repaired nothing.
+  void armLoadWatchdog(String label, Duration timeout,
+      {void Function()? onTimeout}) {
     if (!isLoading) return;
     // 2026-08-17 fork-review audit: cancel any watchdog still pending from an
     // earlier arm on this slot — otherwise a stale timer from a load that
@@ -151,6 +157,11 @@ class AdSlot {
           'AdSlot',
           '⏱️ $label load watchdog fired after ${timeout.inSeconds}s — no '
           'native callback, forcing markFailed()');
+      try {
+        onTimeout?.call();
+      } catch (e) {
+        SafeLogger.w('AdSlot', '$label watchdog onTimeout threw: $e');
+      }
       markFailed();
     });
   }

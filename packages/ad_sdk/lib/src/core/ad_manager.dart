@@ -716,6 +716,19 @@ class AdManager with WidgetsBindingObserver {
   /// Active consent flags. Default conservative until [setConsent] is called.
   AdConsent get consent => _consent;
 
+  /// The consent state most recently pushed down to the adapter.
+  ///
+  /// B1 — kept separately from [_consent] precisely because `_consent` is
+  /// assigned *before* the listener that applies it runs, which makes it
+  /// useless for "did this change downgrade anything?". Only
+  /// [_syncConsentToAdapter] writes this.
+  AdConsent? _lastAppliedConsent;
+
+  /// Last config passed to a successful [initialize]. See M2 in [setConsent]:
+  /// `_config` is nulled by adapter teardown, which used to make the COPPA
+  /// re-init path unreachable exactly when it was needed.
+  AdConfig? _lastKnownConfig;
+
   /// Raw IAB TCF v2.3 consent string that Google UMP writes to native storage
   /// after a user completes the EEA consent form, or `null` if no TCF session
   /// has run yet (non-EEA users, or UMP never requested).
@@ -787,6 +800,15 @@ class AdManager with WidgetsBindingObserver {
   /// Increments on every successful [initialize]. Widgets can listen so they
   /// rebuild after a provider hot-swap or destroy → re-init cycle.
   final ValueNotifier<int> initRevision = ValueNotifier<int>(0);
+
+  /// Increments when the user withdraws personalisation consent while ads are
+  /// already on screen (MJ6 / M1). Inline ad widgets listen and drop their
+  /// live instance so the next load carries the new consent state.
+  ///
+  /// Separate from [initRevision] on purpose: that one means "the SDK
+  /// re-initialised", and its widget listeners deliberately only act when the
+  /// widget has no ad — which is exactly the case this signal is NOT about.
+  final ValueNotifier<int> personalisationRevision = ValueNotifier<int>(0);
 
   /// 0-100 real-time policy risk score (T24) blending CTR anomaly, decayed
   /// suspicious-violation history and resume spam. Dev/partner dashboard
@@ -1224,6 +1246,15 @@ class AdManager with WidgetsBindingObserver {
   /// still be in flight. Kept separate because [_umpRequested] also gates
   /// `requestUmpConsent(skipIfAlreadyRequested: true)`'s early return.
   bool _umpFlowStarted = false;
+
+  /// M7 (independent review) — set when our own dismiss timeout fired while a
+  /// consent form was (as far as we know) still on screen. `Future.timeout`
+  /// does not close the native form, so the periodic backstop would otherwise
+  /// call `loadAndShowConsentFormIfRequired` again on top of it — the very
+  /// "two forms in a row" symptom MJ8's mutex was meant to prevent, except the
+  /// mutex is already released by then. Only a reconnect or an explicit host
+  /// call may retry after this.
+  bool _umpFormAbandoned = false;
 
   /// Last result returned by [requestUmpConsent] this process, so the
   /// auto-request path (`skipIfAlreadyRequested: true`) can hand back what the
@@ -2176,6 +2207,10 @@ class AdManager with WidgetsBindingObserver {
       _initRetryTimer = null;
 
       _config = config;
+      // M2 — survives `_disposeAdapter()` (which nulls `_config`) so the COPPA
+      // recovery in setConsent() can still rebuild the adapter after a re-init
+      // that legitimately aborted. Never cleared except by destroy().
+      _lastKnownConfig = config;
       _adapter = adapter;
       _attachFullscreenDismissWatchers();
       initRevision.value = initRevision.value + 1;
@@ -2450,11 +2485,6 @@ class AdManager with WidgetsBindingObserver {
           '⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()');
       _pendingConsentSettings = settings;
     }
-    if (!isInitialised) {
-      SafeLogger.d(_tag,
-          '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
-      return;
-    }
     // R10-B — AppLovin MAX 4.x has no runtime setIsAgeRestrictedUser API.
     // When host flips isAgeRestrictedUser=true mid-session after AppLovin already initialised,
     // we cannot forward the signal, so hard-stop ad requests instead.
@@ -2468,9 +2498,10 @@ class AdManager with WidgetsBindingObserver {
     // either direction. Cheap because `initialize()` already handles the
     // re-init-without-destroy path (it disposes the old adapter, stops the
     // timers and resets guard state).
-    final cfg = _config;
+    final cfg = _config ?? _lastKnownConfig;
+    // `_adapter` is deliberately NOT required here: after a child-directed
+    // abort there IS no adapter, and rebuilding one is the whole point.
     if (!isAdMobProvider &&
-        _adapter != null &&
         cfg != null &&
         consent.isAgeRestrictedUser != previousAgeRestricted) {
       SafeLogger.w(
@@ -2484,7 +2515,39 @@ class AdManager with WidgetsBindingObserver {
         _updateCanRequestAds(false);
       }
       await applyConsentToProviders(consent, config: cfg);
-      unawaited(initialize(config: cfg, onComplete: (_, __) {}));
+      // No infinite-recursion risk: initialize() reaches consent through
+      // `_consentManager.set(...)`, not through this method, and the one
+      // setConsent() call it does trigger (via auto-UMP) carries the child
+      // flag through unchanged — so it cannot re-enter this branch.
+      //
+      // It CAN be a no-op though: initialize() early-returns while another
+      // init is in flight. Say so rather than leaving it silent — a host that
+      // flips this flag mid-init would otherwise be left wondering why
+      // AppLovin never picked it up.
+      if (_isInitializing) {
+        SafeLogger.w(
+            _tag,
+            '⚠️ COPPA flag changed while initialize() is still running — the '
+            'AppLovin re-init cannot run now. Call initialize() again once it '
+            'completes, or set the flag before initialize().');
+      } else {
+        unawaited(initialize(config: cfg, onComplete: (_, __) {}));
+      }
+      return;
+    }
+    // M2 (independent review) — this early return used to sit ABOVE the COPPA
+    // block, which made the recovery that block exists for unreachable. Trace:
+    // flag→true re-inits, AppLovinAdapter.initialize() aborts by design for a
+    // child-directed audience, so `initialize()` leaves `_adapter`/`_config`
+    // null and `isInitialised` false — and the host's later flag→false call
+    // then returned here, before the block that would have rebuilt the
+    // adapter. AppLovin stayed dead for the session, which is exactly the bug
+    // MJ7 was written to fix. The COPPA branch above therefore runs first; it
+    // has its own `_adapter != null && cfg != null` guard, so it is a no-op
+    // pre-init anyway.
+    if (!isInitialised) {
+      SafeLogger.d(_tag,
+          '⏭️ setConsent: SDK not initialised — buffering for next initialize()');
       return;
     }
     if (!isAdMobProvider && consent.isAgeRestrictedUser) {
@@ -2520,10 +2583,22 @@ class AdManager with WidgetsBindingObserver {
     // change from every route, so adopting the value here fixes every reader
     // of `_consent` at once rather than the two call sites the audit found.
     final latest = _consentManager?.adConsent;
+    // B1 (independent review of round 5) — this used to compare against
+    // `_consent`, which is WRONG and made the whole MJ6 fix dead code:
+    // `setConsent()` assigns `_consent = consent` and only then calls
+    // `ConsentManager.set()`, whose `ValueNotifier` notifies this listener
+    // SYNCHRONOUSLY — so by the time we get here `_consent` already holds the
+    // new value and `_consent.hasUserConsent != latest.hasUserConsent` can
+    // never be true. Every withdrawal path (showPrivacyOptions(),
+    // requestUmpConsent(), a host's own setConsent) goes through exactly that
+    // sequence, so cached personalised ads were never discarded. Comparing
+    // against what was last actually APPLIED to the adapter is independent of
+    // who assigns what in which order.
     final downgraded = latest != null &&
-        _consent.hasUserConsent &&
+        _lastAppliedConsent?.hasUserConsent == true &&
         !latest.hasUserConsent;
     if (latest != null) _consent = latest;
+    _lastAppliedConsent = latest ?? _consent;
     _adapter?.applyConsent(latest ?? _consent);
 
     // MJ6 — applyConsent above only changes what FUTURE requests carry. Ads
@@ -2536,8 +2611,16 @@ class AdManager with WidgetsBindingObserver {
           '🔒 personalisation withdrawn — discarding cached fullscreen ads '
           'and rebuilding inline ads');
       unawaited(_adapter?.discardCachedFullscreenAds() ?? Future<void>.value());
-      // Banner/MREC/native widgets re-run their init on an initRevision bump.
-      initRevision.value = initRevision.value + 1;
+      // M1 (independent review) — bumping `initRevision` here was a no-op for
+      // the ads that actually matter. Every inline widget's initRevision
+      // listener only re-inits when `!_allowed.value`, and `_allowed` is set
+      // true the moment a banner loads and only ever cleared when
+      // `canRequestAds` closes — which withdrawing personalisation does NOT
+      // do. On top of that `loadBanner` early-returns while the key is still
+      // in `_bannerAdsByKey`. So the personalised banner stayed on screen and
+      // kept auto-refreshing. This notifier is a separate signal the widgets
+      // treat like the gate closing: drop the instance, then reload.
+      personalisationRevision.value = personalisationRevision.value + 1;
     }
   }
 
@@ -2570,13 +2653,41 @@ class AdManager with WidgetsBindingObserver {
           _tag, '⏭️ UMP already in flight — joining the existing request');
       return inFlight;
     }
-    final started = _requestUmpConsent(
+    late final Future<UmpConsentResult> started;
+    started = _requestUmpConsent(
       testMode: testMode,
       debugGeography: debugGeography,
       testIdentifiers: testIdentifiers,
       tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
       skipIfAlreadyRequested: skipIfAlreadyRequested,
-    ).whenComplete(() => _umpInFlight = null);
+    )
+        // M6 (independent review) — the mutex was the ONE thing in this round
+        // without a deadline, which turned a transient hang into a permanent
+        // one: `_requestUmpConsent` awaits `setConsent` → `_persist()`
+        // (SharedPreferences) → `updateRequestConfiguration`, neither of which
+        // is bounded, and every later caller then joins a future that can
+        // never complete. The gate would stay shut with no self-heal — strictly
+        // worse than the BL1 lockout this round set out to fix. The cap is
+        // generous: it must sit above the 180 s a real user may spend reading
+        // the consent form, plus the 20 s network steps around it.
+        .timeout(const Duration(seconds: 240), onTimeout: () {
+      SafeLogger.e(
+          _tag,
+          '⏰ UMP flow exceeded 240s — releasing the in-flight lock so later '
+          'calls can retry instead of joining a dead future');
+      return _lastUmpResult ??
+          const UmpConsentResult(
+            canRequestAds: false,
+            status: ConsentStatus.unknown,
+            error: 'ump flow timed out after 240s',
+          );
+    }).whenComplete(() {
+      // m2 — only clear if this call still owns the lock. `_resetGuardState()`
+      // can null it mid-flight (destroy + re-init), and without the identity
+      // check this late completion would then clear the NEW session's lock and
+      // allow two concurrent flows.
+      if (identical(_umpInFlight, started)) _umpInFlight = null;
+    });
     _umpInFlight = started;
     return started;
   }
@@ -2728,6 +2839,17 @@ class AdManager with WidgetsBindingObserver {
     // consent-value decision cannot drift apart again.
     _umpAttemptFailed =
         result.error != null || umpInconclusive || !result.canRequestAds;
+    // Assigned (not just set) so a later flow that completes normally clears
+    // it — otherwise one timeout would mute the backstop for the whole session.
+    _umpFormAbandoned =
+        result.formShown && (result.error?.contains('timed out') ?? false);
+    if (_umpFormAbandoned) {
+      SafeLogger.w(
+          _tag,
+          '⚠️ consent form abandoned by our own timeout — the native form may '
+          'still be on screen, so the periodic backstop will not re-present '
+          'one');
+    }
     return result;
   }
 
@@ -2845,6 +2967,11 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> destroy() async {
     SafeLogger.d(_tag, 'destroy() called');
+    // M2 — cleared HERE only, never in `_disposeAdapter()`: surviving adapter
+    // teardown is precisely what makes the COPPA re-init path in setConsent()
+    // reachable after a child-directed abort.
+    _lastKnownConfig = null;
+    _lastAppliedConsent = null;
     await _eventStream.close();
     _eventStream = StreamController<AdEvent>.broadcast();
     await _disposeAdapter();
@@ -2940,6 +3067,7 @@ class AdManager with WidgetsBindingObserver {
     _footgunBlocked = false;
     _umpRequested = false;
     _umpFlowStarted = false;
+    _umpFormAbandoned = false;
     _consentExplicitlySet = false;
     // T63 — these two silently outlived destroy()/re-init, leaving a host
     // with autoRequestUmpConsent:false no assignment left to ever reopen
@@ -3683,7 +3811,10 @@ class AdManager with WidgetsBindingObserver {
         // the rest of the session.
         try {
           AdLoadingDialog.show(ctx);
-          shownOwnDialog = true;
+          // m4 — show() is a no-op when a dialog is already up, so assuming
+          // ownership from "the call did not throw" would let us dismiss
+          // someone else's dialog. Ask the class what actually happened.
+          shownOwnDialog = AdLoadingDialog.isShowing;
         } catch (e) {
           // resetState() (not just clearing our own flag) — show() already
           // set AdLoadingDialog._isShowing = true before the throwing call,
@@ -4190,6 +4321,7 @@ class AdManager with WidgetsBindingObserver {
           isConnected &&
           !_isVipMember &&
           !_umpAnswered &&
+          !_umpFormAbandoned &&
           _umpBackstopRetryCount < _maxUmpBackstopRetries) {
         SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
         _umpBackstopRetryCount++;
@@ -4210,6 +4342,22 @@ class AdManager with WidgetsBindingObserver {
       // repair, so it must never be able to skip the refill scan or the
       // reschedule above — doing it first stopped the timer dead on any
       // platform where the connectivity plugin is absent.
+      // m10 (independent review) — the reviewer asked for `_connectivityReady`
+      // to be reset in `_resetGuardState()`. Rejected after reading
+      // connectivity_refill_test.dart, which documents it as process/plugin
+      // level state (ConnectionNotifierTools initialises once per process) and
+      // asserts destroy() must NOT reset it, or every re-init re-opens the
+      // silent pre-ready read window.
+      //
+      // The residual gap is real but narrower and deliberately left: a
+      // teardown cancels `_connectivitySub`, so after a re-init whose watch
+      // failed we can be "ready" with no live subscription and therefore no
+      // refill-on-reconnect. Gating this re-attempt on the subscription
+      // instead would fix it, but under `flutter test` the connectivity
+      // checker then runs for real, every HTTP probe returns 400, it concludes
+      // offline, and `canReload()` starves every later refill — so it would
+      // cost test-only seams to buy back a path the 5-minute poll already
+      // covers, just less promptly.
       if (!_connectivityReady) {
         SafeLogger.d(_tag, '📶 connectivity watch not ready — re-attempting');
         unawaited(_startConnectivityWatch().catchError((Object e) {

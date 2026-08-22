@@ -103,11 +103,26 @@ class AdLoadingDialog {
       SafeLogger.w(_tag, 'show: ⚠️ dialog already showing, skipping');
       return;
     }
+    // m5 — same shape as the MJ16 fix in showAdBuffer: raise the flag only
+    // once the route exists. `_isShowing` feeds `_fullscreenBusyReason`, so a
+    // throw here used to leave every fullscreen format blocked. The one caller
+    // wraps this in try/catch + resetState(), but relying on that is fragile —
+    // fix it where the invariant lives.
+    final NavigatorState navigator;
+    final Route<dynamic> route;
+    try {
+      navigator = Navigator.of(context, rootNavigator: true);
+      route = _pushDialogRoute(context);
+    } catch (e) {
+      SafeLogger.e(_tag, 'show: could not present the dialog: $e');
+      _isShowing = false;
+      _activeNavigator = null;
+      _activeRoute = null;
+      rethrow;
+    }
     _isShowing = true;
-    // Capture NavigatorState now (survives screen disposal — see showAdBuffer).
-    final navigator = Navigator.of(context, rootNavigator: true);
     _activeNavigator = navigator;
-    _activeRoute = _pushDialogRoute(context);
+    _activeRoute = route;
   }
 
   /// Dismiss a dialog opened by [show]. Safe no-op if nothing is showing.

@@ -882,8 +882,14 @@ class AdMobAdapter implements AdProviderAdapter {
       // MJ15 — this used to null the field without disposing, leaking the
       // native ad. The ad is abandoned here (its callbacks may still fire
       // late), so it has to be released, not just forgotten.
+      // m6 (independent review, partially adopted) — the identity-clear is
+      // right and is adopted. Dropping the dispose is NOT: if no native
+      // callback ever arrives (the very case this hard cap exists for) the ad
+      // would leak, which is the leak MJ15 was written to close. Double
+      // dispose is harmless — `_disposeAd` swallows throws — so releasing here
+      // and again from a late callback is the cheaper trade.
       final abandoned = _appOpenAd;
-      _appOpenAd = null;
+      _clearAppOpenIfSame(abandoned);
       _disposeAd(abandoned, 'appOpen-hard-cap');
       appOpenSlot.markShowFailed();
       _appOpenDismiss = null;
@@ -906,23 +912,6 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @visibleForTesting
   bool get debugWatchdogArmed => _appOpenShowTimeout != null;
-
-  /// MJ15 test seam: stands in for "AdManager reloaded after the watchdog
-  /// force-dismissed", so a test can assert a late native callback cannot
-  /// destroy the replacement ad.
-  @visibleForTesting
-  void debugSetAppOpenAd(GmaFullscreenAd? ad) => _appOpenAd = ad;
-
-  @visibleForTesting
-  GmaFullscreenAd? get debugAppOpenAd => _appOpenAd;
-
-  /// MJ15 test seam: replays a late `onDismissed`/`onFailedToShow` for an ad
-  /// this adapter has already abandoned.
-  @visibleForTesting
-  void debugSimulateLateAppOpenCallback(GmaFullscreenAd staleAd) {
-    _clearAppOpenIfSame(staleAd);
-    _disposeAd(staleAd, 'test-late-callback');
-  }
 
   // ──────────────────────────────────────────────────────────────────────────
   //  INTERSTITIAL
@@ -1478,7 +1467,14 @@ class AdMobAdapter implements AdProviderAdapter {
     // scanned these three slots — so a listener that never fired left the slot
     // `loading` forever, every later beginLoad() refused, and the widget sat on
     // its shimmer placeholder for the rest of the session with hasError false.
-    slot.armLoadWatchdog('banner', _widgetLoadWatchdog);
+    slot.armLoadWatchdog('banner', _widgetLoadWatchdog, onTimeout: () {
+      // M3 — the slot state alone repairs nothing: loadBanner early-returns
+      // while `_bannerAdsByKey` still holds a key, so a dead BannerAd left in
+      // the map blocks every later load for this widget instance. Drop it.
+      _bannerAdsByKey.remove(key)?.dispose();
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+    });
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadBanner $tag 🔄 width=$widthPx');
     try {
@@ -1623,7 +1619,12 @@ class AdMobAdapter implements AdProviderAdapter {
       return;
     }
     // MJ20 — see loadBanner.
-    slot.armLoadWatchdog('mrec', _widgetLoadWatchdog);
+    slot.armLoadWatchdog('mrec', _widgetLoadWatchdog, onTimeout: () {
+      // M3 — see loadBanner.
+      _mrecAdsByKey.remove(key)?.dispose();
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+    });
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'loadMrec $tag 🔄');
     try {
@@ -1738,7 +1739,10 @@ class AdMobAdapter implements AdProviderAdapter {
       return;
     }
     // MJ20 — see loadBanner.
-    slot.armLoadWatchdog('native', _widgetLoadWatchdog);
+    slot.armLoadWatchdog('native', _widgetLoadWatchdog, onTimeout: () {
+      // M3 — see loadBanner.
+      _nativeAdsByKey.remove(key)?.dispose();
+    });
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'preloadNative $tag 🔄');
     try {

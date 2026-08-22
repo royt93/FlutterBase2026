@@ -132,6 +132,33 @@ void main() {
       expect(bridge.termsFlowEnabled, isFalse);
     });
 
+    // MJ1 (round 5 audit) + M5 (independent review) — the fake records call
+    // order precisely so this can be asserted; before this test nothing read
+    // it, which is the same "infrastructure without an assertion" trap the
+    // round-5 audit was about.
+    test('MJ1: privacy flags reach MAX BEFORE initialize()', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(
+        await a.initialize(_config,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+
+      final initAt = b.initOrder.indexOf('initialize');
+      final consentAt = b.initOrder.indexOf('setHasUserConsent(true)');
+      final dnsAt = b.initOrder.indexOf('setDoNotSell(false)');
+      expect(consentAt, isNonNegative, reason: 'consent must be forwarded');
+      expect(dnsAt, isNonNegative);
+      expect(initAt, isNonNegative);
+      expect(consentAt, lessThan(initAt),
+          reason: 'MAX documents privacy flags as init-time settings; applying '
+              'them after initialize() means the first request to MAX went out '
+              'without them');
+      expect(dnsAt, lessThan(initAt));
+      addTearDown(() => a.dispose());
+    });
+
     test('disableAppLovinCmpFlow:false keeps AppLovin CMP flow enabled',
         () async {
       final b = FakeAppLovinBridge();

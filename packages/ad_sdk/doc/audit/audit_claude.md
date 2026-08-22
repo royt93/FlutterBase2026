@@ -472,6 +472,28 @@ Bài học: một mock trả lời sai tầng thì tệ hơn không có test.
 
 ---
 
+# Smoke test trên thiết bị thật — sau commit 3 (2026-08-22)
+
+Samsung SM-A115F (`R9JN61LDLFJ`, nằm trong `kQaTestDeviceHashes` nên chắc chắn ra test ad), provider AdMob, debug build, xoá sạch dữ liệu app trước khi chạy.
+
+| Bề mặt | Kết quả |
+|---|---|
+| UMP ngoài EEA | `status=notRequired` → `consent form not required — skip`, `formShown=false` (MJ32 không phá đường non-EEA) |
+| IAB strings | `tcf=null usPrivacyOptedOut=null gpp=null` — đúng: không CMP nào ghi gì ở non-EEA |
+| First-install VIP grace | cấp 30s (debug), `loadAppOpen skipped — VIP member` đúng |
+| Test device | `0 from host config + 8 QA fleet (always on) = 8 total` |
+| Banner ×2 | load độc lập, cùng trang; watchdog 30s (MJ20) **không** fire oan |
+| Route pause/resume | push màn thứ 2 → banner mới load; pop → dispose sạch |
+| Interstitial | `showAdBuffer` trọn vòng show → dismiss → `onComplete()` (MJ16 giữ nguyên happy path) |
+| App Open on resume | resume 1: skip cold-start one-shot đúng; resume 2: `✅ all gates passed` → shown → `👋 dismissed` → reload (MJ15 + MJ24) |
+| Rewarded | `🏆 type=coins amount=10`, `onEarnedReward: result=true` |
+
+Quét toàn bộ log phiên: **0** `EXCEPTION`/`Unhandled`, **0** lỗi "was disposed", **0** `setState() called after`, **0** lần watchdog fire.
+
+Lưu ý: smoke test này chạy đường **AdMob + non-EEA**. Đường AppLovin và đường EEA đã verify riêng ở các mục MJ32/MJ2 phía trên. iOS vẫn chưa chạy (MJ29).
+
+---
+
 # Quyết định Round 5 (chốt với product owner, 2026-08-22)
 
 ## Hai mục được xác định là TÍNH NĂNG CÓ CHỦ Ý, không phải bug

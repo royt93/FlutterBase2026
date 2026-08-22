@@ -47,9 +47,36 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     super.initState();
     SafeLogger.d(_tag, 'initState');
     AdManager().canRequestAdsListenable.addListener(_onCanRequestAdsChanged);
+    // M1 — withdrawing personalisation does NOT close the canRequestAds gate,
+    // so the listener above never fires for it and this widget would keep
+    // showing (and refreshing) an ad loaded under the old consent.
+    AdManager()
+        .personalisationRevision
+        .addListener(_onPersonalisationWithdrawn);
   }
 
   /// Audit fix — see [BannerAdWidget]'s twin of this method.
+  /// M1 — drop the live instance so the next load carries the new consent,
+  /// then re-run init. Mirrors the gate-closed path below, which is the only
+  /// mechanism in this widget that reliably replaces a mounted ad.
+  void _onPersonalisationWithdrawn() {
+    if (!mounted) return;
+    final mgr = AdManager();
+    SafeLogger.w(_tag,
+        '🔒 personalisation withdrawn — replacing mounted MREC instance');
+    mgr.disposeMrecInstance(this);
+    _allowed.value = false;
+    if (!mgr.canRequestAds || !mgr.isInitialised || mgr.isVIPMember()) return;
+    if (_initScheduled) return;
+    _initScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initScheduled = false;
+      if (!mounted) return;
+      _initMrec(context);
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
   void _onCanRequestAdsChanged() {
     final mgr = AdManager();
     if (mgr.canRequestAds) {
@@ -199,6 +226,9 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   @override
   void dispose() {
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
+    AdManager()
+        .personalisationRevision
+        .removeListener(_onPersonalisationWithdrawn);
     if (_subscribedRoute != null) adRouteObserver.unsubscribe(this);
     AdManager().disposeMrecInstance(this);
     _admobIsTop.dispose();
