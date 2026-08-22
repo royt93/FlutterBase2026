@@ -494,6 +494,43 @@ Lưu ý: smoke test này chạy đường **AdMob + non-EEA**. Đường AppLovi
 
 ---
 
+# Review độc lập của chính đợt fix (2026-08-22) — điểm 6/10
+
+Một reviewer độc lập được chỉ vào diff round 5 **trước khi ship**. Kết quả: **3 trong số các fix flagship không hoạt động trên đường đi chính của chúng**. Tôi tự chấm 8/10 dựa trên "905 test xanh + smoke test sạch" — đúng kiểu lập luận mà chính round này đáng lẽ đã dạy tôi đừng tin.
+
+| Finding | Bản chất | Đã xử lý |
+|---|---|---|
+| **B1** MJ6 là code chết | `setConsent` gán `_consent` trước, `ConsentManager` notify **đồng bộ** ⇒ listener so giá trị mới với chính nó | So với `_lastAppliedConsent` (thứ đã thực sự apply xuống adapter) — độc lập với thứ tự gán. Test verify **đỏ** khi hoàn nguyên |
+| **M1** nửa inline của MJ6 cũng no-op | `initRevision` không rebuild banner đang có ad (listener chỉ act khi `!_allowed`) | Thêm `personalisationRevision`; 3 widget drop instance rồi reload |
+| **M2** MJ7 không tới được | early-return `!isInitialised` nằm **trên** khối MJ7, mà child-directed abort chính là thứ làm nó uninitialised | Đưa khối lên trước; `_lastKnownConfig` sống qua teardown |
+| **M3** MJ20 chỉ đổi nhãn slot | `loadBanner` early-return khi map còn key ⇒ ad chết chặn mọi load sau | `onTimeout` hook dọn map |
+| **M6** mutex không deadline | biến hang tạm thời thành khoá vĩnh viễn — **tệ hơn BL1 vừa sửa**, và đã publish trong 2.3.1 | cap 240s + identity guard khi nhả lock |
+| **M7** backstop mở form thứ 2 | `Future.timeout` không đóng form native | cờ `_umpFormAbandoned` |
+| **M4/m9** | `autoShowConsentDialog` default-true thành no-op im lặng | ghi rõ trong dartdoc |
+| m1, m4, m5, m7 | timeout thiếu, ownership dialog, cùng bug ở `show()`, cap version | đã sửa |
+
+**Một khuyến nghị của reviewer bị TỪ CHỐI:** reset `_connectivityReady` khi teardown. `connectivity_refill_test.dart` ghi rõ đây là state **cấp process** và assert `destroy()` **không được** reset, nếu không mỗi lần re-init lại mở cửa sổ đọc im lặng. Khoảng trống thật hẹp hơn (subscription bị cancel) đã ghi trong code kèm lý do vì sao đóng nó phải trả bằng seam test-only.
+
+## Test không trung thực — nguyên nhân gốc để B1/M2/M3 sống sót qua 905 test
+
+- Test MJ15 gọi một **debug seam viết lại chính 2 dòng cần test** ⇒ xoá fix khỏi callback thật vẫn xanh. Đã thay bằng test đi qua `GmaShowCallbacks` thật, và **verify đỏ** khi hoàn nguyên.
+- Hai fake capture dữ liệu để "assert được thứ tự" (`initOrder` cho MJ1, `capturedCoppaTag`/`capturedTfuaTag` cho m8) mà **không test nào assert**. Giờ có.
+- Thêm: regression B1, canary compile-time cho `shared_preferences_android`.
+
+# iOS đã verify trên simulator (2026-08-22)
+
+Ghi `IABTCF_TCString` + `IABUSPrivacy_String` vào NSUserDefaults của simulator dưới bundle id thật rồi đọc lại qua SDK:
+
+```
+IAB: tcf=CIOSVERIFY_tcf_v2 usPrivacyOptedOut=true gpp=null
+```
+
+⇒ nhánh iOS của MJ2/m10 **hoạt động thật**. Điểm trừ "code chưa verify" đã đóng cho cả hai nền tảng.
+
+Lần thử đầu trả `null` vì tôi ghi vào applicationId của Android (`com.roy.admobwrapper`) thay vì bundle id iOS (`com.example.adSdkExample`) — đáng ghi lại, vì `null` ở đó **trông giống hệt** một đường đọc bị hỏng thật.
+
+---
+
 # Quyết định Round 5 (chốt với product owner, 2026-08-22)
 
 ## Hai mục được xác định là TÍNH NĂNG CÓ CHỦ Ý, không phải bug
