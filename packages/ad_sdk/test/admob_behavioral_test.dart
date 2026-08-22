@@ -10,6 +10,8 @@ import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
     show TagForChildDirectedTreatment, TagForUnderAgeOfConsent;
+import 'dart:async';
+
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,6 +27,11 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
   /// platform call can fail.
   bool throwOnShow = false;
 
+  /// MJ24 — a `show()` that never completes. Before the fix the watchdog was
+  /// armed AFTER `await ad.show(...)`, so this exact case — the hang the
+  /// watchdog exists for — left it never armed at all.
+  bool hangOnShow = false;
+
   // Captured SSV params from the most recent show() call.
   String? lastSsvCustomData;
   String? lastSsvUserId;
@@ -36,6 +43,13 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
     String? ssvUserId,
   }) async {
     if (throwOnShow) throw PlatformException(code: 'show-failed');
+    if (hangOnShow) {
+      shown = callbacks;
+      showCount++;
+      // Never completes, and never invokes a callback.
+      await Completer<void>().future;
+      return;
+    }
     shown = callbacks;
     showCount++;
     lastSsvCustomData = ssvCustomData;
@@ -469,6 +483,31 @@ void main() {
   // to drop the ad object without disposing it, leaking the native ad. The
   // local `ad` is the last reference at that point, so "forget" and "leak" are
   // the same thing.
+  // MJ24 (round 5) + M5 (second independent review). `_armAppOpenWatchdog` used
+  // to be called AFTER `await ad.show(...)`. If the platform call itself never
+  // resolved — precisely the hang the watchdog exists to survive — it was never
+  // armed, and on the resume path there is no other recovery timer, so
+  // `_appOpenDismiss` stayed pending forever and App Open was dead for the
+  // session.
+  group('MJ24: the App Open watchdog is armed before show() can hang', () {
+    test('a show() that never returns still leaves the watchdog armed',
+        () async {
+      await adapter.loadAppOpen();
+      bridge.lastAppOpen!.hangOnShow = true;
+
+      // Deliberately NOT awaited: the point is that show() never completes.
+      unawaited(adapter.showAppOpen(onDismiss: (_) {}));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bridge.lastAppOpen!.showCount, 1,
+          reason: 'the show call must have been made and then hung');
+      expect(adapter.debugWatchdogArmed, isTrue,
+          reason: 'armed BEFORE the await, so a hung platform call still has a '
+              'way out. Armed after, this is the one case that gets none.');
+      addTearDown(() => adapter.dispose());
+    });
+  });
+
   group('MJ25: a show() that throws still disposes the ad', () {
     test('interstitial', () async {
       await adapter.loadInterstitial();
