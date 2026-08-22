@@ -4,6 +4,48 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed — lifecycle & cache-expiry round (audit MINOR m15/m16/m18/m22/m24/m36)
+
+Each item below is backed by a test that was verified red against its own
+reverted fix, and nothing else.
+
+- **A cached ad could read as "fresh" for the rest of the session after a
+  clock change.** The freshness check compared wall-clock `now` against the
+  wall-clock load stamp with no lower bound, so a backwards clock change
+  (manual, or an NTP correction) put the stamp in the future, made the computed
+  age negative, and kept the ad inside its validity window forever. Both the
+  reuse-on-load and the refuse-to-show-a-stale-ad guards stopped working. A
+  negative age now counts as stale.
+- **Discarding an expired ad blocked its own replacement.** All four AdMob
+  full-screen formats recorded a cache expiry as a *load failure*, which starts
+  the exponential-backoff cooldown. The refill fires from the very callback the
+  discard invokes, so it landed inside a cooldown window the discard had just
+  created and the slot stayed empty until the next periodic retry — no ad for
+  the next several show attempts. An expiry now just empties the slot; the load
+  path never failed.
+- **`canShowInterstitial()` / `canShowRewardedAd()` could report `true` for an
+  ad that would not be shown.** Both only asked whether the slot was ready, so
+  a cached AdMob ad that aged past its 1h content validity while the host was
+  polling still reported showable — and the show call then discarded it. A host
+  gating a button on these got a button that did nothing.
+- **Revenue could be reported for a disposed full-screen ad.** Every
+  `google_mobile_ads` wrapper cleared its full-screen content callback on
+  dispose but left the paid-event listener wired, so a paid event arriving after
+  disposal still emitted revenue through the old event sink.
+- **AppLovin: destroy retries outlived the adapter.** The retry that makes
+  `destroyWidgetAdView` succeed once the native view has finished detaching
+  slept on an untracked timer, so a chain started by the last widget unmount
+  before teardown kept calling into the bridge for up to ~1.7s after
+  `dispose()` had already cleared every native listener. The retries are now
+  cancelled by `dispose()`.
+- **Per-widget notifiers were leaked when a key never got a slot.** Both
+  adapters' `dispose()` walked only the slot maps, but the per-key listenable
+  bundles (and AppLovin's per-key ad-view-id notifiers) are created
+  independently of the slot, so any key that only ever had those kept its
+  `ValueNotifier`s alive for good.
+
 ## [2.3.2]
 
 ### Fixed — independent review, round 3
