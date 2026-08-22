@@ -222,6 +222,30 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    // m5 (2026-08-22 audit) — same shape as MJ16 but for `show()` (the
+    // untimed, caller-dismissed variant used by the rewarded on-demand
+    // path): `_isShowing` used to be raised before `Navigator.of()`/the
+    // route push. A throw there left the flag stuck true — blocking all
+    // four fullscreen formats via `_fullscreenBusyReason` for the rest of
+    // the session — even though the one caller wraps this in try/catch +
+    // resetState(); relying on the caller is fragile, so the invariant is
+    // fixed where it lives.
+    testWidgets('m5: a failed present() leaves no stuck flag', (tester) async {
+      await tester.pumpWidget(
+        Builder(
+          builder: (context) {
+            expect(() => AdLoadingDialog.show(context), throwsA(anything));
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+      await tester.pump();
+
+      expect(AdLoadingDialog.isShowing, isFalse,
+          reason: 'a stuck flag here blocks every fullscreen ad for the rest '
+              'of the session');
+    });
+
     testWidgets('normal path: timer elapses, dialog pops, onComplete fires',
         (tester) async {
       var onCompleteCalls = 0;
