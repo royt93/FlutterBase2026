@@ -1,194 +1,383 @@
-# Audit tổng hợp `applovin_admob_sdk` — Claude (bản hợp nhất)
+# Audit độc lập `applovin_admob_sdk` — Claude, Round 5
 
-## Round 2026-08-21 (external `claude --dangerously-skip-permissions`, fresh session, không có context các round trước)
+**Ngày:** 2026-08-22
+**Version:** local `pubspec.yaml` = **2.3.0**; pub.dev latest = **2.3.0**.
+**Phương pháp:** 5 lane đọc source song song (consent/privacy, VIP+trial security, ad lifecycle/leak, offline+native, policy+example) + tự re-verify `file:line` cho mọi finding Blocker/Major trước khi ghi vào đây. Đọc lại 3 file audit round 4 để không re-litigate finding đã đóng. Không sửa source trong vòng audit này.
 
-**Version audited:** local `pubspec.yaml` = **2.2.0**. Xác nhận trực tiếp `curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.2.0"` — **khớp local, M7 (version mismatch) chính thức ĐÓNG**, không còn là điều kiện chặn ship.
-**Test status:** `flutter test` → **873/873 pass**, exit code 0. `flutter analyze` → **0 issues**.
-**Phương pháp:** đọc trực tiếp source hiện tại + đọc lại 3 file audit cũ (`audit_codex.md`, `audit_agy.md`, `audit_claude.md` bản trước) để biết finding nào cần re-verify, không tin theo history — tự grep/đọc `file:line` cho từng claim trước khi ghi vào đây. Phạm vi commit mới kể từ checkpoint audit trước (`6f03a8f`): `21568fd`, `84fe9da`, `fc1b0e9`, `6d7abac`, `2a2fe52` (fix theo audit trước), `558dda0` (feature mới — `currentDeviceGaid`/`adMobTestDeviceHashHint`), cộng vài commit docs-only.
+## Gate thực chạy
 
-### Item mới: `AdManager().currentDeviceGaid` + `adMobTestDeviceHashHint()` (commit `558dda0`) — CONFIRMED-CORRECT, không có finding mới
+| Kiểm tra | Kết quả |
+|---|---|
+| `flutter analyze` (ad_sdk) | **0 issues** |
+| `flutter test` (ad_sdk) | **891/891 pass**, exit 0 |
+| `flutter analyze` + `flutter test` (example) | 0 issues, 25/25 pass |
+| Archive pub.dev 2.3.0 vs `lib/` local HEAD | **byte-identical** (chỉ lệch `.DS_Store` không được publish) — bản published ĐÃ chứa toàn bộ audit fix của `8f34d01` |
+| **CI GitHub Actions** | **Run success cuối cùng: 2026-08-02.** Mọi run từ 2026-08-09 tới nay fail sau 5-7s vì billing, kể cả 4 commit của v2.3.0 |
 
-- `ad_manager.dart:771-774` (`currentDeviceGaid` getter) chỉ đọc lại `_currentDeviceGAID` (field nội bộ đã tồn tại từ trước, không phải fetch mới) và normalize placeholder `00000000-0000-0000-0000-000000000000` (giá trị OS trả về khi Limit-Ad-Tracking/ATT-denied) thành `''` — không có code path nào khác gán giá trị cho field này ngoài `_resolveDeviceGaid()` (`:1522-1539`), nên getter không thể trả GAID thật khi LAT on hoặc ATT chưa quyết.
-- Tương tác đúng với fix M9 (đã có từ round trước): `_resolveDeviceGaid()` chỉ chạy khi `shouldDeferGaidFetch(...)` (`:1709-1718`) trả `false` — trên iOS với ATT `notDetermined` và host chưa gọi `requestAtt()`, fetch bị defer hoàn toàn, `_currentDeviceGAID` giữ `''` cho tới khi ATT được quyết. `currentDeviceGaid` vì vậy không có cách nào lộ GAID thật sớm hơn thời điểm ATT cho phép.
-- `adMobTestDeviceHashHint()` (`:788-800`) chỉ trả text hướng dẫn tĩnh (đọc log native), có ghi rõ ràng "GAID này KHÔNG phải hash AdMob" — đúng, tránh nhầm lẫn 2 loại ID (một sai lầm thực tế dễ khiến QA device nhận ad thật thay vì test ad, đúng như risk bài audit yêu cầu kiểm tra).
-- `SafeLogger.d(_tag, () => 'GAID=$_currentDeviceGAID')` (`:1538`) log GAID thật ở mức `verbose` — nhưng default `logLevel` trong release build là `AdLogLevel.warning` (`ad_config.dart:353`, `kDebugMode ? verbose : warning`), nên verbose bị chặn theo mặc định trừ khi host tự chọn nâng lên `verbose` trong release (quyết định của host, không phải lỗi SDK). Không phải finding.
-- `example/lib/main.dart:2630-2679` (`TestDeviceHashDemoPage`) chỉ hiển thị GAID của chính máy đang chạy example app cho dev tự đọc/copy, có nhãn phân biệt rõ GAID vs AdMob hash, và ẩn nút copy khi GAID rỗng — code mẫu, không phải hành vi mặc định của SDK khi ship, không có vấn đề.
+**Hệ quả quan trọng:** gate xanh ở trên là **local, Dart-only**. Suite `example/integration_test/` (26 file) chưa hề chạy trên CI cho code của 2.3.0; Android đã verify tay trên Pixel 7 Pro, **iOS chưa verify với 2.3.0**. Cả 2 job `sdk-integration` và `sdk-integration-ios` đều chưa từng chấm bản này.
 
-**Kết luận mục 8 trong yêu cầu audit:** API mới an toàn, tôn trọng LAT/ATT-denied/not-yet-resolved, không leak GAID thật, doc guidance chính xác.
+## Kiến trúc: không có native code riêng
 
-### Re-verify các finding còn mở từ round trước
+`packages/ad_sdk/` **không có** `android/` và `ios/`; `pubspec.yaml` không khai báo block `plugin:`. Đây là **pure-Dart package** wrap 8 pub dependency. Zero MethodChannel tự sở hữu ⇒ zero khả năng lệch parity Android/iOS ở tầng SDK này (câu hỏi native parity: **PASS by construction**). `MissingPluginException` duy nhất có thể xảy ra là từ dependency, và mọi call đó đều được catch (GAID `ad_manager.dart:1573`, ATT `:1746`, PackageInfo `vip_manager.dart:708`, connectivity `:3925`, UMP qua `runZonedGuarded` `:1904-1970`).
 
-| Finding | Trạng thái | Evidence |
+---
+
+# VERDICT (đọc trước)
+
+## **KHÔNG dùng SDK 2.3.0 vào production app ngay bây giờ.**
+
+Lý do không phải vì kiến trúc yếu — kiến trúc **thực sự chắc**: mutex fullscreen phủ đủ 4 loại không có race check-then-show, freshness AdMob đủ 4 loại, gate `canRequestAds` kín 100% entry point kể cả đường bypass adapter, Ed25519 verify thật và không forge được, không rebuild storm, không `setState` sau dispose, teardown có single-source-of-truth.
+
+Lý do là **3 Blocker** + một nhóm Major tập trung vào đúng một class lỗi: **đường exception / callback tới muộn / continuation sau `await`, và guard bất đối xứng** (guard đã tồn tại ngay trong codebase nhưng không được áp dụng ở chỗ kế bên). Class này cho ra các trạng thái **chết vĩnh viễn cả session mà không tự chữa** — không phải mất một impression.
+
+Tổng công sức fix nhóm Blocker + Major P0: **~60-80 dòng**, gần như tất cả là copy pattern có sẵn sang chỗ thiếu. Không có finding nào cần redesign, trừ B-VIP-1 (clock budget model).
+
+Điều kiện để đổi verdict sang CÓ: xem mục [Điều kiện ship](#điều-kiện-ship) ở cuối.
+
+---
+
+# BLOCKER
+
+## BL1 — UMP gate kẹt đóng vĩnh viễn cả session, không đường tự chữa → 0 ad
+
+**Evidence:** `lib/src/core/ad_manager.dart:2453` (`_umpAttemptFailed = result.error != null;`), hai đường retry duy nhất đều gate trên flag đó: `:3874` (backstop 5 phút) và `:3955` (reconnect). Nguồn của result: `lib/src/core/ump_consent.dart:171-176`.
+
+**Đường reachable:** mạng chập chờn hoặc launch đầu tiên offline ở EEA →
+`requestConsentInfoUpdate` complete từ cache, **không** error (bỏ qua nhánh `:109-118`) →
+`isConsentFormAvailable()` trả `false` vì form chưa tải được → rơi vào `else` `ump_consent.dart:160-162`, `formError` giữ **`null`** →
+return `UmpConsentResult(canRequestAds: false, status: required, error: null)`.
+
+Về `requestUmpConsent`: `_updateCanRequestAds(false)`, và `_umpAttemptFailed = (error != null)` = **`false`**. Cả backstop 5 phút lẫn reconnect đều không chạy. `_canRequestAds` đóng cứng → **mọi load/show của cả 4 ad type đều bị chặn hết session**, kể cả khi mạng đã về đầy đủ. Chỉ restart app mới thoát.
+
+Chú ý `umpInconclusive` ở `:2429` đã bắt đúng ca này về mặt *consent value* (`error != null || status == unknown`) nhưng flag *retry* ở `:2453` lại không dùng biến đó — chính chỗ lệch tạo bug.
+
+**Tại sao là Blocker:** trigger là "first launch mạng yếu" — kịch bản thường gặp nhất trên mobile, không phải edge case; hệ quả là mất 100% doanh thu của phiên đó; không có đường tự chữa; và **không có test nào cover** (`test/ump_skip_branch_lockout_test.dart:84` chỉ cover nhánh skip).
+
+**Minimum fix (1 dòng):**
+```dart
+_umpAttemptFailed = result.error != null || umpInconclusive || !result.canRequestAds;
+```
+
+## BL2 — Consent-footgun gate fail-OPEN: host AdMob có thể chạy zero consent flow mà không có cảnh báo nào
+
+**Evidence:** `lib/src/core/ad_manager.dart:204-208`
+```dart
+if (!config.disableAppLovinCmpFlow ||
+    config.autoRequestUmpConsent ||
+    umpRequested ||
+    consentExplicitlySet) {
+  return null;
+}
+```
+`disableAppLovinCmpFlow` được đọc **duy nhất một chỗ** trong toàn SDK: `lib/src/adapters/applovin_adapter.dart:428` — tức là flag **chỉ có nghĩa với provider AppLovin**, hoàn toàn vô nghĩa với AdMob.
+
+**Đường reachable:** config `provider: admob` + `autoRequestUmpConsent: false` + `disableAppLovinCmpFlow: false`. Đây là config **hợp lệ, SDK nhận không kêu**. Khi đó điều kiện `!false` = `false` ⇒ hàm return `null` ⇒ `_applyConsentFootgunGuard` không chạy (`:2065-2081`) ⇒ `_canRequestAds` giữ default **`true`** (`:1012`) ⇒ user EEA/UK **bị request ads mà không có bất kỳ consent form nào**, và host **không nhận được cảnh báo** dù đang ở release build.
+
+**Tại sao là Blocker:** đây là fail-open pháp lý (GDPR/UMP policy) ở đúng nhánh mà guard N2 được viết ra để chặn. Default config an toàn (`autoRequestUmpConsent: true`), nhưng SDK tự nhận là có safety net cho trường hợp host tắt auto — net đó có lỗ.
+
+**Minimum fix:** bỏ điều kiện `!config.disableAppLovinCmpFlow`, hoặc chỉ áp dụng nó khi `config.provider == AdProvider.appLovin`.
+
+## BL3 — `kQaTestDeviceHashes` hardcode trong package public, always-on cả release, không có đường opt-out
+
+**Evidence:** `lib/src/config/ad_config.dart:218-227` (8 hash + đúng model máy trong comment), `:280-281` `effectiveTestDeviceIds` merge **vô điều kiện**; `lib/src/adapters/admob_adapter.dart:439-443` gọi `updateRequestConfiguration(cfg.effectiveTestDeviceIds)` **không** có gate `kDebugMode`/`isActuallyRelease()`. Cũng được re-apply ở mỗi consent change (`lib/src/core/ad_consent.dart:110`).
+
+**Ba vấn đề riêng biệt:**
+1. **Leak:** 8 AdMob device-id hash (định danh ổn định, không đổi theo lần cài) + model máy chính xác của team, publish công khai lên pub.dev.
+2. **Mất doanh thu vĩnh viễn:** bất kỳ máy nào trong 8 máy đó — bán lại, cho người khác, tester dùng làm máy chính — sẽ **mãi mãi chỉ nhận test ad, 0 revenue**, và không chỉ với app của mình mà với **mọi app third-party** dùng package này.
+3. **Surprise cho consumer:** một app bên thứ ba âm thầm ship 8 test device lạ trong binary release của họ. README **không hề nói** — chỉ có `CHANGELOG.md:11-12`.
+
+Không phải vi phạm policy AdMob (test device không tính invalid traffic), nhưng là leak + revenue hole + hành vi không được document ở nơi consumer đọc.
+
+**Minimum fix:** chỉ merge khi `!isActuallyRelease()`, **hoặc** thêm `AdMobConfig(mergeQaTestDevices: ...)` default `false` cho consumer ngoài, và chuyển fleet list về config của host app. Tối thiểu: document ở README.
+
+---
+
+# MAJOR
+
+## Nhóm 1 — Consent / pháp lý
+
+### MJ1 — Privacy flags của AppLovin được set SAU `AppLovinMAX.initialize()`
+`ad_manager.dart:1999-2005` (adapter init) chạy trước `:2057` (`consentMgr.applyToProviders`) → `ad_consent.dart:83-84` (`setHasUserConsent`/`setDoNotSell`). Trên cold start bình thường (`_pendingConsentSettings == null`), `ConsentManager.bootstrap` chỉ `_load()` từ prefs (`consent_manager.dart:51-60`) — **không** apply xuống provider. Nên `_bridge.initialize(cfg.sdkKey)` (`applovin_adapter.dart:437`) chạy khi AppLovin **chưa nhận consent flag nào**. AppLovin MAX yêu cầu set privacy flags **trước** init. (COPPA thì đúng — được truyền qua param `isAgeRestrictedUser` ở `ad_manager.dart:2003`.)
+**Fix:** gọi `applyConsentToProviders(consentMgr.adConsent, config: config)` ngay sau `bootstrap`, giữ `:2057` làm idempotent re-apply.
+
+### MJ2 — `tcfConsentString` luôn trả `null` trên thiết bị thật; test lại pass nên che mất lỗi
+`ad_manager.dart:697-700` đọc `SharedPreferences.getString('IABTCF_TCString')`. `shared_preferences ^2.5.0` legacy impl: Android đọc file riêng `FlutterSharedPreferences` (UMP ghi vào default `<pkg>_preferences`); iOS prefix mọi key bằng `flutter.` (UMP ghi `IABTCF_TCString` không prefix). **Không platform nào khớp.** Test `test/ad_manager_core_test.dart:2739-2749` dùng `setMockInitialValues` nên pass. Doc (`ad_consent.dart:19-23`) giới thiệu đây là escape hatch cho third-party SDK → third party nhận `null` và tưởng không có TCF session.
+**Fix:** đọc native store thật, hoặc bỏ API + ghi rõ chưa hỗ trợ. Đừng để một API compliance giả.
+
+### MJ3 — Hai đường retry UMP làm rơi `tagForUnderAgeOfConsent` (TFUA) và mọi test param
+`ad_manager.dart:3877` và `:3957` gọi `requestUmpConsent()` **không tham số**, trong khi đường chính truyền đủ (`:1936-1942`). Default là `tagForUnderAgeOfConsent: false` (`:2346`). App child-directed / under-16 EEA: attempt đầu fail → retry gom consent **không** có TFUA → form sai loại, consent thu được không hợp lệ cho audience under-age. Cũng mất `debugGeography`/`testIdentifiers` → QA không lặp lại được.
+**Fix:** cache params của lần gọi auto-UMP, replay ở cả 2 retry site.
+
+### MJ4 — `RequestConfiguration.tagForUnderAgeOfConsent` chưa bao giờ được set cho GMA
+`ad_consent.dart:111-123` cố tình bỏ trống TFUA; `config.umpTagForUnderAgeOfConsent` chỉ đi vào `ConsentRequestParameters` của UMP (`ump_consent.dart:90`). Grep toàn `lib/`: không chỗ nào set TFUA lên `RequestConfiguration`. Google yêu cầu signal này trên request configuration khi audience là under-age-of-consent → ad request AdMob hiện không mang nó.
+**Fix:** thêm field vào `AdConsent`, hoặc truyền `config.umpTagForUnderAgeOfConsent` vào `applyConsentToProviders`.
+
+### MJ5 — `AdManager._consent` stale → UMP re-run xoá âm thầm `doNotSell` (CCPA) và `isAgeRestrictedUser` (COPPA)
+`ad_manager.dart:2431-2435` và `:2500-2504` build `AdConsent` mới từ `_consent.isAgeRestrictedUser` / `_consent.doNotSell`. Nhưng `_consent` **không** được cập nhật khi host dùng public API `ConsentManager.set()` (`consent_manager.dart:160-162`) hay `reset()` (`:175`). Kịch bản: host set `doNotSell: true` qua `ConsentManager.set` → backstop UMP retry (`:3877`) hoặc `showPrivacyOptions()` chạy → `setConsent(doNotSell: false)` → persist `false`, `_restrictedDataProcessing=false` (`admob_adapter.dart:577`), `setDoNotSell(false)` (`ad_consent.dart:84`). **CCPA opt-out bị mất im lặng.**
+**Fix:** đọc `_consentManager?.adConsent ?? _consent` tại 2433/2502 — đúng pattern `_syncConsentToAdapter` đã dùng (`:2326`).
+
+### MJ6 — Không invalidate ad đã cache khi personalization bị hạ cấp mid-session
+Mọi `show*`/`load*` check `canRequestAds` (đủ kín), nhưng khi user chỉ **rút personalization** mà `canRequestAds` vẫn `true` (trả lời "Reject" ở dialog built-in, hoặc đổi ý qua Privacy Options mà vẫn còn legitimate-interest basis), `applyConsent` chỉ đổi flag cho **request tương lai** (`admob_adapter.dart:573`). `_appOpenAd`/`_interstitialAd`/`_rewardedAd` và `_bannerAdsByKey` đã load với `npa=0` vẫn được show/auto-refresh. AppLovin `applyConsent` là no-op hoàn toàn (`applovin_adapter.dart:571-576`). Chỉ có discard theo tuổi ad, không có discard theo consent.
+**Fix:** trong `_syncConsentToAdapter`, nếu `hasUserConsent` chuyển `true→false` thì dispose các fullscreen slot chưa show + bump `initRevision`.
+
+### MJ7 — COPPA AppLovin: chuyển `true` khoá ad vĩnh viễn trong session, không có đường phục hồi
+`setConsent` đóng `_canRequestAds` khi provider AppLovin + `isAgeRestrictedUser=true` (`ad_manager.dart:2305-2309`); khi consent mới chuyển cờ về `false`, hàm chỉ apply provider flags (`:2310-2312`), **không mở lại gate**. Thay đổi/đính chính tuổi trong cùng process ⇒ cả 4 surface AppLovin ngừng hoạt động tới khi `destroy()` + `initialize()`. Đóng gate là *đúng* (MAX 4.x không có runtime API cho cờ này), nhưng thiếu đường thoát và không document.
+**Fix:** khi child flag đổi chiều nào cũng dispose adapter + re-init sau khi consent mới đã persist; thêm test `false→true→false`.
+
+### MJ8 — `requestUmpConsent` không có in-flight mutex → có thể chạy chồng nhiều consent flow
+`:3877` và `:3957` đều `unawaited(requestUmpConsent())`; `_umpRequested = true` chỉ được set **sau** khi await xong (`:2395`). Hai caller (hoặc một caller + host tự gọi) cùng khởi động UMP khi retry trước chưa hoàn tất ⇒ hai request/form, đua ghi `_lastUmpResult` + gate + consent persistence. Là rủi ro consent UX/policy, đặc biệt với form bắt buộc.
+**Fix:** shared in-flight `Future<UmpConsentResult>`; retry join future đang chạy.
+
+## Nhóm 2 — VIP / trial (zero-backend)
+
+**Khung đánh giá quan trọng:** thiết kế zero-backend + không có chống repack/root ⇒ attacker có root **cũng có thể patch APK để thay public key**. Nên mọi bypass state-local (MJ11, MJ12, MJ13) chỉ là *hardening*, không phải security boundary. Cái đáng lo là finding **không cần root**.
+
+### MJ9 — Clock-forward poisoning: đặt đồng hồ tiến TRƯỚC lần chạy đầu → trial 1 ngày thành ~1 năm, KHÔNG cần root
+**Evidence:** `vip_manager.dart:224-241` (`_effectiveNow`), `:257-260` (`resyncSessionClock`), `ad_manager.dart:3737-3744`.
+`_effectiveNow()` chỉ clamp **một chiều** (chống lùi). Khi session anchor được (re)set — lúc construct `:56`, hoặc mỗi resume `:258` — `real ≈ expectedMs` nên `trusted = real` và giá trị đó ghi thẳng vào high-water mark `:239`, **không có trần nào**.
+
+Kịch bản: máy mới cài → Settings đặt clock +1 năm (F) trước lần chạy đầu → mark = F, trial grant `[F, F+24h]` (`ad_manager.dart:1814-1817` → `addVip` dùng `_effectiveNow`) → sửa clock về thật (T). Từ đó `observedMs(F) > trusted(T)` ⇒ `_effectiveNow()` trả **F mãi mãi** (`:236-238`) ⇒ `isActiveAt(F)` luôn true, `_scheduleNextExpiry`/`_handleExpiry` cũng tính bằng F nên purge không bao giờ chạy. Với `redeemSignedKey`, clamp `maxStackDuration` là `now.add(cap)` = `F+90d` nên cũng vô hiệu.
+
+Doc comment `:219-223` **tự thừa nhận** residual gap ("A jump made, then the app killed and relaunched… anchors a fresh (bogus) session and isn't caught"), nhưng chỉ nhận chiều "user *mất* VIP", không nhận chiều "user *được* VIP vô hạn".
+
+**Tại sao là Major (không phải Blocker):** không có exposure pháp lý/policy; chỉ là monetization bypass. Nhưng đây là finding **duy nhất không cần root**, nên là finding VIP đáng ưu tiên nhất.
+**Fix đúng bản chất:** lưu **budget thời lượng còn lại** (giảm theo monotonic elapsed) thay vì `expiresAt` tuyệt đối. Fix rẻ tạm thời: khi mark đang "đóng băng" (`observedMs - real > slack`), dùng `real` (không dùng mark) để mint entry mới trong `addVip`.
+
+### MJ10 — `redeemSignedKey` bắt buộc phải có mạng — trái yêu cầu sản phẩm "VIP activation phải work offline"
+`vip_manager.dart:685-689` reject trước khi parse/verify; wiring ở `ad_manager.dart:1766-1769`. Ed25519 verify (`:713-721`), CRL cache (`:733`), ledger + grant (`:735-771`) đều 100% local. README tự mâu thuẫn: thừa nhận gate ở `README.md:885-890` nhưng gọi `redeemSignedKey` là "fully offline" ở `:1151`.
+Nghịch lý làm gate này vô nghĩa cả về bảo mật: bắt buộc online lúc redeem nhưng **không** yêu cầu CRL tươi (xem MJ13) — nên nó chỉ phá UX, không mua được gì.
+**Đây là finding round 4 (codex M1) vẫn mở, và cả codex lẫn agy round 5 đều re-confirm độc lập.**
+**Fix:** xoá 4 dòng đó. Network chỉ dùng cho `refreshRevocationList`.
+
+### MJ11 — Fallback entries store giả mạo được → tự cấp VIP vĩnh viễn (cần root)
+`ad_preferences.dart:186-196` (FNV-1a, salt `ad_sdk_vip_integrity_v1` **commit trong repo**), `:247-264`, đọc ở `_vip_entries_store.dart:51-52` ngay sau khi secure read trả `null`. Checksum là hash **không khoá**, salt public ⇒ attacker tự tính được và ghi `ad_sdk_vip_entries_fallback_v1` với `expiresAt: 2099` ⇒ VIP vĩnh viễn. Code tự document là "tamper-deterrent, not cryptographic" — đúng, nhưng nên **chặn trần**: reject entry từ fallback/legacy nếu `expiresAt - grantedAt > maxVipStackDuration` (giới hạn forgery ở 90 ngày thay vì vĩnh viễn). Nặng hơn: `ad_sdk_vip_max_observed_clock_ms` (`:315-322`) và `ad_sdk_redeemed_vip_kids` (`:280-290`) là plaintext **không có cả checksum** — xoá/hạ mark là vô hiệu hoá toàn bộ phòng thủ anti-rollback.
+
+### MJ12 — iOS: mark chống-rollback yếu hơn chính entitlement nó bảo vệ
+Entries ở Keychain (`_vip_entries_store.dart:25-37`, sống qua uninstall) nhưng mark ở `SharedPreferences`/NSUserDefaults (`ad_preferences.dart:315-322`, **không** sống qua uninstall). Nhận VIP 30d → để hết hạn thật → lùi clock vào giữa `[grantedAt, expiresAt]` → uninstall + reinstall (mark mất, entry còn) → launch: `observedMs == null` ⇒ `isActiveAt(rolled-back)` = true ⇒ VIP sống lại, lặp vô hạn.
+**Fix (diff nhỏ):** lưu mark vào cùng secure storage với entries.
+
+### MJ13 — CRL không revoke được entry đã cấp; không có yêu cầu freshness
+CRL verify **đúng** (Ed25519 + domain separation `CRL1|`, `signed_vip_key.dart:256-297`; replay CRL cũ bị chặn bằng `issuedAt` monotonic `vip_manager.dart:835-840`) nên MITM không forge được. Nhưng: (a) revoke một `kid` **không** xoá entry `SIGNED_<kid>` đã active (`:730-737` chỉ check lúc redeem) ⇒ key rò rỉ redeem trên 10k máy vẫn giữ nguyên window tới 90 ngày; (b) không có max-age ⇒ attacker chỉ cần **drop** request CRL là fail-open vĩnh viễn (`:806-810`, `:820-824`); (c) `_ensureCachedRevocationLoaded` chỉ chạy 1 lần/instance (`:783`).
+**Fix (diff nhỏ):** sau khi apply CRL, purge entry có key `SIGNED_<KID>` (chú ý `normaliseKey` uppercase, `:323`, `:762`).
+
+### MJ14 — CRL fetch không có timeout (bất đối xứng)
+`vip_manager.dart:819` — `await revocationProvider.fetchSignedCrl()` không timeout, dù sibling cùng shape có: `ad_manager.dart:1701-1703` bound `fetchSafetyParamOverrides()` ở 5s. Host dùng `http.get` không timeout + `Timer.periodic(24h)` theo doc ⇒ stack pending future vô hạn.
+**Fix:** `.timeout(const Duration(seconds: 10))` — nhánh catch `:820-822` đã fail-open sẵn.
+
+## Nhóm 3 — Ad lifecycle / memory / trạng thái chết
+
+### MJ15 — AdMob App Open: callback tới muộn null hoá ad MỚI → App Open chết cả session + 2 native ad leak
+**Evidence:** `admob_adapter.dart:731`, `:746`, `:799`.
+Chuỗi: watchdog hard-cap fire (`:793-803`) → `_appOpenAd = null` **không dispose** (leak #1) + `markShowFailed()` → AdManager `onDismiss(false)` → `loadAppOpenAd()` → ad MỚI gán vào `_appOpenAd`, slot = `ready` → callback GMA cũ tới muộn → nhánh late `:731` set `_appOpenAd = null` lần nữa, **lần này xoá ad mới** (leak #2), nhưng slot vẫn `ready`.
+Kết quả: `showAppOpen` rơi vào `:705-711` (`ad == null`) trả `false` **mãi mãi**, và `_retryRefillAds` (`ad_manager.dart:3999`) chỉ refill khi `isIdle || isCooldown` ⇒ **không bao giờ tự chữa**.
+`onFailedToShow` còn tệ hơn: `_appOpenAd = null` ở `:746` nằm **ngoài** nhánh late check ⇒ vô điều kiện.
+**Fix:** nhánh late chỉ `_disposeAd(ad, ...)` cho local `ad`, **không chạm `_appOpenAd`**; watchdog `:799` dispose ad thay vì chỉ null.
+
+### MJ16 — `showAdBuffer` set `_isShowing = true` trước `Navigator.of` mà không có try → khoá cứng MỌI fullscreen ad + treo splash
+`ad_loading_dialog.dart:148` set `true`; `:156` (`Navigator.of`) và `:160` (`_pushDialogRoute`) có thể throw. Không try/catch. Mọi caller fire-and-forget: `ad_manager.dart:2948`, `ad_screen.dart:105`, `:226`, `ad_readiness_splash_controller.dart:124`.
+Throw ⇒ `_isShowing` kẹt `true` ⇒ `_fullscreenBusyReason` (`ad_manager.dart:1071`) trả `'ad loading buffer showing'` vĩnh viễn ⇒ **cả 4 loại fullscreen bị chặn hết session**, và `onComplete` không bao giờ chạy ⇒ caller treo. Đường splash trong integration contract đi qua đúng hàm này.
+Chú ý `show()` có đúng lỗ này nhưng caller duy nhất đã bọc try/catch + `resetState()` (`ad_manager.dart:3377-3390`); `showAdBuffer` thì không ai bọc.
+**Fix:** try/catch quanh `:156-161` → reset 3 field + gọi `onComplete()`.
+
+### MJ17 — `dismiss()` không bump `_generation` → dialog mồ côi, UI đóng băng
+`ad_loading_dialog.dart:114-126` thiếu `_generation++` (so với `resetState()` `:66` có). `showRewardedAd` bypass path gọi `AdLoadingDialog.dismiss()` **vô điều kiện** ở `ad_manager.dart:3395` kể cả khi `show()` bị bỏ qua vì `ctx == null` (`:3362`). Trong 15s `_loadRewardedOnDemand` đó, `_fullscreenBusyReason` **không** bao gồm `_rewardedInFlight`, nên một resume có thể mở `showAdBuffer` → `dismiss()` giết route đó → timer buffer thức dậy, `myGen == _generation` (guard `:170` không bắt) → `finally :189-193` xoá sạch `_isShowing/_activeNavigator/_activeRoute`. Dialog push sau đó thành mồ côi: `barrierDismissible: false` + `PopScope(canPop: false)` + `dismiss()` early-return vì `!_isShowing` ⇒ **UI đóng băng**.
+**Fix:** `_generation++` trong `dismiss()` (1 dòng) + `:3395` chỉ dismiss khi chính nó đã `show()`.
+
+### MJ18 — AppLovin: reward BỊ MẤT nếu `onAdReceivedReward` tới sau `onAdHidden`
+`applovin_adapter.dart:1141-1146` — `onAdHiddenCallback` gọi `cb?.call(RewardResult.skipped)` **vô điều kiện** rồi `_rewardedDone = null`; `onAdReceivedRewardCallback` `:1176-1177` chỉ chạy được nếu `_rewardedDone` còn non-null. MAX không bảo đảm thứ tự 2 callback này qua mọi network trong waterfall. AdMob tránh đúng bug này bằng cặp cờ `earned`/`fired` (`admob_adapter.dart:1072-1094`) và robust với **cả hai** thứ tự.
+Không có double-grant ở cả 2 provider (đã verify) — chỉ có nguy cơ **mất** reward, im lặng, không đường phục hồi.
+**Fix:** bê pattern `earned`/`fired` sang `_wireRewardedListener`; `onAdHidden` chỉ `fire(skipped)` khi `!earned`.
+
+### MJ19 — `initialize()` không dispose adapter khi init thất bại → orphan adapter còn giữ native listener
+`ad_manager.dart:1982` tạo adapter → `:2010-2021` `return` khi `!ok`, **không** gọi `adapter.dispose()`. `applovin_adapter.dart:421-423` wire listener native **trước** `await _bridge.initialize(...)`. Trên nhánh timeout 20s (`:2006`), native init vẫn có thể hoàn tất sau đó ⇒ adapter orphan có listener sống, callback của nó mutate slot của adapter đã bỏ. Retry tới 4 lần ⇒ tối đa 4 adapter orphan, mỗi cái ~15 `ValueNotifier`.
+**Fix:** `await adapter.dispose();` trước `return`.
+
+### MJ20 — Banner/MREC/native slot có thể kẹt `loading` vĩnh viễn (không có watchdog)
+`ad_slot.dart:127-131` tự ghi: `beginLoad` không có timeout nội tại, phải `armLoadWatchdog`. Nhưng `admob_adapter.dart:1357` (banner), `:1500` (mrec), `:1613` (native) gọi `beginLoad()` **không arm watchdog** — trong khi 4 slot fullscreen đều có (`ad_manager.dart:2781, 3036, 3189, 3490`) và AppLovin adapter cũng có (`:654, 700, 942, 975, 1125, 1157`). Nếu `BannerAdListener` không fire, slot đứng `loading` mãi ⇒ mọi `beginLoad()` sau trả `false` (`ad_slot.dart:97`), `_retryRefillAds` (`ad_manager.dart:3999-4018`) **không quét banner/mrec/native slot** ⇒ shimmer placeholder chiếm chỗ vĩnh viễn (`banner_ad_widget.dart:321-334`).
+**Fix:** thêm `slot.armLoadWatchdog('banner', const Duration(seconds: 30))` sau 3 chỗ đó.
+
+### MJ21 — Race dispose-during-await: banner/mrec tạo ad cho key đã chết
+- AdMob `admob_adapter.dart:1366`: `await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(...)`; nếu `disposeBannerInstance(key)` (`:204-209`, gọi từ `State.dispose()`) chạy trong lúc await, continuation `:1369` vẫn tạo `BannerAd` và ghi vào `_bannerAdsByKey[key]` ⇒ ad đó **không ai dispose nữa**, và closure ghi `.value` lên `ValueNotifier` đã dispose (`:1383`, `:1395`) ⇒ debug throw, release no-op.
+- AppLovin `applovin_adapter.dart:1429` (banner) / `:1511` (mrec): continuation gọi `_bannerAdViewIdFor(key)` `putIfAbsent` ⇒ **hồi sinh notifier cho key đã dispose**, native AdView vừa tạo không ai `destroyWidgetAdView` ⇒ leak native + map phình.
+Đây đúng là bug đã được fix **chỉ cho native** (`_disposedNativeKeys` `:295`, dùng ở `:298/307`) mà bỏ sót banner/mrec.
+**Fix:** check liveness sau mỗi `await`, mở rộng tombstone-set sang banner/mrec.
+
+### MJ22 — `installAdCrashGuard()` không idempotent + swallow crash của host (default ON)
+`ad_config.dart:399` `enableCrashGuard = true`; `ad_manager.dart:1686` gọi mỗi lần `initialize()`; `ad_crash_guard.dart:51` **không có cờ `_installed`**, không có `uninstall` ⇒ mỗi cycle destroy→init bọc thêm một closure giữ `previousOnError` cũ (chuỗi dài vô hạn).
+Nặng hơn: attribution bằng so string stack (`:18-19` `stack.toString().contains(_sdkPackage)`). Build `--obfuscate` mất tên package ⇒ guard **vô hiệu đúng ở build cần nó nhất**; ngược lại (build release mặc định, không obfuscate) một lỗi host có xen frame SDK bị nhận vơ ⇒ `return` `:58` / `return true` `:72` khiến lỗi **không tới `previousOnError`** ⇒ **Crashlytics mất crash**. Với một production app, mất observability là rủi ro thật.
+Ngoài ra `_recoverSlots` (`:28-35`) thiếu `rewardedInterstitialSlot`, mrec và native slot.
+**Fix:** cờ `_installed`; chỉ swallow khi `kDebugMode`, release thì log rồi vẫn chain xuống `previousOnError`; bổ sung slot còn thiếu.
+
+### MJ23 — Slot kẹt `showing` vĩnh viễn cho interstitial / rewarded / rewarded-interstitial (cả 2 provider)
+Không có show-watchdog cho 3 loại này (được document là cố ý: `admob_adapter.dart:951-958`, `applovin_adapter.dart:1041-1055`); `beginShow()` yêu cầu `isReady` (`ad_slot.dart:193`); `armLoadWatchdog` chỉ cứu `loading` (`:141`). Kết hợp với MJ22 (`_recoverSlots` thiếu slot) ⇒ callback native không tới là slot chết cứng + `_xDone` treo + ad object leak. Chỉ App Open có hard-cap watchdog.
+
+### MJ24 — Watchdog App Open AdMob arm SAU `await ad.show()`
+`admob_adapter.dart:774` nằm sau `await ad.show(...)` `:719`. Nếu platform call của `show()` treo không resolve, watchdog **không bao giờ được arm** — đúng cái hang mà nó tồn tại để chống. AppLovin không bị (`:767` sync).
+**Fix:** arm watchdog trước `await`.
+
+### MJ25 — `catch` của cả 4 `showX` AdMob không dispose ad object
+`admob_adapter.dart:776-783`, `:942-947`, `:1126-1130`, `:1274-1277` chỉ `_xAd = null` + `markShowFailed()`; local `ad` mất ref ⇒ native ad leak. Path này thực: `gma_bridge.dart:335-342` `await setServerSideOptions(...)` trước show có thể throw.
+
+## Nhóm 4 — Policy AdMob / AppLovin
+
+### MJ26 — App Open on resume không phân biệt "user quay lại sau khi click ad"
+`ad_manager.dart:3791-3800`: `resumed` → `showAppOpenAdOnResume()` vô điều kiện. Gate ở `ad_safety_config.dart:518-582` chỉ có fullscreen throttle, cold start, `_pendingResumeGate`, `minTimeAppOpenResume` (**default 5s**, `:86,137`), rapid resume — **không có gate nào theo `recordAdClick`** (`:621-642`).
+Click banner/MREC/native (`banner_ad_widget.dart:505`, `mrec_ad_widget.dart:445`, `native_ad_widget.dart:352`) mở browser/Play Store ⇒ app paused ⇒ user về sau >5s ⇒ **App Open show ngay**. Cả AdMob và AppLovin coi đây là placement sai + rủi ro bị flag accidental-click. (Click ad fullscreen thì an toàn: busy mutex + throttle 60s + guard `ad_manager.dart:2917-2925`.)
+**Fix:** lưu `_lastAdClickAt` trong `recordAdClick()`, block resume App Open nếu click xảy ra ngay trước lần background này (~30s).
+
+### MJ27 — `bypassSafety: true` bỏ luôn CTR-fraud + suspicious-pause, không chỉ frequency cap
+`ad_manager.dart:2832-2851`: `if (!bypassSafety)` bọc **toàn bộ** `canShowFullscreenAd()`, trong đó có `_suspiciousPauseUntil` (`ad_safety_config.dart:422-427`) và CTR anomaly (`:470-484`) — đúng 2 lớp chống invalid traffic. Hệ quả: splash App Open vẫn show dù account đang bị pause 30 phút–24h do click spam. `showAppOpenAd` là API public nên host gọi `bypassSafety: true` ở đâu cũng được; README:781 chỉ mô tả, không có code nào giới hạn về splash.
+Phụ: `_canShowFullscreenAdStrict` dùng `DateTime.now()` thô (`ad_safety_config.dart:420`) ⇒ lùi clock cũng xoá được `_suspiciousPauseUntil` (cùng theme MJ9).
+**Fix:** tách fraud-check ra khỏi caps; fraud-check chạy **cả khi** `bypassSafety`.
+
+### MJ28 — `AdSafetyConfig.resetSession()` public, xoá cả fraud state đã persist — và example có nút bấm
+`ad_safety_config.dart:667-692` reset `_clickTimestamps`, `_suspiciousViolationCount`, `_suspiciousPauseUntil` và `prefs.setSuspiciousCount(0)` ⇒ xoá sạch progressive cooldown đã lưu đĩa. Export public qua barrel. `example/lib/main.dart:1956` có nút "Reset session counters" ⇒ template mà consumer copy có sẵn nút vô hiệu hoá anti-fraud trong release.
+**Fix:** `resetSession()` chỉ reset counter phiên; phần fraud chuyển `@visibleForTesting` hoặc gate `!isActuallyRelease()`. Sửa/label lại nút ở example.
+
+## Nhóm 5 — Release engineering (không phải code, nhưng chặn production)
+
+### MJ29 — CI chưa validate bất cứ gì kể từ 2026-08-09; iOS chưa verify với 2.3.0
+Run success cuối: `2026-08-02`. Mọi run của 4 commit tạo nên 2.3.0 đều fail sau 5-7s (billing). ⇒ `sdk-integration` (Android emulator) và `sdk-integration-ios` (3 shard, Xcode) **chưa từng chấm bản published**. 26 suite integration tồn tại và có giá trị, nhưng bằng chứng duy nhất hiện có là verify tay Android trên Pixel 7 Pro. **iOS 2.3.0 = zero bằng chứng.** Với một SDK bán claim "work cho cả Android + iOS", đây là gap không thể bỏ qua trước khi ship.
+
+### MJ30 — Toàn bộ `doc/` (1.7MB) — gồm 3 file audit bảo mật nội bộ — được publish lên pub.dev
+`.pubignore` không loại `doc/`, `test/`, `tool/`. Archive 2.3.0 chứa `doc/audit/audit_{claude,agy,codex}.md` — tức là **bản đồ công khai các điểm yếu VIP-bypass còn mở**, kèm `file:line`, publish cho bất kỳ ai `pub cache` xuống đọc. Cộng thêm backlog nội bộ, task docs, và `doc/archive/WIFI_STRESSOR_STATS_DESIGN.md` (thiết kế app khác). `doc/` (1.7MB) còn to hơn `lib/` (904KB).
+**Fix:** thêm `doc/`, `test/`, `tool/pinning_check_app/` vào `.pubignore` (giữ `doc/screenshots/` nếu `screenshots:` trong pubspec cần).
+
+### MJ31 — `google_mobile_ads: ^7.0.0` trong khi latest là 9.1.0; bị chặn bởi Flutter pin
+GMA Flutter 9.1.0 phát hành 2026-08-11; package pin `^7.0.0` (7.0.0 phát hành 2025-12-16). GMA 8/9 cần Dart `>=3.10.0` + Flutter `>=3.38.1`, mà CI pin Flutter 3.35.1 (Dart 3.9.x) không đáp ứng — đã document ở CLAUDE.md. Với production app: đang ở sau 2 major version của GMA SDK, và Google có lịch sử ngừng serve cho SDK version quá cũ. Đây là **nợ có deadline**, không phải nợ vô hạn. Nâng Flutter cũng nâng `environment` floor ⇒ breaking cho consumer ⇒ cần plan major version.
+
+---
+
+# MINOR (danh sách, đã verify hoặc evidence rõ)
+
+| # | Finding | Evidence |
 |---|---|---|
-| UMP fail-open khi channel lỗi (codex P1, tồn tại nhiều round) | **CONFIRMED CÒN MỞ — Major** (chi tiết mới bên dưới) | `ad_manager.dart:1888-1917` |
-| codex P1-1 — `NativeAdWidget._allowed` latch không hạ khi gate đổi trạng thái | **CONFIRMED CÒN MỞ — Minor** (không đổi so với round trước) | `native_ad_widget.dart:56,66-97,109-140` |
-| codex P1-4 — `destroy()`/`_resetGuardState()` không reset `_lastUmpResult`/`_attRequested` | **CONFIRMED CÒN MỞ — Minor, vô hại** (không đổi) | `ad_manager.dart:1154,1190,2587-2602` |
-| Consent revoke giữa phiên không flush slot fullscreen đã ready | Không phải finding mới — đã nằm trong "Known-and-disclosed limitations" ở dưới, xác nhận vẫn đúng (`setConsent`, `ad_manager.dart:2207-2261`, không có lệnh invalidate/reload slot nào) | `ad_manager.dart:2207-2261` |
-| Android Auto Backup opt-in cho trial/VIP-replay | Không đổi — vẫn chỉ document, README `:67,1209-1226,2038` xác nhận còn đầy đủ | `README.md` |
-
-**UMP fail-open — phân tích mới, tại sao vẫn Major:** `ad_manager.dart:1888-1917` — khi `autoRequestUmpConsent` chạy (default `true`), gate đóng (`_canRequestAds=false`) rồi gọi `requestUmpConsent(...)` trong `runZonedGuarded`; **bất kỳ exception nào** lọt tới error handler (`:1899-1917`) đều mở gate lại (`_canRequestAds = true`) — không phân biệt "UMP channel không tồn tại" (host không dùng UMP, đúng ý đồ fail-open ban đầu) với "channel tồn tại nhưng lỗi tạm thời cho một EEA user thật" (mạng chập chờn, timeout phía Google, lỗi native khác). Ở nhánh thứ hai, một EEA user chưa từng cho consent sẽ được set `canRequestAds=true` và SDK bắt đầu request ad — vi phạm GDPR/UMP policy thật, không phải lý thuyết, vì nó phụ thuộc network reliability của thiết bị người dùng cuối, không phải cấu hình host. Code đã tự nhận biết trade-off này trong comment (`:1911-1916`, "Fail OPEN here, deliberately") nhưng lý do nêu ra (tránh regression C1 — ads bị chặn vĩnh viễn nếu fail closed) chỉ đúng cho trường hợp "channel không đăng ký", không đúng cho "channel đăng ký nhưng lỗi tạm thời". Catch nên phân loại theo loại lỗi (`MissingPluginException` → fail open đúng như hiện tại; lỗi khác → fail closed + để reconnect-retry thử lại, giữ nguyên UX "ads đến chậm hơn" mà comment mô tả) thay vì fail-open cho mọi exception.
-
-**Không tìm thấy Blocker mới.** Không tìm thấy regression trong 5 fix commit kể từ round trước (`21568fd` B1/COPPA, `84fe9da` M1/M4/B3-sleep, `fc1b0e9` M2/AVP2, `6d7abac` M5, `2a2fe52` M9) — đọc lại từng đoạn code liên quan, hành vi khớp với mô tả fix trong file audit cũ.
-
-### Verdict (round 2026-08-21)
-
-**YES — WITH CONDITIONS**, không đổi kết luận tổng thể so với round trước. Điều kiện version pub.dev (mục 5 cũ) đã đóng. Điều kiện còn lại trước khi ship cho audience có EEA user thật: thu hẹp phạm vi fail-open của UMP error handler (`ad_manager.dart:1899-1917`) để chỉ fail-open cho lỗi "channel không tồn tại", fail-closed cho lỗi khác của một channel đang hoạt động. Đây là finding Major duy nhất còn mở có real-world exploit path rõ ràng (không cần điều kiện đặc biệt — chỉ cần một lần UMP native call thất bại tạm thời trên máy EEA user). Các Minor còn mở (native widget latch, 2 field chưa reset ở destroy) không chặn ship — impact thấp, đã ghi rõ điều kiện trigger hẹp ở trên.
-
----
-
-**Đây là bản hợp nhất** của toàn bộ các round audit do Claude thực hiện từ 2026-08-02 đến 2026-08-19 (5 file gốc: `audit_claude.md` 08-09, `audit_claude_20260802.md`, `audit_claude_native_20260815.md`, `audit_claude_20260819.md`, `audit_claude_external_20260819_round2.md` — chạy độc lập qua `claude --dangerously-skip-permissions`), cộng thêm một vòng audit mới (2026-08-19/20, 7 lane nội bộ chạy song song + đối chiếu chéo với vòng external). File cũ đã bị xoá, nội dung được giữ lại và đánh dấu **stale/fixed** nếu đã lỗi thời.
-
-**Version audited:** local `pubspec.yaml` = **2.1.0** (đã release theo git log: `51e79e6`, `95c12e8`, ngày 2026-08-19). pub.dev có thể còn đang serve `2.0.4` do CDN cache lag (xem CLAUDE.md mục publish traps) — **verify trực tiếp trên pub.dev trước khi ai đó pull package cho production**, đừng tin theo ngày commit.
-**Test status:** `flutter test` → **860/860 pass**. `flutter analyze` → **0 issues**.
-**Phương pháp:** 7 lane nội bộ độc lập (A: platform/provider parity; B: offline/online; C: ad-type lifecycle/leak; D: trial+VIP; E: consent+policy; F: example+docs; cộng 3 finding tự phát hiện ngoài lane) — mỗi lane đọc source trực tiếp, cite `file:line`, không thấy kết quả của lane khác trước khi report. Đối chiếu chéo với 1 vòng `claude --dangerously-skip-permissions` độc lập (file gốc `audit_claude_external_20260819_round2.md`) và với `agy` CLI. Finding được cả 2+ nguồn độc lập tìm ra được đánh dấu **[cross-confirmed]** — độ tin cậy cao nhất.
-
----
-
-## Blocker (fix trước khi ship)
-
-### B1 — AppLovin banner/MREC native view leak khi widget đang hiển thị (attached) lúc dispose — **ĐÃ FIX 2026-08-20** **[cross-confirmed: lane C + external-claude M2 + agy round2 xác nhận call tồn tại nhưng không xác minh sâu]**
-**Fix:** `applovin_adapter.dart` — `disposeBannerInstance`/`disposeMrecInstance` giờ gọi `_destroyWidgetAdViewWhenDetached(id, ...)` thay vì gọi `destroyWidgetAdView` một lần rồi log-and-give-up. Helper retry 3 lần (200ms/500ms/1s backoff) khi native từ chối destroy, đủ thời gian cho platform view detach xong khỏi widget tree trước lần thử tiếp theo; hết retry mới log warning và bỏ qua. `flutter test` 860/860 pass sau fix (không đổi số lượng test, không cần test mới — fake bridge trong test hiện có luôn destroy thành công lần đầu nên đường retry chưa có test riêng bao phủ).
-`applovin_adapter.dart:140-239` (`disposeBannerInstance`/`disposeMrecInstance`) gọi `destroyWidgetAdView(id)` không điều kiện (fix ngày 08-19, commit `5fb7a58`, đã đóng finding cũ "không gọi destroy"). Nhưng verify trực tiếp native source (`applovin_max-4.6.4/android/.../AppLovinMAXAdView.java:70-103`, và bản iOS `.m` tương ứng) xác nhận: nếu `preloadedWidget.hasContainerView()` còn `true` (view vẫn đang attach vào cây widget) thì native **từ chối destroy**, trả lỗi `"Cannot destroy - the preloaded AdView is currently in use"` — Dart side chỉ log warning (`unawaited(...).catchError(...)`) và bỏ qua. `banner_ad_widget.dart:180-199` gọi `disposeBannerInstance` đồng bộ ngay trong `State.dispose()`, **trước khi** native platform view thực sự detach — đúng lúc `hasContainerView()` còn true. Kết quả: native `MaxAdView`/ad instance rò rỉ mỗi lần widget bị dispose trong lúc còn hiển thị (route pop khi banner đang trên màn hình — trường hợp phổ biến, không phải edge case).
-**Vì sao nghiêm trọng:** rò rỉ tích lũy theo số lần điều hướng, không phải sự cố hiếm; xảy ra trên path chính (banner ở mọi màn hình có back navigation).
-**Sửa:** đợi native platform view báo detach xong (callback hoặc `postFrameCallback` sau khi view bị remove khỏi tree) rồi mới gọi destroy, hoặc retry destroy sau delay ngắn nếu lần đầu bị native từ chối.
-
-### B2 — COPPA bypass qua timing của pending-consent replay — **ĐÃ FIX 2026-08-20**
-**Fix:** `ad_manager.dart` — block replay `_pendingConsentSettings` được dời lên chạy ngay sau `ConsentManager.bootstrap()` (trước UMP auto-consent block và trước adapter được pick/init), thay vì sau `adapter.initialize()`. `_consent`/`consentMgr.adConsent` giờ phản ánh đúng giá trị host đã `setConsent()` trước `initialize()` tại thời điểm adapter đọc `isAgeRestrictedUser` để gate init. Block replay cũ (chạy sau adapter init) đã xoá — trở thành dead code vì buffer đã được tiêu thụ sớm hơn.
-`ad_manager.dart:1855-1884` replay `_pendingConsentSettings` (buffer khi `setConsent()` được gọi trước lúc `_consentManager` bootstrap xong) **sau** `adapter.initialize()` (gọi ở `:1799`, còn replay ở `:1867-1873`). Nếu host gọi `setConsent(isAgeRestrictedUser: true)` trên máy mới cài **trước** `initialize()` — đúng pattern khuyến nghị cho COPPA — giá trị bị buffer nhưng tới quá muộn để gate AppLovin's init: `applovin_adapter.dart:365-394` chỉ chặn init khi `isAgeRestrictedUser` **tại thời điểm gọi initialize** là `true`; do buffer replay muộn, adapter nhận `false` và AppLovin SDK khởi tạo bình thường cho user đã được host đánh dấu là trẻ em.
-**Vì sao nghiêm trọng:** vi phạm trực tiếp COPPA/AppLovin child-directed policy — SDK track/serve ad cá nhân hoá cho user host đã minh bạch flag là bị hạn chế tuổi.
-**Sửa:** `initialize()` phải chờ/đọc `_pendingConsentSettings` (nếu có) **trước** khi construct/init adapter, không phải sau.
-
-### B3 — VIP clock forward-rồi-lùi làm đông cứng vĩnh viễn entitlement — **ĐÃ FIX 2026-08-20** **[cross-confirmed: lane D B1 + external-claude M4]**
-**Fix:** `vip_manager.dart` — `_effectiveNow()` giờ neo một `Stopwatch` (monotonic, immune với NTP/manual clock change) tại thời điểm `VipManager` được construct (`_sessionAnchorRealMs` + `_sessionClockStopwatch`). Nếu `DateTime.now()` lệch so với giá trị monotonic-dự đoán quá 10 phút (slack tolerance) trong cùng process lifetime, giá trị monotonic-anchored được dùng thay cho đồng hồ thô trước khi đưa vào high-water-mark clamp/persist hiện có — forward-jump trong-session không còn bị commit vào mark nữa, tự sửa ngay khi đồng hồ được chỉnh lại đúng. **Giới hạn còn lại (đã biết, chấp nhận):** không bắt được trường hợp jump xảy ra rồi app bị OS kill và relaunch trước khi đồng hồ được sửa lại (session mới anchor lại từ giá trị sai) — cần nguồn monotonic-uptime native (VD `elapsedRealtime`/`systemUptime`) để đóng hoàn toàn, chưa làm trong lần fix này. Test anti-rollback hiện có (`vip_manager_robustness_test.dart`, group "anti clock-rollback — mid-window reactivation") vẫn pass không đổi vì construct mới ⇒ `expected ≈ real` ⇒ logic đông cứng cross-session cũ áp dụng như trước.
-
-**Regression phát hiện sau (2026-08-20, qua review độc lập 3 external CLI — codex/agy/claude-external, đồng thuận 3/3) — ĐÃ FIX cùng ngày:** `Stopwatch` dùng monotonic-uptime clock (`CLOCK_MONOTONIC` Android, tương tự trên iOS) — clock này **dừng đếm khi máy deep-sleep**, còn `DateTime.now()` vẫn chạy đúng trong lúc sleep. Hệ quả: khoá màn hình/background hơn 10 phút (thao tác bình thường, không phải tấn công) bị hiểu lầm thành "clock tamper" → `_effectiveNow()` bỏ đồng hồ thật, đông cứng high-water-mark ở giá trị cũ → VIP được kéo dài miễn phí lặp lại mỗi lần khoá máy, ngược hoàn toàn mục tiêu B3. **Fix:** thêm `VipManager.resyncSessionClock()` (re-anchor `_sessionAnchorRealMs` + restart `_sessionClockStopwatch`), gọi từ `AdManager.didChangeAppLifecycleState` mỗi khi app resume — drift-detection giờ chỉ còn áp dụng trong lúc app đang foreground liên tục (đúng kịch bản gốc B3: user chỉnh giờ trong lúc nhìn app), background bao lâu cũng không còn bị coi là tamper. `flutter test`: 860/860 pass.
-`vip_manager.dart:178-198` (`_effectiveNow()`) chỉ clamp theo chiều **chống lùi** (nếu đồng hồ hiện tại < high-water mark đã lưu thì dùng mark), nhưng **không bao giờ nâng mark lên** khi đồng hồ quan sát được đã vượt mark. Kịch bản: user chỉnh đồng hồ tiến (VD +30 ngày) rồi chỉnh lại đúng — mark đã bị đẩy lên tương lai vĩnh viễn, `_effectiveNow()` từ đó luôn trả về ít nhất giá trị mark đó dù đồng hồ thật đã lùi về đúng. Hệ quả ngược của mục đích chống rollback: VIP có thể bị coi là **hết hạn ngay lập tức** (nếu forward vượt quá `expiresAt`) dù thời gian thật chưa tới, hoặc bị đông cứng tại một mốc tương lai sai.
-**Vì sao nghiêm trọng:** user trả tiền/redeem VIP hợp lệ bị mất quyền lợi do một lần chỉnh giờ vô tình (đổi timezone, đồng bộ NTP lỗi) — không phải hành vi gian lận.
-**Sửa:** high-water mark cần được note là "mark tối đa từng quan sát", nhưng phải cho phép đồng hồ thật tăng trở lại vượt mark trong tương lai (mark chỉ chống *lùi dưới giá trị đã thấy*, không nên tạo sàn cao hơn hiện tại một khi đồng hồ thật đã vượt qua rồi lùi lại đúng — cần thiết kế lại tiêu chí "đã thấy" để không tự khoá vào giá trị outlier).
+| m1 | `SimpleEventBus.listen()` replay `_lastEvent` không bọc try/catch (`fire()` thì có) — listener đăng ký muộn throw ra caller, làm gián đoạn startup | `event_bus.dart:20-24` vs `:30-40` |
+| m2 | AVP2 bundle binding fail-**open** khi không đọc được bundle id | `vip_manager.dart:704-712`, `signed_vip_key.dart:205-222` |
+| m3 | AVP1/AVP2 không domain-separate (verify chỉ `payload`, prefix không được authenticate); AVP1 không có expiry + không bundle binding ⇒ key AVP1 rò rỉ chạy **mãi mãi trên mọi app** cùng public key | `signed_vip_key.dart:162-168, 180-192` |
+| m4 | Còn `DateTime.now()` thô trong path expiry: migrate legacy grantedAt (`vip_manager.dart:349`), `VipEntry.isActive/remaining` (`vip_entry.dart:45,53`), default `now` của `verifySignedVipKey` — là **public API export** nên host gọi trực tiếp dùng clock thô (`signed_vip_key.dart:200`) | như cột |
+| m5 | `_lastUmpResult` / `_attRequested` không reset trong `_resetGuardState()` | `ad_manager.dart:2645-2671` |
+| m6 | Race đọc `_umpRequested` khi auto-UMP chạy concurrent → footgun warning false-positive/negative | `:1932-1976` vs `:2395`, đọc ở `:2066` |
+| m7 | iOS: `AdvertisingId.id(true)` vẫn có thể tự bật ATT prompt nếu đọc `trackingAuthorizationStatus` throw (`attStatus = null` ⇒ `shouldDeferGaidFetch` false) | `:1743-1759`, `:248-254`, `:1569` |
+| m8 | Adapter init xoá tạm thời COPPA tag của AdMob (`RequestConfiguration` build lại, không merge) — hiện vô hại vì không có ad request ở giữa | `gma_bridge.dart:120-124` |
+| m9 | Dialog consent built-in không phải CMP TCF nhưng vẫn có đường chạm user EEA khi UMP inconclusive | `consent_dialog.dart:30-59`, `ad_manager.dart:1297-1348` |
+| m10 | CCPA: không đọc GPP / `IABUSPrivacy`, không map từ UMP US-states message; `doNotSell` chỉ set thủ công ⇒ `ComplianceReport` báo sai cho user California đã opt-out qua UMP | grep `lib/`: no `IABGPP` |
+| m11 | UMP backstop retry **không bounded** (`_umpBackstopRetryCount` chỉ increment, không dùng làm cap) ⇒ retry vô hạn suốt session khi UMP fail dai dẳng | `:3874-3877` |
+| m12 | Connectivity watch fail một lần là mất luôn fast-path (chỉ gọi 1 lần, không re-attempt) ⇒ `isConnected` vĩnh viễn `true` optimistic | `:3912` catch `:3926`, gọi 1 lần `:2114` |
+| m13 | `initialize()` không có deadline tổng; 7 `await` không timeout (ATT status `:1745` — chính SDK bound call này ở 5s tại `:609`; prefs `:1690`; `vip.load` `:1769`; Keychain guard `:1803/:1826`; `ConsentManager.bootstrap` `:1846`; `applyToProviders` `:2057`; `PackageInfo` `vip_manager.dart:707`) | như cột |
+| m14 | `rewardedInterstitialSlot` không được `dispose()` (AppLovin còn không `reset()`); `AdSlot._watchdogTimer` chỉ cancel trong `dispose()` không trong `reset()` ⇒ Timer 30s sống sót qua teardown | `admob_adapter.dart:537-539`, `applovin_adapter.dart:550-552`, `ad_slot.dart:232-235` |
+| m15 | Expiry bị tính là "failure", đầu độc backoff (`markFailed()` thay vì `beginReload()`) | `admob_adapter.dart:701/892/1053/1206` |
+| m16 | `isAdFresh` dùng wall-clock ⇒ clock lùi cho difference âm ⇒ "fresh" mãi | `admob_adapter.dart:611-614` |
+| m17 | AppLovin **không có** freshness check ở cả load lẫn show; `lastLoadedAt` set nhưng không ai đọc. Asymmetry với AdMob không được document | `:717-720, 990, 1194` |
+| m18 | `canShowInterstitial()`/`canShowRewardedAd()` không check freshness ⇒ host poll thấy `true` cho ad đã stale | `ad_manager.dart:3151`, `:3624` |
+| m19 | Consent-gate của widget dispose ad **trước** khi rút khỏi tree ⇒ ~1 frame `AdWidget` còn trong tree khi native view đã destroy | `banner_ad_widget.dart:100-101`, `mrec:77`, `native:92` |
+| m20 | AdMob banner/mrec/native callback không có guard sau dispose (AppLovin native thì có) | `admob_adapter.dart:1381-1400, 1519-1548, 1631-1660` |
+| m21 | `_disposedNativeKeys` phình vô hạn, giữ strong ref tới mọi native `State` đã chết ⇒ leak tuyến tính với use-case ListView nhiều native | `applovin_adapter.dart:295, 335` |
+| m22 | `_destroyWidgetAdViewWhenDetached` dùng `Future.delayed` không track/cancel ⇒ vẫn retry ~1.7s sau dispose, gọi bridge đã teardown | `applovin_adapter.dart:263` |
+| m23 | `disposeMrecInstance` (AdMob) bỏ sót `_mrecRoutePausedByKey.remove(key)` (banner có, AppLovin có) | `admob_adapter.dart:268-272` vs `:207` |
+| m24 | `BannerListenables` rò cho key có listenables mà không có slot (dispose-all chỉ iterate `_xSlotsByKey.keys`) | `admob_adapter.dart:543/548/555` |
+| m25 | `NativeAdWidget` không `with RouteAware` ⇒ native ad vẫn "sống" khi route khác che (banner/MREC thì pause) | `native_ad_widget.dart:49` |
+| m26 | `RevenuePanel.debugModeOverride` bật được panel doanh thu trong release (override thắng `kReleaseMode`), trái pattern `isActuallyRelease` dùng ở mọi nơi khác. `DebugAdOverlay` thì đúng | `revenue_panel.dart:34-46` vs `debug_ad_overlay.dart:60` |
+| m27 | Example gọi `canShowFullscreenAd()` (có side effect) trong `build()` — đúng thứ docstring cấm, phải dùng `canShowFullscreenAdPeek()` | `example/lib/main.dart:1946-1952` vs `ad_safety_config.dart:361-369` |
+| m28 | `AdLoadingDialog` không cancel được, tới 15s ở luồng VIP watch-ad (`barrierDismissible:false` + `PopScope canPop:false` + `show()` không timer) | `ad_loading_dialog.dart:80, 254, 101-111`, `ad_manager.dart:3267, 3378` |
+| m29 | Example mô tả **sai** contract replay của `SimpleEventBus` ("only delivers" cho listener đăng ký trước) | `example/lib/main.dart:424-429` vs `event_bus.dart:14-24` |
+| m30 | README Step 5 splash template thiếu `SimpleEventBus().remove(...)` (example có) ⇒ host copy README bị leak listener | `README.md:449-456` vs `main.dart:503-505` |
+| m31 | README sai nhẹ về `dryRun` (liệt kê trong footgun list, thực tế `releaseFootgunWarnings` không kiểm và dryRun bị force `false` trong release) | `README.md:766` vs `ad_manager.dart:141-145`, `ad_safety_config.dart:326-334` |
+| m32 | Reward disclosure là optional và example không dùng (`disclosureTitle`) — AdMob yêu cầu mô tả reward trước khi show; label nút là mức tối thiểu | `ad_screen.dart:141-144, 205-222`, `example/lib/main.dart:1115-1130` |
+| m33 | `duration <= 0` bị reject nhưng caller báo "success" (`redeemVip` → `showVipSuccessDialog` + return `true`) | `vip_manager.dart:500-508, 657-661` |
+| m34 | `ad_screen.dart:51/58/65` nội suy string eager mỗi lần host build, dù log level tắt (phần còn lại SDK dùng lazy closure) | như cột |
+| m35 | `buildBanner()` không cho truyền `Key` ⇒ banner trong list đổi index bị tạo lại Element ⇒ native ad destroy + reload | `ad_screen.dart:52` |
+| m36 | `onPaidEvent` không bị null trong `dispose()` của các wrap (chỉ null `fullScreenContentCallback`) ⇒ paid-event muộn vẫn `_emit` qua eventSink cũ | `gma_bridge.dart:250/283/319/361` |
+| m37 | `AD_SERVICES_CONFIG` không document — không cần khai báo (đến từ AAR qua manifest merger) nhưng là nguồn build-failure kinh điển khi host có 2 SDK cùng khai báo (cần `tools:replace`) | grep README/doc/example: rỗng |
+| m38 | `confetti: ^0.8.0` là runtime dependency của một ad SDK (chỉ dùng cho `VipRedeemScreen`) ⇒ mọi consumer inherit | `pubspec.yaml`, `vip_redeem_screen.dart:4` |
 
 ---
 
-## Major
+# INFO — những chỗ ĐÚNG, đã verify, đừng re-litigate
 
-### M1 — `rewardedInterstitialSlot` thiếu trong fullscreen busy-reason mutex **[cross-confirmed: lane C B2 + external-claude M3]** — **ĐÃ FIX 2026-08-20**
-`ad_manager.dart:960-992` (`_fullscreenBusyReason` getter) chỉ check `appOpenSlot.isShowing`, `interstitialSlot.isShowing`, `rewardedSlot.isShowing`, `AdLoadingDialog.isShowing`, `AdScreenRouteLogger.isDialogOnTop` — thiếu `rewardedInterstitialSlot.isShowing`. Rewarded Interstitial có thể show đồng thời với 1 fullscreen ad khác → ad stacking, vi phạm chính sách AdMob/AppLovin cả hai.
-**Fix:** thêm `rewardedInterstitialSlot.isShowing` vào `_fullscreenBusyReason`, và listener attach/detach của `fullscreenBusy` notifier (`_attachFullscreenBusySlotListeners`/`_detachFullscreenBusySlotListeners`) để mirror bool cũng theo dõi slot này. 17 fake adapter trong test/ (implement `AdProviderAdapter` qua `noSuchMethod` hẹp) phải bổ sung field `rewardedInterstitialSlot`, theo đúng pattern đã có sẵn cho 3 slot khác (comment T75) — nếu không, mọi test dùng `debugSetAdapter` sẽ crash `NoSuchMethodError` ngay khi swap adapter. `flutter test`: 860/860 pass, không regression.
-
-### M2 — AVP2 expiry check bỏ qua anti-rollback clamp **[cross-confirmed: lane D M1 + external-claude m2]** — **ĐÃ FIX 2026-08-20**
-`vip_manager.dart:636-660` (`redeemSignedKey`) không truyền `now:` vào `verifySignedVipKey`, nên `signed_vip_key.dart:195-206` fallback `DateTime.now()` chưa qua clamp của `_effectiveNow()`. Redeem-time expiry check dùng đồng hồ thiết bị thô — user chỉnh lùi đồng hồ có thể redeem key đã hết hạn hoặc kéo dài hạn dùng giả.
-**Fix:** `redeemSignedKey` giờ truyền `now: _effectiveNow()` vào lời gọi `verifySignedVipKey` (vip_manager.dart:717). Test mới `test/signed_vip_key_test.dart` — "AVP2 key past its absolute expiry is rejected even when the device's high-water clock mark, not raw DateTime.now(), is what catches it (M2)" — mint key AVP2 (payload có thêm field expEpoch/boundBundle, chưa có coverage nào trước đó test AVP2 format) với expiry hợp lệ theo đồng hồ thô nhưng đã hết hạn theo high-water mark đã seed sẵn; xác nhận test fail nếu revert `now:` về `null` (dùng raw clock), pass với fix. `flutter analyze`: 0 issues. `flutter test`: 861/861 pass, không regression.
-
-### M3 — AppLovin không có khái niệm ad-freshness; App Open show từ slot `ready` không re-check tuổi tại thời điểm show — **ĐÃ DOCUMENT 2026-08-20**
-Đã fix cho AdMob (commit `05326ed`, 08-19: freshness check giờ chạy ở show-time cho cả 4 loại fullscreen AdMob, không chỉ ở load/reuse). AppLovin (MAX) hoàn toàn không có concept freshness — không phải bug của SDK (native AppLovin SDK không expose timestamp) nhưng **là gap chính sách thực tế**: nếu provider = AppLovin, App Open có thể hiển thị ad đã cache rất lâu. Ghi nhận là giới hạn cố hữu của nền tảng AppLovin, không phải lỗi code có thể tự sửa trong SDK này.
-
-**Xử lý:** user chọn "chỉ document" (recommended) — thêm bullet vào README.md "Known limitations — read before adopting" nêu rõ gap này, để host tự quyết định có accept risk hay không trước khi ship với provider AppLovin. Không sửa code.
-
-### M4 — Rewarded Interstitial trên AppLovin báo `shown: true` giả **[cross-confirmed: lane C M9 + external-claude m3]** — **ĐÃ FIX 2026-08-20**
-`applovin_adapter.dart:1226-1230` (`showRewardedInterstitial`) là no-op ngay lập tức gọi `onDone(RewardResult.skipped)` (AppLovin MAX không có format này) nhưng orchestrator ở `ad_manager.dart` hard-code `shown: true` bất kể kết quả thật. Host code không phân biệt được "đã hiển thị nhưng không có reward" với "provider không hỗ trợ format này".
-**Fix:** thêm field `bool shown` vào `RewardResult` (default `true` — giữ nguyên hành vi mọi call site khác, kể cả `RewardResult.skipped` dùng chung cho case AdMob "đã hiển thị, không có reward"). `applovin_adapter.dart`'s `showRewardedInterstitial` giờ trả `RewardResult(earned: false, shown: false)`; `ad_manager.dart`'s orchestrator dùng `onDone(result.shown, result.earned)` thay vì hard-code `true`. `flutter test`: 860/860 pass, không regression.
-
-### M5 — AppLovin `preloadBanner`/`preloadMrec` overwrite `adViewId` không destroy cái cũ — **ĐÃ RE-VERIFY + FIX 2026-08-20**
-Re-verify: `applovin_adapter.dart` `preloadBanner`/`preloadMrec` (trước fix, ~dòng 1429-1440 / 1500-1512) chỉ gán `notifier.value = adViewId` mới, không destroy id cũ nếu notifier đã có giá trị non-null trước đó. Xác nhận **có ít nhất 2 call site thực sự gọi lại preload trên cùng key** khi key đó đã có adViewId sống: `_onVipActiveChanged()` (`ad_manager.dart:2008-2009`, mỗi lần VIP hết hạn) và `_onConnectivityChanged()` (`ad_manager.dart:3758-3765`, mỗi lần offline→online) — cả hai đều gọi `preloadBanner(_globalBannerWarmupKey)`/`preloadMrec(_globalMrecWarmupKey)` không điều kiện, khác với `onAppResumed()`'s error-recovery path (đã null notifier trước khi preload lại) nên finding này độc lập, không phải bản trùng của case đã handle. Widget (`banner_ad_widget.dart`) build platform view trực tiếp theo giá trị notifier nên native AdView cũ bị orphan ngay khi overwrite — leak thật, tương tự B1 nhưng từ path khác.
-**Fix:** `preloadBanner`/`preloadMrec` giờ capture `oldId` trước khi gán `notifier.value`, và nếu `oldId != null && oldId != adViewId` thì gọi `_destroyWidgetAdViewWhenDetached(oldId, ...)` (cùng cơ chế retry-with-backoff B1 dùng khi dispose). Test mới `test/applovin_adapter_test.dart` — group "preloadBanner/preloadMrec re-preload with an already-live adViewId (M5)" — dùng `_IncrementingIdBridge` (fake bridge trả adViewId tăng dần, vì `FakeAppLovinBridge` mặc định luôn trả hằng số `1` nên che mất bug này) để xác nhận: preload lần 2 destroy đúng id cũ. Confirmed test fail nếu revert fix, pass sau fix. `flutter analyze`: 0 issues. `flutter test`: 863/863 pass, không regression.
-
-### M6 — `showAppOpenAdOnResume` từng bypass toàn bộ safety cap ngoài phạm vi splash — **đã fix**
-`ad_manager.dart:2719-2722` (bản cũ trước 08-19) luôn gọi `showAppOpenAd(bypassSafety: true, ...)` bất kể là splash hay resume thường. Đã fix commit `6ca3d78` (08-19): resume path giờ dùng `bypassSafety: false`, chỉ splash flow còn bypass. **Giữ mục này để ai đọc CHANGELOG không tưởng đây còn mở.**
-
-### M7 — CHANGELOG `[Unreleased]` (13 feature + batch fix security 08-16/17) chưa publish lên pub.dev tại thời điểm audit 08-19 — **ĐÃ ĐÓNG 2026-08-21** (`curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.2.0"`, khớp local `pubspec.yaml`. Xem round mới nhất ở đầu file.)
-Tại thời điểm audit 08-19, pub.dev còn serve 2.0.4, thiếu fix domain-separation CRL/VIP-key, stale-watchdog fix, connectivity-race fix. Git log local cho thấy `2.1.0` đã được commit (`51e79e6`, `95c12e8`, 2026-08-19) và CHANGELOG.md đã có mục `[2.1.0]` — **nhưng đây chỉ là commit local, không phải publish thật.**
-
-**Xác nhận trực tiếp 2026-08-20**: `curl https://pub.dev/api/packages/applovin_admob_sdk` → `latest.version = "2.0.4"`, danh sách 33 version công khai kết thúc ở `2.0.4`, không có `2.1.0`. Trước đó audit ghi "đã release" chỉ dựa vào git log local, chưa từng gọi API xác minh — sai. Finding này **vẫn mở**: cần chạy `flutter pub publish` thật (`packages/ad_sdk/`, xem mục "Publishing to pub.dev" ở `CLAUDE.md`) trước khi bất kỳ app nào pull `applovin_admob_sdk` qua pub.dev (không phải git ref/path) có thể nhận được các fix Blocker/Major đã làm trong 2 vòng audit 08-19/08-20.
-
-### M8 — Undocumented breaking API change (tự phát hiện) — **RE-VERIFY 2026-08-20: premise sai, đã xử lý theo yêu cầu khác**
-Claim gốc: `MIGRATION.md` không đề cập 3 breaking change tự nêu trong CHANGELOG 2.0.0 (`autoRequestUmpConsent` default `false→true`, VIP key format `AVP1→AVP2`, `maxVipStackDuration` default `null→90 days`).
-
-**Re-verify:** đọc lại `MIGRATION.md` mục "1.x → 2.x" → §7 "2.0.0 breaking changes (defaults changed)" — cả 3 default nêu trên đã được ghi đầy đủ ở đó kèm code diff hướng dẫn revert từng cái. Claim gốc **sai** (có thể do đọc audit trước không mở hết file, hoặc mục §7 được thêm sau lần audit đó — không xác minh được lịch sử chính xác). FAQ cũng không ghi "2.0 hiện chưa release" như claim — dòng thật là "Yes — 2.0 has shipped (currently 2.0.4)".
-
-**Xử lý:** user chọn phương án khác hẳn (không phải fix nội dung thiếu, vì không có gì thiếu) — xoá `MIGRATION.md`, gộp toàn bộ nội dung vào `doc/AD_PROMPT_FLUTTER.MD` (Appendix D), cập nhật mọi tham chiếu (`README.md`, root `CLAUDE.md`, Section 0 + Appendix B của chính file đó). Đã thêm mục D.6 "2.0.4 → 2.1.0" mới (chưa từng có ở `MIGRATION.md` cũ) để không mất tính liên tục lịch sử version. FAQ's "currently 2.0.4" cập nhật thành "currently 2.1.0". Docs-only, không có code path chạy qua nên không cần `flutter test`.
-
-### M9 — ATT trigger ngầm qua `advertising_id` package, độc lập với `requestAtt()` (tự phát hiện) — **ĐÃ FIX 2026-08-20**
-`ad_manager.dart:1570-1584` gọi `AdvertisingId.id(true)`; xác nhận qua source `advertising_id-2.7.1/ios/.../SwiftAdvertisingIdPlugin.swift:8-22` — hàm này tự gọi `ATTrackingManager.requestTrackingAuthorization` **native** bất cứ khi nào status chưa `.authorized`, không phụ thuộc vào việc host có gọi SDK's `requestAtt()` Dart method hay chưa.
-**Vì sao đáng chú ý:** SDK có thể trigger prompt ATT hệ thống iOS **sớm hơn** ý định của host (nếu host gọi initialize trước khi họ tự quyết định thời điểm show ATT prompt theo Apple guideline "show trong context phù hợp"), gây risk UX/App Review nếu prompt xuất hiện đột ngột không có giải thích trước.
-
-**Fix:** người dùng chọn phương án invasive hơn (sửa code, không chỉ document). `initialize()` giờ chỉ gọi thẳng `AdvertisingId.id(true)` khi an toàn; nếu đang chạy iOS, `requestAtt()` **chưa** được host gọi, và status ATT đọc được (read-only, không tự trigger) là `TrackingStatus.notDetermined`, GAID fetch bị defer (`_gaidFetchDeferredForAtt = true`, cờ whitelist VIP theo `config.vipDeviceGaids` cũng skip trong lượt này). `requestAtt()` sau khi set `_attRequested = true` sẽ tự resolve GAID bị defer (`_resolveDeviceGaid()`) và re-run whitelist check (`_applyConfigVipGaidWhitelist`) — nên host theo đúng thứ tự khuyến nghị (`requestAtt()` trước `initialize()`) không bị ảnh hưởng gì (status đã quyết, `deferGaidForAtt` luôn false).
-
-Quyết định defer được tách thành pure static function `AdManager.shouldDeferGaidFetch({required bool isIos, required bool attRequested, required TrackingStatus? attStatus})` (cùng pattern với `attOrderFootgunWarning`) để unit-test được không cần mock `Platform.isIOS`/native ATT channel. Test mới: `test/ad_manager_core_test.dart` group `shouldDeferGaidFetch (M9)` — 5 case (iOS+notDetermined+chưa gọi requestAtt → defer; đã gọi requestAtt → không defer; ATT đã quyết (authorized) → không defer; status null/không đọc được → không defer; Android → luôn không defer).
-
-`flutter analyze`: 0 issues. `flutter test`: 868/868 pass, không regression.
-
-### M10 — CRL không thể thu hồi ngược grant đã cấp (đã biết, ghi lại rõ) — **ĐÃ DOCUMENT (xác nhận 2026-08-20, không cần sửa thêm)**
-Xem mục "Known limitations" — không phải bug, nhưng cần liệt kê ở đây vì ảnh hưởng mức Major tới bảo mật VIP nếu 1 key private bị lộ và cần blocklist khẩn.
-
-**Xử lý:** user chọn "chỉ document" (recommended). Xác nhận README.md's "Revoking a leaked key (CRL)" section (mục T95, gần cuối file) + "Known limitations" đã ghi rõ hạn chế này từ trước ("a user who redeemed it before the CRL update keeps its granted VIP window") — không cần thêm gì. Không sửa code.
+- **Mutex fullscreen phủ đủ 4 loại, không có race check-then-show.** `ad_manager.dart:1062-1072` gồm cả `rewardedInterstitialSlot` (`:1068`), loading buffer và `AdScreenRouteLogger.isDialogOnTop`. Mọi gate trong `show*` là **đồng bộ**, và adapter gọi `beginShow()` ngay dòng đầu trước bất kỳ `await` nào (`admob_adapter.dart:712/903/1063/1217`) ⇒ mutex đóng cùng microtask. Đường bypass rewarded có `await` thật nhưng **re-check** sau load (`:3406-3412`). `didRemove` được override đúng (`ad_route_observer.dart:82-89`) nên `_popupDepth` không kẹt.
+- **Show-time freshness AdMob đúng cả 4 loại**: app-open 4h (`admob_adapter.dart:601`, check `:692-704`), 3 loại còn lại 1h (`:606`, check `:884-896, 1044-1056, 1197-1210`). Ad stale bị dispose + `markFailed` + caller nhận `false`/`skipped`, **không bị show**.
+- **Gate `canRequestAds` kín 100% entry point**, kể cả đường bypass `AdManager` (`preloadBanner`/`preloadMrec` gọi trực tiếp ở `:2108-2109, 3965, 3972`) đều check `canReload()`, và `canReload` bao gồm `canRequestAds` (`:1987-1991`). Splash `bypassSafety: true` **cũng** bị chặn bởi gate consent (`:2815`, comment T03).
+- **UMP fail-closed đã sửa đúng hướng** (đóng finding lịch sử): auto flow đóng gate trước adapter init (`:1919-1932`); **chỉ** `MissingPluginException` mở gate (`:1950-1967`), mọi exception khác giữ đóng (`:1968-1975`). MJ8/BL1 là bug **độc lập**, không phải re-open finding này.
+- **Reward: không có double-grant ở cả 2 provider.** AdMob dùng cờ `fired` (`:1074`) + `earned` ⇒ robust với cả hai thứ tự callback. AppLovin lần thứ hai thấy `_rewardedDone == null` ⇒ không double. `vipAutoGrant` (`:3286-3293`) grant **mà không show ad nào** ⇒ không vi phạm reward policy.
+- **Không có auto-click / auto-refresh <30s từ phía Dart.** Không `Timer.periodic` reload nào trong banner/mrec/native; `autoRefreshEnabled` chỉ bật/tắt theo route. Refresh interval do dashboard quyết định (phải tự set ≥30s ở đó — SDK không kiểm soát được).
+- **Không rebuild storm.** `ad_screen.dart:52/59/66` trả `const BannerAdWidget()`/`const MrecAdWidget()`/`const NativeAdWidget()` ⇒ const canonicalize ⇒ `Element.updateChild` short-circuit hoàn toàn: không rebuild, không State mới, không load ad mới.
+- **Không có `setState` sau dispose.** Cả 3 widget ad + `ad_screen.dart` dùng 100% `ValueNotifier`; mọi `addPostFrameCallback` đều có `if (!mounted) return`.
+- **Ed25519 là verify thật, không so hash.** `cryptography ^2.9.0`, `signed_vip_key.dart:87` + `:162-168` (`_ed25519.verify(...)`), check độ dài public key = 32 (`:157`), key rotation list tolerant với key lỗi (`:147-170`). **Không có secret nào bị commit** (`tool/vip_keygen.dart` print ra stdout; test mint keypair ephemeral; example dùng demo keypair có cảnh báo rõ).
+- **CRL verify đúng**: Ed25519 + domain separation (`AVP1|`, `AVP2|`, `CRL1|`), replay CRL cũ bị chặn bằng `issuedAt` monotonic ⇒ **MITM không forge được** (chỉ drop được — xem MJ13).
+- **Trial = đúng 1 ngày ở release**: `FirstInstallVipGrace.auto` → `Duration(days: 1)`, debug 30s (`ad_config.dart:41-53`). Cấp đúng 1 lần; iOS chống bypass uninstall bằng Keychain `first_unlock` (`_first_install_guard.dart:77-79`), thứ tự write Keychain **trước** prefs flag đúng (`ad_manager.dart:1819-1832`). Android bypass được (clear data / no Auto Backup) — giới hạn đã disclose.
+- **Provider switch sạch**: `_disposeAdapter()` (`:2679-2692`) remove listener + `await old.dispose()`; nhánh re-init-without-destroy (`:1650-1673`) cũng stop timer + stop connectivity watch + `_resetGuardState()`. AppLovin `dispose()` clear 4 native listener **trước tiên** với comment giải thích thứ tự.
+- **Cold start đúng pattern AdMob**: resume đầu tiên luôn skip (`ad_safety_config.dart:534-544`); launch đầu tiên thực tế không có ad vì first-install grace 24h; splash App Open luôn có splash UI phía sau + hard cap 8s.
+- **Remote config không mở được `dryRun` trong release** (`remote_ad_safety_provider.dart:68` luôn đi qua `applyDryRunReleaseGuard`).
+- **Log sạch ở default release**: GAID chỉ log ở `verbose`, default release là `warning` ⇒ bị chặn. (Còn lại: host set `verbose` + `onLog` sink sẽ đẩy GAID sang Crashlytics — nên mask.)
+- **Example đủ 7/7 điểm integration contract** (`main.dart:337` setNavigatorKey trước runApp, `:346` cả 2 observer, `:412-472` init trong splash, `:422` hard cap, `:414/415` markSplashActive + incrementSplashCount, `:482` showAdBuffer, `:491` bypassSafety, `:506` markSplashInactive, `:772+` AdScreen/AdScreenState). Chỗ lệch chỉ là m27, m29, m32 và nút ở MJ28.
+- **iOS/Android config của example đủ**: `GADApplicationIdentifier`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (~152 entry, superset AppLovin); Android `AD_ID` permission + `APPLICATION_ID` + `INTERNET`/`ACCESS_NETWORK_STATE`. Podfile iOS 13.0 ≥ floor cả 2 dep; `minSdk 24` ≥ floor mọi dep.
+- **`applovin_adapter.dart:827` là branch platform DUY NHẤT** trong 5 file adapter/bridge, cố ý và có document. Không có `Platform.is*` nào trong `admob_adapter`/`gma_bridge`/`applovin_bridge`.
 
 ---
 
-## Minor
+# Đối chiếu 3 audit độc lập round 5
 
-- **m1** — `umpTagForUnderAgeOfConsent` không lan tới thực tế ad request path (cần verify lại dòng chính xác — ghi từ external-claude, chưa tự đọc lại).
-- **m2** — Empty ad-unit-ID crash guard chỉ có cho MREC, không có cho banner/native.
-- **m3** — Test-ad-unit-ID footgun detection chỉ cover 4/7 loại ad **[cross-confirmed: lane A F7 + external-claude m5]**.
-- **m4** — `rewardedInterstitialSlot`'s notifier không được dispose.
-- **m5** — Native awaits trong `initialize()` không bounded đầy đủ (một số nhánh) **[cross-confirmed: lane B B2 + external-claude m7]**.
-- **m6** — Comment stale trong example app nói UMP "không có timeout" — sai, có timeout 20s (`ump_consent.dart:105-108`).
-- **m7** — `_lastBackgroundTime` (agy 1.6) có thể giữ mốc cũ nếu Android bắn `paused`/`resumed` dồn nhanh — **[verified round 3, 2026-08-20]: ĐÃ FIX.** `ad_safety_config.dart:645-650` (`recordAppWentBackground`) cập nhật `_lastBackgroundTime` VÀ `_pendingResumeGate=true` atomically mỗi lần `paused`; `:546-558` chặn hẳn (không dùng mốc cũ) nếu `resumed` bắn mà không có `_pendingResumeGate` (tức không có `paused` mới tương ứng — spurious event, comment T66). Không tìm được kịch bản mốc bị stale.
-- **m8** — `AdEventLog` ghi `SharedPreferences` mỗi sự kiện đơn lẻ (không debounce/batch) — có thể gây jank nếu tần suất event cao (agy 2.1). Enhancement hơn là bug.
-- **m9** — `MonetizationArbitrator` eCPM ×1000 scale — **[verified round 3, 2026-08-20]: KHÔNG PHẢI BUG.** `monetization_arbitrator.dart:111-115` (`estimatedEcpmMicros`) tính `sum(valueMicros) * 1000 ~/ count` — đúng về đơn vị (avg revenue/impression × 1000 impressions = eCPM/1000 impressions), cộng thêm guardrail `maxVetoRate` (`:155-166`) tự phục hồi `showAd` nếu veto rate vượt ngưỡng. Xem section "External cross-verification round 3" cuối file.
+| Finding | Claude (đây) | codex | agy |
+|---|---|---|---|
+| VIP redeem offline bị chặn | MJ10 | **M1** (Major, top) | **M1** (Major, duy nhất) |
+| COPPA AppLovin một chiều | MJ7 | M2 | không nêu |
+| UMP retry không mutex | MJ8 | M3 | không nêu |
+| `SimpleEventBus.listen()` replay không guard | m1 | m1 | m1 |
+| AVP2 bundle fail-open | m2 | m2 | không nêu |
+| Example sai contract EventBus | m29 | m3 | không nêu |
+| **UMP gate kẹt đóng (`error == null`)** | **BL1** | không phát hiện | không phát hiện |
+| **Consent footgun fail-open** | **BL2** | không phát hiện | không phát hiện |
+| **QA hashes always-on release** | **BL3** | Info (nêu là "cần quy trình") | Info (đánh giá "RẤT TỐT") |
+| `tcfConsentString` luôn null | MJ2 | không phát hiện | không phát hiện |
+| AppLovin privacy flags sau init | MJ1 | không phát hiện | không phát hiện |
+| TFUA không tới GMA / rơi ở retry | MJ3, MJ4 | không phát hiện | đánh giá PASS |
+| App Open late-callback giết ad mới | MJ15 | không phát hiện | đánh giá PASS |
+| `showAdBuffer` throw ⇒ khoá fullscreen | MJ16 | không phát hiện | không phát hiện |
+| AppLovin mất reward | MJ18 | không phát hiện | không phát hiện |
+| Clock-forward poisoning | MJ9 | Info ("không bảo đảm tuyệt đối") | đánh giá "ĐÃ FIX HOÀN TOÀN" |
+| App Open sau ad-click | MJ26 | không phát hiện | đánh giá PASS |
+| `bypassSafety` bỏ fraud gate | MJ27 | không phát hiện | đánh giá PASS |
+| **Verdict** | **KHÔNG (3 BL + 31 MJ)** | **KHÔNG** (5 điều kiện) | **CÓ, 1 điều kiện** |
 
----
-
-## Confirmed-correct
-
-- Toàn bộ 49 method của `AdProviderAdapter` được cả `AdMobAdapter` và `AppLovinAdapter` implement thật, không stub; 2 phân kỳ có chủ đích (rewarded-interstitial không hỗ trợ AppLovin; AppLovin init fail-closed khi COPPA) đều log rõ, không âm thầm.
-- Mọi `await` chạm network trong `initialize()`/connectivity path đều có `.timeout()`; ad load fail-fast khi offline; generation-token guard trên `_startConnectivityWatch` chống race từ nhiều lần gọi chồng.
-- Ed25519 verify hoàn toàn offline, private key không ship, không có fallback verify không an toàn — binary decompile không thể tự tạo key hợp lệ. CRL domain-separation (`AVP1|`, `AVP2|`, `CRL1|`) chống replay chéo format.
-- Safety layer: daily/hourly/session cap, 30 phút throttle, CTR fraud detection, progressive cooldown 30min→24h, `dryRun` bị force off ở release build.
-- GDPR/CCPA: UMP + AppLovin CMP + `RequestConfiguration`/`AppLovinPrivacySettings` wired đúng cả 2 provider; UMP lỗi channel fail-safe theo hướng gate đóng ở phần lớn code path (ngoại trừ M3/finding cũ về fail-open đã note ở audit_codex.md).
-- README/CHANGELOG/MIGRATION đối chiếu code từng mục (safety-cap default, `FirstInstallVipGrace.auto`, `maxVipStackDuration`, `autoRequestUmpConsent` default) đều khớp — trừ các gap M7/M8 đã nêu.
-- Example app: có đủ demo cho toàn bộ 4 loại ad + VIP redeem + consent flow, dùng path dependency (test đúng source hiện tại), có comment tự nhận diện các simplification.
-
----
-
-## Known-and-disclosed limitations (không phải bug, nhưng phải hiểu trước khi ship)
-
-- CRL không thể thu hồi ngược VIP grant đã cấp trước đó — chỉ chặn redeem key mới.
-- Android reinstall re-grant trial + re-redeem VIP key nếu host không tự wire Android Auto Backup (`allowBackup`, `dataExtractionRules`, `fullBackupContent`) — SDK không tự warn runtime nếu host quên (chỉ document trong README).
-- AVP2 bundle-id binding fail-open nếu không đọc được bundle ID thật (theo thiết kế, tránh false-negative chặn user hợp lệ).
-- AppLovin không nhận runtime signal COPPA — thiết kế cố ý fail-closed lúc init vì AppLovin MAX 4.x không có API tương đương `tagForChildDirectedTreatment`.
-- Consent revocation giữa phiên không tự discard cached creative đã load trước đó (chỉ chặn request mới).
+**Nhận xét:** cả 3 agent độc lập đồng thuận MJ10 (VIP offline). Nhưng agy round 5 kết luận "0 Blocker, PRODUCTION-READY" trong khi cùng những file đó chứa BL1/BL2 và MJ15/MJ16/MJ18 — agy verify các fix *đã biết* rất kỹ nhưng không đi tìm lỗi *mới* trên các đường exception. Đây là lý do không nên lấy một audit làm bằng chứng đủ.
 
 ---
 
-## Khuyến nghị cuối: có nên dùng SDK này cho production app không?
+# Điều kiện ship
 
-**YES — WITH CONDITIONS.** Kiến trúc tổng thể (adapter 2 provider, state machine slot, safety layer 12 tầng, VIP Ed25519 offline, watchdog) là hàng chất lượng production thật, không phải wrapper viết vội — 860 test pass, `flutter analyze` sạch, đã qua 12+ vòng audit độc lập với xu hướng số lượng Blocker/Major giảm dần qua mỗi vòng.
+## Bắt buộc trước khi dùng vào production app (P0)
 
-**Điều kiện bắt buộc trước khi ship:**
-1. ~~Fix **B1**...~~ — **ĐÃ FIX 2026-08-20** (retry-with-backoff trước khi destroy native AdView). Không còn chặn ship AppLovin provider.
-2. ~~Fix **B2**...~~ — **ĐÃ FIX 2026-08-20** (replay pending consent dời lên trước adapter init). Không còn chặn ship cho audience có age-restricted user.
-3. ~~Fix **B3**...~~ — **ĐÃ FIX 2026-08-20** (Stopwatch-anchored session clock trust). Còn giới hạn residual đã document (cross-process-restart jump) — không phải Blocker, xem chi tiết ở mục B3.
-4. ~~Fix **M1**, **M4**...~~ **ĐÃ FIX 2026-08-20** (mutex + `RewardResult.shown`). Xem chi tiết ở mục M1/M4.
-5. Xác nhận trực tiếp trên pub.dev rằng version đang serve là 2.1.0 (không phải 2.0.4) trước khi bất kỳ app pull package qua pub.dev thay vì git ref/path — nếu chưa, pin git ref `main` hoặc publish thủ công trước.
-6. ~~Verify lại **m9**...~~ — **Đã verify round 3 (2026-08-20): không phải bug, KHÔNG nâng Blocker.** Xem section cross-verification cuối file.
+1. **BL1** — 1 dòng: `_umpAttemptFailed = result.error != null || umpInconclusive || !result.canRequestAds;` + test cho nhánh `error == null, canRequestAds == false`.
+2. **BL2** — bỏ `!config.disableAppLovinCmpFlow` khỏi guard (hoặc gate theo provider) + test config `admob + autoRequestUmpConsent:false`.
+3. **BL3** — gate `kQaTestDeviceHashes` sau `!isActuallyRelease()` **hoặc** thêm `mergeQaTestDevices` default `false`; document ở README.
+4. **MJ10** — xoá connectivity gate ở `vip_manager.dart:685-689`; sửa `README.md:885-890` cho khớp `:1151`.
+5. **MJ15, MJ16, MJ17, MJ19** — 4 fix trạng-thái-chết-vĩnh-viễn, mỗi cái ≤5 dòng. Đây là nhóm hoàn vốn cao nhất.
+6. **MJ18** — cờ `earned`/`fired` cho AppLovin rewarded (mất reward = mất tiền của user, không phải của mình).
+7. **MJ1, MJ5** — 2 fix consent 1-2 dòng, đều là legal exposure thật.
+8. **MJ22** — cờ `_installed` + release chain xuống `previousOnError`. Không được để SDK ăn mất crash của production app.
+9. **MJ29** — mở lại billing GitHub Actions, chạy đủ 4 job, **bắt buộc `sdk-integration-ios` xanh** cho commit sẽ ship. Đây là điều kiện không thoả hiệp được với một SDK claim dual-platform.
+10. **MJ30** — `.pubignore` loại `doc/`, `test/`. Đang publish công khai bản đồ điểm yếu VIP của chính mình.
 
-Cả 3 Blocker + M1/M4 đã fix (2026-08-20), `flutter analyze` sạch + `flutter test` 860/860 pass sau fix, không regression. B1/B2/B3 sau đó được review độc lập bởi 3 external CLI (codex/agy/claude-external, không thấy diff commit trước đó, chỉ đọc code) — 3/3 đồng thuận phát hiện 1 regression thật trong B3 (Stopwatch pause khi máy deep-sleep → hiểu lầm sleep gap thành clock tamper → VIP kéo dài miễn phí), đã fix cùng ngày bằng `resyncSessionClock()` trên app resume (xem mục B3). 2 fix còn lại (B1, B2) qua review không phát hiện vấn đề mới. Còn lại điều kiện 5 (xác nhận version trên pub.dev) trước khi ship.
+Ước lượng: ~60-80 dòng code + test, cộng thời gian CI/iOS verify.
+
+## Nên fix trước hoặc ngay sau ship (P1)
+
+MJ2 (bỏ hoặc sửa `tcfConsentString`), MJ3, MJ4 (TFUA — bắt buộc nếu app có audience under-age), MJ6, MJ7, MJ8, MJ9 (clock budget model), MJ12, MJ13, MJ14, MJ20, MJ21, MJ26, MJ27, MJ28.
+
+## Nợ có deadline (P2)
+
+MJ31 — plan nâng Flutter → GMA 9.x. Cần major version bump vì đổi `environment` floor. Đừng để tới lúc Google gửi thư.
+
+## Quyết định về VIP zero-backend — nói thẳng
+
+Với ràng buộc "không server/backend", các bypass MJ11/MJ12 và Android clear-data **không thể đóng được**, và attacker có root cũng patch được public key trong binary. Nên: đừng đầu tư thêm vào hardening state-local sau khi xong MJ9/MJ12/MJ13. Nếu doanh thu VIP đủ lớn để lo, câu trả lời là một endpoint verify (dù chỉ là một Cloud Function), không phải thêm checksum. Nếu không, chấp nhận và **document rõ trong README** mức bảo đảm thực tế là gì.
 
 ---
 
-## External cross-verification round 3 (2026-08-20, second opinion)
+# Lịch sử ngắn
 
-Bên thứ 3 độc lập (instance Claude CLI riêng, không có context các round trước), đọc trực tiếp source hiện tại (không dựa vào report cũ) để verify 9 finding chưa từng được xác nhận độc lập — 6 từ `agy` CLI, 3 từ `codex` CLI. Không tìm thấy Blocker mới; **agy 1.2 (nghi vấn cao nhất) xác nhận KHÔNG PHẢI BUG** — code hiện tại tính đúng và có guardrail. Đếm Blocker/Major/Minor ở đầu file **không đổi** (vẫn 3/10/9 — `m9`/`m7` ở trên được sửa nội dung, không thêm dòng mới).
-
-| # | Nguồn | Trạng thái | Evidence file:line | Severity đề xuất |
-|---|---|---|---|---|
-| 1 | agy 1.1 — `_admobIsTop` init khi banner mount trên route đã active | **CONFIRMED CÒN MỞ** (nhẹ hơn mô tả) | `banner_ad_widget.dart:62` (default `false`) + `:130-147` (`didPush`/`didPushNext` set qua `postFrameCallback`) + `:276-281` (`!isTop` → render `SizedBox` placeholder, không phải ad thật). Flutter's `RouteObserver.subscribe()` gọi `didPush()` **đồng bộ** ngay khi subscribe (`flutter/packages/flutter/lib/src/widgets/routes.dart:2431-2436`), nên hành vi xảy ra ở **mọi** lần mount (không riêng "route đã active"): frame đầu `_admobIsTop=false` → placeholder trắng đúng chiều cao banner, frame kế tiếp (sau `postFrameCallback`) mới lật `true` và hiện ad thật. | Minor — 1 frame flash, tự phục hồi, không mất ad/doanh thu. |
-| 2 | agy 1.2 — `MonetizationArbitrator` lệch tỷ lệ eCPM ×1000, veto gần 100% | **KHÔNG PHẢI BUG** | `monetization_arbitrator.dart:111-115` (`estimatedEcpmMicros`): `sum(valueMicros) * 1000 ~/ _samples.length` — đúng đơn vị (trung bình revenue/impression × 1000 = eCPM/1000-impression, so sánh đúng với `ecpmThresholdMicros`). Guardrail độc lập tại `:155-166`: nếu `vetoRate > maxVetoRate` (default 0.5) trong `_decisionWindowSize` quyết định gần nhất → tự động force `showAd`, log 1 lần. Không có cách nào veto vượt ~50% kéo dài. | N/A — không nâng Blocker. |
-| 3 | agy 1.3 — `_footgunBlocked` không clear sau consent hợp lệ | **ĐÃ FIX** | `ad_manager.dart:2087-2089` (`setConsent`, comment N2): mọi lời gọi `setConsent()` (kể cả từ `requestUmpConsent()`) clear `_footgunBlocked=false`. `ad_manager.dart:1220-1228` (comment T60): built-in consent dialog cũng clear riêng sau khi `mgr.showDialog()` xong. Cả 2 đường consent (tự viết UI / dialog built-in) đều clear. | N/A. |
-| 4 | agy 1.4 — `VipEntriesStore.setRaw` nuốt lỗi ghi Keystore, mất VIP entry | **ĐÃ FIX** | `_vip_entries_store.dart:87-108` (`setRaw`, comment T59/T71): chỉ `markVipEntriesSecureMigrated()` khi `_writeSecure()` trả `true`; nếu write thất bại → fallback ghi vào `AdPreferences` (checksum-prefixed, `:103-107`) thay vì mất dữ liệu. `getRaw()` (`:42-83`) đọc fallback này trước khi coi là "chưa migrate". | N/A. |
-| 5 | agy 1.5 — AdMob adapter dùng field singleton `_nativeAd`/`_bannerAd`, crash multi-instance | **KHÔNG PHẢI BUG (đã fix từ trước)** | `admob_adapter.dart:342` (`_bannerAdsByKey`), `:346` (`_mrecAdsByKey`), `:351` (`_nativeAdsByKey`) — cả 3 đều `Map<Object, ...>` keyed theo instance widget, không có field nullable singleton nào (`grep "NativeAd?\|BannerAd?"` không ra kết quả). Khớp với memory nội bộ "Native/Banner/MREC adapter phase 1-4: singleton→keyed map" đã hoàn tất trước round audit này. | N/A. |
-| 6 | agy 1.6 — `_lastBackgroundTime` stale khi Android bắn `paused`/`resumed` dồn nhanh | **ĐÃ FIX** | `ad_safety_config.dart:645-650` (`recordAppWentBackground`): mỗi `paused` cập nhật đồng thời `_lastBackgroundTime=now` VÀ set `_pendingResumeGate=true` (cùng 1 hàm, atomic). `:546-558` (comment T66): nếu `resumed` bắn mà `_pendingResumeGate` đã `false` (không có `paused` mới tương ứng) → block cứng bằng lý do "spurious lifecycle event", **không** dùng lại `_lastBackgroundTime` cũ để tính gap. Không dựng được kịch bản đọc mốc stale. | N/A. |
-| 7 | codex P1-1 — AppLovin `NativeAdWidget` có thể request ad sau khi gate đổi trạng thái, `_allowed` latch 1 lần | **CONFIRMED CÒN MỞ nhưng cơ chế khác mô tả** | `native_ad_widget.dart:56` (`_allowed` init `false`), `:89` (set `true` trong `_initNative()`, không bao giờ reset về `false`), `:113` (`build()` chỉ retry `_initNative()` khi `!_allowed.value`). Thực tế: một khi `_allowed=true`, `_initNative()` **không bao giờ chạy lại** cho instance đó → KHÔNG re-request ad khi gate lật xuống (khác mô tả gốc). Rủi ro thật: sau `AdManager().destroy()` rồi `initialize()` lại **trong khi widget vẫn mounted** (không unmount), `_allowed` vẫn stale `true` → widget không bao giờ tự load lại theo adapter mới (kẹt shimmer vô hạn phía AdMob, hoặc tham chiếu native view đã bị `old.dispose()` phía AppLovin). Không có cơ chế nào reset `_allowed` khi `initRevision` bump (`ad_manager.dart:2361`) nếu load trước đó đã thành công — cùng pattern tồn tại ở `banner_ad_widget.dart:46,112` và `mrec_ad_widget.dart` (chưa đọc dòng chính xác, suy luận từ cùng pattern `ValueListenableBuilder<int>(initRevision)`). | Minor — chỉ trigger khi host `destroy()`+`initialize()` lại mà KHÔNG unmount widget hiển thị ad (không phải flow chính được README mô tả). |
-| 8 | codex P1-4 — `destroy()` không reset đủ 4 field UMP/ATT, sống sót qua reinit | **PARTIALLY FIXED — 2/4 field đã reset, 2/4 còn sót nhưng vô hại/cosmetic** | `ad_manager.dart:2446-2456` (`_resetGuardState`, gọi từ `destroy()`): **đã reset** `_footgunBlocked`, `_umpRequested`, `_consentExplicitlySet`, `_canRequestAds` (`:2455`), `_umpAttemptFailed` (`:2456`) — claim gốc về `_canRequestAds`/`_umpAttemptFailed` không còn đúng. **Chưa reset:** `_lastUmpResult` (field `:1083`) và `_attRequested` (field `:1119`). Tác động thực tế: `_lastUmpResult` chỉ được đọc tại `:2170` sau khi check `_umpRequested` (đã reset `false` ở destroy) — nhánh đọc cache không bao giờ chạm được post-reinit, vô hại. `_attRequested` chỉ dùng để in warning log-only (`:1899-1900`, `:2190`, không hard-block ads) — stale `true` chỉ làm mất 1 dòng warning "gọi UMP trước ATT" sau reinit, không ảnh hưởng ad serving/compliance. | Minor — không còn P1, hạ vì không có tác động chức năng/doanh thu đã xác minh được. |
-| 9 | codex M4 — `redeemSignedKey` trả invalid nếu offline dù Ed25519 verify offline hoàn toàn | **KHÔNG PHẢI BUG — chủ đích, có document** | `vip_manager.dart:608-611` (docstring) + `:620-624`: gate `_isConnectedCheck()` được note rõ là "deliberate product gate against redeeming with the device offline, not a technical requirement of the Ed25519 check" — verify logic thực sự vẫn offline-only. README có ghi rõ ở `README.md:877-881` mục "Known limitation — redeem attempt requires connectivity" kèm lý do (anti-abuse gate). | N/A — thiết kế đúng, đã document. |
-
-**Tóm tắt thay đổi so với báo cáo trước:** không có Blocker mới. `m9` (nghi vấn eCPM ×1000) và `m7` (`_lastBackgroundTime` stale) trong mục Minor ở trên đã được sửa nội dung thành "ĐÃ FIX/KHÔNG PHẢI BUG" theo kết quả round 3 — không xoá dòng để giữ lịch sử. Khuyến nghị mục 6 (cuối file) đã đóng.
+- **Đóng trong round 5** (tự verify, không re-litigate): UMP "mọi exception đều fail-open"; stale GAID qua destroy/re-init; banner/MREC/native không phản ứng gate consent; AdMob banner/MREC reload xong vẫn hidden; eCPM=0 nudge; exception một listener chặn listener khác trong `fire()`; VIP clock-**rollback** (chiều lùi — chiều tiến là MJ9, bug khác); mutex fullscreen thiếu rewarded-interstitial; multi-instance singleton conflict.
+- **Mở từ round 4 sang round 5**: MJ10 (VIP offline) — 3 agent độc lập cùng re-confirm.
+- **Mới ở round 5**: BL1, BL2, BL3, MJ1-MJ9, MJ11-MJ31 và phần lớn danh sách Minor.
+- **Không đóng được bằng client-only**: Android clear-data reset ledger/trial; trusted clock; chống repack/thay public key.
