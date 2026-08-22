@@ -598,3 +598,44 @@ Ghi rõ ở đây để các vòng audit sau (và các agent độc lập) **kh�
 - **Mở từ round 4 sang round 5**: MJ10 (VIP offline) — 3 agent độc lập cùng re-confirm.
 - **Mới ở round 5**: BL1, BL2, BL3, MJ1-MJ9, MJ11-MJ31 và phần lớn danh sách Minor.
 - **Không đóng được bằng client-only**: Android clear-data reset ledger/trial; trusted clock; chống repack/thay public key.
+
+---
+
+# BÀN GIAO — trạng thái cuối phiên 2026-08-22
+
+**Gate:** `flutter analyze` sạch, `flutter test` **922/922**. 9 commit local, **chưa push** (điểm 5/10, dưới ngưỡng >8 mà product owner đặt). pub.dev: **2.3.1**.
+
+## Điểm do 2 reviewer độc lập chấm, KHÔNG phải tự chấm
+
+Tôi tự chấm 8/10. Reviewer A: **5/10**. Reviewer B: **5/10**. Cả hai đều tìm ra lỗi thật trong đúng phần tôi vừa tuyên bố đã sửa. Đừng tin bản tự chấm.
+
+Thí nghiệm quyết định của reviewer B: **revert đồng thời 20/24 fix mà suite vẫn xanh hết** ⇒ con số test không nói gì về phần lớn diff.
+
+## Fix ĐÃ qua revert-để-thấy-đỏ (11)
+
+MJ32, MJ15, B1, M1-counter, MJ1, m8, MJ23, MJ16, MJ17, MJ25 (×4 nhánh), MJ2 (verify thiết bị cả 2 nền tảng).
+
+## Fix CHƯA kiểm chứng (13) — việc tiếp theo
+
+MJ24, MJ19, MJ20, M2, M3-onTimeout, M6 mutex, M7, m1, m4, m5, MJ21, m9, M1-nửa-widget (test hiện chỉ assert bộ đếm, không assert 3 listener thật nơi ad bị drop).
+
+## Finding còn MỞ của reviewer
+
+- **M-3 (Major, reviewer A)** — `_umpFormAbandoned` khoá backstop cả phiên. **Đây là lỗi tôi tự tạo**: form quá 180s ⇒ user trả lời muộn vẫn mất hết ad cả phiên, trước khi tôi sửa thì backstop retry và mở cổng được. Cân nhắc hoàn nguyên nếu không sửa đúng.
+- **M-4** — hard cap App Open so field với chính nó ⇒ guard vô nghĩa. Fix (capture `ad` khi arm) làm đỏ test MJ15 vì lý do chưa truy được; đã ghi chú tại chỗ trong code.
+- **M-2 reviewer B** — `iab_storage_canary_test` là tautology: tự tạo options rồi assert lại chính nó, không kiểm production có dùng options đó. Xoá `fileName` khỏi production vẫn xanh.
+- m-6 `_lastKnownConfig` có thể stale · m-11 pubspec bỏ cap trên nhưng canary không nổ trước consumer vì `pubspec.lock` ghim.
+
+## Nợ khác
+
+9 mục rò rỉ lifecycle · 12 mục tài liệu/app mẫu · MJ9 redesign VIP (mục duy nhất lợi dụng được **không cần root**; cần chuyển đổi dữ liệu, làm sai là mất VIP người đã mua) · MJ31 nâng GMA 7→9 · **2.3.1 trên pub.dev vẫn chứa M6**.
+
+## Ba bài học quy trình — đắt nhất trong phiên
+
+1. **Revert-để-thấy-đỏ là bắt buộc.** Nó bắt được: test MJ15 gọi debug seam viết lại chính code cần test; 2 fake capture dữ liệu mà không ai assert; và một lần **test của tôi sai chứ không phải code** (2 dialog cùng 500ms).
+2. **Đừng commit khi agent khác đang sửa working tree.** `606cfe7` đã `git add` theo path và nuốt bản hoàn nguyên tạm của reviewer, xoá mất 4/6 chỗ của fix MJ15 — commit trong lúc test cho nó đang đỏ. Commit trước khi delegate, hoặc đọc diff đã stage.
+3. **Cùng một cái bẫy vấp 3 lần.** "So sánh với biến đã bị ghi đè": nhận ra cho cờ COPPA, rồi vấp cho `hasUserConsent`, rồi vấp lần nữa vì `_lastAppliedConsent` không được seed. Khi sửa loại lỗi này, phải grep **mọi** nơi ghi biến đó, không chỉ nơi đọc.
+
+## Đường đi đã chốt
+
+Mỗi phiên mới làm **1 nhóm**, kết phiên bằng **1 reviewer độc lập**. Ưu tiên: (1) test cho 13 fix còn lại, (2) M-3, (3) 9 mục rò rỉ, (4) MJ9 — để sau khi CI sống (tháng sau).
