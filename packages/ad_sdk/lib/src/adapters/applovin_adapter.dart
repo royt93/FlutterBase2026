@@ -249,6 +249,13 @@ class AppLovinAdapter implements AdProviderAdapter {
     Duration(seconds: 1),
   ];
 
+  // m22 (audit_claude.md MINOR) — the retry used to sleep on a bare
+  // `Future.delayed` with no handle, so a chain started by the last widget
+  // unmount before teardown kept firing for up to ~1.7s AFTER dispose(),
+  // calling into a bridge whose native listeners were already cleared. The
+  // timers are tracked here and cancelled in dispose() instead.
+  final Set<Timer> _destroyRetryTimers = {};
+
   Future<void> _destroyWidgetAdViewWhenDetached(
     AdViewId id,
     String what, {
@@ -263,8 +270,13 @@ class AppLovinAdapter implements AdProviderAdapter {
             'retries, giving up: $e');
         return;
       }
-      await Future<void>.delayed(_destroyRetryDelays[attempt]);
-      return _destroyWidgetAdViewWhenDetached(id, what, attempt: attempt + 1);
+      late final Timer timer;
+      timer = Timer(_destroyRetryDelays[attempt], () {
+        _destroyRetryTimers.remove(timer);
+        unawaited(
+            _destroyWidgetAdViewWhenDetached(id, what, attempt: attempt + 1));
+      });
+      _destroyRetryTimers.add(timer);
     }
   }
 
@@ -534,6 +546,13 @@ class AppLovinAdapter implements AdProviderAdapter {
     SafeLogger.d(_logTag, 'dispose() $tag — clearing listeners + timers');
     _appOpenShowTimeout?.cancel();
     _appOpenShowTimeout = null;
+    // m22 — drop any pending destroyWidgetAdView retry: the bridge is about
+    // to lose its listeners below, and a retry landing after that talks to a
+    // torn-down bridge for an AdView nobody owns any more.
+    for (final t in _destroyRetryTimers) {
+      t.cancel();
+    }
+    _destroyRetryTimers.clear();
 
     // Order matters: clear native listeners FIRST so any callback fired
     // mid-destruction (e.g. destroyWidgetAdView triggers an

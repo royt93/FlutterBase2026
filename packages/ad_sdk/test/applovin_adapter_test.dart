@@ -92,6 +92,16 @@ class _IncrementingIdBridge extends FakeAppLovinBridge {
       _next++;
 }
 
+/// m22 — the native side rejects destroyWidgetAdView while the AdView is
+/// still attached, which is what arms the retry chain in the first place.
+class _FailingDestroyBridge extends FakeAppLovinBridge {
+  @override
+  Future<void> destroyWidgetAdView(AdViewId id) async {
+    destroyWidgetAdViewCalls.add(id);
+    throw StateError('native refused: AdView still has a container view');
+  }
+}
+
 MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact',
     'cid', 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
 
@@ -881,6 +891,39 @@ void main() {
       expect(mrecBridge.destroyWidgetAdViewCalls, [id],
           reason: 'permanently disposing a MrecAdWidget instance must '
               'release its native AdView, not just the Dart-side state');
+    });
+
+    // m22 (audit_claude.md MINOR) — the retry chain that makes the fix above
+    // survive "native refused, AdView still attached" used a bare
+    // Future.delayed, so it kept re-entering the bridge for ~1.7s after the
+    // adapter was torn down.
+    test('m22 — dispose() cancels the pending destroyWidgetAdView retry', () {
+      fakeAsync((async) {
+        final b = _FailingDestroyBridge();
+        final a = AppLovinAdapter(bridge: b);
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.preloadBanner('k');
+        async.flushMicrotasks();
+        final id = a.appLovinBannerAdViewId('k').value;
+        expect(id, isNotNull);
+
+        a.disposeBannerInstance('k');
+        async.flushMicrotasks();
+        expect(b.destroyWidgetAdViewCalls, [id],
+            reason: 'first attempt runs synchronously-ish and is rejected');
+
+        a.dispose();
+        async.flushMicrotasks();
+        // Past every entry of _destroyRetryDelays (200ms + 500ms + 1s).
+        async.elapse(const Duration(seconds: 3));
+
+        expect(b.destroyWidgetAdViewCalls, [id],
+            reason: 'no retry may reach the bridge after dispose() — its '
+                'native listeners are already cleared and the AdView id '
+                'belongs to nobody');
+      });
     });
   });
 
