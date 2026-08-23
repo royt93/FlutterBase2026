@@ -3222,6 +3222,11 @@ class AdManager with WidgetsBindingObserver {
       // close that is owed a reopen, and [_recoverConsentGate] is what pays it
       // if the runner cannot. Set after the call above, which clears it.
       _pessimisticGateClose = true;
+      // Round-16 QC, MAJOR — the retry budget belongs to ONE debt, not to the
+      // session. A debt that burned all three attempts and was then settled by
+      // an ordinary apply used to leave the counter at 3, so the next guessed
+      // close was refused its very first retry and stayed shut for good.
+      _consentGateRecoveryAttempts = 0;
     }
     _pendingConsentApply = result;
     if (_consentApplyRunning) {

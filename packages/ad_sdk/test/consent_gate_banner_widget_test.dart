@@ -127,6 +127,11 @@ void main() {
   /// before it is allowed to reopen anything.
   Completer<void>? statusGate;
 
+  /// True makes every `getConsentStatus` call fail, not just one — a channel
+  /// that is down stays down, which is what exhausts a retry budget
+  /// (round-16 QC).
+  bool statusThrows = false;
+
   void seedTcf(Map<String, Object> data) {
     IabStorage.debugResetForTest();
     SharedPreferencesAsyncPlatform.instance =
@@ -143,6 +148,7 @@ void main() {
     canRequestAds = true;
     privacyOptionsRequirement = _privacyOptionsNotRequired;
     statusGate = null;
+    statusThrows = false;
 
     messenger.setMockMethodCallHandler(_alChannel, (call) async {
       if (call.method == 'initialize') return <String, dynamic>{};
@@ -154,6 +160,9 @@ void main() {
         case 'ConsentInformation#canRequestAds':
           return Future.value(canRequestAds);
         case 'ConsentInformation#getConsentStatus':
+          if (statusThrows) {
+            return Future<int>.error(StateError('the consent channel is gone'));
+          }
           final gate = statusGate;
           if (gate != null) return gate.future.then((_) => status);
           return Future.value(status);
@@ -744,6 +753,114 @@ void main() {
     expect(adapter.loadBannerCalls, greaterThan(0),
         reason: 'a decision landing inside the recovery must not leave every '
             'banner in the app blank for the rest of the session');
+    expect(tester.takeException(), isNull);
+  });
+
+  // Round-16 QC, MAJOR — at the widget layer: the retry budget was
+  // session-global, so once one gate debt had spent all three retries, the
+  // NEXT guessed close got none and every banner in the app stayed blank for
+  // the rest of the session.
+  testWidgets('banners come back for a second gate debt after an older one '
+      'gave up', (tester) async {
+    AdManager.debugConsentGateRecoveryRetryDelay =
+        const Duration(milliseconds: 20);
+    addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+    addTearDown(() {
+      AdManager.debugConsentWriteBarrier = null;
+      statusThrows = false;
+      statusGate = null;
+    });
+
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = false;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+
+    // ── Debt #1, left to burn every retry it has against a dead channel.
+    var stuck = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuck.future;
+    var first = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    var queued = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.runAsync(
+        () => AdManager().setConsent(const AdConsent(hasUserConsent: true)));
+    // Armed only now: a wedge set any earlier parks the forms, not the
+    // recovery.
+    statusThrows = true;
+    AdManager.debugConsentWriteBarrier = null;
+    stuck.complete();
+    await tester.runAsync(() async {
+      await first;
+      await queued;
+    });
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 150)));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(adapter.loadBannerCalls, 0,
+        reason: 'sanity: the first debt gave up with the channel still dead');
+
+    // ── The channel comes back and an ordinary decision settles debt #1.
+    statusThrows = false;
+    await tester.runAsync(() => AdManager().showPrivacyOptions());
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final settled = adapter.loadBannerCalls;
+    expect(settled, greaterThan(0), reason: 'sanity: the gate reopened');
+
+    // ── Debt #2, whose own first recovery hits a transient failure.
+    stuck = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuck.future;
+    first = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    queued = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.runAsync(
+        () => AdManager().setConsent(const AdConsent(hasUserConsent: true)));
+    final broken = Completer<void>();
+    statusGate = broken;
+    AdManager.debugConsentWriteBarrier = null;
+    stuck.complete();
+    await tester.runAsync(() async {
+      await first;
+      await queued;
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+    broken.completeError(StateError('the consent channel is gone'));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)));
+    await tester.pump(const Duration(milliseconds: 20));
+
+    // The channel comes back. This debt's own first retry must run.
+    statusGate = null;
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(adapter.loadBannerCalls, greaterThan(settled),
+        reason: 'an older debt that gave up must not leave every banner in '
+            'the app blank for the rest of the session');
     expect(tester.takeException(), isNull);
   });
 

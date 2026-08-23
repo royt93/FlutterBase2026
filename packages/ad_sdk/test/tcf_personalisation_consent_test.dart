@@ -192,12 +192,18 @@ void main() {
     /// makes once the TCF keys disagree with what is applied.
     Completer<void>? statusGate;
 
+    /// True makes every `getConsentStatus` call fail, not just one — a
+    /// channel that is down stays down, which is what exhausts a retry
+    /// budget (round-16 QC).
+    bool statusThrows = false;
+
     setUp(() async {
       status = _statusObtained;
       canRequestAds = true;
       privacyOptionsRequirement = _privacyOptionsNotRequired;
       privacyFormGate = null;
       statusGate = null;
+    statusThrows = false;
 
       messenger.setMockMethodCallHandler(_alChannel, (call) async {
         if (call.method == 'initialize') return <String, dynamic>{};
@@ -209,6 +215,9 @@ void main() {
           case 'ConsentInformation#canRequestAds':
             return Future.value(canRequestAds);
           case 'ConsentInformation#getConsentStatus':
+          if (statusThrows) {
+            return Future<int>.error(StateError('the consent channel is gone'));
+          }
             final gate = statusGate;
             if (gate != null) return gate.future.then((_) => status);
             return Future.value(status);
@@ -1761,6 +1770,100 @@ void main() {
       expect(AdManager().canRequestAds, isTrue,
           reason: 'the recovery has to hand the debt on when it loses its '
               'epoch — a settings toggle must not cost the session its ads');
+    });
+
+    // Round-16 QC, MAJOR — the three-attempt budget was session-global, not
+    // per-debt. A debt that burned all three retries and was then settled by
+    // an ordinary apply left the counter at 3, so the NEXT guessed close was
+    // refused its very first retry: the gate stayed shut, and every ad surface
+    // in the app stayed dark for the rest of the session.
+    test('a second gate debt gets a retry budget of its own', () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        statusThrows = false;
+        statusGate = null;
+      });
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+
+      // ── Debt #1: armed the usual way, then left to burn every retry it has
+      // against a channel that never comes back. The failure is armed only
+      // after both flows have read their status, so it hits the recovery and
+      // not the forms.
+      var stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      var first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      var queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      statusThrows = true;
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await pumpEventQueue(times: 20);
+      }
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: the first debt used up its budget with the channel '
+              'still dead');
+
+      // ── The channel comes back and an ordinary decision settles debt #1 by
+      // reopening the gate itself — which is exactly the path that used to
+      // leave the burnt counter behind.
+      statusThrows = false;
+      await AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 20);
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'sanity: a clean apply settles the first debt');
+
+      // ── Debt #2, armed identically, whose first recovery hits a transient
+      // failure. One retry is all it needs.
+      stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      // Armed only now: the forms above read the same channel, and a wedge set
+      // any earlier would park them instead of the recovery.
+      final broken = Completer<void>();
+      statusGate = broken;
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+      broken.completeError(StateError('the consent channel is gone'));
+      await pumpEventQueue(times: 20);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: nothing could be confirmed yet, so nothing opens');
+
+      statusGate = null;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'a fresh guessed close owns a fresh budget — an older debt '
+              'that gave up must not cost this one the session ads');
     });
 
     test('Privacy Options: re-confirming consent leaves it granted', () async {

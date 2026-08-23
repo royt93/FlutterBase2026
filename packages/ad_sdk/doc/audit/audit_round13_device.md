@@ -453,6 +453,35 @@ every one of them walks.
 
 Suite: 1095 green, `flutter analyze` clean.
 
+## QC gate round 16 — codex 8/10, agy 10/10, one finding
+
+agy: "No open defects found in rounds 11-15." codex found one, and it was right
+— the same family again, one level up: not *who* pays the debt, but *how much
+budget* the debt gets.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | The three-attempt retry budget was session-global, not per-debt. A debt that burned all three attempts left `_consentGateRecoveryAttempts` at 3; an ordinary consent apply then settled that debt by reopening the gate itself, without resetting the counter. The next guessed close therefore inherited a spent budget and was refused its very first retry — so one transient UMP/TCF/provider failure left the gate shut, and every ad surface in the app dark, until the next consent decision or app resume. | Reset the counter where the debt is armed (`_applyPrivacyOptionsResult`, immediately after `_pessimisticGateClose = true`). One debt, one budget: an older debt that gave up cannot spend a newer one's retries. |
+
+Red-proof: reverting the one reset line turns *a second gate debt gets a retry
+budget of its own* red (`Expected: true Actual: <false>`) and the widget half
+*banners come back for a second gate debt after an older one gave up* red
+(`Expected: a value greater than <1> Actual: <1>`). Both tests exhaust the first
+debt's budget against a dead channel, settle it with a clean apply, arm a second
+debt, fail its first recovery once, and assert the gate (and the banner behind
+it) comes back.
+
+Both harnesses gained a `statusThrows` seam for this: a channel that is down
+stays down, which is what a `Completer.completeError` wedge — good for exactly
+one failure — cannot express, and exhausting a budget needs three in a row.
+
+Not device-testable, same class as rounds 14-15: three consecutive UMP channel
+failures on command plus an apply held at its write barrier is not something any
+on-device seam can produce. The device suite (5 tests) was re-run green on the
+S24 Ultra against this commit anyway.
+
+Suite: 1097 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:
