@@ -321,6 +321,81 @@ void main() {
   // specific reloads, the slot would stay stuck `loading` forever with
   // nothing to recover it. AdSlot.armLoadWatchdog must be armed directly at
   // each of these reload sites too.
+  // Round-7 audit, MAJOR — the widget-format twin of the group below. AdMob's
+  // banner/mrec/native paths have armed a load watchdog since MJ20; AppLovin's
+  // two armed none, even though preloadBanner's own M3 comment claimed
+  // "and with it the load watchdog that state enables". Once `beginLoad()`
+  // succeeds the slot waits on the widget listener's callbacks; if neither
+  // arrives the slot stays `loading` for the session, every later preload —
+  // the resume recovery's included — bounces off the `beginLoad()` guard, and
+  // the widget keeps its shimmer forever.
+  group('Widget-format load watchdog (AppLovin banner/MREC)', () {
+    test('banner: a listener callback that never arrives is recovered', () {
+      fakeAsync((async) {
+        adapter.preloadBanner('k');
+        async.flushMicrotasks();
+        expect(adapter.bannerSlot('k').isLoading, isTrue,
+            reason: 'sanity: the request went out and the slot is waiting');
+
+        async.elapse(const Duration(seconds: 29));
+        expect(adapter.bannerSlot('k').isLoading, isTrue,
+            reason: 'must not fire before its 30s deadline — a mediated '
+                'waterfall can legitimately take many seconds');
+
+        async.elapse(const Duration(seconds: 2));
+        expect(adapter.bannerSlot('k').isLoading, isFalse);
+        expect(adapter.banner('k').needsRecovery, isTrue,
+            reason: 'THE POINT: without a failure flag the resume recovery has '
+                'no re-entry condition, so nothing ever retries this key');
+        expect(adapter.banner('k').isLoaded.value, isFalse);
+      });
+    });
+
+    test('banner: a load that lands in time disarms it', () {
+      fakeAsync((async) {
+        adapter.preloadBanner('k');
+        async.flushMicrotasks();
+        final id = adapter.appLovinBannerAdViewId('k').value as AdViewId?;
+        bridge.widget!.onAdLoadedCallback(MaxAd('banner-id', 'BANNER', id,
+            'net', '', 0.0, 'exact', 'cid', 'dsp', '', 0,
+            MaxAdWaterfallInfo('', '', const [], 0), null, null));
+
+        async.elapse(const Duration(minutes: 5));
+        expect(adapter.banner('k').needsRecovery, isFalse);
+        expect(adapter.banner('k').hasError.value, isFalse);
+      });
+    });
+
+    test('MREC: a listener callback that never arrives is recovered', () {
+      fakeAsync((async) {
+        // Local adapter: the shared `_config` declares no mrecId, so the
+        // shared adapter always no-ops preloadMrec.
+        final a = AppLovinAdapter(bridge: FakeAppLovinBridge());
+        a.initialize(const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'sdk',
+            bannerId: 'banner-id',
+            interstitialId: 'inter-id',
+            appOpenId: 'appopen-id',
+            rewardedId: 'rewarded-id',
+            mrecId: 'mrec-id',
+          ),
+        ));
+        async.flushMicrotasks();
+        addTearDown(a.dispose);
+
+        a.preloadMrec('k');
+        async.flushMicrotasks();
+        expect(a.mrecSlot('k').isLoading, isTrue);
+
+        async.elapse(const Duration(seconds: 31));
+        expect(a.mrecSlot('k').isLoading, isFalse);
+        expect(a.mrec('k').needsRecovery, isTrue);
+      });
+    });
+  });
+
   group('Load watchdog on adapter-internal reload (no AdManager in the loop)',
       () {
     test('appOpen: reload-after-display-fail recovers via watchdog if the '

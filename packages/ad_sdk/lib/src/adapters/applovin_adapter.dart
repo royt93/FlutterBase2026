@@ -1540,6 +1540,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     ));
   }
 
+  /// Round-7 audit, MAJOR — matches AdMob's `_widgetLoadWatchdog`.
+  static const Duration _widgetLoadWatchdog = Duration(seconds: 30);
+
   @override
   Future<void> preloadBanner(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
@@ -1599,6 +1602,25 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag, 'banner $tag ✅ preload started adViewId=$adViewId');
+      // Round-7 audit, MAJOR — the M3 comment above promised "and with it the
+      // load watchdog that state enables", but nothing ever armed one here.
+      // From this point the slot waits on `_ensureWidgetAdViewListener`'s
+      // callbacks; if neither ever fires (a mediated network that hangs its
+      // own request, a native AdView that never attaches) the slot stays
+      // `loading` for the rest of the session, every later preload returns at
+      // the `beginLoad()` guard above — including the one the resume recovery
+      // makes — and the widget keeps its shimmer forever. AdMob's three widget
+      // paths have armed this since MJ20; AppLovin's two had not.
+      //
+      // The timeout deliberately does NOT destroy the native AdView or clear
+      // the id notifier: `markError()` arms `needsRecovery`, and the resume
+      // recovery is the path that already knows how to tear the old view down
+      // and re-request (see onAppResumed). Doing it twice, from two places, is
+      // how the earlier double-destroy leaks happened.
+      slot.armLoadWatchdog('banner', _widgetLoadWatchdog, onTimeout: () {
+        _bannerListenablesFor(key).isLoaded.value = false;
+        _bannerListenablesFor(key).markError();
+      });
       final notifier = _bannerAdViewIdFor(key);
       final oldId = notifier.value;
       notifier.value = adViewId;
@@ -1708,6 +1730,25 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag, 'mrec $tag ✅ preload started adViewId=$adViewId');
+      // Round-7 audit, MAJOR — the M3 comment above promised "and with it the
+      // load watchdog that state enables", but nothing ever armed one here.
+      // From this point the slot waits on `_ensureWidgetAdViewListener`'s
+      // callbacks; if neither ever fires (a mediated network that hangs its
+      // own request, a native AdView that never attaches) the slot stays
+      // `loading` for the rest of the session, every later preload returns at
+      // the `beginLoad()` guard above — including the one the resume recovery
+      // makes — and the widget keeps its shimmer forever. AdMob's three widget
+      // paths have armed this since MJ20; AppLovin's two had not.
+      //
+      // The timeout deliberately does NOT destroy the native AdView or clear
+      // the id notifier: `markError()` arms `needsRecovery`, and the resume
+      // recovery is the path that already knows how to tear the old view down
+      // and re-request (see onAppResumed). Doing it twice, from two places, is
+      // how the earlier double-destroy leaks happened.
+      slot.armLoadWatchdog('mrec', _widgetLoadWatchdog, onTimeout: () {
+        _mrecListenablesFor(key).isLoaded.value = false;
+        _mrecListenablesFor(key).markError();
+      });
       final notifier = _mrecAdViewIdFor(key);
       final oldId = notifier.value;
       notifier.value = adViewId;
