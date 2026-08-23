@@ -242,6 +242,39 @@ One more test, red against its own reverted fix:
 
 Suite: 1071 green, `flutter analyze` clean.
 
+## QC gate round 9 — codex 8/10 (agy 10/10), one finding on the queue
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | Round 6 stopped the gate opening before a write, but not after one that a **newer intent had already superseded**. A grant's write lands, `_pendingConsentApply` still holds the user's withdrawal, and the older grant opened the gate anyway — with the form already gone, so every mounted banner was free to request under a consent that no longer existed. | Two halves of the same rule: a restrictive result tightens the gate the moment it is *queued* (not when the runner reaches it), and a permissive result may only open it when `_pendingConsentApply == null`. The queued intent gets to decide. |
+
+Three tests for this one, each red against its own reverted fix — unit, widget
+and on-device, per the standing rule that every case gets all three:
+
+* **unit** — *an apply in flight never opens the gate over a queued refusal*
+  (`test/tcf_personalisation_consent_test.dart`): the grant parks on
+  `debugConsentWriteBarrier`, the refusal behind it parks at the apply *entry*
+  barrier so it cannot tighten the gate itself, then the grant's write is
+  released. Red: `Expected: false Actual: <true>`.
+* **widget** — *a mounted banner requests nothing while a queued refusal is
+  waiting behind an in-flight grant* (`test/consent_gate_banner_widget_test.dart`,
+  new file): the same sequence with a real `BannerAdWidget` mounted over a
+  counting adapter, so the regression fails on the *consequence* rather than on
+  an internal flag. Red: `Expected: <0> Actual: <1>` — one live banner request
+  under a withdrawn consent. Its other half (*a clean grant does let the banner
+  request*) pins that the fix costs a consenting user nothing.
+* **integration** — *a TCF withdrawal this process never saw land is applied on
+  the next resume* (`example/integration_test/consent_resume_backstop_test.dart`,
+  new file): the one piece of this round that a mocked store cannot prove. It
+  writes the real IAB TCF keys into the platform's own preference store (the
+  Android default `<packageName>_preferences` file — the MJ2/m10 plumbing that
+  used to be broken while mocked unit tests passed), then drives a real
+  lifecycle pause/resume. Both halves ran green on the S24 Ultra
+  (`R5CX613VZBR`), including the "healthy resume changes nothing" case.
+
+Suite: 1074 green (1071 + the round-9 unit test + 2 widget tests),
+`flutter analyze` clean in both the package and the example.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

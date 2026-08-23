@@ -3194,6 +3194,12 @@ class AdManager with WidgetsBindingObserver {
       await _recheckConsentOnResume();
       return result;
     }
+    // Round-13 QC (round 9), MAJOR — a restrictive intent tightens the gate the
+    // moment it is queued. Waiting for the runner to reach it left a window in
+    // which the apply already in flight could open the gate for its older,
+    // more permissive result — and by then the form is gone, so the caller is
+    // free to request an ad.
+    if (!result.canRequestAds) _updateCanRequestAds(false);
     _pendingConsentApply = result;
     if (_consentApplyRunning) {
       // A write is already in flight and will pick this up when it finishes.
@@ -3311,8 +3317,11 @@ class AdManager with WidgetsBindingObserver {
       }
       return;
     }
-    // The write landed and nothing superseded it — now the gate may open.
-    if (result.canRequestAds) _updateCanRequestAds(true);
+    // The write landed and nothing superseded it — now the gate may open. Not
+    // while a newer intent is still queued, though: that one gets to decide.
+    if (result.canRequestAds && _pendingConsentApply == null) {
+      _updateCanRequestAds(true);
+    }
     if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
       SafeLogger.d(_tag,
           '🔓 consent granted via privacy options → refilling held ad slots');

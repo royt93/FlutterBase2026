@@ -944,6 +944,71 @@ void main() {
           reason: 'and the provider must be told, not just our cache');
     });
 
+    // Round-13 QC (round 9), MAJOR — a queued restrictive intent must not wait
+    // for the runner to reach it before the gate closes, and the apply in
+    // flight must not open the gate over the top of it.
+    test('an apply in flight never opens the gate over a queued refusal',
+        () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: gate shut');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      final stuck1 = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck1.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck1.isCompleted) stuck1.complete();
+      });
+      // A grant takes the runner and parks at its write.
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final grant = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // A refusal lands behind it. It parks at the apply *entry* barrier, so
+      // it cannot tighten the gate itself — that is what leaves the older
+      // grant's open gate observable at all.
+      final stuck2 = Completer<void>();
+      AdManager.debugConsentApplyBarrier = stuck2.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!stuck2.isCompleted) stuck2.complete();
+      });
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final refusal = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'queueing a refusal has to shut the gate immediately');
+
+      // Not awaited yet: the call that owns the runner drains the whole queue,
+      // so `grant` only completes once the refusal has been through too.
+      stuck1.complete();
+      await pumpEventQueue(times: 10);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'the older grant finished writing, but a refusal is queued '
+              'behind it — the form is already gone, so an open gate here is '
+              'an ad served under a superseded consent');
+
+      stuck2.complete();
+      await grant;
+      await refusal;
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse, reason: 'and it stays shut');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({
