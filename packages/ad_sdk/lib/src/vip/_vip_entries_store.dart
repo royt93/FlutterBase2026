@@ -35,6 +35,34 @@ class VipEntriesStore {
 
   static const String _tag = 'VipEntriesStore';
   static const String _secureKey = 'ad_sdk_vip_entries_v1';
+  static const String _probeKey = 'ad_sdk_secure_probe_v1';
+
+  /// True when the last [getRaw] served the plaintext fallback on a device
+  /// whose secure storage is working — a state no legitimate write path
+  /// produces. The caller must not treat such entries as fully trusted; see M6
+  /// in [getRaw].
+  ///
+  /// Deliberately a flag rather than a thrown error or a filtered value: the
+  /// entry may well be genuine (Keystore broken at grant time, healed since),
+  /// and this class does not parse entries — the decision of what to do with a
+  /// suspicious grant belongs to `VipManager`, next to the equivalent M5 clamp.
+  bool lastReadWasUntrustedFallback = false;
+
+  /// Round-trips a throwaway key to tell "secure storage is empty" apart from
+  /// "secure storage does not work here". [_readSecure] returns null for both.
+  @visibleForTesting
+  Future<bool> secureStorageWorks() => _secureStorageWorks();
+
+  Future<bool> _secureStorageWorks() async {
+    try {
+      await _secure.write(key: _probeKey, value: '1');
+      final v = await _secure.read(key: _probeKey);
+      await _secure.delete(key: _probeKey);
+      return v == '1';
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Read the current VIP entries JSON, migrating once from the legacy
   /// checksum-prefixed `SharedPreferences` value if secure storage is empty
@@ -49,7 +77,35 @@ class VipEntriesStore {
     // below, since a device whose Keystore never works will also never
     // complete that migration (`_writeSecure` fails there identically).
     final fallback = _legacyPrefs.getVipEntriesFallbackRaw();
-    if (fallback != null) return fallback;
+    if (fallback != null) {
+      // M6 (round-6 audit) — this plaintext fallback is protected only by an
+      // unkeyed FNV-1a checksum whose salt is a literal in this package, so it
+      // is reproducible from the published pub.dev source. With root, an
+      // emulator, or a permissive backup/restore path, a forged
+      // "VIP until 2099" entry planted here was accepted outright.
+      //
+      // What makes that detectable: `setRaw()` only ever writes here when the
+      // SECURE write failed. So a fallback entry on a device whose secure
+      // storage works has no legitimate way to exist — probe it and treat the
+      // value as untrusted when the probe succeeds. An attacker now has to
+      // actually break their own Keystore rather than append a line.
+      //
+      // Untrusted does not mean discarded: a device whose Keystore was broken
+      // when the grant was made and later healed (an OS update) would leave a
+      // GENUINE entry in exactly this state, and the one-time-use ledger means
+      // that customer cannot simply redeem their code again. So the value is
+      // still returned and the caller clamps it — see
+      // [lastReadWasUntrustedFallback].
+      lastReadWasUntrustedFallback = await _secureStorageWorks();
+      if (lastReadWasUntrustedFallback) {
+        SafeLogger.w(
+            _tag,
+            'fallback VIP entries present while secure storage is HEALTHY — '
+            'treating as untrusted (M6)');
+      }
+      return fallback;
+    }
+    lastReadWasUntrustedFallback = false;
 
     if (_legacyPrefs.isVipEntriesSecureMigrated()) {
       // Migration already ran — secure storage being empty here is a

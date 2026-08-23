@@ -360,6 +360,36 @@ class VipManager {
       ..clear()
       ..addAll(VipEntry.decodeList(await _vipEntriesStore.getRaw()));
 
+    // M6 — the entries came from the plaintext fallback on a device whose
+    // secure storage works, which no legitimate write path produces (setRaw
+    // only falls back when the secure write fails). The fallback's integrity
+    // is an unkeyed checksum with a salt published in this package's source,
+    // so a forged entry is cheap with root.
+    //
+    // Clamped rather than dropped, same reasoning as M5: a device whose
+    // Keystore was broken at grant time and healed later leaves a GENUINE
+    // entry in exactly this state, and the one-time-use ledger means that
+    // customer cannot redeem their code again. So a real customer keeps a day
+    // (and support has a window) while a forged "VIP until 2099" is worth a
+    // day instead of forever.
+    if (_vipEntriesStore.lastReadWasUntrustedFallback && _entries.isNotEmpty) {
+      final cutoff = _effectiveNow().add(untrustedFallbackWindow);
+      var clamped = 0;
+      for (var i = 0; i < _entries.length; i++) {
+        final e = _entries[i];
+        if (!e.expiresAt.isAfter(cutoff)) continue;
+        _entries[i] =
+            VipEntry(key: e.key, expiresAt: cutoff, grantedAt: e.grantedAt);
+        clamped++;
+      }
+      if (clamped > 0) {
+        SafeLogger.w(
+            _tag,
+            () => 'M6: clamped $clamped untrusted fallback grant(s) to '
+                '${untrustedFallbackWindow.inHours}h');
+      }
+    }
+
     if (!_prefs.isVipMigrated()) {
       final legacyGaids = _prefs.getGAIDList();
       if (legacyGaids.isNotEmpty && currentDeviceGaid.isNotEmpty) {
@@ -878,6 +908,10 @@ class VipManager {
 
   /// How much time a grant keeps after the key that issued it is revoked.
   static const Duration revokedGraceWindow = Duration(hours: 24);
+
+  /// How much a grant read from the plaintext fallback is worth when the
+  /// device's secure storage is working — see M6 in [load].
+  static const Duration untrustedFallbackWindow = Duration(hours: 24);
 
   /// M5 (round-6 audit) — before this, [_revokedKeyIds] was consulted at
   /// exactly one place: redemption. Applying a newer CRL swapped the set and
