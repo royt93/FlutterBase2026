@@ -1057,6 +1057,118 @@ void main() {
               'reopen — withdrawing personalisation is not withdrawing ads');
     });
 
+    // Round-13 QC (round 11), BLOCKER — the two races above, combined. A
+    // purposes-only withdrawal reports `canRequestAds=true`, so round-9's
+    // queue-time tighten (which reads that flag) does nothing for it, and
+    // round-10's tighten only runs once the runner reaches this result — which
+    // it cannot while an earlier apply is still in provider/storage I/O. The
+    // gate therefore stayed open over that whole window with the OLD
+    // personalised configuration applied.
+    test('a purposes-only withdrawal queued behind a running apply shuts the '
+        'gate at queue time', () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'sanity: personalised is what the provider has applied');
+      expect(AdManager().canRequestAds, isTrue, reason: 'sanity: gate open');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+
+      // An apply that changes nothing takes the runner and parks at its write
+      // — a slow provider call or a slow storage write, which is all it takes.
+      final stuck1 = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck1.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck1.isCompleted) stuck1.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // Now the withdrawal, queued behind it. UMP still says it can request
+      // ads — only the purposes changed — and it is parked at the apply entry
+      // barrier, so nothing inside the runner can tighten on its behalf.
+      final stuck2 = Completer<void>();
+      AdManager.debugConsentApplyBarrier = stuck2.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!stuck2.isCompleted) stuck2.complete();
+      });
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final withdrawal = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'the withdrawal is queued and the provider still holds the '
+              'personalised config — an open gate here is a personalised ad '
+              'requested after the user turned personalisation off');
+
+      stuck1.complete();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'the first apply finished writing, but the withdrawal it is '
+              'holding up has still not been applied');
+
+      stuck2.complete();
+      await first;
+      await withdrawal;
+      await pumpEventQueue(times: 10);
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the withdrawal reached the provider');
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'and once it has, non-personalised ads are allowed again — '
+              'the pessimistic close must not be permanent');
+    });
+
+    // The other half of the round-11 close: a queued *grant* must not be
+    // stranded by it. Nothing reopens a pessimistically shut gate except the
+    // runner, so if the runner ever fails to, every consenting user loses
+    // their ads for the rest of the session.
+    test('a grant queued behind a running apply still reopens the gate',
+        () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: gate shut');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final grant = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      stuck.complete();
+      await first;
+      await grant;
+      await pumpEventQueue(times: 10);
+
+      expect(AdManager().consent.hasUserConsent, isTrue);
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'the queued grant was applied, so the gate must be open — a '
+              'pessimistic close nobody lifts is an outage, not a fix');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

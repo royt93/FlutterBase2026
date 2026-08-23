@@ -7,6 +7,11 @@
 // re-apply the resulting consent to the active ad provider immediately.
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/core/ump_consent.dart'
+    show
+        debugUmpFormBackstopOverride,
+        markUmpFormOnScreen,
+        resetUmpFormOnScreen;
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -153,6 +158,57 @@ void main() {
           reason: 'the public mirror a host reads must agree with the mutex');
       expect(AdManager().debugFullscreenBusyReason, isNull,
           reason: 'and it must be released once the form is dismissed');
+    });
+
+    // Round-13 QC (round 11), MAJOR — `destroy()` used to clear the form
+    // counter outright, on the grounds that it had just torn the adapter down
+    // so nothing could be drawn over anything. But destroy() does not dismiss
+    // the native form (the reason the consent session epoch exists at all), and
+    // the next initialize() brings a fresh adapter with it: a form the user is
+    // still reading then has no ad block, and an App Open ad drawn over a
+    // consent form is exactly the policy violation this mutex exists for.
+    test('a form still on screen keeps the mutex across destroy() and the '
+        'next session', () async {
+      final release = markUmpFormOnScreen();
+      addTearDown(resetUmpFormOnScreen);
+      expect(AdManager().debugFullscreenBusyReason,
+          'a consent form is on screen',
+          reason: 'sanity: the presentation holds the mutex');
+
+      await AdManager().destroy();
+      expect(AdManager().debugFullscreenBusyReason,
+          'a consent form is on screen',
+          reason: 'the form is still up — destroy() does not dismiss it');
+
+      // Next session, adapter and all.
+      AdManager().debugSetAdapter(_RecordingAdapter());
+      AdManager().debugConfig = _config;
+      expect(AdManager().debugFullscreenBusyReason,
+          'a consent form is on screen',
+          reason: 'and now there IS an ad that could be drawn over it');
+
+      release();
+      expect(AdManager().debugFullscreenBusyReason, isNull,
+          reason: 'the user answered the form — ads are free again');
+    });
+
+    // The other half: not resetting must not be able to block ads forever.
+    test('a form whose dismiss never arrives releases via its backstop, even '
+        'across destroy()', () async {
+      debugUmpFormBackstopOverride = const Duration(milliseconds: 30);
+      addTearDown(() {
+        debugUmpFormBackstopOverride = null;
+        resetUmpFormOnScreen();
+      });
+      markUmpFormOnScreen();
+      await AdManager().destroy();
+      expect(AdManager().debugFullscreenBusyReason,
+          'a consent form is on screen');
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(AdManager().debugFullscreenBusyReason, isNull,
+          reason: 'a dismiss callback that never comes must not cost the next '
+              'session its fullscreen ads for the whole process');
     });
 
     test('a form that is never required never holds the mutex', () async {

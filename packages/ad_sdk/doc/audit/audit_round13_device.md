@@ -298,6 +298,35 @@ Both new tests are red against the reverted fix:
 The on-device backstop test was re-run green on the S24 Ultra against this
 change. Suite: 1076 green, `flutter analyze` clean.
 
+## QC gate round 11 — codex 6/10 (agy 10/10), two findings
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | Rounds 9 and 10 combined into one window neither covered. Round 9 tightens at **queue** time but reads `canRequestAds` — which a purposes-only withdrawal never trips. Round 10 tightens on the TCF purposes but only **inside the runner**, which cannot reach a queued result while an earlier apply is still in provider/storage I/O. So a withdrawal queued behind another apply left the gate wide open with the OLD personalised configuration applied, for as long as that first write took. Round 9's queued test uses `canRequestAds=false`; round 10's tests are not queued. | Close the gate for **anything queued behind a running apply**, whatever it claims: `if (!result.canRequestAds \|\| _consentApplyRunning) _updateCanRequestAds(false);`. Whether a queued result is a withdrawal cannot be known at queue time — the TCF read lives in the runner — so the pessimistic close is the only honest answer. It costs a queued *grant* nothing but the wait: the runner reopens the gate once its write lands. |
+| Major | `destroy()` called `resetUmpFormOnScreen()`, on the stated grounds that the adapter had just been torn down so nothing could be drawn over anything. But `destroy()` does **not** dismiss the native form (the same fact the consent session epoch exists for), and the next `initialize()` brings a fresh adapter with it — so a form the user is still reading lost its ad block, and an App Open ad over a consent form steals the tap the consent choice needs. | Removed the reset. The leak it guarded against (a dismiss callback that never arrives) is now bounded by each presentation's own `kUmpFormOnScreenBackstop` (15 min), which did not exist when that line was written. `resetUmpFormOnScreen()` stays for tests. |
+
+Each new test is red against its own reverted fix:
+
+* **unit (blocker)** — *a purposes-only withdrawal queued behind a running
+  apply shuts the gate at queue time* (`test/tcf_personalisation_consent_test.dart`).
+  Red: `Expected: false Actual: <true>`. Paired with *a grant queued behind a
+  running apply still reopens the gate*, so the pessimistic close can never
+  become an outage.
+* **widget (blocker)** — *a banner mounted while a purposes-only withdrawal is
+  queued requests nothing* (`test/consent_gate_banner_widget_test.dart`). Red:
+  `Expected: <1> Actual: <3>` — two extra personalised banner requests after
+  the user had turned personalisation off.
+* **unit (major)** — *a form still on screen keeps the mutex across destroy()
+  and the next session* (`test/privacy_options_test.dart`). Red with the reset
+  restored: `Expected: 'a consent form is on screen' Actual: <null>`. Paired
+  with *a form whose dismiss never arrives releases via its backstop, even
+  across destroy()*.
+* **integration (major)** — `example/integration_test/ump_form_block_destroy_test.dart`,
+  two tests: the block survives a real `destroy()` + `initialize()` cycle on
+  hardware, and the backstop still releases it.
+
+Suite: 1081 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

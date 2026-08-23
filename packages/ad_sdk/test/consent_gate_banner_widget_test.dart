@@ -323,6 +323,77 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'a banner mounted while a purposes-only withdrawal is queued requests '
+      'nothing', (tester) async {
+    // Round-13 QC (round 11) at the widget layer: the round-10 window, but
+    // with the withdrawal stuck in the queue behind another apply instead of
+    // being the apply in flight. Nothing inside the runner has read its TCF
+    // purposes yet, and its `canRequestAds` is true, so before the fix nothing
+    // shut the gate at all — a surface mounting here got a personalised
+    // request out under a consent the user had already turned off.
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 1, reason: 'sanity: the first banner');
+
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    // An unrelated apply takes the runner and parks at its write.
+    final stuckWrite = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuckWrite.future;
+    final first = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // The withdrawal lands behind it, parked at the apply entry barrier so
+    // the runner cannot tighten on its behalf either.
+    final stuckEntry = Completer<void>();
+    AdManager.debugConsentApplyBarrier = stuckEntry.future;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    final withdrawal = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // A second ad surface appears while it waits.
+    await tester.pumpWidget(host(const Column(children: [
+      BannerAdWidget(key: ValueKey('a')),
+      BannerAdWidget(key: ValueKey('b')),
+    ])));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(adapter.loadBannerCalls, 1,
+        reason: 'the provider still holds the personalised config, so a '
+            'request accepted here is a personalised ad served after an '
+            'explicit withdrawal');
+
+    stuckWrite.complete();
+    stuckEntry.complete();
+    await tester.runAsync(() async {
+      await first;
+      await withdrawal;
+    });
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(AdManager().consent.hasUserConsent, isFalse,
+        reason: 'the withdrawal is what got applied');
+    expect(AdManager().canRequestAds, isTrue,
+        reason: 'and non-personalised ads are allowed once it has landed');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the other half — a clean grant does let the banner request',
       (tester) async {
     final adapter = _BannerCountingAdapter();

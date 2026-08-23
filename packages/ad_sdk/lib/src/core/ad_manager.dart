@@ -3199,7 +3199,19 @@ class AdManager with WidgetsBindingObserver {
     // which the apply already in flight could open the gate for its older,
     // more permissive result — and by then the form is gone, so the caller is
     // free to request an ad.
-    if (!result.canRequestAds) _updateCanRequestAds(false);
+    //
+    // Round-13 QC (round 11), BLOCKER — and anything QUEUED BEHIND a running
+    // apply shuts the gate too, whatever it says. Whether this result is a
+    // withdrawal cannot be known here: the ordinary one (personalisation off,
+    // ads still allowed) reports `canRequestAds=true` and shows up only in the
+    // TCF purposes, which are read inside the runner. Until the runner gets
+    // there the provider still holds the OLD configuration, so an open gate
+    // means a personalised request after a withdrawal. Closing it costs a
+    // queued *grant* nothing but the wait — the runner reopens it once the
+    // write lands.
+    if (!result.canRequestAds || _consentApplyRunning) {
+      _updateCanRequestAds(false);
+    }
     _pendingConsentApply = result;
     if (_consentApplyRunning) {
       // A write is already in flight and will pick this up when it finishes.
@@ -3472,12 +3484,17 @@ class AdManager with WidgetsBindingObserver {
     _initRetryAttempts = 0;
     AdLoadingDialog.resetState();
     AdScreenRouteLogger.resetState();
-    // Round-7 final QC — the UMP form counter is module-level, so a flow that
-    // was interrupted (or a form whose dismiss callback never arrived) would
-    // otherwise carry its ad block across this teardown into the next
-    // initialize(). Safe to drop here: destroy() has just torn the adapter
-    // down, so there is no ad that could be drawn over anything.
-    resetUmpFormOnScreen();
+    // Round-7 final QC put a `resetUmpFormOnScreen()` here, on the grounds
+    // that a form counter left standing would carry its ad block across the
+    // teardown into the next initialize().
+    //
+    // Round-13 QC (round 11), MAJOR — removed. `destroy()` does not dismiss a
+    // native form (the same fact the consent session epoch exists for), so a
+    // form put up before this teardown can still be on screen after the next
+    // initialize() — and dropping its ad block is what lets an App Open ad
+    // draw straight over a live consent form. The leak the old reset guarded
+    // against is now bounded by each presentation's own 15-minute backstop
+    // ([kUmpFormOnScreenBackstop]), which did not exist when it was written.
     AdSafetyConfig.resetForReinit();
     SimpleEventBus().clearAll();
 

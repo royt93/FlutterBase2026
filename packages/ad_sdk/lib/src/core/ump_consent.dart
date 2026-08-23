@@ -100,9 +100,13 @@ void Function() markUmpFormOnScreen() {
   return release;
 }
 
-/// Drops every counted presentation. For `AdManager.destroy()` and tests —
-/// a module-level counter otherwise leaks across a re-init or a test that
-/// throws mid-flow.
+/// Drops every counted presentation. For tests — a module-level counter
+/// otherwise leaks from a test that throws mid-flow into the next one.
+///
+/// Deliberately NOT called from `AdManager.destroy()`: that teardown does not
+/// dismiss a native form, so a form still on screen must keep its ad block
+/// (round-13 QC round 11). What bounds a leaked count in production is each
+/// presentation's own [kUmpFormOnScreenBackstop].
 void resetUmpFormOnScreen() {
   // Release every outstanding presentation rather than just zeroing the
   // counter: each one owns a 15-minute backstop timer, and a backstop that
