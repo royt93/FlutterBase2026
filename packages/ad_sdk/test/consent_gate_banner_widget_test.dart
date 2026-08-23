@@ -394,6 +394,61 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'banners come back after a queued apply was superseded instead of '
+      'staying dark', (tester) async {
+    // Round-13 QC (round 12) at the widget layer, and the layer that matters:
+    // the round-11 close is a guess, and when the apply that owed the reopen
+    // was superseded by the host's own decision, nothing lifted it. The flag
+    // being wrong is invisible; a permanently empty banner is the bug.
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = false;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 0, reason: 'sanity: gate shut');
+
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    final stuckWrite = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuckWrite.future;
+    final first = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    final queued = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // The host's own decision supersedes both, so neither reopens the gate.
+    AdManager.debugConsentWriteBarrier = null;
+    await tester.runAsync(
+        () => AdManager().setConsent(const AdConsent(hasUserConsent: true)));
+    stuckWrite.complete();
+    await tester.runAsync(() async {
+      await first;
+      await queued;
+    });
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(adapter.loadBannerCalls, greaterThan(0),
+        reason: 'the consent state on the device allows ads, so the banner '
+            'must load — a gate nobody reopens is a blank ad slot for the '
+            'rest of the session');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the other half — a clean grant does let the banner request',
       (tester) async {
     final adapter = _BannerCountingAdapter();

@@ -1169,6 +1169,99 @@ void main() {
               'pessimistic close nobody lifts is an outage, not a fix');
     });
 
+    // Round-13 QC (round 12), MAJOR — the round-11 close is a guess, and a
+    // guess needs an owner. Both reviewers found the same hole from opposite
+    // ends: the apply that was supposed to lift it can end without writing
+    // anything (superseded by a host `setConsent`) or die on the way (its write
+    // throws). Nothing else in the SDK reopens the gate — `setConsent`
+    // deliberately does not — so the app went dark for the rest of the session.
+    test('a pessimistic close is lifted when the apply that owed it was '
+        'superseded', () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: gate shut');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // A grant queued behind it — the round-11 close.
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: round 11 shuts the gate for a queued result');
+
+      // The host now makes its own decision, which supersedes both applies:
+      // their values are dropped, so neither ever reopens the gate.
+      AdManager.debugConsentWriteBarrier = null;
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'UMP allows ads and what is applied matches the device — a '
+              'gate left shut here is every ad surface in the app dark for '
+              'the rest of the session');
+    });
+
+    test('a pessimistic close is lifted when the apply that owed it failed',
+        () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: gate shut');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      // The write itself fails — a storage error, a dead platform channel.
+      final failing = Completer<void>();
+      AdManager.debugConsentWriteBarrier = failing.future;
+      addTearDown(() => AdManager.debugConsentWriteBarrier = null);
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: round 11');
+
+      // The queued grant must still get its turn once the first apply dies.
+      AdManager.debugConsentWriteBarrier = null;
+      failing.completeError(StateError('storage is gone'));
+      await expectLater(first, throwsA(isA<StateError>()),
+          reason: 'the caller is still told its apply failed');
+      await queued;
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'the queued grant was applied — a failing apply must not '
+              'take the intents behind it down with it');
+      expect(AdManager().canRequestAds, isTrue);
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

@@ -327,6 +327,35 @@ Each new test is red against its own reverted fix:
 
 Suite: 1081 green, `flutter analyze` clean.
 
+## QC gate round 12 — codex 8/10, agy 7/10, and they found the same hole
+
+Both reviewers landed on the round-11 close from opposite ends: it is a
+*guess*, and a guess needs an owner. The runner normally reopens the gate after
+its write — but an apply can finish without writing anything, and it can die on
+the way.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | The apply that owed the reopen gets **superseded**: a host `setConsent` (parental toggle, CCPA switch) bumps the intent epoch and clears the queue, so the apply drops its values at the epoch check and returns. `setConsent` deliberately does not own `_canRequestAds`, and nothing else writes it — so the pessimistic close was permanent. Every ad surface in the app stays dark for the rest of the session. | `_recoverConsentGate()`, scheduled whenever the runner releases. It only ever lifts a close that was a guess (`_pessimisticGateClose`, armed at that one site and cleared by every other gate write), only after asking the real UMP channel whether ads are allowed at all, and only when what is applied still matches the device's TCF state — otherwise it re-applies the device state instead of reopening blind. Free on the ordinary path: the gate is already open by then, so it returns before touching UMP. |
+| Major | The apply **throws** (a storage error, a dead channel) — the exception unwound the whole drain loop, so any intent queued behind it, typically the very grant that would have reopened the gate, was dropped and never applied. | Each item in the drain gets its own try/catch; the first error is still rethrown to the caller once every queued intent has had its turn. |
+
+Each new test is red against its own reverted fix:
+
+* **unit** — *a pessimistic close is lifted when the apply that owed it was
+  superseded* (red: `Expected: true Actual: <false>`) and *... when the apply
+  that owed it failed* (red with the per-item catch reverted, same values), in
+  `test/tcf_personalisation_consent_test.dart`.
+* **widget** — *banners come back after a queued apply was superseded instead
+  of staying dark* (`test/consent_gate_banner_widget_test.dart`). Red:
+  `Expected: a value greater than <0> Actual: <0>` — a blank ad slot, which is
+  what the user of a consuming app would actually see.
+* **integration** — `example/integration_test/consent_gate_recovery_test.dart`,
+  both paths on hardware, where the recovery talks to the real UMP channel and
+  the platform's own TCF keys.
+
+Suite: 1084 green, `flutter analyze` clean, 4/4 device tests green on the S24
+Ultra (`R5CX613VZBR`).
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

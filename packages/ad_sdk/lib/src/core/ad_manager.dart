@@ -1125,6 +1125,10 @@ class AdManager with WidgetsBindingObserver {
   ValueListenable<bool> get canRequestAdsListenable => _canRequestAdsNotifier;
 
   void _updateCanRequestAds(bool value) {
+    // Any deliberate gate write settles the round-11 debt — see
+    // [_pessimisticGateClose]. The one site that owes a reopen re-arms it
+    // immediately after calling this.
+    _pessimisticGateClose = false;
     _canRequestAds = value;
     if (_canRequestAdsNotifier.value != value) {
       _canRequestAdsNotifier.value = value;
@@ -3209,8 +3213,15 @@ class AdManager with WidgetsBindingObserver {
     // means a personalised request after a withdrawal. Closing it costs a
     // queued *grant* nothing but the wait — the runner reopens it once the
     // write lands.
-    if (!result.canRequestAds || _consentApplyRunning) {
+    if (!result.canRequestAds) {
       _updateCanRequestAds(false);
+    } else if (_consentApplyRunning) {
+      _updateCanRequestAds(false);
+      // Round-13 QC (round 12), MAJOR — this close is a guess, not a decision:
+      // nothing here says the queued result is restrictive. So it is the one
+      // close that is owed a reopen, and [_recoverConsentGate] is what pays it
+      // if the runner cannot. Set after the call above, which clears it.
+      _pessimisticGateClose = true;
     }
     _pendingConsentApply = result;
     if (_consentApplyRunning) {
@@ -3222,17 +3233,104 @@ class AdManager with WidgetsBindingObserver {
     _consentApplyRunning = true;
     final token = ++_consentApplyRunToken;
     try {
+      // Round-13 QC (round 12), MAJOR — one failing apply must not abandon the
+      // intents queued behind it. It used to unwind the whole drain, leaving a
+      // newer decision (typically the one that would have reopened the gate
+      // round 11 shut) queued and never applied. The first error is still
+      // handed to the caller, once everyone has had their turn.
+      Object? firstError;
+      StackTrace? firstStack;
       while (_pendingConsentApply != null) {
         final next = _pendingConsentApply!;
         _pendingConsentApply = null;
-        await _applyConsentResultOnce(next);
+        try {
+          await _applyConsentResultOnce(next);
+        } catch (e, st) {
+          SafeLogger.e(_tag, 'consent apply failed: $e\n$st');
+          firstError ??= e;
+          firstStack ??= st;
+        }
+      }
+      if (firstError != null) {
+        Error.throwWithStackTrace(firstError, firstStack!);
       }
     } finally {
       // Only the current owner may release the runner — see
       // [_consentApplyRunToken].
-      if (_consentApplyRunToken == token) _consentApplyRunning = false;
+      if (_consentApplyRunToken == token) {
+        _consentApplyRunning = false;
+        // Round-13 QC (round 12) — see [_recoverConsentGate]. The round-11
+        // pessimistic close needs someone to lift it when the apply that was
+        // meant to never gets there.
+        unawaited(_recoverConsentGate().catchError((Object e) {
+          SafeLogger.w(_tag, '_recoverConsentGate threw: $e');
+        }));
+      }
     }
     return result;
+  }
+
+  /// Guards [_recoverConsentGate] against re-entering itself through the
+  /// apply it starts.
+  bool _consentGateRecovering = false;
+
+  /// Whether the ad gate is shut only because a result was queued behind a
+  /// running apply (round 11), rather than because anything actually said ads
+  /// were not allowed. Only such a close may be lifted by
+  /// [_recoverConsentGate]; a real restrictive close is nobody else's business.
+  bool _pessimisticGateClose = false;
+
+  /// Round-13 QC (round 12), MAJOR — lift a pessimistic gate close that no
+  /// apply is going to lift.
+  ///
+  /// Round 11 shuts the ad gate for anything queued behind a running apply,
+  /// because a queued result cannot be known to be a grant. Normally the
+  /// runner reopens it after the write. But an apply can end without writing
+  /// anything: its values get superseded (a host `setConsent`, a `destroy()`),
+  /// or the write itself throws. Nothing else in the SDK ever sets
+  /// `_canRequestAds` back to true — `setConsent` deliberately does not — so
+  /// the close would be permanent, and every ad surface in the app would stay
+  /// dark for the rest of the session.
+  ///
+  /// Costs nothing on the ordinary path: the gate is already open by the time
+  /// this runs, so it returns before touching UMP.
+  Future<void> _recoverConsentGate() async {
+    if (!_pessimisticGateClose) return;
+    if (_canRequestAds || _footgunBlocked) return;
+    if (_consentApplyRunning || _pendingConsentApply != null) return;
+    if (_consentGateRecovering) return;
+    _consentGateRecovering = true;
+    try {
+      // Device truth, not our bookkeeping: if UMP itself says ads cannot be
+      // requested then the gate is shut for a real reason and must stay shut.
+      final ump = await core_ump.recheckUmpConsentStatus();
+      if (!ump.canRequestAds) return;
+      if (_canRequestAds || _consentApplyRunning) return;
+      final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
+      final applied = _consentManager?.adConsent ?? _consent;
+      if (tcfAllows != null && tcfAllows != applied.hasUserConsent) {
+        // The applied configuration does not match the device — reopening here
+        // would serve ads under a personalisation setting the user changed.
+        // Apply the device state instead; that write reopens the gate itself.
+        SafeLogger.w(
+            _tag,
+            '🔐 consent gate was left shut with nothing to reopen it and the '
+            'applied state disagrees with the device — re-applying');
+        await _applyPrivacyOptionsResult(PrivacyOptionsResult(
+          canRequestAds: ump.canRequestAds,
+          status: ump.status,
+        ));
+        return;
+      }
+      SafeLogger.w(
+          _tag,
+          '🔐 consent gate was left shut by an apply that never landed '
+          '(superseded, or its write failed) — reopening: what is applied '
+          'already matches the device');
+      _updateCanRequestAds(true);
+    } finally {
+      _consentGateRecovering = false;
+    }
   }
 
   /// Test-only barrier awaited right after an apply captures its epoch, so a
