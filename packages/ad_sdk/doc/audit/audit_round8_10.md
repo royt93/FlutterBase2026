@@ -91,3 +91,66 @@ the retry schedule is bounded, so `pendingTimers` is empty five minutes later
 either way. Rewritten to count reads against the fake storage instead
 (`Expected: <2> / Actual: <8>` with the dispose guards reverted). Assert on the
 thing the fix changes, not on a side effect that decays on its own.
+
+## Round 11 (`803da10`) — two Majors in round 10's own rework
+
+codex 5.0, agy 8.0. Both reviewers, independently, found the same first one.
+
+* **A load drained only its own writes.** `_load` waited on `_ownSaveTail`, this
+  instance's most recent save — but every manager writes the same
+  secure-storage key. On `destroy()` + `initialize()` the replacement's tail is
+  empty, so it read straight around the write the old manager still had in
+  flight: pre-grant data, `isActive == false`, ads to a paying customer for the
+  whole session, and any later write of its own made that permanent. The drain
+  now waits on the process-wide `_saveQueue`.
+* **Timing out a predecessor discarded the ordering the queue exists for.** With
+  the bound in place two writes are in flight over the same key at once, and a
+  platform call cannot be cancelled, so the one that was given up on can still
+  land last — a revoked entitlement, resurrected. First fix was a sequence
+  number plus a repair write; see round 12.
+
+## Round 12 (`<this commit>`) — the repair was worse than the disease
+
+codex 4.0, agy 6.0, again the same finding from both: the repair write was
+issued outside the queue, so it could race a third write and clobber it.
+
+The fix was to delete the machinery, not to order the repair as well: `_save()`
+is a **strict** chain again (`_saveQueue.then(...)`), with no bound, so two
+writes over the same key are never in flight at once.
+
+What that trades away, deliberately: a platform write that never answers stalls
+later VIP **persistence** for the life of the process. That is survivable and
+bounded in blast radius — RAM keeps the right entitlement for the session, the
+drain in `_load` is separately bounded by `kSaveDrainTimeout` so SDK startup
+cannot hang on it, and the next launch reads disk fresh. The alternative,
+concurrent writes over one key with an after-the-fact repair, is unbounded
+*correctness* risk in the one path that must not be clever.
+
+Test: `a later write cannot jump ahead of a wedged one` — nothing may reach disk
+while the write ahead of it has not answered (`Expected: null / Actual: '[]'`
+with the bound restored).
+
+### The strict chain then wedged the test suite — the zone trap again
+
+The strict chain made the whole suite hang at +1046, and
+`test/vip_redeem_screen_test.dart` hang on its own. Same root cause as the
+round-10 trap, one layer deeper: a Dart future propagates completion through
+the zone it was **created** in, and every widget/`fakeAsync` test body runs in
+its own zone which dies with the test. So a *finished* tail future left in the
+process-wide `_saveQueue` by an earlier test can never deliver a `.then`
+registered from a later one — the next save waits forever. The bounded wait had
+been hiding this (it gave up after 5s and moved on); a strict chain cannot.
+
+Sprinkling `resetSaveQueueForTest()` into the nine test files that build a
+`VipManager` would have treated the symptom and left the next VIP test file to
+rediscover it. The fix is a counter: `_savesInFlight`. Ordering only ever has to
+hold against writes that are **still in flight**, and those were queued by the
+caller's own live zone; when the count is zero the stale tail is simply not
+waited on (in `_save`, and in the `_load` drain). Decremented in a `finally`
+after the write itself, so a later save can never skip the wait while the
+previous one is still touching the key.
+
+Proof it still orders: `a later write cannot jump ahead of a wedged one` and
+`a write started by a discarded manager cannot land on top of its replacement`
+both stay green with the counter and both go red if the chain is dropped
+unconditionally.

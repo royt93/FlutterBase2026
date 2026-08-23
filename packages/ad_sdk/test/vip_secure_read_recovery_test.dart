@@ -606,11 +606,12 @@ void main() {
     });
   });
 
-  // Round-11 QC, MAJOR (codex) — the bounded wait means two writes can be in
-  // flight at once, so the queue's ordering guarantee has to be restored after
-  // the fact: otherwise the write that blew the bound lands last and its stale
-  // snapshot owns the disk, which is the resurrected-entitlement bug again.
-  test('a write that lands after a newer one does not own the disk', () {
+  // Round-12 QC, MAJOR (both reviewers) — writes are STRICTLY ordered. A
+  // bounded wait here was tried and reverted: it put two writes in flight over
+  // the same key, and the one that was given up on could still land last and
+  // leave a stale snapshot on disk. The queue must make a later write land
+  // later, full stop, even behind a platform call that has wedged.
+  test('a later write cannot jump ahead of a wedged one', () {
     final secure = _FlakySecureStorage();
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
@@ -621,7 +622,7 @@ void main() {
       unawaited(mgr.load());
       async.flushMicrotasks();
 
-      // A write that hangs inside the platform call for longer than the bound.
+      // A write that hangs inside the platform call, far longer than any bound.
       final hung = Completer<void>();
       secure.writeGate = hung;
       unawaited(mgr.addVip(key: 'OLD', duration: const Duration(days: 7)));
@@ -630,21 +631,21 @@ void main() {
           reason: 'sanity: the hung write is inside the platform call');
       secure.writeGate = null;
 
-      // The revoke gives up waiting for it and writes anyway.
+      // The revoke that follows it must not overtake it.
       unawaited(mgr.revokeAll());
-      async.elapse(VipManager.kSaveDrainTimeout + const Duration(seconds: 1));
+      async.elapse(const Duration(minutes: 5));
       async.flushMicrotasks();
-      expect(secure.data['ad_sdk_vip_entries_v1'], isNot(contains('OLD')),
-          reason: 'sanity: the revoke landed');
+      expect(secure.data['ad_sdk_vip_entries_v1'], isNull,
+          reason: 'nothing may reach disk while the write ahead of it has not '
+              'answered — a write that goes around it can still land last');
 
-      // The hung write finally answers, out of order.
       hung.complete();
       async.elapse(const Duration(seconds: 1));
       async.flushMicrotasks();
 
       expect(secure.data['ad_sdk_vip_entries_v1'], isNot(contains('OLD')),
-          reason: 'the revoke is the newer intent, so it must be what disk '
-              'holds once everything settles');
+          reason: 'once the wedged write clears, the revoke behind it is what '
+              'disk must hold');
     });
   });
 }

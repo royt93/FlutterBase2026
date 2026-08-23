@@ -135,27 +135,27 @@ class VipManager {
   /// actually last.
   static Future<void> _saveQueue = Future<void>.value();
 
+  /// How many queued saves have not finished yet. The queue is only chained
+  /// onto while this is non-zero.
+  ///
+  /// Not an optimisation — a correctness fix. A Dart future propagates its
+  /// completion through the zone it was CREATED in, so a finished tail future
+  /// left over from an earlier zone (every widget/`fakeAsync` test body runs in
+  /// its own, and it dies with the test) can never deliver a `.then` registered
+  /// from a later one: the write chained onto it hangs forever. Ordering only
+  /// ever needs to hold against writes that are still in flight, and those
+  /// belong to the caller's own live zone — so when nothing is in flight the
+  /// stale tail is simply not waited on.
+  static int _savesInFlight = 0;
+
   /// Drops the process-wide save ordering. Tests only — a test that parks a
   /// write and never releases it would otherwise wedge every later test.
   @visibleForTesting
   static void resetSaveQueueForTest() {
     _saveQueue = Future<void>.value();
-    _writeSeq = 0;
-    _landedSeq = 0;
-    _newestPayload = null;
-    _newestPayloadSeq = 0;
+    _savesInFlight = 0;
   }
 
-  /// Round-11 QC, MAJOR — a queued write's id, and the highest id that has
-  /// actually landed. Only ever differ from strict order when the bounded wait
-  /// in [_save] gives up on a predecessor: two writes are then in flight at
-  /// once and can land in the wrong order, which is exactly how a revoked
-  /// entitlement comes back from the dead. [_newestPayload] is what disk must
-  /// hold once everything settles, so a write that lands late can put it back.
-  static int _writeSeq = 0;
-  static int _landedSeq = 0;
-  static String? _newestPayload;
-  static int _newestPayloadSeq = 0;
 
   /// How long [load] waits for pending writes to land before giving up on
   /// them. Bounded because a wedged platform channel would otherwise hang
@@ -471,7 +471,9 @@ class VipManager {
       // OLD manager still has in flight; draining only its own (empty) tail
       // let it read pre-grant data and run the whole session as non-VIP —
       // and any later write of its own then made that permanent.
-      await _saveQueue.timeout(kSaveDrainTimeout);
+      if (_savesInFlight > 0) {
+        await _saveQueue.timeout(kSaveDrainTimeout);
+      }
     } catch (_) {
       // Bounded on purpose (round-10 QC, MAJOR): a platform write future that
       // never settles would otherwise hang every later load — and
@@ -690,47 +692,38 @@ class VipManager {
       return Future<void>.value();
     }
     _mutationEpoch++;
-    // Bounded wait on the queue, not a bare `then`: a platform write that never
-    // answers (a wedged Keystore) would otherwise freeze every later save for
-    // the life of the process. Ordering still holds in the normal case; past
-    // the timeout we prefer a possibly-reordered write to no writes at all.
-    final previous = _saveQueue;
-    final seq = ++_writeSeq;
-    final task = () async {
+    // Round-12 QC, MAJOR — a STRICT chain, never a bounded one. A bounded wait
+    // here was tried and reverted: giving up on a predecessor puts two writes
+    // in flight over the same key at once, and a platform call cannot be
+    // cancelled, so the one that was given up on can still land last and leave
+    // a stale snapshot (a revoked entitlement, resurrected) on disk. Repairing
+    // that after the fact needs the repair write to itself be ordered against
+    // every later write — machinery in the one code path that must not be
+    // clever.
+    //
+    // The freeze this trades against is survivable: a platform write that never
+    // answers stalls later PERSISTENCE only. RAM keeps the right entitlement for
+    // the session, the drain in [_load] is separately bounded so startup cannot
+    // hang, and the next launch reads disk fresh.
+    final predecessor =
+        _savesInFlight > 0 ? _saveQueue : Future<void>.value();
+    _savesInFlight++;
+    final task = predecessor.then((_) async {
       try {
-        await previous.timeout(kSaveDrainTimeout);
-      } catch (_) {
-        SafeLogger.w(_tag, 'a queued VIP write did not settle within '
-            '${kSaveDrainTimeout.inSeconds}s — writing anyway');
+        // Re-checked at EXECUTION time, not just at call time: this task may
+        // have waited behind other writes long enough for the host to tear the
+        // SDK down, and by then the store belongs to the replacement manager.
+        if (_disposed) {
+          SafeLogger.w(_tag, 'save reached the queue after dispose — dropped');
+          return;
+        }
+        await _vipEntriesStore.setRaw(VipEntry.encodeList(_entries));
+      } finally {
+        // Decremented only once the write itself is done, so a later save can
+        // never skip the wait while this one is still touching the key.
+        _savesInFlight--;
       }
-      // Re-checked at EXECUTION time, not just at call time: this task may have
-      // waited behind other writes long enough for the host to tear the SDK
-      // down, and by then the store belongs to the replacement manager.
-      if (_disposed) {
-        SafeLogger.w(_tag, 'save reached the queue after dispose — dropped');
-        return;
-      }
-      final payload = VipEntry.encodeList(_entries);
-      if (seq > _newestPayloadSeq) {
-        _newestPayloadSeq = seq;
-        _newestPayload = payload;
-      }
-      await _vipEntriesStore.setRaw(payload);
-      if (seq > _landedSeq) {
-        _landedSeq = seq;
-        return;
-      }
-      // We landed AFTER a newer write (our predecessor blew the bound above, so
-      // both were in flight at once). Left alone, this stale snapshot owns the
-      // disk — the revoked-entitlement-resurrected bug the queue exists to
-      // prevent. Put the newest intent back.
-      final newest = _newestPayload;
-      if (newest != null && newest != payload) {
-        SafeLogger.w(_tag, 'VIP write #$seq landed after #$_landedSeq — '
-            'restoring the newer snapshot');
-        await _vipEntriesStore.setRaw(newest);
-      }
-    }();
+    });
     // Catch errors so the queue keeps working even if one save fails.
     _saveQueue = task.catchError((Object e) {
       SafeLogger.w(_tag, '_save threw: $e');
