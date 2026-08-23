@@ -427,6 +427,32 @@ integration tests use.
 
 Suite: 1093 green, `flutter analyze` clean.
 
+## QC gate round 15 — codex 7/10, agy 10/10, one finding
+
+agy found nothing open. codex found the one await the round-14 pass still left
+unguarded, and it was right.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | The recovery's own mismatch re-apply is an await like any other, and the only one with no re-check after it. A host decision landing while that re-apply is in flight supersedes it, so it writes nothing — and the recovery run its runner kicks on the way out is suppressed by `_consentGateRecovering` for as long as the outer run is still on the stack. The debt was left armed with nobody to pay it: the guessed close became permanent again, one await deeper than round 14. | One owner for the debt, in `_recoverConsentGate`'s `finally`: if this run is leaving with the debt still owed and no timer armed for it, it arms one. The two inner `_scheduleConsentGateRecoveryRetry()` calls (round 13's UMP-failure retry, round 14's post-UMP one) were folded into it, and `_consentRecoveryStillOwns` went back to being a pure predicate — one place decides to re-arm, so there is no path that can forget to. |
+
+Red-proof: reverting only the `finally` sweep turns four unit tests red at once
+(the new *a host decision during the recovery's own re-apply does not strand the
+gate*, plus round 13's *recovery retries when the UMP channel fails* and round
+14's *recovery retries when its own re-apply fails* and *a host consent decision
+mid-recovery does not strand the gate*) — which is the point of a single owner:
+every retry path now runs through the same line. The widget half (*banners come
+back after a host decision lands in the recovery's own re-apply*) is red as
+`Expected: a value greater than <0> Actual: <0>`.
+
+Not device-testable, same class as the two round-14 Majors: the scenario needs
+the UMP channel parked mid-call and the apply held at its entry barrier on
+command, which no on-device seam can do. The device suite (5 tests) was re-run
+green on the S24 Ultra against this commit anyway, since the change is in a path
+every one of them walks.
+
+Suite: 1095 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

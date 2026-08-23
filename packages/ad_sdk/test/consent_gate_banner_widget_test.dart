@@ -668,6 +668,85 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // Round-15 QC, MAJOR — same consequence one await deeper: the host decision
+  // lands while the recovery's own re-apply is in flight, so that re-apply
+  // writes nothing and the kick it would have left behind is suppressed.
+  testWidgets('banners come back after a host decision lands in the recovery '
+      'own re-apply', (tester) async {
+    AdManager.debugConsentGateRecoveryRetryDelay =
+        const Duration(milliseconds: 20);
+    addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = false;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    final stuck = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuck.future;
+    final first = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    final queued = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.runAsync(
+        () => AdManager().setConsent(const AdConsent(hasUserConsent: true)));
+
+    final wedge = Completer<void>();
+    statusGate = wedge;
+    AdManager.debugConsentWriteBarrier = null;
+    stuck.complete();
+    await tester.runAsync(() async {
+      await first;
+      await queued;
+    });
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // The device now disagrees with what is applied, so the recovery re-applies
+    // instead of just reopening — and that re-apply is held at its entry.
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    final entry = Completer<void>();
+    AdManager.debugConsentApplyBarrier = entry.future;
+    statusGate = null;
+    wedge.complete();
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 0, reason: 'sanity: the gate is shut');
+
+    await tester.runAsync(
+        () => AdManager().setConsent(const AdConsent(hasUserConsent: true)));
+    AdManager.debugConsentApplyBarrier = null;
+    entry.complete();
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(adapter.loadBannerCalls, greaterThan(0),
+        reason: 'a decision landing inside the recovery must not leave every '
+            'banner in the app blank for the rest of the session');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the other half — a clean grant does let the banner request',
       (tester) async {
     final adapter = _BannerCountingAdapter();

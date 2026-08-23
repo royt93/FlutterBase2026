@@ -3320,7 +3320,6 @@ class AdManager with WidgetsBindingObserver {
         // surface would stay dark exactly as if this recovery were not here.
         SafeLogger.w(_tag,
             '🔐 consent gate recovery could not reach UMP ($e) — retrying');
-        _scheduleConsentGateRecoveryRetry();
         return;
       }
       // Round-14 QC, MAJOR — ownership is re-checked before ANY write this
@@ -3375,9 +3374,18 @@ class AdManager with WidgetsBindingObserver {
       // bounded way instead of only being logged.
       SafeLogger.e(
           _tag, '🔐 consent gate recovery failed after the UMP read: $e\n$st');
-      _scheduleConsentGateRecoveryRetry();
     } finally {
+      // Round-15 QC, MAJOR — one owner for the debt, at the only place every
+      // path goes through. Whatever happened above, the debt is either settled
+      // or still owed; if it is still owed then this run was the last thing
+      // that could have paid it, because the runs its own nested apply would
+      // have kicked are suppressed by `_consentGateRecovering` for as long as
+      // this one is on the stack. Leaving without a timer armed is what makes
+      // a guessed close permanent — every ad surface dark for the session.
       _consentGateRecovering = false;
+      if (_recoveryStillOwed && _consentGateRecoveryRetry?.isActive != true) {
+        _scheduleConsentGateRecoveryRetry();
+      }
     }
   }
 
@@ -3387,9 +3395,10 @@ class AdManager with WidgetsBindingObserver {
   /// intent took over (a host `setConsent`, a `destroy()`), and this run must
   /// stand down. But standing down silently loses the debt: a host
   /// `setConsent` deliberately never touches `_canRequestAds`, so the guessed
-  /// close it landed on top of would stay for the rest of the session. Hand
-  /// the debt to a bounded retry instead, which re-reads it under the new
-  /// epoch. A `destroy()` clears the flag, so it schedules nothing.
+  /// close it landed on top of would stay for the rest of the session. The
+  /// `finally` in [_recoverConsentGate] is what hands such a debt to a bounded
+  /// retry — this stays a pure predicate so there is exactly one place that
+  /// decides to re-arm. A `destroy()` clears the flag, so nothing is armed.
   bool _consentRecoveryStillOwns(int epoch) {
     if (epoch == _consentIntentEpoch) return _recoveryStillOwed;
     if (_recoveryStillOwed) {
@@ -3397,7 +3406,6 @@ class AdManager with WidgetsBindingObserver {
           _tag,
           '🔐 consent gate recovery lost its epoch mid-flight but the gate is '
           'still shut on a guess — handing it to a retry');
-      _scheduleConsentGateRecoveryRetry();
     }
     return false;
   }

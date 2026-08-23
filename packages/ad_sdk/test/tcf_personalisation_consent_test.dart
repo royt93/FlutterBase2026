@@ -1572,6 +1572,87 @@ void main() {
           reason: 'and it lands the device state, not the stale one');
     });
 
+    // Round-15 QC, MAJOR — the recovery's own re-apply is an await too, and
+    // the one it had no re-check after. A host decision landing while that
+    // re-apply is in flight supersedes it, so it writes nothing — and the
+    // recovery run it kicks on its way out is suppressed by
+    // `_consentGateRecovering` while the outer run is still on the stack.
+    // Nobody was left to reopen the gate.
+    test('a host decision during the recovery\'s own re-apply does not strand '
+        'the gate', () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      // Park the recovery, then make the device disagree with what is applied
+      // so it has to re-apply rather than just reopen.
+      final wedge = Completer<void>();
+      statusGate = wedge;
+      addTearDown(() {
+        statusGate = null;
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+
+      // Hold that re-apply at its entry, and let the host decide underneath it.
+      final entry = Completer<void>();
+      AdManager.debugConsentApplyBarrier = entry.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!entry.isCompleted) entry.complete();
+      });
+      statusGate = null;
+      wedge.complete();
+      await pumpEventQueue(times: 20);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      AdManager.debugConsentApplyBarrier = null;
+      entry.complete();
+      await pumpEventQueue(times: 30);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: the re-apply was superseded, so it wrote nothing');
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'the run that was supposed to pay the debt cannot leave '
+              'without arming a retry — its own nested kick is suppressed '
+              'while it is still on the stack');
+    });
+
     // Round-14 QC, MINOR — the ordinary apply refills the held fullscreen
     // slots when it reopens the gate. Recovery reopens the same gate, so it
     // owed the same refill: without it the app-open, interstitial and rewarded
