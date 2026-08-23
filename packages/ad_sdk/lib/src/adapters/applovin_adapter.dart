@@ -730,8 +730,10 @@ class AppLovinAdapter implements AdProviderAdapter {
           errorCode: err.code.value,
         ));
       },
-      onAdDisplayedCallback: (ad) =>
-          SafeLogger.d(_logTag, 'appOpen $tag ✅ displayed'),
+      onAdDisplayedCallback: (ad) {
+        appOpenSlot.markDisplayed();
+        SafeLogger.d(_logTag, 'appOpen $tag ✅ displayed');
+      },
       onAdRevenuePaidCallback: (ad) {
         _emitRevenueIfPresent(ad, AdSlotType.appOpen, AdPlacement.splash);
       },
@@ -1018,6 +1020,8 @@ class AppLovinAdapter implements AdProviderAdapter {
         ));
       },
       onAdDisplayedCallback: (ad) {
+        // Disarms beginShow's watchdog — from here the user owns the clock.
+        interstitialSlot.markDisplayed();
         SafeLogger.d(
             _logTag,
             () => 'inter $tag ✅ displayed | network=${ad.networkName} '
@@ -1125,7 +1129,16 @@ class AppLovinAdapter implements AdProviderAdapter {
       onDone(false);
       return;
     }
-    if (!interstitialSlot.beginShow()) {
+    // Round-7 audit, MAJOR — see [AdSlot.beginShow]. `_bridge.showInterstitial`
+    // is fire-and-forget: AppLovin's `showAd()` on an ad its own cache has
+    // since dropped logs an error natively and fires NO callback, so without
+    // this watchdog the slot stayed `showing` and no interstitial ever loaded
+    // again for the rest of the session.
+    if (!interstitialSlot.beginShow(onShowNeverConfirmed: () {
+      final cb = _interstitialDone;
+      _interstitialDone = null;
+      cb?.call(false);
+    })) {
       SafeLogger.w(_logTag, 'showInterstitial $tag ⚠️ already showing');
       onDone(false);
       return;
@@ -1213,8 +1226,10 @@ class AppLovinAdapter implements AdProviderAdapter {
           errorCode: err.code.value,
         ));
       },
-      onAdDisplayedCallback: (ad) =>
-          SafeLogger.d(_logTag, 'rewarded $tag ✅ displayed'),
+      onAdDisplayedCallback: (ad) {
+        rewardedSlot.markDisplayed();
+        SafeLogger.d(_logTag, 'rewarded $tag ✅ displayed');
+      },
       onAdRevenuePaidCallback: (ad) {
         _emitRevenueIfPresent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
       },
@@ -1332,7 +1347,13 @@ class AppLovinAdapter implements AdProviderAdapter {
       onDone(RewardResult.skipped);
       return;
     }
-    if (!rewardedSlot.beginShow()) {
+    // Round-7 audit, MAJOR — see [AdSlot.beginShow] and the note on
+    // showInterstitial above.
+    if (!rewardedSlot.beginShow(onShowNeverConfirmed: () {
+      final cb = _rewardedDone;
+      _rewardedDone = null;
+      cb?.call(RewardResult.skipped);
+    })) {
       SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ already showing');
       onDone(RewardResult.skipped);
       return;

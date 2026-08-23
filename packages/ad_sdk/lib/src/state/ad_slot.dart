@@ -200,21 +200,88 @@ class AdSlot {
     }
   }
 
-  /// Move slot into [AdSlotState.showing]. Only valid from [AdSlotState.ready].
-  bool beginShow() {
+  /// How long [beginShow] waits for the native SDK to confirm the ad actually
+  /// reached the screen before deciding the show request was swallowed.
+  ///
+  /// 10s is far longer than any real display latency (AppLovin reports
+  /// `onAdDisplayed` and GMA `onAdShowedFullScreenContent` within
+  /// milliseconds of the ad appearing — the waterfall work all happens during
+  /// *load*), and this window closes the moment [markDisplayed] is called.
+  static const Duration showConfirmTimeout = Duration(seconds: 10);
+
+  Timer? _showConfirmTimer;
+
+  /// Move the slot into [AdSlotState.showing]. Only valid from
+  /// [AdSlotState.ready].
+  ///
+  /// [onShowNeverConfirmed] arms a watchdog for the gap between "we asked the
+  /// native SDK to show this ad" and "the SDK told us it is on screen".
+  /// Round-7 audit, MAJOR: both `show*` paths hand the request to a
+  /// fire-and-forget native call and then wait for a callback. When the SDK
+  /// swallows the request — AppLovin's `showAd()` on an ad its own cache has
+  /// since expired is a documented no-op, and a GMA ad whose activity dies
+  /// during presentation is the same class of failure — NO callback of any
+  /// kind arrives. The slot then sits in `showing` for the rest of the
+  /// session: both [beginLoad] and [beginReload] refuse while `isShowing`, so
+  /// the format never loads again, and the caller awaiting the show result
+  /// never resolves either. One wedged interstitial meant zero interstitials
+  /// until the user restarted the app.
+  ///
+  /// This deliberately does NOT guard the *rest* of the showing state. Once
+  /// [markDisplayed] has confirmed the ad is on screen, the slot may stay
+  /// `showing` for as long as the user leaves it there — a rewarded ad the
+  /// user pauses, or an iOS ad still presented while the app is backgrounded
+  /// after a click-out to the App Store. A timer that force-released the slot
+  /// there would tear down a live ad and could stack a second full-screen on
+  /// top of it, which is worse than the hang it would fix. The residual
+  /// "displayed, then the dismiss callback was lost" case is left to the
+  /// App Open path's own lifecycle-aware watchdog, the only surface where a
+  /// foreground signal reliably means the overlay is gone.
+  bool beginShow({void Function()? onShowNeverConfirmed}) {
     if (!isReady) return false;
     state.value = AdSlotState.showing;
+    _showConfirmTimer?.cancel();
+    _showConfirmTimer = null;
+    if (onShowNeverConfirmed == null) return true;
+    _showConfirmTimer = Timer(showConfirmTimeout, () {
+      _showConfirmTimer = null;
+      // A normal display confirmation (or an early dismiss/failure) already
+      // moved the slot on — nothing to recover.
+      if (!isShowing) return;
+      SafeLogger.e(
+          'AdSlot',
+          '$type: the native SDK never confirmed the ad reached the screen '
+              '${showConfirmTimeout.inSeconds}s after show() — treating the '
+              'request as swallowed and releasing the slot');
+      try {
+        onShowNeverConfirmed();
+      } catch (e) {
+        SafeLogger.w('AdSlot', '$type onShowNeverConfirmed threw: $e');
+      }
+      markShowFailed();
+    });
     return true;
+  }
+
+  /// The native SDK confirmed the ad is on screen. Disarms [beginShow]'s
+  /// watchdog — see its doc comment for why nothing may fire after this.
+  void markDisplayed() {
+    _showConfirmTimer?.cancel();
+    _showConfirmTimer = null;
   }
 
   /// Slot was shown then dismissed. Returns to [AdSlotState.idle] (caller
   /// usually triggers a fresh load right after).
   void markDismissed() {
+    _showConfirmTimer?.cancel();
+    _showConfirmTimer = null;
     state.value = AdSlotState.idle;
   }
 
   /// Show failed mid-flight. Returns to [AdSlotState.cooldown].
   void markShowFailed() {
+    _showConfirmTimer?.cancel();
+    _showConfirmTimer = null;
     lastErrorAt = DateTime.now();
     consecutiveFailures++;
     state.value = AdSlotState.cooldown;
@@ -230,6 +297,17 @@ class AdSlot {
 
   /// Reset to [AdSlotState.idle] and clear timestamps. Used by [AdManager.destroy].
   void reset() {
+    // Round-7 audit, MINOR: reset() left the load watchdog armed, so a timer
+    // that outlived the load it belonged to landed `markFailed()` on the NEXT
+    // load window — stamping `lastErrorAt` and arming a backoff against a load
+    // that never failed. The show watchdog is cancelled here for the same
+    // reason (reset() means "this slot owns nothing in flight"), though
+    // `beginShow` already cancels a stale one on its own, so that half is
+    // belt-and-braces rather than a fix for an observed bug.
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
+    _showConfirmTimer?.cancel();
+    _showConfirmTimer = null;
     state.value = AdSlotState.idle;
     lastErrorAt = null;
     lastLoadedAt = null;
@@ -242,6 +320,7 @@ class AdSlot {
   /// adapter's lifetime.
   void dispose() {
     _watchdogTimer?.cancel();
+    _showConfirmTimer?.cancel();
     state.dispose();
   }
 

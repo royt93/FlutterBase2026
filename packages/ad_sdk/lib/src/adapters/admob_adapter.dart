@@ -1071,7 +1071,17 @@ class AdMobAdapter implements AdProviderAdapter {
       onDone(false);
       return;
     }
-    if (!interstitialSlot.beginShow()) {
+    // Round-7 audit, MAJOR — see [AdSlot.beginShow]. If GMA never confirms the
+    // ad reached the screen, nothing else ever will: this slot would stay
+    // `showing` and no interstitial would load again for the rest of the
+    // session.
+    if (!interstitialSlot.beginShow(onShowNeverConfirmed: () {
+      if (identical(_interstitialAd, ad)) _interstitialAd = null;
+      _disposeAd(ad, 'inter-show-never-confirmed');
+      final cb = _interstitialDone;
+      _interstitialDone = null;
+      cb?.call(false);
+    })) {
       SafeLogger.w(_logTag, 'showInterstitial $tag ⚠️ already showing');
       onDone(false);
       return;
@@ -1079,7 +1089,11 @@ class AdMobAdapter implements AdProviderAdapter {
     _interstitialDone = onDone;
     try {
       await ad.show(GmaShowCallbacks(
-        onShowed: () => SafeLogger.d(_logTag, 'showInterstitial $tag ✅ shown'),
+        onShowed: () {
+          // Disarms beginShow's watchdog — from here the user owns the clock.
+          interstitialSlot.markDisplayed();
+          SafeLogger.d(_logTag, 'showInterstitial $tag ✅ shown');
+        },
         onDismissed: () {
           SafeLogger.d(_logTag, 'showInterstitial $tag 👋 dismissed');
           _interstitialAd = null;
@@ -1239,7 +1253,14 @@ class AdMobAdapter implements AdProviderAdapter {
       onDone(RewardResult.skipped);
       return;
     }
-    if (!rewardedSlot.beginShow()) {
+    // Round-7 audit, MAJOR — see [AdSlot.beginShow].
+    if (!rewardedSlot.beginShow(onShowNeverConfirmed: () {
+      if (identical(_rewardedAd, ad)) _rewardedAd = null;
+      _disposeAd(ad, 'rewarded-show-never-confirmed');
+      final cb = _rewardedDone;
+      _rewardedDone = null;
+      cb?.call(RewardResult.skipped);
+    })) {
       SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ already showing');
       onDone(RewardResult.skipped);
       return;
@@ -1263,7 +1284,10 @@ class AdMobAdapter implements AdProviderAdapter {
           ssvCustomData: ssvCustomData,
           ssvUserId: ssvUserId,
           GmaShowCallbacks(
-            onShowed: () => SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown'),
+            onShowed: () {
+              rewardedSlot.markDisplayed();
+              SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown');
+            },
             onDismissed: () {
               SafeLogger.d(
                   _logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
@@ -1401,7 +1425,14 @@ class AdMobAdapter implements AdProviderAdapter {
       onDone(RewardResult.skipped);
       return;
     }
-    if (!rewardedInterstitialSlot.beginShow()) {
+    // Round-7 audit, MAJOR — see [AdSlot.beginShow].
+    if (!rewardedInterstitialSlot.beginShow(onShowNeverConfirmed: () {
+      if (identical(_rewardedInterstitialAd, ad)) _rewardedInterstitialAd = null;
+      _disposeAd(ad, 'rewardedInterstitial-show-never-confirmed');
+      final cb = _rewardedInterstitialDone;
+      _rewardedInterstitialDone = null;
+      cb?.call(RewardResult.skipped);
+    })) {
       SafeLogger.w(_logTag, 'showRewardedInterstitial $tag ⚠️ already showing');
       onDone(RewardResult.skipped);
       return;
@@ -1421,8 +1452,10 @@ class AdMobAdapter implements AdProviderAdapter {
     try {
       await ad.show(
           GmaShowCallbacks(
-            onShowed: () =>
-                SafeLogger.d(_logTag, 'showRewardedInterstitial $tag ✅ shown'),
+            onShowed: () {
+              rewardedInterstitialSlot.markDisplayed();
+              SafeLogger.d(_logTag, 'showRewardedInterstitial $tag ✅ shown');
+            },
             onDismissed: () {
               SafeLogger.d(_logTag,
                   'showRewardedInterstitial $tag 👋 dismissed (earned=$earned)');
