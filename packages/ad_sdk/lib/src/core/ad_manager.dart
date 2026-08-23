@@ -3062,22 +3062,54 @@ class AdManager with WidgetsBindingObserver {
   /// established "re-apply after consent change" pattern used by
   /// [ConsentManager] and [requestUmpConsent].
   Future<PrivacyOptionsResult> showPrivacyOptions() async {
-    // Round-13 (device verification) BLOCKER — the flow's own 20s wait frees
-    // this call while the native form is still up, and the status it returns
-    // is therefore read BEFORE the user has chosen. `onLateDismiss` re-runs
-    // the apply step with what they actually chose; without it a withdrawal
-    // made after 20s of reading never reached either provider.
+    // Round-13 (device verification) BLOCKER — the flow's own wait frees this
+    // call while the native form is still up, and the status it returns is
+    // therefore read BEFORE the user has chosen. `onLateDismiss` re-runs the
+    // apply step with what they actually chose; without it a withdrawal made
+    // after the wait expired never reached either provider.
     final result = await requestPrivacyOptionsFlow(
-      onLateDismiss: (late) => unawaited(_applyPrivacyOptionsResult(late)),
+      onLateDismiss: (late) =>
+          unawaited(_applyPrivacyOptionsResult(late).catchError((Object e) {
+        // The apply is async all the way down (storage, both providers), so
+        // without this a failure in it becomes an unhandled zone error rather
+        // than a logged one — nothing is awaiting this future.
+        SafeLogger.e(_tag, 'late privacy-options apply threw: $e');
+        return late;
+      })),
     );
+    // Round-13 QC — the at-timeout snapshot is INCONCLUSIVE by construction:
+    // the form is still on screen, so this status predates the user's choice.
+    // Applying it was two bugs in one — it could fire `_retryRefillAds()`
+    // while the user was still reading, and it raced the late apply, so the
+    // stale value could land last and overwrite the real answer. Same guard
+    // as `umpInconclusive` in [_applyUmpConsentResult]; `onLateDismiss` above
+    // is what carries the answer once there is one.
+    if (result.formShown && (result.error?.contains('timed out') ?? false)) {
+      SafeLogger.w(
+          _tag,
+          'privacy options: our wait expired with the form still on screen — '
+          'keeping the current consent until the form reports back');
+      return result;
+    }
     return _applyPrivacyOptionsResult(result);
   }
+
+  /// Bumped by every consent apply that starts. An apply that finds this has
+  /// moved on while it was awaiting storage/UMP drops itself rather than
+  /// writing a value a newer read has already superseded.
+  ///
+  /// Round-13 QC, MAJOR — deliberately a counter rather than a chained queue:
+  /// the newest read of the device state is the one that should win, and an
+  /// instance-level future chain would re-open the dead-zone trap that cost
+  /// round 12 a wedged test suite (see `doc/audit/audit_round8_10.md`).
+  int _consentApplySeq = 0;
 
   /// Map a [PrivacyOptionsResult] onto both providers. Split out of
   /// [showPrivacyOptions] so the late-dismiss callback and the resume
   /// re-check can reuse it verbatim.
   Future<PrivacyOptionsResult> _applyPrivacyOptionsResult(
       PrivacyOptionsResult result) async {
+    final seq = ++_consentApplySeq;
     final wasBlocked = !_canRequestAds;
     _updateCanRequestAds(result.canRequestAds);
     SafeLogger.d(
@@ -3100,6 +3132,13 @@ class AdManager with WidgetsBindingObserver {
           _tag,
           'privacy options completed but the TCF purpose consents do NOT '
           'permit personalisation → serving non-personalised ads');
+    }
+    if (seq != _consentApplySeq) {
+      SafeLogger.w(
+          _tag,
+          'privacy options apply superseded while reading the TCF state — '
+          'dropping it so the newer read wins');
+      return result;
     }
     // MJ5 — see requestUmpConsent(): read the freshest CCPA/COPPA flags rather
     // than rebuilding them from a possibly-stale `_consent`.
@@ -3145,6 +3184,15 @@ class AdManager with WidgetsBindingObserver {
     if (tcfAllows == null) return;
     final applied = _consentManager?.adConsent ?? _consent;
     if (applied.hasUserConsent == tcfAllows) return;
+    // Round-13 QC, MINOR — tighten only, never grant.
+    // `tcfAllowsPersonalisedAds` reports true for `gdprApplies=0` (out of
+    // scope: the bitfield says nothing), so granting here would flip a host's
+    // own deliberate `setConsent(hasUserConsent: false)` — a parental toggle,
+    // a CCPA choice — back on at every resume. The two directions are not
+    // symmetrical either: a missed withdrawal is a compliance violation, a
+    // missed grant costs one session of personalised fill and is what the
+    // normal consent paths are for.
+    if (tcfAllows) return;
 
     final ump = await core_ump.recheckUmpConsentStatus();
     final expected =
@@ -4541,16 +4589,30 @@ class AdManager with WidgetsBindingObserver {
       } catch (e, st) {
         SafeLogger.e(_tag, 'onAppResumed threw: $e\n$st');
       }
-      try {
-        showAppOpenAdOnResume();
-      } catch (e, st) {
-        SafeLogger.e(_tag, 'showAppOpenAdOnResume threw: $e\n$st');
-      }
-      // See [_recheckConsentOnResume] — a consent change this process never
-      // saw land must not outlive the resume that follows it.
-      unawaited(_recheckConsentOnResume().catchError((Object e) {
-        SafeLogger.w(_tag, '_recheckConsentOnResume threw: $e');
-      }));
+      // Round-13 QC, BLOCKER — consent BEFORE the App Open ad, not alongside
+      // it. See [_recheckConsentOnResume]: a consent change this process never
+      // saw land must not outlive the resume that follows it, and the App Open
+      // ad is the first thing that resume shows. Run concurrently, a fill
+      // cached under a consent the user had since withdrawn was already on
+      // screen by the time the withdrawal was applied.
+      //
+      // Bounded so the reverse cannot happen either: a platform channel that
+      // never answers must cost a stale consent check, not the impression.
+      unawaited(_recheckConsentOnResume()
+          .timeout(const Duration(seconds: 2), onTimeout: () {
+            SafeLogger.w(
+                _tag, 'resume consent re-check timed out — showing App Open');
+          })
+          .catchError((Object e) {
+            SafeLogger.w(_tag, '_recheckConsentOnResume threw: $e');
+          })
+          .whenComplete(() {
+            try {
+              showAppOpenAdOnResume();
+            } catch (e, st) {
+              SafeLogger.e(_tag, 'showAppOpenAdOnResume threw: $e\n$st');
+            }
+          }));
     }
   }
 

@@ -2634,9 +2634,16 @@ void main() {
 
     test(
         'resumed → calls adapter.onAppResumed() and reaches '
-        'showAppOpenAdOnResume()', () {
+        'showAppOpenAdOnResume()', () async {
       AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
       expect(adapter.onAppResumedCalls, 1);
+      // Round-13 QC (BLOCKER) — the App Open ad now waits for the resume
+      // consent re-check, so it is no longer reached in the same synchronous
+      // turn: a fill cached under a consent the user has since withdrawn must
+      // not be on screen before the withdrawal is applied.
+      expect(adapter.loadAppOpenCalls, 0,
+          reason: 'consent is re-checked first');
+      await pumpEventQueue(times: 50);
       // Cold-start one-shot skip still triggers a reload — same proof used
       // by the showAppOpenAdOnResume() guard-chain group above — showing the
       // dispatcher really reached showAppOpenAdOnResume(), not just onResume.

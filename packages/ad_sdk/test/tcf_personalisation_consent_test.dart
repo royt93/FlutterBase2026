@@ -55,8 +55,15 @@ const String _purposesRefuse = '1010000000';
 class _StubAdapter implements AdProviderAdapter {
   final List<AdConsent> applied = <AdConsent>[];
 
+  /// Every adapter member the SDK touched, in order, so a test can pin
+  /// *ordering* and not just the end state.
+  final List<String> calls = <String>[];
+
   @override
-  void applyConsent(AdConsent consent) => applied.add(consent);
+  void applyConsent(AdConsent consent) {
+    applied.add(consent);
+    calls.add('applyConsent');
+  }
 
   @override
   String get tag => 'stub';
@@ -74,7 +81,12 @@ class _StubAdapter implements AdProviderAdapter {
   // A resolved future satisfies both the `Future`-returning members the
   // resume path touches (loadAppOpen) and the void ones.
   @override
-  dynamic noSuchMethod(Invocation invocation) => Future<void>.value();
+  dynamic noSuchMethod(Invocation invocation) {
+    final name = invocation.memberName.toString();
+    calls.add(name.substring(
+        name.indexOf('"') + 1, name.lastIndexOf('"').clamp(0, name.length)));
+    return Future<void>.value();
+  }
 }
 
 const _config = AdConfig(
@@ -388,6 +400,64 @@ void main() {
       expect(adapter.applied, isEmpty,
           reason: 'every resume must not re-apply consent — that would churn '
               'the consent epoch and discard loaded ads for nothing');
+    });
+
+    // Round-13 QC (BLOCKER) — end state alone is not enough: an App Open ad
+    // filled under the old consent must not be on screen *before* the
+    // withdrawal reaches the providers. The order is the compliance property.
+    test('resume applies the pending withdrawal BEFORE any App Open work',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      final appOpen = adapter.calls.indexWhere((c) => c.contains('AppOpen'));
+      expect(appOpen, greaterThanOrEqualTo(0),
+          reason: 'the resume path must still reach the App Open ad — a '
+              'consent re-check that swallows it would be its own bug');
+      expect(adapter.calls.indexOf('applyConsent'), inInclusiveRange(0, appOpen),
+          reason: 'the withdrawal must reach the provider before it is asked '
+              'for an App Open ad, or a fill cached under the old consent '
+              'shows first: ${adapter.calls}');
+    });
+
+    // Round-13 QC (MINOR) — `gdprApplies=0` makes tcfAllowsPersonalisedAds()
+    // report *true* (out of scope, not "consented"). A backstop that trusted
+    // that would flip a host's own deliberate refusal back on at every
+    // resume, so it may only ever tighten.
+    test('resume never overrides a host-set refusal outside GDPR scope',
+        () async {
+      seedTcf({'IABTCF_gdprApplies': 0});
+      await AdManager().requestUmpConsent();
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+      adapter.calls.clear();
+      adapter.applied.clear();
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the host said no; a TCF "true" that only means "GDPR does '
+              'not apply here" is not consent and must never grant');
+      expect(adapter.applied, isEmpty,
+          reason: 'and nothing should have been re-applied at all');
     });
 
     test('Privacy Options: re-confirming consent leaves it granted', () async {

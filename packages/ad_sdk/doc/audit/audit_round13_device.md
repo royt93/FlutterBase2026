@@ -87,6 +87,30 @@ on the network-call bound of 20 s, even though the withdrawal form is the
 still waiting at 20 s and gives up at `kFormDismissTimeout` — the old
 assertion was pinning the bug.
 
+## QC gate on the fix (round 13) — 5 findings, all fixed
+
+The first commit of the fix scored codex 5/10 and agy 8/10 (gate is >8.5 from
+both), on five findings that all shared one root: a *late* consent apply is a
+second writer racing the first.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | The resume branch showed the App Open ad *and* started the consent re-check in the same turn, so a fill cached under the old consent could be on screen before the withdrawal reached either provider. | App Open now runs in `.whenComplete()` of the re-check, capped at 2 s so a wedged UMP channel cannot swallow the ad. |
+| Major | The at-timeout snapshot was applied even when the form was demonstrably still open — inconclusive by construction, and it clobbered the (correct) late apply that followed. | `showPrivacyOptions()` returns early on `formShown && error contains 'timed out'`, keeping the current consent until the form reports back. Same shape as the existing `umpInconclusive` guard in `_applyUmpConsentResult`. |
+| Major | Two applies could interleave inside `_applyPrivacyOptionsResult`'s `await IabStorage…` and the stale one land last. | A generation counter (`_consentApplySeq`): the apply drops itself if a newer one started while it was reading. Deliberately *not* a chained future queue — round 12 showed a tail future in a dead zone wedges the whole suite. |
+| Major | The late apply was fired with bare `unawaited`, so a throw inside it became an unhandled async error. | `.catchError` logs it and returns the result. |
+| Minor | `tcfAllowsPersonalisedAds()` reports `true` for `gdprApplies=0` ("out of scope", not "consented"), so the backstop would have flipped a host's own `setConsent(hasUserConsent: false)` — a parental toggle, a CCPA choice — back on at every resume. | The backstop may only ever tighten: `if (tcfAllows) return;`. The asymmetry is the point — a missed withdrawal is a compliance violation, a missed grant costs one session of personalised fill that the normal consent paths grant anyway. |
+
+Two more tests, each verified red against its own reverted fix:
+
+* *resume applies the pending withdrawal BEFORE any App Open work* — pins the
+  order, not just the end state (red: `applyConsent` landed at index 2, the
+  App Open call at 1).
+* *resume never overrides a host-set refusal outside GDPR scope* — red without
+  the tighten-only guard: `Expected: false Actual: <true>`.
+
+Suite: 1059 green, `flutter analyze` clean.
+
 ## Still unverified
 
 * **AppLovin after a consent change.** Needs a real MAX SDK key; the example
