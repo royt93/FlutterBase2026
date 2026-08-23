@@ -3342,6 +3342,24 @@ class AdManager with WidgetsBindingObserver {
       onAdDismiss(false);
       return;
     }
+    // Round-6 audit: `bypassSafety` is documented as skipping the FREQUENCY
+    // limits so a cold start can always monetise — daily cap, 30s throttle,
+    // per-placement cap. The invalid-traffic cooldown lives inside the same
+    // `canShowFullscreenAd()` call, so it was being skipped too, and this is
+    // the surface that shows most often: a device already flagged for click
+    // fraud got an App Open on every single launch. That pause protects the
+    // publisher's AdMob account, not the user's pacing, so it applies even
+    // here. Checked via the side-effect-free getter so the bypass path cannot
+    // record a violation of its own.
+    if (AdSafetyConfig.isInvalidTrafficPauseActive) {
+      SafeLogger.w(_tag,
+          '⏭️ showAppOpen skipped — invalid-traffic pause active (bypassSafety '
+          'does not cover it)');
+      _emitSkip(AdSlotType.appOpen, 'show', 'invalid-traffic-pause',
+          placement: placement);
+      onAdDismiss(false);
+      return;
+    }
     if (!bypassSafety) {
       final s = AdSafetyConfig.canShowFullscreenAd();
       if (!s.canShow) {

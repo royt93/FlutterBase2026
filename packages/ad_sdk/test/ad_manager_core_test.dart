@@ -1050,6 +1050,47 @@ void main() {
       );
       expect(dismissed, isFalse);
     });
+
+    test(
+        'bypassSafety does NOT bypass the invalid-traffic pause (round-6 audit)',
+        () async {
+      // `bypassSafety` exists so the splash App Open can skip the FREQUENCY
+      // limits — daily cap, 30s throttle, per-placement cap. The
+      // invalid-traffic cooldown is a different thing: it protects the
+      // publisher's AdMob account from being flagged for invalid traffic, and
+      // skipping it at the surface that shows most often (every cold start) is
+      // the worst possible place to skip it.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdManager().debugVipManager = _FakeVip(false);
+
+      final adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      // Trip the click-spam detector through the real production path — one
+      // click past the configured per-minute ceiling — rather than reaching
+      // into private state.
+      for (var i = 0; i <= AdSafetyParams.debug.maxClicksPerMinute; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      expect(AdSafetyConfig.isInvalidTrafficPauseActive, isTrue,
+          reason: 'sanity check: the click spam must have started a pause');
+
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+
+      expect(adapter.showAppOpenCalls, 0,
+          reason: 'a device already flagged for click fraud must not be served '
+              'an App Open, even on the splash bypass path');
+      expect(dismissed, isFalse);
+    });
   });
 
   group('AppOpenTrigger gating', () {

@@ -271,6 +271,22 @@ class AdSafetyConfig {
   static bool _isColdStart = true;
   static final List<int> _clickTimestamps = [];
   static int _suspiciousPauseUntil = 0;
+
+  /// Whether the invalid-traffic cooldown is currently holding ads back.
+  ///
+  /// Exposed separately from [canShowFullscreenAd] because the splash App Open
+  /// shows with `bypassSafety: true`, and that flag is meant to skip the
+  /// *frequency* limits (daily cap, 30s throttle, per-placement cap) — not the
+  /// anti-invalid-traffic pause, which exists to protect the publisher's AdMob
+  /// account rather than to pace the user. Round-6 audit found the pause was
+  /// being skipped along with the caps at exactly the surface that shows most
+  /// often, so a device already flagged for click fraud kept being served on
+  /// every app launch.
+  ///
+  /// Read-only and side-effect free: unlike [canShowFullscreenAd] this records
+  /// no violation, so it is safe on a bypass path.
+  static bool get isInvalidTrafficPauseActive =>
+      DateTime.now().millisecondsSinceEpoch < _suspiciousPauseUntil;
   static int _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
   static final List<int> _hourlyAdTimestamps = [];
   static final List<int> _resumeTimestamps = [];
