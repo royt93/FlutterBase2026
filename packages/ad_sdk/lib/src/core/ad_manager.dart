@@ -2836,11 +2836,31 @@ class AdManager with WidgetsBindingObserver {
         () =>
             '🔐 UMP gate → canRequestAds=$_canRequestAds (status=${result.status.name})');
 
-    // Map UMP status → AdConsent.hasUserConsent. `obtained` and `notRequired`
-    // both mean we may serve personalized ads; `required` (form not shown /
+    // Map UMP status → AdConsent.hasUserConsent. `required` (form not shown /
     // dismissed without choosing) and `unknown` stay non-personalized.
-    final hasConsent = result.status == ConsentStatus.obtained ||
+    //
+    // Round-6 audit, BLOCKER — `obtained`/`notRequired` used to be taken as
+    // consent on their own. `obtained` means only that the form was COMPLETED:
+    // an EEA user who rejected every purpose reaches exactly this branch, and
+    // `canRequestAds` stays true because non-personalised ads are still
+    // servable. The SDK then told AppLovin `setHasUserConsent(true)` and AdMob
+    // `nonPersonalizedAds=false` — serving personalised ads to someone who had
+    // just said no, with their own form submission as the evidence.
+    //
+    // So the real intent is read back from the TCF purpose bitfield the CMP
+    // wrote. `null` means there is no TCF signal at all (the normal case
+    // outside the EEA, where the UMP status IS the whole answer), so it falls
+    // back to the old mapping rather than downgrading every non-EEA user.
+    final statusAllows = result.status == ConsentStatus.obtained ||
         result.status == ConsentStatus.notRequired;
+    final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
+    final hasConsent = statusAllows && (tcfAllows ?? true);
+    if (statusAllows && tcfAllows == false) {
+      SafeLogger.w(
+          _tag,
+          'UMP status=${result.status.name} but the TCF purpose consents do '
+          'NOT permit personalisation → serving non-personalised ads');
+    }
     // C2 — only write the mapping when the flow actually completed. On a failed
     // attempt (no network, or the 20s timeout) UMP reports `unknown`, which
     // maps to hasUserConsent=false and would OVERWRITE a choice the user
@@ -2998,8 +3018,23 @@ class AdManager with WidgetsBindingObserver {
         () =>
             '🔐 privacy options → canRequestAds=$_canRequestAds (status=${result.status.name})');
 
-    final hasConsent = result.status == ConsentStatus.obtained ||
+    // Round-6 audit, BLOCKER — same `obtained` != "consented" trap as
+    // [_applyUmpConsentResult], and this is the sharper half of it: Privacy
+    // Options is *the* withdrawal path. A user who reopens the form
+    // specifically to turn personalisation off submits it, gets `obtained`, and
+    // used to be handed `hasUserConsent: true` — personalised ads resuming
+    // immediately after an explicit withdrawal. See
+    // [IabStorage.tcfAllowsPersonalisedAds] for what is read instead.
+    final statusAllows = result.status == ConsentStatus.obtained ||
         result.status == ConsentStatus.notRequired;
+    final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
+    final hasConsent = statusAllows && (tcfAllows ?? true);
+    if (statusAllows && tcfAllows == false) {
+      SafeLogger.w(
+          _tag,
+          'privacy options completed but the TCF purpose consents do NOT '
+          'permit personalisation → serving non-personalised ads');
+    }
     // MJ5 — see requestUmpConsent(): read the freshest CCPA/COPPA flags rather
     // than rebuilding them from a possibly-stale `_consent`.
     final current = _consentManager?.adConsent ?? _consent;

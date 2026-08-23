@@ -51,6 +51,14 @@ class IabStorage {
   /// IAB Global Privacy Platform header string (the newer US-states signal).
   static const String keyGppString = 'IABGPP_HDR_GppString';
 
+  /// Per-purpose consent bitfield, one character per TCF purpose in order:
+  /// `'1'` = consented, `'0'` = not. Index 0 is Purpose 1.
+  static const String keyPurposeConsents = 'IABTCF_PurposeConsents';
+
+  /// `1` when the CMP determined GDPR applies to this user, `0` when it does
+  /// not. Absent when no TCF session has ever run.
+  static const String keyGdprApplies = 'IABTCF_gdprApplies';
+
   static SharedPreferencesAsync? _store;
   static String? _androidFileName;
 
@@ -141,5 +149,61 @@ class IabStorage {
     final flag = usp[2].toUpperCase();
     if (flag != 'Y' && flag != 'N') return null;
     return flag == 'Y';
+  }
+
+  /// Reads one IAB integer flag, or `null` if absent/unreadable/not an int.
+  static Future<int?> readInt(String key) async {
+    try {
+      final store = await _open().timeout(const Duration(seconds: 5));
+      if (store == null) return null;
+      return await store.getInt(key).timeout(const Duration(seconds: 5));
+    } catch (e) {
+      // A CMP that wrote this key as a String rather than an Int lands here
+      // too; "no signal" is the right answer either way.
+      SafeLogger.d('IabStorage', () => 'readInt($key) failed: $e');
+      return null;
+    }
+  }
+
+  /// Whether the recorded TCF consent actually permits **personalised** ads.
+  ///
+  /// Returns `null` when there is no TCF signal at all — a caller outside the
+  /// EEA must not read that as a refusal.
+  ///
+  /// Round-6 audit, BLOCKER. The SDK used to derive `hasUserConsent` from
+  /// UMP's `ConsentStatus.obtained` alone. `obtained` means only that the form
+  /// was **completed** — a user who opened the EEA form and rejected every
+  /// purpose gets `obtained` just the same, and `canRequestAds` can still be
+  /// true because non-personalised ads remain servable. The SDK then told
+  /// AppLovin `setHasUserConsent(true)` and AdMob `nonPersonalizedAds=false`,
+  /// i.e. it served personalised ads to a user who had explicitly said no.
+  /// That is the exact failure GDPR/DMA enforcement looks for, and the form
+  /// itself is the evidence the user refused.
+  ///
+  /// Personalised advertising under the TCF needs *consent* (not legitimate
+  /// interest) for Purpose 1 (store/access information on a device), Purpose 3
+  /// (create profiles for personalised advertising) and Purpose 4 (use
+  /// profiles to select personalised advertising). Anything less is
+  /// non-personalised territory, so the check is all three or nothing.
+  ///
+  /// Deliberately does NOT parse `IABTCF_VendorConsents` for Google's vendor
+  /// id: that field is a 1000+ position bitfield with a range-encoded variant,
+  /// and mis-parsing it would silently downgrade every user — the same reason
+  /// [usPrivacyOptedOut] stops short of decoding GPP. The purpose bitfield is
+  /// the decisive signal for *personalisation* and is a plain string.
+  static Future<bool?> tcfAllowsPersonalisedAds() async {
+    final gdprApplies = await readInt(keyGdprApplies);
+    // Explicitly out of GDPR scope — the purpose bitfield is not populated
+    // meaningfully there, and refusing personalisation would be wrong.
+    if (gdprApplies == 0) return true;
+
+    final purposes = await read(keyPurposeConsents);
+    if (gdprApplies == null && purposes == null) {
+      // No TCF session has ever run on this device (typical outside the EEA).
+      return null;
+    }
+    // GDPR applies but no purpose consents were recorded: not consented.
+    if (purposes == null || purposes.length < 4) return false;
+    return purposes[0] == '1' && purposes[2] == '1' && purposes[3] == '1';
   }
 }
