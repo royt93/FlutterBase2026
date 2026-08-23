@@ -30,8 +30,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// An in-memory secure store. With [broken] it throws on every call, which is
 /// what a device with an unusable Keystore looks like from Dart.
 class _FakeSecureStorage extends FlutterSecureStorage {
-  _FakeSecureStorage({this.broken = false});
+  _FakeSecureStorage({this.broken = false, this.failReadOfKey});
   final bool broken;
+
+  /// Fails `read` for exactly this key while every other operation works —
+  /// a transient read error, which is a different thing from an unusable
+  /// Keystore and must not be treated as one.
+  final String? failReadOfKey;
   final Map<String, String> _data = {};
 
   /// Proves the probe actually ran rather than being short-circuited.
@@ -68,6 +73,9 @@ class _FakeSecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     if (broken) throw PlatformExceptionStub();
+    if (failReadOfKey != null && key == failReadOfKey) {
+      throw PlatformExceptionStub();
+    }
     return _data[key];
   }
 
@@ -149,5 +157,30 @@ void main() {
     expect(mgr.expiresAt!.year, 2099,
         reason: 'clamping here would punish exactly the paying customers the '
             'fallback was added to rescue');
+  });
+
+  // Round-6 codex QC — `_readSecure()` returned null both for "no entry" and
+  // for "the read threw". A transient read failure therefore looked exactly
+  // like an empty store, the probe right after it succeeded, and a GENUINE
+  // grant got clamped to 24h. The fake above fails one operation rather than
+  // all of them, which is what the earlier `broken: true` fake could not
+  // express.
+  test('a transient read error is not mistaken for a planted fallback',
+      () async {
+    final secure = _FakeSecureStorage(failReadOfKey: 'ad_sdk_vip_entries_v1');
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+    await plantForgedFallback();
+
+    final mgr = VipManager(prefs, vipEntriesStore: store);
+    addTearDown(mgr.dispose);
+    await mgr.load();
+
+    expect(store.lastReadWasUntrustedFallback, isFalse,
+        reason: 'the entries read FAILED — that says nothing about whether the '
+            'fallback was planted, and a healthy probe afterwards must not be '
+            'read as proof that it was');
+    expect(mgr.expiresAt!.year, 2099,
+        reason: 'clamping on a transient read blip would quietly cut a paying '
+            "customer's VIP");
   });
 }

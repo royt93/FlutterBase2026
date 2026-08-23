@@ -96,7 +96,10 @@ class VipEntriesStore {
       // that customer cannot simply redeem their code again. So the value is
       // still returned and the caller clamps it — see
       // [lastReadWasUntrustedFallback].
-      lastReadWasUntrustedFallback = await _secureStorageWorks();
+      // A failed entries read tells us nothing about the fallback's
+      // provenance, so a healthy probe after one is not evidence.
+      lastReadWasUntrustedFallback =
+          !_lastSecureReadErrored && await _secureStorageWorks();
       if (lastReadWasUntrustedFallback) {
         SafeLogger.w(
             _tag,
@@ -163,11 +166,21 @@ class VipEntriesStore {
     }
   }
 
+  /// Set when the last [_readSecure] FAILED, as opposed to finding nothing.
+  ///
+  /// Round-6 QC — both cases used to return null, so a transient read blip was
+  /// indistinguishable from an empty store: the probe right afterwards
+  /// succeeded, the fallback looked planted, and a genuine grant was clamped.
+  /// A failed read is evidence of nothing, so it must not feed that inference.
+  bool _lastSecureReadErrored = false;
+
   Future<String?> _readSecure() async {
+    _lastSecureReadErrored = false;
     try {
       return await _secure.read(key: _secureKey);
     } catch (e) {
       SafeLogger.w(_tag, 'getRaw threw: $e — defaulting to no VIP data');
+      _lastSecureReadErrored = true;
       return null;
     }
   }

@@ -1551,7 +1551,16 @@ class AppLovinAdapter implements AdProviderAdapter {
     // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
     // called beginLoad; this brings AppLovin in line, and with it the load
     // watchdog that state enables.
-    _bannerSlotFor(key).beginLoad();
+    // Round-6 QC — honour the answer. Throwing it away sent the request
+    // with the slot left in cooldown, which is precisely the state that made
+    // the no-fill handler dead code, so the retry path stayed broken even
+    // after the first fix. AdMob's banner path has always returned here, with
+    // the same rationale: a flapping banner is cheap to skip.
+    if (!_bannerSlotFor(key).beginLoad()) {
+      SafeLogger.d(_logTag,
+          'preloadBanner $tag \u23ed\ufe0f already loading/showing or in cooldown');
+      return;
+    }
       final adViewId = await _bridge.preloadWidgetAdView(
         cfg.bannerId,
         AdFormat.banner,
@@ -1645,7 +1654,16 @@ class AppLovinAdapter implements AdProviderAdapter {
     // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
     // called beginLoad; this brings AppLovin in line, and with it the load
     // watchdog that state enables.
-    _mrecSlotFor(key).beginLoad();
+    // Round-6 QC — honour the answer. Throwing it away sent the request
+    // with the slot left in cooldown, which is precisely the state that made
+    // the no-fill handler dead code, so the retry path stayed broken even
+    // after the first fix. AdMob's banner path has always returned here, with
+    // the same rationale: a flapping mrec is cheap to skip.
+    if (!_mrecSlotFor(key).beginLoad()) {
+      SafeLogger.d(_logTag,
+          'preloadMrec $tag \u23ed\ufe0f already loading/showing or in cooldown');
+      return;
+    }
       final adViewId = await _bridge.preloadWidgetAdView(
         cfg.mrecId,
         AdFormat.mrec,

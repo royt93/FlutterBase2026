@@ -81,6 +81,19 @@ class FakeAppLovinBridge implements AppLovinBridge {
   }
 }
 
+/// Round-6 QC — counts native preload requests, which is the only thing that
+/// actually distinguishes "retry skipped" from "retry sent with the slot left
+/// in cooldown": the slot ends up in cooldown either way, so asserting on slot
+/// state cannot see the bug.
+class _CountingPreloadBridge extends FakeAppLovinBridge {
+  int preloadCalls = 0;
+  @override
+  Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) async {
+    preloadCalls++;
+    return 1;
+  }
+}
+
 /// FakeAppLovinBridge's preloadWidgetAdView always returns the constant
 /// adViewId `1`, which hides M5-style bugs (old-id-equals-new-id looks like
 /// a no-op). This variant hands out a fresh id per call, like the real
@@ -802,6 +815,35 @@ void main() {
           reason: 'a no-fill is a load failure and must feed the backoff');
     });
 
+    // Round-6 codex QC — the M3 fix called beginLoad() but threw the answer
+    // away, so a retry while the slot was still inside its backoff window sent
+    // the request anyway with the slot NOT in `loading`, and the no-fill was
+    // swallowed exactly as before. The first two tests only covered a first
+    // load from idle, which is why they missed it. AdMob's banner path has
+    // always honoured the return value (admob_adapter.dart:1548) with the same
+    // rationale: a flapping banner is cheap to skip.
+    test('a retry inside the backoff window is skipped, not sent unlatched',
+        () async {
+      final b = _CountingPreloadBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.preloadBanner('k');
+      expect(b.preloadCalls, 1, reason: 'sanity: first load was sent');
+      b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+      expect(a.bannerSlot('k').value, AdSlotState.cooldown,
+          reason: 'sanity: the no-fill put the slot in cooldown');
+
+      await a.preloadBanner('k'); // immediate retry, still inside the backoff
+
+      expect(b.preloadCalls, 1,
+          reason: 'beginLoad() refused (cooldown + backoff), so no request may '
+              'go out. Sending it anyway leaves the slot NOT in `loading`, '
+              'which is exactly the state that made the no-fill handler dead '
+              'code in the first place');
+    });
+
     test('a real no-fill marks the MREC errored too', () async {
       // The shared _config declares no mrecId, so preloadMrec would return
       // early there — this needs its own adapter.
@@ -894,6 +936,15 @@ void main() {
       final oldId = a.appLovinBannerAdViewId('k').value;
       expect(oldId, isNotNull);
 
+      // Round-6 QC — a re-preload while the first load is still in flight is
+      // now correctly refused (beginLoad() returns false for isLoading), so
+      // complete it first. This is scene-setting, not the assertion: the
+      // destroy-instead-of-leak behaviour below still runs through the real
+      // path. In production this sequence arrives via onAppResumed recovery,
+      // where the previous load has already FAILED, so the slot is in cooldown
+      // rather than loading.
+      a.bannerSlot('k').markReady();
+
       await a.preloadBanner('k');
       final newId = a.appLovinBannerAdViewId('k').value;
       await Future<void>.value(); // flush unawaited destroyWidgetAdView
@@ -924,6 +975,15 @@ void main() {
       await a.preloadMrec('k');
       final oldId = a.appLovinMrecAdViewId('k').value;
       expect(oldId, isNotNull);
+
+      // Round-6 QC — a re-preload while the first load is still in flight is
+      // now correctly refused (beginLoad() returns false for isLoading), so
+      // complete it first. This is scene-setting, not the assertion: the
+      // destroy-instead-of-leak behaviour below still runs through the real
+      // path. In production this sequence arrives via onAppResumed recovery,
+      // where the previous load has already FAILED, so the slot is in cooldown
+      // rather than loading.
+      a.mrecSlot('k').markReady();
 
       await a.preloadMrec('k');
       final newId = a.appLovinMrecAdViewId('k').value;

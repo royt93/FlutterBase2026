@@ -893,17 +893,26 @@ class VipManager {
     if (cachedIssuedAt != null && !parsed.issuedAt.isAfter(cachedIssuedAt)) {
       SafeLogger.d(_tag,
           'refreshRevocationList: fetched CRL is not newer than cached — ignoring');
+      // Round-6 QC — returning here used to skip the clamp entirely, which is
+      // what made a crash between "CRL persisted" and "grants clamped"
+      // permanent: on every later launch the same-age CRL landed in this
+      // branch. The clamp is idempotent, so run it before giving up.
+      await _clampRevokedEntries();
       return;
     }
 
     _revokedKeyIds = parsed.revokedKeyIds;
     _revocationIssuedAt = parsed.issuedAt;
+    // Clamp BEFORE persisting: a process death between these two awaits then
+    // leaves the CRL un-cached with grants already clamped, which self-heals on
+    // the next fetch. The other order left the CRL cached and the grants
+    // full-length, and nothing ever revisited them.
+    await _clampRevokedEntries();
     await _prefs.setVipRevocationCacheRaw(raw);
     SafeLogger.d(
         _tag,
         () =>
             'refreshRevocationList: applied ${parsed.revokedKeyIds.length} revoked kid(s)');
-    await _clampRevokedEntries();
   }
 
   /// How much time a grant keeps after the key that issued it is revoked.

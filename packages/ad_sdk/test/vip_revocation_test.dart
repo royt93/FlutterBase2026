@@ -273,6 +273,47 @@ void main() {
           reason: 'a revoked key stops earning within a day');
     });
 
+    // Round-6 codex QC — the clamp ran AFTER the CRL was persisted, so a
+    // process death between those two awaits left the CRL cached and the grant
+    // untouched. On the next launch the same-age CRL hits the "not newer"
+    // branch and returns before the clamp, so that grant was never clamped
+    // again — permanently. This drives the recovery path directly: a cached
+    // CRL plus an unclamped grant, i.e. exactly the state a crash leaves.
+    test('a cached CRL still clamps a grant that was missed (crash recovery)',
+        () async {
+      // First manager: redeem, then cache a CRL revoking that kid, but do NOT
+      // let the clamp persist — simulated by re-reading into a fresh manager
+      // whose entries came straight from the store.
+      final crl = await mintCrl(keyPair, issuedAtEpoch: 3000, kids: ['leaked-crash']);
+      final code = await mintVipKey(keyPair,
+          seconds: const Duration(days: 30).inSeconds, kid: 'leaked-crash');
+
+      final first = VipManager(prefs, vipEntriesStore: store);
+      await first.load();
+      expect((await first.redeemSignedKey(code, publicKeyBase64: pub)).status,
+          VipRedeemStatus.success);
+      first.dispose();
+
+      // The crash state: CRL is in the cache, the grant on disk is full-length.
+      await prefs.setVipRevocationCacheRaw(crl);
+
+      final second = VipManager(prefs, vipEntriesStore: store);
+      await second.load();
+      addTearDown(second.dispose);
+      expect(second.isActive, isTrue, reason: 'sanity: grant survived reload');
+
+      // Any path that consults the cached CRL must also repair the miss.
+      await second.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl),
+      );
+
+      final remaining = second.expiresAt!.difference(DateTime.now());
+      expect(remaining.inHours, lessThanOrEqualTo(24),
+          reason: 'a grant the crash left unclamped must still get clamped, '
+              'not stay full-length forever because the CRL is no longer new');
+    });
+
     test('applying a CRL leaves an unrelated VIP grant alone', () async {
       final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
