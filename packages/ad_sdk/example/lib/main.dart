@@ -1979,7 +1979,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
             const SizedBox(height: 16),
             FilledButton.tonal(
               onPressed: () {
-                AdSafetyConfig.resetSession();
+                AdSafetyConfig.resetSessionCounters();
                 _refresh.value = _refresh.value + 1;
               },
               child: const Text('Reset session counters'),

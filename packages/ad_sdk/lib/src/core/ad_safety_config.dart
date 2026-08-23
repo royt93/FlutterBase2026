@@ -722,6 +722,42 @@ class AdSafetyConfig {
 
   static int getSessionAdCount() => _fullscreenAdsShownInSession;
 
+  /// Clears the per-session pacing counters — nothing else.
+  ///
+  /// This is the reset a host app may call (a debug screen, a "start over"
+  /// action). It deliberately leaves the invalid-traffic history alone:
+  /// violation count, the active pause and its persisted counter all survive.
+  ///
+  /// M2 (round-6 audit) — before this split there was only [resetSession],
+  /// which clears the fraud history too, and it was reachable from any
+  /// consuming app through the exported [AdSafetyConfig]. One call defeated the
+  /// whole progressive cooldown (30 min → 24 h), and the example shipped a
+  /// button wired to it labelled "Reset session counters", which is exactly
+  /// what a host would assume it did. That cooldown protects the publisher's
+  /// AdMob account rather than pacing the user, so it is not a host's to clear.
+  static void resetSessionCounters() {
+    _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
+    _fullscreenAdsShownInSession = 0;
+    _hourlyAdTimestamps.clear();
+    _resumeTimestamps.clear();
+    _totalImpressions = 0;
+    _totalClicks = 0;
+    _clickTimestamps.clear();
+    _lastAdClickAt = 0;
+    _backgroundedFromAdClick = false;
+    SafeLogger.d(_tag, '🔄 Session counters reset (fraud history preserved)');
+    _refreshRiskScore();
+  }
+
+  /// Full session reset, **including** the invalid-traffic history.
+  ///
+  /// Internal to the SDK's own destroy/re-init flow (via [resetForReinit]) and
+  /// to tests. T24's reasoning is preserved deliberately: a reset that reported
+  /// `suspended=true` with 0 violations was itself the bug, so once this runs
+  /// it clears the violation counters, the derived pause and the persisted
+  /// count together. Hosts should call [resetSessionCounters] instead — see M2
+  /// there for why.
+  @visibleForTesting
   static void resetSession() {
     _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
     _fullscreenAdsShownInSession = 0;
