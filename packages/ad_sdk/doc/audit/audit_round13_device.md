@@ -508,6 +508,34 @@ session, which is what makes it the honest test of it.
 
 Suite: 1099 green, `flutter analyze` clean (package + example).
 
+## QC gate round 18 — codex 3/10, agy 7/10, and they converged
+
+Both reviewers landed on the round-17 init reconcile, from opposite ends, and
+both were right. The rule they were both pointing at is the one this whole audit
+trail rests on: **every device-vs-applied comparison is tighten-only.** A missed
+grant costs one refill; a fill under a withdrawn consent is a compliance
+violation — and a *guessed close with nobody to lift it* is a session-long ad
+outage. The round-17 reconcile broke the rule in both directions at once.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker (agy + codex) | The init reconcile compared device against applied **symmetrically** (`deviceTcfAllows != hasUserConsent`), and so did `_recoverConsentGate`'s mismatch branch. A host that runs its own consent UI and starts a session with personalisation OFF on a device whose TCF keys are permissive — a parental toggle, a CCPA switch, a user who consented in the CMP and later turned it off in the app — had its ad gate shut at launch. Then either nothing could reopen it (the resume backstop is already tighten-only and returns immediately on a permissive device) → every ad surface dark for the session; or the recovery's symmetric branch re-applied the permissive CMP keys **over the host's stricter decision** → personalised ads served against a refusal. | Both conditions are now `tcfAllows == false && applied.hasUserConsent`. The permissive direction falls through to the plain reopen: non-personalised ads under the stricter applied state, which is always safe. |
+| Major (codex) | The init reconcile shut the gate and then handed the re-apply to `_recheckConsentOnResume`, which arms no debt. If that re-apply threw or hung, the close it had just guessed had no owner. | Route it through `_recoverConsentGate()` instead — the one path that both re-applies a stricter device state *and* arms the bounded retry when it cannot (and times out its own UMP read). |
+| Blocker (codex) | What the SDK has **recorded** is not what is **applied**. `ConsentManager.set()` updates its in-memory value first, persists second, and writes to the providers last, so a store that refuses the write (a full disk, an OEM store that throws) left the record saying "withdrawn" while AdMob and AppLovin still held the personalised configuration. Every device-vs-applied comparison read that record, found it in agreement with the device, and walked away. | Two halves. (a) `_lastCommittedConsent` / `_committedConsent`: the last consent whose write actually reached both providers, and what every comparison now reads. (b) `AdManager.setConsent` no longer lets a persist failure stop the decision from reaching the providers — it logs and applies anyway. Losing the value across a restart is by far the lesser failure, and the init reconcile re-derives it from the device's own TCF keys. |
+
+Red-proof:
+- Tighten-only recovery: *recovery never grants personalisation the host has switched off* (`test/tcf_personalisation_consent_test.dart`) — reverting the mismatch branch to the symmetric form turns it red (`Expected: false Actual: <true>`, i.e. it granted).
+- Persist-failure resilience: *a withdrawal the store refuses to persist still reaches the providers* — red without the `try`/`catch` (the call throws before either provider is told). Driven by `_FailableConsentStore`, an `InMemorySharedPreferencesStore` that fails writes to the consent key only, which is the *legacy* `SharedPreferences` store `AdPreferences` actually uses.
+- Committed-vs-recorded: *a recorded-but-never-applied withdrawal is not mistaken for applied* — goes through `ConsentManager.set()` directly (the built-in consent dialog's path, the one that does not run `AdManager.setConsent`), so the record diverges from the providers for real. Red on reverting `_committedConsent` in `_recheckConsentOnResume` (`Expected: a value greater than <2> Actual: <2>` — nothing re-applied).
+- The init half is not reachable in `flutter test` (`initialize()` needs a native adapter), so it is proven **on device**: `example/integration_test/consent_resume_backstop_test.dart` gained *an init with the host stricter than the device keeps ads flowing without granting*. 5/5 green on the Pixel 7 Pro; reverting both conditions to their symmetric form makes exactly that test fail on hardware with `Expected: true Actual: <false>` on `... every ad surface stayed dark for the whole session`.
+
+Note on the pair: with the recovery tighten-only, a symmetric init condition is
+merely wasteful rather than fatal, and vice versa. The device test is red only
+when *both* are reverted — which is the honest statement of what it pins: the
+contract, not either line.
+
+Suite: 1102 green, device suite 5/5, `flutter analyze` clean (package + example).
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

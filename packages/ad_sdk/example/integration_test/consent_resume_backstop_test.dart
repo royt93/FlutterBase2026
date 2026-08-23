@@ -220,6 +220,47 @@ void main() {
             'never shut the gate on a healthy start');
   });
 
+  // Round-18 QC, BLOCKER — the init reconcile compared device against applied
+  // SYMMETRICALLY, and so did the recovery it hands the debt to. A host that
+  // runs its own consent UI and starts a session with personalisation OFF on a
+  // device whose TCF keys are permissive (a parental toggle, a CCPA switch, a
+  // user who consented in the CMP and later turned it off in the app) got its
+  // ad gate shut at launch, and the only thing that could reopen it re-applied
+  // the permissive CMP keys over the host's stricter decision. Both directions
+  // are wrong: either every ad surface stays dark for the session, or
+  // personalised ads are served against a refusal.
+  testWidgets('an init with the host stricter than the device keeps ads '
+      'flowing without granting', (tester) async {
+    await _writeTcf(_purposesAllow);
+    await AdManager().initialize(
+      config: _hostOwnedConsentConfig(),
+      onComplete: (_, __) {},
+    );
+    // The host's own switch: personalisation off, ordinary ads still wanted.
+    await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+    await tester.pump(const Duration(milliseconds: 500));
+    await AdManager().destroy();
+
+    // Next session. The device keys are still permissive and nothing here runs
+    // a UMP flow, so the init reconcile is the only thing that looks at them.
+    await AdManager().initialize(
+      config: _hostOwnedConsentConfig(),
+      onComplete: (_, __) {},
+    );
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+
+    expect(AdManager().consent.hasUserConsent, isFalse,
+        reason: 'a permissive device is never authority to grant. Re-applying '
+            'the CMP keys over the host decision serves personalised ads '
+            'against it');
+    expect(AdManager().canRequestAds, isTrue,
+        reason: 'personalisation off still allows non-personalised ads. '
+            'Shutting the gate here left nothing that would reopen it, so '
+            'every ad surface stayed dark for the whole session');
+  });
+
   testWidgets('a resume with the device still consenting changes nothing',
       (tester) async {
     // The other half: the backstop must be silent on an ordinary resume, or

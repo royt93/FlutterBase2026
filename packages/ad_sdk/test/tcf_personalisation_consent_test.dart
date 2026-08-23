@@ -28,6 +28,7 @@ import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 const _alChannel = MethodChannel('applovin_max');
 const _gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
@@ -98,6 +99,34 @@ const _config = AdConfig(
     rewardedId: 'ca-app-pub-3940256099942544/4444444444',
   ),
 );
+
+/// A preferences store whose *consent* write can be made to fail, and only
+/// that one — every other key (safety counters, VIP) still writes fine.
+///
+/// Round-18 QC: `ConsentManager.set()` updates its in-memory value FIRST,
+/// persists SECOND and only then applies to the providers. A persist that
+/// throws — a full disk, an OEM keystore-backed store that refuses the write —
+/// therefore leaves the SDK's own record saying "withdrawn" while both
+/// providers are still configured for personalised ads. Anything that reads
+/// that in-memory value to decide whether the device state is already applied
+/// would call it settled and walk away.
+class _FailableConsentStore extends InMemorySharedPreferencesStore {
+  _FailableConsentStore() : super.empty();
+
+  /// The prefixed key `AdPreferences` persists `ConsentSettings` under.
+  static const String consentKey = 'flutter.ad_sdk_consent_settings_v1';
+
+  bool failConsentWrite = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) {
+    if (failConsentWrite && key == consentKey) {
+      return Future<bool>.error(PlatformException(
+          code: 'ENOSPC', message: 'the consent store is full'));
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -1917,6 +1946,176 @@ void main() {
           reason: 'personalisation off still allows non-personalised ads — a '
               'superseded write must not cost the app every ad surface for the '
               'rest of the session');
+    });
+
+    // Round-18 QC, BLOCKER — every other device-vs-applied comparison in this
+    // file is tighten-only; the recovery's was not. A host
+    // `setConsent(hasUserConsent: false)` — a parental toggle, a CCPA switch —
+    // is a NEWER decision than whatever a CMP left in the TCF keys, so a
+    // recovery that found those keys more permissive used to re-apply them
+    // over the host's refusal and serve personalised ads against it.
+    test('recovery never grants personalisation the host has switched off',
+        () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+      addTearDown(() => AdManager.debugConsentWriteBarrier = null);
+
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'sanity: granted');
+
+      // A withdrawal form shuts the gate for the duration of its write, which
+      // is the debt the recovery exists to pay.
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      final apply = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: the gate is shut across the write');
+
+      // The host's own switch lands while that write is in flight, so it wins
+      // and the apply returns without reopening — the debt stays armed.
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+      // And by the time the recovery reads the device, the keys are permissive
+      // again: the user re-consented in the CMP, or the app simply moved out
+      // of scope (`gdprApplies=0`).
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await apply;
+      await pumpEventQueue(times: 30);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'non-personalised ads are still allowed, so the gate must '
+              'not be left shut for the session');
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the host switched personalisation off. A permissive device '
+              'is never authority to grant — re-applying the CMP keys over '
+              'that decision serves personalised ads against it');
+    });
+
+    // Round-18 QC, BLOCKER — a consent decision that cannot be PERSISTED must
+    // still be APPLIED. `ConsentManager.set()` records in memory first,
+    // persists second and only writes to the providers last, so a store that
+    // refuses the write threw out of `setConsent` before either provider was
+    // told: the SDK's record said "withdrawn", AdMob and AppLovin kept the
+    // personalised configuration, and the host got an exception where it
+    // expected enforcement.
+    test('a withdrawal the store refuses to persist still reaches the '
+        'providers', () async {
+      final store = _FailableConsentStore();
+      SharedPreferences.setMockInitialValues({});
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      ConsentManager.resetForTest();
+      addTearDown(ConsentManager.resetForTest);
+
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: await AdPreferences.getInstance(),
+          strings: ConsentDialogStrings.vi);
+      final adapter = _StubAdapter();
+      AdManager()
+        ..debugConsentManager = consentMgr
+        ..debugSetAdapter(adapter)
+        ..debugConfig = _config;
+
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      expect(adapter.applied.last.hasUserConsent, isTrue,
+          reason: 'sanity: granted, and the write reached the provider');
+
+      // The store starts refusing the consent key, and the user withdraws.
+      store.failConsentWrite = true;
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'the withdrawal must reach the provider even when it cannot '
+              'be saved. Serving personalised ads because a disk was full is '
+              'the GDPR/DMA violation this test exists for');
+    });
+
+    // Round-18 QC, BLOCKER — and the other half: what the SDK has RECORDED is
+    // not what is APPLIED. The built-in consent dialog writes through
+    // `ConsentManager` directly, so a persist that throws there leaves the
+    // record saying "withdrawn" with both providers still personalised. The
+    // resume backstop compared the device against that record, found them in
+    // agreement, and walked away — leaving the providers personalised under a
+    // withdrawal for the rest of the session.
+    test('a recorded-but-never-applied withdrawal is not mistaken for applied',
+        () async {
+      final store = _FailableConsentStore();
+      SharedPreferences.setMockInitialValues({});
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      ConsentManager.resetForTest();
+      addTearDown(ConsentManager.resetForTest);
+
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: await AdPreferences.getInstance(),
+          strings: ConsentDialogStrings.vi);
+      final adapter = _StubAdapter();
+      AdManager()
+        ..debugConsentManager = consentMgr
+        ..debugSetAdapter(adapter)
+        ..debugConfig = _config;
+
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      expect(adapter.applied.last.hasUserConsent, isTrue,
+          reason: 'sanity: granted, and the write reached the provider');
+
+      // The dialog path: straight through ConsentManager, with the store
+      // refusing the write, so it throws before touching either provider.
+      store.failConsentWrite = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await expectLater(
+          consentMgr.set(
+              const ConsentSettings(hasUserConsent: false, hasBeenAsked: true),
+              config: _config),
+          throwsA(isA<PlatformException>()));
+      expect(consentMgr.adConsent.hasUserConsent, isFalse,
+          reason: 'sanity: the SDK has already RECORDED the withdrawal');
+      expect(adapter.applied.last.hasUserConsent, isTrue,
+          reason: 'sanity: but nothing reached the provider — it is still '
+              'configured for personalised ads');
+
+      // The store heals (disk pressure passes) and the app comes back.
+      store.failConsentWrite = false;
+      final before = adapter.applied.length;
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(adapter.applied.length, greaterThan(before),
+          reason: 'the record agreeing with the device proves nothing while '
+              'the provider write never landed — the backstop must re-apply');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'personalised ads under a withdrawal is the GDPR/DMA '
+              'violation this test exists for');
     });
 
     test('Privacy Options: re-confirming consent leaves it granted', () async {

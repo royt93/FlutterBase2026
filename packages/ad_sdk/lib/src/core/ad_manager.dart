@@ -2348,9 +2348,13 @@ class AdManager with WidgetsBindingObserver {
       // local `SharedPreferences` read, and only a disagreement costs
       // anything. A disagreement fails CLOSED until the re-apply lands, and
       // arms the same debt [_recoverConsentGate] pays if it cannot finish.
+      // Round-18 QC — tighten-only, like every other device-vs-applied
+      // comparison: a device that looks more permissive is no reason to shut
+      // anything, and shutting it here handed the reopen to a recovery that
+      // would then have re-applied the permissive keys over the host's own
+      // stricter decision.
       final deviceTcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
-      if (deviceTcfAllows != null &&
-          deviceTcfAllows != consentMgr.adConsent.hasUserConsent) {
+      if (deviceTcfAllows == false && _committedConsent.hasUserConsent) {
         SafeLogger.w(
             _tag,
             '🔐 init: device TCF personalisation=$deviceTcfAllows disagrees '
@@ -2360,7 +2364,12 @@ class AdManager with WidgetsBindingObserver {
         _updateCanRequestAds(false);
         _pessimisticGateClose = true;
         _consentGateRecoveryAttempts = 0;
-        unawaited(_recheckConsentOnResume().catchError((Object e) {
+        // Round-18 QC, MAJOR — through the recovery, not straight into the
+        // re-apply: this closed the gate, so if the reconcile throws or hangs
+        // something has to come back for it. [_recoverConsentGate] is the one
+        // path that both re-applies a stricter device state and arms the
+        // bounded retry when it cannot (and it times out its own UMP read).
+        unawaited(_recoverConsentGate().catchError((Object e) {
           SafeLogger.w(_tag, 'init consent reconcile threw: $e');
         }));
       }
@@ -2609,7 +2618,21 @@ class AdManager with WidgetsBindingObserver {
     // ConsentManager.bootstrap() from silently reloading stale, previously
     // persisted data and clobbering this fresh value.
     if (_consentManager != null) {
-      await _consentManager!.set(settings, config: _config);
+      try {
+        await _consentManager!.set(settings, config: _config);
+      } catch (e, st) {
+        // Round-18 QC, BLOCKER — a persist failure must never stop the
+        // decision from reaching the providers. `ConsentManager.set()` updates
+        // its record FIRST, persists SECOND and applies to the providers LAST,
+        // so a store that refuses the write (a full disk, an OEM store that
+        // throws) used to leave the record saying "withdrawn" while AdMob and
+        // AppLovin still held the personalised configuration — and the host
+        // got an exception instead of enforcement. Carry on: the apply further
+        // down IS the enforcement, and losing the value across a restart is
+        // by far the lesser failure (the init reconcile re-derives it from the
+        // device's own TCF keys anyway).
+        SafeLogger.e(_tag, 'consent persist failed, applying anyway: $e\n$st');
+      }
     } else {
       SafeLogger.d(_tag,
           '⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()');
@@ -2688,6 +2711,14 @@ class AdManager with WidgetsBindingObserver {
     await applyConsentToProviders(consent, config: _config);
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
     _adapter?.applyConsent(consent);
+    // Round-18 QC, BLOCKER — only here, after the provider write returned, is
+    // this consent really in force on both providers. `ConsentManager.set()`
+    // above updates its in-memory value FIRST, so a provider write that throws
+    // leaves the two disagreeing — and anything that reads the in-memory value
+    // to decide whether the device state is already applied would then reopen
+    // the ad gate over a provider still holding the OLD personalised
+    // configuration.
+    _lastCommittedConsent = consent;
     // N2 — the footgun block just cleared and ads may already be running;
     // refill slots that were held back while it was blocked.
     if (wasFootgunBlocked && canRequestAds && !_isVipMember) {
@@ -3313,6 +3344,16 @@ class AdManager with WidgetsBindingObserver {
   /// [_recoverConsentGate]; a real restrictive close is nobody else's business.
   bool _pessimisticGateClose = false;
 
+  /// The last consent whose write reached BOTH providers without throwing —
+  /// what is really in force, as opposed to what `ConsentManager` has already
+  /// recorded in memory. See the assignment in [setConsent].
+  AdConsent? _lastCommittedConsent;
+
+  /// What is actually applied to the providers right now. Every
+  /// device-vs-applied comparison reads this, never the in-memory value alone.
+  AdConsent get _committedConsent =>
+      _lastCommittedConsent ?? _consentManager?.adConsent ?? _consent;
+
   /// Round-13 QC (round 12), MAJOR — lift a pessimistic gate close that no
   /// apply is going to lift.
   ///
@@ -3370,8 +3411,16 @@ class AdManager with WidgetsBindingObserver {
       }
       final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
       if (!_consentRecoveryStillOwns(epoch)) return;
-      final applied = _consentManager?.adConsent ?? _consent;
-      if (tcfAllows != null && tcfAllows != applied.hasUserConsent) {
+      final applied = _committedConsent;
+      // Round-18 QC, BLOCKER — tighten-only, the same rule
+      // [_recheckConsentOnResume] follows. A device that looks MORE permissive
+      // than what is applied is no authority to grant: a host `setConsent(
+      // hasUserConsent: false)` — a parental toggle, a CCPA switch — is a newer
+      // decision than whatever a CMP left in the TCF keys, and re-applying the
+      // keys over it would serve personalised ads against it. That direction
+      // falls through to the plain reopen below instead: non-personalised ads
+      // under the stricter applied state, which is always safe.
+      if (tcfAllows == false && applied.hasUserConsent) {
         // The applied configuration does not match the device — reopening here
         // would serve ads under a personalisation setting the user changed.
         // Apply the device state instead; that write reopens the gate itself.
@@ -3642,7 +3691,7 @@ class AdManager with WidgetsBindingObserver {
     // No TCF data at all (the normal non-EEA case) — nothing to compare
     // against, and UMP alone is already the whole answer there.
     if (tcfAllows == null) return;
-    final applied = _consentManager?.adConsent ?? _consent;
+    final applied = _committedConsent;
     if (applied.hasUserConsent == tcfAllows) return;
     // Round-13 QC, MINOR — tighten only, never grant.
     // `tcfAllowsPersonalisedAds` reports true for `gdprApplies=0` (out of
@@ -3737,6 +3786,9 @@ class AdManager with WidgetsBindingObserver {
     // reachable after a child-directed abort.
     _lastKnownConfig = null;
     _lastAppliedConsent = null;
+    // Round-18 QC — the next session configures its providers from scratch, so
+    // a committed value from this one says nothing about what they hold.
+    _lastCommittedConsent = null;
     await _eventStream.close();
     _eventStream = StreamController<AdEvent>.broadcast();
     await _disposeAdapter();
