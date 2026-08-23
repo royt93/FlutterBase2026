@@ -231,6 +231,71 @@ void main() {
       expect(mgr.isActive, isFalse);
     });
 
+    // M5 (round-6 audit, corroborated by three reviewers) — `_revokedKeyIds`
+    // was consulted at exactly one place: redemption. Applying a newer CRL
+    // swapped the set and cached it, and did nothing else. So a key that
+    // leaked AFTER being redeemed on N devices kept its full window on all N
+    // of them; revocation only ever stopped the (N+1)-th redemption.
+    //
+    // Clamping rather than deleting is deliberate. A mis-issued CRL is not
+    // recoverable from the customer's side, so deleting would mean one bad
+    // publish silently strips VIP from people who paid. Clamping to 24h makes
+    // a mis-issue cost a paying customer one day — with a window for support
+    // to re-issue — while a leaked key stops earning within a day.
+    test('applying a CRL clamps a VIP already granted by that kid', () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      // Redeemed while the key was still good: a 30-day grant.
+      final code = await mintVipKey(keyPair,
+          seconds: const Duration(days: 30).inSeconds, kid: 'leaked');
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+      expect(r.status, VipRedeemStatus.success);
+      expect(mgr.isActive, isTrue);
+      final grantedUntil = mgr.expiresAt!;
+      expect(grantedUntil.difference(DateTime.now()).inDays, greaterThan(20));
+
+      // The key leaks and is revoked.
+      final crl = await mintCrl(keyPair, issuedAtEpoch: 2000, kids: ['leaked']);
+      await mgr.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl),
+      );
+
+      final after = mgr.expiresAt;
+      expect(after, isNotNull,
+          reason: 'clamped, NOT deleted — a mis-issued CRL must not strip a '
+              'paying customer outright');
+      expect(after!.isBefore(grantedUntil), isTrue,
+          reason: 'the 30-day window must have been cut short');
+      expect(after.difference(DateTime.now()).inHours, lessThanOrEqualTo(24),
+          reason: 'a revoked key stops earning within a day');
+    });
+
+    test('applying a CRL leaves an unrelated VIP grant alone', () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await mintVipKey(keyPair,
+          seconds: const Duration(days: 30).inSeconds, kid: 'innocent');
+      expect((await mgr.redeemSignedKey(code, publicKeyBase64: pub)).status,
+          VipRedeemStatus.success);
+      final grantedUntil = mgr.expiresAt!;
+
+      final crl =
+          await mintCrl(keyPair, issuedAtEpoch: 2000, kids: ['some-other-kid']);
+      await mgr.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl),
+      );
+
+      expect(mgr.expiresAt, grantedUntil,
+          reason: 'revoking one kid must not touch grants from other keys — '
+              'without this the clamp could quietly punish everyone');
+    });
+
     test('a kid NOT on the CRL still redeems successfully', () async {
       final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
