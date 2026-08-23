@@ -275,6 +275,29 @@ and on-device, per the standing rule that every case gets all three:
 Suite: 1074 green (1071 + the round-9 unit test + 2 widget tests),
 `flutter analyze` clean in both the package and the example.
 
+## QC gate round 10 — codex 6/10 (agy 10/10), and it was right
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | Round 9 keyed the pre-write tighten on `canRequestAds`, which the **ordinary withdrawal never trips**: a user turning personalisation off in the CMP form leaves non-personalised ads servable, so UMP keeps reporting `canRequestAds=true` and `status=obtained` — the refusal exists only in the TCF purposes, read halfway through the apply. The gate therefore stayed open for the whole provider + storage write while the OLD personalised configuration was still applied, so any load in that window (banner refresh, a newly mounted ad surface, a host-triggered load) got a *personalised* request out after an explicit withdrawal. Every test written so far had modelled the easy total-ad-block case (`canRequestAds=false`) and so passed over it. | Tighten on **either** signal: `if (!result.canRequestAds || (!hasConsent && appliedBefore.hasUserConsent)) _updateCanRequestAds(false);`. The post-write branch reopens it, so withdrawing personalisation still is not withdrawing ads — it costs the non-personalised path only the duration of the write. |
+
+Both new tests are red against the reverted fix:
+
+* **unit** — *a personalisation withdrawal shuts the gate until the write lands*
+  (`test/tcf_personalisation_consent_test.dart`): grant applied, then a
+  purposes-only refusal parked on `debugConsentWriteBarrier`. Red:
+  `Expected: false Actual: <true>`. It also pins the other half — the gate
+  reopens once the non-personalised config has landed.
+* **widget** — *a banner mounted during a personalisation withdrawal requests
+  nothing until the new config has landed*
+  (`test/consent_gate_banner_widget_test.dart`): a second ad surface mounted
+  mid-write, as a user navigating while the withdrawal is still applying. Red:
+  `Expected: <1> Actual: <3>` — three personalised banner requests after the
+  withdrawal.
+
+The on-device backstop test was re-run green on the S24 Ultra against this
+change. Suite: 1076 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

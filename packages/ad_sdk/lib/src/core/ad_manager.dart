@@ -3285,7 +3285,22 @@ class AdManager with WidgetsBindingObserver {
     // once the write has landed under our own epoch — same asymmetry as the
     // resume backstop: a missed grant costs one refill, a fill under a
     // withdrawn consent is a violation.
-    if (!result.canRequestAds) _updateCanRequestAds(false);
+    //
+    // Round-13 QC (round 10), BLOCKER — and `canRequestAds` is the wrong
+    // signal to read on its own. The ordinary withdrawal — a user turning
+    // personalisation off in the CMP form — leaves `canRequestAds` TRUE
+    // (non-personalised ads are still servable) and shows up only in the TCF
+    // purposes read above. So the gate stayed open across the provider +
+    // storage write while the OLD personalised configuration was still
+    // applied, and any load in that window (a banner refresh, a newly mounted
+    // ad surface, a host-triggered load) requested a *personalised* ad after
+    // an explicit withdrawal. Close it whenever this apply tightens either
+    // signal; the post-write branch below is what reopens it.
+    final appliedBefore = _consentManager?.adConsent ?? _consent;
+    if (!result.canRequestAds ||
+        (!hasConsent && appliedBefore.hasUserConsent)) {
+      _updateCanRequestAds(false);
+    }
     SafeLogger.d(
         _tag,
         () =>

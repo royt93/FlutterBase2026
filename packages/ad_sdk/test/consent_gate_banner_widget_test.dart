@@ -253,6 +253,76 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'a banner mounted during a personalisation withdrawal requests nothing '
+      'until the new config has landed', (tester) async {
+    // Round-13 QC (round 10) at the widget layer. The withdrawal that
+    // actually happens in the wild never trips `canRequestAds`: the user turns
+    // personalisation off, non-personalised ads stay servable, and UMP keeps
+    // saying yes. What changes is the TCF purposes — read halfway through the
+    // apply, well before the provider has been reconfigured. Anything that
+    // mounts or refreshes an ad surface in that window used to get a
+    // *personalised* request out under a consent already withdrawn.
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    expect(AdManager().consent.hasUserConsent, isTrue,
+        reason: 'sanity: personalised ads are what the provider has applied');
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 1, reason: 'sanity: the first banner');
+
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    final stuckWrite = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuckWrite.future;
+    // UMP still reports canRequestAds=true — only the purposes changed.
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    final withdrawal = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // A second ad surface appears mid-write — a user navigating to another
+    // screen while the withdrawal is still being applied.
+    await tester.pumpWidget(host(const Column(children: [
+      BannerAdWidget(key: ValueKey('a')),
+      BannerAdWidget(key: ValueKey('b')),
+    ])));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    expect(adapter.loadBannerCalls, 1,
+        reason: 'the provider still has hasUserConsent=true applied, so a '
+            'request accepted here is a personalised ad served after an '
+            'explicit withdrawal');
+
+    stuckWrite.complete();
+    await tester.runAsync(() => withdrawal);
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    expect(AdManager().consent.hasUserConsent, isFalse,
+        reason: 'the withdrawal is applied to the provider');
+    expect(AdManager().canRequestAds, isTrue,
+        reason: 'withdrawing personalisation is not withdrawing ads — the '
+            'gate must reopen for non-personalised ones');
+    expect(adapter.loadBannerCalls, greaterThan(1),
+        reason: 'and the banners come back, now under the new config');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the other half — a clean grant does let the banner request',
       (tester) async {
     final adapter = _BannerCountingAdapter();

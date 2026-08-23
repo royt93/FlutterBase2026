@@ -1009,6 +1009,54 @@ void main() {
       expect(AdManager().canRequestAds, isFalse, reason: 'and it stays shut');
     });
 
+    // Round-13 QC (round 10), BLOCKER — the realistic withdrawal never trips
+    // `canRequestAds` at all: turning personalisation off in the CMP form
+    // still leaves non-personalised ads servable, so UMP keeps saying
+    // `canRequestAds=true` and only the TCF purposes change. The gate
+    // therefore stayed open for the whole provider + storage write while the
+    // OLD personalised configuration was still applied to AdMob/AppLovin.
+    test('a personalisation withdrawal shuts the gate until the write lands',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'sanity: personalised ads are what is applied right now');
+      expect(AdManager().canRequestAds, isTrue, reason: 'sanity: gate open');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      // The withdrawal: purposes refused, but UMP still reports it can
+      // request ads, because it still can — just not personalised ones.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final withdrawal = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'the provider still has hasUserConsent=true applied, so any '
+              'load accepted in this window is a personalised ad served '
+              'after an explicit withdrawal');
+
+      stuck.complete();
+      await withdrawal;
+      await pumpEventQueue(times: 10);
+
+      expect(AdManager().consent.hasUserConsent, isFalse);
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'once the non-personalised config has landed the gate must '
+              'reopen — withdrawing personalisation is not withdrawing ads');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({
