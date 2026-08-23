@@ -102,4 +102,75 @@ void main() {
 
     expect(AdManager().personalisationRevision.value, before);
   });
+
+  // B1 (round-6 audit) — the guard above tracked exactly ONE of the three
+  // axes a consent state can tighten along. `doNotSell` and
+  // `isAgeRestrictedUser` were both left out, so a CCPA opt-out or a COPPA
+  // flag flipped mid-session kept serving ads that were requested under the
+  // looser consent. COPPA is the stricter axis of the two and had the weaker
+  // protection.
+  test('a CCPA opt-out mid-session invalidates ads loaded without rdp',
+      () async {
+    await initSdk();
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, doNotSell: false));
+
+    final before = AdManager().personalisationRevision.value;
+
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, doNotSell: true));
+
+    expect(AdManager().personalisationRevision.value, greaterThan(before),
+        reason: 'the cached fullscreen ad and the mounted inline ads were '
+            'requested WITHOUT the restricted-data-processing signal; opting '
+            'out only for future requests leaves the old ones playing');
+  });
+
+  test('turning on the child-directed flag mid-session invalidates ads',
+      () async {
+    await initSdk();
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, isAgeRestrictedUser: false));
+
+    final before = AdManager().personalisationRevision.value;
+
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, isAgeRestrictedUser: true));
+
+    expect(AdManager().personalisationRevision.value, greaterThan(before),
+        reason: 'a user just declared under 13 must not keep receiving the '
+            'non-child-directed ads already in the cache');
+
+    // Flipping the COPPA flag also kicks off the provider re-init path (M2),
+    // which is fire-and-forget. Let it finish here, otherwise it lands in the
+    // MIDDLE of the next test's initSdk() and that one fails on
+    // `isInitialised` for reasons that have nothing to do with what it asserts.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  });
+
+  test('clearing the CCPA opt-out is not a withdrawal', () async {
+    await initSdk();
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, doNotSell: true));
+
+    final before = AdManager().personalisationRevision.value;
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, doNotSell: false));
+
+    expect(AdManager().personalisationRevision.value, before,
+        reason: 'loosening must not throw away good ads — each axis has to '
+            'track a tightening transition, not just a change');
+  });
+
+  test('clearing the child-directed flag is not a withdrawal', () async {
+    await initSdk();
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, isAgeRestrictedUser: true));
+
+    final before = AdManager().personalisationRevision.value;
+    await AdManager().setConsent(
+        const AdConsent(hasUserConsent: true, isAgeRestrictedUser: false));
+
+    expect(AdManager().personalisationRevision.value, before);
+  });
 }

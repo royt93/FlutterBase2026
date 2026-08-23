@@ -2629,9 +2629,21 @@ class AdManager with WidgetsBindingObserver {
     // sequence, so cached personalised ads were never discarded. Comparing
     // against what was last actually APPLIED to the adapter is independent of
     // who assigns what in which order.
+    // B1 (round-6 audit) — this tracked only ONE of the three axes a consent
+    // state can tighten along. A CCPA opt-out (`doNotSell` false→true) and a
+    // COPPA flag turned on (`isAgeRestrictedUser` false→true) both left the
+    // cache alone, so ads requested under the looser consent kept playing and
+    // mounted inline ads kept auto-refreshing the pre-opt-out instance. COPPA
+    // is the stricter of the axes and had the weaker protection.
+    //
+    // Each axis tests a TIGHTENING transition, not merely a change: loosening
+    // must not throw away good ads.
+    final previous = _lastAppliedConsent;
     final downgraded = latest != null &&
-        _lastAppliedConsent?.hasUserConsent == true &&
-        !latest.hasUserConsent;
+        previous != null &&
+        ((previous.hasUserConsent && !latest.hasUserConsent) ||
+            (!previous.doNotSell && latest.doNotSell) ||
+            (!previous.isAgeRestrictedUser && latest.isAgeRestrictedUser));
     if (latest != null) _consent = latest;
     _lastAppliedConsent = latest ?? _consent;
     _adapter?.applyConsent(latest ?? _consent);
