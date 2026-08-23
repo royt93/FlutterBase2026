@@ -772,6 +772,67 @@ void main() {
   });
 
   group('onAppResumed() recreates errored banner AdView (T34)', () {
+    // M3 (round-6 audit) — the two tests below, and the recovery path they
+    // cover, all begin by setting `hasError` BY HAND. Nothing proved the flag
+    // ever becomes true from a real no-fill, and it did not: the adapter's
+    // `onAdLoadFailedCallback` walks `_bannerSlotsByKey` / `_mrecSlotsByKey`
+    // and only acts `if (slot.isLoading)`, but the preload path never put the
+    // slot into `loading` — so on AppLovin a banner or MREC that got no fill
+    // sat in the widget's shimmer for the rest of the session, never retried
+    // (the resume recovery keys off `hasError`), and emitted no failure event,
+    // leaving fill-rate monitoring blind to every AppLovin banner failure.
+    test('a real no-fill marks the banner errored (not just a hand-set flag)',
+        () async {
+      await adapter.preloadBanner('k');
+      final adViewId = adapter.appLovinBannerAdViewId('k').value;
+      expect(adViewId, isNotNull, reason: 'sanity: fake bridge preloads an id');
+      expect(adapter.banner('k').hasError.value, isFalse,
+          reason: 'sanity: not errored before the callback');
+
+      // The bridge reports the AD-UNIT id on failure, not the adViewId (see
+      // onAdLoadFailedCallback). Passing the adViewId made this pass for the
+      // wrong reason: it fell through to the banner branch by default.
+      bridge.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+
+      expect(adapter.banner('k').hasError.value, isTrue,
+          reason: 'the widget layer collapses the shimmer on hasError, and '
+              'onAppResumed keys its retry off it — without this the banner '
+              'is stuck in fake-ad shimmer for the whole session');
+      expect(adapter.bannerSlot('k').value, AdSlotState.cooldown,
+          reason: 'a no-fill is a load failure and must feed the backoff');
+    });
+
+    test('a real no-fill marks the MREC errored too', () async {
+      // The shared _config declares no mrecId, so preloadMrec would return
+      // early there — this needs its own adapter.
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(
+        await a.initialize(const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'sdk',
+            bannerId: 'banner-id',
+            mrecId: 'mrec-id',
+            interstitialId: 'inter-id',
+            appOpenId: 'appopen-id',
+            rewardedId: 'rewarded-id',
+          ),
+        )),
+        isTrue,
+      );
+      addTearDown(a.dispose);
+
+      await a.preloadMrec('k');
+      expect(a.appLovinMrecAdViewId('k').value, isNotNull,
+          reason: 'sanity: fake bridge preloads an id');
+
+      b.widget!.onAdLoadFailedCallback('mrec-id', _fakeError());
+
+      expect(a.mrec('k').hasError.value, isTrue);
+      expect(a.mrecSlot('k').value, AdSlotState.cooldown);
+    });
+
     test('destroys the stale native AdView before preloading a replacement',
         () async {
       await adapter.preloadBanner('k');
