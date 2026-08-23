@@ -88,30 +88,6 @@ class AppLovinAdapter implements AdProviderAdapter {
   // identical singleton bug agy found on AdMob — one shared
   // preloadWidgetAdView id, so two simultaneous BannerAdWidgets would fight
   // over the same MaxAdView.
-  /// When a slot last used its one backoff-bypassing recovery attempt.
-  ///
-  /// Round-6 QC v3 — recovery is allowed past the failure backoff so a banner
-  /// cannot go permanently blank (onAppResumed clears `hasError` before
-  /// re-requesting). Allowing it on EVERY resume defeated the exponential
-  /// backoff outright: a device with no fill re-requested on every resume,
-  /// forever — a reviewer measured 3 requests where 2 were expected. One
-  /// bypass per window keeps the recovery guarantee without handing app
-  /// flapping an unlimited supply of requests.
-  final Map<Object, DateTime> _lastRecoveryBypassAt = {};
-
-  /// How long a slot must wait before recovery may skip the backoff again.
-  static const Duration _recoveryBypassInterval = Duration(minutes: 5);
-
-  bool _mayBypassBackoff(Object key) {
-    final last = _lastRecoveryBypassAt[key];
-    final now = DateTime.now();
-    if (last != null && now.difference(last) < _recoveryBypassInterval) {
-      return false;
-    }
-    _lastRecoveryBypassAt[key] = now;
-    return true;
-  }
-
   final Map<Object, AdSlot> _bannerSlotsByKey = {};
   final Map<Object, BannerListenables> _bannerListenablesByKey = {};
   final Map<Object, ValueNotifier<AdViewId?>> _bannerAdViewIdByKey = {};
@@ -641,7 +617,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
     for (final l in _bannerListenablesByKey.values) {
       l.isLoaded.value = false;
-      l.hasError.value = false;
+      l.clearError();
       l.adSize.value = null;
       l.autoRefreshEnabled.value = true;
       l.visible.value = true;
@@ -652,7 +628,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _bannerRoutePausedByKey.clear();
     for (final l in _mrecListenablesByKey.values) {
       l.isLoaded.value = false;
-      l.hasError.value = false;
+      l.clearError();
       l.adSize.value = null;
       l.autoRefreshEnabled.value = true;
       l.visible.value = true;
@@ -1510,7 +1486,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       'adViewId=${ad.adViewId} network=${ad.networkName}',
     );
     listenables.isLoaded.value = true;
-    listenables.hasError.value = false;
+    listenables.clearError();
     final adSize = ad.size;
     if (adSize != null) {
       final sz = Size(adSize.width.toDouble(), adSize.height.toDouble());
@@ -1531,7 +1507,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       AdSlotType type, String label, MaxError err) {
     SafeLogger.w(_logTag, '$label $tag ❌ load failed code=${err.code}');
     listenables.isLoaded.value = false;
-    listenables.hasError.value = true;
+    listenables.markError();
     slot.markFailed();
     _logIfRepeatedFailure(label, slot, err.code);
     _emit(AdLoadEvent(
@@ -1544,13 +1520,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  /// [allowDuringBackoff] lets the onAppResumed recovery path retry a slot
-  /// that is still inside its failure backoff. That path clears `hasError`
-  /// before re-requesting, so a refusal here would leave the widget with no
-  /// error flag, no ad and nothing left to retry — a permanently blank
-  /// banner. A resume is a user-visible moment and worth one attempt; every
-  /// other caller still respects the backoff.
-  Future<void> preloadBanner(Object key, {bool allowDuringBackoff = false}) async {
+  Future<void> preloadBanner(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1576,8 +1546,8 @@ class AppLovinAdapter implements AdProviderAdapter {
     // success path, and its `if (slot.isLoading)` filter could never be true
     // because nothing on either adapter's widget-format path ever called
     // beginLoad. A banner that got no fill therefore sat in the widget's
-    // shimmer for the rest of the session — the resume recovery keys off
-    // `hasError`, which never got set — and emitted no failure event, so
+    // shimmer for the rest of the session — the resume recovery keys off the
+    // failure flags, which never got set — and emitted no failure event, so
     // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
     // called beginLoad; this brings AppLovin in line, and with it the load
     // watchdog that state enables.
@@ -1587,11 +1557,12 @@ class AppLovinAdapter implements AdProviderAdapter {
     // after the first fix. AdMob's banner path has always returned here, with
     // the same rationale: a flapping banner is cheap to skip.
     final slot = _bannerSlotFor(key);
-    // beginReload skips the backoff window but still refuses while a load or
-    // show is genuinely in flight, so this cannot double-request.
-    // The bypass is rate-limited — see [_mayBypassBackoff].
-    final bypass = allowDuringBackoff && _mayBypassBackoff(key);
-    if (!(bypass ? slot.beginReload() : slot.beginLoad())) {
+    // A refusal here is safe to honour outright: the recovery path keeps
+    // `BannerListenables.needsRecovery` set until a load actually succeeds, so
+    // a slot turned away for being in backoff is simply retried on the next
+    // resume rather than stranded blank. No backoff bypass is needed, and the
+    // backoff itself is what rate-limits a flapping app.
+    if (!slot.beginLoad()) {
       SafeLogger.d(_logTag,
           'preloadBanner $tag \u23ed\ufe0f already loading/showing or in cooldown');
       return;
@@ -1602,7 +1573,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       );
       if (adViewId == null) {
         SafeLogger.w(_logTag, 'banner $tag ❌ preload returned null adViewId');
-        _bannerListenablesFor(key).hasError.value = true;
+        _bannerListenablesFor(key).markError();
         _bannerSlotFor(key).markFailed();
         return;
       }
@@ -1620,7 +1591,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'banner $tag preload THREW: $e\n$st');
-      _bannerListenablesFor(key).hasError.value = true;
+      _bannerListenablesFor(key).markError();
       _bannerSlotFor(key).markFailed();
     }
   }
@@ -1650,13 +1621,7 @@ class AppLovinAdapter implements AdProviderAdapter {
   Widget? buildAdmobBannerView(Object key) => null;
 
   @override
-  /// [allowDuringBackoff] lets the onAppResumed recovery path retry a slot
-  /// that is still inside its failure backoff. That path clears `hasError`
-  /// before re-requesting, so a refusal here would leave the widget with no
-  /// error flag, no ad and nothing left to retry — a permanently blank
-  /// banner. A resume is a user-visible moment and worth one attempt; every
-  /// other caller still respects the backoff.
-  Future<void> preloadMrec(Object key, {bool allowDuringBackoff = false}) async {
+  Future<void> preloadMrec(Object key) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1690,8 +1655,8 @@ class AppLovinAdapter implements AdProviderAdapter {
     // success path, and its `if (slot.isLoading)` filter could never be true
     // because nothing on either adapter's widget-format path ever called
     // beginLoad. A banner that got no fill therefore sat in the widget's
-    // shimmer for the rest of the session — the resume recovery keys off
-    // `hasError`, which never got set — and emitted no failure event, so
+    // shimmer for the rest of the session — the resume recovery keys off the
+    // failure flags, which never got set — and emitted no failure event, so
     // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
     // called beginLoad; this brings AppLovin in line, and with it the load
     // watchdog that state enables.
@@ -1701,11 +1666,12 @@ class AppLovinAdapter implements AdProviderAdapter {
     // after the first fix. AdMob's banner path has always returned here, with
     // the same rationale: a flapping mrec is cheap to skip.
     final slot = _mrecSlotFor(key);
-    // beginReload skips the backoff window but still refuses while a load or
-    // show is genuinely in flight, so this cannot double-request.
-    // The bypass is rate-limited — see [_mayBypassBackoff].
-    final bypass = allowDuringBackoff && _mayBypassBackoff(key);
-    if (!(bypass ? slot.beginReload() : slot.beginLoad())) {
+    // A refusal here is safe to honour outright: the recovery path keeps
+    // `BannerListenables.needsRecovery` set until a load actually succeeds, so
+    // a slot turned away for being in backoff is simply retried on the next
+    // resume rather than stranded blank. No backoff bypass is needed, and the
+    // backoff itself is what rate-limits a flapping app.
+    if (!slot.beginLoad()) {
       SafeLogger.d(_logTag,
           'preloadMrec $tag \u23ed\ufe0f already loading/showing or in cooldown');
       return;
@@ -1716,7 +1682,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       );
       if (adViewId == null) {
         SafeLogger.w(_logTag, 'mrec $tag ❌ preload returned null adViewId');
-        _mrecListenablesFor(key).hasError.value = true;
+        _mrecListenablesFor(key).markError();
         _mrecSlotFor(key).markFailed();
         return;
       }
@@ -1730,7 +1696,7 @@ class AppLovinAdapter implements AdProviderAdapter {
       }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'mrec $tag preload THREW: $e\n$st');
-      _mrecListenablesFor(key).hasError.value = true;
+      _mrecListenablesFor(key).markError();
       _mrecSlotFor(key).markFailed();
     }
   }
@@ -1861,10 +1827,14 @@ class AppLovinAdapter implements AdProviderAdapter {
       for (final key in _bannerListenablesByKey.keys.toList()) {
         final listenables = _bannerListenablesFor(key);
         final adViewIdNotifier = _bannerAdViewIdFor(key);
-        if (listenables.hasError.value) {
+        if (listenables.needsRecovery) {
           SafeLogger.d(
               _logTag, 'onAppResumed $tag — banner had error, recreating');
           final oldId = adViewIdNotifier.value;
+          // Display flag only — `needsRecovery` deliberately stays set until a
+          // load actually succeeds, so a request refused below (backoff, closed
+          // gate, missing config) is retried on the next resume instead of
+          // leaving this key blank forever.
           listenables.hasError.value = false;
           adViewIdNotifier.value = null;
           listenables.autoRefreshEnabled.value = true;
@@ -1874,7 +1844,7 @@ class AppLovinAdapter implements AdProviderAdapter {
                   _logTag, 'destroyWidgetAdView (onAppResumed) threw: $e');
             }));
           }
-          preloadBanner(key, allowDuringBackoff: true);
+          preloadBanner(key);
         } else if (adViewIdNotifier.value != null &&
             !bannerRoutePaused(key)) {
           listenables.autoRefreshEnabled.value = true;
@@ -1890,10 +1860,11 @@ class AppLovinAdapter implements AdProviderAdapter {
       for (final key in _mrecListenablesByKey.keys.toList()) {
         final listenables = _mrecListenablesFor(key);
         final adViewIdNotifier = _mrecAdViewIdFor(key);
-        if (listenables.hasError.value) {
+        if (listenables.needsRecovery) {
           SafeLogger.d(
               _logTag, 'onAppResumed $tag — mrec had error, recreating');
           final oldId = adViewIdNotifier.value;
+          // Display flag only — see the banner branch above.
           listenables.hasError.value = false;
           adViewIdNotifier.value = null;
           listenables.autoRefreshEnabled.value = true;
@@ -1903,7 +1874,7 @@ class AppLovinAdapter implements AdProviderAdapter {
                   'destroyWidgetAdView (onAppResumed mrec) threw: $e');
             }));
           }
-          preloadMrec(key, allowDuringBackoff: true);
+          preloadMrec(key);
         } else if (adViewIdNotifier.value != null && !mrecRoutePaused(key)) {
           listenables.autoRefreshEnabled.value = true;
           SafeLogger.d(

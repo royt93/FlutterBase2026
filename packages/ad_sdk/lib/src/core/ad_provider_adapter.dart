@@ -57,8 +57,44 @@ class BannerListenables {
   /// True once a banner has been successfully loaded at least once.
   final ValueNotifier<bool> isLoaded;
 
-  /// True if the most recent banner load failed.
+  /// True if the most recent banner load failed. **Display only** — it decides
+  /// whether the widget paints nothing; it is not a record of what still owes a
+  /// retry. See [needsRecovery] for why the two must stay separate.
   final ValueNotifier<bool> hasError;
+
+  /// True while this key still owes a *successful* load.
+  ///
+  /// Round-6 audit: `hasError` used to carry both meanings, and the
+  /// `onAppResumed` recovery branch — which is gated on it — cleared it before
+  /// knowing the re-request had been accepted. When the retry was refused (slot
+  /// in failure backoff, config missing, gate closed) the widget was left with
+  /// no error flag, no ad, and no surviving reason for anything to try again:
+  /// a permanently blank banner. Splitting the two means the recovery branch may
+  /// clear the *display* flag freely and still be re-entered on the next resume,
+  /// because this one is cleared only by an actual success.
+  ///
+  /// Deliberately a plain field, not a `ValueNotifier`: no widget renders from
+  /// it, and it therefore needs no disposal — one less thing to leak. It lives
+  /// on this per-key object so it is cleaned up with the rest of the key's
+  /// state, rather than in a side map that has to be pruned by hand.
+  ///
+  /// Maintained through [markError]/[clearError] rather than by assignment, so
+  /// the two flags cannot drift apart at any of the ~15 call sites.
+  bool needsRecovery = false;
+
+  /// A load failed: paint nothing *and* remember the debt.
+  void markError() {
+    hasError.value = true;
+    needsRecovery = true;
+  }
+
+  /// A load succeeded (or the key was reset): paint normally *and* settle the
+  /// debt. The recovery branch must NOT use this — it clears `hasError.value`
+  /// directly, precisely so [needsRecovery] survives a refused retry.
+  void clearError() {
+    hasError.value = false;
+    needsRecovery = false;
+  }
 
   /// Actual rendered size — used by widget to size the placeholder.
   final ValueNotifier<Size?> adSize;

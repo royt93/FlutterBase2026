@@ -549,7 +549,7 @@ class AdMobAdapter implements AdProviderAdapter {
 
     for (final l in _bannerListenablesByKey.values) {
       l.isLoaded.value = false;
-      l.hasError.value = false;
+      l.clearError();
       l.adSize.value = null;
       l.autoRefreshEnabled.value = true;
       l.visible.value = true;
@@ -558,7 +558,7 @@ class AdMobAdapter implements AdProviderAdapter {
 
     for (final l in _mrecListenablesByKey.values) {
       l.isLoaded.value = false;
-      l.hasError.value = false;
+      l.clearError();
       l.adSize.value = null;
       l.autoRefreshEnabled.value = true;
       l.visible.value = true;
@@ -1561,7 +1561,7 @@ class AdMobAdapter implements AdProviderAdapter {
       // while `_bannerAdsByKey` still holds a key, so a dead BannerAd left in
       // the map blocks every later load for this widget instance. Drop it.
       _bannerAdsByKey.remove(key)?.dispose();
-      listenables.hasError.value = true;
+      listenables.markError();
       listenables.isLoaded.value = false;
     });
     listenables.isLoaded.value = false;
@@ -1610,7 +1610,7 @@ class AdMobAdapter implements AdProviderAdapter {
             if (!identical(_bannerSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'loadBanner $tag ✅');
             listenables.isLoaded.value = true;
-            listenables.hasError.value = false;
+            listenables.clearError();
             // T-visible — onAppPaused() blanks `visible` for every key with a
             // live listener, but onAppResumed()'s error-reload branch never
             // sets it back (only its "ad already alive" branch does). Set it
@@ -1644,7 +1644,7 @@ class AdMobAdapter implements AdProviderAdapter {
             } catch (_) {}
             _bannerAdsByKey.remove(key);
             listenables.isLoaded.value = false;
-            listenables.hasError.value = true;
+            listenables.markError();
             slot.markFailed();
             _emit(AdLoadEvent(
               providerTag: tag,
@@ -1669,7 +1669,7 @@ class AdMobAdapter implements AdProviderAdapter {
       // Slot already transitioned to `loading` above (before BannerAd creation).
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadBanner $tag adaptive size THREW: $e\n$st');
-      listenables.hasError.value = true;
+      listenables.markError();
       slot.markFailed();
     }
   }
@@ -1741,7 +1741,7 @@ class AdMobAdapter implements AdProviderAdapter {
     slot.armLoadWatchdog('mrec', _widgetLoadWatchdog, onTimeout: () {
       // M3 — see loadBanner.
       _mrecAdsByKey.remove(key)?.dispose();
-      listenables.hasError.value = true;
+      listenables.markError();
       listenables.isLoaded.value = false;
     });
     listenables.isLoaded.value = false;
@@ -1767,7 +1767,7 @@ class AdMobAdapter implements AdProviderAdapter {
             if (!identical(_mrecSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'loadMrec $tag ✅');
             listenables.isLoaded.value = true;
-            listenables.hasError.value = false;
+            listenables.clearError();
             // T-visible — see the matching comment in loadBannerIfNeeded's
             // onAdLoaded above.
             listenables.visible.value = true;
@@ -1795,7 +1795,7 @@ class AdMobAdapter implements AdProviderAdapter {
             } catch (_) {}
             _mrecAdsByKey.remove(key);
             listenables.isLoaded.value = false;
-            listenables.hasError.value = true;
+            listenables.markError();
             slot.markFailed();
             _emit(AdLoadEvent(
               providerTag: tag,
@@ -1819,7 +1819,7 @@ class AdMobAdapter implements AdProviderAdapter {
       )..load();
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadMrec $tag THREW: $e\n$st');
-      listenables.hasError.value = true;
+      listenables.markError();
       slot.markFailed();
     }
   }
@@ -1896,7 +1896,7 @@ class AdMobAdapter implements AdProviderAdapter {
             if (!identical(_nativeSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'preloadNative $tag ✅');
             listenables.isLoaded.value = true;
-            listenables.hasError.value = false;
+            listenables.clearError();
             slot.markReady();
             AdSafetyConfig.recordBannerImpression();
             _emit(AdLoadEvent(
@@ -1919,7 +1919,7 @@ class AdMobAdapter implements AdProviderAdapter {
             } catch (_) {}
             _nativeAdsByKey.remove(key);
             listenables.isLoaded.value = false;
-            listenables.hasError.value = true;
+            listenables.markError();
             slot.markFailed();
             _emit(AdLoadEvent(
               providerTag: tag,
@@ -1943,7 +1943,7 @@ class AdMobAdapter implements AdProviderAdapter {
       )..load();
     } catch (e, st) {
       SafeLogger.e(_logTag, 'preloadNative $tag THREW: $e\n$st');
-      listenables.hasError.value = true;
+      listenables.markError();
       slot.markFailed();
     }
   }
@@ -1990,7 +1990,11 @@ class AdMobAdapter implements AdProviderAdapter {
     // single shared one.
     for (final key in _bannerListenablesByKey.keys.toList()) {
       final listenables = _bannerListenablesByKey[key]!;
-      if (listenables.hasError.value && !_bannerAdsByKey.containsKey(key)) {
+      if (listenables.needsRecovery && !_bannerAdsByKey.containsKey(key)) {
+        // Display flag only — `needsRecovery` stays set until a load actually
+        // succeeds, so a request refused below (backoff, no platform view,
+        // closed gate) is retried on the next resume instead of leaving this
+        // key painting nothing forever. See `BannerListenables.needsRecovery`.
         listenables.hasError.value = false;
         // Width is unknown here — caller (AdManager) supplies it via
         // platformDispatcher when it forwards the resume.
@@ -2016,7 +2020,8 @@ class AdMobAdapter implements AdProviderAdapter {
     // instance key, not just a single shared one.
     for (final key in _mrecListenablesByKey.keys.toList()) {
       final listenables = _mrecListenablesByKey[key]!;
-      if (listenables.hasError.value && !_mrecAdsByKey.containsKey(key)) {
+      if (listenables.needsRecovery && !_mrecAdsByKey.containsKey(key)) {
+        // Display flag only — see the banner loop above.
         listenables.hasError.value = false;
         loadMrecIfNeeded(key, 0);
       } else if (_mrecAdsByKey.containsKey(key)) {
@@ -2029,7 +2034,8 @@ class AdMobAdapter implements AdProviderAdapter {
     // in error state, not just a single shared one.
     for (final key in _nativeListenablesByKey.keys.toList()) {
       final listenables = _nativeListenablesByKey[key]!;
-      if (listenables.hasError.value && !_nativeAdsByKey.containsKey(key)) {
+      if (listenables.needsRecovery && !_nativeAdsByKey.containsKey(key)) {
+        // Display flag only — see the banner loop above.
         listenables.hasError.value = false;
         preloadNative(key,
             templateType:

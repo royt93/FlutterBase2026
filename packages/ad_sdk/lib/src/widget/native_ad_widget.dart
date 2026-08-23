@@ -373,7 +373,7 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
             adapter.native(instanceKey).isLoaded.value = true;
-            adapter.native(instanceKey).hasError.value = false;
+            adapter.native(instanceKey).clearError();
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdLoadedCallback: notifier disposed mid-flight? $e');
@@ -384,7 +384,7 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ❌ ${err.code}');
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
-            adapter.native(instanceKey).hasError.value = true;
+            adapter.native(instanceKey).markError();
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdLoadFailedCallback: notifier disposed mid-flight? $e');

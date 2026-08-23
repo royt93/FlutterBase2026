@@ -792,7 +792,7 @@ void main() {
     // and only acts `if (slot.isLoading)`, but the preload path never put the
     // slot into `loading` — so on AppLovin a banner or MREC that got no fill
     // sat in the widget's shimmer for the rest of the session, never retried
-    // (the resume recovery keys off `hasError`), and emitted no failure event,
+    // (the resume recovery keys off the failure flags), and emitted no event,
     // leaving fill-rate monitoring blind to every AppLovin banner failure.
     test('a real no-fill marks the banner errored (not just a hand-set flag)',
         () async {
@@ -809,7 +809,7 @@ void main() {
 
       expect(adapter.banner('k').hasError.value, isTrue,
           reason: 'the widget layer collapses the shimmer on hasError, and '
-              'onAppResumed keys its retry off it — without this the banner '
+              'markError() is what arms needsRecovery — without this the banner '
               'is stuck in fake-ad shimmer for the whole session');
       expect(adapter.bannerSlot('k').value, AdSlotState.cooldown,
           reason: 'a no-fill is a load failure and must feed the backoff');
@@ -844,67 +844,130 @@ void main() {
               'code in the first place');
     });
 
-    // Round-6 final QC, found independently by BOTH reviewers — the previous
-    // fix (honour beginLoad()'s refusal) removed the recovery path's only way
-    // back. onAppResumed clears `hasError` FIRST and then re-preloads, so a
-    // refusal left the widget with no error flag, no ad, and nothing left to
-    // retry: a permanently blank banner. Recovery is a user-visible moment and
-    // is allowed past the backoff; every other caller still respects it.
-    test('onAppResumed recovery is allowed past the backoff window', () async {
+    // Round-6 final QC, found independently by BOTH reviewers, then reproduced
+    // once more after the first attempt at fixing it:
+    //
+    // `hasError` used to mean two things at once — "paint nothing" AND "this
+    // key still owes a retry". onAppResumed cleared it BEFORE it knew the
+    // re-request had been accepted, so a refusal (slot still inside its failure
+    // backoff) left the widget with no error flag, no ad, and no surviving
+    // reason for anything to try again: a permanently blank banner for the rest
+    // of the session.
+    //
+    // The first fix let recovery skip the backoff instead. That traded the
+    // blank banner for unlimited requests from a flapping app, and rate-limiting
+    // the bypass brought the blank banner straight back (a refused bypass is
+    // still a refusal). So the flags are split: `hasError` is display-only, and
+    // `needsRecovery` is cleared only by an actual success. Recovery may then
+    // clear the display flag freely, and honour the backoff, because the claim
+    // itself survives to the next resume.
+    test('a recovery attempt refused by the backoff is retried on the next '
+        'resume, not abandoned', () async {
       final b = _CountingPreloadBridge();
       final a = AppLovinAdapter(bridge: b);
       expect(await a.initialize(_config), isTrue);
       addTearDown(a.dispose);
 
       await a.preloadBanner('k');
-      expect(b.preloadCalls, 1);
+      expect(b.preloadCalls, 1, reason: 'sanity: first load was sent');
       b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
-      expect(a.bannerSlot('k').value, AdSlotState.cooldown);
+      expect(a.bannerSlot('k').value, AdSlotState.cooldown,
+          reason: 'sanity: the no-fill put the slot in its backoff');
+      expect(a.banner('k').needsRecovery, isTrue,
+          reason: 'a failed load is what creates the retry claim');
+
+      a.onAppResumed();
+      await Future<void>.value();
+      await Future<void>.value();
+
+      expect(b.preloadCalls, 1,
+          reason: 'the backoff is honoured — recovery gets no free request');
+      expect(a.banner('k').hasError.value, isFalse,
+          reason: 'display flag cleared, so the widget shows its shimmer '
+              'rather than collapsing to nothing');
+      expect(a.banner('k').needsRecovery, isTrue,
+          reason: 'THE FIX: the refused attempt must leave the claim standing. '
+              'When this collapsed into `hasError` the recovery branch erased '
+              'its own re-entry condition and the banner stayed blank forever');
+
+      // The backoff window elapses (15s base for a single failure).
+      a.bannerSlot('k').lastErrorAt =
+          DateTime.now().subtract(const Duration(seconds: 20));
 
       a.onAppResumed();
       await Future<void>.value();
       await Future<void>.value();
 
       expect(b.preloadCalls, 2,
-          reason: 'the user is looking at the screen right now — a banner that '
-              'failed must get another attempt, or it stays blank for the rest '
-              'of the session with hasError already cleared');
-      expect(a.banner('k').hasError.value, isFalse);
+          reason: 'the next resume finds the claim still set and retries');
     });
 
-    // Round-6 QC v3 — codex reproduced this with real request counts:
-    // load #1 → fail → resume → load #2 → fail → pause/resume → load #3.
-    // Expected 2, got 3. Letting recovery skip the backoff every time defeats
-    // the exponential backoff entirely, so a device with no fill re-requests
-    // on every single resume, forever. Recovery still gets to bypass the
-    // backoff — that is what keeps a banner from going permanently blank — but
-    // only once per cooldown window.
-    test('recovery bypasses the backoff at most once per window', () async {
+    test('a successful load settles the recovery claim', () async {
       final b = _CountingPreloadBridge();
       final a = AppLovinAdapter(bridge: b);
       expect(await a.initialize(_config), isTrue);
       addTearDown(a.dispose);
 
       await a.preloadBanner('k');
-      expect(b.preloadCalls, 1, reason: 'first load');
       b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+      expect(a.banner('k').needsRecovery, isTrue);
+
+      // The loaded callback is dispatched by matching adViewId against the
+      // key's notifier — the shared _fakeAd() carries none, so it would be
+      // dropped as a stale callback and prove nothing.
+      b.widget!.onAdLoadedCallback(MaxAd('banner-id', 'BANNER',
+          a.appLovinBannerAdViewId('k').value as AdViewId?, 'net', '', 0.0,
+          'exact', 'cid',
+          'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null));
+
+      expect(a.banner('k').needsRecovery, isFalse,
+          reason: 'otherwise every later resume would tear down a working '
+              'banner and re-request it');
 
       a.onAppResumed();
       await Future<void>.value();
       await Future<void>.value();
-      expect(b.preloadCalls, 2,
-          reason: 'the first recovery attempt is allowed — otherwise the '
-              'banner stays blank with hasError already cleared');
-      b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+      expect(b.preloadCalls, 1, reason: 'nothing left to recover');
+    });
 
-      // Second pause/resume, still inside the same backoff window.
+    test('MREC: a recovery attempt refused by the backoff is retried on the '
+        'next resume', () async {
+      final b = _CountingPreloadBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(
+        await a.initialize(const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'sdk',
+            bannerId: 'banner-id',
+            mrecId: 'mrec-id',
+            interstitialId: 'inter-id',
+            appOpenId: 'appopen-id',
+            rewardedId: 'rewarded-id',
+          ),
+        )),
+        isTrue,
+      );
+      addTearDown(a.dispose);
+
+      await a.preloadMrec('k');
+      expect(b.preloadCalls, 1);
+      b.widget!.onAdLoadFailedCallback('mrec-id', _fakeError());
+      expect(a.mrec('k').needsRecovery, isTrue);
+
       a.onAppResumed();
       await Future<void>.value();
       await Future<void>.value();
+      expect(b.preloadCalls, 1, reason: 'backoff honoured');
+      expect(a.mrec('k').hasError.value, isFalse);
+      expect(a.mrec('k').needsRecovery, isTrue);
 
-      expect(b.preloadCalls, 2,
-          reason: 'flapping the app must not hand out an unlimited supply of '
-              'requests — this is exactly the count codex measured as 3');
+      a.mrecSlot('k').lastErrorAt =
+          DateTime.now().subtract(const Duration(seconds: 20));
+      a.onAppResumed();
+      await Future<void>.value();
+      await Future<void>.value();
+      expect(b.preloadCalls, 2);
     });
 
     test('a real no-fill marks the MREC errored too', () async {
@@ -944,7 +1007,7 @@ void main() {
       final oldId = adapter.appLovinBannerAdViewId('k').value;
       expect(oldId, isNotNull, reason: 'fake bridge preloads id=1');
 
-      adapter.banner('k').hasError.value = true;
+      adapter.banner('k').markError();
       adapter.onAppResumed();
       await Future<void>.value(); // flush unawaited destroyWidgetAdView
 
@@ -966,8 +1029,8 @@ void main() {
       final oldA = adapter.appLovinBannerAdViewId('a').value;
       final oldB = adapter.appLovinBannerAdViewId('b').value;
 
-      adapter.banner('a').hasError.value = true;
-      adapter.banner('b').hasError.value = true;
+      adapter.banner('a').markError();
+      adapter.banner('b').markError();
       adapter.onAppResumed();
       await Future<void>.value();
 
