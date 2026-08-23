@@ -1597,11 +1597,36 @@ class AppLovinAdapter implements AdProviderAdapter {
       );
       if (adViewId == null) {
         SafeLogger.w(_logTag, 'banner $tag ❌ preload returned null adViewId');
-        _bannerListenablesFor(key).markError();
-        _bannerSlotFor(key).markFailed();
+        // Map lookups, not the `...For(key)` accessors: those are
+        // `putIfAbsent`, so on a key whose widget unmounted during the await
+        // they would resurrect a fresh slot/listenables pair for a key nobody
+        // watches — and a resurrected slot stays in `bannerSlots`, which the
+        // reload/refill sweeps iterate, so the adapter would keep requesting
+        // ads for a dead widget. Same reason as the identity check below.
+        _bannerListenablesByKey[key]?.markError();
+        _bannerSlotsByKey[key]?.markFailed();
         return;
       }
       SafeLogger.d(_logTag, 'banner $tag ✅ preload started adViewId=$adViewId');
+      // Round-7 audit, MAJOR — the widget owning this key can unmount while
+      // the await above is still in flight (route pop, VIP grant, a rebuild
+      // that changes the key). `disposeXInstance` then removed the slot,
+      // listenables and id notifier from the maps and disposed them — but the
+      // `_bannerListenablesFor`/`_bannerAdViewIdFor` accessors below are
+      // `putIfAbsent`, so they would silently RESURRECT a fresh set for a key
+      // no widget is watching any more, and park this brand-new native AdView
+      // in a notifier nothing will ever dispose: a leaked AdView plus a
+      // zombie slot that makes every later preload for a re-mounted widget
+      // bounce off `beginLoad()`. Identity, not `containsKey`, because dispose
+      // followed by a re-mount installs a *different* slot for the same key,
+      // and this in-flight load belongs to neither.
+      if (!identical(_bannerSlotsByKey[key], slot)) {
+        SafeLogger.d(_logTag,
+            'banner $tag ⏭️ instance disposed while loading — destroying adViewId='
+            '$adViewId');
+        unawaited(_destroyWidgetAdViewWhenDetached(adViewId, 'banner'));
+        return;
+      }
       // Round-7 audit, MAJOR — the M3 comment above promised "and with it the
       // load watchdog that state enables", but nothing ever armed one here.
       // From this point the slot waits on `_ensureWidgetAdViewListener`'s
@@ -1634,8 +1659,9 @@ class AppLovinAdapter implements AdProviderAdapter {
       }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'banner $tag preload THREW: $e\n$st');
-      _bannerListenablesFor(key).markError();
-      _bannerSlotFor(key).markFailed();
+      // Map lookups for the same reason as the null branch above.
+      _bannerListenablesByKey[key]?.markError();
+      _bannerSlotsByKey[key]?.markFailed();
     }
   }
 
@@ -1725,11 +1751,36 @@ class AppLovinAdapter implements AdProviderAdapter {
       );
       if (adViewId == null) {
         SafeLogger.w(_logTag, 'mrec $tag ❌ preload returned null adViewId');
-        _mrecListenablesFor(key).markError();
-        _mrecSlotFor(key).markFailed();
+        // Map lookups, not the `...For(key)` accessors: those are
+        // `putIfAbsent`, so on a key whose widget unmounted during the await
+        // they would resurrect a fresh slot/listenables pair for a key nobody
+        // watches — and a resurrected slot stays in `bannerSlots`, which the
+        // reload/refill sweeps iterate, so the adapter would keep requesting
+        // ads for a dead widget. Same reason as the identity check below.
+        _mrecListenablesByKey[key]?.markError();
+        _mrecSlotsByKey[key]?.markFailed();
         return;
       }
       SafeLogger.d(_logTag, 'mrec $tag ✅ preload started adViewId=$adViewId');
+      // Round-7 audit, MAJOR — the widget owning this key can unmount while
+      // the await above is still in flight (route pop, VIP grant, a rebuild
+      // that changes the key). `disposeXInstance` then removed the slot,
+      // listenables and id notifier from the maps and disposed them — but the
+      // `_mrecListenablesFor`/`_mrecAdViewIdFor` accessors below are
+      // `putIfAbsent`, so they would silently RESURRECT a fresh set for a key
+      // no widget is watching any more, and park this brand-new native AdView
+      // in a notifier nothing will ever dispose: a leaked AdView plus a
+      // zombie slot that makes every later preload for a re-mounted widget
+      // bounce off `beginLoad()`. Identity, not `containsKey`, because dispose
+      // followed by a re-mount installs a *different* slot for the same key,
+      // and this in-flight load belongs to neither.
+      if (!identical(_mrecSlotsByKey[key], slot)) {
+        SafeLogger.d(_logTag,
+            'mrec $tag ⏭️ instance disposed while loading — destroying adViewId='
+            '$adViewId');
+        unawaited(_destroyWidgetAdViewWhenDetached(adViewId, 'mrec'));
+        return;
+      }
       // Round-7 audit, MAJOR — the M3 comment above promised "and with it the
       // load watchdog that state enables", but nothing ever armed one here.
       // From this point the slot waits on `_ensureWidgetAdViewListener`'s
@@ -1758,8 +1809,9 @@ class AppLovinAdapter implements AdProviderAdapter {
       }
     } catch (e, st) {
       SafeLogger.e(_logTag, 'mrec $tag preload THREW: $e\n$st');
-      _mrecListenablesFor(key).markError();
-      _mrecSlotFor(key).markFailed();
+      // Map lookups for the same reason as the null branch above.
+      _mrecListenablesByKey[key]?.markError();
+      _mrecSlotsByKey[key]?.markFailed();
     }
   }
 

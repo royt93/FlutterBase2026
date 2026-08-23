@@ -4,6 +4,8 @@
 // the adapter's slot transitions, the reload-after-display-fail fix, and the
 // reward earned-vs-dismissed logic — all without the real AppLovin SDK.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_bridge.dart';
@@ -103,6 +105,15 @@ class _IncrementingIdBridge extends FakeAppLovinBridge {
   @override
   Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) async =>
       _next++;
+}
+
+/// Round-7 audit, MAJOR — lets a test unmount the owning widget *while*
+/// preloadWidgetAdView is still in flight, the window in which the adapter
+/// used to resurrect a disposed key and leak the native AdView it was handed.
+class _DeferredPreloadBridge extends FakeAppLovinBridge {
+  final Completer<AdViewId?> gate = Completer<AdViewId?>();
+  @override
+  Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) => gate.future;
 }
 
 /// m22 — the native side rejects destroyWidgetAdView while the AdView is
@@ -393,6 +404,73 @@ void main() {
         expect(a.mrecSlot('k').isLoading, isFalse);
         expect(a.mrec('k').needsRecovery, isTrue);
       });
+    });
+  });
+
+  group('Widget instance disposed while its preload is in flight', () {
+    Future<AppLovinAdapter> adapterWith(_DeferredPreloadBridge b) async {
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(const AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: 'sdk',
+          bannerId: 'banner-id',
+          interstitialId: 'inter-id',
+          appOpenId: 'appopen-id',
+          rewardedId: 'rewarded-id',
+          mrecId: 'mrec-id',
+        ),
+      ));
+      addTearDown(a.dispose);
+      return a;
+    }
+
+    test('banner: the late adViewId is destroyed, not parked in a zombie slot',
+        () async {
+      final b = _DeferredPreloadBridge();
+      final a = await adapterWith(b);
+
+      final pending = a.preloadBanner('k');
+      expect(a.bannerSlot('k').isLoading, isTrue);
+
+      // The BannerAdWidget unmounts (route pop / VIP grant) mid-flight.
+      a.disposeBannerInstance('k');
+      b.gate.complete(7);
+      await pending;
+
+      expect(b.destroyWidgetAdViewCalls, contains(7),
+          reason: 'the native AdView we were handed must be released');
+      expect(a.bannerSlots, isEmpty,
+          reason: 'a resurrected slot would keep the reload sweeps requesting '
+              'ads for a widget that no longer exists');
+    });
+
+    test('MREC: the late adViewId is destroyed, not parked in a zombie slot',
+        () async {
+      final b = _DeferredPreloadBridge();
+      final a = await adapterWith(b);
+
+      final pending = a.preloadMrec('k');
+      expect(a.mrecSlot('k').isLoading, isTrue);
+
+      a.disposeMrecInstance('k');
+      b.gate.complete(9);
+      await pending;
+
+      expect(b.destroyWidgetAdViewCalls, contains(9));
+      expect(a.mrecSlots, isEmpty);
+    });
+
+    test('banner: a null adViewId after dispose resurrects nothing', () async {
+      final b = _DeferredPreloadBridge();
+      final a = await adapterWith(b);
+
+      final pending = a.preloadBanner('k');
+      a.disposeBannerInstance('k');
+      b.gate.complete(null);
+      await pending;
+
+      expect(a.bannerSlots, isEmpty);
     });
   });
 
