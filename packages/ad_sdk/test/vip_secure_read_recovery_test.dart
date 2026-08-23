@@ -45,6 +45,11 @@ class _FlakySecureStorage extends FlutterSecureStorage {
   /// save is still in flight.
   Completer<void>? writeGate;
 
+  /// Writes that have REACHED the platform call (as opposed to sitting in
+  /// `VipManager`'s queue) — lets a test park a write that is genuinely in
+  /// flight, which is the only kind the disposed check cannot catch.
+  int writesStarted = 0;
+
 
   @override
   Future<String?> read({
@@ -81,6 +86,7 @@ class _FlakySecureStorage extends FlutterSecureStorage {
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
+    writesStarted++;
     final gate = writeGate;
     if (gate != null) await gate.future;
     if (value == null) {
@@ -112,6 +118,12 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     AdPreferences.resetForTest();
+    // The save queue is process-wide. A `Future` propagates its completion in
+    // the zone that CREATED it, so a tail left behind by an earlier test's
+    // `fakeAsync` zone never settles for anyone else — reset it per test, and
+    // again inside each fake zone (a tail created out here is invisible to
+    // that zone's `flushMicrotasks`, so every save chained onto it stalls).
+    VipManager.resetSaveQueueForTest();
     prefs = await AdPreferences.getInstance();
     // The production state this bug lives in: migration long since done, so
     // `getRaw()` never consults the legacy key, and NO plaintext fallback —
@@ -150,6 +162,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final mgr = VipManager(prefs, vipEntriesStore: store);
       unawaited(mgr.load());
       async.flushMicrotasks();
@@ -175,6 +188,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final mgr = VipManager(prefs, vipEntriesStore: store);
       unawaited(mgr.load());
       async.flushMicrotasks();
@@ -197,6 +211,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final mgr = VipManager(prefs, vipEntriesStore: store);
       unawaited(mgr.load());
       async.flushMicrotasks();
@@ -230,6 +245,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final mgr = VipManager(prefs, vipEntriesStore: store);
       unawaited(mgr.load());
       async.flushMicrotasks();
@@ -271,6 +287,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final mgr = VipManager(prefs, vipEntriesStore: store);
 
       // Load A parks on its read; load B queues behind it.
@@ -343,6 +360,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final gate = Completer<void>();
       secure.readGate = gate;
       final mgr = VipManager(prefs, vipEntriesStore: store);
@@ -377,6 +395,7 @@ void main() {
     final store = VipEntriesStore(prefs, secureStorage: secure);
 
     fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
       final mgr = VipManager(prefs, vipEntriesStore: store);
       unawaited(mgr.load());
       async.flushMicrotasks();
@@ -395,6 +414,182 @@ void main() {
               'grant: pointless at best, and it drops the grant from memory if '
               "the grant's own save has not landed yet");
       expect(mgr.isActive, isTrue);
+      mgr.dispose();
+    });
+  });
+
+  // Round-10 QC, MAJOR — the save queue used to be per-instance, so a write a
+  // discarded manager had already STARTED could land after the replacement
+  // manager's write and resurrect the entitlement the live one just wrote over.
+  // (A write still sitting in the queue is caught by the disposed check; one
+  // already inside the platform call is not — only ordering saves that case.)
+  test('a write started by a discarded manager cannot land on top of its '
+      'replacement', () async {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    final inFlight = Completer<void>();
+    secure.writeGate = inFlight;
+    final old = VipManager(prefs, vipEntriesStore: store);
+    await old.load();
+    final oldWrite = old.addVip(key: 'OLD', duration: const Duration(days: 7));
+    // Let it reach the platform call before the teardown — past the point any
+    // disposed check can help.
+    while (secure.writesStarted == 0) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    old.dispose();
+
+    // The host re-inits: the replacement writes its own state.
+    final live = VipManager(prefs, vipEntriesStore: store);
+    addTearDown(live.dispose);
+    secure.writeGate = null;
+    final liveWrite =
+        live.addVip(key: 'NEW', duration: const Duration(days: 7));
+
+    inFlight.complete();
+    await oldWrite;
+    await liveWrite;
+
+    expect(secure.data['ad_sdk_vip_entries_v1'], contains('NEW'),
+        reason: 'the live manager wrote last, so its state is what must be on '
+            'disk — a write from a manager the host threw away cannot win');
+  });
+
+  // Round-10 QC, MAJOR — the disposed check used to run only when `_save()` was
+  // CALLED. A write queued behind another one can wait long enough for the host
+  // to tear the SDK down, and by then the store belongs to the replacement.
+  test('a write already queued when dispose happens is dropped', () async {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    final mgr = VipManager(prefs, vipEntriesStore: store);
+    await mgr.load();
+    await mgr.addVip(key: 'MANUAL', duration: const Duration(days: 7));
+
+    // Park the head of the queue, put a revoke behind it, THEN dispose: the
+    // revoke was legal when it was called and only became illegal while it sat
+    // in the queue.
+    final parked = Completer<void>();
+    secure.writeGate = parked;
+    final blocker =
+        mgr.addVip(key: 'BLOCKER', duration: const Duration(days: 1));
+    while (secure.writesStarted < 2) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    final queued = mgr.revokeAll();
+    mgr.dispose();
+    secure.writeGate = null;
+    parked.complete();
+    await blocker;
+    await queued;
+
+    expect(secure.data['ad_sdk_vip_entries_v1'], contains('MANUAL'),
+        reason: 'a write that reaches the head of the queue after dispose must '
+            'be dropped, not written over the live store');
+  });
+
+  // Round-10 QC, MAJOR — the drain that makes a load wait for pending writes
+  // must be bounded: `AdManager.initialize()` awaits `load()`, so a platform
+  // write that never answers would hang SDK startup for good.
+  test('a load whose pending write never lands gives up and retries', () {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+      unawaited(mgr.addVip(key: 'MANUAL', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+
+      // A write that never answers, and a load behind it.
+      secure.writeGate = Completer<void>();
+      unawaited(mgr.addVip(key: 'OTHER', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+      var loadReturned = false;
+      unawaited(mgr.load().then((_) => loadReturned = true));
+      async.flushMicrotasks();
+      expect(loadReturned, isFalse, reason: 'sanity: the load is draining');
+
+      async.elapse(VipManager.kSaveDrainTimeout + const Duration(seconds: 1));
+      async.flushMicrotasks();
+
+      expect(loadReturned, isTrue,
+          reason: 'the drain must time out rather than hang SDK startup on a '
+              'wedged platform write');
+      expect(mgr.isActive, isTrue,
+          reason: 'giving up on the drain must keep the in-memory grant, not '
+              'trust a read it never took');
+      mgr.dispose();
+    });
+  });
+
+  // Round-10 QC, MINOR — the one-shot 1.x GAID migration must not be marked
+  // done when the write that carries it may have been dropped: the flag makes
+  // every later launch skip migration, losing the legacy entitlement for good.
+  test('a dispose mid-migration does not mark the 1.x migration done',
+      () async {
+    await prefs.saveGAIDList(<String>['gaid-1']);
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    final parked = Completer<void>();
+    secure.writeGate = parked;
+    final mgr = VipManager(prefs, vipEntriesStore: store);
+    final loading = mgr.load(currentDeviceGaid: 'gaid-1');
+    while (secure.writesStarted == 0) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    mgr.dispose();
+    secure.writeGate = null;
+    parked.complete();
+    await loading;
+
+    expect(prefs.isVipMigrated(), isFalse,
+        reason: 'the migration flag must only be set once its write is known '
+            'to have landed on a live manager');
+  });
+
+  // Round-10 QC, MAJOR — the epoch has to be snapshotted BEFORE the drain, not
+  // after. A grant that lands *while* the drain is waiting queues its own write
+  // behind the one being drained, so the read that follows can still predate
+  // it: with the snapshot taken afterwards the load sees "nothing changed",
+  // accepts a read that never contained the grant, and drops it.
+  test('a grant that lands during the drain is not dropped by the read after '
+      'it', () {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+
+      // A parked write, so the next load's drain has something to wait on.
+      final first = Completer<void>();
+      secure.writeGate = first;
+      unawaited(mgr.addVip(key: 'FIRST', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+
+      // The load starts and parks in the drain.
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+
+      // The grant arrives while the drain waits; its own write queues behind
+      // the parked one and is itself parked, so storage never gets it.
+      unawaited(mgr.addVip(key: 'SECOND', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+      secure.writeGate = Completer<void>();
+      first.complete();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+
+      expect(mgr.entries.map((e) => e.key), contains('SECOND'),
+          reason: 'the read was taken before the grant existed, so it cannot '
+              'be what the session runs on');
       mgr.dispose();
     });
   });

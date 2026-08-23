@@ -124,7 +124,36 @@ class VipManager {
   /// would otherwise race. Each save reads `_entries` at the moment its
   /// queued task runs (capturing the latest state), and waits for the
   /// previous save to finish.
-  Future<void> _saveQueue = Future.value();
+  ///
+  /// Round-10 QC, MAJOR — **static on purpose.** The queue used to be
+  /// per-instance, but the thing it protects is not: every manager writes the
+  /// same secure-storage key. On `AdManager.destroy()` + `initialize()` the old
+  /// manager could have a write already parked inside `setRaw()`; the
+  /// replacement had its own empty queue, so it read, revoked, and wrote — and
+  /// then the old write landed on top and resurrected the entitlement the live
+  /// manager had just revoked. One process-wide queue makes the last writer
+  /// actually last.
+  static Future<void> _saveQueue = Future<void>.value();
+
+  /// Drops the process-wide save ordering. Tests only — a test that parks a
+  /// write and never releases it would otherwise wedge every later test.
+  @visibleForTesting
+  static void resetSaveQueueForTest() {
+    _saveQueue = Future<void>.value();
+  }
+
+  /// This instance's own most recent save. [_load] waits on THIS, never on the
+  /// process-wide [_saveQueue]: the global queue can hold a write parked by a
+  /// manager this one never met (in tests, a manager from a previous test), and
+  /// waiting on that would make every load pay the drain timeout for a write it
+  /// has no stake in. What a load actually needs is that ITS OWN pending grants
+  /// have landed before it trusts the disk.
+  Future<void> _ownSaveTail = Future<void>.value();
+
+  /// How long [load] waits for pending writes to land before giving up on
+  /// them. Bounded because a wedged platform channel would otherwise hang
+  /// `AdManager.initialize()` forever — see the drain in [_load].
+  static const Duration kSaveDrainTimeout = Duration(seconds: 5);
 
   /// Concurrency guard for [redeemVip] — a double-tap would otherwise stack
   /// two verifying dialogs and confuse the navigator pop sequence.
@@ -422,9 +451,30 @@ class VipManager {
     // first is what makes the read authoritative. Safe to await: `_save()`
     // hands the queue an already-caught future, so this cannot throw, and
     // nothing on the save side ever waits on a load.
-    await _saveQueue;
-    if (_disposed) return;
+    //
+    // Snapshotted BEFORE the drain, not after: a grant landing *during* the
+    // wait is exactly the case the epoch exists for, and a snapshot taken
+    // afterwards would miss it.
     final epochBefore = _mutationEpoch;
+    var drained = true;
+    try {
+      await _ownSaveTail.timeout(kSaveDrainTimeout);
+    } catch (_) {
+      // Bounded on purpose (round-10 QC, MAJOR): a platform write future that
+      // never settles would otherwise hang every later load — and
+      // `AdManager.initialize()` awaits one, so it would hang SDK startup.
+      drained = false;
+    }
+    if (_disposed) return;
+    if (!drained) {
+      SafeLogger.w(
+          _tag,
+          'pending VIP writes did not land within '
+          '${kSaveDrainTimeout.inSeconds}s — keeping the in-memory state and '
+          'retrying rather than trusting a possibly stale read');
+      _scheduleReadRetryIfNeeded(force: true);
+      return;
+    }
     final raw = await _vipEntriesStore.getRaw();
     if (_disposed) return;
     if (_mutationEpoch != epochBefore) {
@@ -525,6 +575,11 @@ class VipManager {
           await _save();
         }
       }
+      // Round-10 QC, MINOR — never mark the one-shot 1.x migration done when
+      // the write above may have been dropped (disposed mid-load): the flag
+      // makes the next launch skip migration entirely, so the legacy
+      // entitlement would be lost for good.
+      if (_disposed) return;
       await _prefs.markVipMigrated();
     }
     // Round-7 audit, MAJOR — apply the cached CRL on EVERY startup, not only
@@ -564,11 +619,15 @@ class VipManager {
   /// Re-entering [load] rather than just re-reading is deliberate — every
   /// trust decision about what comes off disk lives there, and a second copy
   /// of it would be a second thing to keep correct.
-  void _scheduleReadRetryIfNeeded() {
+  void _scheduleReadRetryIfNeeded({bool force = false}) {
     _readRetryTimer?.cancel();
     _readRetryTimer = null;
     if (_disposed) return;
-    if (!_vipEntriesStore.lastSecureReadErrored || _entries.isNotEmpty) {
+    // `force` is the drain-timeout path in [_load]: there the read never even
+    // ran, so `lastSecureReadErrored` says nothing, but the load still has to
+    // be re-attempted or the session runs on whatever was in memory.
+    if (!force &&
+        (!_vipEntriesStore.lastSecureReadErrored || _entries.isNotEmpty)) {
       _readRetryIndex = 0;
       return;
     }
@@ -618,13 +677,35 @@ class VipManager {
       return Future<void>.value();
     }
     _mutationEpoch++;
-    final task = _saveQueue.then((_) async {
+    // Bounded wait on the queue, not a bare `then`: a platform write that never
+    // answers (a wedged Keystore) would otherwise freeze every later save for
+    // the life of the process. Ordering still holds in the normal case; past
+    // the timeout we prefer a possibly-reordered write to no writes at all.
+    final previous = _saveQueue;
+    final task = () async {
+      try {
+        await previous.timeout(kSaveDrainTimeout);
+      } catch (_) {
+        SafeLogger.w(_tag, 'a queued VIP write did not settle within '
+            '${kSaveDrainTimeout.inSeconds}s — writing anyway');
+      }
+      // Re-checked at EXECUTION time, not just at call time: this task may have
+      // waited behind other writes long enough for the host to tear the SDK
+      // down, and by then the store belongs to the replacement manager.
+      if (_disposed) {
+        SafeLogger.w(_tag, 'save reached the queue after dispose — dropped');
+        return;
+      }
       await _vipEntriesStore.setRaw(VipEntry.encodeList(_entries));
-    });
+    }();
     // Catch errors so the queue keeps working even if one save fails.
     _saveQueue = task.catchError((Object e) {
       SafeLogger.w(_tag, '_save threw: $e');
     });
+    // A separately-caught view of THIS task — not `_saveQueue`, which is the
+    // process-wide chain and would drag in writes from managers this instance
+    // has nothing to do with.
+    _ownSaveTail = task.catchError((Object _) {});
     return task;
   }
 
