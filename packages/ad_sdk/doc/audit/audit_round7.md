@@ -92,9 +92,16 @@ the audit missed.
 
 ## Still open (not part of round 7's scope)
 
-* Two Minors: an `AdSlot` that is `reset()` but whose ad object is never
-  disposed. `AdSlot.reset()` already cancels its watchdogs (round-7 Minor fix);
-  the disposal half is untouched.
+* ~~Two Minors: an `AdSlot` that is `reset()` but whose ad object is never
+  disposed.~~ Re-checked line by line and **not reproducible**: every
+  `*Slot.reset()` call site in `admob_adapter.dart` (the stale-at-show discards
+  at ~853/1117/1303/1483, the `drop()` helper in `discardCachedFullscreenAds`,
+  and `dispose()` itself) already calls `_disposeAd(...)` on the ad object first,
+  and both adapters dispose every fullscreen slot plus the union of all per-key
+  banner/MREC/native maps in `dispose()`. `AdSlot` holds no ad object at all —
+  it is pure state — so `reset()` has nothing to leak. The AppLovin side has no
+  Dart ad object for fullscreen at all (see the cached-fill limitation above).
+  Nothing left to fix here.
 * Device verification of the consent path under EEA debug geography. Green
   tests do not prove the UMP path works on hardware — that lesson is already
   paid for once (`tcfConsentString` passed four rounds while returning null on
