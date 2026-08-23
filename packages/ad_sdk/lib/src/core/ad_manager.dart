@@ -715,6 +715,35 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   Object? debugForceAutoUmpError;
 
+  /// Lets a test exercise the release-build behaviour of
+  /// [umpFailureMayReopenGate] from a debug test binary.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForUmpGate = false;
+
+  /// Whether a failure of the SDK-owned UMP flow may REOPEN the ad gate.
+  ///
+  /// Round-7 audit, MAJOR. A [MissingPluginException] used to reopen the gate
+  /// unconditionally, on the reading that a missing UMP channel means "this
+  /// host never wired google_mobile_ads, so UMP is not in play". That reading
+  /// does not hold in a shipped app: `google_mobile_ads` is a hard dependency
+  /// of this package and Flutter registers its channels automatically, for the
+  /// AppLovin provider too. So in a release build a missing UMP channel means
+  /// the native integration is broken — not that the user is outside the EEA
+  /// and not that consent is unnecessary. Reopening the gate there serves ads
+  /// with no verified consent decision at all, which is the exact GDPR
+  /// exposure the fail-closed branch below exists to avoid.
+  ///
+  /// It stays fail-open in debug/profile because that is where a missing
+  /// channel really is routine: `flutter test` has no plugin registrant, so
+  /// every unit test that runs [initialize] lands here, and a dev running the
+  /// example app before `pod install` would otherwise see no ads at all with
+  /// no obvious cause. Neither serves a real user, so neither is a compliance
+  /// question.
+  @visibleForTesting
+  static bool umpFailureMayReopenGate(Object e) =>
+      e is MissingPluginException &&
+      !(kReleaseMode || debugSimulateReleaseModeForUmpGate);
+
   /// Consent manager — `null` until [initialize] completes. Owns the
   /// Cupertino consent dialog, persistence, and provider apply pipeline.
   /// Also accessible via static [ConsentManager.instance] once initialised.
@@ -2153,12 +2182,25 @@ class AdManager with WidgetsBindingObserver {
           // consent decision, a real GDPR exposure. Stay fail-closed and let
           // the reconnect retry (C2) try again once connectivity/whatever
           // caused it recovers.
-          if (e is MissingPluginException) {
+          if (umpFailureMayReopenGate(e)) {
             SafeLogger.w(
                 _tag,
                 'auto UMP failed — no UMP channel registered ($e); reopening '
-                'the gate (fail-open) since UMP is not wired for this host');
+                'the gate (fail-open) because this is a debug/test build, '
+                'where a missing plugin registrant is routine');
             _updateCanRequestAds(true);
+          } else if (e is MissingPluginException) {
+            // Release build, UMP channel missing — see
+            // [umpFailureMayReopenGate]. Loud, because the host has to fix
+            // their native integration: ads stay off until they do.
+            SafeLogger.critical(
+                _tag,
+                'auto UMP failed — the UMP channel is NOT registered in a '
+                'RELEASE build ($e). google_mobile_ads is a dependency of '
+                'this SDK, so this means a broken native integration, not '
+                '"UMP is not in play". Consent cannot be verified, so the '
+                'gate stays CLOSED and no ads will be requested. Fix the '
+                'native integration (pod install / plugin registration).');
           } else {
             SafeLogger.critical(
                 _tag,

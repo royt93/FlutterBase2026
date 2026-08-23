@@ -63,10 +63,12 @@ void main() {
 
   tearDown(() async {
     AdManager().debugForceAutoUmpError = null;
+    AdManager.debugSimulateReleaseModeForUmpGate = false;
     await AdManager().destroy();
   });
 
-  test('MissingPluginException fails OPEN — gate reopens', () async {
+  test('MissingPluginException fails OPEN in a debug build — gate reopens',
+      () async {
     SharedPreferences.setMockInitialValues({});
     AdManager().debugForceAutoUmpError =
         MissingPluginException('forced for test');
@@ -100,5 +102,40 @@ void main() {
             'keep the gate closed — failing open here would ship ads with '
             'no verified consent decision');
     expect(AdManager().debugUmpAttemptFailed, isTrue);
+  });
+  // Round-7 audit, MAJOR — the fail-open above is a DEBUG convenience only.
+  // `google_mobile_ads` is a hard dependency of this package and Flutter
+  // registers its channels automatically (AppLovin provider included), so in a
+  // shipped app a missing UMP channel means the native integration is broken,
+  // not that UMP is out of play. Reopening the gate there serves ads with no
+  // verified consent decision — the exact GDPR exposure the fail-closed branch
+  // exists to prevent.
+  test('the same MissingPluginException fails CLOSED in a release build',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    AdManager.debugSimulateReleaseModeForUmpGate = true;
+    AdManager().debugForceAutoUmpError =
+        MissingPluginException('forced for test');
+
+    await AdManager().initialize(
+      config: _appLovinConfig(),
+      onComplete: (_, __) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(AdManager().canRequestAds, isFalse,
+        reason: 'a release build cannot treat a missing UMP channel as '
+            '"consent not required" — no consent decision was verified');
+    expect(AdManager().debugUmpAttemptFailed, isTrue);
+  });
+
+  test('the predicate itself only ever reopens for a missing plugin', () {
+    expect(
+        AdManager.umpFailureMayReopenGate(MissingPluginException('x')), isTrue);
+    expect(AdManager.umpFailureMayReopenGate(Exception('network')), isFalse);
+    AdManager.debugSimulateReleaseModeForUmpGate = true;
+    expect(
+        AdManager.umpFailureMayReopenGate(MissingPluginException('x')), isFalse,
+        reason: 'release build: not even a missing plugin reopens the gate');
   });
 }
