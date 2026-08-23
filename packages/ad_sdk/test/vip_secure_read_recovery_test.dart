@@ -41,6 +41,10 @@ class _FlakySecureStorage extends FlutterSecureStorage {
   /// `dispose()` while a load is parked mid-await.
   Completer<void>? readGate;
 
+  /// Parks writes, so a test can have a grant exist in memory while its own
+  /// save is still in flight.
+  Completer<void>? writeGate;
+
 
   @override
   Future<String?> read({
@@ -77,6 +81,8 @@ class _FlakySecureStorage extends FlutterSecureStorage {
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
+    final gate = writeGate;
+    if (gate != null) await gate.future;
     if (value == null) {
       data.remove(key);
     } else {
@@ -252,6 +258,78 @@ void main() {
               'in-memory state is newer than the read by definition');
       mgr.dispose();
     });
+  });
+
+  // Round-9 QC, MAJOR (codex). The epoch check protects the load that is
+  // reading, but not the one QUEUED behind it: that one snapshots the already
+  // bumped epoch and can still read storage before the grant's save has landed.
+  // It then accepts a read taken before the grant existed, clears it, and the
+  // next save writes the cleared list — the entitlement is gone from disk, not
+  // just from memory.
+  test('a load queued behind a grant waits for that grant to be persisted', () {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+
+      // Load A parks on its read; load B queues behind it.
+      final gateA = Completer<void>();
+      secure.readGate = gateA;
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+
+      // The grant lands, with its own save parked: memory has it, disk has not.
+      final writeGate = Completer<void>();
+      secure.writeGate = writeGate;
+      unawaited(mgr.addVip(key: 'MANUAL', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+
+      // A comes back and correctly abandons its stale read; B now runs.
+      secure.readGate = null;
+      gateA.complete();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+
+      // The grant's save finally lands.
+      secure.writeGate = null;
+      writeGate.complete();
+      async.elapse(const Duration(minutes: 1));
+      async.flushMicrotasks();
+
+      expect(mgr.isActive, isTrue,
+          reason: 'the queued load must not accept a read taken before the '
+              'grant was persisted — doing so clears the grant and the next '
+              'save writes the cleared list to disk');
+      expect(secure.data['ad_sdk_vip_entries_v1'], contains('MANUAL'),
+          reason: 'and the entitlement must still be on disk');
+      mgr.dispose();
+    });
+  });
+
+  // Round-9 QC, MAJOR (codex). Only the first read was guarded, so a manager
+  // disposed during one of `_load`'s later awaits (clamp persistence, migration
+  // persistence, revocation clamping) still reached storage. On a destroy +
+  // re-init the replacement manager owns that same key, so a late write from
+  // the discarded one resurrects entries the live manager already revoked.
+  test('a disposed manager cannot write storage', () async {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    final live = VipManager(prefs, vipEntriesStore: store);
+    await live.load();
+    await live.addVip(key: 'MANUAL', duration: const Duration(days: 7));
+    expect(live.isActive, isTrue, reason: 'sanity: the grant landed');
+
+    // The host tears the SDK down but something still holds this reference.
+    live.dispose();
+    await live.revokeAll();
+
+    expect(secure.data['ad_sdk_vip_entries_v1'], contains('MANUAL'),
+        reason: 'a discarded manager must not wipe the store the replacement '
+            'manager reads from');
   });
 
   // Round-7 final QC, found independently by BOTH reviewers — `dispose()`

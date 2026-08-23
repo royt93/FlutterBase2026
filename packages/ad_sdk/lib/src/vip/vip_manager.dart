@@ -412,6 +412,18 @@ class VipManager {
     //
     // Whoever wrote last wins, and the in-memory state is by definition newer
     // than a read that started before it. So abandon the read, not the grant.
+    // Round-9 QC, MAJOR — the epoch alone does not cover a QUEUED load. Load A
+    // rejects its stale read correctly, but load B then starts, snapshots the
+    // ALREADY-bumped epoch, and can still read storage before the grant's save
+    // has landed: it accepts that read, clears the grant, and the next save
+    // serialises the cleared list — the entitlement is gone from disk too.
+    //
+    // `_loadQueue` and `_saveQueue` are independent, so draining the save queue
+    // first is what makes the read authoritative. Safe to await: `_save()`
+    // hands the queue an already-caught future, so this cannot throw, and
+    // nothing on the save side ever waits on a load.
+    await _saveQueue;
+    if (_disposed) return;
     final epochBefore = _mutationEpoch;
     final raw = await _vipEntriesStore.getRaw();
     if (_disposed) return;
@@ -594,6 +606,17 @@ class VipManager {
   int _mutationEpoch = 0;
 
   Future<void> _save() {
+    // Round-9 QC, MAJOR — one guard in the shared write path rather than after
+    // every await in `_load`. A manager the host has thrown away must never
+    // write storage: on a destroy + re-init the replacement manager owns that
+    // same key, so a late write from the discarded one resurrects entries the
+    // live manager has already revoked or clamped. RAM mutations on a discarded
+    // object are harmless (nothing reads them, `_refreshActive` is guarded);
+    // persistence is not.
+    if (_disposed) {
+      SafeLogger.w(_tag, 'save on a disposed manager — dropped');
+      return Future<void>.value();
+    }
     _mutationEpoch++;
     final task = _saveQueue.then((_) async {
       await _vipEntriesStore.setRaw(VipEntry.encodeList(_entries));
