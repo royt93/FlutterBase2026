@@ -3237,7 +3237,15 @@ class AdManager with WidgetsBindingObserver {
     // could be requested under a consent a newer host decision or `destroy()`
     // had already invalidated — a transient breach the end-state assertions
     // could not see.
-    _updateCanRequestAds(result.canRequestAds);
+    //
+    // Round-13 QC (round 6), MAJOR — and it may only TIGHTEN here. Opening it
+    // before the write has landed leaves a window (the provider write plus the
+    // storage write) in which an ad can be requested under a consent a newer
+    // host decision is about to overwrite. Restrictive now, permissive only
+    // once the write has landed under our own epoch — same asymmetry as the
+    // resume backstop: a missed grant costs one refill, a fill under a
+    // withdrawn consent is a violation.
+    if (!result.canRequestAds) _updateCanRequestAds(false);
     SafeLogger.d(
         _tag,
         () =>
@@ -3269,6 +3277,8 @@ class AdManager with WidgetsBindingObserver {
       }
       return;
     }
+    // The write landed and nothing superseded it — now the gate may open.
+    if (result.canRequestAds) _updateCanRequestAds(true);
     if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
       SafeLogger.d(_tag,
           '🔓 consent granted via privacy options → refilling held ad slots');

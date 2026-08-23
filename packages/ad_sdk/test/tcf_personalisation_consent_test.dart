@@ -822,6 +822,46 @@ void main() {
               'land after the re-grant');
     });
 
+    // Round-13 QC (round 6), MAJOR — while a permissive write is still in
+    // flight the gate must stay shut, or an ad can be requested under a
+    // consent a newer host decision is about to overwrite.
+    test('the ad gate stays shut until a permissive write has landed',
+        () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: gate shut');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final pending = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'the grant has not reached the providers yet — requesting an '
+              'ad now would run under a consent still in flight');
+
+      stuck.complete();
+      await pending;
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'and once it lands the gate does open');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

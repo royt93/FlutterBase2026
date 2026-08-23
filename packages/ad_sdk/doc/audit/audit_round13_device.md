@@ -195,6 +195,25 @@ One more test, red against its own reverted fix:
 
 Suite: 1068 green, `flutter analyze` clean.
 
+## QC gate round 6 — codex 8/10 (agy 10/10), one finding on the write window
+
+codex's first pass on `2e80c35` re-reported both round-4 findings as still
+open; challenged to quote the lines, it retracted both (`_consentApplyRunning
+= false` at `destroy()`, and the `identical(_adapter, ad)` guard are both
+there) and re-scored 8/10 on one new finding, which stands.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | The apply opened the ad gate *before* its write, so between the write starting and the post-write epoch check noticing a newer host decision, an ad could be requested under the older, more permissive consent. The end-state assertions could not see it because the restore fixes the final value. | The gate may only tighten before the write: a refusal closes it immediately, a grant opens it only after the write has landed under the apply's own epoch. Same asymmetry as the resume backstop — a delayed grant costs one refill, a fill under a stale consent is a violation. |
+
+One more test, red against its own reverted fix:
+
+* *the ad gate stays shut until a permissive write has landed* — parks the
+  grant on the write barrier and asserts the gate mid-flight. Red: `Expected:
+  false Actual: <true>`.
+
+Suite: 1069 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:
