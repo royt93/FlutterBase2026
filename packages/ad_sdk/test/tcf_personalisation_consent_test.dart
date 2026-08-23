@@ -1403,6 +1403,285 @@ void main() {
               'ads — the debt has to be retried, not dropped');
     });
 
+    // Round-14 QC, MAJOR — the recovery settled the debt flag on a UMP "no"
+    // BEFORE re-checking that the debt was still its to settle. A stale "no"
+    // landing after a newer apply had armed its own guessed close cleared that
+    // apply's debt too, and nothing in the SDK reopens the gate on its own —
+    // so when that newer apply then wrote nothing, every ad surface stayed
+    // dark for the rest of the session.
+    test('a stale UMP refusal never settles a debt a newer apply owns',
+        () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      // Park the recovery inside its UMP read, and make the answer it is about
+      // to get a refusal: `recheckUmpConsentStatus` reads canRequestAds first,
+      // so this is the value that call has already captured.
+      canRequestAds = false;
+      final wedge = Completer<void>();
+      statusGate = wedge;
+      addTearDown(() {
+        statusGate = null;
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: the debt is armed and the recovery is parked');
+
+      // A second decision starts underneath it and takes the gate over. From
+      // here on it, not this parked recovery, is what decides. Its own flow
+      // must not park on the same wedge, so the gate is dropped for new calls
+      // — the recovery is already holding the future it got. And UMP is
+      // permissive again: the refusal now belongs only to the answer the
+      // recovery captured on its way in, which is what makes it stale.
+      statusGate = null;
+      canRequestAds = true;
+      final entry = Completer<void>();
+      AdManager.debugConsentApplyBarrier = entry.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!entry.isCompleted) entry.complete();
+      });
+      final second = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // The stale refusal finally lands.
+      wedge.complete();
+      await pumpEventQueue(times: 20);
+
+      // The second apply is superseded, so it writes nothing at all: the debt
+      // this recovery must not have cleared is the only thing left that can
+      // reopen the gate.
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      entry.complete();
+      await second;
+      await pumpEventQueue(times: 30);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'a stale answer that clears someone else\'s debt strands '
+              'the gate shut for the whole session');
+    });
+
+    // Round-14 QC, MAJOR — only the UMP read was retried. Everything after it
+    // can fail too (the mismatch re-apply writes to both providers), and that
+    // failure escaped into a detached logger: the debt stayed armed with
+    // nobody coming back for it — the exact outage the recovery exists to
+    // prevent.
+    test('recovery retries when its own re-apply fails', () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      // Park the recovery, then make the device disagree with what is applied
+      // so the recovery has to re-apply rather than just reopen…
+      final wedge = Completer<void>();
+      statusGate = wedge;
+      addTearDown(() {
+        statusGate = null;
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+
+      // …and make that re-apply fail. Raised through a completer so the error
+      // belongs to the apply, not to this test's own futures.
+      final failure = Completer<void>();
+      AdManager.debugConsentApplyBarrier = failure.future;
+      addTearDown(() => AdManager.debugConsentApplyBarrier = null);
+      wedge.complete();
+      await pumpEventQueue(times: 20);
+      failure.completeError(StateError('the provider write is gone'));
+      await pumpEventQueue(times: 30);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: the write failed, so nothing may be reopened yet');
+
+      // The next attempt gets through.
+      AdManager.debugConsentApplyBarrier = null;
+      statusGate = null;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'a failed recovery write must be retried like a failed UMP '
+              'read — otherwise the session loses its ads either way');
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'and it lands the device state, not the stale one');
+    });
+
+    // Round-14 QC, MINOR — the ordinary apply refills the held fullscreen
+    // slots when it reopens the gate. Recovery reopens the same gate, so it
+    // owed the same refill: without it the app-open, interstitial and rewarded
+    // slots stay empty until a route change or the 5-minute scan, i.e. the
+    // user's next ad simply does not exist.
+    test('recovery refills the held fullscreen slots when it reopens the gate',
+        () async {
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      addTearDown(() => AdManager().debugSetAdapter(null));
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      adapter.calls.clear();
+
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue, reason: 'sanity: reopened');
+      expect(adapter.calls, contains('loadInterstitial'),
+          reason: 'a reopened gate with nothing loaded behind it is the same '
+              'blank screen to the user as a shut one');
+    });
+
+    // Round-14 QC, MAJOR — a host `setConsent` during one of the recovery's
+    // awaits bumped the intent epoch, so the recovery stood down. But
+    // `setConsent` deliberately never touches `_canRequestAds`, so nothing
+    // took the debt over: the guessed close became permanent.
+    test('a host consent decision mid-recovery does not strand the gate',
+        () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      final wedge = Completer<void>();
+      statusGate = wedge;
+      addTearDown(() {
+        statusGate = null;
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+
+      // The host toggles its own consent switch while the recovery is parked.
+      // Nothing about that reopens the gate by itself.
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      wedge.complete();
+      await pumpEventQueue(times: 20);
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'the recovery has to hand the debt on when it loses its '
+              'epoch — a settings toggle must not cost the session its ads');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

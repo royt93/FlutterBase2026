@@ -15,6 +15,8 @@
 // TCF keys to check that what is applied still matches the device. Both are
 // plumbing a mocked test cannot prove.
 //
+// Round 14 adds the refill half of the same contract (see the third test).
+//
 // Unit coverage of the same contract: test/tcf_personalisation_consent_test.dart
 // ("a pessimistic close is lifted when the apply that owed it was superseded"
 // / "... that owed it failed"). Widget coverage of the consequence:
@@ -85,6 +87,54 @@ void main() {
         reason: 'UMP allows ads on this device and what is applied matches it '
             '— a gate left shut here means no banner, no interstitial and no '
             'app-open ad for the rest of the session');
+  });
+
+  // Round-14 QC, MINOR, on device — reopening the gate is only half of it: the
+  // ordinary apply refills the held fullscreen slots too, and the recovery did
+  // not. A user whose gate was reopened this way had no app-open, interstitial
+  // or rewarded ad loaded behind it until the next route change or the
+  // five-minute scan, which on a single-screen session is never.
+  //
+  // On device because the refill goes through the real AdMob adapter: the slot
+  // state a mocked adapter reports is our own bookkeeping, not the plugin's.
+  testWidgets('a recovered gate has its fullscreen slots refilled behind it',
+      (tester) async {
+    await AdManager()
+        .initialize(config: _admobConfig(), onComplete: (_, __) {});
+    await AdManager().requestUmpConsent();
+    // A VIP loads no ads at all — by design — and this fleet's devices carry
+    // VIP entries from the other suites. Same setup the ad-loading integration
+    // tests use.
+    await AdManager().vip!.revokeAll();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final stuck = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuck.future;
+    final first = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 200));
+    final queued = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    AdManager.debugConsentWriteBarrier = null;
+    await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+    stuck.complete();
+    await first;
+    await queued;
+    expect(await _gateOpenWithin(tester, const Duration(seconds: 10)), isTrue,
+        reason: 'sanity: the recovery reopened the gate');
+
+    var refilled = false;
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      final slot = AdManager().adapter?.interstitialSlot;
+      if (slot != null && !slot.isIdle) {
+        refilled = true;
+        break;
+      }
+    }
+    expect(refilled, isTrue,
+        reason: 'an open gate with every slot still empty is the same blank '
+            'screen to the user as a shut one');
   });
 
   testWidgets('an apply whose write fails does not take the queued intent '

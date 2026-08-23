@@ -386,6 +386,47 @@ Each new test is red against its own reverted fix:
 
 Suite: 1088 green, `flutter analyze` clean.
 
+## QC gate round 14 — codex 6/10, agy 8/10, three findings on the round-13 recovery
+
+Both reviewers stayed on the recovery. codex went after the two places it still
+writes or gives up without re-establishing that the debt is its to pay; agy
+found a third caller that can invalidate it mid-flight, plus two hygiene gaps.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | The `!ump.canRequestAds` branch cleared `_pessimisticGateClose` **before** the post-await ownership check. A stale refusal landing after a newer apply had armed its own guessed close settled that apply's debt too — and when that apply then wrote nothing (superseded), nothing was left to reopen the gate. Same shape as the round-12 bug it was supposed to prevent, one indirection deeper. Also let a recovery from a torn-down session clear a new session's debt. | Ownership (`_consentRecoveryStillOwns`) is re-checked before **any** write this run makes, the settle included. |
+| Major | Only the UMP read was retried. Everything after it can fail too — the mismatch re-apply writes to both providers — and that error escaped into the detached `catchError` that only logs. The nested recovery its own runner would have kicked is suppressed by `_consentGateRecovering`, so the debt stayed armed with nobody coming back for it: ads dark for the session. | The whole body after the UMP read is wrapped; a failure schedules the same bounded retry (30s × 3). |
+| Major | A host `setConsent()` during one of the recovery's awaits bumps `_consentIntentEpoch`, so the recovery stood down — correctly. But `setConsent` deliberately never touches `_canRequestAds`, so nobody took the debt over: a settings toggle at the wrong moment made the guessed close permanent. | `_consentRecoveryStillOwns` hands the debt to a retry when it loses its epoch with the debt still owed. A `destroy()` clears the flag, so that path schedules nothing. |
+| Minor | The ordinary apply refills the held fullscreen slots when it reopens the gate; the recovery did not. Mounted banners came back on their own via `canRequestAdsListenable`, but app-open, interstitial and rewarded stayed empty until the next route change or the five-minute scan. | `_retryRefillAds()` on the reopen path. |
+| Minor | `_resetGuardState()` cancelled `_resumeFallbackTimer` and `_splashBudgetTimer` but not `_consentGateRecoveryRetry`, so a re-init without `destroy()` left a previous session's retry armed. Harmless when it fires (the reset reopens the gate, which clears the debt) — but a guard timer outliving its session is exactly what the T63 and round-5 entries above are about. | Cancelled and its attempt counter reset alongside the other two. No test: there is no behaviour to assert, the timer is a no-op either way. |
+
+Each new test is red against its own reverted fix:
+
+* **unit** (`test/tcf_personalisation_consent_test.dart`) — *a stale UMP refusal
+  never settles a debt a newer apply owns*, *recovery retries when its own
+  re-apply fails*, *a host consent decision mid-recovery does not strand the
+  gate*, *recovery refills the held fullscreen slots when it reopens the gate*.
+  All four red as `Expected: true Actual: <false>` (or a missing
+  `loadInterstitial` call) against their own revert.
+* **widget** (`test/consent_gate_banner_widget_test.dart`) — *banners come back
+  after a host decision lands mid-recovery*, red as
+  `Expected: a value greater than <0> Actual: <0>`: every banner in the app
+  blank for the rest of the session after a settings toggle.
+* **integration** (`example/integration_test/consent_gate_recovery_test.dart`) —
+  *a recovered gate has its fullscreen slots refilled behind it*, the one
+  finding of the three-plus-two that a real device can hold: the other two
+  Majors need the UMP channel to park mid-call on command, which no on-device
+  seam can do.
+
+On device (S24 Ultra `R5CX613VZBR`): 5/5 green — the three recovery tests plus
+the two form-block ones. The refill test first went red for a reason worth
+recording: the fleet's devices carry VIP entries from the other suites, and a
+VIP loads no ads at all by design, so the refill scan legitimately did nothing.
+It now calls `vip!.revokeAll()` first, the same setup the other ad-loading
+integration tests use.
+
+Suite: 1093 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

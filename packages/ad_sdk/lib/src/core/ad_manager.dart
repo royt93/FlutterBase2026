@@ -3323,15 +3323,21 @@ class AdManager with WidgetsBindingObserver {
         _scheduleConsentGateRecoveryRetry();
         return;
       }
+      // Round-14 QC, MAJOR — ownership is re-checked before ANY write this
+      // run makes, the settle below included. A stale answer that clears the
+      // debt flag would strand the newer apply's own guessed close: nothing
+      // else ever sets `_canRequestAds` back to true, so the gate would stay
+      // shut for the session. Same reason this must not clear a debt armed by
+      // a session that started after a `destroy()`.
+      if (!_consentRecoveryStillOwns(epoch)) return;
       if (!ump.canRequestAds) {
         // A real "no" — the debt is settled by the answer itself.
         _pessimisticGateClose = false;
         _consentGateRecoveryAttempts = 0;
         return;
       }
-      if (!_recoveryStillOwed || epoch != _consentIntentEpoch) return;
       final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
-      if (!_recoveryStillOwed || epoch != _consentIntentEpoch) return;
+      if (!_consentRecoveryStillOwns(epoch)) return;
       final applied = _consentManager?.adConsent ?? _consent;
       if (tcfAllows != null && tcfAllows != applied.hasUserConsent) {
         // The applied configuration does not match the device — reopening here
@@ -3354,9 +3360,46 @@ class AdManager with WidgetsBindingObserver {
           'already matches the device');
       _updateCanRequestAds(true);
       _consentGateRecoveryAttempts = 0;
+      // Round-14 QC, MINOR — the ordinary apply refills held slots when it
+      // reopens the gate (see [_applyConsentResultOnce]); recovery reopens the
+      // same gate, so it owes the same refill. Mounted banners come back on
+      // their own via `canRequestAdsListenable`, but the fullscreen slots
+      // would otherwise idle until the next route change or periodic scan.
+      _retryRefillAds();
+    } catch (e, st) {
+      // Round-14 QC, MAJOR — the UMP read is not the only thing here that can
+      // throw: the TCF read is a platform-store lookup and the mismatch
+      // re-apply writes to both providers. Any of those failing has exactly
+      // the consequence the UMP `catch` above exists to prevent — the debt
+      // stays armed with nobody coming back for it — so it retries the same
+      // bounded way instead of only being logged.
+      SafeLogger.e(
+          _tag, '🔐 consent gate recovery failed after the UMP read: $e\n$st');
+      _scheduleConsentGateRecoveryRetry();
     } finally {
       _consentGateRecovering = false;
     }
+  }
+
+  /// Whether this recovery run still owns the debt it set out to pay.
+  ///
+  /// Round-14 QC, MAJOR — when the epoch moved under one of its awaits a newer
+  /// intent took over (a host `setConsent`, a `destroy()`), and this run must
+  /// stand down. But standing down silently loses the debt: a host
+  /// `setConsent` deliberately never touches `_canRequestAds`, so the guessed
+  /// close it landed on top of would stay for the rest of the session. Hand
+  /// the debt to a bounded retry instead, which re-reads it under the new
+  /// epoch. A `destroy()` clears the flag, so it schedules nothing.
+  bool _consentRecoveryStillOwns(int epoch) {
+    if (epoch == _consentIntentEpoch) return _recoveryStillOwed;
+    if (_recoveryStillOwed) {
+      SafeLogger.w(
+          _tag,
+          '🔐 consent gate recovery lost its epoch mid-flight but the gate is '
+          'still shut on a guess — handing it to a retry');
+      _scheduleConsentGateRecoveryRetry();
+    }
+    return false;
   }
 
   /// Whether [_recoverConsentGate] still has a guessed close to lift. Read
@@ -3774,6 +3817,14 @@ class AdManager with WidgetsBindingObserver {
     _resumeFallbackTimer = null;
     _splashBudgetTimer?.cancel();
     _splashBudgetTimer = null;
+    // Round-14 QC, MINOR — same rule as the two timers above: a re-init
+    // without destroy() must not leave a previous session's recovery retry
+    // armed. It is a no-op when it fires (the reset reopened the gate, which
+    // clears the debt), but a guard timer outliving its session is exactly
+    // what the T63/round-5 entries above were about.
+    _consentGateRecoveryRetry?.cancel();
+    _consentGateRecoveryRetry = null;
+    _consentGateRecoveryAttempts = 0;
     // Audit fix: a stale GAID from the previous session used to survive
     // destroy()/re-init, so currentDeviceGaid (and adMobTestDeviceHashHint())
     // could report a device's ad ID after the SDK claimed to be torn down —
