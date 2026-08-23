@@ -155,6 +155,27 @@ Two more tests, red against their own reverted fix:
 
 Suite: 1065 green, `flutter analyze` clean.
 
+## QC gate round 4 — codex 7/10 (agy 10/10), two findings on teardown
+
+agy found nothing on `b64e763` for the third round running; codex found two,
+both about what happens when a session is torn down mid-flight.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | `_resumeAdWorkAfterConsent(ad)` holds the adapter it was handed across the awaited consent re-check. A `destroy()` + re-initialise in that window means `onAppResumed()` lands on a disposed adapter — which recreates banners and re-enables auto-refresh on a dead native session. | An identity guard before the ad work: `if (!identical(_adapter, ad)) return;`. The consent *write* still reaches whoever is current — that part is correct and required. |
+| Major | `destroy()` bumped the intent epoch but never reset `_consentApplyRunning`. A consent write still hanging at teardown left the coalescing loop wedged forever, so every later apply only populated `_pendingConsentApply` and returned: a withdrawal in the next session could stay unapplied indefinitely. | `destroy()` clears the flag. A stray old loop is harmless — the epoch bump makes its payload drop itself. |
+
+Two more tests, red against their own reverted fix:
+
+* *a resume whose adapter was replaced mid-check touches neither* — wedges
+  `getConsentStatus`, swaps the adapter, releases. Red: `Expected: empty
+  Actual: ['onAppResumed']`.
+* *a write hanging at destroy() does not wedge the next session* — parks an
+  apply on `debugConsentWriteBarrier`, destroys, then withdraws in the new
+  session. Red: `Expected: false Actual: <true>`.
+
+Suite: 1067 green, `flutter analyze` clean.
+
 ## Still unverified
 
 * **AppLovin after a consent change.** Needs a real MAX SDK key; the example

@@ -3364,6 +3364,12 @@ class AdManager with WidgetsBindingObserver {
     _consentIntentEpoch++;
     _pendingConsentApply = null;
     _lastHostConsentIntent = null;
+    // Round-13 QC (round 4), MAJOR — a consent write that is still hanging at
+    // teardown must not lock the next session out of applying consent at all.
+    // Releasing the flag can leave the old loop running alongside a new one,
+    // which is harmless: the epoch bump above makes everything it was carrying
+    // drop itself.
+    _consentApplyRunning = false;
     // M2 — cleared HERE only, never in `_disposeAdapter()`: surviving adapter
     // teardown is precisely what makes the COPPA re-init path in setConsent()
     // reachable after a child-directed abort.
@@ -4749,6 +4755,17 @@ class AdManager with WidgetsBindingObserver {
           _tag,
           'a consent apply is still in flight on resume — skipping ad work '
           'until it has landed');
+      return;
+    }
+    // Round-13 QC (round 4), MAJOR — `destroy()` + re-initialise can swap the
+    // adapter out while the re-check is in flight. Calling into the old one
+    // would drive a disposed native channel (and could recreate ads on it), so
+    // this resume is simply dropped: the new adapter gets its own resume.
+    if (!identical(_adapter, ad)) {
+      SafeLogger.w(
+          _tag,
+          'the adapter was replaced while the resume consent re-check was in '
+          'flight — dropping the ad work for this resume');
       return;
     }
     try {

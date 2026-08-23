@@ -680,6 +680,88 @@ void main() {
           reason: 'and its other flags with it');
     });
 
+    // Round-13 QC (round 4), MAJOR — the resume gate holds a reference to the
+    // adapter across an await, and `destroy()` + re-initialise can swap it.
+    test('a resume whose adapter was replaced mid-check touches neither',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final old = _StubAdapter();
+      AdManager().debugSetAdapter(old);
+      AdManager().debugConfig = _config;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final wedge = Completer<void>();
+      addTearDown(() {
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      statusGate = wedge;
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 10);
+
+      // The session is torn down and re-initialised while the check hangs.
+      final replacement = _StubAdapter();
+      AdManager().debugSetAdapter(replacement);
+      wedge.complete();
+      await pumpEventQueue(times: 50);
+
+      expect(old.calls, isEmpty,
+          reason: 'the replaced adapter is disposed — driving its native '
+              'channel could recreate ads on a dead session: ${old.calls}');
+      // The consent write itself legitimately reaches whoever is current; what
+      // must not happen is ad work for a resume this adapter never saw.
+      expect(replacement.calls.where((c) => c != 'applyConsent'), isEmpty,
+          reason: 'and the new adapter gets its own resume, not this one: '
+              '${replacement.calls}');
+    });
+
+    // Round-13 QC (round 4), MAJOR — a consent write still hanging at teardown
+    // must not lock the next session out of applying consent at all.
+    test('a write hanging at destroy() does not wedge the next session',
+        () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue, reason: 'sanity');
+
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final wedged = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      await AdManager().destroy();
+
+      // New session: the user withdraws, and that has to actually apply.
+      AdManager.debugConsentWriteBarrier = null;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 20);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'a write left hanging by the previous session must not make '
+              'every later withdrawal a no-op');
+
+      stuck.complete();
+      await wedged;
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({
