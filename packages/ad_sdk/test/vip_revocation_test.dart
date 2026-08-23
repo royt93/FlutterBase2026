@@ -250,6 +250,29 @@ void main() {
     // publish silently strips VIP from people who paid. Clamping to 24h makes
     // a mis-issue cost a paying customer one day — with a window for support
     // to re-issue — while a leaked key stops earning within a day.
+    // Round-9 follow-up. `_save()` now drops writes from a disposed manager, so
+    // a redeem on a stale reference used to grant nothing while still burning
+    // the key at the one-time-use ledger: the customer's code is spent forever
+    // and they have no VIP. Refuse before touching the ledger instead.
+    test('a redeem on a disposed manager does not burn the key', () async {
+      final dead = VipManager(prefs, vipEntriesStore: store);
+      await dead.load();
+      final code = await mintVipKey(keyPair, seconds: 3600, kid: 'not-burned');
+      dead.dispose();
+
+      final refused = await dead.redeemSignedKey(code, publicKeyBase64: pub);
+      expect(refused.ok, isFalse);
+
+      // The key must still work on the manager that replaces it.
+      final fresh = VipManager(prefs, vipEntriesStore: store);
+      await fresh.load();
+      addTearDown(fresh.dispose);
+      final r = await fresh.redeemSignedKey(code, publicKeyBase64: pub);
+      expect(r.status, VipRedeemStatus.success,
+          reason: 'the key was never actually spent, so it must still redeem');
+      expect(fresh.isActive, isTrue);
+    });
+
     test('applying a CRL clamps a VIP already granted by that kid', () async {
       final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();

@@ -939,6 +939,20 @@ class VipManager {
     required String publicKeyBase64,
     bool stack = true,
   }) async {
+    // Round-9 follow-up — refuse outright on a disposed manager, BEFORE the
+    // one-time-use ledger is touched. `_save()` now drops writes from a
+    // discarded manager (which is right: it must not clobber the store its
+    // replacement owns), but redemption burns the key at
+    // `addRedeemedVipKeyId`/`markRedeemed` AFTER granting, so a dropped save
+    // here left the customer with a key that can never be redeemed again and no
+    // VIP window to show for it. Reported as `invalid` rather than a new enum
+    // value: `VipRedeemStatus` is exported, so adding a case is breaking for
+    // any consuming app that switches on it exhaustively.
+    if (_disposed) {
+      SafeLogger.w(_tag, 'redeemSignedKey on a disposed manager — refused');
+      return const SignedVipRedeemResult.invalid(
+          'SDK was torn down — redeem again after it re-initialises');
+    }
     // ⚠️ DELIBERATE PRODUCT GATE — do NOT "fix" this.
     //
     // Three independent audit agents have now flagged this twice as a bug
