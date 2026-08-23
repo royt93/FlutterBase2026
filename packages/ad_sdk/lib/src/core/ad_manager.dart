@@ -516,8 +516,7 @@ class AdManager with WidgetsBindingObserver {
           : {for (final t in AdSlotType.values) t: monitor.fillRate(t)},
       arbitratorEstimatedEcpmMicros: arbitrator?.estimatedEcpmMicros,
       arbitratorVetoRate: arbitrator?.vetoRate,
-      fillRateRegressionBySlot:
-          baselineMonitor?.activeAlerts ?? const {},
+      fillRateRegressionBySlot: baselineMonitor?.activeAlerts ?? const {},
     );
   }
 
@@ -584,16 +583,18 @@ class AdManager with WidgetsBindingObserver {
   SelfCheckItem _selfCheckNavigatorKey() {
     final key = _navigatorKey;
     if (key == null) {
-      return const SelfCheckItem('Navigator key wired', SelfCheckStatus.fail,
+      return const SelfCheckItem(
+          'Navigator key wired',
+          SelfCheckStatus.fail,
           'call AdManager().setNavigatorKey(navigatorKey) before runApp — '
-          'see README "Integrate the SDK"');
+              'see README "Integrate the SDK"');
     }
     if (key.currentContext == null) {
       return const SelfCheckItem(
           'Navigator key wired',
           SelfCheckStatus.skipped,
           'navigatorKey is set but not yet attached to a live Navigator — '
-          're-run this check after the first frame');
+              're-run this check after the first frame');
     }
     return const SelfCheckItem('Navigator key wired', SelfCheckStatus.pass);
   }
@@ -612,7 +613,7 @@ class AdManager with WidgetsBindingObserver {
         'Route observer wired',
         SelfCheckStatus.skipped,
         'no navigation events observed yet — add AdScreenRouteLogger() to '
-        'navigatorObservers, or re-run this check after a route has pushed');
+            'navigatorObservers, or re-run this check after a route has pushed');
   }
 
   /// T98 — read-only (never prompts) sanity check that the
@@ -641,7 +642,7 @@ class AdManager with WidgetsBindingObserver {
           'ATT status readable (iOS)',
           SelfCheckStatus.fail,
           'threw: $e — check the app_tracking_transparency plugin is '
-          'embedded correctly (pod install / Info.plist)');
+              'embedded correctly (pod install / Info.plist)');
     }
   }
 
@@ -1953,8 +1954,8 @@ class AdManager with WidgetsBindingObserver {
           attRequested: _attRequested,
           attStatus: attStatus)) {
         _gaidFetchDeferredForAtt = true;
-        SafeLogger.d(_tag,
-            () => '⏸️ GAID fetch deferred until requestAtt() runs (M9)');
+        SafeLogger.d(
+            _tag, () => '⏸️ GAID fetch deferred until requestAtt() runs (M9)');
       } else {
         await _resolveDeviceGaid();
       }
@@ -2426,8 +2427,8 @@ class AdManager with WidgetsBindingObserver {
     _initRetryTimer?.cancel();
     _initRetryTimer = Timer(delay, () {
       _isInternalInitRetryCall = true;
-      unawaited(
-          initialize(config: config, onComplete: onComplete, isRelease: isRelease));
+      unawaited(initialize(
+          config: config, onComplete: onComplete, isRelease: isRelease));
     });
     return true;
   }
@@ -3075,9 +3076,14 @@ class AdManager with WidgetsBindingObserver {
     // therefore read BEFORE the user has chosen. `onLateDismiss` re-runs the
     // apply step with what they actually chose; without it a withdrawal made
     // after the wait expired never reached either provider.
+    // Round-13 QC (round 7) — bind the form to this session, so a dismiss
+    // that arrives after a `destroy()` cannot write a dead session's answer
+    // over the live one's.
+    final session = _consentSessionEpoch;
     final result = await requestPrivacyOptionsFlow(
-      onLateDismiss: (late) =>
-          unawaited(_applyPrivacyOptionsResult(late).catchError((Object e) {
+      onLateDismiss: (late) => unawaited(
+          _applyPrivacyOptionsResult(late, session: session)
+              .catchError((Object e) {
         // The apply is async all the way down (storage, both providers), so
         // without this a failure in it becomes an unhandled zone error rather
         // than a logged one — nothing is awaiting this future.
@@ -3099,7 +3105,7 @@ class AdManager with WidgetsBindingObserver {
           'keeping the current consent until the form reports back');
       return result;
     }
-    return _applyPrivacyOptionsResult(result);
+    return _applyPrivacyOptionsResult(result, session: session);
   }
 
   /// The newest consent intent waiting to be written, and whether a write is
@@ -3135,6 +3141,17 @@ class AdManager with WidgetsBindingObserver {
   /// of overwriting a decision that was made after it started.
   int _consentIntentEpoch = 0;
 
+  /// Bumped by [destroy] only. A privacy-options form opened by a session that
+  /// has since been torn down must not have its answer applied into the
+  /// session that replaced it.
+  ///
+  /// Round-13 QC (round 7), MAJOR — [_consentIntentEpoch] cannot carry this:
+  /// it is also bumped by a host [setConsent], and dropping a late withdrawal
+  /// because the host set something mid-form would lose the very decision
+  /// this whole path exists to deliver. Session identity has to be its own
+  /// counter.
+  int _consentSessionEpoch = 0;
+
   /// Marks the async context of a consent write made *by* an apply, so that
   /// write does not invalidate the apply that issued it.
   ///
@@ -3159,7 +3176,15 @@ class AdManager with WidgetsBindingObserver {
   /// [showPrivacyOptions] so the late-dismiss callback and the resume
   /// re-check can reuse it verbatim.
   Future<PrivacyOptionsResult> _applyPrivacyOptionsResult(
-      PrivacyOptionsResult result) async {
+      PrivacyOptionsResult result,
+      {int? session}) async {
+    if (session != null && session != _consentSessionEpoch) {
+      SafeLogger.w(
+          _tag,
+          'a privacy-options form from a torn-down session reported back '
+          '(session=$session, now=$_consentSessionEpoch) — dropping it');
+      return result;
+    }
     _pendingConsentApply = result;
     if (_consentApplyRunning) {
       // A write is already in flight and will pick this up when it finishes.
@@ -3324,8 +3349,7 @@ class AdManager with WidgetsBindingObserver {
     if (tcfAllows) return;
 
     final ump = await core_ump.recheckUmpConsentStatus();
-    final expected =
-        _umpStatusAllowsPersonalisation(ump.status) && tcfAllows;
+    final expected = _umpStatusAllowsPersonalisation(ump.status) && tcfAllows;
     if (expected == applied.hasUserConsent) return;
 
     SafeLogger.w(
@@ -3385,6 +3409,7 @@ class AdManager with WidgetsBindingObserver {
     // arrive after this teardown. Bumping the epoch makes that apply drop
     // itself instead of writing a dead session's answer over a new one.
     _consentIntentEpoch++;
+    _consentSessionEpoch++;
     _pendingConsentApply = null;
     _lastHostConsentIntent = null;
     // Round-13 QC (round 4), MAJOR — a consent write that is still hanging at
@@ -3707,7 +3732,8 @@ class AdManager with WidgetsBindingObserver {
     // here. Checked via the side-effect-free getter so the bypass path cannot
     // record a violation of its own.
     if (AdSafetyConfig.isInvalidTrafficPauseActive) {
-      SafeLogger.w(_tag,
+      SafeLogger.w(
+          _tag,
           '⏭️ showAppOpen skipped — invalid-traffic pause active (bypassSafety '
           'does not cover it)');
       _emitSkip(AdSlotType.appOpen, 'show', 'invalid-traffic-pause',
@@ -5026,8 +5052,8 @@ class AdManager with WidgetsBindingObserver {
       // next SDK init / VIP-expiry preload. Native has no equivalent: both
       // providers' preloadNative() are intentional no-ops (native loads on
       // widget mount only), so there's nothing to refill there.
-      unawaited(_adapter?.preloadMrec(_globalMrecWarmupKey) ??
-          Future<void>.value());
+      unawaited(
+          _adapter?.preloadMrec(_globalMrecWarmupKey) ?? Future<void>.value());
       initRevision.value = initRevision.value + 1;
     });
   }

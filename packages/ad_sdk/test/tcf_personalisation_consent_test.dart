@@ -862,6 +862,42 @@ void main() {
           reason: 'and once it lands the gate does open');
     });
 
+    // Round-13 QC (round 7), MAJOR — a form opened before `destroy()` can
+    // report back long after a new session has made its own decision.
+    test('a form from a torn-down session never writes into the new one',
+        () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      debugFormDismissTimeoutOverride = const Duration(milliseconds: 20);
+      final gate = Completer<void>();
+      privacyFormGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      // Returns the (inconclusive) at-timeout snapshot with the form still up.
+      await AdManager().showPrivacyOptions();
+
+      await AdManager().destroy();
+
+      // The new session's own decision: a host-side refusal, which the TCF
+      // keys do not contradict (a parental toggle, a CCPA choice).
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+      expect(AdManager().consent.hasUserConsent, isFalse, reason: 'sanity');
+
+      // Only now does the old form report back.
+      gate.complete();
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the answer to a form the previous session opened must not '
+              'overwrite the decision this one made');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

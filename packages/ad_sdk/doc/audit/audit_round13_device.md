@@ -214,6 +214,20 @@ One more test, red against its own reverted fix:
 
 Suite: 1069 green, `flutter analyze` clean.
 
+## QC gate round 7 — codex 7/10 (agy 10/10), one finding on session identity
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | The late-dismiss callback was not bound to the session that opened the form. A form opened, then `destroy()` + a new session making its own consent decision, then the old native form dismissing — the callback captured the *current* epoch, passed every check, and wrote a dead session's answer over the live one's. | The form is bound to a `_consentSessionEpoch`, bumped by `destroy()` only, and an apply carrying a stale session is dropped. Deliberately *not* `_consentIntentEpoch`: that one is also bumped by a host `setConsent`, so reusing it would drop a late withdrawal whenever the host set anything mid-form — losing the exact decision this path exists to deliver. |
+
+One more test, red against its own reverted fix:
+
+* *a form from a torn-down session never writes into the new one* — opens a
+  form, lets our wait expire, destroys, has the new session refuse host-side,
+  then releases the form. Red: `Expected: false Actual: <true>`.
+
+Suite: 1070 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:
