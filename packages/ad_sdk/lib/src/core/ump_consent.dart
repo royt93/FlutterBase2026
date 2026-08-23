@@ -37,6 +37,69 @@ Duration get _formDismissTimeout =>
 /// ads through those would cost the splash App Open on every cold start.
 final ValueNotifier<bool> umpFormOnScreen = ValueNotifier<bool>(false);
 
+/// How many presentations are currently counted as "on screen".
+///
+/// Round-7 final QC — a plain boolean released in a `finally` was wrong twice
+/// over, and both cases put an ad over a live consent form, which is the exact
+/// thing this flag exists to prevent:
+///
+///  * **The timeout does not dismiss the form.** `Future.timeout` only stops
+///    the Dart side waiting; the native form is still up, and with the Privacy
+///    Options flow that is after 20 s of a user reading a GDPR form. So the
+///    release now hangs off the dismiss callback actually firing, not off the
+///    await finishing.
+///  * **Two flows can overlap.** A consent form and a Privacy Options form (or
+///    two hosts calling in) each set/cleared one shared boolean, so whichever
+///    finished first cleared the flag while the other form was still up.
+int _umpFormsOnScreen = 0;
+
+/// Backstop for a dismiss callback that never arrives at all — a native form
+/// that is torn down without notifying Dart would otherwise block every
+/// fullscreen ad for the rest of the process. Long on purpose: it must not
+/// undercut a real user reading a real form, which is what the release-on-
+/// timeout bug did.
+const Duration kUmpFormOnScreenBackstop = Duration(minutes: 15);
+
+/// Test-only shortening of [kUmpFormOnScreenBackstop].
+@visibleForTesting
+Duration? debugUmpFormBackstopOverride;
+
+/// Counts one native UMP form as being on screen and returns its release.
+///
+/// The release is idempotent and safe to call from a dismiss callback that may
+/// fire late, twice, or not at all.
+void Function() markUmpFormOnScreen() {
+  _umpFormsOnScreen++;
+  umpFormOnScreen.value = true;
+  var released = false;
+  Timer? backstop;
+  void release() {
+    if (released) return;
+    released = true;
+    backstop?.cancel();
+    if (_umpFormsOnScreen > 0) _umpFormsOnScreen--;
+    if (_umpFormsOnScreen == 0) umpFormOnScreen.value = false;
+  }
+
+  backstop = Timer(debugUmpFormBackstopOverride ?? kUmpFormOnScreenBackstop, () {
+    SafeLogger.w(
+        'UmpConsent',
+        'a UMP form never reported being dismissed — releasing the ad block '
+            'after ${(debugUmpFormBackstopOverride ?? kUmpFormOnScreenBackstop).inMinutes}m '
+            'rather than blocking ads for the whole process');
+    release();
+  });
+  return release;
+}
+
+/// Drops every counted presentation. For `AdManager.destroy()` and tests —
+/// a module-level counter otherwise leaks across a re-init or a test that
+/// throws mid-flow.
+void resetUmpFormOnScreen() {
+  _umpFormsOnScreen = 0;
+  umpFormOnScreen.value = false;
+}
+
 /// Result of [requestUmpConsentFlow].
 class UmpConsentResult {
   const UmpConsentResult({
@@ -178,17 +241,23 @@ Future<UmpConsentResult> requestUmpConsentFlow({
   String? formError;
   if (status == ConsentStatus.required) {
     final dismissCompleter = Completer<String?>();
-    // Set before the presentation call, not after: the native form is on
-    // screen from the moment that call goes out.
-    umpFormOnScreen.value = true;
+    // Counted before the presentation call, not after: the native form is on
+    // screen from the moment that call goes out. Released by the dismiss
+    // callback below — NOT when this function stops waiting.
+    final releaseForm = markUmpFormOnScreen();
     // Deliberately NOT awaited — same reasoning as requestPrivacyOptionsFlow()
     // below: the native call only returns once the form is dismissed, so
     // awaiting it here would bypass the timeout entirely.
     unawaited(ConsentForm.loadAndShowConsentFormIfRequired((FormError? err) {
+      // Released first, before the isCompleted guard: after a timeout the
+      // completer is already done, and returning early there would leave the
+      // ad block standing until the backstop.
+      releaseForm();
       if (dismissCompleter.isCompleted) return;
       dismissCompleter
           .complete(err == null ? null : '${err.errorCode}:${err.message}');
     }).catchError((Object e) {
+      releaseForm();
       if (!dismissCompleter.isCompleted) {
         dismissCompleter.complete('loadAndShowConsentFormIfRequired threw: $e');
       }
@@ -203,15 +272,14 @@ Future<UmpConsentResult> requestUmpConsentFlow({
     // here even starts until UMP has said consent is required. At 20 s the
     // flow was observed abandoning a form that was still on screen and
     // resolving the ad gate before the user had answered.
-    try {
-      formError = await dismissCompleter.future.timeout(
-        _formDismissTimeout,
-        onTimeout: () => 'consent form dismiss timed out after '
-            '${_formDismissTimeout.inSeconds}s',
-      );
-    } finally {
-      umpFormOnScreen.value = false;
-    }
+    //
+    // Note what this timeout does NOT do: release the ad block. The form is
+    // still on screen — see [_umpFormsOnScreen].
+    formError = await dismissCompleter.future.timeout(
+      _formDismissTimeout,
+      onTimeout: () => 'consent form dismiss timed out after '
+          '${_formDismissTimeout.inSeconds}s',
+    );
     if (formError != null) {
       SafeLogger.w(tag, 'consent form: $formError');
     }
@@ -321,32 +389,36 @@ Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
   }
 
   final dismissCompleter = Completer<String?>();
-  // See the consent-form window above: the flag goes up before the call.
-  umpFormOnScreen.value = true;
+  // See the consent-form window above: counted before the call, released by
+  // the dismiss callback rather than by this function giving up waiting.
+  final releaseForm = markUmpFormOnScreen();
   // Deliberately NOT awaited: ConsentForm.showPrivacyOptionsForm() awaits the
   // native platform call internally before invoking the dismiss callback, so
   // awaiting it here directly would hang on that call forever, bypassing the
   // timeout below entirely — same fire-and-forget shape as
   // ConsentForm.loadConsentForm()/form.show() above in requestUmpConsentFlow().
   unawaited(ConsentForm.showPrivacyOptionsForm((FormError? err) {
+    releaseForm();
+    if (dismissCompleter.isCompleted) return;
     dismissCompleter
         .complete(err == null ? null : '${err.errorCode}:${err.message}');
   }).catchError((Object e) {
-    dismissCompleter.complete('showPrivacyOptionsForm threw: $e');
+    releaseForm();
+    if (!dismissCompleter.isCompleted) {
+      dismissCompleter.complete('showPrivacyOptionsForm threw: $e');
+    }
   }));
   // Timeout guard (T44) — the dismiss callback only fires once the user taps
   // through the native form, which can hang indefinitely if it's served but
   // never dismissed. Without this, a caller awaiting requestPrivacyOptionsFlow()
   // (e.g. a "Privacy Options" button's tap handler) would hang forever.
-  final String? formError;
-  try {
-    formError = await dismissCompleter.future.timeout(
-      const Duration(seconds: 20),
-      onTimeout: () => 'privacy options form dismiss timed out after 20s',
-    );
-  } finally {
-    umpFormOnScreen.value = false;
-  }
+  //
+  // As above, the timeout frees this caller, not the form: the ad block stays
+  // until the form actually reports being dismissed.
+  final String? formError = await dismissCompleter.future.timeout(
+    const Duration(seconds: 20),
+    onTimeout: () => 'privacy options form dismiss timed out after 20s',
+  );
   if (formError != null) {
     SafeLogger.w(tag, 'privacy options form: $formError');
   }

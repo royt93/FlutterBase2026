@@ -37,6 +37,10 @@ class _FlakySecureStorage extends FlutterSecureStorage {
   int reads = 0;
   final Map<String, String> data = {};
 
+  /// When set, `read` waits on this before answering — lets a test land
+  /// `dispose()` while a load is parked mid-await.
+  Completer<void>? readGate;
+
   @override
   Future<String?> read({
     required String key,
@@ -48,6 +52,8 @@ class _FlakySecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     reads++;
+    final gate = readGate;
+    if (gate != null) await gate.future;
     if (failNextReads > 0) {
       failNextReads--;
       throw _PlatformExceptionStub();
@@ -195,6 +201,73 @@ void main() {
           reason: 'the schedule is bounded — a device with an unusable '
               'Keystore must not spin platform calls for the whole session');
       expect(async.pendingTimers, isEmpty);
+      mgr.dispose();
+    });
+  });
+
+  // Round-7 final QC, found independently by BOTH reviewers — `dispose()`
+  // cancels a PENDING retry, but a load whose timer had already fired was
+  // parked on secure storage, and came back afterwards to mutate entries, push
+  // the notifier, add to an already-closed stream and arm fresh timers. On a
+  // host that re-inits (AdManager.destroy() then initialize()) that is a
+  // discarded manager with a heartbeat.
+  test('a load parked mid-read does not come back to life after dispose', () {
+    final secure = _FlakySecureStorage(failNextReads: 1 << 30);
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      final gate = Completer<void>();
+      secure.readGate = gate;
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+
+      mgr.dispose();
+      // The read the disposed manager was waiting on finally answers.
+      gate.complete();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      final readsAtDispose = secure.reads;
+
+      async.elapse(const Duration(minutes: 5));
+      async.flushMicrotasks();
+
+      // Counted rather than asserting on `pendingTimers` at the end: the retry
+      // schedule is bounded, so five minutes later it has exhausted itself
+      // either way and an empty timer list proves nothing.
+      expect(secure.reads, readsAtDispose,
+          reason: 'a disposed manager must not keep firing load() at '
+              '2s/10s/45s on an object the host threw away');
+      expect(mgr.isActive, isFalse);
+    });
+  });
+
+  // Round-7 final QC — a grant that arrives while a retry is pending. Re-reading
+  // is pointless at best, and could drop the fresh grant from memory if its own
+  // save has not landed yet.
+  test('a grant redeemed during the retry wait cancels the retry', () {
+    final secure = _FlakySecureStorage(failNextReads: 2);
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+      expect(mgr.isActive, isFalse);
+
+      unawaited(mgr.addVip(key: 'MANUAL', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+      expect(mgr.isActive, isTrue, reason: 'sanity: the grant landed');
+      final readsAfterGrant = secure.reads;
+
+      async.elapse(const Duration(minutes: 5));
+      async.flushMicrotasks();
+
+      expect(secure.reads, readsAfterGrant,
+          reason: 'the pending retry must not re-read the store over a live '
+              'grant: pointless at best, and it drops the grant from memory if '
+              "the grant's own save has not landed yet");
+      expect(mgr.isActive, isTrue);
       mgr.dispose();
     });
   });

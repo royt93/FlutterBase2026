@@ -36,8 +36,16 @@ void main() {
     StandardMethodCodec(UserMessagingCodec()),
   );
 
+  setUp(resetUmpFormOnScreen);
+
   tearDown(() {
     messenger.setMockMethodCallHandler(umpChannel, null);
+    debugUmpFormBackstopOverride = null;
+    debugFormDismissTimeoutOverride = null;
+    // The counter is module-level, and after round-7's final QC a form that
+    // times out DELIBERATELY keeps its ad block — so a timeout test would
+    // otherwise hand its block to the next test.
+    resetUmpFormOnScreen();
   });
 
   test(
@@ -143,5 +151,80 @@ void main() {
         reason: 'ads must be locked out from the moment the form goes up');
     expect(umpFormOnScreen.value, isFalse,
         reason: 'and unlocked again once the form is dismissed');
+  });
+
+  // Round-7 final QC, codex — the release used to sit in a `finally` around the
+  // dismiss await, so `Future.timeout` firing was treated as "the form is gone".
+  // It is not: `timeout` only stops Dart waiting, and with the Privacy Options
+  // flow that happens 20 s into a user reading a GDPR form. The ad gate reopened
+  // underneath a live consent form — the exact policy violation the flag exists
+  // to prevent.
+  test('the ad block outlives a dismiss timeout, because the form does',
+      () async {
+    // Real timers, shortened: the plugin only invokes its dismiss callback once
+    // the platform call returns, and that round-trip does not run inside
+    // fake_async's zone — so holding this open IS "the form is still up".
+    debugFormDismissTimeoutOverride = const Duration(milliseconds: 100);
+    final formCall = Completer<dynamic>();
+    messenger.setMockMethodCallHandler(umpChannel, (call) async {
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return null;
+        case 'ConsentInformation#getConsentStatus':
+          return 2; // required (Android mapping)
+        case 'UserMessagingPlatform#loadAndShowConsentFormIfRequired':
+          return formCall.future;
+        case 'ConsentInformation#canRequestAds':
+          return true;
+        default:
+          return null;
+      }
+    });
+
+    final result = await requestUmpConsentFlow();
+
+    expect(result.error, contains('timed out'),
+        reason: 'the CALLER is freed by the timeout');
+    expect(umpFormOnScreen.value, isTrue,
+        reason: 'the form is still on screen — no ad may be drawn over it just '
+            'because Dart stopped waiting for it. This used to flip to false '
+            'in a `finally` around the await.');
+
+    // Released when the form genuinely reports being dismissed, long after the
+    // completer timed out.
+    formCall.complete(null);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(umpFormOnScreen.value, isFalse);
+  });
+
+  test('two overlapping forms each hold the block until both are dismissed',
+      () {
+    final releaseA = markUmpFormOnScreen();
+    final releaseB = markUmpFormOnScreen();
+    expect(umpFormOnScreen.value, isTrue);
+
+    releaseA();
+    expect(umpFormOnScreen.value, isTrue,
+        reason: 'the second form is still on screen — one shared boolean used '
+            'to let whichever finished first unlock the gate');
+    releaseA();
+    expect(umpFormOnScreen.value, isTrue, reason: 'release is idempotent');
+
+    releaseB();
+    expect(umpFormOnScreen.value, isFalse);
+  });
+
+  test('a dismiss callback that never arrives is released by the backstop', () {
+    debugUmpFormBackstopOverride = const Duration(minutes: 15);
+    fakeAsync((async) {
+      markUmpFormOnScreen();
+      async.elapse(const Duration(minutes: 14));
+      expect(umpFormOnScreen.value, isTrue);
+
+      async.elapse(const Duration(minutes: 2));
+      expect(umpFormOnScreen.value, isFalse,
+          reason: 'a native form torn down without telling Dart must not block '
+              'every fullscreen ad for the rest of the process');
+    });
   });
 }

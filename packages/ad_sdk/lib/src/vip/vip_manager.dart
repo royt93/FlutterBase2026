@@ -179,6 +179,19 @@ class VipManager {
   int _readRetryIndex = 0;
   String _lastLoadGaid = '';
 
+  /// Round-7 final QC (both reviewers, independently) — `dispose()` cancels a
+  /// PENDING retry, but not a `load()` whose timer already fired and is now
+  /// awaiting storage. That load used to come back and mutate entries, push the
+  /// notifier, add to an already-closed stream and arm fresh timers, on a
+  /// manager the host had thrown away — a leak with a heartbeat on any host
+  /// that re-inits (`AdManager.destroy()` then `initialize()`).
+  bool _disposed = false;
+
+  /// Serialises [load] by invocation order. Two loads used to run concurrently
+  /// (the host's own call plus a retry, or a re-init) and settle in completion
+  /// order, each clearing `_entries` under the other's feet.
+  Future<void> _loadQueue = Future<void>.value();
+
   /// True if at least one entry is currently active.
   bool get isActive => _activeNotifier.value;
 
@@ -374,7 +387,17 @@ class VipManager {
   /// list of *VIP-eligible* GAIDs, and the device was VIP only when its own
   /// GAID matched one of them). Naively migrating every GAID would mark
   /// *every* device VIP — that's why we filter against [currentDeviceGaid].
-  Future<void> load({String currentDeviceGaid = ''}) async {
+  Future<void> load({String currentDeviceGaid = ''}) {
+    final task = _loadQueue.then((_) => _load(currentDeviceGaid));
+    // Keeps the queue usable after a failed load, exactly like `_save()`.
+    _loadQueue = task.catchError((Object e) {
+      SafeLogger.w(_tag, 'load threw: $e');
+    });
+    return task;
+  }
+
+  Future<void> _load(String currentDeviceGaid) async {
+    if (_disposed) return;
     _lastLoadGaid = currentDeviceGaid;
     _entries
       ..clear()
@@ -509,6 +532,7 @@ class VipManager {
   void _scheduleReadRetryIfNeeded() {
     _readRetryTimer?.cancel();
     _readRetryTimer = null;
+    if (_disposed) return;
     if (!_vipEntriesStore.lastSecureReadErrored || _entries.isNotEmpty) {
       _readRetryIndex = 0;
       return;
@@ -528,7 +552,8 @@ class VipManager {
         'retrying in ${delay.inSeconds}s rather than treating it as "no VIP"');
     _readRetryTimer = Timer(delay, () {
       _readRetryTimer = null;
-      load(currentDeviceGaid: _lastLoadGaid);
+      if (_disposed) return;
+      unawaited(load(currentDeviceGaid: _lastLoadGaid));
     });
   }
 
@@ -554,6 +579,17 @@ class VipManager {
   }
 
   void _refreshActive() {
+    // The single funnel for "entitlement state changed", so the two lifecycle
+    // guards live here rather than at each of its seven call sites.
+    if (_disposed) return;
+    if (_entries.isNotEmpty && _readRetryTimer != null) {
+      // A grant arrived while a retry was pending (a redeem one second into the
+      // 2 s wait). Re-reading now would be pointless at best, and could drop
+      // the fresh grant from memory if its own save has not landed yet.
+      _readRetryTimer!.cancel();
+      _readRetryTimer = null;
+      _readRetryIndex = 0;
+    }
     final wasActive = _activeNotifier.value;
     final now = _effectiveNow();
     final nowActive = _entries.any((e) => e.isActiveAt(now));
@@ -575,6 +611,7 @@ class VipManager {
   void _scheduleNextExpiry() {
     _expiryTimer?.cancel();
     _expiryTimer = null;
+    if (_disposed) return;
 
     final now = _effectiveNow();
     DateTime? earliest;
@@ -1174,6 +1211,7 @@ class VipManager {
   /// they're plain objects that GC reclaims once this VipManager is
   /// unreferenced; no need to dispose them explicitly.
   void dispose() {
+    _disposed = true;
     _expiryTimer?.cancel();
     _expiryTimer = null;
     _readRetryTimer?.cancel();

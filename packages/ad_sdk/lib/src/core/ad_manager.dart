@@ -3165,6 +3165,12 @@ class AdManager with WidgetsBindingObserver {
     _initRetryAttempts = 0;
     AdLoadingDialog.resetState();
     AdScreenRouteLogger.resetState();
+    // Round-7 final QC — the UMP form counter is module-level, so a flow that
+    // was interrupted (or a form whose dismiss callback never arrived) would
+    // otherwise carry its ad block across this teardown into the next
+    // initialize(). Safe to drop here: destroy() has just torn the adapter
+    // down, so there is no ad that could be drawn over anything.
+    resetUmpFormOnScreen();
     AdSafetyConfig.resetForReinit();
     SimpleEventBus().clearAll();
 
