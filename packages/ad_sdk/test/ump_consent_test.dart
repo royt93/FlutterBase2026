@@ -214,6 +214,28 @@ void main() {
     expect(umpFormOnScreen.value, isFalse);
   });
 
+  test('a reset cancels the old backstop instead of letting it fire over the '
+      'next form', () {
+    debugUmpFormBackstopOverride = const Duration(minutes: 15);
+    fakeAsync((async) {
+      // A form is up when the host tears the SDK down (AdManager.destroy()).
+      markUmpFormOnScreen();
+      resetUmpFormOnScreen();
+
+      // The host re-inits and a new form goes up one minute later.
+      async.elapse(const Duration(minutes: 1));
+      markUmpFormOnScreen();
+
+      // Past the FIRST form's 15-minute backstop (t=15m) but not yet the
+      // second form's own (t=16m, since it went up a minute later).
+      async.elapse(const Duration(minutes: 14, seconds: 30));
+      expect(umpFormOnScreen.value, isTrue,
+          reason: 'a backstop belonging to a form that no longer exists must '
+              'not clear the block over the form that does — that puts a '
+              'fullscreen ad over a live consent form');
+    });
+  });
+
   test('a dismiss callback that never arrives is released by the backstop', () {
     debugUmpFormBackstopOverride = const Duration(minutes: 15);
     fakeAsync((async) {

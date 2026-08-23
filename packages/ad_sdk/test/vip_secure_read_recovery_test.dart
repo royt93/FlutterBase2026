@@ -41,6 +41,7 @@ class _FlakySecureStorage extends FlutterSecureStorage {
   /// `dispose()` while a load is parked mid-await.
   Completer<void>? readGate;
 
+
   @override
   Future<String?> read({
     required String key,
@@ -52,13 +53,17 @@ class _FlakySecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     reads++;
+    // Snapshot BEFORE parking: a real platform read that has already fetched
+    // and is only waiting for its Dart future to resolve returns what storage
+    // held when it ran, not what it holds when the caller finally sees it.
+    final snapshot = data[key];
     final gate = readGate;
     if (gate != null) await gate.future;
     if (failNextReads > 0) {
       failNextReads--;
       throw _PlatformExceptionStub();
     }
-    return data[key];
+    return snapshot;
   }
 
   @override
@@ -201,6 +206,50 @@ void main() {
           reason: 'the schedule is bounded — a device with an unusable '
               'Keystore must not spin platform calls for the whole session');
       expect(async.pendingTimers, isEmpty);
+      mgr.dispose();
+    });
+  });
+
+  // Round-8 QC, MAJOR (codex). Cancelling a WAITING retry is not enough: once
+  // the retry timer has fired, the load is already parked on the read, and its
+  // first act on return is `_entries.clear()`. A grant that arrives in that
+  // window is wiped from memory — and its own save may not have landed yet, so
+  // the reload finds nothing either. A paying customer loses the entitlement
+  // they just redeemed, for the whole session.
+  test('a grant that lands while a retry read is in flight is not wiped by it',
+      () {
+    // First read fails (so a retry gets armed); the retry's read hangs on the
+    // gate, which is when the grant arrives.
+    final secure = _FlakySecureStorage(failNextReads: 2);
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+      expect(mgr.isActive, isFalse, reason: 'sanity: nothing readable yet');
+
+      // Park the retry's read mid-flight.
+      final gate = Completer<void>();
+      secure.readGate = gate;
+      async.elapse(const Duration(seconds: 3)); // fires the 2s retry
+      async.flushMicrotasks();
+
+      // The grant lands while that read is still parked.
+      unawaited(mgr.addVip(key: 'MANUAL', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+      expect(mgr.isActive, isTrue, reason: 'sanity: the grant landed');
+
+      // Now the stale read finally answers.
+      gate.complete();
+      secure.readGate = null;
+      async.elapse(const Duration(minutes: 1));
+      async.flushMicrotasks();
+
+      expect(mgr.isActive, isTrue,
+          reason: 'a read that started BEFORE the grant must not overwrite the '
+              'state that grant produced — whoever wrote last wins, and the '
+              'in-memory state is newer than the read by definition');
       mgr.dispose();
     });
   });

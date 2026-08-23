@@ -64,6 +64,10 @@ const Duration kUmpFormOnScreenBackstop = Duration(minutes: 15);
 @visibleForTesting
 Duration? debugUmpFormBackstopOverride;
 
+/// Live release closures, so [resetUmpFormOnScreen] can cancel their backstop
+/// timers instead of leaving them to fire against a later form.
+final Set<void Function()> _activeUmpReleases = <void Function()>{};
+
 /// Counts one native UMP form as being on screen and returns its release.
 ///
 /// The release is idempotent and safe to call from a dismiss callback that may
@@ -73,15 +77,19 @@ void Function() markUmpFormOnScreen() {
   umpFormOnScreen.value = true;
   var released = false;
   Timer? backstop;
-  void release() {
+  late void Function() release;
+  release = () {
     if (released) return;
     released = true;
     backstop?.cancel();
+    _activeUmpReleases.remove(release);
     if (_umpFormsOnScreen > 0) _umpFormsOnScreen--;
     if (_umpFormsOnScreen == 0) umpFormOnScreen.value = false;
-  }
+  };
+  _activeUmpReleases.add(release);
 
-  backstop = Timer(debugUmpFormBackstopOverride ?? kUmpFormOnScreenBackstop, () {
+  backstop =
+      Timer(debugUmpFormBackstopOverride ?? kUmpFormOnScreenBackstop, () {
     SafeLogger.w(
         'UmpConsent',
         'a UMP form never reported being dismissed — releasing the ad block '
@@ -96,6 +104,15 @@ void Function() markUmpFormOnScreen() {
 /// a module-level counter otherwise leaks across a re-init or a test that
 /// throws mid-flow.
 void resetUmpFormOnScreen() {
+  // Release every outstanding presentation rather than just zeroing the
+  // counter: each one owns a 15-minute backstop timer, and a backstop that
+  // outlives the reset fires against whatever form is up NEXT — it finds the
+  // counter at 0, skips the decrement, and clears the ad block over a live
+  // form. That is the same class of bug the ref-count fixed.
+  for (final release in _activeUmpReleases.toList()) {
+    release();
+  }
+  _activeUmpReleases.clear();
   _umpFormsOnScreen = 0;
   umpFormOnScreen.value = false;
 }
@@ -248,20 +265,33 @@ Future<UmpConsentResult> requestUmpConsentFlow({
     // Deliberately NOT awaited — same reasoning as requestPrivacyOptionsFlow()
     // below: the native call only returns once the form is dismissed, so
     // awaiting it here would bypass the timeout entirely.
-    unawaited(ConsentForm.loadAndShowConsentFormIfRequired((FormError? err) {
-      // Released first, before the isCompleted guard: after a timeout the
-      // completer is already done, and returning early there would leave the
-      // ad block standing until the backstop.
-      releaseForm();
-      if (dismissCompleter.isCompleted) return;
-      dismissCompleter
-          .complete(err == null ? null : '${err.errorCode}:${err.message}');
-    }).catchError((Object e) {
+    // Round-8 QC, MINOR — `.catchError` below only catches an async failure. A
+    // synchronous throw out of the presentation call itself (a missing plugin
+    // registration, a null Activity) would skip it, leaving the ad block
+    // standing until the 15-minute backstop with no form ever on screen.
+    try {
+      unawaited(ConsentForm.loadAndShowConsentFormIfRequired((FormError? err) {
+        // Released first, before the isCompleted guard: after a timeout the
+        // completer is already done, and returning early there would leave the
+        // ad block standing until the backstop.
+        releaseForm();
+        if (dismissCompleter.isCompleted) return;
+        dismissCompleter
+            .complete(err == null ? null : '${err.errorCode}:${err.message}');
+      }).catchError((Object e) {
+        releaseForm();
+        if (!dismissCompleter.isCompleted) {
+          dismissCompleter
+              .complete('loadAndShowConsentFormIfRequired threw: $e');
+        }
+      }));
+    } catch (e) {
       releaseForm();
       if (!dismissCompleter.isCompleted) {
-        dismissCompleter.complete('loadAndShowConsentFormIfRequired threw: $e');
+        dismissCompleter
+            .complete('loadAndShowConsentFormIfRequired threw sync: $e');
       }
-    }));
+    }
     formShown = true;
     // Timeout guard, deliberately much longer than step 1's. A cap still has
     // to exist — an iOS Simulator with nothing tapping through never dismisses
@@ -397,17 +427,27 @@ Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
   // awaiting it here directly would hang on that call forever, bypassing the
   // timeout below entirely — same fire-and-forget shape as
   // ConsentForm.loadConsentForm()/form.show() above in requestUmpConsentFlow().
-  unawaited(ConsentForm.showPrivacyOptionsForm((FormError? err) {
-    releaseForm();
-    if (dismissCompleter.isCompleted) return;
-    dismissCompleter
-        .complete(err == null ? null : '${err.errorCode}:${err.message}');
-  }).catchError((Object e) {
+  // Round-8 QC, MINOR — a synchronous throw here would skip `.catchError`
+  // and leave the ad block standing until the backstop; see the same guard
+  // in requestUmpConsentFlow().
+  try {
+    unawaited(ConsentForm.showPrivacyOptionsForm((FormError? err) {
+      releaseForm();
+      if (dismissCompleter.isCompleted) return;
+      dismissCompleter
+          .complete(err == null ? null : '${err.errorCode}:${err.message}');
+    }).catchError((Object e) {
+      releaseForm();
+      if (!dismissCompleter.isCompleted) {
+        dismissCompleter.complete('showPrivacyOptionsForm threw: $e');
+      }
+    }));
+  } catch (e) {
     releaseForm();
     if (!dismissCompleter.isCompleted) {
-      dismissCompleter.complete('showPrivacyOptionsForm threw: $e');
+      dismissCompleter.complete('showPrivacyOptionsForm threw sync: $e');
     }
-  }));
+  }
   // Timeout guard (T44) — the dismiss callback only fires once the user taps
   // through the native form, which can hang indefinitely if it's served but
   // never dismissed. Without this, a caller awaiting requestPrivacyOptionsFlow()

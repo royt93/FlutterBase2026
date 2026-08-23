@@ -277,8 +277,7 @@ class VipManager {
     final expectedMs =
         _sessionAnchorRealMs + _sessionClockStopwatch.elapsedMilliseconds;
     const sessionDriftSlack = Duration(minutes: 10);
-    final trusted =
-        (real.millisecondsSinceEpoch - expectedMs).abs() <=
+    final trusted = (real.millisecondsSinceEpoch - expectedMs).abs() <=
             sessionDriftSlack.inMilliseconds
         ? real
         : DateTime.fromMillisecondsSinceEpoch(expectedMs);
@@ -399,9 +398,33 @@ class VipManager {
   Future<void> _load(String currentDeviceGaid) async {
     if (_disposed) return;
     _lastLoadGaid = currentDeviceGaid;
+
+    // Round-8 QC, MAJOR — the read is the one await nothing can cancel. By the
+    // time a slow Keychain answers, two things may have changed:
+    //
+    //  * the host disposed this manager (below), or
+    //  * a grant landed in memory (`_mutationEpoch` moved) — a redeem one
+    //    second into the retry wait, say. `_refreshActive` cancels a retry that
+    //    is still WAITING, but a retry whose timer already fired is a load in
+    //    flight, and this method's first act is to clear `_entries`: it would
+    //    wipe a live grant whose own `_save()` had not landed yet, exactly the
+    //    bug the cancel was supposed to prevent.
+    //
+    // Whoever wrote last wins, and the in-memory state is by definition newer
+    // than a read that started before it. So abandon the read, not the grant.
+    final epochBefore = _mutationEpoch;
+    final raw = await _vipEntriesStore.getRaw();
+    if (_disposed) return;
+    if (_mutationEpoch != epochBefore) {
+      SafeLogger.w(
+          _tag,
+          'discarding a storage read that raced a live entitlement change — '
+          'keeping the newer in-memory state');
+      return;
+    }
     _entries
       ..clear()
-      ..addAll(VipEntry.decodeList(await _vipEntriesStore.getRaw()));
+      ..addAll(VipEntry.decodeList(raw));
 
     // M6 — the entries came from the plaintext fallback on a device whose
     // secure storage works, which no legitimate write path produces (setRaw
@@ -553,11 +576,25 @@ class VipManager {
     _readRetryTimer = Timer(delay, () {
       _readRetryTimer = null;
       if (_disposed) return;
-      unawaited(load(currentDeviceGaid: _lastLoadGaid));
+      // Round-8 QC, MINOR — `load()` deliberately returns the UN-caught task
+      // (the queue keeps its own caught copy), so unawaiting it raw turns a
+      // storage error on a retry into an unhandled async error, which in a
+      // release build reaches the host's Flutter error handler as a crash
+      // report for something this class already handles.
+      unawaited(load(currentDeviceGaid: _lastLoadGaid).catchError((Object e) {
+        SafeLogger.w(_tag, 'retry load failed: $e');
+      }));
     });
   }
 
+  /// Bumped by every write to [_entries] that does not come from [_load].
+  ///
+  /// Round-8 QC — see the epoch check in [_load]: this is what lets a load tell
+  /// "nothing happened while I waited" from "a grant landed, my read is stale".
+  int _mutationEpoch = 0;
+
   Future<void> _save() {
+    _mutationEpoch++;
     final task = _saveQueue.then((_) async {
       await _vipEntriesStore.setRaw(VipEntry.encodeList(_entries));
     });
@@ -990,7 +1027,8 @@ class VipManager {
     final raw = _prefs.getVipRevocationCacheRaw();
     if (raw == null) return;
     try {
-      final parsed = await verifySignedCrl(raw, publicKeyBase64: publicKeyBase64);
+      final parsed =
+          await verifySignedCrl(raw, publicKeyBase64: publicKeyBase64);
       _revokedKeyIds = parsed.revokedKeyIds;
       _revocationIssuedAt = parsed.issuedAt;
     } catch (e) {
@@ -1098,9 +1136,8 @@ class VipManager {
   Future<void> _clampRevokedEntries() async {
     if (_revokedKeyIds.isEmpty || _entries.isEmpty) return;
 
-    final revokedEntryKeys = _revokedKeyIds
-        .map((kid) => normaliseKey('SIGNED_$kid'))
-        .toSet();
+    final revokedEntryKeys =
+        _revokedKeyIds.map((kid) => normaliseKey('SIGNED_$kid')).toSet();
     final cutoff = _effectiveNow().add(revokedGraceWindow);
 
     var clamped = 0;

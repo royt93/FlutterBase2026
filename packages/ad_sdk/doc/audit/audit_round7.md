@@ -60,6 +60,29 @@ Confirmed by `git log -S`, not by reading the reports.
   surface; nothing to hook.
 * **CI is red on GitHub billing, not on code.** Not to be "fixed" here.
 
+## Accepted trade-off — the 15-minute UMP backstop
+
+codex flagged the backstop itself as a Major in round 8: it releases the
+fullscreen-ad block without evidence that the native form is gone, so in
+principle an ad can be drawn over a form that is still up — the same hole the
+release-on-timeout bug had, only 15 minutes later.
+
+That is accurate, and it is deliberate. The alternative is no backstop, and
+then a dismiss callback that never fires (a form torn down by the OS, a plugin
+that drops the callback) blocks **every** fullscreen ad for the rest of the
+process — a permanent revenue outage triggered by a platform bug we cannot see.
+Both failure modes are one-sided, so the question is only which one is bounded:
+the backstop is 15 minutes of exposure in a case that requires a broken
+callback, versus an unbounded outage in the same case.
+
+Fifteen minutes is chosen to sit far outside a human reading a real GDPR form
+(the 206-partner list with "Learn more" expanded is minutes, not a quarter of an
+hour), and firing it logs a warning naming the reason. Anything shorter starts
+competing with real users again.
+
+What would remove the trade-off: a platform signal for "is a UMP form currently
+presented", which the UMP SDK does not expose. Until then this stays.
+
 ## Known limitation — a cached AppLovin fill outlives a consent change
 
 Reported by codex as a Major in the round-7 QC gate. It is real, and it cannot
