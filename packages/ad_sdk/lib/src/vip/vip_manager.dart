@@ -140,15 +140,22 @@ class VipManager {
   @visibleForTesting
   static void resetSaveQueueForTest() {
     _saveQueue = Future<void>.value();
+    _writeSeq = 0;
+    _landedSeq = 0;
+    _newestPayload = null;
+    _newestPayloadSeq = 0;
   }
 
-  /// This instance's own most recent save. [_load] waits on THIS, never on the
-  /// process-wide [_saveQueue]: the global queue can hold a write parked by a
-  /// manager this one never met (in tests, a manager from a previous test), and
-  /// waiting on that would make every load pay the drain timeout for a write it
-  /// has no stake in. What a load actually needs is that ITS OWN pending grants
-  /// have landed before it trusts the disk.
-  Future<void> _ownSaveTail = Future<void>.value();
+  /// Round-11 QC, MAJOR — a queued write's id, and the highest id that has
+  /// actually landed. Only ever differ from strict order when the bounded wait
+  /// in [_save] gives up on a predecessor: two writes are then in flight at
+  /// once and can land in the wrong order, which is exactly how a revoked
+  /// entitlement comes back from the dead. [_newestPayload] is what disk must
+  /// hold once everything settles, so a write that lands late can put it back.
+  static int _writeSeq = 0;
+  static int _landedSeq = 0;
+  static String? _newestPayload;
+  static int _newestPayloadSeq = 0;
 
   /// How long [load] waits for pending writes to land before giving up on
   /// them. Bounded because a wedged platform channel would otherwise hang
@@ -458,7 +465,13 @@ class VipManager {
     final epochBefore = _mutationEpoch;
     var drained = true;
     try {
-      await _ownSaveTail.timeout(kSaveDrainTimeout);
+      // Round-11 QC, MAJOR — the process-wide queue, not this instance's own
+      // writes. Every manager writes the same secure-storage key, so on
+      // destroy + re-init the replacement's load must wait for the write the
+      // OLD manager still has in flight; draining only its own (empty) tail
+      // let it read pre-grant data and run the whole session as non-VIP —
+      // and any later write of its own then made that permanent.
+      await _saveQueue.timeout(kSaveDrainTimeout);
     } catch (_) {
       // Bounded on purpose (round-10 QC, MAJOR): a platform write future that
       // never settles would otherwise hang every later load — and
@@ -682,6 +695,7 @@ class VipManager {
     // the life of the process. Ordering still holds in the normal case; past
     // the timeout we prefer a possibly-reordered write to no writes at all.
     final previous = _saveQueue;
+    final seq = ++_writeSeq;
     final task = () async {
       try {
         await previous.timeout(kSaveDrainTimeout);
@@ -696,16 +710,31 @@ class VipManager {
         SafeLogger.w(_tag, 'save reached the queue after dispose — dropped');
         return;
       }
-      await _vipEntriesStore.setRaw(VipEntry.encodeList(_entries));
+      final payload = VipEntry.encodeList(_entries);
+      if (seq > _newestPayloadSeq) {
+        _newestPayloadSeq = seq;
+        _newestPayload = payload;
+      }
+      await _vipEntriesStore.setRaw(payload);
+      if (seq > _landedSeq) {
+        _landedSeq = seq;
+        return;
+      }
+      // We landed AFTER a newer write (our predecessor blew the bound above, so
+      // both were in flight at once). Left alone, this stale snapshot owns the
+      // disk — the revoked-entitlement-resurrected bug the queue exists to
+      // prevent. Put the newest intent back.
+      final newest = _newestPayload;
+      if (newest != null && newest != payload) {
+        SafeLogger.w(_tag, 'VIP write #$seq landed after #$_landedSeq — '
+            'restoring the newer snapshot');
+        await _vipEntriesStore.setRaw(newest);
+      }
     }();
     // Catch errors so the queue keeps working even if one save fails.
     _saveQueue = task.catchError((Object e) {
       SafeLogger.w(_tag, '_save threw: $e');
     });
-    // A separately-caught view of THIS task — not `_saveQueue`, which is the
-    // process-wide chain and would drag in writes from managers this instance
-    // has nothing to do with.
-    _ownSaveTail = task.catchError((Object _) {});
     return task;
   }
 

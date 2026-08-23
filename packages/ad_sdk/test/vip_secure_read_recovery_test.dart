@@ -440,14 +440,26 @@ void main() {
     }
     old.dispose();
 
-    // The host re-inits: the replacement writes its own state.
+    // The host re-inits: `AdManager.initialize()` always loads before anything
+    // else, so the replacement must see the write the old manager still has in
+    // flight — and only then write its own state.
     final live = VipManager(prefs, vipEntriesStore: store);
     addTearDown(live.dispose);
     secure.writeGate = null;
+    final readsBefore = secure.reads;
+    final loaded = live.load();
+    await pumpEventQueue();
+    expect(secure.reads, readsBefore,
+        reason: 'the replacement must still be waiting for the pending write, '
+            'not reading around it');
+    inFlight.complete();
+    await loaded;
+    expect(live.entries.map((e) => e.key), contains('OLD'),
+        reason: 'the replacement must not read pre-grant data while a write '
+            'from the manager it replaced is still in flight');
     final liveWrite =
         live.addVip(key: 'NEW', duration: const Duration(days: 7));
 
-    inFlight.complete();
     await oldWrite;
     await liveWrite;
 
@@ -591,6 +603,48 @@ void main() {
           reason: 'the read was taken before the grant existed, so it cannot '
               'be what the session runs on');
       mgr.dispose();
+    });
+  });
+
+  // Round-11 QC, MAJOR (codex) — the bounded wait means two writes can be in
+  // flight at once, so the queue's ordering guarantee has to be restored after
+  // the fact: otherwise the write that blew the bound lands last and its stale
+  // snapshot owns the disk, which is the resurrected-entitlement bug again.
+  test('a write that lands after a newer one does not own the disk', () {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // must happen INSIDE the fake zone
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      addTearDown(mgr.dispose);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+
+      // A write that hangs inside the platform call for longer than the bound.
+      final hung = Completer<void>();
+      secure.writeGate = hung;
+      unawaited(mgr.addVip(key: 'OLD', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+      expect(secure.writesStarted, greaterThan(0),
+          reason: 'sanity: the hung write is inside the platform call');
+      secure.writeGate = null;
+
+      // The revoke gives up waiting for it and writes anyway.
+      unawaited(mgr.revokeAll());
+      async.elapse(VipManager.kSaveDrainTimeout + const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(secure.data['ad_sdk_vip_entries_v1'], isNot(contains('OLD')),
+          reason: 'sanity: the revoke landed');
+
+      // The hung write finally answers, out of order.
+      hung.complete();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+
+      expect(secure.data['ad_sdk_vip_entries_v1'], isNot(contains('OLD')),
+          reason: 'the revoke is the newer intent, so it must be what disk '
+              'holds once everything settles');
     });
   });
 }
