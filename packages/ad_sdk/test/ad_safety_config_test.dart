@@ -164,7 +164,14 @@ void main() {
       expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 0);
     });
 
-    test('also clears the persisted suspicious count in AdPreferences',
+    // Round-7 audit, MAJOR — this used to assert the opposite. `resetSession`
+    // runs from the public, exported `resetForReinit()`, i.e. from every
+    // `AdManager().destroy()`, so wiping the persisted counter here handed any
+    // host a full reset of the progressive invalid-traffic cooldown for the
+    // price of destroy() + initialize(). The in-memory count and pause still
+    // clear (a plain process restart already does that much), but the
+    // escalation counter is exactly what a restart keeps.
+    test('does NOT clear the persisted suspicious count in AdPreferences',
         () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await AdPreferences.getInstance();
@@ -184,8 +191,17 @@ void main() {
       AdSafetyConfig.canShowFullscreenAd(); // triggers a CTR-anomaly pause
       expect(prefs.getSuspiciousCount(), greaterThan(0));
 
+      final persisted = prefs.getSuspiciousCount();
+
       AdSafetyConfig.resetSession();
-      expect(prefs.getSuspiciousCount(), 0);
+      expect(prefs.getSuspiciousCount(), persisted,
+          reason: 'the escalation counter must survive a re-init');
+
+      // And it comes straight back on the next initialize(), so the next
+      // violation escalates instead of starting over at 30 minutes.
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
+          persisted);
     });
   });
 

@@ -792,8 +792,20 @@ class AdSafetyConfig {
     // it set here meant a reset session could still report suspended=true
     // with 0 violations.
     _suspiciousPauseUntil = 0;
-    _prefs?.setSuspiciousCount(0);
-    SafeLogger.d(_tag, '🔄 Session reset');
+    // Round-7 audit, MAJOR — the PERSISTED counter deliberately survives.
+    // This method runs from `resetForReinit()`, which is public, exported, and
+    // runs on every `AdManager().destroy()`; a host that calls
+    // destroy() + initialize() (provider switch, logout, a settings screen
+    // that re-inits) used to wipe `setSuspiciousCount(0)` with it and so reset
+    // the progressive cooldown escalation (30 min → 24 h) to zero every time.
+    // M2 (round 6) closed that door on `resetSessionCounters()` and left this
+    // one open. Clearing the in-memory count and pause here is fine — a plain
+    // process restart already does exactly that, `_suspiciousPauseUntil` has
+    // never been persisted — but the escalation counter is the part a restart
+    // keeps, and it is what protects the publisher's AdMob account from an
+    // invalid-traffic strike. `initialize()` reads it straight back.
+    SafeLogger.d(
+        _tag, '🔄 Session reset (persisted invalid-traffic count preserved)');
     _refreshRiskScore();
   }
 

@@ -69,4 +69,28 @@ void main() {
             'was the bug that fix addressed — do not regress it');
     expect(AdSafetyConfig.getSessionAdCount(), 0);
   });
+
+  // Round-7 audit, MAJOR — M2 above closed the `resetSessionCounters()` door
+  // and left a wider one open: `resetForReinit()` is public, exported, and
+  // `AdManager().destroy()` calls it, so destroy() + initialize() (a provider
+  // switch, a logout, a settings screen that re-inits) used to zero the
+  // PERSISTED escalation counter too. The in-memory pause clearing is fine —
+  // a plain process restart already does that, the pause is not persisted —
+  // but the counter is precisely what a restart keeps, and it is what makes
+  // the next violation escalate 30 min → 1 h → … → 24 h.
+  test('a re-init does not forgive the invalid-traffic escalation counter',
+      () async {
+    final prefs = await AdPreferences.getInstance();
+    tripInvalidTrafficPause();
+    final escalation = prefs.getSuspiciousCount();
+    expect(escalation, greaterThan(0), reason: 'sanity: a violation landed');
+
+    AdSafetyConfig.resetForReinit(); // what AdManager().destroy() runs
+
+    expect(prefs.getSuspiciousCount(), escalation);
+    await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+    expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
+        escalation,
+        reason: 'the next pause must escalate, not restart at 30 minutes');
+  });
 }
