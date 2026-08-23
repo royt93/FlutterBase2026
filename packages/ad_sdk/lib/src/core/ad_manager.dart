@@ -3449,6 +3449,17 @@ class AdManager with WidgetsBindingObserver {
   }
 
   void showAppOpenAdOnResume() {
+    // Round-7 audit, MAJOR — the latch has to be spent by THIS resume even if
+    // one of the guards below returns first. It used to be read at its decision
+    // point, six early returns down (adapter null, splashOnly, splash active,
+    // VIP, another fullscreen/dialog on top): a click followed by a resume that
+    // hit any of those left the latch set, and it then suppressed the next
+    // genuine background→foreground App Open — a lost impression attributed to
+    // an ad click the user made hours earlier. The latch answers "was the
+    // resume I am handling now a return trip from an ad click?", so it is read
+    // once per resume and the verdict carried in a local.
+    final returningFromAdClick =
+        AdSafetyConfig.consumeBackgroundedFromAdClick();
     final ad = _adapter;
     SafeLogger.d(
       _tag,
@@ -3497,7 +3508,7 @@ class AdManager with WidgetsBindingObserver {
     // Open policy calls this case out by name. Placed with the other
     // attribution guards, i.e. ahead of the cold-start skip, so it returns
     // without kicking off a refill.
-    if (AdSafetyConfig.consumeBackgroundedFromAdClick()) {
+    if (returningFromAdClick) {
       SafeLogger.d(
           _tag,
           () => '⏭️ skipping app-open on resume '

@@ -2447,6 +2447,33 @@ void main() {
               'resume path must run normally and reach the refill');
     });
 
+    test('a resume that returns at an earlier guard still spends the latch',
+        () {
+      // Round-7 audit, MAJOR — the latch used to be read at its decision
+      // point, six early returns down. A click followed by a resume that hit
+      // any of those (splash active here, but VIP / another fullscreen /
+      // a dialog on top do the same) left it set, and it then ate the next
+      // genuine background→foreground App Open — a lost impression blamed on
+      // a click the user made hours earlier.
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      AdSafetyConfig.recordAdClick();
+      AdSafetyConfig.recordAppWentBackground();
+
+      AdManager().markSplashActive();
+      AdManager().showAppOpenAdOnResume(); // returns at the splash guard
+      AdManager().markSplashInactive();
+
+      // A later, unrelated trip out of the app.
+      AdSafetyConfig.recordAppWentBackground();
+      AdManager().showAppOpenAdOnResume();
+
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1),
+          reason: 'the stale latch must not survive the splash-guard return '
+              'and suppress this unrelated resume');
+    });
+
     test('baseline: without an ad click the resume path reaches the refill',
         () {
       adapter.appOpenSlot.beginLoad();
