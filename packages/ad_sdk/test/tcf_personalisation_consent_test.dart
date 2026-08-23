@@ -1262,6 +1262,147 @@ void main() {
       expect(AdManager().canRequestAds, isTrue);
     });
 
+    // Round-13 QC (round 13), BLOCKER — the recovery has awaits of its own,
+    // and a real consent decision can start inside any of them. It must lose
+    // to that decision: reopening the gate while a withdrawal is mid-apply is
+    // a personalised ad served under the old configuration, which is the whole
+    // thing rounds 9-12 exist to prevent.
+    test('recovery never reopens the gate over an apply that started while it '
+        'was waiting', () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      // Arm the debt: an apply parked at its write, a second one queued behind
+      // it (round 11 shuts the gate), then a host decision supersedes both.
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: round 11');
+
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      // Wedge the UMP status call so the recovery parks inside itself.
+      final wedge = Completer<void>();
+      statusGate = wedge;
+      addTearDown(() {
+        statusGate = null;
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+
+      // While the recovery is parked, the user withdraws personalisation. The
+      // apply is held at its ENTRY barrier, so it has not read the TCF keys
+      // yet — which is exactly the shape of the race: the recovery's own TCF
+      // read still returns the permissive snapshot, and what is applied still
+      // matches it, so nothing in its own snapshot says to stop.
+      final withdrawalEntry = Completer<void>();
+      AdManager.debugConsentApplyBarrier = withdrawalEntry.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!withdrawalEntry.isCompleted) withdrawalEntry.complete();
+      });
+      final withdrawal = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      wedge.complete();
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'an apply is in flight — it, not this recovery, owns the '
+              'gate. Reopening here lets an ad be requested against a '
+              'configuration that is about to change');
+
+      // And the withdrawal decides, as it should.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      withdrawalEntry.complete();
+      await withdrawal;
+      await pumpEventQueue(times: 30);
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'and the withdrawal is what ends up applied');
+    });
+
+    // Round-13 QC (round 13), MAJOR — the recovery was one-shot. A transient
+    // channel failure (or a native side that never answers) left the debt
+    // armed with nothing coming back for it, which is the same session-long
+    // ad outage the recovery was added to prevent.
+    test('recovery retries when the UMP channel fails', () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck.isCompleted) stuck.complete();
+      });
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      // The recovery's UMP read fails the first time it is tried.
+      final broken = Completer<void>();
+      statusGate = broken;
+      addTearDown(() => statusGate = null);
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      await pumpEventQueue(times: 10);
+      broken.completeError(StateError('the consent channel is gone'));
+      await pumpEventQueue(times: 20);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: nothing could be confirmed, so nothing is reopened');
+
+      // The channel comes back. The retry must find it.
+      statusGate = null;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'a transient channel failure must not cost the session its '
+              'ads — the debt has to be retried, not dropped');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

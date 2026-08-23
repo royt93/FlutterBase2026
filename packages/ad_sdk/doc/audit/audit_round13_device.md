@@ -356,6 +356,36 @@ Each new test is red against its own reverted fix:
 Suite: 1084 green, `flutter analyze` clean, 4/4 device tests green on the S24
 Ultra (`R5CX613VZBR`).
 
+## QC gate round 13 — codex 5/10, both findings on the round-12 recovery
+
+The recovery added in round 12 was itself a new actor on the gate, and codex
+attacked it on exactly the two fronts that matter: what it does across its own
+awaits, and what happens when it cannot finish.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | `_recoverConsentGate()` checked ownership once, at entry, then awaited the UMP channel and the TCF read. A withdrawal starting inside either await is invisible to it: with the apply held before its own TCF read, the recovery's read still returns the permissive snapshot and the applied state still matches it, so it reopened the gate over an apply that was about to change the provider configuration. A banner refresh in that window is a personalised ad under a withdrawn consent — the bug rounds 9-12 exist to prevent. | Ownership is re-read after **every** await (`_recoveryStillOwed` — the debt flag, the gate, the footgun block, the runner and the queue — plus the intent epoch captured at entry). Any real decision in flight wins; the recovery simply drops out. |
+| Major | The recovery was one-shot and detached. A transient channel failure, or a native side that never answered, left the debt armed with nothing coming back for it — the same session-long ad outage the recovery was added to prevent, now with an extra step. | The UMP read is bounded (`_consentGateRecoveryTimeout`, 10s) and a failure schedules a retry (30s, up to 3 attempts, cancelled and reset by `destroy()`). A resume also resets the attempt counter and kicks the recovery once: a channel wedged while the app was backgrounded is usually not wedged afterwards, and the call costs nothing when nothing is owed. |
+
+Each new test is red against its own reverted fix:
+
+* **unit** — *recovery never reopens the gate over an apply that started while
+  it was waiting* (red: `Expected: false Actual: <true>`) and *recovery retries
+  when the UMP channel fails* (red: `Expected: true Actual: <false>`), in
+  `test/tcf_personalisation_consent_test.dart`.
+* **widget** — *a banner requests nothing while the gate recovery is overtaken
+  by a real apply* (red: `Expected: <0> Actual: <1>` — one personalised
+  request) and *banners come back after a transient consent-channel failure*
+  (red: `Expected: a value greater than <0> Actual: <0>` — a permanently blank
+  slot), in `test/consent_gate_banner_widget_test.dart`.
+* **integration** — no new device test. Both findings need the UMP channel to
+  park or fail on command, which only a mocked channel can do; the device layer
+  already covers the recovery end-to-end
+  (`example/integration_test/consent_gate_recovery_test.dart`) and that suite
+  was re-run green after this change.
+
+Suite: 1088 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

@@ -3295,18 +3295,43 @@ class AdManager with WidgetsBindingObserver {
   /// Costs nothing on the ordinary path: the gate is already open by the time
   /// this runs, so it returns before touching UMP.
   Future<void> _recoverConsentGate() async {
-    if (!_pessimisticGateClose) return;
-    if (_canRequestAds || _footgunBlocked) return;
-    if (_consentApplyRunning || _pendingConsentApply != null) return;
+    if (!_recoveryStillOwed) return;
     if (_consentGateRecovering) return;
     _consentGateRecovering = true;
+    // Round-13 QC (round 13), BLOCKER — every await below is a window in which
+    // a real consent decision can start, and this recovery must lose to it.
+    // So the whole ownership is rechecked after each one, not just at entry:
+    // reopening the gate while a withdrawal is mid-apply would serve a
+    // personalised ad under the old configuration, which is the bug rounds
+    // 9-12 exist to prevent.
+    final epoch = _consentIntentEpoch;
     try {
       // Device truth, not our bookkeeping: if UMP itself says ads cannot be
       // requested then the gate is shut for a real reason and must stay shut.
-      final ump = await core_ump.recheckUmpConsentStatus();
-      if (!ump.canRequestAds) return;
-      if (_canRequestAds || _consentApplyRunning) return;
+      final UmpConsentResult ump;
+      try {
+        ump = await core_ump
+            .recheckUmpConsentStatus()
+            .timeout(_consentGateRecoveryTimeout);
+      } catch (e) {
+        // Round-13 QC (round 13), MAJOR — a transient channel failure (or a
+        // native side that never answers) must not be the end of it. The debt
+        // stays armed and nothing else would come back for it, so every ad
+        // surface would stay dark exactly as if this recovery were not here.
+        SafeLogger.w(_tag,
+            '🔐 consent gate recovery could not reach UMP ($e) — retrying');
+        _scheduleConsentGateRecoveryRetry();
+        return;
+      }
+      if (!ump.canRequestAds) {
+        // A real "no" — the debt is settled by the answer itself.
+        _pessimisticGateClose = false;
+        _consentGateRecoveryAttempts = 0;
+        return;
+      }
+      if (!_recoveryStillOwed || epoch != _consentIntentEpoch) return;
       final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
+      if (!_recoveryStillOwed || epoch != _consentIntentEpoch) return;
       final applied = _consentManager?.adConsent ?? _consent;
       if (tcfAllows != null && tcfAllows != applied.hasUserConsent) {
         // The applied configuration does not match the device — reopening here
@@ -3328,9 +3353,52 @@ class AdManager with WidgetsBindingObserver {
           '(superseded, or its write failed) — reopening: what is applied '
           'already matches the device');
       _updateCanRequestAds(true);
+      _consentGateRecoveryAttempts = 0;
     } finally {
       _consentGateRecovering = false;
     }
+  }
+
+  /// Whether [_recoverConsentGate] still has a guessed close to lift. Read
+  /// again after every await it makes — see the comment there.
+  bool get _recoveryStillOwed =>
+      _pessimisticGateClose &&
+      !_canRequestAds &&
+      !_footgunBlocked &&
+      !_consentApplyRunning &&
+      _pendingConsentApply == null;
+
+  /// How long recovery waits on the UMP channel before treating it as a
+  /// failure worth retrying.
+  static const Duration _consentGateRecoveryTimeout = Duration(seconds: 10);
+
+  /// Test-only shortening of [_consentGateRecoveryRetryDelay].
+  @visibleForTesting
+  static Duration? debugConsentGateRecoveryRetryDelay;
+
+  static const Duration _consentGateRecoveryRetryDelay = Duration(seconds: 30);
+  static const int _maxConsentGateRecoveryAttempts = 3;
+  int _consentGateRecoveryAttempts = 0;
+  Timer? _consentGateRecoveryRetry;
+
+  void _scheduleConsentGateRecoveryRetry() {
+    if (_consentGateRecoveryAttempts >= _maxConsentGateRecoveryAttempts) {
+      SafeLogger.e(
+          _tag,
+          '🔐 consent gate recovery gave up after '
+          '$_consentGateRecoveryAttempts attempts — ads stay blocked until the '
+          'next consent decision or app resume');
+      return;
+    }
+    _consentGateRecoveryAttempts++;
+    _consentGateRecoveryRetry?.cancel();
+    _consentGateRecoveryRetry = Timer(
+        debugConsentGateRecoveryRetryDelay ?? _consentGateRecoveryRetryDelay,
+        () {
+      unawaited(_recoverConsentGate().catchError((Object e) {
+        SafeLogger.w(_tag, '_recoverConsentGate retry threw: $e');
+      }));
+    });
   }
 
   /// Test-only barrier awaited right after an apply captures its epoch, so a
@@ -3563,6 +3631,12 @@ class AdManager with WidgetsBindingObserver {
     // under the next session's loop.
     _consentApplyRunToken++;
     _consentApplyRunning = false;
+    // Round-13 QC (round 13) — and the recovery debt belongs to the session
+    // that took it on; its retry must not fire into a torn-down one.
+    _consentGateRecoveryRetry?.cancel();
+    _consentGateRecoveryRetry = null;
+    _consentGateRecoveryAttempts = 0;
+    _pessimisticGateClose = false;
     // M2 — cleared HERE only, never in `_disposeAdapter()`: surviving adapter
     // teardown is precisely what makes the COPPA re-init path in setConsent()
     // reachable after a child-directed abort.
@@ -4946,6 +5020,14 @@ class AdManager with WidgetsBindingObserver {
           'resume, the consent state could not be confirmed');
       return;
     }
+    // Round-13 QC (round 13), MAJOR — a resume is a free second chance for a
+    // gate whose recovery retries all failed (a channel that was wedged while
+    // the app was backgrounded is usually not wedged any more). Returns
+    // immediately when nothing is owed, which is every ordinary resume.
+    _consentGateRecoveryAttempts = 0;
+    unawaited(_recoverConsentGate().catchError((Object e) {
+      SafeLogger.w(_tag, '_recoverConsentGate threw on resume: $e');
+    }));
     // A late-dismiss apply may still be mid-write (see
     // [_applyPrivacyOptionsResult]); its answer is newer than anything we
     // could show, so let it land and pick the ads up on the next resume.
