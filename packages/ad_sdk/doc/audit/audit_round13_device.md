@@ -228,6 +228,20 @@ One more test, red against its own reverted fix:
 
 Suite: 1070 green, `flutter analyze` clean.
 
+## QC gate round 8 — codex 6/10 (agy 10/10), one finding on the round-7 fix
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | `destroy()` does not dismiss the native form, so the callback round 7 started dropping can be carrying a **real withdrawal** the user made while the *new* session was already serving ads — and nothing else would notice, since presenting or dismissing that form need not produce a lifecycle resume. | A stale-session callback no longer drops the user's choice, only the dead session's *values*: it re-reads the device state (`_recheckConsentOnResume`), which is tighten-only, so a withdrawal recorded in the TCF keys lands immediately and a grant cannot be smuggled in. |
+
+One more test, red against its own reverted fix:
+
+* *a withdrawal made in a pre-teardown form still reaches the new session* —
+  opens a form, expires our wait, destroys, re-initialises with a grant, then
+  withdraws in the old form. Red: `Expected: false Actual: <true>`.
+
+Suite: 1071 green, `flutter analyze` clean.
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

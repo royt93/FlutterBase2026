@@ -3179,10 +3179,19 @@ class AdManager with WidgetsBindingObserver {
       PrivacyOptionsResult result,
       {int? session}) async {
     if (session != null && session != _consentSessionEpoch) {
+      // Round-13 QC (round 8), BLOCKER — `destroy()` does not dismiss the
+      // native form, so this callback may be carrying a real withdrawal the
+      // user made while the live session was already running. Its *values*
+      // belong to a dead session and must not be written, but the choice
+      // itself is on the device (the CMP wrote it to the IAB TCF keys), so
+      // re-read that instead of simply dropping it. Tighten-only, like the
+      // resume backstop.
       SafeLogger.w(
           _tag,
           'a privacy-options form from a torn-down session reported back '
-          '(session=$session, now=$_consentSessionEpoch) — dropping it');
+          '(session=$session, now=$_consentSessionEpoch) — dropping its values '
+          'and re-reading the device consent state instead');
+      await _recheckConsentOnResume();
       return result;
     }
     _pendingConsentApply = result;

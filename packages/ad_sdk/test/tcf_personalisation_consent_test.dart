@@ -898,6 +898,52 @@ void main() {
               'overwrite the decision this one made');
     });
 
+    // Round-13 QC (round 8), BLOCKER — `destroy()` does not dismiss the native
+    // form, so the answer arriving from it can be a real withdrawal the user
+    // made while the *new* session was already serving ads. Dropping it
+    // outright would leave personalised ads running against the user's choice.
+    test('a withdrawal made in a pre-teardown form still reaches the new '
+        'session', () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      debugFormDismissTimeoutOverride = const Duration(milliseconds: 20);
+      final gate = Completer<void>();
+      privacyFormGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      await AdManager().showPrivacyOptions();
+
+      await AdManager().destroy();
+
+      // New session, ads running under a grant.
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue, reason: 'sanity');
+
+      // The user withdraws in the form the old session opened. The CMP writes
+      // it to the TCF keys whatever our session bookkeeping says.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      gate.complete();
+      await pumpEventQueue(times: 40);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the session changed, but the withdrawal is the user’s and '
+              'the device records it — it must be honoured');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'and the provider must be told, not just our cache');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({
