@@ -40,6 +40,21 @@ const String _purposesAllow = '1011000000';
 /// advertising") refused. One missing purpose is enough.
 const String _purposesRefuse = '1010000000';
 
+/// Same config with the SDK's own UMP flow off — a host that gathers consent
+/// itself. Round-17's init reconcile is the only thing left that can notice a
+/// device/applied disagreement in such a session.
+AdConfig _hostOwnedConsentConfig() => const AdConfig(
+      provider: AdProvider.admob,
+      autoRequestUmpConsent: false,
+      admob: AdMobConfig(
+        bannerId: 'ca-app-pub-3940256099942544/6300978111',
+        interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+        appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+        rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+      ),
+      safety: AdSafetyParams(dryRun: true),
+    );
+
 AdConfig _admobConfig() => const AdConfig(
       provider: AdProvider.admob,
       admob: AdMobConfig(
@@ -124,6 +139,85 @@ void main() {
         reason: 'the resume backstop must re-read the device consent state '
             'and stop personalised ads. Without it the withdrawal survives '
             'as personalised ads for the rest of the session');
+  });
+
+  // Round-17 QC, BLOCKER — a `destroy()` that interrupts a consent write
+  // disowns that apply, and the guard reset reopens the ad gate (a stale close
+  // would lock the next session out of ads for good). So the withdrawal that
+  // never finished writing used to come back as personalised requests in the
+  // next session. This is the device half: the TCF keys are read out of the
+  // platform's own preference store, the plumbing a mocked store cannot prove.
+  testWidgets('a withdrawal a teardown interrupted is reconciled at the next '
+      'init', (tester) async {
+    // Session 1: the user consented and that is what is applied.
+    await _writeTcf(_purposesAllow);
+    await AdManager().initialize(
+      config: _hostOwnedConsentConfig(),
+      onComplete: (_, __) {},
+    );
+    // Applied explicitly: the persisted consent this device carries from the
+    // other suites is not what this test is about.
+    await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(AdManager().consent.hasUserConsent, isTrue,
+        reason: 'sanity: a consenting user is applied as consenting');
+
+    // The user withdraws, and the process goes down before the write lands.
+    await AdManager().destroy();
+    await _writeTcf(_purposesRefuse);
+
+    // Session 2. Nothing here runs a UMP flow, so the init reconcile is the
+    // only thing that can notice.
+    await AdManager().initialize(
+      config: _hostOwnedConsentConfig(),
+      onComplete: (_, __) {},
+    );
+
+    var withdrawn = false;
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (!AdManager().consent.hasUserConsent) {
+        withdrawn = true;
+        break;
+      }
+    }
+
+    expect(withdrawn, isTrue,
+        reason: 'the interrupted withdrawal must be re-applied before this '
+            'session requests anything — otherwise it survives as '
+            'personalised ads for the whole session');
+    // And the gate must not be left shut by the reconcile: personalisation off
+    // still allows non-personalised ads.
+    var reopened = false;
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (AdManager().canRequestAds) {
+        reopened = true;
+        break;
+      }
+    }
+    expect(reopened, isTrue,
+        reason: 'a fail-closed reconcile owes a reopen — a withdrawal must not '
+            'cost the app every ad surface for the session');
+  });
+
+  testWidgets('an init that agrees with the device changes nothing',
+      (tester) async {
+    // The other half: no needless re-apply, and no gate shut, on the ordinary
+    // start where device and applied state already agree.
+    await _writeTcf(_purposesAllow);
+    await AdManager().initialize(
+      config: _hostOwnedConsentConfig(),
+      onComplete: (_, __) {},
+    );
+    await AdManager().requestUmpConsent();
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(AdManager().consent.hasUserConsent, isTrue);
+    expect(AdManager().canRequestAds, isTrue,
+        reason: 'agreement means the reconcile has nothing to do, and it must '
+            'never shut the gate on a healthy start');
   });
 
   testWidgets('a resume with the device still consenting changes nothing',

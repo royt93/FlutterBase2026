@@ -864,6 +864,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // Round-17 QC, MAJOR — at the widget layer: a personalisation withdrawal
+  // leaves ads allowed, so the gate it closes across its write must come back.
+  // When a host settings toggle superseded that write, nothing reopened it and
+  // every banner in the app stayed blank for the rest of the session.
+  testWidgets('banners come back after a withdrawal write is superseded',
+      (tester) async {
+    AdManager.debugConsentGateRecoveryRetryDelay =
+        const Duration(milliseconds: 20);
+    addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+    addTearDown(() => AdManager.debugConsentWriteBarrier = null);
+
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final granted = adapter.loadBannerCalls;
+    expect(granted, greaterThan(0), reason: 'sanity: a grant loads a banner');
+
+    // Personalisation off — ads still allowed, so the banner must come back.
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    AdManager().debugResetBannerCooldown();
+    final stuck = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuck.future;
+    final apply = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // The host's own consent switch moves while the write is in flight.
+    await tester.runAsync(
+        () => AdManager().setConsent(const AdConsent(hasUserConsent: false)));
+    AdManager.debugConsentWriteBarrier = null;
+    stuck.complete();
+    await tester.runAsync(() => apply);
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(adapter.loadBannerCalls, greaterThan(granted),
+        reason: 'a superseded withdrawal write must not leave every banner in '
+            'the app blank for the rest of the session');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the other half — a clean grant does let the banner request',
       (tester) async {
     final adapter = _BannerCountingAdapter();

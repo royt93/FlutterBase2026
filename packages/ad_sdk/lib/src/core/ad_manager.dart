@@ -2337,6 +2337,34 @@ class AdManager with WidgetsBindingObserver {
       _lastAppliedConsent = consentMgr.adConsent;
       _adapter?.applyConsent(consentMgr.adConsent);
 
+      // Round-17 QC, BLOCKER — reconcile against the device before the first ad
+      // request of this session. A `destroy()` that interrupts a consent write
+      // disowns that apply, and `_resetGuardState()` then reopens the ad gate
+      // unconditionally (T63: a stale close would lock the next session out of
+      // ads for good) — so a withdrawal that never finished writing could come
+      // back here as personalised requests under the previous session's
+      // configuration. The device's own TCF keys are what a CMP writes the
+      // moment the user submits, so they are the record to trust. Cheap: a
+      // local `SharedPreferences` read, and only a disagreement costs
+      // anything. A disagreement fails CLOSED until the re-apply lands, and
+      // arms the same debt [_recoverConsentGate] pays if it cannot finish.
+      final deviceTcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
+      if (deviceTcfAllows != null &&
+          deviceTcfAllows != consentMgr.adConsent.hasUserConsent) {
+        SafeLogger.w(
+            _tag,
+            '🔐 init: device TCF personalisation=$deviceTcfAllows disagrees '
+            'with the applied consent '
+            '(${consentMgr.adConsent.hasUserConsent}) — gating ads until it '
+            'is re-applied');
+        _updateCanRequestAds(false);
+        _pessimisticGateClose = true;
+        _consentGateRecoveryAttempts = 0;
+        unawaited(_recheckConsentOnResume().catchError((Object e) {
+          SafeLogger.w(_tag, 'init consent reconcile threw: $e');
+        }));
+      }
+
       // Consent-coverage footgun (runtime, not config-static so it doesn't
       // false-alarm hosts that gather consent in their splash) — see
       // [consentFootgunWarning].
@@ -3531,9 +3559,20 @@ class AdManager with WidgetsBindingObserver {
     // an explicit withdrawal. Close it whenever this apply tightens either
     // signal; the post-write branch below is what reopens it.
     final appliedBefore = _consentManager?.adConsent ?? _consent;
-    if (!result.canRequestAds ||
-        (!hasConsent && appliedBefore.hasUserConsent)) {
+    if (!result.canRequestAds) {
       _updateCanRequestAds(false);
+    } else if (!hasConsent && appliedBefore.hasUserConsent) {
+      _updateCanRequestAds(false);
+      // Round-17 QC, MAJOR — this close is owed a reopen and had no owner. The
+      // decision itself is real (personalisation off), but it still leaves ads
+      // ALLOWED, so the gate must come back once the write lands. It did not
+      // when the write was superseded by a host `setConsent` or threw: both
+      // return before the reopen below, `setConsent` deliberately never touches
+      // `_canRequestAds`, and nothing had armed the debt — so every ad surface
+      // in the app stayed dark for the rest of the session. Same debt the
+      // queued close arms; [_recoverConsentGate] pays it.
+      _pessimisticGateClose = true;
+      _consentGateRecoveryAttempts = 0;
     }
     SafeLogger.d(
         _tag,

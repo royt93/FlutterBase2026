@@ -1866,6 +1866,59 @@ void main() {
               'that gave up must not cost this one the session ads');
     });
 
+    // Round-17 QC, MAJOR — a withdrawal that leaves ads ALLOWED closes the gate
+    // for the duration of its write, and that close had no owner. When the
+    // write was superseded by a host `setConsent`, the apply returned before
+    // the reopen, `setConsent` deliberately never touches `_canRequestAds`, and
+    // no debt was armed — so the gate stayed shut for the whole session.
+    test('a withdrawal whose write is superseded still reopens the gate',
+        () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() => AdManager.debugConsentGateRecoveryRetryDelay = null);
+      addTearDown(() => AdManager.debugConsentWriteBarrier = null);
+
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isTrue, reason: 'sanity: granted');
+
+      // The user turns personalisation off in the CMP form. Ads are still
+      // allowed — the withdrawal shows up only in the TCF purposes.
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      final apply = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: the gate is shut across the write, or a banner '
+              'refresh in this window would request a personalised ad under a '
+              'withdrawal');
+
+      // A host settings toggle lands while the write is in flight, so the
+      // apply restores the host value and returns without reopening.
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await apply;
+      await pumpEventQueue(times: 30);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await pumpEventQueue(times: 30);
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'personalisation off still allows non-personalised ads — a '
+              'superseded write must not cost the app every ad surface for the '
+              'rest of the session');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

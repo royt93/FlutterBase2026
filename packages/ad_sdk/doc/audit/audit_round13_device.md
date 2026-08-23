@@ -482,6 +482,32 @@ S24 Ultra against this commit anyway.
 
 Suite: 1097 green, `flutter analyze` clean.
 
+## QC gate round 17 — codex 6/10, agy 8/10, two findings, both real
+
+The first round where the two reviewers found *different* defects and both were
+right. Same family, two different holes.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major (agy) | The withdrawal close in `_applyConsentResultOnce` armed no debt. An ordinary personalisation withdrawal leaves ads ALLOWED (`canRequestAds` stays true; the withdrawal shows up only in the TCF purposes), so the gate it closes across the write is owed a reopen. When a host `setConsent` superseded that write — or the write threw — the apply returned before the reopen, `setConsent` deliberately never touches `_canRequestAds`, and nothing had armed `_pessimisticGateClose`. Every ad surface in the app stayed dark for the rest of the session. | Split the close into its two cases: a real `!canRequestAds` refusal stays a plain close (a genuine "no" must stay shut), while the withdrawal-tightening close arms the same debt the queued close arms, with a fresh retry budget. `_recoverConsentGate` pays it. |
+| Blocker (codex) | `destroy()` mid-consent-write disowns that apply, and `_resetGuardState()` then reopens the gate unconditionally — it has to, because a stale close would lock the next session out of ads for good (T63). So a withdrawal that never finished writing came back in the next session as personalised requests under the previous session's configuration, until the next app resume ran the backstop. | Reconcile against the device at the end of `initialize()`, before the first ad request: read the TCF keys (a local `SharedPreferences` lookup) and, only on a disagreement, fail CLOSED, arm the recovery debt, and run the same re-apply the resume backstop uses. Nothing changes on an agreeing start. |
+
+codex's own proposed fix — carry the closed gate across teardown — was not taken:
+that is precisely the T63 regression, a stale `false` with no owner in the new
+session. Reconciling the *consent* instead of preserving the *gate* closes the
+same hole without it, and covers a plain cold start too, not just `destroy()`.
+
+Red-proof:
+- Major: reverting the withdrawal-close branch turns *a withdrawal whose write is superseded still reopens the gate* red (`Expected: true Actual: <false>`) and the widget half *banners come back after a withdrawal write is superseded* red (`Expected: a value greater than <1> Actual: <1>`).
+- Blocker: not reachable in `flutter test` — `initialize()` cannot be driven without a native adapter — so it is proven **on device**. `example/integration_test/consent_resume_backstop_test.dart` gained *a withdrawal a teardown interrupted is reconciled at the next init* plus its silent half *an init that agrees with the device changes nothing*. 4/4 green on the S24 Ultra; reverting the reconcile block makes the S24U run fail exactly there (`... survives as personalised ads for the whole session`).
+
+Both new device tests run with `autoRequestUmpConsent: false` — a host that owns
+its own consent flow. With the SDK's UMP flow on, that flow reconciles TCF
+itself, so the init reconcile is the only thing that can notice in such a
+session, which is what makes it the honest test of it.
+
+Suite: 1099 green, `flutter analyze` clean (package + example).
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:
