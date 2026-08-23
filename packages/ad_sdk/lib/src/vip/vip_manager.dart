@@ -387,6 +387,13 @@ class VipManager {
             _tag,
             () => 'M6: clamped $clamped untrusted fallback grant(s) to '
                 '${untrustedFallbackWindow.inHours}h');
+        // Round-6 final QC — without this the clamp lived only in memory, so
+        // every launch re-read the untouched forged line and granted a FRESH
+        // 24h: a rolling window, renewed forever, and M6 blocked nothing. Both
+        // reviewers found this independently. Persisting also moves the list
+        // into secure storage when that works, so the next launch reads the
+        // clamped value rather than the plaintext line at all.
+        await _save();
       }
     }
 

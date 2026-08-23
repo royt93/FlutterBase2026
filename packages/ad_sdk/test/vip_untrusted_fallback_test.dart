@@ -183,4 +183,32 @@ void main() {
         reason: 'clamping on a transient read blip would quietly cut a paying '
             "customer's VIP");
   });
+
+  // Round-6 final QC, found independently by BOTH reviewers — the clamp only
+  // ever ran in memory. Every launch re-read the untouched "VIP until 2099"
+  // line from the fallback and clamped it to now+24h again, so a forged entry
+  // was a rolling 24h grant, renewed forever: M6 blocked nothing.
+  //
+  // The two tests above stayed green because each calls `load()` ONCE. Nothing
+  // opened the app a second time — the state that mattered.
+  test('the clamp is written down, not just applied in memory', () async {
+    final secure = _FakeSecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+    await plantForgedFallback();
+
+    final mgr = VipManager(prefs, vipEntriesStore: store);
+    addTearDown(mgr.dispose);
+    await mgr.load();
+
+    // The observable that matters is durability, not the in-memory value:
+    // comparing two expiries inside one test run cannot see this bug, because
+    // both are now+24h and `now` barely moves. Ask instead whether the clamped
+    // list reached storage at all.
+    final persisted = await store.getRaw();
+    expect(persisted, isNotNull);
+    expect(persisted!.contains('2099'), isFalse,
+        reason: 'the forged 2099 expiry is still what storage holds, so every '
+            'later launch re-reads it and clamps again — a rolling 24h grant, '
+            'renewed forever, and M6 blocks nothing');
+  });
 }

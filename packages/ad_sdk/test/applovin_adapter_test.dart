@@ -844,6 +844,34 @@ void main() {
               'code in the first place');
     });
 
+    // Round-6 final QC, found independently by BOTH reviewers — the previous
+    // fix (honour beginLoad()'s refusal) removed the recovery path's only way
+    // back. onAppResumed clears `hasError` FIRST and then re-preloads, so a
+    // refusal left the widget with no error flag, no ad, and nothing left to
+    // retry: a permanently blank banner. Recovery is a user-visible moment and
+    // is allowed past the backoff; every other caller still respects it.
+    test('onAppResumed recovery is allowed past the backoff window', () async {
+      final b = _CountingPreloadBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.preloadBanner('k');
+      expect(b.preloadCalls, 1);
+      b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+      expect(a.bannerSlot('k').value, AdSlotState.cooldown);
+
+      a.onAppResumed();
+      await Future<void>.value();
+      await Future<void>.value();
+
+      expect(b.preloadCalls, 2,
+          reason: 'the user is looking at the screen right now — a banner that '
+              'failed must get another attempt, or it stays blank for the rest '
+              'of the session with hasError already cleared');
+      expect(a.banner('k').hasError.value, isFalse);
+    });
+
     test('a real no-fill marks the MREC errored too', () async {
       // The shared _config declares no mrecId, so preloadMrec would return
       // early there — this needs its own adapter.

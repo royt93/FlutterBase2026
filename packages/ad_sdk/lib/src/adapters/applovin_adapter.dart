@@ -1520,7 +1520,13 @@ class AppLovinAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> preloadBanner(Object key) async {
+  /// [allowDuringBackoff] lets the onAppResumed recovery path retry a slot
+  /// that is still inside its failure backoff. That path clears `hasError`
+  /// before re-requesting, so a refusal here would leave the widget with no
+  /// error flag, no ad and nothing left to retry — a permanently blank
+  /// banner. A resume is a user-visible moment and worth one attempt; every
+  /// other caller still respects the backoff.
+  Future<void> preloadBanner(Object key, {bool allowDuringBackoff = false}) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1556,7 +1562,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     // the no-fill handler dead code, so the retry path stayed broken even
     // after the first fix. AdMob's banner path has always returned here, with
     // the same rationale: a flapping banner is cheap to skip.
-    if (!_bannerSlotFor(key).beginLoad()) {
+    final slot = _bannerSlotFor(key);
+    // beginReload skips the backoff window but still refuses while a load or
+    // show is genuinely in flight, so this cannot double-request.
+    if (!(allowDuringBackoff ? slot.beginReload() : slot.beginLoad())) {
       SafeLogger.d(_logTag,
           'preloadBanner $tag \u23ed\ufe0f already loading/showing or in cooldown');
       return;
@@ -1615,7 +1624,13 @@ class AppLovinAdapter implements AdProviderAdapter {
   Widget? buildAdmobBannerView(Object key) => null;
 
   @override
-  Future<void> preloadMrec(Object key) async {
+  /// [allowDuringBackoff] lets the onAppResumed recovery path retry a slot
+  /// that is still inside its failure backoff. That path clears `hasError`
+  /// before re-requesting, so a refusal here would leave the widget with no
+  /// error flag, no ad and nothing left to retry — a permanently blank
+  /// banner. A resume is a user-visible moment and worth one attempt; every
+  /// other caller still respects the backoff.
+  Future<void> preloadMrec(Object key, {bool allowDuringBackoff = false}) async {
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -1659,7 +1674,10 @@ class AppLovinAdapter implements AdProviderAdapter {
     // the no-fill handler dead code, so the retry path stayed broken even
     // after the first fix. AdMob's banner path has always returned here, with
     // the same rationale: a flapping mrec is cheap to skip.
-    if (!_mrecSlotFor(key).beginLoad()) {
+    final slot = _mrecSlotFor(key);
+    // beginReload skips the backoff window but still refuses while a load or
+    // show is genuinely in flight, so this cannot double-request.
+    if (!(allowDuringBackoff ? slot.beginReload() : slot.beginLoad())) {
       SafeLogger.d(_logTag,
           'preloadMrec $tag \u23ed\ufe0f already loading/showing or in cooldown');
       return;
@@ -1828,7 +1846,7 @@ class AppLovinAdapter implements AdProviderAdapter {
                   _logTag, 'destroyWidgetAdView (onAppResumed) threw: $e');
             }));
           }
-          preloadBanner(key);
+          preloadBanner(key, allowDuringBackoff: true);
         } else if (adViewIdNotifier.value != null &&
             !bannerRoutePaused(key)) {
           listenables.autoRefreshEnabled.value = true;
@@ -1857,7 +1875,7 @@ class AppLovinAdapter implements AdProviderAdapter {
                   'destroyWidgetAdView (onAppResumed mrec) threw: $e');
             }));
           }
-          preloadMrec(key);
+          preloadMrec(key, allowDuringBackoff: true);
         } else if (adViewIdNotifier.value != null && !mrecRoutePaused(key)) {
           listenables.autoRefreshEnabled.value = true;
           SafeLogger.d(
