@@ -516,8 +516,37 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
   }
 
+  /// Refuses to mark a fullscreen slot `ready` when its load was requested
+  /// under a consent state the user has since narrowed.
+  ///
+  /// Round-7 audit, MAJOR. `discardCachedFullscreenAds()` only reset slots
+  /// that were already `ready`; a slot still `loading` kept its request and
+  /// its listener then marked it ready. That ad was requested with
+  /// `setHasUserConsent(true)`, and withdrawing personalisation does not close
+  /// the `canRequestAds` gate, so it was shown like any other.
+  ///
+  /// MAX owns its own native cache and exposes no handle to drop one ad, so
+  /// this cannot un-cache it there. It does not have to: every show path
+  /// refuses on `!slot.isReady`, so leaving the slot out of `ready` is what
+  /// actually stops the ad from reaching a user, and the next show goes
+  /// through a fresh load carrying the new consent state.
+  bool _discardIfConsentStale(AdSlot slot, String label) {
+    if (!slot.loadedUnderStaleConsent) return false;
+    SafeLogger.w(
+        _logTag,
+        '$label $tag ⛔ loaded under consent the user has since narrowed — '
+        'not caching it (MAX may still hold it natively; no show path can '
+        'reach it while the slot is not ready)');
+    slot.reset();
+    return true;
+  }
+
   @override
   Future<void> discardCachedFullscreenAds() async {
+    // Round-7 audit, MAJOR — bump the consent generation first so a load
+    // still in the air is recognised as stale when its listener fires. See
+    // [AdSlot.consentEpoch] and [_discardIfConsentStale].
+    AdSlot.consentEpoch++;
     // MAX caches fullscreen ads natively and exposes no Dart handle to throw
     // one away, so there is nothing to dispose here. Resetting the ready slots
     // is still worth doing: it forces the next show to go through a fresh
@@ -710,6 +739,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _bridge.setAppOpenAdListener(AppOpenAdListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
+        if (_discardIfConsentStale(appOpenSlot, 'appOpen')) return;
         appOpenSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -999,6 +1029,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _bridge.setInterstitialListener(InterstitialListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
+        if (_discardIfConsentStale(interstitialSlot, 'inter')) return;
         interstitialSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1206,6 +1237,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     _bridge.setRewardedAdListener(RewardedAdListener(
       onAdLoadedCallback: (ad) {
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
+        if (_discardIfConsentStale(rewardedSlot, 'rewarded')) return;
         rewardedSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,

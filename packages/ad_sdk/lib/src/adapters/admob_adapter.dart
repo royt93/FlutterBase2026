@@ -636,6 +636,12 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   Future<void> discardCachedFullscreenAds() async {
+    // Round-7 audit, MAJOR — bump the consent generation FIRST, so a load
+    // whose callback is still in the air is recognised as stale when it
+    // lands. See [AdSlot.consentEpoch]; the discard of the in-flight ad
+    // happens in [_discardIfConsentStale], from the load callback itself,
+    // because only there is there a native ad object to release.
+    AdSlot.consentEpoch++;
     // Only ever touches a slot that is `ready` — i.e. loaded and waiting. A
     // slot that is `showing` has an ad on screen (killing that would break the
     // user's session and, for rewarded, cost them their reward), and one that
@@ -661,6 +667,41 @@ class AdMobAdapter implements AdProviderAdapter {
         _logTag,
         () => 'discardCachedFullscreenAds [AdMob] — dropped $discarded '
             'cached ad(s) so the next request carries the new consent state');
+  }
+
+  /// Throws away a fullscreen ad whose load was requested under a consent
+  /// state the user has since narrowed, instead of caching it as `ready`.
+  ///
+  /// Round-7 audit, MAJOR. `discardCachedFullscreenAds()` only ever dropped
+  /// slots that were already `ready`; a slot still `loading` kept its request,
+  /// and the callback then marked it ready. That ad went out with `npa=0` and,
+  /// because withdrawing personalisation does not close the `canRequestAds`
+  /// gate, was shown like any other — so the withdrawal applied to every
+  /// later request and not to the one already in flight.
+  ///
+  /// The slot is `reset()` rather than `markFailed()`: nothing failed, and a
+  /// backoff would delay the honest re-request that should follow.
+  bool _discardIfConsentStale(
+    AdSlot slot,
+    GmaFullscreenAd ad,
+    AdSlotType type,
+    AdPlacement placement,
+    String label,
+  ) {
+    if (!slot.loadedUnderStaleConsent) return false;
+    SafeLogger.w(
+        _logTag,
+        '$label $tag ⛔ loaded under consent the user has since narrowed — '
+        'discarding instead of caching it');
+    _disposeAd(ad, 'consent-stale-$label');
+    slot.reset();
+    _emit(AdLoadEvent(
+      providerTag: tag,
+      type: type,
+      placement: placement,
+      success: false,
+    ));
+    return true;
   }
 
   void _disposeAd(GmaFullscreenAd? ad, String label) {
@@ -751,6 +792,10 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
+          if (_discardIfConsentStale(appOpenSlot, ad, AdSlotType.appOpen,
+              AdPlacement.splash, 'loadAppOpen')) {
+            return;
+          }
           _appOpenAd = ad;
           _wirePaidEvent(ad, AdSlotType.appOpen, AdPlacement.splash);
           appOpenSlot.markReady();
@@ -1012,6 +1057,14 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
+          if (_discardIfConsentStale(
+              interstitialSlot,
+              ad,
+              AdSlotType.interstitial,
+              AdPlacement.unspecified,
+              'loadInterstitial')) {
+            return;
+          }
           _interstitialAd = ad;
           _wirePaidEvent(ad, AdSlotType.interstitial, AdPlacement.unspecified);
           interstitialSlot.markReady();
@@ -1191,6 +1244,10 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
+          if (_discardIfConsentStale(rewardedSlot, ad, AdSlotType.rewarded,
+              AdPlacement.unspecified, 'loadRewarded')) {
+            return;
+          }
           _rewardedAd = ad;
           _wirePaidEvent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
           rewardedSlot.markReady();
@@ -1363,6 +1420,14 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag ✅');
+          if (_discardIfConsentStale(
+              rewardedInterstitialSlot,
+              ad,
+              AdSlotType.rewardedInterstitial,
+              AdPlacement.unspecified,
+              'loadRewardedInterstitial')) {
+            return;
+          }
           _rewardedInterstitialAd = ad;
           _wirePaidEvent(
               ad, AdSlotType.rewardedInterstitial, AdPlacement.unspecified);

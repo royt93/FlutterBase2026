@@ -85,6 +85,30 @@ class AdSlot {
   /// initialisation can override this from `AdConfig`.
   static const Backoff defaultBackoff = Backoff();
 
+  /// Global consent generation, bumped every time the user NARROWS their
+  /// consent (see `AdProviderAdapter.discardCachedFullscreenAds`).
+  ///
+  /// Round-7 audit, MAJOR. Withdrawing personalisation dropped every `ready`
+  /// fullscreen slot, but a slot that was still `loading` was left alone — and
+  /// its callback arrives afterwards and marks the slot `ready`. That ad was
+  /// REQUESTED under the old, wider consent (AdMob `npa=0`, AppLovin
+  /// `setHasUserConsent(true)`), and withdrawing personalisation does not close
+  /// the `canRequestAds` gate, so it was then shown normally. The user's
+  /// withdrawal was honoured for every later request and silently ignored for
+  /// the one already in the air.
+  ///
+  /// A single monotonic counter rather than a per-slot flag: withdrawal is a
+  /// process-wide fact, and comparing generations means nothing has to be
+  /// reset (a slot stamps its generation on every [beginLoad]).
+  static int consentEpoch = 0;
+
+  int _loadEpoch = consentEpoch;
+
+  /// Whether the load currently in flight (or the ad now held) was requested
+  /// under a consent state the user has since narrowed. The adapter must throw
+  /// such an ad away instead of caching it — see [consentEpoch].
+  bool get loadedUnderStaleConsent => _loadEpoch != consentEpoch;
+
   // ─── Transitions ───────────────────────────────────────────────────────────
 
   /// Move slot into [AdSlotState.loading]. Returns `false` if:
@@ -102,6 +126,7 @@ class AdSlot {
         )) {
       return false;
     }
+    _loadEpoch = consentEpoch;
     state.value = AdSlotState.loading;
     return true;
   }
@@ -120,6 +145,7 @@ class AdSlot {
   /// goes through [markFailed] and callers use [beginLoad] for the retry path.
   bool beginReload() {
     if (isLoading || isShowing) return false;
+    _loadEpoch = consentEpoch;
     state.value = AdSlotState.loading;
     return true;
   }
