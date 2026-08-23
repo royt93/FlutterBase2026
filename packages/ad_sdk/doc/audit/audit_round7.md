@@ -60,6 +60,36 @@ Confirmed by `git log -S`, not by reading the reports.
   surface; nothing to hook.
 * **CI is red on GitHub billing, not on code.** Not to be "fixed" here.
 
+## Known limitation — a cached AppLovin fill outlives a consent change
+
+Reported by codex as a Major in the round-7 QC gate. It is real, and it cannot
+be fixed from Dart.
+
+When consent changes mid-session, `AdSlot.consentEpoch` is bumped and every
+slot loaded under the old epoch is marked `loadedUnderStaleConsent`, so the SDK
+refuses to *show* it and reloads instead. That covers the AdMob side, where the
+Dart layer owns the ad object and dropping the reference drops the fill.
+
+AppLovin MAX does not work that way. Interstitial and rewarded fills are cached
+**inside the native SDK**, keyed by ad unit, and `applovin_max 4.6.0` exposes no
+eviction API — `destroyWidgetAdView` and the banner/MREC destroy calls only
+reach widget-based surfaces. So after a consent change the native cache may
+still hold a fill requested under the old consent string; the SDK's own reload
+request goes out with the new one, but which of the two MAX serves is MAX's
+decision, not ours.
+
+Practical exposure is one already-cached fullscreen ad, on the AppLovin path
+only, for one impression after a consent change — and MAX is documented to
+attach the current consent flags at *request* time, which is the reload we do
+issue. What is **not** verified is whether MAX actually discards the stale
+cached fill.
+
+What would close it: on-device verification (grant consent, load an
+interstitial, revoke via the privacy-options form, show) with a MAX debug build,
+and if the stale fill is served, a native-side patch to `applovin_max` — same
+category as MJ9, an issue whose fix is out of reach of pure Dart, not an issue
+the audit missed.
+
 ## Still open (not part of round 7's scope)
 
 * Two Minors: an `AdSlot` that is `reset()` but whose ad object is never
