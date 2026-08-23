@@ -6,6 +6,67 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-08-23
+
+Six more independent QC rounds (7-12) over the whole package, against the seven
+product requirements. Every claim below is backed by a test verified red against
+its own reverted fix — nothing else. Full write-ups in `doc/audit/`.
+
+### Security
+
+- **A withdrawn consent no longer leaves a personalised load in flight.** Only
+  one of the three consent axes was tracked, so withdrawing while a request was
+  already out let that request complete and serve under the old string. Every
+  slot loaded under a superseded consent epoch is now refused at show time and
+  reloaded.
+- **UMP `obtained` is no longer read as consent to personalised ads.** It only
+  means the user answered the form; the actual TCF purposes are now parsed
+  before anything personalised is requested.
+- **A missing UMP platform channel fails closed in release too.** It used to
+  fail open, which on a device where the channel was unavailable meant serving
+  ads to an EEA user who was never asked.
+- **No ad can be drawn over an open consent form.** Presenting the privacy
+  options / re-consent form now blocks full-screen ads for as long as the form
+  is up (ref-counted, with a logged 15-minute backstop so a dropped dismiss
+  callback cannot block ads for the rest of the process).
+- **A plaintext-fallback VIP grant is only trusted when the Keystore is
+  broken.** That fallback exists for devices whose secure storage does not work;
+  a fallback entry on a device whose Keystore is healthy has no legitimate way
+  to exist, so it is now clamped instead of accepted outright.
+- **A revocation list now clamps grants the revoked key already made,** and the
+  cached list is applied on every startup, not only when a fresh one is
+  fetched.
+- **A host re-init no longer forgives an invalid-traffic escalation,** and
+  `bypassSafety: true` (the splash App Open ad) no longer skips the
+  invalid-traffic pause.
+
+### Fixed
+
+- **Blank banner/MREC that never recovered.** The rate limiter reported a
+  throttled load as an error, which the recovery loop treated as a broken slot,
+  which re-entered the limiter — a grey box for the rest of the session.
+  Display errors and "needs recovery" are now separate states, and the recovery
+  bypass is itself rate-limited.
+- **A full-screen slot could wedge for the session.** A swallowed show on
+  either provider left the slot in `showing` forever; both providers now
+  release it.
+- **AppLovin banner/MREC could stick in `loading` forever** (watchdog added) and
+  could resurrect a key disposed mid-preload, leaking the native ad view.
+- **A transient secure-storage read no longer costs a paying customer their
+  VIP.** A failed read is now told apart from "no VIP data" and retried inside
+  the session instead of running the whole session as non-VIP.
+- **VIP writes are strictly ordered process-wide.** A discarded manager's
+  in-flight write could land on top of its replacement's and resurrect an
+  entitlement that had just been revoked. Startup stays bounded: the load's
+  drain gives up rather than hanging on a wedged platform write.
+- **A redeem on a disposed manager no longer burns the customer's one-time
+  key.**
+- **The ad-click latch is spent by the resume that saw it,** so returning from
+  an ad click cannot trigger an App Open ad.
+- **The M6 fallback clamp is anchored to the grant timestamp,** so a failed save
+  no longer rolls the clamp forward on every launch.
+
+
 ### Fixed — lifecycle & cache-expiry round (audit MINOR m15/m16/m18/m22/m24/m36)
 
 Each item below is backed by a test that was verified red against its own
