@@ -95,7 +95,7 @@ second writer racing the first.
 
 | Sev | Finding | Fix |
 |---|---|---|
-| Blocker | The resume branch showed the App Open ad *and* started the consent re-check in the same turn, so a fill cached under the old consent could be on screen before the withdrawal reached either provider. | App Open now runs in `.whenComplete()` of the re-check, capped at 2 s so a wedged UMP channel cannot swallow the ad. |
+| Blocker | The resume branch showed the App Open ad *and* started the consent re-check in the same turn, so a fill cached under the old consent could be on screen before the withdrawal reached either provider. | App Open now runs in `.whenComplete()` of the re-check, capped at 2 s so a wedged UMP channel cannot swallow the ad. **Superseded by round 2 below**: the 2 s cap showed the ad anyway on timeout, so the gate became fail-closed at 5 s — the bound in the code today. |
 | Major | The at-timeout snapshot was applied even when the form was demonstrably still open — inconclusive by construction, and it clobbered the (correct) late apply that followed. | `showPrivacyOptions()` returns early on `formShown && error contains 'timed out'`, keeping the current consent until the form reports back. Same shape as the existing `umpInconclusive` guard in `_applyUmpConsentResult`. |
 | Major | Two applies could interleave inside `_applyPrivacyOptionsResult`'s `await IabStorage…` and the stale one land last. | A generation counter (`_consentApplySeq`): the apply drops itself if a newer one started while it was reading. Deliberately *not* a chained future queue — round 12 showed a tail future in a dead zone wedges the whole suite. |
 | Major | The late apply was fired with bare `unawaited`, so a throw inside it became an unhandled async error. | `.catchError` logs it and returns the result. |
@@ -175,6 +175,38 @@ Two more tests, red against their own reverted fix:
   session. Red: `Expected: false Actual: <true>`.
 
 Suite: 1067 green, `flutter analyze` clean.
+
+## QC gate round 5 — codex 7/10 (agy 10/10), one finding on the round-4 fix
+
+agy found nothing on `3b99bca`; codex found that the round-4 teardown fix
+opened a smaller version of the same hole.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Major | `destroy()` clears `_consentApplyRunning` while the old loop is still alive, so that loop's `finally` released the runner while a *new* run held it. Two apply loops then wrote concurrently, and an older consent decision could land after a newer one. | Ownership is a token now (`_consentApplyRunToken`): a loop releases the flag only if it is still the owner, and `destroy()` bumps the token so the disowned loop can no longer release anything. |
+| Minor | The resume cap reads 5 s against a documented 2 s bound. | Doc-only: the 2 s cap was superseded by the round-2 fail-closed gate; the round-1 table now says so, since 5 s is deliberate (a re-check that does not settle skips ad work entirely rather than showing an ad under stale consent). |
+
+One more test, red against its own reverted fix:
+
+* *a disowned apply loop cannot hand the runner to a second one* — parks an
+  apply on the write barrier, destroys, starts a withdrawal in the new session,
+  lets the orphan finish, then issues a re-grant. Red: `Expected: true Actual:
+  <false>` — the older withdrawal lands last.
+
+Suite: 1068 green, `flutter analyze` clean.
+
+## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
+
+Same device and debug geography as the round itself, running `3b99bca`:
+
+| Step | Device log |
+|---|---|
+| Grant | `IABTCF_gdprApplies=1`, `PurposeConsents=11111111111` → `applyConsent nonPersonalizedAds=false (hasUserConsent=true)` |
+| Resume with consent settled | `onAppResumed` + `evaluating app-open on resume` both run — the fail-closed gate does not hold a healthy device back |
+| Privacy options held open 180 s | `⚠️ privacy options: our wait expired with the form still on screen — keeping the current consent until the form reports back` (the round-1 MAJOR, on hardware) |
+| Withdrawal at 195 s | `PurposeConsents=00000000000` → `privacy options form dismissed AFTER our timeout — re-applying` → `applyConsent nonPersonalizedAds=true (hasUserConsent=false)` — the original round-13 BLOCKER, fixed on hardware |
+| Resume while that apply was still in flight | `⚠️ a consent apply is still in flight on resume — skipping ad work until it has landed` (the round-2 coalescing guard, on hardware) |
+| Next resume | ad work proceeds again; the only skip left is `cold start (one-shot)`, not consent |
 
 ## Still unverified
 

@@ -762,6 +762,66 @@ void main() {
       await wedged;
     });
 
+    // Round-13 QC (round 5), MAJOR — the loop `destroy()` disowned must not
+    // release the runner while a newer loop holds it, or two applies write
+    // concurrently and the older decision can land last.
+    test('a disowned apply loop cannot hand the runner to a second one',
+        () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final stuck1 = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck1.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!stuck1.isCompleted) stuck1.complete();
+      });
+      final orphan = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().destroy();
+
+      // New session, newer decision: a withdrawal, which owns the runner.
+      final stuck2 = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck2.future;
+      addTearDown(() {
+        if (!stuck2.isCompleted) stuck2.complete();
+      });
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final withdrawal = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // The disowned loop finishes here — its `finally` runs.
+      stuck1.complete();
+      await orphan;
+      await pumpEventQueue(times: 10);
+
+      // Newest decision of all: a re-grant, with nothing holding it back.
+      AdManager.debugConsentWriteBarrier = null;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      final regrant = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      stuck2.complete();
+      await withdrawal;
+      await regrant;
+      await pumpEventQueue(times: 20);
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'the newest decision has to be the last write — a second '
+              'loop running alongside the first lets the older withdrawal '
+              'land after the re-grant');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

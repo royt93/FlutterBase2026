@@ -3119,6 +3119,16 @@ class AdManager with WidgetsBindingObserver {
   PrivacyOptionsResult? _pendingConsentApply;
   bool _consentApplyRunning = false;
 
+  /// Identifies the run that currently owns [_consentApplyRunning], so a loop
+  /// that has been disowned (by [destroy]) cannot release the flag out from
+  /// under the loop that replaced it.
+  ///
+  /// Round-13 QC (round 5), MAJOR — [destroy] clears the flag while the old
+  /// loop is still alive, so that loop's `finally` used to hand the runner
+  /// away while a *new* run held it. Two loops then wrote concurrently and an
+  /// older consent decision could land after a newer one.
+  int _consentApplyRunToken = 0;
+
   /// Bumped whenever something *outside* a consent apply changes the consent
   /// intent — a host calling [setConsent] directly, or [destroy] tearing the
   /// session down. An in-flight apply that sees this move drops itself instead
@@ -3158,6 +3168,7 @@ class AdManager with WidgetsBindingObserver {
       return result;
     }
     _consentApplyRunning = true;
+    final token = ++_consentApplyRunToken;
     try {
       while (_pendingConsentApply != null) {
         final next = _pendingConsentApply!;
@@ -3165,7 +3176,9 @@ class AdManager with WidgetsBindingObserver {
         await _applyConsentResultOnce(next);
       }
     } finally {
-      _consentApplyRunning = false;
+      // Only the current owner may release the runner — see
+      // [_consentApplyRunToken].
+      if (_consentApplyRunToken == token) _consentApplyRunning = false;
     }
     return result;
   }
@@ -3368,7 +3381,9 @@ class AdManager with WidgetsBindingObserver {
     // teardown must not lock the next session out of applying consent at all.
     // Releasing the flag can leave the old loop running alongside a new one,
     // which is harmless: the epoch bump above makes everything it was carrying
-    // drop itself.
+    // drop itself — and the token bump stops it releasing the runner out from
+    // under the next session's loop.
+    _consentApplyRunToken++;
     _consentApplyRunning = false;
     // M2 — cleared HERE only, never in `_disposeAdapter()`: surviving adapter
     // teardown is precisely what makes the COPPA re-init path in setConsent()
