@@ -109,12 +109,19 @@ void main() {
 
   /// Plants a forged fallback entry the way an attacker with root would: valid
   /// checksum (the formula is public), absurd expiry.
-  Future<void> plantForgedFallback() async {
+  ///
+  /// [grantedAt] defaults to an hour ago because the clamp is anchored to it
+  /// (round-7): a line claiming it was granted months ago is worth nothing
+  /// today, which is a different assertion from "an absurd expiry is worth a
+  /// day" and gets its own test below.
+  Future<void> plantForgedFallback({DateTime? grantedAt}) async {
+    final g = (grantedAt ?? DateTime.now().subtract(const Duration(hours: 1)))
+        .toUtc();
     // Written through the real writer so the checksum is whatever production
     // considers valid — no hand-rolled copy of the algorithm here.
     await prefs.setVipEntriesFallbackRaw('[{"key":"FORGED",'
         '"expiresAt":"2099-01-01T00:00:00.000Z",'
-        '"grantedAt":"2026-01-01T00:00:00.000Z"}]');
+        '"grantedAt":"${g.toIso8601String()}"}]');
   }
 
   test('a fallback grant is clamped when secure storage is healthy', () async {
@@ -230,6 +237,36 @@ void main() {
     expect(mgr.isActive, isTrue,
         reason: 'the clamped entry is valid in memory — failing to write it '
             'down is a reason to retry later, not to revoke access now');
+  });
+
+  // Round-7 audit, MAJOR — the round-6 fix persists the clamp, but its own
+  // catch (the test directly above) swallows a write failure by design, and
+  // the cutoff was `now + 24h`. So on the device where the write cannot land,
+  // every launch re-read the untouched forged line and measured a FRESH 24h
+  // from that launch: the rolling window was still there, just behind the
+  // failure branch. The cutoff is now anchored to the entry's own `grantedAt`,
+  // which makes the clamp idempotent whether or not the write ever succeeds.
+  test('the clamp does not roll forward when the persist keeps failing',
+      () async {
+    final store = _ThrowingWriteStore(prefs, _FakeSecureStorage());
+    await plantForgedFallback(
+        grantedAt: DateTime.now().subtract(const Duration(hours: 20)));
+
+    final first = VipManager(prefs, vipEntriesStore: store);
+    addTearDown(first.dispose);
+    await first.load();
+    final firstExpiry = first.expiresAt!;
+
+    // Second launch. Storage still holds the same "VIP until 2099" line.
+    final second = VipManager(prefs, vipEntriesStore: store);
+    addTearDown(second.dispose);
+    await second.load();
+
+    expect(second.expiresAt, firstExpiry,
+        reason: 'the same forged line must yield the same absolute cutoff on '
+            'every launch, or the 24h renews forever');
+    expect(second.expiresAt!.difference(DateTime.now()).inHours, lessThan(5),
+        reason: 'granted 20h ago, so ~4h of the one-day window is left');
   });
 }
 

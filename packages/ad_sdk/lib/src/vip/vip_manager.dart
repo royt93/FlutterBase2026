@@ -373,10 +373,24 @@ class VipManager {
     // (and support has a window) while a forged "VIP until 2099" is worth a
     // day instead of forever.
     if (_vipEntriesStore.lastReadWasUntrustedFallback && _entries.isNotEmpty) {
-      final cutoff = _effectiveNow().add(untrustedFallbackWindow);
       var clamped = 0;
       for (var i = 0; i < _entries.length; i++) {
         final e = _entries[i];
+        // Round-7 audit, MAJOR — the cutoff is anchored to the entry's OWN
+        // `grantedAt`, not to `now`. It used to be `now + window`, which meant
+        // the 24h was measured from whenever the app happened to launch: if
+        // the `_save()` below failed (the very case its catch below exists
+        // for), the next launch re-read the same untouched plaintext line and
+        // measured a fresh 24h from that launch. A rolling window, renewed
+        // forever — exactly the hole the round-6 persist fix was meant to
+        // close, still open through the failure branch. Anchoring to
+        // `grantedAt` makes the clamp idempotent: the same forged line yields
+        // the same absolute cutoff on every launch whether or not the write
+        // ever lands, so the grant really is worth one day rather than
+        // forever. A genuine grant from a device whose Keystore was broken at
+        // redemption time gets its day from the redemption, which is what
+        // "the customer keeps a day" was always supposed to mean.
+        final cutoff = e.grantedAt.add(untrustedFallbackWindow);
         if (!e.expiresAt.isAfter(cutoff)) continue;
         _entries[i] =
             VipEntry(key: e.key, expiresAt: cutoff, grantedAt: e.grantedAt);
