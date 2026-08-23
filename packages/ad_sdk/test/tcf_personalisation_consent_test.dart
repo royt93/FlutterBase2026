@@ -16,10 +16,13 @@
 // Part 1 pins the bitfield parsing. Parts 2 and 3 pin the wiring, driving the
 // real UMP method channel the way ump_consent_round5_test.dart does.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +49,43 @@ const String _purposesAllow = '1011000000';
 /// The same user with purpose 4 ("use profiles to select personalised
 /// advertising") refused. One missing purpose is enough.
 const String _purposesRefuse = '1010000000';
+
+/// Enough of an adapter for `isInitialised` to be true — the resume re-check
+/// is a no-op before the SDK is up.
+class _StubAdapter implements AdProviderAdapter {
+  final List<AdConsent> applied = <AdConsent>[];
+
+  @override
+  void applyConsent(AdConsent consent) => applied.add(consent);
+
+  @override
+  String get tag => 'stub';
+
+  @override
+  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
+  @override
+  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
+  @override
+  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
+
+  // A resolved future satisfies both the `Future`-returning members the
+  // resume path touches (loadAppOpen) and the void ones.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => Future<void>.value();
+}
+
+const _config = AdConfig(
+  provider: AdProvider.admob,
+  admob: AdMobConfig(
+    bannerId: 'ca-app-pub-3940256099942544/1111111111',
+    interstitialId: 'ca-app-pub-3940256099942544/2222222222',
+    appOpenId: 'ca-app-pub-3940256099942544/3333333333',
+    rewardedId: 'ca-app-pub-3940256099942544/4444444444',
+  ),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -131,11 +171,16 @@ void main() {
     late int status;
     late bool canRequestAds;
     late int privacyOptionsRequirement;
+    /// Non-null keeps the native privacy-options form "on screen": the channel
+    /// call — and so the plugin's dismiss callback — only resolves when the
+    /// test completes it.
+    Completer<void>? privacyFormGate;
 
     setUp(() async {
       status = _statusObtained;
       canRequestAds = true;
       privacyOptionsRequirement = _privacyOptionsNotRequired;
+      privacyFormGate = null;
 
       messenger.setMockMethodCallHandler(_alChannel, (call) async {
         if (call.method == 'initialize') return <String, dynamic>{};
@@ -152,6 +197,10 @@ void main() {
             return Future.value(true);
           case 'ConsentInformation#getPrivacyOptionsRequirementStatus':
             return Future.value(privacyOptionsRequirement);
+          case 'UserMessagingPlatform#showPrivacyOptionsForm':
+            final gate = privacyFormGate;
+            if (gate != null) return gate.future.then((_) => null);
+            return Future.value(null);
           default:
             // requestConsentInfoUpdate, loadAndShowConsentFormIfRequired and
             // showPrivacyOptionsForm all resolve with null on success.
@@ -166,6 +215,9 @@ void main() {
     });
 
     tearDown(() async {
+      debugFormDismissTimeoutOverride = null;
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
       await AdManager().destroy();
       messenger.setMockMethodCallHandler(_alChannel, null);
       messenger.setMockMethodCallHandler(_gmaChannel, null);
@@ -241,6 +293,101 @@ void main() {
       expect(AdManager().consent.hasUserConsent, isFalse,
           reason: 'personalised ads must stop the moment the withdrawal form '
               'is submitted');
+    });
+
+    // Round-13, device verification (Pixel 7 Pro, EEA debug geography) —
+    // BLOCKER. Our own wait for the dismiss callback frees the caller while
+    // the native form is still up, and the status was then read *before* the
+    // user had chosen and never read again: withdrawing consent after a long
+    // read left `nonPersonalizedAds=0` for the rest of the session. Verbatim
+    // from the device log, with no applyConsent line after it:
+    //   privacy options form dismiss timed out after 20s
+    //   applyConsent → nonPersonalizedAds=false (hasUserConsent=true, …)
+    //   Writing to storage: [IABTCF_PurposeConsents] 00000000000
+    test(
+        'Privacy Options: a dismiss arriving after our own timeout still '
+        'applies the withdrawal', () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'sanity: they consented first');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      debugFormDismissTimeoutOverride = const Duration(milliseconds: 20);
+      final gate = Completer<void>();
+      privacyFormGate = gate;
+
+      final atTimeout = await AdManager().showPrivacyOptions();
+      expect(atTimeout.error, contains('timed out'),
+          reason: 'sanity: we gave up waiting while the form was still up');
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'nothing has changed yet — the user is still reading');
+
+      // Now they actually withdraw and close the form.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      gate.complete();
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'a withdrawal made after our timeout is still a withdrawal; '
+              'serving personalised ads for the rest of the session is the '
+              'GDPR/DMA violation this test exists for');
+    });
+
+    // The backstop half: no dismiss callback arrives at all (a form torn down
+    // by the OS, a plugin that drops the callback, a process resumed after the
+    // form was answered). The CMP still wrote the choice to the TCF keys.
+    test('resume re-applies a consent change this process never saw land',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue, reason: 'sanity');
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the device says personalisation was refused; what is '
+              'applied to the providers must agree with it');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'and the provider itself must be told, not just our cache');
+    });
+
+    test('resume with the device and the applied state in agreement is a no-op',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(adapter.applied, isEmpty,
+          reason: 'every resume must not re-apply consent — that would churn '
+              'the consent epoch and discard loaded ads for nothing');
     });
 
     test('Privacy Options: re-confirming consent leaves it granted', () async {

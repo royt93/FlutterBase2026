@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+### Fixed
+
+- **Withdrawing consent through the Privacy Options form now applies even when
+  the form is open for a long time.** Found by on-device verification (Pixel 7
+  Pro, EEA debug geography — see `doc/audit/audit_round13_device.md`), not by a
+  test: the flow gave up waiting after 20 seconds, read the consent status
+  *while the native form was still on screen*, and never read it again. A user
+  who spent longer than that in the form and then withdrew consent kept getting
+  personalised ads for the rest of the session, with their own withdrawal on
+  record. The wait is now the same human-reading bound as the initial consent
+  form (`kFormDismissTimeout`), a late dismiss re-reads and re-applies the real
+  choice, and every app resume re-applies consent when the device's IAB TCF
+  state disagrees with what the providers were told — so a withdrawal cannot be
+  lost even if the dismiss callback never arrives at all.
+
 ## [2.3.3] - 2026-08-23
 
 Six more independent QC rounds (7-12) over the whole package, against the seven

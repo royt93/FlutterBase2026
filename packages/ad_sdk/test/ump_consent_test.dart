@@ -84,9 +84,14 @@ void main() {
   // the T43 test above: the native form's dismiss callback only fires once
   // showPrivacyOptionsForm's platform call replies, which can hang forever if
   // the form is served but never dismissed.
+  //
+  // Round-13 — the bound is [kFormDismissTimeout], not the 20s network bound:
+  // this one waits for a human reading a withdrawal form, exactly like the
+  // consent form does.
   test(
-      'showPrivacyOptionsForm that never replies times out after 20s '
-      'instead of hanging requestPrivacyOptionsFlow() forever', () {
+      'showPrivacyOptionsForm that never replies times out after '
+      'kFormDismissTimeout instead of hanging requestPrivacyOptionsFlow() '
+      'forever', () {
     messenger.setMockMethodCallHandler(umpChannel, (call) {
       switch (call.method) {
         case 'ConsentInformation#getPrivacyOptionsRequirementStatus':
@@ -109,6 +114,11 @@ void main() {
       requestPrivacyOptionsFlow().then((r) => result = r);
 
       async.elapse(const Duration(seconds: 20));
+      expect(result, isNull,
+          reason: 'the old 20s bound abandoned forms that were still on '
+              'screen — device-verified, round 13');
+
+      async.elapse(kFormDismissTimeout);
 
       expect(result, isNotNull,
           reason: 'requestPrivacyOptionsFlow() must not hang forever when '

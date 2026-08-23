@@ -3062,8 +3062,22 @@ class AdManager with WidgetsBindingObserver {
   /// established "re-apply after consent change" pattern used by
   /// [ConsentManager] and [requestUmpConsent].
   Future<PrivacyOptionsResult> showPrivacyOptions() async {
-    final result = await requestPrivacyOptionsFlow();
+    // Round-13 (device verification) BLOCKER — the flow's own 20s wait frees
+    // this call while the native form is still up, and the status it returns
+    // is therefore read BEFORE the user has chosen. `onLateDismiss` re-runs
+    // the apply step with what they actually chose; without it a withdrawal
+    // made after 20s of reading never reached either provider.
+    final result = await requestPrivacyOptionsFlow(
+      onLateDismiss: (late) => unawaited(_applyPrivacyOptionsResult(late)),
+    );
+    return _applyPrivacyOptionsResult(result);
+  }
 
+  /// Map a [PrivacyOptionsResult] onto both providers. Split out of
+  /// [showPrivacyOptions] so the late-dismiss callback and the resume
+  /// re-check can reuse it verbatim.
+  Future<PrivacyOptionsResult> _applyPrivacyOptionsResult(
+      PrivacyOptionsResult result) async {
     final wasBlocked = !_canRequestAds;
     _updateCanRequestAds(result.canRequestAds);
     SafeLogger.d(
@@ -3078,8 +3092,7 @@ class AdManager with WidgetsBindingObserver {
     // used to be handed `hasUserConsent: true` — personalised ads resuming
     // immediately after an explicit withdrawal. See
     // [IabStorage.tcfAllowsPersonalisedAds] for what is read instead.
-    final statusAllows = result.status == ConsentStatus.obtained ||
-        result.status == ConsentStatus.notRequired;
+    final statusAllows = _umpStatusAllowsPersonalisation(result.status);
     final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
     final hasConsent = statusAllows && (tcfAllows ?? true);
     if (statusAllows && tcfAllows == false) {
@@ -3103,6 +3116,50 @@ class AdManager with WidgetsBindingObserver {
       _retryRefillAds();
     }
     return result;
+  }
+
+  /// Whether a UMP [ConsentStatus] leaves personalisation possible at all.
+  /// `required`/`unknown` mean the form was not completed, so no.
+  static bool _umpStatusAllowsPersonalisation(ConsentStatus status) =>
+      status == ConsentStatus.obtained || status == ConsentStatus.notRequired;
+
+  /// Round-13 (device verification) BLOCKER, backstop half — re-apply consent
+  /// on resume when the device disagrees with what is applied.
+  ///
+  /// A CMP writes the user's choice to the IAB TCF keys the moment they submit
+  /// the form, whether or not our dismiss callback ever arrives (a form torn
+  /// down by the OS, a plugin that drops the callback, a process resumed after
+  /// the form was answered). The late-dismiss path in [showPrivacyOptions]
+  /// covers the common case; this covers the ones where no callback comes at
+  /// all, so a withdrawal can never survive as personalised ads for a whole
+  /// session.
+  ///
+  /// Cheap: the TCF read is a `SharedPreferences` lookup, and the UMP channel
+  /// is only touched when it disagrees with the applied value — i.e. never on
+  /// an ordinary resume.
+  Future<void> _recheckConsentOnResume() async {
+    if (!isInitialised) return;
+    final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
+    // No TCF data at all (the normal non-EEA case) — nothing to compare
+    // against, and UMP alone is already the whole answer there.
+    if (tcfAllows == null) return;
+    final applied = _consentManager?.adConsent ?? _consent;
+    if (applied.hasUserConsent == tcfAllows) return;
+
+    final ump = await core_ump.recheckUmpConsentStatus();
+    final expected =
+        _umpStatusAllowsPersonalisation(ump.status) && tcfAllows;
+    if (expected == applied.hasUserConsent) return;
+
+    SafeLogger.w(
+        _tag,
+        '🔐 resume: device consent state disagrees with what is applied '
+        '(TCF personalisation=$tcfAllows, UMP status=${ump.status.name}, '
+        'applied hasUserConsent=${applied.hasUserConsent}) — re-applying');
+    await _applyPrivacyOptionsResult(PrivacyOptionsResult(
+      canRequestAds: ump.canRequestAds,
+      status: ump.status,
+    ));
   }
 
   /// Show the iOS App Tracking Transparency prompt when needed and return the
@@ -4489,6 +4546,11 @@ class AdManager with WidgetsBindingObserver {
       } catch (e, st) {
         SafeLogger.e(_tag, 'showAppOpenAdOnResume threw: $e\n$st');
       }
+      // See [_recheckConsentOnResume] — a consent change this process never
+      // saw land must not outlive the resume that follows it.
+      unawaited(_recheckConsentOnResume().catchError((Object e) {
+        SafeLogger.w(_tag, '_recheckConsentOnResume threw: $e');
+      }));
     }
   }
 

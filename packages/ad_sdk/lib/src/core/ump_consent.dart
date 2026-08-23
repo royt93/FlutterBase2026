@@ -403,7 +403,21 @@ Future<bool> isPrivacyOptionsRequired() async {
 /// No-ops (returns immediately with the current status, `formShown=false`)
 /// if [isPrivacyOptionsRequired] would return `false` — i.e. this call is
 /// always safe even for non-EEA users or hosts that never gathered consent.
-Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
+///
+/// [onLateDismiss] is invoked — with a freshly re-read result — if the
+/// native form is dismissed *after* the wait below has already given up on
+/// it. Device verification (2026-08-23, Pixel 7 Pro, EEA debug geography)
+/// showed why it has to exist: the wait was 20 s, and a user who read the
+/// 206-partner form for longer than that and then withdrew consent had that
+/// withdrawal read at timeout time — i.e. before they made it — and nothing
+/// ever re-read it, so personalised ads kept serving for the rest of the
+/// session. The wait is now [kFormDismissTimeout], but no wait can be long
+/// enough for every user, so the callback closes the case rather than
+/// widening it. The returned result is still the at-timeout snapshot; the
+/// callback carries the real one.
+Future<PrivacyOptionsResult> requestPrivacyOptionsFlow({
+  void Function(PrivacyOptionsResult result)? onLateDismiss,
+}) async {
   const tag = 'UmpConsent';
 
   final requirement =
@@ -455,12 +469,44 @@ Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
   //
   // As above, the timeout frees this caller, not the form: the ad block stays
   // until the form actually reports being dismissed.
+  //
+  // Uses the same human-reading bound as the initial consent form
+  // ([kFormDismissTimeout]) rather than a network-call bound. This was 20 s,
+  // and device verification (2026-08-23, Pixel 7 Pro, EEA debug geography)
+  // caught it doing here exactly what the 20 s did there: the withdrawal form
+  // is the *longer* read of the two — the user is hunting for the toggle they
+  // want to turn off — and the status below was read while it was still up.
   final String? formError = await dismissCompleter.future.timeout(
-    const Duration(seconds: 20),
-    onTimeout: () => 'privacy options form dismiss timed out after 20s',
+    _formDismissTimeout,
+    onTimeout: () => 'privacy options form dismiss timed out after '
+        '${_formDismissTimeout.inSeconds}s',
   );
   if (formError != null) {
     SafeLogger.w(tag, 'privacy options form: $formError');
+  }
+  // The timeout above frees this caller but not the form, so the user's real
+  // choice normally lands seconds later — and the status read below is taken
+  // while the form is still up. Keep listening so the caller can re-apply
+  // whatever they actually chose. Registered in the same zone as the
+  // completer, so completion is always delivered here.
+  final lateCallback = onLateDismiss;
+  if (!dismissCompleter.isCompleted && lateCallback != null) {
+    unawaited(dismissCompleter.future.then((String? lateError) async {
+      final lateStatus = await ConsentInformation.instance.getConsentStatus();
+      final lateCanRequest = await ConsentInformation.instance.canRequestAds();
+      SafeLogger.w(
+          tag,
+          'privacy options form dismissed AFTER our timeout — re-applying: '
+          'canRequestAds=$lateCanRequest status=${lateStatus.name}');
+      lateCallback(PrivacyOptionsResult(
+        canRequestAds: lateCanRequest,
+        status: lateStatus,
+        error: lateError,
+        formShown: true,
+      ));
+    }).catchError((Object e) {
+      SafeLogger.w(tag, 'late privacy-options re-read threw: $e');
+    }));
   }
 
   final finalStatus = await ConsentInformation.instance.getConsentStatus();
