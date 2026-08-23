@@ -88,6 +88,30 @@ class AppLovinAdapter implements AdProviderAdapter {
   // identical singleton bug agy found on AdMob — one shared
   // preloadWidgetAdView id, so two simultaneous BannerAdWidgets would fight
   // over the same MaxAdView.
+  /// When a slot last used its one backoff-bypassing recovery attempt.
+  ///
+  /// Round-6 QC v3 — recovery is allowed past the failure backoff so a banner
+  /// cannot go permanently blank (onAppResumed clears `hasError` before
+  /// re-requesting). Allowing it on EVERY resume defeated the exponential
+  /// backoff outright: a device with no fill re-requested on every resume,
+  /// forever — a reviewer measured 3 requests where 2 were expected. One
+  /// bypass per window keeps the recovery guarantee without handing app
+  /// flapping an unlimited supply of requests.
+  final Map<Object, DateTime> _lastRecoveryBypassAt = {};
+
+  /// How long a slot must wait before recovery may skip the backoff again.
+  static const Duration _recoveryBypassInterval = Duration(minutes: 5);
+
+  bool _mayBypassBackoff(Object key) {
+    final last = _lastRecoveryBypassAt[key];
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < _recoveryBypassInterval) {
+      return false;
+    }
+    _lastRecoveryBypassAt[key] = now;
+    return true;
+  }
+
   final Map<Object, AdSlot> _bannerSlotsByKey = {};
   final Map<Object, BannerListenables> _bannerListenablesByKey = {};
   final Map<Object, ValueNotifier<AdViewId?>> _bannerAdViewIdByKey = {};
@@ -1565,7 +1589,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     final slot = _bannerSlotFor(key);
     // beginReload skips the backoff window but still refuses while a load or
     // show is genuinely in flight, so this cannot double-request.
-    if (!(allowDuringBackoff ? slot.beginReload() : slot.beginLoad())) {
+    // The bypass is rate-limited — see [_mayBypassBackoff].
+    final bypass = allowDuringBackoff && _mayBypassBackoff(key);
+    if (!(bypass ? slot.beginReload() : slot.beginLoad())) {
       SafeLogger.d(_logTag,
           'preloadBanner $tag \u23ed\ufe0f already loading/showing or in cooldown');
       return;
@@ -1677,7 +1703,9 @@ class AppLovinAdapter implements AdProviderAdapter {
     final slot = _mrecSlotFor(key);
     // beginReload skips the backoff window but still refuses while a load or
     // show is genuinely in flight, so this cannot double-request.
-    if (!(allowDuringBackoff ? slot.beginReload() : slot.beginLoad())) {
+    // The bypass is rate-limited — see [_mayBypassBackoff].
+    final bypass = allowDuringBackoff && _mayBypassBackoff(key);
+    if (!(bypass ? slot.beginReload() : slot.beginLoad())) {
       SafeLogger.d(_logTag,
           'preloadMrec $tag \u23ed\ufe0f already loading/showing or in cooldown');
       return;

@@ -211,4 +211,33 @@ void main() {
             'later launch re-reads it and clamps again — a rolling 24h grant, '
             'renewed forever, and M6 blocks nothing');
   });
+
+  // Round-6 QC v3 — `_save()` deliberately returns the un-caught task so
+  // callers can observe a failure, which means the `await _save()` added for
+  // the clamp could throw straight out of `load()` — before `_refreshActive()`
+  // ran. A paying VIP whose disk write happened to fail was then treated as
+  // non-VIP for the whole session: a storage problem turned into an
+  // entitlement problem.
+  test('a failed persist must not blank out the entitlement', () async {
+    final store = _ThrowingWriteStore(prefs, _FakeSecureStorage());
+    await plantForgedFallback();
+
+    final mgr = VipManager(prefs, vipEntriesStore: store);
+    addTearDown(mgr.dispose);
+
+    await expectLater(mgr.load(), completes,
+        reason: 'a persistence failure must not abort load()');
+    expect(mgr.isActive, isTrue,
+        reason: 'the clamped entry is valid in memory — failing to write it '
+            'down is a reason to retry later, not to revoke access now');
+  });
+}
+
+/// Writes always fail, reads work — a disk/Keystore write problem on a device
+/// whose data is perfectly readable.
+class _ThrowingWriteStore extends VipEntriesStore {
+  _ThrowingWriteStore(super.prefs, FlutterSecureStorage secure)
+      : super(secureStorage: secure);
+  @override
+  Future<void> setRaw(String json) async => throw PlatformExceptionStub();
 }

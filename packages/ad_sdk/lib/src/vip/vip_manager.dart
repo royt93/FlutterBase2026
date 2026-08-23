@@ -393,7 +393,20 @@ class VipManager {
         // reviewers found this independently. Persisting also moves the list
         // into secure storage when that works, so the next launch reads the
         // clamped value rather than the plaintext line at all.
-        await _save();
+        //
+        // Guarded: `_save()` deliberately returns the un-caught task, so an
+        // await here would throw straight out of `load()` — before
+        // `_refreshActive()` — and a paying VIP whose disk write happened to
+        // fail would be treated as non-VIP for the whole session. A storage
+        // problem must not become an entitlement problem. The clamped entries
+        // are valid in memory; failing to write them down is a reason to retry
+        // later, not to revoke access now.
+        try {
+          await _save();
+        } catch (e) {
+          SafeLogger.w(
+              _tag, 'M6: clamp persist failed ($e) — keeping RAM state');
+        }
       }
     }
 

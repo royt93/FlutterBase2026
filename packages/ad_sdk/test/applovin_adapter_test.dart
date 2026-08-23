@@ -872,6 +872,41 @@ void main() {
       expect(a.banner('k').hasError.value, isFalse);
     });
 
+    // Round-6 QC v3 — codex reproduced this with real request counts:
+    // load #1 → fail → resume → load #2 → fail → pause/resume → load #3.
+    // Expected 2, got 3. Letting recovery skip the backoff every time defeats
+    // the exponential backoff entirely, so a device with no fill re-requests
+    // on every single resume, forever. Recovery still gets to bypass the
+    // backoff — that is what keeps a banner from going permanently blank — but
+    // only once per cooldown window.
+    test('recovery bypasses the backoff at most once per window', () async {
+      final b = _CountingPreloadBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.preloadBanner('k');
+      expect(b.preloadCalls, 1, reason: 'first load');
+      b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+
+      a.onAppResumed();
+      await Future<void>.value();
+      await Future<void>.value();
+      expect(b.preloadCalls, 2,
+          reason: 'the first recovery attempt is allowed — otherwise the '
+              'banner stays blank with hasError already cleared');
+      b.widget!.onAdLoadFailedCallback('banner-id', _fakeError());
+
+      // Second pause/resume, still inside the same backoff window.
+      a.onAppResumed();
+      await Future<void>.value();
+      await Future<void>.value();
+
+      expect(b.preloadCalls, 2,
+          reason: 'flapping the app must not hand out an unlimited supply of '
+              'requests — this is exactly the count codex measured as 3');
+    });
+
     test('a real no-fill marks the MREC errored too', () async {
       // The shared _config declares no mrecId, so preloadMrec would return
       // early there — this needs its own adapter.

@@ -28,12 +28,30 @@ void main() {
       '.DS_Store',
     ];
 
+    // Anchor on this package's own root rather than the process CWD. Round-6
+    // QC v3 caught the first version reporting a false GREEN when the suite was
+    // run from the monorepo root: `git ls-files lib test tool` matches nothing
+    // there, because the paths are `packages/ad_sdk/lib/...`. A guard that
+    // quietly passes from the wrong directory is worse than no guard.
+    Directory packageRoot = Directory.current;
+    while (!File('${packageRoot.path}/pubspec.yaml').existsSync()) {
+      final parent = packageRoot.parent;
+      if (parent.path == packageRoot.path) break;
+      packageRoot = parent;
+    }
+    final dirsToCheck = ['lib', 'test', 'tool']
+        .where((d) => Directory('${packageRoot.path}/$d').existsSync())
+        .toList();
+    expect(dirsToCheck, isNotEmpty,
+        reason: 'could not locate this package root from '
+            '${Directory.current.path} — the guard would silently pass');
+
     final ProcessResult result;
     try {
       result = Process.runSync(
         'git',
-        ['ls-files', 'lib', 'test', 'tool'],
-        workingDirectory: Directory.current.path,
+        ['ls-files', ...dirsToCheck],
+        workingDirectory: packageRoot.path,
       );
     } on ProcessException {
       // No git available (some CI images, a published-package consumer running
