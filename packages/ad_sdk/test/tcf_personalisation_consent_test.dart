@@ -605,6 +605,81 @@ void main() {
           reason: 'and a failed apply leaves the last good value in place');
     });
 
+    // Round-13 QC (round 3), BLOCKER — the end state is not the whole story:
+    // a superseded apply that opens the ad gate before it drops itself lets an
+    // ad be requested under a consent that is already invalid, even though the
+    // consent value itself ends up correct.
+    test('a superseded apply never opens the ad gate on its way out', () async {
+      canRequestAds = false;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity: gate shut');
+
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      canRequestAds = true;
+      final barrier = Completer<void>();
+      AdManager.debugConsentApplyBarrier = barrier.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!barrier.isCompleted) barrier.complete();
+      });
+      final pending = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // Something newer invalidates that apply while it is parked.
+      AdManager.debugConsentApplyBarrier = null;
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+
+      barrier.complete();
+      await pending;
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'the gate must stay shut — an apply that is about to drop '
+              'itself must not let an ad request through first');
+    });
+
+    // Round-13 QC (round 3), MAJOR — the window also covers the write itself:
+    // a host decision that lands while the apply is writing is newer, and the
+    // apply must not be the last writer standing.
+    test('a host decision landing mid-write is restored over the apply',
+        () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final writeBarrier = Completer<void>();
+      AdManager.debugConsentWriteBarrier = writeBarrier.future;
+      addTearDown(() {
+        AdManager.debugConsentWriteBarrier = null;
+        if (!writeBarrier.isCompleted) writeBarrier.complete();
+      });
+
+      final pending = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // The host speaks while the apply is parked on the write itself.
+      AdManager.debugConsentWriteBarrier = null;
+      await AdManager().setConsent(const AdConsent(
+        hasUserConsent: true,
+        doNotSell: true,
+      ));
+
+      writeBarrier.complete();
+      await pending;
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'the host wrote last in real time, so its value is what '
+              'must be standing when the apply finishes');
+      expect(AdManager().consent.doNotSell, isTrue,
+          reason: 'and its other flags with it');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({

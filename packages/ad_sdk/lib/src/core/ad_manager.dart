@@ -2543,9 +2543,10 @@ class AdManager with WidgetsBindingObserver {
     // toggle, CCPA switch) is newer than any consent apply still in flight, so
     // it invalidates it. `_inConsentApply` keeps an apply from invalidating
     // itself through its own write.
-    if (!_inConsentApply) {
+    if (Zone.current[_consentApplyZoneKey] != true) {
       _consentIntentEpoch++;
       _pendingConsentApply = null;
+      _lastHostConsentIntent = consent;
     }
     // MJ7 — capture this BEFORE the assignment below: the AppLovin COPPA check
     // further down needs the value the provider was actually initialised with,
@@ -3124,9 +3125,25 @@ class AdManager with WidgetsBindingObserver {
   /// of overwriting a decision that was made after it started.
   int _consentIntentEpoch = 0;
 
-  /// True only while [_applyConsentResultOnce] is inside its own [setConsent]
-  /// call, so that write does not bump the epoch against itself.
-  bool _inConsentApply = false;
+  /// Marks the async context of a consent write made *by* an apply, so that
+  /// write does not invalidate the apply that issued it.
+  ///
+  /// Round-13 QC (round 3), MAJOR — this used to be a plain boolean held
+  /// across the awaited write, which meant a host calling [setConsent] during
+  /// that window was mistaken for the apply's own write and silently lost its
+  /// epoch bump. A zone value is scoped to one async context instead of to
+  /// wall-clock time, so a host call from anywhere else is never confused with
+  /// it.
+  static const Object _consentApplyZoneKey = #adSdkConsentApply;
+
+  /// The last consent a host (or [requestUmpConsent]) asked for, kept so an
+  /// apply that finds itself superseded mid-write can put it back. Null after
+  /// [destroy], so a dead session never gets one re-applied into it.
+  AdConsent? _lastHostConsentIntent;
+
+  Future<void> _writeConsentFromApply(AdConsent consent) =>
+      runZoned(() => setConsent(consent),
+          zoneValues: <Object, Object>{_consentApplyZoneKey: true});
 
   /// Map a [PrivacyOptionsResult] onto both providers. Split out of
   /// [showPrivacyOptions] so the late-dismiss callback and the resume
@@ -3160,16 +3177,16 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   static Future<void>? debugConsentApplyBarrier;
 
+  /// Test-only barrier awaited immediately before the consent write, so a test
+  /// can let a host decision land while the write is in flight.
+  @visibleForTesting
+  static Future<void>? debugConsentWriteBarrier;
+
   Future<void> _applyConsentResultOnce(PrivacyOptionsResult result) async {
     final epoch = _consentIntentEpoch;
     final barrier = debugConsentApplyBarrier;
     if (barrier != null) await barrier;
     final wasBlocked = !_canRequestAds;
-    _updateCanRequestAds(result.canRequestAds);
-    SafeLogger.d(
-        _tag,
-        () =>
-            '🔐 privacy options → canRequestAds=$_canRequestAds (status=${result.status.name})');
 
     // Round-6 audit, BLOCKER — same `obtained` != "consented" trap as
     // [_applyUmpConsentResult], and this is the sharper half of it: Privacy
@@ -3201,21 +3218,44 @@ class AdManager with WidgetsBindingObserver {
           'dropping it so the newer decision wins');
       return;
     }
+    // Round-13 QC (round 3), BLOCKER — the ad gate is opened only HERE, after
+    // the epoch check. Doing it first (as this used to) let a superseded late
+    // callback reopen the gate and then yield on the storage read, so an ad
+    // could be requested under a consent a newer host decision or `destroy()`
+    // had already invalidated — a transient breach the end-state assertions
+    // could not see.
+    _updateCanRequestAds(result.canRequestAds);
+    SafeLogger.d(
+        _tag,
+        () =>
+            '🔐 privacy options → canRequestAds=$_canRequestAds (status=${result.status.name})');
     // MJ5 — see requestUmpConsent(): read the freshest CCPA/COPPA flags rather
     // than rebuilding them from a possibly-stale `_consent`.
     final current = _consentManager?.adConsent ?? _consent;
-    _inConsentApply = true;
-    try {
-      await setConsent(AdConsent(
-        hasUserConsent: hasConsent,
-        isAgeRestrictedUser: current.isAgeRestrictedUser,
-        doNotSell: current.doNotSell,
-      ));
-    } finally {
-      _inConsentApply = false;
-    }
+    final writeBarrier = debugConsentWriteBarrier;
+    if (writeBarrier != null) await writeBarrier;
+    await _writeConsentFromApply(AdConsent(
+      hasUserConsent: hasConsent,
+      isAgeRestrictedUser: current.isAgeRestrictedUser,
+      doNotSell: current.doNotSell,
+    ));
 
-    if (epoch != _consentIntentEpoch) return;
+    // Round-13 QC (round 3), MAJOR — a host decision that landed *while* the
+    // write was in flight is the newer one, and this write may have been the
+    // last one to touch storage. Put the host's value back rather than leaving
+    // ours standing. `destroy()` clears `_lastHostConsentIntent`, so a
+    // teardown does not get a value re-applied into it.
+    if (epoch != _consentIntentEpoch) {
+      final hostIntent = _lastHostConsentIntent;
+      if (hostIntent != null) {
+        SafeLogger.w(
+            _tag,
+            'a host consent decision landed while this apply was writing — '
+            'restoring it over ours');
+        await _writeConsentFromApply(hostIntent);
+      }
+      return;
+    }
     if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
       SafeLogger.d(_tag,
           '🔓 consent granted via privacy options → refilling held ad slots');
@@ -3323,6 +3363,7 @@ class AdManager with WidgetsBindingObserver {
     // itself instead of writing a dead session's answer over a new one.
     _consentIntentEpoch++;
     _pendingConsentApply = null;
+    _lastHostConsentIntent = null;
     // M2 — cleared HERE only, never in `_disposeAdapter()`: surviving adapter
     // teardown is precisely what makes the COPPA re-init path in setConsent()
     // reachable after a child-directed abort.

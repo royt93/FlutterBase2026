@@ -135,6 +135,26 @@ The four new tests (`test/tcf_personalisation_consent_test.dart`):
 
 Suite: 1063 green, `flutter analyze` clean.
 
+## QC gate round 3 — codex 6/10 (agy 10/10), two findings on the same window
+
+agy found nothing on `5aaa528`; codex found two, both about the window *inside*
+an apply rather than its end state.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | `_updateCanRequestAds(result.canRequestAds)` ran before the epoch check, so a superseded late callback reopened the ad gate and then yielded on the storage read. An ad could be requested under a consent a newer host decision (or `destroy()`) had already invalidated — the end-state assertions could not see it, because the consent value itself ended up right. | The gate is opened only after the epoch check. |
+| Major | `_inConsentApply` was a plain boolean held across the awaited write, so a host `setConsent` during that window was mistaken for the apply's own write and lost its epoch bump. | Replaced with a zone value (`_consentApplyZoneKey`), which is scoped to one async context instead of to wall-clock time. Plus a restore: an apply that finds itself superseded *after* writing puts `_lastHostConsentIntent` back, so it is never the last writer standing. `destroy()` clears that intent, so a dead session never has one re-applied into it. |
+
+Two more tests, red against their own reverted fix:
+
+* *a superseded apply never opens the ad gate on its way out* — red: `Expected:
+  false Actual: <true>`.
+* *a host decision landing mid-write is restored over the apply* — red:
+  `Expected: true Actual: <false>`. Needs a second test-only barrier
+  (`debugConsentWriteBarrier`) because the window is the write itself.
+
+Suite: 1065 green, `flutter analyze` clean.
+
 ## Still unverified
 
 * **AppLovin after a consent change.** Needs a real MAX SDK key; the example
