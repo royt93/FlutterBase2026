@@ -2636,14 +2636,17 @@ void main() {
         'resumed → calls adapter.onAppResumed() and reaches '
         'showAppOpenAdOnResume()', () async {
       AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
-      expect(adapter.onAppResumedCalls, 1);
-      // Round-13 QC (BLOCKER) — the App Open ad now waits for the resume
-      // consent re-check, so it is no longer reached in the same synchronous
-      // turn: a fill cached under a consent the user has since withdrawn must
-      // not be on screen before the withdrawal is applied.
+      // Round-13 QC (BLOCKER ×2) — everything that can request an ad now waits
+      // for the resume consent re-check, so none of it is reached in the same
+      // synchronous turn: a fill cached under a consent the user has since
+      // withdrawn must not be requested or shown before the withdrawal is
+      // applied, and onAppResumed() itself recreates failed banners.
+      expect(adapter.onAppResumedCalls, 0,
+          reason: 'consent is re-checked first');
       expect(adapter.loadAppOpenCalls, 0,
           reason: 'consent is re-checked first');
       await pumpEventQueue(times: 50);
+      expect(adapter.onAppResumedCalls, 1);
       // Cold-start one-shot skip still triggers a reload — same proof used
       // by the showAppOpenAdOnResume() guard-chain group above — showing the
       // dispatcher really reached showAppOpenAdOnResume(), not just onResume.
@@ -2658,7 +2661,7 @@ void main() {
     });
 
     test('adapter throwing on paused/resumed is swallowed, never propagates',
-        () {
+        () async {
       adapter.throwOnLifecycle = true;
       expect(
           () =>
@@ -2669,6 +2672,9 @@ void main() {
               AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed),
           returnsNormally);
       expect(adapter.onAppPausedCalls, 1);
+      // Round-13 QC (round 2) — onAppResumed() requests ads (it recreates
+      // failed banners), so it now runs after the resume consent re-check.
+      await pumpEventQueue(times: 50);
       expect(adapter.onAppResumedCalls, 1);
     });
 

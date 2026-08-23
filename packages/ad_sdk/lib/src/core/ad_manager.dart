@@ -2539,6 +2539,14 @@ class AdManager with WidgetsBindingObserver {
   /// Default value before the first call is [AdConsent.conservative]
   /// (non-personalized ads everywhere).
   Future<void> setConsent(AdConsent consent) async {
+    // Round-13 QC (round 2), MAJOR — a host's own consent decision (parental
+    // toggle, CCPA switch) is newer than any consent apply still in flight, so
+    // it invalidates it. `_inConsentApply` keeps an apply from invalidating
+    // itself through its own write.
+    if (!_inConsentApply) {
+      _consentIntentEpoch++;
+      _pendingConsentApply = null;
+    }
     // MJ7 — capture this BEFORE the assignment below: the AppLovin COPPA check
     // further down needs the value the provider was actually initialised with,
     // and `_consent` is overwritten on the next line.
@@ -2904,8 +2912,7 @@ class AdManager with WidgetsBindingObserver {
     // wrote. `null` means there is no TCF signal at all (the normal case
     // outside the EEA, where the UMP status IS the whole answer), so it falls
     // back to the old mapping rather than downgrading every non-EEA user.
-    final statusAllows = result.status == ConsentStatus.obtained ||
-        result.status == ConsentStatus.notRequired;
+    final statusAllows = _umpStatusAllowsPersonalisation(result.status);
     final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
     final hasConsent = statusAllows && (tcfAllows ?? true);
     if (statusAllows && tcfAllows == false) {
@@ -3094,22 +3101,69 @@ class AdManager with WidgetsBindingObserver {
     return _applyPrivacyOptionsResult(result);
   }
 
-  /// Bumped by every consent apply that starts. An apply that finds this has
-  /// moved on while it was awaiting storage/UMP drops itself rather than
-  /// writing a value a newer read has already superseded.
+  /// The newest consent intent waiting to be written, and whether a write is
+  /// already in flight.
   ///
-  /// Round-13 QC, MAJOR — deliberately a counter rather than a chained queue:
-  /// the newest read of the device state is the one that should win, and an
-  /// instance-level future chain would re-open the dead-zone trap that cost
-  /// round 12 a wedged test suite (see `doc/audit/audit_round8_10.md`).
-  int _consentApplySeq = 0;
+  /// Round-13 QC (round 2), MAJOR — a generation counter was not enough: it
+  /// only covered the *read* phase, so an older apply that had already passed
+  /// the check could still finish its `setConsent` write last and restore the
+  /// stale value. Two applies therefore never overlap at all now — the one in
+  /// flight picks up whatever newer intent arrived and writes that too, so the
+  /// last write is always the newest intent.
+  ///
+  /// Deliberately not an instance-level future chain: a queued tail future in
+  /// a dead zone is what wedged the whole test suite in round 12 (see
+  /// `doc/audit/audit_round8_10.md`). Nothing here awaits anyone else's
+  /// future — a second caller just parks its intent and returns.
+  PrivacyOptionsResult? _pendingConsentApply;
+  bool _consentApplyRunning = false;
+
+  /// Bumped whenever something *outside* a consent apply changes the consent
+  /// intent — a host calling [setConsent] directly, or [destroy] tearing the
+  /// session down. An in-flight apply that sees this move drops itself instead
+  /// of overwriting a decision that was made after it started.
+  int _consentIntentEpoch = 0;
+
+  /// True only while [_applyConsentResultOnce] is inside its own [setConsent]
+  /// call, so that write does not bump the epoch against itself.
+  bool _inConsentApply = false;
 
   /// Map a [PrivacyOptionsResult] onto both providers. Split out of
   /// [showPrivacyOptions] so the late-dismiss callback and the resume
   /// re-check can reuse it verbatim.
   Future<PrivacyOptionsResult> _applyPrivacyOptionsResult(
       PrivacyOptionsResult result) async {
-    final seq = ++_consentApplySeq;
+    _pendingConsentApply = result;
+    if (_consentApplyRunning) {
+      // A write is already in flight and will pick this up when it finishes.
+      // Returning early (rather than awaiting it) is what keeps this free of
+      // the round-12 dead-zone trap.
+      return result;
+    }
+    _consentApplyRunning = true;
+    try {
+      while (_pendingConsentApply != null) {
+        final next = _pendingConsentApply!;
+        _pendingConsentApply = null;
+        await _applyConsentResultOnce(next);
+      }
+    } finally {
+      _consentApplyRunning = false;
+    }
+    return result;
+  }
+
+  /// Test-only barrier awaited right after an apply captures its epoch, so a
+  /// test can hold an apply open and let a newer decision land underneath it.
+  /// The race it exposes lives in a window a few microtasks wide, which no
+  /// public API can hit reliably.
+  @visibleForTesting
+  static Future<void>? debugConsentApplyBarrier;
+
+  Future<void> _applyConsentResultOnce(PrivacyOptionsResult result) async {
+    final epoch = _consentIntentEpoch;
+    final barrier = debugConsentApplyBarrier;
+    if (barrier != null) await barrier;
     final wasBlocked = !_canRequestAds;
     _updateCanRequestAds(result.canRequestAds);
     SafeLogger.d(
@@ -3133,28 +3187,40 @@ class AdManager with WidgetsBindingObserver {
           'privacy options completed but the TCF purpose consents do NOT '
           'permit personalisation → serving non-personalised ads');
     }
-    if (seq != _consentApplySeq) {
+    // A host `setConsent` (parental toggle, CCPA switch) or a `destroy()` that
+    // landed while we were reading storage wins: a late-dismiss callback must
+    // never mutate a session that has since been torn down and re-initialised.
+    // Deliberately NOT gated on `isInitialised` — a host may legitimately run
+    // the consent flow before (or without) an adapter, and the consent still
+    // has to be recorded for whenever one arrives.
+    if (epoch != _consentIntentEpoch) {
       SafeLogger.w(
           _tag,
-          'privacy options apply superseded while reading the TCF state — '
-          'dropping it so the newer read wins');
-      return result;
+          'consent apply superseded while reading the TCF state '
+          '(epoch=$epoch, now=$_consentIntentEpoch) — '
+          'dropping it so the newer decision wins');
+      return;
     }
     // MJ5 — see requestUmpConsent(): read the freshest CCPA/COPPA flags rather
     // than rebuilding them from a possibly-stale `_consent`.
     final current = _consentManager?.adConsent ?? _consent;
-    await setConsent(AdConsent(
-      hasUserConsent: hasConsent,
-      isAgeRestrictedUser: current.isAgeRestrictedUser,
-      doNotSell: current.doNotSell,
-    ));
+    _inConsentApply = true;
+    try {
+      await setConsent(AdConsent(
+        hasUserConsent: hasConsent,
+        isAgeRestrictedUser: current.isAgeRestrictedUser,
+        doNotSell: current.doNotSell,
+      ));
+    } finally {
+      _inConsentApply = false;
+    }
 
+    if (epoch != _consentIntentEpoch) return;
     if (wasBlocked && _canRequestAds && isInitialised && !_isVipMember) {
       SafeLogger.d(_tag,
           '🔓 consent granted via privacy options → refilling held ad slots');
       _retryRefillAds();
     }
-    return result;
   }
 
   /// Whether a UMP [ConsentStatus] leaves personalisation possible at all.
@@ -3251,6 +3317,12 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> destroy() async {
     SafeLogger.d(_tag, 'destroy() called');
+    // Round-13 QC (round 2), MAJOR — a privacy-options form can still be on
+    // screen with our own wait already expired, so its late-dismiss apply can
+    // arrive after this teardown. Bumping the epoch makes that apply drop
+    // itself instead of writing a dead session's answer over a new one.
+    _consentIntentEpoch++;
+    _pendingConsentApply = null;
     // M2 — cleared HERE only, never in `_disposeAdapter()`: surviving adapter
     // teardown is precisely what makes the COPPA re-init path in setConsent()
     // reachable after a child-directed abort.
@@ -4584,35 +4656,69 @@ class AdManager with WidgetsBindingObserver {
         SafeLogger.e(_tag, 'onAppPaused threw: $e\n$st');
       }
     } else if (state == AppLifecycleState.resumed) {
-      try {
-        ad.onAppResumed();
-      } catch (e, st) {
-        SafeLogger.e(_tag, 'onAppResumed threw: $e\n$st');
-      }
-      // Round-13 QC, BLOCKER — consent BEFORE the App Open ad, not alongside
-      // it. See [_recheckConsentOnResume]: a consent change this process never
-      // saw land must not outlive the resume that follows it, and the App Open
-      // ad is the first thing that resume shows. Run concurrently, a fill
-      // cached under a consent the user had since withdrawn was already on
-      // screen by the time the withdrawal was applied.
-      //
-      // Bounded so the reverse cannot happen either: a platform channel that
-      // never answers must cost a stale consent check, not the impression.
-      unawaited(_recheckConsentOnResume()
-          .timeout(const Duration(seconds: 2), onTimeout: () {
-            SafeLogger.w(
-                _tag, 'resume consent re-check timed out — showing App Open');
-          })
-          .catchError((Object e) {
-            SafeLogger.w(_tag, '_recheckConsentOnResume threw: $e');
-          })
-          .whenComplete(() {
-            try {
-              showAppOpenAdOnResume();
-            } catch (e, st) {
-              SafeLogger.e(_tag, 'showAppOpenAdOnResume threw: $e\n$st');
-            }
-          }));
+      // Round-13 QC (round 2), BLOCKER ×2 — NOTHING that can request or show
+      // an ad may run before the resume consent re-check has settled. See
+      // [_resumeAdWorkAfterConsent]: `onAppResumed()` is not a passive
+      // notification, it recreates failed banners/MRECs and re-enables
+      // auto-refresh, i.e. it requests ads — with whatever consent is applied
+      // at that moment. A withdrawal the user made while the app was
+      // backgrounded is applied first now, or no ad work happens at all.
+      unawaited(_resumeAdWorkAfterConsent(ad));
+    }
+  }
+
+  /// How long a resume waits for the consent re-check before giving up on ad
+  /// work for that resume. Overridable in tests only.
+  static const Duration _resumeConsentRecheckTimeout = Duration(seconds: 5);
+
+  @visibleForTesting
+  static Duration? debugResumeConsentRecheckTimeout;
+
+  /// Round-13 QC (round 2), BLOCKER — the resume ad work, gated on consent.
+  ///
+  /// Fail-closed on purpose: if the re-check cannot settle (a wedged platform
+  /// channel, storage that throws) this resume does no ad work at all. The two
+  /// outcomes are not symmetrical — a fill served under a consent the user has
+  /// withdrawn is a compliance violation, while a skipped banner refresh and
+  /// App Open costs one resume and is retried on the next one.
+  Future<void> _resumeAdWorkAfterConsent(AdProviderAdapter ad) async {
+    final timeout =
+        debugResumeConsentRecheckTimeout ?? _resumeConsentRecheckTimeout;
+    try {
+      await _recheckConsentOnResume().timeout(timeout);
+    } on TimeoutException {
+      SafeLogger.w(
+          _tag,
+          'resume consent re-check did not settle in ${timeout.inSeconds}s — '
+          'skipping ad work for this resume rather than risking a fill under '
+          'stale consent');
+      return;
+    } catch (e, st) {
+      SafeLogger.e(
+          _tag,
+          '_recheckConsentOnResume threw: $e\n$st — skipping ad work for this '
+          'resume, the consent state could not be confirmed');
+      return;
+    }
+    // A late-dismiss apply may still be mid-write (see
+    // [_applyPrivacyOptionsResult]); its answer is newer than anything we
+    // could show, so let it land and pick the ads up on the next resume.
+    if (_consentApplyRunning) {
+      SafeLogger.w(
+          _tag,
+          'a consent apply is still in flight on resume — skipping ad work '
+          'until it has landed');
+      return;
+    }
+    try {
+      ad.onAppResumed();
+    } catch (e, st) {
+      SafeLogger.e(_tag, 'onAppResumed threw: $e\n$st');
+    }
+    try {
+      showAppOpenAdOnResume();
+    } catch (e, st) {
+      SafeLogger.e(_tag, 'showAppOpenAdOnResume threw: $e\n$st');
     }
   }
 

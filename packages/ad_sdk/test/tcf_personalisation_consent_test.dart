@@ -188,11 +188,16 @@ void main() {
     /// test completes it.
     Completer<void>? privacyFormGate;
 
+    /// Non-null wedges `getConsentStatus` — the UMP call the resume re-check
+    /// makes once the TCF keys disagree with what is applied.
+    Completer<void>? statusGate;
+
     setUp(() async {
       status = _statusObtained;
       canRequestAds = true;
       privacyOptionsRequirement = _privacyOptionsNotRequired;
       privacyFormGate = null;
+      statusGate = null;
 
       messenger.setMockMethodCallHandler(_alChannel, (call) async {
         if (call.method == 'initialize') return <String, dynamic>{};
@@ -204,6 +209,8 @@ void main() {
           case 'ConsentInformation#canRequestAds':
             return Future.value(canRequestAds);
           case 'ConsentInformation#getConsentStatus':
+            final gate = statusGate;
+            if (gate != null) return gate.future.then((_) => status);
             return Future.value(status);
           case 'ConsentInformation#isConsentFormAvailable':
             return Future.value(true);
@@ -228,6 +235,7 @@ void main() {
 
     tearDown(() async {
       debugFormDismissTimeoutOverride = null;
+      AdManager.debugResumeConsentRecheckTimeout = null;
       AdManager().debugSetAdapter(null);
       AdManager().debugConfig = null;
       await AdManager().destroy();
@@ -458,6 +466,143 @@ void main() {
               'not apply here" is not consent and must never grant');
       expect(adapter.applied, isEmpty,
           reason: 'and nothing should have been re-applied at all');
+    });
+
+    // Round-13 QC (round 2), BLOCKER — the resume gate is fail-closed: if the
+    // consent re-check cannot settle, this resume does NO ad work at all
+    // rather than risk a fill served under a consent the user has withdrawn.
+    test('a resume consent re-check that never settles blocks all ad work',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      // The device now says refused, so the re-check goes on to ask UMP — and
+      // that channel call is the one we wedge.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final wedge = Completer<void>();
+      addTearDown(() {
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      statusGate = wedge;
+      AdManager.debugResumeConsentRecheckTimeout =
+          const Duration(milliseconds: 20);
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      // Real wall clock, so the timeout above actually fires — otherwise this
+      // test would pass merely because the re-check is still hanging.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await pumpEventQueue(times: 50);
+
+      expect(adapter.calls, isEmpty,
+          reason: 'nothing that can request or show an ad may run while the '
+              'consent state is unconfirmed — onAppResumed() recreates failed '
+              'banners, so it counts too: ${adapter.calls}');
+    });
+
+    // Round-13 QC (round 2), MAJOR — the at-timeout snapshot is inconclusive
+    // by construction (the form is still on screen), so it must not be
+    // applied at all: applying it would grant personalisation back while the
+    // user is still reading the form they opened to withdraw it.
+    test('Privacy Options: the at-timeout snapshot is never applied', () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      // Whatever the host had applied before must survive the whole time the
+      // form is up, even though the device state would say "granted".
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+      debugFormDismissTimeoutOverride = const Duration(milliseconds: 20);
+      final gate = Completer<void>();
+      privacyFormGate = gate;
+
+      await AdManager().showPrivacyOptions();
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the user has not answered yet — reading the status while '
+              'the form is up proves nothing and must not be applied');
+
+      gate.complete();
+      await pumpEventQueue(times: 50);
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'and once they do answer, that answer is applied');
+    });
+
+    // Round-13 QC (round 2), MAJOR — a decision made *after* an apply started
+    // wins. The race lives in the few microtasks between an apply reading the
+    // device state and writing it, so `debugConsentApplyBarrier` holds the
+    // apply open there; nothing in the public API can hit that window.
+    test('a host consent decision beats a consent apply already in flight',
+        () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final barrier = Completer<void>();
+      AdManager.debugConsentApplyBarrier = barrier.future;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        if (!barrier.isCompleted) barrier.complete();
+      });
+
+      // Starts an apply that would write hasUserConsent=false, and parks it.
+      final pending = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+
+      // The host decides afterwards — a parental toggle, a CCPA switch.
+      AdManager.debugConsentApplyBarrier = null;
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      barrier.complete();
+      await pending;
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'the host spoke last, so the parked apply must drop itself '
+              'instead of writing the value it read before that');
+    });
+
+    // Round-13 QC (round 2), MAJOR — the late apply runs with nobody awaiting
+    // it, so a throw inside it used to become an unhandled zone error (which
+    // in a host app means a crash report, and in this suite a failed test).
+    test('a throwing late apply is logged, not an unhandled zone error',
+        () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      debugFormDismissTimeoutOverride = const Duration(milliseconds: 20);
+      final gate = Completer<void>();
+      privacyFormGate = gate;
+      final atTimeout = await AdManager().showPrivacyOptions();
+      expect(atTimeout.error, contains('timed out'), reason: 'sanity');
+
+      // The apply fails once the late dismiss has entered it. The error is
+      // raised through a completer, not `Future.error`, so the failure belongs
+      // to the apply rather than to this test's own unawaited future.
+      final failure = Completer<void>();
+      AdManager.debugConsentApplyBarrier = failure.future;
+      addTearDown(() => AdManager.debugConsentApplyBarrier = null);
+      gate.complete();
+      await pumpEventQueue(times: 20);
+      failure.completeError(StateError('storage is gone'));
+      await pumpEventQueue(times: 50);
+
+      // Reaching here at all is the assertion: an unhandled async error in
+      // this window fails the test outright.
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'and a failed apply leaves the last good value in place');
     });
 
     test('Privacy Options: re-confirming consent leaves it granted', () async {

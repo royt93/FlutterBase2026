@@ -111,6 +111,30 @@ Two more tests, each verified red against its own reverted fix:
 
 Suite: 1059 green, `flutter analyze` clean.
 
+## QC gate round 2 on the fix — codex 4/10, four more findings
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | Only the App Open ad waited for the consent re-check. `adapter.onAppResumed()` is not a passive notification — it recreates failed banners/MRECs and re-enables auto-refresh, i.e. it *requests* ads, and it still ran first. | All resume ad work moved into `_resumeAdWorkAfterConsent(ad)`, behind the re-check. |
+| Blocker | The 2 s cap could not cancel the re-check, so on timeout the App Open was shown anyway — exactly the impression the fix exists to prevent, just later. | The gate is fail-closed: a re-check that times out (5 s) or throws means **no** ad work at all this resume, retried on the next one. A skipped banner refresh costs one resume; a fill under a withdrawn consent is a violation. |
+| Major | The `_consentApplySeq` generation counter guarded only the *read* phase: an older apply that had passed the check could still finish its `setConsent` write last and restore the stale value, and neither `destroy()` nor a host `setConsent()` invalidated it. | Two applies never overlap now — `_pendingConsentApply` + `_consentApplyRunning` coalesce them so the in-flight run also writes the newer intent (still no future chain, so the round-12 dead-zone trap stays shut). `_consentIntentEpoch` is bumped by `destroy()` and by any host `setConsent`, and an apply that sees it move drops itself. |
+| Minor | Several of the round-1 claims were untested and could regress green. | Four tests added, each verified red against its own reverted fix. |
+
+The four new tests (`test/tcf_personalisation_consent_test.dart`):
+
+* *a resume consent re-check that never settles blocks all ad work* — wedges
+  the UMP `getConsentStatus` call and lets the cap fire on the real clock. Red
+  without fail-closed: `Actual: ['onAppResumed', 'loadAppOpen']`.
+* *the at-timeout snapshot is never applied* — red without the inconclusive
+  guard: `Expected: false Actual: <true>`.
+* *a host consent decision beats a consent apply already in flight* — the race
+  window is a few microtasks wide, so `AdManager.debugConsentApplyBarrier`
+  (test-only) parks an apply inside it. Red without the epoch guard.
+* *a throwing late apply is logged, not an unhandled zone error* — red without
+  the `catchError`: the throw escapes as an unhandled async error.
+
+Suite: 1063 green, `flutter analyze` clean.
+
 ## Still unverified
 
 * **AppLovin after a consent change.** Needs a real MAX SDK key; the example
