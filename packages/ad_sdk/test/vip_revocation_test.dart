@@ -204,6 +204,14 @@ void main() {
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
+      // Round-7 — without this the cached AdPreferences singleton (and its
+      // in-memory copy of the previous test's values) survives
+      // `setMockInitialValues`, so a CRL cached by one test leaked into the
+      // next. That used to be harmless only because each test mints a fresh
+      // keypair and the leaked CRL then failed to verify; now that `load()`
+      // applies the cached CRL with the key it was verified against, the leak
+      // is load-bearing and has to go.
+      AdPreferences.resetForTest();
       prefs = await AdPreferences.getInstance();
       store = _FakeVipEntriesStore(prefs);
       await VipManager(prefs, vipEntriesStore: store).revokeAll();
@@ -312,6 +320,53 @@ void main() {
       expect(remaining.inHours, lessThanOrEqualTo(24),
           reason: 'a grant the crash left unclamped must still get clamped, '
               'not stay full-length forever because the CRL is no longer new');
+    });
+
+    // Round-7 audit, MAJOR — every path that applied the CRL to grants ALREADY
+    // on disk went through `refreshRevocationList` (or a redemption). A plain
+    // startup did not: `load()` read the entries and never looked at the cached
+    // CRL. So the state a crash leaves — CRL cached, grant still full-length —
+    // survived launch after launch for any host that refreshes daily rather
+    // than every boot, or any device that is offline when it launches. The test
+    // above only proved the refresh path repairs it.
+    test('a cached CRL clamps a missed grant on startup, with no refresh at all',
+        () async {
+      final crl =
+          await mintCrl(keyPair, issuedAtEpoch: 4000, kids: ['leaked-startup']);
+      final code = await mintVipKey(keyPair,
+          seconds: const Duration(days: 30).inSeconds, kid: 'leaked-startup');
+
+      final first = VipManager(prefs, vipEntriesStore: store);
+      await first.load();
+      expect((await first.redeemSignedKey(code, publicKeyBase64: pub)).status,
+          VipRedeemStatus.success);
+      // The grant as it sits on disk before any clamp touches it.
+      final fullLength = await store.getRaw();
+      await first.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl),
+      );
+      first.dispose();
+
+      // The crash: the CRL is cached, but the clamped entries never landed.
+      await store.setRaw(fullLength!);
+
+      // Second launch. The host does NOT refresh — offline, or it only
+      // refreshes once a day and today's call has not happened yet.
+      final second = VipManager(prefs, vipEntriesStore: store);
+      await second.load();
+      second.dispose();
+      expect(second.expiresAt!.difference(DateTime.now()).inHours,
+          lessThanOrEqualTo(24),
+          reason: 'a revoked key must stop earning within a day even on a '
+              'device that never fetches another CRL');
+
+      // Third launch, still no refresh: the clamp has to hold, not oscillate.
+      final third = VipManager(prefs, vipEntriesStore: store);
+      await third.load();
+      addTearDown(third.dispose);
+      expect(third.expiresAt!.difference(DateTime.now()).inHours,
+          lessThanOrEqualTo(24));
     });
 
     test('applying a CRL leaves an unrelated VIP grant alone', () async {

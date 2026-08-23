@@ -469,6 +469,28 @@ class VipManager {
       }
       await _prefs.markVipMigrated();
     }
+    // Round-7 audit, MAJOR — apply the cached CRL on EVERY startup, not only
+    // on the paths that go through `refreshRevocationList`/`redeemSignedKey`.
+    // Before this, a revoked grant that was already on disk full-length (the
+    // process died between caching the CRL and clamping the grants, or the
+    // clamp's own save failed) stayed full-length across every later launch
+    // unless the host happened to refresh the CRL again — and a host that
+    // refreshes daily, or a device that is offline, does not. The clamp is
+    // idempotent, so running it here is free when there is nothing to do.
+    final cachedCrlKey = _prefs.getVipRevocationPublicKey();
+    if (cachedCrlKey != null) {
+      // Guarded for the same reason the M6 clamp above is: `_clampRevokedEntries`
+      // awaits an un-caught `_save()`, and a storage error must not throw out of
+      // `load()` before `_refreshActive()` and cost a paying customer the
+      // session. The clamp is valid in memory either way.
+      try {
+        await _ensureCachedRevocationLoaded(cachedCrlKey);
+        await _clampRevokedEntries();
+      } catch (e) {
+        SafeLogger.w(_tag, 'startup CRL clamp failed ($e) — keeping RAM state');
+      }
+    }
+
     _purgeExpired();
     _refreshActive();
     _scheduleNextExpiry();
@@ -998,6 +1020,10 @@ class VipManager {
     // full-length, and nothing ever revisited them.
     await _clampRevokedEntries();
     await _prefs.setVipRevocationCacheRaw(raw);
+    // Round-7 audit, MAJOR — remembered so `load()` can apply this same CRL on
+    // every later launch, including the launches where the host never calls
+    // back in here (offline, or a host that refreshes once a day).
+    await _prefs.setVipRevocationPublicKey(publicKeyBase64);
     SafeLogger.d(
         _tag,
         () =>

@@ -440,4 +440,21 @@ class AdPreferences {
   Future<void> setVipRevocationCacheRaw(String code) async {
     await _prefs?.setString(_keyVipRevocationCache, code);
   }
+
+  // Round-7 audit, MAJOR — the Ed25519 public key the cached CRL above last
+  // verified against, remembered so `VipManager.load()` can re-verify and
+  // apply that CACHED CRL at startup without the host having to hand the key
+  // over again. Storing it costs nothing: it is a PUBLIC key, it already ships
+  // inside the app binary, and a CRL can only ever narrow an entitlement — an
+  // attacker who swapped this value would just be choosing not to be revoked,
+  // which deleting the cache already achieves.
+
+  static const String _keyVipRevocationKey = 'ad_sdk_vip_revocation_pubkey_v1';
+
+  String? getVipRevocationPublicKey() =>
+      _prefs?.getString(_keyVipRevocationKey);
+
+  Future<void> setVipRevocationPublicKey(String publicKeyBase64) async {
+    await _prefs?.setString(_keyVipRevocationKey, publicKeyBase64);
+  }
 }
