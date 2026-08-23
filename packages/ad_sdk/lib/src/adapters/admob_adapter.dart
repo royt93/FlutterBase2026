@@ -1602,6 +1602,12 @@ class AdMobAdapter implements AdProviderAdapter {
         listener: BannerAdListener(
           onPaidEvent: _paidEventForBanner(AdPlacement.unspecified),
           onAdLoaded: (ad) {
+            // M4 — this closure captured `slot`/`listenables` before the
+            // load started; by the time the fill lands the widget may be gone
+            // (fast scroll, route pop) and disposeXInstance(key) may have
+            // disposed exactly those notifiers. The MJ21/B-2 identity guard
+            // only covered the pre-creation await window.
+            if (!identical(_bannerSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'loadBanner $tag ✅');
             listenables.isLoaded.value = true;
             listenables.hasError.value = false;
@@ -1626,6 +1632,12 @@ class AdMobAdapter implements AdProviderAdapter {
             ));
           },
           onAdFailedToLoad: (ad, err) {
+            // M4 — this closure captured `slot`/`listenables` before the
+            // load started; by the time the fill lands the widget may be gone
+            // (fast scroll, route pop) and disposeXInstance(key) may have
+            // disposed exactly those notifiers. The MJ21/B-2 identity guard
+            // only covered the pre-creation await window.
+            if (!identical(_bannerSlotsByKey[key], slot)) return;
             SafeLogger.w(_logTag, 'loadBanner $tag ❌ ${err.code}');
             try {
               ad.dispose();
@@ -1747,6 +1759,12 @@ class AdMobAdapter implements AdProviderAdapter {
         listener: BannerAdListener(
           onPaidEvent: _paidEventForMrec(AdPlacement.unspecified),
           onAdLoaded: (ad) {
+            // M4 — this closure captured `slot`/`listenables` before the
+            // load started; by the time the fill lands the widget may be gone
+            // (fast scroll, route pop) and disposeXInstance(key) may have
+            // disposed exactly those notifiers. The MJ21/B-2 identity guard
+            // only covered the pre-creation await window.
+            if (!identical(_mrecSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'loadMrec $tag ✅');
             listenables.isLoaded.value = true;
             listenables.hasError.value = false;
@@ -1765,6 +1783,12 @@ class AdMobAdapter implements AdProviderAdapter {
             ));
           },
           onAdFailedToLoad: (ad, err) {
+            // M4 — this closure captured `slot`/`listenables` before the
+            // load started; by the time the fill lands the widget may be gone
+            // (fast scroll, route pop) and disposeXInstance(key) may have
+            // disposed exactly those notifiers. The MJ21/B-2 identity guard
+            // only covered the pre-creation await window.
+            if (!identical(_mrecSlotsByKey[key], slot)) return;
             SafeLogger.w(_logTag, 'loadMrec $tag ❌ ${err.code}');
             try {
               ad.dispose();
@@ -1864,6 +1888,12 @@ class AdMobAdapter implements AdProviderAdapter {
         listener: NativeAdListener(
           onPaidEvent: _paidEventForNative(AdPlacement.unspecified),
           onAdLoaded: (ad) {
+            // M4 — this closure captured `slot`/`listenables` before the
+            // load started; by the time the fill lands the widget may be gone
+            // (fast scroll, route pop) and disposeXInstance(key) may have
+            // disposed exactly those notifiers. The MJ21/B-2 identity guard
+            // only covered the pre-creation await window.
+            if (!identical(_nativeSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'preloadNative $tag ✅');
             listenables.isLoaded.value = true;
             listenables.hasError.value = false;
@@ -1877,6 +1907,12 @@ class AdMobAdapter implements AdProviderAdapter {
             ));
           },
           onAdFailedToLoad: (ad, err) {
+            // M4 — this closure captured `slot`/`listenables` before the
+            // load started; by the time the fill lands the widget may be gone
+            // (fast scroll, route pop) and disposeXInstance(key) may have
+            // disposed exactly those notifiers. The MJ21/B-2 identity guard
+            // only covered the pre-creation await window.
+            if (!identical(_nativeSlotsByKey[key], slot)) return;
             SafeLogger.w(_logTag, 'preloadNative $tag ❌ ${err.code}');
             try {
               ad.dispose();
