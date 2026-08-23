@@ -138,4 +138,26 @@ Future<void> applyConsentToProviders(
   } catch (e) {
     SafeLogger.w(tag, 'AdMob privacy apply failed: $e');
   }
+  // Round-19 QC, BLOCKER — record it HERE, the one funnel every provider write
+  // goes through, and not at the individual call sites. `ConsentManager` puts a
+  // decision in its own memory BEFORE it persists and only applies to the
+  // providers last, so its value runs ahead of the SDKs whenever a persist
+  // throws. Anything comparing the device's own consent state against "what is
+  // applied" has to compare against this, or it mistakes a decision that was
+  // merely recorded for one that landed. Round 18 tracked this in `AdManager`
+  // instead and so missed every caller that is not `AdManager.setConsent` —
+  // `initialize()`'s own apply, and the built-in consent dialog.
+  _lastAppliedToProviders = c;
 }
+
+AdConsent? _lastAppliedToProviders;
+
+/// The last consent [applyConsentToProviders] actually pushed to the provider
+/// SDKs, whoever called it — as opposed to what has merely been recorded in
+/// memory. Null until the first push of this process.
+AdConsent? get lastConsentAppliedToProviders => _lastAppliedToProviders;
+
+/// Forget it. Called by `AdManager.destroy()`: the next session re-applies
+/// consent to the providers from its own bootstrapped state, so a record from
+/// the torn-down one says nothing about what the next will hold.
+void resetLastConsentAppliedToProviders() => _lastAppliedToProviders = null;

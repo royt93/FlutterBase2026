@@ -536,6 +536,38 @@ contract, not either line.
 
 Suite: 1102 green, device suite 5/5, `flutter analyze` clean (package + example).
 
+## QC gate round 19 — codex 6/10, agy 8/10, and both found the same thing
+
+Both reviewers independently reported the same Blocker, and it is a regression
+round 18 introduced: **round 18 tracked "what is really applied" in the wrong
+place.** `_lastCommittedConsent` was assigned inside `AdManager.setConsent`,
+which is only one of the writers that reaches the provider SDKs. The built-in
+consent dialog writes straight through `ConsentManager`, and `initialize()`
+applies to the providers itself. After either of those, the marker still
+described an older decision — and pointing every device-vs-applied comparison at
+a stale marker is *worse* than the in-memory record it replaced, because it fails
+in the unsafe direction:
+
+1. host `setConsent(hasUserConsent: false)` → marker says refused;
+2. user grants in the built-in dialog → `ConsentManager.set(true)` → the
+   providers really are personalised now, marker unchanged;
+3. user withdraws in the CMP and the dismiss callback is lost;
+4. resume backstop: device says refuse, marker says refuse → "already applied",
+   return. Personalised ads keep going out under a withdrawal.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker (codex + agy) | as above | Record it in the one funnel every provider write goes through instead of at any call site: `applyConsentToProviders` (`lib/src/core/ad_consent.dart`) sets `_lastAppliedToProviders` at the end, exposed as `lastConsentAppliedToProviders`, and `AdManager._committedConsent` reads that. This covers `initialize()`'s own apply and the dialog path for free, and any future caller too. `destroy()` clears it (`resetLastConsentAppliedToProviders()`) — the next session re-applies from its own bootstrapped state, and leaving it set would leak across tests. |
+
+Red-proof: *a grant that did not come through setConsent still counts as
+applied* (`test/tcf_personalisation_consent_test.dart`) — a host refusal through
+`setConsent`, then a grant through `ConsentManager.set` (the dialog's path), then
+a device that refuses. Restoring round 18's arrangement (the marker assigned only
+in `setConsent`) turns it red: `Expected: a value greater than <1> Actual: <1>`
+— the backstop re-applied nothing.
+
+Suite: 1103 green, device suite 5/5, `flutter analyze` clean (package + example).
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

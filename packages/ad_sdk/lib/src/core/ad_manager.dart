@@ -2711,14 +2711,6 @@ class AdManager with WidgetsBindingObserver {
     await applyConsentToProviders(consent, config: _config);
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
     _adapter?.applyConsent(consent);
-    // Round-18 QC, BLOCKER — only here, after the provider write returned, is
-    // this consent really in force on both providers. `ConsentManager.set()`
-    // above updates its in-memory value FIRST, so a provider write that throws
-    // leaves the two disagreeing — and anything that reads the in-memory value
-    // to decide whether the device state is already applied would then reopen
-    // the ad gate over a provider still holding the OLD personalised
-    // configuration.
-    _lastCommittedConsent = consent;
     // N2 — the footgun block just cleared and ads may already be running;
     // refill slots that were held back while it was blocked.
     if (wasFootgunBlocked && canRequestAds && !_isVipMember) {
@@ -3344,15 +3336,11 @@ class AdManager with WidgetsBindingObserver {
   /// [_recoverConsentGate]; a real restrictive close is nobody else's business.
   bool _pessimisticGateClose = false;
 
-  /// The last consent whose write reached BOTH providers without throwing —
-  /// what is really in force, as opposed to what `ConsentManager` has already
-  /// recorded in memory. See the assignment in [setConsent].
-  AdConsent? _lastCommittedConsent;
-
   /// What is actually applied to the providers right now. Every
-  /// device-vs-applied comparison reads this, never the in-memory value alone.
+  /// device-vs-applied comparison reads this, never the in-memory value alone
+  /// — see [lastConsentAppliedToProviders] for why they differ.
   AdConsent get _committedConsent =>
-      _lastCommittedConsent ?? _consentManager?.adConsent ?? _consent;
+      lastConsentAppliedToProviders ?? _consentManager?.adConsent ?? _consent;
 
   /// Round-13 QC (round 12), MAJOR — lift a pessimistic gate close that no
   /// apply is going to lift.
@@ -3786,9 +3774,11 @@ class AdManager with WidgetsBindingObserver {
     // reachable after a child-directed abort.
     _lastKnownConfig = null;
     _lastAppliedConsent = null;
-    // Round-18 QC — the next session configures its providers from scratch, so
-    // a committed value from this one says nothing about what they hold.
-    _lastCommittedConsent = null;
+    // Round-18 QC — the next session re-applies consent to the providers from
+    // its own bootstrapped state (see `applyToProviders` in [initialize]), so a
+    // record from this one says nothing about the next; and leaving it set
+    // would leak across tests.
+    resetLastConsentAppliedToProviders();
     await _eventStream.close();
     _eventStream = StreamController<AdEvent>.broadcast();
     await _disposeAdapter();

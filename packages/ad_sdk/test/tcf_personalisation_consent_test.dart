@@ -2118,6 +2118,62 @@ void main() {
               'violation this test exists for');
     });
 
+    // Round-19 QC, BLOCKER — round 18 tracked "what is really applied" inside
+    // `AdManager.setConsent`, which is only ONE of the writers. The built-in
+    // consent dialog writes through `ConsentManager` directly and
+    // `initialize()` applies to the providers itself, so after either of those
+    // the marker still described an older decision — and pointing every
+    // device-vs-applied comparison at a stale marker is worse than the record
+    // it replaced: a real withdrawal gets skipped as "already applied".
+    test('a grant that did not come through setConsent still counts as applied',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+      ConsentManager.resetForTest();
+      addTearDown(ConsentManager.resetForTest);
+
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: await AdPreferences.getInstance(),
+          strings: ConsentDialogStrings.vi);
+      final adapter = _StubAdapter();
+      AdManager()
+        ..debugConsentManager = consentMgr
+        ..debugSetAdapter(adapter)
+        ..debugConfig = _config;
+
+      // A host refusal goes through setConsent, so it is recorded as applied.
+      await AdManager().setConsent(const AdConsent(hasUserConsent: false));
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'sanity: refused, and the write reached the provider');
+
+      // The user then grants through the built-in consent dialog, which writes
+      // straight through ConsentManager — the providers really are personalised
+      // from here on, whatever anything else has cached.
+      await consentMgr.set(
+          const ConsentSettings(hasUserConsent: true, hasBeenAsked: true),
+          config: _config);
+      expect(await IabStorage.tcfAllowsPersonalisedAds(), isFalse,
+          reason: 'sanity: the CMP keys were never touched by that dialog');
+
+      // A resume now has to notice that the providers are personalised while
+      // the device says no.
+      final before = adapter.applied.length;
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(adapter.applied.length, greaterThan(before),
+          reason: 'the grant landed on the providers, so the device refusing '
+              'personalisation is a disagreement that must be re-applied');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'a marker that only tracks setConsent makes the backstop '
+              'skip a real withdrawal as already-applied — personalised ads '
+              'under a refusal, which is the violation this test exists for');
+    });
+
     test('Privacy Options: re-confirming consent leaves it granted', () async {
       privacyOptionsRequirement = _privacyOptionsRequired;
       seedTcf({
