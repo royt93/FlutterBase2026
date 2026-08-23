@@ -2423,6 +2423,30 @@ void main() {
               'load count would mean the new guard never fired');
     });
 
+    test('one click cannot suppress two separate resumes', () {
+      // Round-6 QC finding: the latch was consumed on resume but
+      // `_lastAdClickAt` was left set, so a SECOND backgrounding still inside
+      // the 5s window re-latched off the same click. Click at t=0, background
+      // at t=1s, resume at t=2s (consumes the latch), background again at
+      // t=3s — the second trip has nothing to do with an ad and must not be
+      // suppressed. A click is attributable to one departure, not to every
+      // departure for the next five seconds.
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      AdSafetyConfig.recordAdClick();
+      AdSafetyConfig.recordAppWentBackground();
+      AdManager().showAppOpenAdOnResume(); // consumes the latch
+      expect(adapter.loadAppOpenCalls, 0, reason: 'first trip: suppressed');
+
+      AdSafetyConfig.recordAppWentBackground(); // no new click
+      AdManager().showAppOpenAdOnResume();
+
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1),
+          reason: 'the second departure was not caused by an ad click, so the '
+              'resume path must run normally and reach the refill');
+    });
+
     test('baseline: without an ad click the resume path reaches the refill',
         () {
       adapter.appOpenSlot.beginLoad();

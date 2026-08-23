@@ -705,6 +705,12 @@ class AdSafetyConfig {
       _backgroundedFromAdClick = true;
       SafeLogger.d(_tag,
           '📊 backgrounding attributed to an ad click ${now - _lastAdClickAt}ms ago');
+      // Round-6 QC — spend the click here. Leaving it set let a SECOND
+      // backgrounding still inside the 5s window re-latch off the same click:
+      // click at t=0, leave at t=1s, come back at t=2s (latch consumed), leave
+      // again at t=3s, and that unrelated trip was suppressed too. A click
+      // explains one departure, not every departure for the next five seconds.
+      _lastAdClickAt = 0;
     }
     // T26 Phase 1: proxy signal (a) — did this backgrounding happen shortly
     // after a fullscreen ad? Diagnostic only, no cap is affected.

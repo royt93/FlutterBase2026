@@ -77,3 +77,8 @@ android/app/build/
 
 # codebase-memory-mcp local index (binary artifact, regenerated per machine)
 .codebase-memory/
+
+# Backups left behind by `sed -i.bak` during revert-to-red experiments.
+# These were committed into lib/ once (round-6 QC caught 124KB of them) and
+# would have shipped to pub.dev, since lib/ is always included in the archive.
+*.bak
