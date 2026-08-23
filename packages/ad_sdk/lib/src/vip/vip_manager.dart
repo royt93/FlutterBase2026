@@ -160,6 +160,25 @@ class VipManager {
   /// until next launch. The timer fixes that mid-session UX surprise.
   Timer? _expiryTimer;
 
+  /// Round-7 audit, MAJOR — retry schedule for a [load] whose secure-storage
+  /// read FAILED (as opposed to reading fine and finding no VIP).
+  ///
+  /// Without it a single Keychain/Keystore error at startup cost a paying
+  /// customer their entitlement for the whole session: `getRaw()` returned
+  /// null, `load()` decoded an empty list, and nothing ever asked again. The
+  /// common real cause is not a random blip but a locked device — Keychain
+  /// data stored `first_unlock` is genuinely unreadable until the user unlocks
+  /// once, which no in-line retry can wait out, so the retries are spread over
+  /// the first minute of the session instead.
+  static const List<Duration> _secureReadRetryDelays = <Duration>[
+    Duration(seconds: 2),
+    Duration(seconds: 10),
+    Duration(seconds: 45),
+  ];
+  Timer? _readRetryTimer;
+  int _readRetryIndex = 0;
+  String _lastLoadGaid = '';
+
   /// True if at least one entry is currently active.
   bool get isActive => _activeNotifier.value;
 
@@ -356,6 +375,7 @@ class VipManager {
   /// GAID matched one of them). Naively migrating every GAID would mark
   /// *every* device VIP — that's why we filter against [currentDeviceGaid].
   Future<void> load({String currentDeviceGaid = ''}) async {
+    _lastLoadGaid = currentDeviceGaid;
     _entries
       ..clear()
       ..addAll(VipEntry.decodeList(await _vipEntriesStore.getRaw()));
@@ -452,7 +472,42 @@ class VipManager {
     _purgeExpired();
     _refreshActive();
     _scheduleNextExpiry();
+    _scheduleReadRetryIfNeeded();
     SafeLogger.d(_tag, 'load() entries=${_entries.length} active=$isActive');
+  }
+
+  /// Re-runs [load] shortly after a load that could not READ secure storage.
+  ///
+  /// Only when the read actually errored AND nothing was recovered from any
+  /// other source: an empty list from a healthy store is a final answer, and a
+  /// grant found via the fallback has already been through the M6 clamp above.
+  /// Re-entering [load] rather than just re-reading is deliberate — every
+  /// trust decision about what comes off disk lives there, and a second copy
+  /// of it would be a second thing to keep correct.
+  void _scheduleReadRetryIfNeeded() {
+    _readRetryTimer?.cancel();
+    _readRetryTimer = null;
+    if (!_vipEntriesStore.lastSecureReadErrored || _entries.isNotEmpty) {
+      _readRetryIndex = 0;
+      return;
+    }
+    if (_readRetryIndex >= _secureReadRetryDelays.length) {
+      SafeLogger.w(
+          _tag,
+          'secure storage still unreadable after '
+          '${_secureReadRetryDelays.length} retries — giving up for this '
+          'session; a real VIP will be restored on the next launch');
+      return;
+    }
+    final delay = _secureReadRetryDelays[_readRetryIndex++];
+    SafeLogger.w(
+        _tag,
+        'secure storage read FAILED and no entries were recovered — '
+        'retrying in ${delay.inSeconds}s rather than treating it as "no VIP"');
+    _readRetryTimer = Timer(delay, () {
+      _readRetryTimer = null;
+      load(currentDeviceGaid: _lastLoadGaid);
+    });
   }
 
   Future<void> _save() {
@@ -1095,6 +1150,8 @@ class VipManager {
   void dispose() {
     _expiryTimer?.cancel();
     _expiryTimer = null;
+    _readRetryTimer?.cancel();
+    _readRetryTimer = null;
     _activeStream.close();
   }
 }

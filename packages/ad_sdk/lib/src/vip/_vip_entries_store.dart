@@ -174,14 +174,37 @@ class VipEntriesStore {
   /// A failed read is evidence of nothing, so it must not feed that inference.
   bool _lastSecureReadErrored = false;
 
+  /// Whether the last [getRaw] failed to READ secure storage, as opposed to
+  /// reading it successfully and finding nothing.
+  ///
+  /// Round-7 audit, MAJOR. `VipManager` needs this to tell those two apart:
+  /// "no VIP" is a final answer, "could not ask" is not, and treating the
+  /// second as the first shows ads to a paying customer for the whole session.
+  bool get lastSecureReadErrored => _lastSecureReadErrored;
+
   Future<String?> _readSecure() async {
     _lastSecureReadErrored = false;
-    try {
-      return await _secure.read(key: _secureKey);
-    } catch (e) {
-      SafeLogger.w(_tag, 'getRaw threw: $e — defaulting to no VIP data');
-      _lastSecureReadErrored = true;
-      return null;
+    // Round-7 audit, MAJOR — one immediate retry. A Keychain/Keystore call can
+    // fail transiently (platform channel not yet up, a concurrent Keystore
+    // operation) and the retry is nearly free next to the cost of the failure:
+    // a paying customer sees ads until they restart the app. Failures that
+    // outlive this (device locked before first unlock, so `first_unlock`
+    // Keychain data is genuinely unavailable) are handled by the timed retry
+    // in `VipManager.load()`, which is the only thing that can recover them
+    // inside the same session.
+    for (var attempt = 0;; attempt++) {
+      _lastSecureReadErrored = false;
+      try {
+        return await _secure.read(key: _secureKey);
+      } catch (e) {
+        _lastSecureReadErrored = true;
+        if (attempt == 0) {
+          SafeLogger.w(_tag, 'getRaw threw: $e — retrying once');
+          continue;
+        }
+        SafeLogger.w(_tag, 'getRaw threw: $e — defaulting to no VIP data');
+        return null;
+      }
     }
   }
 
