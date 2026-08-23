@@ -109,4 +109,39 @@ void main() {
       expect(result!.canRequestAds, isFalse);
     });
   });
+  // Round-7 audit, MAJOR — the native UMP form is not a Flutter route and does
+  // not background the app, so nothing else in the SDK can see it. This flag is
+  // the only signal `AdManager._fullscreenBusyReason` has, so it has to be true
+  // for exactly as long as the form is on screen: an interstitial drawn over a
+  // consent form steals the tap the consent choice needed, and is a policy
+  // violation in its own right.
+  test('umpFormOnScreen is held while the EEA consent form is presented',
+      () async {
+    bool? flagWhilePresenting;
+    messenger.setMockMethodCallHandler(umpChannel, (call) async {
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return null;
+        case 'ConsentInformation#getConsentStatus':
+          return 2; // required (Android mapping)
+        case 'UserMessagingPlatform#loadAndShowConsentFormIfRequired':
+          flagWhilePresenting = umpFormOnScreen.value;
+          return null;
+        case 'ConsentInformation#canRequestAds':
+          return true;
+        default:
+          return null;
+      }
+    });
+
+    expect(umpFormOnScreen.value, isFalse, reason: 'sanity: clear at rest');
+
+    final result = await requestUmpConsentFlow();
+
+    expect(result.formShown, isTrue, reason: 'sanity: a form was presented');
+    expect(flagWhilePresenting, isTrue,
+        reason: 'ads must be locked out from the moment the form goes up');
+    expect(umpFormOnScreen.value, isFalse,
+        reason: 'and unlocked again once the form is dismissed');
+  });
 }

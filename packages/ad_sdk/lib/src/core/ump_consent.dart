@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../utils/safe_logger.dart';
@@ -20,6 +20,22 @@ Duration? debugFormDismissTimeoutOverride;
 
 Duration get _formDismissTimeout =>
     debugFormDismissTimeoutOverride ?? kFormDismissTimeout;
+
+/// True while one of Google's native UMP forms — the consent form or the
+/// Privacy Options form — is actually on screen.
+///
+/// Round-7 audit, MAJOR. `AdManager` folds this into its fullscreen mutex, so
+/// no interstitial, rewarded or App Open ad can be drawn over a consent form.
+/// The form is a native activity / view controller rather than a Flutter
+/// route, so `AdScreenRouteLogger.isDialogOnTop` cannot see it, and presenting
+/// it does not background the app, so the App Open resume guard never applied
+/// either. An ad on top of a consent form takes the tap the consent choice
+/// needed, and is a policy violation in its own right.
+///
+/// Scoped to the presentation window only, never to the whole flow: the
+/// network steps around it take up to 20 s each and show nothing, and blocking
+/// ads through those would cost the splash App Open on every cold start.
+final ValueNotifier<bool> umpFormOnScreen = ValueNotifier<bool>(false);
 
 /// Result of [requestUmpConsentFlow].
 class UmpConsentResult {
@@ -162,6 +178,9 @@ Future<UmpConsentResult> requestUmpConsentFlow({
   String? formError;
   if (status == ConsentStatus.required) {
     final dismissCompleter = Completer<String?>();
+    // Set before the presentation call, not after: the native form is on
+    // screen from the moment that call goes out.
+    umpFormOnScreen.value = true;
     // Deliberately NOT awaited — same reasoning as requestPrivacyOptionsFlow()
     // below: the native call only returns once the form is dismissed, so
     // awaiting it here would bypass the timeout entirely.
@@ -184,11 +203,15 @@ Future<UmpConsentResult> requestUmpConsentFlow({
     // here even starts until UMP has said consent is required. At 20 s the
     // flow was observed abandoning a form that was still on screen and
     // resolving the ad gate before the user had answered.
-    formError = await dismissCompleter.future.timeout(
-      _formDismissTimeout,
-      onTimeout: () => 'consent form dismiss timed out after '
-          '${_formDismissTimeout.inSeconds}s',
-    );
+    try {
+      formError = await dismissCompleter.future.timeout(
+        _formDismissTimeout,
+        onTimeout: () => 'consent form dismiss timed out after '
+            '${_formDismissTimeout.inSeconds}s',
+      );
+    } finally {
+      umpFormOnScreen.value = false;
+    }
     if (formError != null) {
       SafeLogger.w(tag, 'consent form: $formError');
     }
@@ -298,6 +321,8 @@ Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
   }
 
   final dismissCompleter = Completer<String?>();
+  // See the consent-form window above: the flag goes up before the call.
+  umpFormOnScreen.value = true;
   // Deliberately NOT awaited: ConsentForm.showPrivacyOptionsForm() awaits the
   // native platform call internally before invoking the dismiss callback, so
   // awaiting it here directly would hang on that call forever, bypassing the
@@ -313,10 +338,15 @@ Future<PrivacyOptionsResult> requestPrivacyOptionsFlow() async {
   // through the native form, which can hang indefinitely if it's served but
   // never dismissed. Without this, a caller awaiting requestPrivacyOptionsFlow()
   // (e.g. a "Privacy Options" button's tap handler) would hang forever.
-  final formError = await dismissCompleter.future.timeout(
-    const Duration(seconds: 20),
-    onTimeout: () => 'privacy options form dismiss timed out after 20s',
-  );
+  final String? formError;
+  try {
+    formError = await dismissCompleter.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => 'privacy options form dismiss timed out after 20s',
+    );
+  } finally {
+    umpFormOnScreen.value = false;
+  }
   if (formError != null) {
     SafeLogger.w(tag, 'privacy options form: $formError');
   }

@@ -74,6 +74,7 @@ class AdManager with WidgetsBindingObserver {
     // T75 — these two live for the whole process (unlike the adapter, which
     // is re-wired by the `_adapter` setter above on every init/destroy), so
     // wiring them once here is enough.
+    umpFormOnScreen.addListener(_recomputeFullscreenBusy);
     AdLoadingDialog.isShowingNotifier.addListener(_recomputeFullscreenBusy);
     AdScreenRouteLogger.isDialogOnTopNotifier
         .addListener(_recomputeFullscreenBusy);
@@ -1126,6 +1127,16 @@ class AdManager with WidgetsBindingObserver {
   /// Keeping it in one place also means a fifth ad type added later is covered
   /// by construction rather than by remembering to copy the condition.
   String? get _fullscreenBusyReason {
+    // Round-7 audit, MAJOR — checked before the adapter, because the initial
+    // consent form is presented during splash while the adapter may not exist
+    // yet. Google's UMP form is a native activity/view controller, not a
+    // Flutter route, so `AdScreenRouteLogger.isDialogOnTop` below cannot see
+    // it and nothing stopped a fullscreen ad from covering the consent form:
+    // the user's tap lands on the ad, the consent choice never gets made, and
+    // an ad drawn over a consent dialog is a policy violation on its own. The
+    // form also does not background the app, so the App Open resume guard was
+    // never in the picture either.
+    if (umpFormOnScreen.value) return 'a consent form is on screen';
     final ad = _adapter;
     if (ad == null) return null;
     if (ad.appOpenSlot.isShowing) return 'app-open ad currently showing';

@@ -58,6 +58,9 @@ void main() {
 
   // PrivacyOptionsRequirementStatus: 0=notRequired, 1=required.
   late bool showFormInvoked;
+  /// Round-7 — lets a test look at SDK state at the exact instant the native
+  /// form is being presented.
+  void Function()? onShowForm;
   late int requirementStatus;
   // ConsentStatus (default/Android decode): 0=unknown,1=notRequired,2=required,3=obtained.
   late int consentStatus;
@@ -73,6 +76,7 @@ void main() {
         return canRequestAdsNative;
       case 'UserMessagingPlatform#showPrivacyOptionsForm':
         showFormInvoked = true;
+        onShowForm?.call();
         return null;
       default:
         return null;
@@ -86,6 +90,7 @@ void main() {
     AdSafetyConfig.resetForReinit();
 
     showFormInvoked = false;
+    onShowForm = null;
     requirementStatus = 0;
     consentStatus = 1;
     canRequestAdsNative = true;
@@ -114,6 +119,49 @@ void main() {
     test('reflects native requirement status: not required', () async {
       requirementStatus = 0;
       expect(await AdManager().isPrivacyOptionsRequired(), isFalse);
+    });
+  });
+
+  // Round-7 audit, MAJOR — Google's UMP form is a native activity / view
+  // controller, not a Flutter route, so `AdScreenRouteLogger.isDialogOnTop`
+  // cannot see it, and presenting it does not background the app either. So
+  // nothing stopped an interstitial, rewarded or App Open ad from being drawn
+  // over the consent form: the tap the consent choice needed lands on the ad,
+  // and an ad over a consent dialog is a policy violation of its own.
+  group('ads are locked while a UMP form is on screen (round 7)', () {
+    test('the fullscreen mutex is held for as long as the form is up',
+        () async {
+      requirementStatus = 1;
+      consentStatus = 3; // obtained
+      canRequestAdsNative = true;
+
+      String? reasonDuringForm;
+      bool busyDuringForm = false;
+      onShowForm = () {
+        reasonDuringForm = AdManager().debugFullscreenBusyReason;
+        busyDuringForm = AdManager().fullscreenBusy.value;
+      };
+
+      expect(AdManager().debugFullscreenBusyReason, isNull,
+          reason: 'sanity: nothing is holding the mutex before the form');
+
+      await AdManager().showPrivacyOptions();
+
+      expect(showFormInvoked, isTrue, reason: 'sanity: the form was presented');
+      expect(reasonDuringForm, 'a consent form is on screen');
+      expect(busyDuringForm, isTrue,
+          reason: 'the public mirror a host reads must agree with the mutex');
+      expect(AdManager().debugFullscreenBusyReason, isNull,
+          reason: 'and it must be released once the form is dismissed');
+    });
+
+    test('a form that is never required never holds the mutex', () async {
+      requirementStatus = 0;
+      consentStatus = 1;
+      onShowForm = () => fail('no form should be presented');
+
+      await AdManager().showPrivacyOptions();
+      expect(AdManager().debugFullscreenBusyReason, isNull);
     });
   });
 
