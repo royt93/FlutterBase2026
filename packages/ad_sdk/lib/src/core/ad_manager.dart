@@ -3457,6 +3457,19 @@ class AdManager with WidgetsBindingObserver {
     // watcher gives us an accurate dismiss instant — so suppressing app-open
     // for 5 s after any fullscreen ad covers the bounce-back UX without
     // starving legitimate background→foreground app-open impressions.
+    // M1 — the user left because they tapped an ad, so this resume is the
+    // return trip from the landing page, not a fresh app entry. Google's App
+    // Open policy calls this case out by name. Placed with the other
+    // attribution guards, i.e. ahead of the cold-start skip, so it returns
+    // without kicking off a refill.
+    if (AdSafetyConfig.consumeBackgroundedFromAdClick()) {
+      SafeLogger.d(
+          _tag,
+          () => '⏭️ skipping app-open on resume '
+              '(user is returning from an ad click)');
+      _emitSkip(AdSlotType.appOpen, 'show', 'returning-from-ad-click');
+      return;
+    }
     final dismissDelta =
         DateTime.now().millisecondsSinceEpoch - _lastFullscreenDismissAt;
     if (_lastFullscreenDismissAt > 0 && dismissDelta < 5000) {

@@ -634,8 +634,43 @@ class AdSafetyConfig {
   }
 
   /// Record that the user clicked an ad.
+  /// When an ad was last clicked, and whether the app then went to background
+  /// while that click was still fresh.
+  ///
+  /// M1 (round-6 audit) — clicks were recorded at 14 call sites but only ever
+  /// reached the click-spam window and the CTR counter, so nothing could answer
+  /// "did the user leave because they tapped an ad?". That is the case Google's
+  /// App Open policy names: tap a banner, the browser or store opens, come
+  /// back, and an App Open ad is waiting.
+  ///
+  /// A time window on the RESUME side would not work — a user can spend five
+  /// seconds or five minutes on the landing page, so any window is either
+  /// useless or starves legitimate App Opens. What is bounded is the other
+  /// half: the browser opens essentially immediately after the tap, so a
+  /// backgrounding within [_clickToBackgroundWindowMs] of a click is
+  /// attributable to it. The verdict is latched at that moment and read once on
+  /// the next resume, which makes the time away irrelevant.
+  static int _lastAdClickAt = 0;
+  static bool _backgroundedFromAdClick = false;
+
+  /// How soon after a click a backgrounding counts as caused by it. Deliberately
+  /// tight — this is tap-to-browser latency, not user dwell time. Not reusing
+  /// [AdSafetyParams.adToBackgroundSignalWindowMs] (5 min): that one is a
+  /// diagnostic signal for fullscreen ads, and at five minutes it would flag
+  /// almost any backgrounding that happened to follow a click.
+  static const int _clickToBackgroundWindowMs = 5000;
+
+  /// True when the last backgrounding followed an ad click closely enough to be
+  /// caused by it. Reading it clears the latch, so it gates exactly one resume.
+  static bool consumeBackgroundedFromAdClick() {
+    final v = _backgroundedFromAdClick;
+    _backgroundedFromAdClick = false;
+    return v;
+  }
+
   static void recordAdClick() {
     final now = DateTime.now().millisecondsSinceEpoch;
+    _lastAdClickAt = now;
     _totalClicks++;
     _clickTimestamps.add(now);
     _clickTimestamps.removeWhere((t) => now - t > 60000);
@@ -664,6 +699,13 @@ class AdSafetyConfig {
     _backgroundToResumeSignalPending = true;
     _pendingResumeGate = true;
     SafeLogger.d(_tag, '📊 App went to background');
+    // M1 — latch the ad-click attribution here, while the gap is still
+    // meaningful. See [_lastAdClickAt].
+    if (_lastAdClickAt > 0 && now - _lastAdClickAt <= _clickToBackgroundWindowMs) {
+      _backgroundedFromAdClick = true;
+      SafeLogger.d(_tag,
+          '📊 backgrounding attributed to an ad click ${now - _lastAdClickAt}ms ago');
+    }
     // T26 Phase 1: proxy signal (a) — did this backgrounding happen shortly
     // after a fullscreen ad? Diagnostic only, no cap is affected.
     // `_lastFullscreenAdTime` is never cleared once set (it's also read by
@@ -691,6 +733,12 @@ class AdSafetyConfig {
     // too — leaving it here meant clicks from before a reset still counted
     // toward the spam threshold afterward.
     _clickTimestamps.clear();
+    // M1 — same reasoning as the click-spam window directly above: a click
+    // from before the reset must not attribute a later backgrounding. Leaving
+    // these set made the very first test after an ad-click test skip App Open
+    // for a click that belonged to the previous session.
+    _lastAdClickAt = 0;
+    _backgroundedFromAdClick = false;
     // T24 re-audit fix: violation history is per-session, not a lifetime
     // ban — leaving it set here meant only the rarely-triggered
     // resetForReinit() ever cleared it, so a session reset (Reset button /

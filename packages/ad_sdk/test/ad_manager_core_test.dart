@@ -2392,6 +2392,52 @@ void main() {
       AdScreenRouteLogger.resetState();
     });
 
+    // M1 (round-6 audit, found independently by two auditors) — Google's App
+    // Open policy calls out returning from an ad click specifically: the user
+    // taps a banner, the browser or Play Store opens, they come back, and an
+    // App Open ad is waiting for them. Clicks were already recorded at 14 call
+    // sites, but only into the click-spam window and the CTR counter — the
+    // resume path read neither.
+    //
+    // These two tests are a PAIR on purpose. Cold start alone already forces
+    // `showAppOpenCalls == 0` here, so asserting that would pass with or
+    // without the fix. `loadAppOpenCalls` is the discriminator: the cold-start
+    // skip refills before returning, every guard ahead of it returns without
+    // loading. So "0 loads" proves we stopped at the new guard, and the
+    // baseline test proves the cold-start path really does load — without it,
+    // the first test would be untethered.
+    test('backgrounding right after an ad click suppresses App Open on resume',
+        () {
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      AdSafetyConfig.recordAdClick();
+      AdSafetyConfig.recordAppWentBackground();
+
+      AdManager().showAppOpenAdOnResume();
+
+      expect(adapter.showAppOpenCalls, 0);
+      expect(adapter.loadAppOpenCalls, 0,
+          reason: 'must return at the ad-click guard, which sits ahead of the '
+              'cold-start skip — the cold-start skip refills, so a nonzero '
+              'load count would mean the new guard never fired');
+    });
+
+    test('baseline: without an ad click the resume path reaches the refill',
+        () {
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      AdSafetyConfig.recordAppWentBackground();
+
+      AdManager().showAppOpenAdOnResume();
+
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1),
+          reason: 'anchors the test above: this path DOES load, so "0 loads" '
+              'there is evidence of the ad-click guard and not of some '
+              'unrelated early return');
+    });
+
     test('adapter null → no-op, never throws', () {
       AdManager().debugSetAdapter(null);
       expect(AdManager().showAppOpenAdOnResume, returnsNormally);
