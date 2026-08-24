@@ -568,6 +568,125 @@ in `setConsent`) turns it red: `Expected: a value greater than <1> Actual: <1>`
 
 Suite: 1103 green, device suite 5/5, `flutter analyze` clean (package + example).
 
+## Round 20 — the hardware found it, not a reviewer: a tighten must not need the network
+
+This one did not come out of a review. The round-19 device run went from 5/5 to
+2/5, and the log said why on every failing test:
+
+```
+[UmpConsent] ⚠️ requestConsentInfoUpdate failed: 2:Error making request.
+[AdManager]  📶 connectivity watch started (connected=false)
+[AdManager]  ⚠️ 🔐 init: device TCF personalisation=false disagrees with the applied consent (true) — gating ads until it is re-applied
+```
+
+and then nothing. The reconcile fired, shut the gate, handed the re-apply to
+`_recoverConsentGate()` — and the recovery's very first act is a UMP read. With
+UMP unreachable it logged "could not reach UMP — retrying" and returned **without
+applying anything**. Three retries later the debt was abandoned. Net effect on a
+device with no network, or during a UMP outage (which is a real thing — this is
+what the hardware actually did):
+
+* the withdrawal recorded in the device's own TCF keys never reached AdMob or
+  AppLovin, so both stayed configured for **personalised** ads under a refusal;
+* and the ad gate stayed shut for the whole session.
+
+Both halves of the same mistake: **the tighten direction was made to depend on a
+network round-trip.** It never needed one. Whether ads may be *personalised* is
+`statusAllows && tcfAllows`, so a `tcfAllows == false` settles that half on its
+own; UMP is only ever consulted for whether ads may be requested *at all*. The
+resume backstop had the identical bug in a nastier form: its UMP read was
+unbounded, and `_resumeAdWorkAfterConsent` caps the whole re-check at 5 s — so
+even where UMP eventually answered, the cap could cut the re-apply and the
+withdrawal survived the resume.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | `_recheckConsentOnResume` read UMP first, unbounded, with no `catch`. Offline (or slower than the caller's 5 s cap) the withdrawal was never applied. | The read is bounded at `_deviceWithdrawalUmpTimeout` (2 s, deliberately well inside the caller's 5 s) and wrapped: a failure logs and falls through to the apply with `ump == null`. |
+| Blocker | `_recoverConsentGate`'s UMP `catch` returned, so the re-apply the init reconcile had handed it never happened. | The `catch` now applies a withdrawal the device is already reporting — tighten-only, and only while this run still owns the debt (`_consentRecoveryStillOwns(epoch)`). |
+| Major | A debt whose three retries all burned while offline had nobody left to pay it: gate shut for the session even once the network was back. | `_onConnectivityChanged`'s reconnect branch pays an outstanding debt (`if (_recoveryStillOwed) _recoverConsentGate()`). Reconnect is the one event that says the read which failed can now succeed. |
+
+Both applies go through one new helper, `_applyDeviceWithdrawal(ump)`, so the
+policy lives in one place: `canRequestAds: ump?.canRequestAds ?? _canRequestAds`
+— without a UMP answer the gate is left **exactly as it is**, never guessed open
+— and `status: ConsentStatus.unknown` *unconditionally*, which
+`_umpStatusAllowsPersonalisation` maps to "personalisation not allowed", i.e. the
+tighten. It cannot grant: the only caller-side condition is
+`tcfAllows == false && _committedConsent.hasUserConsent`, the same tighten-only
+rule as everywhere else.
+
+### The reviewers' two Blockers on the fix itself
+
+codex scored the first cut **4/10, "not safe to push"** and both reviewers
+independently reported the same first item. Both are now fixed, each with its own
+red-proof test.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Blocker | `_applyDeviceWithdrawal(null)` reached with the gate **already shut** (the init reconcile shuts it, then hands the re-apply over) *extinguished the recovery debt*: `_updateCanRequestAds` clears `_pessimisticGateClose` on every deliberate gate write, and nothing else in the SDK ever reopens the gate. So the fix for a session-long outage caused one. | Re-arm after the apply: `if (!result.canRequestAds && !_canRequestAds) _pessimisticGateClose = true;`. |
+| Blocker | The re-check reads the device, then waits on UMP. A host `setConsent` landing in that window is the **newer** decision, and the apply pipeline recomputes `hasUserConsent` from its own fresh TCF read — so a re-apply built from the stale device state overwrote the host's own newer value. | `final epoch = _consentIntentEpoch;` captured **before** the UMP await, with a stand-down if it moved. The pipeline's own epoch check cannot cover this: it captures the epoch *after* the host write has landed. |
+| Blocker | The withdrawal still rested on the apply pipeline's **second** TCF read. `tcfAllowsPersonalisedAds()` returns `null` for "no TCF data" (a storage error, `gdprApplies` cleared under us) and `null` means *assume allowed* there — so a re-apply carrying a withdrawal came back out of the pipeline as a **grant**. | `status: ConsentStatus.unknown` is now passed unconditionally, never `ump.status`: every caller has already read the refusal off the device, so `statusAllows == false` settles personalisation with no second read involved. `canRequestAds` still comes from UMP, so non-personalised ads keep serving and the pipeline's own tighten branch closes the gate for the write and arms the debt that reopens it. |
+
+The first cut of the third fix pre-closed the gate inside `_applyDeviceWithdrawal`
+instead. That shut the right window but did **not** fix the bug — the pipeline
+still recomputed a grant and reopened — and its fake gate transition made
+`wasBlocked` true, so the reopen fired `_retryRefillAds()` and broke *a resume
+whose adapter was replaced mid-check touches neither* (round-13 round 4). Passing
+the fact in beats shutting a window around it.
+
+Red-proof, three tests in `test/tcf_personalisation_consent_test.dart`, each red
+on its own line and nothing else:
+
+| Test | Revert | Result |
+|---|---|---|
+| *a withdrawal is applied on resume even when UMP cannot be reached* | resume read back to unbounded + no `catch` | red |
+| *a gate debt whose UMP is unreachable still applies the device withdrawal* | recovery `catch` back to a bare `return` | red |
+| *a reconnect pays a gate debt that gave up while offline* | drop the reconnect kick | red |
+| *a host consent decision landing mid-re-check is not overwritten* | drop the epoch stand-down | red |
+| *a withdrawal survives a second TCF read that comes back empty* | `status:` back to `ump?.status ?? …` | red |
+| *an offline init reconcile applies the withdrawal even when the second TCF read comes back empty* | drop `knownTcfRefusal` from the offline branch | red |
+
+## Round 21 — the same fallible read, one level up
+
+agy scored the fixed round-20 change **10/10**. codex scored it **4/10, "not
+safe to push"**, on one Blocker, and it was right: passing
+`ConsentStatus.unknown` removed the dependency on a second TCF read *inside* the
+apply pipeline, but `_recoverConsentGate`'s own offline branch still re-read the
+keys to establish a refusal the init reconcile had read moments earlier —
+
+```dart
+if (await IabStorage.tcfAllowsPersonalisedAds() == false && …)
+```
+
+The failure: init reads `tcfAllows == false`, shuts the gate, hands the re-apply
+to the recovery. UMP is unreachable. That second read then throws or returns
+`null` (storage error, `gdprApplies` cleared) — `null` is not `false`, so
+`_applyDeviceWithdrawal(null)` is never reached and both providers keep the
+personalised configuration under a refusal the SDK had *already seen*, for the
+session.
+
+Fix: carry the fact instead of re-deriving it.
+`_recoverConsentGate({bool knownTcfRefusal = false})`, short-circuited
+(`knownTcfRefusal || await …`) so with the refusal in hand there is no second
+read to fail, threaded through `_scheduleConsentGateRecoveryRetry` so the bounded
+retries keep it, and passed as `true` by the init reconcile — the one caller that
+has already read the device.
+
+| Test | Revert | Result |
+|---|---|---|
+| *an offline init reconcile applies the withdrawal even when the second TCF read comes back empty* (`test/consent_init_reconcile_offline_test.dart`, new) | drop `knownTcfRefusal \|\|` from the offline branch | red |
+
+That test drives the real `initialize()` path (AppLovin provider — AdMob's
+adapter init cannot succeed under a mock channel), wedges `getConsentStatus` so
+the recovery parks on UMP, clears the TCF keys underneath it, then fails the
+channel: nothing but what the reconcile already read says "do not personalise".
+
+Suite: 1109 green, `flutter analyze` clean (package + example).
+
+The device half of this round is the round-19 hardware run itself: it is the log
+above that produced the finding. A clean device re-run needs UMP reachable again
+(the file's other assertions grant consent through the real UMP flow, which no
+amount of local fixing can do offline).
+
 ## On-device smoke test of the whole round (Pixel 7 Pro, 2026-08-23)
 
 Same device and debug geography as the round itself, running `3b99bca`:

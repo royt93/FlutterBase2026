@@ -149,15 +149,16 @@ void main() {
   // platform's own preference store, the plumbing a mocked store cannot prove.
   testWidgets('a withdrawal a teardown interrupted is reconciled at the next '
       'init', (tester) async {
-    // Session 1: the user consented and that is what is applied.
+    // Session 1: the user consented and that is what is applied. A host that
+    // owns its consent flow states it BEFORE init — the order the README
+    // requires, and the one that keeps this test independent of whether any
+    // earlier test managed to reach UMP's servers.
     await _writeTcf(_purposesAllow);
+    await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
       onComplete: (_, __) {},
     );
-    // Applied explicitly: the persisted consent this device carries from the
-    // other suites is not what this test is about.
-    await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     await tester.pump(const Duration(milliseconds: 500));
     expect(AdManager().consent.hasUserConsent, isTrue,
         reason: 'sanity: a consenting user is applied as consenting');
@@ -206,11 +207,11 @@ void main() {
     // The other half: no needless re-apply, and no gate shut, on the ordinary
     // start where device and applied state already agree.
     await _writeTcf(_purposesAllow);
+    await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
       onComplete: (_, __) {},
     );
-    await AdManager().requestUmpConsent();
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 250));
     }
@@ -231,18 +232,20 @@ void main() {
   // personalised ads are served against a refusal.
   testWidgets('an init with the host stricter than the device keeps ads '
       'flowing without granting', (tester) async {
+    // The host's own switch: personalisation off, ordinary ads still wanted,
+    // stated before init like any host that owns its consent flow.
     await _writeTcf(_purposesAllow);
+    await AdManager().setConsent(const AdConsent(hasUserConsent: false));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
       onComplete: (_, __) {},
     );
-    // The host's own switch: personalisation off, ordinary ads still wanted.
-    await AdManager().setConsent(const AdConsent(hasUserConsent: false));
     await tester.pump(const Duration(milliseconds: 500));
     await AdManager().destroy();
 
     // Next session. The device keys are still permissive and nothing here runs
     // a UMP flow, so the init reconcile is the only thing that looks at them.
+    await AdManager().setConsent(const AdConsent(hasUserConsent: false));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
       onComplete: (_, __) {},

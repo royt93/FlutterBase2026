@@ -1895,6 +1895,280 @@ void main() {
               'that gave up must not cost this one the session ads');
     });
 
+    // Round-20 QC (codex), BLOCKER — the re-check reads the device, then waits
+    // on UMP. A host `setConsent` that lands during that wait is the NEWER
+    // decision, and the apply pipeline recomputes `hasUserConsent` from its own
+    // fresh TCF read — so a re-apply queued from the stale device state used to
+    // overwrite the host's own newer value. Capture the intent epoch before the
+    // wait and stand down if it moved.
+    test('a host consent decision landing mid-re-check is not overwritten',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      // The device says refused, so the re-check goes on to ask UMP — the call
+      // we wedge, to hold it exactly in the window the race lives in.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final wedge = Completer<void>();
+      addTearDown(() {
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      statusGate = wedge;
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 10);
+
+      // The host speaks while the re-check is parked on UMP: a fresh grant,
+      // newer than the device state the re-check read a moment ago.
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      wedge.complete();
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'the host wrote last in real time, so its value is what must '
+              'be standing — a re-apply built from the device state read '
+              'BEFORE it is stale by construction');
+      expect(adapter.applied.last.hasUserConsent, isTrue,
+          reason: 'and the providers must hold the same value, not the stale '
+              'withdrawal: ${adapter.applied.map((c) => c.hasUserConsent)}');
+    });
+
+    // Round-20 QC (codex), BLOCKER — the withdrawal must not rest on the apply
+    // pipeline's own second TCF read. `tcfAllowsPersonalisedAds()` returns null
+    // for "no TCF data" (a storage error, or `gdprApplies` cleared under us),
+    // and null means "assume allowed" there — so a re-apply carrying a
+    // withdrawal came back out of the pipeline as a GRANT, leaving both
+    // providers personalised under a refusal the device had already reported.
+    test('a withdrawal survives a second TCF read that comes back empty',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue, reason: 'sanity');
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final wedge = Completer<void>();
+      addTearDown(() {
+        if (!wedge.isCompleted) wedge.complete();
+      });
+      statusGate = wedge;
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 10);
+
+      // The TCF keys go away entirely between the read that found the refusal
+      // and the pipeline's own read. UMP is still happy (`obtained`), so
+      // nothing but the refusal we already read says "do not personalise".
+      seedTcf({});
+      wedge.complete();
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the refusal was read off the device before the re-apply was '
+              'queued; a storage read failing afterwards cannot turn it back '
+              'into consent');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'and the provider must be reconfigured non-personalised: '
+              '${adapter.applied.map((c) => c.hasUserConsent)}');
+    });
+
+    // Round-20 QC, BLOCKER — a tighten must never depend on the network.
+    //
+    // Both the resume backstop and the gate recovery read UMP FIRST and gave up
+    // when it failed, so an offline device — or a UMP outage, which is a real
+    // thing on hardware: `2:Error making request.`, reproduced on a Pixel 7 Pro
+    // — kept the personalised configuration on both providers for the whole
+    // session. Whether ads may be PERSONALISED is decided by the TCF purposes
+    // alone; UMP only ever decides whether ads may be requested at all.
+    test('a withdrawal is applied on resume even when UMP cannot be reached',
+        () async {
+      addTearDown(() => statusThrows = false);
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      expect(AdManager().consent.hasUserConsent, isTrue, reason: 'sanity');
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+
+      // The CMP records the withdrawal, and the network goes away before the
+      // app is foregrounded again.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      statusThrows = true;
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager().consent.hasUserConsent, isFalse,
+          reason: 'the device is the record of what the user chose. A UMP that '
+              'cannot be reached is no reason to keep serving personalised '
+              'ads against a refusal for the rest of the session');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'and the provider itself has to be told, not just our cache');
+    });
+
+    test('a gate debt whose UMP is unreachable still applies the device '
+        'withdrawal', () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      addTearDown(() {
+        AdManager.debugConsentGateRecoveryRetryDelay = null;
+        AdManager.debugConsentWriteBarrier = null;
+        statusThrows = false;
+      });
+
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      privacyOptionsRequirement = _privacyOptionsRequired;
+
+      // Arm the guessed close the same way the rounds above do: a second flow
+      // queued behind a wedged write shuts the gate on a guess, and something
+      // has to come back for it.
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      // The user withdrew in the form, and the channel the recovery would ask
+      // is down. Armed only now so the forms above are not the ones that fail.
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      statusThrows = true;
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await pumpEventQueue(times: 20);
+      }
+
+      expect(adapter.applied, isNotEmpty,
+          reason: 'the recovery is the path the init reconcile hands its '
+              're-apply to — a UMP it cannot reach must not swallow the '
+              'withdrawal with it');
+      expect(adapter.applied.last.hasUserConsent, isFalse,
+          reason: 'personalisation off is exactly what the device reports, and '
+              'it needs no second opinion to be applied');
+
+      // ── And that apply must not swallow the debt on its way through. It
+      // tightens the gate, every deliberate gate write clears the debt flag,
+      // and nothing else in the SDK ever sets `canRequestAds` back to true — so
+      // without a re-arm the app is left with the withdrawal correctly applied
+      // and every ad surface dark for the rest of the session. Proven through
+      // the reconnect, because by now the three bounded retries have burned
+      // against the dead channel (that is the offline case: it lasts longer
+      // than the retry budget).
+      expect(AdManager().canRequestAds, isFalse, reason: 'sanity');
+      statusThrows = false;
+      AdManager().debugReconnectDebounce = const Duration(milliseconds: 20);
+      addTearDown(() => AdManager().debugReconnectDebounce =
+          const Duration(milliseconds: 800));
+      AdManager().debugConnectivityChanged(false);
+      AdManager().debugConnectivityChanged(true);
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await pumpEventQueue(times: 20);
+      }
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'personalisation off still allows non-personalised ads, and '
+              'the close the tighten left behind still owed a reopen');
+    });
+
+    // Round-20 QC, MAJOR — the retry budget is three attempts. A debt that
+    // burned all three while the device was offline had nobody left to pay it,
+    // so the gate stayed shut for the rest of the session even once the network
+    // was back and UMP was answering again.
+    test('a reconnect pays a gate debt that gave up while offline', () async {
+      AdManager.debugConsentGateRecoveryRetryDelay =
+          const Duration(milliseconds: 20);
+      AdManager().debugReconnectDebounce = const Duration(milliseconds: 20);
+      addTearDown(() {
+        AdManager.debugConsentGateRecoveryRetryDelay = null;
+        AdManager().debugReconnectDebounce = const Duration(milliseconds: 800);
+        AdManager.debugConsentWriteBarrier = null;
+        statusThrows = false;
+      });
+
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      privacyOptionsRequirement = _privacyOptionsRequired;
+
+      final stuck = Completer<void>();
+      AdManager.debugConsentWriteBarrier = stuck.future;
+      final first = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      final queued = AdManager().showPrivacyOptions();
+      await pumpEventQueue(times: 10);
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+      statusThrows = true;
+      AdManager.debugConsentWriteBarrier = null;
+      stuck.complete();
+      await first;
+      await queued;
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await pumpEventQueue(times: 20);
+      }
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'sanity: every retry burned against a dead channel');
+
+      // The network comes back. Nothing else in the SDK will ever set
+      // `canRequestAds` true again on its own.
+      statusThrows = false;
+      AdManager().debugConnectivityChanged(false);
+      AdManager().debugConnectivityChanged(true);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await pumpEventQueue(times: 20);
+      }
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'the reconnect is the one event that says the read which '
+              'failed can now succeed — without it every ad surface in the '
+              'app stays dark for the rest of the session');
+    });
+
     // Round-17 QC, MAJOR — a withdrawal that leaves ads ALLOWED closes the gate
     // for the duration of its write, and that close had no owner. When the
     // write was superseded by a host `setConsent`, the apply returned before

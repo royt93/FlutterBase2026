@@ -2369,7 +2369,8 @@ class AdManager with WidgetsBindingObserver {
         // something has to come back for it. [_recoverConsentGate] is the one
         // path that both re-applies a stricter device state and arms the
         // bounded retry when it cannot (and it times out its own UMP read).
-        unawaited(_recoverConsentGate().catchError((Object e) {
+        unawaited(_recoverConsentGate(knownTcfRefusal: true)
+            .catchError((Object e) {
           SafeLogger.w(_tag, 'init consent reconcile threw: $e');
         }));
       }
@@ -3356,7 +3357,14 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// Costs nothing on the ordinary path: the gate is already open by the time
   /// this runs, so it returns before touching UMP.
-  Future<void> _recoverConsentGate() async {
+  /// [knownTcfRefusal] says the caller has ALREADY read a TCF personalisation
+  /// refusal off the device (the init reconcile does exactly that before
+  /// handing the re-apply over). Round-21 QC (codex), BLOCKER — without it the
+  /// offline branch below re-read the same keys to establish a fact it was
+  /// already given, and that read can throw or come back `null` (a storage
+  /// error, `gdprApplies` cleared under us): the withdrawal was then silently
+  /// dropped and both providers stayed personalised under a refusal.
+  Future<void> _recoverConsentGate({bool knownTcfRefusal = false}) async {
     if (!_recoveryStillOwed) return;
     if (_consentGateRecovering) return;
     _consentGateRecovering = true;
@@ -3382,6 +3390,21 @@ class AdManager with WidgetsBindingObserver {
         // surface would stay dark exactly as if this recovery were not here.
         SafeLogger.w(_tag,
             '🔐 consent gate recovery could not reach UMP ($e) — retrying');
+        // Round-20 QC, BLOCKER — retrying settles the GATE. It does not settle
+        // a withdrawal the device is already reporting, and this is the path
+        // the init reconcile hands its re-apply to, so returning here left the
+        // providers personalised under a refusal until UMP came back — three
+        // retries, then never. Tightening needs no UMP; see
+        // [_applyDeviceWithdrawal].
+        // Short-circuit on purpose: with the refusal already in hand there is
+        // no second read to fail.
+        final refuses = knownTcfRefusal ||
+            await IabStorage.tcfAllowsPersonalisedAds() == false;
+        if (refuses &&
+            _committedConsent.hasUserConsent &&
+            _consentRecoveryStillOwns(epoch)) {
+          await _applyDeviceWithdrawal(null);
+        }
         return;
       }
       // Round-14 QC, MAJOR — ownership is re-checked before ANY write this
@@ -3416,10 +3439,7 @@ class AdManager with WidgetsBindingObserver {
             _tag,
             '🔐 consent gate was left shut with nothing to reopen it and the '
             'applied state disagrees with the device — re-applying');
-        await _applyPrivacyOptionsResult(PrivacyOptionsResult(
-          canRequestAds: ump.canRequestAds,
-          status: ump.status,
-        ));
+        await _applyDeviceWithdrawal(ump);
         return;
       }
       SafeLogger.w(
@@ -3454,7 +3474,7 @@ class AdManager with WidgetsBindingObserver {
       // a guessed close permanent — every ad surface dark for the session.
       _consentGateRecovering = false;
       if (_recoveryStillOwed && _consentGateRecoveryRetry?.isActive != true) {
-        _scheduleConsentGateRecoveryRetry();
+        _scheduleConsentGateRecoveryRetry(knownTcfRefusal: knownTcfRefusal);
       }
     }
   }
@@ -3502,7 +3522,7 @@ class AdManager with WidgetsBindingObserver {
   int _consentGateRecoveryAttempts = 0;
   Timer? _consentGateRecoveryRetry;
 
-  void _scheduleConsentGateRecoveryRetry() {
+  void _scheduleConsentGateRecoveryRetry({bool knownTcfRefusal = false}) {
     if (_consentGateRecoveryAttempts >= _maxConsentGateRecoveryAttempts) {
       SafeLogger.e(
           _tag,
@@ -3516,7 +3536,8 @@ class AdManager with WidgetsBindingObserver {
     _consentGateRecoveryRetry = Timer(
         debugConsentGateRecoveryRetryDelay ?? _consentGateRecoveryRetryDelay,
         () {
-      unawaited(_recoverConsentGate().catchError((Object e) {
+      unawaited(_recoverConsentGate(knownTcfRefusal: knownTcfRefusal)
+          .catchError((Object e) {
         SafeLogger.w(_tag, '_recoverConsentGate retry threw: $e');
       }));
     });
@@ -3659,6 +3680,63 @@ class AdManager with WidgetsBindingObserver {
   static bool _umpStatusAllowsPersonalisation(ConsentStatus status) =>
       status == ConsentStatus.obtained || status == ConsentStatus.notRequired;
 
+  /// Round-20 QC, BLOCKER — how long a *tighten* may wait for UMP before going
+  /// ahead without it. Well inside [_resumeConsentRecheckTimeout] on purpose:
+  /// the caller's own cap must never be the thing that stops a withdrawal from
+  /// reaching the providers.
+  static const Duration _deviceWithdrawalUmpTimeout = Duration(seconds: 2);
+
+  /// Round-20 QC, BLOCKER — apply a withdrawal the device's own TCF keys
+  /// already report, with or without a UMP answer to go on.
+  ///
+  /// Whether ads may be PERSONALISED is `statusAllows && tcfAllows`, so a
+  /// refusal in the TCF keys settles that half on its own; UMP is only ever
+  /// consulted for whether ads may be requested AT ALL. Both callers used to
+  /// read UMP FIRST and give up when it failed, so a device with no network —
+  /// or a UMP outage, which is a real thing on hardware: `2:Error making
+  /// request.`, reproduced on a Pixel 7 Pro — kept the personalised
+  /// configuration on both providers for the whole session. That is the exact
+  /// violation the resume backstop and the init reconcile exist to prevent,
+  /// and the one direction that must never depend on a network round-trip.
+  ///
+  /// [ump] is whatever answer we did manage to get, or null. Without one the
+  /// ad gate is left exactly as it is rather than guessed either way: this
+  /// path only ever tightens personalisation, and widening `canRequestAds`
+  /// without evidence is what the recovery debt is for.
+  Future<void> _applyDeviceWithdrawal(UmpConsentResult? ump) async {
+    final result = PrivacyOptionsResult(
+      canRequestAds: ump?.canRequestAds ?? _canRequestAds,
+      // Round-20 QC (codex), BLOCKER — deliberately NOT `ump.status`, even when
+      // UMP answered. Every caller of this method has already read a TCF
+      // refusal off the device, and `unknown` is the one status
+      // [_umpStatusAllowsPersonalisation] maps to "personalisation not
+      // allowed" — so the withdrawal is settled by what we read, not by the
+      // pipeline's own second TCF read. That read can throw or come back null
+      // (`gdprApplies` cleared under us, a storage error), and `null` means
+      // "assume allowed": a re-apply that was supposed to carry a withdrawal
+      // used to come back out of the pipeline as a GRANT, leaving both
+      // providers personalised under a refusal.
+      //
+      // `canRequestAds` above still comes from UMP: personalisation is off,
+      // but non-personalised ads may keep serving, and the pipeline's own
+      // tighten branch closes the gate for the duration of the write and arms
+      // the recovery debt that reopens it.
+      status: ConsentStatus.unknown,
+    );
+    await _applyPrivacyOptionsResult(result);
+    // Round-20 QC — reached with the gate ALREADY shut (the init reconcile shut
+    // it, then handed the re-apply here), this apply tightens rather than
+    // reopens, and every deliberate gate write clears the debt flag — see
+    // [_updateCanRequestAds]. So re-arm it: nothing else in the SDK ever sets
+    // `_canRequestAds` back to true, and a debt with no owner is a shut gate
+    // for the rest of the session. Safe even if the close turns out to be a
+    // real restrictive one: [_recoverConsentGate] settles that itself the next
+    // time UMP answers `canRequestAds: false`.
+    if (!result.canRequestAds && !_canRequestAds) {
+      _pessimisticGateClose = true;
+    }
+  }
+
   /// Round-13 (device verification) BLOCKER, backstop half — re-apply consent
   /// on resume when the device disagrees with what is applied.
   ///
@@ -3691,19 +3769,46 @@ class AdManager with WidgetsBindingObserver {
     // normal consent paths are for.
     if (tcfAllows) return;
 
-    final ump = await core_ump.recheckUmpConsentStatus();
-    final expected = _umpStatusAllowsPersonalisation(ump.status) && tcfAllows;
-    if (expected == applied.hasUserConsent) return;
+    // Round-20 QC (codex), BLOCKER — captured BEFORE the UMP await below. A
+    // host `setConsent` (a parental toggle, a CCPA switch) that lands while we
+    // wait is a newer decision than this re-apply, and the apply pipeline
+    // re-reads the TCF keys for itself — so if they had flipped permissive by
+    // then, this "withdrawal" came back out of the pipeline as a GRANT written
+    // over the host's own stricter value. The host's value is already applied
+    // by `setConsent` itself, so standing down is all that is needed.
+    final epoch = _consentIntentEpoch;
+    // Round-20 QC, BLOCKER — bounded, and the withdrawal lands either way. An
+    // unbounded read here was cut by [_resumeAdWorkAfterConsent]'s 5s cap (or
+    // threw outright, offline), and the whole re-apply went down with it — so
+    // the withdrawal survived as personalised ads for the rest of the session.
+    // See [_applyDeviceWithdrawal].
+    UmpConsentResult? ump;
+    try {
+      ump = await core_ump
+          .recheckUmpConsentStatus()
+          .timeout(_deviceWithdrawalUmpTimeout);
+    } catch (e) {
+      SafeLogger.w(
+          _tag,
+          '🔐 resume: UMP could not be reached ($e) — applying the device '
+          'withdrawal without it');
+    }
+
+    if (epoch != _consentIntentEpoch) {
+      SafeLogger.w(
+          _tag,
+          '🔐 resume: a host consent decision landed while this re-check was '
+          'reading the device (epoch=$epoch, now=$_consentIntentEpoch) — '
+          'standing down, the host value is the newer one');
+      return;
+    }
 
     SafeLogger.w(
         _tag,
         '🔐 resume: device consent state disagrees with what is applied '
-        '(TCF personalisation=$tcfAllows, UMP status=${ump.status.name}, '
+        '(TCF personalisation=$tcfAllows, UMP status=${ump?.status.name}, '
         'applied hasUserConsent=${applied.hasUserConsent}) — re-applying');
-    await _applyPrivacyOptionsResult(PrivacyOptionsResult(
-      canRequestAds: ump.canRequestAds,
-      status: ump.status,
-    ));
+    await _applyDeviceWithdrawal(ump);
   }
 
   /// Show the iOS App Tracking Transparency prompt when needed and return the
@@ -5413,6 +5518,15 @@ class AdManager with WidgetsBindingObserver {
           SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
           unawaited(_retryUmpConsent());
         }
+      }
+      // Round-20 QC, MAJOR — a debt whose retries all failed offline had
+      // nobody left to pay it: the gate stayed shut for the session even
+      // though the network is back and UMP is answering again. This is the
+      // one event that says the read which failed can now succeed.
+      if (_recoveryStillOwed) {
+        unawaited(_recoverConsentGate().catchError((Object e) {
+          SafeLogger.w(_tag, '_recoverConsentGate (reconnect) threw: $e');
+        }));
       }
       _retryRefillAds();
       // Banners re-run their init on an initRevision bump (the widget checks
