@@ -4,7 +4,12 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.4] - 2026-08-24
+
+Nine further QC rounds (13-22) on the consent path alone, all of them driven by
+on-device verification rather than by the unit suite. Both final reviewers
+scored the result 10/10 with zero findings. Verified on a Samsung A50 and a
+Samsung A11 (the consent resume backstop, 5/5 on each).
 
 ### Fixed
 
@@ -20,6 +25,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   choice, and every app resume re-applies consent when the device's IAB TCF
   state disagrees with what the providers were told — so a withdrawal cannot be
   lost even if the dismiss callback never arrives at all.
+- **A consent withdrawal now applies with no network at all.** The re-apply that
+  carries a withdrawal used to re-read the device's TCF state a second time, and
+  used to wait on UMP unbounded. Offline, or during a UMP outage, that second
+  read could throw or come back empty — and "no TCF data" means "assume
+  allowed", so a re-apply that was meant to carry a refusal came back out of the
+  pipeline as a grant, leaving both providers personalised under a user's
+  refusal. The withdrawal is now settled by the refusal the caller already read:
+  the UMP read is bounded to 2 s and optional, the ad gate is closed for the
+  duration of the write and reopened by an owed-recovery debt that a reconnect
+  also pays, and a newer host `setConsent` landing mid-check always wins.
 
 ## [2.3.3] - 2026-08-23
 
