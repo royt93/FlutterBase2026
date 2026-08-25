@@ -1352,6 +1352,23 @@ class AdMobAdapter implements AdProviderAdapter {
               _disposeAd(ad, 'rewarded-after-dismiss');
               rewardedSlot.markDismissed();
               if (!earned) fire(RewardResult.skipped);
+              // AdMob fires `onUserEarnedReward` BEFORE `onAdDismissed`, so
+              // AdManager's post-show `loadRewardedAd()` — hung off the reward
+              // callback — runs while `_rewardedAd` is still cached and fresh.
+              // `loadRewarded()` early-returns on that cached pointer, and by the
+              // time we get here nobody reloads again: the slot was left empty
+              // for the rest of the session, so the second "watch ad for a
+              // reward" tap silently did nothing. Reload here, where the spent
+              // ad is already cleared. `canReload` is AdManager's own gate
+              // (VIP / daily cap / consent / network), so this cannot request
+              // an ad it should not, and the watchdog is armed by hand because
+              // this path bypasses AdManager.loadRewardedAd's own — same reasoning as
+              // the AppLovin adapter's `onAdHiddenCallback`.
+              if (canReload()) {
+                unawaited(loadRewarded());
+                rewardedSlot
+                    .armLoadWatchdog('rewarded', const Duration(seconds: 30));
+              }
             },
             onFailedToShow: (message) {
               SafeLogger.w(
@@ -1528,6 +1545,23 @@ class AdMobAdapter implements AdProviderAdapter {
               _disposeAd(ad, 'rewardedInterstitial-after-dismiss');
               rewardedInterstitialSlot.markDismissed();
               if (!earned) fire(RewardResult.skipped);
+              // AdMob fires `onUserEarnedReward` BEFORE `onAdDismissed`, so
+              // AdManager's post-show `loadRewardedAd()` — hung off the reward
+              // callback — runs while `_rewardedAd` is still cached and fresh.
+              // `loadRewardedInterstitial()` early-returns on that cached pointer, and by the
+              // time we get here nobody reloads again: the slot was left empty
+              // for the rest of the session, so the second "watch ad for a
+              // reward" tap silently did nothing. Reload here, where the spent
+              // ad is already cleared. `canReload` is AdManager's own gate
+              // (VIP / daily cap / consent / network), so this cannot request
+              // an ad it should not, and the watchdog is armed by hand because
+              // this path bypasses AdManager.loadRewardedInterstitialAd's own — same reasoning as
+              // the AppLovin adapter's `onAdHiddenCallback`.
+              if (canReload()) {
+                unawaited(loadRewardedInterstitial());
+                rewardedInterstitialSlot
+                    .armLoadWatchdog('rewardedInterstitial', const Duration(seconds: 30));
+              }
             },
             onFailedToShow: (message) {
               SafeLogger.w(_logTag,

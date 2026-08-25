@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.3.4] - 2026-08-24
+## [2.3.4] - 2026-08-25
 
 Nine further QC rounds (13-22) on the consent path alone, all of them driven by
 on-device verification rather than by the unit suite. Both final reviewers
@@ -12,6 +12,19 @@ scored the result 10/10 with zero findings. Verified on a Samsung A50 and a
 Samsung A11 (the consent resume backstop, 5/5 on each).
 
 ### Fixed
+
+- **A rewarded ad can now be watched more than once per session (AdMob).**
+  Found by an on-device smoke test with real AdMob test ads, not by the suite:
+  AdMob delivers `onUserEarnedReward` *before* `onAdDismissed`, and the reload
+  hung off the reward callback — so it ran while the spent ad was still cached
+  and did nothing, and no second reload ever came. After one completed rewarded
+  ad the slot stayed empty for the rest of the session, so the next "watch an
+  ad for a reward" tap silently did nothing until the app was restarted. The
+  refill now happens on dismissal, where the spent ad is already cleared, and
+  still goes through AdManager's own gate (VIP / daily cap / consent / network).
+  Rewarded Interstitial had the identical shape and is fixed with it. The
+  AppLovin adapter was never affected — it reloads inside its own
+  `onAdHiddenCallback`.
 
 - **Withdrawing consent through the Privacy Options form now applies even when
   the form is open for a long time.** Found by on-device verification (Pixel 7

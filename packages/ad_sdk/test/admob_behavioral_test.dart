@@ -349,6 +349,43 @@ void main() {
           reason: 'reward must fire once (earned wins over dismiss)');
     });
 
+    // Found by on-device smoke test on 2026-08-25 (OPPO CPH1989, real AdMob
+    // test ads): cycle 1 of rewarded_ad_test.dart passed and cycle 2 failed
+    // with "rewarded ad must reload and finish loading before Cycle 2 show".
+    // AdMob delivers `onUserEarnedReward` BEFORE `onAdDismissed`, and
+    // AdManager's reload hangs off the reward callback — so it ran against the
+    // still-cached ad and no-op'd, and the slot stayed empty for the whole
+    // session. The AppLovin adapter never had this because it reloads inside
+    // its own `onAdHiddenCallback`.
+    test('earn-then-dismiss refills the slot for the next show', () async {
+      await adapter.loadRewarded();
+      final first = bridge.lastRewarded!;
+      await adapter.showRewarded(onDone: (_) {});
+
+      first.shown!.onUserEarnedReward!(10, 'coins');
+      first.shown!.onDismissed!();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bridge.lastRewarded, isNot(same(first)),
+          reason: 'the dismiss must request a fresh rewarded ad');
+      expect(adapter.rewardedSlot.isReady, isTrue,
+          reason: 'the refilled slot must be showable again');
+    });
+
+    test('a dismiss with the AdManager gate closed does NOT reload', () async {
+      await adapter.loadRewarded();
+      final first = bridge.lastRewarded!;
+      await adapter.showRewarded(onDone: (_) {});
+      // VIP / daily cap / consent-not-granted / offline all come through here.
+      adapter.canReload = () => false;
+
+      first.shown!.onUserEarnedReward!(10, 'coins');
+      first.shown!.onDismissed!();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bridge.lastRewarded, same(first),
+          reason: 'a closed gate must never be bypassed by the refill');
+    });
     test('dismiss WITHOUT earning → skipped (no reward)', () async {
       await adapter.loadRewarded();
       RewardResult? result;
