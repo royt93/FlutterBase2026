@@ -122,8 +122,9 @@ void main() {
     expect(AdManager().consent.hasUserConsent, isTrue,
         reason: 'nothing has told the SDK yet — that is the whole problem');
 
+    // No pump between the two — a pump issued while the app state is
+    // `paused` can wait on a frame the scheduler will not produce.
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pump(const Duration(milliseconds: 100));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
 
     var withdrawn = false;
@@ -277,8 +278,9 @@ void main() {
     await AdManager().requestUmpConsent();
     expect(AdManager().consent.hasUserConsent, isTrue);
 
+    // No pump between the two — a pump issued while the app state is
+    // `paused` can wait on a frame the scheduler will not produce.
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pump(const Duration(milliseconds: 100));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 250));

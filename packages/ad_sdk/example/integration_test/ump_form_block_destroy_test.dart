@@ -38,6 +38,17 @@ AdConfig _admobConfig() => const AdConfig(
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
       ),
       safety: AdSafetyParams(dryRun: true),
+      // The SDK's own UMP flow is switched off here on purpose. This test owns
+      // the form-on-screen counter (`markUmpFormOnScreen`) and asserts it
+      // drops back to zero on `release()`; with the automatic flow on, a device
+      // that answers `status: required` — every iOS Simulator, which can never
+      // present the form at all ("9:The provided view controller is already
+      // presenting another view controller") — takes a second count of its own
+      // inside `requestUmpConsentFlow`, so `release()` leaves the mutex held by
+      // the SDK's still-outstanding form and the assertion reads as a
+      // regression it is not. What is under test is the counter surviving
+      // destroy()/initialize(), not UMP.
+      autoRequestUmpConsent: false,
     );
 
 void main() {

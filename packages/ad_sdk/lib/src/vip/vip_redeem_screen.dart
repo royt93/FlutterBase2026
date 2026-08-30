@@ -21,6 +21,12 @@ class VipRedeemStrings {
     this.successTitle = 'VIP activated 🎉',
     this.keyAlreadyUsed = 'This key has already been used on this device.',
     this.failedMessage = 'The VIP key you entered is invalid or expired.',
+    // Round-25 QC round 14, on-device — a network refusal used to reuse
+    // `failedMessage`, telling the user a good key was dead. See
+    // `SignedVipRedeemResult.isOffline`.
+    this.offlineMessage =
+        'No internet connection. Connect and try again — your key is still '
+        'valid.',
     this.watchAdSuccess = '+3 days VIP added 🎉',
     this.watchAdFailed = 'No rewarded ad available. Please try again later.',
     this.revoke = 'Revoke',
@@ -78,6 +84,7 @@ class VipRedeemStrings {
       successTitle,
       keyAlreadyUsed,
       failedMessage,
+      offlineMessage,
       watchAdSuccess,
       watchAdFailed,
       revoke,
@@ -279,7 +286,10 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
           _showSnack(_s.keyAlreadyUsed);
           break;
         case VipRedeemStatus.invalid:
-          _showSnack(_s.failedMessage);
+          // `isOffline` narrows the one status that covers both "bad key" and
+          // "no network" — see SignedVipRedeemResult.offline for why this is a
+          // flag and not a new enum value.
+          _showSnack(result.isOffline ? _s.offlineMessage : _s.failedMessage);
           break;
       }
       _refreshEntries();
@@ -307,7 +317,20 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
       final earned = await rewardCompleter.future;
       if (!mounted) return;
       if (earned) {
-        await vip.addVip(
+        // Round-25 QC round 20 (`codex`, hypothesis — promoted) — re-read the
+        // manager instead of trusting the one captured before the ad. A rewarded
+        // ad is on screen for 15-30s, which is ample time for the host to switch
+        // provider or re-initialise the SDK; the captured manager is then
+        // discarded, its `_save()` drops the grant, and this screen would still
+        // play the confetti and claim success for an ad the user really watched.
+        // Granting through whichever manager is live now is what gives them what
+        // they earned.
+        final live = AdManager().vip;
+        if (live == null) {
+          _showSnack(_s.sdkNotReady);
+          return;
+        }
+        await live.addVip(
           key: widget.rewardKey,
           duration: widget.rewardWatchAdDuration,
           stack: true,
@@ -935,6 +958,13 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
   }
 
   Widget _buildEntriesSection(List<VipEntry> entries) {
+    // [VipEntry.isActive] reads the raw device clock, deliberately — this list
+    // and [_pickPrimaryActiveEntry] are display only. They do not decide
+    // entitlement (`VipManager._isLive` does, and it consults the anti-rollback
+    // high-water mark as well), so the two can disagree while a clock is being
+    // tampered with. Routing the UI through the manager's answer instead is not
+    // an improvement: an entry the manager is temporarily suppressing is still
+    // worth showing the honest customer whose device clock was fast.
     final visible = entries.where((e) => e.isActive).toList();
     if (visible.isEmpty) return _buildEmptyEntriesCard();
     return Column(

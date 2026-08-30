@@ -457,4 +457,53 @@ class AdPreferences {
   Future<void> setVipRevocationPublicKey(String publicKeyBase64) async {
     await _prefs?.setString(_keyVipRevocationKey, publicKeyBase64);
   }
+
+  // Round-25 QC round 22 (`codex`, MAJOR) — the raw CRL and the public key it
+  // was verified against are ONE fact, and storing them as two keys made them
+  // separable: a process death between the two writes, or two managers
+  // interleaving their writes, left a CRL paired with the wrong key. Nothing
+  // ever noticed — the next launch simply failed to verify the cached CRL and
+  // fell open with an EMPTY revoked set, so a refunded or resold key was
+  // redeemable again until some later refresh happened to succeed. One value,
+  // one write: a torn write can only lose the update, never mismatch it.
+  static const String _keyVipRevocationPair = 'ad_sdk_vip_revocation_v2';
+
+  /// The cached CRL together with the key it verified under, or null when
+  /// nothing usable is stored.
+  ///
+  /// Falls back to the pre-v2 pair of keys so an app upgrading in place keeps
+  /// its cache; that pair can be mismatched, which is exactly what the read
+  /// below cannot detect and the caller's signature check will.
+  ({String raw, String publicKey})? getVipRevocationCache() {
+    final packed = _prefs?.getString(_keyVipRevocationPair);
+    if (packed != null) {
+      try {
+        final map = jsonDecode(packed);
+        if (map is Map) {
+          final raw = map['raw'];
+          final key = map['key'];
+          if (raw is String && key is String && raw.isNotEmpty && key.isNotEmpty) {
+            return (raw: raw, publicKey: key);
+          }
+        }
+      } catch (e) {
+        SafeLogger.w('AdPreferences', 'VIP revocation cache unreadable: $e');
+      }
+      // A present-but-unusable v2 value is a final answer: falling back to the
+      // legacy keys here would resurrect exactly the stale pair v2 replaced.
+      return null;
+    }
+    final raw = _prefs?.getString(_keyVipRevocationCache);
+    final key = _prefs?.getString(_keyVipRevocationKey);
+    if (raw == null || key == null) return null;
+    return (raw: raw, publicKey: key);
+  }
+
+  Future<void> setVipRevocationCache({
+    required String raw,
+    required String publicKey,
+  }) async {
+    await _prefs?.setString(_keyVipRevocationPair,
+        jsonEncode(<String, String>{'raw': raw, 'key': publicKey}));
+  }
 }

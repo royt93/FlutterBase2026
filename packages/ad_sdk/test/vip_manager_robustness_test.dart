@@ -34,6 +34,13 @@ void main() {
     store = _FakeVipEntriesStore(prefs);
     // Shared singleton store → wipe persisted entries for a clean slate.
     await VipManager(prefs, vipEntriesStore: store).revokeAll();
+    // …and the anti-rollback high-water mark, which revokeAll() deliberately
+    // does NOT clear (a wipe must not hand an abuser a fresh clock). Several
+    // tests below park it in the future on purpose; without this reset the
+    // next test inherits that parked mark and its grants get stamped a year
+    // out, which the MJ9 start guard then correctly suppresses.
+    await prefs.setVipMaxObservedClockMs(
+        DateTime.now().millisecondsSinceEpoch);
   });
 
   group('non-positive duration rejected', () {
@@ -191,14 +198,13 @@ void main() {
   });
 
   group('VipEntry ISO8601 encoding preserves the exact instant', () {
-    // NOTE on naming: [VipEntry.toJson] calls the plain `DateTime.toIso8601String()`
-    // on whatever zone it was given — an explicitly-UTC DateTime encodes with
-    // a `Z` suffix, a local DateTime (what VipManager actually stores, via
-    // `DateTime.now()`) encodes with a zone-less local timestamp. Dart's
-    // `DateTime.parse` round-trips either form correctly (it respects the
-    // suffix), so persistence is instant-safe either way. This group locks in
-    // that round-trip guarantee for both zones so a future change can't
-    // silently break it.
+    // Round-23 audit, MAJOR — [VipEntry.toJson] now always stamps UTC (`Z`),
+    // whatever zone the DateTime carried, and [VipEntry.fromJson] converts
+    // back to local. Before that a grant written as a zone-less local
+    // timestamp was re-read in whatever zone the device was in next, so the
+    // stored instant moved on DST rollover or westward travel — and
+    // `_purgeExpired()` then deleted it for good. This group locks in the
+    // zone-explicit encoding AND that the instant survives the round trip.
     test('an explicitly-UTC entry round-trips through JSON with a Z suffix',
         () {
       final entry = VipEntry(
@@ -211,9 +217,22 @@ void main() {
       expect(json['grantedAt'], endsWith('Z'));
 
       final back = VipEntry.fromJson(json);
-      expect(back.expiresAt.isUtc, isTrue);
-      expect(back.expiresAt, entry.expiresAt);
-      expect(back.grantedAt, entry.grantedAt);
+      // Handed back as local (the in-memory contract every caller relies on),
+      // but the same absolute instant.
+      expect(back.expiresAt.isUtc, isFalse);
+      expect(back.expiresAt.isAtSameMomentAs(entry.expiresAt), isTrue);
+      expect(back.grantedAt.isAtSameMomentAs(entry.grantedAt), isTrue);
+    });
+
+    test('a local entry is persisted with a zone marker, not zone-less', () {
+      final json = VipEntry(
+        key: 'LOCAL_CHECK',
+        expiresAt: DateTime(2026, 1, 1, 12, 30),
+        grantedAt: DateTime(2025, 12, 31, 12, 30),
+      ).toJson();
+      // The whole point: a reader in ANY zone resolves this to one instant.
+      expect(json['expiresAt'], endsWith('Z'));
+      expect(json['grantedAt'], endsWith('Z'));
     });
 
     test(
@@ -303,6 +322,119 @@ void main() {
           reason: 'a clock rolled back into the granted window after the '
               'entry was observed to have already expired must NOT '
               'resurrect it');
+    });
+  });
+
+  group('MJ9 — a clock parked in the future cannot mint a permanent VIP', () {
+    // The exploit the [VipManager._isLive] guard closes. Before round 24 the
+    // high-water mark was the ONLY clock consulted, so:
+    //   1. set the device clock a year forward,
+    //   2. redeem any grant (its grantedAt/expiresAt get stamped a year out,
+    //      and the mark is left parked a year out too),
+    //   3. put the clock back to the real time.
+    // Every later check compared the entry against that same poisoned mark,
+    // which agreed the entry was mid-window — so a 10-day grant never
+    // expired. Requiring the entry to have STARTED according to the raw
+    // device clock breaks step 3: the abuser has to give the device a usable
+    // clock, and against that clock the grant has not begun.
+    test('a grant stamped a year ahead is NOT active once the clock is '
+        'usable again', () async {
+      final farFuture = DateTime.now().add(const Duration(days: 365));
+      await prefs.setVipMaxObservedClockMs(farFuture.millisecondsSinceEpoch);
+
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+      await mgr.addVip(key: 'MJ9', duration: const Duration(days: 10));
+
+      // The mark is deliberately left parked in the future — that is the
+      // whole point. _effectiveNow() still answers with it, so the ONLY
+      // thing that can reject this entry is the raw-clock start guard.
+      final reloaded = VipManager(prefs, vipEntriesStore: store);
+      await reloaded.load();
+      addTearDown(reloaded.dispose);
+
+      expect(reloaded.isActive, isFalse,
+          reason: 'an entry whose granted window has not begun on the real '
+              'device clock must not entitle anything');
+      expect(reloaded.expiresAt, isNull,
+          reason: 'expiresAt reports the latest LIVE entry — a not-yet-'
+              'started one must not be reported as the active window');
+    });
+
+    test('the suppressed entry is kept, not deleted', () async {
+      final farFuture = DateTime.now().add(const Duration(days: 365));
+      await prefs.setVipMaxObservedClockMs(farFuture.millisecondsSinceEpoch);
+
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+      await mgr.addVip(key: 'PAID-FAST-CLOCK', duration: const Duration(days: 10));
+
+      final reloaded = VipManager(prefs, vipEntriesStore: store);
+      await reloaded.load();
+      addTearDown(reloaded.dispose);
+
+      // Same suppression as the test above, but this is also the honest case:
+      // a customer whose device clock was genuinely fast when they paid. The
+      // guard must not reach _purgeExpired() — losing the row would destroy a
+      // real entitlement instead of postponing it.
+      expect(reloaded.isActive, isFalse);
+      expect(reloaded.entries.map((e) => e.key), contains('PAID-FAST-CLOCK'),
+          reason: 'suppress, never delete — the entry has to survive so it '
+              'becomes live again once the real clock reaches its window');
+    });
+
+    test('the slack boundary is where it says it is', () async {
+      // Round-25 reviewer minor: the honest-clock test below only proves a
+      // point well inside the slack, so a slack accidentally widened to a year
+      // would still pass it. Pin both sides of the edge instead.
+      Future<bool> activeWithMarkLead(String key, Duration lead) async {
+        await prefs.setVipMaxObservedClockMs(
+            DateTime.now().add(lead).millisecondsSinceEpoch);
+        final m = VipManager(prefs, vipEntriesStore: store);
+        await m.load();
+        addTearDown(m.dispose);
+        await m.addVip(key: key, duration: const Duration(days: 3));
+        final active = m.isActive;
+        await m.revokeAll();
+        return active;
+      }
+
+      expect(
+          await activeWithMarkLead('INSIDE',
+              VipManager.futureGrantSlack - const Duration(minutes: 1)),
+          isTrue,
+          reason: 'a grant stamped just inside the slack must be live');
+      expect(
+          await activeWithMarkLead('OUTSIDE',
+              VipManager.futureGrantSlack + const Duration(minutes: 5)),
+          isFalse,
+          reason: 'and just outside it must not — otherwise the slack is not '
+              'the bound this class documents');
+    });
+
+    test('an ordinary grant on an honest clock stays active', () async {
+      // Guards the guard: addVip anchors grantedAt to _effectiveNow(), which
+      // on a normal device is the raw clock, so a fresh grant must not be
+      // caught by the start check. [VipManager.futureGrantSlack] is what
+      // absorbs a small mark lead (a recent backwards correction).
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+      await mgr.addVip(key: 'HONEST', duration: const Duration(days: 3));
+      expect(mgr.isActive, isTrue);
+
+      await prefs.setVipMaxObservedClockMs(DateTime.now()
+          .add(VipManager.futureGrantSlack - const Duration(minutes: 5))
+          .millisecondsSinceEpoch);
+      final reloaded = VipManager(prefs, vipEntriesStore: store);
+      await reloaded.load();
+      addTearDown(reloaded.dispose);
+      await reloaded.addVip(key: 'HONEST-2', duration: const Duration(days: 3));
+      expect(reloaded.isActive, isTrue,
+          reason: 'a grant stamped inside the slack window must take effect '
+              'immediately — a paying customer cannot be told to wait');
     });
   });
 

@@ -140,9 +140,29 @@ Kịch bản: máy mới cài → Settings đặt clock +1 năm (F) trước l�
 
 ---
 
-#### QUYẾT ĐỊNH 2026-08-22: KHÔNG SỬA VÒNG NÀY — hoãn có chủ ý, không phải bỏ sót
+#### ĐÃ FIX 2026-08-26 (round 25) — mục dưới đây là lịch sử, không còn là finding mở
 
-Chủ sản phẩm đã đọc phân tích và chọn hoãn. Reviewer sau **đừng mở lại MJ9 như một finding mới** — hãy đọc hết mục này trước.
+Chủ sản phẩm mở lại MJ9 và nó đã được đóng. Cách đóng **không** phải bản
+redesign "đếm thời lượng còn lại" mà mục này chứng minh là bất khả thi — mà là
+tách hai câu hỏi mà `_effectiveNow()` trước đây trả lời bằng cùng một giá trị:
+
+- **"Entry đã hết hạn chưa?"** vẫn dùng high-water mark, giữ nguyên → phòng vệ
+  lùi giờ mạnh y như trước (đó là chiều duy nhất mà lùi giờ tấn công).
+- **"Entry đã bắt đầu chưa?"** giờ neo vào đồng hồ **thô** của máy
+  (`VipManager._isLive`, biên độ `futureGrantSlack` = 1 giờ). Attacker buộc phải
+  đưa đồng hồ về mức dùng được để dùng máy, và ngay lúc đó grant chưa bắt đầu.
+
+Guard cố ý **không** chạy trong `_purgeExpired()`: khách trả tiền mà máy chạy
+nhanh giờ thì bị hoãn, không bị xoá vĩnh viễn. Chi tiết + test red-then-green:
+`doc/audit/audit_round23_consolidated.md` mục "Round-25".
+
+Còn lại (chấp nhận): lỗi đồng hồ thật khi app đóng vẫn có thể đẩy mark ra tương
+lai và **đóng băng** thời gian còn lại của khách đã trả tiền. Đặt trần cho mark
+sẽ sửa được nhưng trần không phân biệt được lỗi đồng hồ với lùi giờ cố ý, nên
+đổi lại chính là abuse mà mark tồn tại để chặn. Ghi lại, không đánh đổi.
+
+Phân tích gốc của lần hoãn (2026-08-22) giữ nguyên bên dưới vì nó vẫn đúng về
+việc *bản fix nào* là bất khả thi:
 
 **Bản fix từng được chốt ("đổi sang đếm thời lượng còn lại theo đồng hồ monotonic") KHÔNG thực thi được trong package này.** Monotonic clock duy nhất trong Dart thuần là `Stopwatch`, và nó chết theo process; package cố ý thuần Dart (không `android/`, không `ios/`, không MethodChannel) nên không đọc được uptime hệ thống. Đếm thời lượng bằng `Stopwatch` sẽ khiến VIP thành **vĩnh viễn** cho bất kỳ ai kill app — sai theo chiều ngược lại và tệ hơn hiện trạng. Chính `_effectiveNow`'s doc comment (`:219-223`) đã ghi: khoảng hở còn lại *"needs a native monotonic-uptime source to close and isn't attempted here"*, và `:198-201` ghi rằng đồng hồ bị đổi **trước lần chạy đầu** thì offline không thể phát hiện (chưa có mốc nào để so). Đây là giới hạn kiến trúc của yêu cầu "VIP không server/backend", không phải chỗ chưa làm.
 

@@ -12,7 +12,8 @@ typedef AdLogSink = void Function(AdLogLevel level, String tag, String message);
 /// - `logTagFilter: ['AdManager', 'AdSafety']` — only emit logs whose tag is in this list (`null` = all tags).
 /// - `onLog` — pipe SDK logs into Crashlytics / Sentry / your own logger.
 ///
-/// [critical] is the one exception to `logLevel` — see its doc for why.
+/// [critical] is the one exception to both `logLevel` and `logTagFilter` — see
+/// its doc for why.
 ///
 /// All public methods accept either a `String` literal or a `String Function()`
 /// (lazy lambda). The lambda is **only invoked** when the log would actually
@@ -52,27 +53,67 @@ class SafeLogger {
 
   // ─── Internals ────────────────────────────────────────────────────────────
 
-  /// [bypassLevel] skips the level gate entirely (still honors [_tagFilter])
-  /// — used by [critical] so a host that silenced all logging still learns
-  /// a safety guard fired.
+  /// [bypassLevel] skips BOTH gates — the level and the tag filter — and is
+  /// used only by [critical].
+  ///
+  /// Round-25 QC round 4 (`codex` and `claude`, both scoring it their top
+  /// deduction) — `critical` used to skip [AdLogLevel.none] but still honour
+  /// [_tagFilter], so a host whose filter did not list `AdManager` silently
+  /// lost the "no consent flow configured" warning. That warning replaced an
+  /// `assert`, which no logger configuration could suppress, so honouring the
+  /// filter made the replacement *weaker* than what it replaced — on the one
+  /// diagnostic with a legal consequence (an EEA/UK user served ads with no
+  /// consent form). A per-tag filter is for turning down noise; there are two
+  /// `critical` call sites in the whole SDK and both mean the host's own
+  /// configuration is wrong.
   static bool _shouldLog(AdLogLevel msgLevel, String tag,
       {bool bypassLevel = false}) {
-    if (!bypassLevel) {
-      if (_level == AdLogLevel.none) return false;
-      final passes = switch (msgLevel) {
-        AdLogLevel.verbose => _level == AdLogLevel.verbose,
-        AdLogLevel.warning =>
-          _level == AdLogLevel.verbose || _level == AdLogLevel.warning,
-        AdLogLevel.error => _level == AdLogLevel.verbose ||
-            _level == AdLogLevel.warning ||
-            _level == AdLogLevel.error,
-        AdLogLevel.none => false,
-      };
-      if (!passes) return false;
-    }
+    if (bypassLevel) return true;
+    if (_level == AdLogLevel.none) return false;
+    final passes = switch (msgLevel) {
+      AdLogLevel.verbose => _level == AdLogLevel.verbose,
+      AdLogLevel.warning =>
+        _level == AdLogLevel.verbose || _level == AdLogLevel.warning,
+      AdLogLevel.error => _level == AdLogLevel.verbose ||
+          _level == AdLogLevel.warning ||
+          _level == AdLogLevel.error,
+      AdLogLevel.none => false,
+    };
+    if (!passes) return false;
     final filter = _tagFilter;
     if (filter != null && !filter.contains(tag)) return false;
     return true;
+  }
+
+  /// Prints, then hands the line to the host's sink — and neither of those is
+  /// allowed to throw out of a log call.
+  ///
+  /// Round-25 QC round 3 (`codex`, MAJOR) — `onLog` is host code, i.e. a trust
+  /// boundary: an app whose Crashlytics/Sentry wrapper throws used to make
+  /// EVERY `SafeLogger` call a throw site. That defeated guards that exist
+  /// precisely so a failure cannot be abandoned half-way — the adapter
+  /// teardown logs from inside its own `catch`, so a throwing sink there
+  /// skipped the state reset and left the SDK claiming to be initialised after
+  /// telling the host it had failed. A lazy message builder is guarded for the
+  /// same reason: several of them interpolate adapter state, which is exactly
+  /// what is broken when the interesting logs happen.
+  static void _emit(AdLogLevel level, String tag, String marker, Object msg) {
+    String s;
+    try {
+      s = _resolve(msg);
+    } catch (e) {
+      s = 'a log message threw while being built: $e';
+    }
+    debugPrint('roy93~ [$tag] $marker$s');
+    final sink = _sink;
+    if (sink == null) return;
+    try {
+      sink(level, tag, s);
+    } catch (e) {
+      // Reported through `debugPrint` only — routing this back through the
+      // sink is the same risk again.
+      debugPrint('roy93~ [SafeLogger] ⚠️ the host onLog sink threw: $e');
+    }
   }
 
   static String _resolve(Object msg) {
@@ -85,27 +126,23 @@ class SafeLogger {
   /// Verbose / debug log. Accepts `String` or `String Function()`.
   static void d(String tag, Object msg) {
     if (!_shouldLog(AdLogLevel.verbose, tag)) return;
-    final s = _resolve(msg);
-    debugPrint('roy93~ [$tag] $s');
-    _sink?.call(AdLogLevel.verbose, tag, s);
+    _emit(AdLogLevel.verbose, tag, '', msg);
   }
 
   /// Warning. Accepts `String` or `String Function()`.
   static void w(String tag, Object msg) {
     if (!_shouldLog(AdLogLevel.warning, tag)) return;
-    final s = _resolve(msg);
-    debugPrint('roy93~ [$tag] ⚠️ $s');
-    _sink?.call(AdLogLevel.warning, tag, s);
+    _emit(AdLogLevel.warning, tag, '⚠️ ', msg);
   }
 
   /// Error. Accepts `String` or `String Function()`.
   static void e(String tag, Object msg) => _e(tag, msg);
 
-  /// Security-critical event — bypasses [AdLogLevel.none] so a host that
-  /// silenced all logging still learns a safety guard fired (e.g. a
-  /// release build forcing `dryRun` back off). Still honors [tagFilter];
-  /// that's a deliberate per-tag scoping choice, unlike `none`, which is a
-  /// blanket kill switch not meant to hide safety-relevant events.
+  /// Security-critical event — bypasses **both** [AdLogLevel.none] and
+  /// `logTagFilter`, so no logger configuration can hide it. Used for events
+  /// where staying quiet has a consequence outside the log: a release build
+  /// forcing `dryRun` back off, and a config that can never gather consent.
+  /// See [_shouldLog] for why the tag filter stopped applying here in 2.4.0.
   static void critical(String tag, Object msg) =>
       _e(tag, msg, bypassLevel: true);
 
@@ -114,9 +151,7 @@ class SafeLogger {
   /// exposes that as a public knob.
   static void _e(String tag, Object msg, {bool bypassLevel = false}) {
     if (!_shouldLog(AdLogLevel.error, tag, bypassLevel: bypassLevel)) return;
-    final s = _resolve(msg);
-    debugPrint('roy93~ [$tag] ${bypassLevel ? '🚨' : '❌'} $s');
-    _sink?.call(AdLogLevel.error, tag, s);
+    _emit(AdLogLevel.error, tag, bypassLevel ? '🚨 ' : '❌ ', msg);
   }
 
   // ─── Test/debug helpers ───────────────────────────────────────────────────

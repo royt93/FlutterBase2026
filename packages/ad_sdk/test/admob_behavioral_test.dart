@@ -396,6 +396,35 @@ void main() {
       expect(result, isNotNull);
       expect(result!.earned, isFalse);
     });
+
+    // Round-23 audit, MAJOR — `shown` is the impression signal AdManager
+    // charges the daily/hourly/placement caps on. It used to be hardcoded
+    // `true` (the default), which made it worthless in both directions.
+    test('a displayed-then-closed rewarded reports shown=true, earned=false',
+        () async {
+      await adapter.loadRewarded();
+      RewardResult? result;
+      await adapter.showRewarded(onDone: (r) => result = r);
+
+      bridge.lastRewarded!.shown!.onShowed!(); // the ad reached the screen
+      bridge.lastRewarded!.shown!.onDismissed!(); // closed before the reward
+
+      expect(result!.earned, isFalse);
+      expect(result!.shown, isTrue,
+          reason: 'the user saw an ad — it must consume cap budget');
+    });
+
+    test('a rewarded that never reached the screen reports shown=false',
+        () async {
+      await adapter.loadRewarded();
+      RewardResult? result;
+      await adapter.showRewarded(onDone: (r) => result = r);
+
+      // No onShowed: GMA failed to present it at all.
+      bridge.lastRewarded!.shown!.onFailedToShow!('no fill on show');
+
+      expect(result!.shown, isFalse);
+    });
   });
 
   // T89 — Rewarded Interstitial (AdMob only). Mirrors the plain Rewarded

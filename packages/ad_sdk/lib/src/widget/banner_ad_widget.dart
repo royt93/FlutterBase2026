@@ -192,13 +192,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void didPush() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
+      // Round-32 QC (reviewer B, BLOCKER) — `setBannerRoutePaused` already
+      // releases the route's own hold by name, through the adapter's ownership
+      // bookkeeping. The direct write that used to sit here ran one frame after
+      // EVERY mount (`RouteObserver.subscribe` calls `didPush` unconditionally)
+      // and set `autoRefreshEnabled = true` over whatever else was holding it —
+      // most damagingly the `fullscreen` hold a launch App Open had just taken,
+      // so a MAX banner auto-refreshed underneath the fullscreen ad. The
+      // adapter was rebuilt around ownership in rounds 30–31; the widget kept
+      // writing the flag directly, and the widget wins because it writes last.
       mgr.setBannerRoutePaused(this, false);
-      // Re-enable auto-refresh if a previous didPushNext paused it
-      // (e.g. user pushed → popped → re-pushed quickly).
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _setAppLovinAutoRefresh(true);
-      });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -213,7 +216,6 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
       mgr.setBannerRoutePaused(this, true);
-      _setAppLovinAutoRefresh(false);
     } else if (_admobIsTop.value) {
       _admobIsTop.value = false;
     }
@@ -225,7 +227,6 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
       mgr.setBannerRoutePaused(this, false);
-      _setAppLovinAutoRefresh(true);
     } else if (!_admobIsTop.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -239,15 +240,6 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   void didPop() {
     if (_admobIsTop.value) _admobIsTop.value = false;
     super.didPop();
-  }
-
-  void _setAppLovinAutoRefresh(bool enabled) {
-    final adapter = AdManager().adapter;
-    if (adapter == null) return;
-    final listenables = adapter.banner(this);
-    if (listenables.autoRefreshEnabled.value != enabled) {
-      listenables.autoRefreshEnabled.value = enabled;
-    }
   }
 
   @override

@@ -66,7 +66,31 @@ class MonetizationArbitrator {
 
   /// Trailing revenue-per-impression samples, most-recent last. Session-only
   /// — no persistence across app restarts (v1: not worth it, see class doc).
+  ///
+  /// Diagnostic pool only. [decide] does NOT read this — see
+  /// [_samplesByBucket] and the round-23 note on [estimatedEcpmMicrosFor].
   final List<int> _samples = [];
+
+  /// Round-23 QC (reviewer A, MAJOR) — the same samples, but split by
+  /// `'<slot>|<currency>'`.
+  ///
+  /// The single pool above answers "what has this app earned recently",
+  /// which is not the question [decide] asks. A feed emitting a hundred
+  /// cheap banner impressions used to drag the trailing average below the
+  /// *rewarded* threshold and veto a genuinely profitable rewarded show —
+  /// straight lost revenue, and a nudge event reporting an eCPM that had
+  /// nothing to do with the format being priced. Mixing currencies had the
+  /// same shape: an account paid in a non-USD currency was compared against a
+  /// threshold documented in dollars.
+  final Map<String, List<int>> _samplesByBucket = {};
+
+  /// Most recently observed currency per slot type. A publisher's account
+  /// reports one currency in practice; this exists so a stray event in
+  /// another currency cannot be averaged in with it.
+  final Map<AdSlotType, String> _lastCurrencyBySlot = {};
+
+  static String _bucketKey(AdSlotType type, String currencyCode) =>
+      '${type.name}|$currencyCode';
 
   /// Trailing decide() outcomes (true = vetoed), most-recent last. Feeds the
   /// [maxVetoRate] guardrail below.
@@ -87,6 +111,13 @@ class MonetizationArbitrator {
       if (_samples.length > _rollingWindowSize) {
         _samples.removeAt(0);
       }
+      final bucket = _samplesByBucket.putIfAbsent(
+          _bucketKey(event.type, event.currencyCode), () => <int>[]);
+      bucket.add(event.valueMicros);
+      if (bucket.length > _rollingWindowSize) {
+        bucket.removeAt(0);
+      }
+      _lastCurrencyBySlot[event.type] = event.currencyCode;
     }
   }
 
@@ -108,10 +139,77 @@ class MonetizationArbitrator {
   /// average of those is a per-impression figure, not an eCPM — eCPM is
   /// revenue per *1000* impressions), so the per-impression average is
   /// scaled by 1000 to become comparable to [ecpmThresholdMicros].
+  /// **Diagnostic only.** This averages every format and every currency the
+  /// session has seen. Since round-23 it is no longer what [decide] consults
+  /// — use [estimatedEcpmMicrosFor] for anything that gates a show.
   int get estimatedEcpmMicros {
     if (_samples.isEmpty) return 0;
     final sum = _samples.fold<int>(0, (a, b) => a + b);
     return sum * 1000 ~/ _samples.length;
+  }
+
+  /// Trailing eCPM estimate for [slot] alone, in the currency that slot was
+  /// most recently paid in. `0` when this slot has produced no revenue events
+  /// yet — and `0` means "no evidence", which [decide] treats as *show*, never
+  /// as *cheap*.
+  ///
+  /// Round-23 QC (reviewer A, MAJOR): pricing a rewarded opportunity off a
+  /// feed's banner revenue vetoed profitable impressions. A format is only
+  /// ever compared against its own history now.
+  ///
+  /// Round-28 QC (reviewer B, MINOR) — what a currency change actually does,
+  /// stated rather than implied. The slot reads the bucket for the currency it
+  /// was *most recently* paid in, so an account that starts being paid in a new
+  /// currency resets that slot's pricing: it fails open (shows the ad) until
+  /// five samples accumulate in the new currency. The old currency's history is
+  /// kept, not discarded, and is read again if payment reverts. Deliberate —
+  /// blending two currencies is the bug this fix exists to stop, and failing
+  /// open for a few impressions costs less than comparing dong against a
+  /// threshold written in dollars.
+  /// Round-24 QC (reviewer B, MAJOR): splitting the pool per format was the
+  /// right call, but it made each bucket fill hundreds of times more slowly
+  /// than the old all-formats pool did — so a rewarded bucket sits at n=1 for a
+  /// long stretch of a session. Pricing off that one sample let a single cheap
+  /// backfill or house ad veto the format for the rest of the session, and the
+  /// loop self-latched: a vetoed show emits no revenue event, so the bucket
+  /// could never grow past the bad sample that caused the veto. The
+  /// [maxVetoRate] guardrail eventually broke the latch, but only after 20
+  /// consecutive vetoes, and then it oscillated.
+  ///
+  /// Five is not a statistical claim; it is "more than a fluke". Below it, the
+  /// bucket returns `0` — "no evidence" — which [decide] already treats as
+  /// *show*. Failing open on thin data is the only safe direction: the cost of
+  /// showing one cheap ad is one cheap ad, the cost of vetoing wrongly is every
+  /// rewarded impression for the rest of the session.
+  static const int _minSamplesToPrice = 5;
+
+  /// Round-25 QC (reviewer A, MINOR) — clamped to the configured window.
+  /// `rollingWindowSize` is a public constructor argument and a host is allowed
+  /// to set it to 1–4; the bucket is truncated to that size, so a flat
+  /// requirement of five would mean such a host could never be priced at all
+  /// and their arbitrator silently did nothing for the life of the session.
+  /// Asking for more evidence than the host has agreed to keep is a
+  /// configuration error we would be committing on their behalf.
+  ///
+  /// Round-26 QC (both reviewers, MINOR) — clamped at 1 as well. The first cut
+  /// clamped only downward, so `rollingWindowSize: 0` gave a warm-up of 0: an
+  /// empty bucket then "qualified" and the average divided by zero. A public
+  /// constructor knob must not be able to crash the SDK, and a window of zero
+  /// is a host mistake to survive, not one to punish.
+  int get _warmUpSamples {
+    if (_rollingWindowSize < 1) return 1;
+    return _rollingWindowSize < _minSamplesToPrice
+        ? _rollingWindowSize
+        : _minSamplesToPrice;
+  }
+
+  int estimatedEcpmMicrosFor(AdSlotType slot) {
+    final currency = _lastCurrencyBySlot[slot];
+    if (currency == null) return 0;
+    final bucket = _samplesByBucket[_bucketKey(slot, currency)];
+    if (bucket == null || bucket.length < _warmUpSamples) return 0;
+    final sum = bucket.fold<int>(0, (a, b) => a + b);
+    return sum * 1000 ~/ bucket.length;
   }
 
   /// Current veto rate over the trailing [_decisionWindowSize] [decide]
@@ -138,7 +236,11 @@ class MonetizationArbitrator {
   /// should never be allowed to suppress ads indefinitely.
   ArbitratorDecision decide(AdSlotType slot) {
     final threshold = _perSlotThresholdMicros[slot] ?? ecpmThresholdMicros;
-    final ecpm = estimatedEcpmMicros;
+    // Round-23 QC (reviewer A, MAJOR) — this slot's own history, in this
+    // slot's own currency. `0` (no samples for it yet) fails open to showAd
+    // below, which is the right direction: never suppress revenue on no
+    // evidence.
+    final ecpm = estimatedEcpmMicrosFor(slot);
     final estimator = _vipLikelihoodEstimator;
     ArbitratorDecision decision;
     if (estimator == null) {

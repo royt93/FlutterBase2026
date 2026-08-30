@@ -55,7 +55,7 @@ class _Fake implements AdProviderAdapter {
     showRewardedCalls++;
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
-    onDone(const RewardResult(earned: true, label: 'coins', amount: 1));
+    onDone(const RewardResult(earned: true, shown: true, label: 'coins', amount: 1));
   }
 
   @override

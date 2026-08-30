@@ -80,7 +80,12 @@ Future<SimpleKeyPair> _loadOrCreateKeyPair(FlutterSecureStorage storage) async {
     final existing = await storage.read(key: _secureKeySeed);
     if (existing != null) {
       final seed = base64Url.decode(base64Url.normalize(existing));
-      return _ed25519.newKeyPairFromSeed(seed);
+      // Round-23 audit — `await` is load-bearing, not style: without it the
+      // future escapes this try block, so a corrupt/undecodable stored seed
+      // surfaced as an unhandled exception to the caller instead of falling
+      // through to "mint a new one" below. (pana also charges 20 points for
+      // returning a future un-awaited inside a try.)
+      return await _ed25519.newKeyPairFromSeed(seed);
     }
   } catch (e) {
     SafeLogger.w(

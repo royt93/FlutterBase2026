@@ -228,7 +228,7 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
         config: AdConfig(
           provider: AdProvider.appLovin,                  // RULE #4 preference
           appLovin: AdKey.appLovin,                       // RULE #16 AdKey class
-          adMob: AdKey.adMob,
+          admob: AdKey.adMob,
           // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override
           // autoShowConsentDialog: true,                       // default
           consentDialogStrings: ConsentDialogStrings(
@@ -1540,6 +1540,6 @@ pub.dev takes up to 10 minutes to index a new release. Wait a few minutes and re
 
 **Need help?**
 
-- Open an issue on [GitHub](https://github.com/royt93/FlutterBase2025/issues) with the `roy93~` log output, your SDK version, and which provider (admob / appLovin)
+- Open an issue on [GitHub](https://github.com/royt93/FlutterBase2026/issues) with the `roy93~` log output, your SDK version, and which provider (admob / appLovin)
 - See `README.md` for the integration walkthrough
 - See `doc/architecture.md` for the internals (state machine, lifecycle, safety gate)

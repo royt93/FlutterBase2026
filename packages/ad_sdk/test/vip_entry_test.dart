@@ -139,5 +139,53 @@ void main() {
         expect(e.isActive, isFalse);
       });
     });
+
+    // ─── Round-23 audit, MAJOR. A timestamp persisted without a zone marker
+    // is re-read in whatever zone the device is in NEXT time — fly west, or
+    // just let DST end, and the stored instant moves by hours. VipManager
+    // purges anything it reads as expired and there is no server to restore
+    // from, so the VIP time is gone for good.
+    group('persisted timestamps are zone-explicit (round 23)', () {
+      test('toJson stamps UTC, so the string cannot be re-read as another zone',
+          () {
+        final e = VipEntry(
+          key: 'ZONE',
+          expiresAt: DateTime(2026, 8, 25, 10, 30),
+          grantedAt: DateTime(2026, 8, 24, 10, 30),
+        );
+        final json = e.toJson();
+
+        expect(json['expiresAt'], endsWith('Z'));
+        expect(json['grantedAt'], endsWith('Z'));
+        // Any reader, in any zone, resolves this to one instant.
+        expect(DateTime.parse(json['expiresAt'] as String).isUtc, isTrue);
+      });
+
+      test('fromJson round-trips the exact instant and hands back local time',
+          () {
+        final e = VipEntry(
+          key: 'ZONE',
+          expiresAt: DateTime(2026, 8, 25, 10, 30),
+          grantedAt: DateTime(2026, 8, 24, 10, 30),
+        );
+        final back = VipEntry.fromJson(e.toJson());
+
+        expect(back.expiresAt.isAtSameMomentAs(e.expiresAt), isTrue);
+        expect(back.grantedAt.isAtSameMomentAs(e.grantedAt), isTrue);
+        // Local, so every existing consumer (display, countdown, difference)
+        // behaves exactly as before the UTC switch.
+        expect(back.expiresAt.isUtc, isFalse);
+      });
+
+      test('a legacy (pre-2.4.0) suffix-less payload still decodes', () {
+        final back = VipEntry.fromJson(<String, dynamic>{
+          'key': 'LEGACY',
+          'expiresAt': '2026-08-25T10:30:00.000',
+          'grantedAt': '2026-08-24T10:30:00.000',
+        });
+        expect(back.key, 'LEGACY');
+        expect(back.expiresAt, DateTime(2026, 8, 25, 10, 30));
+      });
+    });
   });
 }

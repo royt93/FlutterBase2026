@@ -41,8 +41,16 @@ Future<void> main(List<String> args) async {
 
   // kid: caller-supplied or derived from time — must be unique per issued key
   // so per-device one-time-use tracking works. No '|' allowed.
+  //
+  // Upper-cased on purpose. VipManager stores a redeemed signed key under
+  // `SIGNED_<kid>` run through `VipManager.normaliseKey`, which upper-cases,
+  // so `--kid abc` and `--kid ABC` would collide: one entry, one one-time-use
+  // ledger slot, and a CRL revoking either would clamp the other. Minting in
+  // a single case removes the whole class of mistake — keep vip_crl_mint.dart
+  // in step (it upper-cases --kids for the same reason).
   final kid = (opts['kid'] ?? 'k${DateTime.now().microsecondsSinceEpoch}')
-      .replaceAll('|', '_');
+      .replaceAll('|', '_')
+      .toUpperCase();
 
   final List<int> seed;
   try {

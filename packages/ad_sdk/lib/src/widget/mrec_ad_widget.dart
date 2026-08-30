@@ -167,11 +167,16 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void didPush() {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
+      // Round-32 QC (reviewer B, BLOCKER) — `setMrecRoutePaused` already
+      // releases the route's own hold by name, through the adapter's ownership
+      // bookkeeping. The direct write that used to sit here ran one frame after
+      // EVERY mount (`RouteObserver.subscribe` calls `didPush` unconditionally)
+      // and set `autoRefreshEnabled = true` over whatever else was holding it —
+      // most damagingly the `fullscreen` hold a launch App Open had just taken.
+      // The adapter was rebuilt around ownership in rounds 30–31; the widget
+      // kept writing the flag directly, and the widget wins because it writes
+      // last.
       mgr.setMrecRoutePaused(this, false);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _setAppLovinAutoRefresh(true);
-      });
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -186,7 +191,6 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
       mgr.setMrecRoutePaused(this, true);
-      _setAppLovinAutoRefresh(false);
     } else if (_admobIsTop.value) {
       _admobIsTop.value = false;
     }
@@ -198,7 +202,6 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     final mgr = AdManager();
     if (!mgr.isAdMobProvider) {
       mgr.setMrecRoutePaused(this, false);
-      _setAppLovinAutoRefresh(true);
     } else if (!_admobIsTop.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -212,15 +215,6 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   void didPop() {
     if (_admobIsTop.value) _admobIsTop.value = false;
     super.didPop();
-  }
-
-  void _setAppLovinAutoRefresh(bool enabled) {
-    final adapter = AdManager().adapter;
-    if (adapter == null) return;
-    final listenables = adapter.mrec(this);
-    if (listenables.autoRefreshEnabled.value != enabled) {
-      listenables.autoRefreshEnabled.value = enabled;
-    }
   }
 
   @override

@@ -126,6 +126,51 @@ class _FailingDestroyBridge extends FakeAppLovinBridge {
   }
 }
 
+/// Round-25 QC round 16 (`codex`, MAJOR) — lets a test park `dispose()` inside
+/// its per-AdView `destroyWidgetAdView` await, which is the window in which an
+/// in-flight `preloadBanner` used to insert into the very map `dispose()` was
+/// iterating.
+class _TeardownRaceBridge extends FakeAppLovinBridge {
+  int _next = 1;
+  final Completer<AdViewId?> racePreload = Completer<AdViewId?>();
+  final Completer<void> destroyGate = Completer<void>();
+
+  /// The next `preloadWidgetAdView` call hangs until [racePreload] completes.
+  bool deferNextPreload = false;
+
+  @override
+  Future<AdViewId?> preloadWidgetAdView(String id, AdFormat f) {
+    if (deferNextPreload) {
+      deferNextPreload = false;
+      return racePreload.future;
+    }
+    return Future<AdViewId?>.value(_next++);
+  }
+
+  @override
+  Future<void> destroyWidgetAdView(AdViewId id) async {
+    destroyWidgetAdViewCalls.add(id);
+    await destroyGate.future;
+  }
+}
+
+/// Round-25 QC round 17 (`codex`, MAJOR) — holds the FIRST
+/// `destroyWidgetAdView` open across `dispose()` and then fails it, which is
+/// the window in which the retry chain used to arm a timer that outlives the
+/// adapter.
+class _DeferredFailingDestroyBridge extends FakeAppLovinBridge {
+  final Completer<void> firstDestroy = Completer<void>();
+
+  @override
+  Future<void> destroyWidgetAdView(AdViewId id) async {
+    destroyWidgetAdViewCalls.add(id);
+    if (!firstDestroy.isCompleted) {
+      await firstDestroy.future;
+      throw StateError('native refused: AdView still has a container view');
+    }
+  }
+}
+
 MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact',
     'cid', 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
 
@@ -304,6 +349,61 @@ void main() {
       bridge.rewarded!.onAdHiddenCallback(_fakeAd());
       expect(result, isNotNull);
       expect(result!.earned, isFalse);
+    });
+
+    // Round-23 audit, MAJOR — `shown` is what AdManager charges the
+    // daily/hourly/placement caps on, so it has to follow the DISPLAY.
+    test('displayed then closed early → shown=true, earned=false', () async {
+      RewardResult? result;
+      await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdDisplayedCallback(_fakeAd());
+      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+
+      expect(result!.earned, isFalse);
+      expect(result!.shown, isTrue,
+          reason: 'the user saw an ad — it must consume cap budget');
+    });
+
+    test('hidden without ever being displayed → shown=false', () async {
+      RewardResult? result;
+      await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+
+      expect(result!.shown, isFalse);
+    });
+
+    test('an earned reward always reports shown=true', () async {
+      RewardResult? result;
+      await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdDisplayedCallback(_fakeAd());
+      bridge.rewarded!
+          .onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+
+      expect(result!.shown, isTrue);
+    });
+
+    // Round-23 audit, MAJOR (independent review) — the reward path reports
+    // `shown: true` as a CONSTANT rather than reading
+    // `rewardedSlot.displayConfirmed`, and that is deliberate: a reward can
+    // only be granted by an ad that was on screen, so the reward itself is a
+    // stronger display proof than the display callback. Reading
+    // `displayConfirmed` here instead would UNDERCOUNT the impression on
+    // exactly the reordering below — a reward delivered while the display
+    // callback was lost or late — which is the failure this whole round was
+    // fixing. Locked down here so nobody "unifies" it later.
+    test('a reward that arrives with no display callback still reports '
+        'shown=true', () async {
+      RewardResult? result;
+      await loadAndShow((r) => result = r);
+      // No onAdDisplayedCallback at all.
+      bridge.rewarded!
+          .onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+
+      expect(adapter.rewardedSlot.displayConfirmed, isFalse,
+          reason: 'precondition: the display callback never arrived');
+      expect(result!.earned, isTrue);
+      expect(result!.shown, isTrue,
+          reason: 'a reward proves the ad was on screen');
     });
   });
 
@@ -741,6 +841,45 @@ void main() {
         expect(dismissed, isFalse, reason: 'hard cap fires');
         expect(calls, 1);
         expect(a.appOpenSlot.value, AdSlotState.cooldown);
+      });
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    // Round-23 audit, MAJOR — see AppLovinAdapter._resolveAppOpenAfterLostCallback.
+    test('Android: a CONFIRMED display resolves as dismissed(true) on timeout',
+        () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        bool? dismissed;
+        final a = armedViaRealShow(
+            b, AppLifecycleState.resumed, async, (d) => dismissed = d);
+        b.appOpen!.onAdDisplayedCallback(_fakeAd()); // really on screen
+
+        async.elapse(const Duration(seconds: 20));
+
+        expect(dismissed, isTrue,
+            reason: 'the ad was displayed; only its hidden callback was lost');
+        expect(a.appOpenSlot.value, AdSlotState.idle,
+            reason: 'a lost callback is not a show failure — no backoff');
+      });
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('iOS: the 90s hard cap on a CONFIRMED display reports dismissed(true)',
+        () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        bool? dismissed;
+        final a = armedViaRealShow(
+            b, AppLifecycleState.resumed, async, (d) => dismissed = d);
+        b.appOpen!.onAdDisplayedCallback(_fakeAd());
+
+        async.elapse(const Duration(seconds: 100));
+
+        expect(dismissed, isTrue);
+        expect(a.appOpenSlot.value, AdSlotState.idle);
       });
       debugDefaultTargetPlatformOverride = null;
     });
@@ -1373,6 +1512,147 @@ void main() {
 
       expect(a.mrec('b').isLoaded.value, isFalse,
           reason: 'key "b" must not see key "a" isLoaded=true');
+    });
+  });
+  group('round-16 teardown race — a preload landing inside dispose()', () {
+    test(
+        'a banner AdView delivered while dispose() is destroying another one '
+        'is destroyed too, and the teardown still runs to the end', () async {
+      final b = _TeardownRaceBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+
+      // 1. key "hold" owns native AdView id 1.
+      await a.preloadBanner('hold');
+      expect(a.banner('hold'), isNotNull);
+
+      // 2. key "race" starts a preload that has not come back yet.
+      b.deferNextPreload = true;
+      final racing = a.preloadBanner('race');
+
+      // 3. dispose() begins and parks inside destroyWidgetAdView(1).
+      bool? appOpenAnswer;
+      await a.loadAppOpen(onAdLoaded: (ok) => appOpenAnswer = ok);
+      final disposing = a.dispose();
+      await Future<void>.delayed(Duration.zero);
+      expect(b.destroyWidgetAdViewCalls, contains(1),
+          reason: 'control — the teardown really is parked in the destroy '
+              'await, which is the window under test');
+
+      // 4. the racing preload comes back with a brand-new AdView id.
+      b.racePreload.complete(2);
+      await Future<void>.delayed(Duration.zero);
+
+      // 5. let both destroys through and finish the teardown.
+      b.destroyGate.complete();
+      await racing;
+      await disposing;
+
+      expect(b.destroyWidgetAdViewCalls, contains(2),
+          reason: 'the AdView delivered after the teardown began belongs to '
+              'nobody — if it is not destroyed here it is leaked native-side '
+              'for the rest of the process');
+      expect(appOpenAnswer, isFalse,
+          reason: 'proves dispose() ran PAST the AdView loops: before the fix '
+              'a ConcurrentModificationError aborted it right there, leaving '
+              'this callback unanswered forever');
+    });
+
+    test('the same race on MREC', () async {
+      final b = _TeardownRaceBridge();
+      final a = AppLovinAdapter(bridge: b);
+      // The shared `_config` configures no mrecId, and `preloadMrec` correctly
+      // refuses to request one without it.
+      expect(
+          await a.initialize(const AdConfig(
+              provider: AdProvider.appLovin,
+              appLovin: AppLovinConfig(
+                  sdkKey: 'sdk',
+                  bannerId: 'banner-id',
+                  mrecId: 'mrec-id',
+                  interstitialId: 'inter-id',
+                  appOpenId: 'appopen-id',
+                  rewardedId: 'rewarded-id'))),
+          isTrue);
+
+      await a.preloadMrec('hold');
+      b.deferNextPreload = true;
+      final racing = a.preloadMrec('race');
+
+      bool? appOpenAnswer;
+      await a.loadAppOpen(onAdLoaded: (ok) => appOpenAnswer = ok);
+      final disposing = a.dispose();
+      await Future<void>.delayed(Duration.zero);
+      b.racePreload.complete(2);
+      await Future<void>.delayed(Duration.zero);
+      b.destroyGate.complete();
+      await racing;
+      await disposing;
+
+      expect(b.destroyWidgetAdViewCalls, contains(2));
+      expect(appOpenAnswer, isFalse);
+    });
+
+    test(
+        'a destroy that fails AFTER the teardown does not arm a retry timer '
+        'that outlives the adapter', () async {
+      final b = _DeferredFailingDestroyBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+
+      await a.preloadBanner('k');
+      // Starts the destroy chain and leaves it parked in the native await.
+      a.disposeBannerInstance('k');
+      await Future<void>.delayed(Duration.zero);
+      expect(b.destroyWidgetAdViewCalls, [1],
+          reason: 'control — the first destroy is in flight');
+
+      await a.dispose();
+      // Now let the in-flight destroy fail, the way the native side does while
+      // the platform view is still attached.
+      b.firstDestroy.complete();
+      // Longer than the first retry delay, so an armed timer would have fired.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(b.destroyWidgetAdViewCalls, [1],
+          reason: 'a retry armed after dispose() talks to a bridge whose '
+              'listeners are already cleared, and its timer is never '
+              'cancellable — teardown means stop');
+    });
+
+    test(
+        'CONTROL — the same failure BEFORE any teardown still retries, so the '
+        'guard did not disable the retry chain', () async {
+      final b = _DeferredFailingDestroyBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+
+      await a.preloadBanner('k');
+      a.disposeBannerInstance('k');
+      await Future<void>.delayed(Duration.zero);
+      b.firstDestroy.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(b.destroyWidgetAdViewCalls.length, greaterThan(1),
+          reason: 'the retry chain is what stops a detached AdView leaking on '
+              'a live adapter — it must still work');
+      await a.dispose();
+    });
+
+    test(
+        'CONTROL — with no teardown in flight a preload keeps its AdView and '
+        'nothing is destroyed', () async {
+      final b = _TeardownRaceBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(() {
+        b.destroyGate.complete();
+        return a.dispose();
+      });
+
+      await a.preloadBanner('live');
+      expect(b.destroyWidgetAdViewCalls, isEmpty,
+          reason: 'a healthy preload must not destroy what it just created');
     });
   });
 }

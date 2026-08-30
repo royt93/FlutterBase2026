@@ -97,6 +97,9 @@ class VipManager {
 
   /// How long before an active entry's [expiresAt] the grace-period nudge
   /// becomes due. Defaults to 24h; overridable (mainly for tests).
+  ///
+  /// Effectively capped at half the granted window — a 1-hour grant nudges at
+  /// 30 minutes left, not immediately. See [_effectiveNudgeThreshold].
   final Duration graceNudgeThreshold;
 
   final List<VipEntry> _entries = [];
@@ -169,7 +172,18 @@ class VipManager {
   /// `kid`s currently revoked, per the last verified CRL (T95) — either
   /// loaded from [_prefs]'s cache or freshly fetched by
   /// [refreshRevocationList]. Empty until either happens.
+  ///
+  /// Always stored UPPER-CASED (see [_normaliseKids]) so the redemption gate
+  /// and [_clampRevokedEntries] — which matches through `normaliseKey`, itself
+  /// upper-casing — can never disagree about whether a kid is revoked.
   Set<String> _revokedKeyIds = <String>{};
+
+  /// Round-23 audit — normalise once at ingestion rather than at every lookup.
+  /// A CRL is external input, so its kid case is not ours to trust; both mint
+  /// tools now emit upper-case kids, and this keeps CRLs minted before that
+  /// change matching.
+  static Set<String> _normaliseKids(Set<String> kids) =>
+      kids.map((k) => k.toUpperCase()).toSet();
 
   /// `issuedAt` of the CRL currently backing [_revokedKeyIds], so
   /// [refreshRevocationList] can reject a replayed OLDER signed CRL.
@@ -178,6 +192,28 @@ class VipManager {
   /// Guards the one-time load of any cached CRL from disk — see
   /// [_ensureCachedRevocationLoaded].
   bool _revocationCacheLoaded = false;
+
+  /// Round-23 QC (reviewer C, MAJOR) — which public key [_revokedKeyIds] and
+  /// [_revocationIssuedAt] were last verified under.
+  ///
+  /// The startup path in [load] has no host key of its own, so it verifies the
+  /// cached CRL against `cachedCrl.publicKey` — read from the same plaintext
+  /// record. That is self-attesting: anyone who can write preferences (a rooted
+  /// device — exactly the population holding a leaked, refunded or resold key)
+  /// mints their own keypair, signs an empty CRL dated in 2286 and stores both.
+  /// It verifies, [_revocationIssuedAt] latches to 2286, and
+  /// [refreshRevocationList]'s "only accept a newer `issuedAt`" rule then
+  /// rejects every CRL the publisher will ever issue. Revocation is dead on
+  /// that device, permanently — which is the one scenario revocation exists
+  /// for.
+  ///
+  /// Remembering the key closes it: when the host later presents its real key,
+  /// this no longer short-circuits, the cache is re-verified under that key,
+  /// and a cache that fails gives up its `issuedAt`. The revoked SET it
+  /// contributed is deliberately kept — a CRL can only ever narrow what a grant
+  /// is worth, so honouring a forged one costs its author their own
+  /// entitlement, and round-7's offline startup clamp keeps working unchanged.
+  String? _revocationVerifiedUnder;
 
   /// Key ids currently mid-redeem in [redeemSignedKey]. The check + insert is
   /// synchronous (no await between), so in Dart's single-threaded model a
@@ -223,6 +259,13 @@ class VipManager {
   /// that re-inits (`AdManager.destroy()` then `initialize()`).
   bool _disposed = false;
 
+  /// Round-37 QC (reviewer B, MAJOR) — a caller mid-`await` needs to know
+  /// whether the grant it is about to write (or the flag that would say it
+  /// wrote) still lands on a live manager. `addVip` already drops its own
+  /// `_save()` on a disposed instance (round 18); this lets a caller avoid
+  /// burning a ONE-TIME flag over a grant that was silently dropped that way.
+  bool get isDisposed => _disposed;
+
   /// Serialises [load] by invocation order. Two loads used to run concurrently
   /// (the host's own call plus a retry, or a re-init) and settle in completion
   /// order, each clearing `_entries` under the other's feet.
@@ -249,7 +292,7 @@ class VipManager {
     final now = _effectiveNow();
     DateTime? latest;
     for (final e in _entries) {
-      if (!e.isActiveAt(now)) continue;
+      if (!_isLive(e, now)) continue;
       if (latest == null || e.expiresAt.isAfter(latest)) latest = e.expiresAt;
     }
     return latest;
@@ -303,11 +346,22 @@ class VipManager {
   // (see this method's doc comment), which would make this pure-Dart package a
   // plugin with native code.
   //
-  // The worthwhile follow-up is NOT anti-cheat: it is capping how far ahead of
-  // real time the mark is allowed to sit, which fixes the PAYING-customer case
-  // in the doc comment above (an honest NTP/DST glitch while the app is closed
-  // freezes or voids their remaining VIP). Rationale, rejected alternatives and
-  // the trade-off are recorded in doc/audit/audit_claude.md § MJ9.
+  // ROUND-24 UPDATE — the exploit above IS now closed, and not by changing
+  // anything in this method. The reason a poisoned mark used to hand out
+  // permanent VIP is that the mark was the ONLY clock consulted, so an entry
+  // stamped `grantedAt = <a year from now>` was compared against that same
+  // bogus instant and looked live. [_isLive] now also requires the entry to
+  // have started according to the RAW device clock, which the abuser has to
+  // set back to something usable. The mark keeps its original job — deciding
+  // that an entry has EXPIRED — untouched, so rollback protection is exactly
+  // as strong as before. See [_isLive] for the full argument.
+  //
+  // Still open, and deliberately so: the paying-customer half of the note
+  // above. An honest clock fault while the app was closed can still park the
+  // mark in the future and freeze the remaining time on a grant the customer
+  // paid for. Capping the mark would fix that, but the cap cannot tell a
+  // corrected fault from a rollback, so it would hand back the abuse the mark
+  // exists to stop. Recorded rather than traded away.
   DateTime _effectiveNow() {
     final real = DateTime.now();
     final expectedMs =
@@ -390,13 +444,37 @@ class VipManager {
     _firstInstallGrantDueNotifier.value = false;
   }
 
+  /// [graceNudgeThreshold], clamped to at most **half** the granted window of
+  /// the entry that owns the latest expiry.
+  ///
+  /// Round-23 audit, MAJOR — the default threshold (24h) is exactly the
+  /// default first-install trial length (`FirstInstallVipGrace.day`), so the
+  /// unclamped comparison `remaining <= threshold` was already true the
+  /// instant the trial was granted: a brand-new user saw "your VIP is about to
+  /// run out, extend it now" on their very first launch. Clamping at half the
+  /// window means a nudge always lands in the *second* half of whatever grant
+  /// it belongs to, for a 1-hour promo the same as for a 90-day stack.
+  Duration _effectiveNudgeThreshold(DateTime exp) {
+    // The window of the entry the nudge is actually about — the one whose
+    // expiry `expiresAt` returned.
+    Duration? window;
+    for (final e in _entries) {
+      if (e.expiresAt != exp) continue;
+      final w = e.expiresAt.difference(e.grantedAt);
+      if (window == null || w > window) window = w;
+    }
+    if (window == null || window <= Duration.zero) return graceNudgeThreshold;
+    final half = window ~/ 2;
+    return half < graceNudgeThreshold ? half : graceNudgeThreshold;
+  }
+
   void _refreshGraceNudge() {
     final exp = expiresAt;
     final now = _effectiveNow();
     final due = isActive &&
         exp != null &&
         exp.isAfter(now) &&
-        exp.difference(now) <= graceNudgeThreshold &&
+        exp.difference(now) <= _effectiveNudgeThreshold(exp) &&
         _prefs.getVipGraceNudgeAckExpiryMs() != exp.millisecondsSinceEpoch;
     if (_graceNudgeDueNotifier.value != due) {
       _graceNudgeDueNotifier.value = due;
@@ -535,8 +613,18 @@ class VipManager {
         // "the customer keeps a day" was always supposed to mean.
         final cutoff = e.grantedAt.add(untrustedFallbackWindow);
         if (!e.expiresAt.isAfter(cutoff)) continue;
-        _entries[i] =
-            VipEntry(key: e.key, expiresAt: cutoff, grantedAt: e.grantedAt);
+        // Round-24 QC (reviewer B, MINOR) — carry the provenance. Today this
+        // clamp and `_clampRevokedEntries` cannot both touch the same row (the
+        // 24 h windows do not overlap), so dropping it is harmless by
+        // arithmetic coincidence rather than by construction. Rebuilding a
+        // `VipEntry` anywhere without `stackedFrom` un-launders it exactly
+        // once, which is precisely what fix V2 exists to prevent.
+        _entries[i] = VipEntry(
+          key: e.key,
+          expiresAt: cutoff,
+          grantedAt: e.grantedAt,
+          stackedFrom: e.stackedFrom,
+        );
         clamped++;
       }
       if (clamped > 0) {
@@ -605,14 +693,14 @@ class VipManager {
     // unless the host happened to refresh the CRL again — and a host that
     // refreshes daily, or a device that is offline, does not. The clamp is
     // idempotent, so running it here is free when there is nothing to do.
-    final cachedCrlKey = _prefs.getVipRevocationPublicKey();
-    if (cachedCrlKey != null) {
+    final cachedCrl = _prefs.getVipRevocationCache();
+    if (cachedCrl != null) {
       // Guarded for the same reason the M6 clamp above is: `_clampRevokedEntries`
       // awaits an un-caught `_save()`, and a storage error must not throw out of
       // `load()` before `_refreshActive()` and cost a paying customer the
       // session. The clamp is valid in memory either way.
       try {
-        await _ensureCachedRevocationLoaded(cachedCrlKey);
+        await _ensureCachedRevocationLoaded(cachedCrl.publicKey);
         await _clampRevokedEntries();
       } catch (e) {
         SafeLogger.w(_tag, 'startup CRL clamp failed ($e) — keeping RAM state');
@@ -731,10 +819,92 @@ class VipManager {
     return task;
   }
 
+  /// [VipEntry.isActiveAt] plus the MJ9 guard: an entry only counts as live if
+  /// it has also started according to the **raw** device clock, not just
+  /// according to the anti-rollback high-water mark.
+  ///
+  /// Why this is needed. [_effectiveNow] answers with the mark whenever the
+  /// mark is ahead of the clock, and until round 24 that single answer decided
+  /// both "has this entry started?" and "has it expired?". So a clock set a
+  /// year forward, one redeem, then the clock corrected, produced an entry
+  /// stamped `grantedAt = <a year out>` that was compared against the poisoned
+  /// mark — which agreed with it — and stayed live forever. Anchoring the
+  /// "has it started?" half to real time kills that: the abuser has to put the
+  /// clock back to something usable to actually use the app, and the moment
+  /// they do, the entry has not begun.
+  ///
+  /// Why it does not weaken rollback protection. The mark still answers the
+  /// expiry half untouched, and expiry is the only half rollback attacks —
+  /// letting a grant die in real time, then winding the clock back into the
+  /// window. That comparison is unchanged, so the 30-day-rollback defence is
+  /// exactly as strong as before.
+  ///
+  /// Why [_purgeExpired] deliberately does NOT use this. Purge deletes rows.
+  /// A customer whose device clock was genuinely fast when they redeemed, and
+  /// who then corrects it, would have their paid entry not-yet-started for the
+  /// length of their own clock error — a wait. Routed through purge it would
+  /// instead be erased permanently. Suppress, never delete.
+  ///
+  /// That customer's entry is not re-armed by [_scheduleNextExpiry] while it is
+  /// suppressed, on purpose: the timer's deadlines are measured against
+  /// [_effectiveNow] and this guard against the raw clock, and mixing the two
+  /// scales invites a timer that fires early, re-evaluates to the same answer
+  /// and re-arms itself in a spin. The state is recomputed on every resume and
+  /// launch anyway, which is soon enough for a case bounded by the size of the
+  /// user's own clock error.
+  ///
+  /// The `now` parameter is only half the answer on purpose: it carries the
+  /// mark-clamped clock for the expiry half, while the start half reads
+  /// `DateTime.now()` directly. Passing a fake `now` therefore cannot drive
+  /// this whole predicate — that asymmetry IS the fix, not an oversight.
+  bool _isLive(VipEntry e, DateTime now) {
+    // Expiry half — mark-clamped, unchanged since before round 24.
+    if (!e.isActiveAt(now)) return false;
+    // Start half — deliberately the RAW device clock, never `now`.
+    return !DateTime.now().add(futureGrantSlack).isBefore(e.grantedAt);
+  }
+
+  /// Drops rows that are over, and only rows that are over.
+  ///
+  /// Round-23 QC (reviewer C, BLOCKER) — this used to delete on
+  /// [_effectiveNow] alone, and [_effectiveNow] can be permanently ahead of
+  /// real time. The high-water mark is exactly that: a mark, never lowered. A
+  /// phone that boots with a wrong future date (a flat battery is enough — no
+  /// attacker required) and is opened once commits that date to the mark; NTP
+  /// then corrects the clock, and from the next launch onward every entry is
+  /// "expired" against a clock years ahead. The rows were erased from disk and
+  /// `_save()`d, and there is no way back: this SDK has no backend, and the key
+  /// id is already burned in the one-time-use ledger, so the customer
+  /// re-entering the key they paid for is told "already used".
+  ///
+  /// The class doc above [_isLive] already states the rule this broke —
+  /// *suppress, never delete* — and applied it to the not-yet-started half.
+  /// The expiry half needed the same treatment: an entry is only removed once
+  /// BOTH the mark-clamped clock and the raw device clock agree it is over. A
+  /// poisoned mark can still suppress a live entry (that is the documented,
+  /// deliberate cost of the rollback defence — see [_effectiveNow]), but it can
+  /// no longer destroy it, so correcting the clock brings the entitlement back.
+  ///
+  /// This weakens nothing. Purge is housekeeping, not a security control:
+  /// `isActive`, [_refreshActive] and [_scheduleNextExpiry] all still read
+  /// [_effectiveNow], so a rolled-back clock buys no extra entitlement from a
+  /// row that merely stayed on disk a while longer.
   void _purgeExpired() {
     final now = _effectiveNow();
+    final real = DateTime.now();
     final before = _entries.length;
-    _entries.removeWhere((e) => !e.isActiveAt(now));
+    // Round-24 QC (reviewer A, MAJOR) — this asks "is it OVER?", not "is it
+    // inactive?". `isActiveAt` is start-aware: it is also false while the clock
+    // reads *before* `grantedAt`, so the first cut of the round-23 fix still
+    // deleted a not-yet-started row whose `expiresAt` was months away. That is
+    // reachable without an attacker: redeem while the clock is running ahead,
+    // then correct it and lose the high-water mark — on iOS the VIP row is
+    // Keychain-backed and survives a reinstall while `SharedPreferences` does
+    // not, so the mark goes and the future `grantedAt` stays. Same rule as the
+    // suppression half, stated once more: a row leaves only when both clocks
+    // agree its window has ENDED.
+    _entries.removeWhere(
+        (e) => !now.isBefore(e.expiresAt) && !real.isBefore(e.expiresAt));
     if (_entries.length != before) {
       SafeLogger.d(_tag, 'purgeExpired: removed ${before - _entries.length}');
       unawaited(_save());
@@ -755,7 +925,7 @@ class VipManager {
     }
     final wasActive = _activeNotifier.value;
     final now = _effectiveNow();
-    final nowActive = _entries.any((e) => e.isActiveAt(now));
+    final nowActive = _entries.any((e) => _isLive(e, now));
     if (wasActive != nowActive) {
       _activeNotifier.value = nowActive;
       if (!_activeStream.isClosed) _activeStream.add(nowActive);
@@ -779,7 +949,7 @@ class VipManager {
     final now = _effectiveNow();
     DateTime? earliest;
     for (final e in _entries) {
-      if (!e.isActiveAt(now)) continue;
+      if (!_isLive(e, now)) continue;
       if (earliest == null || e.expiresAt.isBefore(earliest)) {
         earliest = e.expiresAt;
       }
@@ -787,7 +957,9 @@ class VipManager {
 
     final exp = expiresAt;
     if (exp != null) {
-      final nudgeFireAt = exp.subtract(graceNudgeThreshold);
+      // Same clamp as [_refreshGraceNudge] — the timer must not fire earlier
+      // than the condition it exists to re-evaluate.
+      final nudgeFireAt = exp.subtract(_effectiveNudgeThreshold(exp));
       if (nudgeFireAt.isAfter(now) &&
           (earliest == null || nudgeFireAt.isBefore(earliest))) {
         earliest = nudgeFireAt;
@@ -856,6 +1028,18 @@ class VipManager {
     // otherwise turning the device clock forward, redeeming any VIP grant,
     // then turning it back grants an effectively permanent VIP (expiresAt
     // gets baked from the tampered clock and is never recomputed).
+    //
+    // ROUND-25 — do not "fix" the frozen-customer case by stamping `grantedAt`
+    // from the raw clock while leaving `expiresAt` on the mark. It looks like a
+    // free win (the customer's new purchase would work immediately) and it
+    // reopens MJ9 through a different door: park the mark a year ahead, correct
+    // the clock, THEN redeem. `grantedAt` would be real, so [_isLive]'s start
+    // check passes, while `expiresAt` is still mark + duration — a year of VIP
+    // for one grant. Both stamps have to come from the same clock.
+    //
+    // The cost is real and accepted: while the mark is parked in the future,
+    // a new grant is stamped there too, so it is suppressed like any other
+    // not-yet-started entry rather than taking effect at once.
     final now = _effectiveNow();
     assert(duration > Duration.zero,
         'VipManager.addVip: duration must be > 0 (got $duration) for key=$norm');
@@ -875,9 +1059,19 @@ class VipManager {
       // Global stacking: extend from the latest expiry across ALL active
       // entries (not just this key) so grants from every source add up.
       var base = now;
+      VipEntry? baseEntry;
       for (final e in _entries) {
-        if (e.isActiveAt(now) && e.expiresAt.isAfter(base)) base = e.expiresAt;
+        if (_isLive(e, now) && e.expiresAt.isAfter(base)) {
+          base = e.expiresAt;
+          baseEntry = e;
+        }
       }
+      // Round-23 QC (reviewer C, MAJOR) — record whose window this absorbs, so
+      // [_clampRevokedEntries] can still reach it. Transitive: the base entry's
+      // own provenance comes along, or a second stack would launder it again.
+      final provenance = baseEntry == null
+          ? const <String>{}
+          : <String>{baseEntry.key, ...baseEntry.stackedFrom};
       var newExpiry = base.add(duration);
       // Clamp to the optional total-window cap.
       final cap = maxStackDuration;
@@ -892,6 +1086,7 @@ class VipManager {
         key: norm,
         expiresAt: newExpiry,
         grantedAt: now,
+        stackedFrom: provenance,
       );
       if (existing >= 0) {
         _entries[existing] = stacked;
@@ -916,14 +1111,24 @@ class VipManager {
             _tag, 'addVip: single-entry clamped to cap ($singleCap) for $norm');
       }
     }
-    final newEntry = VipEntry(
-      key: norm,
-      expiresAt: singleExpiry,
-      grantedAt: now,
-    );
+    final VipEntry newEntry;
     if (existing >= 0) {
       // Q14A — latest expiry wins.
       final old = _entries[existing];
+      newEntry = VipEntry(
+        key: norm,
+        expiresAt: singleExpiry,
+        grantedAt: now,
+        // Round-38 QC (reviewer B, MAJOR) — a third `VipEntry` rebuild site
+        // fix 2 had not reached: this plain, non-stacked replace under the
+        // SAME key discarded whatever provenance `old` had already absorbed,
+        // re-opening the exact revocation-laundering hole fix 2 exists to
+        // close, through a third door — a host that calls `addVip` a second
+        // time on a key that previously absorbed a stacked signed grant
+        // (`stack: true`), this time with `stack: false`. No behaviour
+        // change: the same key still ends up at the same, later expiry.
+        stackedFrom: old.stackedFrom,
+      );
       if (newEntry.expiresAt.isAfter(old.expiresAt)) {
         _entries[existing] = newEntry;
         SafeLogger.d(_tag, 'addVip: replaced ${old.key} (later expiry wins)');
@@ -932,6 +1137,11 @@ class VipManager {
         return old;
       }
     } else {
+      newEntry = VipEntry(
+        key: norm,
+        expiresAt: singleExpiry,
+        grantedAt: now,
+      );
       _entries.add(newEntry);
       SafeLogger.d(
           _tag, 'addVip: added ${newEntry.key} until ${newEntry.expiresAt}');
@@ -1037,6 +1247,38 @@ class VipManager {
   ///
   /// Returns a [SignedVipRedeemResult] describing success / invalid / already
   /// used. On success the grant [stack]s onto the current window by default.
+  /// Round-25 QC round 14, found on a real device, not by the suite —
+  /// `connection_notifier`'s FIRST snapshot after process start can say
+  /// "offline" on a phone that is demonstrably online (observed in 3 of 36 app
+  /// launches on an OPPO CPH1989 that pinged 8.8.8.8 fine throughout). A user
+  /// who opens the redeem screen straight after launch — the common case, since
+  /// that is where a promo deep link lands — was told a perfectly valid key was
+  /// "invalid or expired".
+  ///
+  /// So a single negative read is no longer trusted: poll for up to 2s and let
+  /// the first positive answer through. Kept deliberately small — the product
+  /// rule ("redeeming needs network") is unchanged, and a genuinely offline
+  /// device still gets refused, just 2s later.
+  Future<bool> _waitForConnectivity(
+      {Duration timeout = const Duration(seconds: 2),
+      Duration interval = const Duration(milliseconds: 100)}) async {
+    if (_isConnectedCheck()) return true;
+    // Counted retries, not a `DateTime.now()` deadline: a wall-clock deadline
+    // makes the loop untestable under `flutter_test`'s fake clock (the waits
+    // are virtual, the deadline is not, so it spins) and would also be thrown
+    // off by an OS clock jump mid-poll.
+    final attempts = timeout.inMicroseconds ~/ interval.inMicroseconds;
+    for (var i = 0; i < attempts; i++) {
+      await Future<void>.delayed(interval);
+      if (_isConnectedCheck()) {
+        SafeLogger.d(
+            _tag, 'connectivity settled to online after a false first read');
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<SignedVipRedeemResult> redeemSignedKey(
     String code, {
     required String publicKeyBase64,
@@ -1064,9 +1306,9 @@ class VipManager {
     // a product decision by the owner of this SDK, not an oversight. Removing
     // it changes agreed product behaviour. If a future audit disagrees, take
     // it to the product owner rather than to this line.
-    if (!_isConnectedCheck()) {
+    if (!await _waitForConnectivity()) {
       SafeLogger.d(_tag, 'redeemSignedKey: rejected — device is offline');
-      return const SignedVipRedeemResult.invalid(
+      return const SignedVipRedeemResult.offline(
           'no network connection — connect to the internet to redeem a VIP code');
     }
 
@@ -1113,7 +1355,13 @@ class VipManager {
     // key verification above (the private key mints both keys and CRLs), so
     // no extra config is needed from the host.
     await _ensureCachedRevocationLoaded(publicKeyBase64);
-    if (_revokedKeyIds.contains(parsed.keyId)) {
+    // Case-insensitive on purpose, and it has to be: [_clampRevokedEntries]
+    // matches through `normaliseKey('SIGNED_<kid>')` (upper-cased), so an
+    // exact-case check here would let a CRL revoke an ALREADY-redeemed key
+    // while still accepting a fresh redemption of it whenever the CRL and the
+    // key disagree on case. [_revokedKeyIds] is already upper-cased at
+    // ingestion, so only the incoming kid needs folding here.
+    if (_revokedKeyIds.contains(parsed.keyId.toUpperCase())) {
       SafeLogger.d(_tag, 'redeemSignedKey: kid ${parsed.keyId} is revoked');
       return const SignedVipRedeemResult.invalid('key revoked');
     }
@@ -1145,6 +1393,34 @@ class VipManager {
         duration: parsed.duration,
         stack: stack,
       );
+      // Round-25 QC round 18 (`codex`, MAJOR) — the `_disposed` check at the
+      // TOP of this method is not enough, and this is the same
+      // checked-at-the-door shape as rounds 12-17: every await before this line
+      // is a window in which the host can tear the SDK down (the ~2s
+      // connectivity poll added in round 15, `PackageInfo` for AVP2, the
+      // cached-CRL load, and `addVip`'s own `_save()`). `_save()` correctly
+      // DROPS the grant from a discarded manager — it must not write over the
+      // store its replacement owns — but the two ledger writes below had no
+      // such guard, so a customer's single-use key was burned (on iOS durably,
+      // in the Keychain, surviving a reinstall) while the entitlement they paid
+      // for was never persisted: "success" on screen, no VIP next launch, and
+      // "already used" if they try the key again.
+      //
+      // Checked HERE, after the grant, not at the top: the key is marked used
+      // only once the grant itself has actually been written. One check covers
+      // every await above it. Refusing the burn can, in the narrow case where
+      // the write landed and the teardown followed it, let the retry stack a
+      // second window — the clamp at [AdConfig.maxVipStackDuration] bounds that,
+      // and over-serving by one window is the right way to be wrong about a key
+      // someone paid for.
+      if (_disposed) {
+        SafeLogger.w(
+            _tag,
+            'redeemSignedKey: torn down mid-redeem — key ${parsed.keyId} NOT '
+            'burned (its grant was not persisted)');
+        return const SignedVipRedeemResult.invalid(
+            'SDK was torn down — redeem again after it re-initialises');
+      }
       await _prefs.addRedeemedVipKeyId(parsed.keyId);
       await _redeemedKeyLedger.markRedeemed(parsed.keyId);
       SafeLogger.d(
@@ -1162,17 +1438,39 @@ class VipManager {
   /// trusting it. A verify failure (corrupt storage, tampered value) degrades
   /// to an empty revoked set rather than blocking redemption — fail-open.
   Future<void> _ensureCachedRevocationLoaded(String publicKeyBase64) async {
-    if (_revocationCacheLoaded) return;
+    if (_revocationCacheLoaded &&
+        _revocationVerifiedUnder == publicKeyBase64) {
+      return;
+    }
     _revocationCacheLoaded = true;
-    final raw = _prefs.getVipRevocationCacheRaw();
-    if (raw == null) return;
+    _revocationVerifiedUnder = publicKeyBase64;
+    final cached = _prefs.getVipRevocationCache();
+    if (cached == null) return;
+    final raw = cached.raw;
     try {
       final parsed =
           await verifySignedCrl(raw, publicKeyBase64: publicKeyBase64);
-      _revokedKeyIds = parsed.revokedKeyIds;
+      _revokedKeyIds = _normaliseKids(parsed.revokedKeyIds);
       _revocationIssuedAt = parsed.issuedAt;
     } catch (e) {
       SafeLogger.w(_tag, 'cached CRL failed to verify, ignoring: $e');
+      // Round-23 QC (reviewer C, MAJOR) — the load-bearing line. Reaching here
+      // under a key the HOST supplied means the cached record was written by
+      // someone else, so its `issuedAt` is forfeited: a genuine CRL must not be
+      // measured against a date this cache never earned. The revoked set stays
+      // (see [_revocationVerifiedUnder]).
+      //
+      // Round-25 QC (reviewer B, MINOR) — what that keeping does and does not
+      // buy, stated accurately. Honouring a forged NON-empty set costs its
+      // author their own entitlement, which is why keeping it is safe. A forged
+      // EMPTY set is the other shape: it costs the author nothing and wipes the
+      // real revoked kids this device had cached, until the host's next
+      // successful `refreshRevocationList`. That window is not closed here and
+      // is not claimed to be — `redeemSignedKey` needs the network anyway, and
+      // a host that refreshes at startup closes it in the same breath. Closing
+      // it properly needs a signed, host-keyed cache, which is a format change,
+      // not a patch.
+      _revocationIssuedAt = null;
     }
   }
 
@@ -1215,6 +1513,24 @@ class VipManager {
       return;
     }
 
+    // Round-25 QC round 19 (`codex`, MAJOR) — checked AFTER the two awaits
+    // above, not at the top of the method: `fetchSignedCrl()` is a network call
+    // that can still be in flight when the host tears the SDK down, and this
+    // method persists through `_prefs` DIRECTLY, so `_save()`'s disposed guard
+    // does not cover it. A discarded manager resuming here compared the fetched
+    // CRL against ITS OWN `_revocationIssuedAt` — which never saw the newer CRL
+    // the replacement manager already cached — accepted the older list, and
+    // wrote it over the newer one. Next launch: a revoked key (leaked,
+    // refunded, resold) is redeemable again.
+    //
+    // Returning is right rather than "persist anyway": the live manager owns
+    // this cache, and it refreshes on its own schedule.
+    if (_disposed) {
+      SafeLogger.w(_tag,
+          'refreshRevocationList: manager disposed mid-fetch — CRL discarded');
+      return;
+    }
+
     final cachedIssuedAt = _revocationIssuedAt;
     if (cachedIssuedAt != null && !parsed.issuedAt.isAfter(cachedIssuedAt)) {
       SafeLogger.d(_tag,
@@ -1227,18 +1543,39 @@ class VipManager {
       return;
     }
 
-    _revokedKeyIds = parsed.revokedKeyIds;
+    _revokedKeyIds = _normaliseKids(parsed.revokedKeyIds);
     _revocationIssuedAt = parsed.issuedAt;
     // Clamp BEFORE persisting: a process death between these two awaits then
     // leaves the CRL un-cached with grants already clamped, which self-heals on
     // the next fetch. The other order left the CRL cached and the grants
     // full-length, and nothing ever revisited them.
     await _clampRevokedEntries();
-    await _prefs.setVipRevocationCacheRaw(raw);
-    // Round-7 audit, MAJOR — remembered so `load()` can apply this same CRL on
-    // every later launch, including the launches where the host never calls
-    // back in here (offline, or a host that refreshes once a day).
-    await _prefs.setVipRevocationPublicKey(publicKeyBase64);
+    // Round-25 QC round 20 (`codex`, MAJOR) — round 19's check above is not the
+    // last await on this path: `_clampRevokedEntries()` writes the entries store
+    // and can be blocked long enough for the host to tear the SDK down and the
+    // replacement manager to cache a NEWER CRL. Re-read here, immediately before
+    // the two `_prefs` writes, because those writes are the actual harm: they
+    // roll the cached CRL back and a revoked key redeems again next launch. The
+    // clamp itself is safe to have run — it only ever narrows a grant, and its
+    // own persistence goes through the disposed-guarded `_save()`.
+    if (_disposed) {
+      SafeLogger.w(
+          _tag,
+          'refreshRevocationList: disposed during the clamp — CRL not '
+          'persisted');
+      return;
+    }
+    // Round-7 audit, MAJOR — the key is remembered alongside the CRL so
+    // `load()` can apply this same CRL on every later launch, including the
+    // launches where the host never calls back in here (offline, or a host
+    // that refreshes once a day).
+    //
+    // Round-25 QC round 22 (`codex`, MAJOR) — one write, not two. As two, a
+    // process death between them (or two managers interleaving) left a CRL
+    // stored against a key it was not signed with; the next launch failed the
+    // verify, fell open with an empty revoked set, and a revoked key was
+    // redeemable again.
+    await _prefs.setVipRevocationCache(raw: raw, publicKey: publicKeyBase64);
     SafeLogger.d(
         _tag,
         () =>
@@ -1247,6 +1584,17 @@ class VipManager {
 
   /// How much time a grant keeps after the key that issued it is revoked.
   static const Duration revokedGraceWindow = Duration(hours: 24);
+
+  /// How far into the future — measured against the RAW device clock, not the
+  /// anti-rollback mark — an entry's `grantedAt` may sit and still count as
+  /// live. See [_isLive] (MJ9, round 24).
+  ///
+  /// Not zero, because a grant minted seconds after a small backwards clock
+  /// correction is legitimately stamped a few minutes ahead of the raw clock
+  /// (`addVip` anchors to the mark on purpose), and a customer who redeems a
+  /// key must not watch nothing happen. An hour is far more than any such
+  /// correction and small enough that it is worthless to abuse.
+  static const Duration futureGrantSlack = Duration(hours: 1);
 
   /// How much a grant read from the plaintext fallback is worth when the
   /// device's secure storage is working — see M6 in [load].
@@ -1264,11 +1612,18 @@ class VipManager {
   /// Clamping makes a mis-issue cost a paying customer one day, with a window
   /// for support to re-issue, while a leaked key stops earning within a day.
   ///
-  /// Known limitation, worth stating rather than hiding: entries are keyed
-  /// `SIGNED_<kid>` through [normaliseKey], which upper-cases, so kids that
-  /// differ only in case share one entry key and revoking either would clamp
-  /// the other. Mint kids in a single case. Closing it properly means carrying
-  /// the exact kid on [VipEntry] as an additive field.
+  /// Case is handled, and it is worth being precise about what that means,
+  /// because two different things are involved. Matching a `kid` against the
+  /// CRL is fully case-insensitive at BOTH ends — the CRL's kids are
+  /// upper-cased once at ingestion ([_normaliseKids]) and this clamp matches
+  /// through [normaliseKey], which upper-cases too — so a CRL can never
+  /// revoke here while still being accepted at redemption, or the reverse.
+  /// What remains is not a case bug but a namespace one: because entry keys
+  /// are upper-cased, two DISTINCT kids differing only in case (`ab12` and
+  /// `AB12` minted as separate keys) collide on one entry, so revoking either
+  /// clamps the other. Mint kids in a single case and the collision cannot
+  /// arise; closing it outright means carrying the exact kid on [VipEntry] as
+  /// an additive field.
   ///
   /// Also note stacking: with `stack: true` a later legitimate key's entry has
   /// already absorbed the revoked window into its own `expiresAt`, so clamping
@@ -1278,17 +1633,28 @@ class VipManager {
 
     final revokedEntryKeys =
         _revokedKeyIds.map((kid) => normaliseKey('SIGNED_$kid')).toSet();
+    // Round-23 QC (reviewer C, MAJOR) — an entry that stacked onto a revoked
+    // one is holding that key's window and has to be clamped with it. Without
+    // this, one "+1 day for watching an ad" tap moved a revoked 30-day grant
+    // into a `WATCH_AD` row the CRL could not name.
+    bool isRevoked(VipEntry e) =>
+        revokedEntryKeys.contains(e.key) ||
+        e.stackedFrom.any(revokedEntryKeys.contains);
     final cutoff = _effectiveNow().add(revokedGraceWindow);
 
     var clamped = 0;
     for (var i = 0; i < _entries.length; i++) {
       final e = _entries[i];
-      if (!revokedEntryKeys.contains(e.key)) continue;
+      if (!isRevoked(e)) continue;
       if (!e.expiresAt.isAfter(cutoff)) continue; // already shorter than grace
       _entries[i] = VipEntry(
         key: e.key,
         expiresAt: cutoff,
         grantedAt: e.grantedAt,
+        // Kept, not dropped: a clamp is idempotent and runs again on every
+        // launch, so losing the provenance here would un-launder the entry
+        // exactly once and let the next stack re-launder it.
+        stackedFrom: e.stackedFrom,
       );
       clamped++;
     }

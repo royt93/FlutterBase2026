@@ -47,20 +47,40 @@ enum VipRedeemStatus { success, invalid, alreadyUsed }
 class SignedVipRedeemResult {
   const SignedVipRedeemResult.success(VipEntry this.entry)
       : status = VipRedeemStatus.success,
-        error = null;
+        error = null,
+        _offline = false;
   const SignedVipRedeemResult.invalid(String this.error)
       : status = VipRedeemStatus.invalid,
-        entry = null;
+        entry = null,
+        _offline = false;
   const SignedVipRedeemResult.alreadyUsed()
       : status = VipRedeemStatus.alreadyUsed,
         entry = null,
-        error = null;
+        error = null,
+        _offline = false;
+
+  /// Round-25 QC round 14, on-device — "no network" reported as
+  /// [VipRedeemStatus.invalid] made the shipped [VipRedeemScreen] tell the user
+  /// their key was "invalid or expired", so a perfectly good code looks dead and
+  /// gets thrown away. Deliberately NOT a new enum value: adding one to an
+  /// exported enum breaks every host with an exhaustive `switch`. This keeps the
+  /// status as `invalid` (so existing hosts behave exactly as before) and adds
+  /// [isOffline] for anyone who wants to say something more useful.
+  const SignedVipRedeemResult.offline(String this.error)
+      : status = VipRedeemStatus.invalid,
+        entry = null,
+        _offline = true;
 
   final VipRedeemStatus status;
   final VipEntry? entry;
   final String? error;
+  final bool _offline;
 
   bool get ok => status == VipRedeemStatus.success;
+
+  /// True when the redemption was refused only because the device had no
+  /// network — the key itself was never even parsed, let alone rejected.
+  bool get isOffline => _offline;
 }
 
 /// Wire formats, both accepted:

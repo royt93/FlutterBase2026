@@ -33,9 +33,14 @@ Future<void> main(List<String> args) async {
   // shift field boundaries when signed_vip_key.dart's verifySignedCrl parses
   // the payload back (mirrors vip_mint.dart's identical sanitization of
   // --kid).
+  //
+  // Upper-cased to match vip_mint.dart: revocation matching goes through
+  // `VipManager.normaliseKey('SIGNED_<kid>')`, which upper-cases, so a CRL
+  // listing a lower-case kid still has to hit the same entry key. See
+  // vip_mint.dart's --kid comment for the collision this avoids.
   final kids = (opts['kids'] ?? '')
       .split(',')
-      .map((k) => k.trim().replaceAll('|', '_'))
+      .map((k) => k.trim().replaceAll('|', '_').toUpperCase())
       .where((k) => k.isNotEmpty)
       .join(',');
 

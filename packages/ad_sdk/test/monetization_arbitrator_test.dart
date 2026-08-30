@@ -95,12 +95,15 @@ class _FakeAdapter implements AdProviderAdapter {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-AdRevenueEvent _rev(int micros) => AdRevenueEvent(
+AdRevenueEvent _rev(int micros,
+        {AdSlotType type = AdSlotType.interstitial,
+        String currencyCode = 'USD'}) =>
+    AdRevenueEvent(
       providerTag: 'fake',
-      type: AdSlotType.interstitial,
+      type: type,
       placement: AdPlacement.unspecified,
       valueMicros: micros,
-      currencyCode: 'USD',
+      currencyCode: currencyCode,
     );
 
 void main() {
@@ -239,7 +242,12 @@ void main() {
         'onDoneFlow(false)', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100)); // $0.10 CPM equivalent — well below threshold
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100)); // $0.10 CPM equivalent — well below threshold
+      }
       await Future<void>.delayed(Duration.zero);
 
       final events = <AdEvent>[];
@@ -264,7 +272,16 @@ void main() {
         'onEarnedReward(false)', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100));
+      // Round-23 QC (reviewer A, MAJOR) — a slot is priced from its OWN
+      // history now, so a veto on this slot has to be fed this slot's
+      // revenue. Feeding interstitial revenue and asserting a rewarded
+      // veto, as this test used to, is exactly the bug that was fixed.
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100, type: AdSlotType.rewarded));
+      }
       await Future<void>.delayed(Duration.zero);
 
       final events = <AdEvent>[];
@@ -285,7 +302,16 @@ void main() {
         'ArbitratorNudgeEvent fires, onDone(false, false)', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100));
+      // Round-23 QC (reviewer A, MAJOR) — a slot is priced from its OWN
+      // history now, so a veto on this slot has to be fed this slot's
+      // revenue. Feeding interstitial revenue and asserting a rewarded
+      // veto, as this test used to, is exactly the bug that was fixed.
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100, type: AdSlotType.rewardedInterstitial));
+      }
       await Future<void>.delayed(Duration.zero);
 
       final events = <AdEvent>[];
@@ -314,7 +340,12 @@ void main() {
     test('high trailing eCPM (above threshold) → ad shows normally', () async {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(10000)); // $10 CPM equivalent — above threshold
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(10000)); // $10 CPM equivalent — above threshold
+      }
       await Future<void>.delayed(Duration.zero);
 
       bool? flow;
@@ -329,7 +360,12 @@ void main() {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       arb.registerVipLikelihoodEstimator(() => 0.9);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100));
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
       await Future<void>.delayed(Duration.zero);
 
       bool? flow;
@@ -344,7 +380,16 @@ void main() {
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       arb.registerVipLikelihoodEstimator(() => 0.1);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100));
+      // Round-23 QC (reviewer A, MAJOR) — a slot is priced from its OWN
+      // history now, so a veto on this slot has to be fed this slot's
+      // revenue. Feeding interstitial revenue and asserting a rewarded
+      // veto, as this test used to, is exactly the bug that was fixed.
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100, type: AdSlotType.rewarded));
+      }
       await Future<void>.delayed(Duration.zero);
 
       bool? flow;
@@ -359,7 +404,12 @@ void main() {
       AdManager().debugVipManager = _FakeVipTrue();
       final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100)); // low eCPM, would normally nudge
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100)); // low eCPM, would normally nudge
+      }
       await Future<void>.delayed(Duration.zero);
 
       bool? earned;
@@ -380,7 +430,12 @@ void main() {
         perSlotThresholdMicros: {AdSlotType.interstitial: 5000000},
       );
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(2000)); // $2 CPM equivalent — below interstitial's $5
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(2000)); // $2 CPM equivalent — below interstitial's $5
+      }
       await Future<void>.delayed(Duration.zero);
 
       bool? interstitialFlow;
@@ -408,7 +463,12 @@ void main() {
         decisionWindowSize: 4,
       );
       AdManager().enableArbitrator(arb);
-      AdManager().debugEmit(_rev(100)); // well below threshold — nudges
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100)); // well below threshold — nudges
+      }
       await Future<void>.delayed(Duration.zero);
 
       // First 4 calls fill the decision window: veto rate hits 100% only
@@ -447,7 +507,12 @@ void main() {
       // so it skips AdSafetyConfig's fullscreen-show throttle entirely.
 
       // Low eCPM → first 2 decisions veto, filling the window at 100%.
-      AdManager().debugEmit(_rev(100));
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
       await Future<void>.delayed(Duration.zero);
       for (var i = 0; i < 2; i++) {
         expect(
@@ -464,7 +529,12 @@ void main() {
 
       // Now raise eCPM above threshold — decisions naturally showAd from
       // here on, so the window stays recovered without guardrail help.
-      AdManager().debugEmit(_rev(10000)); // $10 CPM equivalent — above threshold
+      // Round-24 QC (reviewer B, MAJOR): a bucket thinner than
+      // `_minSamplesToPrice` is deliberately not priced at all, so a test that
+      // wants the arbitrator to have an opinion has to give it evidence.
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(10000)); // $10 CPM equivalent — above threshold
+      }
       await Future<void>.delayed(Duration.zero);
       expect(arb.decide(AdSlotType.interstitial), ArbitratorDecision.showAd);
       expect(arb.vetoRate, 0.0,

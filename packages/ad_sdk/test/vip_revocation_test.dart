@@ -304,6 +304,36 @@ void main() {
           reason: 'a revoked key stops earning within a day');
     });
 
+    // Round-23 audit, MINOR-turned-real — revocation was matched two
+    // different ways: `_clampRevokedEntries` through
+    // `normaliseKey('SIGNED_<kid>')` (upper-cased) but the redemption gate by
+    // exact case. A CRL whose kid case differs from the key's therefore
+    // clamped an already-granted window while still handing out a brand-new
+    // grant for the very same revoked key.
+    test('a CRL revokes a kid regardless of case', () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final crl =
+          await mintCrl(keyPair, issuedAtEpoch: 4000, kids: ['LEAKED-CASE']);
+      await mgr.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl),
+      );
+
+      // Same kid, minted in the other case — mint tools now upper-case, but
+      // keys issued before that still carry whatever case they were minted in.
+      final code = await mintVipKey(keyPair,
+          seconds: const Duration(days: 30).inSeconds, kid: 'leaked-case');
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.status, VipRedeemStatus.invalid,
+          reason: 'a revoked kid must not redeem just because the CRL and the '
+              'key disagree on letter case');
+      expect(mgr.isActive, isFalse);
+    });
+
     // Round-6 codex QC — the clamp ran AFTER the CRL was persisted, so a
     // process death between those two awaits left the CRL cached and the grant
     // untouched. On the next launch the same-age CRL hits the "not newer"

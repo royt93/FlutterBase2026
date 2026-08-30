@@ -133,7 +133,18 @@ class AdManager with WidgetsBindingObserver {
 
   bool get isAdMobProvider => _config?.isAdMob ?? false;
 
-  AdProviderAdapter? get adapter => _adapter;
+  /// Round-25 QC round 13 (`codex`, MAJOR) — this returns `null` while a
+  /// teardown is in flight. `AdProviderAdapter` is exported and its
+  /// `showAppOpen`/`showInterstitial`/`showRewarded`/`showRewardedInterstitial`
+  /// are public, so a host that fetched the adapter through here could show a
+  /// fullscreen ad straight past every guard in this class while `destroy()`
+  /// was dismantling the very session behind it. Handing back `null` closes
+  /// that door without touching the exported abstract interface (adding a
+  /// member there would be a breaking change for anyone implementing it).
+  /// Internal callers use `_adapter` and are unaffected; the banner/MREC/native
+  /// widgets do come through here, and stopping them from building against an
+  /// adapter about to be disposed is the point, not a side effect.
+  AdProviderAdapter? get adapter => _destroyInFlight != null ? null : _adapter;
 
   /// Release-build footgun checks, returned as human-readable warnings.
   /// `initialize()` logs each (and asserts in non-release). Pure + static so it
@@ -679,6 +690,16 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   void debugSetAdapter(AdProviderAdapter? adapter) => _adapter = adapter;
 
+  /// Override the [FirstInstallGuard] `initialize()` builds, so a test can
+  /// drive the anti-bypass read — including the case where it never answers.
+  ///
+  /// Round-23 QC (reviewer C, MINOR) — the timeout branch is the whole point of
+  /// the fix and is otherwise unreachable: the real guard reads the iOS
+  /// Keychain through `flutter_secure_storage`, which in a unit test fails fast
+  /// rather than blocking.
+  @visibleForTesting
+  static FirstInstallGuard Function()? debugFirstInstallGuardFactory;
+
   /// Override which adapter instance `initialize()` builds, so a test can
   /// observe what happens to it (e.g. that a failed init disposes it) without
   /// a live native plugin. Defaults to the real selection below.
@@ -977,14 +998,48 @@ class AdManager with WidgetsBindingObserver {
   // itself. Bounded backoff retry closes that gap without risking an
   // infinite retry loop on a persistently broken host config.
   static const int _maxInitRetryAttempts = 3;
-  static const List<Duration> _initRetryDelays = [
+  /// Round-25 QC round 11 — test seam. The real backoff starts at 5s, and the
+  /// teardown/retry ordering tests have to out-wait it; with the event-stream
+  /// close now capped at 2s they can no longer hold a teardown open that long,
+  /// and a fixed `Future.delayed(5.2s)` was flaky under load anyway (the first
+  /// attempt's own VIP/UMP work eats into it). Overriding the schedule keeps
+  /// those tests about the ORDERING they actually pin instead of wall clock.
+  @visibleForTesting
+  static List<Duration>? debugInitRetryDelays;
+
+  /// Test seam — the delay the most recent init retry was actually armed with,
+  /// after [debugInitRetryDelays] is capped. Lets a test prove the cap without
+  /// sitting through a real 30s backoff.
+  @visibleForTesting
+  static Duration? debugLastInitRetryDelay;
+
+  static const List<Duration> _kInitRetryDelays = [
     Duration(seconds: 5),
     Duration(seconds: 15),
     Duration(seconds: 30),
   ];
   int _initRetryAttempts = 0;
   Timer? _initRetryTimer;
+
+  /// The `onComplete` of the caller whose failed attempt armed
+  /// [_initRetryTimer]. It is held here, and not only captured inside the
+  /// timer's closure, because both a fresh `initialize()` and `destroy()`
+  /// cancel that timer outright — and cancelling a `Timer` throws its closure
+  /// away, the host callback with it.
+  ///
+  /// Round-25 QC round 8 (`agy`, MAJOR): the caller was then never answered at
+  /// all, neither `true` nor `false`. A splash awaiting that callback sat
+  /// there until its own hard-cap timer fired (or, in a host without one,
+  /// forever) even though the SDK had meanwhile come up fine.
+  void Function(bool success, String gaid)? _pendingRetryOnComplete;
+
+  @visibleForTesting
+  bool get debugPendingRetryCallback => _pendingRetryOnComplete != null;
   bool _isInternalInitRetryCall = false;
+  int _initGen = 0;
+
+  @visibleForTesting
+  bool get debugInitRetryScheduled => _initRetryTimer?.isActive ?? false;
 
   /// T80 — regression seam for the 2.0.1 fix: simulates an internal retry
   /// timer firing while another `initialize()` call already holds the busy
@@ -1160,6 +1215,44 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// Keeping it in one place also means a fifth ad type added later is covered
   /// by construction rather than by remembering to copy the condition.
+  /// The one answer to "may this adapter present a fullscreen ad **right
+  /// now**". Returns a reason to skip, or `null` to proceed.
+  ///
+  /// Round-25 sweep (post-QC-22) — rounds 12 through 22 were every one of them
+  /// the same shape: a guard read before an `await`, an act performed after it.
+  /// Each round the fix was a fresh hand-written check at whichever site the
+  /// reviewer happened to probe, so the guards ended up in three different
+  /// styles and the next unswept branch was always one round away. This is the
+  /// single place those three facts are asked about now, and every fullscreen
+  /// show path asks it immediately before presenting:
+  ///
+  ///  * a teardown started (`destroy()` is dismantling the session),
+  ///  * the adapter was swapped (a `destroy()` + re-`initialize()` while `ad`
+  ///    was captured before an await — showing on it drives a disposed native
+  ///    channel),
+  ///  * consent was withdrawn (an impression served after the user said no is
+  ///    the single outcome this SDK exists to prevent).
+  ///
+  /// Deliberately NOT here: the fullscreen mutex ([_fullscreenBusyReason]), the
+  /// safety caps and the VIP suppression. Those have per-path semantics — the
+  /// splash App Open bypasses safety, the VIP extension flow bypasses VIP — so
+  /// folding them in would make this helper lie at three of its four call
+  /// sites. Their own checks stay where they are.
+  ///
+  /// At three of the four call sites there is no `await` between the entry gate
+  /// and the show today, so the call is redundant *today*. That is the point:
+  /// the next person to add an await there — an on-demand load, a dialog, a
+  /// mediation hop — inherits the guard instead of re-opening the hole.
+  /// `test/show_paths_guard_test.dart` fails if a show path stops calling it.
+  String? _presentBlockedReason(AdProviderAdapter ad) {
+    if (_destroyInFlight != null) return 'a teardown is in flight';
+    if (!identical(_adapter, ad)) {
+      return 'the SDK was torn down or re-initialised';
+    }
+    if (!canRequestAds) return 'consent was withdrawn';
+    return null;
+  }
+
   String? get _fullscreenBusyReason {
     // Round-7 audit, MAJOR — checked before the adapter, because the initial
     // consent form is presented during splash while the adapter may not exist
@@ -1171,6 +1264,16 @@ class AdManager with WidgetsBindingObserver {
     // form also does not background the app, so the App Open resume guard was
     // never in the picture either.
     if (umpFormOnScreen.value) return 'a consent form is on screen';
+
+    // Round-25 QC round 13 (`codex`, MAJOR) — the teardown belongs HERE, in the
+    // one gate every fullscreen path re-reads, not only at each show method's
+    // entry. `showRewardedAd` checks `_teardownBlocksShow` up front, then awaits
+    // `_loadRewardedOnDemand`; a `destroy()` starting inside that await used to
+    // be invisible to the post-load re-check, which consulted this getter alone.
+    // codex's probe watched a rewarded ad play and pay out its reward while
+    // `_destroyInFlight != null`. Folding it in covers all four ad types, every
+    // post-await re-check, and any fifth type added later by construction.
+    if (_destroyInFlight != null) return 'a teardown is in flight';
     final ad = _adapter;
     if (ad == null) return null;
     if (ad.appOpenSlot.isShowing) return 'app-open ad currently showing';
@@ -1261,6 +1364,23 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam for the consent gate.
   @visibleForTesting
   set debugCanRequestAds(bool v) => _updateCanRequestAds(v);
+
+  /// Test seam — the result the running drain is handing out, or `null` when
+  /// no drain is running. See [_drainingInitResult].
+  @visibleForTesting
+  bool? get debugDrainingInitResult => _drainingInitResult;
+
+  /// Test seam — the session epoch a UMP round trip binds itself to. Bumped by
+  /// [destroy]; see [_applyUmpConsentResult].
+  @visibleForTesting
+  int get debugConsentSessionEpoch => _consentSessionEpoch;
+
+  /// Test seam — applies a UMP result exactly as a real round trip's tail does,
+  /// without a UMP channel. [session] is what binds it to a session.
+  @visibleForTesting
+  Future<void> debugApplyUmpConsentResult(UmpConsentResult result,
+          {int? session}) =>
+      _applyUmpConsentResult(result, session: session);
 
   /// N2 test seam — forces the release-only footgun block without needing a
   /// `kReleaseMode` build.
@@ -1425,6 +1545,11 @@ class AdManager with WidgetsBindingObserver {
   void debugResetNativeCooldown() => _lastNativeLoadAtByKey.clear();
 
   bool _isObserverAdded = false;
+
+  /// Test seam — whether the app-lifecycle observer (App Open on resume, ad
+  /// pause/resume) is currently attached. `destroy()`'s teardown detaches it.
+  @visibleForTesting
+  bool get debugLifecycleObserverAttached => _isObserverAdded;
 
   void _ensureObserverAdded() {
     if (_isObserverAdded) return;
@@ -1782,10 +1907,23 @@ class AdManager with WidgetsBindingObserver {
   /// builds only). Only entries whose GAID matches THIS device (per
   /// [_currentDeviceGAID]) are persisted as active VIP — matching 1.x
   /// behaviour exactly. No-op once already run (`isAddVIPMemberFirstInitSuccess`).
+  ///
+  /// [isDebug] exists only so a test can reach the body at all — every unit
+  /// test runs under `kDebugMode`, which this method returns on. Same shape as
+  /// `initialize()`'s `isRelease` parameter.
   Future<void> _applyConfigVipGaidWhitelist(
-      AdConfig config, VipManager vip, AdPreferences prefs) async {
-    if (prefs.isAddVIPMemberFirstInitSuccess()) return;
-    if (kDebugMode || config.vipDeviceGaids.isEmpty) return;
+      AdConfig config, VipManager vip, AdPreferences prefs,
+      {bool isDebug = kDebugMode}) async {
+    if (isDebug || config.vipDeviceGaids.isEmpty) return;
+    // Round-23 QC (reviewer C, MINOR) — this used to be a plain one-shot: flag
+    // set, never granted again. But the grant below asks for 50 years and
+    // `VipManager` clamps every entry to `AdConfig.maxVipStackDuration` (~90
+    // days), so a whitelisted device silently fell out of VIP after 90 days and
+    // the flag made that permanent — the internal/QA devices this list exists
+    // for had to reinstall the app to get it back. Re-grant once the window has
+    // actually run out; nothing else changes, the device is still on the host's
+    // own whitelist, which is all the grant ever asserted.
+    if (prefs.isAddVIPMemberFirstInitSuccess() && vip.isActive) return;
     final myGaid = _currentDeviceGAID.trim().toUpperCase();
     for (final gaid in config.vipDeviceGaids) {
       if (gaid.trim().isEmpty) continue;
@@ -1795,7 +1933,34 @@ class AdManager with WidgetsBindingObserver {
         duration: const Duration(days: 365 * 50),
       );
     }
-    await prefs.addVIPMemberFirstInitSuccess();
+    // Round-37 QC (reviewer B, MAJOR) — `addVip` above can land on a manager
+    // `destroy()` disposed while this `await` was in flight; its own `_save()`
+    // already drops the write for that reason (round 18), but nothing here
+    // stopped the flag below from being marked anyway — a config-whitelisted
+    // device silently lost the grant this very call was supposed to give it,
+    // permanently, since this flag is one-shot. Same rule as the first-install
+    // grace block right below: the flag is set only once the grant actually
+    // landed.
+    if (vip.isDisposed) {
+      SafeLogger.w(_tag,
+          'GAID whitelist grant abandoned (destroy() mid-write) — not marking '
+          'the one-shot flag over a dropped grant');
+      return;
+    }
+    if (!prefs.isAddVIPMemberFirstInitSuccess()) {
+      await prefs.addVIPMemberFirstInitSuccess();
+    }
+  }
+
+  @visibleForTesting
+  Future<void> debugApplyConfigVipGaidWhitelist(
+    AdConfig config,
+    VipManager vip,
+    AdPreferences prefs, {
+    required String deviceGaid,
+  }) {
+    _currentDeviceGAID = deviceGaid;
+    return _applyConfigVipGaidWhitelist(config, vip, prefs, isDebug: false);
   }
 
   /// Initialise the SDK. Idempotent: calling twice without [destroy] auto-cleans
@@ -1827,13 +1992,62 @@ class AdManager with WidgetsBindingObserver {
     // retry and skips its retry-budget reset.
     final isInternalRetry = _isInternalInitRetryCall;
     _isInternalInitRetryCall = false;
+    // Round-25 QC round 7 (`codex` MAJOR, `agy` MAJOR) — see [destroy]. A
+    // teardown is mid-await: building a session now means the rest of that
+    // teardown gets applied to it (adapter disposed, lifecycle observer
+    // removed). Wait it out; the host asked for both, in this order, and this
+    // is the order it gets. Deliberately before the duplicate guard below, and
+    // deliberately not an `await` at all when no teardown is running — a
+    // callback that re-enters `initialize()` from inside a drain is still
+    // answered synchronously.
+    final teardown = _destroyInFlight;
+    if (teardown != null) {
+      SafeLogger.w(
+          _tag,
+          'initialize() called while destroy() is still tearing down — '
+          'waiting for the teardown to finish before starting a new session');
+      await teardown;
+    }
     // Guard so concurrent calls during a teardown-then-reinit cycle can't
     // slip past `_disposeAdapter`'s await and leak two adapters.
     if (_isInitializing) {
-      SafeLogger.w(_tag, 'initialize already in progress — skipping duplicate');
+      final draining = _drainingInitResult;
+      if (draining != null) {
+        // Called from inside a host callback this very drain is invoking: the
+        // in-flight attempt's result is already known, so hand it over now.
+        // Parking here is what stranded callers past round 5's pass cap.
+        SafeLogger.w(
+            _tag,
+            'initialize called from inside an onComplete — answering with the '
+            'result being delivered ($draining) instead of parking');
+        try {
+          onComplete(draining, _currentDeviceGAID);
+        } catch (e, st) {
+          SafeLogger.e(_tag, 'host onComplete($draining) threw: $e\n$st');
+        }
+        return;
+      }
+      if (_queuedInitCallbacks.length >= _maxQueuedInitCallbacks) {
+        SafeLogger.w(
+            _tag,
+            'initialize already in progress and $_maxQueuedInitCallbacks '
+            'callers are already parked — this one is told false immediately');
+        try {
+          onComplete(false, _currentDeviceGAID);
+        } catch (e, st) {
+          SafeLogger.e(_tag, 'host onComplete(false) threw: $e\n$st');
+        }
+        return;
+      }
+      SafeLogger.w(
+          _tag,
+          'initialize already in progress — this caller is parked and will be '
+          'told the in-flight result (see _queuedInitCallbacks)');
+      _queuedInitCallbacks.add(onComplete);
       return;
     }
     _isInitializing = true;
+    final initGen = ++_initGen;
     if (!isInternalRetry) {
       // A fresh, host-initiated call resets the auto-retry budget — otherwise
       // a legitimate manual retry right after the internal budget was
@@ -1841,7 +2055,38 @@ class AdManager with WidgetsBindingObserver {
       _initRetryAttempts = 0;
       _initRetryTimer?.cancel();
       _initRetryTimer = null;
+      // Round-25 QC round 8 (`agy`, MAJOR) — the timer just cancelled was
+      // holding the previous caller's `onComplete` (see
+      // [_pendingRetryOnComplete]). Park it on this attempt's queue rather
+      // than dropping it: this attempt drains the queue with its real result,
+      // so a manual "Retry" that succeeds answers `true` to the caller that
+      // had already given up, and a manual retry that fails answers `false`.
+      final stranded = _pendingRetryOnComplete;
+      _pendingRetryOnComplete = null;
+      if (stranded != null) {
+        if (_queuedInitCallbacks.length >= _maxQueuedInitCallbacks) {
+          SafeLogger.w(_tag,
+              'the pending retry callback cannot be parked (queue full) — '
+              'answering it false right away');
+          try {
+            stranded(false, _currentDeviceGAID);
+          } catch (e, st) {
+            SafeLogger.e(_tag, 'host onComplete(false) threw: $e\n$st');
+          }
+        } else {
+          SafeLogger.d(_tag,
+              'a host-initiated initialize() cancelled a pending retry — the '
+              'retry\'s caller is parked on this attempt instead');
+          _queuedInitCallbacks.add(stranded);
+        }
+      }
     }
+    // Round-25 — set once `onComplete(true)` + `BoolEvent(true)` have gone
+    // out, so the `catch` below cannot follow a reported success with a
+    // contradicting failure report. Everything that runs after that point
+    // (the footgun diagnostics, the preload kick-off) is post-success work: if
+    // it throws, init still succeeded and the host has already been told so.
+    var successReported = false;
     // Wrap the entire init body in try/finally so a thrown
     // `AdPreferences.getInstance` / `AdSafetyConfig.init` / `VipManager.load`
     // can't strand `_isInitializing=true` and block future inits.
@@ -1862,7 +2107,7 @@ class AdManager with WidgetsBindingObserver {
         // would stack onto the SAME live `ConsentManager` instance, so N
         // re-inits (without an intervening destroy()) fire _syncConsentToAdapter
         // N times per consent change.
-        _consentManager?.listenable.removeListener(_syncConsentToAdapter);
+        _detachConsentListener();
         // R12-A audit round 6: reset via the same shared method destroy()
         // uses, instead of a hand-copied field list — a second field
         // (_umpRequested/_consentExplicitlySet) leaked past this branch in
@@ -1974,6 +2219,16 @@ class AdManager with WidgetsBindingObserver {
           isRelease: isRelease,
           isConnectedCheck: () => isConnected);
       await vip.load(currentDeviceGaid: _currentDeviceGAID);
+      // Round-25 QC round 6 (`codex` MAJOR, `agy` MAJOR) — `vip.load()` reads
+      // storage, so `destroy()` can land right here. Installing this manager
+      // afterwards left the torn-down SDK holding a live `VipManager` with
+      // `vipReady == true` and a listener attached, i.e. VIP state resurrected
+      // after teardown.
+      if (_initSuperseded(initGen)) {
+        vip.dispose();
+        _reportAbandonedInit(onComplete, 'destroy() during the VIP load');
+        return;
+      }
       vip.activeListenable.addListener(_onVipActiveChanged);
       _vipManager = vip;
       _vipReadyNotifier.value = true;
@@ -2007,15 +2262,18 @@ class AdManager with WidgetsBindingObserver {
           // rationale). Falls through to allow grace if no bypass signal
           // is found, so legitimate first-time users still get their
           // grace window.
-          final guard = FirstInstallGuard();
+          final guard =
+              debugFirstInstallGuardFactory?.call() ?? FirstInstallGuard();
           // m13 — bounded: this reads the iOS Keychain through
           // flutter_secure_storage, and a Keychain read can genuinely block
           // (notably before first unlock after a reboot). `true` on timeout is
           // the conservative answer: skip the grant rather than hand out a
           // second trial window to what may be a reinstall.
+          var guardTimedOut = false;
           final alreadyGranted = await guard
               .hasAlreadyGranted()
               .timeout(const Duration(seconds: 5), onTimeout: () {
+            guardTimedOut = true;
             SafeLogger.w(
                 _tag,
                 'first-install guard read timed out — skipping the grace '
@@ -2023,7 +2281,17 @@ class AdManager with WidgetsBindingObserver {
             return true;
           });
           if (alreadyGranted) {
-            await prefs.markFirstInstallGraceApplied();
+            // Round-23 QC (reviewer C, MINOR) — a timeout means "could not
+            // read", not "already granted". Burning the per-install flag on it
+            // turned a slow Keychain — routine before the first unlock after a
+            // reboot, which is exactly when a fresh install is first opened —
+            // into a permanently lost trial day for a genuine new user, with no
+            // backend to hand it back. Skipping this launch is still the right
+            // conservative call; the flag stays unset so the next launch, when
+            // the Keychain answers, decides properly.
+            if (!guardTimedOut) {
+              await prefs.markFirstInstallGraceApplied();
+            }
             SafeLogger.d(
                 _tag,
                 () => '🛡️ first-install VIP grace SKIPPED — anti-bypass guard '
@@ -2034,28 +2302,44 @@ class AdManager with WidgetsBindingObserver {
               key: config.firstInstallVipKey,
               duration: dur,
             );
-            vip.notifyFirstInstallGrant(dur);
-            // ORDER MATTERS — write the persistent anti-bypass marker
-            // (Keychain on iOS) BEFORE the per-install prefs flag. If the
-            // process is force-killed between these two writes, the worst
-            // case is that the prefs flag stays unset — and the next init
-            // on the same install simply re-runs the guard, which finds
-            // the Keychain flag and skips re-granting (or, if the user
-            // also uninstalls in that microsecond window before reinstall,
-            // the Keychain flag still blocks the bypass).
-            //
-            // The opposite order would leave a window where prefs flag
-            // is set but Keychain flag is not, allowing uninstall +
-            // reinstall to bypass the guard.
-            await guard.markGranted();
-            await prefs.markFirstInstallGraceApplied();
-            SafeLogger.d(_tag, () {
-              // Log seconds in debug (likely 30 s) so QA can verify quickly;
-              // hours in release (24 h+) for human-readable retention reports.
-              final readable =
-                  dur.inHours > 0 ? '${dur.inHours}h' : '${dur.inSeconds}s';
-              return '🎁 first-install VIP grace granted ($readable, mode=${kDebugMode ? "debug" : "release"})';
-            });
+            // Round-37 QC (reviewer B, MAJOR) — the Keychain read above is a
+            // real, multi-second production await (m13's 5 s timeout bound),
+            // and nothing between `initialize()`'s VIP-load supersede check
+            // and its consent-bootstrap one guards this window. A `destroy()`
+            // landing while that read was in flight disposes `vip` (round 18's
+            // `_save()` guard then drops the grant just written above) — and
+            // without this check the two one-shot flags below still got
+            // burned, permanently destroying the free trial for a genuine
+            // first-time user with no backend to hand it back. Same rule as
+            // round 18: the flag is set only once the grant actually landed.
+            if (vip.isDisposed) {
+              SafeLogger.w(_tag,
+                  'first-install VIP grace abandoned (destroy() mid-grant) — '
+                  'not marking either flag over a grant that was dropped');
+            } else {
+              vip.notifyFirstInstallGrant(dur);
+              // ORDER MATTERS — write the persistent anti-bypass marker
+              // (Keychain on iOS) BEFORE the per-install prefs flag. If the
+              // process is force-killed between these two writes, the worst
+              // case is that the prefs flag stays unset — and the next init
+              // on the same install simply re-runs the guard, which finds
+              // the Keychain flag and skips re-granting (or, if the user
+              // also uninstalls in that microsecond window before reinstall,
+              // the Keychain flag still blocks the bypass).
+              //
+              // The opposite order would leave a window where prefs flag
+              // is set but Keychain flag is not, allowing uninstall +
+              // reinstall to bypass the guard.
+              await guard.markGranted();
+              await prefs.markFirstInstallGraceApplied();
+              SafeLogger.d(_tag, () {
+                // Log seconds in debug (likely 30 s) so QA can verify quickly;
+                // hours in release (24 h+) for human-readable retention reports.
+                final readable =
+                    dur.inHours > 0 ? '${dur.inHours}h' : '${dur.inSeconds}s';
+                return '🎁 first-install VIP grace granted ($readable, mode=${kDebugMode ? "debug" : "release"})';
+              });
+            }
           }
         }
       }
@@ -2068,6 +2352,20 @@ class AdManager with WidgetsBindingObserver {
         prefs: prefs,
         strings: config.consentDialogStrings,
       );
+      // Same round-6 MAJOR, next await: `ConsentManager.bootstrap` reads
+      // persisted consent, and publishing it into a torn-down SDK leaves
+      // `AdManager().consent` answering for a session that no longer exists.
+      // Not independently pinnable: `AdPreferences.getInstance()` is an
+      // internal singleton, so a test has no seam to make `destroy()` land
+      // inside `bootstrap`'s own await. Deleting this block keeps the suite
+      // green. It is the symmetric one-line twin of the VIP-load abort above,
+      // which *is* pinned ('a superseded attempt cannot resurrect VIP state
+      // after destroy()'), and it guards the same failure: a torn-down SDK
+      // whose `AdManager().consent` answers for a dead session.
+      if (_initSuperseded(initGen)) {
+        _reportAbandonedInit(onComplete, 'destroy() during the consent bootstrap');
+        return;
+      }
       _consentManager = consentMgr;
       _consent = consentMgr.adConsent;
 
@@ -2157,6 +2455,13 @@ class AdManager with WidgetsBindingObserver {
         // skipIfAlreadyRequested early-return, so setting it here would make
         // the call below skip itself and no consent flow would run at all.
         _umpFlowStarted = true;
+        // Round-25 QC round 7 (`codex`, BLOCKER) — this flow is deliberately
+        // NOT awaited, so its outcome can land long after a `destroy()`. The
+        // error handler below reopens the gate directly, and
+        // `_applyUmpConsentResult` writes it too, neither of which may write
+        // into whatever session is live by then. Same session epoch the
+        // privacy-options form is bound to (see `_applyPrivacyOptionsResult`).
+        final umpSession = _consentSessionEpoch;
         runZonedGuarded(() async {
           if (debugForceAutoUmpError != null) {
             throw debugForceAutoUmpError!;
@@ -2174,6 +2479,14 @@ class AdManager with WidgetsBindingObserver {
           // the error arrives as an unhandled ZONE error that a try/catch
           // around the call cannot see. Verified against the real stack in
           // google_mobile_ads' UserMessagingChannel.
+          if (umpSession != _consentSessionEpoch) {
+            SafeLogger.w(
+                _tag,
+                'the auto UMP flow of a torn-down session failed ($e) — '
+                'dropping it (session=$umpSession, now=$_consentSessionEpoch); '
+                'the live session runs, and answers for, its own consent flow');
+            return;
+          }
           _umpAttemptFailed = true;
           // Fail OPEN only for MissingPluginException — that specifically means
           // the UMP channel is not registered (unit tests, or a host that never
@@ -2220,7 +2533,7 @@ class AdManager with WidgetsBindingObserver {
       // Pick adapter, wire its event sink, then initialise. The resolved
       // GAID is forwarded so the AppLovin adapter can register this device
       // as a test device in debug builds (preserves 1.x policy compliance).
-      final adapter = debugAdapterFactory != null
+      final AdProviderAdapter adapter = debugAdapterFactory != null
           ? debugAdapterFactory!(config)
           : (config.isAdMob ? AdMobAdapter() : AppLovinAdapter());
       adapter.eventSink = _emit;
@@ -2237,13 +2550,22 @@ class AdManager with WidgetsBindingObserver {
       // on iOS Simulator) previously wedged this await forever, permanently
       // stuck at isInitialised=false with no error surfaced. Bound it so a
       // hang degrades to a normal init-failure instead of an infinite hang.
+      // Round-23 QC (reviewer B, BLOCKER) — remember the child-directed flag
+      // the provider is actually being built with. AppLovin MAX only reads it
+      // at SDK init, and this `await` can run for up to 20 seconds; a host that
+      // finishes its age gate inside that window calls `setConsent()`, which
+      // updates `_consent` but cannot reach the adapter already coming up. On a
+      // FIRST init `setConsent()`'s own COPPA re-init branch is unreachable too
+      // (`_config` and `_lastKnownConfig` are both still null at that point),
+      // so nothing at all carried the flag across. See the reconcile below.
+      final initAgeRestricted = _consent.isAgeRestrictedUser;
       bool ok;
       try {
         ok = await adapter
             .initialize(
               config,
               deviceGaid: _currentDeviceGAID,
-              isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+              isAgeRestrictedUser: initAgeRestricted,
               // MJ1 — hand the adapter the full consent state so it can apply
               // the flags its own SDK wants set before native init, instead of
               // waiting for applyToProviders() further down.
@@ -2280,9 +2602,20 @@ class AdManager with WidgetsBindingObserver {
         // Firing it on every internal retry attempt (up to 4x: the first
         // failure + 3 retries) would surprise hosts expecting a single
         // success/failure signal.
+        // Round-25 QC round 6 (all three reviewers, BLOCKER) — the abort
+        // check further down only covered the *success* path, so a superseded
+        // attempt whose native init failed still armed a retry timer (which
+        // then called `initialize()` on the torn-down SDK five seconds later)
+        // and still fired `BoolEvent(false)`. The event bus replays its most
+        // recent event, so that loser's `false` overwrote the winner's `true`
+        // for every late subscriber — a splash that subscribed after the fact
+        // was told the SDK had failed while it was in fact up.
+        if (_initSuperseded(initGen)) {
+          _reportAbandonedInit(onComplete, 'destroy() or a newer initialize()');
+          return;
+        }
         if (!_scheduleInitRetryIfNeeded(config, onComplete, isRelease)) {
-          onComplete(false, _currentDeviceGAID);
-          SimpleEventBus().fire(const BoolEvent(false));
+          _reportInitFailure(onComplete, initGen);
         }
         return;
       }
@@ -2290,6 +2623,125 @@ class AdManager with WidgetsBindingObserver {
       _initRetryAttempts = 0;
       _initRetryTimer?.cancel();
       _initRetryTimer = null;
+
+      // Round-25 QC round 5 (`codex`, BLOCKER) — everything above this line
+      // ran across awaits (GAID fetch, VIP load, consent bootstrap, up to 20s
+      // of native adapter init), and the host may well have called `destroy()`
+      // in the meantime. Without this check the abandoned attempt went on to
+      // install `_config`/`_adapter`, re-arm the retry timer and the
+      // connectivity watch, and report `onComplete(true)` — i.e. the SDK came
+      // back to life *after* teardown, and a caller already told `false` by
+      // `destroy()` then saw `isInitialised == true`.
+      if (_initSuperseded(initGen)) {
+        try {
+          await adapter.dispose();
+        } catch (e) {
+          SafeLogger.w(_tag, 'disposing the abandoned adapter threw: $e');
+        }
+        _reportAbandonedInit(onComplete, 'destroy() or a newer initialize()');
+        return;
+      }
+
+      // Round-23 QC (reviewer B, BLOCKER) — the child-directed flag may have
+      // changed while the up-to-20s native init above was running. AppLovin MAX
+      // exposes no runtime setter for it, so the adapter that just came up is
+      // permanently carrying `initAgeRestricted`, and installing it would serve
+      // MAX ads to a user the host has since declared child-directed.
+      //
+      // `setConsent()` has a COPPA re-init branch for exactly this, but on a
+      // FIRST init it cannot fire: it needs `_config ?? _lastKnownConfig`, and
+      // both are still null until the two lines below. So the reconcile has to
+      // happen here, on the way out of init.
+      //
+      // Abort rather than re-init in place: `_isInitializing` is still true
+      // (cleared by this method's `finally`), so a nested `initialize()` would
+      // early-return, and a deferred one could not report through the host's
+      // `onComplete`. Failing closed is also the correct direction for COPPA —
+      // AppLovin's own adapter aborts init outright for a child-directed
+      // audience, so this makes a mid-init flip behave exactly like a flag that
+      // had been true from the start. `_lastKnownConfig` is set first, which is
+      // what lets the existing MJ7/M2 recovery in `setConsent()` rebuild the
+      // adapter if the host later corrects the flag back to false.
+      // `config.isAdMob`, NOT `isAdMobProvider` — the getter reads `_config`,
+      // which is still null two lines above its own assignment, so on a first
+      // init it answers `false` for an AdMob app and this reconcile would tear
+      // down a perfectly good AdMob adapter. (AdMob carries child-directed on
+      // every ad request, so there is nothing stale to discard there.)
+      if (!config.isAdMob &&
+          _consent.isAgeRestrictedUser != initAgeRestricted) {
+        _lastKnownConfig = config;
+        if (_consent.isAgeRestrictedUser) {
+          // Nothing may request an ad from here on.
+          _updateCanRequestAds(false);
+        }
+        SafeLogger.w(
+            _tag,
+            '🚫 COPPA child-directed flipped to ${_consent.isAgeRestrictedUser} '
+            'DURING AppLovin init — MAX only reads it at SDK init, so the '
+            'adapter that just came up carries the stale value. Discarding it.');
+        try {
+          await adapter.dispose();
+        } catch (e) {
+          SafeLogger.w(_tag, 'disposing the stale-COPPA adapter threw: $e');
+        }
+        // Round-25 QC (reviewer B, MINOR) — this abort MUST fire the event.
+        // `_reportAbandonedInit` deliberately stays silent for a *superseded*
+        // attempt, because a winner is behind it and will fire its own. Here
+        // there is no winner and no `destroy()`: nothing else will ever fire,
+        // so a splash driven off `SimpleEventBus` (the SDK's own
+        // `AdReadinessSplashController`, and the copy-paste splash in the
+        // README) sits frozen until its 8 s hard cap.
+        // Round-30 QC (reviewer B, BLOCKER) — and it must try again. Run the
+        // trigger in the OTHER direction: a kids-category app with a
+        // parent-unlockable adult tier starts init as child-directed, the
+        // parent finishes the age gate inside the ≤20 s native window, and the
+        // host sets `isAgeRestrictedUser: false`. The reconcile discards the
+        // adapter — correctly, it carries the stale flag — and then, before
+        // this, simply stopped. No adapter, no retry, and the only rebuild
+        // route left (`setConsent`'s COPPA branch) needs the flag to flip
+        // AGAIN, which it will not: the gate is finished. An ordinary adult
+        // user got zero ads of any format for the whole session.
+        //
+        // That direction is strictly worse than doing nothing — keeping the
+        // over-restrictive adapter would at least have served child-safe
+        // inventory — and unlike the `true` direction there is no compliance
+        // reason to stay dark. The retry re-enters `initialize()` with
+        // `_consent` settled, so the second attempt builds with the right flag.
+        //
+        // The splash-unfreeze and parked-caller problems round 25/26 fixed are
+        // about the EVENT BUS and the QUEUE — a late subscriber and a second,
+        // different caller — not about this call's own `onComplete`. Firing the
+        // bus and draining the queue immediately still answers "nobody else is
+        // coming" for THOSE two audiences: neither the queued callers nor the
+        // bus's late subscribers hear about a retry that only re-answers this
+        // one closure.
+        SimpleEventBus().fire(const BoolEvent(false));
+        _drainQueuedInitCallbacks(false);
+        //
+        // Round-33 QC (reviewer B, MAJOR) — `onComplete` itself must be
+        // answered exactly once, same as every sibling failure path in this
+        // method. The previous version called it here immediately AND handed
+        // the same closure to a retry, so a host that stops a splash spinner or
+        // fires one "sdk_ready" event off `onComplete` did both twice.
+        //
+        // The two directions are NOT symmetric, so they no longer share a
+        // retry decision. `isAgeRestrictedUser == true` here means the flag
+        // flipped TO restricted: correctly dark, and AppLovin's own adapter
+        // will refuse every future attempt while it stays that way, so a retry
+        // would only burn a full backoff schedule retrying something that
+        // cannot succeed — report once, immediately, as before. `false` means
+        // the flag flipped AWAY from restricted: the one direction retrying
+        // is for, since a fresh attempt with the corrected flag should work.
+        // There `onComplete` is answered exactly once, by the retry.
+        if (_consent.isAgeRestrictedUser) {
+          _reportAbandonedInit(
+              onComplete, 'the child-directed flag changed during init');
+        } else if (!_scheduleInitRetryIfNeeded(config, onComplete, isRelease)) {
+          _reportAbandonedInit(
+              onComplete, 'the child-directed flag changed during init');
+        }
+        return;
+      }
 
       _config = config;
       // M2 — survives `_disposeAdapter()` (which nulls `_config`) so the COPPA
@@ -2375,6 +2827,49 @@ class AdManager with WidgetsBindingObserver {
         }));
       }
 
+      // Round-25 QC round 21 — same reconcile, the US axis. Before the first ad
+      // request of this session: a returning user's opt-out is already on disk
+      // and the providers must carry it into the preloads further down.
+      await _reconcileDeviceUsPrivacy();
+
+      // Flipped before the callback runs, not after: from here on init HAS
+      // succeeded, so nothing below may report a failure for it.
+      successReported = true;
+      // A host callback that throws is the host's bug, but it used to be this
+      // SDK's outage: the throw skipped the `BoolEvent(true)` below (so a
+      // splash waiting on the event bus never heard init finish) and landed in
+      // the `catch`, which armed the retry loop described there. Contained.
+      // Same BLOCKER, second window: applying consent to the providers and
+      // reading the TCF string are both awaited, so `destroy()` can land
+      // between the state install above and the success report below. The
+      // adapter it disposed is gone; claiming success here would tell the host
+      // the SDK is up while `isInitialised` is already false.
+      if (_initSuperseded(initGen)) {
+        _reportAbandonedInit(
+            onComplete, 'destroy() or a newer initialize() during consent');
+        return;
+      }
+      try {
+        onComplete(true, _currentDeviceGAID);
+      } catch (e, st) {
+        SafeLogger.e(_tag, 'host onComplete(true) threw: $e\n$st');
+      }
+      SimpleEventBus().fire(const BoolEvent(true));
+      _drainQueuedInitCallbacks(true);
+      // Round-25 (iOS device run) — success is reported BEFORE the two footgun
+      // asserts below, and that ordering is the fix, not a style choice. Both
+      // asserts throw in debug/profile builds, the `catch` at the bottom of
+      // this method swallows that throw, and everything after the throw was
+      // therefore skipped: `onComplete` never ran and no `BoolEvent` was ever
+      // fired, so a host splash sat waiting for an init-completion event that
+      // could not arrive (the documented integration contract, README step 3)
+      // and fell through to its hard-cap timer instead. Native init had in
+      // fact succeeded. The assert is meant to shout at the developer, not to
+      // fake an init failure.
+      //
+      // Ad loading still cannot start before the consent guard below has had
+      // its say: the preload calls are further down, after both blocks.
+
       // Consent-coverage footgun (runtime, not config-static so it doesn't
       // false-alarm hosts that gather consent in their splash) — see
       // [consentFootgunWarning].
@@ -2384,7 +2879,11 @@ class AdManager with WidgetsBindingObserver {
           umpRequested: _umpRequested || _umpFlowStarted,
           consentExplicitlySet: _consentExplicitlySet);
       if (consentWarning != null) {
-        SafeLogger.w(_tag, consentWarning);
+        // `critical`, not `w`: this is a developer config error with a legal
+        // consequence, and it must reach a host that silenced ordinary logging
+        // (`AdLogLevel.none`) too. It replaces the `assert` this method used to
+        // end with — see the note where that assert used to live.
+        SafeLogger.critical(_tag, consentWarning);
         // N2 — `assert()` below is stripped in release, so without this the
         // gap was silent in production (log-only, ads still served with NO
         // consent form ever shown to EEA/UK users). Hard-block ad requests
@@ -2393,52 +2892,331 @@ class AdManager with WidgetsBindingObserver {
         // consent UI (both clear [_footgunBlocked], see [setConsent]), or by
         // fixing the config footgun itself.
         _applyConsentFootgunGuard(isRelease);
-        // F4 — surface this loudly in dev/test builds (stripped in release);
-        // the log above is easy to miss.
-        assert(false, consentWarning);
+        // Ad requests are gated by the preload block below, which skips
+        // itself on this warning in every build — debug and release agree, and
+        // neither of them depends on an `assert` to stay compliant.
       }
 
       // 2026-08-19 audit (Finding 7) — see [attOrderFootgunWarning]. Not
       // release-blocked like the consent footgun above: this is a
       // revenue/attribution risk, not a legal-compliance one.
+      // Round-25 QC round 4 (`codex` MAJOR, `agy` MAJOR) — `defaultTargetPlatform`
+      // rather than `dart:io`'s `Platform.isIOS`, which no test can influence.
+      // Both reviewers deleted the `SafeLogger.critical` below and found all 16
+      // tests still green: on a macOS host `Platform.isIOS` is false, so the
+      // warning was always null under `flutter test` and the call site was
+      // unreachable by any assertion. Flutter's own platform value is
+      // overridable (`debugDefaultTargetPlatformOverride`), so the diagnostic
+      // is now pinned. Same answer in production — on iOS both are true, and
+      // this reads a compile-time-ish constant instead of touching `dart:io`.
       final attWarning = attOrderFootgunWarning(
-          attRequested: _attRequested, isIos: Platform.isIOS);
+          attRequested: _attRequested,
+          isIos: defaultTargetPlatform == TargetPlatform.iOS);
       if (attWarning != null) {
-        SafeLogger.w(_tag, attWarning);
-        assert(false, attWarning);
+        SafeLogger.critical(_tag, attWarning);
       }
 
-      onComplete(true, _currentDeviceGAID);
-      SimpleEventBus().fire(const BoolEvent(true));
-
-      SafeLogger.d(_tag, 'triggering App Open + banner/mrec preload');
-      unawaited(loadAppOpenAd());
-      // Banner/mrec preload also respects VIP — preloading while VIP is
-      // active wastes a network request, and on AppLovin it inflates the
-      // internal `recordBannerImpression` counter (the widget itself does
-      // suppress *display*, but the cache fill is unnecessary).
-      if (_isVipMember) {
-        SafeLogger.d(_tag, '⏭️ banner/mrec preload skipped — VIP member');
+      // Round-25 QC round 2 — a footgun config does NOT preload, in ANY build.
+      // The first version of this fix moved the (since removed) asserts below
+      // the preloads and argued that a debug-only ad request was acceptable;
+      // a reviewer was
+      // right that it is not the SDK's call to make. Before the fix, the assert
+      // threw above this point and no request went out in debug either, so
+      // skipping here is the behaviour hosts already had — minus the collateral
+      // damage of also losing the retry timer and connectivity watch, which
+      // still start below. In release `_applyConsentFootgunGuard` above already
+      // blocks the requests; this makes the two builds agree instead of relying
+      // on an assert to be the gate.
+      if (consentWarning != null) {
+        SafeLogger.w(
+            _tag,
+            '⏭️ App Open + banner/mrec preload skipped — no consent coverage '
+            '(see the warning above); ads stay unrequested until the host '
+            'resolves consent');
       } else {
-        // T65 (phase 2) — no widget exists yet at this call site, so this
-        // proactive warm-up uses the shared sentinel key (see its doc
-        // comment for the accepted trade-off vs a real widget's own key).
-        unawaited(adapter.preloadBanner(_globalBannerWarmupKey));
-        unawaited(adapter.preloadMrec(_globalMrecWarmupKey));
+        _triggerInitialPreloads(adapter);
       }
 
       _scheduleFirstSecondaryLoad();
       _startAdRetryTimer();
       unawaited(_startConnectivityWatch());
+
+      // Round-25 QC round 3 (`codex`) — there are deliberately NO
+      // `assert(consentWarning == null, ...)` calls here any more.
+      //
+      // The history is worth keeping, because the assert looked useful three
+      // times and was not. `assert(false, …)` throws in debug/profile, and this
+      // method's own `catch` swallows it, so it never crashed anything: all it
+      // ever produced was a misleading `initialize THREW` log with a stack
+      // trace pointing at the SDK. While it sat ABOVE the preload block it also
+      // cost a developer who tripped it the whole session's ad services
+      // (preloads, the retry timer, the connectivity watch) — the round-25 bug.
+      // Moving it below fixed that but made it a gate on nothing.
+      //
+      // Moving it OUTSIDE the try — so it really throws out of `initialize()` —
+      // is worse still: the host has already been told init succeeded, and the
+      // documented splash contract does `await initialize()`, so the throw
+      // lands in the splash and strands it exactly the way round-25 did.
+      //
+      // So the diagnostic is a `SafeLogger.critical` at each warning site
+      // instead (see above): unmissable in a debug run, delivered to the host's
+      // own `onLog` sink, and impossible to confuse with a real init failure.
     } catch (e, st) {
       SafeLogger.e(_tag, 'initialize THREW: $e\n$st');
-      if (!_scheduleInitRetryIfNeeded(config, onComplete, isRelease)) {
-        onComplete(false, _currentDeviceGAID);
-        SimpleEventBus().fire(const BoolEvent(false));
+      // Round-25 QC round 6 (all three reviewers, BLOCKER) — same gap as the
+      // `!ok` branch above, and worse: the "adapter came up, tear it down"
+      // branch below decides what to dispose by reading `_adapter`/`_config`,
+      // the shared singleton fields. A stale attempt that threw *after* a
+      // different attempt had already won therefore disposed the WINNER's live
+      // adapter and reported `false` for a session that never failed — the
+      // loser actively killing the winner. Nothing here belongs to this
+      // attempt any more: `destroy()` and the re-init path have both already
+      // torn down whatever it had installed.
+      if (_initSuperseded(initGen)) {
+        SafeLogger.w(
+            _tag,
+            'the attempt that threw had already been superseded by destroy() '
+            'or a newer initialize() — not touching the live session');
+        if (!successReported) {
+          _reportAbandonedInit(onComplete, 'destroy() or a newer initialize()');
+        }
+        return;
+      }
+      // Round-25 (iOS device run), MAJOR — a retry here is only meaningful
+      // while the adapter is NOT up. Past that point `_initRetryAttempts` has
+      // already been reset to 0 (see the reset right after the adapter's own
+      // init succeeds), so the "bounded" budget can never be spent: every
+      // attempt re-initialises the adapter fine, throws again in the same
+      // later step, resets the budget again and schedules retry #1 forever —
+      // a permanent 5-second re-init loop that disposes and rebuilds the
+      // native adapter and re-requests ads each time. Anything that throws
+      // after the adapter is up (a host `onComplete` callback that throws, a
+      // broken slot getter, a plugin that throws) is not fixable by running native
+      // init again, so report it once and stop.
+      if (successReported) {
+        SafeLogger.w(
+            _tag,
+            'init already reported success before this throw — logging only, '
+            'no failure report and no retry');
+      } else if (_adapter != null && _config != null) {
+        SafeLogger.w(
+            _tag,
+            'init failed AFTER the adapter came up — not retryable, '
+            'reporting once instead of looping');
+        // Round-25 QC (all three independent reviewers, MAJOR) — tear the
+        // adapter down BEFORE reporting the failure. Reporting `false` while
+        // `_adapter`/`_config` are still set leaves the SDK saying two
+        // contradictory things at once: the host was told init failed, but
+        // `isInitialised` (== `_config != null && _adapter != null`) still
+        // answers true, and a live native adapter plus its fullscreen-dismiss
+        // watchers and the `_syncConsentToAdapter` listener stay wired up for
+        // the rest of the process. A host that does not re-`initialize()` on
+        // failure then leaks that adapter — and it keeps serving.
+        //
+        // That is the very failure class this whole fix is about (an external
+        // signal disagreeing with internal state), so it cannot be
+        // reintroduced one branch over. `_disposeAdapter()` also detaches the
+        // watchers and nulls both fields, which is what makes the reported
+        // `false` true.
+        _detachConsentListener();
+        await _disposeAdapter();
+        // The fields are cleared by `_disposeAdapter()` even when the
+        // teardown itself throws (see its own guard), which is what makes the
+        // `false` reported below true rather than just claimed.
+        _reportInitFailure(onComplete, initGen);
+      } else if (!_scheduleInitRetryIfNeeded(config, onComplete, isRelease)) {
+        _reportInitFailure(onComplete, initGen);
       }
     } finally {
-      _isInitializing = false;
+      // Only if no nested `initialize()` took over in the meantime — see
+      // [_reportInitFailure]. Clearing it unconditionally would hand the flag
+      // of a still-running nested init back to `false` and let a third
+      // concurrent call slip past the duplicate guard.
+      if (_initGen == initGen) _isInitializing = false;
     }
+  }
+
+  /// The first round of ad requests after a successful [initialize].
+  ///
+  /// Extracted in round-25 QC round 2 only so the footgun path can skip it in
+  /// one line — see the call site for why a config with no consent coverage
+  /// must not reach this in any build.
+  void _triggerInitialPreloads(AdProviderAdapter adapter) {
+    SafeLogger.d(_tag, 'triggering App Open + banner/mrec preload');
+    unawaited(loadAppOpenAd());
+    // Banner/mrec preload also respects VIP — preloading while VIP is
+    // active wastes a network request, and on AppLovin it inflates the
+    // internal `recordBannerImpression` counter (the widget itself does
+    // suppress *display*, but the cache fill is unnecessary).
+    if (_isVipMember) {
+      SafeLogger.d(_tag, '⏭️ banner/mrec preload skipped — VIP member');
+    } else {
+      // T65 (phase 2) — no widget exists yet at this call site, so this
+      // proactive warm-up uses the shared sentinel key (see its doc
+      // comment for the accepted trade-off vs a real widget's own key).
+      unawaited(adapter.preloadBanner(_globalBannerWarmupKey));
+      unawaited(adapter.preloadMrec(_globalMrecWarmupKey));
+    }
+  }
+
+  /// Reports a terminal init failure to the host exactly once, containing a
+  /// host callback that throws.
+  ///
+  /// Round-25 QC round 2 — the success report has been contained since the
+  /// first half of this fix, the failure report had not: a host `onComplete`
+  /// that threw here escaped `initialize()` (so `await initialize()` blew up in
+  /// the host's own splash) AND skipped the `BoolEvent(false)`, leaving a
+  /// splash that listens on the event bus rather than the callback waiting for
+  /// a signal that was never going to come — the same outage the success path
+  /// was fixed for, on the failure path.
+  /// `onComplete` callbacks belonging to calls that arrived while another
+  /// `initialize()` was still running.
+  ///
+  /// Round-25 QC round 4 (`codex`, MAJOR) — the duplicate guard used to just
+  /// log "skipping duplicate" and return, so that caller was told *nothing*,
+  /// ever: no `onComplete`, no event. A splash doing `await initialize()` as
+  /// the second caller waited on a callback that could not arrive, which is
+  /// the same hang round 25 started from, one caller over. They now wait for
+  /// the in-flight attempt and get its real result — including a result that
+  /// only arrives after the internal retry budget resolves.
+  final List<void Function(bool, String)> _queuedInitCallbacks = [];
+
+  /// Cap on [_queuedInitCallbacks] (`codex` round-5 minor — the list had no
+  /// bound, and a host looping `initialize()` while one attempt sat through
+  /// the full retry budget kept every closure alive). A host with more than
+  /// this many inits in flight has a bug of its own; the overflow caller is
+  /// told `false` immediately rather than parked.
+  static const int _maxQueuedInitCallbacks = 32;
+
+  /// The result being handed out, non-null **only** while
+  /// [_drainQueuedInitCallbacks] is running. The duplicate-init guard answers
+  /// a caller that arrives during a drain from this instead of parking it —
+  /// see the comment there and in the drain.
+  bool? _drainingInitResult;
+
+  /// Hands [success] to every caller parked by the duplicate guard. Drains the
+  /// list first: a queued callback is host code and may well call
+  /// `initialize()` again, and a re-entrant call must not see its own entry.
+  void _drainQueuedInitCallbacks(bool success) {
+    if (_queuedInitCallbacks.isEmpty) return;
+    // Round-25 QC round 6 (`codex` MAJOR, `agy` mutation) — round 5 drained in
+    // a loop capped at 8 passes, which still dropped whoever was parked past
+    // the cap. The cap is gone: while a drain is running the result is already
+    // known, so a queued callback that calls `initialize()` again (the obvious
+    // host reaction, and the reason the re-entrancy exists at all) is answered
+    // on the spot by the duplicate guard instead of being parked into a queue
+    // that may never be drained again. Nothing can grow the queue from inside
+    // the drain any more; the loop below is the belt for anything else.
+    // Round-25 QC round 7 (`agy`, MAJOR — but see below): saved and restored
+    // rather than nulled. A queued callback is free to call `destroy()`, which
+    // drains the queue itself, and a nested drain's `finally` clearing the
+    // field outright would leave the rest of the outer drain running as if no
+    // drain were in progress.
+    //
+    // The reported scenario is in fact NOT reachable: nothing can park while a
+    // drain is running (the duplicate guard answers such a caller on the spot),
+    // and the loop below copies-and-clears, so a nested drain hits its own
+    // `isEmpty` early return before it reaches this field. Kept anyway — two
+    // lines, and it is what makes the invariant hold by construction rather
+    // than by that argument staying true.
+    final outer = _drainingInitResult;
+    _drainingInitResult = success;
+    try {
+      while (_queuedInitCallbacks.isNotEmpty) {
+        final queued = List.of(_queuedInitCallbacks);
+        _queuedInitCallbacks.clear();
+        for (final cb in queued) {
+          try {
+            cb(success, _currentDeviceGAID);
+          } catch (e, st) {
+            SafeLogger.e(
+                _tag, 'a queued host onComplete($success) threw: $e\n$st');
+          }
+        }
+      }
+    } finally {
+      // `outer` is null for the outermost drain, which is exactly right: the
+      // field must be null again once no drain is running.
+      _drainingInitResult = outer;
+    }
+  }
+
+  /// Whether the attempt that started as [initGen] has been superseded by a
+  /// `destroy()` or by a nested `initialize()`. Both bump [_initGen].
+  bool _initSuperseded(int initGen) => _initGen != initGen;
+
+  /// Terminal report for an attempt that [_initSuperseded] says nobody is
+  /// waiting for any more.
+  ///
+  /// Reports `false` — the SDK really is not initialised when this runs — but
+  /// deliberately fires **no** `BoolEvent`. [SimpleEventBus] replays the most
+  /// recent event to late subscribers, so a `false` from an attempt that lost
+  /// the race could land *after* the winning attempt's `true` and leave a
+  /// splash that subscribed late believing init had failed. The winner fires
+  /// its own event; the host that called `destroy()` is not waiting for one.
+  ///
+  /// [fireEvent] is the exception: an abort with **no** winner behind it and no
+  /// `destroy()` in flight — today, the COPPA mid-init flip. There the silence
+  /// is the bug, not the safety, because nothing else is ever going to fire.
+  ///
+  /// Round-26 QC (reviewer B, MAJOR) — and the same sentence is true of the
+  /// parked callers. Every other abort path has a winner or a `destroy()`
+  /// behind it that drains `_queuedInitCallbacks`; this one has neither, so a
+  /// host that `await`ed a second `initialize()` while the first was in flight
+  /// waited forever. Whatever fires the event must also drain the queue: they
+  /// are the same claim ("nobody else is coming") made to two audiences.
+  void _reportAbandonedInit(
+      void Function(bool, String) onComplete, String why,
+      {bool fireEvent = false}) {
+    SafeLogger.w(_tag, 'init attempt abandoned ($why) — reporting failure');
+    try {
+      onComplete(false, _currentDeviceGAID);
+    } catch (e, st) {
+      SafeLogger.e(_tag, 'host onComplete(false) threw: $e\n$st');
+    }
+    if (fireEvent) {
+      SimpleEventBus().fire(const BoolEvent(false));
+      _drainQueuedInitCallbacks(false);
+    }
+    // No queue handling here on purpose. A caller can only be parked while a
+    // live attempt owns `_isInitializing`, and that attempt drains the queue
+    // when it finishes; `destroy()` drains it and releases the flag as its
+    // first two acts, and an `initialize()` arriving during the teardown waits
+    // it out rather than parking (round 7). Round 6 did drain here, for a
+    // caller that parked between `destroy()`'s drain and its release of the
+    // flag — a window that no longer exists.
+  }
+
+  void _reportInitFailure(void Function(bool, String) onComplete, int initGen) {
+    // Round-25 QC round 2 (both independent reviewers) — released BEFORE the
+    // host is told, because the obvious thing for a host to do in
+    // `onComplete(false)` is call `initialize()` again with a fallback config.
+    // With the flag still held that call hit the duplicate guard
+    // ("initialize already in progress — skipping duplicate") and was dropped
+    // silently: the host had been told init failed and its own retry then did
+    // nothing at all. `_initGen` is what keeps the outer `finally` from
+    // clobbering the nested call's flag.
+    //
+    // Round-25 QC round 6 (`claude`, part of the BLOCKER) — and it must not
+    // clobber it here either. This release used to be unconditional, so a
+    // stale attempt reporting its own failure handed a still-running newer
+    // init's busy flag back to `false` and let a third concurrent call slip
+    // past the duplicate guard and build a second adapter.
+    //
+    // Belt-and-braces as of round 6: all three call sites now sit *after* an
+    // `_initSuperseded` early return, so `_initGen == initGen` is always true
+    // when we get here and no test can pin this line (deleting the condition
+    // keeps the whole suite green — checked). It stays because it is one word
+    // and it is the guard that stops the bug coming back if a future call site
+    // reports a failure without checking for supersession first.
+    if (_initGen == initGen) _isInitializing = false;
+    try {
+      onComplete(false, _currentDeviceGAID);
+    } catch (e, st) {
+      SafeLogger.e(_tag, 'host onComplete(false) threw: $e\n$st');
+    }
+    SimpleEventBus().fire(const BoolEvent(false));
+    _drainQueuedInitCallbacks(false);
   }
 
   /// Schedules a bounded, backed-off retry of [initialize] after a failed
@@ -2460,14 +3238,38 @@ class AdManager with WidgetsBindingObserver {
           'adapter init failed $_initRetryAttempts time(s) in a row — giving up auto-retry for this session');
       return false;
     }
-    final delay = _initRetryDelays[_initRetryAttempts];
+    // Clamped: the real schedule has exactly `_maxInitRetryAttempts` entries,
+    // but a test override is allowed to be shorter (usually one entry).
+    // Round-25 QC round 12 (`codex`, MINOR) — an EMPTY override is treated as
+    // no override, not as an index error. `@visibleForTesting` is an analyzer
+    // annotation only, so this seam is reachable in release; with `[]` the
+    // clamp below threw `Invalid argument(s): 0`, the outer catch re-entered
+    // this same function, the second throw escaped `initialize()` and the
+    // host's `onComplete` was never called at all.
+    final override = debugInitRetryDelays;
+    final schedule =
+        (override != null && override.isNotEmpty) ? override : _kInitRetryDelays;
+    final raw = schedule[_initRetryAttempts.clamp(0, schedule.length - 1)];
+    // Round-25 QC round 13 (`codex`, MINOR) — a debug override is capped at the
+    // longest production backoff. Uncapped, `[Duration(days: 36500)]` plus a
+    // failing adapter init left `onComplete` parked in `_pendingRetryOnComplete`
+    // for a century: `initialize()` returns, the host is never answered, and no
+    // timeout anywhere fires. A test seam should be able to make the retry
+    // faster, never slower than the real thing.
+    final delay = raw > _kInitRetryDelays.last ? _kInitRetryDelays.last : raw;
+    debugLastInitRetryDelay = delay;
     _initRetryAttempts++;
     SafeLogger.d(
         _tag,
         () =>
             '⏲️ scheduling init retry #$_initRetryAttempts in ${delay.inSeconds}s');
     _initRetryTimer?.cancel();
+    _pendingRetryOnComplete = onComplete;
     _initRetryTimer = Timer(delay, () {
+      // Cleared here: from this instant the retry attempt itself owns the
+      // callback and will answer it (directly, or through the queue drain), so
+      // there is nothing left for a canceller to rescue.
+      _pendingRetryOnComplete = null;
       _isInternalInitRetryCall = true;
       unawaited(initialize(
           config: config, onComplete: onComplete, isRelease: isRelease));
@@ -2493,6 +3295,14 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     SafeLogger.d(_tag, '🔓 VIP inactive — kicking secondary preload');
+    // Round-23 QC (reviewer C, MINOR) — an inline ad widget that mounted while
+    // VIP was active never ran its `_initBanner`, and that retry lives in the
+    // `initRevision` builder, not in the VIP one. So the surfaces stayed blank
+    // on the screen the user was actually looking at when the entitlement ran
+    // out — they came back only after a route change or an app restart. Bumping
+    // the revision is exactly the "re-attempt init, but only where there is no
+    // ad" signal those widgets already implement.
+    initRevision.value++;
     unawaited(loadAppOpenAd());
     unawaited(loadInterstitial());
     unawaited(loadRewardedAd());
@@ -2724,6 +3534,36 @@ class AdManager with WidgetsBindingObserver {
   /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
   /// into the provider adapter so AdMob's per-request `npa` flag tracks every
   /// consent change (dialog answer, set/reset, privacy screen).
+  /// Detaches [_syncConsentToAdapter] from the consent listenable, swallowing
+  /// anything the removal throws.
+  ///
+  /// Round-25 QC round 3 (`claude`, MAJOR) — every caller used to inline this
+  /// line, and at two of the three sites it shared a `try` with the teardown
+  /// that follows it: in `initialize()`'s post-success failure branch a throw
+  /// here would skip `await _disposeAdapter()` entirely, so the host would be
+  /// reported `false` while `_adapter`/`_config` stayed set and `isInitialised`
+  /// kept answering true — the exact contradiction that branch exists to
+  /// prevent. `destroy()` had the same shape one field over.
+  ///
+  /// Honest caveat on the guard itself: no reachable path throws here today.
+  /// Flutter's `ChangeNotifier.removeListener` is explicitly safe to call
+  /// after `dispose()`, and `ConsentManager`'s constructor is private so no
+  /// host can substitute a `listenable` that throws — deleting the try/catch
+  /// leaves every test in `init_post_success_throw_test.dart` green, and that
+  /// is documented there rather than hidden. What the round-3 fix really buys
+  /// is the *decoupling*: three call sites share one statement, and no future
+  /// throw here can take an adapter teardown down with it.
+  void _detachConsentListener() {
+    try {
+      _consentManager?.listenable.removeListener(_syncConsentToAdapter);
+    } catch (e) {
+      SafeLogger.w(_tag, 'detaching the consent listener threw: $e');
+    }
+  }
+
+  /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
+  /// into the provider adapter so AdMob's per-request `npa` flag tracks every
+  /// consent change (dialog answer, set/reset, privacy screen).
   void _syncConsentToAdapter() {
     // MJ5 (round 5 audit) — `_consent` and `_consentManager` were two
     // independent sources of truth for the same thing. `_consent` was only
@@ -2913,6 +3753,13 @@ class AdManager with WidgetsBindingObserver {
           'first ad request.');
     }
 
+    // Round-25 QC round 7 (`codex`, BLOCKER) — the flow below presents a
+    // native form and can therefore take minutes. A `destroy()` in the
+    // meantime means this result belongs to a session that is gone, and the
+    // gate it would write is the live session's. Captured here rather than
+    // inside the apply so it covers the whole round trip.
+    final session = _consentSessionEpoch;
+
     // MJ3 — remember what this call used so a retry replays it instead of
     // falling back to the defaults. See [_lastUmpParams].
     _lastUmpParams = (
@@ -2928,7 +3775,7 @@ class AdManager with WidgetsBindingObserver {
       testIdentifiers: testIdentifiers,
       tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
     );
-    await _applyUmpConsentResult(result);
+    await _applyUmpConsentResult(result, session: session);
     return result;
   }
 
@@ -2943,7 +3790,22 @@ class AdManager with WidgetsBindingObserver {
   Future<void> _applyUmpConsentResult(
     UmpConsentResult result, {
     bool cameFromAbandonedFormRecheck = false,
+    int? session,
   }) async {
+    // Round-25 QC round 7 (`codex`, BLOCKER) — dropped rather than re-read
+    // (which is what the privacy-options twin does): the live session is
+    // running its own UMP flow and owns the gate until that flow answers.
+    // Writing this result would open a gate the live session is deliberately
+    // holding shut — and its config may differ from the dead session's (a
+    // different `umpTagForUnderAgeOfConsent` is the case with teeth).
+    if (session != null && session != _consentSessionEpoch) {
+      SafeLogger.w(
+          _tag,
+          'a UMP result from a torn-down session arrived '
+          '(session=$session, now=$_consentSessionEpoch) — dropping it instead '
+          'of writing it over the live session\'s consent gate');
+      return;
+    }
     // T01 — the compliance gate. Google policy: do NOT request ads when
     // canRequestAds is false (EEA user who hasn't granted a basis). Every
     // load*() consults [_canRequestAds].
@@ -3737,6 +4599,48 @@ class AdManager with WidgetsBindingObserver {
     }
   }
 
+  /// Round-25 QC round 21 (`codex`, MAJOR) — carry the device's own CCPA /
+  /// US-states "do not sell or share" opt-out into the consent state BOTH
+  /// providers read.
+  ///
+  /// The signal was already being read ([usPrivacyOptedOut], written to
+  /// `IABUSPrivacy_String` by whatever CMP the host runs) but it was only ever
+  /// *reported*: `AdConsent.doNotSell` was writable by the host and by nothing
+  /// else, so a Californian who opted out through a CMP still had AppLovin's
+  /// `setDoNotSell(false)` and AdMob's `restricted_data_processing` unset
+  /// unless the host separately noticed and called [setConsent] itself. m10
+  /// (round-5 audit) found the same gap and fixed only the compliance report;
+  /// this is the enforcement half.
+  ///
+  /// Tighten-only, exactly like the TCF reconcile in [_recheckConsentOnResume]:
+  /// `null` means the CMP wrote no string at all (the normal case outside the
+  /// US) and `false` means the user did NOT opt out — neither is authority to
+  /// clear a `doNotSell` the host set deliberately.
+  ///
+  /// Goes through [ConsentManager.set] rather than [setConsent] on purpose:
+  /// `set` persists, applies to both providers, and notifies
+  /// [_syncConsentToAdapter] (which discards the ads already cached under the
+  /// looser state — the `doNotSell` false→true transition is one of the three
+  /// axes it treats as a downgrade). [setConsent] would additionally bump
+  /// `_consentIntentEpoch` and record a *host* intent, which this is not: it
+  /// would cancel a consent apply still in flight and rewrite that apply's
+  /// `hasUserConsent` from a value read before it landed.
+  Future<void> _reconcileDeviceUsPrivacy() async {
+    final optedOut = await IabStorage.usPrivacyOptedOut();
+    if (optedOut != true) return;
+    // Re-read `_consentManager` AFTER the await, and check the applied value
+    // here rather than at the top: `destroy()` nulls it (rounds 19-20 — the
+    // guard belongs immediately before the write, not at the door), and a
+    // consent apply that landed during the read may already carry the opt-out.
+    final mgr = _consentManager;
+    if (mgr == null || mgr.current.doNotSell) return;
+    SafeLogger.w(
+        _tag,
+        '🔐 device US Privacy string reports a sale opt-out — applying '
+        'doNotSell to both providers');
+    await mgr.set(mgr.current.copyWith(doNotSell: true), config: _config);
+  }
+
   /// Round-13 (device verification) BLOCKER, backstop half — re-apply consent
   /// on resume when the device disagrees with what is applied.
   ///
@@ -3753,6 +4657,10 @@ class AdManager with WidgetsBindingObserver {
   /// an ordinary resume.
   Future<void> _recheckConsentOnResume() async {
     if (!isInitialised) return;
+    // Round-25 QC round 21 — before the TCF read, not inside it: a CCPA opt-out
+    // is a different string from the TCF one, and the block below returns early
+    // whenever there is no TCF data at all (every US user).
+    await _reconcileDeviceUsPrivacy();
     final tcfAllows = await IabStorage.tcfAllowsPersonalisedAds();
     // No TCF data at all (the normal non-EEA case) — nothing to compare
     // against, and UMP alone is already the whole answer there.
@@ -3850,8 +4758,147 @@ class AdManager with WidgetsBindingObserver {
   //  flags so a later initialize() starts clean.
   // ──────────────────────────────────────────────────────────────────────────
 
+  /// Non-null while [destroy] is running its own (awaiting) teardown. See
+  /// [initialize], which waits on it rather than racing it.
+  Future<void>? _destroyInFlight;
+
+  /// Test seam: whether a teardown is currently in flight.
+  @visibleForTesting
+  bool get debugDestroyInFlight => _destroyInFlight != null;
+
+  /// Tears the SDK down. Serialised against itself and against [initialize]:
+  ///
+  /// Round-25 QC round 7 (`codex` MAJOR, `agy` MAJOR) — the teardown below
+  /// awaits (the event stream close, the adapter's own `dispose()`), and
+  /// everything after those awaits is written on the assumption that no new
+  /// session exists. A host that called `initialize()` inside that window got a
+  /// session built and then gutted by this method's own remaining lines: its
+  /// adapter disposed, and — because `_ensureObserverAdded()` saw the old
+  /// observer still registered and did nothing — its lifecycle observer
+  /// removed, which silently kills App Open on resume for the rest of the
+  /// process. Rather than sprinkling generation checks over every line of the
+  /// teardown (three rounds of exactly that is what got us here), a new
+  /// `initialize()` simply waits for the teardown to finish.
   Future<void> destroy() async {
+    final pending = _destroyInFlight;
+    if (pending != null) {
+      SafeLogger.d(_tag, 'destroy() while a teardown is already running — '
+          'waiting for it instead of tearing down twice');
+      await pending;
+      // Round-25 QC round 8 (`codex` and `agy`, independently, MAJOR) — and
+      // then *return*, which is what the log line above always claimed.
+      // Without this the second caller fell through and ran a whole second
+      // teardown after the first one had finished. That is not merely
+      // redundant: the host's own `destroy()`-then-`initialize()` sequence can
+      // interleave into the gap, so the redundant teardown bumped `_initGen`,
+      // drained the queue with `false` and disposed the adapter *of the new
+      // session* — the silently-dead-ads bug this whole serialisation exists
+      // to stop. Coalescing is the correct semantic anyway: what this caller
+      // asked for was "tear the running session down", and the teardown it
+      // just awaited did exactly that. A session started afterwards is a
+      // session it never saw.
+      return;
+    }
+    final done = Completer<void>();
+    _destroyInFlight = done.future;
+    // Round-25 QC round 13 — `_destroyInFlight` is now an input to
+    // `_fullscreenBusyReason`, so the public `fullscreenBusy` mirror has to be
+    // recomputed on both edges or a host's "ads busy" UI would lie for the
+    // length of the teardown (and stay stale after it).
+    _recomputeFullscreenBusy();
+    try {
+      await _destroy();
+    } finally {
+      _destroyInFlight = null;
+      done.complete();
+      _recomputeFullscreenBusy();
+    }
+  }
+
+  Future<void> _destroy() async {
     SafeLogger.d(_tag, 'destroy() called');
+    // Round-25 QC round 5 (`codex`, BLOCKER) — invalidate any attempt still
+    // running. Without the bump, an `initialize()` parked on native init
+    // resumed after this teardown and installed an adapter, timers and a
+    // connectivity watch into the torn-down SDK, then reported success. See
+    // [_initSuperseded].
+    _initGen++;
+    // A host tearing the SDK down while an init is still in flight would
+    // otherwise leave anyone parked by the duplicate guard waiting on a
+    // callback nothing will ever fire.
+    _drainQueuedInitCallbacks(false);
+    // Round-25 QC round 7 — released HERE, next to the drain, not a hundred
+    // lines further down where it used to be. Everything between the two
+    // points awaits, and a host calling `initialize()` in that window used to
+    // see "init in progress" and park behind a queue that had just been
+    // drained, on an attempt that is now abandoned — a callback that never
+    // fires. The attempt this flag belonged to is already invalidated by the
+    // `_initGen` bump above; the outer `finally` of `initialize()` is
+    // gen-guarded, so it cannot set it back to `false` under a newer attempt.
+    _isInitializing = false;
+    // Round-25 QC round 10 (`agy`, MINOR) — stopped HERE, above this
+    // teardown's first await, not a hundred lines below it. Both are pure
+    // stop calls, so nothing between the two points needs them alive, and
+    // `isInitialised` is `_config != null && _adapter != null` — both of
+    // which stay non-null until well past `await _eventStream.close()`. So
+    // the `!isInitialised` guard inside `_scheduleNextRetry` does NOT cover
+    // this window: a poll tick landing in it passes every guard and refills
+    // ads into an adapter this teardown is about to dispose. Not
+    // independently pinnable without a real 5-minute delay (`_retryIntervalMs`
+    // is a `static const` with no seam) — the paused-subscription trick can
+    // hold the teardown open that long, but not cheaply enough for the suite.
+    _stopAdRetryTimer();
+    _stopConnectivityWatch();
+    // Round-25 QC round 11 (`codex`, MAJOR) — the resume path is disarmed here
+    // too, for exactly the same reason and with the same evidence. The
+    // observer used to be removed at the very END of `_destroy()` and
+    // `_resumeFallbackTimer` cancelled only inside `_resetGuardState()`, which
+    // is later still. Both sit after the awaits below, and across those awaits
+    // `_adapter` and `_config` are untouched — so the resume path's own guards
+    // (`identical(_adapter, ad)`, `isInitialised`) all still pass. A user
+    // returning to the app while a teardown was in flight could therefore be
+    // shown an App Open ad on top of an SDK being dismantled: a policy
+    // violation, and a native call into an adapter about to be disposed.
+    if (_isObserverAdded) {
+      WidgetsBinding.instance.removeObserver(this);
+      _isObserverAdded = false;
+    }
+    _resumeFallbackTimer?.cancel();
+    _resumeFallbackTimer = null;
+    // Round-25 QC round 8 (`agy`, MAJOR) — the pending init retry is killed
+    // here, *before* this teardown's first await, and its stranded caller is
+    // answered on the spot. Two reasons for the position:
+    //
+    //  * the callback the retry timer holds is not in `_queuedInitCallbacks`
+    //    (it never parked — it owns its attempt), so the drain above cannot
+    //    cover it, and cancelling a `Timer` throws its closure away. Without
+    //    this the caller was never answered at all, and a splash awaiting it
+    //    sat there until its own hard-cap timer fired.
+    //  * self-audit after round 8: cancelling further down (where this used to
+    //    live) leaves the timer armed across `_eventStream.close()` and
+    //    `_disposeAdapter()`. A retry firing in that window sees
+    //    `_destroyInFlight != null`, waits the teardown out (round 7) and only
+    //    then takes its generation — so `_initGen` cannot supersede it, and it
+    //    quietly rebuilds a whole session the host had just torn down. Narrow
+    //    (a pending retry implies no live adapter, which makes the teardown
+    //    short) but free to close: nothing between here and the old position
+    //    can re-arm the timer, because both `_scheduleInitRetryIfNeeded` call
+    //    sites sit behind an `_initSuperseded` early return.
+    _initRetryTimer?.cancel();
+    _initRetryTimer = null;
+    _initRetryAttempts = 0;
+    final strandedByTeardown = _pendingRetryOnComplete;
+    _pendingRetryOnComplete = null;
+    if (strandedByTeardown != null) {
+      SafeLogger.w(_tag,
+          'destroy() cancelled a pending init retry — answering its caller '
+          'false instead of leaving it waiting');
+      try {
+        strandedByTeardown(false, _currentDeviceGAID);
+      } catch (e, st) {
+        SafeLogger.e(_tag, 'host onComplete(false) threw: $e\n$st');
+      }
+    }
     // Round-13 QC (round 2), MAJOR — a privacy-options form can still be on
     // screen with our own wait already expired, so its late-dismiss apply can
     // arrive after this teardown. Bumping the epoch makes that apply drop
@@ -3884,18 +4931,31 @@ class AdManager with WidgetsBindingObserver {
     // record from this one says nothing about the next; and leaving it set
     // would leak across tests.
     resetLastConsentAppliedToProviders();
-    await _eventStream.close();
+    // Round-25 QC round 11 (`codex`, BLOCKER) — bounded, never open-ended. A
+    // host subscription to the public `events` stream may legally be *paused*
+    // (a route transition, backpressure, a listener parked by the framework).
+    // A paused subscriber buffers the done event, so `close()`'s future does
+    // not complete until it resumes — and an unbounded `await` here hung the
+    // whole teardown for as long as that took, i.e. possibly forever. While it
+    // hung, `_destroyInFlight` was already published, so every later
+    // `initialize()` parked behind it: one paused listener bricked the SDK for
+    // the rest of the process. The wait is kept (a live listener should still
+    // get its done event, and the ordering matters for hosts that clean UI up
+    // on it) but capped.
+    await _eventStream.close().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () => SafeLogger.w(
+          _tag,
+          'the events stream did not finish closing within 2s — a paused '
+          'subscriber is holding the done event. Continuing the teardown '
+          'without it rather than hanging destroy() forever'),
+    );
     _eventStream = StreamController<AdEvent>.broadcast();
     await _disposeAdapter();
     // Bump revision so subscribed widgets rebuild against the now-null adapter
     // (otherwise BannerAdWidget would keep painting the stale provider's view
     // until something else triggers a rebuild).
     initRevision.value = initRevision.value + 1;
-    _stopAdRetryTimer();
-    _stopConnectivityWatch();
-    _initRetryTimer?.cancel();
-    _initRetryTimer = null;
-    _initRetryAttempts = 0;
     AdLoadingDialog.resetState();
     AdScreenRouteLogger.resetState();
     // Round-7 final QC put a `resetUmpFormOnScreen()` here, on the grounds
@@ -3952,7 +5012,6 @@ class AdManager with WidgetsBindingObserver {
     _lastNativeLoadAtByKey.clear();
     _lastFullscreenDismissAt = 0;
     _rewardedInFlight = false;
-    _isInitializing = false;
     _consentDialogScheduled = false;
     _offlineNotifier.value = false;
     _resetGuardState();
@@ -4044,11 +5103,49 @@ class AdManager with WidgetsBindingObserver {
   Future<void> _disposeAdapter() async {
     final old = _adapter;
     if (old != null) {
-      old.appOpenSlot.state.removeListener(_onAppOpenStateChange);
-      _detachFullscreenDismissWatchers();
-      await old.dispose();
+      // Round-25 QC round 2 (both independent reviewers, MAJOR) — the teardown
+      // is best-effort, the state change is NOT. A throw in here (a native
+      // plugin's `dispose()`, a slot listener removal) used to skip the two
+      // null-outs below, so `isInitialised` (== `_config != null && _adapter
+      // != null`) kept answering `true` for an adapter the SDK had just torn
+      // down — including on the path that had already told the host init
+      // FAILED. Every caller depends on the fields being cleared and none of
+      // them can do anything about a plugin that throws on the way out, so the
+      // clearing happens regardless.
+      // Round-25 QC round 3 (`codex`) — each step gets its own guard, not one
+      // around all three. Sharing a guard meant a slot getter or a listener
+      // removal that threw ALSO skipped `old.dispose()`, so the native adapter
+      // was never told to go away: a leak on the one path where the SDK knows
+      // something is already wrong with that adapter.
+      try {
+        old.appOpenSlot.state.removeListener(_onAppOpenStateChange);
+      } catch (e) {
+        SafeLogger.w(_tag, 'detaching the app-open listener threw: $e');
+      }
+      try {
+        _detachFullscreenDismissWatchers();
+      } catch (e) {
+        SafeLogger.w(_tag, 'detaching the fullscreen watchers threw: $e');
+      }
+      try {
+        await old.dispose();
+      } catch (e) {
+        SafeLogger.w(
+            _tag, 'the adapter dispose() threw — clearing SDK state anyway: $e');
+      }
     }
-    _adapter = null;
+    // Guarded for its own reason: the `_adapter` setter re-runs the fullscreen
+    // busy-slot listener plumbing, which reads the OLD adapter's slot getters,
+    // and a broken adapter can throw from there too. `_adapterField` is the
+    // raw field behind the setter — last resort, so a throw here cannot leave
+    // the SDK claiming to be initialised either.
+    try {
+      _adapter = null;
+    } catch (e) {
+      SafeLogger.e(
+          _tag, 'detaching slot listeners threw — clearing the field raw: $e');
+      _adapterField = null;
+    }
     _config = null;
     // Reset so the NEXT initialize() re-arms the inter+rewarded preload.
     // Without this, a re-init without explicit destroy would skip secondary
@@ -4098,6 +5195,10 @@ class AdManager with WidgetsBindingObserver {
   Future<void> loadAppOpenAd(
       {void Function(bool loaded)? onAdLoaded,
       Duration watchdog = const Duration(seconds: 30)}) async {
+    if (_teardownBlocksLoad(AdSlotType.appOpen)) {
+      onAdLoaded?.call(false);
+      return;
+    }
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — adapter null');
@@ -4146,11 +5247,49 @@ class AdManager with WidgetsBindingObserver {
     _armLoadWatchdog('appOpen', ad.appOpenSlot, watchdog);
   }
 
+  /// Round-25 QC round 12 (`codex`, MAJOR) — a teardown is not just "stop
+  /// listening", it must also stop work that was ALREADY launched. Detaching
+  /// the lifecycle observer in `_destroy()`'s prologue keeps the framework from
+  /// delivering a *new* resume, but a resume that arrived a moment earlier has
+  /// already opened `AdLoadingDialog.showAdBuffer`, and that buffer's
+  /// `onComplete` fires ~500ms later — with `_adapter` and `_config` still
+  /// live, so every guard inside it passes and a native App Open ad is shown on
+  /// top of an SDK being dismantled. Guarding the buffer callback alone would
+  /// fix the one path the reviewer found; this sits at the convergence point
+  /// instead, so any other already-launched timer or callback that reaches a
+  /// fullscreen show during a teardown is caught by the same check.
+  /// Round-25 QC round 14 (`codex`, MAJOR) — the load-side twin of
+  /// [_teardownBlocksShow]. A load starting inside a teardown reaches the
+  /// native SDK, and its callback then lands on slots this teardown is about to
+  /// dispose: at best a wasted ad request counted against the app's show rate,
+  /// at worst a write to a disposed `ValueNotifier`. The show-side fix does not
+  /// cover these — the four `loadX` methods read the private `_adapter`, not the
+  /// public getter that now hides it.
+  bool _teardownBlocksLoad(AdSlotType type) {
+    if (_destroyInFlight == null) return false;
+    SafeLogger.d(
+        _tag, '⏭️ load ${type.name} skipped — a teardown is in flight');
+    _emitSkip(type, 'load', 'teardown_in_flight');
+    return true;
+  }
+
+  bool _teardownBlocksShow(AdSlotType type, AdPlacement placement) {
+    if (_destroyInFlight == null) return false;
+    SafeLogger.d(_tag,
+        '⏭️ show ${type.name} skipped — a teardown is in flight');
+    _emitSkip(type, 'show', 'teardown_in_flight', placement: placement);
+    return true;
+  }
+
   Future<void> showAppOpenAd({
     required void Function(bool dismissed) onAdDismiss,
     bool bypassSafety = false,
     AdPlacement placement = AdPlacement.splash,
   }) async {
+    if (_teardownBlocksShow(AdSlotType.appOpen, placement)) {
+      onAdDismiss(false);
+      return;
+    }
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showAppOpen skipped — adapter null');
@@ -4233,25 +5372,60 @@ class AdManager with WidgetsBindingObserver {
         return;
       }
     }
+    // Sweep invariant — asked immediately before presenting, never at the door.
+    // See [_presentBlockedReason]. No `await` sits above this today; the guard
+    // is here so that the day one does, the hole does not reopen.
+    final blocked = _presentBlockedReason(ad);
+    if (blocked != null) {
+      SafeLogger.w(_tag, '⏭️ showAppOpen skipped — $blocked');
+      _emitSkip(AdSlotType.appOpen, 'show', 'blocked', placement: placement);
+      onAdDismiss(false);
+      return;
+    }
     SafeLogger.d(
         _tag,
         () =>
             '▶️ showAppOpen (bypassSafety=$bypassSafety, placement=${placement.id})');
-    await ad.showAppOpen(onDismiss: (dismissed) {
-      if (dismissed) {
-        AdSafetyConfig.recordFullscreenAdShown();
-        AdSafetyConfig.recordPlacementAdShown(placement); // T92
-        _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
-      }
-      _emit(AdShowEvent(
-        providerTag: ad.tag,
-        type: AdSlotType.appOpen,
-        placement: placement,
-        success: dismissed,
-      ));
-      onAdDismiss(dismissed);
-      unawaited(loadAppOpenAd());
-    });
+    // Round-23 QC (reviewer B, MAJOR) — Google's App Open guidance says not to
+    // show an App Open ad on top of another ad, and names banner content. The
+    // resume path had just restored banner visibility (`onAppResumed`) before
+    // getting here, so a user coming back to a monetised screen got exactly
+    // that placement: a fullscreen ad over a live banner. Blank the inline
+    // surfaces for the duration instead of skipping the App Open — dropping it
+    // would kill the format on every screen that carries a banner, which is
+    // most of them.
+    //
+    // Round-28 QC (reviewer B, MINOR) — the backstop is `_armAppOpenShowTimeout`
+    // (90 s hard cap, calls the captured `onDismiss`, which restores below) and
+    // `dispose()`. NOT `onAppResumed`, as this said before visibility became
+    // owned: a resume releases only the `background` owner and leaves the
+    // `fullscreen` hold. The cap is the contract for a host adapter, not a
+    // convenience.
+    final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
+    inline?.setInlineAdsHidden(true);
+    _lastShownPlacement[AdSlotType.appOpen] = placement;
+    try {
+      await ad.showAppOpen(onDismiss: (dismissed) {
+        inline?.setInlineAdsHidden(false);
+        if (dismissed) {
+          AdSafetyConfig.recordFullscreenAdShown();
+          AdSafetyConfig.recordPlacementAdShown(placement); // T92
+          _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+        }
+        _emit(AdShowEvent(
+          providerTag: ad.tag,
+          type: AdSlotType.appOpen,
+          placement: placement,
+          success: dismissed,
+        ));
+        onAdDismiss(dismissed);
+        unawaited(loadAppOpenAd());
+      });
+    } catch (e) {
+      // The show never got off the ground, so no dismiss callback is coming.
+      inline?.setInlineAdsHidden(false);
+      rethrow;
+    }
   }
 
   void showAppOpenAdOnResume() {
@@ -4413,6 +5587,7 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> loadInterstitial(
       {Duration watchdog = const Duration(seconds: 30)}) async {
+    if (_teardownBlocksLoad(AdSlotType.interstitial)) return;
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — adapter null');
@@ -4450,6 +5625,10 @@ class AdManager with WidgetsBindingObserver {
     required void Function(bool shown) onDoneFlow,
     AdPlacement placement = AdPlacement.unspecified,
   }) async {
+    if (_teardownBlocksShow(AdSlotType.interstitial, placement)) {
+      onDoneFlow(false);
+      return;
+    }
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showInterstitial skipped — adapter null');
@@ -4510,8 +5689,22 @@ class AdManager with WidgetsBindingObserver {
       _emit(ArbitratorNudgeEvent(
         type: AdSlotType.interstitial,
         placement: placement,
-        estimatedEcpmMicros: arbitrator.estimatedEcpmMicros,
+        // Round-23 QC (reviewer A, MAJOR) — report the figure the veto was
+        // actually made on: this slot's own trailing eCPM, not the
+        // all-formats/all-currencies diagnostic average.
+        estimatedEcpmMicros:
+            arbitrator.estimatedEcpmMicrosFor(AdSlotType.interstitial),
       ));
+      onDoneFlow(false);
+      return;
+    }
+    // Sweep invariant — asked immediately before presenting, never at the door.
+    // See [_presentBlockedReason]. No `await` sits above this today; the guard
+    // is here so that the day one does, the hole does not reopen.
+    final blocked = _presentBlockedReason(ad);
+    if (blocked != null) {
+      SafeLogger.w(_tag, '⏭️ showInterstitial skipped — $blocked');
+      _emitSkip(AdSlotType.interstitial, 'show', 'blocked', placement: placement);
       onDoneFlow(false);
       return;
     }
@@ -4519,6 +5712,7 @@ class AdManager with WidgetsBindingObserver {
         _tag,
         () =>
             '▶️ showInterstitial (placement=${placement.id}, slot=${ad.interstitialSlot.value.name})');
+    _lastShownPlacement[AdSlotType.interstitial] = placement;
     await ad.showInterstitial(onDone: (shown) {
       if (shown) {
         AdSafetyConfig.recordFullscreenAdShown();
@@ -4575,6 +5769,7 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> loadRewardedAd(
       {Duration watchdog = const Duration(seconds: 30)}) async {
+    if (_teardownBlocksLoad(AdSlotType.rewarded)) return;
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — adapter null');
@@ -4685,6 +5880,10 @@ class AdManager with WidgetsBindingObserver {
     String? ssvCustomData,
     String? ssvUserId,
   }) async {
+    if (_teardownBlocksShow(AdSlotType.rewarded, placement)) {
+      onEarnedReward(false);
+      return;
+    }
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showRewarded skipped — adapter null');
@@ -4764,7 +5963,11 @@ class AdManager with WidgetsBindingObserver {
       _emit(ArbitratorNudgeEvent(
         type: AdSlotType.rewarded,
         placement: placement,
-        estimatedEcpmMicros: arbitrator.estimatedEcpmMicros,
+        // Round-23 QC (reviewer A, MAJOR) — report the figure the veto was
+        // actually made on: this slot's own trailing eCPM, not the
+        // all-formats/all-currencies diagnostic average.
+        estimatedEcpmMicros:
+            arbitrator.estimatedEcpmMicrosFor(AdSlotType.rewarded),
       ));
       onEarnedReward(false);
       return;
@@ -4836,19 +6039,44 @@ class AdManager with WidgetsBindingObserver {
         onEarnedReward(false);
         return;
       }
+
+    }
+    // Round-25 QC round 22 (`codex`, BLOCKER) — the consent gate at the top of
+    // this method is read BEFORE a load that can take `onDemandLoadTimeout`
+    // (15s by default). A withdrawal that lands inside that window — the user
+    // backgrounds the app, changes their answer in the CMP, comes back and the
+    // resume re-check applies it — used to be ignored: only the fullscreen
+    // mutex was re-read, so the ad was presented anyway. An impression served
+    // after the user said no is the single outcome this SDK exists to prevent.
+    //
+    // The round-22 fix put a check inside the bypass branch. The sweep that
+    // followed moved it here instead: this line is on BOTH paths through the
+    // method (the bypass one after its on-demand load, and the ordinary one
+    // after the VIP and safety awaits), it is the last statement before the
+    // act, and there is exactly one of it to keep correct.
+    final blocked = _presentBlockedReason(ad);
+    if (blocked != null) {
+      _rewardedInFlight = false;
+      SafeLogger.w(_tag, '⏭️ showRewarded skipped — $blocked');
+      _emitSkip(AdSlotType.rewarded, 'show', 'blocked', placement: placement);
+      onEarnedReward(false);
+      return;
     }
     SafeLogger.d(
         _tag,
         () =>
             '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
+    _lastShownPlacement[AdSlotType.rewarded] = placement;
     await ad.showRewarded(
         ssvCustomData: ssvCustomData,
         ssvUserId: ssvUserId,
         onDone: (result) {
           _rewardedInFlight = false;
-          if (result.earned) {
+          if (result.shown) {
             AdSafetyConfig.recordFullscreenAdShown();
             AdSafetyConfig.recordPlacementAdShown(placement); // T92
+          }
+          if (result.earned) {
             _emit(AdRewardEvent(
               providerTag: ad.tag,
               placement: placement,
@@ -4862,7 +6090,7 @@ class AdManager with WidgetsBindingObserver {
             providerTag: ad.tag,
             type: AdSlotType.rewarded,
             placement: placement,
-            success: result.earned,
+            success: result.shown,
           ));
           onEarnedReward(result.earned);
           // Fix #2 (preserved from 1.x): reload after dismiss/fail. Same dedup
@@ -4884,6 +6112,7 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> loadRewardedInterstitialAd(
       {Duration watchdog = const Duration(seconds: 30)}) async {
+    if (_teardownBlocksLoad(AdSlotType.rewardedInterstitial)) return;
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ loadRewardedInterstitial skipped — adapter null');
@@ -4921,6 +6150,10 @@ class AdManager with WidgetsBindingObserver {
     required void Function(bool shown, bool earned) onDone,
     AdPlacement placement = AdPlacement.unspecified,
   }) async {
+    if (_teardownBlocksShow(AdSlotType.rewardedInterstitial, placement)) {
+      onDone(false, false);
+      return;
+    }
     final ad = _adapter;
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showRewardedInterstitial skipped — adapter null');
@@ -4982,15 +6215,44 @@ class AdManager with WidgetsBindingObserver {
       _emit(ArbitratorNudgeEvent(
         type: AdSlotType.rewardedInterstitial,
         placement: placement,
-        estimatedEcpmMicros: arbitrator.estimatedEcpmMicros,
+        // Round-23 QC (reviewer A, MAJOR) — report the figure the veto was
+        // actually made on: this slot's own trailing eCPM, not the
+        // all-formats/all-currencies diagnostic average.
+        estimatedEcpmMicros:
+            arbitrator.estimatedEcpmMicrosFor(AdSlotType.rewardedInterstitial),
       ));
       onDone(false, false);
       return;
     }
+    // Sweep invariant — asked immediately before presenting, never at the door.
+    // See [_presentBlockedReason]. No `await` sits above this today; the guard
+    // is here so that the day one does, the hole does not reopen.
+    final blocked = _presentBlockedReason(ad);
+    if (blocked != null) {
+      SafeLogger.w(_tag, '⏭️ showRewardedInterstitial skipped — $blocked');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'blocked', placement: placement);
+      onDone(false, false);
+      return;
+    }
+    _lastShownPlacement[AdSlotType.rewardedInterstitial] = placement;
     await ad.showRewardedInterstitial(onDone: (result) {
-      if (result.earned) {
+      // Round-23 QC (reviewer A, MAJOR) — the impression is counted from
+      // `shown`, NOT from `earned`. A user who closes the ad before the reward
+      // point still consumed a real, paid, AdMob-billed impression: it has to
+      // consume the session/hourly/daily/placement budget and re-arm the 30s
+      // fullscreen pacing, or repeated early closes hand out far more
+      // fullscreen inventory than the anti-invalid-traffic caps allow.
+      //
+      // Round-25 QC (reviewer B, MINOR) — this comment used to claim the
+      // ordinary rewarded path "has always done this correctly". It had not:
+      // the same release moves that path from `earned` to `shown` too. Both
+      // were wrong, and a comment that misdescribes its own diff is worse than
+      // no comment, because the next reader trusts it.
+      if (result.shown) {
         AdSafetyConfig.recordFullscreenAdShown();
         AdSafetyConfig.recordPlacementAdShown(placement); // T92
+      }
+      if (result.earned) {
         _emit(AdRewardEvent(
           providerTag: ad.tag,
           placement: placement,
@@ -5003,7 +6265,10 @@ class AdManager with WidgetsBindingObserver {
         providerTag: ad.tag,
         type: AdSlotType.rewardedInterstitial,
         placement: placement,
-        success: result.earned,
+        // Same round-23 finding: `success` on a *show* event means the ad was
+        // displayed, not that the reward was granted. Reporting the reward here
+        // made the SDK's own analytics disagree with the impression it billed.
+        success: result.shown,
       ));
       onDone(result.shown, result.earned);
       unawaited(loadRewardedInterstitialAd());
@@ -5598,12 +6863,49 @@ class AdManager with WidgetsBindingObserver {
     // real stall survives a remount.
   }
 
+  /// Where each fullscreen format was last presented from.
+  ///
+  /// Round-23 QC (reviewer C, MINOR) — every revenue (paid) event arrived
+  /// tagged [AdPlacement.unspecified], because the adapters wire the paid-event
+  /// listener when the ad is **loaded** and the placement is only known when it
+  /// is **shown**. (App Open was worse than useless: hardcoded to
+  /// `AdPlacement.splash`, so a resume impression was reported as splash.) A
+  /// host reading `AdManager().events` to find which screen actually earns
+  /// money got one undifferentiated bucket, which is the whole point of the
+  /// placement API.
+  ///
+  /// ponytail: written before the show, never cleared. The paid event fires on
+  /// impression, i.e. between the show call and the dismiss callback — but some
+  /// mediation adapters report it a beat late, and a stale entry names the last
+  /// show of that same format, which is still the right answer. Clearing would
+  /// only turn "slightly late" into "unattributed".
+  final Map<AdSlotType, AdPlacement> _lastShownPlacement = {};
+
   // ──────────────────────────────────────────────────────────────────────────
   //  EVENT EMIT — single `_emit()` chokepoint: records to the compliance
   //  event log, then broadcasts on the public `events` stream.
   // ──────────────────────────────────────────────────────────────────────────
 
   void _emit(AdEvent event) {
+    // Revenue is the one event the adapters cannot place themselves — see
+    // [_lastShownPlacement]. The show-time placement wins outright, including
+    // over App Open's hardcoded `splash`. Inline formats (banner/MREC/native)
+    // are untouched: they have no show call to take a placement from.
+    if (event is AdRevenueEvent) {
+      final shown = _lastShownPlacement[event.type];
+      if (shown != null && shown != event.placement) {
+        event = AdRevenueEvent(
+          providerTag: event.providerTag,
+          type: event.type,
+          placement: shown,
+          valueMicros: event.valueMicros,
+          currencyCode: event.currencyCode,
+          networkName: event.networkName,
+          precision: event.precision,
+          mediationWaterfall: event.mediationWaterfall,
+        );
+      }
+    }
     _eventLog?.recordEvent(event,
         consentCountry: _consentManager?.current.country);
     if (_eventStream.isClosed) return;

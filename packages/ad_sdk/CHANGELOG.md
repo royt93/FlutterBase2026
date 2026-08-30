@@ -4,6 +4,461 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-08-29
+
+Round-23 audit: a full pass over the SDK, the example app, every doc in the
+package and the live pub.dev listing, against the seven production
+requirements. Three independent reviewers plus a line-by-line pass of my own,
+then a second review round on the changes themselves; every finding was
+re-verified against the source before being accepted (several were downgraded
+or refuted). Consolidated verdict in
+`doc/audit/audit_round23_consolidated.md`.
+
+### ⚠️ Behaviour changes — read before upgrading
+
+Nothing here changes a signature, so this compiles as a drop-in upgrade. Two
+values that a host can *read* now mean something different, which is why this
+is a minor bump and not a patch:
+
+- **`RewardResult.shown` now means "the native SDK confirmed the ad reached the
+  screen"**, and defaults to `false`. It used to default to `true` on every
+  path, including the ones where no ad was ever displayed. If your app reads
+  the `shown` argument of `showRewardedInterstitialAd(onDone: (shown, earned))`,
+  re-check what you do with it: it is now the display signal, not a
+  "the show attempt happened" signal, and it is `true` for a real display the
+  user closed before the reward point.
+- **`AdShowEvent.success` for `rewarded` and `rewardedInterstitial` now reports
+  the DISPLAY, not the reward.** It used to carry `earned`. If you were
+  counting rewards off the event stream, count `AdRewardEvent` instead — that
+  is what it is for, and it is unchanged. `AdShowEvent.success` for banner,
+  interstitial and app-open is unchanged.
+
+- **`showRewardedInterstitialAd()` now shows a disclosure screen before the ad.**
+  Google's policy for the format requires it: the user must be told an ad is
+  coming and what the reward is, and be given a way out. `AdScreenState`
+  renders one by default — pass `showDisclosure: false` only if your app
+  already presents its own, and override `disclosureTitle` /
+  `disclosureButtonLabel` to localise it. Declining costs nothing: no ad, no
+  impression, no budget spent.
+
+- **`AdRevenueEvent.placement` now reports where the ad was actually shown.**
+  Before this release every revenue event arrived as
+  `AdPlacement.unspecified`, and App Open always claimed `AdPlacement.splash`
+  even on a resume. If you were grouping revenue by placement, the buckets
+  change shape — they start being correct. Banner, MREC and native still report
+  `unspecified`: nothing "shows" them, so there is no placement to take.
+
+### Fixed
+
+- **A wrong device clock could permanently ERASE a paid VIP grant.** The SDK
+  keeps a high-water mark of the furthest instant the clock has ever read, so
+  that winding the date backwards cannot resurrect an expired grant. If that
+  mark ever got poisoned — a phone with a flat battery boots years in the
+  future, the user opens the app once, NTP corrects it later — the expiry sweep
+  compared every VIP row against the poisoned mark, decided they were all over,
+  and deleted them from disk. Unrecoverable: there is no backend, and the key
+  id is already burned in the one-time-use ledger, so re-entering the key the
+  customer paid for answered "already used". A row is now deleted only once the
+  clamped clock **and** the raw device clock both say its window has *ended* —
+  a window that has not STARTED yet (a grant taken while the clock was running
+  ahead) is kept too, which matters on iOS where the VIP row is Keychain-backed
+  and survives a reinstall while the clock mark does not. A poisoned mark can
+  still suppress an entitlement; it can no longer destroy one.
+
+- **One tap on "watch an ad" laundered a revoked key's window past the
+  revocation list.** VIP grants stack globally by design, so redeeming a signed
+  30-day key and then watching one rewarded ad for "+1 day" moved the whole 30
+  days into the `WATCH_AD` entry — where the revocation clamp, which matches on
+  `SIGNED_<kid>`, could no longer reach it. Publishing a CRL for a leaked,
+  refunded or resold key did nothing. Stacked grants now carry, transitively,
+  what they absorbed, and the clamp matches on that too.
+
+- **A cached revocation list verified itself, and a future-dated one could
+  switch revocation off forever.** At startup the cached CRL was verified
+  against a public key stored beside it in the same plaintext record — self-
+  attesting. Anyone able to write app preferences could mint their own key
+  pair, sign an empty CRL dated far in the future, write both, and permanently
+  wedge the "only accept a newer list" rule against every CRL the publisher
+  will ever issue. The cache's `issuedAt` is now latched only once the host's
+  own key has confirmed it. The revoked set from an untrusted cache is still
+  applied — it can only ever narrow a grant.
+
+- **A child-directed flag set during init never reached AppLovin MAX.** MAX
+  reads the flag once, at native SDK init, and that init is awaited for up to
+  20 seconds. A host that starts `initialize()` and presents its age gate at
+  the same time — the ordinary splash shape — could call
+  `setConsent(AdConsent(isAgeRestrictedUser: true))` inside that window and
+  have it silently dropped: the adapter had already been told `false`, and
+  `setConsent()`'s own re-init branch could not run on a first init. MAX served
+  ads to a user the host had declared child-directed. Init now re-checks the
+  flag on the way out and discards the adapter if it changed.
+
+- **App Open ads were drawn on top of live banners and MRECs.** Google's App
+  Open guidance names this placement as prohibited. The resume path walked
+  straight into it: inline surfaces are made visible again on resume, and only
+  then does the App Open decide to present. Banners and MRECs are now blanked
+  for the duration of the fullscreen ad and restored on dismiss (and after a
+  failure). A surface hidden for another reason — route-paused, backgrounded —
+  stays hidden. Nothing to call; a custom adapter that does not implement the
+  new `InlineAdVisibility` capability keeps the old behaviour.
+
+- **The monetization arbitrator priced every ad format out of one pool.** A
+  content feed emitting cheap banner impressions dragged the trailing average
+  below the *rewarded* threshold, so the next rewarded opportunity — worth many
+  times a banner — was vetoed in favour of a VIP nudge, and the emitted
+  `ArbitratorNudgeEvent` quoted an eCPM belonging to a different format. The
+  same bug compared non-USD revenue against a threshold documented in dollars.
+  Each format is now priced from its own history, in its own currency.
+
+- **A rewarded interstitial that was displayed but dismissed early did not
+  consume an impression.** The count sat inside `if (result.earned)`, so
+  repeating the pattern handed out materially more fullscreen inventory than
+  the anti-invalid-traffic caps allow — the publisher's AdMob account carries
+  that risk, not the SDK's. It now counts display, like every other fullscreen
+  format, and the matching `AdShowEvent` no longer reports `success: false` for
+  an ad that was on screen.
+
+- **An iOS Keychain timeout consumed the 1-day trial the user never got.** The
+  first-install guard reads the Keychain to decide whether the grace has
+  already been given. If that read never answered, the SDK still marked the
+  grace as applied — a one-way flag — so the trial was burned without ever
+  being granted. The mark now happens only when the guard actually answers; a
+  timeout simply tries again next launch.
+
+- **A whitelisted test device lost VIP after ~90 days and could not get it
+  back.** `AdConfig.vipDeviceGaids` grants a long window that the stacking cap
+  clamps to ~90 days, then set a one-way "already applied" flag — so when the
+  clamped window ran out the device silently went back to seeing ads, with no
+  way to re-grant short of clearing app data. The grant is re-applied when the
+  whitelist still matches and no VIP is active.
+
+- **Banners stayed blank at the exact moment VIP expired.** Gaining VIP hid
+  them immediately; losing it did not bring them back until something else
+  happened to rebuild the widget. The VIP transition now signals the banner to
+  reload.
+
+- **A CCPA / US-state sale opt-out written by a CMP now actually reaches both
+  ad providers.** The SDK has parsed `IABUSPrivacy_String` since 2.3.0 and
+  reported it through `AdManager().usPrivacyOptedOut`, but `AdConsent.doNotSell`
+  was writable by the host and by nothing else — so a user who opted out through
+  a CMP still had AppLovin `setDoNotSell(false)` and AdMob
+  `restricted_data_processing` unset unless the host separately noticed the
+  string and called `setConsent` itself. The opt-out is now reconciled at SDK
+  init and on every app resume (so one made while the app was backgrounded lands
+  too), and applied to both providers. Tighten-only: a string that says the user
+  did NOT opt out, and the absence of any string, never clear a `doNotSell` the
+  host set deliberately. `IABGPP_HDR_GppString` is still deliberately not
+  decoded — see the new README section "CCPA / US state privacy".
+- **A VIP reward earned while the SDK is re-initialising is no longer lost.** The
+  watch-ad-for-VIP flow held the VIP manager it read before showing the ad; a
+  provider switch or re-init during the ad discarded that manager, so the grant
+  was dropped while the screen still reported success. The grant now goes to
+  whichever manager is live when the ad finishes.
+- **An SDK teardown can no longer roll back the VIP revocation list.** A
+  revocation-list fetch still in flight when the SDK was destroyed used to write
+  its (older) result over the newer list the re-initialised SDK had already
+  cached, making a revoked key redeemable again on the next launch. The fetch is
+  now discarded if the manager that started it has been torn down — including a
+  teardown that lands while the fetched list is being applied to existing
+  grants.
+- **A VIP redeem interrupted by an SDK teardown no longer consumes the key.**
+  The one-time-use ledgers were written even when the entitlement itself was
+  dropped (a discarded manager must not write over the live one's store), which
+  left a paying customer with a burned key and no VIP window — durably on iOS,
+  where the replay record survives a reinstall. The key is now marked used only
+  once the grant has actually been persisted.
+- **A refused native AdView destroy could arm a retry timer that outlived
+  `destroy()`.** `destroy()` cancels the retry timers it can see, but a destroy
+  still in flight fails afterwards and used to schedule a fresh one, which then
+  called into a bridge whose listeners were already cleared. It now stops
+  retrying once the teardown has begun; the retry chain is unchanged on a live
+  adapter.
+- **An AppLovin banner/MREC preload landing during `destroy()` aborted the rest
+  of the teardown.** The AdView-destroy loops awaited the native bridge while
+  iterating a map that the in-flight preload then inserted into, throwing
+  `Concurrent modification during iteration`. The exception was swallowed one
+  layer up, so the host saw a successful teardown while MREC views were left
+  alive, pending `loadAppOpen`/interstitial/rewarded callbacks were never
+  answered, and the old adapter kept its config. Repeated destroy/re-init cycles
+  accumulated native views.
+- **An AdMob ad delivered after `destroy()` leaked its native ad object.** GMA
+  can hand over a fill at any time, including after teardown; the four
+  fullscreen load handlers stored that late ad into an adapter that had already
+  released everything it held, and since the next `initialize()` builds a fresh
+  adapter, nothing ever disposed it. Late fills are now released on arrival.
+  Banner/MREC/native were already covered by their per-key identity guard.
+- **A valid VIP key was rejected as "invalid or expired" when redeemed in the
+  first second after app launch.** The connectivity plugin's first snapshot
+  after process start can report offline on a device that is online (seen in 3
+  of 36 launches on a real phone), and the redeem gate trusted that single
+  read. It now polls for up to 2s and lets the first positive answer through.
+  A genuinely offline redemption also stops lying about the cause:
+  `SignedVipRedeemResult.isOffline` is set (the `status` stays
+  `VipRedeemStatus.invalid`, so no exhaustive `switch` in a host app breaks),
+  and the shipped `VipRedeemScreen` shows a new `VipRedeemStrings.offlineMessage`
+  ("No internet connection. Connect and try again — your key is still valid.")
+  instead of the invalid-key message.
+- **An ad load could start during `destroy()`, and its callback could crash the app.**
+  The four `loadX` methods now refuse while a teardown is in flight, and an
+  `AdSlot`'s state notifier drops (and counts) writes that arrive after it was
+  disposed. Before this, a native load callback landing after teardown wrote a
+  disposed `ValueNotifier` and threw `A _SlotStateNotifier was used after being
+  disposed` — reachable by any app that called `destroy()` while an ad was
+  loading. Requests fired during a teardown are also pure waste: never shown,
+  but counted by the ad network as a request with no impression.
+- **A VIP rewarded ad could play, and pay out, over an SDK being torn down.**
+  The teardown check sat at the head of each show method, but the VIP
+  "watch an ad to extend your window" path then waits up to 15s for an
+  on-demand load, and the re-check after that wait did not know a `destroy()`
+  had started meanwhile. The teardown is now part of the shared fullscreen
+  busy gate, so every ad type and every post-wait re-check inherits it. The
+  public `fullscreenBusy` notifier is recomputed on both edges of a teardown.
+- **`AdManager().adapter` returns `null` while a teardown is in flight.**
+  The adapter's own `show…` methods are public and answer to none of the
+  safety layers in `AdManager`, so a host holding the adapter could drive the
+  native layer straight past consent, caps and the fullscreen mutex during a
+  teardown. Fetching it mid-teardown now yields nothing to call. (Banner /
+  MREC / native widgets read this getter and correctly stop building.)
+- **A resume that started just before `destroy()` could still show an ad.**
+  Detaching the lifecycle observer stops a *new* resume, not one whose 500ms ad
+  buffer was already running — its completion callback found the adapter still
+  live and showed an App Open ad on top of an SDK being torn down. No fullscreen
+  ad (App Open, interstitial, rewarded, rewarded interstitial) can now start
+  while a teardown is in flight; the attempt is reported as a
+  `teardown_in_flight` skip event instead.
+
+- **One paused `events` subscriber could hang `destroy()` — and brick the SDK.**
+  The teardown awaited the event-stream close with no bound. A host subscription
+  may legally be paused (route transition, backpressure), and a paused subscriber
+  buffers the done event, so the close never completed — while every later
+  `initialize()` parked behind the in-flight teardown and `isInitialised` still
+  answered `true`. The wait is now capped at 2s with a warning log.
+
+- **An App Open ad could be shown on top of an SDK being torn down.** The app
+  lifecycle observer was detached at the very end of `destroy()`, and the resume
+  fallback timer cancelled later still, both after the teardown's awaits — across
+  which the adapter and config are untouched, so every guard on the resume path
+  still passed. A user returning to the app mid-teardown could be shown an ad,
+  with the native call landing on an adapter about to be disposed. Both are now
+  disarmed before the teardown's first await.
+
+- **The 5-minute ad-refill poll can no longer fire inside a teardown.** The poll
+  guards itself on `isInitialised`, which is `_config != null && _adapter != null`
+  — and both fields stay non-null until well past the teardown's first `await`. So
+  a tick landing in that window passed every guard and refilled ads into an adapter
+  about to be disposed. The poll and the connectivity watch are now both stopped
+  before the first await, matching what re-`initialize()` already did.
+
+- **A pending init retry can no longer bring the SDK back after `destroy()`.**
+  The retry timer was cancelled at the end of the teardown, so it stayed armed
+  across the event-stream close and the adapter dispose. A retry firing in that
+  window waited the teardown out and then built a whole new session — adapter,
+  timers, connectivity watch and ad requests — moments after the host's
+  `await destroy()` returned. The retry is now cancelled before the teardown's
+  first await.
+- **Two `destroy()` calls at once no longer tear the SDK down twice.** The
+  second caller waited for the first teardown and then ran a whole extra one:
+  every widget subscribed to `initRevision` rebuilt twice, and if the app had
+  already restarted the SDK in between, the redundant teardown disposed the
+  *new* session's adapter — ads silently dead for the rest of the process.
+- **A cancelled init retry no longer strands the caller it was holding.** When
+  native init fails the SDK arms a backed-off retry that owns the caller's
+  `onComplete`. Cancelling that retry — which both a fresh `initialize()` and
+  `destroy()` do — threw the callback away with the timer, so that caller was
+  never answered at all. A splash that tapped its own "Retry" button mid-backoff
+  therefore waited out its hard-cap timer even though the SDK had come up. The
+  callback is now handed to the replacing attempt (and hears its real result),
+  or answered `false` by the teardown.
+- **A reported init failure no longer leaves the SDK claiming it is
+  initialised.** If a step *after* the ad provider came up threw — applying
+  consent to the providers, or reading the stored IAB consent string — the host
+  was told initialisation failed while `AdManager().isInitialised` still
+  answered `true`, with a live native adapter and its listeners still attached.
+  An app that does not re-initialise on failure leaked that adapter for the rest
+  of the process, and it kept serving ads. The SDK now tears the adapter down
+  before reporting the failure, so the two answers agree — and it does so even
+  when the ad provider's own teardown throws, which used to abandon the state
+  reset half-way and bring the same contradiction back.
+- **`destroy()` now really stops an `initialize()` that is still running.**
+  Native SDK init can take up to 20 seconds, and an app that gave up and tore
+  the SDK down in the meantime used to have it come back to life afterwards:
+  the finishing attempt installed its ad provider, timers and connectivity
+  watch into the torn-down SDK and reported success, so `isInitialised` went
+  `true` again moments after the app had been told the SDK was gone. Such an
+  attempt now releases what it built and reports failure instead. Same for the
+  narrower window while consent is being applied to the providers.
+- **A parked caller can no longer be stranded** by another parked callback that
+  calls `initialize()` again, or by one that throws. A callback that re-enters
+  `initialize()` while the queue is being answered is handed the result being
+  delivered on the spot instead of parking behind it. The queue is also capped
+  at 32 waiting callers (the 33rd is told `false` at once rather than parked),
+  and a caller that parks during `destroy()`'s own teardown — a window that had
+  already drained the queue — is answered by the abandoned attempt rather than
+  waiting for a callback that would never fire.
+- **A consent answer from a torn-down session can no longer open the live
+  session's ad gate.** The UMP consent flow is not awaited (it presents a native
+  form and can take minutes), so its result could land after the app had torn
+  the SDK down and initialised it again — and it was written to the ad gate
+  regardless. A session that is deliberately holding ads back until its own
+  consent flow answers, or that runs a stricter config (an under-age-tagged one,
+  say), could therefore be overruled by an answer gathered for a session that no
+  longer exists. UMP results and the fail-open error path are now bound to the
+  session that started them, matching the privacy-options form.
+- **`destroy()` no longer takes a session that started during its teardown apart
+  with it.** Tearing the SDK down involves waiting on the ad provider, and an
+  `initialize()` arriving in that window used to be built and then dismantled by
+  the rest of the teardown — most visibly it lost the app-lifecycle observer, so
+  App Open on resume and the ad pause/resume hooks silently stopped working for
+  the rest of the process. `initialize()` now waits for an in-flight `destroy()`
+  to finish, so a destroy-then-initialise pair does what the app asked, in the
+  order it asked.
+- **An abandoned `initialize()` can no longer damage the session that replaced
+  it.** Two failure paths did not know they had been superseded. One: an attempt
+  whose provider init came back `false` after `destroy()` still armed its
+  5-second retry timer, so the torn-down SDK re-initialised itself, and still
+  fired the init-completion event with `false` — and because the event bus
+  replays its most recent event, a splash that subscribed late was told init had
+  failed even when a later attempt had succeeded. Two: an attempt that *threw*
+  after another attempt had already won decided what to tear down by reading the
+  shared state, so it disposed the winner's live provider and flipped
+  `isInitialised` back to `false` for a session that never failed. Both now bow
+  out and report only to their own caller. Same check added after the VIP load
+  and the consent bootstrap, so a `destroy()` during either can no longer leave
+  a torn-down SDK holding live VIP or consent state.
+- **`SafeLogger.critical` can no longer be hidden by `logTagFilter`.** It
+  already ignored `AdLogLevel.none`; it now ignores the tag filter too. The two
+  events that use it — a release build forcing `dryRun` back off, and a config
+  that can never gather consent — mean your own configuration is wrong, and the
+  consent one is the difference between showing an EEA/UK user a consent form
+  and not. An app filtering logs down to its own tags used to lose it silently.
+  Ordinary `d()`/`w()`/`e()` still respect the filter exactly as before.
+- **A second `initialize()` call made while the first is still running is no
+  longer answered with silence.** It used to log "skipping duplicate" and
+  return without ever calling that caller's `onComplete` or firing an event, so
+  an app whose splash awaited the second call waited forever. Such callers are
+  now parked and told the real result of the in-flight attempt (and told
+  `false` if `destroy()` happens first). They still never start a second ad
+  provider.
+- **The iOS "you called `initialize()` before `requestAtt()`" warning now
+  actually fires under test**, which is how it was found to be untestable in the
+  first place: it asked `dart:io` whether the platform is iOS, and now asks
+  Flutter. Same answer on a real device.
+- **A host `onLog` callback that throws can no longer strand the SDK.** Every
+  log now goes through one guarded emitter, so an exception out of your own log
+  sink is caught and reported instead of unwinding whatever the SDK was doing —
+  which, for logs written from inside a teardown's `catch`, meant the state
+  reset stopped half-way.
+- **An app that calls `initialize()` again from its own failure callback is no
+  longer ignored.** The in-progress guard was still held while `onComplete(false)`
+  ran, so a host retrying with a fallback configuration from inside that callback
+  was dropped silently: it had been told initialisation failed and its own
+  recovery then did nothing.
+- **A developer warning no longer silently disables ad loading for the whole
+  session (debug/profile builds).** The two `assert`s described below ran ahead
+  of the App Open + banner preload, the ad retry timer and the connectivity
+  watch. In a non-release build the assert threw and all of those were skipped,
+  so ads simply never loaded — a symptom that looks nothing like the warning
+  that caused it. Both `assert`s are now **gone**: an assert inside a `try` that
+  catches everything can never crash anything, it only produced a stack trace
+  the SDK then logged as if init itself had failed. The warnings are now
+  `SafeLogger.critical` instead, which reaches your own `onLog` sink and is not
+  silenced by `AdLogLevel.none`. The release-mode consent block, and the rule
+  that no ad is requested while no consent flow is configured, are unchanged.
+- **A splash screen no longer hangs waiting for an init-completion event that
+  never comes (debug/profile builds).** The SDK's two developer warnings — no
+  consent flow configured, and `requestAtt()` never called on iOS — are
+  `assert`s, and they ran *before* `initialize()` told the host it had finished.
+  In any non-release build the assert threw, the init body swallowed it, and the
+  host callback plus the completion event were skipped even though native init
+  had actually succeeded: a splash built on the documented contract (subscribe
+  to the init event) sat there until its own hard-cap timer rescued it. The
+  warnings now fire after completion is reported, and a host `onComplete` that
+  throws can no longer swallow the event either.
+- **A failure after native init no longer re-initialises the SDK every 5
+  seconds forever.** The auto-retry budget is reset once the adapter comes up,
+  so anything throwing after that point — including a host `onComplete`
+  callback that throws — got an unbounded retry: rebuild the adapter, throw
+  again, reset the budget, retry again. Such a failure is now terminal and
+  reported once; a genuinely failed native init keeps the bounded retry it
+  always had.
+- **Ad impressions are now counted from whether the ad reached the screen, not
+  from how the show ended.** Three separate symptoms turned out to be one
+  mistake: a rewarded ad the user closed after two seconds, a
+  rewarded-interstitial that never displayed, and an app-open ad resolved by
+  the 90-second hard cap were all mis-accounted. A real display that earned no
+  reward counted as nothing (so the daily/hourly caps that protect the AdMob
+  account stopped seeing those impressions), while a show that never reached
+  the screen was reported to the host as `shown: true`. There is now one
+  authoritative signal, `AdSlot.displayConfirmed`, set when the native SDK
+  confirms the ad is on screen, and both adapters plus `AdManager` read it.
+- **`RewardResult.shown` now defaults to `false` and means "the native SDK
+  confirmed this ad reached the screen"** — independent of `earned`. It used
+  to default `true`, so every never-displayed path reported a display.
+  Hosts reading `onDone(shown, earned)` get the truth now; a host that treated
+  `shown` as "the user watched something" should re-check that assumption.
+- **AdMob's app-open slot never called `markDisplayed()`** — the only
+  fullscreen slot that didn't, which is why its hard-cap path could not tell a
+  real display from a lost callback.
+- **A device clock parked in the future can no longer mint a permanent VIP**
+  (MJ9, carried as a documented limitation for three rounds). Setting the clock
+  a year forward, redeeming any grant, then correcting the clock used to leave
+  an entry that never expired, because the anti-rollback high-water mark was
+  the only clock consulted and it agreed the entry was mid-window. An entry now
+  additionally has to have *started* according to the raw device clock, while
+  expiry keeps using the mark — so the 30-day-rollback defence is unchanged.
+  A suppressed entry is never deleted, only suppressed, so a customer whose
+  device clock was genuinely fast when they paid keeps their grant.
+- **VIP grants are persisted as UTC.** They were written as local ISO-8601
+  with no timezone marker, so the same text read back on a device that had
+  changed zone (a flight west, a region's UTC-offset change) resolved to a
+  different instant — up to a day earlier. `VipManager` then read the grant as
+  expired and `_purgeExpired()` deleted it, with no server to restore from.
+  Entries are stamped UTC on write and converted back to local on read, so
+  every existing consumer (display, countdowns, `difference`) is unchanged.
+  Entries written by 2.3.4 and earlier still decode.
+- **The VIP grace nudge no longer fires at grant time.** Its default threshold
+  (24h) is exactly the default first-install trial length (24h), so a
+  brand-new user saw "your VIP is about to run out" on their first launch. The
+  threshold is now capped at half the granted window, in both the check and
+  the timer that schedules it.
+- **A revoked VIP key id (`kid`) is now matched case-insensitively at
+  redemption.** Clamping an already-granted window matched through
+  `normaliseKey` (upper-cased) while the redemption gate compared exact case,
+  so a CRL whose kid case differed from the key's clamped the old grant but
+  still handed out a fresh one for the same revoked key. Both mint tools
+  (`tool/vip_mint.dart`, `tool/vip_crl_mint.dart`) now upper-case kids, and
+  keys minted before that still match.
+- **`compliance_signing.dart` returned a `Future` without awaiting it inside a
+  `try`**, so a corrupt stored seed threw past the fallback instead of minting
+  a fresh key pair. (Also the 20 pana points that warning was costing.)
+- **`pubspec.yaml` pointed at a repository that 404s** (`FlutterBase2025` →
+  `FlutterBase2026`), which broke the source links and the License link on the
+  live pub.dev page.
+
+### Documentation
+
+- README: the `buildAdmobNativeView(key)` sample now compiles, the `logLevel`
+  default is documented as build-mode-gated (debug `.verbose`, release
+  `.warning`), the Step 5 splash sample no longer leaks its `SimpleEventBus`
+  listener and now calls `requestAtt()` before `initialize()`, the `AdConfig`
+  configuration reference lists the four params it was missing
+  (`maxVipStackDuration`, `onPrivacyPolicyTap`, `disableAppLovinCmpFlow`,
+  `enableCrashGuard`), and the quick-start floor is current.
+- `doc/AD_PROMPT_FLUTTER.MD`: the flagship splash snippet compiles again
+  (`adMob:` → `admob:`).
+- Stale version pointers and test counts refreshed in `CLAUDE.md`,
+  `doc/README_TESTING.md`, `doc/feature.md` and `doc/architecture.md`.
+- The offline VIP redemption path and the always-on QA test-device hashes are
+  now commented at the source as deliberate product decisions, so reviewers
+  stop re-filing them as defects.
+
+### Changed
+
+- `flutter_secure_storage` widened to `>=10.0.0 <12.0.0`. This package still
+  resolves 10.x (11 needs win32 ^6, which `package_info_plus 9` blocks, and
+  `package_info_plus 10` needs Flutter >= 3.38.1) — the wide bound lets a
+  consuming app that is already there pull 11.
+
 ## [2.3.4] - 2026-08-25
 
 Nine further QC rounds (13-22) on the consent path alone, all of them driven by

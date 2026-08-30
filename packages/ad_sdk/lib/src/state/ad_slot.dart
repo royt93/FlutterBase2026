@@ -53,8 +53,29 @@ class AdSlot {
   final AdSlotType type;
 
   /// Reactive state — listenable from widgets.
-  final ValueNotifier<AdSlotState> state =
-      ValueNotifier<AdSlotState>(AdSlotState.idle);
+  final ValueNotifier<AdSlotState> state = _SlotStateNotifier();
+
+  /// Whether anything is currently listening to [state].
+  ///
+  /// Round-25 QC round 4 (`agy`) — the listener detaches in
+  /// `AdManager._disposeAdapter()` had no observable effect, so deleting them
+  /// left every test green even though a leaked listener on a torn-down
+  /// manager is a real leak (and the reason `_disposeAdapter` exists). Flutter
+  /// marks `ChangeNotifier.hasListeners` `@protected`, hence the tiny subclass
+  /// below rather than a lint-suppressed read from the test.
+  @visibleForTesting
+  bool get debugHasStateListeners =>
+      (state as _SlotStateNotifier).debugHasListeners;
+
+  /// Round-25 QC round 14 — test seams for the post-dispose write guard in
+  /// [_SlotStateNotifier]. `debugDroppedStateWrites` counts native callbacks
+  /// that landed after this slot's adapter was torn down.
+  @visibleForTesting
+  bool get debugStateDisposed => (state as _SlotStateNotifier).isDisposed;
+
+  @visibleForTesting
+  int get debugDroppedStateWrites =>
+      (state as _SlotStateNotifier).debugDroppedWrites;
 
   /// Time of the most recent failed load (or show), used for cooldown checks.
   /// Null when no error has been seen.
@@ -266,6 +287,7 @@ class AdSlot {
   bool beginShow({void Function()? onShowNeverConfirmed}) {
     if (!isReady) return false;
     state.value = AdSlotState.showing;
+    _displayConfirmed = false;
     _showConfirmTimer?.cancel();
     _showConfirmTimer = null;
     if (onShowNeverConfirmed == null) return true;
@@ -289,11 +311,26 @@ class AdSlot {
     return true;
   }
 
+  /// Whether the native SDK confirmed the CURRENT show actually reached the
+  /// screen ([markDisplayed] fired since the last [beginShow]).
+  ///
+  /// Round-23 audit, MAJOR — this is the only trustworthy "the user really
+  /// saw an ad" signal, and impression accounting has to key off it rather
+  /// than off how the show *ended*. Two surfaces were counting the wrong
+  /// thing: a rewarded ad the user closed before the reward point recorded no
+  /// impression at all (so it consumed no daily/hourly/placement cap), and an
+  /// App Open ad whose dismiss callback was lost to the 90s hard cap was
+  /// reported to the host as "never shown" — both undercount real displays
+  /// against caps the safety layer exists to enforce.
+  bool get displayConfirmed => _displayConfirmed;
+  bool _displayConfirmed = false;
+
   /// The native SDK confirmed the ad is on screen. Disarms [beginShow]'s
   /// watchdog — see its doc comment for why nothing may fire after this.
   void markDisplayed() {
     _showConfirmTimer?.cancel();
     _showConfirmTimer = null;
+    _displayConfirmed = true;
   }
 
   /// Slot was shown then dismissed. Returns to [AdSlotState.idle] (caller
@@ -353,4 +390,49 @@ class AdSlot {
   @override
   String toString() =>
       'AdSlot($type, ${value.name}, fails=$consecutiveFailures)';
+}
+
+/// See [AdSlot.debugHasStateListeners] — exists only to widen
+/// `ChangeNotifier.hasListeners` from `@protected` to readable.
+class _SlotStateNotifier extends ValueNotifier<AdSlotState> {
+  _SlotStateNotifier() : super(AdSlotState.idle);
+
+  bool get debugHasListeners => hasListeners;
+
+  /// Round-25 QC round 14 (`codex`, MAJOR) — a native load or show callback can
+  /// land AFTER the adapter that owns this slot was disposed: the request was
+  /// already in flight when `destroy()` started, and no guard inside
+  /// `AdManager` can recall it. `AdSlot.markReady()`/`markFailed()`/
+  /// `markDismissed()`/`markShowFailed()`/`reset()` all write `state.value`, and
+  /// writing a disposed `ValueNotifier` throws
+  /// "A `ValueNotifier<AdSlotState>` was used after being disposed" — a real crash
+  /// in a host app whose only sin was tearing the SDK down while an ad was
+  /// loading. Guarding the ONE setter every mutator funnels through covers all
+  /// of them, including any added later.
+  ///
+  /// Dropping the write is the correct outcome, not a papered-over bug: the slot
+  /// belongs to an adapter that no longer exists, so there is nothing left for
+  /// the new state to mean.
+  bool _disposed = false;
+
+  /// Test seam — how many post-dispose writes were dropped. Non-zero is not an
+  /// error; it means a native callback outlived its adapter, which is normal.
+  int debugDroppedWrites = 0;
+
+  bool get isDisposed => _disposed;
+
+  @override
+  set value(AdSlotState newValue) {
+    if (_disposed) {
+      debugDroppedWrites++;
+      return;
+    }
+    super.value = newValue;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 }

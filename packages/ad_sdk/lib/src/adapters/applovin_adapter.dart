@@ -8,6 +8,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
 import '../core/ad_provider_adapter.dart';
+import '_inline_visibility.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
@@ -16,7 +17,121 @@ import '../utils/safe_logger.dart';
 import 'applovin_bridge.dart';
 
 /// AppLovin MAX implementation of [AdProviderAdapter].
-class AppLovinAdapter implements AdProviderAdapter {
+class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
+  // Round-23 QC (reviewer B, MAJOR) — inline surfaces are blanked while a
+  // fullscreen ad is on screen. Round-26 QC (reviewer A, MINOR) — ownership is
+  // counted, not snapshotted; see [InlineVisibilityOwners]. AppLovin has only
+  // one owner today (its `onAppPaused` disables auto-refresh rather than
+  // blanking), but the bookkeeping is shared so a second one cannot be added
+  // here without going through it.
+  final InlineVisibilityOwners _inlineVisibility = InlineVisibilityOwners();
+
+  /// The same bookkeeping over `autoRefreshEnabled` — the flag AppLovin
+  /// actually honours, since `visible` is only read by the AdMob widget branch.
+  final InlineVisibilityOwners _inlineRefresh =
+      InlineVisibilityOwners((l) => l.autoRefreshEnabled);
+
+  /// True between `setInlineAdsHidden(true)` and its matching `false`.
+  bool _fullscreenOverInline = false;
+
+  /// True between `onAppPaused()` and its matching `onAppResumed()`.
+  ///
+  /// Round-35 QC (reviewer B, MAJOR) — `_fullscreenOverInline` gets a surface
+  /// created while the App Open is up hides it at construction; `background`
+  /// had no equivalent, so a key first created while the app was backgrounded
+  /// (VIP expiring mid-background is the one process-lifetime path that can
+  /// reach it) started with `autoRefreshEnabled == true` and no owner holding
+  /// it down — the exact "acquire only reaches pre-existing keys" shape rounds
+  /// 28, 30, 31 and 32 each found and fixed for a different owner in this same
+  /// file. Mirrors `_fullscreenOverInline` exactly.
+  bool _appBackgroundedForInline = false;
+
+  @override
+  void setInlineAdsHidden(bool hidden) {
+    // Round-29 QC (reviewer B, MAJOR) — `visible` is an AdMob-only flag. Only
+    // `_buildAdmob()` in BannerAdWidget/MrecAdWidget reads it; `_buildAppLovin`
+    // branches on `hasError` and the ad-view id, so flipping `visible` here was
+    // a no-op and a MAX banner kept rendering and auto-refreshing UNDERNEATH
+    // the App Open ad. That is the exact policy exposure fix 6 exists to close,
+    // left unmitigated for one of the SDK's two shipped providers.
+    //
+    // Auto-refresh is the flag AppLovin honours, so that is the one to move.
+    // `visible` is still tracked through the same ownership so the two
+    // providers stay describable in one sentence, and so a future
+    // `_buildAppLovin` that does read it inherits the behaviour.
+    if (hidden) {
+      _fullscreenOverInline = true;
+      for (final key in _bannerListenablesByKey.keys.toList()) {
+        _holdAppLovinInline(_bannerListenablesByKey[key]!,
+            _bannerAdViewIdByKey[key]?.value, InlineHideReason.fullscreen);
+      }
+      for (final key in _mrecListenablesByKey.keys.toList()) {
+        _holdAppLovinInline(_mrecListenablesByKey[key]!,
+            _mrecAdViewIdByKey[key]?.value, InlineHideReason.fullscreen);
+      }
+      return;
+    }
+    _fullscreenOverInline = false;
+    for (final l in [
+      ..._bannerListenablesByKey.values,
+      ..._mrecListenablesByKey.values,
+    ]) {
+      _inlineVisibility.show(l, InlineHideReason.fullscreen);
+      // Round-30 QC (reviewer A, MAJOR) — the refresh flag is released BY NAME
+      // and comes back only when nobody else holds it. Writing `true` here
+      // outright overwrote the pause `onAppPaused()` still owned, restarting a
+      // MAX banner's refresh while the app was in the background: impressions
+      // on an ad nobody can see, which is the invalid-traffic exposure this
+      // whole fix exists to avoid.
+      _inlineRefresh.show(l, InlineHideReason.fullscreen);
+    }
+  }
+
+  /// Re-takes every refresh owner that is still true for [l], after a
+  /// `forget()` that dropped all of them along with the discarded ad view.
+  ///
+  /// Round-32 QC (reviewer B, MAJOR) — the recovery branch used to re-take only
+  /// `fullscreen`, so a banner recreated while another route sat on top of it
+  /// came back auto-refreshing: billed impressions on a surface the user cannot
+  /// see. Asking "which of these is still true?" instead of naming one owner is
+  /// the same correction this whole area has needed nine times over.
+  void _reassertAppLovinRefreshHolds(BannerListenables l, Object key,
+      {required bool isMrec}) {
+    if (_fullscreenOverInline) {
+      _inlineRefresh.hide(l, InlineHideReason.fullscreen);
+    }
+    if (isMrec ? mrecRoutePaused(key) : bannerRoutePaused(key)) {
+      _inlineRefresh.hide(l, InlineHideReason.routePaused);
+    }
+    // `background` is deliberately absent: this runs inside `onAppResumed`, so
+    // by construction the app is in the foreground.
+  }
+
+  /// Pretend a MAX ad view exists for [key], so a test can exercise the
+  /// "there is something live to pause" branch without a real bridge.
+  @visibleForTesting
+  void debugSetBannerAdViewIdForTest(Object key, AdViewId? id) =>
+      _bannerAdViewIdFor(key).value = id;
+
+  /// Takes [reason]'s hold on both flags for one inline surface.
+  ///
+  /// Round-31 QC (both reviewers, BLOCKER) — this used to skip the refresh hold
+  /// when no MAX ad view existed yet, reasoning that "claiming it would leave
+  /// refresh off when the ad finally arrives". That is precisely what
+  /// [InlineVisibilityOwners.show] exists to prevent: the hold is released BY
+  /// NAME on dismiss. The guard instead made fix 6 a no-op on the commonest
+  /// real sequence — app launches, `BannerAdWidget` mounts, `preloadBanner` is
+  /// in flight, the launch App Open goes up and finds `adViewId == null`, the
+  /// preload lands, and `MaxAdView` attaches with auto-refresh on and refreshes
+  /// underneath the fullscreen ad. `autoRefreshEnabled` is a plain notifier the
+  /// widget reads at build time; holding it false before the view exists is
+  /// correct.
+  void _holdAppLovinInline(
+      BannerListenables l, Object? adViewId, InlineHideReason reason) {
+    _inlineVisibility.hide(l, reason);
+    _inlineRefresh.hide(l, reason);
+  }
+
   /// [bridge] defaults to the real `AppLovinMAX` plugin; tests inject a fake.
   /// [lifecycleStateResolver] defaults to the real app lifecycle state; the App
   /// Open watchdog reads it through this seam so tests can drive the
@@ -118,15 +233,29 @@ class AppLovinAdapter implements AdProviderAdapter {
         visible: ValueNotifier<bool>(true),
       )..dispose());
     }
-    return _bannerListenablesByKey.putIfAbsent(
-        key,
-        () => BannerListenables(
-              isLoaded: ValueNotifier<bool>(false),
-              hasError: ValueNotifier<bool>(false),
-              adSize: ValueNotifier<Size?>(null),
-              autoRefreshEnabled: ValueNotifier<bool>(true),
-              visible: ValueNotifier<bool>(true),
-            ));
+    final existing = _bannerListenablesByKey[key];
+    if (existing != null) return existing;
+    final created = BannerListenables(
+      isLoaded: ValueNotifier<bool>(false),
+      hasError: ValueNotifier<bool>(false),
+      adSize: ValueNotifier<Size?>(null),
+      autoRefreshEnabled: ValueNotifier<bool>(true),
+      visible: ValueNotifier<bool>(true),
+    );
+    _bannerListenablesByKey[key] = created;
+    // Round-30 QC (reviewer B, MAJOR) — a surface that appears while a
+    // fullscreen ad is up inherits the hold; see AdMobAdapter's copy for the
+    // reasoning. Round-31 — BOTH flags, because on AppLovin `visible` is inert:
+    // `_buildAppLovin` never reads it, so a hold on it alone changes nothing a
+    // user or an ad account can see.
+    if (_fullscreenOverInline) {
+      _inlineVisibility.hide(created, InlineHideReason.fullscreen);
+      _inlineRefresh.hide(created, InlineHideReason.fullscreen);
+    }
+    if (_appBackgroundedForInline) {
+      _inlineRefresh.hide(created, InlineHideReason.background);
+    }
+    return created;
   }
 
   ValueNotifier<AdViewId?> _bannerAdViewIdFor(Object key) {
@@ -147,7 +276,12 @@ class AppLovinAdapter implements AdProviderAdapter {
   @override
   void disposeBannerInstance(Object key) {
     _bannerSlotsByKey.remove(key)?.dispose();
-    _bannerListenablesByKey.remove(key)?.dispose();
+    final goneB = _bannerListenablesByKey.remove(key);
+    if (goneB != null) {
+      _inlineVisibility.forget(goneB);
+      _inlineRefresh.forget(goneB);
+      goneB.dispose();
+    }
     final adViewId = _bannerAdViewIdByKey.remove(key);
     final id = adViewId?.value;
     adViewId?.dispose();
@@ -190,15 +324,29 @@ class AppLovinAdapter implements AdProviderAdapter {
         visible: ValueNotifier<bool>(true),
       )..dispose());
     }
-    return _mrecListenablesByKey.putIfAbsent(
-        key,
-        () => BannerListenables(
-              isLoaded: ValueNotifier<bool>(false),
-              hasError: ValueNotifier<bool>(false),
-              adSize: ValueNotifier<Size?>(null),
-              autoRefreshEnabled: ValueNotifier<bool>(true),
-              visible: ValueNotifier<bool>(true),
-            ));
+    final existing = _mrecListenablesByKey[key];
+    if (existing != null) return existing;
+    final created = BannerListenables(
+      isLoaded: ValueNotifier<bool>(false),
+      hasError: ValueNotifier<bool>(false),
+      adSize: ValueNotifier<Size?>(null),
+      autoRefreshEnabled: ValueNotifier<bool>(true),
+      visible: ValueNotifier<bool>(true),
+    );
+    _mrecListenablesByKey[key] = created;
+    // Round-30 QC (reviewer B, MAJOR) — a surface that appears while a
+    // fullscreen ad is up inherits the hold; see AdMobAdapter's copy for the
+    // reasoning. Round-31 — BOTH flags, because on AppLovin `visible` is inert:
+    // `_buildAppLovin` never reads it, so a hold on it alone changes nothing a
+    // user or an ad account can see.
+    if (_fullscreenOverInline) {
+      _inlineVisibility.hide(created, InlineHideReason.fullscreen);
+      _inlineRefresh.hide(created, InlineHideReason.fullscreen);
+    }
+    if (_appBackgroundedForInline) {
+      _inlineRefresh.hide(created, InlineHideReason.background);
+    }
+    return created;
   }
 
   ValueNotifier<AdViewId?> _mrecAdViewIdFor(Object key) {
@@ -222,7 +370,12 @@ class AppLovinAdapter implements AdProviderAdapter {
   @override
   void disposeMrecInstance(Object key) {
     _mrecSlotsByKey.remove(key)?.dispose();
-    _mrecListenablesByKey.remove(key)?.dispose();
+    final goneM = _mrecListenablesByKey.remove(key);
+    if (goneM != null) {
+      _inlineVisibility.forget(goneM);
+      _inlineRefresh.forget(goneM);
+      goneM.dispose();
+    }
     final adViewId = _mrecAdViewIdByKey.remove(key);
     final id = adViewId?.value;
     adViewId?.dispose();
@@ -256,6 +409,10 @@ class AppLovinAdapter implements AdProviderAdapter {
   // timers are tracked here and cancelled in dispose() instead.
   final Set<Timer> _destroyRetryTimers = {};
 
+  /// Set as the first act of [dispose]; see the guard inside
+  /// [_destroyWidgetAdViewWhenDetached] for why it is read after an await.
+  bool _teardownStarted = false;
+
   Future<void> _destroyWidgetAdViewWhenDetached(
     AdViewId id,
     String what, {
@@ -264,6 +421,20 @@ class AppLovinAdapter implements AdProviderAdapter {
     try {
       await _bridge.destroyWidgetAdView(id);
     } catch (e) {
+      // Round-25 QC round 17 (`codex`, MAJOR) — checked AFTER the await, not
+      // before it: `dispose()` cancels `_destroyRetryTimers` and clears the
+      // bridge's listeners, but a destroy that was already in flight fails
+      // afterwards (native refuses while the platform view is still attached)
+      // and used to arm a FRESH timer at that point — one that outlives the
+      // adapter and then talks to a torn-down bridge. Teardown means stop: the
+      // native view goes away with its Activity / UIViewController anyway.
+      if (_teardownStarted) {
+        SafeLogger.d(
+            _logTag,
+            'destroyWidgetAdView ($what) failed after teardown — not '
+            'retrying: $e');
+        return;
+      }
       if (attempt >= _destroyRetryDelays.length) {
         SafeLogger.w(_logTag,
             'destroyWidgetAdView ($what dispose) still failing after $attempt '
@@ -413,6 +584,20 @@ class AppLovinAdapter implements AdProviderAdapter {
   @override
   void setBannerRoutePaused(Object key, bool paused) {
     _bannerRoutePausedByKey[key] = paused;
+    // Round-30 QC (reviewer A) — an owner, not a condition. A MAX banner under
+    // another route must not keep refreshing, and `onAppResumed` must be able
+    // to release its own hold without having to know about this one.
+    final l = _bannerListenablesFor(key);
+    if (paused) {
+      // Round-31 QC (reviewer B) — no `adViewId` guard. Pass 8 promoted
+      // `routePaused` from a condition to an owner but inherited the same
+      // broken *acquire* test: a route that pauses before the ad view attaches
+      // took no hold, and the attach site never re-took one, so a MAX banner
+      // refreshed underneath the route sitting on top of it.
+      _inlineRefresh.hide(l, InlineHideReason.routePaused);
+      return;
+    }
+    _inlineRefresh.show(l, InlineHideReason.routePaused);
   }
 
   @override
@@ -421,6 +606,12 @@ class AppLovinAdapter implements AdProviderAdapter {
   @override
   void setMrecRoutePaused(Object key, bool paused) {
     _mrecRoutePausedByKey[key] = paused;
+    final l = _mrecListenablesFor(key);
+    if (paused) {
+      _inlineRefresh.hide(l, InlineHideReason.routePaused);
+      return;
+    }
+    _inlineRefresh.show(l, InlineHideReason.routePaused);
   }
 
   /// T40 — true when [initialize] skipped native SDK init because the caller
@@ -573,6 +764,23 @@ class AppLovinAdapter implements AdProviderAdapter {
   @override
   Future<void> dispose() async {
     SafeLogger.d(_logTag, 'dispose() $tag — clearing listeners + timers');
+    // Round-25 QC round 16 (`codex`, MAJOR) — these three were set at the END
+    // of this method, which is too late: the AdView-destroy loops below await
+    // the native bridge per view, and a `preloadBanner`/`preloadMrec` that was
+    // already in flight resumes inside that await and calls
+    // `_bannerAdViewIdFor(key)` — a `putIfAbsent` that INSERTS into the very
+    // map being iterated. Dart then throws `Concurrent modification during
+    // iteration`, `AdManager._disposeAdapter` swallows it, and the host sees a
+    // teardown that "succeeded" while everything after the throw never ran:
+    // MREC views not destroyed, pending callbacks never answered, `_max` and
+    // `_config` still populated on the abandoned adapter. Setting the flags
+    // here makes the accessors hand back their scratch objects instead, so no
+    // insertion can happen; the loops below are also iterated over snapshots
+    // as a second line of defence.
+    _teardownStarted = true;
+    _bannerDisposed = true;
+    _mrecDisposed = true;
+    _nativeDisposed = true;
     _appOpenShowTimeout?.cancel();
     _appOpenShowTimeout = null;
     // m22 — drop any pending destroyWidgetAdView retry: the bridge is about
@@ -600,7 +808,7 @@ class AppLovinAdapter implements AdProviderAdapter {
     // keeps the previous banner/mrec alive across destroy → re-init cycles.
     // T65 (phase 2) — every known BannerAdWidget instance's AdView, not just
     // one shared id.
-    for (final adViewIdNotifier in _bannerAdViewIdByKey.values) {
+    for (final adViewIdNotifier in _bannerAdViewIdByKey.values.toList()) {
       final oldBannerId = adViewIdNotifier.value;
       if (oldBannerId != null) {
         try {
@@ -610,7 +818,7 @@ class AppLovinAdapter implements AdProviderAdapter {
         }
       }
     }
-    for (final adViewIdNotifier in _mrecAdViewIdByKey.values) {
+    for (final adViewIdNotifier in _mrecAdViewIdByKey.values.toList()) {
       final oldMrecId = adViewIdNotifier.value;
       if (oldMrecId != null) {
         try {
@@ -651,6 +859,8 @@ class AppLovinAdapter implements AdProviderAdapter {
       l.autoRefreshEnabled.value = true;
       l.visible.value = true;
     }
+    _inlineVisibility.forgetAll();
+    _inlineRefresh.forgetAll();
     for (final id in _bannerAdViewIdByKey.values) {
       id.value = null;
     }
@@ -957,6 +1167,38 @@ class AppLovinAdapter implements AdProviderAdapter {
     _scheduleAppOpenTimeoutCheck(captured, attempt: 0);
   }
 
+  /// Resolve an App Open show whose native `onAdHidden` never arrived.
+  ///
+  /// Round-23 audit, MAJOR — both timeout branches used to report a flat
+  /// `dismiss(false)` and charge [AdSlot.markShowFailed]. When the display was
+  /// confirmed, that is wrong on three counts: the failure backoff made App
+  /// Open progressively rarer for exactly the users who engage with ads
+  /// (a click-out to the store is the single most common way this callback is
+  /// lost), AdManager recorded no impression against the daily/hourly and
+  /// per-placement caps for an ad the user demonstrably saw, and it left the
+  /// 30s inter-fullscreen throttle unarmed while the ad could still be on
+  /// screen — so the next interstitial could stack straight on top of it.
+  ///
+  /// Round-24 review — a reviewer asked for the opposite: hold the slot in
+  /// `showing` until an authoritative native signal arrives instead of
+  /// resolving on a timer. Deliberately not adopted. `showing` blocks both the
+  /// next load and the next show, so a lost callback would freeze App Open for
+  /// the rest of the process — and a provably-lost callback is the only case
+  /// this function ever runs in. Guessing the wrong bucket costs one
+  /// impression on one show; holding `showing` forever costs every App Open
+  /// after it. The 90s cap is well past any real ad, so the guess is only made
+  /// once the callback is already gone.
+  void _resolveAppOpenAfterLostCallback(void Function(bool) captured) {
+    final displayed = appOpenSlot.displayConfirmed;
+    if (displayed) {
+      appOpenSlot.markDismissed();
+    } else {
+      appOpenSlot.markShowFailed();
+    }
+    _appOpenDismiss = null;
+    captured(displayed);
+  }
+
   /// Recursive lifecycle-aware timeout. On Android, force-dismisses shortly
   /// after observing the app foreground without a hidden callback (= hung
   /// overlay). On iOS the ad shows while the app stays `resumed`, so foreground
@@ -1000,10 +1242,8 @@ class AppLovinAdapter implements AdProviderAdapter {
           return;
         }
         SafeLogger.e(_logTag,
-            'showAppOpen $tag ⏰ TIMEOUT — app foreground for ${(attempt + 1) * tickSeconds}s without hidden callback, force dismiss(false)');
-        appOpenSlot.markShowFailed();
-        _appOpenDismiss = null;
-        captured(false);
+            'showAppOpen $tag ⏰ TIMEOUT — app foreground for ${(attempt + 1) * tickSeconds}s without hidden callback (displayed=${appOpenSlot.displayConfirmed})');
+        _resolveAppOpenAfterLostCallback(captured);
         return;
       }
       // iOS foreground (ad shows while resumed), or Android backgrounded (ad on
@@ -1011,10 +1251,8 @@ class AppLovinAdapter implements AdProviderAdapter {
       // waiting for the native hidden callback until the 90 s hard cap.
       if (attempt >= maxAttempts) {
         SafeLogger.e(_logTag,
-            'showAppOpen $tag ⏰ HARD CAP ${maxAttempts * tickSeconds}s reached (lifecycle=${lifecycle?.name}) — force dismiss(false)');
-        appOpenSlot.markShowFailed();
-        _appOpenDismiss = null;
-        captured(false);
+            'showAppOpen $tag ⏰ HARD CAP ${maxAttempts * tickSeconds}s reached (lifecycle=${lifecycle?.name}, displayed=${appOpenSlot.displayConfirmed})');
+        _resolveAppOpenAfterLostCallback(captured);
         return;
       }
       SafeLogger.d(_logTag,
@@ -1301,10 +1539,17 @@ class AppLovinAdapter implements AdProviderAdapter {
       },
       onAdHiddenCallback: (ad) {
         SafeLogger.d(_logTag, 'rewarded $tag 👋 hidden');
+        final displayed = rewardedSlot.displayConfirmed;
         rewardedSlot.markDismissed();
         final cb = _rewardedDone;
         _rewardedDone = null;
-        cb?.call(RewardResult.skipped);
+        // Round-23 audit, MAJOR — `shown` is the impression signal and comes
+        // from the slot's display confirmation, not from whether a reward was
+        // earned: a user who closes the ad early still SAW an ad, and
+        // AdManager records it against the fullscreen/placement caps on this
+        // flag. (`onAdReceivedReward` fires first when a reward WAS earned, so
+        // `_rewardedDone` is already null by here on that path.)
+        cb?.call(RewardResult(earned: false, shown: displayed));
         if (!canReload()) {
           SafeLogger.d(_logTag,
               'rewarded $tag ⏭️ reload skipped — AdManager gate closed');
@@ -1338,8 +1583,17 @@ class AppLovinAdapter implements AdProviderAdapter {
         _rewardedDone = null;
         final pendingSsv = _pendingSsv;
         _pendingSsv = false;
+        // Round-23 audit (independent review) — `shown: true` is a constant
+        // here on purpose, NOT `rewardedSlot.displayConfirmed`: a reward can
+        // only be granted by an ad that was on screen, so the reward is the
+        // stronger display proof of the two. Reading `displayConfirmed` would
+        // undercount the impression whenever the display callback is lost or
+        // arrives late — the very class of bug this round fixed. Locked down by
+        // "a reward that arrives with no display callback still reports
+        // shown=true" in test/applovin_adapter_test.dart.
         cb?.call(RewardResult(
           earned: true,
+          shown: true,
           label: reward.label,
           amount: reward.amount,
           pendingServerConfirmation: pendingSsv,
@@ -1640,6 +1894,24 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag, 'banner $tag ✅ preload started adViewId=$adViewId');
+      // Round-25 QC round 16 — the adapter can be torn down while the preload
+      // above is in flight. The native AdView we were just handed belongs to
+      // nobody: the id notifier for this key is gone (or is the disposed
+      // scratch one), so nothing would ever destroy it. Destroy it directly
+      // rather than through `_destroyWidgetAdViewWhenDetached`, whose retry
+      // timers were just cancelled by `dispose()` — a retry armed now would
+      // outlive the adapter that owns it.
+      if (_bannerDisposed) {
+        SafeLogger.d(_logTag,
+            'banner $tag ⏭️ adapter torn down mid-preload — destroying adViewId='
+            '$adViewId');
+        try {
+          await _bridge.destroyWidgetAdView(adViewId);
+        } catch (e) {
+          SafeLogger.w(_logTag, 'destroyWidgetAdView (banner, post-dispose) threw: $e');
+        }
+        return;
+      }
       // Round-7 audit, MAJOR — the widget owning this key can unmount while
       // the await above is still in flight (route pop, VIP grant, a rebuild
       // that changes the key). `disposeXInstance` then removed the slot,
@@ -1794,6 +2066,24 @@ class AppLovinAdapter implements AdProviderAdapter {
         return;
       }
       SafeLogger.d(_logTag, 'mrec $tag ✅ preload started adViewId=$adViewId');
+      // Round-25 QC round 16 — the adapter can be torn down while the preload
+      // above is in flight. The native AdView we were just handed belongs to
+      // nobody: the id notifier for this key is gone (or is the disposed
+      // scratch one), so nothing would ever destroy it. Destroy it directly
+      // rather than through `_destroyWidgetAdViewWhenDetached`, whose retry
+      // timers were just cancelled by `dispose()` — a retry armed now would
+      // outlive the adapter that owns it.
+      if (_mrecDisposed) {
+        SafeLogger.d(_logTag,
+            'mrec $tag ⏭️ adapter torn down mid-preload — destroying adViewId='
+            '$adViewId');
+        try {
+          await _bridge.destroyWidgetAdView(adViewId);
+        } catch (e) {
+          SafeLogger.w(_logTag, 'destroyWidgetAdView (mrec, post-dispose) threw: $e');
+        }
+        return;
+      }
       // Round-7 audit, MAJOR — the widget owning this key can unmount while
       // the await above is still in flight (route pop, VIP grant, a rebuild
       // that changes the key). `disposeXInstance` then removed the slot,
@@ -1900,6 +2190,7 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   void onAppPaused() {
+    _appBackgroundedForInline = true;
     // The diagnostic log reads several ValueNotifier values + our slot
     // states. If the host activity is mid-recreation (AppLovin dismiss
     // path on Android can briefly leave Flutter widgets in a weird state),
@@ -1921,10 +2212,15 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
     try {
       // T65 (phase 2) — every known BannerAdWidget instance, not just one.
-      for (final entry in _bannerAdViewIdByKey.entries) {
-        if (entry.value.value != null) {
-          _bannerListenablesFor(entry.key).autoRefreshEnabled.value = false;
-        }
+      // Round-32 QC (reviewer A, BLOCKER) — every mounted surface, not only
+      // those that already have a MAX view. Round 31 removed this same broken
+      // *acquire* from `_holdAppLovinInline` and the route setters and left it
+      // here: a banner whose preload was in flight when the app backgrounded
+      // took no hold, then attached with auto-refresh on while the user was
+      // elsewhere. Taken BY NAME, so an App Open dismissed while the app is
+      // still backgrounded cannot hand it back.
+      for (final l in _bannerListenablesByKey.values) {
+        _inlineRefresh.hide(l, InlineHideReason.background);
       }
       SafeLogger.d(_logTag, 'onAppPaused $tag — banner.autoRefresh disabled');
     } catch (e, st) {
@@ -1932,10 +2228,8 @@ class AppLovinAdapter implements AdProviderAdapter {
     }
     try {
       // T65 (phase 3) — every known MrecAdWidget instance, not just one.
-      for (final entry in _mrecAdViewIdByKey.entries) {
-        if (entry.value.value != null) {
-          _mrecListenablesFor(entry.key).autoRefreshEnabled.value = false;
-        }
+      for (final l in _mrecListenablesByKey.values) {
+        _inlineRefresh.hide(l, InlineHideReason.background);
       }
       SafeLogger.d(_logTag, 'onAppPaused $tag — mrec.autoRefresh disabled');
     } catch (e, st) {
@@ -1945,12 +2239,28 @@ class AppLovinAdapter implements AdProviderAdapter {
 
   @override
   void onAppResumed() {
+    // The app really is in the foreground the instant this runs — cleared
+    // before the `canReload()` gate below, same as the ownership releases
+    // that gate does not block.
+    _appBackgroundedForInline = false;
     // C4, second layer. The five load entry points below are each gated too,
     // so this is defense-in-depth rather than the fix — it bails before the
     // platform-view/width plumbing runs and makes the skip visible in one log
     // line instead of several. Same rationale the SDK already applies in
     // `_retryRefillAds`.
     if (!canReload()) {
+      // Round-31 QC (both reviewers, MAJOR) — pass 8 moved this release above
+      // the gate in AdMobAdapter and did not carry it here. `onAppPaused` takes
+      // the refresh hold with no gate at all, so a resume with the gate shut
+      // (offline in a lift, daily cap reached while backgrounded) stranded it
+      // and the MAX banner never refreshed again for the session. Releasing a
+      // hold requests nothing; it does not belong behind a load gate.
+      for (final l in [
+        ..._bannerListenablesByKey.values,
+        ..._mrecListenablesByKey.values,
+      ]) {
+        _inlineRefresh.show(l, InlineHideReason.background);
+      }
       SafeLogger.d(
           _logTag, 'onAppResumed $tag \u23ed\ufe0f skipped — gate closed');
       return;
@@ -1973,6 +2283,16 @@ class AppLovinAdapter implements AdProviderAdapter {
       for (final key in _bannerListenablesByKey.keys.toList()) {
         final listenables = _bannerListenablesFor(key);
         final adViewIdNotifier = _bannerAdViewIdFor(key);
+        // Round-33 QC (reviewer A, MAJOR) — released UNCONDITIONALLY, before
+        // either branch below, mirroring AdMob's round-29 fix. The old
+        // `else if (adViewIdNotifier.value != null)` guard meant a key whose
+        // preload was still in flight when the app backgrounded — no ad view
+        // yet, and no error yet either, so neither branch touched it — kept the
+        // `background` hold forever: the preload would land, inherit
+        // `autoRefreshEnabled == false`, and never refresh again for the
+        // session. The app really is in the foreground now; nothing this
+        // resume does depends on whether a view exists yet.
+        _inlineRefresh.show(listenables, InlineHideReason.background);
         if (listenables.needsRecovery) {
           SafeLogger.d(
               _logTag, 'onAppResumed $tag — banner had error, recreating');
@@ -1983,7 +2303,18 @@ class AppLovinAdapter implements AdProviderAdapter {
           // leaving this key blank forever.
           listenables.hasError.value = false;
           adViewIdNotifier.value = null;
+          // The view is being thrown away and recreated, so no owner's hold on
+          // it means anything any more.
+          // Round-32 QC (reviewer B, MAJOR) — `forget()` drops EVERY owner, not
+          // just the ones tied to the discarded ad view. Round 30 re-took
+          // `fullscreen` on the next line and left `routePaused` behind, and
+          // nothing else re-takes it because `setBannerRoutePaused` only fires
+          // on a transition that has already happened: the recreated MaxAdView
+          // attached with auto-refresh on while another route was still on top.
+          // Re-assert every owner that is still true rather than one of them.
+          _inlineRefresh.forget(listenables);
           listenables.autoRefreshEnabled.value = true;
+          _reassertAppLovinRefreshHolds(listenables, key, isMrec: false);
           if (oldId != null) {
             unawaited(_bridge.destroyWidgetAdView(oldId).catchError((e) {
               SafeLogger.w(
@@ -1991,9 +2322,7 @@ class AppLovinAdapter implements AdProviderAdapter {
             }));
           }
           preloadBanner(key);
-        } else if (adViewIdNotifier.value != null &&
-            !bannerRoutePaused(key)) {
-          listenables.autoRefreshEnabled.value = true;
+        } else if (adViewIdNotifier.value != null && !bannerRoutePaused(key)) {
           SafeLogger.d(
               _logTag, 'onAppResumed $tag — banner.autoRefresh re-enabled');
         }
@@ -2006,6 +2335,8 @@ class AppLovinAdapter implements AdProviderAdapter {
       for (final key in _mrecListenablesByKey.keys.toList()) {
         final listenables = _mrecListenablesFor(key);
         final adViewIdNotifier = _mrecAdViewIdFor(key);
+        // Same unconditional release as the banner loop above.
+        _inlineRefresh.show(listenables, InlineHideReason.background);
         if (listenables.needsRecovery) {
           SafeLogger.d(
               _logTag, 'onAppResumed $tag — mrec had error, recreating');
@@ -2013,7 +2344,16 @@ class AppLovinAdapter implements AdProviderAdapter {
           // Display flag only — see the banner branch above.
           listenables.hasError.value = false;
           adViewIdNotifier.value = null;
+          // Round-32 QC (reviewer B, MAJOR) — `forget()` drops EVERY owner, not
+          // just the ones tied to the discarded ad view. Round 30 re-took
+          // `fullscreen` on the next line and left `routePaused` behind, and
+          // nothing else re-takes it because `setBannerRoutePaused` only fires
+          // on a transition that has already happened: the recreated MaxAdView
+          // attached with auto-refresh on while another route was still on top.
+          // Re-assert every owner that is still true rather than one of them.
+          _inlineRefresh.forget(listenables);
           listenables.autoRefreshEnabled.value = true;
+          _reassertAppLovinRefreshHolds(listenables, key, isMrec: true);
           if (oldId != null) {
             unawaited(_bridge.destroyWidgetAdView(oldId).catchError((e) {
               SafeLogger.w(_logTag,
@@ -2022,7 +2362,6 @@ class AppLovinAdapter implements AdProviderAdapter {
           }
           preloadMrec(key);
         } else if (adViewIdNotifier.value != null && !mrecRoutePaused(key)) {
-          listenables.autoRefreshEnabled.value = true;
           SafeLogger.d(
               _logTag, 'onAppResumed $tag — mrec.autoRefresh re-enabled');
         }

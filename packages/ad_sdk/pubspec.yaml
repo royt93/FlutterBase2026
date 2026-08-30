@@ -3,14 +3,14 @@ name: applovin_admob_sdk
 # drops 10 points (the upload API itself allows up to 200 — two different
 # limits, see the screenshots note below).
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Offline-verified VIP codes, GDPR/COPPA/CCPA consent, safety caps, AdEvent stream, debug overlay.
-version: 2.3.4
+version: 2.4.0
 
 # Monorepo: the package lives in packages/ad_sdk/ of the host app's repo, so
 # `repository` points at the subdirectory (pub.dev resolves it for the
 # "verified repository" badge and for source links).
-repository: https://github.com/royt93/FlutterBase2025/tree/main/packages/ad_sdk
-homepage: https://github.com/royt93/FlutterBase2025
-issue_tracker: https://github.com/royt93/FlutterBase2025/issues
+repository: https://github.com/royt93/FlutterBase2026/tree/main/packages/ad_sdk
+homepage: https://github.com/royt93/FlutterBase2026
+issue_tracker: https://github.com/royt93/FlutterBase2026/issues
 
 topics:
   - ads
@@ -90,7 +90,20 @@ dependencies:
   # Android anti-bypass is handled by the host app's Auto Backup configuration
   # (`android:dataExtractionRules` restoring `FlutterSharedPreferences.xml`
   # on Play Store reinstall) — no plugin dependency needed.
-  flutter_secure_storage: ^10.0.0       # iOS Keychain flag (survives uninstall by default)
+  # Widened rather than pinned to ^10: 11.0.0 keeps the small surface this
+  # package uses (`read`/`write`/`delete` + `IOSOptions.accessibility` +
+  # `AndroidOptions`), and a `^10.0.0` cap would have started costing pub.dev
+  # points as a stale dependency while also blocking consuming apps that
+  # already moved to 11.
+  #
+  # This package itself still resolves 10.x, and that is not the constraint's
+  # fault: flutter_secure_storage 11 pulls win32 ^6, while package_info_plus 9
+  # (below) pins win32 ^5 — and package_info_plus 10, which would fix that,
+  # needs Dart >= 3.10 / Flutter >= 3.38. Same wall as google_mobile_ads 8/9
+  # (see CLAUDE.md): raising it means raising this package's own Flutter floor,
+  # which is breaking for consumers. A consuming app already on Flutter 3.38+
+  # can pull 11 today thanks to the wide bound here.
+  flutter_secure_storage: '>=10.0.0 <12.0.0'   # iOS Keychain flag (survives uninstall by default)
   cryptography: ^2.9.0
 
   # C6 — the signed VIP key binds to a bundle id so a leaked key cannot be used

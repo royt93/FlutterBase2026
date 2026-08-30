@@ -144,7 +144,7 @@ wholesale integration on day one.
 ## What's new in 2.0.0
 
 **Breaking.** Comes out of a full audit against seven production
-requirements (`doc/audit/audit_claude_20260802.md`), cross-checked by
+requirements (`doc/audit/audit_claude.md`), cross-checked by
 three independent agents, with every finding verified against source.
 
 - **`autoRequestUmpConsent` now defaults to `true`** (was `false`). The old
@@ -194,6 +194,16 @@ See `CHANGELOG.md` `[2.0.0]` for the full list.
 
 Backwards-compatible with 1.0.1x. Recent additions:
 
+- **App Open never draws over a banner or MREC (2.4.0)** — Google's App Open
+  guidance says not to present an App Open ad on top of another ad, and names
+  banner content explicitly. The resume path used to do exactly that: it
+  restores banner visibility on resume, then shows the App Open over it. The
+  SDK now blanks every inline surface for the duration of the App Open and
+  restores the ones it blanked when the ad dismisses (a surface already hidden
+  for another reason — backgrounded app, paused route — stays hidden). Nothing
+  to call: this is automatic for both bundled adapters. A custom adapter that
+  does not implement the internal `InlineAdVisibility` capability simply keeps
+  the old behaviour.
 - **App Open never stacks on a modal (1.0.23)** — `AdScreenRouteLogger` now
   counts `PopupRoute`s (dialogs, bottom sheets, Cupertino popups) and exposes
   `isDialogOnTop`; `showAppOpenAdOnResume` consults it plus
@@ -258,7 +268,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^2.0.0
+  applovin_admob_sdk: ^2.4.0
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
@@ -425,6 +435,9 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   Timer? _hardCap;
   bool _navigated = false;
+  // Held in a field so dispose() can hand the SAME callback back to
+  // SimpleEventBus().remove() — see initState()/dispose() below.
+  void Function(BoolEvent)? _initListener;
 
   @override
   void initState() {
@@ -448,17 +461,25 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // Subscribe before calling initialize() (SimpleEventBus does replay its
     // last-fired event to a late subscriber, but this ordering is simplest
-    // to reason about).
-    SimpleEventBus().listen((BoolEvent e) {
+    // to reason about). Keep the callback in a field — the bus is a permanent
+    // singleton and only ever forgets a listener you `remove()` yourself, so
+    // an inline closure here leaks this State object (see dispose() below).
+    _initListener = (BoolEvent e) {
       if (e.value) {
         _showSplashAppOpen();
       } else {
         _goHome();
       }
-    });
+    };
+    SimpleEventBus().listen(_initListener!);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      AdManager().initialize(
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // REQUIRED for iOS (ATT) and for the EEA/UK, Brazil, and every other
+      // consent-regulated market (UMP). This is not optional polish: shipping
+      // without it is an AdMob/AppLovin policy AND a GDPR problem. Order
+      // matters — see "Compliance checklist" below and `example/lib/main.dart`.
+      await AdManager().requestAtt();          // iOS only, no-op on Android
+      await AdManager().initialize(
         config: AdConfig(
           // Pick one. Switch by changing this single line.
           provider: AdProvider.appLovin,
@@ -537,6 +558,11 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void dispose() {
     _hardCap?.cancel();
+    // SimpleEventBus is a process-lifetime singleton: a listener it is never
+    // told to drop keeps this State (and its whole widget subtree) alive.
+    final cb = _initListener;
+    if (cb != null) SimpleEventBus().remove(cb);
+    _initListener = null;
     super.dispose();
   }
 
@@ -718,6 +744,9 @@ AdConfig({
   // ─── Consent flow ───────────────────────────────────────────────
   bool autoShowConsentDialog = true,
   ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(),
+  // Called when the user taps the privacy-policy link in the built-in
+  // consent dialog — open your policy URL here (nothing happens if null).
+  void Function()? onPrivacyPolicyTap,
   bool consentBarrierDismissible = false,
   Duration consentDialogPostSplashDelay = const Duration(seconds: 1),
   bool autoRequestUmpConsent = true,
@@ -725,10 +754,20 @@ AdConfig({
   DebugGeography? umpDebugGeography,
   List<String> umpTestIdentifiers = const [],
 
+  // AppLovin's own CMP flow is off by default because the SDK runs Google
+  // UMP for both providers — set false only if you want MAX Terms Flow.
+  bool disableAppLovinCmpFlow = true,
+
   // ─── App Open trigger ───────────────────────────────────────────
   AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
 
+  // Wraps ad callbacks so a throw inside a host callback can't take the
+  // app down. Leave on unless you are debugging a swallowed error.
+  bool enableCrashGuard = true,
+
   // ─── Logging ────────────────────────────────────────────────────
+  // Debug builds default to .verbose, RELEASE builds to .warning
+  // (ad_config.dart: `kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning`).
   AdLogLevel logLevel = AdLogLevel.verbose,
   List<String>? logTagFilter,
   AdLogSink? onLog,
@@ -739,6 +778,8 @@ AdConfig({
   // ─── VIP ────────────────────────────────────────────────────────
   Future<bool> Function(String key)? vipKeyValidator,
   VipDialogStrings vipDialogStrings = const VipDialogStrings(),
+  // Ceiling on the total window `addVip(stack: true)` can build up to.
+  Duration maxVipStackDuration = const Duration(days: 90),
   // Legacy 1.x GAID allow-list — auto-migrated to VipManager entries
   // (year-2099 expiry) on first init for the matching device only.
   List<String> vipDeviceGaids = const [],
@@ -864,8 +905,8 @@ fatal, keeping the local value for just that field.
 ### `AdLogLevel`
 
 ```dart
-AdLogLevel.verbose   // everything (DEFAULT)
-AdLogLevel.warning   // warnings + errors only
+AdLogLevel.verbose   // everything (DEFAULT in DEBUG builds only)
+AdLogLevel.warning   // warnings + errors only (DEFAULT in RELEASE builds)
 AdLogLevel.error     // errors only
 AdLogLevel.none      // silent
 ```
@@ -889,7 +930,7 @@ global one-time-use needs a backend), but per-device reuse is blocked.
 > or with a weak signal cannot redeem until they reconnect — "offline" above
 > describes the verification, not the redemption flow end to end.
 
-> **Known limitation — Android reinstall replay.** Per-device one-time-use is
+> **Known limitation — Android reinstall / clear-data replay.** Per-device one-time-use is
 > enforced by two layers: `AdPreferences` (`SharedPreferences`, wiped on
 > uninstall) plus a durable secondary ledger (`RedeemedKeyLedger`) that on
 > **iOS** survives uninstall via Keychain. On **Android there is no durable
@@ -897,11 +938,18 @@ global one-time-use needs a backend), but per-device reuse is blocked.
 > the same rationale as `FirstInstallGuard` (no local-only primitive survives
 > uninstall without an install-referrer plugin, for a narrow benefit). So a
 > leaked signed key **can be replayed an unlimited number of times on Android**
-> via uninstall + reinstall — each replay only grants the key's own encoded
-> `duration`, not permanent VIP, but it is not capped in count. Treat signed
-> keys like a coupon code that a screenshot can eventually leak, not like an
-> unforgeable one-time ticket, on Android. This is an accepted product
-> tradeoff (no backend = no reliable cross-reinstall Android signal), not a bug.
+> via uninstall + reinstall — or, faster and without reinstalling anything, via
+> Settings → Apps → Storage → **Clear data**, which wipes `SharedPreferences`
+> and the Keystore-held material with it. The 1-day first-install trial
+> (`firstInstallVipGrace`) can be re-granted the same way, once per clear.
+> Each replay only grants the key's own encoded `duration`, not permanent VIP,
+> but it is not capped in count. Treat signed keys like a coupon code that a
+> screenshot can eventually leak, not like an unforgeable one-time ticket, on
+> Android — and mint them with a short `--valid-days`, which is the one
+> mitigation that a data wipe cannot undo. This is an accepted product
+> tradeoff (no backend = no reliable cross-reinstall Android signal), not a
+> bug: every store an app can write to on Android is inside the data a user is
+> entitled to clear.
 
 **1. Generate a key pair once (keep the private key secret):**
 
@@ -1044,17 +1092,44 @@ Google's "Rewarded Interstitial" format — shown at a natural transition point
 `AdMobConfig(rewardedInterstitialId: '...')` and use the matching
 load/show/canShow trio:
 
+> **Policy: this format requires an intro screen.** Google mandates that a
+> rewarded interstitial is announced before it plays — the user must be told an
+> ad is coming and what the reward is, and be given a way to decline. Serving it
+> without one puts **your** AdMob account at risk, not the SDK's.
+>
+> `AdScreenState.showRewardedInterstitialAd()` renders that screen for you and
+> is the recommended entry point. `AdManager().showRewardedInterstitialAd()` is
+> the raw call and does **not** announce anything — if you use it directly, the
+> intro screen is yours to build.
+
 ```dart
 AdManager().loadRewardedInterstitialAd();
 
-AdManager().showRewardedInterstitialAd(
+// From an AdScreenState — announces the ad, then plays it.
+showRewardedInterstitialAd(
+  // English fallbacks; pass your own localised strings.
+  disclosureTitle: 'Xem quảng cáo để nhận thưởng',
+  disclosureSubtitle: 'Một quảng cáo ngắn sẽ phát. Nhận thưởng sau khi xem xong.',
+  disclosureButtonLabel: 'Xem',
+  disclosureCancelLabel: 'Bỏ qua',
   onDone: (shown, earned) {
     if (earned) grantCoins(10);
   },
 );
 
+// Already rendering your own intro screen? Take the obligation on explicitly:
+showRewardedInterstitialAd(
+  showDisclosure: false,
+  onDone: (shown, earned) { /* ... */ },
+);
+
 if (AdManager().canShowRewardedInterstitialAd()) { /* e.g. enable a CTA */ }
 ```
+
+`shown` is `true` whenever the ad was **displayed**, whether or not the user
+stayed to the reward point — it consumed a billed impression either way and
+costs the same ad budget. Declining the intro screen reports `(false, false)`
+and costs nothing.
 
 **AppLovin MAX has no equivalent ad unit type** — on that provider this is a
 documented no-op: `loadRewardedInterstitialAd()` never has anything to load,
@@ -1535,7 +1610,8 @@ don't share a common Dart-side shape:
 320px height (Google's recommended size for `TemplateType.medium`), and the AppLovin
 branch's asset arrangement (icon + title + rating row, media, body, CTA) is not
 configurable from host code. If you need a different arrangement, pull the raw ad
-object yourself (`AdManager().adapter?.buildAdmobNativeView()` for AdMob template
+object yourself (`AdManager().adapter?.buildAdmobNativeView(key)` — `key` is any stable
+object identifying this ad slot, so the same native view survives a rebuild — for AdMob template
 swaps, or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative()`.
 
 There is also no route-pause/auto-refresh concept for native ads (unlike banner/MREC) —
@@ -1713,6 +1789,32 @@ await AdManager().setConsent(AdConsent(
   doNotSell: false,            // CCPA: California user opts out of data sale
 ));
 ```
+
+### CCPA / US state privacy — what the SDK applies on its own
+
+If any CMP on the device has written the IAB **US Privacy** string
+(`IABUSPrivacy_String` — Google UMP writes it, so do most third-party CMPs),
+the SDK reads it and applies a sale opt-out to **both** providers by itself:
+AppLovin `setDoNotSell(true)` and AdMob `restricted_data_processing` on every
+request. It reconciles at SDK init and on every app resume, so an opt-out the
+user makes in a CMP while your app is backgrounded lands without your code
+noticing anything.
+
+`AdManager().usPrivacyOptedOut` reports the same signal if you want to show it.
+
+Two deliberate limits:
+
+- **Tighten-only.** A string that says the user did *not* opt out — and the
+  absence of any string, which is the normal case outside the US — never
+  clears a `doNotSell` you set yourself through `setConsent`. Your own switch
+  is treated as the newer, deliberate decision.
+- **The GPP string is not decoded.** `IABGPP_HDR_GppString` (the multi-state
+  signal covering Virginia, Colorado, Texas and the rest) is exposed raw via
+  `AdManager().gppConsentString` and nothing more. It is a base64 bundle of
+  per-jurisdiction sections, and mis-parsing a privacy signal is worse than
+  not reading one; both native SDKs read it themselves. If you need
+  per-state handling beyond the sale opt-out above, decode it yourself and
+  call `setConsent`.
 
 ### Consent country analytics (optional, host-supplied)
 
@@ -2018,6 +2120,15 @@ AdManager().events.listen((event) {
 
 Event types: `AdLoadEvent`, `AdShowEvent`, `AdClickEvent`, `AdRewardEvent`, `AdRevenueEvent`.
 
+`AdRevenueEvent.placement` (2.4.0) reports the placement the ad was **shown**
+from — the value you passed to `showInterstitial`/`showRewardedAd`/
+`showRewardedInterstitialAd`/`showAppOpenAd`. Before 2.4.0 every revenue event
+carried `AdPlacement.unspecified` (App Open: always `AdPlacement.splash`,
+including on resume), because the providers wire their paid-event listener at
+**load** time, when no placement exists yet. Inline formats (banner, MREC,
+native) still report `AdPlacement.unspecified`: nothing "shows" them, so there
+is no placement to attribute.
+
 `AdRevenueEvent.mediationWaterfall` (`List<String>?`) reports the adapter
 class names the mediation SDK tried for that impression, winner last. On
 AdMob this is the full ordered waterfall from `ResponseInfo.adapterResponses`.
@@ -2103,7 +2214,7 @@ See `doc/AD_PROMPT_FLUTTER.MD` → Appendix D for a step-by-step guide (merged f
 
 - **Bug reports**: this package's source repo is private, so there's no public issue tracker — email `loitp@skyjoy.vn` with `roy93~` log output, SDK version, and provider (admob/appLovin). Best-effort, single maintainer, no SLA.
 - **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 15 self-contained demo pages, one per feature
-- **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management
+- **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management (in the git repo only; `doc/` is excluded from the pub.dev tarball)
 
 ---
 

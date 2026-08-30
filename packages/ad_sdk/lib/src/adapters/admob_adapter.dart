@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
 import '../core/ad_provider_adapter.dart';
+import '_inline_visibility.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
@@ -21,7 +22,38 @@ import 'gma_bridge.dart';
 /// transitions instead of hand-managed bool flags. The fullscreen ads load
 /// through an injectable [GmaBridge]; the banner stays on the native GMA API
 /// (it is `AdWidget`-coupled and not behaviourally testable in isolation).
-class AdMobAdapter implements AdProviderAdapter {
+class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
+  // Round-23 QC (reviewer B, MAJOR) — inline surfaces are blanked while a
+  // fullscreen ad is on screen. Round-26 QC (reviewer A, MINOR) — and who wants
+  // them blanked is counted, not snapshotted; see [InlineVisibilityOwners].
+  final InlineVisibilityOwners _inlineVisibility = InlineVisibilityOwners();
+
+  /// True between `setInlineAdsHidden(true)` and its matching `false` — so a
+  /// surface created in that window inherits the hold. See
+  /// [_inheritFullscreenHold].
+  bool _fullscreenOverInline = false;
+
+  @override
+  void setInlineAdsHidden(bool hidden) {
+    final surfaces = [
+      ..._bannerListenablesByKey.values,
+      ..._mrecListenablesByKey.values,
+    ];
+    if (hidden) {
+      _fullscreenOverInline = true;
+      for (final l in surfaces) {
+        _inlineVisibility.hide(l, InlineHideReason.fullscreen);
+      }
+      return;
+    }
+    _fullscreenOverInline = false;
+    for (final l in _inlineVisibility
+        .heldBy(InlineHideReason.fullscreen)
+        .toList(growable: false)) {
+      _inlineVisibility.show(l, InlineHideReason.fullscreen);
+    }
+  }
+
   /// [bridge] defaults to the real GMA plugin; tests inject a fake.
   AdMobAdapter({GmaBridge bridge = const RealGmaBridge()}) : _bridge = bridge;
 
@@ -180,15 +212,18 @@ class AdMobAdapter implements AdProviderAdapter {
         visible: ValueNotifier<bool>(true),
       )..dispose());
     }
-    return _bannerListenablesByKey.putIfAbsent(
-        key,
-        () => BannerListenables(
-              isLoaded: ValueNotifier<bool>(false),
-              hasError: ValueNotifier<bool>(false),
-              adSize: ValueNotifier<Size?>(null),
-              autoRefreshEnabled: ValueNotifier<bool>(true),
-              visible: ValueNotifier<bool>(true),
-            ));
+    final existing = _bannerListenablesByKey[key];
+    if (existing != null) return existing;
+    final created = BannerListenables(
+      isLoaded: ValueNotifier<bool>(false),
+      hasError: ValueNotifier<bool>(false),
+      adSize: ValueNotifier<Size?>(null),
+      autoRefreshEnabled: ValueNotifier<bool>(true),
+      visible: ValueNotifier<bool>(true),
+    );
+    _bannerListenablesByKey[key] = created;
+    _inheritFullscreenHold(created);
+    return created;
   }
 
   @override
@@ -204,7 +239,13 @@ class AdMobAdapter implements AdProviderAdapter {
   void disposeBannerInstance(Object key) {
     _bannerAdsByKey.remove(key)?.dispose();
     _bannerSlotsByKey.remove(key)?.dispose();
-    _bannerListenablesByKey.remove(key)?.dispose();
+    // Round-30 QC (reviewer B, MINOR) — drop the ownership entry too, or a
+    // long-lived adapter accumulates disposed listenables in the hold map.
+    final gone = _bannerListenablesByKey.remove(key);
+    if (gone != null) {
+      _inlineVisibility.forget(gone);
+      gone.dispose();
+    }
     _bannerRoutePausedByKey.remove(key);
   }
 
@@ -233,15 +274,37 @@ class AdMobAdapter implements AdProviderAdapter {
         visible: ValueNotifier<bool>(true),
       )..dispose());
     }
-    return _mrecListenablesByKey.putIfAbsent(
-        key,
-        () => BannerListenables(
-              isLoaded: ValueNotifier<bool>(false),
-              hasError: ValueNotifier<bool>(false),
-              adSize: ValueNotifier<Size?>(null),
-              autoRefreshEnabled: ValueNotifier<bool>(true),
-              visible: ValueNotifier<bool>(true),
-            ));
+    final existing = _mrecListenablesByKey[key];
+    if (existing != null) return existing;
+    final created = BannerListenables(
+      isLoaded: ValueNotifier<bool>(false),
+      hasError: ValueNotifier<bool>(false),
+      adSize: ValueNotifier<Size?>(null),
+      autoRefreshEnabled: ValueNotifier<bool>(true),
+      visible: ValueNotifier<bool>(true),
+    );
+    _mrecListenablesByKey[key] = created;
+    _inheritFullscreenHold(created);
+    return created;
+  }
+
+  /// Round-30 QC (reviewer B, MAJOR) — a surface that appears WHILE a fullscreen
+  /// ad is up inherits the hold.
+  ///
+  /// `setInlineAdsHidden(true)` walks the known surfaces once, at show time.
+  /// Ownership fixed "who wants this hidden" for surfaces that already existed;
+  /// it said nothing about one created afterwards. A launch App Open is
+  /// presented and the tree keeps building underneath it — a deep link
+  /// resolving, a splash handing off to home, a PageView mounting its next page
+  /// — and any banner mounting in that window was created unheld, filled, and
+  /// drew on top of the fullscreen ad. Same Google placement violation as the
+  /// round-23 finding, reached through a different door.
+  ///
+  /// `setInlineAdsHidden(false)` releases via `heldBy(fullscreen)`, so a late
+  /// arrival is restored by the same dismiss path as everything else.
+  void _inheritFullscreenHold(BannerListenables l) {
+    if (!_fullscreenOverInline) return;
+    _inlineVisibility.hide(l, InlineHideReason.fullscreen);
   }
 
   @override
@@ -275,7 +338,11 @@ class AdMobAdapter implements AdProviderAdapter {
   void disposeMrecInstance(Object key) {
     _mrecAdsByKey.remove(key)?.dispose();
     _mrecSlotsByKey.remove(key)?.dispose();
-    _mrecListenablesByKey.remove(key)?.dispose();
+    final gone = _mrecListenablesByKey.remove(key);
+    if (gone != null) {
+      _inlineVisibility.forget(gone);
+      gone.dispose();
+    }
     // Minor (round 5) — banner removes its route-paused entry, AppLovin removes
     // both; only AdMob-MREC leaked one per disposed widget.
     _mrecRoutePausedByKey.remove(key);
@@ -488,6 +555,14 @@ class AdMobAdapter implements AdProviderAdapter {
   @override
   Future<void> dispose() async {
     SafeLogger.d(_logTag, 'dispose() $tag — releasing native resources');
+    // Round-25 QC round 15 (`codex`, MAJOR) — set FIRST, before anything is
+    // released: GMA can deliver a fill at any moment, including while this
+    // method runs, and the four fullscreen `onLoaded` handlers used to store
+    // that late ad into an adapter nobody owns any more. Nothing disposed it
+    // (this method already walked past those fields) and, for app-open,
+    // `markReady()` answered the host's `onAdLoaded` with `true` for an ad that
+    // could never be shown. See `_discardIfDisposed`.
+    _fullscreenDisposed = true;
     _appOpenShowTimeout?.cancel();
     _appOpenShowTimeout = null;
     _disposeAd(_appOpenAd, 'appOpen');
@@ -554,6 +629,7 @@ class AdMobAdapter implements AdProviderAdapter {
       l.autoRefreshEnabled.value = true;
       l.visible.value = true;
     }
+    _inlineVisibility.forgetAll();
     _bannerRoutePausedByKey.clear();
 
     for (final l in _mrecListenablesByKey.values) {
@@ -681,6 +757,33 @@ class AdMobAdapter implements AdProviderAdapter {
   ///
   /// The slot is `reset()` rather than `markFailed()`: nothing failed, and a
   /// backoff would delay the honest re-request that should follow.
+  /// Round-25 QC round 15 — a fullscreen fill that lands after [dispose] has
+  /// run belongs to nobody: the adapter instance is discarded and a fresh one
+  /// is built by the next `initialize()`, so this handler is the last code that
+  /// will ever hold a reference to the native ad. Release it here or it is
+  /// leaked for the process's lifetime.
+  ///
+  /// The host's pending `onAdLoaded` needs nothing from us: `dispose()` calls
+  /// `AdSlot.reset()`, which already fires it with `false` and clears it — so
+  /// the late `markReady()` this guard prevents could not have answered `true`
+  /// either (the reviewer who found the leak suspected it could; it does not
+  /// reproduce, and a test pins that).
+  ///
+  /// Banner/MREC/native need no equivalent: their loaders are keyed, and
+  /// `dispose()` empties the per-key maps, so their own slot-identity guard
+  /// (`!identical(_bannerSlotsByKey[key], slot)`) already drops a late fill
+  /// before it can be stored, and anything stored BEFORE the teardown was
+  /// disposed by `disposeBannerInstance` on the way out.
+  bool _discardIfDisposed(GmaFullscreenAd ad, String label) {
+    if (!_fullscreenDisposed) return false;
+    SafeLogger.w(_logTag,
+        '$label $tag ⛔ fill landed after dispose() — releasing it unshown');
+    _disposeAd(ad, 'post-dispose-$label');
+    return true;
+  }
+
+  bool _fullscreenDisposed = false;
+
   bool _discardIfConsentStale(
     AdSlot slot,
     GmaFullscreenAd ad,
@@ -792,6 +895,7 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
+          if (_discardIfDisposed(ad, 'loadAppOpen')) return;
           if (_discardIfConsentStale(appOpenSlot, ad, AdSlotType.appOpen,
               AdPlacement.splash, 'loadAppOpen')) {
             return;
@@ -876,7 +980,14 @@ class AdMobAdapter implements AdProviderAdapter {
     _armAppOpenWatchdog(ad, onDismiss);
     try {
       await ad.show(GmaShowCallbacks(
-        onShowed: () => SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown'),
+        onShowed: () {
+          // Round-23 audit — the only AdMob fullscreen slot that never
+          // confirmed its display. `appOpenSlot.displayConfirmed` is what the
+          // hard cap uses to tell "the dismiss callback was lost" (the ad
+          // really did show) from "the show request was swallowed".
+          appOpenSlot.markDisplayed();
+          SafeLogger.d(_logTag, 'showAppOpen $tag ✅ shown');
+        },
         onDismissed: () {
           _appOpenShowTimeout?.cancel();
           _appOpenShowTimeout = null;
@@ -987,7 +1098,8 @@ class AdMobAdapter implements AdProviderAdapter {
       // Only fire if THIS show's callback is still the pending one.
       if (_appOpenDismiss != captured) return; // already resolved / replaced
       SafeLogger.w(_logTag,
-          'showAppOpen $tag ⏰ HARD CAP — no dismiss callback, force dismiss(false)');
+          'showAppOpen $tag ⏰ HARD CAP — no dismiss callback '
+          '(displayed=${appOpenSlot.displayConfirmed})');
       // MJ15 — this used to null the field without disposing, leaking the
       // native ad. The ad is abandoned here (its callbacks may still fire
       // late), so it has to be released, not just forgotten.
@@ -997,11 +1109,35 @@ class AdMobAdapter implements AdProviderAdapter {
       // would leak, which is the leak MJ15 was written to close. Double
       // dispose is harmless — `_disposeAd` swallows throws — so releasing here
       // and again from a late callback is the cheaper trade.
+      // Round-23 audit, MAJOR — same reasoning as the AppLovin adapter's
+      // `_resolveAppOpenAfterLostCallback`: a hard cap on an ad whose display
+      // WAS confirmed only proves the dismiss callback was lost (a click-out
+      // to the store, or an ad left up for 90s+), not that the show failed.
+      // Charging the failure backoff there made App Open progressively rarer
+      // for exactly the users who engage with ads, recorded no impression
+      // against the caps for an ad the user demonstrably saw, and left the 30s
+      // inter-fullscreen throttle unarmed while the ad could still be up.
+      // Round-24 review — a reviewer asked for the opposite: keep the slot in
+      // `showing` until an authoritative native signal arrives, rather than
+      // resolving on a timer at all. Deliberately not adopted. `showing` is
+      // the state that blocks the next load AND the next show, so a lost
+      // callback would freeze App Open for the rest of the process — and the
+      // whole reason this cap exists is that the callback provably does go
+      // missing (a click-out to the store that never returns focus). Guessing
+      // wrong here costs one impression accounted to the wrong bucket for one
+      // show; holding `showing` forever costs every App Open after it. The
+      // cap is 90s, well past any real ad, so the guess is only ever made
+      // once the callback is already lost.
+      final displayed = appOpenSlot.displayConfirmed;
       _clearAppOpenIfSame(ad);
       _disposeAd(ad, 'appOpen-hard-cap');
-      appOpenSlot.markShowFailed();
+      if (displayed) {
+        appOpenSlot.markDismissed();
+      } else {
+        appOpenSlot.markShowFailed();
+      }
       _appOpenDismiss = null;
-      captured(false);
+      captured(displayed);
     });
   }
 
@@ -1057,6 +1193,7 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
+          if (_discardIfDisposed(ad, 'loadInterstitial')) return;
           if (_discardIfConsentStale(
               interstitialSlot,
               ad,
@@ -1244,6 +1381,7 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
+          if (_discardIfDisposed(ad, 'loadRewarded')) return;
           if (_discardIfConsentStale(rewardedSlot, ad, AdSlotType.rewarded,
               AdPlacement.unspecified, 'loadRewarded')) {
             return;
@@ -1351,7 +1489,15 @@ class AdMobAdapter implements AdProviderAdapter {
               _rewardedAd = null;
               _disposeAd(ad, 'rewarded-after-dismiss');
               rewardedSlot.markDismissed();
-              if (!earned) fire(RewardResult.skipped);
+              // Round-23 audit, MAJOR — `shown` is the impression signal
+              // and comes from the slot's display confirmation, not from how
+              // the show ended: a user who closes the ad before the reward
+              // point still SAW an ad, and AdManager records it against the
+              // fullscreen/placement caps on this flag.
+              if (!earned) {
+                fire(RewardResult(
+                    earned: false, shown: rewardedSlot.displayConfirmed));
+              }
               // AdMob fires `onUserEarnedReward` BEFORE `onAdDismissed`, so
               // AdManager's post-show `loadRewardedAd()` — hung off the reward
               // callback — runs while `_rewardedAd` is still cached and fresh.
@@ -1391,8 +1537,16 @@ class AdMobAdapter implements AdProviderAdapter {
               SafeLogger.d(
                   _logTag, 'showRewarded $tag 🏆 type=$type amount=$amount');
               earned = true;
+              // Round-23 audit (independent review) — `shown: true` is a
+              // constant here on purpose, NOT `<slot>.displayConfirmed`: GMA
+              // only grants a reward from an ad that was on screen, so the
+              // reward is the stronger display proof of the two, and reading
+              // `displayConfirmed` would undercount the impression whenever
+              // `onShowed` is lost or arrives late. See the matching note and
+              // test in the AppLovin adapter.
               fire(RewardResult(
                 earned: true,
+                shown: true,
                 label: type,
                 amount: amount,
                 pendingServerConfirmation: pendingSsv,
@@ -1437,6 +1591,7 @@ class AdMobAdapter implements AdProviderAdapter {
         restrictedDataProcessing: _restrictedDataProcessing,
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag ✅');
+          if (_discardIfDisposed(ad, 'loadRewardedInterstitial')) return;
           if (_discardIfConsentStale(
               rewardedInterstitialSlot,
               ad,
@@ -1544,7 +1699,16 @@ class AdMobAdapter implements AdProviderAdapter {
               _rewardedInterstitialAd = null;
               _disposeAd(ad, 'rewardedInterstitial-after-dismiss');
               rewardedInterstitialSlot.markDismissed();
-              if (!earned) fire(RewardResult.skipped);
+              // Round-23 audit, MAJOR — `shown` is the impression signal
+              // and comes from the slot's display confirmation, not from how
+              // the show ended: a user who closes the ad before the reward
+              // point still SAW an ad, and AdManager records it against the
+              // fullscreen/placement caps on this flag.
+              if (!earned) {
+                fire(RewardResult(
+                    earned: false,
+                    shown: rewardedInterstitialSlot.displayConfirmed));
+              }
               // AdMob fires `onUserEarnedReward` BEFORE `onAdDismissed`, so
               // AdManager's post-show `loadRewardedAd()` — hung off the reward
               // callback — runs while `_rewardedAd` is still cached and fresh.
@@ -1584,7 +1748,15 @@ class AdMobAdapter implements AdProviderAdapter {
               SafeLogger.d(_logTag,
                   'showRewardedInterstitial $tag 🏆 type=$type amount=$amount');
               earned = true;
-              fire(RewardResult(earned: true, label: type, amount: amount));
+              // Round-23 audit (independent review) — `shown: true` is a
+              // constant here on purpose, NOT `<slot>.displayConfirmed`: GMA
+              // only grants a reward from an ad that was on screen, so the
+              // reward is the stronger display proof of the two, and reading
+              // `displayConfirmed` would undercount the impression whenever
+              // `onShowed` is lost or arrives late. See the matching note and
+              // test in the AppLovin adapter.
+              fire(RewardResult(
+                  earned: true, shown: true, label: type, amount: amount));
             },
           ));
     } catch (e, st) {
@@ -1750,7 +1922,12 @@ class AdMobAdapter implements AdProviderAdapter {
             // shows the ad, instead of staying stuck behind an empty
             // placeholder until an unrelated pause/resume cycle happens to
             // hit the other branch.
-            listenables.visible.value = true;
+            // Round-26 QC (reviewer A) — a fill that lands while an App Open
+            // is on screen must not draw itself over it. Round-28 — but the
+            // fill IS what releases the reload's own hold, or the T-visible fix
+            // above is silently undone and this banner renders blank.
+            _inlineVisibility.show(listenables, InlineHideReason.pendingFill);
+            _inlineVisibility.revealUnlessHeld(listenables);
             listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
             slot.markReady();
@@ -1902,7 +2079,12 @@ class AdMobAdapter implements AdProviderAdapter {
             listenables.clearError();
             // T-visible — see the matching comment in loadBannerIfNeeded's
             // onAdLoaded above.
-            listenables.visible.value = true;
+            // Round-26 QC (reviewer A) — a fill that lands while an App Open
+            // is on screen must not draw itself over it. Round-28 — but the
+            // fill IS what releases the reload's own hold, or the T-visible fix
+            // above is silently undone and this banner renders blank.
+            _inlineVisibility.show(listenables, InlineHideReason.pendingFill);
+            _inlineVisibility.revealUnlessHeld(listenables);
             listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
             slot.markReady();
@@ -2093,14 +2275,18 @@ class AdMobAdapter implements AdProviderAdapter {
 
   @override
   void onAppPaused() {
+    // Round-26 QC (reviewer A) — a second owner, taken and released by name.
+    // Writing `false` straight onto a surface an App Open already blanked used
+    // to be invisible to the fullscreen bookkeeping, which then revealed it on
+    // dismiss even though the app was still in the background.
     if (_bannerAdsByKey.isNotEmpty) {
       for (final l in _bannerListenablesByKey.values) {
-        l.visible.value = false;
+        _inlineVisibility.hide(l, InlineHideReason.background);
       }
     }
     if (_mrecAdsByKey.isNotEmpty) {
       for (final l in _mrecListenablesByKey.values) {
-        l.visible.value = false;
+        _inlineVisibility.hide(l, InlineHideReason.background);
       }
     }
   }
@@ -2113,6 +2299,20 @@ class AdMobAdapter implements AdProviderAdapter {
     // line instead of several. Same rationale the SDK already applies in
     // `_retryRefillAds`.
     if (!canReload()) {
+      // Round-30 QC (reviewer B, MAJOR) — the release does NOT belong behind
+      // the load gate. Releasing a display hold requests nothing. `onAppPaused`
+      // takes the hold with no gate at all, so a resume with the gate shut
+      // (offline in a lift, daily cap reached while backgrounded) stranded it:
+      // AdMob's own auto-refresh then delivered the next fill,
+      // `revealUnlessHeld` honoured the stale hold, and the surface stayed a
+      // grey gap for the session while still recording impressions. Safe for
+      // VIP: suppression runs through `BannerAdWidget._allowed`, not `visible`.
+      for (final l in [
+        ..._bannerListenablesByKey.values,
+        ..._mrecListenablesByKey.values,
+      ]) {
+        _inlineVisibility.show(l, InlineHideReason.background);
+      }
       SafeLogger.d(
           _logTag, 'onAppResumed $tag \u23ed\ufe0f skipped — gate closed');
       return;
@@ -2122,7 +2322,25 @@ class AdMobAdapter implements AdProviderAdapter {
     // single shared one.
     for (final key in _bannerListenablesByKey.keys.toList()) {
       final listenables = _bannerListenablesByKey[key]!;
-      if (listenables.needsRecovery && !_bannerAdsByKey.containsKey(key)) {
+      // Round-29 QC (both reviewers, BLOCKER) — the release is UNCONDITIONAL,
+      // outside the branches. `onAppPaused`'s guard is global
+      // (`_bannerAdsByKey.isNotEmpty`), so it takes the hold on every
+      // listenable — including a key that is registered but has never filled
+      // and has never failed, which matches *neither* branch below. Round 28
+      // fixed two of the three cases and left that one holding forever: when it
+      // finally filled, `revealUnlessHeld` honoured the stale hold and the
+      // surface stayed blank for the session. Releasing here, once, for every
+      // key, is the only shape that cannot grow a fourth case.
+      final reloading =
+          listenables.needsRecovery && !_bannerAdsByKey.containsKey(key);
+      if (reloading && _inlineVisibility.isHeld(listenables)) {
+        // Hand the hold over rather than dropping it: the surface has no ad
+        // yet, so revealing it now would flash an empty placeholder. Released
+        // by the fill.
+        _inlineVisibility.hide(listenables, InlineHideReason.pendingFill);
+      }
+      _inlineVisibility.show(listenables, InlineHideReason.background);
+      if (reloading) {
         // Display flag only — `needsRecovery` stays set until a load actually
         // succeeds, so a request refused below (backoff, no platform view,
         // closed gate) is retried on the next resume instead of leaving this
@@ -2139,11 +2357,16 @@ class AdMobAdapter implements AdProviderAdapter {
           final width = view.physicalSize.width / view.devicePixelRatio;
           loadBannerIfNeeded(key, width);
         } else {
+          // Round-29 QC (reviewer B, MAJOR) — the one refusal we know about
+          // synchronously: no load will be attempted, so no fill handler will
+          // ever run to release the hold we just took. Give it back. (A load
+          // refused later — inside the failure backoff, closed gate — keeps the
+          // hold on purpose: there is no ad to show, and the next successful
+          // fill lifts it.)
+          _inlineVisibility.show(listenables, InlineHideReason.pendingFill);
           SafeLogger.w(
               _logTag, 'onAppResumed $tag no platform view — skip reload');
         }
-      } else if (_bannerAdsByKey.containsKey(key)) {
-        listenables.visible.value = true;
       }
     }
 
@@ -2152,12 +2375,17 @@ class AdMobAdapter implements AdProviderAdapter {
     // instance key, not just a single shared one.
     for (final key in _mrecListenablesByKey.keys.toList()) {
       final listenables = _mrecListenablesByKey[key]!;
-      if (listenables.needsRecovery && !_mrecAdsByKey.containsKey(key)) {
+      // Same unconditional release and hand-off as the banner loop above.
+      final reloading =
+          listenables.needsRecovery && !_mrecAdsByKey.containsKey(key);
+      if (reloading && _inlineVisibility.isHeld(listenables)) {
+        _inlineVisibility.hide(listenables, InlineHideReason.pendingFill);
+      }
+      _inlineVisibility.show(listenables, InlineHideReason.background);
+      if (reloading) {
         // Display flag only — see the banner loop above.
         listenables.hasError.value = false;
         loadMrecIfNeeded(key, 0);
-      } else if (_mrecAdsByKey.containsKey(key)) {
-        listenables.visible.value = true;
       }
     }
 

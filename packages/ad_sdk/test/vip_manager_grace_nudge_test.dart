@@ -120,6 +120,88 @@ void main() {
         reason: 'different expiresAt than the acknowledged one is due again');
   });
 
+  // ─── Round-23 audit, MAJOR: the nudge must land in the second half of the
+  // granted window, never at grant time. The default threshold (24h) is
+  // exactly the default first-install trial length, so unclamped it fired the
+  // instant a brand-new user got their trial.
+  group('grace nudge is clamped to half the granted window (round 23)', () {
+    test('a 24h grant with the default 24h threshold is NOT due at grant time',
+        () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store); // default 24h
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      await mgr.addVip(key: 'TRIAL', duration: const Duration(hours: 24));
+
+      expect(mgr.graceNudgeDueListenable.value, isFalse,
+          reason: 'a first-install trial must not open with '
+              '"your VIP is about to run out"');
+    });
+
+    test('an hour-long grant with the default 24h threshold is NOT due either',
+        () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      await mgr.addVip(key: 'PROMO', duration: const Duration(hours: 1));
+
+      expect(mgr.graceNudgeDueListenable.value, isFalse);
+    });
+
+    test('the nudge still fires, at half the window', () async {
+      // Threshold far larger than the grant, so only the clamp can hold it
+      // back — then it must become due once half the window is gone.
+      final mgr = VipManager(prefs,
+          graceNudgeThreshold: const Duration(hours: 1),
+          vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      await mgr.addVip(key: 'SHORT', duration: const Duration(milliseconds: 600));
+      expect(mgr.graceNudgeDueListenable.value, isFalse,
+          reason: 'clamped to 300ms, 600ms still remaining');
+
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(mgr.graceNudgeDueListenable.value, isTrue,
+          reason: 'under 300ms left — second half of the window');
+    });
+
+    // Round-23 audit, MINOR (independent review) — the tests above prove the
+    // clamp inside a live manager, where the entry was granted in-process. The
+    // timer that actually wakes the app up is armed by `_scheduleNextExpiry`
+    // from persisted state on `load()`, and that path computes its own
+    // `nudgeFireAt`. This drives it: a fresh manager reading the SAME store
+    // must arm the nudge at the clamped time, not at the raw threshold (which
+    // would make it due the moment `load()` returns).
+    test('a manager that RELOADS the grant arms the nudge at the clamped time',
+        () async {
+      final first = VipManager(prefs,
+          graceNudgeThreshold: const Duration(hours: 1),
+          vipEntriesStore: store);
+      await first.load();
+      await first.addVip(
+          key: 'SHORT', duration: const Duration(milliseconds: 600));
+      first.dispose();
+
+      final reloaded = VipManager(prefs,
+          graceNudgeThreshold: const Duration(hours: 1),
+          vipEntriesStore: store);
+      await reloaded.load();
+      addTearDown(reloaded.dispose);
+
+      expect(reloaded.isActive, isTrue);
+      expect(reloaded.graceNudgeDueListenable.value, isFalse,
+          reason: 'clamped to 300ms — over 300ms still remaining');
+
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+
+      expect(reloaded.graceNudgeDueListenable.value, isTrue,
+          reason: 'the timer armed from persisted state must have fired');
+    });
+  });
+
   test('inactive/no-VIP state is never due', () async {
     final mgr = VipManager(prefs,
         graceNudgeThreshold: const Duration(milliseconds: 300),

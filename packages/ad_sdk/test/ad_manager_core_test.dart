@@ -148,6 +148,11 @@ class _FakeAdapter implements AdProviderAdapter {
     }
   }
 
+  /// Round-23: a rewarded ad the user CLOSED EARLY — really displayed
+  /// (`shown: true`), no reward. `false` reproduces the never-displayed paths
+  /// (not ready, already showing, show threw) which report `shown: false`.
+  bool nextRewardDisplayed = true;
+
   @override
   Future<void> showRewarded({
     required void Function(RewardResult result) onDone,
@@ -158,8 +163,8 @@ class _FakeAdapter implements AdProviderAdapter {
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
     onDone(nextRewardEarned
-        ? const RewardResult(earned: true, label: 'coins', amount: 1)
-        : RewardResult.skipped);
+        ? const RewardResult(earned: true, shown: true, label: 'coins', amount: 1)
+        : RewardResult(earned: false, shown: nextRewardDisplayed));
   }
 
   // T89
@@ -187,7 +192,7 @@ class _FakeAdapter implements AdProviderAdapter {
     rewardedInterstitialSlot.beginShow();
     rewardedInterstitialSlot.markDismissed();
     onDone(nextRewardedInterstitialEarned
-        ? const RewardResult(earned: true, label: 'coins', amount: 1)
+        ? const RewardResult(earned: true, shown: true, label: 'coins', amount: 1)
         : RewardResult.skipped);
   }
 
@@ -1750,6 +1755,77 @@ void main() {
             reason: 'a provider that never answers must not hang init '
                 'forever — the 5s timeout falls back to local params');
       });
+    });
+  });
+
+  // Round-23 audit, MAJOR — impression accounting used to key off the REWARD,
+  // so a rewarded ad the user watched for two seconds and closed counted
+  // against no cap at all: the safety layer's daily/hourly/session budget was
+  // silently unspendable by anyone who skips rewarded ads.
+  group('rewarded impression accounting (round 23)', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugCanRequestAds = true;
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+    });
+
+    test('a displayed rewarded the user closed early still counts as an ad',
+        () async {
+      adapter.nextRewardEarned = false;
+      adapter.nextRewardDisplayed = true;
+      final before = AdSafetyConfig.getSessionAdCount();
+
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+
+      expect(AdSafetyConfig.getSessionAdCount(), before + 1,
+          reason: 'the user SAW an ad — it has to consume cap budget');
+    });
+
+    test('a rewarded that never reached the screen counts as nothing',
+        () async {
+      adapter.nextRewardEarned = false;
+      adapter.nextRewardDisplayed = false;
+      final before = AdSafetyConfig.getSessionAdCount();
+
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+
+      expect(AdSafetyConfig.getSessionAdCount(), before,
+          reason: 'no display, no impression');
+    });
+
+    test('an earned rewarded counts exactly once', () async {
+      adapter.nextRewardEarned = true;
+      final before = AdSafetyConfig.getSessionAdCount();
+
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+
+      expect(AdSafetyConfig.getSessionAdCount(), before + 1);
+    });
+
+    test('rewardedInterstitial reports shown=false when never displayed',
+        () async {
+      adapter.nextRewardedInterstitialEarned = false;
+      bool? shown;
+      await AdManager()
+          .showRewardedInterstitialAd(onDone: (s, __) => shown = s);
+
+      expect(shown, isFalse,
+          reason: 'RewardResult.skipped used to say shown:true, so a host '
+              'that never got an ad was told it had one');
     });
   });
 

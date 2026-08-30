@@ -243,6 +243,95 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     });
   }
 
+  /// Shows a rewarded **interstitial** ad, with the intro screen AdMob's
+  /// policy requires in front of it.
+  ///
+  /// Round-23 QC (reviewer B, BLOCKER) — the rewarded-interstitial format is
+  /// the one fullscreen format Google mandates an announcement for: the user
+  /// must be told an ad is coming, what the reward is, and be given a way out,
+  /// *before* it plays. The SDK shipped the format with no such screen and no
+  /// mention of the obligation in the README, so every host that adopted it was
+  /// out of policy by default — with the publisher's own AdMob account, not the
+  /// SDK's, on the hook.
+  ///
+  /// The disclosure is on by default for that reason. A host that renders its
+  /// own intro screen (and it should — localised, branded, naming the actual
+  /// reward) passes `showDisclosure: false` and takes the obligation on.
+  /// Set [disclosureTitle]/[disclosureSubtitle]/[disclosureButtonLabel]/
+  /// [disclosureCancelLabel] to localise the built-in one; the fallbacks are
+  /// English, so a non-English host must pass its own strings.
+  ///
+  /// [onDone] reports `(shown, earned)` — `shown` is true whenever the ad was
+  /// displayed, whether or not the user stayed to the reward point. Declining
+  /// the intro screen reports `(false, false)` and costs no ad budget.
+  Future<void> showRewardedInterstitialAd({
+    required void Function(bool shown, bool earned) onDone,
+    AdPlacement placement = AdPlacement.unspecified,
+    bool showDisclosure = true,
+    String? disclosureTitle,
+    String? disclosureSubtitle,
+    String? disclosureButtonLabel,
+    String? disclosureCancelLabel,
+  }) async {
+    if (_isDisposed || !mounted) {
+      SafeLogger.d(_tag,
+          'showRewardedInterstitialAd ⏭️ widget disposed/unmounted → false');
+      onDone(false, false);
+      return;
+    }
+    // VIP suppression, the not-ready toast and every safety gate live in
+    // AdManager — deliberately not duplicated here. The only thing checked
+    // before the intro screen is whether an ad exists at all, because showing
+    // an announcement for an ad that cannot play is worse than showing nothing.
+    if (!AdManager().canShowRewardedInterstitialAd()) {
+      SafeLogger.d(_tag, 'showRewardedInterstitialAd ⏭️ no valid ad');
+      TopToast.show(
+        context,
+        icon: Icons.hourglass_top_rounded,
+        message: AdManager().config?.adNotReadyMessage ??
+            'Ad not ready — please wait and try again.',
+      );
+      onDone(false, false);
+      return;
+    }
+
+    if (showDisclosure) {
+      final proceed = await _showRewardDisclosure(
+        title: disclosureTitle ?? 'Watch an ad for your reward',
+        subtitle: disclosureSubtitle ??
+            'A short ad will play. You can claim your reward once it '
+                'finishes.',
+        buttonLabel: disclosureButtonLabel,
+        cancelLabel: disclosureCancelLabel,
+      );
+      if (!proceed) {
+        SafeLogger.d(
+            _tag, 'showRewardedInterstitialAd ⏭️ disclosure declined');
+        onDone(false, false);
+        return;
+      }
+      if (!mounted || _isDisposed) {
+        SafeLogger.d(
+            _tag, 'showRewardedInterstitialAd ⏭️ widget gone after disclosure');
+        onDone(false, false);
+        return;
+      }
+    }
+
+    AdLoadingDialog.showAdBuffer(context, onComplete: () {
+      if (!mounted || _isDisposed) {
+        SafeLogger.d(_tag,
+            'showRewardedInterstitialAd ⏭️ widget gone after dialog buffer');
+        onDone(false, false);
+        return;
+      }
+      AdManager().showRewardedInterstitialAd(
+        placement: placement,
+        onDone: onDone,
+      );
+    });
+  }
+
   /// Small confirm dialog shown before a rewarded ad plays when the caller
   /// passes a [disclosureTitle] to [showRewardedAd] — explicit opt-in instead
   /// of an ad appearing with no warning. Returns `true` if the user tapped

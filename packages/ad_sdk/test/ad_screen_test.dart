@@ -84,7 +84,7 @@ class _ReadyAdapter implements AdProviderAdapter {
     showRewardedCalls++;
     lastSsvUserId = ssvUserId;
     lastSsvCustomData = ssvCustomData;
-    onDone(const RewardResult(earned: true, label: 'coins', amount: 1));
+    onDone(const RewardResult(earned: true, shown: true, label: 'coins', amount: 1));
   }
 
   @override

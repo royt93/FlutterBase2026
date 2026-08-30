@@ -15,7 +15,7 @@ class RewardResult {
     this.label,
     this.amount,
     this.pendingServerConfirmation = false,
-    this.shown = true,
+    this.shown = false,
   });
   final bool earned;
   final String? label;
@@ -28,16 +28,18 @@ class RewardResult {
   /// informational: this SDK does not verify anything server-side itself.
   final bool pendingServerConfirmation;
 
-  /// False only when the ad was never actually displayed to the user at all
-  /// (unsupported format, not ready, already showing) — as opposed to
-  /// `earned: false` alone, which also covers a real display the user
-  /// dismissed without earning a reward. Defaults `true` because most
-  /// [RewardResult]s — including the shared [skipped] sentinel, used by both
-  /// genuine no-reward dismissals and true not-shown cases — describe a real
-  /// show attempt; construct with `shown: false` explicitly at the specific
-  /// call sites that skip the show entirely (see
-  /// AppLovinAdapter.showRewardedInterstitial, T89 — AppLovin has no
-  /// Rewarded Interstitial ad format).
+  /// True only when the native SDK confirmed the ad reached the screen — the
+  /// impression signal, independent of [earned].
+  ///
+  /// Round-23 audit, MAJOR — this used to default to `true`, including on the
+  /// paths where no ad was ever displayed (not ready, already showing, show
+  /// threw, unsupported format), which made it useless as an impression
+  /// signal: `AdManager.showRewardedInterstitialAd` hands it straight to the
+  /// host as its `shown` argument, so a host that never got an ad was told it
+  /// had one. It is now set from `AdSlot.displayConfirmed` — see there for the
+  /// caps that were undercounting because of it — and so a real display the
+  /// user closed before the reward point is `shown: true, earned: false`,
+  /// while every no-display path is `shown: false`.
   final bool shown;
 
   static const RewardResult skipped = RewardResult(earned: false);
@@ -125,6 +127,25 @@ typedef AdEventSink = void Function(AdEvent event);
 /// Provider-agnostic interface every concrete adapter (AdMob, AppLovin)
 /// must implement. The orchestrator [AdManager] never references either
 /// concrete plugin directly — it routes every call through this contract.
+/// Blanking the inline surfaces (banner, MREC) while a fullscreen ad is on
+/// screen.
+///
+/// Round-23 QC (reviewer B, MAJOR) — Google's App Open guidance says not to
+/// present an App Open ad on top of another ad, naming banner content
+/// explicitly. Nothing did: the resume path restores banner visibility (via
+/// `onAppResumed`) and then shows the App Open over it.
+///
+/// Deliberately NOT a member of [AdProviderAdapter]. That type is exported, so
+/// adding a method to it would break every host or test that implements it —
+/// see the `is AppLovinAdapter` precedent. Both shipped adapters implement
+/// this; an adapter that does not simply keeps the old behaviour.
+abstract class InlineAdVisibility {
+  /// Hides the currently-visible inline ads, or restores exactly the ones this
+  /// call hid. Restoring never reveals a surface that was already blanked for
+  /// another reason (backgrounded app, route paused).
+  void setInlineAdsHidden(bool hidden);
+}
+
 abstract class AdProviderAdapter {
   /// Set by [AdManager] before [initialize] so the adapter can emit
   /// [AdEvent]s back to the host. `null` = events dropped.

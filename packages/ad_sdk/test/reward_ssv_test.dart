@@ -220,6 +220,7 @@ class _E2EFakeAdapter implements AdProviderAdapter {
     rewardedSlot.markDismissed();
     onDone(RewardResult(
       earned: true,
+      shown: true,
       label: 'coins',
       amount: 1,
       pendingServerConfirmation: ssvCustomData != null || ssvUserId != null,

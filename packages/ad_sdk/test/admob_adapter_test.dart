@@ -128,6 +128,31 @@ void main() {
       expect(adapter.debugWatchdogArmed, isFalse, reason: 'timer self-cleared');
     });
 
+    // Round-23 audit, MAJOR — the hard cap on an ad we KNOW reached the screen
+    // only proves the dismiss callback was lost (a click-out to the store, or
+    // an ad left up past 90s). Reporting that as a show FAILURE charged the
+    // failure backoff — App Open got progressively rarer for exactly the users
+    // who engage with ads — and told AdManager no ad was ever shown, so the
+    // impression counted against no cap and the 30s inter-fullscreen throttle
+    // stayed unarmed while the ad could still be on screen.
+    test('a CONFIRMED display resolves as dismissed(true), not a failure',
+        () async {
+      final adapter = AdMobAdapter();
+      bool? dismissed;
+      adapter.debugSimulateAppOpenShowAndArmWatchdog(
+        (d) => dismissed = d,
+        const Duration(milliseconds: 40),
+      );
+      adapter.appOpenSlot.markDisplayed(); // GMA confirmed it is on screen
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      expect(dismissed, isTrue,
+          reason: 'the ad really was displayed — AdManager must count it');
+      expect(adapter.appOpenSlot.value, AdSlotState.idle,
+          reason: 'markDismissed → idle, no failure backoff charged');
+    });
+
     test('dispose cancels the watchdog — it never fires twice', () async {
       final adapter = AdMobAdapter();
       var calls = 0;
