@@ -20,6 +20,39 @@ const _config = AdConfig(
   ),
 );
 
+/// Minimal fake adapter for the round-26 regression below — only
+/// `loadAppOpen` matters, and it deliberately never resolves on its own so
+/// the test controls exactly when the native callback "arrives" relative to
+/// `dispose()`. Every other member is unused by this path; `noSuchMethod`
+/// stands in for the rest of `AdProviderAdapter` so this doesn't have to
+/// list two dozen methods it never calls.
+class _PendingAppOpenAdapter implements AdProviderAdapter {
+  @override
+  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
+  // debugSetAdapter() wires busy-state listeners onto every fullscreen slot
+  // (AdManager._attachFullscreenBusySlotListeners) — these three need to be
+  // real AdSlot instances too, not routed through noSuchMethod.
+  @override
+  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
+  @override
+  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
+  @override
+  final AdSlot rewardedInterstitialSlot =
+      AdSlot(type: AdSlotType.rewardedInterstitial);
+  void Function(bool loaded)? pendingOnLoaded;
+
+  @override
+  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
+    pendingOnLoaded = onAdLoaded;
+  }
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   setUp(() async {
     await AdManager().destroy();
@@ -117,5 +150,55 @@ void main() {
     expect(readyCount, 0,
         reason: 'a disposed controller must not fire onReady later — the '
             'hard-cap Timer must actually be cancelled, not just forgotten');
+  });
+
+  testWidgets(
+      'round-26: a loadAppOpenAd callback arriving AFTER dispose() must not '
+      'fire onReady', (tester) async {
+    late BuildContext ctx;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(builder: (c) {
+          ctx = c;
+          return const SizedBox.shrink();
+        }),
+      ),
+    ));
+
+    final adapter = _PendingAppOpenAdapter();
+    AdManager().debugSetAdapter(adapter);
+    addTearDown(() => AdManager().debugSetAdapter(null));
+
+    final controller = AdReadinessSplashController(
+      config: _config,
+      hardCapDuration: const Duration(seconds: 30), // must not fire first
+    );
+
+    var readyCount = 0;
+    controller.start(ctx, onReady: () => readyCount++);
+
+    // Drives the controller into _showSplashAppOpen(), which calls
+    // AdManager().loadAppOpenAd() — the fake adapter now holds the callback
+    // instead of resolving it.
+    SimpleEventBus().fire(const BoolEvent(true));
+    await tester.pump();
+    expect(adapter.pendingOnLoaded, isNotNull,
+        reason: 'the fake adapter must be mid-load, not resolved yet — '
+            'otherwise this test proves nothing about the race');
+
+    // The app is backgrounded and killed (or the splash route is popped)
+    // while that load is still in flight — the host calls dispose().
+    controller.dispose();
+
+    // The native callback finally arrives, after dispose().
+    adapter.pendingOnLoaded!.call(false);
+    await tester.pump();
+
+    expect(readyCount, 0,
+        reason: 'a native callback arriving after dispose() must not '
+            "fire onReady against an already-disposed splash — this used "
+            'to run the host\'s navigation callback on a deactivated '
+            'BuildContext ("Looking up a deactivated widget\'s ancestor is '
+            'unsafe")');
   });
 }

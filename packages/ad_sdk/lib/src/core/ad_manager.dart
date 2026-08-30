@@ -1584,6 +1584,16 @@ class AdManager with WidgetsBindingObserver {
 
   bool _consentDialogScheduled = false;
 
+  /// Round-26 audit (MAJOR, claude) — the scheduled show below used to be a
+  /// bare `Future.delayed` with nothing keeping a handle on it. If
+  /// `destroy()` ran and a fresh `initialize()` (a different `AdConfig`, e.g.
+  /// a QA build vs. production) happened inside that delay window, the old
+  /// closure — capturing the OLD `cfg`/`mgr` — still fired and applied the
+  /// stale config (including `testDeviceIds`) on top of the new session.
+  /// Holding the `Timer` here lets `destroy()` cancel it outright instead of
+  /// just resetting the flag that guards re-scheduling.
+  Timer? _consentDialogTimer;
+
   /// Schedule the auto-show consent dialog for the post-splash window.
   /// Idempotent — first scheduling wins per init cycle. Caller can defeat
   /// this by manually calling `consentManager.showDialog` earlier (which
@@ -1626,7 +1636,9 @@ class AdManager with WidgetsBindingObserver {
     final delay = cfg.consentDialogPostSplashDelay;
     SafeLogger.d(_tag,
         () => '🕒 consent dialog scheduled (delay=${delay.inMilliseconds}ms)');
-    Future.delayed(delay, () async {
+    _consentDialogTimer?.cancel();
+    _consentDialogTimer = Timer(delay, () async {
+      _consentDialogTimer = null;
       if (mgr.hasBeenAsked) {
         SafeLogger.d(
             _tag, '⏭️ scheduled consent dialog skipped — already asked');
@@ -5013,6 +5025,12 @@ class AdManager with WidgetsBindingObserver {
     _lastFullscreenDismissAt = 0;
     _rewardedInFlight = false;
     _consentDialogScheduled = false;
+    // Round-26 audit (MAJOR) — without this, a scheduled dialog's closure
+    // (capturing the OLD AdConfig/ConsentManager) could still fire after a
+    // destroy()+initialize() cycle and apply stale config over the new
+    // session. See the field doc on [_consentDialogTimer].
+    _consentDialogTimer?.cancel();
+    _consentDialogTimer = null;
     _offlineNotifier.value = false;
     _resetGuardState();
 
@@ -5100,9 +5118,76 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   void debugResetGuardState() => _resetGuardState();
 
+  /// Round-26 audit (MAJOR, claude, borders BLOCKER) — `_disposeAdapter()`
+  /// used to null the adapter's native listeners with no regard for a
+  /// fullscreen ad actively on screen. For AppLovin specifically, the native
+  /// bridge dereferences its listener at DISPATCH time rather than at
+  /// show-start, so a reward event already in flight when teardown started
+  /// landed on a listener that had just been nulled and was silently
+  /// dropped — a user who finished watching a rewarded ad right as
+  /// `destroy()` ran (provider switch, logout, SDK reset) was told they
+  /// earned nothing despite having watched the whole thing. Give an
+  /// in-flight show a bounded window to resolve on its own (dismiss or
+  /// reward) before tearing the adapter down under it. Bounded, not
+  /// unconditional: a wedged native SDK (the AdMob rewarded-stuck bug this
+  /// package's own README documents) must never make `destroy()` hang.
+  static const Duration _fullscreenShowDrainTimeout = Duration(seconds: 5);
+
+  Future<void> _waitForFullscreenShowsToFinish(AdProviderAdapter ad) async {
+    final List<AdSlot> showing;
+    try {
+      showing = [
+        ad.appOpenSlot,
+        ad.interstitialSlot,
+        ad.rewardedSlot,
+        ad.rewardedInterstitialSlot,
+      ].where((s) => s.isShowing).toList();
+    } catch (e) {
+      // A slot getter throwing mid-teardown is an adapter bug in its own
+      // right (already tolerated elsewhere in this method) — nothing to
+      // wait on if we can't even read the state.
+      SafeLogger.w(_tag, 'destroy(): slot read threw before drain wait: $e');
+      return;
+    }
+    if (showing.isEmpty) return;
+    SafeLogger.d(_tag,
+        'destroy(): waiting up to ${_fullscreenShowDrainTimeout.inSeconds}s '
+        'for ${showing.length} showing slot(s) to finish before teardown');
+    final done = Completer<void>();
+    void checkDone() {
+      if (showing.every((s) => !s.isShowing) && !done.isCompleted) {
+        done.complete();
+      }
+    }
+
+    final attached = <AdSlot, VoidCallback>{};
+    for (final slot in showing) {
+      void listener() => checkDone();
+      attached[slot] = listener;
+      slot.state.addListener(listener);
+    }
+    final timer = Timer(_fullscreenShowDrainTimeout, () {
+      if (!done.isCompleted) done.complete();
+    });
+    try {
+      await done.future;
+    } finally {
+      timer.cancel();
+      for (final entry in attached.entries) {
+        try {
+          entry.key.state.removeListener(entry.value);
+        } catch (_) {
+          // Slot may already be disposed by a concurrent teardown path —
+          // nothing left to detach from.
+        }
+      }
+    }
+  }
+
   Future<void> _disposeAdapter() async {
     final old = _adapter;
     if (old != null) {
+      await _waitForFullscreenShowsToFinish(old);
       // Round-25 QC round 2 (both independent reviewers, MAJOR) — the teardown
       // is best-effort, the state change is NOT. A throw in here (a native
       // plugin's `dispose()`, a slot listener removal) used to skip the two

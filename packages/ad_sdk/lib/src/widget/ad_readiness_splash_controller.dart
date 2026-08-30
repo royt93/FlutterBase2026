@@ -153,7 +153,21 @@ class AdReadinessSplashController {
   /// (e.g. the app was backgrounded and killed mid-splash), this still
   /// clears the SDK's splash-active state and its own internal budget
   /// timer, rather than leaving them stuck.
+  ///
+  /// Round-26 audit (MAJOR, claude) — this used to leave [_navigated]
+  /// `false`, so a late `loadAppOpenAd`/`AdLoadingDialog` callback firing
+  /// after the host had already disposed this controller (app backgrounded
+  /// and killed mid-splash, or the splash route popped) still ran `_goReady`
+  /// → `onReady`, i.e. a host navigation callback, against a `BuildContext`
+  /// that had already deactivated — "Looking up a deactivated widget's
+  /// ancestor is unsafe." Marking navigated here makes every check above
+  /// (`if (_navigated) return;`) short-circuit any callback that arrives
+  /// after dispose, exactly like it already does for one that arrives after
+  /// a normal `onReady` fire.
   void dispose() {
+    _navigated = true;
+    _onReady = null;
+    _context = null;
     _hardCap?.cancel();
     _hardCap = null;
     final listener = _busListener;

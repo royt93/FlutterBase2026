@@ -2275,6 +2275,55 @@ void main() {
           reason: 'user answered the built-in dialog — the footgun must '
               'clear, not stay locked for the rest of the release session');
     });
+
+    testWidgets(
+        'round-26: destroy() before the scheduled delay elapses cancels the '
+        'dialog — the stale closure must never fire', (tester) async {
+      final prefs = await AdPreferences.getInstance();
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+      final mgr = AdManager();
+      mgr.debugConsentManager = consentMgr;
+      mgr.debugConfig = const AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+          bannerId: 'x',
+          interstitialId: 'x',
+          appOpenId: 'x',
+          rewardedId: 'x',
+        ),
+        autoRequestUmpConsent: false,
+        autoShowConsentDialog: true,
+        // Non-zero on purpose — destroy() below must land INSIDE this
+        // window, before the scheduled Timer fires.
+        consentDialogPostSplashDelay: Duration(milliseconds: 200),
+      );
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      mgr.setNavigatorKey(navigatorKey);
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const SizedBox(),
+      ));
+
+      mgr.markSplashInactive(); // schedules the built-in dialog, delay=200ms
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // A destroy()+re-init cycle happens (provider switch, logout, SDK
+      // reset) while the scheduled dialog is still pending.
+      await mgr.destroy();
+
+      // Advance past the ORIGINAL delay. Pre-fix, the stale Timer/Future
+      // still fired here and showed the dialog against the old
+      // ConsentManager/config even though the session had already been torn
+      // down.
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+
+      expect(find.text(ConsentDialogStrings.vi.title), findsNothing,
+          reason: 'destroy() must cancel the pending consent-dialog Timer, '
+              'not just the re-scheduling guard flag');
+    });
   });
 
   group(

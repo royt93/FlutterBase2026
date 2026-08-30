@@ -4,6 +4,49 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-08-31
+
+Round-26 audit: three independent reviewers (codex, Gemini, Claude) plus a
+line-by-line pass of my own, re-verifying the seven production requirements
+against the current source and the live pub.dev listing. Consolidated verdict
+in `doc/audit/audit_round26_consolidated.md`. Three findings fixed, each
+mutation-verified (proven by reverting the fix and watching the new test go
+red first):
+
+- **Fix**: `AdManager.destroy()` could tear an adapter's native listeners down
+  while a rewarded (or rewarded-interstitial) ad was still on screen. For
+  AppLovin specifically, a reward event already in flight from the native SDK
+  at that moment landed on a listener that had just been nulled and was
+  silently dropped — a user who finished watching a rewarded ad right as
+  `destroy()` ran (provider switch, logout, SDK reset) was told they earned
+  nothing despite watching the whole thing. `destroy()` now waits up to 5s for
+  a showing fullscreen ad to resolve on its own before tearing the adapter
+  down; the wait is bounded so a wedged native SDK can never hang `destroy()`.
+- **Fix**: the SDK's own post-splash auto-show consent dialog scheduled itself
+  via a bare `Future.delayed` with nothing keeping a handle on it. A
+  `destroy()` followed by a fresh `initialize()` (a different `AdConfig`, e.g.
+  a QA build vs. production) inside that delay window still let the stale
+  closure fire and apply the OLD config — including `testDeviceIds` — on top
+  of the new session. The delay is now a cancellable `Timer`, cancelled by
+  `destroy()`.
+- **Fix**: `AdReadinessSplashController.dispose()` didn't mark itself
+  navigated. If the splash widget was disposed (app backgrounded and killed
+  mid-splash, or the route popped) while an app-open-ad load was still in
+  flight, the late callback still ran the host's `onReady` navigation
+  callback against an already-deactivated `BuildContext` — "Looking up a
+  deactivated widget's ancestor is unsafe."
+
+No behaviour a host observes through documented, non-internal APIs changes;
+nothing here is a breaking change.
+
+One additional finding (a narrow timing gap between AdMob and AppLovin
+receiving a tightened consent decision through the SDK's *built-in* consent
+dialog — the UMP path was already hardened against this in round 21/22) was
+investigated and a fix attempted twice; both attempts regressed the existing
+consent-gate recovery test suite and were reverted. It remains open, tracked
+in `doc/audit/audit_round26_consolidated.md`, and only matters if you enable
+`autoShowConsentDialog` for an EEA audience at scale.
+
 ## [2.4.0] - 2026-08-29
 
 Round-23 audit: a full pass over the SDK, the example app, every doc in the

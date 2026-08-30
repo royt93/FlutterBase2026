@@ -53,21 +53,20 @@ Không lật lại bất kỳ non-fix nào của baseline (MJ9, kQaTestDeviceHas
 RouteAware — vẫn y nguyên, đúng chủ ý). Đã tự spot-check 2 finding rủi ro cao nhất bằng
 cách đọc lại source độc lập (không chỉ tin báo cáo) — cả hai đứng vững:
 
-| # | File:line | Mô tả | Kịch bản lỗi | Severity |
-|---|---|---|---|---|
-| 1 | `lib/src/vip/_redeemed_key_ledger.dart` (`markRedeemed`) | Read-modify-write Keychain không lock | 2 lần redeem signed-key gần đồng thời → ghi đè lẫn nhau, 1 `kid` biến mất khỏi ledger durable (ledger chính SharedPreferences không bị race này) | MAJOR |
-| 2 | `lib/src/adapters/admob_adapter.dart` (nhánh `onFailed` của 4 loại fullscreen ad) | Thiếu `_discardIfDisposed` guard đối xứng với `onLoaded`; `eventSink` không bị clear ở `dispose()` | `destroy()`/đổi provider giữa lúc 1 request load đang bay → GMA callback fail trễ trên adapter đã chết vẫn `_emit` ra ngoài | MAJOR |
-| 3 | `lib/src/adapters/applovin_adapter.dart:801,837` | **Tự xác nhận bằng đọc lại source:** `dispose()` gọi `_bridge.setRewardedAdListener(null)` (dòng 801) **trước** khi resolve `_rewardedDone?.call(RewardResult.skipped)` (dòng 837) | User đã earn reward, native đã bắn event, event đó đang nằm trong platform-channel queue đúng lúc `destroy()` chạy → bị nuốt im lặng, host tưởng reward bị skip dù user đã xem xong — **mất tiền/mất reward thật, không phải giả thuyết hiếm** | MAJOR (sát BLOCKER) |
-| 4 | `lib/src/core/ad_manager.dart:1624` (`_consentDialogScheduled`) | `Future.delayed` cho dialog consent nội bộ không lưu `Timer` để `cancel()` trong `destroy()` | `destroy()` rồi `initialize()` với `AdConfig` khác trong cửa sổ `consentDialogPostSplashDelay` → closure cũ fire với `AdConfig` CŨ đã capture, áp nhầm lên session mới | MAJOR |
-| 5 | `lib/src/consent/*` / `applovin_adapter.dart:924-929` | Khoảng hở giữa `_persist()` (await) và `_applyToProviders()` — AppLovin consent thật chỉ áp ở bước sau, AdMob áp ngay | Trong khoảng hở, `canRequestAds` vẫn `true`, retry/refill có thể bắn 1 request AppLovin dùng consent cũ | MAJOR |
-| 6 | `AdReadinessSplashController.dispose()` (ví dụ splash trong doc/README) | `dispose()` không set `_navigated = true` | Splash bị dispose thật (app bị kill/pop giữa splash) trong lúc đang chờ ad load → callback trễ vẫn gọi `_goReady()` → `onReady` (điều hướng host) chạy trên context đã deactivate → crash | MAJOR |
+| # | File:line | Mô tả | Kịch bản lỗi | Severity | Trạng thái |
+|---|---|---|---|---|---|
+| 1 | `lib/src/vip/_redeemed_key_ledger.dart` (`markRedeemed`) | Read-modify-write Keychain không lock | 2 lần redeem signed-key gần đồng thời → ghi đè lẫn nhau, 1 `kid` biến mất khỏi ledger durable (ledger chính SharedPreferences không bị race này) | MAJOR | mở — user chọn để sau (release tiếp theo) |
+| 2 | `lib/src/adapters/admob_adapter.dart` (nhánh `onFailed` của 4 loại fullscreen ad) | Thiếu `_discardIfDisposed` guard đối xứng với `onLoaded`; `eventSink` không bị clear ở `dispose()` | `destroy()`/đổi provider giữa lúc 1 request load đang bay → GMA callback fail trễ trên adapter đã chết vẫn `_emit` ra ngoài | MAJOR | mở — user chọn để sau (release tiếp theo) |
+| 3 | `lib/src/adapters/applovin_adapter.dart:801,837` | **Tự xác nhận bằng đọc lại source:** `dispose()` gọi `_bridge.setRewardedAdListener(null)` (dòng 801) **trước** khi resolve `_rewardedDone?.call(RewardResult.skipped)` (dòng 837) | User đã earn reward, native đã bắn event, event đó đang nằm trong platform-channel queue đúng lúc `destroy()` chạy → bị nuốt im lặng, host tưởng reward bị skip dù user đã xem xong — **mất tiền/mất reward thật, không phải giả thuyết hiếm** | MAJOR (sát BLOCKER) | **FIXED** — guard chung `AdManager._waitForFullscreenShowsToFinish` trong `_disposeAdapter()`, chờ tối đa 5s cho slot fullscreen đang show (áp dụng cả AdMob lẫn AppLovin, root-cause). Mutation-verified: `test/destroy_showing_reward_race_test.dart` (revert → red, fix → green) |
+| 4 | `lib/src/core/ad_manager.dart:1624` (`_consentDialogScheduled`) | `Future.delayed` cho dialog consent nội bộ không lưu `Timer` để `cancel()` trong `destroy()` | `destroy()` rồi `initialize()` với `AdConfig` khác trong cửa sổ `consentDialogPostSplashDelay` → closure cũ fire với `AdConfig` CŨ đã capture, áp nhầm lên session mới | MAJOR | **FIXED** — `Future.delayed` → `Timer` lưu field `_consentDialogTimer`, huỷ trong `destroy()`. Mutation-verified (revert → test timeout thật 10 phút vì dialog cũ vẫn hiện + treo, xác nhận đúng bug; fix lại → xanh 3s) |
+| 5 | `lib/src/consent/*` / `applovin_adapter.dart:924-929` | Khoảng hở giữa `_persist()` (await) và `_applyToProviders()` — AppLovin consent thật chỉ áp ở bước sau, AdMob áp ngay | Trong khoảng hở, `canRequestAds` vẫn `true`, retry/refill có thể bắn 1 request AppLovin dùng consent cũ | MAJOR | **mở — đã thử fix 2 LẦN, cả hai đều revert.** Lần 1: đóng/mở `_canRequestAds` trực tiếp trong `setConsent()` — vỡ 3 test (source có comment N2 sẵn nói field đó chỉ do UMP flow sở hữu). Lần 2: đọc kỹ cơ chế debt/epoch có sẵn (`_pessimisticGateClose`/`_consentIntentEpoch`/`_consentRecoveryStillOwns`, round 13/17/21) rồi bắt chước đúng pattern của `_applyConsentResultOnce` — **vỡ NẶNG HƠN: 13 test** (đụng cả gate-recovery-overtaken, npa wiring cơ bản). Cả hai lần đều revert sạch, không còn dấu vết trong source. Kết luận: cần 1 phiên làm việc riêng để fix đúng, không phải 1 diff nhanh trong lúc audit — đọc hết `_applyConsentResultOnce` + toàn bộ 2 file test consent-gate trước khi sửa dòng nào. Chỉ thật sự chặn khi bật `autoShowConsentDialog` cho thị trường EEA quy mô lớn |
+| 6 | `AdReadinessSplashController.dispose()` (ví dụ splash trong doc/README) | `dispose()` không set `_navigated = true` | Splash bị dispose thật (app bị kill/pop giữa splash) trong lúc đang chờ ad load → callback trễ vẫn gọi `_goReady()` → `onReady` (điều hướng host) chạy trên context đã deactivate → crash | MAJOR | **FIXED** — `dispose()` set `_navigated = true` + clear `_onReady`/`_context`. Mutation-verified: `test/ad_readiness_splash_controller_test.dart` (revert → red, fix → green) |
 
-Đã tự verify #3 bằng đọc lại `applovin_adapter.dart` dòng 780-845, và #6 bằng đọc lại toàn
-bộ `ad_readiness_splash_controller.dart` (164 dòng) — cả hai **CONFIRMED**, đúng thứ tự lệnh
-như mô tả (`dispose()` không set `_navigated`; listener null hoá trước khi resolve reward).
-Các finding còn lại (#1, #2, #4, #5) dựa trên báo cáo `claude` với grep evidence đi kèm
-trong `audit_claude_round26.md` (agent đó tự đọc lại 2 lần trước khi báo, có trích code
-nguyên văn) — coi là **PLAUSIBLE**, nên tự đọc lại thêm 1 lần nếu quyết định fix.
+#3 và #6 đã tự verify bằng đọc lại source trực tiếp (`applovin_adapter.dart` dòng 780-845,
+`ad_readiness_splash_controller.dart` toàn bộ 164 dòng) trước khi fix — cả hai **CONFIRMED**.
+#1, #2, #4, #5 dựa trên báo cáo `claude` với grep evidence đi kèm (agent tự đọc lại 2 lần,
+trích code nguyên văn) — coi là **PLAUSIBLE** khi audit; #4 sau đó tự verify **CONFIRMED**
+trong lúc fix (đọc lại source trực tiếp trước khi sửa).
 
 ## 2b. Đối chiếu 7 yêu cầu sản phẩm (theo cả 3 reviewer + pass của tôi)
 
@@ -97,15 +96,26 @@ nguyên văn) — coi là **PLAUSIBLE**, nên tự đọc lại thêm 1 lần n�
 **Không approve production ở trạng thái hiện tại** — chặn bởi:
 
 1. **BLOCKER treo:** rotate/revoke AppLovin key + 8 ad-unit ID đã lộ (xác nhận thủ công
-   trên dashboard AppLovin, ngoài phạm vi source).
-2. **Khuyến nghị fix trước khi ship** (không chặn cứng nhưng rủi ro tiền thật/crash thật):
-   finding #3 (mất reward) và #6 (crash splash) ở trên — cả hai xảy ra trên đường dùng
-   bình thường (thoát app giữa chừng), không cần điều kiện hiếm.
-3. Finding #1, #2, #4, #5 — MAJOR nhưng cửa sổ hẹp, có thể xếp sau.
+   trên dashboard AppLovin, ngoài phạm vi source). **User đã chọn tạm để, chấp nhận rủi ro**
+   vì repo GitHub hiện đang private — vẫn là điều kiện phải làm trước khi công khai repo
+   hoặc trước khi bất kỳ ai ngoài team hiện tại có quyền truy cập.
+2. Finding #3 (mất reward) và #6 (crash splash) — **ĐÃ FIX** (xem bảng ở mục 2, cả hai
+   mutation-verified bằng revert→red→fix→green).
+3. Finding #4 (consent dialog timer) — **ĐÃ FIX**, cùng phương pháp.
+4. Finding #5 (khoảng hở consent AdMob/AppLovin) — **còn mở**, đã thử fix 2 lần (2 cách tiếp
+   cận khác nhau) và revert cả hai — lần 2 (bắt chước đúng cơ chế debt/epoch có sẵn) còn vỡ
+   nhiều test hơn lần 1. Cần 1 phiên fix riêng, không phải sửa nhanh trong lúc audit. Chỉ
+   thật sự chặn khi bật `autoShowConsentDialog` cho thị trường EEA quy mô lớn — chưa chặn
+   production hiện tại.
+5. Finding #1, #2 — user chọn để sau, không chặn release đầu.
+
+Suite sau các fix trên: **1.340 test pass** (1.336 baseline + 4 test mới cho #3/#4/#6),
+`flutter analyze` sạch.
 
 Nền tảng SDK (safety/caps, VIP Ed25519 offline, consent đa quốc gia, 4 loại ad
 lifecycle/dispose ở `ad_manager.dart`) vẫn vững sau 25+ vòng audit trước — round này không
-lật lại quyết định nền tảng nào, chỉ tìm thêm race-window hẹp ở biên teardown/consent.
+lật lại quyết định nền tảng nào, chỉ tìm thêm race-window hẹp ở biên teardown/consent, và đã
+đóng 3/6 trong số đó ngay trong round này.
 
 `flutter analyze`: sạch. `flutter test`: 1.336/1.336 pass (theo cả 3 reviewer, không tự
 chạy lại trong round này).
