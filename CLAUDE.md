@@ -14,8 +14,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Suite | Path | How to run |
 |---|---|---|
-| SDK (primary gate) | `packages/ad_sdk/test/` — 78 files, ~890 tests | `cd packages/ad_sdk && flutter test` |
-| SDK on-device | `packages/ad_sdk/example/integration_test/` — 27 files (26 test suites + shared `scroll_helpers.dart`) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
+| SDK (primary gate) | `packages/ad_sdk/test/` — 96 files, ~1130 tests | `cd packages/ad_sdk && flutter test` |
+| SDK on-device | `packages/ad_sdk/example/integration_test/` — 31 files (30 test suites + shared `scroll_helpers.dart`) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
 
 ```bash
 cd packages/ad_sdk

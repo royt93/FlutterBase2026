@@ -83,7 +83,7 @@ jobs:
       - name: Check pinning wall (pub get + pod install)
         run: packages/ad_sdk/tool/check_pinning_wall.sh
 
-  # T47 — the 20 integration_test/ files under packages/ad_sdk/example only ran
+  # T47 — the integration_test/ files under packages/ad_sdk/example only ran
   # by hand on a simulator/device before this. Runs them on a real Android
   # emulator so real-device-shaped regressions (not just Dart-VM-reachable
   # ones) are caught in CI too. AdMob App ID/unit IDs in the example are
@@ -109,7 +109,7 @@ jobs:
       # Flaky since ~2026-07-19: job gets killed mid-run with no test-failure
       # output and no uploaded logs — the signature of the Linux OOM killer,
       # not a real test failure (ubuntu-latest has 7GB RAM and no swap by
-      # default; emulator + KVM + `flutter test` across 20 integration_test/
+      # default; emulator + KVM + `flutter test` across every integration_test/
       # files can exceed that). Free up disk (unused dotnet/haskell/boost
       # toolchains) before adding swap — the AVD's userdata partition alone
       # needs ~7.4GB, so an oversized swapfile can starve emulator creation.
