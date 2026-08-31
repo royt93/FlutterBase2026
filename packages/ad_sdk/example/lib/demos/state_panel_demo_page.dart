@@ -27,6 +27,29 @@ class StatePanelDemoPage extends StatelessWidget {
       body: ListView(
         padding: bottomSafe(context, const EdgeInsets.all(16)),
         children: [
+          // T109 — one ValueListenable instead of gluing 5 separate ones.
+          const Text('AdSdkStateSnapshot',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<AdSdkStateSnapshot>(
+            valueListenable: AdManager().stateSnapshot,
+            builder: (context, snapshot, __) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('isInitialised: ${snapshot.isInitialised}'),
+                    Text('canRequestAds: ${snapshot.canRequestAds}'),
+                    Text('isOffline: ${snapshot.isOffline}'),
+                    Text('isVipActive: ${snapshot.isVipActive}'),
+                    Text('fullscreenBusy: ${snapshot.fullscreenBusy}'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 32),
           if (adapter != null) ...[
             Text('Provider: ${adapter.tag}',
                 style:

@@ -4,6 +4,25 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-09-01
+
+QA pass on the round-27 features added in 2.5.0-2.9.0: added example demos
+for the ones with a UI surface, plus a widget test for a real gap that pass
+turned up.
+
+- **Fix**: `AdScreenState.buildBanner()`/`buildMrec()`/`buildNative()` — the
+  helper the README documents as the standard `AdScreen` integration
+  path — never accepted a `placement` parameter, even after T107 added
+  `placement` to `BannerAdWidget`/`MrecAdWidget`/`NativeAdWidget` directly.
+  Any host following the documented pattern instead of instantiating the
+  widgets by hand had no way to reach it — every per-placement stat/cap
+  silently stayed on `AdPlacement.unspecified`. All three helpers now take
+  an optional `placement` (default unchanged) and forward it.
+- Example app: added a live demo for `AdManager().stateSnapshot` (T109) to
+  the Slot state panel, a "Preview outcome (no device call)" button using
+  `simulateConsentOutcome()` (T120) to the Consent/GDPR demo, and a new
+  Adaptive surface demo page (T124) with a width slider.
+
 ## [2.9.0] - 2026-08-31
 
 Round-27 batch E (final batch of the round-27 backlog) — 4 done, 1

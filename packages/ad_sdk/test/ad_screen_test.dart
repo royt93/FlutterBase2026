@@ -166,6 +166,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'T107 follow-up: buildBanner/buildMrec/buildNative forward placement '
+      'to the underlying widget — the documented AdScreen integration path '
+      "must be able to set it, not just the widgets' own constructors",
+      (tester) async {
+    await tester.pumpWidget(host(Scaffold(
+      body: Builder(builder: (context) {
+        // ignore: invalid_use_of_protected_member
+        final state = _DemoAdScreenState();
+        return Column(children: [
+          state.buildBanner(placement: AdPlacement.gameOver),
+          state.buildMrec(placement: AdPlacement.gameOver),
+          state.buildNative(placement: AdPlacement.gameOver),
+        ]);
+      }),
+    )));
+    await tester.pumpAndSettle();
+    expect(
+        (tester.widget(find.byType(BannerAdWidget)) as BannerAdWidget)
+            .placement,
+        AdPlacement.gameOver);
+    expect(
+        (tester.widget(find.byType(MrecAdWidget)) as MrecAdWidget).placement,
+        AdPlacement.gameOver);
+    expect(
+        (tester.widget(find.byType(NativeAdWidget)) as NativeAdWidget)
+            .placement,
+        AdPlacement.gameOver);
+  });
+
   testWidgets('showInterstitialAd fails the pre-check → onDone(false)',
       (tester) async {
     bool? result;

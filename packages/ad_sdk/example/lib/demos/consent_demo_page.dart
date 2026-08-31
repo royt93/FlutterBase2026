@@ -85,6 +85,44 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
           _row('Do-not-sell (CCPA)', _doNotSell,
               'California users opt-out of personal-data sale.'),
           const SizedBox(height: 24),
+          // T120 — pure preview of what applying the toggles above would send
+          // to each provider, with zero platform-channel calls (no
+          // AdManager().setConsent() yet). Useful for a QA compliance check
+          // to walk every GDPR/COPPA/CCPA combination without a device.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: OutlinedButton(
+              onPressed: () {
+                final result = simulateConsentOutcome(AdConsent(
+                  hasUserConsent: _hasConsent.value,
+                  isAgeRestrictedUser: _isAge.value,
+                  doNotSell: _doNotSell.value,
+                ));
+                showDialog<void>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('simulateConsentOutcome() preview'),
+                    content: Text(
+                      'AppLovin hasUserConsent: ${result.appLovinHasUserConsent}\n'
+                      'AppLovin doNotSell: ${result.appLovinDoNotSell}\n'
+                      'AdMob tagForChildDirectedTreatment: '
+                      '${result.admobTagForChildDirectedTreatment}\n'
+                      'AdMob tagForUnderAgeOfConsent: '
+                      '${result.admobTagForUnderAgeOfConsent}',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              child: const Text('Preview outcome (no device call)'),
+            ),
+          ),
+          const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: FilledButton(

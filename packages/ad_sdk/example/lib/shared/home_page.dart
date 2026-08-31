@@ -21,6 +21,7 @@ import '../demos/events_demo_page.dart';
 import '../demos/compliance_demo_page.dart';
 import '../demos/diagnostics_demo_page.dart';
 import '../demos/test_device_hash_demo_page.dart';
+import '../demos/adaptive_surface_demo_page.dart';
 import 'layout_helpers.dart';
 
 class HomePage extends StatelessWidget {
@@ -54,6 +55,16 @@ class HomePage extends StatelessWidget {
             color: Colors.blueGrey,
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const MrecDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.aspect_ratio,
+            title: 'Adaptive surface (T124)',
+            subtitle: 'One widget picks banner vs MREC by width',
+            color: Colors.teal,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const AdaptiveSurfaceDemoPage())),
           ),
           DemoTile(
             icon: Icons.view_agenda,

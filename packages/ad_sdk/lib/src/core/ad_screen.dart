@@ -47,23 +47,29 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
 
   /// Returns a [BannerAdWidget] that manages its own lifecycle.
   /// Place this anywhere in your widget tree (typically top or bottom of body).
-  Widget buildBanner() {
+  ///
+  /// T107 follow-up — [placement] forwards through to [BannerAdWidget];
+  /// without this, the widget's own `placement` param (added for T107) was
+  /// unreachable from the documented `AdScreen`/`buildBanner()` integration
+  /// path, so every per-placement cap/stat host apps actually use this
+  /// helper for silently stayed on `AdPlacement.unspecified`.
+  Widget buildBanner({AdPlacement placement = AdPlacement.unspecified}) {
     SafeLogger.d(_tag, 'buildBanner $runtimeType');
-    return const BannerAdWidget();
+    return BannerAdWidget(placement: placement);
   }
 
   /// Returns a [MrecAdWidget] that manages its own lifecycle.
   /// Place this anywhere in your widget tree.
-  Widget buildMrec() {
+  Widget buildMrec({AdPlacement placement = AdPlacement.unspecified}) {
     SafeLogger.d(_tag, 'buildMrec $runtimeType');
-    return const MrecAdWidget();
+    return MrecAdWidget(placement: placement);
   }
 
   /// Returns a [NativeAdWidget] that manages its own lifecycle.
   /// Place this anywhere in your widget tree.
-  Widget buildNative() {
+  Widget buildNative({AdPlacement placement = AdPlacement.unspecified}) {
     SafeLogger.d(_tag, 'buildNative $runtimeType');
-    return const NativeAdWidget();
+    return NativeAdWidget(placement: placement);
   }
 
   // ════════════════════════════════════════════════════
