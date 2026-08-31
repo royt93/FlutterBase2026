@@ -35,9 +35,9 @@ suite 1347 test pass, `flutter analyze` sạch.
 
 Cả 3 nguồn hội tụ mạnh vào cùng nhóm ý tưởng — gộp, không lặp:
 
-- **ENH-1 — Bootstrap API 1 hàm** cho ATT→UMP→initialize→splash (giảm boilerplate/footgun tích hợp đầu tiên). *[đồng thuận 3 nguồn]* → tách **T106**
+- **ENH-1 — Bootstrap API 1 hàm** cho ATT→UMP→initialize→splash (giảm boilerplate/footgun tích hợp đầu tiên). *[đồng thuận 3 nguồn]* → tách **T106** — **DONE (2.7.0)**
 - **ENH-2 — `AdPlacement` typed xuyên suốt** load/show/widget thay vì string rải rác. *[đồng thuận 3 nguồn]* → tách **T107**
-- **ENH-3 — Retry policy cấu hình theo format + loại lỗi** (no-fill/network/invalid-request/timeout khác nhau, hiện dùng 1 `Backoff` chung). *[đồng thuận 3 nguồn]* → tách **T108**
+- **ENH-3 — Retry policy cấu hình theo format + loại lỗi** (no-fill/network/invalid-request/timeout khác nhau, hiện dùng 1 `Backoff` chung). *[đồng thuận 3 nguồn]* → tách **T108** — **DONE (2.7.0)**
 - **ENH-4 — `AdSdkStateSnapshot`**: 1 `ValueListenable` tổng hợp init/consent/offline/VIP/fullscreen-busy/slot state, thay việc host phải ghép nhiều notifier riêng. *[đồng thuận 3 nguồn]* → tách **T109**
 - **ENH-5 — Redaction profile cho compliance/diagnostics export** (host tự chọn field nhạy cảm nào được gửi support). *[đồng thuận 2 nguồn]* → tách **T110** — **FIXED (2.5.0)**
 - **ENH-6 — `RemoteAdSafetyProvider` không có đường re-fetch định kỳ** — hiện phải `destroy()`+`initialize()` lại toàn bộ để áp remote config mới, mất hết lợi ích "remote" so với `refreshRevocationList()` (T95) đã có pattern đúng. (claude) → tách **T111**
@@ -48,8 +48,8 @@ Cả 3 nguồn hội tụ mạnh vào cùng nhóm ý tưởng — gộp, không 
 - **DEBT-1 — Tách `AdManager` ~7000 dòng** thành internal coordinators (Init/Consent/Lifecycle/Fullscreen/Retry) — 0 đổi hành vi, giảm blast-radius mỗi lần audit/fix. *[đồng thuận 3 nguồn]* — Effort XL, rủi ro nếu làm vội. → **user quyết định bỏ qua hẳn, không tạo ticket** (round 27, 2026-08-31).
 - **DEBT-2 — Hợp nhất lifecycle keyed inline-ad giữa 2 adapter** (map instance/dispose/revive lặp lại, chính là lý do B10 tồn tại — fix 1 bên quên bên kia). *[đồng thuận 3 nguồn]* → tách **T114**
 - **DEBT-3 — Chuẩn hoá primitive hủy callback async** (generation/bool-disposed/timer/Completer trộn lẫn tuỳ nơi). *[đồng thuận 3 nguồn]* → tách **T115**
-- **DEBT-4 — Contract-test chung cho `AdProviderAdapter`** — parity 2 adapter hiện chỉ được assert rải rác theo file riêng. *[đồng thuận 3 nguồn]* → tách **T116**
-- **DEBT-5 — Chia `example/lib/main.dart` (~2700 dòng)** theo từng demo/module — dễ đọc như cookbook. *[đồng thuận 2 nguồn]* → tách **T117**
+- **DEBT-4 — Contract-test chung cho `AdProviderAdapter`** — parity 2 adapter hiện chỉ được assert rải rác theo file riêng. *[đồng thuận 3 nguồn]* → tách **T116** — **DONE (2.7.0)**
+- **DEBT-5 — Chia `example/lib/main.dart` (~2700 dòng)** theo từng demo/module — dễ đọc như cookbook. *[đồng thuận 2 nguồn]* → tách **T117** — **DONE (2.7.0)**
 ## 4. Ý TƯỞNG MỚI (không cần backend)
 
 - **IDEA-1 — `FakeAdProviderAdapter`**: adapter thứ 3 hoàn toàn offline (không network, không ad-unit ID thật) cho CI/demo/App-Review build — giải đúng nỗi đau CI hiện tại phải force AdMob vì thiếu key AppLovin thật. (claude, cụ thể + rẻ) → tách **T118**
@@ -59,7 +59,7 @@ Cả 3 nguồn hội tụ mạnh vào cùng nhóm ý tưởng — gộp, không 
 - **IDEA-5 — Waterfall tuner on-device theo placement** — rolling score fill/latency/eCPM, khuyến nghị "ưu tiên provider X cho placement Y", chỉ auto-switch khi host opt-in. *[đồng thuận 3 nguồn]* → tách **T122**
 - **IDEA-6 — Smart prefetch theo hành trình người dùng** (host khai báo signal `levelStarted`/`screenEntered`, SDK học rolling time-to-show). *[đồng thuận 3 nguồn]* → tách **T123**
 - **IDEA-7 — `AdaptiveAdSurface`**: 1 widget tự chọn banner/MREC/native theo width/orientation. *[đồng thuận 3 nguồn]* → tách **T124**
-- **IDEA-8 — Offline incident recorder + replayable support bundle** — ring buffer state-transition timeline, ký + replay local, giảm thời gian support bug chỉ tái hiện trên 1 máy. *[đồng thuận 3 nguồn]* → tách **T125**
+- **IDEA-8 — Offline incident recorder + replayable support bundle** — ring buffer state-transition timeline, ký + replay local, giảm thời gian support bug chỉ tái hiện trên 1 máy. *[đồng thuận 3 nguồn]* → tách **T125** — **DONE (2.7.0, mechanism only — chưa auto-wire AdManager)**
 - **IDEA-9 — Creative fatigue guard on-device** — cooldown network/creative lặp quá dày (fail-open nếu thiếu metadata). *[đồng thuận 3 nguồn]* → tách **T126**
 ## 5. TÍNH NĂNG ĐỘC QUYỀN / FLAGSHIP
 

@@ -4,6 +4,39 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-08-31
+
+Round-27 batch C — five more tickets from `doc/task/BACKLOG-sdk-2026-08-31.md`
+(T116, T106, T108, T117, T125), each with new tests:
+
+- **New**: shared adapter contract-test suite (T116) — `test/adapter_contract_test.dart`
+  runs the same scenario matrix (consent epoch, show mutex, dispose, late
+  callback after dispose, revenue, App Open watchdog, N-instance banner
+  slots) against both `AdMobAdapter` and `AppLovinAdapter`. Test-only; no
+  production code changed.
+- **New**: `bootstrap(AdBootstrapOptions)` (T106) — sequences
+  `requestAtt() → requestUmpConsent() → initialize()` in the one order the
+  README already documented doing by hand, returning
+  `AdBootstrapResult { att, ump, initSuccess, gaid }`. Non-breaking: the
+  lower-level calls are unchanged, `bootstrap()` only wraps them.
+- **New**: `AdRetryPolicy` (T108) — optional per-slot retry policy layered on
+  `Backoff` (now exported): `isRetryable(errorCode)` to stop retrying
+  dead-end errors, stable per-failure jitter, and
+  `resetOnConnectivityRestored` so a network-outage failure doesn't wait out
+  a backoff computed while offline. Defaults to `null` everywhere — no
+  behavior change unless a host opts a slot in via
+  `AdManager().adapter?.interstitialSlot.retryPolicy = ...`.
+- **New**: `IncidentRecorder`/`IncidentBundle` (T125) — a small bounded ring
+  buffer of state-transition snapshots (distinct from the existing 5000-entry
+  `AdEventLog`), exportable as an Ed25519-signed bundle (reusing the same
+  on-device key as `exportSignedComplianceReport()`) and replayable fully
+  locally via `dart run tool/incident_replay.dart <path>`.
+- **Chore**: `example/lib/main.dart` (T117) split from ~2729 lines into
+  `config/`, `bootstrap/`, `shared/`, and one `demos/*.dart` file per format
+  (16 files) — `main.dart` now only holds `main()` plus a barrel `export` of
+  every split file, so nothing under `example/test/` or
+  `example/integration_test/` needed changes.
+
 ## [2.6.0] - 2026-08-31
 
 Round-27 batch B — five more enhancement/idea tickets from
