@@ -44,7 +44,16 @@ import 'shimmer_view.dart';
 /// const NativeAdWidget(height: 120)
 /// ```
 class NativeAdWidget extends StatefulWidget {
-  const NativeAdWidget({super.key, this.templateType = TemplateType.medium, this.height});
+  const NativeAdWidget({
+    super.key,
+    this.templateType = TemplateType.medium,
+    this.height,
+    this.placement = AdPlacement.unspecified,
+  });
+
+  /// T107 — tags this instance for analytics/per-placement caps, same as
+  /// the `placement` param on `showInterstitialAd`/`showRewardedAd`.
+  final AdPlacement placement;
 
   /// AdMob's built-in native template layout. Ignored by AppLovin (no
   /// equivalent concept — `MaxNativeAdView` is a custom-drawn layout).
@@ -260,7 +269,9 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
           height: _height,
           child: () =>
               _AppLovinMaxNativeView(
-                  nativeId: AdManager().appLovinNativeId, instanceKey: this),
+                  nativeId: AdManager().appLovinNativeId,
+                  instanceKey: this,
+                  placement: widget.placement),
         );
       },
     );
@@ -348,9 +359,14 @@ class _NativeContainer extends StatelessWidget {
 /// [AdProviderAdapter.native]'s `isLoaded`/`hasError` directly from its own
 /// listener callbacks — the adapter has no load flow of its own for native.
 class _AppLovinMaxNativeView extends StatelessWidget {
-  const _AppLovinMaxNativeView({required this.nativeId, required this.instanceKey});
+  const _AppLovinMaxNativeView({
+    required this.nativeId,
+    required this.instanceKey,
+    required this.placement,
+  });
 
   final String nativeId;
+  final AdPlacement placement;
 
   /// T65 (phase 1) — identifies which mounted [NativeAdWidget] this view
   /// belongs to, so its load/error callbacks update only ITS OWN
@@ -399,7 +415,7 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             adapter.eventSink?.call(AdClickEvent(
               providerTag: '[AppLovin]',
               type: AdSlotType.native,
-              placement: AdPlacement.unspecified,
+              placement: placement,
             ));
           } catch (e) {
             SafeLogger.e('NativeAdWidget',

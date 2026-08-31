@@ -60,6 +60,8 @@ export 'src/state/ad_placement.dart';
 // only an internal cooldown-calculation detail of AdSlot.beginLoad()'s
 // default parameter — nothing outside this package's own tests needs to
 // name the type.
+export 'src/adapters/fake_adapter.dart';
+export 'src/state/ad_sdk_state_snapshot.dart';
 export 'src/state/ad_slot.dart';
 
 // Utilities

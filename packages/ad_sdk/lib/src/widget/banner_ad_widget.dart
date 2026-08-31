@@ -27,6 +27,7 @@ class BannerAdWidget extends StatefulWidget {
   const BannerAdWidget({
     super.key,
     this.collapseAnimationDuration = const Duration(milliseconds: 250),
+    this.placement = AdPlacement.unspecified,
   });
 
   /// T91 — how long the banner takes to animate its height when it
@@ -34,6 +35,11 @@ class BannerAdWidget extends StatefulWidget {
   /// ready), instead of an abrupt `SizedBox.shrink()` layout jump. Pass
   /// `Duration.zero` to disable and get the old instant-jump behavior.
   final Duration collapseAnimationDuration;
+
+  /// T107 — tags this instance for analytics/per-placement caps, same as
+  /// the `placement` param on `showInterstitialAd`/`showRewardedAd`. Every
+  /// `AdLoadEvent`/`AdShowEvent` this banner emits carries it.
+  final AdPlacement placement;
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -386,6 +392,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
                 adViewId: adViewId as AdViewId,
                 bannerId: AdManager().appLovinBannerId,
                 autoRefresh: AdManager().bannerAutoRefreshEnabled(this),
+                placement: widget.placement,
               ),
             );
           },
@@ -500,11 +507,13 @@ class _AppLovinMaxAdView extends StatelessWidget {
     required this.adViewId,
     required this.bannerId,
     required this.autoRefresh,
+    required this.placement,
   });
 
   final AdViewId adViewId;
   final String bannerId;
   final ValueListenable<bool> autoRefresh;
+  final AdPlacement placement;
 
   @override
   Widget build(BuildContext context) {
@@ -529,7 +538,7 @@ class _AppLovinMaxAdView extends StatelessWidget {
               AdManager().adapter?.eventSink?.call(AdClickEvent(
                     providerTag: '[AppLovin]',
                     type: AdSlotType.banner,
-                    placement: AdPlacement.unspecified,
+                    placement: placement,
                   ));
             },
             onAdExpandedCallback: (ad) =>

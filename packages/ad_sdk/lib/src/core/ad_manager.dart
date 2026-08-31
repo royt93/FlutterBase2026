@@ -26,6 +26,7 @@ import '../monetization/fill_rate_monitor.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
+import '../state/ad_sdk_state_snapshot.dart';
 import '../state/ad_slot.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/experiment_bucket.dart' as experiment;
@@ -78,6 +79,10 @@ class AdManager with WidgetsBindingObserver {
     AdLoadingDialog.isShowingNotifier.addListener(_recomputeFullscreenBusy);
     AdScreenRouteLogger.isDialogOnTopNotifier
         .addListener(_recomputeFullscreenBusy);
+    // T109 — same reasoning: these three also live for the whole process.
+    _offlineNotifier.addListener(_scheduleStateSnapshotRecompute);
+    _canRequestAdsNotifier.addListener(_scheduleStateSnapshotRecompute);
+    initRevision.addListener(_scheduleStateSnapshotRecompute);
   }
 
   static final AdManager _instance = AdManager._internal();
@@ -1365,7 +1370,56 @@ class AdManager with WidgetsBindingObserver {
 
   void _recomputeFullscreenBusy() {
     fullscreenBusy.value = _fullscreenBusyReason != null;
+    _scheduleStateSnapshotRecompute();
   }
+
+  // ─── T109 — AdSdkStateSnapshot ─────────────────────────────────────────────
+  //
+  // Combines isInitialised/canRequestAds/isOffline/isVipActive/fullscreenBusy
+  // into one ValueListenable so a host doesn't have to hand-wire five
+  // separate notifiers. Every source notifier here already lives for the
+  // whole process (this is a singleton) — the ONLY per-session-lived source
+  // is VIP's activeListenable, already subscribed/unsubscribed correctly
+  // around every init/destroy cycle by _onVipActiveChanged's own callers
+  // (see `vip.activeListenable.addListener(_onVipActiveChanged)` at init and
+  // the matching `removeListener` in destroy() / before a fresh init) — this
+  // getter just hangs an extra recompute off that existing callback instead
+  // of adding its own subscription.
+
+  AdSdkStateSnapshot _computeStateSnapshot() => AdSdkStateSnapshot(
+        isInitialised: isInitialised,
+        canRequestAds: canRequestAds,
+        isOffline: isOfflineListenable.value,
+        isVipActive: _vipManager?.isActive ?? false,
+        fullscreenBusy: fullscreenBusy.value,
+      );
+
+  late final ValueNotifier<AdSdkStateSnapshot> _stateSnapshotNotifier =
+      ValueNotifier<AdSdkStateSnapshot>(_computeStateSnapshot());
+
+  bool _stateSnapshotRecomputeScheduled = false;
+
+  void _scheduleStateSnapshotRecompute() {
+    // Coalesces bursts (e.g. offline flips AND canRequestAds flips in the
+    // same synchronous callback) into a single listener notification instead
+    // of one per source.
+    if (_stateSnapshotRecomputeScheduled) return;
+    _stateSnapshotRecomputeScheduled = true;
+    scheduleMicrotask(() {
+      _stateSnapshotRecomputeScheduled = false;
+      final next = _computeStateSnapshot();
+      if (next != _stateSnapshotNotifier.value) {
+        _stateSnapshotNotifier.value = next;
+      }
+    });
+  }
+
+  /// T109 — one `ValueListenable` combining init/consent/offline/VIP/
+  /// fullscreen-busy state, coalesced onto a microtask so a burst of
+  /// several source changes in the same synchronous callback only notifies
+  /// listeners once. Read `.value` for the current snapshot immediately, or
+  /// wrap in a `ValueListenableBuilder`/`addListener` to react to changes.
+  ValueListenable<AdSdkStateSnapshot> get stateSnapshot => _stateSnapshotNotifier;
 
   void _attachFullscreenBusySlotListeners() {
     final ad = _adapterField;
@@ -3424,6 +3478,7 @@ class AdManager with WidgetsBindingObserver {
   /// `_scheduleFirstSecondaryLoad` only fires after the App Open slot
   /// transitions to ready — which never happens during a VIP session.
   void _onVipActiveChanged() {
+    _scheduleStateSnapshotRecompute();
     final vip = _vipManager;
     final ad = _adapter;
     if (vip == null || ad == null) return;

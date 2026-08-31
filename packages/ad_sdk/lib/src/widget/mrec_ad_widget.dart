@@ -23,7 +23,14 @@ import 'shimmer_view.dart';
 /// const MrecAdWidget()
 /// ```
 class MrecAdWidget extends StatefulWidget {
-  const MrecAdWidget({super.key});
+  const MrecAdWidget({
+    super.key,
+    this.placement = AdPlacement.unspecified,
+  });
+
+  /// T107 — tags this instance for analytics/per-placement caps, same as
+  /// the `placement` param on `showInterstitialAd`/`showRewardedAd`.
+  final AdPlacement placement;
 
   @override
   State<MrecAdWidget> createState() => _MrecAdWidgetState();
@@ -331,6 +338,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
                 adViewId: adViewId as AdViewId,
                 mrecId: AdManager().appLovinMrecId,
                 autoRefresh: AdManager().mrecAutoRefreshEnabled(this),
+                placement: widget.placement,
               ),
             );
           },
@@ -443,11 +451,13 @@ class _AppLovinMaxMrecView extends StatelessWidget {
     required this.adViewId,
     required this.mrecId,
     required this.autoRefresh,
+    required this.placement,
   });
 
   final AdViewId adViewId;
   final String mrecId;
   final ValueListenable<bool> autoRefresh;
+  final AdPlacement placement;
 
   @override
   Widget build(BuildContext context) {
@@ -470,7 +480,7 @@ class _AppLovinMaxMrecView extends StatelessWidget {
               AdManager().adapter?.eventSink?.call(AdClickEvent(
                     providerTag: '[AppLovin]',
                     type: AdSlotType.mrec,
-                    placement: AdPlacement.unspecified,
+                    placement: placement,
                   ));
             },
             onAdExpandedCallback: (ad) =>

@@ -343,6 +343,18 @@ void main() {
           reason: 'reopening the gate re-triggers a fresh load');
     });
   });
+
+  group('T107 — placement', () {
+    test('defaults to AdPlacement.unspecified', () {
+      const widget = MrecAdWidget();
+      expect(widget.placement, AdPlacement.unspecified);
+    });
+
+    test('accepts a custom placement', () {
+      const widget = MrecAdWidget(placement: AdPlacement.shop);
+      expect(widget.placement, AdPlacement.shop);
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager

@@ -4,6 +4,36 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-08-31
+
+Round-27 batch B — five more enhancement/idea tickets from
+`doc/task/BACKLOG-sdk-2026-08-31.md`, each with new tests:
+
+- **New**: `AdManager().refreshRemoteSafetyParams()` (T111) — re-fetches and
+  applies `RemoteAdSafetyProvider` params on demand, mirroring
+  `refreshRevocationList()`'s already-established fail-open pattern, instead
+  of requiring a full `destroy()`+`initialize()` cycle to pick up a remote
+  config change.
+- **New**: `AdConfig.safetyRampSchedule` (T121) — an optional, fully local
+  (no network) `Map<Duration, AdSafetyParams>` keyed by install age (e.g.
+  D0/D3/D7/D30), letting an app ramp caps up gradually without any
+  backend. Applied before `remoteSafetyProvider`, so a remote override
+  always wins if both are configured.
+- **New**: `BannerAdWidget`/`MrecAdWidget`/`NativeAdWidget` (T107) now accept
+  an optional `placement` constructor parameter (default
+  `AdPlacement.unspecified`, not a breaking change) — the `AdClickEvent`
+  each widget emits on an AppLovin click now carries it instead of always
+  reporting `unspecified`.
+- **New**: `AdManager().stateSnapshot` (T109) — one
+  `ValueListenable<AdSdkStateSnapshot>` combining
+  isInitialised/canRequestAds/isOffline/isVipActive/fullscreenBusy, coalesced
+  onto a microtask, instead of hand-wiring five separate notifiers.
+- **New**: `FakeAdProviderAdapter` (T118) — a fully offline
+  `AdProviderAdapter` implementation (no network, no ad-unit ID) for
+  CI/demo/App-Store-review builds, wired in via the existing
+  `AdManager.debugAdapterFactory` seam. Renders an unmistakably-fake
+  placeholder for banner/MREC/native instead of silently rendering nothing.
+
 ## [2.5.0] - 2026-08-31
 
 Round-27 roadmap, batch A (`doc/task/BACKLOG-sdk-2026-08-31.md`) — five
