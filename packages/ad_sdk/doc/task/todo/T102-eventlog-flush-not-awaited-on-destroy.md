@@ -42,9 +42,40 @@ về nguyên trạng (`unawaited`), verify lại: full suite 1350 test pass tron
 
 **Bài học, để người sau không lặp lại:** ticket này TỰ ghi rõ "await flush()
 CÓ TIMEOUT HỮU HẠN" — bỏ qua timeout (chỉ đổi `unawaited`→`await` trần) là
-đúng thứ gây treo. Bước tiếp theo đúng đắn: (1) tìm chính xác test nào treo
-bằng cách bisect `ad_manager_core_test.dart` (chạy nửa file, thu hẹp dần),
-(2) ĐỌC hiểu tại sao trước khi thêm timeout — timeout che triệu chứng
-(destroy() không còn treo) nhưng nếu root cause là 1 vòng lặp chờ thật (ví dụ
-`_persistChain` bị 1 write khác giữ vĩnh viễn), timeout chỉ trì hoãn, không
-sửa. Không lặp lại sai lầm round-26 fix#5 (ép fix nhanh không hiểu hết cơ chế).
+đúng thứ gây treo. Không lặp lại sai lầm round-26 fix#5 (ép fix nhanh không
+hiểu hết cơ chế).
+
+## Bisect thêm (2026-08-31, phiên sau) — VẪN CHƯA TÌM RA, dừng lại đúng lúc
+
+Dùng `flutter test test/ad_manager_core_test.dart --total-shards=N
+--shard-index=i` (round-robin theo index test, xác nhận qua đối chiếu tập
+hợp) để nhị phân tìm test/tổ hợp gây treo, mỗi lần bật tạm fix `await` rồi
+chạy 1 shard với watchdog kill sau 40s:
+
+- Chia đôi (2 shard): **shard 1/2 treo**, shard 0/2 chạy xong 8s (82 test).
+- Chia tư (4 shard): trong 2 shard hợp thành shard 1/2 cũ, **shard 2/4 treo**
+  (shard 3/4 chạy xong 8s).
+- Chia tám, thử đúng 2 shard hợp thành shard 2/4 (xác nhận bằng round-robin:
+  shard `i` của N-shard ⊃ shard `i` và shard `i+N/2` của (2N)-shard) — **CẢ
+  HAI (2/8 và 6/8) ĐỀU CHẠY XONG BÌNH THƯỜNG, không treo cái nào.**
+
+Tức là: treo chỉ xảy ra khi đủ SỐ LƯỢNG test lớn (≥ ~1/4 file, khoảng 40+
+test) chạy chung 1 tiến trình, nhưng KHÔNG tái hiện được khi tách đúng tập
+test đó thành 2 tiến trình nhỏ hơn. Đây không phải "1 test cụ thể gây treo"
+mà giống **tích lũy trạng thái/tài nguyên theo số lượng test** (nghi ngờ:
+timer/subscription/completer thật của platform-channel mock không được dọn
+giữa các test trong `ad_manager_core_test.dart`, tới một ngưỡng thì
+`_persistChain`/`flush()` của 1 `AdEventLog` nào đó chờ mãi 1 write không bao
+giờ resolve). Đã dừng bisect ở đây — 6 lần chạy shard không đủ để tìm ra quy
+luật, và nghi ngờ ban đầu (1 test `debugEventLog` cụ thể) đã bị loại (test đó
+chạy 1 mình không treo, ở cả 2 lẫn 4 lẫn 8 shard).
+
+**Không đoán bừa nguyên nhân sâu hơn.** Bước tiếp theo cho ai nhận lại ticket
+này: cần công cụ khác `--total-shards` (round-robin làm việc tái hiện không
+ổn định) — thử bisect bằng cách comment/`skip: true` từng nửa file theo THỨ
+TỰ GỐC (không round-robin) để giữ đúng chuỗi tương tác giữa các test, hoặc
+dùng `dart --observe`/timeline để bắt trực tiếp Future nào đang treo lúc
+`flutter test` bị kill. Fix bằng timeout hữu hạn (không phải bỏ qua hoàn
+toàn) vẫn là lựa chọn hợp lý NẾU điều tra sâu hơn xác nhận đây thật sự là
+"chờ vô hạn 1 thứ không bao giờ tới" (test-only artifact) chứ không phải bug
+thật trong `_persistChain`.
