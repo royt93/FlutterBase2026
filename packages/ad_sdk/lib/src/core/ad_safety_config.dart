@@ -387,6 +387,15 @@ class AdSafetyConfig {
     _refreshRiskScore();
   }
 
+  /// T111 — swap in a new [params] WITHOUT the rest of [init]'s cold-start
+  /// bookkeeping (`_suspiciousViolationCount`/`_sessionStartTime` re-read
+  /// from `prefs`). A live refresh must not reset a session already in
+  /// progress — only [init] (a real cold start) should do that.
+  static void updateParams(AdSafetyParams params,
+      {bool isRelease = kReleaseMode}) {
+    _params = applyDryRunReleaseGuard(params, isRelease: isRelease);
+  }
+
   /// Check whether a fullscreen ad (inter/rewarded/app-open) can be shown.
   /// Honours `params.dryRun` — if set, blocks are logged but always return ok.
   ///

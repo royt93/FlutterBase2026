@@ -1779,6 +1779,15 @@ void main() {
       });
     });
   });
+  // T111's own tests live in test/refresh_remote_safety_params_test.dart —
+  // deliberately NOT in this group: this file already runs 80+ real
+  // AdMobAdapter.initialize() calls in sequence, and appending more here
+  // triggered a deterministic (not flaky) google_mobile_ads internal null
+  // check a few tests after the "slower than the 5s timeout" case above,
+  // which leaves its real GMA init orphaned rather than cancelled. Root
+  // cause is in that pre-existing test's interaction with the real plugin,
+  // not in T111's logic — isolating into a fresh file sidesteps it rather
+  // than papering over it.
 
   // Round-23 audit, MAJOR — impression accounting used to key off the REWARD,
   // so a rewarded ad the user watched for two seconds and closed counted

@@ -390,6 +390,7 @@ class AdConfig {
     this.adNotReadyMessage = 'Ad not ready — please wait and try again.',
     this.adLoadingMessage = 'Loading…',
     this.safety = AdSafetyParams.auto,
+    this.safetyRampSchedule,
     this.vipKeyValidator,
     this.vipDialogStrings = const VipDialogStrings(),
     this.maxVipStackDuration = const Duration(days: 90),
@@ -444,6 +445,27 @@ class AdConfig {
 
   /// Tunable safety parameters (caps, throttle, click-rate, dryRun, ...).
   final AdSafetyParams safety;
+
+  /// T121 — fully local alternative to a remote-config safety ramp
+  /// (`remoteSafetyProvider` in [AdManager.initialize], which needs a
+  /// network/Firebase). Keyed by "how long since this device's first
+  /// install" — `initialize()` picks the entry whose key is the LARGEST
+  /// duration still `<=` that elapsed time (i.e. the most advanced stage
+  /// reached) and uses it as the base [AdSafetyParams] instead of [safety].
+  /// `null` (default) — the current behaviour, `safety` used unchanged. An
+  /// empty map or a schedule with no entry `<=` elapsed time also falls back
+  /// to [safety]. A `remoteSafetyProvider` override, if also supplied, is
+  /// still applied ON TOP of whichever ramp stage is picked — remote always
+  /// wins on a field both touch.
+  ///
+  /// ```dart
+  /// safetyRampSchedule: {
+  ///   Duration.zero: AdSafetyParams(maxFullscreenAdsPerDay: 2), // D0
+  ///   Duration(days: 3): AdSafetyParams(maxFullscreenAdsPerDay: 4),
+  ///   Duration(days: 7): AdSafetyParams(maxFullscreenAdsPerDay: 6),
+  /// }
+  /// ```
+  final Map<Duration, AdSafetyParams>? safetyRampSchedule;
 
   // ─── VIP ──────────────────────────────────────────────────────────────────
 

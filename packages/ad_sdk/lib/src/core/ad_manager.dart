@@ -106,6 +106,15 @@ class AdManager with WidgetsBindingObserver {
   AdConfig? _config;
   AdProviderAdapter? _adapterField;
 
+  /// T111 — kept from the last [initialize] call so [refreshRemoteSafetyParams]
+  /// can re-fetch without a full destroy()+initialize() cycle. Cleared by
+  /// [destroy] alongside [_config].
+  RemoteAdSafetyProvider? _remoteSafetyProvider;
+
+  @visibleForTesting
+  set debugRemoteSafetyProvider(RemoteAdSafetyProvider? p) =>
+      _remoteSafetyProvider = p;
+
   /// T75 — every assignment (real init, `destroy()`'s reset, and the
   /// `debugSetAdapter` test seam) funnels through this setter so
   /// [fullscreenBusy]'s slot listeners always stay attached to whichever
@@ -2242,7 +2251,33 @@ class AdManager with WidgetsBindingObserver {
       // T88 — a remote provider gets a bounded window to answer; a slow or
       // failing backend must never block SDK init. Validated + merged onto
       // config.safety — the local values are always the fallback.
+      _remoteSafetyProvider = remoteSafetyProvider;
       var effectiveSafety = config.safety;
+
+      // T121 — fully local alternative to remoteSafetyProvider: pick the
+      // ramp stage for "how long since this device's first install" BEFORE
+      // any remote override below, so a remoteSafetyProvider (if also
+      // supplied) always wins on a field both touch, not the ramp.
+      final rampSchedule = config.safetyRampSchedule;
+      if (rampSchedule != null && rampSchedule.isNotEmpty) {
+        final installedAtMs =
+            prefs.getFirstInstallAtMs() ?? DateTime.now().millisecondsSinceEpoch;
+        final elapsed = Duration(
+            milliseconds:
+                DateTime.now().millisecondsSinceEpoch - installedAtMs);
+        Duration? bestStage;
+        for (final stage in rampSchedule.keys) {
+          if (stage <= elapsed && (bestStage == null || stage > bestStage)) {
+            bestStage = stage;
+          }
+        }
+        if (bestStage != null) {
+          effectiveSafety = rampSchedule[bestStage]!;
+          SafeLogger.d(_tag,
+              '📈 safetyRampSchedule: applied stage $bestStage (device age $elapsed)');
+        }
+      }
+
       if (remoteSafetyProvider != null) {
         try {
           final overrides = await remoteSafetyProvider
@@ -2250,7 +2285,7 @@ class AdManager with WidgetsBindingObserver {
               .timeout(const Duration(seconds: 5));
           if (overrides != null) {
             effectiveSafety =
-                applyRemoteSafetyOverrides(config.safety, overrides);
+                applyRemoteSafetyOverrides(effectiveSafety, overrides);
             SafeLogger.d(_tag, '🌐 remote AdSafetyParams overrides applied');
           }
         } catch (e) {
@@ -3480,6 +3515,44 @@ class AdManager with WidgetsBindingObserver {
       unawaited(loadInterstitial());
       unawaited(loadRewardedAd());
     }
+  }
+
+  /// T111 — re-fetch [RemoteAdSafetyProvider] overrides and apply them
+  /// immediately, without a full `destroy()`+`initialize()` cycle. Mirrors
+  /// `VipManager.refreshRevocationList`'s contract: **fails open** on every
+  /// error (fetch throws, times out, or returns `null`) by leaving the
+  /// currently-applied [AdSafetyParams] untouched — a network hiccup must
+  /// never loosen or tighten safety limits by accident.
+  ///
+  /// No-op if [initialize] was never called with a `remoteSafetyProvider`, or
+  /// if the SDK isn't currently initialised.
+  Future<void> refreshRemoteSafetyParams() async {
+    final provider = _remoteSafetyProvider;
+    final cfg = _config;
+    if (provider == null || cfg == null) return;
+
+    Map<String, dynamic>? overrides;
+    try {
+      overrides =
+          await provider.fetchSafetyParamOverrides().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      SafeLogger.w(
+          _tag, '⚠️ refreshRemoteSafetyParams: fetch failed, keeping current params: $e');
+      return;
+    }
+    if (overrides == null) return;
+
+    // The SDK could have been destroy()'d while the fetch above was in
+    // flight — same guard shape as refreshRevocationList's disposed check.
+    if (_config == null) {
+      SafeLogger.w(_tag,
+          'refreshRemoteSafetyParams: destroyed mid-fetch — overrides discarded');
+      return;
+    }
+
+    final merged = applyRemoteSafetyOverrides(cfg.safety, overrides);
+    AdSafetyConfig.updateParams(merged, isRelease: kReleaseMode);
+    SafeLogger.d(_tag, '🌐 refreshRemoteSafetyParams: applied new overrides');
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -5352,6 +5425,7 @@ class AdManager with WidgetsBindingObserver {
       _adapterField = null;
     }
     _config = null;
+    _remoteSafetyProvider = null;
     // Reset so the NEXT initialize() re-arms the inter+rewarded preload.
     // Without this, a re-init without explicit destroy would skip secondary
     // loads (preserves Fix V from 1.x).
