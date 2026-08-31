@@ -1992,6 +1992,34 @@ void main() {
       expect(() => AdManager().experimentBucket('exp', buckets: 0),
           throwsArgumentError);
     });
+
+    // Round-27 backlog B1 (P0) — the exact call order the class doc's own
+    // example uses: BEFORE AdPreferences has ever bootstrapped. This is not
+    // an edge case — [pickProviderCohort]'s doc comment REQUIRES calling it
+    // before `initialize()`, which is the only thing that ever calls
+    // `AdPreferences.getInstance()` for the first time.
+    test(
+        'called before AdPreferences ever bootstraps (the documented '
+        'pickProviderCohort call order) must not collapse every device into '
+        'the same bucket', () {
+      AdPreferences.resetForTest();
+      AdManager().debugResetPreInitExperimentId();
+      AdManager().debugCurrentDeviceGAID = '';
+      expect(AdPreferences.instanceOrNull, isNull,
+          reason: 'sanity: this test must reproduce the actual pre-bootstrap '
+              'state, not one already warmed up by a prior test');
+
+      final buckets = <int>{};
+      for (var i = 0; i < 30; i++) {
+        AdPreferences.resetForTest();
+        AdManager().debugResetPreInitExperimentId();
+        buckets.add(AdManager().experimentBucket('exp', buckets: 5));
+      }
+      expect(buckets.length, greaterThan(1),
+          reason: '30 distinct never-bootstrapped installs all landing in '
+              'the same bucket means pickProviderCohort() is a no-op for '
+              'every host that follows its own documented call order');
+    });
   });
 
   // T90 — deterministic provider A/B split, built on experimentBucket (T93).
@@ -2323,6 +2351,70 @@ void main() {
       expect(find.text(ConsentDialogStrings.vi.title), findsNothing,
           reason: 'destroy() must cancel the pending consent-dialog Timer, '
               'not just the re-scheduling guard flag');
+    });
+
+    testWidgets(
+        'round-27 B7: reinit-without-destroy() (via _resetGuardState, the '
+        'same function initialize()\'s "auto-disposing previous" branch '
+        'calls) also cancels the pending dialog Timer', (tester) async {
+      // ConsentManager is a persistent static singleton (bootstrap() reuses
+      // it) — reset it or an earlier test in this group answering the
+      // dialog (setting hasBeenAsked=true, persisted) leaks in here and
+      // _maybeScheduleConsentDialog's `if (mgr.hasBeenAsked) return;` guard
+      // makes it a no-op before ever creating a Timer, independently of
+      // whatever this test is trying to prove.
+      ConsentManager.resetForTest();
+      final prefs = await AdPreferences.getInstance();
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+      // The underlying SharedPreferences mock backing AdPreferences is NOT
+      // reset between tests in this group (only AdManager().destroy() runs
+      // in tearDown, see above) — an earlier test in this same group answers
+      // the dialog and persists hasBeenAsked=true, which bootstrap() above
+      // would otherwise silently inherit. Force the "never asked" state this
+      // test actually needs, regardless of what ran before it.
+      await consentMgr.reset();
+      final mgr = AdManager();
+      mgr.debugConsentManager = consentMgr;
+      mgr.debugConfig = const AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+          bannerId: 'x',
+          interstitialId: 'x',
+          appOpenId: 'x',
+          rewardedId: 'x',
+        ),
+        autoRequestUmpConsent: false,
+        autoShowConsentDialog: true,
+        consentDialogPostSplashDelay: Duration(milliseconds: 200),
+      );
+      addTearDown(() => mgr.destroy());
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      mgr.setNavigatorKey(navigatorKey);
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const SizedBox(),
+      ));
+
+      mgr.markSplashInactive(); // schedules the built-in dialog, delay=200ms
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(mgr.debugConsentDialogTimerActive, isTrue,
+          reason: 'sanity: the Timer must actually be pending before the '
+              'reinit-without-destroy() below, or this test proves nothing');
+
+      // Round-26 only fixed the destroy() entry point. A host that calls
+      // initialize() again WITHOUT destroy() first (documented, supported
+      // path — "auto-disposing previous") reaches the guard-flag reset ONLY
+      // through _resetGuardState(), never through destroy()'s own inline
+      // block. debugResetGuardState() is that same function's test seam.
+      mgr.debugResetGuardState();
+
+      expect(mgr.debugConsentDialogTimerActive, isFalse,
+          reason: 'reinit-without-destroy() must cancel the pending '
+              'consent-dialog Timer too — round-26 only wired this into '
+              'destroy()\'s own inline cleanup, not into the single '
+              '"guard state" function both entry points share');
     });
   });
 

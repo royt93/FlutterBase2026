@@ -4,6 +4,57 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] - 2026-08-31
+
+Round-27: after round-26, three independent reviewers (codex, Gemini, Claude)
+read the whole SDK again looking for BUGS, enhancements, tech debt and new
+feature ideas beyond what round-26 covered — see `doc/task/BACKLOG-sdk-2026-08-31.md`.
+Five of the newly-found bugs are fixed here, each mutation-verified (revert
+the fix, watch the new test go red first) except B5 (example-app-only, no
+unit test harness for it):
+
+- **Fix (P0)**: `AdManager.pickProviderCohort()`/`experimentBucket()` collapsed
+  every install into the SAME bucket when called in the exact order their own
+  docstring requires — before `initialize()`. `AdPreferences` hadn't
+  bootstrapped yet and the device GAID hadn't been fetched yet, so the
+  install id used to hash the bucket silently fell back to an empty string
+  for every device. The A/B provider-split feature (`pickProviderCohort`) was
+  a no-op for any host following the documented call order. Now mints a
+  random id in memory the first time it's needed pre-bootstrap (stable for
+  the life of the process) and hands it to `AdPreferences` to persist once it
+  bootstraps, so it's the SAME id — not a second random one — that becomes
+  stable across future launches too. Both functions stay synchronous; no
+  signature change.
+- **Fix**: `installAdCrashGuard()` wasn't idempotent — a repeated
+  `initialize()` in one process (provider switch, logout/login) stacked
+  another closure layer around `FlutterError.onError`/
+  `PlatformDispatcher.onError` on top of the last one every time, so a crash
+  got handled N times and the old closure chain never got collected. Now
+  tracks the identity of the handler it last installed and no-ops only when
+  that handler is still in place.
+- **Fix**: a scheduled consent-dialog `Timer` and its re-scheduling guard
+  flag were only cleaned up inside `destroy()`. A host calling `initialize()`
+  again WITHOUT `destroy()` first (a documented, supported "auto-disposing
+  previous" path) reached none of that cleanup, leaving a stale Timer
+  (capturing the OLD `AdConfig`/`ConsentManager`) alive into the new session.
+  Moved into `_resetGuardState()`, the one function both entry points already
+  share for exactly this class of bug.
+- **Fix**: `TopToast` — an older toast's own delayed dismiss (fired late,
+  right after a newer toast replaced it) could remove the newer toast instead
+  of itself, since both shared one static dismiss callback. The delayed
+  dismiss is now a cancellable `Timer` (cancelled on dispose) and dismissal
+  is scoped by identity — a toast can only ever remove itself, never
+  whichever one happens to be current.
+- **Fix (example app)**: `example`'s `EventBuffer` subscribed to
+  `AdManager().events` once at startup; `destroy()` closes and replaces that
+  stream, so the "Event stream" and "Revenue dashboard" demo pages silently
+  stopped updating after using the "Slot state panel" demo's own
+  Destroy/Re-initialize buttons. Now re-subscribes on every
+  `AdManager().initRevision` change.
+
+No behaviour a host observes through documented, non-internal APIs changes;
+nothing here is a breaking change.
+
 ## [2.4.2] - 2026-08-31
 
 Round-26 audit, finding #5 — closed on a third attempt after the first two

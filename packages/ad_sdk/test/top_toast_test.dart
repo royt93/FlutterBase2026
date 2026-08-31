@@ -82,4 +82,33 @@ void main() {
     // The original 5s timer firing later on an unmounted State must not throw.
     await tester.pumpAndSettle(const Duration(seconds: 6));
   });
+
+  testWidgets(
+      'round-27 B4: a superseded toast whose own dismiss fires late must '
+      'not remove the newer toast', (tester) async {
+    late BuildContext ctx;
+    await tester.pumpWidget(harness((c) => ctx = c));
+
+    // 'first' auto-dismisses almost immediately. Superseding it with
+    // 'second' right after mounting (before a frame has processed the
+    // removal) reproduces the exact window the pre-fix shared static
+    // `_dismiss()` raced: 'first' logically removed from `_current`, but
+    // its State not yet actually unmounted, so its own delayed dismiss
+    // still runs and — pre-fix — tore down whatever `_current` was BY
+    // THEN, which is 'second'.
+    TopToast.show(ctx,
+        icon: Icons.info, message: 'first', duration: Duration.zero);
+    await tester.pump();
+
+    TopToast.show(ctx,
+        icon: Icons.info, message: 'second', duration: const Duration(seconds: 5));
+
+    // Let 'first''s (near-)immediate auto-dismiss run its course.
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('second'), findsOneWidget,
+        reason: "'first' superseding-then-firing-late must not dismiss "
+            "'second' just because they used to share one static _dismiss()");
+  });
 }

@@ -370,11 +370,41 @@ class AdManager with WidgetsBindingObserver {
   /// ```
   int experimentBucket(String key, {required int buckets}) {
     final gaid = _currentDeviceGAID.trim();
-    final installId = (gaid.isNotEmpty && gaid.toLowerCase() != _zeroGaid)
-        ? gaid
-        : (AdPreferences.instanceOrNull?.getOrCreateExperimentInstallId() ??
-            gaid);
+    if (gaid.isNotEmpty && gaid.toLowerCase() != _zeroGaid) {
+      return experiment.experimentBucket(gaid, key, buckets: buckets);
+    }
+    final prefs = AdPreferences.instanceOrNull;
+    final installId =
+        prefs?.getOrCreateExperimentInstallId() ?? _preInitExperimentId();
     return experiment.experimentBucket(installId, key, buckets: buckets);
+  }
+
+  /// Round-27 backlog B1 (P0) — [experimentBucket] used to fall back to the
+  /// empty string whenever [AdPreferences] hadn't bootstrapped yet, which is
+  /// ALWAYS true the moment this method's own docstring says to call it:
+  /// before [initialize]. Every device hashed `''`, collapsing 100% of
+  /// installs into the same bucket — [pickProviderCohort]'s A/B split was a
+  /// no-op for anyone following the documented call order. Mints a random id
+  /// once per process (stable for this run, so a session's bucket never
+  /// flips mid-session) and hands it to [AdPreferences] to persist as soon
+  /// as it bootstraps, so the SAME id — not a second random one — wins and
+  /// becomes stable across future launches too.
+  String? _cachedPreInitExperimentId;
+
+  /// Test seam — clears the process-lifetime cache so a test can simulate a
+  /// fresh, never-bootstrapped install instead of inheriting whatever a
+  /// prior test in the same run already minted.
+  @visibleForTesting
+  void debugResetPreInitExperimentId() => _cachedPreInitExperimentId = null;
+
+  String _preInitExperimentId() {
+    final cached = _cachedPreInitExperimentId;
+    if (cached != null) return cached;
+    final id = AdPreferences.generateRandomId();
+    _cachedPreInitExperimentId = id;
+    unawaited(AdPreferences.getInstance()
+        .then((p) => p.seedExperimentInstallIdIfAbsent(id)));
+    return id;
   }
 
   /// T90 — deterministic 50/50 provider A/B split, built on
@@ -5062,13 +5092,6 @@ class AdManager with WidgetsBindingObserver {
     _lastNativeLoadAtByKey.clear();
     _lastFullscreenDismissAt = 0;
     _rewardedInFlight = false;
-    _consentDialogScheduled = false;
-    // Round-26 audit (MAJOR) — without this, a scheduled dialog's closure
-    // (capturing the OLD AdConfig/ConsentManager) could still fire after a
-    // destroy()+initialize() cycle and apply stale config over the new
-    // session. See the field doc on [_consentDialogTimer].
-    _consentDialogTimer?.cancel();
-    _consentDialogTimer = null;
     _offlineNotifier.value = false;
     _resetGuardState();
 
@@ -5139,6 +5162,19 @@ class AdManager with WidgetsBindingObserver {
     _consentGateRecoveryRetry?.cancel();
     _consentGateRecoveryRetry = null;
     _consentGateRecoveryAttempts = 0;
+    // Round-27 backlog B7 — same rule again: round-26 only cancelled these
+    // two inside destroy()'s own inline block, so a reinit-without-destroy()
+    // (initialize() called again while already initialised — the
+    // "auto-disposing previous" branch, which only calls this function) left
+    // a scheduled consent-dialog Timer capturing the OLD AdConfig/
+    // ConsentManager alive into the new session, or `_consentDialogScheduled`
+    // stuck `true` forever if the dialog had already been skipped once.
+    // Moved here so BOTH entry points clean up through the one function this
+    // class's own comment above already calls "single source of truth" for
+    // exactly this class of bug.
+    _consentDialogScheduled = false;
+    _consentDialogTimer?.cancel();
+    _consentDialogTimer = null;
     // Audit fix: a stale GAID from the previous session used to survive
     // destroy()/re-init, so currentDeviceGaid (and adMobTestDeviceHashHint())
     // could report a device's ad ID after the SDK claimed to be torn down —
@@ -5155,6 +5191,10 @@ class AdManager with WidgetsBindingObserver {
   /// adapter).
   @visibleForTesting
   void debugResetGuardState() => _resetGuardState();
+
+  /// Test seam — round-27 backlog B7 regression proof.
+  @visibleForTesting
+  bool get debugConsentDialogTimerActive => _consentDialogTimer != null;
 
   /// Round-26 audit (MAJOR, claude, borders BLOCKER) — `_disposeAdapter()`
   /// used to null the adapter's native listeners with no regard for a

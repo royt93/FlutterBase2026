@@ -347,9 +347,22 @@ void main() {
   // ⚠️ Required: register navigator key BEFORE runApp so the SDK can show
   // loading dialogs from lifecycle observer (App Open on resume).
   AdManager().setNavigatorKey(_navigatorKey);
-  // Subscribe once at startup so EventBuffer captures events fired while the
-  // AdEvent stream demo page isn't mounted (mirrors LogBuffer's sink wiring).
-  AdManager().events.listen(EventBuffer.instance.onEvent);
+  // Round-27 backlog B5 — destroy() closes AdManager().events and opens a
+  // FRESH stream on the next initialize() (T31). A subscription taken out
+  // once here, at startup, receives `done` on that first destroy() and
+  // never follows the new stream — the "Slot state panel" demo's own
+  // Destroy/Re-initialize buttons silently killed the Event stream/Revenue
+  // dashboard pages for the rest of the run. Rebind on every initRevision
+  // change (already the SDK's own signal for "adapter/session identity
+  // changed", used elsewhere in this file) instead of subscribing once.
+  StreamSubscription<AdEvent>? eventBufferSub;
+  void rebindEventBuffer() {
+    eventBufferSub?.cancel();
+    eventBufferSub = AdManager().events.listen(EventBuffer.instance.onEvent);
+  }
+
+  rebindEventBuffer();
+  AdManager().initRevision.addListener(rebindEventBuffer);
   runApp(MaterialApp(
     title: 'ad_sdk demo',
     debugShowCheckedModeBanner: kDebugMode,

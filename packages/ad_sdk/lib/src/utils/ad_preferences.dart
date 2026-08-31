@@ -364,6 +364,25 @@ class AdPreferences {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
+  /// Round-27 backlog B1 — exposed so `AdManager.experimentBucket` can mint
+  /// an id in the same format for its pre-bootstrap fallback (see
+  /// [seedExperimentInstallIdIfAbsent]).
+  static String generateRandomId() => _generateRandomId();
+
+  /// Round-27 backlog B1 — a caller that generated an id BEFORE this
+  /// singleton was bootstrapped (there is no synchronous path to
+  /// `SharedPreferences` on first read) hands it over here once bootstrap
+  /// completes, so this device's id is stable from its very first call
+  /// onward instead of a second random id winning the race on first real
+  /// read. No-op if something already persisted a real id first.
+  void seedExperimentInstallIdIfAbsent(String id) {
+    if (_experimentInstallIdCache != null) return;
+    final persisted = _prefs?.getString(_keyExperimentInstallId);
+    if (persisted != null && persisted.isNotEmpty) return;
+    _experimentInstallIdCache = id;
+    unawaited(_prefs?.setString(_keyExperimentInstallId, id));
+  }
+
   // ─── Fill-rate/eCPM 7-day baseline (T97) ─────────────────────────────────
   // One JSON blob keyed by ISO date ('YYYY-MM-DD') then AdSlotType.name,
   // each holding {attempts, successes, revenueMicros, revenueCount}. Pruned

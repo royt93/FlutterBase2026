@@ -197,5 +197,45 @@ void main() {
       expect(handled, isTrue);
       expect(seenByPrevious, same(error));
     });
+
+    // Round-27 backlog B6 — a host that provider-switches or logs out/in
+    // within one process calls initialize() (and therefore this) repeatedly.
+    test(
+        'round-27 B6: a second call does not stack another wrapper layer '
+        'around the still-installed handler', () async {
+      installAdCrashGuard();
+      final afterFirst = FlutterError.onError;
+      installAdCrashGuard();
+      final afterSecond = FlutterError.onError;
+
+      expect(identical(afterFirst, afterSecond), isTrue,
+          reason: 'a repeat call with nothing having replaced the handler '
+              'since must be a no-op, not wrap yet another layer around it');
+
+      // The single installed layer must still work correctly afterwards.
+      adapter.interstitialSlot.beginLoad();
+      adapter.interstitialSlot.markReady();
+      adapter.interstitialSlot.beginShow();
+      final err = await _genuineSdkError();
+      FlutterError.onError!(FlutterErrorDetails(
+        exception: err.error,
+        stack: err.stack,
+      ));
+      expect(adapter.interstitialSlot.isCooldown, isTrue);
+    });
+
+    test(
+        'round-27 B6: DOES reinstall if something else replaced the handler '
+        'since the last call (e.g. destroy() cycle, or another test)', () {
+      installAdCrashGuard();
+      // Something else takes ownership of the slot in between — a fresh
+      // destroy()+initialize() cycle in the host, or plain test isolation.
+      FlutterError.onError = FlutterError.presentError;
+
+      installAdCrashGuard();
+      expect(identical(FlutterError.onError, FlutterError.presentError), isFalse,
+          reason: 'must actually (re)install — the previous guard layer is '
+              'gone, so silently no-op-ing here would leave no guard at all');
+    });
   });
 }

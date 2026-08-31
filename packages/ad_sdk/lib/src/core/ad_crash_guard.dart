@@ -47,17 +47,37 @@ void _recoverSlots() {
   }
 }
 
+/// The handlers [installAdCrashGuard] installed, so a repeat call can tell
+/// "the current handler is still exactly the one I installed last time" from
+/// "something else (a fresh call after `destroy()` + `initialize()`, or a
+/// test's own `tearDown`) replaced it since" (round-27 backlog B6).
+/// Comparing against these rather than a plain `bool` means a call that
+/// genuinely needs to (re)install — because the previous handler is gone —
+/// still does, instead of silently no-op-ing forever after the first call
+/// ever made in the process.
+void Function(FlutterErrorDetails)? _installedOnError;
+bool Function(Object, StackTrace)? _installedOnPlatformError;
+
 /// Registers a process-wide crash guard for exceptions attributable to this
 /// ad SDK, so a bug in an ad callback recovers the affected slot instead of
 /// crashing the host app. Anything NOT attributable to this SDK is passed
 /// through untouched to whatever handler was previously installed (the host
 /// app's own, or Flutter's default).
 ///
-/// Idempotent-ish: call once, typically gated behind
-/// [AdConfig.enableCrashGuard] from [AdManager.initialize].
+/// Idempotent: a call that finds its own previously-installed handler still
+/// in place (nothing else replaced it since) is a no-op — repeated
+/// `initialize()` calls in one process (provider switch, logout/login,
+/// re-init without `destroy()`) do not stack another wrapper layer around
+/// `FlutterError.onError`/`PlatformDispatcher.onError` on top of the last
+/// one, each holding the previous layer alive forever.
 void installAdCrashGuard() {
+  if (identical(FlutterError.onError, _installedOnError) &&
+      identical(
+          PlatformDispatcher.instance.onError, _installedOnPlatformError)) {
+    return;
+  }
   final previousOnError = FlutterError.onError;
-  FlutterError.onError = (FlutterErrorDetails details) {
+  void onError(FlutterErrorDetails details) {
     if (isSdkAttributable(details.stack ?? StackTrace.empty)) {
       SafeLogger.e(
           _tag, 'caught SDK-attributable FlutterError: ${details.exception}');
@@ -69,10 +89,13 @@ void installAdCrashGuard() {
     } else {
       FlutterError.presentError(details);
     }
-  };
+  }
+
+  FlutterError.onError = onError;
+  _installedOnError = onError;
 
   final previousOnPlatformError = PlatformDispatcher.instance.onError;
-  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+  bool onPlatformError(Object error, StackTrace stack) {
     if (isSdkAttributable(stack)) {
       SafeLogger.e(_tag, 'caught SDK-attributable platform error: $error');
       _recoverSlots();
@@ -81,5 +104,8 @@ void installAdCrashGuard() {
     // Not ours — chain to whatever was previously registered, per Flutter's
     // convention for this callback (false / previous result = not handled).
     return previousOnPlatformError?.call(error, stack) ?? false;
-  };
+  }
+
+  PlatformDispatcher.instance.onError = onPlatformError;
+  _installedOnPlatformError = onPlatformError;
 }

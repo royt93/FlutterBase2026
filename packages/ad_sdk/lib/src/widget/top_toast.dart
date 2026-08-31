@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../utils/safe_logger.dart';
@@ -34,14 +35,20 @@ class TopToast {
     try {
       _dismiss();
       final overlay = Overlay.of(context, rootOverlay: true);
-      final entry = OverlayEntry(
+      late final OverlayEntry entry;
+      entry = OverlayEntry(
         builder: (_) => _TopToastWidget(
           icon: icon,
           message: message,
           iconColor: iconColor,
           bgColor: bgColor,
           duration: duration,
-          onDismiss: _dismiss,
+          // Round-27 backlog B4 — NOT the plain `_dismiss` (which always
+          // tears down whatever `_current` is right now, regardless of who
+          // is calling). A's own manual-tap dismiss firing after `show()`
+          // already swapped `_current` to B must not remove B. Only remove
+          // if this entry is still the one actually on screen.
+          onDismiss: () => _dismissIfCurrent(entry),
         ),
       );
       _current = entry;
@@ -53,12 +60,23 @@ class TopToast {
   }
 
   static void _dismiss() {
+    final entry = _current;
+    _current = null;
+    if (entry == null) return;
     try {
-      _current?.remove();
+      entry.remove();
     } catch (_) {
       // OverlayEntry already removed (e.g. widget disposed by navigation)
     }
-    _current = null;
+  }
+
+  /// Round-27 backlog B4 — the identity-scoped half of the fix: only tears
+  /// down [_current] if [entry] is still it. A toast whose own auto-dismiss
+  /// timer or manual tap fires after a NEWER toast already replaced it as
+  /// [_current] must be a no-op, not remove the newer one out from under it.
+  static void _dismissIfCurrent(OverlayEntry entry) {
+    if (!identical(_current, entry)) return;
+    _dismiss();
   }
 }
 
@@ -90,6 +108,7 @@ class _TopToastWidgetState extends State<_TopToastWidget>
   AnimationController? _ctrl;
   Animation<double>? _opacity;
   Animation<Offset>? _slide;
+  Timer? _autoDismissTimer;
 
   @override
   void initState() {
@@ -106,7 +125,12 @@ class _TopToastWidgetState extends State<_TopToastWidget>
     ).animate(CurvedAnimation(parent: ctrl, curve: Curves.easeOutBack));
 
     ctrl.forward();
-    Future.delayed(widget.duration, _animateOut);
+    // Round-27 backlog B4 — a cancellable Timer, not a bare Future.delayed:
+    // dispose() below cancels it, so a toast superseded before its own
+    // duration elapses can never fire its dismiss at all (the identity
+    // check in TopToast._dismissIfCurrent is the remaining defense for the
+    // OTHER trigger, a manual tap racing a supersede — see onTap below).
+    _autoDismissTimer = Timer(widget.duration, _animateOut);
   }
 
   Future<void> _animateOut() async {
@@ -119,6 +143,8 @@ class _TopToastWidgetState extends State<_TopToastWidget>
 
   @override
   void dispose() {
+    _autoDismissTimer?.cancel();
+    _autoDismissTimer = null;
     _ctrl?.dispose();
     _ctrl = null;
     _opacity = null;
