@@ -415,6 +415,20 @@ void main() {
 > call, while still letting you render your own splash UI. Read this section
 > once to understand what it's doing, then consider using the controller
 > instead of copying the class below by hand.
+>
+> **Shortcut (T106):** `bootstrap(AdBootstrapOptions(config: ...))` wraps the
+> `requestAtt() → requestUmpConsent() → initialize()` sequence below into one
+> awaited call returning `AdBootstrapResult { att, ump, initSuccess, gaid }`.
+> It composes with the splash controller above (or your own UI) — bootstrap
+> only covers consent-then-init, not splash timing/App Open display.
+
+```dart
+final result = await bootstrap(AdBootstrapOptions(config: myAdConfig));
+if (result.initSuccess) {
+  // proceed — e.g. AdManager().showAppOpenAd(bypassSafety: true) or hand off
+  // to AdReadinessSplashController for the hard-cap/App-Open dance.
+}
+```
 
 Create `lib/splash_screen.dart`. Replace the five `TODO` ad-unit IDs with values from your AppLovin dashboard. The AdMob IDs are Google's public test units and can be left as-is for verification:
 
