@@ -4,6 +4,29 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - 2026-08-31
+
+Round-26 audit, finding #5 — closed on a third attempt after the first two
+(closing/reopening `_canRequestAds` directly, then mirroring the round-11
+`_pessimisticGateClose`/epoch mechanism) each regressed the existing
+consent-gate test suite and were reverted.
+
+- **Fix**: `AdManager.setConsent()`'s tightening path (a GDPR withdrawal, a
+  fresh CCPA opt-out) called `applyConsentToProviders()` with the ad gate
+  wide open. That function applies to AppLovin synchronously but awaits
+  AdMob's `updateRequestConfiguration` — a concurrent load firing in that
+  window could go out under AdMob's OLD, more permissive global
+  configuration. `canRequestAds` now also checks a new
+  `_consentProviderApplyInFlight` flag, set only around that one `await` and
+  only for a tightening change. It is deliberately independent of
+  `_pessimisticGateClose`/`_consentIntentEpoch` — those solve a different
+  problem (a queued apply's not-yet-known outcome) and are untouched by this
+  fix, so it cannot interact with round 11-21's recovery machinery.
+- Mutation-verified: `test/consent_provider_apply_in_flight_test.dart` (revert
+  → red, fix → green), plus the full existing suite (1342 tests) confirmed
+  clean, including the exact three tests the first fix attempt broke and the
+  thirteen the second attempt broke.
+
 ## [2.4.1] - 2026-08-31
 
 Round-26 audit: three independent reviewers (codex, Gemini, Claude) plus a

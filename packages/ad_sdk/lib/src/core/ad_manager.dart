@@ -1197,8 +1197,26 @@ class AdManager with WidgetsBindingObserver {
   /// logic in [setConsent] stomp on a real "EEA user hasn't granted" `false`.
   bool _footgunBlocked = false;
 
-  /// See [_canRequestAds] / [_footgunBlocked].
-  bool get canRequestAds => _canRequestAds && !_footgunBlocked;
+  /// Round-26 audit (MAJOR, claude), fix attempt 3 — narrow, self-contained,
+  /// and deliberately NOT the same mechanism as [_pessimisticGateClose].
+  /// That flag means something specific (round 11): "a QUEUED apply result
+  /// whose own restrictiveness is not yet known, guess-closed until it runs
+  /// or [_recoverConsentGate] re-derives the truth from the device." This is
+  /// a different problem: `applyConsentToProviders()` (called from
+  /// [setConsent]) applies to AppLovin synchronously but AWAITS AdMob's
+  /// `updateRequestConfiguration` — the new consent value is already fully
+  /// decided, there is nothing to "recover" or "guess", the write to the
+  /// providers is just not finished landing yet. A concurrent load firing in
+  /// that window would go out under AdMob's OLD global RequestConfiguration.
+  ///
+  /// Set/cleared by [setConsent] around that one `await`, in a `finally` —
+  /// no epoch, no debt, no recovery: it cannot be "left shut", because
+  /// nothing persists it past that single call frame.
+  bool _consentProviderApplyInFlight = false;
+
+  /// See [_canRequestAds] / [_footgunBlocked] / [_consentProviderApplyInFlight].
+  bool get canRequestAds =>
+      _canRequestAds && !_footgunBlocked && !_consentProviderApplyInFlight;
 
   /// True when ANY fullscreen surface already owns the screen — an App Open,
   /// interstitial or rewarded ad, the SDK's own loading buffer, or a host
@@ -3417,6 +3435,21 @@ class AdManager with WidgetsBindingObserver {
     // further down needs the value the provider was actually initialised with,
     // and `_consent` is overwritten on the next line.
     final previousAgeRestricted = _consent.isAgeRestrictedUser;
+    // Round-26 audit (MAJOR, claude), fix attempt 3 — scope
+    // [_consentProviderApplyInFlight] to only the tightening direction (GDPR
+    // withdrawal, a fresh CCPA opt-out). A loosening change (granting
+    // consent, e.g. this test's COPPA-on-AdMob case) has no stale-config
+    // window worth guarding — `canRequestAds` reading momentarily false on
+    // every single setConsent() call, tightening or not, is more collateral
+    // than the actual risk calls for (attempt 3, step 1 caught this: a
+    // synchronous `unawaited(setConsent(...))` + immediate `canRequestAds`
+    // read, exactly the pattern the COPPA hard-stop tests use to assert
+    // their OWN hard-stop happened synchronously, tripped on this flag
+    // instead for an unrelated, non-tightening consent grant).
+    final previousApplied = _lastAppliedConsent ?? _consent;
+    final tighteningPersonalisation =
+        (previousApplied.hasUserConsent && !consent.hasUserConsent) ||
+            (!previousApplied.doNotSell && consent.doNotSell);
     _consent = consent;
     // N2 — an explicit setConsent() call IS a resolved consent flow (the
     // host's own custom UI, or requestUmpConsent()'s own call into here) —
@@ -3531,7 +3564,12 @@ class AdManager with WidgetsBindingObserver {
           _tag, '🛑 COPPA child-directed on AppLovin → hard-stop ad requests');
       _updateCanRequestAds(false);
     }
-    await applyConsentToProviders(consent, config: _config);
+    if (tighteningPersonalisation) _consentProviderApplyInFlight = true;
+    try {
+      await applyConsentToProviders(consent, config: _config);
+    } finally {
+      if (tighteningPersonalisation) _consentProviderApplyInFlight = false;
+    }
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
     _adapter?.applyConsent(consent);
     // N2 — the footgun block just cleared and ads may already be running;
