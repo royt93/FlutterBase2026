@@ -23,6 +23,7 @@ import '../consent/consent_settings.dart';
 import '../monetization/ad_diagnostics.dart';
 import '../monetization/fill_rate_baseline_monitor.dart';
 import '../monetization/fill_rate_monitor.dart';
+import '../monetization/journey_prefetcher.dart';
 import '../monetization/waterfall_tuner.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
@@ -522,6 +523,29 @@ class AdManager with WidgetsBindingObserver {
     _waterfallTuner = null;
   }
 
+  /// T123 — opt-in on-device smart prefetch (default OFF) — `null` unless
+  /// the host app calls [enableJourneyPrefetcher]. See [JourneyPrefetcher]
+  /// doc: `notifySignal()` only ever calls the same public `loadX()` a host
+  /// could call directly, so every existing safety/consent/VIP gate still
+  /// applies unchanged.
+  JourneyPrefetcher? _journeyPrefetcher;
+
+  /// `null` by default — see [enableJourneyPrefetcher].
+  JourneyPrefetcher? get journeyPrefetcher => _journeyPrefetcher;
+
+  /// Opt in to the journey prefetcher.
+  void enableJourneyPrefetcher(JourneyPrefetcher prefetcher) {
+    _journeyPrefetcher?.dispose();
+    _journeyPrefetcher = prefetcher;
+  }
+
+  /// Test/host seam: clear a previously-registered journey prefetcher.
+  @visibleForTesting
+  void disableJourneyPrefetcher() {
+    _journeyPrefetcher?.dispose();
+    _journeyPrefetcher = null;
+  }
+
   /// Opt-in 7-day fill-rate/eCPM baseline regression detector (T97, default
   /// OFF) — `null` unless [enableFillRateBaselineMonitor] was called.
   /// Compares this session against this device's own persisted trailing
@@ -581,6 +605,8 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitor = null;
     _waterfallTuner?.dispose();
     _waterfallTuner = null;
+    _journeyPrefetcher?.dispose();
+    _journeyPrefetcher = null;
   }
 
   /// One-shot snapshot combining mediation waterfall, fill rate, and
@@ -5279,6 +5305,8 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitor = null;
     _waterfallTuner?.dispose();
     _waterfallTuner = null;
+    _journeyPrefetcher?.dispose();
+    _journeyPrefetcher = null;
 
     _isSplashActive = false;
     _countInitSplashScreen = 0;
