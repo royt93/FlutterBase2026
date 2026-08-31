@@ -1397,13 +1397,55 @@ class AdManager with WidgetsBindingObserver {
     AdPlacement placement = AdPlacement.unspecified,
     String? providerTag,
   }) {
-    _emit(AdSkipEvent(
+    final event = AdSkipEvent(
       providerTag: providerTag ?? _adapter?.tag ?? '[SDK]',
       type: type,
       placement: placement,
       action: action,
       reason: reason,
-    ));
+    );
+    // T119 — every one of this method's ~50 call sites already carries the
+    // exact reason a load/show attempt was gated; the only thing missing was
+    // somewhere to keep the latest one per slot for a host (or support) to
+    // ask "why isn't this ad showing?" without turning on verbose logging
+    // first. See [explainLastSkip].
+    _lastSkipByType[type] = event;
+    _emit(event);
+  }
+
+  /// T119 — per-slot snapshot of the most recent [_emitSkip] call, read by
+  /// [explainLastSkip]. Deliberately NOT cleared by [destroy] — a stale
+  /// answer from the previous session (until the next real skip overwrites
+  /// it) is a display quirk, not a correctness issue, and clearing it here
+  /// would mean touching `destroy()`'s lifecycle for a purely diagnostic
+  /// feature.
+  final Map<AdSlotType, AdSkipEvent> _lastSkipByType = {};
+
+  /// Test-only: [_lastSkipByType] persists across the whole process
+  /// (deliberately not cleared by [destroy], see [explainLastSkip]'s doc),
+  /// which makes it test-order-dependent in a file exercising many slots
+  /// against the same singleton. Tests that care about a slot's *initial*
+  /// (never-skipped) state should call this first.
+  @visibleForTesting
+  void debugResetLastSkip() => _lastSkipByType.clear();
+
+  /// T119 — human-readable answer to the single most common ad-SDK support
+  /// question: "why isn't this ad showing?" Reflects the most recent
+  /// load/show attempt for [type] that an internal gate skipped (VIP,
+  /// consent, cap, cooldown, offline, dry-run, teardown-in-flight, ...) —
+  /// `null` if nothing has ever been skipped for [type] this session, or if
+  /// the most recent attempt actually went through.
+  ///
+  /// The reason is the exact machine-readable code already carried by
+  /// [AdSkipEvent.reason] (see that field's doc for known values), spaced
+  /// out for readability — deliberately not a hand-maintained
+  /// code-to-sentence table, which would silently go stale the next time a
+  /// call site adds a new reason code.
+  String? explainLastSkip(AdSlotType type) {
+    final skip = _lastSkipByType[type];
+    if (skip == null) return null;
+    final reason = skip.reason.replaceAll(RegExp('[_-]'), ' ');
+    return '${type.name} ${skip.action} skipped: $reason';
   }
 
   void _armLoadWatchdog(String label, AdSlot slot, Duration timeout) =>

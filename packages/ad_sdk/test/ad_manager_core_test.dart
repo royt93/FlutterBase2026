@@ -1693,6 +1693,28 @@ void main() {
       expect(events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap'),
           isEmpty);
     });
+
+    // T119 — explainLastSkip is a thin read of the exact same AdSkipEvent
+    // this whole group already asserts on, so this doesn't re-test every
+    // reason code — just that the read side actually reflects it.
+    test(
+        'T119: explainLastSkip reflects the most recent skip for that slot, '
+        'null for a slot that has never skipped', () async {
+      // _lastSkipByType is a process-wide singleton field, deliberately not
+      // cleared by destroy() (see its doc) — reset the test-only seam so an
+      // earlier test's skip on the same slot can't leak into this one.
+      AdManager().debugResetLastSkip();
+      expect(AdManager().explainLastSkip(AdSlotType.interstitial), isNull);
+
+      AdManager().debugVipManager = _FakeVip(true);
+      await AdManager().loadInterstitial();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(AdManager().explainLastSkip(AdSlotType.interstitial),
+          'interstitial load skipped: vip');
+      // A slot that never had a load/show attempt at all stays null.
+      expect(AdManager().explainLastSkip(AdSlotType.rewarded), isNull);
+    });
   });
 
   // T88 — remoteSafetyProvider lets a host plug in Firebase Remote

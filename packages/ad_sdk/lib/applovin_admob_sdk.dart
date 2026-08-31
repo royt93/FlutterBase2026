@@ -21,7 +21,8 @@ export 'src/consent/consent_manager.dart';
 export 'src/consent/consent_settings.dart';
 
 // Orchestrator
-export 'src/core/ad_consent.dart' show AdConsent;
+export 'src/core/ad_consent.dart'
+    show AdConsent, ConsentSimulationResult, simulateConsentOutcome;
 export 'src/core/ad_manager.dart';
 export 'src/core/ad_provider_adapter.dart'
     show AdProviderAdapter, BannerListenables, RewardResult;

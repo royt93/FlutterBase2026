@@ -567,6 +567,66 @@ void main() {
           reason: 'arb2 is now the sole active listener');
     });
   });
+
+  group('T112 — FillRateBaselineMonitor as an additional veto signal', () {
+    FillRateBaselineMonitor? monitor;
+
+    tearDown(() => monitor?.dispose());
+
+    test(
+        'default (no monitor passed) — an active regression elsewhere has '
+        'zero effect, byte-for-byte unchanged behaviour', () async {
+      final arb = MonetizationArbitrator(); // no fillRateBaselineMonitor
+      // No revenue samples at all for this slot -> ecpm == 0 -> the plain
+      // heuristic alone always resolves to showAd, regardless of anything
+      // happening in a FillRateBaselineMonitor this arbitrator never sees.
+      expect(arb.decide(AdSlotType.interstitial), ArbitratorDecision.showAd);
+    });
+
+    test(
+        'an active regression alert for this slot nudges VIP even though '
+        'the plain eCPM heuristic alone would say showAd', () async {
+      // AdPreferences is a process-wide singleton the outer setUp() above
+      // already bootstrapped against an earlier (now-irrelevant) mock store
+      // — force a truly fresh one so this test's seeded history is what it
+      // actually reads, same as fill_rate_baseline_monitor_test.dart.
+      AdPreferences.resetForTest();
+      final yesterday = DateTime.now()
+          .subtract(const Duration(days: 1))
+          .toIso8601String()
+          .substring(0, 10);
+      SharedPreferences.setMockInitialValues({
+        'ad_sdk_fill_rate_baseline_history_v1':
+            '{"$yesterday":{"interstitial":'
+                '{"attempts":100,"successes":90,"revenueMicros":0,"revenueCount":0}}}',
+      });
+      final prefs = await AdPreferences.getInstance();
+
+      monitor = FillRateBaselineMonitor(prefs, minSamples: 3);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(AdLoadEvent(
+          providerTag: 'fake',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          success: false, // 0% session fill rate vs. 90% baseline
+        ));
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(monitor!.activeAlerts, contains(AdSlotType.interstitial),
+          reason: 'sanity: the monitor must have actually detected the '
+              'regression this test is about, or the assertion below '
+              'proves nothing');
+
+      final arb = MonetizationArbitrator(fillRateBaselineMonitor: monitor);
+      // No revenue events fed to the ARBITRATOR itself, so its own eCPM
+      // heuristic sees ecpm == 0 and would say showAd on its own — the
+      // monitor's alert is the only reason this flips to nudgeVip.
+      expect(arb.decide(AdSlotType.interstitial),
+          ArbitratorDecision.nudgeVip);
+      // A different, non-regressed slot must be unaffected.
+      expect(arb.decide(AdSlotType.rewarded), ArbitratorDecision.showAd);
+    });
+  });
 }
 
 class _FakeVipTrue implements VipManager {

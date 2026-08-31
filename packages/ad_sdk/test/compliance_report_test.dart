@@ -127,6 +127,80 @@ void main() {
     });
   });
 
+  group('T110: redacted / ReportRedactionProfile', () {
+    ComplianceReport reportWith(Map<String, dynamic> event) =>
+        ComplianceReport.generate(
+          events: [event],
+          safety: snapshot,
+          consent: ConsentSettings.accepted,
+          vipActive: false,
+          now: DateTime.utc(2026, 1, 1),
+        );
+
+    test('fullLocal is a no-op — returns the identical instance', () {
+      final report = reportWith({
+        'kind': 'ad_event',
+        'timestampMs': 1,
+        'consentCountry': 'VN',
+        'placement': 'home',
+      });
+      expect(identical(report.redacted(ReportRedactionProfile.fullLocal), report),
+          isTrue);
+    });
+
+    test('supportSafe nulls consentCountry and placement, keeps everything '
+        'else', () {
+      final report = reportWith({
+        'kind': 'ad_event',
+        'timestampMs': 1,
+        'eventType': 'AdLoadEvent',
+        'consentCountry': 'VN',
+        'placement': 'home',
+      });
+
+      final redacted = report.redacted(ReportRedactionProfile.supportSafe);
+
+      expect(redacted.events.single['consentCountry'], isNull);
+      expect(redacted.events.single['placement'], isNull);
+      expect(redacted.events.single['timestampMs'], 1,
+          reason: 'fields not named in the profile must survive untouched');
+      expect(redacted.events.single['eventType'], 'AdLoadEvent');
+    });
+
+    test('never touches top-level consent/safety/VIP fields — only events',
+        () {
+      final report = reportWith({'kind': 'ad_event', 'timestampMs': 1});
+      final redacted = report.redacted(ReportRedactionProfile.supportSafe);
+
+      expect(redacted.hasUserConsent, report.hasUserConsent);
+      expect(redacted.vipActive, report.vipActive);
+      expect(redacted.safety.dailyAdCount, report.safety.dailyAdCount);
+    });
+
+    test('a custom profile redacts exactly the fields it declares, nothing '
+        'else', () {
+      const custom = ReportRedactionProfile('custom', {'providerTag'});
+      final report = reportWith({
+        'kind': 'ad_event',
+        'timestampMs': 1,
+        'providerTag': '[AdMob]',
+        'consentCountry': 'VN',
+      });
+
+      final redacted = report.redacted(custom);
+
+      expect(redacted.events.single['providerTag'], isNull);
+      expect(redacted.events.single['consentCountry'], 'VN',
+          reason: 'only fields the custom profile actually declares get '
+              'redacted — must not accidentally reuse supportSafe\'s list');
+    });
+
+    test('toJson carries a schemaVersion', () {
+      final report = reportWith({'kind': 'ad_event', 'timestampMs': 1});
+      expect(report.toJson()['schemaVersion'], ComplianceReport.schemaVersion);
+    });
+  });
+
   group('AdSafetySnapshot.toJson', () {
     test('serializes every field', () {
       final json = snapshot.toJson();

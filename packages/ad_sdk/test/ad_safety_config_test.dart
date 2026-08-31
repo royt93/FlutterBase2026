@@ -622,5 +622,25 @@ void main() {
       expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.shop),
           isTrue, reason: '2 recorded shows against a cap of 2');
     });
+
+    test(
+        'T113: maxPerPlacementAdsPerDayById — const-declarable, keyed by '
+        'AdPlacement.id string — enforces the same cap', () async {
+      // The point of this field: this whole params object can be `const`,
+      // which AdSafetyParams(maxPerPlacementAdsPerDay: {...}) cannot be
+      // (AdPlacement overrides ==, so it can't be a const map key).
+      const params =
+          AdSafetyParams(maxPerPlacementAdsPerDayById: {'splash': 1});
+      await AdSafetyConfig.init(prefs, params: params);
+      AdSafetyConfig.resetForReinit();
+
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+          isFalse);
+      AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+          isTrue);
+      expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.home),
+          isFalse);
+    });
   });
 }

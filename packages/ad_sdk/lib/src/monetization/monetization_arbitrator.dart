@@ -4,6 +4,7 @@ import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'fill_rate_baseline_monitor.dart';
 
 /// Decision returned by [MonetizationArbitrator.decide].
 enum ArbitratorDecision {
@@ -38,11 +39,22 @@ class MonetizationArbitrator {
     this.maxVetoRate = 0.5,
     int rollingWindowSize = 20,
     int decisionWindowSize = 20,
+    FillRateBaselineMonitor? fillRateBaselineMonitor,
   })  : _perSlotThresholdMicros = perSlotThresholdMicros,
         _rollingWindowSize = rollingWindowSize,
-        _decisionWindowSize = decisionWindowSize {
+        _decisionWindowSize = decisionWindowSize,
+        _fillRateBaselineMonitor = fillRateBaselineMonitor {
     _sub = AdManager().events.listen(_onEvent);
   }
+
+  /// T112 — opt-in only: `null` (the default) leaves every decision exactly
+  /// as it was before this field existed. When set, an active regression
+  /// alert (T97 — this slot's fill-rate/eCPM has dropped notably below its
+  /// own 7-day baseline) is treated as an ADDITIONAL veto signal in
+  /// [decide], on top of the plain eCPM-vs-threshold heuristic: the
+  /// arbitrator was "blind" to a regression it already knows about from a
+  /// different feature.
+  final FillRateBaselineMonitor? _fillRateBaselineMonitor;
 
   /// Below this trailing eCPM (in micros per impression, i.e. "value if this
   /// were a $1000-impression eCPM stat"), the arbitrator favors nudging VIP
@@ -252,6 +264,16 @@ class MonetizationArbitrator {
       decision = (ecpm > 0 && ecpm < threshold && likelihood > 0.5)
           ? ArbitratorDecision.nudgeVip
           : ArbitratorDecision.showAd;
+    }
+
+    // T112 — opt-in additional veto signal: a slot already flagged as
+    // regressed against its own 7-day baseline (T97) nudges VIP even if the
+    // plain eCPM-vs-threshold heuristic above didn't trip on its own. Still
+    // subject to the SAME guardrail below — a runaway/misconfigured
+    // regression detector can't bypass the vetoRate safety net either.
+    if (decision == ArbitratorDecision.showAd &&
+        _fillRateBaselineMonitor?.activeAlerts.containsKey(slot) == true) {
+      decision = ArbitratorDecision.nudgeVip;
     }
 
     if (decision == ArbitratorDecision.nudgeVip &&

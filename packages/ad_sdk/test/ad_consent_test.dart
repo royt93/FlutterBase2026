@@ -170,4 +170,87 @@ void main() {
       }
     });
   });
+
+  group('T120: simulateConsentOutcome', () {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const alChannel = MethodChannel('applovin_max');
+    const gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
+
+    late List<MethodCall> alCalls;
+
+    setUp(() {
+      alCalls = [];
+      messenger.setMockMethodCallHandler(alChannel, (call) async {
+        alCalls.add(call);
+        return null;
+      });
+      messenger.setMockMethodCallHandler(gmaChannel, (call) async => null);
+    });
+
+    tearDown(() {
+      messenger.setMockMethodCallHandler(alChannel, null);
+      messenger.setMockMethodCallHandler(gmaChannel, null);
+    });
+
+    test('pure — matches the documented AdMob/AppLovin mapping for every '
+        'GDPR/CCPA/COPPA/config combination, with zero platform calls made',
+        () async {
+      // Every combination this axis can take: hasUserConsent (GDPR),
+      // doNotSell (CCPA), isAgeRestrictedUser (COPPA), and the host's own
+      // umpTagForUnderAgeOfConsent config flag.
+      for (final hasUserConsent in [false, true]) {
+        for (final doNotSell in [false, true]) {
+          for (final isAgeRestrictedUser in [false, true]) {
+            for (final tagUnderAge in [false, true]) {
+              final consent = AdConsent(
+                hasUserConsent: hasUserConsent,
+                doNotSell: doNotSell,
+                isAgeRestrictedUser: isAgeRestrictedUser,
+              );
+              final config = AdConfig(
+                provider: AdProvider.admob,
+                admob: const AdMobConfig(
+                    bannerId: 'b',
+                    interstitialId: 'i',
+                    appOpenId: 'ao',
+                    rewardedId: 'r'),
+                umpTagForUnderAgeOfConsent: tagUnderAge,
+              );
+
+              final result = simulateConsentOutcome(consent, config: config);
+              expect(result.appLovinHasUserConsent, hasUserConsent);
+              expect(result.appLovinDoNotSell, doNotSell);
+              expect(result.appLovinCoppaForwarded, isFalse,
+                  reason: 'AppLovin MAX 4.x has no API to receive this '
+                      'signal at all, regardless of input');
+              expect(result.admobTagForChildDirectedTreatment,
+                  isAgeRestrictedUser ? 'yes' : 'no');
+              expect(result.admobTagForUnderAgeOfConsent,
+                  tagUnderAge ? 'yes' : 'unspecified');
+            }
+          }
+        }
+      }
+      expect(alCalls, isEmpty,
+          reason: 'a SIMULATION must never touch a real platform channel — '
+              'that is the entire point of this API');
+    });
+
+    test('shares its decision with the real apply path (single source of '
+        'truth) — AppLovin receives exactly what the simulation predicted',
+        () async {
+      const consent = AdConsent(hasUserConsent: false, doNotSell: true);
+      final simulated = simulateConsentOutcome(consent);
+
+      await applyConsentToProviders(consent);
+
+      expect(alCalls.map((c) => c.method),
+          ['setHasUserConsent', 'setDoNotSell']);
+      expect((alCalls[0].arguments as Map)['value'],
+          simulated.appLovinHasUserConsent);
+      expect((alCalls[1].arguments as Map)['value'],
+          simulated.appLovinDoNotSell);
+    });
+  });
 }

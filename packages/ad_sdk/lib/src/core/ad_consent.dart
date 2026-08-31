@@ -73,15 +73,75 @@ class AdConsent {
 /// the test-device list registered during initialize would be wiped on the
 /// first `setConsent` call, and the developer would start seeing real ads
 /// (risk of policy violation).
+/// T120 — pure description of what [applyConsentToProviders] would send to
+/// each provider for a given consent + config, with no platform-channel
+/// calls. Returned by [simulateConsentOutcome].
+class ConsentSimulationResult {
+  const ConsentSimulationResult({
+    required this.appLovinHasUserConsent,
+    required this.appLovinDoNotSell,
+    required this.appLovinCoppaForwarded,
+    required this.admobTagForChildDirectedTreatment,
+    required this.admobTagForUnderAgeOfConsent,
+  });
+
+  /// What `AppLovinMAX.setHasUserConsent` would receive.
+  final bool appLovinHasUserConsent;
+
+  /// What `AppLovinMAX.setDoNotSell` would receive.
+  final bool appLovinDoNotSell;
+
+  /// Always `false` — AppLovin MAX 4.x has no API to receive the COPPA
+  /// child-directed signal at all (see the warning logged below in
+  /// [applyConsentToProviders]). Exposed explicitly so a simulation can't be
+  /// misread as implying AppLovin ever gets this signal.
+  final bool appLovinCoppaForwarded;
+
+  /// What AdMob's `RequestConfiguration.tagForChildDirectedTreatment` would
+  /// be set to: `'yes'` or `'no'`.
+  final String admobTagForChildDirectedTreatment;
+
+  /// What AdMob's `RequestConfiguration.tagForUnderAgeOfConsent` would be
+  /// set to: `'yes'` or `'unspecified'` — never `'no'`, see
+  /// [applyConsentToProviders]'s comment on why that axis never asserts a
+  /// negative.
+  final String admobTagForUnderAgeOfConsent;
+}
+
+/// The one place both [applyConsentToProviders] and [simulateConsentOutcome]
+/// compute "what should each provider be told" — kept as a single pure
+/// function so the simulator can never drift from the real apply path.
+ConsentSimulationResult _decideConsentOutcome(AdConsent c, AdConfig? config) =>
+    ConsentSimulationResult(
+      appLovinHasUserConsent: c.hasUserConsent,
+      appLovinDoNotSell: c.doNotSell,
+      appLovinCoppaForwarded: false,
+      admobTagForChildDirectedTreatment: c.isAgeRestrictedUser ? 'yes' : 'no',
+      admobTagForUnderAgeOfConsent:
+          config?.umpTagForUnderAgeOfConsent == true ? 'yes' : 'unspecified',
+    );
+
+/// T120 — pure, side-effect-free preview of what [applyConsentToProviders]
+/// would send to AdMob/AppLovin for a hypothetical [consent] + [config], with
+/// no platform-channel calls. Lets a host (or a QA compliance check) verify a
+/// GDPR/CCPA/COPPA combination resolves the way they expect BEFORE building
+/// onto a real device — see round-26 finding #5 for why that gap matters.
+ConsentSimulationResult simulateConsentOutcome(
+  AdConsent consent, {
+  AdConfig? config,
+}) =>
+    _decideConsentOutcome(consent, config);
+
 Future<void> applyConsentToProviders(
   AdConsent c, {
   AdConfig? config,
 }) async {
   const tag = 'AdConsent';
+  final outcome = _decideConsentOutcome(c, config);
   // ─── AppLovin (4.6+ uses static methods on AppLovinMAX) ──────────────────
   try {
-    AppLovinMAX.setHasUserConsent(c.hasUserConsent);
-    AppLovinMAX.setDoNotSell(c.doNotSell);
+    AppLovinMAX.setHasUserConsent(outcome.appLovinHasUserConsent);
+    AppLovinMAX.setDoNotSell(outcome.appLovinDoNotSell);
     // AppLovin 4.x removed `setIsAgeRestrictedUser` — there is no API to
     // forward COPPA's child-directed signal to AppLovin. This path only
     // fires when consent changes AFTER AppLovin already initialized (e.g. a
@@ -111,9 +171,10 @@ Future<void> applyConsentToProviders(
     final cfg = RequestConfiguration(
       // Preserve test-device registration across consent updates.
       testDeviceIds: testDeviceIds,
-      tagForChildDirectedTreatment: c.isAgeRestrictedUser
-          ? TagForChildDirectedTreatment.yes
-          : TagForChildDirectedTreatment.no,
+      tagForChildDirectedTreatment:
+          outcome.admobTagForChildDirectedTreatment == 'yes'
+              ? TagForChildDirectedTreatment.yes
+              : TagForChildDirectedTreatment.no,
       // MJ4 (round 5 audit) — TFUA models the EEA "under age of consent"
       // concept. It used to be left unset here on the grounds that this SDK
       // exposed no flag for that axis, but it does:
@@ -128,9 +189,10 @@ Future<void> applyConsentToProviders(
       // age of consent is a statement about them we have no basis for. It is
       // still never derived from `doNotSell` (CCPA) — that is a different
       // jurisdiction and a different axis, handled per-request via RDP.
-      tagForUnderAgeOfConsent: config?.umpTagForUnderAgeOfConsent == true
-          ? TagForUnderAgeOfConsent.yes
-          : TagForUnderAgeOfConsent.unspecified,
+      tagForUnderAgeOfConsent:
+          outcome.admobTagForUnderAgeOfConsent == 'yes'
+              ? TagForUnderAgeOfConsent.yes
+              : TagForUnderAgeOfConsent.unspecified,
     );
     await MobileAds.instance.updateRequestConfiguration(cfg);
     SafeLogger.d(tag,

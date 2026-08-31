@@ -127,8 +127,21 @@ class AdSafetyParams {
   /// **Cannot be used with a `const AdSafetyParams(...)` constructor call**
   /// (unlike every other field here) — [AdPlacement] overrides `==`, and
   /// Dart requires `const` map keys to have primitive identity. Construct a
-  /// regular (non-`const`) `AdSafetyParams(...)` instance when setting this.
+  /// regular (non-`const`) `AdSafetyParams(...)` instance when setting this,
+  /// or use [maxPerPlacementAdsPerDayById] instead if you need a `const`
+  /// declaration (e.g. a top-level config constant).
   final Map<AdPlacement, int>? maxPerPlacementAdsPerDay;
+
+  /// T113 — same cap as [maxPerPlacementAdsPerDay], keyed by
+  /// [AdPlacement.id] (a plain `String`, which Dart *does* allow as a
+  /// `const` map key) instead of by [AdPlacement] instance. Checked in
+  /// addition to [maxPerPlacementAdsPerDay] — an entry in either map applies;
+  /// having both set for the same placement is redundant, not a conflict.
+  ///
+  /// ```dart
+  /// const AdSafetyParams(maxPerPlacementAdsPerDayById: {'splash': 1})
+  /// ```
+  final Map<String, int>? maxPerPlacementAdsPerDayById;
 
   const AdSafetyParams({
     this.minTimeBetweenFullscreenAds = 60000,
@@ -143,6 +156,7 @@ class AdSafetyParams {
     this.dryRun = false,
     this.adToBackgroundSignalWindowMs = 300000,
     this.maxPerPlacementAdsPerDay,
+    this.maxPerPlacementAdsPerDayById,
   });
 
   // ─── Presets ──────────────────────────────────────────────────────────────
@@ -196,6 +210,7 @@ class AdSafetyParams {
     bool? dryRun,
     int? adToBackgroundSignalWindowMs,
     Map<AdPlacement, int>? maxPerPlacementAdsPerDay,
+    Map<String, int>? maxPerPlacementAdsPerDayById,
   }) {
     return AdSafetyParams(
       minTimeBetweenFullscreenAds:
@@ -219,6 +234,8 @@ class AdSafetyParams {
           adToBackgroundSignalWindowMs ?? this.adToBackgroundSignalWindowMs,
       maxPerPlacementAdsPerDay:
           maxPerPlacementAdsPerDay ?? this.maxPerPlacementAdsPerDay,
+      maxPerPlacementAdsPerDayById:
+          maxPerPlacementAdsPerDayById ?? this.maxPerPlacementAdsPerDayById,
     );
   }
 
@@ -418,7 +435,8 @@ class AdSafetyConfig {
   /// [AdSafetyParams.maxPerPlacementAdsPerDay] has no entry for [placement] —
   /// the global cap alone still applies as always.
   static bool placementDailyCapReached(AdPlacement placement) {
-    final maxPerDay = _params.maxPerPlacementAdsPerDay?[placement];
+    final maxPerDay = _params.maxPerPlacementAdsPerDay?[placement] ??
+        _params.maxPerPlacementAdsPerDayById?[placement.id];
     if (maxPerDay == null) return false;
     final counts = _prefs?.getPlacementDailyCounts() ?? const {};
     return (counts[placement.id] ?? 0) >= maxPerDay;

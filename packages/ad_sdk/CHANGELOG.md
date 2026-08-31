@@ -4,6 +4,37 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-08-31
+
+Round-27 roadmap, batch A (`doc/task/BACKLOG-sdk-2026-08-31.md`) — five
+enhancement/idea tickets, all purely additive (new optional params, new
+methods, new classes), no breaking changes:
+
+- **New**: `AdSafetyParams.maxPerPlacementAdsPerDayById` (T113) —
+  `Map<String, int>?` keyed by `AdPlacement.id`, alongside the existing
+  `maxPerPlacementAdsPerDay: Map<AdPlacement, int>?`. Unlike that field, this
+  one can be used inside a `const AdSafetyParams(...)` declaration (`String`
+  has primitive equality; `AdPlacement`, which overrides `==`, does not).
+- **New**: `MonetizationArbitrator(fillRateBaselineMonitor: ...)` (T112) —
+  opt-in; when passed, an active `FillRateBaselineMonitor` regression alert
+  for a slot is an additional veto signal in `decide()`, still subject to the
+  same `vetoRate` guardrail. `null` (the default) is byte-for-byte unchanged.
+- **New**: `ReportRedactionProfile` + `ComplianceReport.redacted(profile)`
+  (T110) — `fullLocal` (no-op) and `supportSafe` (strips `consentCountry` and
+  `placement` from every event entry) built in, or construct a custom
+  profile with any `Set<String>` of event fields. `ComplianceReport` also
+  gained `schemaVersion` in `toJson()`.
+- **New**: `AdManager().explainLastSkip(AdSlotType)` (T119) — human-readable
+  answer to "why isn't this ad showing?", reading the same `AdSkipEvent` data
+  already emitted on `AdManager().events` (T77). `null` if nothing has been
+  skipped for that slot yet this session.
+- **New**: `simulateConsentOutcome(AdConsent, {AdConfig?})` +
+  `ConsentSimulationResult` (T120) — pure, side-effect-free preview of what
+  `applyConsentToProviders` would send to AdMob/AppLovin for a hypothetical
+  consent combination, with zero platform-channel calls. Both now share one
+  internal decision function, so the simulation can't drift from the real
+  apply path.
+
 ## [2.4.5] - 2026-08-31
 
 Round-27 continued: T103, T104, T105 (`doc/task/BACKLOG-sdk-2026-08-31.md`,
