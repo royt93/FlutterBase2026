@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../utils/safe_logger.dart';
+import 'ad_retry_policy.dart';
 import 'backoff.dart';
 
 /// Logical type of ad slot (one of the four ad placements supported by both
@@ -89,6 +90,21 @@ class AdSlot {
   /// strategy.
   int consecutiveFailures = 0;
 
+  /// T108 — the most recent load failure's raw adapter error code (see
+  /// [AdLoadEvent.errorCode]), set by [markFailed]. Null when no error has
+  /// been seen, or the caller didn't have a code to pass. Consulted by
+  /// [retryPolicy]'s `isRetryable` classifier, if set — otherwise unused.
+  int? lastErrorCode;
+
+  /// T108 — optional per-slot retry policy. `null` (the default) means this
+  /// slot behaves exactly as before this feature existed: [beginLoad]'s
+  /// `backoff` parameter alone decides the cooldown window, every error is
+  /// retryable, and [clearCooldownOnReconnect] is a no-op. Set this directly
+  /// on a slot obtained via `AdManager().adapter?.interstitialSlot` (etc.)
+  /// after `initialize()` to opt one slot into per-error-type retry
+  /// behavior.
+  AdRetryPolicy? retryPolicy;
+
   /// Pending one-shot callback fired when an in-flight load/show completes.
   /// Always cleared after firing; [AdManager.destroy] flushes it with `false`.
   void Function(bool result)? pendingCallback;
@@ -140,16 +156,38 @@ class AdSlot {
   /// it, repeated failures would re-fire load every retry tick.
   bool beginLoad({Backoff backoff = defaultBackoff}) {
     if (isLoading || isShowing) return false;
-    if (isCooldown &&
-        backoff.isInCooldown(
-          lastErrorAt: lastErrorAt,
-          consecutiveFailures: consecutiveFailures,
-        )) {
-      return false;
+    if (isCooldown) {
+      final policy = retryPolicy;
+      // T108 — a slot with a retryPolicy set defers its cooldown decision to
+      // it entirely (adds the retryable-error gate + jitter on top of the
+      // same Backoff curve); a slot with none behaves exactly as before.
+      final blocked = policy != null
+          ? !policy.canRetryNow(
+              lastErrorAt: lastErrorAt,
+              consecutiveFailures: consecutiveFailures,
+              lastErrorCode: lastErrorCode,
+            )
+          : backoff.isInCooldown(
+              lastErrorAt: lastErrorAt,
+              consecutiveFailures: consecutiveFailures,
+            );
+      if (blocked) return false;
     }
     _loadEpoch = consentEpoch;
     state.value = AdSlotState.loading;
     return true;
+  }
+
+  /// T108 — when [retryPolicy]'s `resetOnConnectivityRestored` is true,
+  /// clears this slot's backoff window early so the very next [beginLoad]
+  /// isn't blocked by a still-ticking cooldown from a failure that was
+  /// plausibly just a network outage. No-op for a slot with no policy, or a
+  /// policy that didn't opt into this — matching prior behavior (a cooldown
+  /// slot only clears by waiting out its window or by [reset]).
+  void clearCooldownOnReconnect() {
+    if (retryPolicy?.resetOnConnectivityRestored != true) return;
+    if (!isCooldown) return;
+    lastErrorAt = null;
   }
 
   /// Begin a load that BYPASSES the cooldown backoff window.
@@ -225,8 +263,14 @@ class AdSlot {
 
   /// Mark load failed: slot becomes [AdSlotState.cooldown] (caller decides
   /// when to allow retry — see [isCooldownActive]).
-  void markFailed() {
+  ///
+  /// [errorCode] (T108) is the adapter's raw numeric error code — see
+  /// [lastErrorCode]. Optional and defaults to `null` so every existing
+  /// call site keeps compiling unchanged; only [retryPolicy]'s
+  /// `isRetryable` classifier, if set, ever reads it.
+  void markFailed({int? errorCode}) {
     lastErrorAt = DateTime.now();
+    lastErrorCode = errorCode;
     consecutiveFailures++;
     state.value = AdSlotState.cooldown;
     _firePending(false);
@@ -373,6 +417,7 @@ class AdSlot {
     _showConfirmTimer = null;
     state.value = AdSlotState.idle;
     lastErrorAt = null;
+    lastErrorCode = null;
     lastLoadedAt = null;
     consecutiveFailures = 0;
     _firePending(false);

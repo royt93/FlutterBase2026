@@ -57,13 +57,14 @@ export 'src/state/ad_event.dart';
 export 'src/state/ad_placement.dart';
 // AdSlot/AdSlotType/AdSlotState stay public — they're the return types of
 // AdProviderAdapter.appOpenSlot/interstitialSlot/rewardedSlot, so anyone
-// implementing a custom adapter needs them. Backoff (T78) does not: it's
-// only an internal cooldown-calculation detail of AdSlot.beginLoad()'s
-// default parameter — nothing outside this package's own tests needs to
-// name the type.
+// implementing a custom adapter needs them. Backoff (T78) used to be purely
+// internal, but T108's AdRetryPolicy takes one as a constructor param, so a
+// host configuring a per-slot policy needs to name the type too.
 export 'src/adapters/fake_adapter.dart';
+export 'src/state/ad_retry_policy.dart';
 export 'src/state/ad_sdk_state_snapshot.dart';
 export 'src/state/ad_slot.dart';
+export 'src/state/backoff.dart';
 
 // Utilities
 export 'src/utils/safe_logger.dart' show SafeLogger, AdLogSink;

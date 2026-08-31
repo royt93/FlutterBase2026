@@ -19,7 +19,6 @@
 import 'dart:async';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-import 'package:applovin_admob_sdk/src/state/backoff.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_max/applovin_max.dart';

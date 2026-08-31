@@ -7167,6 +7167,16 @@ class AdManager with WidgetsBindingObserver {
           'rewarded=${ad.rewardedSlot.value.name} '
           'appOpen=${ad.appOpenSlot.value.name}',
     );
+    // T108 — this scan only ever runs while isConnected (see the guard
+    // above), so for any slot opted into AdRetryPolicy.resetOnConnectivityRestored
+    // this is exactly the "connectivity restored" moment its cooldown should
+    // clear early instead of waiting out a backoff window that may have been
+    // computed while offline. No-op for every slot with no policy, or a
+    // policy that didn't opt in — matches prior behavior.
+    ad.appOpenSlot.clearCooldownOnReconnect();
+    ad.interstitialSlot.clearCooldownOnReconnect();
+    ad.rewardedSlot.clearCooldownOnReconnect();
+    ad.rewardedInterstitialSlot.clearCooldownOnReconnect();
     if (ad.appOpenSlot.isIdle || ad.appOpenSlot.isCooldown) {
       unawaited(loadAppOpenAd());
     }

@@ -991,7 +991,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       },
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.w(_logTag, 'appOpen $tag ❌ load failed code=${err.code}');
-        appOpenSlot.markFailed();
+        appOpenSlot.markFailed(errorCode: err.code.value);
         _logIfRepeatedFailure('appOpen', appOpenSlot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1309,7 +1309,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       },
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.w(_logTag, 'inter $tag ❌ load failed code=${err.code}');
-        interstitialSlot.markFailed();
+        interstitialSlot.markFailed(errorCode: err.code.value);
         _logIfRepeatedFailure('inter', interstitialSlot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1517,7 +1517,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       },
       onAdLoadFailedCallback: (id, err) {
         SafeLogger.w(_logTag, 'rewarded $tag ❌ load failed code=${err.code}');
-        rewardedSlot.markFailed();
+        rewardedSlot.markFailed(errorCode: err.code.value);
         _logIfRepeatedFailure('rewarded', rewardedSlot, err.code);
         _emit(AdLoadEvent(
           providerTag: tag,

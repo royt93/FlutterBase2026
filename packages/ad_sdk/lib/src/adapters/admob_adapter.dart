@@ -913,7 +913,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         onFailed: (code, message) {
           SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=$code msg=$message');
           _appOpenAd = null;
-          appOpenSlot.markFailed();
+          appOpenSlot.markFailed(errorCode: code);
           _emit(AdLoadEvent(
             providerTag: tag,
             type: AdSlotType.appOpen,
@@ -1215,7 +1215,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         onFailed: (code, message) {
           SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ $code');
           _interstitialAd = null;
-          interstitialSlot.markFailed();
+          interstitialSlot.markFailed(errorCode: code);
           _emit(AdLoadEvent(
             providerTag: tag,
             type: AdSlotType.interstitial,
@@ -1399,7 +1399,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         onFailed: (code, message) {
           SafeLogger.w(_logTag, 'loadRewarded $tag ❌ $code');
           _rewardedAd = null;
-          rewardedSlot.markFailed();
+          rewardedSlot.markFailed(errorCode: code);
           _emit(AdLoadEvent(
             providerTag: tag,
             type: AdSlotType.rewarded,
@@ -1614,7 +1614,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         onFailed: (code, message) {
           SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
           _rewardedInterstitialAd = null;
-          rewardedInterstitialSlot.markFailed();
+          rewardedInterstitialSlot.markFailed(errorCode: code);
           _emit(AdLoadEvent(
             providerTag: tag,
             type: AdSlotType.rewardedInterstitial,
