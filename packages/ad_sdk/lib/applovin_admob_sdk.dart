@@ -8,6 +8,7 @@ library;
 export 'src/compliance/ad_event_log.dart';
 export 'src/compliance/compliance_report.dart';
 export 'src/compliance/compliance_signing.dart';
+export 'src/compliance/incident_recorder.dart';
 
 // Configuration
 export 'src/config/ad_config.dart';

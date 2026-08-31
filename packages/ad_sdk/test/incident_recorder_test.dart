@@ -1,0 +1,160 @@
+// T125 — offline incident recorder: a small ring buffer of state-transition
+// snapshots (not full events, see AdEventLog for that), exportable as a
+// signed bundle a publisher can hand a support case, replayable entirely
+// locally via tool/incident_replay.dart. This file tests the same pure
+// logic that tool exercises, without going through a file/process.
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+const _snapA = AdSdkStateSnapshot(
+  isInitialised: false,
+  canRequestAds: false,
+  isOffline: true,
+  isVipActive: false,
+  fullscreenBusy: false,
+);
+const _snapB = AdSdkStateSnapshot(
+  isInitialised: true,
+  canRequestAds: false,
+  isOffline: false,
+  isVipActive: false,
+  fullscreenBusy: false,
+);
+const _snapC = AdSdkStateSnapshot(
+  isInitialised: true,
+  canRequestAds: true,
+  isOffline: false,
+  isVipActive: false,
+  fullscreenBusy: true,
+);
+
+const _config = AdConfig(
+  provider: AdProvider.admob,
+  admob: AdMobConfig(
+      bannerId: 'b', interstitialId: 'i', appOpenId: 'ao', rewardedId: 'r'),
+);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('IncidentRecorder ring buffer', () {
+    test('records in order with deltaMs relative to the previous entry', () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('boot', _snapA, now: t0);
+      recorder.record('adapterInitialized', _snapB,
+          now: t0.add(const Duration(milliseconds: 500)));
+      recorder.record('consentChanged', _snapC,
+          now: t0.add(const Duration(milliseconds: 1300)));
+
+      expect(recorder.entries.map((e) => e.label),
+          ['boot', 'adapterInitialized', 'consentChanged']);
+      expect(recorder.entries.map((e) => e.deltaMs), [0, 500, 800]);
+      expect(recorder.entries.last.snapshot, _snapC);
+    });
+
+    test('drops oldest entries past capacity, keeps the newest window', () {
+      final recorder = IncidentRecorder(capacity: 3);
+      for (var i = 0; i < 5; i++) {
+        recorder.record('e$i', _snapA, now: DateTime(2026, 1, 1, 12, 0, i));
+      }
+      expect(recorder.entries.map((e) => e.label), ['e2', 'e3', 'e4']);
+    });
+
+    test('clear() empties the buffer and resets the delta baseline', () {
+      final recorder = IncidentRecorder();
+      recorder.record('a', _snapA, now: DateTime(2026, 1, 1));
+      recorder.clear();
+      expect(recorder.entries, isEmpty);
+
+      recorder.record('b', _snapB, now: DateTime(2026, 1, 2));
+      expect(recorder.entries.single.deltaMs, 0,
+          reason: 'after clear(), the next entry is a fresh baseline, not a '
+              'multi-day delta from the entry that was wiped');
+    });
+  });
+
+  group('redactedConfigFingerprint', () {
+    test('carries provider/safety shape but never an ad-unit ID or SDK key',
+        () {
+      final fp = redactedConfigFingerprint(_config);
+      expect(fp['provider'], 'admob');
+      expect(fp['hasAdMobConfig'], isTrue);
+      expect(fp['hasAppLovinConfig'], isFalse);
+      expect(fp.toString(), isNot(contains('interstitialId')));
+      expect(fp.toString(), isNot(contains(' i,')));
+      expect((fp['safety'] as Map)['dryRun'], isFalse);
+    });
+  });
+
+  group('IncidentBundle JSON round-trip', () {
+    test('fromJsonString(toJsonString()) reproduces the exact entry sequence',
+        () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('boot', _snapA, now: t0);
+      recorder.record('ready', _snapC,
+          now: t0.add(const Duration(milliseconds: 250)));
+
+      final bundle =
+          IncidentBundle.capture(recorder, _config, now: t0);
+      final json = bundle.toJsonString();
+      final replayed = IncidentBundle.fromJsonString(json);
+
+      expect(replayed.entries.length, bundle.entries.length);
+      for (var i = 0; i < bundle.entries.length; i++) {
+        expect(replayed.entries[i].label, bundle.entries[i].label);
+        expect(replayed.entries[i].deltaMs, bundle.entries[i].deltaMs);
+        expect(replayed.entries[i].snapshot, bundle.entries[i].snapshot);
+      }
+      expect(replayed.configFingerprint, bundle.configFingerprint);
+    });
+
+    test('replayIncidentBundleJson gives the same sequence as the source '
+        'recorder — the actual "replay reproduces the recorded state '
+        'sequence" contract', () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('a', _snapA, now: t0);
+      recorder.record('b', _snapB,
+          now: t0.add(const Duration(milliseconds: 100)));
+      recorder.record('c', _snapC,
+          now: t0.add(const Duration(milliseconds: 900)));
+
+      final bundle = IncidentBundle.capture(recorder, _config, now: t0);
+      final replayed = replayIncidentBundleJson(bundle.toJsonString());
+
+      expect(replayed.map((e) => e.toString()).toList(),
+          recorder.entries.map((e) => e.toString()).toList());
+    });
+  });
+
+  group('signIncidentBundle (Ed25519, reuses compliance-signing infra)', () {
+    test('a signed bundle verifies via verifySignedJsonPayload', () async {
+      final recorder = IncidentRecorder();
+      recorder.record('boot', _snapA, now: DateTime(2026, 1, 1));
+      final bundle = IncidentBundle.capture(recorder, _config);
+
+      final signed = await signIncidentBundle(bundle);
+      final envelopeJson = signed.toJsonString();
+
+      expect(await verifySignedJsonPayload(envelopeJson), isTrue);
+      expect(signed.payloadJson, bundle.toJsonString());
+    });
+
+    test('a bit-flipped payload fails verification', () async {
+      final recorder = IncidentRecorder();
+      recorder.record('boot', _snapA, now: DateTime(2026, 1, 1));
+      final bundle = IncidentBundle.capture(recorder, _config);
+      final signed = await signIncidentBundle(bundle);
+
+      final tampered = SignedPayload(
+        payloadJson: signed.payloadJson.replaceFirst('"boot"', '"tampered"'),
+        publicKeyBase64: signed.publicKeyBase64,
+        signatureBase64: signed.signatureBase64,
+      );
+
+      expect(await verifySignedJsonPayload(tampered.toJsonString()), isFalse);
+    });
+  });
+}

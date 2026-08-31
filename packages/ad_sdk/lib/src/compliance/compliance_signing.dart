@@ -127,3 +127,78 @@ Future<bool> verifySignedComplianceReportJson(String bundleJson) async {
     return false;
   }
 }
+
+/// T125 — a signed arbitrary JSON payload, for exports that aren't a
+/// [ComplianceReport] (e.g. `IncidentBundle`). Same shape and threat model
+/// as [SignedComplianceReport], generalized to any payload string; the two
+/// are kept as separate types (rather than reusing one generic class) so
+/// [SignedComplianceReport]'s on-disk `reportJson` key — already consumed by
+/// `tool/verify_compliance_report.dart` and any host that parsed a prior
+/// export — never changes shape.
+class SignedPayload {
+  const SignedPayload({
+    required this.payloadJson,
+    required this.publicKeyBase64,
+    required this.signatureBase64,
+  });
+
+  final String payloadJson;
+  final String publicKeyBase64;
+  final String signatureBase64;
+
+  Map<String, dynamic> toJson() => {
+        'payloadJson': payloadJson,
+        'publicKeyBase64': publicKeyBase64,
+        'signatureBase64': signatureBase64,
+      };
+
+  String toJsonString({bool pretty = false}) {
+    final encoder =
+        pretty ? const JsonEncoder.withIndent('  ') : const JsonEncoder();
+    return encoder.convert(toJson());
+  }
+}
+
+/// Signs [payloadJson] with the SAME on-device Ed25519 key as
+/// [signComplianceReport] — same [_secureKeySeed], so an incident bundle and
+/// a compliance report exported from the same install verify against the
+/// same public key.
+Future<SignedPayload> signJsonPayload(
+  String payloadJson, {
+  FlutterSecureStorage? secureStorage,
+}) async {
+  final storage = secureStorage ?? const FlutterSecureStorage();
+  final keyPair = await _loadOrCreateKeyPair(storage);
+  final sig = await _ed25519.sign(utf8.encode(payloadJson), keyPair: keyPair);
+  final pub = await keyPair.extractPublicKey();
+  return SignedPayload(
+    payloadJson: payloadJson,
+    publicKeyBase64: base64Url.encode(pub.bytes),
+    signatureBase64: base64Url.encode(sig.bytes),
+  );
+}
+
+/// Verifies a bundle produced by [SignedPayload.toJson] /
+/// [SignedPayload.toJsonString]. Same semantics as
+/// [verifySignedComplianceReportJson] — never throws, malformed input is
+/// simply not valid.
+Future<bool> verifySignedJsonPayload(String bundleJson) async {
+  try {
+    final decoded = jsonDecode(bundleJson) as Map<String, dynamic>;
+    final payloadJson = decoded['payloadJson'] as String;
+    final pubBytes = base64Url
+        .decode(base64Url.normalize(decoded['publicKeyBase64'] as String));
+    final sigBytes = base64Url
+        .decode(base64Url.normalize(decoded['signatureBase64'] as String));
+    if (pubBytes.length != 32) return false;
+    return await _ed25519.verify(
+      utf8.encode(payloadJson),
+      signature: Signature(
+        sigBytes,
+        publicKey: SimplePublicKey(pubBytes, type: KeyPairType.ed25519),
+      ),
+    );
+  } catch (_) {
+    return false;
+  }
+}
