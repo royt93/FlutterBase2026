@@ -336,5 +336,53 @@ void main() {
       final log = AdEventLog(prefs);
       await expectLater(log.flush(), completes);
     });
+
+    test(
+        'T102: a new AdEventLog constructed right after an AWAITED flush() '
+        'sees the flushed entries — the destroy()→initialize() boundary '
+        'must not lose them', () async {
+      // Reproduces the real-device timing gap (genuine async platform-
+      // channel I/O) the in-memory SharedPreferences mock is too fast to
+      // exhibit on its own — see T101's identical seam for the same reason.
+      AdEventLog.debugPersistDelay = const Duration(milliseconds: 20);
+      addTearDown(() => AdEventLog.debugPersistDelay = null);
+
+      final oldLog = AdEventLog(prefs);
+      oldLog.recordEvent(loadEvent(), timestampMs: 1);
+
+      // This is the fixed AdManager._destroy() behaviour: AWAIT flush()
+      // before anything else can construct a new AdEventLog on the same
+      // AdPreferences. `_load()` (in AdEventLog's constructor) reads
+      // SharedPreferences synchronously, so if this await were replaced by
+      // `unawaited(...)` (the pre-T102 bug), the assertion below would fail:
+      // the new log would construct before the old log's write landed and
+      // load an empty/stale blob, silently losing `oldLog`'s entry forever.
+      await oldLog.flush();
+
+      final newLog = AdEventLog(prefs);
+      expect(newLog.entries, hasLength(1),
+          reason: 'the old log\'s flushed entry must survive into the new '
+              'log — this is exactly the destroy()→initialize() boundary '
+              'T102 protects');
+    });
+
+    test(
+        'T102 sibling: NOT awaiting flush() (the pre-fix AdManager._destroy() '
+        'behaviour) loses the entry — proves why the await in ad_manager.dart '
+        'is load-bearing, not decorative', () async {
+      AdEventLog.debugPersistDelay = const Duration(milliseconds: 20);
+      addTearDown(() => AdEventLog.debugPersistDelay = null);
+
+      final oldLog = AdEventLog(prefs);
+      oldLog.recordEvent(loadEvent(), timestampMs: 1);
+
+      // ignore: unawaited_futures
+      oldLog.flush(); // deliberately not awaited — this is the old bug.
+      final newLog = AdEventLog(prefs); // constructs immediately, reads stale
+      expect(newLog.entries, isEmpty,
+          reason: 'without the await, the new log loads before the old '
+              "log's write lands — this is the exact bug T102 fixes in "
+              'AdManager._destroy()');
+    });
   });
 }

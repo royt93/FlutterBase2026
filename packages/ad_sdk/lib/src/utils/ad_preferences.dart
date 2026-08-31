@@ -423,6 +423,21 @@ class AdPreferences {
     }
   }
 
+  /// T101 — test-only hook: when set, awaited right before the write inside
+  /// [recordFillRateBaselineSample], to reproduce the real-device timing gap
+  /// (genuine async platform-channel I/O) that the in-memory
+  /// `SharedPreferences` mock is too fast to ever exhibit on its own.
+  @visibleForTesting
+  static Duration? debugFillRateWriteDelay;
+
+  /// T101 — chains every [recordFillRateBaselineSample] write so the next
+  /// call's read-modify-write only starts after the previous one's write has
+  /// landed. Without this, two samples fired close together (e.g. a load
+  /// event immediately followed by a revenue event) both read the SAME
+  /// on-disk snapshot, and whichever write completes last silently discards
+  /// the other's delta — same idiom as `AdEventLog._persistChain`.
+  Future<void> _fillRateBaselineChain = Future.value();
+
   /// Adds today's [attempts]/[successes]/[revenueMicros]/[revenueCount] deltas
   /// (each defaulting to 0 — callers pass only what changed) onto today's
   /// bucket for [slotTypeName], creating it if absent.
@@ -432,6 +447,27 @@ class AdPreferences {
     int successes = 0,
     int revenueMicros = 0,
     int revenueCount = 0,
+  }) {
+    final result = _fillRateBaselineChain.then((_) =>
+        _recordFillRateBaselineSampleNow(
+          slotTypeName: slotTypeName,
+          attempts: attempts,
+          successes: successes,
+          revenueMicros: revenueMicros,
+          revenueCount: revenueCount,
+        ));
+    _fillRateBaselineChain = result.catchError((e) {
+      SafeLogger.w(_tag, 'fill-rate baseline write failed: $e');
+    });
+    return result;
+  }
+
+  Future<void> _recordFillRateBaselineSampleNow({
+    required String slotTypeName,
+    required int attempts,
+    required int successes,
+    required int revenueMicros,
+    required int revenueCount,
   }) async {
     final today = DateTime.now().toIso8601String().substring(0, 10);
     final history = getFillRateBaselineHistory(); // already pruned
@@ -444,6 +480,8 @@ class AdPreferences {
     existing['revenueCount'] = (existing['revenueCount'] ?? 0) + revenueCount;
     todayMap[slotTypeName] = existing;
     history[today] = todayMap;
+    final delay = debugFillRateWriteDelay;
+    if (delay != null) await Future<void>.delayed(delay);
     await _prefs?.setString(_keyFillRateBaselineHistory, jsonEncode(history));
   }
 

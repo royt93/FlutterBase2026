@@ -231,4 +231,35 @@ void main() {
     expect(monitor.activeAlerts.containsKey(AdSlotType.interstitial), isTrue);
     expect(monitor.activeAlerts.containsKey(AdSlotType.rewarded), isFalse);
   });
+
+  test(
+      'T101: two samples fired back-to-back (no await between them) both '
+      'land — neither delta is lost to a lost-update race', () async {
+    monitor = FillRateBaselineMonitor(prefs, minSamples: 1);
+    // The real bug only shows up against genuine async I/O latency — the
+    // in-memory SharedPreferences mock used here resolves fast enough that
+    // it never naturally exhibits the race. This debug hook reproduces the
+    // same timing gap deterministically instead of relying on `sleep`/flake.
+    AdPreferences.debugFillRateWriteDelay =
+        const Duration(milliseconds: 20);
+    addTearDown(() => AdPreferences.debugFillRateWriteDelay = null);
+
+    // Fired without awaiting either individually: both read-modify-write
+    // cycles start before either has written back, which is exactly the
+    // race T101 describes. The write-chain in AdPreferences must still
+    // serialize them so both deltas end up persisted.
+    final f1 = prefs.recordFillRateBaselineSample(
+        slotTypeName: AdSlotType.interstitial.name, attempts: 1, successes: 1);
+    final f2 = prefs.recordFillRateBaselineSample(
+        slotTypeName: AdSlotType.rewarded.name, attempts: 1, successes: 0);
+    await f1;
+    await f2;
+
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final todayHistory = prefs.getFillRateBaselineHistory()[today];
+    expect(todayHistory?[AdSlotType.interstitial.name]?['attempts'], 1,
+        reason: 'the first sample must not be discarded by the second');
+    expect(todayHistory?[AdSlotType.rewarded.name]?['attempts'], 1,
+        reason: 'the second sample must not be discarded either');
+  });
 }

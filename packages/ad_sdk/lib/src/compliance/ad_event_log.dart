@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../adaptive/adaptive_frequency.dart';
 import '../state/ad_event.dart';
 import '../utils/ad_preferences.dart';
@@ -105,7 +107,18 @@ class AdEventLog {
     });
   }
 
-  Future<void> _persist() => _prefs.setComplianceLogRaw(jsonEncode(_entries));
+  /// T102 — test-only hook: when set, awaited right before the write inside
+  /// [_persist], to reproduce the real-device timing gap (genuine async
+  /// platform-channel I/O) that the in-memory `SharedPreferences` mock is
+  /// too fast to ever exhibit on its own.
+  @visibleForTesting
+  static Duration? debugPersistDelay;
+
+  Future<void> _persist() async {
+    final delay = debugPersistDelay;
+    if (delay != null) await Future<void>.delayed(delay);
+    await _prefs.setComplianceLogRaw(jsonEncode(_entries));
+  }
 
   /// Forces an immediate write, skipping (and cancelling) any pending
   /// debounce window. Call before anything that could kill the process —

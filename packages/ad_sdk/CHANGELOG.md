@@ -4,6 +4,30 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.4] - 2026-08-31
+
+Round-27 continued: T101 (`doc/task/BACKLOG-sdk-2026-08-31.md`, bug B2).
+
+- **Fix**: `AdPreferences.recordFillRateBaselineSample()` wrote without any
+  ordering guarantee — two samples fired close together (e.g. a load event
+  immediately followed by a revenue event) could both read the same on-disk
+  snapshot, and whichever write landed last silently discarded the other's
+  delta. `FillRateBaselineMonitor`'s 7-day regression detector (T97) could
+  therefore under-report or mis-time an alert. Writes are now chained
+  (`_fillRateBaselineChain`), the same idiom `AdEventLog._persistChain`
+  already used for the identical class of bug. Mutation-verified.
+
+T102 (bug B3, `_eventLog.flush()` not awaited before `destroy()` nulls it)
+was investigated and a fix attempted: changing `unawaited(...)` to a bare
+`await` closes the race but makes `flutter test` hang indefinitely on
+`ad_manager_core_test.dart` — some existing test/scenario there leaves the
+event log's persist chain waiting on a write that never resolves. Reverted;
+the ticket stays open (`doc/task/todo/T102-...md`) with this finding recorded
+so the next attempt doesn't re-discover it. A bare `await` is confirmed
+unsafe; a version with a bounded timeout was deliberately not implemented
+either, since a timeout would mask whichever real bug the hang is exposing
+rather than fix it.
+
 ## [2.4.3] - 2026-08-31
 
 Round-27: after round-26, three independent reviewers (codex, Gemini, Claude)
