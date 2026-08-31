@@ -1964,6 +1964,11 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             ));
           },
           onAdOpened: (ad) {
+            // T105 — same identity guard as onAdFailedToLoad above: a click
+            // arriving after disposeBannerInstance(key) must not count
+            // against CTR-fraud tracking or emit an event for a placement
+            // that no longer exists.
+            if (!identical(_bannerSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'banner $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
@@ -2120,6 +2125,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             ));
           },
           onAdOpened: (ad) {
+            // T105 — same identity guard as onAdFailedToLoad above.
+            if (!identical(_mrecSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'mrec $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
@@ -2244,6 +2251,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             ));
           },
           onAdClicked: (ad) {
+            // T105 — same identity guard as onAdFailedToLoad above.
+            if (!identical(_nativeSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'native $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(

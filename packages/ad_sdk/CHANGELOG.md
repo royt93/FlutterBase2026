@@ -4,6 +4,34 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.5] - 2026-08-31
+
+Round-27 continued: T103, T104, T105 (`doc/task/BACKLOG-sdk-2026-08-31.md`,
+bugs B8/B9/B10). Each mutation-verified.
+
+- **Fix (T103)**: the example app's own splash screen (`example/lib/main.dart`)
+  used a `ValueNotifier<bool>` purely as a guard flag — nothing ever listened
+  to it. A native ad-load callback arriving after the splash widget's own
+  `dispose()` still wrote to it, throwing "A ValueNotifier was used after
+  being disposed." Replaced with a plain `bool`, set `true` as the very first
+  line of `dispose()` — a plain field is always safe to read/write regardless
+  of widget lifecycle, closing the whole bug class rather than one race
+  window in it.
+- **Fix (T104)**: `AppLovinAdapter._disposedNativeKeys` (a tombstone `Set`
+  guarding against a late native-ad callback resurrecting a disposed
+  instance) never shrank — a screen scrolling many native ads through a
+  long-lived `ListView` leaked one entry per ad that scrolled away and was
+  never revived. Now a `LinkedHashSet` bounded at 200 entries, evicting the
+  oldest tombstone once exceeded.
+- **Fix (T105)**: `onAdOpened`/`onAdClicked` (AdMob banner/MREC/native) had no
+  identity guard at all, unlike `onAdLoaded`/`onAdFailedToLoad` (round-26 #2
+  only fixed the latter). A click landing after `disposeXInstance()` still
+  counted against CTR-fraud tracking and emitted an `AdClickEvent` for a
+  placement that no longer existed. Also nulled `AppLovinAdapter.eventSink` in
+  `dispose()` — its bridge listeners are nulled there too, but a callback
+  already queued at that instant still runs on its old closure and still
+  reaches `_emit`, which reads `eventSink` at call time.
+
 ## [2.4.4] - 2026-08-31
 
 Round-27 continued: T101 (`doc/task/BACKLOG-sdk-2026-08-31.md`, bug B2).

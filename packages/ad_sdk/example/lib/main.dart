@@ -429,7 +429,13 @@ class _SplashScreenState extends State<SplashScreen> {
   // only suppresses this call site, not any native prompt triggered from
   // elsewhere.
   static const _skipUmp = bool.fromEnvironment('SKIP_UMP');
-  final ValueNotifier<bool> _navigated = ValueNotifier<bool>(false);
+  // T103 — plain bool, not ValueNotifier: nothing ever listens to this, it's
+  // used purely as a guard flag. A ValueNotifier read/written after its own
+  // dispose() throws ("A ValueNotifier was used after being disposed"); a
+  // native ad-load callback arriving late (after the splash widget itself
+  // disposed) hit exactly that. A plain field never has this problem —
+  // reading/writing it after State.dispose() is always safe.
+  bool _navigated = false;
   Timer? _hardCap;
   void Function(BoolEvent)? _listener;
 
@@ -513,7 +519,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   void _showAppOpen() {
     AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-      if (_navigated.value) return;
+      if (_navigated) return;
       if (!loaded || !mounted) {
         _goHome();
         return;
@@ -535,8 +541,8 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _goHome() {
-    if (_navigated.value) return;
-    _navigated.value = true;
+    if (_navigated) return;
+    _navigated = true;
     _hardCap?.cancel();
     _hardCap = null;
     final cb = _listener;
@@ -551,10 +557,15 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   void dispose() {
+    // T103 — set BEFORE anything else: a native ad-load callback already
+    // handed to the platform SDK before this dispose() can still arrive
+    // after it. That callback calls _goHome(), which must see _navigated
+    // already true and bail out immediately instead of touching
+    // Navigator/context on a widget mid-teardown.
+    _navigated = true;
     _hardCap?.cancel();
     final cb = _listener;
     if (cb != null) SimpleEventBus().remove(cb);
-    _navigated.dispose();
     super.dispose();
   }
 

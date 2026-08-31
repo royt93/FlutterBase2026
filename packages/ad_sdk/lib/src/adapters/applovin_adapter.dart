@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
@@ -489,7 +490,21 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   // the mount signal every re-init already sends, which always arrives
   // before any callback can resolve the key again — the same trap the AdMob
   // banner side hit, fixed there with slot identity (MJ21/B-2).
-  final Set<Object> _disposedNativeKeys = {};
+  // T104 — LinkedHashSet (insertion-ordered) so eviction below always drops
+  // the OLDEST tombstone first. Unbounded before this: a screen that scrolls
+  // native ads through a long-lived ListView (T73's exact use case) adds one
+  // entry per ad that scrolls away and is never revived, forever. Bounding it
+  // trades a vanishingly rare edge case (a callback arriving for a key more
+  // than [_maxDisposedNativeKeys] other disposals late) for a hard memory
+  // ceiling — the tombstone's whole job is guarding against a callback
+  // that's already unusually late; one that's `_maxDisposedNativeKeys`
+  // disposals late is not a case worth holding memory open for indefinitely.
+  final LinkedHashSet<Object> _disposedNativeKeys = LinkedHashSet<Object>();
+
+  static const int _maxDisposedNativeKeys = 200;
+
+  @visibleForTesting
+  int get debugDisposedNativeKeysCount => _disposedNativeKeys.length;
 
   AdSlot _nativeSlotFor(Object key) {
     if (_nativeDisposed || _disposedNativeKeys.contains(key)) {
@@ -529,7 +544,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   @override
   void disposeNativeInstance(Object key) {
+    // Re-inserting an already-present key doesn't change LinkedHashSet's
+    // insertion order, so drop-then-add here keeps a revived-then-disposed
+    // key correctly moved to the "most recent" end instead of evicting on
+    // its original position.
+    _disposedNativeKeys.remove(key);
     _disposedNativeKeys.add(key);
+    while (_disposedNativeKeys.length > _maxDisposedNativeKeys) {
+      _disposedNativeKeys.remove(_disposedNativeKeys.first);
+    }
     _nativeSlotsByKey.remove(key)?.dispose();
     _nativeListenablesByKey.remove(key)?.dispose();
   }
@@ -803,6 +826,14 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     } catch (e) {
       SafeLogger.w(_logTag, 'dispose() listener clear threw: $e');
     }
+    // T105 — nulling the bridge listeners above only stops FUTURE native
+    // calls; one already sitting in the Dart event queue when they were
+    // nulled still runs on its old closure and still reaches `_emit`, which
+    // reads `eventSink` at call time. Nulling it here means that straggler
+    // becomes a no-op instead of counting a click/open against a placement
+    // that no longer exists — same race class as the round-26 reward-drop
+    // fix, just for click/open events instead of a reward.
+    eventSink = null;
 
     // Now destroy the native widget AdViews. Without this the native side
     // keeps the previous banner/mrec alive across destroy → re-init cycles.

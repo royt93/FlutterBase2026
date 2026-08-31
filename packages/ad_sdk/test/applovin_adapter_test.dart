@@ -1074,6 +1074,29 @@ void main() {
       expect(a.nativeSlot(key).beginLoad(), isTrue,
           reason: 'its AdSlot must be usable again too');
     });
+
+    // T104 — the tombstone Set above (`_disposedNativeKeys`) protects against
+    // a late callback resurrecting a dead key, but it used to never shrink:
+    // a screen that scrolls many native ads through a long-lived ListView
+    // (T73's exact use case) added one entry per ad that scrolled away and
+    // was never revived, forever — an unbounded leak over a long session.
+    test('disposing far more native keys than the cap does not grow the '
+        'tombstone set without bound', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      for (var i = 0; i < 500; i++) {
+        final key = Object();
+        a.native(key); // materializes a live entry
+        a.disposeNativeInstance(key);
+      }
+
+      expect(a.debugDisposedNativeKeysCount, lessThanOrEqualTo(200),
+          reason: 'disposing 500 distinct keys must not leave 500 tombstones '
+              'sitting in memory forever — the set must be bounded');
+    });
   });
 
   group('onAppResumed() recreates errored banner AdView (T34)', () {
@@ -1654,5 +1677,23 @@ void main() {
       expect(b.destroyWidgetAdViewCalls, isEmpty,
           reason: 'a healthy preload must not destroy what it just created');
     });
+  });
+
+  // T105 — nulling the bridge listeners in dispose() only stops FUTURE
+  // native calls; one already sitting in the Dart event queue at that moment
+  // still runs on its old closure and still reaches `_emit`, which reads
+  // `eventSink` at call time. Nulling `eventSink` itself turns that
+  // straggler into a no-op instead of a click/open counting against a
+  // placement that no longer exists.
+  test('dispose() nulls eventSink so a straggler callback cannot emit '
+      'through it', () async {
+    final b = FakeAppLovinBridge();
+    final a = AppLovinAdapter(bridge: b);
+    expect(await a.initialize(_config), isTrue);
+    a.eventSink = (_) {};
+
+    await a.dispose();
+
+    expect(a.eventSink, isNull);
   });
 }

@@ -147,5 +147,56 @@ void main() {
               dummyBanner(), LoadAdError(0, 'd', 'm', null)),
           returnsNormally);
     });
+
+    // T105 — onAdOpened/onAdClicked had no identity guard at all (unlike
+    // onAdLoaded/onAdFailedToLoad above), so a click arriving after dispose
+    // still counted against CTR-fraud tracking and emitted an AdClickEvent
+    // for a placement that no longer exists.
+    test('banner onAdOpened (click) after dispose is dropped, not counted',
+        () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadBannerIfNeeded('k', 320);
+      final listener = adapter.debugBannerListenerFor('k');
+      expect(listener, isNotNull);
+
+      adapter.disposeBannerInstance('k');
+      listener!.onAdOpened!(dummyBanner());
+
+      expect(events, isEmpty,
+          reason: 'a click landing after disposeBannerInstance() must not '
+              'emit an AdClickEvent for a placement that no longer exists');
+    });
+
+    test('mrec onAdOpened (click) after dispose is dropped, not counted',
+        () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadMrecIfNeeded('k', 0);
+      final listener = adapter.debugMrecListenerFor('k');
+      expect(listener, isNotNull);
+
+      adapter.disposeMrecInstance('k');
+      listener!.onAdOpened!(dummyBanner());
+
+      expect(events, isEmpty);
+    });
+
+    test('native onAdClicked after dispose is dropped, not counted',
+        () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.preloadNative('k');
+      final listener = adapter.debugNativeListenerFor('k');
+      expect(listener, isNotNull);
+
+      adapter.disposeNativeInstance('k');
+      listener!.onAdClicked!(dummyBanner());
+
+      expect(events, isEmpty);
+    });
   });
 }
