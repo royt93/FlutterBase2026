@@ -46,8 +46,8 @@ Cả 3 nguồn hội tụ mạnh vào cùng nhóm ý tưởng — gộp, không 
 ## 3. TECH DEBT
 
 - **DEBT-1 — Tách `AdManager` ~7000 dòng** thành internal coordinators (Init/Consent/Lifecycle/Fullscreen/Retry) — 0 đổi hành vi, giảm blast-radius mỗi lần audit/fix. *[đồng thuận 3 nguồn]* — Effort XL, rủi ro nếu làm vội. → **user quyết định bỏ qua hẳn, không tạo ticket** (round 27, 2026-08-31).
-- **DEBT-2 — Hợp nhất lifecycle keyed inline-ad giữa 2 adapter** (map instance/dispose/revive lặp lại, chính là lý do B10 tồn tại — fix 1 bên quên bên kia). *[đồng thuận 3 nguồn]* → tách **T114**
-- **DEBT-3 — Chuẩn hoá primitive hủy callback async** (generation/bool-disposed/timer/Completer trộn lẫn tuỳ nơi). *[đồng thuận 3 nguồn]* → tách **T115**
+- **DEBT-2 — Hợp nhất lifecycle keyed inline-ad giữa 2 adapter** (map instance/dispose/revive lặp lại, chính là lý do B10 tồn tại — fix 1 bên quên bên kia). *[đồng thuận 3 nguồn]* → tách **T114** — **thử batch D, dừng lại**: scope thật (30+ điểm chạm/format, identity-check tinh vi trong callback) lớn hơn nhiều so với hình dung, không an toàn để refactor trong 1 lượt không chia nhỏ. Vẫn `todo/`.
+- **DEBT-3 — Chuẩn hoá primitive hủy callback async** (generation/bool-disposed/timer/Completer trộn lẫn tuỳ nơi). *[đồng thuận 3 nguồn]* → tách **T115** — **batch D: chỉ xây primitive (`AsyncEpoch`, `lib/src/utils/async_epoch.dart`), chưa migrate site nào**. Vẫn `todo/`, migrate từng subsystem để dành việc sau.
 - **DEBT-4 — Contract-test chung cho `AdProviderAdapter`** — parity 2 adapter hiện chỉ được assert rải rác theo file riêng. *[đồng thuận 3 nguồn]* → tách **T116** — **DONE (2.7.0)**
 - **DEBT-5 — Chia `example/lib/main.dart` (~2700 dòng)** theo từng demo/module — dễ đọc như cookbook. *[đồng thuận 2 nguồn]* → tách **T117** — **DONE (2.7.0)**
 ## 4. Ý TƯỞNG MỚI (không cần backend)
@@ -56,9 +56,9 @@ Cả 3 nguồn hội tụ mạnh vào cùng nhóm ý tưởng — gộp, không 
 - **IDEA-2 — `AdManager().explainLastSkip(AdSlotType)`**: ring buffer nhỏ trả lời "ad không hiện, tại sao?" — nhẹ hơn compliance report, đúng câu hỏi hỗ trợ phổ biến nhất. (claude) → tách **T119** — **FIXED (2.5.0)**
 - **IDEA-3 — Bộ mô phỏng ma trận consent** (`simulateConsentOutcome`) — pure function, QA xem trước AdMob/AppLovin sẽ nhận gì cho từng tổ hợp GDPR/ATT/COPPA, không cần build lên máy thật. (claude) → tách **T120** — **FIXED (2.5.0)**
 - **IDEA-4 — Ramp an toàn cục bộ theo tuổi install** (D0/D3/D7/D30 → `AdSafetyParams` khác nhau, hoàn toàn local, dùng `firstInstallAtMs` đã có) — bổ sung "no-server" cho T88. (claude) → tách **T121**
-- **IDEA-5 — Waterfall tuner on-device theo placement** — rolling score fill/latency/eCPM, khuyến nghị "ưu tiên provider X cho placement Y", chỉ auto-switch khi host opt-in. *[đồng thuận 3 nguồn]* → tách **T122**
-- **IDEA-6 — Smart prefetch theo hành trình người dùng** (host khai báo signal `levelStarted`/`screenEntered`, SDK học rolling time-to-show). *[đồng thuận 3 nguồn]* → tách **T123**
-- **IDEA-7 — `AdaptiveAdSurface`**: 1 widget tự chọn banner/MREC/native theo width/orientation. *[đồng thuận 3 nguồn]* → tách **T124**
+- **IDEA-5 — Waterfall tuner on-device theo placement** — rolling score fill/latency/eCPM, khuyến nghị "ưu tiên provider X cho placement Y", chỉ auto-switch khi host opt-in. *[đồng thuận 3 nguồn]* → tách **T122** — **DONE (batch D)**, xem `lib/src/monetization/waterfall_tuner.dart`.
+- **IDEA-6 — Smart prefetch theo hành trình người dùng** (host khai báo signal `levelStarted`/`screenEntered`, SDK học rolling time-to-show). *[đồng thuận 3 nguồn]* → tách **T123** — **DONE (batch D)**, xem `lib/src/monetization/journey_prefetcher.dart`.
+- **IDEA-7 — `AdaptiveAdSurface`**: 1 widget tự chọn banner/MREC/native theo width/orientation. *[đồng thuận 3 nguồn]* → tách **T124** — **DONE (batch D)**, scope banner/MREC 2-way (không native), xem `lib/src/widget/adaptive_ad_surface.dart`.
 - **IDEA-8 — Offline incident recorder + replayable support bundle** — ring buffer state-transition timeline, ký + replay local, giảm thời gian support bug chỉ tái hiện trên 1 máy. *[đồng thuận 3 nguồn]* → tách **T125** — **DONE (2.7.0, mechanism only — chưa auto-wire AdManager)**
 - **IDEA-9 — Creative fatigue guard on-device** — cooldown network/creative lặp quá dày (fail-open nếu thiếu metadata). *[đồng thuận 3 nguồn]* → tách **T126**
 ## 5. TÍNH NĂNG ĐỘC QUYỀN / FLAGSHIP

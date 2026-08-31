@@ -4,6 +4,38 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-08-31
+
+Round-27 batch D — 3 new opt-in features, 1 primitive built (not yet
+migrated anywhere), 1 refactor investigated and correctly not attempted.
+
+- **New**: `WaterfallTuner` (T122) — opt-in local fill-rate/eCPM scorer per
+  (provider, format, placement), `AdManager().enableWaterfallTuner(...)`.
+  Recommends a provider for the host's *next* session; never auto-switches,
+  never loads a shadow ad.
+- **New**: `JourneyPrefetcher` (T123) — opt-in smart prefetch,
+  `AdManager().enableJourneyPrefetcher(...)`. Host calls `notifySignal(signal,
+  type)` at journey points that typically precede a fullscreen ad; learns a
+  rolling time-to-show average and stops preloading eagerly once a signal's
+  average lead time exceeds `maxHoldDuration`. Bypasses no gate — calls the
+  same public `loadX()` a host could call directly.
+- **New**: `AdaptiveAdSurface` widget (T124) — picks between banner and MREC
+  by available width (debounced, freezes while a fullscreen ad is busy).
+  Native intentionally excluded from auto-selection — its content is
+  host-authored, so width alone isn't a sufficient signal.
+- **Internal**: `AsyncEpoch` primitive (T115) — the generation/dispose/
+  invalidate primitive several subsystems could eventually share. Built and
+  tested on its own; deliberately NOT wired into any existing call site yet
+  (`ad_manager.dart`, both adapters, UMP, VIP manager, splash controller,
+  loading dialog) — each migration is its own risky change on files audited
+  26+ rounds, left for dedicated follow-up tickets.
+- **Investigated, not done**: unifying banner/MREC/native lifecycle across
+  the two adapters (T114) — read the actual duplication first: 30+ touch
+  points per format, several wrapping identity-check guards inside the
+  load/callback path itself (the exact logic 26 rounds of audit tuned). Not
+  safely refactorable as a single indivisible pass; left open with a
+  per-format migration path suggested for next time.
+
 ## [2.7.0] - 2026-08-31
 
 Round-27 batch C — five more tickets from `doc/task/BACKLOG-sdk-2026-08-31.md`
