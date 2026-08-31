@@ -23,6 +23,7 @@ import '../consent/consent_settings.dart';
 import '../monetization/ad_diagnostics.dart';
 import '../monetization/fill_rate_baseline_monitor.dart';
 import '../monetization/fill_rate_monitor.dart';
+import '../monetization/waterfall_tuner.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
@@ -496,6 +497,31 @@ class AdManager with WidgetsBindingObserver {
     _fillRateMonitor = null;
   }
 
+  /// T122 — opt-in on-device waterfall tuner (default OFF) — `null` unless
+  /// the host app calls [enableWaterfallTuner]. Purely observational, same
+  /// shape as [enableFillRateMonitor]: it never affects show/load gating or
+  /// which provider a live session uses, it only watches [events] and
+  /// exposes a per-(provider, format, placement) [WaterfallTuner.recommendation]
+  /// a host can read and act on for its *next* `initialize()` call.
+  WaterfallTuner? _waterfallTuner;
+
+  /// `null` by default — see [enableWaterfallTuner].
+  WaterfallTuner? get waterfallTuner => _waterfallTuner;
+
+  /// Opt in to the waterfall tuner: starts tracking trailing fill rate and
+  /// eCPM per (provider, format, placement) from [events].
+  void enableWaterfallTuner(WaterfallTuner tuner) {
+    _waterfallTuner?.dispose();
+    _waterfallTuner = tuner;
+  }
+
+  /// Test/host seam: clear a previously-registered waterfall tuner.
+  @visibleForTesting
+  void disableWaterfallTuner() {
+    _waterfallTuner?.dispose();
+    _waterfallTuner = null;
+  }
+
   /// Opt-in 7-day fill-rate/eCPM baseline regression detector (T97, default
   /// OFF) — `null` unless [enableFillRateBaselineMonitor] was called.
   /// Compares this session against this device's own persisted trailing
@@ -553,6 +579,8 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;
+    _waterfallTuner?.dispose();
+    _waterfallTuner = null;
   }
 
   /// One-shot snapshot combining mediation waterfall, fill rate, and
@@ -5249,6 +5277,8 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;
+    _waterfallTuner?.dispose();
+    _waterfallTuner = null;
 
     _isSplashActive = false;
     _countInitSplashScreen = 0;

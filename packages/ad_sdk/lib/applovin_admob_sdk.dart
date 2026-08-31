@@ -47,6 +47,7 @@ export 'src/core/att_consent.dart'
 export 'src/monetization/ad_diagnostics.dart';
 export 'src/monetization/fill_rate_baseline_monitor.dart';
 export 'src/monetization/fill_rate_monitor.dart';
+export 'src/monetization/waterfall_tuner.dart';
 export 'src/monetization/monetization_arbitrator.dart';
 // Re-export Google's UMP enums, and TemplateType (T73 — NativeAdWidget's
 // templateType param), so callers don't need a direct google_mobile_ads import.
