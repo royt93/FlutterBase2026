@@ -13,3 +13,7 @@
 - [x] **KHÔNG đổi sang identity-comparison như AdMob** — đọc kỹ comment sẵn có (dòng ~470-478): `MaxNativeAdView`'s callback re-resolve `adapter.native(instanceKey)` MỖI LẦN gọi (không capture 1 lần như AdMob's `preloadNative`), nên trick "so identity slot đã capture" của AdMob không áp dụng thẳng được — cần đổi cả cách `native_ad_widget.dart` capture callback, rủi ro cao hơn hẳn dự kiến ban đầu của ticket (đã note lại trong DEBT-2/T115 cho ai muốn làm hướng lớn này sau).
 - [x] Thay bằng: `LinkedHashSet` + cap cứng 200 key (`_maxDisposedNativeKeys`), tự evict key CŨ NHẤT khi vượt — chặn đứng "phình vô hạn" bằng 4 dòng, không đụng kiến trúc callback. Đánh đổi: 1 callback trễ hơn 200 lần dispose khác mới bị bỏ lọt (thực tế cực hiếm) — chấp nhận được, tombstone vốn chỉ để chặn callback "trễ", không phải "trễ vô hạn".
 - [x] Test: `applovin_adapter_test.dart` — dispose 500 key khác nhau, xác nhận `debugDisposedNativeKeysCount <= 200`. Mutation-verified (revert → đỏ, fix lại → xanh).
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [ ] KHÔNG thêm integration test riêng — `_disposedNativeKeys` là state nội bộ của `AppLovinAdapter`, không export public. Cần feed thật (AppLovin) + cuộn hàng trăm native ad để quan sát bound thật — không khả thi trong 1 lần chạy integration test ngắn. Unit test đã có (bound 200, evict-oldest) coi là đủ chứng minh logic.

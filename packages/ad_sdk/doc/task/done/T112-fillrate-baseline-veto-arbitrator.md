@@ -13,3 +13,7 @@
 - [x] Thêm tham số optional `FillRateBaselineMonitor?` vào constructor arbitrator
 - [x] Dùng active alert làm tín hiệu veto bổ sung (opt-in, không đổi hành vi mặc định khi không truyền) — chèn ngay trước guardrail `vetoRate` hiện có nên 1 alert runaway/misconfig vẫn bị guardrail đó chặn như bình thường, không có đường tắt.
 - [x] Test (group "T112" trong `monetization_arbitrator_test.dart`): không truyền monitor → `showAd` y hệt cũ; có alert active cho đúng slot → `nudgeVip` dù eCPM heuristic riêng của arbitrator (0 revenue sample) sẽ nói `showAd`; slot khác không regressed không bị ảnh hưởng.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/fillrate_baseline_arbitrator_veto_test.dart` — wire `MonetizationArbitrator(fillRateBaselineMonitor:)` thật qua `AdManager()`, gọi `decide()`. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

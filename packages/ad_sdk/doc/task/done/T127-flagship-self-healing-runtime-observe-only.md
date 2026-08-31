@@ -18,3 +18,7 @@
 ## Ghi chú
 
 Effort ước lượng lại cho phần OBSERVE-ONLY này: **L** (không phải XL của full feature — full feature cần 2 adapter sống song song 1 phiên, đổi giả định kiến trúc lõi, để dành ticket riêng khi có quyết định bật auto-act thật).
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/self_healing_observer_test.dart` — `enableSelfHealingObserver` thật, xác nhận provider KHÔNG tự đổi (đúng observe-only). Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

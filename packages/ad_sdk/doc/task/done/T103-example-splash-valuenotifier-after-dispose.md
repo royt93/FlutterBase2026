@@ -13,3 +13,7 @@
 - [x] Dùng bool lifecycle token thay vì ValueNotifier — root cause thật: `_navigated` chưa từng được listen ở đâu, chỉ dùng làm cờ, nên đổi hẳn `ValueNotifier<bool>` → `bool` loại bỏ toàn bộ lớp lỗi "dùng sau dispose" thay vì chỉ vá 1 điểm race.
 - [x] `dispose()` set `_navigated = true` NGAY DÒNG ĐẦU (trước khi làm bất kỳ việc dọn dẹp nào khác) — callback trễ gọi `_goHome()` sau đó luôn thấy `_navigated == true` và return ngay, không chạm `Navigator`/`context`.
 - [ ] Regression test tự động: KHÔNG viết được — `_SplashScreenState`/`_navigated` là private trong `example/lib/main.dart`, ví dụ khác trong repo (B5) cũng không có unit test harness cho phần này. Verify bằng `flutter analyze` sạch + lý luận: đổi sang `bool` là an toàn theo cấu trúc (không còn `dispose()` nào để "dùng sau" nữa), không phải một mitigation xác suất cần chứng minh bằng timing test.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [ ] KHÔNG thêm integration test riêng — tái hiện đúng race cần app bị kill ở cấp OS giữa lúc ad đang load, không thể tạo qua `WidgetTester`/`IntegrationTestWidgetsFlutterBinding`. Splash mới (dùng plain `bool`) đã được toàn bộ integration test hiện có (`app_boot_test.dart` và mọi test khác chạy qua `app.main()`) đi qua ở mỗi lần chạy — coi là smoke-test gián tiếp đủ.

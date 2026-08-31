@@ -20,3 +20,7 @@
 - Không tạo `demos/<format>/` dạng thư mục-1-file-per-format (would're over-nesting) — dùng `demos/` phẳng với 1 file/format, đã đủ "tách theo từng demo" mà ticket yêu cầu, tránh 16 thư mục con 1-file.
 - `HomePage` đặt ở `shared/` (không phải file riêng) — nó là app shell/danh sách demo, không phải bản thân 1 demo, và không nằm trong 4 nhóm ticket liệt kê rõ ràng.
 - `Backoff`/`AdRetryPolicy` export thay đổi ở T108 không liên quan gì file này — ghi chú riêng để tránh nhầm 2 việc trong cùng batch.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Đã verify: toàn bộ `example/integration_test/*.dart` hiện có (35+ file, chạy qua `app.main()`) tiếp tục biên dịch + `flutter analyze` sạch sau khi tách file — đây chính là bằng chứng tích hợp cho 1 refactor cấu trúc thuần tuý (không hành vi mới để test riêng).

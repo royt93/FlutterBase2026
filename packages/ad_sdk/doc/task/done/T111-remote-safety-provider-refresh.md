@@ -18,3 +18,7 @@
 Field mới `_remoteSafetyProvider` lưu provider từ `initialize()`, clear trong `destroy()`. Method mới đọc `_config`/`_remoteSafetyProvider`, fail-open ở mọi bước (fetch throw/null/timeout 5s, hoặc `_config` bị null hoá giữa chừng bởi 1 `destroy()` khác). `AdSafetyConfig.updateParams()` mới (không phải `init()` đầy đủ) để không reset session đang chạy.
 
 Test viết ở file riêng (`test/refresh_remote_safety_params_test.dart`), không phải trong `ad_manager_core_test.dart`'s "remoteSafetyProvider (T88)" group — thêm test ở đó gây lỗi *deterministic* (không phải flaky) từ tương tác với 1 test có sẵn ("provider slower than 5s timeout") để lại 1 lời gọi `google_mobile_ads` thật chưa hoàn tất. File mới dùng `debugSetAdapter`/`debugConfig` test seam thay vì `AdManager().initialize()` thật — không cần chạm `AdMobAdapter`/plugin thật, nhanh hơn và né được toàn bộ lớp vấn đề đó.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/remote_safety_refresh_test.dart` — gọi `refreshRemoteSafetyParams()` trên SDK thật đang chạy, xác nhận fail-open không throw. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

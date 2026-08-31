@@ -24,3 +24,7 @@ Bản đầy đủ (5 trục: cap/retry/provider-split/VIP-duration/preload) đ�
 ## Ghi chú
 
 Làm sớm, ĐỘC LẬP với T127 (FLAGSHIP self-healing) theo quyết định user — dù BACKLOG doc gốc đề xuất nên làm sau để tránh trùng lặp. Nếu cả 2 chạy song song, cân nhắc thống nhất sớm cấu trúc dữ liệu rolling-metrics dùng chung.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/digital_twin_test.dart` — `buildMonetizationDigitalTwin()` từ log thật, `forecastDailyCap()`. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

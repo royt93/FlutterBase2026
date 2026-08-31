@@ -14,3 +14,7 @@ Round-26 finding #2 (còn mở) chỉ nêu AdMob's `onFailed` thiếu `_discardI
 - [x] Null hoá `eventSink` trong `dispose()` của AppLovin adapter — ngay sau khối null-hoá listener, chặn 1 callback lỡ đã nằm trong hàng đợi Dart trước khi listener bị null.
 - [x] Fix chung 1 chỗ, cùng root cause round-26 #2, cùng 1 ticket.
 - [x] Test: `test/admob_late_callback_test.dart` (3 test mới: banner/mrec `onAdOpened`, native `onAdClicked` — dùng đúng listener thật qua debug seam sẵn có, xác nhận `events` rỗng sau khi callback tới trễ) + `test/applovin_adapter_test.dart` (1 test: `dispose()` phải null hoá `eventSink`). Mutation-verified cả 2 (revert → đỏ, fix lại → xanh).
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [ ] KHÔNG thêm integration test riêng — tái hiện cần 1 callback native trễ SAU dispose, không thể tạo thật qua black-box integration test (cần fault injection ở tầng native). Unit test + `adapter_contract_test.dart` (T116) đã phủ đúng invariant `identical()` guard.

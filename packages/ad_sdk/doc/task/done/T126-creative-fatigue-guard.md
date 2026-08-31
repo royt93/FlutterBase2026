@@ -14,3 +14,7 @@ Cap hiện đếm impression/click theo thời gian/placement nhưng không nh�
 - [x] `AdSafetyConfig.recordNetworkShown(type, network)` + `isNetworkFatigued(type)` — rolling window (`networkFatigueWindowMs`, default 15 phút), threshold `maxSameNetworkShowsPerWindow` (default 4). Khi thiếu metadata (`network == null`): không ghi nhận gì — fail-open tuyệt đối, không có exposure history thì không bao giờ fatigue.
 - [x] Không đụng click hay nội dung creative — chỉ cooldown việc LOAD lại (4 site: loadAppOpen/Interstitial/Rewarded/RewardedInterstitial), mirror đúng pattern `dailyCapReached()` đã có.
 - [x] Test: 4 test mới (`test/ad_safety_config_test.dart`, group "T126") — ngưỡng đúng, fail-open khi thiếu metadata, không lẫn giữa các `AdSlotType`, `resetSession()` dọn sạch.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/creative_fatigue_guard_test.dart` — xác nhận params mới type-check + default (999, tắt) không chặn `canShowInterstitial()` thật. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

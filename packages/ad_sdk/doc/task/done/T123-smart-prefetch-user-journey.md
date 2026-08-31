@@ -26,3 +26,7 @@ không có 1 slot toàn cục để "prefetch theo signal" áp dụng cùng các
 implement `expectedBreakIn` hint riêng của ticket gốc — rolling average tự
 học đủ vai trò đó qua thời gian, thêm tham số tường minh nữa là phức tạp hoá
 không cần thiết cho v1.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/journey_prefetcher_test.dart` — `enableJourneyPrefetcher` thật, gọi `notifySignal()` trên SDK đang chạy. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

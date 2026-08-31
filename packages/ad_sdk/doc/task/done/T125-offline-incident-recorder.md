@@ -21,3 +21,7 @@ Diagnostics/report là snapshot; race "không hiện ad" thường cần chuỗi
 
 - **CHƯA auto-wire vào `AdManager`**: đây là scope cắt có chủ đích. Ticket chỉ đòi cơ chế recorder/export/replay (4 checkbox gốc), không đòi tự động ghi mọi state-transition thật trong `ad_manager.dart` (file 7000+ dòng, rủi ro cao hơn nhiều so với build cơ chế). Host/ticket tương lai gọi `recorder.record(label, AdSdkStateSnapshot(...))` tại các điểm chuyển trạng thái họ quan tâm (consent đổi, connectivity đổi, adapter init xong...), hoặc wire tự động là việc riêng.
 - `SignedPayload` tách riêng khỏi `SignedComplianceReport` (không tái dùng 1 class chung) — cố ý, để field `reportJson` của report cũ không bao giờ đổi tên/shape.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [ ] CHƯA thêm integration test — cơ chế `IncidentRecorder` cố ý chưa auto-wire vào `AdManager` (xem ghi chú gốc), nên không có điểm chạm public qua `AdManager()` để test qua app thật. Cần ticket riêng nếu quyết định auto-wire.

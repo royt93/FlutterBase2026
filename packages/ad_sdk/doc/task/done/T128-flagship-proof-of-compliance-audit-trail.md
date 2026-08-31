@@ -17,3 +17,7 @@ SDK đã có hạ tầng Ed25519 dùng cho VIP key (T18/AVP2), VIP revocation (T
 - [x] Test (`test/bypass_audit_trail_test.dart`, 8 case): record đúng field + thứ tự; ring buffer cap đúng; ký xong verify đúng qua `verifySignedJsonPayload`; payload bị sửa 1 ký tự → verify fail; wiring thật qua `AdManager().showAppOpenAd`/`showRewardedAd` — bypass=true ghi đúng, bypass=false không ghi gì.
 
 **Phạm vi đã thu hẹp có chủ ý:** không track riêng `dryRun` — đó là 1 cờ CẤU HÌNH cấp phiên (`AdSafetyParams.dryRun`), không phải 1 lệnh gọi có "call site" cụ thể như 2 cái kia, và giá trị của nó đã lộ sẵn qua `AdSafetyConfig.getStatus()`/`AdSafetySnapshot.dryRun` — không phải 1 "cửa hậu ẩn" cần thêm audit trail riêng.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/bypass_audit_trail_test.dart` — gọi `showAppOpenAd(bypassSafety: true)` thật, xác nhận `bypassAuditTrail` không throw/không co lại. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.

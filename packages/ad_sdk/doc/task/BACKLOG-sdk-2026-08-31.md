@@ -95,3 +95,30 @@ differentiator đúng:
 4. Phần còn lại của BUG theo P-level.
 5. Enhancement/tech-debt/idea/flagship — cần quyết định hướng sản phẩm, để
    user chọn qua câu hỏi trực tiếp.
+
+## QA-hardening pass (2026-09-01)
+
+User yêu cầu mọi tính năng round-27 phải có example/demo app chứng minh +
+unit/widget/integration test, không chỉ unit test suông. Đã audit 26 ticket
+done:
+
+- **3 ticket có UI** (T109 StateSnapshot, T120 consent simulator, T124
+  AdaptiveAdSurface) — đã thêm demo thật vào `example/lib/demos/`, phát hiện
+  + fix 1 bug thật trong lúc làm: `AdScreenState.buildBanner/buildMrec/
+  buildNative` chưa bao giờ forward `placement` xuống 3 widget (dù T107 đã
+  thêm field đó) — mọi app dùng đúng pattern `extends AdScreen` documented
+  không cách nào set placement được. Fix trong `8aafdfa` (2.9.1).
+- **12 ticket logic-only có điểm chạm public qua `AdManager()`** (T108, T110,
+  T111, T112, T119, T121, T122, T123, T126, T127, T128, T129) — đã thêm
+  integration test thật trong `example/integration_test/`, `flutter analyze`
+  sạch, CHƯA chạy trên thiết bị thật (cần emulator/device — việc tiếp theo).
+- **6 ticket không có điểm chạm public khả thi để black-box test**
+  (T101, T103, T104, T105, T116, T117) — ghi rõ lý do trong từng ticket
+  (state nội bộ không export, cần fault injection tầng native, hoặc chính
+  ticket đã là 1 test suite/refactor cấu trúc thuần tuý). Coi unit test +
+  contract test hiện có là đủ.
+- T125 (incident recorder): chưa test — cơ chế cố ý chưa auto-wire vào
+  `AdManager`, không có điểm chạm public.
+
+**Còn lại:** 12 integration test mới cần chạy thật trên emulator/device để
+xác nhận pass (chỉ mới qua `flutter analyze`, chưa chạy runtime).

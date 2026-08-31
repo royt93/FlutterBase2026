@@ -18,3 +18,7 @@ Test 2 adapter nhiều nhưng parity chủ yếu được assert theo file riên
 ## Ghi chú
 
 Rủi ro thấp (chỉ thêm test). Nên làm TRƯỚC T114 (hợp nhất adapter) — làm lưới an toàn cho refactor đó — vẫn đúng, chưa làm T114.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [ ] Ticket này TỰ LÀ 1 test suite (test-only, không phải feature) — không cần integration test riêng cho chính nó.

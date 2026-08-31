@@ -22,3 +22,7 @@ SDK đã có `Backoff` và watchdog nhưng chủ yếu dùng 1 policy chung; no-
 
 - KHÔNG đụng `config/ad_config.dart` — ticket liệt kê file này nhưng hoá ra không cần: `AdSlot.retryPolicy` là field public, và `AdProviderAdapter`/`AdManager().adapter` đã expose slot getter công khai sẵn, nên host set policy trực tiếp trên slot instance sau `initialize()` mà không cần thêm tham số `AdConfig`/`AdManager` nào.
 - Chỉ wire `errorCode` cho 4 slot fullscreen (appOpen/interstitial/rewarded/rewardedInterstitial) — banner/mrec/native dùng cơ chế watchdog khác (T108's Files list ban đầu không nhắc 3 loại này) và không nằm trong `_retryRefillAds`'s phạm vi hiện có.
+
+## QA bổ sung (round-27 QA-hardening)
+
+- [x] Integration test thật: `example/integration_test/ad_retry_policy_test.dart` — gán `AdRetryPolicy` vào `AdManager().adapter.rewardedSlot` thật, xác nhận round-trip qua adapter thật (không chỉ `AdSlot` cô lập). Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.
