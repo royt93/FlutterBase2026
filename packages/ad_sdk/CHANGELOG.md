@@ -4,6 +4,21 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.4] - 2026-09-01
+
+- **Fix (T102, finally closed after 3 rounds)**: `AdManager.destroy()` now
+  awaits the event log's flush before nulling it, closing a
+  destroy()→initialize() race that could silently lose queued compliance
+  events. The fix itself was correct on the first attempt; what took 3
+  rounds was a `flutter test` hang the fix exposed — root cause was a *test*
+  bug (`ad_manager_core_test.dart`'s remote-safety-provider timeout test
+  mixed `fakeAsync` with real platform-channel work, leaving an orphaned
+  tail running in real wall-clock time after the test's virtual zone
+  closed; `unawaited(...)` used to hide it, `await` exposed it), not a
+  production bug. Fixed the test to use real time instead of `fakeAsync` for
+  that scenario. Mutation-verified with a new AdManager-level test
+  (`test/destroy_awaits_event_log_flush_test.dart`).
+
 ## [2.9.3] - 2026-09-01
 
 T115 (`doc/task/done/T115-standardize-async-cancellation-primitive.md`):

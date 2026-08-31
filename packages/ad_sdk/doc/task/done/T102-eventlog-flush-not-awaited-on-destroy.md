@@ -154,3 +154,51 @@ rơi (không `catchError`/không có nơi nó ghi vào state chung) hay không. 
 state sau khi bị timeout) có thể tự động giải quyết luôn cả T102 THẬT (vì đó
 mới là cái để lại "hiệu ứng phụ chạy ngầm" mà `await` sau này vô tình chờ
 phải) — không chỉ né bằng cách sửa lại 1 test.
+
+**Cập nhật (phiên chính, cùng ngày) — đã tự đọc hướng (3), khả năng thấp
+hơn dự đoán:** `ad_manager.dart:2460-2474` (`initialize()`'s remote-safety
+fetch) đã `await ... .timeout(Duration(seconds: 5))` bọc trong `try/catch`
+đúng chuẩn — timeout throw, catch bắt, `initialize()` tiếp tục ngay, không
+có gì "await treo" ở CHÍNH đoạn này. Future gốc (Completer không bao giờ
+complete của provider giả trong test) đúng là bị bỏ rơi (Dart `.timeout()`
+không cancel future gốc — biết trước), nhưng bỏ rơi 1 future không tự nó
+gây treo trừ khi có gì sau này CHỦ ĐỘNG chờ lại đúng future đó hoặc 1 side
+effect của nó. Nghi vấn giờ nghiêng hẳn về **hướng (1)** — lỗi nằm trong
+CHÍNH TEST (`_HangingRemoteSafetyProvider` test, dùng `fakeAsync` sai cho 1
+kịch bản có platform-channel thật lọt qua zone ảo), không phải bug
+`ad_manager.dart`. Việc tiếp theo hợp lý nhất: sửa test đó theo hướng (1)
+(bỏ `fakeAsync`, chờ thật 6s) — rủi ro thấp nhất vì không đụng code sản
+xuất, và nếu sau khi sửa test mà `await` (fix T102 thật) vẫn không treo nữa
+thì xác nhận đây đúng là lỗi test, đóng được T102 bằng cách sửa TEST + áp
+lại fix `await` trong `destroy()`.
+
+## ĐÃ ĐÓNG (2026-09-01, version 2.9.4) — hướng (1) đúng, xác nhận 100%
+
+Sửa `test/ad_manager_core_test.dart`'s `'a provider slower than the 5s
+timeout falls back to local params'`: bỏ `fakeAsync`, `await
+AdManager().initialize(...)` thật thay vì `unawaited` + `async.elapse(6s)`.
+Lý do đúng như nghi vấn hướng (1): test cũ chỉ elapse thời gian ẢO rồi kết
+thúc ngay, để `initialize()`'s phần đuôi (native platform-channel thật,
+không nằm trong tầm kiểm soát của `fakeAsync`) tiếp tục chạy ở real
+wall-clock time SAU KHI zone ảo đã đóng. `unawaited(_eventLog?.flush())`
+(bản cũ) không ai chờ nên "che" được cái đuôi mồ côi đó; đổi sang `await`
+làm `destroy()`'s tearDown phải chờ đúng cái đuôi không bao giờ tự xong đó
+→ treo. Sửa test dùng thời gian thật (không mix 2 zone) loại bỏ hẳn cái
+đuôi mồ côi — không phải bug `ad_manager.dart`.
+
+Áp lại fix thật: `unawaited(_eventLog?.flush())` → `await
+_eventLog?.flush()` trong `destroy()`. Verify:
+- `test/ad_manager_core_test.dart` (165 test, toàn bộ file) chạy trong ~8s,
+  không treo.
+- Full suite: **1476 test pass** (thêm `test/destroy_awaits_event_log_flush_test.dart`,
+  test AdManager-level chứng minh trực tiếp qua `debugEventLog` +
+  `AdEventLog.debugPersistDelay`, mutation-verified: revert → đỏ đúng chỗ
+  (destroy() trả về sau ~7ms thay vì chờ đủ 60ms delay), fix lại → xanh).
+- `flutter analyze` sạch.
+
+**Bài học cho lần sau nếu gặp treo tương tự:** đừng nghi code sản xuất
+trước — nếu hang chỉ xuất hiện khi ĐỔI 1 chỗ từ `unawaited`→`await`, khả
+năng cao là code cũ vốn đã có 1 "cái đuôi mồ côi" (orphaned tail) ẩn sẵn ở
+đâu đó (thường do mock/fakeAsync/timeout không thật sự huỷ được future gốc),
+và `await` chỉ đơn giản làm nó LỘ RA chứ không phải là nguyên nhân — bisect
+đúng chỗ (test riêng lẻ, không phải shard ngẫu nhiên) tìm ra rất nhanh.

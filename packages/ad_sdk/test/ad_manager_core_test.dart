@@ -1764,19 +1764,29 @@ void main() {
     });
 
     test('a provider slower than the 5s timeout falls back to local params',
-        () {
-      fakeAsync((async) {
-        unawaited(AdManager().initialize(
-          config: _admobConfig(dryRun: true, testIds: true),
-          onComplete: (_, __) {},
-          remoteSafetyProvider: _HangingRemoteSafetyProvider(),
-        ));
-        async.elapse(const Duration(seconds: 6));
+        () async {
+      // T102 round 3 — deliberately real time, not fakeAsync. initialize()'s
+      // remote-safety fetch is awaited and caught cleanly (ad_manager.dart
+      // around the `remoteSafetyProvider != null` block), but the real
+      // AdMobAdapter.initialize() work that follows uses genuine
+      // platform-channel calls fakeAsync's virtual zone cannot control. That
+      // tail used to keep running in real wall-clock time after this test's
+      // fakeAsync zone had already closed (the test only elapsed a virtual
+      // 6s, never awaited initialize() itself) — invisible with
+      // `unawaited(_eventLog?.flush())` in destroy(), but a real hang once
+      // that becomes `await` (see T102) because destroy()'s tearDown then
+      // waits on state that orphaned tail never finishes touching. Waiting
+      // for real 6s here keeps everything inside ONE zone (the real one) so
+      // nothing is left running past the end of this test.
+      await AdManager().initialize(
+        config: _admobConfig(dryRun: true, testIds: true),
+        onComplete: (_, __) {},
+        remoteSafetyProvider: _HangingRemoteSafetyProvider(),
+      );
 
-        expect(AdSafetyConfig.dailyCapReached(), isFalse,
-            reason: 'a provider that never answers must not hang init '
-                'forever — the 5s timeout falls back to local params');
-      });
+      expect(AdSafetyConfig.dailyCapReached(), isFalse,
+          reason: 'a provider that never answers must not hang init '
+              'forever — the 5s timeout falls back to local params');
     });
   });
   // T111's own tests live in test/refresh_remote_safety_params_test.dart —

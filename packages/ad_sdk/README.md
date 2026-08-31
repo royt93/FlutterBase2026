@@ -1033,6 +1033,38 @@ await AdManager().vip!.addVip(
 );
 ```
 
+### Moving a VIP grant to a new device
+
+There is no dedicated "transfer" API, and deliberately so — the two features
+already in this SDK cover the real need without a new signing scheme:
+
+- **A signed key (`redeemSignedKey`) is scoped per device, not globally
+  single-use.** The one-time-use ledger (`RedeemedKeyLedger` on iOS,
+  `AdPreferences` on Android) only stops the *same device* redeeming the
+  *same* key twice. If a user still has the original key string and it
+  hasn't expired, entering it on a **new** device redeems it there too — no
+  code change needed on your side. (A signed key's expiry is wall-clock,
+  anchored to `expiresAt` in the payload — moving devices doesn't reset or
+  extend it.)
+- **The SDK never stores the raw key string after redemption** — only the
+  parsed `keyId`/duration survive in `VipManager` state. If you want a "view
+  my code again" screen so a user can copy it to a new device, that's on
+  your app: keep a copy of the string the user typed (e.g. in your own local
+  storage) when they first redeemed it. There is nothing here for the SDK to
+  expose, by design — it shouldn't be holding onto a plaintext credential
+  longer than the moment it verifies it.
+- **User genuinely lost the key** (never saved it): revoke it in the CRL
+  (`VipRevocationProvider`, see "Revoking a leaked key (CRL)" below) through
+  your own support channel, then mint a fresh one with `tool/vip_mint.dart`
+  and have the user redeem that on the new device. This already works
+  today — it's a support-process question, not a missing feature.
+
+A device-bound *transfer token* signed on-device was considered and
+rejected: an on-device private key is generated fresh per install with no
+shared root of trust between two installs, so a device could mint and
+verify its own arbitrarily-long-lived token — that would weaken, not
+preserve, the anti-abuse guarantee the signed-key scheme exists for.
+
 ### Cupertino dialog redeem (user inputs a key)
 
 Use this if you ship promo/redeem keys for VIP. The SDK shows a verifying → success/failed Cupertino dialog flow:

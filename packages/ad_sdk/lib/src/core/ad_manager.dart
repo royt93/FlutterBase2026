@@ -5402,7 +5402,18 @@ class AdManager with WidgetsBindingObserver {
     // _eventLog is non-null) and mix pre-destroy events into whatever
     // provider initialize() brings up next. Flush first so nothing queued
     // in its debounce window is lost.
-    unawaited(_eventLog?.flush());
+    //
+    // T102 — this used to be `unawaited(...)`. A host that calls
+    // initialize() right after destroy() constructs a brand-new AdEventLog
+    // over the same AdPreferences, whose constructor reads the persisted
+    // blob synchronously off whatever's on disk right now — if the old
+    // log's write hadn't landed yet, the new log silently lost the old
+    // log's queued entries. Awaiting here closes that gap for real. (The
+    // fix's first two attempts made `flutter test` hang on
+    // ad_manager_core_test.dart — that was a test bug, `fakeAsync` mixed
+    // with real platform-channel work in a different test; see that test's
+    // own comment and git history for `test/destroy_awaits_event_log_flush_test.dart`.)
+    await _eventLog?.flush();
     _eventLog = null;
 
     if (_isObserverAdded) {

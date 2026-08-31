@@ -70,3 +70,28 @@ LẠI chuỗi key gốc của các VIP entry còn hạn để họ copy ra trư�
 Không tự làm luôn hướng đề xuất trên trong lượt này — đây là quyết định cần
 xác nhận với user (đổi field lưu trữ `VipEntry`, ảnh hưởng dữ liệu đã
 persist), không phải 1 fix nhỏ tự quyết được.
+
+## ĐÃ ĐÓNG (2026-09-01) — không cần đổi schema, không cần code mới
+
+Đọc lại `_redeemed_key_ledger.dart`/`vip_manager.dart`: ledger one-time-use
+(iOS Keychain + Android `AdPreferences`) là **per-device**, không phải
+global. Redeem đúng key gốc trên máy MỚI vẫn pass bình thường nếu key chưa
+hết hạn — tính năng "chuyển VIP sang máy mới" **đã hoạt động hôm nay**,
+không cần đổi gì. Không chọn hướng "SDK lưu lại raw key" ở trên (đổi schema
+`VipEntry` đã persist, rủi ro migrate không cần thiết) — chỉ vì SDK không
+cần biết/giữ raw key string sau khi verify xong: đó là dữ liệu của HOST (họ
+tự lưu string user đã nhập nếu muốn hiển thị lại), không phải trách nhiệm
+SDK, và giữ nó lâu hơn cần thiết còn là 1 rủi ro bảo mật nhỏ (SDK ôm 1
+plaintext credential không cần).
+
+**Việc đã làm:** thêm mục "Moving a VIP grant to a new device" vào
+`README.md` (ngay trước "Cupertino dialog redeem"), document rõ 3 tình huống:
+(1) còn key string + chưa hết hạn → redeem lại trên máy mới, hoạt động sẵn;
+(2) muốn UX "xem lại code" → trách nhiệm host tự lưu string, không phải SDK;
+(3) mất key hẳn → thu hồi qua CRL (T95) + mint key mới (`tool/vip_mint.dart`),
+quy trình đã có sẵn đầy đủ. Không sửa code `lib/`, không cần test mới
+(không đổi hành vi observable). `flutter analyze` sạch.
+
+"Flagship" này thực chất là tổ hợp 2 tính năng có sẵn (AVP2 key redeem
+per-device + CRL) chưa từng được viết thành 1 hướng dẫn rõ ràng cho host —
+đóng ticket bằng documentation, không phải feature mới.
