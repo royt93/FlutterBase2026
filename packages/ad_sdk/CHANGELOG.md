@@ -4,6 +4,17 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.2] - 2026-09-01
+
+- **Fix**: `ComplianceReport.redacted()` only nulled out a redacted field's
+  value, leaving the key present (`{'consentCountry': null, ...}`). A profile
+  is meant to strip the field entirely — a null value still tells whoever
+  reads the exported report that the SDK tracks that field at all. Now the
+  key is removed. Caught by a real-device integration test
+  (`example/integration_test/compliance_redaction_test.dart`, built while
+  QA-hardening the round-27 features) that a unit test alone hadn't exercised
+  against a real, device-generated `AdEventLog`.
+
 ## [2.9.1] - 2026-09-01
 
 QA pass on the round-27 features added in 2.5.0-2.9.0: added example demos

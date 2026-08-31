@@ -14,11 +14,12 @@ class ReportRedactionProfile {
   /// Shown in previews/logs — not otherwise load-bearing.
   final String name;
 
-  /// Event-entry keys (see [AdEventLog.recordEvent]'s field names) to null
-  /// out in every entry. Never touches [ComplianceReport]'s top-level
-  /// consent/safety/VIP fields — those are the report's own compliance
-  /// evidence, not per-event data, and redacting them would defeat the
-  /// report's purpose.
+  /// Event-entry keys (see [AdEventLog.recordEvent]'s field names) to drop
+  /// entirely from every entry — the key itself is removed, not just nulled,
+  /// so a redacted report doesn't even reveal that the field was tracked.
+  /// Never touches [ComplianceReport]'s top-level consent/safety/VIP fields
+  /// — those are the report's own compliance evidence, not per-event data,
+  /// and redacting them would defeat the report's purpose.
   final Set<String> redactedEventFields;
 
   /// No redaction — every field the SDK tracked is kept. Use for the host's
@@ -114,8 +115,8 @@ class ComplianceReport {
   /// which shape a given exported/signed report was built against.
   static const int schemaVersion = 1;
 
-  /// T110 — a NEW report with [profile]'s declared event fields nulled out
-  /// in every entry of [events]; every other field (consent/safety/VIP,
+  /// T110 — a NEW report with [profile]'s declared event fields dropped
+  /// entirely from every entry of [events]; every other field (consent/safety/VIP,
   /// [generatedAt]/[rangeFrom]/[rangeTo]) is copied unchanged — those are
   /// the report's own compliance evidence, not per-event data a host would
   /// want to strip. [ReportRedactionProfile.fullLocal] (nothing declared)
@@ -141,9 +142,8 @@ class ComplianceReport {
         for (final e in events)
           {
             for (final entry in e.entries)
-              entry.key: profile.redactedEventFields.contains(entry.key)
-                  ? null
-                  : entry.value,
+              if (!profile.redactedEventFields.contains(entry.key))
+                entry.key: entry.value,
           },
       ],
     );
