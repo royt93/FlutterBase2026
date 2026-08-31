@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
+import '../utils/async_epoch.dart';
 import '../utils/safe_logger.dart';
 
 /// Loading dialog shown before a fullscreen ad (inter / rewarded / app-open).
@@ -44,11 +45,14 @@ class AdLoadingDialog {
   /// screen forever.
   static Route<void>? _activeRoute;
 
-  /// Bumped by [resetState] to invalidate any [showAdBuffer] timer still
-  /// waiting on its `Future.delayed` — without this, a `resetState()` pop
-  /// mid-buffer leaves the old timer to fire later and pop whatever route
-  /// happens to be on top (a stranded/wrong-route pop).
-  static int _generation = 0;
+  /// T115 — invalidated by [resetState]/[dismiss] to cancel any
+  /// [showAdBuffer] timer still waiting on its `Future.delayed` — without
+  /// this, a `resetState()` pop mid-buffer leaves the old timer to fire
+  /// later and pop whatever route happens to be on top (a stranded/wrong-
+  /// route pop). First production use of [AsyncEpoch] (see its own doc for
+  /// why the rest of the SDK's ad-hoc generation counters aren't migrated
+  /// yet).
+  static final AsyncEpoch _epoch = AsyncEpoch();
 
   /// Reset static state — called by [AdManager.destroy()] to ensure
   /// _isShowing doesn't stay stuck true after a mid-dialog destroy.
@@ -63,7 +67,7 @@ class AdLoadingDialog {
     _isShowing = false;
     _activeNavigator = null;
     _activeRoute = null;
-    _generation++;
+    _epoch.invalidate();
     if (wasShowing && nav != null && route != null) {
       try {
         _removeDialogRoute(nav, route);
@@ -140,7 +144,7 @@ class AdLoadingDialog {
     // dialog. The new dialog was then unclosable: `barrierDismissible: false`
     // plus `PopScope(canPop: false)`, and dismiss() early-returns on
     // `!_isShowing`. The UI froze with no way out.
-    _generation++;
+    _epoch.invalidate();
     try {
       if (nav != null && route != null) _removeDialogRoute(nav, route);
     } catch (e) {
@@ -190,7 +194,8 @@ class AdLoadingDialog {
     final Route<dynamic> route;
     try {
       navigator = Navigator.of(context, rootNavigator: true);
-      myGen = ++_generation;
+      _epoch.invalidate();
+      myGen = _epoch.token;
       route = _pushDialogRoute(context);
     } catch (e, st) {
       SafeLogger.e(_tag, 'showAdBuffer: could not present the dialog: $e\n$st');
@@ -207,11 +212,11 @@ class AdLoadingDialog {
     await Future.delayed(Duration(milliseconds: ms));
 
     // ✅ FIX (T-stranded-dialog): resetState() may have already popped this
-    // exact dialog (and bumped _generation) while we were asleep in the
+    // exact dialog (and invalidated the epoch) while we were asleep in the
     // delay above. If so, the dialog is gone and _isShowing/_activeNavigator
     // already belong to whatever came next — popping again here would close
     // an unrelated route.
-    if (myGen != _generation) {
+    if (!_epoch.isCurrent(myGen)) {
       SafeLogger.d(_tag,
           'showAdBuffer: generation stale (resetState already handled this dialog), skipping pop');
       onComplete();

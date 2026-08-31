@@ -4,6 +4,18 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.3] - 2026-09-01
+
+T115 (`doc/task/done/T115-standardize-async-cancellation-primitive.md`):
+`AdLoadingDialog`'s ad-hoc `_generation` int counter (the stranded-dialog
+guard) is now the first production use of the `AsyncEpoch` primitive built
+in round-27 batch D. Internal representation change only — no observable
+behaviour change, confirmed by the existing "stranded-dialog fix" test group
+passing unmodified. The rest of the SDK's generation/bool-disposed/Timer
+idioms (`ad_manager.dart`, both adapters, UMP, VIP, splash) are deliberately
+NOT touched — those are individually risky migrations on files already
+audited 26+ rounds, left for dedicated follow-up tickets.
+
 ## [2.9.2] - 2026-09-01
 
 - **Fix**: `ComplianceReport.redacted()` only nulled out a redacted field's
