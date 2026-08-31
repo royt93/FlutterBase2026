@@ -79,3 +79,78 @@ dùng `dart --observe`/timeline để bắt trực tiếp Future nào đang treo
 toàn) vẫn là lựa chọn hợp lý NẾU điều tra sâu hơn xác nhận đây thật sự là
 "chờ vô hạn 1 thứ không bao giờ tới" (test-only artifact) chứ không phải bug
 thật trong `_persistChain`.
+
+## Lần thử thứ 3 (2026-09-01) — TÌM RA THỦ PHẠM CỤ THỂ, chưa fix
+
+Bỏ chiến lược round-robin sharding (lần 2 dùng, không ra). Lần này: áp lại
+`await _eventLog?.flush()` rồi chạy TỪNG GROUP riêng bằng `--plain-name`
+(có watchdog 60s ngoài + timeout mặc định 30s/test của package:test).
+
+**Thủ phạm: group `remoteSafetyProvider (T88)`, test `'a provider slower
+than the 5s timeout falls back to local params'`** (dùng
+`_HangingRemoteSafetyProvider` — 1 `Completer` cố tình không bao giờ
+complete, bọc trong `fakeAsync(() { unawaited(AdManager().initialize(...));
+async.elapse(Duration(seconds: 6)); ... })`).
+
+Chạy riêng group này với `await` bật: **test tự nó treo, hit đúng timeout
+mặc định 30s của package:test** — tái hiện được trong 30s, không cần đợi
+10 phút như lần 1. Baseline (không có fix `await`) test này chạy nhanh bình
+thường.
+
+**Manh mối đã có sẵn ngay phía trên group này** (comment do 1 session trước
+để lại khi thêm T111): thêm bất kỳ test `AdMobAdapter.initialize()` thật nào
+NGAY SAU test `_HangingRemoteSafetyProvider` này "triggered a deterministic
+(not flaky) google_mobile_ads internal null check... leaves its real GMA
+init orphaned rather than cancelled" — session đó đã né bằng cách tách hẳn
+T111 sang file riêng (`test/refresh_remote_safety_params_test.dart`), KHÔNG
+sửa root cause.
+
+**Cơ chế nghi ngờ (chưa xác nhận 100%, cần thêm 1 vòng điều tra để chắc
+trước khi fix):** `fakeAsync(...)` chỉ kiểm soát `Timer`/`Future.delayed` ẢO
+— `async.elapse(6s)` khiến timeout nội bộ 5s (thứ bọc
+`fetchSafetyParamOverrides()`) fire đúng trong zone ảo. Nhưng
+`AdManager().initialize()` gọi `unawaited` (không `await`) nên hàm test kết
+thúc và `fakeAsync` zone đóng lại TRƯỚC KHI phần còn lại của `initialize()`
+(sau khi bắt được timeout, tiếp tục qua các bước dùng platform channel THẬT
+— GMA/AppLovin mock — không chịu sự kiểm soát của `fakeAsync`) chạy xong.
+Phần đuôi đó tiếp tục chạy ở REAL wall-clock time sau khi zone ảo đã đóng,
+và với `unawaited(_eventLog?.flush())` (bản gốc) không ai chờ nó nên hang
+"vô hình" — không exception, không hiện tượng gì trong CHÍNH test đó. Đổi
+sang `await` khiến `tearDown` (`await AdManager().destroy()`) của CHÍNH
+test này giờ phải chờ đúng cái đuôi bị bỏ rơi đó — và cái đuôi đó không bao
+giờ tự hoàn tất vì nó phụ thuộc 1 phần trạng thái/mock đã bị zone
+`fakeAsync` đóng cắt đứt.
+
+**Vì sao chưa fix ở lần này:** đây là lỗi TEST (fakeAsync dùng sai cho 1
+kịch bản có tác vụ platform-channel thật lọt qua zone ảo), không hẳn là bug
+`ad_manager.dart`. Sửa đúng cách cần 1 trong các hướng sau, MỖI HƯỚNG ĐỀU
+CẦN TỰ VERIFY KỸ chứ không phải đoán:
+1. Đổi test không dùng `fakeAsync` cho kịch bản `_HangingRemoteSafetyProvider`
+   nữa — chờ thật 6s (chấp nhận test chậm hơn 6s) để không có phần đuôi thật
+   nào lọt qua ranh giới zone ảo.
+2. Hoặc: trong chính test, sau `async.elapse(6s)`, gọi thêm
+   `await AdManager().initialize(...)` (đợi thật, ngoài zone ảo) trước khi
+   test kết thúc, để phần đuôi thật có cơ hội chạy xong trong THỜI GIAN CỦA
+   CHÍNH TEST đó thay vì tràn sang `tearDown`/test sau.
+3. Hoặc: `AdManager.initialize()`'s timeout-catch cho remoteSafetyProvider
+   cần tự đảm bảo KHÔNG còn future thật nào treo lại sau khi bắt timeout —
+   audit lại chính đoạn code đó (không phải chỉ test) xem có await nào lồng
+   bên trong provider-fetch mà timeout không thực sự huỷ được nó (Dart
+   `.timeout()` không cancel Future gốc, chỉ ngừng CHỜ nó — future gốc vẫn
+   chạy nền và có thể mutate state sau này).
+
+Hướng (3) có khả năng là ROOT CAUSE THẬT SỰ đáng ưu tiên điều tra trước —
+khớp đúng bài học "Dart Future.timeout() không hủy Future gốc" là 1 lớp bug
+kinh điển, và giải thích được vì sao `unawaited()` "che" được vấn đề (không
+ai chờ effect phụ của future gốc vẫn chạy ngầm) trong khi `await` làm lộ nó
+ra (chờ đúng vào effect phụ đó thông qua `_eventLog`/`_persistChain` bị đụng
+chung).
+
+**Việc tiếp theo cho phiên sau:** đọc kỹ code xử lý `remoteSafetyProvider`
+timeout trong `ad_manager.dart` (`initialize()`, đoạn gọi
+`fetchSafetyParamOverrides().timeout(...)`) — xác nhận future gốc có bị bỏ
+rơi (không `catchError`/không có nơi nó ghi vào state chung) hay không. Nếu
+đúng, fix ở ĐÓ (ví dụ đảm bảo future gốc luôn có `.catchError`/không đụng
+state sau khi bị timeout) có thể tự động giải quyết luôn cả T102 THẬT (vì đó
+mới là cái để lại "hiệu ứng phụ chạy ngầm" mà `await` sau này vô tình chờ
+phải) — không chỉ né bằng cách sửa lại 1 test.
