@@ -16,4 +16,5 @@ Report hiện hữu ích nhưng host cần tự quyết trường nào được 
 
 ## QA bổ sung (round-27 QA-hardening)
 
-- [x] Integration test thật: `example/integration_test/compliance_redaction_test.dart` — build report thật từ `AdManager().exportComplianceReport()`, áp `supportSafe`, xác nhận field bị strip. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.
+- [x] Integration test thật: `example/integration_test/compliance_redaction_test.dart` — build report thật từ `AdManager().exportComplianceReport()`, áp `supportSafe`, xác nhận field bị strip. Đã viết, `flutter analyze` sạch.
+- [x] **Chạy thật trên thiết bị (2026-09-01, emulator Pixel_10_Pro_XL + máy thật Samsung SM-S928B): BẮT ĐƯỢC BUG THẬT.** `redacted()` chỉ null hoá giá trị (`{'consentCountry': null}`), không xoá hẳn key — test đòi `containsKey('consentCountry') == false` fail vì key vẫn còn. Unit test cũ không bắt được vì `map['missingKey']` và `map['key']==null` đọc ra giống nhau, chỉ assert giá trị chứ không assert key có tồn tại hay không. **Đã fix** (version 2.9.2, commit `2cfc380`): đổi sang loại bỏ hẳn key thay vì gán `null`, sửa lại 2 đoạn dartdoc cho khớp. Mutation-verified (revert → đỏ đúng chỗ trên máy thật, fix lại → xanh) + unit suite 1475 pass. Đây là bằng chứng trực tiếp cho lý do phải chạy integration test thật, không chỉ tin unit test/`flutter analyze`.

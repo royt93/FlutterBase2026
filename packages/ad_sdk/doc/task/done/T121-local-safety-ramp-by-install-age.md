@@ -17,3 +17,5 @@ T88 làm remote config qua host-supplied provider (cần network/Firebase). Bổ
 ## QA bổ sung (round-27 QA-hardening)
 
 - [x] Integration test thật: `example/integration_test/safety_ramp_schedule_test.dart` — xác nhận `AdConfig.safetyRampSchedule` type-check và không phá init thật. Đã ghi rõ trong test: đo chính xác stage-theo-tuổi-install cần fake `firstInstallAtMs` qua app restart thật, ngoài phạm vi 1 lần chạy — phần đó vẫn dựa vào unit test đã có. Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.
+
+**Xác nhận chạy thật trên thiết bị (2026-09-01):** pass trên emulator Pixel_10_Pro_XL và máy thật Samsung SM-S928B, `--dart-define=AD_PROVIDER_ADMOB=true`. Không phải chỉ `flutter analyze`.

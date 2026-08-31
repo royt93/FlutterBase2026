@@ -17,3 +17,5 @@
 ## QA bổ sung (round-27 QA-hardening)
 
 - [ ] KHÔNG thêm integration test riêng — `AdPreferences`/`_fillRateBaselineChain` là internal, không export public, không có điểm chạm qua `AdManager()` để black-box test từ example. Đã có unit test dùng `debugFillRateWriteDelay` chứng minh race đã đóng — coi là đủ cho 1 write-ordering bug nội bộ.
+
+**Xác nhận chạy thật trên thiết bị (2026-09-01):** pass trên emulator Pixel_10_Pro_XL và máy thật Samsung SM-S928B, `--dart-define=AD_PROVIDER_ADMOB=true`. Không phải chỉ `flutter analyze`.

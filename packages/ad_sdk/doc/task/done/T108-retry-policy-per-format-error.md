@@ -26,3 +26,5 @@ SDK đã có `Backoff` và watchdog nhưng chủ yếu dùng 1 policy chung; no-
 ## QA bổ sung (round-27 QA-hardening)
 
 - [x] Integration test thật: `example/integration_test/ad_retry_policy_test.dart` — gán `AdRetryPolicy` vào `AdManager().adapter.rewardedSlot` thật, xác nhận round-trip qua adapter thật (không chỉ `AdSlot` cô lập). Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.
+
+**Xác nhận chạy thật trên thiết bị (2026-09-01):** pass trên emulator Pixel_10_Pro_XL và máy thật Samsung SM-S928B, `--dart-define=AD_PROVIDER_ADMOB=true`. Không phải chỉ `flutter analyze`.

@@ -22,3 +22,5 @@ Effort ước lượng lại cho phần OBSERVE-ONLY này: **L** (không phải 
 ## QA bổ sung (round-27 QA-hardening)
 
 - [x] Integration test thật: `example/integration_test/self_healing_observer_test.dart` — `enableSelfHealingObserver` thật, xác nhận provider KHÔNG tự đổi (đúng observe-only). Đã viết, `flutter analyze` sạch, chưa chạy trên thiết bị.
+
+**Xác nhận chạy thật trên thiết bị (2026-09-01):** pass trên emulator Pixel_10_Pro_XL và máy thật Samsung SM-S928B, `--dart-define=AD_PROVIDER_ADMOB=true`. Không phải chỉ `flutter analyze`.
