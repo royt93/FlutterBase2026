@@ -7,6 +7,7 @@ library;
 // Compliance report export (T23)
 export 'src/compliance/ad_event_log.dart';
 export 'src/compliance/compliance_report.dart';
+export 'src/compliance/bypass_audit_trail.dart';
 export 'src/compliance/compliance_signing.dart';
 export 'src/compliance/incident_recorder.dart';
 
@@ -48,6 +49,8 @@ export 'src/monetization/ad_diagnostics.dart';
 export 'src/monetization/fill_rate_baseline_monitor.dart';
 export 'src/monetization/fill_rate_monitor.dart';
 export 'src/monetization/journey_prefetcher.dart';
+export 'src/monetization/digital_twin.dart';
+export 'src/monetization/self_healing_observer.dart';
 export 'src/monetization/waterfall_tuner.dart';
 export 'src/monetization/monetization_arbitrator.dart';
 // Re-export Google's UMP enums, and TemplateType (T73 — NativeAdWidget's

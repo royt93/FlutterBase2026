@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../adaptive/adaptive_frequency.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
+import '../state/ad_slot.dart' show AdSlotType;
 import '../utils/ad_preferences.dart';
 import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
@@ -143,6 +144,18 @@ class AdSafetyParams {
   /// ```
   final Map<String, int>? maxPerPlacementAdsPerDayById;
 
+  /// T126 — how many times the SAME mediated network may pay out for a given
+  /// [AdSlotType] inside [networkFatigueWindowMs] before that type cools down
+  /// (default: 4). Catches a mediation waterfall stuck repeatedly filling
+  /// from one low-quality network — a symptom of creative fatigue and
+  /// abnormal CTR — that the existing per-placement/session/day caps don't
+  /// see because they count ads shown, not which network keeps winning.
+  final int maxSameNetworkShowsPerWindow;
+
+  /// Rolling window (ms) [maxSameNetworkShowsPerWindow] is measured over
+  /// (default: 900 000 = 15 min).
+  final int networkFatigueWindowMs;
+
   const AdSafetyParams({
     this.minTimeBetweenFullscreenAds = 60000,
     this.maxFullscreenAdsPerSession = 6,
@@ -157,6 +170,8 @@ class AdSafetyParams {
     this.adToBackgroundSignalWindowMs = 300000,
     this.maxPerPlacementAdsPerDay,
     this.maxPerPlacementAdsPerDayById,
+    this.maxSameNetworkShowsPerWindow = 4,
+    this.networkFatigueWindowMs = 900000,
   });
 
   // ─── Presets ──────────────────────────────────────────────────────────────
@@ -183,6 +198,7 @@ class AdSafetyParams {
     suspiciousCtrThreshold: 1.0,
     maxRapidResumesPerMinute: 999,
     dryRun: false,
+    maxSameNetworkShowsPerWindow: 999,
   );
 
   /// Auto-pick: [debug] in `kDebugMode` builds, [production] in release.
@@ -211,6 +227,8 @@ class AdSafetyParams {
     int? adToBackgroundSignalWindowMs,
     Map<AdPlacement, int>? maxPerPlacementAdsPerDay,
     Map<String, int>? maxPerPlacementAdsPerDayById,
+    int? maxSameNetworkShowsPerWindow,
+    int? networkFatigueWindowMs,
   }) {
     return AdSafetyParams(
       minTimeBetweenFullscreenAds:
@@ -236,6 +254,10 @@ class AdSafetyParams {
           maxPerPlacementAdsPerDay ?? this.maxPerPlacementAdsPerDay,
       maxPerPlacementAdsPerDayById:
           maxPerPlacementAdsPerDayById ?? this.maxPerPlacementAdsPerDayById,
+      maxSameNetworkShowsPerWindow:
+          maxSameNetworkShowsPerWindow ?? this.maxSameNetworkShowsPerWindow,
+      networkFatigueWindowMs:
+          networkFatigueWindowMs ?? this.networkFatigueWindowMs,
     );
   }
 
@@ -288,6 +310,12 @@ class AdSafetyConfig {
   static bool _isColdStart = true;
   static final List<int> _clickTimestamps = [];
   static int _suspiciousPauseUntil = 0;
+
+  // T126 — rolling exposure per (AdSlotType, network), keyed
+  // "${type.name}|$network". Only ever holds entries for a network that was
+  // actually reported (see [recordNetworkShown]'s fail-open null check), so
+  // an empty/absent key naturally means "no signal, don't block".
+  static final Map<String, List<int>> _networkShowTimestamps = {};
 
   /// Whether the invalid-traffic cooldown is currently holding ads back.
   ///
@@ -456,6 +484,39 @@ class AdSafetyConfig {
   /// accumulates a count nothing ever reads.
   static void recordPlacementAdShown(AdPlacement placement) {
     unawaited(_prefs?.incrementPlacementDailyCount(placement.id));
+  }
+
+  /// T126 — records that [network] just paid out for [type], for the
+  /// creative-fatigue window check in [isNetworkFatigued]. Fail-open by
+  /// design: a `null`/empty [network] (AdMob doesn't always report one — see
+  /// `AdRevenueEvent.networkName`'s doc) is silently dropped rather than
+  /// tracked, so missing metadata can never itself trigger a cooldown.
+  static void recordNetworkShown(AdSlotType type, String? network) {
+    if (network == null || network.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final key = '${type.name}|$network';
+    final list = _networkShowTimestamps.putIfAbsent(key, () => []);
+    list.add(now);
+    list.removeWhere((t) => now - t > _params.networkFatigueWindowMs);
+  }
+
+  /// T126 — has any single network shown for [type] recently enough, often
+  /// enough (within [AdSafetyParams.networkFatigueWindowMs]) to count as
+  /// creative fatigue? `false` whenever there is no exposure history for
+  /// [type] at all — this only ever cools down a slot type it has actual
+  /// same-network repetition data for, never a format nothing has reported
+  /// network metadata for yet.
+  static bool isNetworkFatigued(AdSlotType type) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final prefix = '${type.name}|';
+    for (final entry in _networkShowTimestamps.entries) {
+      if (!entry.key.startsWith(prefix)) continue;
+      entry.value.removeWhere((t) => now - t > _params.networkFatigueWindowMs);
+      if (entry.value.length >= _params.maxSameNetworkShowsPerWindow) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static AdSafetyResult _canShowFullscreenAdStrict(
@@ -776,6 +837,7 @@ class AdSafetyConfig {
     _totalImpressions = 0;
     _totalClicks = 0;
     _clickTimestamps.clear();
+    _networkShowTimestamps.clear();
     _lastAdClickAt = 0;
     _backgroundedFromAdClick = false;
     SafeLogger.d(_tag, '🔄 Session counters reset (fraud history preserved)');
@@ -802,6 +864,7 @@ class AdSafetyConfig {
     // too — leaving it here meant clicks from before a reset still counted
     // toward the spam threshold afterward.
     _clickTimestamps.clear();
+    _networkShowTimestamps.clear();
     // M1 — same reasoning as the click-spam window directly above: a click
     // from before the reset must not attribute a later backgrounding. Leaving
     // these set made the very first test after an ad-click test skip App Open

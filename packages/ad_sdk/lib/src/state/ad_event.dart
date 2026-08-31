@@ -189,3 +189,36 @@ class ArbitratorNudgeEvent extends AdEvent {
   /// The trailing eCPM estimate (micros) that led to the veto.
   final int estimatedEcpmMicros;
 }
+
+/// T127 — flagship self-healing dual-provider runtime, **observe-only**
+/// prototype. Emitted by the opt-in `SelfHealingObserver` (default OFF — see
+/// `AdManager().enableSelfHealingObserver`) when `WaterfallTuner`'s trailing
+/// fill-rate/eCPM data recommends [wouldSwitchToProvider] over the currently
+/// active provider for [type]/[placement].
+///
+/// This is a REPORT, not an action: the SDK still serves exactly one
+/// provider per session (`AdConfig.provider`) and this event never causes a
+/// provider switch — it exists purely for a host app (or telemetry) to see
+/// what a future auto-act version would have done. [providerTag] is the
+/// CURRENT provider (the one this recommends moving away from), matching
+/// `AdEvent`'s usual "who did/would do this" convention.
+class AdSelfHealingObserveEvent extends AdEvent {
+  const AdSelfHealingObserveEvent({
+    required super.providerTag,
+    required super.type,
+    required super.placement,
+    required this.wouldSwitchToProvider,
+    required this.currentScore,
+    required this.recommendedScore,
+  });
+
+  /// `'[AdMob]'` or `'[AppLovin]'` — the provider the trailing data favors.
+  final String wouldSwitchToProvider;
+
+  /// `WaterfallTuner`'s fill-rate×eCPM score for the current provider.
+  final double currentScore;
+
+  /// Same score for [wouldSwitchToProvider] — strictly greater than
+  /// [currentScore] (that's why this event fired at all).
+  final double recommendedScore;
+}

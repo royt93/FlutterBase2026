@@ -177,4 +177,9 @@ Map<String, dynamic> _eventExtra(AdEvent event) => switch (event) {
       ArbitratorNudgeEvent e => {
           'estimatedEcpmMicros': e.estimatedEcpmMicros,
         },
+      AdSelfHealingObserveEvent e => {
+          'wouldSwitchToProvider': e.wouldSwitchToProvider,
+          'currentScore': e.currentScore,
+          'recommendedScore': e.recommendedScore,
+        },
     };

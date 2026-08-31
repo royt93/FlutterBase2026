@@ -15,6 +15,7 @@ import '../adapters/applovin_adapter.dart';
 import '../adaptive/adaptive_frequency.dart';
 import '../compliance/ad_event_log.dart';
 import '../compliance/compliance_report.dart';
+import '../compliance/bypass_audit_trail.dart';
 import '../compliance/compliance_signing.dart';
 import '../config/ad_config.dart';
 import '../config/remote_ad_safety_provider.dart';
@@ -24,6 +25,8 @@ import '../monetization/ad_diagnostics.dart';
 import '../monetization/fill_rate_baseline_monitor.dart';
 import '../monetization/fill_rate_monitor.dart';
 import '../monetization/journey_prefetcher.dart';
+import '../monetization/digital_twin.dart';
+import '../monetization/self_healing_observer.dart';
 import '../monetization/waterfall_tuner.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../state/ad_event.dart';
@@ -523,6 +526,46 @@ class AdManager with WidgetsBindingObserver {
     _waterfallTuner = null;
   }
 
+  /// T127 — flagship self-healing dual-provider runtime, OBSERVE-ONLY
+  /// prototype (default OFF) — `null` unless the host app calls
+  /// [enableSelfHealingObserver]. See [SelfHealingObserver] doc: it never
+  /// switches providers, it only emits [AdSelfHealingObserveEvent] onto
+  /// [events] reporting what a future auto-act version would have done.
+  SelfHealingObserver? _selfHealingObserver;
+
+  /// `null` by default — see [enableSelfHealingObserver].
+  SelfHealingObserver? get selfHealingObserver => _selfHealingObserver;
+
+  /// Opt in to the self-healing observer: starts watching [events] for a
+  /// (format, placement) whose trailing fill-rate/eCPM data recommends the
+  /// other provider, and reports it — never switches anything.
+  void enableSelfHealingObserver(SelfHealingObserver observer) {
+    _selfHealingObserver?.dispose();
+    _selfHealingObserver = observer;
+  }
+
+  /// Test/host seam: clear a previously-registered self-healing observer.
+  @visibleForTesting
+  void disableSelfHealingObserver() {
+    _selfHealingObserver?.dispose();
+    _selfHealingObserver = null;
+  }
+
+  /// T127 — the only way anything outside [AdManager] reaches [_emit]:
+  /// reports a [WaterfallRecommendation] onto [events] as an
+  /// [AdSelfHealingObserveEvent]. Purely observational — see that event's
+  /// own doc for why this can never itself change which provider is active.
+  void emitSelfHealingObservation(WaterfallRecommendation rec) {
+    _emit(AdSelfHealingObserveEvent(
+      providerTag: rec.currentProvider,
+      type: rec.type,
+      placement: rec.placement,
+      wouldSwitchToProvider: rec.recommendedProvider,
+      currentScore: rec.currentScore,
+      recommendedScore: rec.recommendedScore,
+    ));
+  }
+
   /// T123 — opt-in on-device smart prefetch (default OFF) — `null` unless
   /// the host app calls [enableJourneyPrefetcher]. See [JourneyPrefetcher]
   /// doc: `notifySignal()` only ever calls the same public `loadX()` a host
@@ -605,6 +648,8 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitor = null;
     _waterfallTuner?.dispose();
     _waterfallTuner = null;
+    _selfHealingObserver?.dispose();
+    _selfHealingObserver = null;
     _journeyPrefetcher?.dispose();
     _journeyPrefetcher = null;
   }
@@ -922,6 +967,32 @@ class AdManager with WidgetsBindingObserver {
   /// can be verified without needing a full SDK init.
   @visibleForTesting
   set debugEventLog(AdEventLog? log) => _eventLog = log;
+
+  /// T128 — flagship proof-of-compliance: every time [showAppOpenAd]'s
+  /// `bypassSafety` or [showRewardedAd]'s `bypassVipGuard` back door was
+  /// actually exercised, across the whole process — deliberately NOT reset
+  /// by `destroy()`/re-`initialize()` (unlike [_eventLog]), since a provider
+  /// switch mid-session is exactly the kind of event this audit trail
+  /// should still cover. Export via [exportSignedBypassAuditTrail].
+  final BypassAuditTrail bypassAuditTrail = BypassAuditTrail();
+
+  /// Signs [bypassAuditTrail]'s current contents with the same on-device
+  /// Ed25519 key as [exportSignedComplianceReport] — verify with
+  /// `dart run tool/bypass_audit_replay.dart <path>` (same tool family as
+  /// `tool/incident_replay.dart`/`tool/verify_compliance_report.dart`).
+  Future<SignedPayload> exportSignedBypassAuditTrail() =>
+      signBypassAuditTrail(bypassAuditTrail);
+
+  /// T129 — flagship Monetization Digital Twin (v0, daily-cap axis only —
+  /// see [MonetizationDigitalTwin]'s class doc for why this is deliberately
+  /// narrower than the full ticket). Builds a fresh, read-only twin from the
+  /// current compliance-log history; `null` before the SDK has ever
+  /// initialised (no event log exists yet to replay).
+  MonetizationDigitalTwin? buildMonetizationDigitalTwin() {
+    final log = _eventLog;
+    if (log == null) return null;
+    return MonetizationDigitalTwin(log.entries);
+  }
 
   /// Build a [ComplianceReport] from everything the SDK already tracks:
   /// consent state, safety-cap counters, VIP status, and the ad-event/
@@ -5305,6 +5376,8 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitor = null;
     _waterfallTuner?.dispose();
     _waterfallTuner = null;
+    _selfHealingObserver?.dispose();
+    _selfHealingObserver = null;
     _journeyPrefetcher?.dispose();
     _journeyPrefetcher = null;
 
@@ -5621,6 +5694,12 @@ class AdManager with WidgetsBindingObserver {
       onAdLoaded?.call(false);
       return;
     }
+    if (AdSafetyConfig.isNetworkFatigued(AdSlotType.appOpen)) {
+      SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — network fatigue cooldown');
+      _emitSkip(AdSlotType.appOpen, 'load', 'network_fatigue');
+      onAdLoaded?.call(false);
+      return;
+    }
     if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadAppOpen skipped — consent not granted (UMP)');
       _emitSkip(AdSlotType.appOpen, 'load', 'consent');
@@ -5677,7 +5756,20 @@ class AdManager with WidgetsBindingObserver {
     required void Function(bool dismissed) onAdDismiss,
     bool bypassSafety = false,
     AdPlacement placement = AdPlacement.splash,
+    // T128 — proof-of-compliance: identifies THIS call site in the signed
+    // audit trail (see [bypassAuditTrail]). Purely descriptive, host-chosen;
+    // not verified against anything — the point is a later export shows
+    // every place this documented-as-splash-only back door was actually
+    // invoked from, not that it enforces where it's allowed to be called.
+    String callSiteTag = 'unspecified',
   }) async {
+    if (bypassSafety) {
+      bypassAuditTrail.record(
+        kind: 'bypassSafety',
+        callSiteTag: callSiteTag,
+        type: AdSlotType.appOpen,
+      );
+    }
     if (_teardownBlocksShow(AdSlotType.appOpen, placement)) {
       onAdDismiss(false);
       return;
@@ -5996,6 +6088,11 @@ class AdManager with WidgetsBindingObserver {
       _emitSkip(AdSlotType.interstitial, 'load', 'daily_cap');
       return;
     }
+    if (AdSafetyConfig.isNetworkFatigued(AdSlotType.interstitial)) {
+      SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — network fatigue cooldown');
+      _emitSkip(AdSlotType.interstitial, 'load', 'network_fatigue');
+      return;
+    }
     if (!canRequestAds) {
       SafeLogger.d(
           _tag, '⏭️ loadInterstitial skipped — consent not granted (UMP)');
@@ -6178,6 +6275,11 @@ class AdManager with WidgetsBindingObserver {
       _emitSkip(AdSlotType.rewarded, 'load', 'daily_cap');
       return;
     }
+    if (AdSafetyConfig.isNetworkFatigued(AdSlotType.rewarded)) {
+      SafeLogger.d(_tag, '⏭️ loadRewarded skipped — network fatigue cooldown');
+      _emitSkip(AdSlotType.rewarded, 'load', 'network_fatigue');
+      return;
+    }
     if (!canRequestAds) {
       SafeLogger.d(_tag, '⏭️ loadRewarded skipped — consent not granted (UMP)');
       _emitSkip(AdSlotType.rewarded, 'load', 'consent');
@@ -6271,7 +6373,18 @@ class AdManager with WidgetsBindingObserver {
     AdPlacement placement = AdPlacement.unspecified,
     String? ssvCustomData,
     String? ssvUserId,
+    // T128 — proof-of-compliance: same purpose as showAppOpenAd's
+    // callSiteTag, for the OTHER documented back door (VIP watching a
+    // rewarded ad to extend their own window).
+    String callSiteTag = 'unspecified',
   }) async {
+    if (bypassVipGuard) {
+      bypassAuditTrail.record(
+        kind: 'bypassVipGuard',
+        callSiteTag: callSiteTag,
+        type: AdSlotType.rewarded,
+      );
+    }
     if (_teardownBlocksShow(AdSlotType.rewarded, placement)) {
       onEarnedReward(false);
       return;
@@ -6520,6 +6633,12 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(
           _tag, '⏭️ loadRewardedInterstitial skipped — daily cap reached');
       _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'daily_cap');
+      return;
+    }
+    if (AdSafetyConfig.isNetworkFatigued(AdSlotType.rewardedInterstitial)) {
+      SafeLogger.d(_tag,
+          '⏭️ loadRewardedInterstitial skipped — network fatigue cooldown');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'network_fatigue');
       return;
     }
     if (!canRequestAds) {
@@ -7307,6 +7426,16 @@ class AdManager with WidgetsBindingObserver {
           mediationWaterfall: event.mediationWaterfall,
         );
       }
+      // T126 — creative fatigue guard's only observation point: this is the
+      // sole place a mediated network's identity is known SDK-wide.
+      AdSafetyConfig.recordNetworkShown(
+        event.type,
+        event.networkName ??
+            (event.mediationWaterfall == null ||
+                    event.mediationWaterfall!.isEmpty
+                ? null
+                : event.mediationWaterfall!.first),
+      );
     }
     _eventLog?.recordEvent(event,
         consentCountry: _consentManager?.current.country);

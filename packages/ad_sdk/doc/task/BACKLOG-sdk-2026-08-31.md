@@ -60,7 +60,7 @@ Cả 3 nguồn hội tụ mạnh vào cùng nhóm ý tưởng — gộp, không 
 - **IDEA-6 — Smart prefetch theo hành trình người dùng** (host khai báo signal `levelStarted`/`screenEntered`, SDK học rolling time-to-show). *[đồng thuận 3 nguồn]* → tách **T123** — **DONE (batch D)**, xem `lib/src/monetization/journey_prefetcher.dart`.
 - **IDEA-7 — `AdaptiveAdSurface`**: 1 widget tự chọn banner/MREC/native theo width/orientation. *[đồng thuận 3 nguồn]* → tách **T124** — **DONE (batch D)**, scope banner/MREC 2-way (không native), xem `lib/src/widget/adaptive_ad_surface.dart`.
 - **IDEA-8 — Offline incident recorder + replayable support bundle** — ring buffer state-transition timeline, ký + replay local, giảm thời gian support bug chỉ tái hiện trên 1 máy. *[đồng thuận 3 nguồn]* → tách **T125** — **DONE (2.7.0, mechanism only — chưa auto-wire AdManager)**
-- **IDEA-9 — Creative fatigue guard on-device** — cooldown network/creative lặp quá dày (fail-open nếu thiếu metadata). *[đồng thuận 3 nguồn]* → tách **T126**
+- **IDEA-9 — Creative fatigue guard on-device** — cooldown network/creative lặp quá dày (fail-open nếu thiếu metadata). *[đồng thuận 3 nguồn]* → tách **T126** — **DONE (batch E, 2.9.0)**
 ## 5. TÍNH NĂNG ĐỘC QUYỀN / FLAGSHIP
 
 Cả 3 nguồn **độc lập hội tụ vào đúng 2 hướng** — tín hiệu rất mạnh đây là hướng
@@ -71,22 +71,22 @@ differentiator đúng:
   baseline T97 đã có sẵn) → tự thử provider còn lại CHỈ cho định dạng đó,
   không phải chuyển cả phiên như T90. *[đồng thuận 3 nguồn]*. Effort XL — cần
   2 adapter sống song song 1 phiên (đổi giả định kiến trúc hiện tại), nên bắt
-  đầu ở "observe-only" trước khi auto-act. → tách **T127**
+  đầu ở "observe-only" trước khi auto-act. → tách **T127** — **DONE (batch E, 2.9.0)**, xem `lib/src/monetization/self_healing_observer.dart`.
 - **FLAGSHIP-B — Proof-of-compliance / audit trail ký số cho MỌI lần bypass
   safety** (`bypassSafety`, `bypassVipGuard`, `dryRun`) — tái dùng hạ tầng
   Ed25519 đã có cho VIP/CRL/compliance-report (T18/T95/T96), trả lời câu hỏi
   "làm sao chứng minh không ai âm thầm patch quanh safety layer để farm
   doanh thu". *[đồng thuận 3 nguồn, mỗi nguồn đặt tên khác nhau nhưng cùng ý:
   "Offline Policy Autopilot" (codex), "Proof-of-Compliance Engine" (agy),
-  "Nhật ký kiểm toán ký số cho bypass" (claude)]*. → tách **T128**
+  "Nhật ký kiểm toán ký số cho bypass" (claude)]*. → tách **T128** — **DONE (batch E, 2.9.0)**, xem `lib/src/compliance/bypass_audit_trail.dart`.
 - **FLAGSHIP-C — Monetization Digital Twin** — mô phỏng tác động cap/retry/
   VIP-duration/preload từ event history local, trả dự báo khoảng-tin-cậy
   impression/revenue, không phát ad thử, "shadow mode" trước khi host bật
-  thật. *[đồng thuận 3 nguồn]*. → tách **T129**
+  thật. *[đồng thuận 3 nguồn]*. → tách **T129** — **DONE, RESCOPED (batch E, 2.9.0)** — chỉ trục maxFullscreenAdsPerDay, xem `lib/src/monetization/digital_twin.dart` + ghi chú rescope trong file ticket.
 - **FLAGSHIP-D — Token chuyển VIP sang máy mới** (ký Ed25519 offline, 1 lần
   dùng) — biến giới hạn đã document (Android anti-bypass yếu, đổi máy mất
   VIP) thành tính năng cho user hợp pháp mà không làm yếu anti-abuse. (claude,
-  không trùng nguồn khác) → tách **T130**
+  không trùng nguồn khác) → tách **T130** — **ĐÃ ĐỌC, KHÔNG CODE (batch E)** — thiết kế gốc tự giả mạo được (không có root-of-trust chung giữa máy), xem ghi chú kỹ thuật trong file ticket (vẫn ở todo/).
 ## Gợi ý thứ tự (không ràng buộc — chờ user chọn)
 
 1. **B1 trước hết** — P0, đã verify, im lặng vô hiệu hoá 1 feature đã ship.

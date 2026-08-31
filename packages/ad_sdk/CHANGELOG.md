@@ -4,6 +4,55 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-08-31
+
+Round-27 batch E (final batch of the round-27 backlog) — 4 done, 1
+investigated and correctly not attempted.
+
+- **New**: `AdSafetyParams.maxSameNetworkShowsPerWindow`/
+  `networkFatigueWindowMs` — a creative/network fatigue guard. If one
+  mediated network keeps winning the waterfall for a format inside a
+  rolling window, that format cools down instead of continuing to serve a
+  possibly-stale/low-quality network back to back. Fail-open by design: a
+  format nothing has ever reported network metadata for is never blocked.
+  Off by default (999 in the `debug` preset, same as every other cap).
+- **New**: `SelfHealingObserver` (opt-in via
+  `AdManager().enableSelfHealingObserver`) — flagship self-healing runtime,
+  **observe-only** prototype. Reuses `WaterfallTuner`'s fill-rate×eCPM
+  scoring to emit `AdSelfHealingObserveEvent` onto `events` the first time a
+  format's trailing data recommends the other provider. Never switches
+  anything itself — full auto-act needs both adapters alive in the same
+  session, a real architecture change left for a dedicated follow-up.
+- **New**: `AdManager().bypassAuditTrail` (always on) + `callSiteTag`
+  parameter on `showAppOpenAd`/`showRewardedAd` — flagship
+  proof-of-compliance. Every real `bypassSafety`/`bypassVipGuard` call is
+  recorded and exportable as an Ed25519-signed bundle
+  (`exportSignedBypassAuditTrail()`, verify with
+  `tool/bypass_audit_replay.dart`), reusing the same on-device signing
+  infrastructure as the compliance report (T96) and incident bundle (T125).
+- **New**: `MonetizationDigitalTwin` (`AdManager().buildMonetizationDigitalTwin()`)
+  — flagship Monetization Digital Twin, **v0, deliberately rescoped** to one
+  policy axis (`maxFullscreenAdsPerDay`) instead of the full ticket's five.
+  Deterministic, read-only replay over existing `AdEventLog` history —
+  forecasts daily impressions/revenue under a hypothetical daily cap. The
+  other four axes (retry, provider split, VIP duration, preload) would each
+  require re-implementing `AdSafetyConfig`'s live decision logic as a
+  second, pure, replayable copy — real XL risk, left as follow-up tickets.
+- **Investigated, not implemented**: a VIP device-transfer token signed
+  with the on-device compliance-signing key, as the backlog originally
+  described it, is **forgeable** — that key is randomly generated per
+  install with no shared root of trust between devices, so anyone could
+  self-sign an arbitrary "days remaining" token that verifies against its
+  own embedded public key. Also found that most of the underlying need
+  already works today: `AVP2` signed VIP keys are redeemed against a
+  purely local, per-device ledger, so a still-valid key STRING already
+  redeems again on a fresh install with zero new code — the real gap is a
+  missing UX affordance (an API to look up a still-valid VIP entry's
+  original key string to copy before switching devices), not a new signing
+  scheme. Left open with the full reasoning in
+  `doc/task/todo/T130-flagship-vip-device-transfer-token.md` pending a
+  decision on the correct (much smaller) fix.
+
 ## [2.8.0] - 2026-08-31
 
 Round-27 batch D — 3 new opt-in features, 1 primitive built (not yet

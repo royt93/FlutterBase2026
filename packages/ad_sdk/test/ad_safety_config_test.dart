@@ -643,4 +643,65 @@ void main() {
           isFalse);
     });
   });
+
+  // ─────────────────────────────────────────────────
+  // T126 — creative fatigue guard
+  // ─────────────────────────────────────────────────
+  group('T126: creative fatigue guard', () {
+    test('same network repeated up to the threshold → not fatigued yet, '
+        'one more → fatigued', () async {
+      const params = AdSafetyParams(maxSameNetworkShowsPerWindow: 3);
+      await AdSafetyConfig.init(prefs, params: params);
+      AdSafetyConfig.resetForReinit();
+
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.interstitial),
+          isFalse);
+      AdSafetyConfig.recordNetworkShown(AdSlotType.interstitial, 'vungle');
+      AdSafetyConfig.recordNetworkShown(AdSlotType.interstitial, 'vungle');
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.interstitial),
+          isFalse,
+          reason: '2 shows < threshold of 3');
+      AdSafetyConfig.recordNetworkShown(AdSlotType.interstitial, 'vungle');
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.interstitial),
+          isTrue,
+          reason: '3rd show hits the threshold');
+    });
+
+    test('missing network metadata (null) fails open — never recorded, '
+        'never cools anything down', () async {
+      const params = AdSafetyParams(maxSameNetworkShowsPerWindow: 1);
+      await AdSafetyConfig.init(prefs, params: params);
+      AdSafetyConfig.resetForReinit();
+
+      for (var i = 0; i < 10; i++) {
+        AdSafetyConfig.recordNetworkShown(AdSlotType.rewarded, null);
+      }
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.rewarded), isFalse,
+          reason:
+              'no network metadata ever reported — nothing to cool down, '
+              'and a real ad must never be blocked for lack of data');
+    });
+
+    test('fatigue on one AdSlotType does not bleed into another', () async {
+      const params = AdSafetyParams(maxSameNetworkShowsPerWindow: 1);
+      await AdSafetyConfig.init(prefs, params: params);
+      AdSafetyConfig.resetForReinit();
+
+      AdSafetyConfig.recordNetworkShown(AdSlotType.rewarded, 'ironsource');
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.rewarded), isTrue);
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.interstitial),
+          isFalse);
+    });
+
+    test('resetSession() clears fatigue history', () async {
+      const params = AdSafetyParams(maxSameNetworkShowsPerWindow: 1);
+      await AdSafetyConfig.init(prefs, params: params);
+      AdSafetyConfig.resetForReinit();
+
+      AdSafetyConfig.recordNetworkShown(AdSlotType.appOpen, 'meta');
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.appOpen), isTrue);
+      AdSafetyConfig.resetSession();
+      expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.appOpen), isFalse);
+    });
+  });
 }
