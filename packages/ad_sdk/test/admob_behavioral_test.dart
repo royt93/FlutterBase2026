@@ -57,8 +57,14 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
     lastSsvUserId = ssvUserId;
   }
 
+  /// T116 — captured (was previously discarded) so contract tests can fire
+  /// a paid event without needing a real AdMob mediation waterfall.
+  void Function(num, String, String)? paidCallback;
+
   @override
-  void setPaidEventListener(void Function(num, String, String) cb) {}
+  void setPaidEventListener(void Function(num, String, String) cb) {
+    paidCallback = cb;
+  }
 
   @override
   List<String>? get mediationWaterfall => null;
