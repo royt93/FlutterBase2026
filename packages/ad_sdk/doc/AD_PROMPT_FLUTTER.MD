@@ -128,6 +128,9 @@ It must contain these sections:
 | App Open (cold) | Splash | after `initialize` + `loadAppOpenAd` + `AdLoadingDialog.showAdBuffer` | `showAppOpenAd(bypassSafety: true, onAdDismiss:)` | `<old API or (none yet)>` |
 | App Open (resume) | SDK auto | `WidgetsBindingObserver` (SDK internal) | (never called manually) | `<old API or (none yet)>` |
 | Rewarded | VIP screen / clear-history button / etc. | user click | `showRewardedAd(onEarnedReward: (earned) {...})` | `<old API or (none yet)>` |
+| MREC | `<host screen>.dart` (only if the project wants a rectangle placement — Step 4.8) | `build()` of a screen extending `AdScreen` | `buildMrec()` | `<old API or (none yet)>` |
+| Native | `<host screen>.dart` (only if the project wants an inline/feed native ad — Step 4.9) | `build()` of a screen extending `AdScreen` | `buildNative()` | `<old API or (none yet)>` |
+| Rewarded Interstitial | VIP screen / etc. (only if the project wants the built-in disclosure screen — Step 4.10) | user click | `showRewardedInterstitialAd(onDone: (shown, earned) {...})` | `<old API or (none yet)>` |
 
 **(2) Step-by-step plan** — 6 steps (Setup pubspec + native config, App init wiring + Consent + ATT, Splash flow, VIP UI + AdKey + i18n, Banner placement edge-to-edge, Interstitial/Rewarded triggers). Each step should state which files get edited, which functions get added, and which lines get removed.
 
@@ -404,6 +407,81 @@ showRewardedAd(
 > that's +N days of infinite unwatched ad time, which costs revenue and carries policy risk. `bypassVipGuard`
 > still requires watching a real ad, so it's legitimate; anti-spam relies on the SDK's fullscreen safety cap.
 
+### 4.8 — MREC pattern (audit round 27 addition — this surface exists in the SDK)
+
+Fixed 300×250 rectangle, same route-aware pause/resume lifecycle as banner. Only add this if the
+project actually wants a rectangle placement (e.g. inline in a feed/list) — do not add speculatively.
+
+```dart
+class HistoryScreen extends AdScreen {  // NOT StatefulWidget
+  const HistoryScreen({super.key});
+  @override State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends AdScreenState<HistoryScreen> {
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: ListView(
+      children: [
+        _content(),
+        Center(child: buildMrec()),   // fixed 300x250, place wherever the layout wants it
+      ],
+    ),
+  );
+}
+```
+
+Same memory-leak/dispose rule as banner (Step 6.2) — `super.dispose()` at the end of `dispose()` is enough,
+`buildMrec()` manages its own controller lifecycle internally.
+
+### 4.9 — Native ad pattern (audit round 27 addition — this surface exists in the SDK)
+
+Blends into the host app's own UI instead of a fixed ad frame. AdMob renders a template ad; AppLovin renders
+a custom native layout — both go through the same call:
+
+```dart
+class FeedScreen extends AdScreen {
+  const FeedScreen({super.key});
+  @override State<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends AdScreenState<FeedScreen> {
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: ListView(
+      children: [
+        _content(),
+        buildNative(),   // loads once per mount, does not react to navigation
+      ],
+    ),
+  );
+}
+```
+
+`buildNative()` loads once per mount and does not re-fetch on navigation — do not wrap it in anything that
+rebuilds it on every route change (that would burn ad requests without gaining impressions).
+
+### 4.10 — Rewarded Interstitial pattern (audit round 27 addition — this surface exists in the SDK)
+
+Same earned-only reward contract as plain rewarded (Step 4.7), but shows a built-in disclosure/intro screen
+before the ad by default — use this instead of plain rewarded when the product wants that extra "are you
+sure" step before spending the user's time on an ad:
+
+```dart
+showRewardedInterstitialAd(onDone: (shown, earned) {
+  // shown=true  → ad (or its intro) was displayed
+  // earned=true → user watched to completion — only then grant the reward
+  if (!earned) return;
+  final vip = AdManager().vip;     // RULE #2 no `!`
+  if (vip == null) return;
+  vip.addVip(key: 'REWARDED_VIP', duration: const Duration(days: 3), stack: true);
+});
+```
+
+Declining the built-in intro screen reports `(shown: false, earned: false)` at no ad-budget cost. Pass
+`showDisclosure: false` only if the host app renders its own localized/branded intro screen first — then the
+host takes on the obligation to disclose the reward before the ad plays.
+
 ## Step 5 — Scope of replacement (mandate replace-all — Q11)
 
 If the project has an old ad SDK, it **must be fully replaced** with `applovin_admob_sdk`. No coexistence.
@@ -484,6 +562,24 @@ ATT is already built into the SDK — do NOT call
   returns the cached status, no re-prompt; error/missing plugin → `denied` (never throws).
 - ATT does NOT touch the GDPR consent flag — native AppLovin/AdMob read ATT for IDFA on their own.
 - If an iOS user picks "Ask App Not to Track", it falls back to non-personalized ads / SKAdNetwork.
+
+### 8.4 — COPPA (`isAgeRestrictedUser`) — AppLovin/AdMob asymmetry (audit round 27 addition)
+
+**If the project targets children (any part of the audience under the applicable age of consent), read this
+before calling `setConsent`.** AdMob has a per-request COPPA flag (`tagForChildDirectedTreatment`) — setting
+`isAgeRestrictedUser: true` narrows just that provider's requests. AppLovin MAX 4.x has **no runtime
+child-directed API at all** — when `isAgeRestrictedUser: true` is known at `initialize()` time (persisted
+from a prior session), `AppLovinAdapter` refuses to initialize entirely and every AppLovin ad surface stays
+unavailable for that session. This is the SDK's intentional, stricter-by-design behavior for that provider —
+do not treat it as a bug to "fix" by trying to force AppLovin to serve child-safe ads some other way.
+
+**Known gap that needs an explicit decision from the user, not a default assumption:** on a brand-new install
+with no persisted consent yet, an app that is *always* child-directed (no consent dialog needed at all,
+because the whole app is COPPA-scoped) will still see AppLovin attempt to initialize once on that very first
+launch — there is nothing yet to gate on. If the project is *always* child-directed, ask the user whether they
+want an explicit "child app" config checked ahead of the very first `initialize()` call (e.g. a build-time
+flag, not something derived from the consent dialog) so AppLovin never initializes even on install #1. Do not
+silently ship the one-time gap without asking.
 
 ## Step 9 — First-install VIP grace + anti-uninstall-bypass guard
 
@@ -1092,6 +1188,16 @@ This section is a running log for whoever continues auditing/enhancing this SDK.
 **Suggested next-round starting points**: re-verify the score-driving findings above are still accurate before re-quoting them (files/behavior may have moved), then decide whether findings #1–#3 warrant small doc patches (they're all doc-only fixes, no code risk) versus being left as tribal knowledge in this log.
 
 Either way, treat this `AD_PROMPT_FLUTTER.MD` file itself as the primary, self-contained spec — the SDK source (when available) is a secondary reference for implementation detail, not a prerequisite for following the steps above.
+
+### Round — 2026-09-01 (SDK audit round 27, doc-completeness pass)
+
+**Scope**: user asked, as a standalone question separate from the SDK audit, whether this file alone is sufficient for a partner engineer to integrate "every feature" — not just whether it's internally correct. Full findings: `packages/ad_sdk/doc/audit/audit_claude_round27.md` (Part 1) and `packages/ad_sdk/doc/audit/audit_round27_consolidated.md` (§6).
+
+**Finding**: this file was very strong on the hardest, highest-legal-risk parts (bootstrap ordering, splash lifecycle, VIP UI + security, consent/ATT, memory-leak checklist, policy compliance) but was missing 3 of the 7 ad surfaces the SDK actually ships and demos in `example/`: MREC, Native, and Rewarded Interstitial were absent from the touchpoint table and every lifecycle step — an agent following only this file would ship a correct integration for 4/7 ad types and never learn the other 3 exist. Also found the COPPA/AppLovin asymmetry (Step 8.4 below) was reduced to 2 lines of example code with no explanation of the real gap for always-child-directed apps.
+
+**Fixed this round**: added Steps 4.8 (MREC), 4.9 (Native), 4.10 (Rewarded Interstitial), 3 new touchpoint-table rows, and Step 8.4 (COPPA/AppLovin asymmetry + the explicit question an integrator must ask the user for an always-child-directed app). The example app's own gap (`showRewardedInterstitialAd()` had zero demo/test coverage anywhere) was fixed in the same round — see `CHANGELOG.md` **[2.9.6]**.
+
+**Suggested next-round starting point**: when a future round adds a new public ad surface or config knob, check this file's touchpoint table and Step 4/8 sections got a matching addition in the same commit — this gap sat undetected for at least 2 SDK feature releases (MREC/Native predate this entry) before someone asked the completeness question directly instead of only auditing the SDK's own correctness.
 
 ## Appendix D — Migration guide (version history, merged from `MIGRATION.md` on 2026-08-20)
 
