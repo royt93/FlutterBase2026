@@ -42,8 +42,12 @@ class FakeAppLovinBridge implements AppLovinBridge {
   @override
   void setDoNotSell(bool doNotSell) =>
       initOrder.add('setDoNotSell($doNotSell)');
+  List<String>? capturedTestDeviceAdvertisingIds;
   @override
-  void setTestDeviceAdvertisingIds(List<String> ids) {}
+  void setTestDeviceAdvertisingIds(List<String> ids) {
+    capturedTestDeviceAdvertisingIds = ids;
+    initOrder.add('setTestDeviceAdvertisingIds($ids)');
+  }
 
   bool termsFlowEnabled = true;
   @override
@@ -236,6 +240,33 @@ void main() {
               'without them');
       expect(dnsAt, lessThan(initAt));
       addTearDown(() => a.dispose());
+    });
+
+    // Round-30 audit (MAJOR) — verified against the real applovin_max 4.6.4
+    // native plugin source (Android AppLovinMAX.java, iOS AppLovinMAX.m):
+    // `setTestDeviceAdvertisingIds` only stores into a field that
+    // `initialize()`'s own native config-builder reads exactly once and
+    // immediately nils. Calling it after `_bridge.initialize()` has already
+    // run (the pre-fix order) writes a value nothing ever reads again —
+    // this device is never actually registered as a test device, same
+    // ordering mistake MJ1 above was fixed for on the consent flags.
+    test('test-device GAID reaches MAX BEFORE initialize() (debug builds)',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config, deviceGaid: 'test-gaid-123'),
+          isTrue);
+      addTearDown(a.dispose);
+
+      final initAt = b.initOrder.indexOf('initialize');
+      final gaidAt = b.initOrder
+          .indexOf('setTestDeviceAdvertisingIds([test-gaid-123])');
+      expect(gaidAt, isNonNegative,
+          reason: 'the GAID must be forwarded to the bridge');
+      expect(gaidAt, lessThan(initAt),
+          reason: 'the native plugin only ever reads this field once, '
+              'inside initialize() itself — calling the setter after '
+              'initialize() has already run registers nothing');
     });
 
     test('disableAppLovinCmpFlow:false keeps AppLovin CMP flow enabled',

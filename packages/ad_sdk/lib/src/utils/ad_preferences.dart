@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, unawaited;
 import 'dart:convert' show jsonDecode, jsonEncode, utf8;
 import 'dart:math' as math;
 
@@ -21,14 +21,37 @@ class AdPreferences {
   static AdPreferences? _instance;
   SharedPreferences? _prefs;
 
+  /// Round-30 audit (MAJOR) — `getInstance()` used to check `_instance`
+  /// only BEFORE its `await`, never re-checking after: two concurrent
+  /// callers racing before `_instance` was first set both passed the null
+  /// check and each built their own separate `AdPreferences` object (their
+  /// underlying `SharedPreferences` stayed consistent — that class's own
+  /// `getInstance()` really does dedupe — but per-instance mutable state
+  /// like `_fillRateBaselineChain`'s write-serialization queue did not, so
+  /// two "singletons" could silently drop each other's writes exactly like
+  /// the race `_fillRateBaselineChain` was added to prevent). Mirrors the
+  /// same completer-based guard `SharedPreferences.getInstance()` itself
+  /// already uses.
+  static Completer<AdPreferences>? _initCompleter;
+
   static Future<AdPreferences> getInstance() async {
-    var instance = _instance;
-    if (instance == null) {
-      instance = AdPreferences._();
+    final existing = _instance;
+    if (existing != null) return existing;
+    final inFlight = _initCompleter;
+    if (inFlight != null) return inFlight.future;
+    final completer = Completer<AdPreferences>();
+    _initCompleter = completer;
+    try {
+      final instance = AdPreferences._();
       instance._prefs = await SharedPreferences.getInstance();
       _instance = instance;
+      completer.complete(instance);
+      return instance;
+    } catch (e, st) {
+      _initCompleter = null;
+      completer.completeError(e, st);
+      rethrow;
     }
-    return instance;
   }
 
   static AdPreferences? get instanceOrNull => _instance;
@@ -38,6 +61,7 @@ class AdPreferences {
   @visibleForTesting
   static void resetForTest() {
     _instance = null;
+    _initCompleter = null;
   }
 
   // ─── Legacy VIP GAID list ─────────────────────────────────────────────────

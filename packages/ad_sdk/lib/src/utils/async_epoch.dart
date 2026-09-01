@@ -6,11 +6,12 @@
 /// about to act on still the one that's current, or did something newer
 /// (a `destroy()`, a fresh `initialize()`, a superseding call) start since?"
 ///
-/// Deliberately internal (not exported) and deliberately NOT yet wired into
-/// any of those call sites — migrating each one is real, individually
-/// risky work on files this SDK has audited 26+ rounds, and belongs to a
-/// dedicated follow-up ticket per subsystem, not a mechanical find/replace.
-/// This class only needs to exist and be correct on its own first.
+/// Deliberately internal (not exported). First production use: T115 wired
+/// it into `AdLoadingDialog` (the buffer-timer-vs-`resetState()`/`dismiss()`
+/// race, see that file). Every other call site listed above still uses its
+/// own ad hoc idiom — migrating each one is real, individually risky work
+/// on files this SDK has audited 26+ rounds, and belongs to a dedicated
+/// follow-up ticket per subsystem, not a mechanical find/replace.
 class AsyncEpoch {
   int _generation = 0;
   bool _disposed = false;

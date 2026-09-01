@@ -139,4 +139,58 @@ void main() {
     // Must not throw even though nothing was ever wired up.
     await AdManager().refreshRemoteSafetyParams();
   });
+
+  // Round-30 audit (MAJOR) — refreshRemoteSafetyParams() used to merge
+  // remote overrides onto the raw config.safety, silently reverting every
+  // field a safetyRampSchedule stage had adjusted (but the remote payload
+  // doesn't mention) back to day-0 config on every refresh.
+  test(
+      'refresh preserves the safetyRampSchedule stage for fields the '
+      'remote override does not touch', () async {
+    final rampedConfig = AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(
+        bannerId: 'ca-app-pub-3940256099942544/6300978111',
+        interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+        appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+        rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+      ),
+      // Day-0 default is loose (999/day); the ramp should have long since
+      // moved this device to the strict 1/day stage by the time it's 10
+      // days old.
+      safety: AdSafetyParams(dryRun: true, maxFullscreenAdsPerDay: 999),
+      safetyRampSchedule: {
+        Duration.zero: AdSafetyParams(dryRun: true, maxFullscreenAdsPerDay: 999),
+        Duration(days: 7):
+            AdSafetyParams(dryRun: true, maxFullscreenAdsPerDay: 1),
+      },
+    );
+
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await AdPreferences.getInstance();
+    await prefs.setFirstInstallAtMsIfMissing(
+        DateTime.now().subtract(const Duration(days: 10)).millisecondsSinceEpoch);
+    // Simulates the state a real initialize() call would have correctly left
+    // behind: this device is 10 days old, so the ramp's day-7 stage (1/day)
+    // is already in effect — that part of the pipeline isn't the bug.
+    await AdSafetyConfig.init(prefs,
+        params: const AdSafetyParams(dryRun: true, maxFullscreenAdsPerDay: 1),
+        isRelease: false);
+    AdManager().debugSetAdapter(_SlotOnlyAdapter());
+    AdManager().debugConfig = rampedConfig;
+    // Override a field the ramp doesn't touch — `maxFullscreenAdsPerDay`
+    // must still come from the day-10 ramp stage (1), not the raw
+    // config.safety default (999) this bug used to fall back to.
+    AdManager().debugRemoteSafetyProvider =
+        _FakeRemoteSafetyProvider({'maxClicksPerMinute': 5});
+
+    await AdManager().refreshRemoteSafetyParams();
+
+    AdSafetyConfig.recordFullscreenAdShown();
+    expect(AdSafetyConfig.dailyCapReached(), isTrue,
+        reason: 'the ramp stage (1/day for a 10-day-old device) must '
+            'survive a refresh whose override never mentions '
+            'maxFullscreenAdsPerDay — falling back to the raw config\'s '
+            '999/day would silently undo the ramp');
+  });
 }

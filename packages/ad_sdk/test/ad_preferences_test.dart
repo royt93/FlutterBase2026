@@ -17,6 +17,23 @@ void main() {
     prefs = await AdPreferences.getInstance();
   });
 
+  test(
+      'round-30 audit (MAJOR): concurrent getInstance() calls before the '
+      'singleton is first set return the SAME instance', () async {
+    AdPreferences.resetForTest();
+    // Neither call is awaited before the other starts — both race past the
+    // (pre-fix) null-check before either has a chance to set `_instance`.
+    final f1 = AdPreferences.getInstance();
+    final f2 = AdPreferences.getInstance();
+    final i1 = await f1;
+    final i2 = await f2;
+    expect(identical(i1, i2), isTrue,
+        reason: 'two "singletons" born from this race independently track '
+            'mutable state (e.g. the fill-rate baseline write-serialization '
+            'queue) that silently diverges once split, even though the '
+            'underlying SharedPreferences itself stays consistent');
+  });
+
   test('consent settings raw round-trips', () async {
     await prefs.setConsentSettingsRaw('{"hasUserConsent":true}');
     expect(prefs.getConsentSettingsRaw(), '{"hasUserConsent":true}');

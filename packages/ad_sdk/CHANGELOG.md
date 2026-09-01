@@ -4,6 +4,49 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.10] - 2026-09-02
+
+Round 30 — lấp 2 khoảng trống round 29 chưa đọc: `lib/src/utils/` (nền
+persistence) và `lib/src/config/` + `applovin_bridge.dart` (cấu hình +
+lớp gọi native AppLovin thật). 2 agent đọc hết, không diff, tìm 4 MAJOR
+thật. Mọi fix RED→GREEN mutation-verified.
+
+- **Fix (MAJOR)**: AppLovin test-device registration (`setTestDeviceAdvertisingIds`)
+  was called AFTER `_bridge.initialize()` — verified against the real
+  `applovin_max` 4.6.4 native plugin source (Android/iOS) that the field is
+  only ever read once, inside `initialize()` itself, then nilled. The
+  developer/QA device was never actually registered as a test device on
+  AppLovin. Reordered to match the consent-flags pattern right above it
+  (MJ1).
+- **Fix (MAJOR)**: `refreshRemoteSafetyParams()` merged remote overrides
+  onto the raw `config.safety` instead of the ramp-adjusted
+  `effectiveSafety`, silently reverting every field a `safetyRampSchedule`
+  stage had adjusted back to day-0 config on every refresh. Factored out a
+  shared `_rampAdjustedSafety()` used by both `initialize()` and refresh.
+- **Fix (MAJOR)**: remote safety overrides had no upper bound — only
+  `dryRun` was guarded against a safety-defeating payload. A remote config
+  could set `minTimeBetweenFullscreenAds: 0` (kills the anti-fraud
+  throttle) or any cap field to an arbitrarily large number (functionally
+  unlimited ads). Added sane min/max bounds per field.
+- **Fix (MINOR)**, same file: `posInt()` required `v is int` exactly,
+  unlike `unitDouble()`'s more permissive `is num` — a remote-config
+  backend emitting `8.0` for a whole-number field was silently dropped.
+  Now accepts whole-valued doubles.
+- **Fix (MAJOR)**: `AdPreferences.getInstance()` checked its cached
+  singleton only before its internal `await`, never after — two concurrent
+  callers before the singleton was first set each built a separate
+  instance with independently-diverging mutable state (verified with a
+  throwaway reproduction: a fill-rate baseline sample silently dropped).
+  Switched to a `Completer`-based guard, mirroring what
+  `SharedPreferences.getInstance()` itself already does.
+- Doc-only: `async_epoch.dart`'s class comment claimed zero production
+  usages; `AdLoadingDialog` has used it since T115.
+
+1515/1515 tests pass, analyze clean. See
+`doc/audit/audit_round30_deep_consolidated.md` for the full writeup,
+including one agent-reported "dead code" nit that turned out to be a false
+positive on re-verification (a grep that missed `test/`).
+
 ## [2.9.9] - 2026-09-02
 
 Round-29 follow-up — closes the one gap 2.9.8 deferred: AppLovin's half of

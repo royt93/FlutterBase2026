@@ -74,4 +74,64 @@ void main() {
     expect(merged.maxFullscreenAdsPerHour, local.maxFullscreenAdsPerHour);
     expect(merged.suspiciousCtrThreshold, local.suspiciousCtrThreshold);
   });
+
+  // Round-30 audit (MAJOR) — only `dryRun` was guarded against a
+  // safety-defeating remote payload; these six numeric fields had no
+  // ceiling at all.
+  group('round-30 audit (MAJOR): remote overrides cannot defeat the safety '
+      'layer via an absurd value', () {
+    test('a zero throttle is rejected — 0 would kill the anti-fraud '
+        'throttle outright', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'minTimeBetweenFullscreenAds': 0});
+      expect(merged.minTimeBetweenFullscreenAds,
+          local.minTimeBetweenFullscreenAds,
+          reason: 'the throttle field must require a real positive floor, '
+              'not just >= 0');
+    });
+
+    test('a zero minTimeAppOpenResume is rejected', () {
+      final merged =
+          applyRemoteSafetyOverrides(local, {'minTimeAppOpenResume': 0});
+      expect(merged.minTimeAppOpenResume, local.minTimeAppOpenResume);
+    });
+
+    test('an absurdly large daily cap is rejected instead of making the '
+        'session effectively unlimited', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'maxFullscreenAdsPerDay': 1000000});
+      expect(merged.maxFullscreenAdsPerDay, local.maxFullscreenAdsPerDay,
+          reason: 'a cap field must have an upper bound — a compromised or '
+              'buggy remote payload must not be able to make the daily cap '
+              'functionally unlimited');
+    });
+
+    test('an absurdly large maxClicksPerMinute is rejected', () {
+      final merged =
+          applyRemoteSafetyOverrides(local, {'maxClicksPerMinute': 999999});
+      expect(merged.maxClicksPerMinute, local.maxClicksPerMinute);
+    });
+
+    test('a value just within the ceiling is still accepted', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'maxFullscreenAdsPerDay': 500, 'maxClicksPerMinute': 60});
+      expect(merged.maxFullscreenAdsPerDay, 500);
+      expect(merged.maxClicksPerMinute, 60);
+    });
+  });
+
+  // Round-30 audit (MINOR) — posInt used to require `v is int` exactly,
+  // unlike unitDouble's more permissive `is num`.
+  test('a whole-valued double (e.g. 8.0) is accepted for an int field',
+      () {
+    final merged =
+        applyRemoteSafetyOverrides(local, {'maxFullscreenAdsPerDay': 8.0});
+    expect(merged.maxFullscreenAdsPerDay, 8);
+  });
+
+  test('a fractional double is rejected for an int field', () {
+    final merged =
+        applyRemoteSafetyOverrides(local, {'maxFullscreenAdsPerDay': 8.5});
+    expect(merged.maxFullscreenAdsPerDay, local.maxFullscreenAdsPerDay);
+  });
 }

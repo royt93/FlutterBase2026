@@ -2431,31 +2431,11 @@ class AdManager with WidgetsBindingObserver {
       // failing backend must never block SDK init. Validated + merged onto
       // config.safety — the local values are always the fallback.
       _remoteSafetyProvider = remoteSafetyProvider;
-      var effectiveSafety = config.safety;
-
       // T121 — fully local alternative to remoteSafetyProvider: pick the
       // ramp stage for "how long since this device's first install" BEFORE
       // any remote override below, so a remoteSafetyProvider (if also
       // supplied) always wins on a field both touch, not the ramp.
-      final rampSchedule = config.safetyRampSchedule;
-      if (rampSchedule != null && rampSchedule.isNotEmpty) {
-        final installedAtMs =
-            prefs.getFirstInstallAtMs() ?? DateTime.now().millisecondsSinceEpoch;
-        final elapsed = Duration(
-            milliseconds:
-                DateTime.now().millisecondsSinceEpoch - installedAtMs);
-        Duration? bestStage;
-        for (final stage in rampSchedule.keys) {
-          if (stage <= elapsed && (bestStage == null || stage > bestStage)) {
-            bestStage = stage;
-          }
-        }
-        if (bestStage != null) {
-          effectiveSafety = rampSchedule[bestStage]!;
-          SafeLogger.d(_tag,
-              '📈 safetyRampSchedule: applied stage $bestStage (device age $elapsed)');
-        }
-      }
+      var effectiveSafety = _rampAdjustedSafety(config, prefs);
 
       if (remoteSafetyProvider != null) {
         try {
@@ -3697,6 +3677,35 @@ class AdManager with WidgetsBindingObserver {
     }
   }
 
+  /// T121 ramp stage for "how long since this device's first install",
+  /// factored out of [initialize] so [refreshRemoteSafetyParams] can rebase
+  /// onto it too.
+  ///
+  /// Round-30 audit (MAJOR) — [refreshRemoteSafetyParams] used to merge
+  /// remote overrides onto the raw `config.safety` instead of this, silently
+  /// reverting every field the ramp had adjusted (but the remote payload
+  /// doesn't mention) back to day-0 config on every refresh. Recomputed
+  /// fresh each call (not cached from `initialize()`) since the ramp is
+  /// time-based — the device may have crossed into a later stage since init.
+  AdSafetyParams _rampAdjustedSafety(AdConfig config, AdPreferences prefs) {
+    final rampSchedule = config.safetyRampSchedule;
+    if (rampSchedule == null || rampSchedule.isEmpty) return config.safety;
+    final installedAtMs =
+        prefs.getFirstInstallAtMs() ?? DateTime.now().millisecondsSinceEpoch;
+    final elapsed = Duration(
+        milliseconds: DateTime.now().millisecondsSinceEpoch - installedAtMs);
+    Duration? bestStage;
+    for (final stage in rampSchedule.keys) {
+      if (stage <= elapsed && (bestStage == null || stage > bestStage)) {
+        bestStage = stage;
+      }
+    }
+    if (bestStage == null) return config.safety;
+    SafeLogger.d(_tag,
+        '📈 safetyRampSchedule: applied stage $bestStage (device age $elapsed)');
+    return rampSchedule[bestStage]!;
+  }
+
   /// T111 — re-fetch [RemoteAdSafetyProvider] overrides and apply them
   /// immediately, without a full `destroy()`+`initialize()` cycle. Mirrors
   /// `VipManager.refreshRevocationList`'s contract: **fails open** on every
@@ -3730,7 +3739,9 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
 
-    final merged = applyRemoteSafetyOverrides(cfg.safety, overrides);
+    final prefs = await AdPreferences.getInstance();
+    final merged =
+        applyRemoteSafetyOverrides(_rampAdjustedSafety(cfg, prefs), overrides);
     AdSafetyConfig.updateParams(merged, isRelease: kReleaseMode);
     SafeLogger.d(_tag, '🌐 refreshRemoteSafetyParams: applied new overrides');
   }

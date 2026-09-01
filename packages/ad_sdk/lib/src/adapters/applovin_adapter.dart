@@ -718,22 +718,26 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         SafeLogger.w(_logTag, 'pre-init privacy flags failed: $e');
       }
     }
+    // Round-30 audit (MAJOR) — this used to run AFTER `_bridge.initialize()`
+    // below, which made it a permanent no-op on both platforms: verified
+    // against the real `applovin_max` 4.6.4 native plugin source (Android
+    // `AppLovinMAX.java`, iOS `AppLovinMAX.m`) — `setTestDeviceAdvertisingIds`
+    // only stores into a field that `initialize()`'s OWN config-builder reads
+    // exactly once and immediately nils; calling the setter after
+    // `initialize()` has already run writes a value nothing ever reads
+    // again. Same ordering mistake the consent flags above were explicitly
+    // fixed for (MJ1) — moved here to match.
+    if (kDebugMode && deviceGaid.isNotEmpty) {
+      try {
+        _bridge.setTestDeviceAdvertisingIds([deviceGaid]);
+        SafeLogger.d(_logTag, 'AppLovin test device registered: $deviceGaid');
+      } catch (e) {
+        SafeLogger.w(_logTag, 'setTestDeviceAdvertisingIds failed: $e');
+      }
+    }
     try {
       await _bridge.initialize(cfg.sdkKey);
       SafeLogger.d(_logTag, 'initialize $tag ✅ SDK ready');
-
-      // Register THIS device as a test device in debug builds — required
-      // by AppLovin to avoid serving real (revenue-counting) ads to the
-      // developer. Failing to do so risks account suspension. Preserves
-      // 1.x behaviour exactly.
-      if (kDebugMode && deviceGaid.isNotEmpty) {
-        try {
-          _bridge.setTestDeviceAdvertisingIds([deviceGaid]);
-          SafeLogger.d(_logTag, 'AppLovin test device registered: $deviceGaid');
-        } catch (e) {
-          SafeLogger.w(_logTag, 'setTestDeviceAdvertisingIds failed: $e');
-        }
-      }
       return true;
     } catch (e, st) {
       SafeLogger.e(_logTag, 'initialize $tag FAILED: $e\n$st');
