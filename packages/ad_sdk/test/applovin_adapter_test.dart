@@ -326,27 +326,35 @@ void main() {
   });
 
   group('Rewarded earned vs dismissed', () {
-    Future<void> loadAndShow(void Function(RewardResult) onDone) async {
+    // Round-29 audit follow-up — returns the SAME `MaxAd` instance loaded,
+    // so every show-lifecycle callback below can be identity-matched
+    // against it, same as the real AppLovin SDK keeps one ad object alive
+    // across its whole load→show→hide lifecycle (see `_rewardedAd` in
+    // applovin_adapter.dart). A fresh `_fakeAd()` per callback call used to
+    // be silently accepted before the round-29 stale-callback guards
+    // existed; now it would be (correctly) discarded as stale.
+    Future<MaxAd> loadAndShow(void Function(RewardResult) onDone) async {
+      final ad = _fakeAd();
       await adapter.loadRewarded();
-      bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+      bridge.rewarded!.onAdLoadedCallback(ad);
       expect(adapter.rewardedSlot.isReady, isTrue);
       await adapter.showRewarded(onDone: onDone);
       expect(bridge.showRewardedCalls, ['rewarded-id']);
+      return ad;
     }
 
     test('receiving a reward yields earned=true', () async {
       RewardResult? result;
-      await loadAndShow((r) => result = r);
-      bridge.rewarded!
-          .onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+      final ad = await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdReceivedRewardCallback(ad, MaxReward(10, 'c'));
       expect(result, isNotNull);
       expect(result!.earned, isTrue);
     });
 
     test('hiding without a reward yields skipped (not earned)', () async {
       RewardResult? result;
-      await loadAndShow((r) => result = r);
-      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+      final ad = await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdHiddenCallback(ad);
       expect(result, isNotNull);
       expect(result!.earned, isFalse);
     });
@@ -355,9 +363,9 @@ void main() {
     // daily/hourly/placement caps on, so it has to follow the DISPLAY.
     test('displayed then closed early → shown=true, earned=false', () async {
       RewardResult? result;
-      await loadAndShow((r) => result = r);
-      bridge.rewarded!.onAdDisplayedCallback(_fakeAd());
-      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+      final ad = await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdDisplayedCallback(ad);
+      bridge.rewarded!.onAdHiddenCallback(ad);
 
       expect(result!.earned, isFalse);
       expect(result!.shown, isTrue,
@@ -366,18 +374,17 @@ void main() {
 
     test('hidden without ever being displayed → shown=false', () async {
       RewardResult? result;
-      await loadAndShow((r) => result = r);
-      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+      final ad = await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdHiddenCallback(ad);
 
       expect(result!.shown, isFalse);
     });
 
     test('an earned reward always reports shown=true', () async {
       RewardResult? result;
-      await loadAndShow((r) => result = r);
-      bridge.rewarded!.onAdDisplayedCallback(_fakeAd());
-      bridge.rewarded!
-          .onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+      final ad = await loadAndShow((r) => result = r);
+      bridge.rewarded!.onAdDisplayedCallback(ad);
+      bridge.rewarded!.onAdReceivedRewardCallback(ad, MaxReward(10, 'c'));
 
       expect(result!.shown, isTrue);
     });
@@ -394,10 +401,9 @@ void main() {
     test('a reward that arrives with no display callback still reports '
         'shown=true', () async {
       RewardResult? result;
-      await loadAndShow((r) => result = r);
+      final ad = await loadAndShow((r) => result = r);
       // No onAdDisplayedCallback at all.
-      bridge.rewarded!
-          .onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+      bridge.rewarded!.onAdReceivedRewardCallback(ad, MaxReward(10, 'c'));
 
       expect(adapter.rewardedSlot.displayConfirmed, isFalse,
           reason: 'precondition: the display callback never arrived');
@@ -409,15 +415,16 @@ void main() {
 
   group('Interstitial reload-after-display-fail', () {
     test('display failure refills immediately', () async {
+      final ad = _fakeAd();
       await adapter.loadInterstitial();
-      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      bridge.inter!.onAdLoadedCallback(ad);
       expect(adapter.interstitialSlot.isReady, isTrue);
 
       bool? shown;
       await adapter.showInterstitial(onDone: (s) => shown = s);
       final loadsBefore = bridge.loadInterCalls.length;
 
-      bridge.inter!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+      bridge.inter!.onAdDisplayFailedCallback(ad, _fakeError());
 
       expect(shown, isFalse);
       expect(bridge.loadInterCalls.length, loadsBefore + 1,
@@ -605,13 +612,14 @@ void main() {
     test('interstitial: reload-after-display-fail recovers via watchdog if '
         'the native callback never arrives', () {
       fakeAsync((async) {
+        final ad = _fakeAd();
         adapter.loadInterstitial();
         async.flushMicrotasks();
-        bridge.inter!.onAdLoadedCallback(_fakeAd());
+        bridge.inter!.onAdLoadedCallback(ad);
         adapter.showInterstitial(onDone: (_) {});
         async.flushMicrotasks();
 
-        bridge.inter!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+        bridge.inter!.onAdDisplayFailedCallback(ad, _fakeError());
         expect(adapter.interstitialSlot.isLoading, isTrue);
 
         async.elapse(const Duration(seconds: 31));
@@ -623,13 +631,14 @@ void main() {
     test('rewarded: reload-after-display-fail recovers via watchdog if the '
         'native callback never arrives', () {
       fakeAsync((async) {
+        final ad = _fakeAd();
         adapter.loadRewarded();
         async.flushMicrotasks();
-        bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+        bridge.rewarded!.onAdLoadedCallback(ad);
         adapter.showRewarded(onDone: (_) {});
         async.flushMicrotasks();
 
-        bridge.rewarded!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+        bridge.rewarded!.onAdDisplayFailedCallback(ad, _fakeError());
         expect(adapter.rewardedSlot.isLoading, isTrue);
 
         async.elapse(const Duration(seconds: 31));
@@ -676,12 +685,13 @@ void main() {
     test('interstitial: hidden does not reload when canReload is false',
         () async {
       adapter.canReload = () => false;
+      final ad = _fakeAd();
       await adapter.loadInterstitial();
-      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      bridge.inter!.onAdLoadedCallback(ad);
       await adapter.showInterstitial(onDone: (_) {});
       final loadsBefore = bridge.loadInterCalls.length;
 
-      bridge.inter!.onAdHiddenCallback(_fakeAd());
+      bridge.inter!.onAdHiddenCallback(ad);
 
       expect(bridge.loadInterCalls.length, loadsBefore);
     });
@@ -690,24 +700,26 @@ void main() {
         'interstitial: display failure does not reload when canReload is false',
         () async {
       adapter.canReload = () => false;
+      final ad = _fakeAd();
       await adapter.loadInterstitial();
-      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      bridge.inter!.onAdLoadedCallback(ad);
       await adapter.showInterstitial(onDone: (_) {});
       final loadsBefore = bridge.loadInterCalls.length;
 
-      bridge.inter!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+      bridge.inter!.onAdDisplayFailedCallback(ad, _fakeError());
 
       expect(bridge.loadInterCalls.length, loadsBefore);
     });
 
     test('rewarded: hidden does not reload when canReload is false', () async {
       adapter.canReload = () => false;
+      final ad = _fakeAd();
       await adapter.loadRewarded();
-      bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+      bridge.rewarded!.onAdLoadedCallback(ad);
       await adapter.showRewarded(onDone: (_) {});
       final loadsBefore = bridge.loadRewardedCalls.length;
 
-      bridge.rewarded!.onAdHiddenCallback(_fakeAd());
+      bridge.rewarded!.onAdHiddenCallback(ad);
 
       expect(bridge.loadRewardedCalls.length, loadsBefore);
     });
@@ -715,24 +727,26 @@ void main() {
     test('rewarded: display failure does not reload when canReload is false',
         () async {
       adapter.canReload = () => false;
+      final ad = _fakeAd();
       await adapter.loadRewarded();
-      bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+      bridge.rewarded!.onAdLoadedCallback(ad);
       await adapter.showRewarded(onDone: (_) {});
       final loadsBefore = bridge.loadRewardedCalls.length;
 
-      bridge.rewarded!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+      bridge.rewarded!.onAdDisplayFailedCallback(ad, _fakeError());
 
       expect(bridge.loadRewardedCalls.length, loadsBefore);
     });
 
     test('interstitial: reloads normally when canReload stays true (default)',
         () async {
+      final ad = _fakeAd();
       await adapter.loadInterstitial();
-      bridge.inter!.onAdLoadedCallback(_fakeAd());
+      bridge.inter!.onAdLoadedCallback(ad);
       await adapter.showInterstitial(onDone: (_) {});
       final loadsBefore = bridge.loadInterCalls.length;
 
-      bridge.inter!.onAdHiddenCallback(_fakeAd());
+      bridge.inter!.onAdHiddenCallback(ad);
 
       expect(bridge.loadInterCalls.length, loadsBefore + 1);
     });
@@ -1756,6 +1770,82 @@ void main() {
       expect(a.rewardedSlot.lastLoadedAt, isNull,
           reason: 'a load that lands after dispose() must not mark a slot '
               'on an adapter nobody owns any more as loaded');
+    });
+  });
+
+  // Round-29 audit follow-up (MAJOR) — AppLovin wires ONE persistent
+  // listener per ad type at initialize() time, so unlike AdMob (fresh
+  // closure per show() call) it had no way to tell a stale cycle's late
+  // native event apart from the current one. Fixed via `_interstitialAd`/
+  // `_rewardedAd` ad-identity tracking (`identical()`-checked in every
+  // show-lifecycle callback) — see applovin_adapter.dart.
+  group('round-29 audit follow-up (MAJOR): cross-cycle late callback must '
+      'not hijack a newer show cycle', () {
+    test(
+        'interstitial — a stale cycle\'s late display-failed does not steal '
+        'a newer cycle\'s caller or tear down its slot', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      final ad1 = _fakeAd();
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(ad1);
+      bool? result1;
+      await a.showInterstitial(onDone: (s) => result1 = s);
+      b.inter!.onAdHiddenCallback(ad1); // cycle 1 resolves normally
+      expect(result1, isTrue);
+
+      final ad2 = _fakeAd();
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(ad2);
+      bool? result2;
+      await a.showInterstitial(onDone: (s) => result2 = s);
+
+      // ad1's callbacks fire again late — simulates a duplicate/delayed
+      // native delivery landing after cycle 2 already claimed the adapter.
+      b.inter!.onAdDisplayFailedCallback(ad1, _fakeError());
+
+      expect(result2, isNull,
+          reason: 'cycle 2 is still genuinely showing — its caller must '
+              'not be resolved by cycle 1\'s stale late arrival');
+      expect(a.interstitialSlot.isShowing, isTrue,
+          reason: 'cycle 2\'s slot must not be torn down by a stale cycle '
+              '1 callback');
+    });
+
+    test(
+        'rewarded — a stale cycle\'s late hidden does not steal a newer '
+        'cycle\'s reward callback', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      final ad1 = _fakeAd();
+      await a.loadRewarded();
+      b.rewarded!.onAdLoadedCallback(ad1);
+      RewardResult? result1;
+      await a.showRewarded(onDone: (r) => result1 = r);
+      b.rewarded!.onAdHiddenCallback(ad1); // cycle 1 resolves (no reward)
+      expect(result1?.earned, isFalse);
+
+      final ad2 = _fakeAd();
+      await a.loadRewarded();
+      b.rewarded!.onAdLoadedCallback(ad2);
+      RewardResult? result2;
+      await a.showRewarded(onDone: (r) => result2 = r);
+
+      // ad1's stale hidden callback fires again late.
+      b.rewarded!.onAdHiddenCallback(ad1);
+
+      expect(result2, isNull,
+          reason: 'a user genuinely still watching cycle 2 must not have '
+              'its reward callback resolved by cycle 1\'s stale late '
+              'hidden event — this is exactly how a real reward could be '
+              'lost');
+      expect(a.rewardedSlot.isShowing, isTrue);
     });
   });
 }

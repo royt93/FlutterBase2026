@@ -4,6 +4,32 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.9] - 2026-09-02
+
+Round-29 follow-up — closes the one gap 2.9.8 deferred: AppLovin's half of
+the cross-cycle late-callback fix (AdMob's half shipped in 2.9.8).
+
+- **Fix (MAJOR)**: AppLovin wires one persistent listener per ad type at
+  `initialize()` (not a fresh closure per `show()` call like AdMob), so it
+  had no way to tell a stale cycle's late native event apart from the
+  current one. Added `_interstitialAd`/`_rewardedAd` ad-identity tracking —
+  every show-lifecycle callback (`onAdDisplayedCallback`,
+  `onAdDisplayFailedCallback`, `onAdHiddenCallback`,
+  `onAdReceivedRewardCallback`) now `identical()`-checks the `MaxAd` it was
+  handed before mutating the slot or resolving the caller. A stale/late
+  event is discarded instead of stealing a newer cycle's caller or, worse,
+  silently dropping an earned reward.
+- 2.9.8 attempted this and reverted it — the identity check broke 14+
+  existing tests in `test/applovin_adapter_test.dart` because its `_fakeAd()`
+  helper created a fresh `MaxAd` per call instead of reusing one instance
+  across load→show→hide (unlike the real AppLovin SDK, which keeps one ad
+  object alive for that whole lifecycle). Fixed properly this time: updated
+  every affected test to thread the loaded ad's actual reference through,
+  which is also more realistic test modeling than before. Two new tests
+  added (`round-29 audit follow-up`) mutation-verified the fix itself
+  (RED→GREEN).
+- 1505/1505 tests pass, analyze clean.
+
 ## [2.9.8] - 2026-09-01
 
 Round-29 audit — user pushback that round 28 (and the 27 before it) were

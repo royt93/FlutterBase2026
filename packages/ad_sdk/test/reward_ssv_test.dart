@@ -263,16 +263,16 @@ void main() {
     tearDown(() async => adapter.dispose());
 
     test('omitting ssv params → customData null, no behavior change', () async {
+      final ad = _fakeMaxAd();
       await adapter.loadRewarded();
-      bridge.rewarded!.onAdLoadedCallback(_fakeMaxAd());
+      bridge.rewarded!.onAdLoadedCallback(ad);
 
       RewardResult? result;
       await adapter.showRewarded(onDone: (r) => result = r);
       expect(bridge.showRewardedCalls, ['rewarded-id']);
       expect(bridge.lastCustomData, isNull);
 
-      bridge.rewarded!
-          .onAdReceivedRewardCallback(_fakeMaxAd(), MaxReward(10, 'coins'));
+      bridge.rewarded!.onAdReceivedRewardCallback(ad, MaxReward(10, 'coins'));
       expect(result, isNotNull);
       expect(result!.earned, isTrue);
       expect(result!.pendingServerConfirmation, isFalse,
@@ -282,8 +282,9 @@ void main() {
     test(
         'ssvCustomData is forwarded verbatim to AppLovinMAX.showRewardedAd '
         'custom_data field, and marks the result pending', () async {
+      final ad = _fakeMaxAd();
       await adapter.loadRewarded();
-      bridge.rewarded!.onAdLoadedCallback(_fakeMaxAd());
+      bridge.rewarded!.onAdLoadedCallback(ad);
 
       RewardResult? result;
       await adapter.showRewarded(
@@ -292,8 +293,7 @@ void main() {
       );
       expect(bridge.lastCustomData, 'user-123:order-456');
 
-      bridge.rewarded!
-          .onAdReceivedRewardCallback(_fakeMaxAd(), MaxReward(10, 'coins'));
+      bridge.rewarded!.onAdReceivedRewardCallback(ad, MaxReward(10, 'coins'));
       expect(result!.pendingServerConfirmation, isTrue);
     });
 

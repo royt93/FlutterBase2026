@@ -594,6 +594,19 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   void Function(bool shown)? _interstitialDone;
   void Function(RewardResult result)? _rewardedDone;
 
+  /// Round-29 audit follow-up (MAJOR) — unlike AdMob, AppLovin wires ONE
+  /// persistent listener per ad type at `initialize()` time (not a fresh
+  /// closure per `show*()` call), so its `onAdHidden`/`onAdDisplayFailed`
+  /// callbacks have no closure-local way to know whether they belong to the
+  /// cycle currently being shown or a stale one from a prior cycle whose
+  /// watchdog already resolved it. These track "the ad object most recently
+  /// loaded" per type so those callbacks can `identical()`-check the `MaxAd`
+  /// they were handed against it — a late/stale event for an ad AppLovin has
+  /// already moved on from is discarded instead of resolving (or worse,
+  /// stealing) whatever cycle is current.
+  MaxAd? _interstitialAd;
+  MaxAd? _rewardedAd;
+
   /// Set true in [showRewarded] when the caller supplied SSV identifying
   /// data for the in-flight show — read once by the reward callback to stamp
   /// [RewardResult.pendingServerConfirmation].
@@ -1321,6 +1334,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
         if (_discardIfConsentStale(interstitialSlot, 'inter')) return;
+        _interstitialAd = ad;
         interstitialSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1347,6 +1361,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdDisplayedCallback: (ad) {
+        // Round-29 audit follow-up (MAJOR) — a stale `displayed` for an ad
+        // this adapter has already moved on from must not disarm the
+        // CURRENT cycle's watchdog. See `_interstitialAd`'s declaration.
+        if (!identical(ad, _interstitialAd)) {
+          SafeLogger.d(_logTag, 'inter $tag ⛔ stale displayed — discarding');
+          return;
+        }
         // Disarms beginShow's watchdog — from here the user owns the clock.
         interstitialSlot.markDisplayed();
         SafeLogger.d(
@@ -1364,6 +1385,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
             ad, AdSlotType.interstitial, AdPlacement.unspecified);
       },
       onAdDisplayFailedCallback: (ad, err) {
+        // Round-29 audit follow-up (MAJOR) — see `_interstitialAd`'s
+        // declaration. A stale failure must not touch the current cycle's
+        // slot/callback nor trigger a redundant reload.
+        if (!identical(ad, _interstitialAd)) {
+          SafeLogger.w(_logTag, 'inter $tag ⛔ stale display-failed — discarding');
+          return;
+        }
         SafeLogger.w(
             _logTag,
             () =>
@@ -1402,6 +1430,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdHiddenCallback: (ad) {
+        // Round-29 audit follow-up (MAJOR) — see `_interstitialAd`'s
+        // declaration.
+        if (!identical(ad, _interstitialAd)) {
+          SafeLogger.d(_logTag, 'inter $tag ⛔ stale hidden — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'inter $tag 👋 hidden');
         interstitialSlot.markDismissed();
         final cb = _interstitialDone;
@@ -1541,6 +1575,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
         if (_discardIfConsentStale(rewardedSlot, 'rewarded')) return;
+        _rewardedAd = ad;
         rewardedSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1567,6 +1602,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdDisplayedCallback: (ad) {
+        // Round-29 audit follow-up (MAJOR) — see `_rewardedAd`'s declaration.
+        if (!identical(ad, _rewardedAd)) {
+          SafeLogger.d(_logTag, 'rewarded $tag ⛔ stale displayed — discarding');
+          return;
+        }
         rewardedSlot.markDisplayed();
         SafeLogger.d(_logTag, 'rewarded $tag ✅ displayed');
       },
@@ -1574,6 +1614,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         _emitRevenueIfPresent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
       },
       onAdDisplayFailedCallback: (ad, err) {
+        if (!identical(ad, _rewardedAd)) {
+          SafeLogger.w(
+              _logTag, 'rewarded $tag ⛔ stale display-failed — discarding');
+          return;
+        }
         SafeLogger.w(_logTag, 'rewarded $tag ❌ display failed: ${err.message}');
         rewardedSlot.markShowFailed();
         final cb = _rewardedDone;
@@ -1608,6 +1653,16 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdHiddenCallback: (ad) {
+        // Round-29 audit follow-up (MAJOR) — see `_rewardedAd`'s declaration.
+        // Using ad identity (not `_rewardedDone`, which the earned-reward
+        // path below may have already nulled for this SAME, still-current
+        // cycle) correctly tells apart "this cycle already earned, now
+        // legitimately dismissing" from "a truly stale cycle's hidden event
+        // arriving after a newer cycle took over."
+        if (!identical(ad, _rewardedAd)) {
+          SafeLogger.d(_logTag, 'rewarded $tag ⛔ stale hidden — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'rewarded $tag 👋 hidden');
         final displayed = rewardedSlot.displayConfirmed;
         rewardedSlot.markDismissed();
@@ -1638,6 +1693,14 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
       },
       onAdReceivedRewardCallback: (ad, reward) {
+        // Round-29 audit follow-up (MAJOR) — see `_rewardedAd`'s declaration.
+        // Without this, a stale cycle's late earned-reward event could
+        // steal a newer cycle's reward callback.
+        if (!identical(ad, _rewardedAd)) {
+          SafeLogger.w(
+              _logTag, 'rewarded $tag ⛔ stale earned-reward — discarding');
+          return;
+        }
         // Note: AppLovin **test creatives** report `amount=0` and empty
         // `label` regardless of what the dashboard rewarded ad-unit declares.
         // Real rewarded creatives in production return the configured values.

@@ -167,14 +167,15 @@ void main() {
 
     test('interstitial: the displayed callback disarms it', () {
       fakeAsync((async) {
+        final ad = _fakeAd();
         adapter.loadInterstitial();
         async.flushMicrotasks();
-        bridge.inter!.onAdLoadedCallback(_fakeAd());
+        bridge.inter!.onAdLoadedCallback(ad);
         bool? done;
         adapter.showInterstitial(onDone: (d) => done = d);
         async.flushMicrotasks();
 
-        bridge.inter!.onAdDisplayedCallback(_fakeAd());
+        bridge.inter!.onAdDisplayedCallback(ad);
         async.elapse(const Duration(minutes: 5));
 
         expect(done, isNull, reason: 'the ad is on screen — the caller must '
@@ -205,14 +206,15 @@ void main() {
 
     test('rewarded: the displayed callback disarms it', () {
       fakeAsync((async) {
+        final ad = _fakeAd();
         adapter.loadRewarded();
         async.flushMicrotasks();
-        bridge.rewarded!.onAdLoadedCallback(_fakeAd());
+        bridge.rewarded!.onAdLoadedCallback(ad);
         RewardResult? result;
         adapter.showRewarded(onDone: (r) => result = r);
         async.flushMicrotasks();
 
-        bridge.rewarded!.onAdDisplayedCallback(_fakeAd());
+        bridge.rewarded!.onAdDisplayedCallback(ad);
         async.elapse(const Duration(minutes: 5));
 
         expect(result, isNull);
