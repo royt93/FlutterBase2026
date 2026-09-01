@@ -53,19 +53,25 @@ surface" T124 thêm ở 2.9.1 không được cập nhật vào test). Tự veri
 `grep -c "DemoTile(" example/lib/shared/home_page.dart` → 18. Đã fix
 (17→18), test xanh.
 
-## 4. 2 MAJOR cũ từ round 26 — vẫn mở, đúng như user đã chọn "để sau"
+## 4. 2 MAJOR cũ từ round 26 — ĐÃ FIX trong round này (2.9.6)
 
-Cả 3 reviewer xác nhận cả hai còn nguyên, không đổi:
+Cả 3 reviewer xác nhận cả hai còn nguyên tại thời điểm audit; sau đó user
+chọn "fix ngay" cho cả hai qua AskUserQuestion (khác round 26, lúc đó chọn để
+sau):
 
-1. `lib/src/vip/_redeemed_key_ledger.dart:66-78` `markRedeemed()` — race
-   read-modify-write không lock trên Keychain iOS, 2 lần redeem gần đồng thời
-   có thể mất 1 `kid` khỏi ledger durable.
+1. `lib/src/vip/_redeemed_key_ledger.dart` `markRedeemed()` — race
+   read-modify-write không lock trên Keychain iOS. **FIXED**: mỗi write giờ
+   chain vào write trước (cùng idiom `AdEventLog._persistChain`).
+   Mutation-verified (`test/redeemed_key_ledger_test.dart` — 2 redeem đồng
+   thời, revert → mất 1 kid/đỏ, fix → cả 2 kid còn/xanh).
 2. `lib/src/adapters/admob_adapter.dart` — nhánh `onFailed` của 4 loại
-   fullscreen ad thiếu `_discardIfDisposed` guard mà `onLoaded` có; `dispose()`
-   cũng không null hoá `eventSink`.
+   fullscreen ad thiếu `_discardIfDisposed` guard mà `onLoaded` có. **FIXED**:
+   thêm `_fullscreenDisposed` guard vào cả 4 vị trí + null hoá `eventSink`
+   cuối `dispose()` làm lớp phòng thủ thứ hai. Mutation-verified
+   (`test/admob_adapter_test.dart`, 1 test/loại ad, dùng bridge giả có thể
+   trễ callback `onFailed` tới sau `dispose()`).
 
-**Quyết định giữ nguyên: để sau, không chặn round này** (theo lựa chọn của
-user tại round 26, tái xác nhận không có thay đổi).
+Chi tiết đầy đủ: `CHANGELOG.md` mục **[2.9.6]**.
 
 ## 5. BLOCKER — AppLovin key/ad-unit ID chưa rotate — TÁI XÁC NHẬN Y NGUYÊN ROUND 26
 
@@ -88,14 +94,20 @@ lõi khó nhất.** File làm rất tốt: bootstrap, splash, VIP UI 13-componen
 consent 3 mảnh (UMP/ATT/Cupertino), trial mode (first-install grace) và
 anti-bypass, memory-leak checklist, policy 5-rule — tất cả khớp chính xác với
 source hiện tại. Nhưng **thiếu hoàn toàn 3/7 loại ad-surface có thật trong
-SDK và có demo sẵn**: MREC (`buildMrec()`), Native (`buildNative()`/
-`NativeAdWidget`), Rewarded Interstitial (`showRewardedInterstitialAd()`) —
-không được nhắc tới trong touchpoint table hay bất kỳ lifecycle step nào,
-chỉ thấy MREC lướt qua 1 lần trong phụ lục migration. Một agent chỉ có file
-này sẽ tích hợp đúng 4/7 loại ad và không biết 3 loại kia tồn tại. Cũng phát
-hiện thêm: compliance nuance COPPA (AppLovin không có runtime child-directed
-flag, khác AdMob) bị rút gọn còn 2 dòng code mẫu, không giải thích rủi ro
-thật cho app luôn hướng tới trẻ em.
+SDK**: MREC (`buildMrec()`), Native (`buildNative()`/`NativeAdWidget`),
+Rewarded Interstitial (`showRewardedInterstitialAd()`) — không được nhắc tới
+trong touchpoint table hay bất kỳ lifecycle step nào, chỉ thấy MREC lướt qua
+1 lần trong phụ lục migration. Một agent chỉ có file này sẽ tích hợp đúng 4/7
+loại ad và không biết 3 loại kia tồn tại. Cũng phát hiện thêm: compliance
+nuance COPPA (AppLovin không có runtime child-directed flag, khác AdMob) bị
+rút gọn còn 2 dòng code mẫu, không giải thích rủi ro thật cho app luôn hướng
+tới trẻ em.
+
+**Cập nhật cùng round (2.9.6):** Rewarded Interstitial giờ đã có demo +
+widget test + integration test trong example app (xem mục 4/CHANGELOG) — gap
+"SDK có tính năng nhưng 0 chỗ nào thực nghiệm được" đã đóng. `AD_PROMPT_FLUTTER.MD`
+**chưa được sửa** (ngoài phạm vi được duyệt trong round này) — vẫn thiếu
+touchpoint cho cả 3 surface, khuyến nghị dưới đây còn nguyên giá trị.
 
 **Trùng hợp đáng chú ý:** `agy` (được giao audit source, KHÔNG được giao đọc
 `AD_PROMPT_FLUTTER.MD`) tự đề xuất độc lập trong action-item #6: *"Maintain
@@ -121,23 +133,33 @@ Step 4.8/4.9/4.10 cho 3 surface còn thiếu vào `AD_PROMPT_FLUTTER.MD`, theo
 
 ## Kết luận production
 
-**Sẵn sàng production: YES WITH CONDITIONS** — verdict không đổi so với
-round 26, nhưng 1 MAJOR mới phát sinh từ T102 đã được vá ngay trong round
-này (không tồn đọng sang round sau).
+**Sẵn sàng production: YES WITH CONDITIONS** — verdict text không đổi, nhưng
+nội dung điều kiện đã thu hẹp đáng kể: cả 2 MAJOR round-26 (ledger race,
+AdMob onFailed guard) và MAJOR mới của round này (T102 flush timeout) đều đã
+fix + mutation-verify trong cùng round, không tồn đọng sang round sau. Chỉ
+còn 1 điều kiện thật sự treo.
 
-Điều kiện còn lại (không đổi):
+Điều kiện còn lại:
 1. Rotate AppLovin key + 8 ad-unit ID trên dashboard **trước khi** mở quyền
    truy cập repo ra ngoài team hiện tại hoặc public hoá — user đã chấp nhận
-   rủi ro tạm thời, đây không phải blocker chặn ship nội bộ.
-2. MAJOR #1 (ledger race) và #2 (AdMob onFailed guard) — user chọn để sau,
-   nên vá trước khi có traffic VIP-redeem đồng thời cao hoặc app có nhịp
-   destroy()/initialize() nhanh.
-3. (Khuyến nghị, không chặn) bổ sung MREC/Native/RewardedInterstitial vào
-   `AD_PROMPT_FLUTTER.MD`.
+   rủi ro tạm thời (2 lần xác nhận, round 26 và 27), đây không phải blocker
+   chặn ship nội bộ. Không hỏi lại vấn đề này ở các round sau.
+2. (Khuyến nghị, không chặn) bổ sung MREC/Native/RewardedInterstitial vào
+   `AD_PROMPT_FLUTTER.MD` — example app đã có demo đầy đủ cho cả 3, chỉ còn
+   tài liệu handoff chưa cập nhật theo.
 
-**Điểm trung bình 3 reviewer:** codex 7/10, agy 8.5/10, claude 8/10 → **~7.8/10**.
+**Điểm trung bình 3 reviewer tại thời điểm audit:** codex 7/10, agy 8.5/10,
+claude 8/10 → **~7.8/10**. Điểm này chưa phản ánh 2 MAJOR đã fix sau đó
+trong cùng round — thực tế cao hơn.
 
-**Kiểm chứng cuối round:** `flutter analyze` sạch. `flutter test` (package
-`ad_sdk`): **1.477/1.477 pass** (1.476 baseline + 1 test mới). `example`
-`home_page_test.dart`: 2/2 pass sau fix đếm tile. Version **2.9.4 → 2.9.5**,
-`CHANGELOG.md` đã cập nhật. Chưa publish lên pub.dev (chờ user xác nhận).
+**Kiểm chứng cuối round:** `flutter analyze` sạch cả 2 package. `flutter
+test` (package `ad_sdk`): **1.482/1.482 pass**. `example`: toàn bộ unit +
+widget test pass (bao gồm `home_page_test.dart` 19 tile,
+`rewarded_interstitial_demo_page_test.dart` mới). On-device integration
+test mới (`rewarded_interstitial_ad_test.dart`) verified PASS trên Android
+emulator (`sdk gphone16k arm64`, khớp phương pháp CI job `sdk-integration`);
+chạy trên iOS Simulator bị chặn bởi giới hạn môi trường đã biết (UMP form
+không present được trong `integration_test` harness trên Simulator — xem
+memory `ios-simulator-cannot-run-consent-integration-tests`), không phải
+regression. Version **2.9.4 → 2.9.6**, `CHANGELOG.md` đã cập nhật đầy đủ 3
+version (2.9.5, 2.9.6). Chưa publish lên pub.dev (chờ user xác nhận).

@@ -76,6 +76,16 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
 class FakeGmaBridge implements GmaBridge {
   bool failNextLoad = false;
 
+  // Round-27 audit — when true, the next load's onFailed is captured instead
+  // of invoked immediately, so a test can call adapter.dispose() first and
+  // then fire the failure late, simulating a request that was still in
+  // flight when dispose() ran.
+  bool deferNextFailure = false;
+  void Function(int, String)? pendingAppOpenOnFailed;
+  void Function(int, String)? pendingInterOnFailed;
+  void Function(int, String)? pendingRewardedOnFailed;
+  void Function(int, String)? pendingRewardedInterstitialOnFailed;
+
   // Captured from the most recent updateRequestConfiguration() call.
   List<String>? capturedTestDeviceIds;
 
@@ -121,7 +131,13 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaAppOpen = nonPersonalizedAds;
     rdpAppOpen = restrictedDataProcessing;
-    if (failNextLoad) return onFailed(3, 'no fill');
+    if (failNextLoad) {
+      if (deferNextFailure) {
+        pendingAppOpenOnFailed = onFailed;
+        return;
+      }
+      return onFailed(3, 'no fill');
+    }
     final ad = FakeGmaFullscreenAd();
     lastAppOpen = ad;
     onLoaded(ad);
@@ -135,7 +151,13 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaInter = nonPersonalizedAds;
     rdpInter = restrictedDataProcessing;
-    if (failNextLoad) return onFailed(3, 'no fill');
+    if (failNextLoad) {
+      if (deferNextFailure) {
+        pendingInterOnFailed = onFailed;
+        return;
+      }
+      return onFailed(3, 'no fill');
+    }
     final ad = FakeGmaFullscreenAd();
     lastInter = ad;
     onLoaded(ad);
@@ -149,7 +171,13 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaRewarded = nonPersonalizedAds;
     rdpRewarded = restrictedDataProcessing;
-    if (failNextLoad) return onFailed(3, 'no fill');
+    if (failNextLoad) {
+      if (deferNextFailure) {
+        pendingRewardedOnFailed = onFailed;
+        return;
+      }
+      return onFailed(3, 'no fill');
+    }
     final ad = FakeGmaFullscreenAd();
     lastRewarded = ad;
     onLoaded(ad);
@@ -161,7 +189,13 @@ class FakeGmaBridge implements GmaBridge {
       bool restrictedDataProcessing = false,
       required void Function(GmaFullscreenAd) onLoaded,
       required void Function(int, String) onFailed}) async {
-    if (failNextLoad) return onFailed(3, 'no fill');
+    if (failNextLoad) {
+      if (deferNextFailure) {
+        pendingRewardedInterstitialOnFailed = onFailed;
+        return;
+      }
+      return onFailed(3, 'no fill');
+    }
     final ad = FakeGmaFullscreenAd();
     lastRewardedInterstitial = ad;
     onLoaded(ad);

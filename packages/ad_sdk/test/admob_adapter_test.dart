@@ -19,6 +19,16 @@ import 'package:google_mobile_ads/src/ad_instance_manager.dart'
 
 import 'admob_behavioral_test.dart' show FakeGmaBridge;
 
+const _lateFailureConfig = AdConfig(
+  provider: AdProvider.admob,
+  admob: AdMobConfig(
+    bannerId: 'b',
+    interstitialId: 'i',
+    appOpenId: 'ao',
+    rewardedId: 'r',
+  ),
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -501,6 +511,75 @@ void main() {
 
       expect(adapter.mrec('k').visible.value, isTrue,
           reason: 'a successful load must make the MREC visible again');
+    });
+  });
+
+  // Round-27 audit (3 independent reviewers, same finding) — onLoaded checks
+  // _discardIfDisposed before mutating slot state / emitting; onFailed had
+  // no equivalent for any of the 4 fullscreen types. A failure delivered for
+  // a request still in flight when dispose() ran would still mutate the slot
+  // and emit through eventSink on an adapter nobody owns any more.
+  group('AdMobAdapter — late onFailed after dispose() is discarded', () {
+    late FakeGmaBridge bridge;
+    late AdMobAdapter adapter;
+    late List<AdEvent> events;
+
+    setUp(() async {
+      bridge = FakeGmaBridge()
+        ..failNextLoad = true
+        ..deferNextFailure = true;
+      adapter = AdMobAdapter(bridge: bridge);
+      expect(await adapter.initialize(_lateFailureConfig), isTrue);
+      events = <AdEvent>[];
+      adapter.eventSink = events.add;
+    });
+
+    test('appOpen', () async {
+      await adapter.loadAppOpen();
+      final pending = bridge.pendingAppOpenOnFailed;
+      expect(pending, isNotNull);
+
+      await adapter.dispose();
+      events.clear(); // dispose() itself may emit; only care about after
+      expect(() => pending!(3, 'no fill'), returnsNormally);
+      expect(events, isEmpty,
+          reason: 'a late onFailed after dispose() must not emit');
+    });
+
+    test('interstitial', () async {
+      await adapter.loadInterstitial();
+      final pending = bridge.pendingInterOnFailed;
+      expect(pending, isNotNull);
+
+      await adapter.dispose();
+      events.clear();
+      expect(() => pending!(3, 'no fill'), returnsNormally);
+      expect(events, isEmpty,
+          reason: 'a late onFailed after dispose() must not emit');
+    });
+
+    test('rewarded', () async {
+      await adapter.loadRewarded();
+      final pending = bridge.pendingRewardedOnFailed;
+      expect(pending, isNotNull);
+
+      await adapter.dispose();
+      events.clear();
+      expect(() => pending!(3, 'no fill'), returnsNormally);
+      expect(events, isEmpty,
+          reason: 'a late onFailed after dispose() must not emit');
+    });
+
+    test('rewardedInterstitial', () async {
+      await adapter.loadRewardedInterstitial();
+      final pending = bridge.pendingRewardedInterstitialOnFailed;
+      expect(pending, isNotNull);
+
+      await adapter.dispose();
+      events.clear();
+      expect(() => pending!(3, 'no fill'), returnsNormally);
+      expect(events, isEmpty,
+          reason: 'a late onFailed after dispose() must not emit');
     });
   });
 }

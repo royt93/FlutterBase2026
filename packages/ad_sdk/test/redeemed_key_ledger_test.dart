@@ -127,6 +127,41 @@ void main() {
           )).called(1);
     });
 
+    // Round-27 audit (3 independent reviewers, same finding): markRedeemed
+    // used to read-modify-write with no serialization. Two near-simultaneous
+    // redemptions could both read the same pre-write snapshot, then race to
+    // write — whichever write landed second silently dropped the other's
+    // kid from the durable ledger.
+    test('two concurrent redemptions do not drop either kid', () async {
+      final storage = _MockSecureStorage();
+      String? persisted;
+      when(() => storage.read(key: any(named: 'key'))).thenAnswer((_) async {
+        // Snapshot NOW, before the delay — both concurrent calls must
+        // capture the same pre-write state regardless of write ordering
+        // during the delay, or the race this guards against isn't actually
+        // exercised.
+        final snapshot = persisted;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return snapshot;
+      });
+      when(() => storage.write(
+            key: any(named: 'key'),
+            value: any(named: 'value'),
+          )).thenAnswer((invocation) async {
+        persisted = invocation.namedArguments[#value] as String;
+      });
+      final ledger = buildLedger(secureStorage: storage, isIos: true);
+
+      await Future.wait([
+        ledger.markRedeemed('kidA'),
+        ledger.markRedeemed('kidB'),
+      ]);
+
+      expect(persisted, isNotNull);
+      expect(persisted, contains('kidA'));
+      expect(persisted, contains('kidB'));
+    });
+
     test('swallows write errors (fail-open)', () async {
       final storage = _MockSecureStorage();
       when(() => storage.read(key: any(named: 'key')))

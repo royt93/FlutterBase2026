@@ -44,6 +44,14 @@ class RedeemedKeyLedger {
   final FlutterSecureStorage _secure;
   final bool Function() _platformIsIos;
 
+  /// Round-27 audit (3 independent reviewers, same finding) — [markRedeemed]
+  /// used to read-modify-write the Keychain with no serialization: two
+  /// concurrent redemptions could both read the same snapshot, and whichever
+  /// write landed second would silently drop the other's `kid`. Same
+  /// idea as `AdEventLog._persistChain` — every write chains onto the
+  /// previous one instead of racing it.
+  Future<void> _writeChain = Future<void>.value();
+
   /// True if [kid] was already redeemed on this device, per the durable
   /// (iOS Keychain) ledger. Always `false` on non-iOS — those platforms rely
   /// solely on `AdPreferences`.
@@ -63,8 +71,17 @@ class RedeemedKeyLedger {
   /// Persist [kid] into the durable ledger. No-op on non-iOS. Errors are
   /// swallowed — a failed durability write must never block the grant that
   /// already happened via `AdPreferences`.
-  Future<void> markRedeemed(String kid) async {
-    if (!_platformIsIos()) return;
+  Future<void> markRedeemed(String kid) {
+    if (!_platformIsIos()) return Future<void>.value();
+    // Chain onto the previous write so two near-simultaneous redemptions
+    // never read the same pre-write snapshot — the second one always reads
+    // what the first one just wrote.
+    final next = _writeChain.then((_) => _markRedeemed(kid));
+    _writeChain = next;
+    return next;
+  }
+
+  Future<void> _markRedeemed(String kid) async {
     try {
       final raw = await _secure.read(key: _storageKey);
       final ids = raw == null

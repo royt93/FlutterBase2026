@@ -689,6 +689,16 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     // Reset to conservative so a re-init before consent re-applies stays npa=1.
     _nonPersonalizedAds = true;
     _restrictedDataProcessing = false;
+
+    // Round-27 audit (3 independent reviewers, same finding) — same
+    // reasoning as `_fullscreenDisposed` above (set at the top of this
+    // method): a late `onFailed` callback from a request that was still in
+    // flight when dispose() ran has nothing else guarding it (unlike
+    // `onLoaded`, which checks `_discardIfDisposed`) and would otherwise
+    // still `_emit` through this sink into whatever owns it now. Null it
+    // last, after every other teardown step, so `_emit`'s `eventSink?.call`
+    // becomes a no-op for anything that lands after this point.
+    eventSink = null;
   }
 
   @override
@@ -911,6 +921,16 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           ));
         },
         onFailed: (code, message) {
+          // Round-27 audit (3 independent reviewers, same finding) —
+          // `onLoaded` above checks `_discardIfDisposed`, but this branch
+          // never had an equivalent: a failure delivered for a request still
+          // in flight when dispose() ran would still mutate `appOpenSlot`
+          // and `_emit` on an adapter nobody owns any more.
+          if (_fullscreenDisposed) {
+            SafeLogger.w(_logTag,
+                'loadAppOpen $tag ⛔ failure landed after dispose() — discarding');
+            return;
+          }
           SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=$code msg=$message');
           _appOpenAd = null;
           appOpenSlot.markFailed(errorCode: code);
@@ -1213,6 +1233,12 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           ));
         },
         onFailed: (code, message) {
+          // Round-27 audit — same guard as loadAppOpen's onFailed above.
+          if (_fullscreenDisposed) {
+            SafeLogger.w(_logTag,
+                'loadInterstitial $tag ⛔ failure landed after dispose() — discarding');
+            return;
+          }
           SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ $code');
           _interstitialAd = null;
           interstitialSlot.markFailed(errorCode: code);
@@ -1397,6 +1423,12 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           ));
         },
         onFailed: (code, message) {
+          // Round-27 audit — same guard as loadAppOpen's onFailed above.
+          if (_fullscreenDisposed) {
+            SafeLogger.w(_logTag,
+                'loadRewarded $tag ⛔ failure landed after dispose() — discarding');
+            return;
+          }
           SafeLogger.w(_logTag, 'loadRewarded $tag ❌ $code');
           _rewardedAd = null;
           rewardedSlot.markFailed(errorCode: code);
@@ -1612,6 +1644,12 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           ));
         },
         onFailed: (code, message) {
+          // Round-27 audit — same guard as loadAppOpen's onFailed above.
+          if (_fullscreenDisposed) {
+            SafeLogger.w(_logTag,
+                'loadRewardedInterstitial $tag ⛔ failure landed after dispose() — discarding');
+            return;
+          }
           SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
           _rewardedInterstitialAd = null;
           rewardedInterstitialSlot.markFailed(errorCode: code);

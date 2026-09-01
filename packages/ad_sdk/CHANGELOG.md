@@ -4,6 +4,51 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.6] - 2026-09-01
+
+Round-27 audit follow-through — the 2 MAJORs the round-26 audit deferred are
+now fixed, plus the example app's ad-surface coverage gap it and `agy`
+independently flagged is closed:
+
+- **Fix (MAJOR, round 26 finding #1)**: `RedeemedKeyLedger.markRedeemed()`
+  read-modify-wrote the iOS Keychain with no serialization — two
+  near-simultaneous signed-VIP-key redemptions could both read the same
+  pre-write snapshot, then race to write, silently dropping one `kid` from
+  the durable one-time-use ledger. Now chains every write onto the previous
+  one (same idiom as `AdEventLog._persistChain`). Mutation-verified: new
+  test in `test/redeemed_key_ledger_test.dart` fires two concurrent
+  redemptions against a mock storage that snapshots its pre-delay state, and
+  asserts both kids land (revert → red, drops one kid; fix → green).
+- **Fix (MAJOR, round 26 finding #2)**: `AdMobAdapter`'s `onFailed` branch
+  for all 4 fullscreen ad types (app open, interstitial, rewarded, rewarded
+  interstitial) had no `_discardIfDisposed`-equivalent guard, unlike
+  `onLoaded`. A load failure delivered after `dispose()` still mutated slot
+  state and emitted through `eventSink`. Added the same `_fullscreenDisposed`
+  check to all 4, and `dispose()` now also nulls `eventSink` last as a
+  second line of defense. Mutation-verified: new test group in
+  `test/admob_adapter_test.dart` (one case per ad type) using a bridge that
+  can defer its `onFailed` callback past `dispose()`.
+- **Add**: `showRewardedInterstitialAd()` had zero example-app coverage at
+  any level despite being a fully supported, README-documented ad surface —
+  found independently by both `agy`'s round-27 audit and a direct grep
+  (`0 matches` for `RewardedInterstitial` anywhere in `example/lib/`).
+  Added `RewardedInterstitialDemoPage` (home-list tile, same pattern as the
+  other demos), a widget test (`example/test/rewarded_interstitial_demo_page_test.dart`),
+  and an on-device integration test
+  (`example/integration_test/rewarded_interstitial_ad_test.dart`) verified
+  passing on an Android emulator.
+- **Refactor**: `example/lib/main.dart` — merged the 18 files T117 (2.7.0)
+  split it into back into one file. Reason: pub.dev's "Example" tab renders
+  only the example app's entry-point `.dart` file, not files it
+  imports/exports, so post-T117 a pub.dev visitor evaluating the package
+  before installing it only saw a ~90-line stub of import/export statements
+  instead of any of the 18 real demos — confirmed by fetching the live
+  pub.dev Example tab directly. The T117 split remains the right call for
+  day-to-day editing in isolation; kept as one file anyway because pub.dev
+  presentation was judged more important here. No behavior change — verified
+  by `flutter analyze`/`flutter test` (both packages) passing unchanged
+  before/after the merge.
+
 ## [2.9.5] - 2026-09-01
 
 - **Fix (audit round 27, MAJOR)**: `AdManager.destroy()`'s `await
