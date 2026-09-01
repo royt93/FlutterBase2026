@@ -119,6 +119,14 @@ class _FakeAdapter implements AdProviderAdapter {
   /// resolves — simulates a slow load so the on-demand wait stays in flight.
   bool hangLoad = false;
 
+  /// Round-29 audit (BLOCKER) — when true, [loadRewarded] throws instead of
+  /// returning, simulating a native platform-channel exception mid-load.
+  bool throwOnLoad = false;
+
+  /// Round-29 audit (BLOCKER) — when true, [showRewarded] throws instead of
+  /// calling `onDone`, simulating a native platform-channel exception.
+  bool throwOnShow = false;
+
   /// What [showRewarded] reports back via `onDone`.
   bool nextRewardEarned = true;
 
@@ -138,6 +146,7 @@ class _FakeAdapter implements AdProviderAdapter {
   @override
   Future<void> loadRewarded() async {
     loadRewardedCalls++;
+    if (throwOnLoad) throw StateError('fake native platform-channel throw');
     if (hangLoad) {
       rewardedSlot.beginReload(); // → loading, never resolves
       return;
@@ -160,6 +169,7 @@ class _FakeAdapter implements AdProviderAdapter {
     String? ssvUserId,
   }) async {
     showRewardedCalls++;
+    if (throwOnShow) throw StateError('fake native platform-channel throw');
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
     onDone(nextRewardEarned
@@ -1336,6 +1346,54 @@ void main() {
       expect(adapter.showRewardedCalls, 0, reason: 'neither reached show');
       await f1; // first times out → false, releasing the guard
       expect(r1, isFalse);
+    });
+
+    test(
+        'round-29 audit (BLOCKER): on-demand load throwing releases '
+        '_rewardedInFlight instead of wedging it forever', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      adapter.throwOnLoad = true;
+      bool? r1;
+      await AdManager().showRewardedAd(
+        bypassVipGuard: true,
+        onEarnedReward: (e) => r1 = e,
+      );
+      expect(r1, isFalse, reason: 'the throw must resolve as a clean miss');
+
+      // If the guard were left stuck true, this second call would be
+      // rejected before ever reaching the adapter. `earned`/`displayed`
+      // stay false to avoid tripping the persisted daily-ad-cap counter,
+      // which must not leak into unrelated groups later in this file.
+      adapter.throwOnLoad = false;
+      adapter.loadMarksReady = true;
+      adapter.nextRewardEarned = false;
+      adapter.nextRewardDisplayed = false;
+      await AdManager().showRewardedAd(
+        bypassVipGuard: true,
+        onEarnedReward: (_) {},
+      );
+      expect(adapter.showRewardedCalls, 1,
+          reason: '_rewardedInFlight must have been released by the throw');
+    });
+
+    test(
+        'round-29 audit (BLOCKER): showRewarded() throwing releases '
+        '_rewardedInFlight instead of wedging it forever', () async {
+      AdManager().debugVipManager = _FakeVip(false);
+      adapter.loadMarksReady = true;
+      adapter.throwOnShow = true;
+      bool? r1;
+      await AdManager().showRewardedAd(onEarnedReward: (e) => r1 = e);
+      expect(r1, isFalse, reason: 'the throw must resolve as a clean miss');
+
+      // `earned`/`displayed` stay false to avoid tripping the persisted
+      // daily-ad-cap counter, which must not leak into later groups.
+      adapter.throwOnShow = false;
+      adapter.nextRewardEarned = false;
+      adapter.nextRewardDisplayed = false;
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      expect(adapter.showRewardedCalls, 2,
+          reason: '_rewardedInFlight must have been released by the throw');
     });
   });
 

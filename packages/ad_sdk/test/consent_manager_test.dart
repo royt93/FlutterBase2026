@@ -92,9 +92,44 @@ void main() {
 
     await m.reset();
 
-    expect(m.current, ConsentSettings.unset);
+    // Round-29 audit (MAJOR fix): reset() now returns a fresh instance with
+    // isAgeRestrictedUser/doNotSell carried over from before the reset
+    // (both false here, same as `unset`) rather than the literal `unset`
+    // singleton — so this must compare by value (`ConsentSettings` has no
+    // `operator ==`), not by identity.
+    expect(m.current.toJson(), ConsentSettings.unset.toJson());
     expect(ConsentSettings.decode(prefs.getConsentSettingsRaw()).toJson(),
         ConsentSettings.unset.toJson());
+  });
+
+  test(
+      'round-29 audit (MAJOR): reset() preserves isAgeRestrictedUser and '
+      'doNotSell — those are app-level flags, not per-user consent answers',
+      () async {
+    final m = await ConsentManager.bootstrap(
+        prefs: prefs, strings: ConsentDialogStrings.vi);
+    await m.set(ConsentSettings.accepted.copyWith(
+      isAgeRestrictedUser: true,
+      doNotSell: true,
+    ));
+    expect(m.current.isAgeRestrictedUser, isTrue);
+    expect(m.current.doNotSell, isTrue);
+
+    await m.reset();
+
+    expect(m.current.hasUserConsent, isFalse,
+        reason: 'the per-user consent answer must still be wiped');
+    expect(m.current.hasBeenAsked, isFalse);
+    expect(m.current.isAgeRestrictedUser, isTrue,
+        reason: 'a child-directed app must not have its COPPA flag '
+            'silently cleared by what looks like a benign consent reset');
+    expect(m.current.doNotSell, isTrue,
+        reason: 'CCPA opt-out must not be silently cleared by reset()');
+    expect(
+        ConsentSettings.decode(prefs.getConsentSettingsRaw())
+            .isAgeRestrictedUser,
+        isTrue,
+        reason: 'the preserved flag must also survive persistence');
   });
 
   test('updateStrings swaps the strings used without touching settings',
@@ -208,6 +243,37 @@ void main() {
     expect(result, ConsentSettings.unset);
     expect(m.current.hasBeenAsked, isFalse,
         reason: 'dismiss-without-choice must not mark hasBeenAsked');
+  });
+
+  testWidgets(
+      'round-29 audit (MINOR): the Android back button cannot dismiss the '
+      'dialog when barrierDismissible is false (the default)', (tester) async {
+    final m = await ConsentManager.bootstrap(
+        prefs: prefs, strings: ConsentDialogStrings.vi);
+
+    late BuildContext capturedContext;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) {
+        capturedContext = context;
+        return const SizedBox();
+      }),
+    ));
+
+    final future = m.showDialog(capturedContext);
+    await tester.pumpAndSettle();
+
+    // Simulate the Android hardware back button / gesture.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text(ConsentDialogStrings.vi.rejectButton), findsOneWidget,
+        reason: 'the dialog must still be on screen — back must not '
+            'bypass the forced-choice intent barrierDismissible:false sets');
+
+    // Clean up: make the actual choice so the pending future completes.
+    await tester.tap(find.text(ConsentDialogStrings.vi.rejectButton));
+    await tester.pumpAndSettle();
+    await future;
   });
 
   test('applyToProviders can be called standalone without changing settings',

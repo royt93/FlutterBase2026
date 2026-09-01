@@ -137,7 +137,19 @@ class _TopToastWidgetState extends State<_TopToastWidget>
     if (!mounted) return;
     final ctrl = _ctrl;
     if (ctrl == null) return;
-    await ctrl.reverse();
+    // Round-29 audit (MINOR) — a plain `await ctrl.reverse()` never
+    // completes if `dispose()` runs mid-reverse (a superseding toast calls
+    // `entry.remove()` directly, bypassing this animation): `Ticker.dispose()`
+    // only completes the `.orCancel` completer, not the primary one a bare
+    // `await` waits on. That permanently suspended continuation (holding
+    // `this`/`widget`/the disposed controller) leaked for the rest of the
+    // process. `.orCancel` + catching `TickerCanceled` gives this a way out.
+    try {
+      await ctrl.reverse().orCancel;
+    } on TickerCanceled {
+      return;
+    }
+    if (!mounted) return;
     widget.onDismiss();
   }
 

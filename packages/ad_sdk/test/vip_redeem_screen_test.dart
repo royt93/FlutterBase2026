@@ -242,4 +242,22 @@ void main() {
 
     expect(tapped, isTrue);
   });
+
+  testWidgets(
+      'round-29 audit (MINOR): the redeem key field rejects a huge paste '
+      'instead of running Ed25519 verify on it unbounded', (tester) async {
+    useTallSurface(tester);
+    await tester
+        .pumpWidget(MaterialApp(home: VipRedeemScreen(publicKeyBase64: pub)));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.enterText(find.byType(TextField), 'A' * 5000);
+    await tester.pump();
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller!.text.length, lessThanOrEqualTo(512),
+        reason: 'a multi-KB paste must be truncated at the input boundary, '
+            'not passed whole into verifySignedVipKey (pure-Dart Ed25519/'
+            'SHA-512, cost scales with input length, runs on the UI isolate)');
+  });
 }

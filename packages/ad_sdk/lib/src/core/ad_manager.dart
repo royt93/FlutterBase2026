@@ -5615,7 +5615,17 @@ class AdManager with WidgetsBindingObserver {
         SafeLogger.w(_tag, 'detaching the fullscreen watchers threw: $e');
       }
       try {
-        await old.dispose();
+        // Round-29 audit (BLOCKER) — the only unbounded native
+        // platform-channel await left in this teardown path; its two
+        // siblings a few dozen lines below (`_eventStream.close()`,
+        // `_eventLog?.flush()`) both got a 2s timeout in round 27 for the
+        // exact same reason: a hang here (not a throw — `catch` already
+        // covered that) never returns, so `_destroy()` never returns,
+        // `_destroyInFlight` never clears, and every future `initialize()`
+        // waits on it forever.
+        await old.dispose().timeout(const Duration(seconds: 2), onTimeout: () {
+          SafeLogger.w(_tag, '⏱️ adapter dispose() timed out — proceeding anyway');
+        });
       } catch (e) {
         SafeLogger.w(
             _tag, 'the adapter dispose() threw — clearing SDK state anyway: $e');
@@ -6542,8 +6552,22 @@ class AdManager with WidgetsBindingObserver {
           return;
         }
       }
-      final loaded =
-          await _loadRewardedOnDemand(ad, timeout: onDemandLoadTimeout);
+      bool loaded;
+      try {
+        loaded = await _loadRewardedOnDemand(ad, timeout: onDemandLoadTimeout);
+      } catch (e) {
+        // Round-29 audit (BLOCKER) — `_loadRewardedOnDemand` awaits
+        // `ad.loadRewarded()`, a real native platform-channel call with no
+        // guaranteed-not-to-throw contract. Left unguarded, a throw here
+        // (PlatformException, a disposed adapter mid-call) skipped every
+        // `_rewardedInFlight = false` below and wedged every future
+        // showRewardedAd() call for the rest of the process.
+        if (shownOwnDialog) AdLoadingDialog.dismiss();
+        _rewardedInFlight = false;
+        SafeLogger.e(_tag, '⏭️ showRewarded (bypass) — on-demand load threw: $e');
+        onEarnedReward(false);
+        return;
+      }
       // MJ17 — only dismiss a dialog THIS call put up. It used to fire
       // unconditionally, including when `show()` was skipped for a null
       // context, so during the on-demand rewarded load (up to 15 s, and not
@@ -6595,36 +6619,46 @@ class AdManager with WidgetsBindingObserver {
         () =>
             '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
     _lastShownPlacement[AdSlotType.rewarded] = placement;
-    await ad.showRewarded(
-        ssvCustomData: ssvCustomData,
-        ssvUserId: ssvUserId,
-        onDone: (result) {
-          _rewardedInFlight = false;
-          if (result.shown) {
-            AdSafetyConfig.recordFullscreenAdShown();
-            AdSafetyConfig.recordPlacementAdShown(placement); // T92
-          }
-          if (result.earned) {
-            _emit(AdRewardEvent(
+    try {
+      await ad.showRewarded(
+          ssvCustomData: ssvCustomData,
+          ssvUserId: ssvUserId,
+          onDone: (result) {
+            _rewardedInFlight = false;
+            if (result.shown) {
+              AdSafetyConfig.recordFullscreenAdShown();
+              AdSafetyConfig.recordPlacementAdShown(placement); // T92
+            }
+            if (result.earned) {
+              _emit(AdRewardEvent(
+                providerTag: ad.tag,
+                placement: placement,
+                label: result.label,
+                amount: result.amount,
+                pendingServerConfirmation: result.pendingServerConfirmation,
+              ));
+            }
+            _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+            _emit(AdShowEvent(
               providerTag: ad.tag,
+              type: AdSlotType.rewarded,
               placement: placement,
-              label: result.label,
-              amount: result.amount,
-              pendingServerConfirmation: result.pendingServerConfirmation,
+              success: result.shown,
             ));
-          }
-          _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
-          _emit(AdShowEvent(
-            providerTag: ad.tag,
-            type: AdSlotType.rewarded,
-            placement: placement,
-            success: result.shown,
-          ));
-          onEarnedReward(result.earned);
-          // Fix #2 (preserved from 1.x): reload after dismiss/fail. Same dedup
-          // applies as for the interstitial path.
-          unawaited(loadRewardedAd());
-        });
+            onEarnedReward(result.earned);
+            // Fix #2 (preserved from 1.x): reload after dismiss/fail. Same
+            // dedup applies as for the interstitial path.
+            unawaited(loadRewardedAd());
+          });
+    } catch (e) {
+      // Round-29 audit (BLOCKER) — `ad.showRewarded()` is a real native
+      // platform-channel call; if it throws instead of calling `onDone`,
+      // `_rewardedInFlight` was never reset above and every future
+      // showRewardedAd() call would report "busy" forever.
+      _rewardedInFlight = false;
+      SafeLogger.e(_tag, '⏭️ showRewarded — adapter call threw: $e');
+      onEarnedReward(false);
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────────

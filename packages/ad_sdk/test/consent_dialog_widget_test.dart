@@ -89,4 +89,22 @@ void main() {
     expect(result?.hasUserConsent, true);
     expect(result?.hasBeenAsked, true);
   });
+
+  testWidgets(
+      'round-29 audit (MINOR): Reject and Allow buttons get equal width',
+      (tester) async {
+    await pumpDialog(tester);
+
+    // The Reject/Allow row is the only place in this dialog with two
+    // `Expanded` siblings.
+    final expandedSizes =
+        find.byType(Expanded).evaluate().map((e) {
+      final box = e.renderObject as RenderBox;
+      return box.size.width;
+    }).toList();
+    expect(expandedSizes.length, 2);
+    expect(expandedSizes[0], closeTo(expandedSizes[1], 0.5),
+        reason: 'Reject must get the same Expanded flex as Allow, not half '
+            'its width');
+  });
 }

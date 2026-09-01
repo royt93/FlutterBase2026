@@ -12,6 +12,8 @@
 // _waitForFullscreenShowsToFinish) via a minimal fake adapter — not the real
 // AppLovin bridge, which isn't available under `flutter test`.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -31,8 +33,15 @@ class _SlotOnlyAdapter implements AdProviderAdapter {
 
   bool disposeCalled = false;
 
+  /// Round-29 audit (BLOCKER) — when true, [dispose] never completes,
+  /// simulating a wedged native SDK teardown call.
+  bool hangDispose = false;
+
   @override
-  Future<void> dispose() async => disposeCalled = true;
+  Future<void> dispose() async {
+    disposeCalled = true;
+    if (hangDispose) return Completer<void>().future;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -84,6 +93,20 @@ void main() {
     // rewarded-permanently-stuck upstream bug. destroy() must still
     // complete via its bounded drain timeout rather than hang the caller.
     await AdManager().destroy().timeout(const Duration(seconds: 10));
+    expect(adapter.disposeCalled, isTrue);
+  });
+
+  test(
+      'round-29 audit (BLOCKER): destroy() does not hang forever if '
+      'old.dispose() itself never completes (wedged native teardown)',
+      () async {
+    final adapter = _SlotOnlyAdapter()..hangDispose = true;
+    AdManager().debugSetAdapter(adapter);
+
+    // Must return via the bounded internal timeout, not hang the caller —
+    // and a subsequent initialize() must not be permanently blocked behind
+    // a destroy() that never finished.
+    await AdManager().destroy().timeout(const Duration(seconds: 5));
     expect(adapter.disposeCalled, isTrue);
   });
 }

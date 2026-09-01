@@ -169,14 +169,30 @@ class ConsentManager {
     await _applyToProviders(config);
   }
 
-  /// Wipe persisted state. Next [showDialogIfNeeded] will re-prompt.
-  /// Does NOT auto-revert provider state — call [applyToProviders] after
-  /// if you need conservative defaults applied immediately.
+  /// Wipe the user's per-install consent answer (`hasUserConsent`,
+  /// `hasBeenAsked`, `askedAt`, `country`) so [showDialogIfNeeded] re-prompts
+  /// on the next qualifying trigger, and immediately re-applies the result
+  /// to both providers.
+  ///
+  /// Round-29 audit (MAJOR) — this used to reset to [ConsentSettings.unset],
+  /// which also zeroes `isAgeRestrictedUser` (COPPA) and `doNotSell` (CCPA).
+  /// Those two are documented (`consent_settings.dart`) as app-level
+  /// constants, not per-user answers — a child-directed host calling
+  /// `reset()` believing it only re-asks the personalization question was
+  /// silently flipping its own COPPA flag off and pushing that live to
+  /// AdMob. This now preserves both across the reset.
+  ///
+  /// Always applies the result to providers — the doc comment used to claim
+  /// otherwise (call [applyToProviders] separately), but the code never
+  /// matched that: it called `_applyToProviders` unconditionally regardless.
   Future<void> reset({AdConfig? config}) async {
-    _current = ConsentSettings.unset;
+    _current = ConsentSettings.unset.copyWith(
+      isAgeRestrictedUser: _current.isAgeRestrictedUser,
+      doNotSell: _current.doNotSell,
+    );
     _settingsListenable.value = _current;
     await _persist();
-    SafeLogger.d(_tag, 'reset → unset');
+    SafeLogger.d(_tag, 'reset → unset (COPPA/CCPA flags preserved)');
     await _applyToProviders(config);
   }
 

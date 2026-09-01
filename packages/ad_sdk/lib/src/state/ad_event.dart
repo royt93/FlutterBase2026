@@ -83,6 +83,23 @@ class AdClickEvent extends AdEvent {
   });
 }
 
+/// Round-29 audit (MINOR) — AdMob's `GmaShowCallbacks.onImpression` was
+/// wired at the bridge layer (`gma_bridge.dart`) but never passed by any
+/// adapter call site, so it was dead: this finishes that wiring for the
+/// four AdMob fullscreen types. Not asymmetric with AppLovin — MAX has no
+/// equivalent native impression callback, and impressions are already
+/// counted via the show-outcome path (`markDisplayed()`/`AdShowEvent`)
+/// regardless of this event; this is a distinct, purely additive signal
+/// (raw native "impression recorded" moment) for a host that wants it,
+/// mirroring [AdClickEvent]'s shape exactly.
+class AdImpressionEvent extends AdEvent {
+  const AdImpressionEvent({
+    required super.providerTag,
+    required super.type,
+    required super.placement,
+  });
+}
+
 class AdRewardEvent extends AdEvent {
   const AdRewardEvent({
     required super.providerTag,

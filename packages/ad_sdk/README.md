@@ -93,6 +93,15 @@ be clear-eyed about the gap before depending on it for revenue:
   those platforms, not by this package. The built-in safety layer (daily/
   hourly caps, throttle, CTR-based fraud heuristics) reduces obviously bad
   behavior but has not been validated against a real policy review.
+- **Ad placement is entirely on you (round-29 audit).** `buildBanner()`/
+  `buildMrec()`/`showInterstitialAd()` hand back a widget or trigger a
+  show — where you put it in your layout is 100% your call, and this SDK
+  has no way to enforce Google's
+  [ad placement policy](https://support.google.com/admob/answer/6128877):
+  don't place a banner/interstitial adjacent to navigation buttons, close
+  buttons, or other tappable controls, and don't show one on a screen the
+  user is continuously interacting with (accidental clicks are treated as
+  invalid traffic and can risk your AdMob account).
 - **The real ad show/dismiss lifecycle is only partially automatable.**
   Real AppLovin MAX test-ad creatives expose no accessible dismiss element,
   so 3 of the ~15 integration_test scenarios (app-open/interstitial/rewarded

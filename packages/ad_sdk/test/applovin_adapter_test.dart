@@ -1696,4 +1696,66 @@ void main() {
 
     expect(a.eventSink, isNull);
   });
+
+  // Round-29 audit (BLOCKER) — the T105 test above only proves `_emit`
+  // becomes a no-op after dispose(); it never checked whether the *slot
+  // mutation* right before `_emit` (`appOpenSlot.markReady()` etc.) was also
+  // guarded. It wasn't — AdMob got a `_fullscreenDisposed` check in every
+  // fullscreen `onLoaded`/`onFailed` callback in round 27; AppLovin never
+  // did, despite already having `_teardownStarted` set at the very top of
+  // dispose() for exactly this purpose (see `_destroyWidgetAdViewWhenDetached`
+  // reading it a few hundred lines up).
+  group('round-29 audit (BLOCKER): late fullscreen load callback after '
+      'dispose() must not mutate the slot', () {
+    // Note: `AdSlot.state` (a `ValueNotifier`) already silently drops writes
+    // after `AdSlot.dispose()` — so `isReady`/`.value` are NOT a reliable
+    // oracle here (already masked, pre- and post-fix alike). `lastLoadedAt`/
+    // `lastErrorAt`/`consecutiveFailures` are plain fields `markReady()`/
+    // `markFailed()` write unconditionally, unprotected by that — a real,
+    // reliable pre-fix-vs-post-fix difference.
+    test('appOpen onAdLoadedCallback', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      await a.loadAppOpen();
+      final stale = b.appOpen!;
+
+      await a.dispose();
+      stale.onAdLoadedCallback(_fakeAd());
+
+      expect(a.appOpenSlot.lastLoadedAt, isNull,
+          reason: 'a load that lands after dispose() must not mark a slot '
+              'on an adapter nobody owns any more as loaded');
+    });
+
+    test('interstitial onAdLoadFailedCallback', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      await a.loadInterstitial();
+      final stale = b.inter!;
+
+      await a.dispose();
+      stale.onAdLoadFailedCallback('inter-id', _fakeError());
+
+      expect(a.interstitialSlot.lastErrorAt, isNull,
+          reason: 'a failure that lands after dispose() must not touch a '
+              'slot on an adapter nobody owns any more');
+    });
+
+    test('rewarded onAdLoadedCallback', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      await a.loadRewarded();
+      final stale = b.rewarded!;
+
+      await a.dispose();
+      stale.onAdLoadedCallback(_fakeAd());
+
+      expect(a.rewardedSlot.lastLoadedAt, isNull,
+          reason: 'a load that lands after dispose() must not mark a slot '
+              'on an adapter nobody owns any more as loaded');
+    });
+  });
 }

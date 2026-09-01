@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -79,6 +81,14 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
   bool _initScheduled = false;
 
+  /// Round-29 audit (MINOR) — unlike Banner/Mrec (which get a fresh shot
+  /// whenever consent/personalisation/initRevision changes reset `_allowed`),
+  /// nothing ever reset `_allowed` after a native load failure, so a failed
+  /// instance stayed blank for the rest of the widget's lifetime — the only
+  /// way out was leaving and re-entering the route. This retries once after
+  /// a fixed backoff instead.
+  Timer? _retryTimer;
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +101,19 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     AdManager()
         .personalisationRevision
         .addListener(_onPersonalisationWithdrawn);
+    AdManager().nativeHasError(this).addListener(_onNativeErrorChanged);
+  }
+
+  void _onNativeErrorChanged() {
+    if (!mounted) return;
+    if (!AdManager().nativeHasError(this).value) return;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(const Duration(seconds: 30), () {
+      if (!mounted) return;
+      SafeLogger.d(_tag, 'retrying after load failure');
+      _allowed.value = false;
+      _initNative();
+    });
   }
 
   /// Audit fix — see [BannerAdWidget]'s twin of this method.
@@ -183,6 +206,8 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     AdManager()
         .personalisationRevision
         .removeListener(_onPersonalisationWithdrawn);
+    AdManager().nativeHasError(this).removeListener(_onNativeErrorChanged);
+    _retryTimer?.cancel();
     AdManager().disposeNativeInstance(this);
     _allowed.dispose();
     super.dispose();

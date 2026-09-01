@@ -677,8 +677,16 @@ class AdSafetyConfig {
       final reason =
           'rapid resume (${_resumeTimestamps.length} resumes/min > cap ${_params.maxRapidResumesPerMinute}, wait up to 60s)';
       SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
-      _resumeTimestamps.clear();
-      _refreshRiskScore();
+      // Round-29 audit (MAJOR) — this used to `.clear()` the whole rolling
+      // window on trip, which wiped its own evidence: the very next resume
+      // saw an empty list and passed, so a burst only ever lost its
+      // (N+1)th attempt before resetting to zero — an attacker (or a
+      // flapping OS lifecycle) got through in batches of N indefinitely
+      // instead of being capped at N per any rolling 60s window as this
+      // reason string and `removeWhere` above both already promise. Leave
+      // the timestamp in place and let the natural 60s sliding-window
+      // expiry (line above) be the only thing that un-blocks future calls,
+      // matching every other rolling-window check in this file.
       return AdSafetyResult(false, reason);
     }
 

@@ -361,6 +361,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'round-29 audit (MINOR): a load failure retries after backoff '
+      'instead of staying blank for the widget\'s lifetime', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 1);
+
+    // The native ad fails to load.
+    adapter.nativeListenablesByKey.values.first.hasError.value = true;
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 1, reason: 'no retry yet — too soon');
+
+    // `tester.pump(duration)` fast-forwards the fake Timer clock but not
+    // real wall-clock `DateTime.now()`, which the adapter-level load
+    // cooldown (separate from this retry timer) reads — reset it to
+    // simulate the real time that would have also elapsed by the time a
+    // 30s retry timer fires for real.
+    AdManager().debugResetNativeCooldown();
+    await tester.pump(const Duration(seconds: 31));
+    expect(adapter.loadNativeCalls, 2,
+        reason: 'must retry after backoff instead of staying blank until '
+            'the widget is disposed and recreated');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('VIP active → native ad collapses to empty box, never loads',
       (tester) async {
     final adapter = _NativeCountingAdapter();

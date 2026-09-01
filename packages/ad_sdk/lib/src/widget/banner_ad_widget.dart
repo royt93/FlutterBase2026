@@ -51,6 +51,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   final ValueNotifier<bool> _initStarted = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
 
+  /// Round-29 audit (MAJOR) — the AdMob branch of [_initBanner] computes its
+  /// adaptive-banner width once, from whatever [MediaQuery] reports at first
+  /// mount, and [loadBannerIfNeeded] never re-requests once a banner is
+  /// cached for this key — so a rotation/resize/foldable-unfold kept the
+  /// stale width forever. Tracks the width the currently-loaded AdMob
+  /// banner was requested at, so [didChangeDependencies] (which already
+  /// fires on every `MediaQuery` change, including rotation) can tell a
+  /// real resize apart from an unrelated dependency change and reload.
+  double? _admobWidthPx;
+
   /// T14 — the [ModalRoute] this widget is currently subscribed to via
   /// [adRouteObserver]. Re-resolved every `didChangeDependencies` so a route
   /// change (e.g. this widget's subtree moves under a new route, or the
@@ -151,6 +161,23 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     if (!_initStarted.value) {
       _initStarted.value = true;
       _initBanner(context);
+      return;
+    }
+    // Round-29 audit (MAJOR) — reload the AdMob adaptive banner when the
+    // available width actually changed (rotation, split-screen, foldable
+    // unfold). AppLovin is exempt: its `MaxAdView` handles resizing natively
+    // (`isAdaptiveBannerEnabled: true`), and re-preloading it here would
+    // just tear down a perfectly good native view for nothing.
+    final mgr = AdManager();
+    if (_allowed.value && mgr.isAdMobProvider) {
+      final width = MediaQuery.of(context).size.width;
+      if (_admobWidthPx != null && width != _admobWidthPx) {
+        SafeLogger.d(_tag,
+            'width changed ($_admobWidthPx → $width) — reloading AdMob adaptive banner');
+        mgr.disposeBannerInstance(this);
+        _allowed.value = false;
+        _initBanner(context);
+      }
     }
   }
 
@@ -181,6 +208,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
     if (mgr.isAdMobProvider) {
       final width = MediaQuery.of(ctx).size.width;
+      _admobWidthPx = width;
       mgr.loadAdmobBannerIfNeeded(this, width);
     } else {
       // T65 (phase 2) — each BannerAdWidget instance now triggers its own
@@ -224,6 +252,20 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
       mgr.setBannerRoutePaused(this, true);
     } else if (_admobIsTop.value) {
       _admobIsTop.value = false;
+      // Round-29 audit (MAJOR) — this used to only flip `_admobIsTop`,
+      // swapping the rendered native view for a same-height placeholder.
+      // Google Mobile Ads' Flutter plugin exposes no runtime "pause
+      // auto-refresh" API for an already-loaded `BannerAd`, unlike
+      // AppLovin's `setBannerRoutePaused` above — so the cached AdMob ad
+      // object kept ticking its own refresh timer, and requesting ads that
+      // aren't visible is exactly the policy risk the class this mirrors
+      // (`setBannerRoutePaused`) exists to avoid. Tearing the instance down
+      // is the only way to actually stop that: no native object, no
+      // refresh calls. `didPopNext` below requests a fresh one on return.
+      SafeLogger.d(
+          _tag, '📦 AdMob route away — disposing banner (no pause API)');
+      mgr.disposeBannerInstance(this);
+      _allowed.value = false;
     }
     super.didPushNext();
   }
@@ -237,6 +279,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _admobIsTop.value = true;
+        _initBanner(context);
       });
     }
     super.didPopNext();

@@ -4,6 +4,86 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.8] - 2026-09-01
+
+Round-29 audit — user pushback that round 28 (and the 27 before it) were
+"too rushed" and diffed only since the last round instead of re-reading
+each subsystem from scratch. This round did that: 6 agents each read one
+whole subsystem end-to-end with no baseline assumed, found 6x the real
+issues round 28 did. All RED→GREEN mutation-verified; see
+`doc/audit/audit_round29_deep_consolidated.md` for the full writeup.
+
+**BLOCKER (availability — the SDK could wedge part or all of itself):**
+- `showRewardedAd()`'s two native platform-channel calls
+  (`_loadRewardedOnDemand`, `ad.showRewarded()`) had no try/catch — a throw
+  left `_rewardedInFlight` stuck `true` forever, permanently blocking every
+  future rewarded show (including the VIP watch-to-extend flow).
+- `AdManager._disposeAdapter()`'s `await old.dispose()` had no `.timeout()`,
+  unlike its two sibling awaits in the same teardown (round-27 fix) — a
+  hung native `dispose()` call meant `destroy()` never returned and every
+  later `initialize()` waited on it forever.
+- AppLovin's fullscreen load callbacks (App Open/Interstitial/Rewarded)
+  never got round-27's AdMob-only `_fullscreenDisposed` guard — a load
+  landing after `dispose()` still mutated a slot on an abandoned adapter.
+
+**MAJOR:**
+- `ConsentManager.reset()` reset to `ConsentSettings.unset`, silently
+  clobbering `isAgeRestrictedUser` (COPPA)/`doNotSell` (CCPA) — both
+  app-level flags, not per-user answers — contradicting its own doc
+  comment, which claimed no provider side-effect.
+- The rapid-resume rate limiter `.clear()`ed its own rolling window on
+  trip, so it only ever blocked the (N+1)th resume of a burst before
+  resetting to zero instead of enforcing a real N/60s cap.
+- AdMob's adaptive banner computed its width once at first mount;
+  rotation/resize/foldable-unfold never re-triggered a reload at the new
+  width.
+- `AdaptiveAdSurface`'s resize debounce only checked `fullscreenBusy` when
+  armed, not when it fired — a fullscreen ad starting mid-debounce still
+  let the format swap underneath it, contradicting the class's own doc
+  comment.
+- AdMob banner/MREC route-away only hid the widget (no pause API exists on
+  the Flutter plugin) — the cached native ad kept refreshing while
+  invisible. Now torn down on route-away and reloaded on return, matching
+  what "paused" actually means for AppLovin's side.
+- Cross-cycle late-callback races (AdMob only this round — see below) in
+  Interstitial/Rewarded/RewardedInterstitial: a stale cycle's late
+  dismiss/fail could steal a newer cycle's caller or, worse, silently drop
+  a genuinely-earned reward. App Open's existing guard was reviewed and
+  left as `== null` (correct for its case — see the source comment for why
+  a stricter check regressed a real test).
+  - **AppLovin side not fixed this round** — it uses one persistent
+    listener per ad type (wired at `initialize()`), not a fresh closure per
+    `show()` call, so the fix needs ad-identity tracking rather than a
+    local flag. Attempted, reverted: it broke 14+ existing tests whose
+    `_fakeAd()` helper creates a fresh `MaxAd` per call rather than sharing
+    one instance across load→show→hide, which a real device does. Tracked
+    as a follow-up requiring that test-suite convention to change first.
+
+**MINOR:**
+- Custom consent dialog: `barrierDismissible: false` never blocked the
+  Android back button/gesture (only the tap-outside barrier) — added
+  `PopScope`.
+- VIP redeem key field had no `maxLength` — a huge paste ran Ed25519/
+  SHA-512 (pure-Dart) on the UI isolate unbounded. Capped at 512.
+- `TopToast._animateOut`'s `await ctrl.reverse()` could hang forever if
+  `dispose()` ran mid-reverse (a superseding toast) — `Ticker.dispose()`
+  only completes `.orCancel`'s completer, not a plain await's. Switched to
+  `.reverse().orCancel` + catch.
+- `NativeAdWidget` never retried after a load failure (unlike Banner/Mrec,
+  which get a fresh shot via consent/personalisation/initRevision events)
+  — added a 30s backoff retry.
+- `GmaShowCallbacks.onImpression` was wired at the bridge layer but no
+  adapter call site ever passed it — finished the wiring, added the
+  matching `AdImpressionEvent` (mirrors `AdClickEvent`).
+- README never warned integrators about AdMob's ad-placement policy
+  (banner/interstitial near tappable controls risks invalid-traffic
+  enforcement) — the SDK can't enforce this itself, so it's now at least
+  documented.
+- Custom consent dialog: Reject button got `flex: 1` vs Allow's `flex: 2`
+  (half the width) on top of its own ghost styling — equal width now.
+  Cosmetic only; this dialog isn't the actual EEA-compliance surface
+  (Google's own UMP form is, and it's unstyled by this SDK).
+
 ## [2.9.7] - 2026-09-01
 
 Round-28 audit fix — the one new MAJOR found (only 1 of 3 independent

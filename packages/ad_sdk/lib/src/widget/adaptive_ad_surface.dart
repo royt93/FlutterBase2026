@@ -82,6 +82,21 @@ class _AdaptiveAdSurfaceState extends State<AdaptiveAdSurface> {
     _debounce?.cancel();
     _debounce = Timer(widget.resizeDebounce, () {
       if (!mounted) return;
+      // Round-29 audit (MAJOR) — `fullscreenBusy` above is only checked at
+      // arm time. A rotation can start the debounce, then a fullscreen ad
+      // (App Open, the loading buffer) can take over the screen before this
+      // timer fires — without this re-check the swap still committed,
+      // tearing down/mounting a native ad view the user can't see and
+      // burning a fresh ad request on invisible inventory, exactly what the
+      // class doc above says never happens. Skip the commit for now; the
+      // `ValueListenableBuilder` in `build()` rebuilds (and re-calls
+      // `_onLayout`) on every `stateSnapshot` change, including when
+      // `fullscreenBusy` clears, which re-arms a fresh debounce at that
+      // point since `_current` was never updated. Reads the plain
+      // `fullscreenBusy` notifier directly (not `stateSnapshot`, which
+      // recomputes on a `scheduleMicrotask` hop and can still be stale here)
+      // for an always-current answer.
+      if (AdManager().fullscreenBusy.value) return;
       setState(() => _current = target);
     });
   }

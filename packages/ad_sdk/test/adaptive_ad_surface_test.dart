@@ -112,6 +112,33 @@ void main() {
     expect(find.byType(MrecAdWidget), findsNothing);
   });
 
+  // Round-29 audit (MAJOR) — `fullscreenBusy` was only checked when the
+  // debounce timer was ARMED, not when it FIRES. A fullscreen ad (or the
+  // loading buffer) taking over the screen in between must still freeze the
+  // format — the class's own doc comment already promises this.
+  testWidgets(
+      'a fullscreen ad taking over mid-debounce freezes the format instead '
+      'of swapping underneath it', (tester) async {
+    await tester.pumpWidget(
+        _wrap(320, debounce: const Duration(milliseconds: 100)));
+    expect(find.byType(BannerAdWidget), findsOneWidget);
+
+    await tester
+        .pumpWidget(_wrap(700, debounce: const Duration(milliseconds: 100)));
+    // A fullscreen ad (or the loading buffer) takes over the screen before
+    // the debounce fires.
+    AdManager().fullscreenBusy.value = true;
+    addTearDown(() => AdManager().fullscreenBusy.value = false);
+
+    await tester.pump(const Duration(milliseconds: 150)); // debounce fires
+
+    expect(find.byType(BannerAdWidget), findsOneWidget,
+        reason: 'must stay frozen — the surface is hidden behind a '
+            'fullscreen ad, swapping now would tear down/mount a native '
+            'view nobody can see and burn a wasted ad request');
+    expect(find.byType(MrecAdWidget), findsNothing);
+  });
+
   testWidgets('unmounting mid-debounce does not throw', (tester) async {
     await tester.pumpWidget(_wrap(320,
         debounce: const Duration(milliseconds: 200)));

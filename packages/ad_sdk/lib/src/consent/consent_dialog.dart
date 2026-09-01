@@ -50,10 +50,19 @@ Future<ConsentDialogResult> showConsentDialog(
         ),
       );
     },
-    pageBuilder: (ctx, _, __) => _ConsentBinaryDialog(
-      strings: strings,
-      current: current,
-      onPrivacyPolicyTap: onPrivacyPolicyTap,
+    // Round-29 audit (MINOR) — `barrierDismissible` only gates tapping
+    // outside the dialog; it never blocked the Android system back
+    // button/gesture, which called `Navigator.maybePop()` and popped this
+    // route anyway, defeating the "force an explicit choice" intent
+    // `barrierDismissible: false` (the default) communicates. `PopScope`
+    // covers both escape routes with the one flag.
+    pageBuilder: (ctx, _, __) => PopScope(
+      canPop: barrierDismissible,
+      child: _ConsentBinaryDialog(
+        strings: strings,
+        current: current,
+        onPrivacyPolicyTap: onPrivacyPolicyTap,
+      ),
     ),
   );
 }
@@ -206,6 +215,13 @@ class _ConsentBinaryDialog extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                 child: Row(
                   children: [
+                    // Round-29 audit (MINOR) — Reject used to get `flex: 1`
+                    // against Allow's `flex: 2` (half the width), on top of
+                    // its own ghost/outline style vs Allow's filled gradient
+                    // + shadow. Not a real EEA-compliance violation (this
+                    // dialog isn't the UMP form Google's EEA/UK consent flow
+                    // actually uses — see the class doc above), but equal
+                    // width removes any ambiguity for a defensive minimum.
                     Expanded(
                       child: _RejectButton(
                         label: strings.rejectButton,
@@ -223,7 +239,6 @@ class _ConsentBinaryDialog extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      flex: 2,
                       child: _AllowButton(
                         label: strings.allowButton,
                         onTap: () {

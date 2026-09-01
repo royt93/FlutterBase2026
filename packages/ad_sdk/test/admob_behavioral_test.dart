@@ -843,4 +843,82 @@ void main() {
           reason: 're-init before consent must stay unrestricted');
     });
   });
+
+  group('round-29 audit (MAJOR): cross-cycle late callback must not '
+      'hijack a newer show cycle', () {
+    test(
+        'interstitial — a stale cycle\'s late callback does not steal a '
+        'newer cycle\'s caller or tear down its slot', () async {
+      await adapter.loadInterstitial();
+      final ad1 = bridge.lastInter!;
+      bool? result1;
+      await adapter.showInterstitial(onDone: (s) => result1 = s);
+      final cycle1 = ad1.shown!;
+
+      cycle1.onDismissed!(); // cycle 1 resolves normally
+      expect(result1, isTrue);
+
+      await adapter.loadInterstitial();
+      final ad2 = bridge.lastInter!;
+      expect(ad2, isNot(same(ad1)));
+      bool? result2;
+      await adapter.showInterstitial(onDone: (s) => result2 = s);
+
+      // Cycle 1's callbacks object fires again late — simulates a duplicate
+      ///delayed native delivery landing after cycle 2 already claimed
+      // `_interstitialDone`.
+      cycle1.onFailedToShow!('late stale delivery');
+
+      expect(result2, isNull,
+          reason: 'cycle 2 is still genuinely showing — its caller must '
+              'not be resolved by cycle 1\'s stale late arrival');
+      expect(adapter.interstitialSlot.isShowing, isTrue,
+          reason: 'cycle 2\'s slot must not be torn down by a stale cycle '
+              '1 callback');
+    });
+
+    test(
+        'rewarded — a stale cycle\'s late dismiss does not steal a newer '
+        'cycle\'s reward callback', () async {
+      await adapter.loadRewarded();
+      final ad1 = bridge.lastRewarded!;
+      RewardResult? result1;
+      await adapter.showRewarded(onDone: (r) => result1 = r);
+      final cycle1 = ad1.shown!;
+
+      cycle1.onDismissed!(); // cycle 1 resolves normally (no reward)
+      expect(result1?.earned, isFalse);
+
+      await adapter.loadRewarded();
+      final ad2 = bridge.lastRewarded!;
+      expect(ad2, isNot(same(ad1)));
+      RewardResult? result2;
+      await adapter.showRewarded(onDone: (r) => result2 = r);
+
+      // Cycle 1's stale callback fires again late.
+      cycle1.onDismissed!();
+
+      expect(result2, isNull,
+          reason: 'a user genuinely still watching cycle 2 must not have '
+              'its reward callback resolved by cycle 1\'s stale late '
+              'dismiss — this is exactly how a real reward could be lost');
+      expect(adapter.rewardedSlot.isShowing, isTrue);
+    });
+  });
+
+  test(
+      'round-29 audit (MINOR): onImpression is wired through to an '
+      'AdImpressionEvent (was dead — captured at the bridge layer but never '
+      'passed by any adapter call site)', () async {
+    final events = <AdEvent>[];
+    adapter.eventSink = events.add;
+
+    await adapter.loadInterstitial();
+    await adapter.showInterstitial(onDone: (_) {});
+    bridge.lastInter!.shown!.onImpression!();
+
+    expect(events.whereType<AdImpressionEvent>(), hasLength(1));
+    expect(events.whereType<AdImpressionEvent>().first.type,
+        AdSlotType.interstitial);
+  });
 }

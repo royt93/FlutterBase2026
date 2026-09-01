@@ -111,4 +111,40 @@ void main() {
         reason: "'first' superseding-then-firing-late must not dismiss "
             "'second' just because they used to share one static _dismiss()");
   });
+
+  testWidgets(
+      'round-29 audit (MINOR): _animateOut\'s reverse().orCancel resolves '
+      'instead of hanging forever when disposed mid-reverse', (tester) async {
+    // Exercises the exact pattern `_animateOut` uses (not the full
+    // TopToast/Overlay flow, which has no way to observe whether its
+    // internal Future ever completes — a leaked-but-otherwise-inert
+    // suspended Future doesn't fail `pumpAndSettle` or throw, it just sits
+    // there forever). `Ticker.dispose()` only completes the `.orCancel`
+    // completer of a reverse()/forward() call, never the primary one a bare
+    // `await` would wait on — verified against the Flutter SDK source.
+    final ctrl = AnimationController(
+      vsync: const TestVSync(),
+      duration: const Duration(seconds: 10),
+    )..value = 1.0;
+
+    var resolved = false;
+    final future = () async {
+      try {
+        await ctrl.reverse().orCancel;
+      } on TickerCanceled {
+        // expected — the controller was disposed mid-reverse
+      }
+      resolved = true;
+    }();
+
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(resolved, isFalse, reason: 'still genuinely mid-reverse');
+
+    ctrl.dispose();
+    await future.timeout(const Duration(seconds: 2));
+
+    expect(resolved, isTrue,
+        reason: 'disposing mid-reverse must resolve the await, not leave it '
+            'permanently suspended');
+  });
 }

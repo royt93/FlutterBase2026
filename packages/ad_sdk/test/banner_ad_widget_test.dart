@@ -33,6 +33,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   final Map<Object, AdSlot> bannerSlotsByKey = {};
   final Map<Object, BannerListenables> bannerListenablesByKey = {};
   int loadBannerCalls = 0;
+  int disposeCalls = 0;
 
   @override
   AdSlot bannerSlot(Object key) =>
@@ -54,6 +55,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
 
   @override
   void disposeBannerInstance(Object key) {
+    disposeCalls++;
     bannerSlotsByKey.remove(key);
     bannerListenablesByKey.remove(key);
   }
@@ -370,8 +372,12 @@ void main() {
             'no crash from stale RouteAware subscription or double dispose');
     // Base-route banner reloads at most once per pop-back (cooldown-gated);
     // it must never exceed a small bound — a leak would make this grow
-    // unbounded with iteration count.
-    expect(adapter.loadBannerCalls, lessThanOrEqualTo(4),
+    // unbounded with iteration count. Bound raised for the round-29 audit
+    // fix: popping back onto the base route now actually reloads its
+    // banner (previously it silently stayed on the stale pre-push
+    // instance) — up to 3 more legitimate loads across these 3 iterations,
+    // on top of the pushed route's own 3 loads and the 1 initial load.
+    expect(adapter.loadBannerCalls, lessThanOrEqualTo(7),
         reason:
             'repeated rapid push/pop must not stack duplicate banner loads');
   });
@@ -629,6 +635,106 @@ void main() {
 
       expect(adapter.loadBannerCalls, 2,
           reason: 'reopening the gate re-triggers a fresh load');
+    });
+  });
+
+  group('round-29 audit (MAJOR): AdMob adaptive banner reload on resize', () {
+    Widget wrapWithWidth(double width) => MediaQuery(
+          data: const MediaQueryData().copyWith(size: Size(width, 800)),
+          child: host(const BannerAdWidget()),
+        );
+
+    late _BannerCountingAdapter adapter;
+
+    setUp(() {
+      adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets('a width change reloads at the new width instead of '
+        'keeping the ad sized for the old one', (tester) async {
+      await tester.pumpWidget(wrapWithWidth(400));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+
+      await tester.pumpWidget(wrapWithWidth(800)); // e.g. rotation
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'the stale-width ad must be torn down before reloading');
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'must request a fresh banner sized for the new width');
+    });
+
+    testWidgets(
+        'an unrelated dependency change with the same width does not reload',
+        (tester) async {
+      await tester.pumpWidget(wrapWithWidth(400));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+
+      await tester.pumpWidget(wrapWithWidth(400)); // same width, rebuild
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 0);
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'no actual width change — must not reload');
+    });
+  });
+
+  group('round-29 audit (MAJOR): AdMob banner route-away actually stops '
+      'refreshing (no pause API)', () {
+    late _BannerCountingAdapter adapter;
+    late GlobalKey<NavigatorState> navKey;
+
+    setUp(() {
+      adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      navKey = GlobalKey<NavigatorState>();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets(
+        'a route pushed on top disposes the banner instead of just hiding '
+        'it, and popping back reloads it', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        navigatorObservers: [adRouteObserver],
+        home: const Scaffold(body: BannerAdWidget()),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.disposeCalls, 0);
+
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const Scaffold(body: Text('top'))),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'must tear the native ad object down — there is no '
+              'runtime pause API on AdMob\'s Flutter plugin, so leaving it '
+              'mounted-but-hidden keeps its refresh timer ticking on '
+              'invisible inventory');
+
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'must request a fresh banner once back on top');
     });
   });
 

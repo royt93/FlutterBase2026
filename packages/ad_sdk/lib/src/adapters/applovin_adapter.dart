@@ -979,6 +979,16 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   void _wireAppOpenListener(String unitId) {
     _bridge.setAppOpenAdListener(AppOpenAdListener(
       onAdLoadedCallback: (ad) {
+        // Round-29 audit (BLOCKER) — AdMob's round-27 `_fullscreenDisposed`
+        // guard was never ported to AppLovin. A load already in flight when
+        // dispose() ran (which sets `_teardownStarted` first, before
+        // anything is torn down) still landed here and marked a slot on an
+        // adapter nobody owns any more as ready.
+        if (_teardownStarted) {
+          SafeLogger.w(_logTag,
+              'appOpen $tag ⛔ load landed after teardown() — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
         if (_discardIfConsentStale(appOpenSlot, 'appOpen')) return;
         appOpenSlot.markReady();
@@ -990,6 +1000,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdLoadFailedCallback: (id, err) {
+        if (_teardownStarted) {
+          SafeLogger.w(_logTag,
+              'appOpen $tag ⛔ load failure landed after teardown() — discarding');
+          return;
+        }
         SafeLogger.w(_logTag, 'appOpen $tag ❌ load failed code=${err.code}');
         appOpenSlot.markFailed(errorCode: err.code.value);
         _logIfRepeatedFailure('appOpen', appOpenSlot, err.code);
@@ -1297,6 +1312,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   void _wireInterstitialListener(String unitId) {
     _bridge.setInterstitialListener(InterstitialListener(
       onAdLoadedCallback: (ad) {
+        // Round-29 audit (BLOCKER) — same disposed-guard gap as App Open
+        // above; see that comment.
+        if (_teardownStarted) {
+          SafeLogger.w(_logTag,
+              'inter $tag ⛔ load landed after teardown() — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
         if (_discardIfConsentStale(interstitialSlot, 'inter')) return;
         interstitialSlot.markReady();
@@ -1308,6 +1330,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdLoadFailedCallback: (id, err) {
+        if (_teardownStarted) {
+          SafeLogger.w(_logTag,
+              'inter $tag ⛔ load failure landed after teardown() — discarding');
+          return;
+        }
         SafeLogger.w(_logTag, 'inter $tag ❌ load failed code=${err.code}');
         interstitialSlot.markFailed(errorCode: err.code.value);
         _logIfRepeatedFailure('inter', interstitialSlot, err.code);
@@ -1505,6 +1532,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   void _wireRewardedListener(String unitId) {
     _bridge.setRewardedAdListener(RewardedAdListener(
       onAdLoadedCallback: (ad) {
+        // Round-29 audit (BLOCKER) — same disposed-guard gap as App Open
+        // above; see that comment.
+        if (_teardownStarted) {
+          SafeLogger.w(_logTag,
+              'rewarded $tag ⛔ load landed after teardown() — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
         if (_discardIfConsentStale(rewardedSlot, 'rewarded')) return;
         rewardedSlot.markReady();
@@ -1516,6 +1550,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdLoadFailedCallback: (id, err) {
+        if (_teardownStarted) {
+          SafeLogger.w(_logTag,
+              'rewarded $tag ⛔ load failure landed after teardown() — discarding');
+          return;
+        }
         SafeLogger.w(_logTag, 'rewarded $tag ❌ load failed code=${err.code}');
         rewardedSlot.markFailed(errorCode: err.code.value);
         _logIfRepeatedFailure('rewarded', rewardedSlot, err.code);

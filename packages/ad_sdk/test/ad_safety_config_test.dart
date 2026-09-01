@@ -505,6 +505,36 @@ void main() {
           reason: 'a second resumed with no new paused in between (no real '
               'backgrounding) must be blocked, not reuse the prior timing');
     });
+
+    // Round-29 audit (MAJOR) — tripping the rapid-resume cap used to
+    // `.clear()` the whole rolling window, wiping its own evidence so the
+    // very next resume passed with an empty window. A real rolling-window
+    // cap must keep blocking every resume that lands inside the same 60s
+    // window as the trip, not just the one that tripped it.
+    test(
+        'rapid-resume cap keeps blocking within the window instead of '
+        'resetting to zero on trip', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(maxRapidResumesPerMinute: 2));
+      AdSafetyConfig.resetForReinit();
+
+      AdSafetyConfig.canShowAppOpenOnResume(); // consume cold start
+
+      bool resumeOnce() {
+        AdSafetyConfig.recordAppWentBackground();
+        return AdSafetyConfig.canShowAppOpenOnResume().canShow;
+      }
+
+      expect(resumeOnce(), isTrue, reason: 'resume 1/2 — within cap');
+      expect(resumeOnce(), isTrue, reason: 'resume 2/2 — within cap');
+      expect(resumeOnce(), isFalse, reason: 'resume 3 — trips the cap');
+      // The bug: this next call saw an empty (just-cleared) window and
+      // passed. A real rolling window must still block it — the trip above
+      // is still well inside the same 60s.
+      expect(resumeOnce(), isFalse,
+          reason: 'resume 4, still inside the same 60s window as the trip — '
+              'must still be blocked, not reset to allowing again');
+    });
   });
 
   // ─────────────────────────────────────────────────

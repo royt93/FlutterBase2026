@@ -200,6 +200,12 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
       mgr.setMrecRoutePaused(this, true);
     } else if (_admobIsTop.value) {
       _admobIsTop.value = false;
+      // Round-29 audit (MAJOR) — same gap as BannerAdWidget: AdMob's
+      // Flutter plugin has no runtime pause API for an already-loaded ad,
+      // so the cached MREC kept refreshing while invisible. Dispose it;
+      // `didPopNext` below requests a fresh one on return.
+      mgr.disposeMrecInstance(this);
+      _allowed.value = false;
     }
     super.didPushNext();
   }
@@ -213,6 +219,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _admobIsTop.value = true;
+        _initMrec(context);
       });
     }
     super.didPopNext();

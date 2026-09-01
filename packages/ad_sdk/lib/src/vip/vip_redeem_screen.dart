@@ -813,6 +813,21 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
               textInputAction: TextInputAction.go,
               autocorrect: false,
               enableSuggestions: false,
+              // Round-29 audit (MINOR) — a real key (`AVP2.<payload>.<sig>`)
+              // is well under 300 chars; nothing stopped a pasted multi-MB
+              // clipboard blob from reaching `verifySignedVipKey`, which
+              // runs Ed25519/SHA-512 (pure-Dart, no native acceleration) on
+              // the UI isolate — cost scales with input length, so a huge
+              // paste could visibly stutter a weak device. Not a forgeable
+              // bypass (Ed25519 still can't be brute-forced), just an
+              // unvalidated boundary. 512 leaves generous headroom.
+              maxLength: 512,
+              maxLengthEnforcement: MaxLengthEnforcement.enforced,
+              buildCounter: (context,
+                      {required currentLength,
+                      required isFocused,
+                      maxLength}) =>
+                  null,
               // ponytail: keys are base64url (letters/digits/-/_/=) — smart
               // dashes/quotes would silently rewrite '-' into an em-dash and
               // corrupt the key on real iOS keyboards, not just automation.

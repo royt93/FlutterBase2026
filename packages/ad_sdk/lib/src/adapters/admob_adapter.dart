@@ -1015,6 +1015,20 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           // show cycle (_appOpenDismiss cleared) before GMA's native callback
           // landed. Acting again would clobber slot state the reload-in-flight
           // already moved on from and double-dispose `ad`.
+          //
+          // Round-29 audit — considered tightening this to also compare
+          // identity against the captured `onDismiss` (like `showRewarded`
+          // needed, see there for why). Unlike rewarded/rewardedInterstitial,
+          // App Open has no non-terminal same-cycle event that nulls
+          // `_appOpenDismiss` before the cycle truly ends (no "earned"
+          // equivalent) — every path that nulls it also transitions the slot
+          // out of `showing`, and a new cycle can't start until that's done.
+          // So `_appOpenDismiss` is null if and only if this cycle already
+          // resolved, and the plain null-check already closes the cross-cycle
+          // race safely; a stricter identity check was tried and reverted —
+          // it broke the legitimate "reload (not re-show) after resolution"
+          // case, where `_appOpenDismiss` staying null is correct and this
+          // late duplicate must still be recognized as late.
           if (_appOpenDismiss == null) {
             SafeLogger.d(_logTag,
                 'showAppOpen $tag 👋 dismissed (late — watchdog already handled this show)');
@@ -1045,6 +1059,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           // easily than the onDismissed path.
           _clearAppOpenIfSame(ad);
           // Late arrival (see onDismissed above) — watchdog already resolved.
+          // Round-29 audit — see the matching comment in onDismissed for why
+          // this stays a plain null-check.
           if (_appOpenDismiss == null) {
             SafeLogger.w(_logTag,
                 'showAppOpen $tag ❌ display failed (late — watchdog already handled this show): $message');
@@ -1062,6 +1078,14 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           SafeLogger.d(_logTag, 'showAppOpen $tag 🎯 click');
           AdSafetyConfig.recordAdClick();
           _emit(AdClickEvent(
+            providerTag: tag,
+            type: AdSlotType.appOpen,
+            placement: AdPlacement.splash,
+          ));
+        },
+        onImpression: () {
+          SafeLogger.d(_logTag, 'showAppOpen $tag 👁 impression');
+          _emit(AdImpressionEvent(
             providerTag: tag,
             type: AdSlotType.appOpen,
             placement: AdPlacement.splash,
@@ -1291,7 +1315,29 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     // ad reached the screen, nothing else ever will: this slot would stay
     // `showing` and no interstitial would load again for the rest of the
     // session.
+    //
+    // Round-29 audit (MAJOR) — `cycleEnded` (local to this call, checked by
+    // every callback below) closes a cross-cycle race: without it, a late
+    // callback for THIS cycle landing after a *newer* cycle already started
+    // (this cycle's own watchdog timeout resolved it first, AdManager
+    // reloaded and called showInterstitial() again before this cycle's real
+    // native dismiss/fail finally arrived) would fire the newer cycle's
+    // caller with this cycle's stale outcome, and — worse — unconditionally
+    // null `_interstitialAd`/dispose it even though it had already moved on
+    // to the newer cycle's live ad. A *local* flag (not comparing
+    // `_interstitialDone` against `onDone`) is deliberate: a newer cycle can
+    // only start once `interstitialSlot` leaves `showing`, which only
+    // happens via one of these same three callbacks setting `cycleEnded`
+    // true first — so by construction no new cycle can exist while this
+    // one's `cycleEnded` is still false, and checking `_interstitialDone`
+    // instead would have wrongly flagged an unrelated *reload* (not a new
+    // show) as a hijack, since a plain reload never touches `_interstitialDone`.
+    // `identical(_interstitialAd, ad)` guards the dispose target the same
+    // way App Open's `_clearAppOpenIfSame` does.
+    var cycleEnded = false;
     if (!interstitialSlot.beginShow(onShowNeverConfirmed: () {
+      if (cycleEnded) return;
+      cycleEnded = true;
       if (identical(_interstitialAd, ad)) _interstitialAd = null;
       _disposeAd(ad, 'inter-show-never-confirmed');
       final cb = _interstitialDone;
@@ -1311,8 +1357,16 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           SafeLogger.d(_logTag, 'showInterstitial $tag ✅ shown');
         },
         onDismissed: () {
+          if (cycleEnded) {
+            SafeLogger.d(_logTag,
+                'showInterstitial $tag 👋 dismissed (late — already resolved)');
+            if (identical(_interstitialAd, ad)) _interstitialAd = null;
+            _disposeAd(ad, 'inter-after-dismiss-late');
+            return;
+          }
+          cycleEnded = true;
           SafeLogger.d(_logTag, 'showInterstitial $tag 👋 dismissed');
-          _interstitialAd = null;
+          if (identical(_interstitialAd, ad)) _interstitialAd = null;
           _disposeAd(ad, 'inter-after-dismiss');
           interstitialSlot.markDismissed();
           final cb = _interstitialDone;
@@ -1320,9 +1374,17 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           cb?.call(true);
         },
         onFailedToShow: (message) {
+          if (cycleEnded) {
+            SafeLogger.w(_logTag,
+                'showInterstitial $tag ❌ display failed (late — already resolved): $message');
+            if (identical(_interstitialAd, ad)) _interstitialAd = null;
+            _disposeAd(ad, 'inter-show-fail-late');
+            return;
+          }
+          cycleEnded = true;
           SafeLogger.w(
               _logTag, 'showInterstitial $tag ❌ display failed: $message');
-          _interstitialAd = null;
+          if (identical(_interstitialAd, ad)) _interstitialAd = null;
           _disposeAd(ad, 'inter-show-fail');
           interstitialSlot.markShowFailed();
           final cb = _interstitialDone;
@@ -1333,6 +1395,14 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           SafeLogger.d(_logTag, 'showInterstitial $tag 🎯 click');
           AdSafetyConfig.recordAdClick();
           _emit(AdClickEvent(
+            providerTag: tag,
+            type: AdSlotType.interstitial,
+            placement: AdPlacement.unspecified,
+          ));
+        },
+        onImpression: () {
+          SafeLogger.d(_logTag, 'showInterstitial $tag 👁 impression');
+          _emit(AdImpressionEvent(
             providerTag: tag,
             type: AdSlotType.interstitial,
             placement: AdPlacement.unspecified,
@@ -1481,21 +1551,27 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       return;
     }
     // Round-7 audit, MAJOR — see [AdSlot.beginShow].
-    if (!rewardedSlot.beginShow(onShowNeverConfirmed: () {
-      if (identical(_rewardedAd, ad)) _rewardedAd = null;
-      _disposeAd(ad, 'rewarded-show-never-confirmed');
-      final cb = _rewardedDone;
-      _rewardedDone = null;
-      cb?.call(RewardResult.skipped);
-    })) {
-      SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ already showing');
-      onDone(RewardResult.skipped);
-      return;
-    }
-    _rewardedDone = onDone;
+    // Round-29 audit (MAJOR) — `cycleEnded` (local, mirrors the identical
+    // fix in showInterstitial — see that comment for the full reasoning on
+    // why a local flag and not an `_rewardedDone` comparison) guards the
+    // slot/ad mutation in every branch below against a cross-cycle race: a
+    // late resolution for THIS cycle landing after a *newer* cycle already
+    // started must not touch the slot/ad the newer cycle now owns. `fired`
+    // (below) independently guards the *callback* — routing the watchdog
+    // through `fire()` too (unlike before) closes a gap where a late
+    // `onUserEarnedReward` for this cycle, arriving after the watchdog had
+    // already ended it via a path that bypassed `fire()`, could still
+    // consume and misdirect a newer cycle's `_rewardedDone`. Worst case
+    // otherwise: a user who genuinely finishes watching ad #2 gets no
+    // reward because ad #1's stale callback already consumed it.
+    var cycleEnded = false;
     final pendingSsv = ssvCustomData != null || ssvUserId != null;
 
-    // Local guards against double-fire (Fix #42 preserved).
+    // Local guards against double-fire (Fix #42 preserved). Declared before
+    // `beginShow` (rather than after, as in the pre-round-29 code) purely so
+    // the watchdog closure below can call `fire` — none of these read
+    // `_rewardedDone` until a callback actually runs, which is always after
+    // it's assigned below, so this reordering changes no behavior.
     var earned = false;
     var fired = false;
     void fire(RewardResult r) {
@@ -1505,6 +1581,19 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       _rewardedDone = null;
       cb?.call(r);
     }
+
+    if (!rewardedSlot.beginShow(onShowNeverConfirmed: () {
+      if (cycleEnded) return;
+      cycleEnded = true;
+      if (identical(_rewardedAd, ad)) _rewardedAd = null;
+      _disposeAd(ad, 'rewarded-show-never-confirmed');
+      fire(RewardResult.skipped);
+    })) {
+      SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ already showing');
+      onDone(RewardResult.skipped);
+      return;
+    }
+    _rewardedDone = onDone;
 
     try {
       await ad.show(
@@ -1516,9 +1605,20 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown');
             },
             onDismissed: () {
+              if (cycleEnded) {
+                // A stale cycle's late dismiss must not mutate the slot a
+                // newer cycle now owns. Still clean up this specific `ad`
+                // object's own resources.
+                SafeLogger.d(_logTag,
+                    'showRewarded $tag 👋 dismissed (late — already resolved)');
+                if (identical(_rewardedAd, ad)) _rewardedAd = null;
+                _disposeAd(ad, 'rewarded-after-dismiss-late');
+                return;
+              }
+              cycleEnded = true;
               SafeLogger.d(
                   _logTag, 'showRewarded $tag 👋 dismissed (earned=$earned)');
-              _rewardedAd = null;
+              if (identical(_rewardedAd, ad)) _rewardedAd = null;
               _disposeAd(ad, 'rewarded-after-dismiss');
               rewardedSlot.markDismissed();
               // Round-23 audit, MAJOR — `shown` is the impression signal
@@ -1549,9 +1649,17 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               }
             },
             onFailedToShow: (message) {
+              if (cycleEnded) {
+                SafeLogger.w(_logTag,
+                    'showRewarded $tag ❌ display failed (late — already resolved): $message');
+                if (identical(_rewardedAd, ad)) _rewardedAd = null;
+                _disposeAd(ad, 'rewarded-show-fail-late');
+                return;
+              }
+              cycleEnded = true;
               SafeLogger.w(
                   _logTag, 'showRewarded $tag ❌ display failed: $message');
-              _rewardedAd = null;
+              if (identical(_rewardedAd, ad)) _rewardedAd = null;
               _disposeAd(ad, 'rewarded-show-fail');
               rewardedSlot.markShowFailed();
               fire(RewardResult.skipped);
@@ -1560,6 +1668,14 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               SafeLogger.d(_logTag, 'showRewarded $tag 🎯 click');
               AdSafetyConfig.recordAdClick();
               _emit(AdClickEvent(
+                providerTag: tag,
+                type: AdSlotType.rewarded,
+                placement: AdPlacement.unspecified,
+              ));
+            },
+            onImpression: () {
+              SafeLogger.d(_logTag, 'showRewarded $tag 👁 impression');
+              _emit(AdImpressionEvent(
                 providerTag: tag,
                 type: AdSlotType.rewarded,
                 placement: AdPlacement.unspecified,
@@ -1701,19 +1817,9 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       return;
     }
     // Round-7 audit, MAJOR — see [AdSlot.beginShow].
-    if (!rewardedInterstitialSlot.beginShow(onShowNeverConfirmed: () {
-      if (identical(_rewardedInterstitialAd, ad)) _rewardedInterstitialAd = null;
-      _disposeAd(ad, 'rewardedInterstitial-show-never-confirmed');
-      final cb = _rewardedInterstitialDone;
-      _rewardedInterstitialDone = null;
-      cb?.call(RewardResult.skipped);
-    })) {
-      SafeLogger.w(_logTag, 'showRewardedInterstitial $tag ⚠️ already showing');
-      onDone(RewardResult.skipped);
-      return;
-    }
-    _rewardedInterstitialDone = onDone;
-
+    // Round-29 audit (MAJOR) — `cycleEnded`/`fire` follow the exact pattern
+    // in showRewarded — see that method's comment for the full reasoning.
+    var cycleEnded = false;
     var earned = false;
     var fired = false;
     void fire(RewardResult r) {
@@ -1724,6 +1830,19 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       cb?.call(r);
     }
 
+    if (!rewardedInterstitialSlot.beginShow(onShowNeverConfirmed: () {
+      if (cycleEnded) return;
+      cycleEnded = true;
+      if (identical(_rewardedInterstitialAd, ad)) _rewardedInterstitialAd = null;
+      _disposeAd(ad, 'rewardedInterstitial-show-never-confirmed');
+      fire(RewardResult.skipped);
+    })) {
+      SafeLogger.w(_logTag, 'showRewardedInterstitial $tag ⚠️ already showing');
+      onDone(RewardResult.skipped);
+      return;
+    }
+    _rewardedInterstitialDone = onDone;
+
     try {
       await ad.show(
           GmaShowCallbacks(
@@ -1732,9 +1851,23 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               SafeLogger.d(_logTag, 'showRewardedInterstitial $tag ✅ shown');
             },
             onDismissed: () {
+              if (cycleEnded) {
+                // A stale cycle's late dismiss must not mutate the slot a
+                // newer cycle now owns.
+                SafeLogger.d(_logTag,
+                    'showRewardedInterstitial $tag 👋 dismissed (late — already resolved)');
+                if (identical(_rewardedInterstitialAd, ad)) {
+                  _rewardedInterstitialAd = null;
+                }
+                _disposeAd(ad, 'rewardedInterstitial-after-dismiss-late');
+                return;
+              }
+              cycleEnded = true;
               SafeLogger.d(_logTag,
                   'showRewardedInterstitial $tag 👋 dismissed (earned=$earned)');
-              _rewardedInterstitialAd = null;
+              if (identical(_rewardedInterstitialAd, ad)) {
+                _rewardedInterstitialAd = null;
+              }
               _disposeAd(ad, 'rewardedInterstitial-after-dismiss');
               rewardedInterstitialSlot.markDismissed();
               // Round-23 audit, MAJOR — `shown` is the impression signal
@@ -1766,9 +1899,21 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               }
             },
             onFailedToShow: (message) {
+              if (cycleEnded) {
+                SafeLogger.w(_logTag,
+                    'showRewardedInterstitial $tag ❌ display failed (late — already resolved): $message');
+                if (identical(_rewardedInterstitialAd, ad)) {
+                  _rewardedInterstitialAd = null;
+                }
+                _disposeAd(ad, 'rewardedInterstitial-show-fail-late');
+                return;
+              }
+              cycleEnded = true;
               SafeLogger.w(_logTag,
                   'showRewardedInterstitial $tag ❌ display failed: $message');
-              _rewardedInterstitialAd = null;
+              if (identical(_rewardedInterstitialAd, ad)) {
+                _rewardedInterstitialAd = null;
+              }
               _disposeAd(ad, 'rewardedInterstitial-show-fail');
               rewardedInterstitialSlot.markShowFailed();
               fire(RewardResult.skipped);
@@ -1777,6 +1922,14 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               SafeLogger.d(_logTag, 'showRewardedInterstitial $tag 🎯 click');
               AdSafetyConfig.recordAdClick();
               _emit(AdClickEvent(
+                providerTag: tag,
+                type: AdSlotType.rewardedInterstitial,
+                placement: AdPlacement.unspecified,
+              ));
+            },
+            onImpression: () {
+              SafeLogger.d(_logTag, 'showRewardedInterstitial $tag 👁 impression');
+              _emit(AdImpressionEvent(
                 providerTag: tag,
                 type: AdSlotType.rewardedInterstitial,
                 placement: AdPlacement.unspecified,
