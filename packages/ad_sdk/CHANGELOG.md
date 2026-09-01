@@ -4,6 +4,24 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.5] - 2026-09-01
+
+- **Fix (audit round 27, MAJOR)**: `AdManager.destroy()`'s `await
+  _eventLog?.flush()` (added in 2.9.4 for T102) had no timeout, unlike every
+  other bounded teardown wait in the same method (`_eventStream.close()`,
+  the fullscreen-show drain). A stuck platform-channel `SharedPreferences`
+  write would have hung `destroy()` forever and parked every subsequent
+  `initialize()` behind it via `_destroyInFlight`. Now wrapped in the same
+  2s timeout pattern as the adjacent waits — on timeout, teardown continues
+  and logs a warning instead of hanging. Found independently by 3 reviewers
+  (`codex`, `agy`, `claude`) in the same audit round; see
+  `doc/audit/audit_round27_consolidated.md`. Mutation-verified: a new test
+  in `test/destroy_awaits_event_log_flush_test.dart` (revert → 10s hang
+  and red assertion, fix → green in <3s).
+- **Fix (test-only)**: `example/test/home_page_test.dart` asserted 17
+  `DemoTile`s; the 2.9.1 Adaptive Surface demo (T124) brought the count to
+  18 and the test wasn't updated. Found by `agy` in the round-27 audit.
+
 ## [2.9.4] - 2026-09-01
 
 - **Fix (T102, finally closed after 3 rounds)**: `AdManager.destroy()` now

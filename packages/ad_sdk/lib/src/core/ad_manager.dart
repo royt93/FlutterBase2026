@@ -5413,7 +5413,19 @@ class AdManager with WidgetsBindingObserver {
     // ad_manager_core_test.dart — that was a test bug, `fakeAsync` mixed
     // with real platform-channel work in a different test; see that test's
     // own comment and git history for `test/destroy_awaits_event_log_flush_test.dart`.)
-    await _eventLog?.flush();
+    //
+    // Round-27 audit (3 independent reviewers, same finding) — same reasoning
+    // as the `_eventStream.close()` timeout just above: an unbounded await on
+    // a platform-channel write means a stuck SharedPreferences call would
+    // hang destroy() forever, and every later initialize() parks behind it
+    // via `_destroyInFlight`. Bounded, same as the other teardown waits.
+    await _eventLog?.flush().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () => SafeLogger.w(
+          _tag,
+          'event log flush did not finish within 2s — continuing teardown '
+          'without waiting further rather than hanging destroy() forever'),
+    );
     _eventLog = null;
 
     if (_isObserverAdded) {

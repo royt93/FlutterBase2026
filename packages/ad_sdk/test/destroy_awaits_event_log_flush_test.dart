@@ -61,4 +61,40 @@ void main() {
             'if this used unawaited(...) again, destroy() would return '
             'almost immediately regardless of debugPersistDelay');
   });
+
+  // Round-27 audit (3 independent reviewers, same finding): the await above
+  // had no timeout, so a persistence write that never resolves (a stuck
+  // platform channel) would hang destroy() forever, and every later
+  // initialize() parks behind it via _destroyInFlight. This drives that seam
+  // with a delay far longer than the 2s teardown timeout to prove destroy()
+  // gives up on the flush rather than hanging on it.
+  test('destroy() gives up on a stuck flush instead of hanging forever',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await AdPreferences.getInstance();
+    final log = AdEventLog(prefs);
+    log.recordEvent(
+      const AdLoadEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.home,
+        success: true,
+      ),
+      timestampMs: 1,
+    );
+    AdManager().debugEventLog = log;
+
+    // Longer than the 2s teardown timeout — simulates a persistence write
+    // that is effectively stuck from destroy()'s point of view.
+    AdEventLog.debugPersistDelay = const Duration(seconds: 10);
+
+    final stopwatch = Stopwatch()..start();
+    await AdManager().destroy();
+    stopwatch.stop();
+
+    expect(stopwatch.elapsedMilliseconds, lessThan(3000),
+        reason: 'destroy() must give up on a stuck flush within its 2s '
+            'teardown timeout rather than waiting out the full write delay — '
+            'if the timeout regresses, this would take ~10s instead');
+  });
 }
