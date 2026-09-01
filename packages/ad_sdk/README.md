@@ -210,6 +210,15 @@ Backwards-compatible with 1.0.1x. Recent additions:
   `AdLoadingDialog.isShowing` and **skips the App Open ad while any dialog is
   presented** (e.g. the consent dialog or a VIP redeem confirmation). The
   `_retryRefillAds` periodic scan also returns early for VIP members.
+  - **Nested-Navigator gap (round-28 audit, 2.9.7):** `AdScreenRouteLogger`
+    only sees routes pushed on the `Navigator` it's registered on. If your app
+    has nested Navigators — bottom-nav tabs, a `go_router` `ShellRoute` branch
+    — a bottom sheet opened with plain `showModalBottomSheet` (which defaults
+    to `useRootNavigator: false`, unlike `showDialog`'s `true`) pushes onto the
+    *nested* Navigator and goes untracked, so a resumed App Open ad can show on
+    top of it. Fix: use the SDK's `showAdSafeModalBottomSheet` (same
+    parameters, always `useRootNavigator: true`) instead of the raw Flutter
+    API for any bottom sheet in a multi-Navigator app.
 - **VIP time stacking (1.0.22)** — `VipManager.addVip` / `redeemVip` gained an
   opt-in `stack` flag (default `false`). With `stack: true` the grant
   **accumulates onto the latest expiry across ALL active entries** (global
@@ -406,6 +415,15 @@ void main() {
   ));
 }
 ```
+
+> ⚠️ **Nested Navigators (bottom-nav tabs, `go_router` `ShellRoute`):** add a
+> fresh `AdScreenRouteLogger()` to every nested `Navigator`'s own
+> `navigatorObservers` too — its dialog counter is a static/shared counter, so
+> any instance anywhere feeds the same `isDialogOnTop`. And use
+> `showAdSafeModalBottomSheet` (exported by this package) instead of the raw
+> `showModalBottomSheet` for any bottom sheet, since the raw API defaults to
+> `useRootNavigator: false` and would otherwise push onto an unobserved
+> Navigator, letting a resumed App Open ad show on top of it.
 
 ### Step 5 — Initialize the SDK in `splash_screen.dart`
 

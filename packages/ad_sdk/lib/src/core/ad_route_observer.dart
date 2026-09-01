@@ -1,6 +1,46 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 import '../utils/safe_logger.dart';
+
+/// Drop-in replacement for [showModalBottomSheet] that is always visible to
+/// [AdScreenRouteLogger.isDialogOnTop].
+///
+/// Round-28 audit finding: [showModalBottomSheet] defaults to
+/// `useRootNavigator: false` — unlike [showDialog], which defaults to
+/// `true` — so it pushes onto whichever `Navigator` owns [context]. In an
+/// app with nested Navigators (bottom-nav tabs, a `go_router` `ShellRoute`
+/// branch, ...) that is usually a *nested* Navigator, not the root one
+/// `AdScreenRouteLogger` is registered on per the integration contract. The
+/// sheet then goes untracked and a resumed App Open ad can show on top of
+/// it. This helper always forces `useRootNavigator: true` so the sheet is
+/// pushed on the observed root Navigator no matter which nested Navigator's
+/// [context] it is called from.
+Future<T?> showAdSafeModalBottomSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  Color? backgroundColor,
+  ShapeBorder? shape,
+  bool isScrollControlled = false,
+  bool isDismissible = true,
+  bool enableDrag = true,
+  bool useSafeArea = false,
+  BoxConstraints? constraints,
+  RouteSettings? routeSettings,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    builder: builder,
+    backgroundColor: backgroundColor,
+    shape: shape,
+    isScrollControlled: isScrollControlled,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    useSafeArea: useSafeArea,
+    constraints: constraints,
+    routeSettings: routeSettings,
+    useRootNavigator: true,
+  );
+}
 
 /// Global RouteObserver for banner ad lifecycle management.
 ///

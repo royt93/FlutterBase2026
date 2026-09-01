@@ -112,6 +112,60 @@ void main() {
     expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
   });
 
+  testWidgets(
+      'showAdSafeModalBottomSheet is seen by isDialogOnTop from a nested Navigator',
+      (tester) async {
+    final rootNavKey = GlobalKey<NavigatorState>();
+    final nestedNavKey = GlobalKey<NavigatorState>();
+
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: rootNavKey,
+      navigatorObservers: [AdScreenRouteLogger()],
+      // Simulates a bottom-nav-tab / go_router ShellRoute app: a nested
+      // Navigator whose own `navigatorObservers` do NOT include
+      // AdScreenRouteLogger — only the root one does, per the documented
+      // integration contract.
+      home: Navigator(
+        key: nestedNavKey,
+        onGenerateRoute: (settings) => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('tab home')),
+        ),
+      ),
+    ));
+
+    final nestedContext = nestedNavKey.currentContext!;
+
+    // Plain showModalBottomSheet defaults to useRootNavigator: false, so it
+    // pushes onto the nested Navigator the root observer never sees.
+    unawaited(showModalBottomSheet<void>(
+      context: nestedContext,
+      builder: (_) => const Text('unsafe sheet'),
+    ));
+    await tester.pumpAndSettle();
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse,
+        reason: 'plain showModalBottomSheet from a nested Navigator is '
+            'invisible to the root-only observer — this is the bug an '
+            'App Open ad must not be exposed to');
+    Navigator.of(nestedContext).pop();
+    await tester.pumpAndSettle();
+
+    // The SDK-provided safe helper forces useRootNavigator: true, so it
+    // always lands on the observed root Navigator regardless of which
+    // nested Navigator's context it was called from.
+    unawaited(showAdSafeModalBottomSheet<void>(
+      context: nestedContext,
+      builder: (_) => const Text('safe sheet'),
+    ));
+    await tester.pumpAndSettle();
+    expect(AdScreenRouteLogger.isDialogOnTop, isTrue,
+        reason: 'showAdSafeModalBottomSheet must always be visible to the '
+            'root observer so App Open ads are correctly suppressed');
+
+    rootNavKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
+  });
+
   test('didReplace tracks popup-for-popup and popup-for-page swaps', () {
     final logger = AdScreenRouteLogger();
     final popup1 = _FakePopupRoute();

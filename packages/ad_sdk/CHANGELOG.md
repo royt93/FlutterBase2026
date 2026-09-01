@@ -4,6 +4,26 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.7] - 2026-09-01
+
+Round-28 audit fix — the one new MAJOR found (only 1 of 3 independent
+reviewers caught it; verified against source before fixing):
+
+- **Fix (MAJOR)**: `showModalBottomSheet` defaults to
+  `useRootNavigator: false`, unlike `showDialog`'s `true`. In an app with
+  nested Navigators (bottom-nav tabs, a `go_router` `ShellRoute` branch), a
+  plain `showModalBottomSheet` call pushes onto the nested Navigator, which
+  `AdScreenRouteLogger` (registered on the root Navigator per the integration
+  contract) never observes — `isDialogOnTop` stays `false`, so a resumed App
+  Open ad could show on top of the bottom sheet. Added
+  `showAdSafeModalBottomSheet` (`lib/src/core/ad_route_observer.dart`), a
+  drop-in wrapper that always forces `useRootNavigator: true`. Documented in
+  README's integration contract section and the App Open/modal caveat.
+  Mutation-verified: `test/ad_route_observer_test.dart` builds a nested
+  Navigator with only the root one observed, confirms a plain
+  `showModalBottomSheet` call is invisible to `isDialogOnTop` (the bug) and
+  `showAdSafeModalBottomSheet` is visible (the fix).
+
 ## [2.9.6] - 2026-09-01
 
 Round-27 audit follow-through — the 2 MAJORs the round-26 audit deferred are
