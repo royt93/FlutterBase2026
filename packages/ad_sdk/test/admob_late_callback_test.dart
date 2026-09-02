@@ -148,11 +148,17 @@ void main() {
           returnsNormally);
     });
 
-    // T105 — onAdOpened/onAdClicked had no identity guard at all (unlike
+    // T105 — onAdClicked had no identity guard at all (unlike
     // onAdLoaded/onAdFailedToLoad above), so a click arriving after dispose
     // still counted against CTR-fraud tracking and emitted an AdClickEvent
     // for a placement that no longer exists.
-    test('banner onAdOpened (click) after dispose is dropped, not counted',
+    //
+    // Round-31 audit (MINOR) — banner/mrec used to wire this to onAdOpened
+    // ("an overlay is presented in response to the user clicking"), not
+    // onAdClicked ("the ad is clicked") like native — two events the
+    // plugin documents as distinct with no guaranteed 1:1 mapping. Now
+    // consistent across all three formats.
+    test('banner onAdClicked (click) after dispose is dropped, not counted',
         () async {
       final adapter = await newAdapter();
       final events = <AdEvent>[];
@@ -162,14 +168,14 @@ void main() {
       expect(listener, isNotNull);
 
       adapter.disposeBannerInstance('k');
-      listener!.onAdOpened!(dummyBanner());
+      listener!.onAdClicked!(dummyBanner());
 
       expect(events, isEmpty,
           reason: 'a click landing after disposeBannerInstance() must not '
               'emit an AdClickEvent for a placement that no longer exists');
     });
 
-    test('mrec onAdOpened (click) after dispose is dropped, not counted',
+    test('mrec onAdClicked (click) after dispose is dropped, not counted',
         () async {
       final adapter = await newAdapter();
       final events = <AdEvent>[];
@@ -179,7 +185,7 @@ void main() {
       expect(listener, isNotNull);
 
       adapter.disposeMrecInstance('k');
-      listener!.onAdOpened!(dummyBanner());
+      listener!.onAdClicked!(dummyBanner());
 
       expect(events, isEmpty);
     });
@@ -197,6 +203,86 @@ void main() {
       listener!.onAdClicked!(dummyBanner());
 
       expect(events, isEmpty);
+    });
+  });
+
+  // Round-31 audit (MAJOR) — banner/mrec/native used to count an impression
+  // (and never emitted AdImpressionEvent at all) at onAdLoaded time — a fill,
+  // not an actual on-screen impression. Now wired to the real onAdImpression
+  // callback the plugin provides for exactly this.
+  group('onAdImpression is the real impression signal, not onAdLoaded', () {
+    test('banner: onAdLoaded alone emits no AdImpressionEvent; '
+        'onAdImpression does', () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadBannerIfNeeded('k', 320);
+      final listener = adapter.debugBannerListenerFor('k');
+      expect(listener, isNotNull);
+
+      listener!.onAdLoaded!(dummyBanner());
+      expect(events.whereType<AdImpressionEvent>(), isEmpty,
+          reason: 'a fill is not an impression');
+
+      listener.onAdImpression!(dummyBanner());
+      expect(events.whereType<AdImpressionEvent>(), hasLength(1));
+      expect(events.whereType<AdImpressionEvent>().single.type,
+          AdSlotType.banner);
+    });
+
+    test('mrec: onAdLoaded alone emits no AdImpressionEvent; '
+        'onAdImpression does', () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadMrecIfNeeded('k', 0);
+      final listener = adapter.debugMrecListenerFor('k');
+      expect(listener, isNotNull);
+
+      listener!.onAdLoaded!(dummyBanner());
+      expect(events.whereType<AdImpressionEvent>(), isEmpty);
+
+      listener.onAdImpression!(dummyBanner());
+      expect(events.whereType<AdImpressionEvent>(), hasLength(1));
+      expect(
+          events.whereType<AdImpressionEvent>().single.type, AdSlotType.mrec);
+    });
+
+    test('native: onAdLoaded alone emits no AdImpressionEvent; '
+        'onAdImpression does', () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.preloadNative('k');
+      final listener = adapter.debugNativeListenerFor('k');
+      expect(listener, isNotNull);
+
+      listener!.onAdLoaded!(dummyBanner());
+      expect(events.whereType<AdImpressionEvent>(), isEmpty);
+
+      listener.onAdImpression!(dummyBanner());
+      expect(events.whereType<AdImpressionEvent>(), hasLength(1));
+      expect(events.whereType<AdImpressionEvent>().single.type,
+          AdSlotType.native);
+    });
+
+    test(
+        'a late onAdImpression arriving after dispose is dropped, not counted',
+        () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadBannerIfNeeded('k', 320);
+      final listener = adapter.debugBannerListenerFor('k');
+      expect(listener, isNotNull);
+
+      adapter.disposeBannerInstance('k');
+      listener!.onAdImpression!(dummyBanner());
+
+      expect(events, isEmpty,
+          reason: 'an impression landing after disposeBannerInstance() '
+              'must not emit an event for a placement that no longer '
+              'exists, nor count toward CTR-fraud tracking');
     });
   });
 }

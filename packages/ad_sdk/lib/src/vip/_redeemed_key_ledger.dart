@@ -50,7 +50,31 @@ class RedeemedKeyLedger {
   /// write landed second would silently drop the other's `kid`. Same
   /// idea as `AdEventLog._persistChain` — every write chains onto the
   /// previous one instead of racing it.
-  Future<void> _writeChain = Future<void>.value();
+  ///
+  /// Round-31 audit fix (MAJOR) — **static on purpose**, mirroring
+  /// `VipManager._saveQueue`'s round-10 fix for the identical reason: this
+  /// was per-instance, but every instance writes the SAME secure-storage
+  /// key. `AdManager.destroy()` + `initialize()` builds a brand new
+  /// `VipManager` (never passing `redeemedKeyLedger:`), which builds a
+  /// brand new `RedeemedKeyLedger` with its own empty queue — so the OLD
+  /// ledger's `markRedeemed()` write, still parked inside
+  /// `_secure.write(...)` from a redemption that started right before
+  /// teardown, was not serialized against the new ledger's own write at
+  /// all. Whichever landed last silently dropped the other's `kid` from
+  /// the persisted set — reopening the exact one-time-use hole this ledger
+  /// exists to close, on a redeem racing a reinit. `_writesInFlight`
+  /// exists for the same zone-lifetime reason `VipManager` documents on
+  /// its own counter: a finished tail future from an earlier (e.g. test)
+  /// zone can never deliver a `.then` from a later one.
+  static Future<void> _writeChain = Future<void>.value();
+  static int _writesInFlight = 0;
+
+  /// Drops the process-wide write ordering. Tests only.
+  @visibleForTesting
+  static void resetWriteChainForTest() {
+    _writeChain = Future<void>.value();
+    _writesInFlight = 0;
+  }
 
   /// True if [kid] was already redeemed on this device, per the durable
   /// (iOS Keychain) ledger. Always `false` on non-iOS — those platforms rely
@@ -73,10 +97,20 @@ class RedeemedKeyLedger {
   /// already happened via `AdPreferences`.
   Future<void> markRedeemed(String kid) {
     if (!_platformIsIos()) return Future<void>.value();
-    // Chain onto the previous write so two near-simultaneous redemptions
-    // never read the same pre-write snapshot — the second one always reads
-    // what the first one just wrote.
-    final next = _writeChain.then((_) => _markRedeemed(kid));
+    // Chain onto the previous write so two near-simultaneous redemptions —
+    // including one issued by a different `RedeemedKeyLedger` instance,
+    // see `_writeChain`'s doc comment — never read the same pre-write
+    // snapshot. The second one always reads what the first one just wrote.
+    final predecessor =
+        _writesInFlight > 0 ? _writeChain : Future<void>.value();
+    _writesInFlight++;
+    final next = predecessor.then((_) async {
+      try {
+        await _markRedeemed(kid);
+      } finally {
+        _writesInFlight--;
+      }
+    });
     _writeChain = next;
     return next;
   }

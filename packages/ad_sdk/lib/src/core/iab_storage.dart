@@ -106,6 +106,16 @@ class IabStorage {
         _store = SharedPreferencesAsync();
       }
       return _store;
+    } on StateError {
+      // Round-31 — `SharedPreferencesAsync()` throws a `StateError` when NO
+      // platform implementation is registered at all. That cannot happen in
+      // a real shipped app (Flutter's generated plugin registrant always
+      // wires one up before any Dart code runs) — it only happens in a test
+      // harness that never bothered to set one up. Let it propagate so
+      // [tcfAllowsPersonalisedAds] can tell this apart from a genuine open
+      // failure on a real device; [read]/[readInt] catch everything below
+      // regardless, so their behaviour is unchanged.
+      rethrow;
     } catch (e) {
       SafeLogger.w('IabStorage', 'could not open the platform store: $e');
       return null;
@@ -192,12 +202,54 @@ class IabStorage {
   /// [usPrivacyOptedOut] stops short of decoding GPP. The purpose bitfield is
   /// the decisive signal for *personalisation* and is a plain string.
   static Future<bool?> tcfAllowsPersonalisedAds() async {
-    final gdprApplies = await readInt(keyGdprApplies);
+    // Round-31 audit, BLOCKER. [read]/[readInt] deliberately fail soft to
+    // `null` for every other caller here (informational passthrough), but
+    // that collapses two very different situations into the same value:
+    // "no TCF session has ever run" (a store that opened and read fine, keys
+    // simply absent — typical outside the EEA) and "the platform store is
+    // broken" (opened or read threw). Every caller of this method treats a
+    // `null` as "no signal, not a refusal" and defaults to `true` — so if the
+    // second case is silently reported as the first, a broken store on a
+    // real EEA device would revive round-6's BLOCKER (`obtained` read as
+    // consent) with zero indication anything is wrong. The iOS branch of
+    // this store has never been exercised on real hardware (see class doc,
+    // CI down since 2026-08-09), so this distinction is not hypothetical.
+    // Read directly here (bypassing [read]/[readInt]'s catch) so a thrown
+    // exception can fail CLOSED instead of being laundered into "no signal".
+    SharedPreferencesAsync? store;
+    try {
+      store = await _open().timeout(const Duration(seconds: 5));
+    } on StateError {
+      // No platform implementation registered at all — a test-harness
+      // artifact, impossible on a real shipped app (see [_open]). Behave as
+      // before: no TCF session has ever run.
+      return null;
+    }
+    if (store == null) {
+      SafeLogger.w('IabStorage',
+          'tcfAllowsPersonalisedAds: platform store unreadable — failing closed');
+      return false;
+    }
+    int? gdprApplies;
+    String? purposes;
+    try {
+      gdprApplies = await store
+          .getInt(keyGdprApplies)
+          .timeout(const Duration(seconds: 5));
+      final rawPurposes = await store
+          .getString(keyPurposeConsents)
+          .timeout(const Duration(seconds: 5));
+      purposes =
+          (rawPurposes == null || rawPurposes.isEmpty) ? null : rawPurposes;
+    } catch (e) {
+      SafeLogger.w('IabStorage',
+          'tcfAllowsPersonalisedAds: platform read failed — failing closed: $e');
+      return false;
+    }
     // Explicitly out of GDPR scope — the purpose bitfield is not populated
     // meaningfully there, and refusing personalisation would be wrong.
     if (gdprApplies == 0) return true;
 
-    final purposes = await read(keyPurposeConsents);
     if (gdprApplies == null && purposes == null) {
       // No TCF session has ever run on this device (typical outside the EEA).
       return null;

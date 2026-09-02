@@ -20,6 +20,7 @@ import 'dart:async';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/src/core/att_consent.dart';
+import 'package:applovin_admob_sdk/src/core/ump_consent.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,14 @@ const _zeroIdfa = '00000000-0000-0000-0000-000000000000';
 const _realIdfa = 'ABCDEF12-3456-7890-ABCD-EF1234567890';
 
 void main() {
+  // Round-31 audit fix — requestAttIfNeeded() now has the side effect of
+  // marking `umpFormOnScreen` (module-level global, shared across every
+  // test in this process). A test that parks a `Completer` and never
+  // completes it (the "prompt hang timeout" test below, deliberately)
+  // leaves that mark set forever otherwise, bleeding into whichever test
+  // runs next.
+  tearDown(resetUmpFormOnScreen);
+
   group('AttResult.allowsTracking', () {
     test('true for authorized', () {
       expect(
@@ -192,6 +201,63 @@ void main() {
         expect(result, isNotNull,
             reason: 'requestAttIfNeeded must not hang forever');
         expect(result!.status, AttStatus.notDetermined);
+      });
+    });
+  });
+
+  // Round-31 audit (MAJOR) — the ATT prompt is a native, non-Flutter-route
+  // dialog with no `AdScreenRouteLogger`/App-Open-resume visibility, same
+  // as a UMP form. Reuses `markUmpFormOnScreen`'s exact ref-counted/
+  // backstopped mutex rather than a parallel mechanism.
+  group('requestAttIfNeeded — fullscreen-ad mutex (round-31)', () {
+    test('umpFormOnScreen is true while the native prompt is up, and false '
+        'once it actually resolves', () async {
+      final promptCompleter = Completer<TrackingStatus>();
+      expect(umpFormOnScreen.value, isFalse, reason: 'sanity: starts clear');
+
+      final resultFuture = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () => promptCompleter.future,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(umpFormOnScreen.value, isTrue,
+          reason: 'a fullscreen ad must not be able to show over the '
+              'native ATT alert');
+
+      promptCompleter.complete(TrackingStatus.authorized);
+      await resultFuture;
+
+      expect(umpFormOnScreen.value, isFalse,
+          reason: 'must release once the alert genuinely resolves');
+    });
+
+    test(
+        'a 20s Dart-side timeout does NOT release the mutex — the native '
+        'alert can still be up (same bug class as a UMP form timeout)',
+        () {
+      fakeAsync((async) {
+        final promptCompleter = Completer<TrackingStatus>();
+        requestAttIfNeeded(
+          platformIsIosOverride: () => true,
+          readStatusOverride: () async => TrackingStatus.notDetermined,
+          requestAuthorizationOverride: () => promptCompleter.future,
+        );
+        async.elapse(const Duration(seconds: 20));
+
+        expect(umpFormOnScreen.value, isTrue,
+            reason: 'requestAttIfNeeded() returning at the synthetic '
+                'timeout must not be mistaken for the native alert having '
+                'actually closed — releasing here would let a fullscreen '
+                'ad show over a still-visible system alert');
+
+        promptCompleter.complete(TrackingStatus.denied);
+        async.flushMicrotasks();
+
+        expect(umpFormOnScreen.value, isFalse,
+            reason: 'must still release once the real alert resolves, '
+                'however much later than the synthetic timeout');
       });
     });
   });

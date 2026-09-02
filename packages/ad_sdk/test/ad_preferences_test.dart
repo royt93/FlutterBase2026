@@ -96,4 +96,44 @@ void main() {
               'checking a fresh id gets generated, not a hardcoded constant');
     });
   });
+
+  group('round-31 audit: daily/placement count increments stay '
+      'synchronously visible (no write-serialization chain)', () {
+    // A chain-based serializer (mirroring `_fillRateBaselineChain`, T101)
+    // was tried here and reverted — see the comment on
+    // `incrementDailyAdCount()`. It doesn't fix a reachable bug (the
+    // legacy `SharedPreferences` cache these increments read/write through
+    // mutates synchronously, so two unawaited calls fired back-to-back
+    // can't actually interleave), and it broke real callers in
+    // `AdSafetyConfig` that read `getDailyAdCount()`/
+    // `getPlacementDailyCounts()` synchronously right after recording a
+    // show. These pin that property so a future "fix" doesn't
+    // reintroduce the regression.
+    test(
+        'two incrementDailyAdCount() calls fired back-to-back (no await '
+        'between them) both land, and the count is visible synchronously '
+        'the instant each call is made', () async {
+      final f1 = prefs.incrementDailyAdCount();
+      expect(prefs.getDailyAdCount(), 1,
+          reason: 'must be visible before f1 even resolves, not after');
+      final f2 = prefs.incrementDailyAdCount();
+      expect(prefs.getDailyAdCount(), 2,
+          reason: 'must be visible before f2 even resolves, not after');
+      await f1;
+      await f2;
+      expect(prefs.getDailyAdCount(), 2);
+    });
+
+    test(
+        'two incrementPlacementDailyCount() calls for the SAME placement '
+        'fired back-to-back both land, visible synchronously', () async {
+      final f1 = prefs.incrementPlacementDailyCount('rewarded_home');
+      expect(prefs.getPlacementDailyCounts()['rewarded_home'], 1);
+      final f2 = prefs.incrementPlacementDailyCount('rewarded_home');
+      expect(prefs.getPlacementDailyCounts()['rewarded_home'], 2);
+      await f1;
+      await f2;
+      expect(prefs.getPlacementDailyCounts()['rewarded_home'], 2);
+    });
+  });
 }

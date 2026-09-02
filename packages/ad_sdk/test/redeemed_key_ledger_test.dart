@@ -13,6 +13,13 @@ import 'package:mocktail/mocktail.dart';
 class _MockSecureStorage extends Mock implements FlutterSecureStorage {}
 
 void main() {
+  // Round-31 audit fix — `_writeChain` is now process-wide (static), same
+  // reasoning as `VipManager._saveQueue`. Reset between tests so one
+  // test's queue tail can't leak into the next (each test body runs in its
+  // own zone, so a leftover tail future can never deliver a `.then`
+  // registered from a later one — see `_writeChain`'s doc comment).
+  setUp(RedeemedKeyLedger.resetWriteChainForTest);
+
   RedeemedKeyLedger buildLedger({
     FlutterSecureStorage? secureStorage,
     bool isIos = false,
@@ -160,6 +167,41 @@ void main() {
       expect(persisted, isNotNull);
       expect(persisted, contains('kidA'));
       expect(persisted, contains('kidB'));
+    });
+
+    // Round-31 audit fix (MAJOR) — same race, but across TWO separate
+    // `RedeemedKeyLedger` instances sharing the same underlying storage,
+    // reproducing `AdManager.destroy()` + `initialize()`: the old
+    // `VipManager`'s ledger has a write in flight when a NEW `VipManager`
+    // (with its own brand new ledger) redeems a different key.
+    test('two concurrent redemptions on DIFFERENT ledger instances '
+        '(same storage) do not drop either kid', () async {
+      final storage = _MockSecureStorage();
+      String? persisted;
+      when(() => storage.read(key: any(named: 'key'))).thenAnswer((_) async {
+        final snapshot = persisted;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return snapshot;
+      });
+      when(() => storage.write(
+            key: any(named: 'key'),
+            value: any(named: 'value'),
+          )).thenAnswer((invocation) async {
+        persisted = invocation.namedArguments[#value] as String;
+      });
+      final oldLedger = buildLedger(secureStorage: storage, isIos: true);
+      final newLedger = buildLedger(secureStorage: storage, isIos: true);
+
+      await Future.wait([
+        oldLedger.markRedeemed('kidFromOldInstance'),
+        newLedger.markRedeemed('kidFromNewInstance'),
+      ]);
+
+      expect(persisted, isNotNull);
+      expect(persisted, contains('kidFromOldInstance'),
+          reason: 'the old instance\'s in-flight write must not be '
+              'silently overwritten by the new instance\'s write');
+      expect(persisted, contains('kidFromNewInstance'));
     });
 
     test('swallows write errors (fail-open)', () async {

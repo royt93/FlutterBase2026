@@ -128,6 +128,25 @@ class _FailableConsentStore extends InMemorySharedPreferencesStore {
   }
 }
 
+/// Simulates the platform store itself being unreadable (a wedged/broken
+/// channel), as opposed to reading fine and simply finding the key absent —
+/// the distinction round-31's BLOCKER fix relies on.
+base class _ThrowingTcfStore extends InMemorySharedPreferencesAsync {
+  _ThrowingTcfStore() : super.empty();
+
+  @override
+  Future<int?> getInt(String key, SharedPreferencesOptions options) {
+    return Future<int?>.error(
+        PlatformException(code: 'CHANNEL_ERROR', message: 'store is gone'));
+  }
+
+  @override
+  Future<String?> getString(String key, SharedPreferencesOptions options) {
+    return Future<String?>.error(
+        PlatformException(code: 'CHANNEL_ERROR', message: 'store is gone'));
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -205,6 +224,24 @@ void main() {
       // itself proof a TCF session ran, so it must be honoured.
       seedTcf({'IABTCF_PurposeConsents': _purposesRefuse});
       expect(await IabStorage.tcfAllowsPersonalisedAds(), isFalse);
+    });
+
+    // Round-31 audit, BLOCKER. The iOS branch of this store has never been
+    // exercised on real hardware (see the class doc — CI down since
+    // 2026-08-09). If the platform read throws instead of cleanly returning
+    // an absent value, that MUST NOT collapse into the same `null` this class
+    // returns for "no TCF session has ever run" (typical outside the EEA) —
+    // every caller treats that `null` as "not a refusal" and defaults to
+    // `true`. A broken store on a real EEA device would then silently revive
+    // round-6's BLOCKER: `obtained` alone would be read as consent again.
+    test('a platform read that throws fails CLOSED, not null-defaults-to-true',
+        () async {
+      IabStorage.debugResetForTest();
+      SharedPreferencesAsyncPlatform.instance = _ThrowingTcfStore();
+
+      expect(await IabStorage.tcfAllowsPersonalisedAds(), isFalse,
+          reason: 'an unreadable store must never be read as "no signal" — '
+              'that is indistinguishable downstream from consent');
     });
   });
 

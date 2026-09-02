@@ -46,6 +46,26 @@ class WaterfallRecommendation {
 ///
 /// Completely opt-in via `AdManager().enableWaterfallTuner(...)` — nothing
 /// is tracked unless a host app calls that.
+///
+/// **Round-31 audit — real limitation, read before enabling:** because a
+/// single install runs exactly one provider for its whole lifetime (the
+/// stable per-install cohort assignment noted above), [_loadResults] and
+/// [_revenueMicros] for the NON-active provider are never populated on a
+/// real device — no code path in this SDK ever requests a shadow ad from
+/// the inactive provider to seed them. [recommendation] therefore compares
+/// the active provider's real score against an always-empty score for the
+/// other provider, which can never come out ahead — [recommendation]
+/// cannot return non-null on a real device, ever, regardless of how much
+/// data accumulates. This is not a bug to "fix" by shadow-requesting the
+/// other provider (that would burn a real ad request per format per
+/// session purely for attribution, a cost/policy tradeoff worth a
+/// deliberate decision of its own, not a side effect of enabling this).
+/// What this class IS useful for today: an app that runs deliberate
+/// provider-cohort A/B experiments ACROSS installs (not within one) can
+/// still read [WaterfallTuner]'s per-provider scores from server-side
+/// analytics fed by [AdRevenueEvent]/[AdLoadEvent] and decide a NEW
+/// install's `AdConfig.provider` from that — just not via [recommendation]
+/// itself, which has no cross-provider data to compare within one install.
 class WaterfallTuner {
   WaterfallTuner({int rollingWindowSize = 20})
       : _rollingWindowSize = rollingWindowSize {

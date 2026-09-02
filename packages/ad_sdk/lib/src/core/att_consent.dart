@@ -1,8 +1,10 @@
+import 'dart:async' show unawaited;
 import 'dart:io';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 
 import '../utils/safe_logger.dart';
+import 'ump_consent.dart' show markUmpFormOnScreen;
 
 /// SDK-stable mirror of the iOS App Tracking Transparency authorization state.
 ///
@@ -133,7 +135,34 @@ Future<AttResult> requestAttIfNeeded({
       // launches) or the user backgrounds the app mid-prompt. Without this,
       // requestAttIfNeeded() never returns and callers who sequence
       // ATT → UMP → initialize() (see example app) never reach initialize().
-      status = await requestAuthorization().timeout(
+      //
+      // Round-31 audit fix (MAJOR) — the native ATT alert is exactly the
+      // same class of thing `markUmpFormOnScreen` exists for (a native,
+      // non-Flutter-route dialog the fullscreen-ad mutex has no other way
+      // to see): AdScreenRouteLogger.isDialogOnTop can't see it, and
+      // presenting it doesn't background the app, so the App Open
+      // resume guard doesn't apply either. Without this, a splash flow
+      // whose ATT prompt is slow to appear (or the 20s-timeout path below)
+      // could show a fullscreen ad — including the splash App Open, which
+      // uses `bypassSafety: true` — right on top of, or immediately before,
+      // the system alert, stealing the user's tap. Reusing the exact same
+      // ref-counted/backstopped mechanism UMP forms use rather than
+      // building a parallel one.
+      //
+      // Deliberately NOT released in a `finally` around the `.timeout()`
+      // below — that is precisely the bug `markUmpFormOnScreen`'s own doc
+      // comment documents fixing for UMP forms: `Future.timeout` only
+      // stops the DART side waiting, the native alert can still be up. The
+      // `app_tracking_transparency` plugin exposes no separate "the alert
+      // was actually dismissed" signal, so the release is attached to the
+      // RAW (untimed) future — it fires whenever the alert genuinely
+      // closes, however much later than the synthetic 20s timeout that
+      // only unblocks this function's own caller.
+      final releaseAttForm = markUmpFormOnScreen();
+      final rawAuthorization = requestAuthorization();
+      unawaited(
+          rawAuthorization.then((_) {}, onError: (_) {}).whenComplete(releaseAttForm));
+      status = await rawAuthorization.timeout(
         const Duration(seconds: 20),
         onTimeout: () {
           SafeLogger.w(

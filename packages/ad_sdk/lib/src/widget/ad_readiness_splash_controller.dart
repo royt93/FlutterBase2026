@@ -122,7 +122,16 @@ class AdReadinessSplashController {
         return;
       }
       AdLoadingDialog.showAdBuffer(ctx, onComplete: () {
-        if (!ctx.mounted) {
+        // Round-31 audit fix (MAJOR) — `onAdLoaded`'s own `_navigated` check
+        // above only covers the window before this buffer dialog starts.
+        // The hard-cap timer isn't cancelled until just below (deliberately
+        // late, per this method's own ordering comment), so it can still
+        // fire `_goReady()` — navigating away — WHILE the buffer's own
+        // delay is still running. The old splash route can still be
+        // `ctx.mounted` during its exit transition, so that check alone
+        // isn't enough to stop this callback from calling showAppOpenAd()
+        // on a screen the host has already navigated past "ready".
+        if (_navigated || !ctx.mounted) {
           _goReady();
           return;
         }

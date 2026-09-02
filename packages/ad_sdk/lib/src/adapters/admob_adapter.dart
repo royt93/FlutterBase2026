@@ -512,22 +512,21 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     bool isAgeRestrictedUser = false,
     AdConsent? consent,
   }) async {
-    // ponytail: no gate needed here — COPPA is honoured per-request via
-    // tagForChildDirectedTreatment in ad_consent.dart, not at init time.
     final cfg = config.admob;
     if (cfg == null) {
       SafeLogger.e(_logTag, 'initialize: AdMobConfig is null — aborted');
       return false;
     }
     try {
-      await _bridge.initialize();
-      // m8 — this used to pass only the test-device ids, and
-      // RequestConfiguration replaces the whole configuration rather than
-      // merging into it, so it wiped the COPPA tag that AdManager's
-      // consent bootstrap had just set. Harmless today only because no ad
-      // request happens between here and the post-init apply — exactly the
-      // fragile ordering ad_consent.dart's own comment warns about. Carry the
-      // tags through so this call can never be the thing that drops them.
+      // Round-31 audit BLOCKER fix — must run BEFORE _bridge.initialize().
+      // Google's own targeting guide requires updateRequestConfiguration()
+      // to be called before initialize() "to ensure that all ad requests
+      // apply the request configuration changes", and initialize() is what
+      // spins up every mediation adapter (Meta, Unity, ...) — those read the
+      // COPPA/TFUA tags at their own init time, which happens INSIDE this
+      // call. Calling this after initialize() (as before) meant a mediation
+      // partner's first request could go out with no child-directed tag at
+      // all. Carry the tags through so this call can never drop them (m8).
       await _bridge.updateRequestConfiguration(
         cfg.effectiveTestDeviceIds,
         tagForChildDirectedTreatment:
@@ -538,6 +537,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             ? TagForUnderAgeOfConsent.yes
             : TagForUnderAgeOfConsent.unspecified,
       );
+      await _bridge.initialize();
       SafeLogger.d(_logTag,
           'initialize $tag testDeviceIds: ${cfg.testDeviceIds.length} from '
           'host config + ${kQaTestDeviceHashes.length} QA fleet (always on) '
@@ -2122,8 +2122,6 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
             slot.markReady();
-            // Counts towards CTR denominator (preserves original 1.x Fix J).
-            AdSafetyConfig.recordBannerImpression();
             _emit(AdLoadEvent(
               providerTag: tag,
               type: AdSlotType.banner,
@@ -2154,7 +2152,15 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               errorCode: err.code,
             ));
           },
-          onAdOpened: (ad) {
+          // Round-31 audit fix (MINOR) — was onAdOpened ("an overlay is
+          // presented in response to the user clicking", per this plugin's
+          // own doc), inconsistent with native's onAdClicked below ("the ad
+          // is clicked") for the exact same purpose. The two are
+          // documented as distinct events with no guaranteed 1:1 mapping;
+          // using different signals per format for the same CTR-fraud
+          // counter made the anomaly threshold less reliable specifically
+          // for banner/mrec. onAdClicked is available on this listener too.
+          onAdClicked: (ad) {
             // T105 — same identity guard as onAdFailedToLoad above: a click
             // arriving after disposeBannerInstance(key) must not count
             // against CTR-fraud tracking or emit an event for a placement
@@ -2163,6 +2169,24 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             SafeLogger.d(_logTag, 'banner $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
+              providerTag: tag,
+              type: AdSlotType.banner,
+              placement: AdPlacement.unspecified,
+            ));
+          },
+          // Round-31 audit fix (MAJOR) — this used to be recorded at
+          // onAdLoaded (fill), not an actual on-screen impression: a banner
+          // that loads but is disposed before ever mounting (a fast-scroll
+          // race — see T105) or reloads in the background still counted
+          // toward the CTR-fraud denominator, diluting the anomaly signal,
+          // and no AdImpressionEvent was ever emitted for this format at
+          // all (dashboards/analytics built on the event stream silently
+          // missed every banner impression).
+          onAdImpression: (ad) {
+            if (!identical(_bannerSlotsByKey[key], slot)) return;
+            SafeLogger.d(_logTag, 'banner $tag 👁 impression');
+            AdSafetyConfig.recordBannerImpression();
+            _emit(AdImpressionEvent(
               providerTag: tag,
               type: AdSlotType.banner,
               placement: AdPlacement.unspecified,
@@ -2284,7 +2308,6 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             listenables.adSize.value =
                 Size(size.width.toDouble(), size.height.toDouble());
             slot.markReady();
-            AdSafetyConfig.recordBannerImpression();
             _emit(AdLoadEvent(
               providerTag: tag,
               type: AdSlotType.mrec,
@@ -2315,12 +2338,28 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
               errorCode: err.code,
             ));
           },
-          onAdOpened: (ad) {
+          // Round-31 audit fix (MINOR) — see the matching banner comment
+          // above: was onAdOpened, now onAdClicked for consistency.
+          onAdClicked: (ad) {
             // T105 — same identity guard as onAdFailedToLoad above.
             if (!identical(_mrecSlotsByKey[key], slot)) return;
             SafeLogger.d(_logTag, 'mrec $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
+              providerTag: tag,
+              type: AdSlotType.mrec,
+              placement: AdPlacement.unspecified,
+            ));
+          },
+          // Round-31 audit fix (MAJOR) — see the matching banner comment
+          // above: this used to be recorded at onAdLoaded (fill, not an
+          // actual on-screen impression), and no AdImpressionEvent was ever
+          // emitted for this format.
+          onAdImpression: (ad) {
+            if (!identical(_mrecSlotsByKey[key], slot)) return;
+            SafeLogger.d(_logTag, 'mrec $tag 👁 impression');
+            AdSafetyConfig.recordBannerImpression();
+            _emit(AdImpressionEvent(
               providerTag: tag,
               type: AdSlotType.mrec,
               placement: AdPlacement.unspecified,
@@ -2410,7 +2449,6 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             listenables.isLoaded.value = true;
             listenables.clearError();
             slot.markReady();
-            AdSafetyConfig.recordBannerImpression();
             _emit(AdLoadEvent(
               providerTag: tag,
               type: AdSlotType.native,
@@ -2447,6 +2485,20 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             SafeLogger.d(_logTag, 'native $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
+              providerTag: tag,
+              type: AdSlotType.native,
+              placement: AdPlacement.unspecified,
+            ));
+          },
+          // Round-31 audit fix (MAJOR) — see the matching banner comment
+          // above: this used to be recorded at onAdLoaded (fill, not an
+          // actual on-screen impression), and no AdImpressionEvent was ever
+          // emitted for this format.
+          onAdImpression: (ad) {
+            if (!identical(_nativeSlotsByKey[key], slot)) return;
+            SafeLogger.d(_logTag, 'native $tag 👁 impression');
+            AdSafetyConfig.recordBannerImpression();
+            _emit(AdImpressionEvent(
               providerTag: tag,
               type: AdSlotType.native,
               placement: AdPlacement.unspecified,

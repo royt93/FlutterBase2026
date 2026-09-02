@@ -140,6 +140,27 @@ void main() {
     await AdManager().refreshRemoteSafetyParams();
   });
 
+  // Round-31 audit (MAJOR) — initialize() wraps applyRemoteSafetyOverrides()
+  // in a try/catch; this method did not. A malformed numeric field (e.g.
+  // `Infinity`, which `posInt()` used to crash on via `double.toInt()`)
+  // would escape this method uncaught instead of falling back to "keep
+  // current params" like the class doc promises and every other malformed
+  // field already does. Exercises both this method's try/catch AND
+  // posInt()'s own Infinity fix together — proves no crash escapes either
+  // way.
+  test(
+      'a malformed numeric override (Infinity) on refresh does not throw',
+      () async {
+    await wireUp(_FakeRemoteSafetyProvider(
+        {'maxFullscreenAdsPerDay': double.infinity}));
+    // Before the fix, `posInt()` threw `UnsupportedError` on `Infinity`
+    // from inside the try-less second half of this method — an uncaught
+    // exception escaping an async method surfaces as the returned Future
+    // completing with an error, which `completes` (as opposed to
+    // `completion`/a bare await) specifically fails on.
+    await expectLater(AdManager().refreshRemoteSafetyParams(), completes);
+  });
+
   // Round-30 audit (MAJOR) — refreshRemoteSafetyParams() used to merge
   // remote overrides onto the raw config.safety, silently reverting every
   // field a safetyRampSchedule stage had adjusted (but the remote payload

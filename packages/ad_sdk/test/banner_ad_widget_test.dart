@@ -736,6 +736,55 @@ void main() {
       expect(adapter.loadBannerCalls, 2,
           reason: 'must request a fresh banner once back on top');
     });
+
+    // Round-31 audit fix (MAJOR) — RouteAware alone never fires for an
+    // IndexedStack/PageView-style tab switch (no Route change at all).
+    // `Visibility(maintainState: true)` — Flutter's own widget for exactly
+    // this "keep it mounted but hidden" pattern (used by real apps to
+    // implement tab switching without losing tab state, the same problem
+    // an IndexedStack-based bottom nav solves) — wraps its hidden child in
+    // `TickerMode(enabled: false)`, which is the real, if partial, signal
+    // this widget had none of before.
+    testWidgets(
+        'going invisible via Visibility(maintainState: true) disposes the '
+        'banner the same way a route-away does, and coming back reloads it',
+        (tester) async {
+      final visible = ValueNotifier<bool>(true);
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: visible,
+            builder: (context, isVisible, child) => Visibility(
+              visible: isVisible,
+              maintainState: true,
+              child: child!,
+            ),
+            child: const BannerAdWidget(),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.disposeCalls, 0);
+
+      visible.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'a tab-switch hiding this widget via IndexedStack/'
+              'PageView/Offstage must stop it the same way a route-away '
+              'does — there is no route change here for RouteAware alone '
+              'to ever see');
+
+      visible.value = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'must request a fresh banner once visible again');
+    });
   });
 
   group('T107 — placement', () {

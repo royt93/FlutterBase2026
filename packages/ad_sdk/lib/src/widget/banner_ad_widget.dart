@@ -22,7 +22,19 @@ import 'shimmer_view.dart';
 ///
 /// Manages its own lifecycle:
 /// - subscribes to [adRouteObserver] for route-aware pause/resume
+/// - reacts to `TickerMode` (e.g. `Visibility(maintainState: true)`) so a
+///   hidden-but-still-mounted instance also pauses/resumes
 /// - delegates everything provider-specific to the active [AdProviderAdapter]
+///
+/// **Known gap (round-31 audit):** a bottom-nav built directly on
+/// `IndexedStack` (switching `index` to show/hide tabs, with no `Route`
+/// push/pop and no `TickerMode` change either) gives this widget no signal
+/// at all that it went off-screen — it keeps auto-refreshing/serving ad
+/// requests in the background on a hidden tab, which is a genuine AdMob/
+/// AppLovin policy risk ("don't request ads that aren't visible"). If your
+/// bottom nav uses `IndexedStack`, wrap each tab's content in
+/// `Visibility(maintainState: true)` instead (or `TickerMode` directly) so
+/// this widget's existing pause/resume logic can see the transition.
 class BannerAdWidget extends StatefulWidget {
   const BannerAdWidget({
     super.key,
@@ -76,6 +88,26 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   /// AdMob only: true while this route is the top route.
   final ValueNotifier<bool> _admobIsTop = ValueNotifier<bool>(false);
+
+  /// Round-31 audit fix (MAJOR) — [RouteAware] alone only fires for an
+  /// actual `Route` push/pop. A bottom-nav built on `IndexedStack`/
+  /// `PageView` keeps every tab's widget subtree mounted with no route
+  /// change at all when switching tabs, so a banner on a hidden tab kept
+  /// auto-refreshing (AppLovin) or sitting live and requesting ads
+  /// (AdMob) in the background — the same "requesting ads that aren't
+  /// visible" policy risk [didPushNext] exists to avoid, just reached via
+  /// a different, very common navigation pattern this widget had no
+  /// signal for at all. `TickerMode.of(context)` catches apps built with
+  /// `Visibility(maintainState: true)` (Flutter's own "keep mounted, hide
+  /// it" widget — what `CupertinoTabScaffold` uses internally for its own
+  /// tabs) and `Offstage` is a common source of confusion here: despite
+  /// the name it does NOT touch `TickerMode` at all (see its own doc
+  /// comment — "animations continue to run"). Neither this nor `Offstage`
+  /// fires for a bare `IndexedStack`, which sets no `TickerMode` of its
+  /// own — that case (arguably the MOST common bottom-nav pattern) still
+  /// has no widget-tree signal to key off at all. See this class's own
+  /// doc comment for the documented gap and the workaround.
+  bool? _lastTickerMode;
 
   @override
   void initState() {
@@ -156,6 +188,24 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
         adRouteObserver.subscribe(this, route);
         SafeLogger.d(_tag,
             'RouteAware subscribed: ${route.settings.name ?? route.runtimeType}');
+      }
+    }
+    // Round-31 audit fix (MAJOR) — see `_lastTickerMode`'s doc comment.
+    // Routed through the existing didPushNext/didPopNext handlers so this
+    // shares their exact pause/dispose and resume/reload logic rather than
+    // duplicating it.
+    // Round-31 audit fix (MAJOR) — see `_lastTickerMode`'s doc comment.
+    // Routed through the existing didPushNext/didPopNext handlers so this
+    // shares their exact pause/dispose and resume/reload logic rather than
+    // duplicating it.
+    final tickerMode = TickerMode.of(context);
+    final lastTickerMode = _lastTickerMode;
+    _lastTickerMode = tickerMode;
+    if (lastTickerMode != null && lastTickerMode != tickerMode) {
+      if (!tickerMode) {
+        didPushNext();
+      } else {
+        didPopNext();
       }
     }
     if (!_initStarted.value) {

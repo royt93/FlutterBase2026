@@ -320,9 +320,14 @@ void main() {
   group('App Open reload-after-display-fail (regression for the backoff bug)',
       () {
     test('display failure refills immediately via beginReload', () async {
-      // Load + ready.
+      // Round-31 audit follow-up — SAME `MaxAd` instance threaded through
+      // load→show→display-failed, same as the rewarded/interstitial
+      // helpers below (see their comment): the fix added ad-identity
+      // tracking to App Open too, so a fresh `_fakeAd()` per callback call
+      // is now (correctly) discarded as stale.
+      final ad = _fakeAd();
       await adapter.loadAppOpen();
-      bridge.appOpen!.onAdLoadedCallback(_fakeAd());
+      bridge.appOpen!.onAdLoadedCallback(ad);
       expect(adapter.appOpenSlot.isReady, isTrue);
 
       // Show.
@@ -335,7 +340,7 @@ void main() {
       // Native display failure → caller dismissed(false) AND a fresh load is
       // kicked immediately (the bug: beginLoad was blocked by the cooldown the
       // show-failure just armed, so no reload happened).
-      bridge.appOpen!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+      bridge.appOpen!.onAdDisplayFailedCallback(ad, _fakeError());
 
       expect(dismissed, isFalse);
       expect(bridge.loadAppOpenCalls.length, loadsBefore + 1,
@@ -343,13 +348,14 @@ void main() {
     });
 
     test('normal hide dismisses(true) and reloads', () async {
+      final ad = _fakeAd();
       await adapter.loadAppOpen();
-      bridge.appOpen!.onAdLoadedCallback(_fakeAd());
+      bridge.appOpen!.onAdLoadedCallback(ad);
       bool? dismissed;
       await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
       final loadsBefore = bridge.loadAppOpenCalls.length;
 
-      bridge.appOpen!.onAdHiddenCallback(_fakeAd());
+      bridge.appOpen!.onAdHiddenCallback(ad);
 
       expect(dismissed, isTrue);
       expect(bridge.loadAppOpenCalls.length, loadsBefore + 1);
@@ -617,15 +623,16 @@ void main() {
     test('appOpen: reload-after-display-fail recovers via watchdog if the '
         'native callback never arrives', () {
       fakeAsync((async) {
+        final ad = _fakeAd();
         adapter.loadAppOpen();
         async.flushMicrotasks();
-        bridge.appOpen!.onAdLoadedCallback(_fakeAd());
+        bridge.appOpen!.onAdLoadedCallback(ad);
         adapter.showAppOpen(onDismiss: (_) {});
         async.flushMicrotasks();
 
         // Triggers the internal reload — bridge.loadAppOpenAd is called
         // again, but we deliberately never fire another callback for it.
-        bridge.appOpen!.onAdDisplayFailedCallback(_fakeAd(), _fakeError());
+        bridge.appOpen!.onAdDisplayFailedCallback(ad, _fakeError());
         expect(adapter.appOpenSlot.isLoading, isTrue);
 
         async.elapse(const Duration(seconds: 29));
@@ -845,12 +852,19 @@ void main() {
   // and then advance time with FakeAsync — closing the seam between "showAppOpen
   // arms the watchdog" and "the watchdog timing logic".
   group('showAppOpen arms the watchdog (real show path + FakeAsync)', () {
+    // Round-31 audit follow-up — [ad] threaded through explicitly (instead
+    // of the helper minting its own `_fakeAd()`) so callers that need to
+    // fire a display/hidden callback afterward pass the SAME instance the
+    // adapter actually loaded. The fix added ad-identity tracking to App
+    // Open too, so a fresh `_fakeAd()` per callback call is now (correctly)
+    // discarded as stale — see AppLovinAdapter._appOpenAd.
     AppLovinAdapter armedViaRealShow(
       FakeAppLovinBridge b,
       AppLifecycleState lifecycle,
       FakeAsync async,
-      void Function(bool) onDismiss,
-    ) {
+      void Function(bool) onDismiss, {
+      required MaxAd ad,
+    }) {
       final a = AppLovinAdapter(
         bridge: b,
         lifecycleStateResolver: () => lifecycle,
@@ -858,7 +872,7 @@ void main() {
       a.initialize(_config);
       async.flushMicrotasks();
       a.loadAppOpen();
-      b.appOpen!.onAdLoadedCallback(_fakeAd());
+      b.appOpen!.onAdLoadedCallback(ad);
       a.showAppOpen(onDismiss: onDismiss);
       async.flushMicrotasks();
       expect(b.showAppOpenCalls, ['appopen-id']);
@@ -876,7 +890,7 @@ void main() {
         final a = armedViaRealShow(b, AppLifecycleState.resumed, async, (d) {
           calls++;
           dismissed = d;
-        });
+        }, ad: _fakeAd());
 
         async.elapse(const Duration(seconds: 30));
         expect(dismissed, isNull,
@@ -897,9 +911,11 @@ void main() {
       fakeAsync((async) {
         final b = FakeAppLovinBridge();
         bool? dismissed;
+        final ad = _fakeAd();
         final a = armedViaRealShow(
-            b, AppLifecycleState.resumed, async, (d) => dismissed = d);
-        b.appOpen!.onAdDisplayedCallback(_fakeAd()); // really on screen
+            b, AppLifecycleState.resumed, async, (d) => dismissed = d,
+            ad: ad);
+        b.appOpen!.onAdDisplayedCallback(ad); // really on screen
 
         async.elapse(const Duration(seconds: 20));
 
@@ -917,9 +933,11 @@ void main() {
       fakeAsync((async) {
         final b = FakeAppLovinBridge();
         bool? dismissed;
+        final ad = _fakeAd();
         final a = armedViaRealShow(
-            b, AppLifecycleState.resumed, async, (d) => dismissed = d);
-        b.appOpen!.onAdDisplayedCallback(_fakeAd());
+            b, AppLifecycleState.resumed, async, (d) => dismissed = d,
+            ad: ad);
+        b.appOpen!.onAdDisplayedCallback(ad);
 
         async.elapse(const Duration(seconds: 100));
 
@@ -935,13 +953,14 @@ void main() {
         final b = FakeAppLovinBridge();
         var calls = 0;
         bool? dismissed;
+        final ad = _fakeAd();
         armedViaRealShow(b, AppLifecycleState.resumed, async, (d) {
           calls++;
           dismissed = d;
-        });
+        }, ad: ad);
 
         // AppLovin's native onAdHidden resolves the show.
-        b.appOpen!.onAdHiddenCallback(_fakeAd());
+        b.appOpen!.onAdHiddenCallback(ad);
         expect(dismissed, isTrue);
         expect(calls, 1);
 
@@ -1801,6 +1820,45 @@ void main() {
       expect(a.rewardedSlot.lastLoadedAt, isNull,
           reason: 'a load that lands after dispose() must not mark a slot '
               'on an adapter nobody owns any more as loaded');
+    });
+
+    // Round-31 audit — an explicit `_teardownStarted` check on the shared
+    // banner/mrec widget listener (matching round-29's B3 guard on App
+    // Open/Interstitial/Rewarded) was tried and reverted: it turned out
+    // unnecessary. `dispose()` sets `_bannerDisposed`/`_mrecDisposed` in
+    // the same synchronous block as `_teardownStarted`, and every mutation
+    // this callback makes goes through `_bannerSlotFor`/`_mrecSlotFor`,
+    // which already hand back a disposed scratch object once those flags
+    // are set — well before the `await destroyWidgetAdView(...)` loop a
+    // late callback could land during. Uses `_TeardownRaceBridge`
+    // (round-16) to park dispose() in that exact await and confirm the
+    // existing defence actually holds, not just in theory.
+    test(
+        'banner onAdLoadFailedCallback landing WHILE dispose() is still '
+        'destroying the AdView is already a no-op via the scratch-slot '
+        'fallback', () async {
+      final b = _TeardownRaceBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      await a.preloadBanner('k');
+      final slot = a.bannerSlot('k');
+      final stale = b.widget!;
+
+      final disposing = a.dispose();
+      await Future<void>.delayed(Duration.zero);
+      expect(b.destroyWidgetAdViewCalls, isNotEmpty,
+          reason: 'control — dispose() really is parked in the destroy '
+              'await, which is the window under test');
+
+      stale.onAdLoadFailedCallback('banner-id', _fakeError());
+
+      b.destroyGate.complete();
+      await disposing;
+
+      expect(slot.lastErrorAt, isNull,
+          reason: 'a load failure landing mid-teardown must not touch the '
+              'REAL slot — it should have been routed to a disposed '
+              'scratch object instead');
     });
   });
 

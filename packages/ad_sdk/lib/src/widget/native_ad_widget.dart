@@ -89,6 +89,27 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
   /// a fixed backoff instead.
   Timer? _retryTimer;
 
+  /// Round-31 audit fix (MAJOR) — the notifier [AdManager.nativeHasError]
+  /// returns is per-bundle, and `disposeNativeInstance(this)` (called from
+  /// [_onPersonalisationWithdrawn] and [_onCanRequestAdsChanged] below)
+  /// drops the old bundle and lets the next `native(this)`/
+  /// `nativeHasError(this)` access create a brand new one. [initState] only
+  /// ever subscribed [_onNativeErrorChanged] to the ORIGINAL notifier, so
+  /// after any dispose/revive cycle (a very common one: a consent gate
+  /// closing then reopening) the retry-after-30s mechanism this listener
+  /// implements silently stopped working — right back to the bug it was
+  /// added to fix. Tracked so [dispose] can also unsubscribe from whichever
+  /// notifier is actually current, not a stale reference.
+  ValueListenable<bool>? _subscribedNativeErrorNotifier;
+
+  void _subscribeNativeError() {
+    final notifier = AdManager().nativeHasError(this);
+    if (identical(notifier, _subscribedNativeErrorNotifier)) return;
+    _subscribedNativeErrorNotifier?.removeListener(_onNativeErrorChanged);
+    notifier.addListener(_onNativeErrorChanged);
+    _subscribedNativeErrorNotifier = notifier;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -101,7 +122,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     AdManager()
         .personalisationRevision
         .addListener(_onPersonalisationWithdrawn);
-    AdManager().nativeHasError(this).addListener(_onNativeErrorChanged);
+    _subscribeNativeError();
   }
 
   void _onNativeErrorChanged() {
@@ -191,6 +212,11 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     }
     mgr.recordNativeLoad(this);
     _allowed.value = true;
+    // Round-31 audit fix — `disposeNativeInstance` (called by the two
+    // listeners above before re-triggering this method) may have replaced
+    // the bundle `nativeHasError(this)` reads from; re-subscribe to
+    // whichever one is current. See `_subscribedNativeErrorNotifier`'s doc.
+    _subscribeNativeError();
 
     if (mgr.isAdMobProvider) {
       mgr.loadAdmobNativeIfNeeded(this, templateType: widget.templateType);
@@ -206,7 +232,11 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     AdManager()
         .personalisationRevision
         .removeListener(_onPersonalisationWithdrawn);
-    AdManager().nativeHasError(this).removeListener(_onNativeErrorChanged);
+    // Round-31 audit fix — remove from whichever notifier was actually
+    // subscribed (see `_subscribedNativeErrorNotifier`'s doc), not a fresh
+    // `nativeHasError(this)` read here, which could be a bundle created
+    // AFTER the last subscribe and therefore never actually listened to.
+    _subscribedNativeErrorNotifier?.removeListener(_onNativeErrorChanged);
     _retryTimer?.cancel();
     AdManager().disposeNativeInstance(this);
     _allowed.dispose();

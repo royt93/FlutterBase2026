@@ -40,10 +40,18 @@ class _PendingAppOpenAdapter implements AdProviderAdapter {
   final AdSlot rewardedInterstitialSlot =
       AdSlot(type: AdSlotType.rewardedInterstitial);
   void Function(bool loaded)? pendingOnLoaded;
+  int showAppOpenCalls = 0;
 
   @override
   Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
     pendingOnLoaded = onAdLoaded;
+  }
+
+  @override
+  Future<void> showAppOpen(
+      {required void Function(bool dismissed) onDismiss}) async {
+    showAppOpenCalls++;
+    onDismiss(true);
   }
 
   @override
@@ -200,5 +208,61 @@ void main() {
             'to run the host\'s navigation callback on a deactivated '
             'BuildContext ("Looking up a deactivated widget\'s ancestor is '
             'unsafe")');
+  });
+
+  // Round-31 audit (MAJOR) — the hard-cap timer isn't cancelled until
+  // showAppOpenAd() is actually about to be called (deliberately late), so
+  // it can still fire `_goReady()` (navigating the host to "ready") WHILE
+  // AdLoadingDialog's buffer delay (default 1s) is still counting down.
+  // The buffer's `onComplete` only checked `ctx.mounted`, which the old
+  // splash route can still satisfy mid-exit-transition — so App Open could
+  // show AFTER the host already navigated past "ready".
+  testWidgets(
+      'the hard cap firing DURING the ad-loaded buffer delay must not let '
+      'showAppOpenAd() run afterward', (tester) async {
+    late BuildContext ctx;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(builder: (c) {
+          ctx = c;
+          return const SizedBox.shrink();
+        }),
+      ),
+    ));
+
+    final adapter = _PendingAppOpenAdapter();
+    AdManager().debugSetAdapter(adapter);
+    addTearDown(() => AdManager().debugSetAdapter(null));
+
+    // Shorter than AdConfig.loadingBufferMs's 1000ms default, so the hard
+    // cap has a real chance to fire mid-buffer.
+    final controller = AdReadinessSplashController(
+      config: _config,
+      hardCapDuration: const Duration(milliseconds: 100),
+    );
+    addTearDown(controller.dispose);
+
+    var readyCount = 0;
+    controller.start(ctx, onReady: () => readyCount++);
+
+    SimpleEventBus().fire(const BoolEvent(true));
+    await tester.pump();
+    // Ad "loads" successfully, starting AdLoadingDialog's buffer delay.
+    adapter.pendingOnLoaded!.call(true);
+    await tester.pump();
+
+    // Elapse PAST the hard cap but still well inside the 1s buffer delay.
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(readyCount, 1,
+        reason: 'sanity: the hard cap really did fire mid-buffer');
+
+    // Now let the buffer's own delay finish.
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(adapter.showAppOpenCalls, 0,
+        reason: 'the host already navigated to "ready" via the hard cap — '
+            'showAppOpenAd() must not run afterward on whatever screen '
+            'comes next');
+    expect(readyCount, 1, reason: 'onReady must still only fire once');
   });
 }

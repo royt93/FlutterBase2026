@@ -22,6 +22,9 @@ import 'shimmer_view.dart';
 /// // or directly:
 /// const MrecAdWidget()
 /// ```
+///
+/// See [BannerAdWidget]'s doc comment for the `TickerMode`/`IndexedStack`
+/// visibility notes — this widget follows the identical pattern.
 class MrecAdWidget extends StatefulWidget {
   const MrecAdWidget({
     super.key,
@@ -48,6 +51,11 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
 
   /// AdMob only: true while this route is the top route.
   final ValueNotifier<bool> _admobIsTop = ValueNotifier<bool>(false);
+
+  /// Round-31 audit fix (MAJOR) — see `BannerAdWidget`'s matching field
+  /// for the full reasoning (IndexedStack/PageView tab switches keep this
+  /// widget mounted with no route change to key off).
+  bool? _lastTickerMode;
 
   @override
   void initState() {
@@ -124,6 +132,18 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
         adRouteObserver.subscribe(this, route);
         SafeLogger.d(_tag,
             'RouteAware subscribed: ${route.settings.name ?? route.runtimeType}');
+      }
+    }
+    // Round-31 audit fix (MAJOR) — see `_lastTickerMode`'s doc comment and
+    // `BannerAdWidget`'s matching hook, which this mirrors.
+    final tickerMode = TickerMode.of(context);
+    final lastTickerMode = _lastTickerMode;
+    _lastTickerMode = tickerMode;
+    if (lastTickerMode != null && lastTickerMode != tickerMode) {
+      if (!tickerMode) {
+        didPushNext();
+      } else {
+        didPopNext();
       }
     }
     if (!_initStarted.value) {

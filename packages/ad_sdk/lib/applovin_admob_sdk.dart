@@ -17,6 +17,8 @@ export 'src/config/remote_ad_safety_provider.dart';
 export 'src/config/ad_log_level.dart';
 
 // Consent (binary dialog + manager)
+export 'src/consent/ccpa_opt_out_strings.dart';
+export 'src/consent/ccpa_opt_out_toggle.dart';
 export 'src/consent/consent_dialog.dart' show showConsentDialog;
 export 'src/consent/consent_dialog_strings.dart';
 export 'src/consent/consent_manager.dart';

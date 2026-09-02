@@ -396,6 +396,53 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'round-31 audit (MAJOR): the retry-after-backoff mechanism survives '
+      'a consent-gate dispose/revive cycle, not just the widget\'s own '
+      'initState lifetime', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugCanRequestAds = true;
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 1);
+
+    // Revive cycle: gate closes (disposeNativeInstance drops the bundle —
+    // and with it the OLD `nativeHasError` notifier), then reopens (a
+    // BRAND NEW bundle/notifier is created on the next access).
+    AdManager().debugCanRequestAds = false;
+    await tester.pumpAndSettle();
+    expect(adapter.nativeListenablesByKey, isEmpty);
+    AdManager().debugResetNativeCooldown();
+    AdManager().debugCanRequestAds = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 2, reason: 'sanity: revive reloaded');
+
+    // Fail on the NEW (post-revive) notifier.
+    adapter.nativeListenablesByKey.values.single.hasError.value = true;
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 2, reason: 'no retry yet — too soon');
+
+    AdManager().debugResetNativeCooldown();
+    await tester.pump(const Duration(seconds: 31));
+
+    expect(adapter.loadNativeCalls, 3,
+        reason: 'the retry listener must be subscribed to the POST-REVIVE '
+            'notifier — if it is still attached to the notifier from '
+            'before the revive, this failure is never observed and no '
+            'retry ever fires');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('VIP active → native ad collapses to empty box, never loads',
       (tester) async {
     final adapter = _NativeCountingAdapter();

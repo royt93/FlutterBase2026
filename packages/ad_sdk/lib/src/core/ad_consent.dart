@@ -31,10 +31,17 @@ import '../utils/safe_logger.dart';
 ///   signal and must never be derived from `doNotSell`.
 ///
 /// ### NOT handled by SDK (caller responsibility — see README)
-/// - UMP consent form (use the `umpsdk` Flutter package).
-/// - iOS App Tracking Transparency prompt
-///   (use `app_tracking_transparency` package).
 /// - `app-ads.txt` placement on your domain.
+///
+/// Round-31 audit fix — this used to also list the UMP consent form ("use
+/// the `umpsdk` Flutter package" — no such package exists on pub.dev) and
+/// the iOS ATT prompt as caller responsibilities. Both are actually
+/// implemented BY this SDK — `AdManager().requestUmpConsent()`
+/// ([requestUmpConsentFlow] in `ump_consent.dart`, `autoRequestUmpConsent`
+/// defaults to `true`) and `AdManager().requestAtt()`
+/// ([requestAttIfNeeded] in `att_consent.dart`) — this doc comment was
+/// stale, not a real gap; a developer reading it could have gone looking
+/// for a UMP integration to build that already exists.
 class AdConsent {
   const AdConsent({
     this.hasUserConsent = false,

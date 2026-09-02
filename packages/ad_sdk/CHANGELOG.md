@@ -4,6 +4,192 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.11] - 2026-09-02
+
+Round 31 — full re-audit từ đầu của TOÀN BỘ `lib/src/` + `example/` (lần
+đầu ai đọc riêng `example/`), ưu tiên sâu AdMob provider. 9 agent song
+song, không tin báo cáo cũ, đối chiếu policy Google/Apple mới nhất khi
+cần. Tìm 2 BLOCKER + ~20 MAJOR + ~6 MINOR thật; 2 finding khác hoá ra
+false positive sau khi tự verify sâu (ghi lại dưới, không "sửa" bằng giải
+pháp giả). Mọi fix RED→GREEN mutation-verified. Suite 1553/1553 pass.
+
+**BLOCKER:**
+
+- **Fix**: `AdMobAdapter.initialize()` gọi `updateRequestConfiguration`
+  (mang cờ COPPA `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent`)
+  SAU `MobileAds.instance.initialize()` — ngược thứ tự Google Flutter
+  Targeting guide yêu cầu, và ngược chính pattern SDK đã tự sửa đúng cho
+  AppLovin (MJ1). Mediation network con (Meta/Unity...) init bên trong
+  `initialize()` có thể gửi request đầu tiên thiếu cờ trẻ em. Đổi thứ tự.
+- **Fix**: `IabStorage.tcfAllowsPersonalisedAds()` không phân biệt được
+  "chưa từng có TCF session" (an toàn, mặc định `true`) với "platform
+  store đọc lỗi" (nguy hiểm, từng mặc định `true` giống hệt) — nếu đường
+  đọc TCF trên iOS (chưa từng verify trên máy thật, CI chết từ
+  2026-08-09) âm thầm lỗi, tái phát đúng BLOCKER round-6 (coi `obtained`
+  là đủ để bật personalized ads dù EEA user đã từ chối). Đọc trực tiếp
+  qua `_open()`, phân biệt store thật sự không đăng ký (test-only,
+  không đổi hành vi) với lỗi đọc thật (fail-closed).
+
+**Core (`ad_manager.dart`, `ad_safety_config.dart`, `remote_ad_safety_provider.dart`, `ad_preferences.dart`):**
+
+- **Fix (MAJOR)**: `disableFillRateBaselineMonitor()` copy-paste sai từ
+  `destroy()`, tắt luôn cả 3 tính năng opt-in khác không liên quan
+  (`WaterfallTuner`/`SelfHealingObserver`/`JourneyPrefetcher`).
+- **Fix (MAJOR)**: `_attachFullscreenDismissWatchers()` thiếu
+  `rewardedInterstitialSlot` — format này (AdMob-only) vẫn dùng mốc
+  dismiss "brittle" cũ (stamp lúc earn-reward, không phải lúc video thật
+  đóng), App Open có thể bounce-back ngay sau RewardedInterstitial.
+- **Fix (MAJOR)**: `refreshRemoteSafetyParams()` thiếu try/catch quanh
+  merge override (khác `initialize()` có), và `posInt()` throw
+  `UnsupportedError` với `Infinity`/`-Infinity` (`d == d.truncateToDouble()`
+  đúng cho Infinity) — payload remote hỏng có thể crash. Thêm try/catch +
+  sửa root cause (`isFinite` check).
+- **Fix (MAJOR)**: daily ad count dùng ngày lịch LOCAL
+  (`DateTime.now().toIso8601String()`), không như mọi rolling window khác
+  trong file (đều dùng `millisecondsSinceEpoch` tuyệt đối) — đổi múi giờ
+  thiết bị (không cần chỉnh đồng hồ) là reset counter tuỳ ý. Đổi sang UTC.
+- **Fix (MAJOR)**: CTR-anomaly detection tự khoá vĩnh viễn — show bị chặn
+  không tính impression để pha loãng tỉ lệ, nên lần show tiếp theo sau khi
+  hết pause tự động re-trigger ngay với ratio cũ, escalate vô hạn. Thêm
+  gate "chỉ đánh giá lại sau ≥5 impression MỚI kể từ lần trigger trước" —
+  không reset counter thô (sẽ phá `ctrComponent` của risk score).
+- **Fix (MINOR)** cùng chỗ: exponent clamp (4) khiến `_maxSuspiciousPause`
+  (24h) không bao giờ đạt tới (tối đa thực tế 8h) — nâng clamp lên 6.
+- **Fix (MAJOR)**: decay math cho suspicious-violation-count không clamp
+  `hoursSince` — đồng hồ bị vặn lùi (không cần tiến, khác MJ9) làm hệ số
+  decay > 1, KHUẾCH ĐẠI violation count thay vì giảm. Thêm `math.max(0, …)`.
+- **Fix (MINOR)**: `unitDouble('suspiciousCtrThreshold')` chấp nhận `0.0`
+  — backend serialize thiếu field thành `0` sẽ khiến MỌI click bị coi là
+  bất thường. Thêm sàn `> 0.0`.
+
+**AdMob adapter:**
+
+- **Fix (MAJOR)**: banner/MREC/native chưa từng wire `onAdImpression`
+  thật — dùng `onAdLoaded` (fill, không phải impression thật) làm proxy,
+  không bao giờ emit `AdImpressionEvent` cho 3 định dạng này, và làm méo
+  mẫu số CTR-fraud detection. Wire đúng callback thật.
+- **Fix (MINOR)**: banner/MREC dùng `onAdOpened` cho click, native dùng
+  `onAdClicked` — hai sự kiện được Google tài liệu hoá là khác nhau.
+  Thống nhất về `onAdClicked` cho cả 3.
+
+**AppLovin adapter:**
+
+- **Fix (MAJOR)**: App Open chưa từng được thêm ad-identity tracking mà
+  round-29 đã thêm cho Interstitial/Rewarded — `onAdHiddenCallback` tự
+  tài liệu là "unreliable, có thể trễ 10-30s", late callback từ cycle cũ
+  có thể set `_displayConfirmed`/resolve nhầm cycle mới. Thêm `_appOpenAd`
+  + identity guard cho cả 3 callback (displayed/display-failed/hidden).
+- **Fix (MINOR)**: remote safety override thiếu 2 field T126
+  (`maxSameNetworkShowsPerWindow`, `networkFatigueWindowMs`) — network-
+  fatigue guard không remote-tunable được dù mọi field số khác đều có.
+- **Fix (MINOR)**: doc comment sai ở `_emitRevenueIfPresent` (nói revenue
+  đến từ load callback — thực ra là display/impression time, hành vi
+  đúng, chỉ comment sai).
+- Đối chiếu tự verify: 2 finding khác của audit lần này (banner/mrec
+  `incrementDailyAdCount`/`incrementPlacementDailyCount` thiếu write-chain;
+  widget listener thiếu `_teardownStarted` guard) hoá ra **false positive**
+  — lần lượt vì `SharedPreferences` legacy cache mutate đồng bộ (không có
+  race thật trong Dart đơn luồng) và vì `_bannerDisposed`/`_mrecDisposed`
+  đã tự bảo vệ qua scratch-object fallback. Không sửa; ghi lại lý do +
+  test pin đúng hành vi hiện tại để tránh "sửa" lại nhầm sau này.
+
+**VIP:**
+
+- **Fix (MAJOR)**: `RedeemedKeyLedger._writeChain` là field instance-level
+  (không static) — mirror đúng bug pattern `VipManager._saveQueue` đã sửa
+  ở round-10 nhưng KHÔNG áp dụng ở đây. `AdManager` không truyền lại ledger
+  cũ khi `destroy()`+`initialize()` lại → 2 instance ghi đè Keychain lên
+  nhau → 1 kid đã redeem có thể "biến mất" khỏi ledger bền vững, cho phép
+  redeem lại sau reinstall trên iOS. Đổi sang static, mirror chính xác
+  `_saveQueue`'s `_savesInFlight` pattern.
+- **Ghi nhận (không sửa bằng checksum)**: high-water-mark chống tua đồng
+  hồ và danh sách kid đã redeem trên Android đều là plain
+  `SharedPreferences`, không mã hoá — nhưng KHÔNG thêm checksum: chính
+  lịch sử audit của repo này (M6, `_vip_entries_store.dart`) đã chứng
+  minh checksum không-khoá với salt nằm trong source code published lên
+  pub.dev không phải bảo vệ thật trước đúng kẻ tấn công cần chặn. Ghi rõ
+  đây là giới hạn chấp nhận được của kiến trúc "không backend", cùng tầng
+  rủi ro (cần root/trích xuất vật lý) với các giới hạn khác đã biết.
+- **Ghi nhận**: `_first_install_guard.dart`'s bypass-result matrix thiếu
+  1 dòng — genuine first launch trên máy MỚI restore từ iCloud backup của
+  máy cũ đã nhận grace bị false-positive block. Trade-off sản phẩm thật,
+  không có accessibility value nào chặn được cả 2 hướng cùng lúc.
+
+**Widget:**
+
+- **Fix (MAJOR)**: `AdReadinessSplashController`'s buffer-dialog
+  `onComplete` chỉ check `ctx.mounted`, không check `_navigated` — hard-cap
+  timer có thể fire (điều hướng sang Home) TRONG LÚC buffer 1s vẫn đang
+  đếm, route splash cũ vẫn `mounted` trong lúc exit-transition → App Open
+  có thể show SAU KHI đã điều hướng. Thêm check `_navigated`.
+- **Fix (MAJOR)**: `NativeAdWidget`'s retry-after-30s listener
+  (`nativeHasError`) chỉ subscribe MỘT LẦN ở `initState` — sau bất kỳ chu
+  kỳ dispose/revive nào (consent gate đóng-mở lại, rất phổ biến) bundle
+  mới được tạo với notifier mới, listener cũ chết im lặng, quay lại đúng
+  bug round-29 tưởng đã fix. Track + re-subscribe đúng notifier hiện tại
+  mỗi lần `_initNative()` chạy.
+- **Fix (MAJOR)**: banner/MREC chỉ dựa `RouteAware`, không phủ được
+  bottom-nav dựng bằng `IndexedStack`/`Visibility(maintainState: true)`
+  (không có Route change nào để RouteAware thấy) — ad ở tab ẩn tiếp tục
+  refresh/request nền, đúng loại vi phạm policy "requesting ads that
+  aren't visible". Thêm `TickerMode.of(context)` detection (bắt được
+  `Visibility(maintainState: true)`/`CupertinoTabScaffold`, KHÔNG bắt
+  được `IndexedStack` trần — ghi rõ giới hạn còn lại + workaround trong
+  doc comment của cả 2 widget).
+- **Fix (MINOR)**: `DebugAdOverlay`'s stream subscribe chỉ thử 1 lần ở
+  `initState` — mount trước khi `enableFillRateBaselineMonitor()` chạy
+  thì mất tín hiệu alert vĩnh viễn. Retry mỗi `build()` (rẻ, chỉ debug
+  tool).
+
+**Monetization (chỉ tài liệu hoá, không đổi hành vi):**
+
+- `WaterfallTuner.recommendation()`/`SelfHealingObserver` không bao giờ
+  có thể trả về non-null trên thiết bị thật, vì kiến trúc 1 install =
+  1 provider cố định suốt vòng đời khiến `otherKey` luôn rỗng. Đã opt-in
+  sẵn (off theo mặc định) — ghi rõ giới hạn thật vào doc comment của cả
+  2 class + 2 method `enable*` trên `AdManager`, để host không kỳ vọng
+  sai tính năng "flagship" này sẽ tự kích hoạt.
+
+**Consent/GDPR/COPPA/CCPA:**
+
+- **Fix (MAJOR)**: prompt ATT (iOS) không có mutex "on-screen" như UMP
+  form — cùng loại dialog native ngoài Flutter route mà
+  `AdScreenRouteLogger`/App-Open-resume-guard không thấy được. Tái dùng
+  chính xác `markUmpFormOnScreen()` (ref-counted, backstop 15 phút) thay
+  vì xây cơ chế song song; release gắn vào future GỐC (không timeout) để
+  tránh đúng bug UMP form từng gặp (timeout Dart-side không đóng dialog
+  native thật).
+- **Fix (MAJOR)**: không có cảnh báo nào khi app khai `isAgeRestrictedUser:
+  true` (COPPA) nhưng để `umpTagForUnderAgeOfConsent` ở mặc định `false`
+  trong khi UMP flow vẫn chạy — form UMP chuẩn (206 đối tác) có thể hiện
+  cho audience tự khai là trẻ em. Thêm `coppaUmpMismatchWarning()`
+  (pure + static, cùng hợp đồng `consentFootgunWarning`).
+- **Fix (MINOR)**: doc comment liệt UMP form + ATT prompt vào "NOT handled
+  by SDK, dùng package `umpsdk`" — package đó không tồn tại, và cả 2 thực
+  ra ĐÃ được SDK tự triển khai (`requestUmpConsent()`/`requestAtt()`).
+- **Tính năng mới**: `CcpaOptOutToggle` — widget "Do Not Sell or Share My
+  Personal Information" cho CCPA/CPRA (Cal. Civ. Code §1798.135), vốn yêu
+  cầu là lựa chọn end-user thực thi được, không phải hằng số dev hardcode
+  như `consent_dialog.dart`'s binary dialog vẫn đúng khi giữ nguyên cho
+  COPPA/GDPR. Thêm `AdManager().setDoNotSell(bool)`/`.doNotSell` (máy móc
+  đã có sẵn từ trước — `AdConsent.doNotSell` đã flow đúng tới cả 2
+  provider + persistence; chỉ thiếu entry point tiện lợi + UI thật).
+
+**Example app (`example/lib/main.dart`) — lần đầu có ai đọc riêng qua 31 round:**
+
+- **Fix (MAJOR)**: `mrecId` dùng chung ad-unit-id Native Advanced với
+  `nativeId` — MREC thực ra chỉ là banner ở size khác, phải dùng Banner
+  test ID. Trang demo MREC không load được creative test khi build với
+  `AD_PROVIDER_ADMOB=true` (chính path CI dùng).
+- **Fix (MAJOR)**: `AdMobConfig` thiếu `rewardedInterstitialId` — trang
+  demo riêng (round-27 làm để đóng coverage gap cho định dạng AdMob-only
+  này) không bao giờ có thể show ad thật; test integration hiểu nhầm kết
+  quả "chắc chắn fail" thành "flaky do fill/timing".
+- **Fix (MAJOR)**: `AppOpenDemoPage` (StatelessWidget) dùng `context` sau
+  callback bất đồng bộ (`loadAppOpenAd`) không check `context.mounted` —
+  mọi chỗ khác trong cùng file đều có guard này, đây là code mẫu dễ bị
+  app khác copy nguyên lỗi.
+
 ## [2.9.10] - 2026-09-02
 
 Round 30 — lấp 2 khoảng trống round 29 chưa đọc: `lib/src/utils/` (nền

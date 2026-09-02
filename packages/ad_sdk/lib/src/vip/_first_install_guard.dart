@@ -54,6 +54,18 @@ import '../utils/safe_logger.dart';
 /// | Uninstall + reinstall (different account, or backup/sync disabled) | block (Keychain flag) | bypass (no signal survives) |
 /// | Single-app-per-vendor + IDFV reset           | block (we don't use IDFV)  | n/a                        |
 /// | "Erase All Content and Settings"             | bypass (Keychain wiped)    | bypass                     |
+/// | Genuine first launch on a NEW physical device, restored from an iCloud/iTunes/Finder backup of an old device that already got the grace | false-positive BLOCK (Keychain flag survives `.first_unlock` restore by design) | n/a |
+///
+/// Round-31 audit — the false-positive row above is a real product
+/// trade-off, not a bug: `KeychainAccessibility.first_unlock` (not
+/// `.first_unlock_this_device_only`) is what makes the "reinstall on the
+/// SAME device" row above actually block, but Apple's device-restore
+/// mechanics apply that same non-device-locked accessibility to a restore
+/// onto a DIFFERENT device too. Tightening to `.first_unlock_this_device_only`
+/// would close this row but reopen "reinstall, same device" as a bypass —
+/// there is no single accessibility value that blocks one and not the
+/// other. Left as a known, accepted limitation for the product owner to
+/// judge, not "fixed" here.
 ///
 /// **Debug builds**: the guard auto-bypasses in `kDebugMode` so QA can
 /// iterate on `flutter run` without being locked out of the grace UX.

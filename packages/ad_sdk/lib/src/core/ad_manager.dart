@@ -257,6 +257,32 @@ class AdManager with WidgetsBindingObserver {
         'or call requestUmpConsent() before initialize().';
   }
 
+  /// Round-31 audit fix (MAJOR) — [consentFootgunWarning] above only
+  /// catches "no consent flow ran at all". A host that declares
+  /// `isAgeRestrictedUser: true` (COPPA/child-directed) but leaves
+  /// [AdConfig.umpTagForUnderAgeOfConsent] at its `false` default while a
+  /// UMP flow DOES run has no warning today: Google's standard consent
+  /// form (206-partner personalized-ads disclosure) shows to a
+  /// self-declared child-directed audience with no signal telling UMP to
+  /// treat this as an under-13 session. Pure + static so it is
+  /// unit-testable without running the full native init, same contract as
+  /// [consentFootgunWarning].
+  @visibleForTesting
+  static String? coppaUmpMismatchWarning(AdConfig config,
+      {required bool isAgeRestrictedUser, required bool umpWillRun}) {
+    if (!isAgeRestrictedUser ||
+        !umpWillRun ||
+        config.umpTagForUnderAgeOfConsent) {
+      return null;
+    }
+    return '🚨 isAgeRestrictedUser is true (COPPA/child-directed) but '
+        "AdConfig.umpTagForUnderAgeOfConsent is false while a UMP consent "
+        'flow will run — Google\'s standard consent form may show to a '
+        'self-declared under-13 audience with no under-age signal set. Set '
+        'AdConfig(umpTagForUnderAgeOfConsent: true, ...) for a '
+        'child-directed app.';
+  }
+
   /// F9 hardened (2026-08-19 audit, Finding 7) — [requestUmpConsent] already
   /// logs a `SafeLogger.w` the moment it runs before [requestAtt] on iOS,
   /// but that log is easy to miss and fires the same in every build. This
@@ -514,6 +540,12 @@ class AdManager with WidgetsBindingObserver {
 
   /// Opt in to the waterfall tuner: starts tracking trailing fill rate and
   /// eCPM per (provider, format, placement) from [events].
+  ///
+  /// Read [WaterfallTuner]'s own doc comment before relying on
+  /// [WaterfallTuner.recommendation] within a session — a single install
+  /// runs exactly one provider for its whole lifetime, so that method
+  /// cannot compare against real data for the other provider and will
+  /// never return non-null on a real device.
   void enableWaterfallTuner(WaterfallTuner tuner) {
     _waterfallTuner?.dispose();
     _waterfallTuner = tuner;
@@ -539,6 +571,10 @@ class AdManager with WidgetsBindingObserver {
   /// Opt in to the self-healing observer: starts watching [events] for a
   /// (format, placement) whose trailing fill-rate/eCPM data recommends the
   /// other provider, and reports it — never switches anything.
+  ///
+  /// Read [SelfHealingObserver]'s own doc comment before enabling this in
+  /// production expecting it to eventually fire: given the current
+  /// one-provider-per-install architecture, it cannot.
   void enableSelfHealingObserver(SelfHealingObserver observer) {
     _selfHealingObserver?.dispose();
     _selfHealingObserver = observer;
@@ -641,17 +677,19 @@ class AdManager with WidgetsBindingObserver {
   }
 
   /// Test/host seam: clear a previously-enabled baseline monitor.
+  ///
+  /// Round-31 audit fix — this used to also dispose [_waterfallTuner],
+  /// [_selfHealingObserver] and [_journeyPrefetcher] (copy-pasted from
+  /// `destroy()`, where tearing down all four together is correct because
+  /// that IS a full SDK teardown). Those three are independent opt-in
+  /// features with their own `enable*`/`disable*` pair each — a host
+  /// disabling only the baseline monitor must not silently kill the other
+  /// three with no warning.
   @visibleForTesting
   void disableFillRateBaselineMonitor() {
     _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;
-    _waterfallTuner?.dispose();
-    _waterfallTuner = null;
-    _selfHealingObserver?.dispose();
-    _selfHealingObserver = null;
-    _journeyPrefetcher?.dispose();
-    _journeyPrefetcher = null;
   }
 
   /// One-shot snapshot combining mediation waterfall, fill rate, and
@@ -3193,6 +3231,17 @@ class AdManager with WidgetsBindingObserver {
         // neither of them depends on an `assert` to stay compliant.
       }
 
+      // Round-31 audit fix (MAJOR) — see [coppaUmpMismatchWarning]. Log-only
+      // (not release-blocked like the consent-coverage footgun above): this
+      // is a config mismatch to flag loudly, not a "no consent flow ran at
+      // all" gap ads must be hard-blocked for.
+      final coppaWarning = coppaUmpMismatchWarning(config,
+          isAgeRestrictedUser: initAgeRestricted,
+          umpWillRun: _umpRequested || _umpFlowStarted);
+      if (coppaWarning != null) {
+        SafeLogger.critical(_tag, coppaWarning);
+      }
+
       // 2026-08-19 audit (Finding 7) — see [attOrderFootgunWarning]. Not
       // release-blocked like the consent footgun above: this is a
       // revenue/attribution risk, not a legal-compliance one.
@@ -3609,7 +3658,7 @@ class AdManager with WidgetsBindingObserver {
     unawaited(ad.preloadMrec(_globalMrecWarmupKey));
   }
 
-  /// Attach listeners to the three fullscreen slots so we can record the real
+  /// Attach listeners to the four fullscreen slots so we can record the real
   /// dismiss instant (when state transitions OUT of [AdSlotState.showing]).
   /// This is the source of truth for [_lastFullscreenDismissAt] used by the
   /// app-open-on-resume guard — replacing the brittle adapter-callback writes
@@ -3619,7 +3668,20 @@ class AdManager with WidgetsBindingObserver {
   void _attachFullscreenDismissWatchers() {
     final ad = _adapter;
     if (ad == null) return;
-    final slots = [ad.appOpenSlot, ad.interstitialSlot, ad.rewardedSlot];
+    // Round-31 audit fix — rewardedInterstitialSlot was missing here, so
+    // that format (AdMob-only) fell back to the exact brittle
+    // adapter-callback timestamp this mechanism exists to replace: AdMob
+    // fires onUserEarnedReward (which stamps _lastFullscreenDismissAt in
+    // showRewardedInterstitialAd's onDone) BEFORE onAdDismissed, so the
+    // suppression window could expire while the ad was still on screen.
+    // AppLovin's slot never leaves idle for this type (documented no-op),
+    // so including it here is always safe.
+    final slots = [
+      ad.appOpenSlot,
+      ad.interstitialSlot,
+      ad.rewardedSlot,
+      ad.rewardedInterstitialSlot,
+    ];
     for (final slot in slots) {
       _slotPrevState[slot.type] = slot.value;
       void listener() {
@@ -3649,6 +3711,14 @@ class AdManager with WidgetsBindingObserver {
     _slotWatcherDisposers.clear();
     _slotPrevState.clear();
   }
+
+  @visibleForTesting
+  void debugAttachFullscreenDismissWatchers() =>
+      _attachFullscreenDismissWatchers();
+
+  @visibleForTesting
+  void debugDetachFullscreenDismissWatchers() =>
+      _detachFullscreenDismissWatchers();
 
   bool _isFirstAdLoadTriggered = false;
 
@@ -3740,10 +3810,22 @@ class AdManager with WidgetsBindingObserver {
     }
 
     final prefs = await AdPreferences.getInstance();
-    final merged =
-        applyRemoteSafetyOverrides(_rampAdjustedSafety(cfg, prefs), overrides);
-    AdSafetyConfig.updateParams(merged, isRelease: kReleaseMode);
-    SafeLogger.d(_tag, '🌐 refreshRemoteSafetyParams: applied new overrides');
+    // Round-31 audit fix — initialize() wraps this same merge in a try/catch
+    // (above); this method did not, asymmetrically. A malformed remote
+    // payload (e.g. a numeric field serialized as `Infinity`, which
+    // `double.toInt()` throws `UnsupportedError` on — see
+    // RemoteAdSafetyProvider.posInt) would then escape this async method
+    // uncaught instead of falling back to "keep current params" as the
+    // class doc promises.
+    try {
+      final merged = applyRemoteSafetyOverrides(
+          _rampAdjustedSafety(cfg, prefs), overrides);
+      AdSafetyConfig.updateParams(merged, isRelease: kReleaseMode);
+      SafeLogger.d(_tag, '🌐 refreshRemoteSafetyParams: applied new overrides');
+    } catch (e) {
+      SafeLogger.w(_tag,
+          '⚠️ refreshRemoteSafetyParams: applying overrides failed, keeping current params: $e');
+    }
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -3916,6 +3998,35 @@ class AdManager with WidgetsBindingObserver {
       _retryRefillAds();
     }
   }
+
+  /// Round-31 audit — CCPA/CPRA (Cal. Civ. Code §1798.135) requires "Do Not
+  /// Sell/Share" to be an end-user-executable choice, not just an app-level
+  /// constant a developer hardcodes. `AdConsent.doNotSell`/
+  /// `ConsentSettings.doNotSell` already flow correctly through
+  /// [ConsentManager]/[_syncConsentToAdapter] to both providers and to
+  /// persistence (see that listener's MJ5/B1 comments) — what was missing
+  /// was a convenience entry point + a ready-made widget
+  /// ([CcpaOptOutToggle]) a California-facing host can actually show a user,
+  /// instead of building the `ConsentManager.set(current.copyWith(...))`
+  /// call and its own UI from scratch.
+  ///
+  /// Safe to call before [initialize] — [ConsentManager] persists the
+  /// choice through [AdPreferences] regardless, and it is picked up the
+  /// next time consent is applied to a provider.
+  Future<void> setDoNotSell(bool value) async {
+    final mgr = _consentManager;
+    if (mgr == null) {
+      SafeLogger.w(_tag,
+          'setDoNotSell($value) called before initialize() — ConsentManager not ready, ignored');
+      return;
+    }
+    await mgr.set(mgr.current.copyWith(doNotSell: value));
+  }
+
+  /// Current CCPA "Do Not Sell" choice — `false` (default/unset) until the
+  /// host reads it from [ConsentManager]/[setDoNotSell]. `false` before
+  /// [initialize] too, same as [consent]'s own default.
+  bool get doNotSell => _consentManager?.current.doNotSell ?? false;
 
   /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
   /// into the provider adapter so AdMob's per-request `npa` flag tracks every

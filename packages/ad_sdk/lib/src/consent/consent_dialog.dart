@@ -18,12 +18,20 @@ const _kRejectFg = Color(0xFF64748B); // slate-500
 /// space for a hero icon, hierarchical typography, soft shadows, and accent
 /// colours without forcing the host app to style anything.
 ///
-/// **Why binary only?** Other privacy flags ([ConsentSettings.isAgeRestrictedUser],
-/// [ConsentSettings.doNotSell]) are app-level properties (e.g., COPPA is set
-/// by the developer if the app targets children, not chosen per-user) — they
-/// should be configured in code via [ConsentManager.set], not exposed as
-/// user-facing toggles. Real-world apps (Spotify, Twitter, etc.) all use a
-/// single binary "Allow personalized ads?" prompt.
+/// **Why binary only?** [ConsentSettings.isAgeRestrictedUser] (COPPA) is an
+/// app-level property — set by the developer if the app targets children,
+/// not chosen per-user — configured in code via [ConsentManager.set], not
+/// exposed as a toggle here. Real-world apps (Spotify, Twitter, etc.) all
+/// use a single binary "Allow personalized ads?" prompt for the GDPR/
+/// generic-consent case this dialog covers.
+///
+/// Round-31 audit fix — [ConsentSettings.doNotSell] (CCPA/CPRA, Cal. Civ.
+/// Code §1798.135) does NOT belong in the "app-level, developer-set" bucket
+/// this comment used to lump it into: CCPA specifically requires "Do Not
+/// Sell/Share" to be an end-user-executable choice, not a hardcoded
+/// constant. This binary dialog still doesn't need to grow a CCPA toggle —
+/// see `CcpaOptOutToggle` for a dedicated, opt-in widget a California-
+/// facing host can show separately (e.g. in a Settings/Privacy screen).
 ///
 /// Returns the updated [ConsentSettings] (`hasBeenAsked = true`) or `null`
 /// if dismissed without choice (only possible when [barrierDismissible]).

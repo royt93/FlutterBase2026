@@ -1749,14 +1749,22 @@ AdConfig(
 
 **F9 — no CCPA "Do Not Sell" toggle in this dialog, on purpose**: the
 built-in dialog (`showConsentDialog` in `consent_dialog.dart`) is
-intentionally binary (Allow/Reject) — see its own "Why binary only?"
-docstring for the reasoning (CCPA/COPPA are app-level properties set via
-[`ConsentManager.set`], not per-user toggles a generic dialog should expose).
-If your app needs a user-facing CCPA "Do Not Sell" switch, don't extend this
-dialog — the SDK's own `VipRedeemScreen` already has a working
-`CupertinoSwitch` for exactly this (`doNotSellValue`, wired to
-`AdManager().consent.doNotSell` / `setConsent(...)`), usable as a reference
-pattern for your own screen.
+intentionally binary (Allow/Reject) — COPPA (`isAgeRestrictedUser`) really is
+an app-level property set via [`ConsentManager.set`], not a per-user toggle
+this generic dialog should expose. CCPA's "Do Not Sell" is different: it is
+legally required to be an end-user choice (Cal. Civ. Code §1798.135), so
+round-31 added a dedicated, separately-shown widget for it —
+`CcpaOptOutToggle` (a `SwitchListTile` wired to `AdManager().doNotSell` /
+`setDoNotSell(bool)`). Drop it into a Settings/Privacy screen for a
+California-facing app:
+
+```dart
+// After AdManager().initialize() has completed — e.g. your app's Settings
+// or Privacy screen:
+const CcpaOptOutToggle()
+// Or with localised copy:
+const CcpaOptOutToggle(strings: CcpaOptOutStrings.vi)
+```
 
 ### Option 0 — iOS App Tracking Transparency (call FIRST on iOS)
 

@@ -84,12 +84,25 @@ class AdPreferences {
 
   // ─── Daily ad count (anti-fraud) ──────────────────────────────────────────
 
+  /// Round-31 audit fix — every other rolling window in `AdSafetyConfig`
+  /// (hourly cap, throttle, resume-spam) uses `millisecondsSinceEpoch`, which
+  /// is absolute and immune to the device clock's timezone setting. This
+  /// "which calendar day is it" boundary used local time
+  /// (`DateTime.now().toIso8601String()`), which is NOT absolute: a user
+  /// changing their device's timezone (Settings → Date & Time → Time Zone —
+  /// no need to touch "Automatic date & time", and no clock rollback like
+  /// the MJ9 case) instantly changes what "today" means, resetting this
+  /// counter to 0 on demand, repeatedly, on the same real calendar day.
+  /// UTC has no such user-facing knob.
+  static String _todayUtc() =>
+      DateTime.now().toUtc().toIso8601String().substring(0, 10);
+
   static const String _keyDailyAdCount = 'ad_sdk_daily_count';
   static const String _keyDailyDate = 'ad_sdk_daily_date';
   static const String _keySuspiciousCount = 'ad_sdk_suspicious_count';
 
   int getDailyAdCount() {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final today = _todayUtc();
     final saved = _prefs?.getString(_keyDailyDate) ?? '';
     if (saved != today) {
       _prefs?.setString(_keyDailyDate, today);
@@ -99,8 +112,29 @@ class AdPreferences {
     return _prefs?.getInt(_keyDailyAdCount) ?? 0;
   }
 
+  // Round-31 audit — a chain-based write-serializer (mirroring
+  // `_fillRateBaselineChain`) was tried here and reverted: `_prefs` is the
+  // LEGACY `SharedPreferences`, whose `setInt`/`setString` mutate its
+  // in-memory `_preferenceCache` SYNCHRONOUSLY at call time (see
+  // shared_preferences_legacy.dart's `_setValue` — it isn't even `async`),
+  // before the returned Future's platform-channel write ever resolves.
+  // `getDailyAdCount()` reads that same synchronous cache, not the
+  // platform side, so two `unawaited()` calls fired back-to-back with no
+  // `await` between them cannot actually interleave — Dart's single-
+  // threaded model runs the first call's synchronous read+cache-write
+  // prefix to completion before the second call's body starts. Reproducing
+  // the "lost update" required an artificial delay hook injected BETWEEN
+  // the read and the write, a gap that does not exist in the real code
+  // path. `_fillRateBaselineHistory`'s version of this bug (T101) is real
+  // because it targets different storage; this one was a false positive
+  // from pattern-matching that fix without checking the backend differs.
+  // A chain also has a real cost: `.then()` never resolves synchronously,
+  // even on an already-completed `Future.value()` — deferring the
+  // synchronous cache mutation by a microtask broke every caller (in
+  // `AdSafetyConfig`, and its tests) that reads `getDailyAdCount()`
+  // synchronously right after recording a show, which is the norm here.
   Future<void> incrementDailyAdCount() async {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final today = _todayUtc();
     final current = getDailyAdCount();
     await _prefs?.setInt(_keyDailyAdCount, current + 1);
     await _prefs?.setString(_keyDailyDate, today);
@@ -116,7 +150,7 @@ class AdPreferences {
   static const String _keyPlacementDailyDate = 'ad_sdk_placement_daily_date';
 
   Map<String, int> getPlacementDailyCounts() {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final today = _todayUtc();
     final saved = _prefs?.getString(_keyPlacementDailyDate) ?? '';
     if (saved != today) {
       _prefs?.setString(_keyPlacementDailyDate, today);
@@ -134,8 +168,10 @@ class AdPreferences {
     }
   }
 
+  // Round-31 audit — see the reverted write-serializer comment on
+  // [incrementDailyAdCount] above; the same reasoning applies here.
   Future<void> incrementPlacementDailyCount(String placementId) async {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final today = _todayUtc();
     final counts = getPlacementDailyCounts(); // handles rollover
     counts[placementId] = (counts[placementId] ?? 0) + 1;
     await _prefs?.setString(_keyPlacementDailyCounts, jsonEncode(counts));
@@ -300,7 +336,14 @@ class AdPreferences {
   // ─── Redeemed signed-key IDs (T18 — per-device one-time-use) ───────────────
   // We can't enforce GLOBAL one-time-use offline, but we can stop the SAME
   // signed key from being redeemed repeatedly on the SAME device.
-
+  //
+  // Round-31 audit — on Android, this plain `SharedPreferences` list is the
+  // ONLY backstop against replaying a key (`_redeemed_key_ledger.dart`'s
+  // iOS Keychain ledger has no Android counterpart, by its own doc). Same
+  // root/physical-extraction privilege tier as the clock high-water mark
+  // above, and deliberately not "fixed" with a checksum for the same M6
+  // reason documented there: an unkeyed checksum salted from the published
+  // source is not real protection against the attacker who'd need it.
   static const String _keyRedeemedVipKids = 'ad_sdk_redeemed_vip_kids';
 
   List<String> getRedeemedVipKeyIds() =>
@@ -335,7 +378,26 @@ class AdPreferences {
   // entry that already expired in real time (closes the window between
   // `grantedAt` and `expiresAt`, which the `grantedAt`-anchor check alone
   // does not cover).
-
+  //
+  // Round-31 audit — this key is plain `SharedPreferences` (unencrypted on
+  // Android; readable via root or `adb backup` on a debuggable build),
+  // unlike VIP entries themselves (`flutter_secure_storage`/Keychain-
+  // Keystore). Deleting just this key, then rolling the clock back into an
+  // already-expired entry's `grantedAt`..`expiresAt` window, revives it —
+  // a real gap, but one that needs root/physical-extraction access, same
+  // privilege tier as every other "edit our own app's storage" attack this
+  // no-backend design already accepts (see `_redeemed_key_ledger.dart`'s
+  // own "Android has no class-local backstop" note). Deliberately NOT
+  // "fixed" with a local checksum: this codebase's own M6 finding
+  // (`_vip_entries_store.dart`) already established that an unkeyed
+  // checksum with a salt baked into the published pub.dev source is
+  // reproducible by exactly the attacker it would need to stop, so it
+  // would be a false sense of security rather than a real one. Moving this
+  // into secure storage would be the honest fix, but `_effectiveNow()`
+  // reads this synchronously on every call across several hot paths in
+  // `VipManager` — secure storage is async, so that migration is a real
+  // refactor of its own, not a one-line change, and is deliberately not
+  // bundled into an audit round.
   static const String _keyVipMaxObservedClockMs = 'ad_sdk_vip_max_observed_clock_ms';
 
   int? getVipMaxObservedClockMs() =>

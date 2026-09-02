@@ -337,6 +337,18 @@ class AdSafetyConfig {
   static final List<int> _resumeTimestamps = [];
   static int _totalImpressions = 0;
   static int _totalClicks = 0;
+
+  /// Round-31 audit fix (MAJOR) — `_totalImpressions` snapshot at the last
+  /// CTR-anomaly trigger. A blocked show attempt never adds an impression,
+  /// so without this, the very next genuine show attempt after a pause
+  /// window elapses re-evaluates the exact same stale ratio and
+  /// re-triggers immediately, escalating the pause exponentially (30m → 1h
+  /// → 2h → ...) from a single ambiguous burst at the start of a session.
+  /// Requiring 5 NEW impressions since the last trigger before re-checking
+  /// gives the ratio a chance to actually move — while, unlike resetting
+  /// `_totalImpressions`/`_totalClicks` outright, leaving the running CTR
+  /// visible to [_computeRiskScore]'s `ctrComponent` untouched.
+  static int _ctrPauseTriggeredAtImpressionCount = -5;
   static int _suspiciousViolationCount = 0;
   static int _lastViolationTimestamp = 0;
   // T24 re-audit fix: violations already reflected by another additive risk
@@ -571,10 +583,21 @@ class AdSafetyConfig {
       }
     }
 
-    if (_totalImpressions >= 5) {
+    // Round-31 audit fix — gate SKIPPED (not just "don't re-trigger") until
+    // 5 NEW impressions land since the last trigger. A blocked show attempt
+    // never adds an impression, so if this kept actively blocking on the
+    // same stale ratio, no new impression could ever happen and the ratio
+    // could never move — a permanent deadlock, worse than the pre-fix
+    // ever-escalating pause. Skipping the gate lets the very next genuine
+    // attempt through so the ratio actually has a chance to dilute; the
+    // running CTR itself is untouched, so [_computeRiskScore]'s
+    // `ctrComponent` still reflects the true cumulative ratio throughout.
+    if (_totalImpressions >= 5 &&
+        _totalImpressions - _ctrPauseTriggeredAtImpressionCount >= 5) {
       final ctr = _totalClicks.toDouble() / _totalImpressions.toDouble();
       if (ctr > _params.suspiciousCtrThreshold) {
         if (recordViolation) {
+          _ctrPauseTriggeredAtImpressionCount = _totalImpressions;
           _triggerSuspiciousPause(
             'CTR anomaly: ${(ctr * 100).toInt()}% '
             '(threshold: ${(_params.suspiciousCtrThreshold * 100).toInt()}%)',
@@ -844,6 +867,7 @@ class AdSafetyConfig {
     _resumeTimestamps.clear();
     _totalImpressions = 0;
     _totalClicks = 0;
+    _ctrPauseTriggeredAtImpressionCount = -5;
     _clickTimestamps.clear();
     _networkShowTimestamps.clear();
     _lastAdClickAt = 0;
@@ -868,6 +892,7 @@ class AdSafetyConfig {
     _resumeTimestamps.clear();
     _totalImpressions = 0;
     _totalClicks = 0;
+    _ctrPauseTriggeredAtImpressionCount = -5;
     // T24 re-audit fix: the click-spam sliding window is per-session state
     // too — leaving it here meant clicks from before a reset still counted
     // toward the spam threshold afterward.
@@ -974,6 +999,15 @@ class AdSafetyConfig {
     _lastViolationTimestamp = epochMs;
   }
 
+  /// Round-31 audit — test-only seam to simulate a suspicious-pause window
+  /// having naturally elapsed, without needing to fake real wall-clock
+  /// advancement (the CTR ratio this interacts with doesn't depend on
+  /// elapsed time at all, only [_suspiciousPauseUntil] does).
+  @visibleForTesting
+  static void debugExpireSuspiciousPause() {
+    _suspiciousPauseUntil = 0;
+  }
+
   /// T68 — [_suspiciousViolationCount] is only lazily re-decayed inside
   /// [_decayViolationCount], which runs on the *next* violation. Reading it
   /// between two violations (e.g. for [getStatusSnapshot]/a compliance
@@ -985,18 +1019,30 @@ class AdSafetyConfig {
     if (_lastViolationTimestamp == 0 || _suspiciousViolationCount == 0) {
       return _suspiciousViolationCount;
     }
-    final hoursSince =
+    // Round-31 audit fix (MAJOR) — unclamped, a system clock rolled BACK
+    // past `_lastViolationTimestamp` (manual change, NTP correction, a
+    // timezone/DST shift the wrong way) makes this negative, and
+    // `math.pow(0.5, negative)` is > 1 — e.g. 48h back yields a 4x
+    // multiplier. That AMPLIFIES the violation count on every reinit
+    // instead of decaying it, and — unlike the clock-forward throttle
+    // bypass (MJ9, an architectural limit with no pure-Dart fix) — this one
+    // is just a missing floor on elapsed time, fully fixable here.
+    final hoursSince = math.max(
+        0.0,
         (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /
-            (60 * 60 * 1000);
+            (60 * 60 * 1000));
     final decayFactor = math.pow(0.5, hoursSince / 24);
     return (_suspiciousViolationCount * decayFactor).round();
   }
 
   static void _decayViolationCount() {
     if (_lastViolationTimestamp == 0) return;
-    final hoursSince =
+    // Round-31 audit fix (MAJOR) — see _decayedSuspiciousCountForDisplay's
+    // comment: unclamped, a rolled-back clock amplifies instead of decays.
+    final hoursSince = math.max(
+        0.0,
         (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /
-            (60 * 60 * 1000);
+            (60 * 60 * 1000));
     final decayFactor = math.pow(0.5, hoursSince / 24);
     if (_suspiciousViolationCount > 0) {
       _suspiciousViolationCount =
@@ -1020,7 +1066,11 @@ class AdSafetyConfig {
     if (countsTowardRiskScore) _scoreableViolationCount++;
     _prefs?.setSuspiciousCount(_suspiciousViolationCount);
 
-    final exponent = (_suspiciousViolationCount - 1).clamp(0, 4);
+    // Round-31 audit fix (MINOR) — clamped to 4 (multiplier 16, 8h max with
+    // the 30-minute base below), so `_maxSuspiciousPause` (24h) was dead —
+    // a repeat offender never got past 8h. Raised to 6 (multiplier 64, 32h)
+    // so the 24h ceiling below is the thing that actually caps it.
+    final exponent = (_suspiciousViolationCount - 1).clamp(0, 6);
     int multiplier = 1;
     for (int i = 0; i < exponent; i++) {
       multiplier *= 2;
@@ -1070,9 +1120,12 @@ class AdSafetyConfig {
 
     var decayedViolations = _scoreableViolationCount.toDouble();
     if (_lastViolationTimestamp > 0) {
-      final hoursSince =
+      // Round-31 audit fix (MAJOR) — see _decayedSuspiciousCountForDisplay's
+      // comment: unclamped, a rolled-back clock amplifies instead of decays.
+      final hoursSince = math.max(
+          0.0,
           (DateTime.now().millisecondsSinceEpoch - _lastViolationTimestamp) /
-              (60 * 60 * 1000);
+              (60 * 60 * 1000));
       decayedViolations *= math.pow(0.5, hoursSince / 24);
     }
     final violationComponent = (decayedViolations / 5).clamp(0.0, 1.0) * 30;

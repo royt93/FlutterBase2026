@@ -164,8 +164,10 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   void _emit(AdEvent e) => eventSink?.call(e);
 
-  /// AppLovin returns revenue on every load callback via `MaxAd.revenue`.
-  /// `0` = no revenue / test mode → skip.
+  /// Round-31 audit fix — doc was stale/misleading: this is called from
+  /// `onAdRevenuePaidCallback` (display/impression time, correct ILRD
+  /// semantics), never from a load callback. `MaxAd.revenue` is `0` for no
+  /// revenue / test mode → skip.
   void _emitRevenueIfPresent(MaxAd ad, AdSlotType type, AdPlacement placement) {
     final amount = ad.revenue;
     if (amount <= 0) return;
@@ -607,6 +609,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   MaxAd? _interstitialAd;
   MaxAd? _rewardedAd;
 
+  /// Round-31 audit fix (MAJOR) — App Open never got this tracking when
+  /// round-29 added it for interstitial/rewarded above. `showAppOpen`'s own
+  /// comment documents `onAdHiddenCallback` as "unreliable — sometimes
+  /// fires LATE (10-30s)"; without this, a late callback from a cycle the
+  /// watchdog already force-resolved could set `_displayConfirmed`/mark
+  /// dismissed/reload for whatever NEWER cycle is now current instead of
+  /// being discarded as stale.
+  MaxAd? _appOpenAd;
+
   /// Set true in [showRewarded] when the caller supplied SSV identifying
   /// data for the in-flight show — read once by the reward callback to stamp
   /// [RewardResult.pendingServerConfirmation].
@@ -1008,6 +1019,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
         if (_discardIfConsentStale(appOpenSlot, 'appOpen')) return;
+        _appOpenAd = ad;
         appOpenSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1034,6 +1046,18 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdDisplayedCallback: (ad) {
+        // Round-31 audit fix (MAJOR) — this had NO guard at all, unlike
+        // interstitial/rewarded (round-29). `onAdHiddenCallback` below is
+        // documented as "unreliable — sometimes fires LATE (10-30s)"; the
+        // same applies to this callback. Without this, a late display
+        // callback from a cycle the watchdog already force-resolved could
+        // mark a NEWER cycle's slot displayed before its own ad actually
+        // showed — see `_appOpenAd`'s declaration.
+        if (!identical(ad, _appOpenAd)) {
+          SafeLogger.w(_logTag,
+              'appOpen $tag ⚠️ displayed callback for a stale ad (late — a newer cycle is already current) — discarding');
+          return;
+        }
         appOpenSlot.markDisplayed();
         SafeLogger.d(_logTag, 'appOpen $tag ✅ displayed');
       },
@@ -1043,11 +1067,18 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       onAdDisplayFailedCallback: (ad, err) {
         _appOpenShowTimeout?.cancel();
         _appOpenShowTimeout = null;
-        // Late arrival (see onAdHiddenCallback above) — watchdog already
-        // resolved this show cycle; don't clobber state or double-reload.
-        if (_appOpenDismiss == null) {
+        // Round-31 audit fix (MAJOR) — was `_appOpenDismiss == null`, which
+        // only detects "the watchdog already resolved THIS cycle". Once a
+        // NEWER cycle calls showAppOpen() again, `_appOpenDismiss` is a
+        // fresh non-null closure again, so this check would pass and a
+        // late callback carrying the OLD cycle's stale `ad` would resolve
+        // the NEW cycle instead. Ad-identity (see `_appOpenAd`'s
+        // declaration) catches this cross-cycle case; a same-cycle late
+        // arrival always fails it too since `_appOpenAd` only changes on a
+        // fresh load.
+        if (!identical(ad, _appOpenAd)) {
           SafeLogger.w(_logTag,
-              'appOpen $tag ❌ display failed (late — watchdog already handled this show): ${err.message}');
+              'appOpen $tag ❌ display failed (late — a newer cycle is already current): ${err.message}');
           return;
         }
         SafeLogger.w(_logTag, 'appOpen $tag ❌ display failed: ${err.message}');
@@ -1089,16 +1120,20 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       onAdHiddenCallback: (ad) {
         _appOpenShowTimeout?.cancel();
         _appOpenShowTimeout = null;
-        // Late arrival: the smart-timeout watchdog already force-dismissed
-        // this show cycle (_appOpenDismiss cleared, slot moved out of
-        // `showing`) before AppLovin's native callback landed — see the
-        // "unreliable, sometimes fires LATE" comment in [showAppOpen]. Acting
-        // again here would clobber whatever state the reload-in-flight has
+        // Round-31 audit fix (MAJOR) — was `_appOpenDismiss == null`, which
+        // only catches a late callback for a cycle the watchdog resolved
+        // AND no newer cycle has started yet. Once a NEWER cycle calls
+        // showAppOpen() again, `_appOpenDismiss` is a fresh non-null
+        // closure, so this check would pass and a late callback carrying
+        // the OLD cycle's stale `ad` would resolve/reload the NEW cycle
+        // instead — see `_appOpenAd`'s declaration and the "unreliable,
+        // sometimes fires LATE" comment in [showAppOpen]. Acting on a stale
+        // callback here would clobber whatever state the current cycle has
         // already moved to and fire a SECOND raw `_bridge.loadAppOpenAd`
         // call that bypasses AdManager's VIP/consent/daily-cap gates.
-        if (_appOpenDismiss == null) {
+        if (!identical(ad, _appOpenAd)) {
           SafeLogger.d(_logTag,
-              'appOpen $tag 👋 hidden (late — watchdog already handled this show)');
+              'appOpen $tag 👋 hidden (late — a newer cycle is already current)');
           return;
         }
         SafeLogger.d(_logTag, 'appOpen $tag 👋 hidden');
@@ -1860,6 +1895,19 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     _widgetListenerInstalled = true;
     _bridge.setWidgetAdViewAdListener(WidgetAdViewAdListener(
       onAdLoadedCallback: (ad) {
+        // Round-31 audit — a `_teardownStarted` check (matching round-29's
+        // B3 guard on App Open/Interstitial/Rewarded) was tried here and
+        // reverted: unlike those three, every mutation this callback makes
+        // goes through `_bannerSlotFor`/`_mrecSlotFor`, which already
+        // return a disposed scratch object once `_bannerDisposed`/
+        // `_mrecDisposed` are set — and `dispose()` sets those flags in
+        // the SAME synchronous block as `_teardownStarted`, right at its
+        // top, well before the `await destroyWidgetAdView(...)` loop a
+        // late callback could land during. Confirmed empirically: a
+        // callback fired while dispose() is parked in that await still
+        // gets a scratch slot with `isLoading == false`, so it's already a
+        // no-op. See `dispose()`'s "second line of defence" comment next
+        // to where it sets `_bannerDisposed`/`_mrecDisposed`.
         // T65 (phase 3) — same disambiguation as banner below: match the
         // reported adViewId against each known MREC key's own notifier.
         for (final entry in _mrecAdViewIdByKey.entries) {

@@ -306,6 +306,7 @@ AdConfig _admobConfig({
   AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
   FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto,
   bool autoRequestUmpConsent = true,
+  bool umpTagForUnderAgeOfConsent = false,
 }) {
   const realPrefix = 'ca-app-pub-9999999999999999';
   const testPrefix = 'ca-app-pub-3940256099942544';
@@ -322,6 +323,7 @@ AdConfig _admobConfig({
     appOpenTrigger: appOpenTrigger,
     firstInstallVipGrace: firstInstallVipGrace,
     autoRequestUmpConsent: autoRequestUmpConsent,
+    umpTagForUnderAgeOfConsent: umpTagForUnderAgeOfConsent,
   );
 }
 
@@ -552,6 +554,50 @@ void main() {
         _admobConfig(dryRun: true, testIds: true),
         umpRequested: false,
         consentExplicitlySet: true,
+      );
+      expect(w, isNull);
+    });
+  });
+
+  // Round-31 audit (MAJOR) — a self-declared child-directed app whose UMP
+  // flow still runs with `umpTagForUnderAgeOfConsent` left at its `false`
+  // default had no warning at all before this.
+  group('coppaUmpMismatchWarning (round-31 audit)', () {
+    test('isAgeRestrictedUser + UMP will run + tag NOT set → warns', () {
+      final w = AdManager.coppaUmpMismatchWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        isAgeRestrictedUser: true,
+        umpWillRun: true,
+      );
+      expect(w, isNotNull);
+      expect(w, contains('umpTagForUnderAgeOfConsent'));
+    });
+
+    test('isAgeRestrictedUser + UMP will run + tag SET → no warning', () {
+      final w = AdManager.coppaUmpMismatchWarning(
+        _admobConfig(
+            dryRun: true, testIds: true, umpTagForUnderAgeOfConsent: true),
+        isAgeRestrictedUser: true,
+        umpWillRun: true,
+      );
+      expect(w, isNull);
+    });
+
+    test('not age-restricted → no warning regardless of the tag', () {
+      final w = AdManager.coppaUmpMismatchWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        isAgeRestrictedUser: false,
+        umpWillRun: true,
+      );
+      expect(w, isNull);
+    });
+
+    test('age-restricted but no UMP flow will run → no warning (nothing to '
+        'mis-tag)', () {
+      final w = AdManager.coppaUmpMismatchWarning(
+        _admobConfig(dryRun: true, testIds: true),
+        isAgeRestrictedUser: true,
+        umpWillRun: false,
       );
       expect(w, isNull);
     });
@@ -2905,6 +2951,46 @@ void main() {
       expect(adapter.showAppOpenCalls, 0,
           reason: 'a resume-triggered App Open must respect the daily '
               'fullscreen cap the same as every other show path');
+    });
+
+    // Round-31 audit (MAJOR) — _attachFullscreenDismissWatchers() only
+    // watched appOpen/interstitial/rewarded, not rewardedInterstitial
+    // (AdMob-only). That format fell back to the brittle adapter-callback
+    // timestamp (stamped at onUserEarnedReward, which fires BEFORE the ad
+    // actually leaves the screen), so this guard could never see a
+    // rewardedInterstitial dismiss.
+    test(
+        'a rewardedInterstitial dismiss arms the same resume-suppression '
+        'window as interstitial/rewarded/app-open', () {
+      fakeAsync((async) {
+        AdManager().debugAttachFullscreenDismissWatchers();
+        addTearDown(AdManager().debugDetachFullscreenDismissWatchers);
+
+        adapter.appOpenSlot.beginReload();
+        adapter.appOpenSlot.markReady();
+        AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
+        async.elapse(const Duration(milliseconds: 50));
+        adapter.showAppOpenCalls = 0;
+        adapter.loadAppOpenCalls = 0;
+
+        adapter.rewardedInterstitialSlot.beginLoad();
+        adapter.rewardedInterstitialSlot.markReady();
+        adapter.rewardedInterstitialSlot.beginShow();
+        adapter.rewardedInterstitialSlot.markDismissed();
+
+        adapter.appOpenSlot.beginReload();
+        adapter.appOpenSlot.markReady();
+        AdManager().showAppOpenAdOnResume();
+        // The resume-fallback path (no navigatorKey in this test group) waits
+        // 1s before actually calling showAppOpen — elapse past it so a
+        // wrongly-unsuppressed call has time to land.
+        async.elapse(const Duration(seconds: 2));
+
+        expect(adapter.showAppOpenCalls, 0,
+            reason: 'before the fix, rewardedInterstitialSlot was not '
+                'watched at all, so nothing armed the debounce window and '
+                'App Open could show right on top of the dismissed ad');
+      });
     });
   });
 

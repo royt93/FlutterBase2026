@@ -89,6 +89,12 @@ class FakeGmaBridge implements GmaBridge {
   // Captured from the most recent updateRequestConfiguration() call.
   List<String>? capturedTestDeviceIds;
 
+  // Round-31 audit — records call order so a test can assert
+  // updateRequestConfiguration (COPPA/TFUA tags) reaches the native side
+  // before initialize() lets mediation adapters spin up and fire their own
+  // first request.
+  final List<String> callLog = [];
+
   FakeGmaFullscreenAd? lastAppOpen;
   FakeGmaFullscreenAd? lastInter;
   FakeGmaFullscreenAd? lastRewarded;
@@ -111,13 +117,16 @@ class FakeGmaBridge implements GmaBridge {
   int? capturedTfuaTag;
 
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() async {
+    callLog.add('initialize');
+  }
   @override
   Future<void> updateRequestConfiguration(
     List<String> ids, {
     int? tagForChildDirectedTreatment,
     int? tagForUnderAgeOfConsent,
   }) async {
+    callLog.add('updateRequestConfiguration');
     capturedTestDeviceIds = ids;
     capturedCoppaTag = tagForChildDirectedTreatment;
     capturedTfuaTag = tagForUnderAgeOfConsent;
@@ -301,6 +310,21 @@ void main() {
       expect(bridge.capturedTfuaTag, TagForUnderAgeOfConsent.unspecified,
           reason: 'claiming a user is NOT under the age of consent is a '
               'statement we have no basis for');
+    });
+
+    test(
+        'updateRequestConfiguration (COPPA/TFUA tags) reaches the bridge '
+        'BEFORE initialize() so mediation adapters spun up inside '
+        'initialize() see the tags on their very first request', () async {
+      final b = FakeGmaBridge();
+      final a = AdMobAdapter(bridge: b);
+      expect(
+        await a.initialize(_config,
+            consent: const AdConsent(isAgeRestrictedUser: true)),
+        isTrue,
+      );
+      expect(b.callLog, ['updateRequestConfiguration', 'initialize']);
+      addTearDown(() => a.dispose());
     });
   });
 

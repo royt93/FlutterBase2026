@@ -70,4 +70,29 @@ void main() {
         reason: 'disable() must win over an enable() call already in '
             'flight when it started first');
   });
+
+  test(
+      'round-31 audit (MAJOR): disableFillRateBaselineMonitor() must not '
+      'also kill waterfallTuner/selfHealingObserver/journeyPrefetcher — '
+      'those are independent opt-in features with their own disable() each',
+      () async {
+    await AdManager().enableFillRateBaselineMonitor();
+    AdManager().enableWaterfallTuner(WaterfallTuner());
+    AdManager().enableSelfHealingObserver(SelfHealingObserver());
+    AdManager().enableJourneyPrefetcher(JourneyPrefetcher());
+
+    AdManager().disableFillRateBaselineMonitor();
+
+    expect(AdManager().fillRateBaselineMonitor, isNull);
+    expect(AdManager().waterfallTuner, isNotNull,
+        reason: 'unrelated feature must survive');
+    expect(AdManager().selfHealingObserver, isNotNull,
+        reason: 'unrelated feature must survive');
+    expect(AdManager().journeyPrefetcher, isNotNull,
+        reason: 'unrelated feature must survive');
+
+    AdManager().disableWaterfallTuner();
+    AdManager().disableSelfHealingObserver();
+    AdManager().disableJourneyPrefetcher();
+  });
 }

@@ -59,7 +59,14 @@ AdSafetyParams applyRemoteSafetyOverrides(
     final v = overrides[key];
     final int? asInt = switch (v) {
       int i => i,
-      double d when d == d.truncateToDouble() => d.toInt(),
+      // Round-31 audit fix — `d == d.truncateToDouble()` is true for
+      // `double.infinity` (and `-infinity`), and `.toInt()` on either
+      // throws `UnsupportedError` rather than returning a value. A remote
+      // payload with a field serialized as `1e400` (JSON has no literal
+      // Infinity, but `jsonDecode` produces it from an out-of-range
+      // exponent) would crash the caller instead of being rejected like
+      // every other malformed value here. `isFinite` excludes NaN too.
+      double d when d.isFinite && d == d.truncateToDouble() => d.toInt(),
       _ => null,
     };
     return (asInt != null && asInt >= min && asInt <= max) ? asInt : null;
@@ -67,7 +74,14 @@ AdSafetyParams applyRemoteSafetyOverrides(
 
   double? unitDouble(String key) {
     final v = overrides[key];
-    return (v is num && v >= 0.0 && v <= 1.0) ? v.toDouble() : null;
+    // Round-31 audit fix (MINOR) — `posInt`'s two throttle fields require
+    // `min: 1` because "the whole job of this field is to not be zero" (see
+    // above); this field's job is the same — a 0.0 threshold means ANY
+    // click at all trips a CTR anomaly for every user, which is only ever
+    // reachable in practice via a backend serialization bug (a missing
+    // field defaulting to `0`), not a deliberate setting. Unlike those two
+    // int fields, this is a double with no earlier explicit floor at all.
+    return (v is num && v > 0.0 && v <= 1.0) ? v.toDouble() : null;
   }
 
   bool? boolVal(String key) {
@@ -92,5 +106,17 @@ AdSafetyParams applyRemoteSafetyOverrides(
     dryRun: boolVal('dryRun'),
     adToBackgroundSignalWindowMs:
         posInt('adToBackgroundSignalWindowMs', max: 3600000 /* 1h */),
+    // Round-31 audit fix (MINOR) — T126's network-fatigue guard had
+    // `copyWith` support but was never actually reachable from remote
+    // config: every other numeric field here is remote-tunable, so a
+    // mediation incident (one network winning repeatedly, creative
+    // fatigue) had no way to be tightened/loosened without a build.
+    // `min: 1` on the window mirrors the two throttle fields above — a
+    // 0ms window makes the "same network shown recently" check
+    // unsatisfiable, silently disabling the guard.
+    maxSameNetworkShowsPerWindow:
+        posInt('maxSameNetworkShowsPerWindow', max: 100),
+    networkFatigueWindowMs:
+        posInt('networkFatigueWindowMs', min: 1, max: 3600000 /* 1h */),
   );
 }

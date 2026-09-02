@@ -236,8 +236,17 @@ class DemoConfig {
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
-        mrecId: 'ca-app-pub-3940256099942544/2247696110',
+        // Round-31 audit fix (MAJOR) — MREC is a banner at a different
+        // size (see mrec_ad_widget.dart), not a distinct AdMob ad format,
+        // so it must use the BANNER test id, not the Native Advanced one
+        // this line and `nativeId` below were both wrongly sharing.
+        mrecId: 'ca-app-pub-3940256099942544/6300978111',
         nativeId: 'ca-app-pub-3940256099942544/2247696110',
+        // Round-31 audit fix (MAJOR) — Rewarded Interstitial is AdMob-only
+        // (see README); without this the dedicated demo page for it
+        // (added specifically to close this coverage gap) could never
+        // show an ad on the one provider that supports the format at all.
+        rewardedInterstitialId: 'ca-app-pub-3940256099942544/5354046379',
         // Optional per-platform overrides (T15) — omit to use the same id
         // on both platforms, as above:
         // androidBannerId: 'ca-app-pub-.../android-banner',
@@ -951,6 +960,14 @@ class AppOpenDemoPage extends StatelessWidget {
             FilledButton(
               onPressed: () {
                 AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
+                  // Round-31 audit fix (MAJOR) — loadAppOpenAd() is async
+                  // (a real network load); every other async-then-context
+                  // use in this file guards with `context.mounted` — this
+                  // one didn't, so backing out before the load finishes
+                  // threw "Looking up a deactivated widget's ancestor is
+                  // unsafe". This is demo/sample code other apps copy, so
+                  // the omission would have spread.
+                  if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content:
                         Text(loaded ? 'App open ad ready ✅' : 'Load failed ❌'),

@@ -18,6 +18,17 @@ import 'waterfall_tuner.dart';
 /// session — a real architecture change out of scope for this prototype,
 /// left for a dedicated follow-up ticket once observe-only data validates
 /// the idea is worth building.
+///
+/// **Round-31 audit — this "once data validates the idea" step cannot
+/// happen on a real device today.** The internal [WaterfallTuner] this
+/// wraps only ever sees events for the ONE provider a given install is
+/// running (see [WaterfallTuner]'s own doc comment) — the non-active
+/// provider's data stays empty for that install's whole lifetime, so the
+/// recommendation this event fires on can never actually be produced. In
+/// practice this observer will sit silent forever on any real install,
+/// not "wait for enough data." See [WaterfallTuner]'s doc comment for what
+/// this data IS still useful for (cross-install analytics, not this
+/// observer's in-session trigger).
 class SelfHealingObserver {
   SelfHealingObserver({int rollingWindowSize = 20})
       : _tuner = WaterfallTuner(rollingWindowSize: rollingWindowSize) {

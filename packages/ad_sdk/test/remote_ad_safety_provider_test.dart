@@ -58,14 +58,21 @@ void main() {
     expect(merged.suspiciousCtrThreshold, 0.30);
   });
 
-  test('CTR threshold accepts the [0,1] boundary values', () {
-    final mergedZero =
-        applyRemoteSafetyOverrides(local, {'suspiciousCtrThreshold': 0.0});
+  test('CTR threshold accepts the 1.0 boundary value', () {
     final mergedOne =
         applyRemoteSafetyOverrides(local, {'suspiciousCtrThreshold': 1.0});
-
-    expect(mergedZero.suspiciousCtrThreshold, 0.0);
     expect(mergedOne.suspiciousCtrThreshold, 1.0);
+  });
+
+  // Round-31 audit (MINOR) — 0.0 means "any click at all is suspicious for
+  // every user", only reachable in practice via a backend serialization bug
+  // (a missing field defaulting to `0`), not a deliberate setting. Unlike
+  // the two int throttle fields (`min: 1`), this double field had no floor
+  // at all before.
+  test('a 0.0 CTR threshold is rejected, local value kept', () {
+    final merged =
+        applyRemoteSafetyOverrides(local, {'suspiciousCtrThreshold': 0.0});
+    expect(merged.suspiciousCtrThreshold, local.suspiciousCtrThreshold);
   });
 
   test('empty overrides map returns local values unchanged', () {
@@ -133,5 +140,54 @@ void main() {
     final merged =
         applyRemoteSafetyOverrides(local, {'maxFullscreenAdsPerDay': 8.5});
     expect(merged.maxFullscreenAdsPerDay, local.maxFullscreenAdsPerDay);
+  });
+
+  // Round-31 audit (MAJOR) — `double.infinity == double.infinity
+  // .truncateToDouble()` is true, so this used to reach `.toInt()`, which
+  // throws `UnsupportedError` for Infinity/-Infinity/NaN instead of
+  // returning a value — crashing the caller rather than rejecting the
+  // field like every other malformed value here.
+  test('an Infinity double does not throw and is rejected for an int field',
+      () {
+    late AdSafetyParams merged;
+    expect(
+        () => merged = applyRemoteSafetyOverrides(
+            local, {'maxFullscreenAdsPerDay': double.infinity}),
+        returnsNormally);
+    expect(merged.maxFullscreenAdsPerDay, local.maxFullscreenAdsPerDay);
+  });
+
+  test('a NaN double does not throw and is rejected for an int field', () {
+    late AdSafetyParams merged;
+    expect(
+        () => merged = applyRemoteSafetyOverrides(
+            local, {'minTimeBetweenFullscreenAds': double.nan}),
+        returnsNormally);
+    expect(merged.minTimeBetweenFullscreenAds,
+        local.minTimeBetweenFullscreenAds);
+  });
+
+  // Round-31 audit (MINOR) — T126's network-fatigue fields had `copyWith`
+  // support in AdSafetyParams but were never read here, so a mediation
+  // incident (one network winning repeatedly) had no remote-tunable knob.
+  group('T126 network-fatigue fields are remote-tunable', () {
+    test('maxSameNetworkShowsPerWindow accepted within range', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'maxSameNetworkShowsPerWindow': 2});
+      expect(merged.maxSameNetworkShowsPerWindow, 2);
+    });
+
+    test('networkFatigueWindowMs accepted within range', () {
+      final merged =
+          applyRemoteSafetyOverrides(local, {'networkFatigueWindowMs': 60000});
+      expect(merged.networkFatigueWindowMs, 60000);
+    });
+
+    test('networkFatigueWindowMs of 0 rejected (would disable the guard)',
+        () {
+      final merged =
+          applyRemoteSafetyOverrides(local, {'networkFatigueWindowMs': 0});
+      expect(merged.networkFatigueWindowMs, local.networkFatigueWindowMs);
+    });
   });
 }

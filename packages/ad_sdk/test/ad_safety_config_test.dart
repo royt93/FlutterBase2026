@@ -203,6 +203,52 @@ void main() {
       expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
           persisted);
     });
+
+    // Round-31 audit (MAJOR) — a blocked show attempt never adds an
+    // impression, so the CTR ratio that tripped the FIRST pause could never
+    // dilute on its own. The very next genuine show attempt after the pause
+    // window elapsed re-evaluated the exact same stale ratio and immediately
+    // re-triggered, escalating the pause (30m → 1h → 2h → ...) from a single
+    // ambiguous burst at the start of a session, with no way to recover
+    // short of an app restart clearing the in-memory counters.
+    test(
+        'a genuine show attempt right after the pause window elapses does '
+        'NOT immediately re-trigger on the same stale CTR ratio', () async {
+      SharedPreferences.setMockInitialValues({});
+      final p = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(
+        p,
+        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+      );
+      AdSafetyConfig.resetForReinit();
+
+      for (var i = 0; i < 5; i++) {
+        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordAdClick();
+      }
+      AdSafetyConfig.canShowFullscreenAd(); // 100% CTR — triggers violation 1
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 1,
+          reason: 'sanity: the first violation fired');
+
+      // Simulate the 30-minute pause window having elapsed. Nothing else
+      // about the user's behaviour changed — no new impressions or clicks.
+      AdSafetyConfig.debugExpireSuspiciousPause();
+      final result = AdSafetyConfig.canShowFullscreenAd(); // very next attempt
+
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 1,
+          reason: 'a stale CTR ratio from before the pause must not '
+              're-trigger a second, escalated violation on its own — the '
+              'pause must act as a fresh-start probation');
+      // Not re-triggering isn't enough on its own — the CTR gate must also
+      // actually let this show attempt through, not just skip re-arming a
+      // new pause while still reporting canShow:false. Otherwise no new
+      // impression can ever happen and the stale ratio can never dilute —
+      // a silent permanent deadlock, worse than the escalating-pause bug.
+      expect(result.canShow, isTrue,
+          reason: 'the gate must be skipped, not just non-escalating, or '
+              'the ad can never show again to generate the fresh '
+              'impressions the ratio needs to recover');
+    });
   });
 
   // ─────────────────────────────────────────────────
@@ -275,6 +321,33 @@ void main() {
       expect(prefs.getSuspiciousCount(), 2,
           reason: 'the stored raw counter itself must stay untouched — '
               'this is a display-only decay');
+    });
+
+    // Round-31 audit (MAJOR) — `hoursSince` was unclamped, so a system
+    // clock rolled BACK past the last violation's timestamp (manual
+    // change, NTP correction, a timezone/DST shift the wrong way) made it
+    // negative, and `math.pow(0.5, negative)` is > 1 — the decay factor
+    // AMPLIFIES the violation count instead of decaying it.
+    test(
+        'a clock rolled back past the last violation timestamp must not '
+        'amplify the decayed violation count above the raw stored value',
+        () {
+      for (var i = 0; i < 4; i++) {
+        AdSafetyConfig.recordAdClick();
+      }
+      final rawCount = AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount;
+      expect(rawCount, greaterThan(0), reason: 'sanity: a violation fired');
+
+      // "Now" appears to be 48h BEFORE the last violation — as if the
+      // system clock were rolled back after the violation was recorded.
+      AdSafetyConfig.debugSetLastViolationTimestamp(
+          DateTime.now().millisecondsSinceEpoch + (48 * 60 * 60 * 1000));
+
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
+          lessThanOrEqualTo(rawCount),
+          reason: 'a rolled-back clock must never make the decayed count '
+              'exceed the raw stored count — that is amplification, the '
+              'opposite of decay');
     });
   });
 

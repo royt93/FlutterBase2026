@@ -215,6 +215,19 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
   @override
   void initState() {
     super.initState();
+    _trySubscribe();
+  }
+
+  // Round-31 audit fix (MINOR) — `initState()` alone only catches the
+  // monitor already existing at MOUNT time. This debug overlay (`kDebugMode`
+  // only) can easily mount before `AdManager().initialize()`/
+  // `enableFillRateBaselineMonitor()` runs, in which case `_sub` stayed
+  // permanently null and new alerts never triggered a rebuild — only
+  // visible again if something ELSE happened to rebuild this widget.
+  // Cheap to retry every build: a debug tool, not a hot path, and a no-op
+  // once subscribed.
+  void _trySubscribe() {
+    if (_sub != null) return;
     _sub = AdManager().fillRateBaselineMonitor?.alerts.listen((_) {
       if (mounted) setState(() {});
     });
@@ -228,6 +241,7 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
 
   @override
   Widget build(BuildContext context) {
+    _trySubscribe();
     final alerts = AdManager().fillRateBaselineMonitor?.activeAlerts ?? const {};
     if (alerts.isEmpty) return const SizedBox.shrink();
     return Padding(
