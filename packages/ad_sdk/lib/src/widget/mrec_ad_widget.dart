@@ -2,6 +2,7 @@ import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../adapters/applovin_ad_revenue.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_route_observer.dart';
 import '../core/ad_safety_config.dart';
@@ -509,6 +510,22 @@ class _AppLovinMaxMrecView extends StatelessWidget {
                     type: AdSlotType.mrec,
                     placement: placement,
                   ));
+            },
+            // Round-32 audit fix (MAJOR) — see banner_ad_widget.dart's
+            // identical fix for the full explanation; same bug, same fix,
+            // for MREC's own onAdLoadedCallback/_handleWidgetAdLoaded path.
+            onAdRevenuePaidCallback: (ad) {
+              SafeLogger.d('MrecAdWidget', 'MaxAdView 💰 impression');
+              AdSafetyConfig.recordBannerImpression();
+              final sink = AdManager().adapter?.eventSink;
+              sink?.call(AdImpressionEvent(
+                providerTag: '[AppLovin]',
+                type: AdSlotType.mrec,
+                placement: placement,
+              ));
+              final revenue = appLovinRevenueEvent(ad,
+                  type: AdSlotType.mrec, placement: placement);
+              if (revenue != null) sink?.call(revenue);
             },
             onAdExpandedCallback: (ad) =>
                 SafeLogger.d('MrecAdWidget', 'MaxAdView expand'),

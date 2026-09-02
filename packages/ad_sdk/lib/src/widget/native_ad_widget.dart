@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 
+import '../adapters/applovin_ad_revenue.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
@@ -475,6 +476,32 @@ class _AppLovinMaxNativeView extends StatelessWidget {
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
                 'onAdClickedCallback: disposed mid-flight? $e');
+          }
+        },
+        // Round-32 audit fix (MAJOR) — AppLovin native previously had NO
+        // revenue signal wired at all (unlike AdMob's native, which wires
+        // onPaidEvent): 0 AdRevenueEvent, 0 impression count, for the
+        // entire lifetime of the SDK on this format. NativeAdListener
+        // supports onAdRevenuePaidCallback same as the ad-view listeners
+        // above; it was just never given one.
+        onAdRevenuePaidCallback: (ad) {
+          try {
+            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 💰 impression');
+            AdSafetyConfig.recordBannerImpression();
+            final adapter = AdManager().adapter;
+            if (adapter == null || !adapter.isInitialised) return;
+            final sink = adapter.eventSink;
+            sink?.call(AdImpressionEvent(
+              providerTag: '[AppLovin]',
+              type: AdSlotType.native,
+              placement: placement,
+            ));
+            final revenue = appLovinRevenueEvent(ad,
+                type: AdSlotType.native, placement: placement);
+            if (revenue != null) sink?.call(revenue);
+          } catch (e) {
+            SafeLogger.e('NativeAdWidget',
+                'onAdRevenuePaidCallback: disposed mid-flight? $e');
           }
         },
       ),

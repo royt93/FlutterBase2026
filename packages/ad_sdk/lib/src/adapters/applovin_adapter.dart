@@ -15,6 +15,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'applovin_ad_revenue.dart';
 import 'applovin_bridge.dart';
 
 /// AppLovin MAX implementation of [AdProviderAdapter].
@@ -168,21 +169,14 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// `onAdRevenuePaidCallback` (display/impression time, correct ILRD
   /// semantics), never from a load callback. `MaxAd.revenue` is `0` for no
   /// revenue / test mode → skip.
+  ///
+  /// Round-32 — the actual mapping now lives in `appLovinRevenueEvent`
+  /// (applovin_ad_revenue.dart), shared with the widget-level
+  /// banner/mrec/native `onAdRevenuePaidCallback`s, which don't have an
+  /// `AppLovinAdapter` instance to call this method on.
   void _emitRevenueIfPresent(MaxAd ad, AdSlotType type, AdPlacement placement) {
-    final amount = ad.revenue;
-    if (amount <= 0) return;
-    _emit(AdRevenueEvent(
-      providerTag: tag,
-      type: type,
-      placement: placement,
-      valueMicros: (amount * 1000000).round(),
-      currencyCode: 'USD',
-      networkName: ad.networkName,
-      precision: ad.revenuePrecision,
-      // AppLovin only reports the winning network per impression — not a
-      // step-by-step waterfall like AdMob's ResponseInfo.adapterResponses.
-      mediationWaterfall: [ad.networkName],
-    ));
+    final event = appLovinRevenueEvent(ad, type: type, placement: placement);
+    if (event != null) _emit(event);
   }
 
   @override
@@ -1985,14 +1979,22 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       if (listenables.adSize.value != sz) listenables.adSize.value = sz;
     }
     slot.markReady();
-    if (isInitial) AdSafetyConfig.recordBannerImpression();
+    // Round-32 audit fix (MAJOR) — `recordBannerImpression()` and the
+    // revenue event used to fire HERE, at fill/load time, not at an actual
+    // on-screen impression: a load that fills while the widget is unmounted,
+    // hidden, or mid-refresh still counted toward the CTR-fraud denominator
+    // and emitted revenue for an ad nobody saw. Same class of bug round-31
+    // already fixed for AdMob's banner/MREC (see its `onAdImpression`
+    // callback) — moved to the real per-widget `onAdRevenuePaidCallback` in
+    // `banner_ad_widget.dart`/`mrec_ad_widget.dart` instead, which is
+    // AppLovin's actual impression-with-revenue signal for this ad-view API.
+    // `isInitial` is now unused here as a result — kept for the log line.
     _emit(AdLoadEvent(
       providerTag: tag,
       type: type,
       placement: AdPlacement.unspecified,
       success: true,
     ));
-    _emitRevenueIfPresent(ad, type, AdPlacement.unspecified);
   }
 
   void _handleWidgetAdLoadFailed(BannerListenables listenables, AdSlot slot,

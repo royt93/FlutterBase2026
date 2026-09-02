@@ -2,6 +2,7 @@ import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../adapters/applovin_ad_revenue.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_route_observer.dart';
 import '../core/ad_safety_config.dart';
@@ -633,6 +634,26 @@ class _AppLovinMaxAdView extends StatelessWidget {
                     type: AdSlotType.banner,
                     placement: placement,
                   ));
+            },
+            // Round-32 audit fix (MAJOR) — AppLovin's real per-impression
+            // signal for this ad-view API (there is no separate pure
+            // "displayed" callback here, unlike AdMob's onAdImpression).
+            // Previously the adapter recorded the impression + emitted
+            // revenue from onAdLoadedCallback (fill time) instead, over-
+            // counting anything that filled but was never actually seen —
+            // see applovin_adapter.dart's `_handleWidgetAdLoaded`.
+            onAdRevenuePaidCallback: (ad) {
+              SafeLogger.d('BannerAdWidget', 'MaxAdView 💰 impression');
+              AdSafetyConfig.recordBannerImpression();
+              final sink = AdManager().adapter?.eventSink;
+              sink?.call(AdImpressionEvent(
+                providerTag: '[AppLovin]',
+                type: AdSlotType.banner,
+                placement: placement,
+              ));
+              final revenue = appLovinRevenueEvent(ad,
+                  type: AdSlotType.banner, placement: placement);
+              if (revenue != null) sink?.call(revenue);
             },
             onAdExpandedCallback: (ad) =>
                 SafeLogger.d('BannerAdWidget', 'MaxAdView expand'),

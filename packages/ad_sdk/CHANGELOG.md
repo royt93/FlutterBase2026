@@ -4,6 +4,42 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.14] - 2026-09-02
+
+Round-32 follow-up, part 2 — the AppLovin banner/MREC/native revenue-event
+gap flagged in 2.9.13's changelog as a separate follow-up.
+
+**Fixed:**
+
+- AppLovin banner/MREC counted an impression and emitted `AdRevenueEvent`
+  from `onAdLoadedCallback` (fill time) via the shared static
+  `WidgetAdViewAdListener` — the same class of bug round-31 already fixed
+  for AdMob's banner/MREC (`onAdImpression` vs `onAdLoaded`). Moved to each
+  widget's own `onAdRevenuePaidCallback` on its per-instance `MaxAdView`
+  listener — AppLovin's real impression-with-revenue signal for this ad-view
+  API (there is no separate pure "displayed" callback here).
+- AppLovin native (`NativeAdWidget`) had **no revenue signal wired at all**
+  — 0 `AdRevenueEvent`, 0 impression count, for the entire lifetime of the
+  SDK on this format, despite `NativeAdListener` supporting
+  `onAdRevenuePaidCallback` same as the ad-view listeners. Wired it.
+
+The actual field-mapping logic (which `MaxAd` fields feed which
+`AdRevenueEvent` field, the `revenue <= 0` skip) is pulled into a new shared
+`appLovinRevenueEvent()` (`applovin_ad_revenue.dart`), reused by the
+fullscreen formats' existing `_emitRevenueIfPresent` too — one source of
+truth instead of four near-identical copies.
+
+**Known test gap, called out rather than silently left implicit:** the
+callback *wiring* (does `MaxAdView`/`MaxNativeAdView` actually invoke
+`onAdRevenuePaidCallback` with real data) has no test seam in this repo —
+both are third-party platform views, and this package's test suite has
+never simulated their native channel. The pure mapping logic has a direct
+unit test (`applovin_ad_revenue_test.dart`); the wiring itself needs
+on-device verification, done separately (see the round-32 audit doc for the
+device-verification log).
+
+Suite: 1562/1562 pass. `flutter analyze`: 0 issues.
+
 ## [2.9.13] - 2026-09-02
 
 Round-32 follow-up — user reviewed the ~15 MAJOR findings one by one
