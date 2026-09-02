@@ -99,8 +99,8 @@ AdSafetyParams applyRemoteSafetyOverrides(
     maxClicksPerMinute: posInt('maxClicksPerMinute', max: 60),
     maxFullscreenAdsPerDay: posInt('maxFullscreenAdsPerDay', max: 500),
     maxFullscreenAdsPerHour: posInt('maxFullscreenAdsPerHour', max: 100),
-    minSessionDurationBeforeAd:
-        posInt('minSessionDurationBeforeAd', max: 3600000 /* 1h */),
+    minSessionDurationBeforeAd: posInt('minSessionDurationBeforeAd',
+        min: 1, max: 3600000 /* 1h */),
     suspiciousCtrThreshold: unitDouble('suspiciousCtrThreshold'),
     maxRapidResumesPerMinute: posInt('maxRapidResumesPerMinute', max: 60),
     dryRun: boolVal('dryRun'),

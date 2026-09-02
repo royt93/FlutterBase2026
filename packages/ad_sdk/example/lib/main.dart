@@ -806,7 +806,14 @@ class _SplashScreenState extends State<SplashScreen> {
         return;
       }
       AdLoadingDialog.showAdBuffer(context, onComplete: () {
-        if (!mounted) {
+        // Round-32 audit fix (MAJOR) — `_hardCap` is only cancelled a few
+        // lines below (AFTER this buffer wait), so it can still fire and
+        // call `_goHome()` (`_navigated = true`, pushReplacement to
+        // HomePage) WHILE this buffer is running. `mounted` alone doesn't
+        // catch that: the old route's State stays mounted through the
+        // transition, so without `_navigated` here the App Open ad still
+        // gets shown right after the user is already on HomePage.
+        if (!mounted || _navigated) {
           _goHome();
           return;
         }

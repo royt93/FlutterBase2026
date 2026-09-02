@@ -5,7 +5,10 @@
 // FakeAdProviderAdapter (T118) via AdManager.debugAdapterFactory, so the
 // ordering assertion below reflects the actual production call sequence,
 // not a re-description of it.
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -133,4 +136,70 @@ void main() {
             'AdManager.initialize() itself is what decides how to behave '
             'under non-personalised consent');
   });
+
+  group('round-32 audit (MAJOR): bootstrap() must not hang for '
+      'AdManager.initialize()\'s full ~130s worst-case retry pileup '
+      '(20s init timeout + [5s,15s,30s] backoff x4 attempts)', () {
+    test('a wedged initialize() (never calls onComplete) still returns '
+        'within the default initTimeout, not 130s later', () {
+      fakeAsync((async) {
+        AdManager.debugAdapterFactory = (_) => _HangingInitAdapter();
+
+        AdBootstrapResult? result;
+        bootstrap(
+          const AdBootstrapOptions(config: _config),
+          debugRequestAtt: () async =>
+              const AttResult(status: AttStatus.authorized),
+          debugRequestUmp: () async => const UmpConsentResult(
+              canRequestAds: true, status: ConsentStatus.obtained),
+        ).then((r) => result = r);
+
+        // Default initTimeout is 20s — elapse just past it, nowhere near
+        // the ~130s a real wedged native init retry loop could take.
+        async.elapse(const Duration(seconds: 21));
+
+        expect(result, isNotNull,
+            reason: 'bootstrap() must give up waiting on init and return, '
+                'not hang for the full retry pileup');
+        expect(result!.initSuccess, isFalse,
+            reason: 'init never actually reported success within the '
+                'timeout — must not be reported as true');
+      });
+    });
+
+    test('initTimeout: null restores the old unbounded-wait behaviour', () {
+      fakeAsync((async) {
+        AdManager.debugAdapterFactory = (_) => _HangingInitAdapter();
+
+        AdBootstrapResult? result;
+        bootstrap(
+          const AdBootstrapOptions(config: _config, initTimeout: null),
+          debugRequestAtt: () async =>
+              const AttResult(status: AttStatus.authorized),
+          debugRequestUmp: () async => const UmpConsentResult(
+              canRequestAds: true, status: ConsentStatus.obtained),
+        ).then((r) => result = r);
+
+        async.elapse(const Duration(minutes: 10));
+
+        expect(result, isNull,
+            reason: 'an explicit null must opt back out of the timeout — '
+                'this is an intentional escape hatch, not just this '
+                'default\'s absence');
+      });
+    });
+  });
+}
+
+/// `initialize()` never resolves — the worst case this timeout guards
+/// against (a wedged native SDK init call that never calls back).
+class _HangingInitAdapter extends FakeAdProviderAdapter {
+  @override
+  Future<bool> initialize(
+    AdConfig config, {
+    String deviceGaid = '',
+    bool isAgeRestrictedUser = false,
+    AdConsent? consent,
+  }) =>
+      Completer<bool>().future;
 }

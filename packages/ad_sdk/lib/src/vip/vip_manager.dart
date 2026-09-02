@@ -1319,6 +1319,21 @@ class VipManager {
       // that passed the wrong value, or omitted it, would silently disable the
       // binding and never know. A failure to read degrades to "no bundle
       // check" rather than blocking a legitimate redemption.
+      //
+      // Round-32 audit — reviewed and kept as-is (product decision, not an
+      // oversight): a real `PackageInfo.fromPlatform()` failure on a shipped
+      // app is rare (channel/registration issue), and this fail-OPEN choice
+      // means that rare case degrades to "bundle binding skipped" rather than
+      // "a user with a genuinely valid code cannot redeem it". The tradeoff:
+      // in that same rare window, an AVP2 key minted for a different app
+      // would also redeem. NOTE for anyone tempted to "fix" this by passing
+      // `bundleId = ''` on catch instead of leaving it `null`: verified in
+      // `signed_vip_key.dart` that the reject condition requires
+      // `currentBundleId.isNotEmpty`, so an empty string is treated
+      // identically to null — that alone changes nothing. A real fail-closed
+      // fix means rejecting the redemption outright on this catch (return an
+      // error instead of falling through to `verifySignedVipKey`), which is
+      // a product call given the tradeoff above, not a bug fix.
       // Only AVP2 carries an app binding, so only AVP2 needs the platform
       // call. Skipping it for AVP1 keeps the old path free of an extra async
       // hop — which is not just a micro-optimisation: adding that hop

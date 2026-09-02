@@ -228,6 +228,17 @@ Backwards-compatible with 1.0.1x. Recent additions:
     top of it. Fix: use the SDK's `showAdSafeModalBottomSheet` (same
     parameters, always `useRootNavigator: true`) instead of the raw Flutter
     API for any bottom sheet in a multi-Navigator app.
+  - **Overlay-based popups are invisible to this guard too (round-32 audit):**
+    `isDialogOnTop` only counts `PopupRoute`s pushed through a `Navigator`. A
+    popup built by inserting an `OverlayEntry` directly (common in
+    third-party loading/toast/coach-mark packages, and `SnackBar`, which goes
+    through `ScaffoldMessenger` rather than a route) is not a `Route` at all
+    and is never seen. If your app shows one of these at the moment
+    `showAppOpenAdOnResume` fires, the App Open ad can appear on top of it.
+    There is no SDK-side fix for this — it would have to poll every overlay
+    in the tree, which the framework does not expose safely. Avoid
+    non-route popups during a window where an App Open ad could resume, or
+    accept the (rare) overlap.
 - **VIP time stacking (1.0.22)** — `VipManager.addVip` / `redeemVip` gained an
   opt-in `stack` flag (default `false`). With `stack: true` the grant
   **accumulates onto the latest expiry across ALL active entries** (global

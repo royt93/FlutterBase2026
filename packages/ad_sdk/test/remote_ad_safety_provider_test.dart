@@ -125,6 +125,21 @@ void main() {
       expect(merged.maxFullscreenAdsPerDay, 500);
       expect(merged.maxClicksPerMinute, 60);
     });
+
+    // Round-32 audit (MAJOR) — same class of bug as the two throttle fields
+    // above, missed when they were fixed in round-30: this field's whole
+    // job is also "not zero" (a 0 warm-up lets a fullscreen ad show the
+    // instant a session opens, a bot/spam signal), but its `posInt` call
+    // never got `min: 1`.
+    test('a zero minSessionDurationBeforeAd is rejected — 0 would disable '
+        'the warm-up anti-bot gate outright', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'minSessionDurationBeforeAd': 0});
+      expect(merged.minSessionDurationBeforeAd,
+          local.minSessionDurationBeforeAd,
+          reason: 'must require a real positive floor, same as '
+              'minTimeBetweenFullscreenAds/minTimeAppOpenResume');
+    });
   });
 
   // Round-30 audit (MINOR) — posInt used to require `v is int` exactly,

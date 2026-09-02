@@ -4,6 +4,72 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.13] - 2026-09-02
+
+Round-32 follow-up — user reviewed the ~15 MAJOR findings one by one
+(non-technical walkthrough, plain-language pros/cons per item) and approved
+a batch of them for this release. Two items were re-verified and downgraded
+during that review: audit_round32_deep_consolidated.md's #6 (COPPA-AppLovin
+part) was a **false positive** — `AppLovinAdapter` already tears down and
+re-initialises correctly when the child-directed flag changes mid-session;
+and the AVP1-legacy-VIP-key concern is a **documented intentional
+tradeoff** (`signed_vip_key.dart`'s own comment: "AVP1 stays accepted so
+keys already handed out keep working"), not a bug — kept as-is, no action.
+
+**Fixed:**
+
+- `remote_ad_safety_provider.dart`: `minSessionDurationBeforeAd` was missing
+  the `min: 1` floor round-30 already gave its two sibling throttle fields —
+  a remote config of `0` disabled the warm-up anti-bot gate outright.
+- `ad_manager.dart`: `canShowRewardedInterstitialAd()` was the one of three
+  fullscreen `canShow*` peeks missing the `AdLoadingDialog.isShowing` gate
+  its two siblings both have — a host polling it while another fullscreen
+  flow's non-dismissable loading dialog was up could open the RI disclosure
+  dialog on top of it (UI stuck, not a double-shown ad).
+- `example/lib/main.dart`: the splash's buffered App Open `onComplete`
+  callback checked `mounted` but not `_navigated` — the exact race
+  `AdReadinessSplashController` already guards against (round-31), missing
+  from this hand-written example. A slow ad load finishing right as the
+  hard-cap timer navigates away could show App Open on top of HomePage.
+- `ad_bootstrap.dart`: `bootstrap()` had no bound on how long it waits for
+  `AdManager.initialize()` — a wedged native init (never calls back) could
+  leave a bare `await bootstrap(...)` splash frozen for the full ~130s
+  worst-case retry pileup. New `AdBootstrapOptions.initTimeout` (default
+  20s) bounds the wait without cancelling the real init, which keeps
+  running and still updates `AdManager`'s state; pass `null` to restore the
+  old unbounded wait.
+
+**Documented (no behaviour change, reviewed and kept as intentional):**
+
+- `vip_manager.dart`: the AVP2 bundle-binding check silently skips (rather
+  than fails closed) when `PackageInfo.fromPlatform()` throws — comment
+  expanded with the explicit tradeoff and a corrected note that passing an
+  empty string instead of `null` would NOT actually fix it (verified:
+  `signed_vip_key.dart`'s reject condition treats both identically).
+- `ad_manager.dart`: `showAppOpenAd`'s `bypassSafety` param got a loud
+  doc-comment warning — it is not technically restricted to the splash
+  screen, only conventionally.
+- `README.md`: documented that `AdScreenRouteLogger`'s dialog-stacking guard
+  cannot see `OverlayEntry`-based popups (toast/loading libraries,
+  `SnackBar`) — no SDK-side fix possible, host must avoid overlapping them
+  with an App-Open-eligible resume window.
+
+**Deferred to a separate follow-up (not in this release):**
+
+- No automatic runtime failover between AdMob and AppLovin when one is
+  degraded — provider selection is already fully runtime-configurable
+  (`AdConfig.provider`, including a stable per-install A/B cohort via
+  `pickProviderCohort()`), but switching mid-session today means the host
+  calling `destroy()` + `initialize()` with a different provider itself;
+  the SDK does not detect a degraded provider and do that automatically.
+  Real feature work, tracked separately.
+- AppLovin banner/MREC impression+revenue timing (counted at ad-fill, not
+  real display) and AppLovin native ads never emitting a revenue event at
+  all — both real, both approved to fix, in progress separately from this
+  release.
+
+Suite: 1559/1559 pass. `flutter analyze`: 0 issues.
+
 ## [2.9.12] - 2026-09-02
 
 Round 32 — 3 fully independent CLI agents (codex, agy/Gemini, claude) audited

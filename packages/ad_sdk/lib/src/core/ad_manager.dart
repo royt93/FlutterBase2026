@@ -5909,6 +5909,18 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> showAppOpenAd({
     required void Function(bool dismissed) onAdDismiss,
+    // Round-32 audit — flagged again as a footgun risk, kept as a public
+    // param by design (splash needs to bypass the daily/hourly/session caps
+    // and 60s throttle to show right after cold start). ⚠️ THIS IS NOT
+    // TECHNICALLY RESTRICTED TO SPLASH — nothing in the SDK stops it being
+    // called (or copy-pasted) from anywhere else in a host app, and doing so
+    // would show App Open ads with no frequency limit, a real AdMob/AppLovin
+    // placement-policy violation. `callSiteTag` below and `bypassAuditTrail`
+    // record every call for later export, but that is an after-the-fact
+    // audit trail (and in-memory only — cleared on app restart), not an
+    // enforcement mechanism. Only call this with `true` from the splash
+    // screen's own App Open show, per the integration contract in the
+    // package README.
     bool bypassSafety = false,
     AdPlacement placement = AdPlacement.splash,
     // T128 — proof-of-compliance: identifies THIS call site in the signed
@@ -6971,6 +6983,12 @@ class AdManager with WidgetsBindingObserver {
     if (_isVipMember) return false;
     if (!canRequestAds) return false;
     if (ad.rewardedInterstitialSlot.isShowing) return false;
+    // Round-32 audit fix (MAJOR) — this was the one of the three fullscreen
+    // canShow* peeks missing this gate (canShowInterstitial/canShowRewardedAd
+    // both have it). Without it, a host polling this while another
+    // fullscreen flow's non-dismissable AdLoadingDialog is up would see
+    // `true` and open the RI disclosure dialog on top of it.
+    if (AdLoadingDialog.isShowing) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;

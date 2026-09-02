@@ -1100,6 +1100,50 @@ void main() {
               'this ad, so the peek must not claim it is showable');
     });
 
+    // Round-32 audit (MAJOR) — canShowInterstitial/canShowRewardedAd both
+    // gate on `AdLoadingDialog.isShowing`, but canShowRewardedInterstitialAd
+    // never got the same line. A host polling it while another fullscreen
+    // flow's non-dismissable loading dialog is up would see `true` and let
+    // the user open a second (disclosure) dialog on top of it — UI stuck,
+    // not a double-shown ad (showRewardedInterstitialAd() itself already
+    // checks AdLoadingDialog.isShowing separately).
+    testWidgets(
+        'canShowRewardedInterstitialAd() is false while '
+        'AdLoadingDialog is showing, same as its two siblings', (
+      tester,
+    ) async {
+      addTearDown(AdLoadingDialog.resetState);
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdManager().debugVipManager = _FakeVip(false);
+
+      final admob = AdMobAdapter();
+      AdManager().debugSetAdapter(admob);
+      admob.rewardedInterstitialSlot.beginLoad();
+      admob.rewardedInterstitialSlot.markReady();
+      expect(AdManager().canShowRewardedInterstitialAd(), isTrue,
+          reason: 'sanity check: a freshly loaded ad is showable');
+
+      late BuildContext ctx;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(builder: (c) {
+            ctx = c;
+            return const SizedBox.shrink();
+          }),
+        ),
+      ));
+      AdLoadingDialog.show(ctx);
+      await tester.pump();
+
+      expect(AdManager().canShowRewardedInterstitialAd(), isFalse,
+          reason: 'a non-dismissable loading dialog from another fullscreen '
+              'flow is already on screen — opening the RI disclosure dialog '
+              'now would stack a second dialog on top of it');
+    });
+
     test(
         'VIP active → showAppOpenAd is skipped even with bypassSafety '
         '(never stacks on top of the no-ads state)', () async {
