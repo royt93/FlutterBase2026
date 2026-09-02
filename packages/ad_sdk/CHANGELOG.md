@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [2.9.11] - 2026-09-02
 
+**Published to pub.dev** — nhảy thẳng từ 2.9.6 (5 version 2.9.7-2.9.10
+chưa từng lên pub.dev). Trước khi publish đã verify thật: pod install
+pinning wall (AppLovinSDK resolve đúng 13.5.0), build+chạy `example/` thật
+trên iOS Simulator và Android thật (TECNO SPARK Go 2024) — bao gồm form
+UMP EEA thật (không priming dialog), xác nhận không lặp lại sau cold
+restart.
+
 Round 31 — full re-audit từ đầu của TOÀN BỘ `lib/src/` + `example/` (lần
 đầu ai đọc riêng `example/`), ưu tiên sâu AdMob provider. 9 agent song
 song, không tin báo cáo cũ, đối chiếu policy Google/Apple mới nhất khi
