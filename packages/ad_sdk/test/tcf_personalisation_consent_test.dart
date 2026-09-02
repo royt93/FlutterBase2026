@@ -21,6 +21,7 @@ import 'dart:async';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
@@ -242,6 +243,41 @@ void main() {
       expect(await IabStorage.tcfAllowsPersonalisedAds(), isFalse,
           reason: 'an unreadable store must never be read as "no signal" — '
               'that is indistinguishable downstream from consent');
+    });
+
+    // Round-32 audit, BLOCKER — `_open()` never itself throws anything but
+    // `StateError` (everything else lands in its own catch-all and returns
+    // null), so the only other way something escapes the `on StateError`
+    // clause wrapping it in `tcfAllowsPersonalisedAds` is its `.timeout(5s)`
+    // firing: `TimeoutException` is not a `StateError`. That is exactly what
+    // happens if opening the store itself never settles (e.g. a wedged
+    // `PackageInfo.fromPlatform()` binder call on Android cold-start).
+    test(
+        'a platform store that never opens (5s deadline fires) fails CLOSED, '
+        'not by throwing out of the function', () {
+      fakeAsync((async) {
+        IabStorage.debugResetForTest();
+        IabStorage.debugOpenOverride =
+            () => Completer<SharedPreferencesAsync?>().future;
+        addTearDown(() => IabStorage.debugOpenOverride = null);
+
+        bool? result;
+        Object? thrown;
+        IabStorage.tcfAllowsPersonalisedAds().then((r) {
+          result = r;
+        }, onError: (Object e) {
+          thrown = e;
+        });
+
+        async.elapse(const Duration(seconds: 6));
+
+        expect(thrown, isNull,
+            reason: 'a wedged store open must fail closed, not escape as an '
+                'unhandled exception — 3 of the 4 real call sites in '
+                'ad_manager.dart have no try/catch around this call');
+        expect(result, isFalse,
+            reason: 'same fail-closed contract as an unreadable store above');
+      });
     });
   });
 

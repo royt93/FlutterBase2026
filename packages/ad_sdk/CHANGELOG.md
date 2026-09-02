@@ -4,6 +4,56 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.12] - 2026-09-02
+
+Round 32 — 3 fully independent CLI agents (codex, agy/Gemini, claude) audited
+the SDK in parallel, each on its own isolated `git worktree`, with no shared
+context with each other or with the orchestrating session. 3 different
+verdicts came back (0/1/1 BLOCKER); the orchestrator then read the real
+source to verify every BLOCKER claim before trusting it — both turned out
+real, independent of each other, both on the consent path. `agy` missed both
+(shallower read); its report is kept for reference in
+`doc/audit/audit_agy.md` with a correction note, not as a production
+verdict. Full detail: `doc/audit/audit_round32_deep_consolidated.md`.
+
+**BLOCKER:**
+
+- **Fix**: `applyConsentToProviders()` (`ad_consent.dart`) swallowed the
+  exception from either provider write (AppLovin's fire-and-forget
+  `setHasUserConsent`/`setDoNotSell`, or a thrown/timed-out AdMob
+  `updateRequestConfiguration`) and then recorded `_lastAppliedToProviders =
+  c` unconditionally regardless. Resume/reconcile compares device TCF state
+  against that value and skips retrying once they match — so a transient
+  write failure during a consent withdrawal could leave a provider
+  personalised while the SDK believed it had already gone restrictive. Now
+  only records it once both writes actually complete without throwing.
+- **Fix**: `IabStorage.tcfAllowsPersonalisedAds()`'s `try { await
+  _open().timeout(5s) } on StateError { return null; }` only caught the
+  test-harness case. `_open()` itself already swallows everything except
+  `StateError`, so the only other way to escape that clause is the
+  `.timeout()` firing — a `TimeoutException`, not a `StateError` — if the
+  open itself never settles (a wedged `PackageInfo.fromPlatform()` binder
+  call is the realistic trigger, Android cold-start). That undid the exact
+  fail-closed guarantee round-31 added for this function: 3 of 4 real call
+  sites in `ad_manager.dart` have no try/catch around it, so the timeout
+  could escape as an unhandled exception instead of failing closed. Added a
+  `catch (e)` beside the existing `on StateError`.
+
+Both fixed RED→GREEN (new tests: `ad_consent_test.dart` mocks a provider
+write throwing and asserts the committed-consent value doesn't move;
+`tcf_personalisation_consent_test.dart` uses `fakeAsync` + a new
+`@visibleForTesting IabStorage.debugOpenOverride` seam — `Platform.isAndroid`
+can't be faked in `flutter test`, so this is the only way to make the open
+step itself hang without a real Android device). `flutter analyze`: 0
+issues. Suite: 1555/1555 pass.
+
+~15 further MAJOR findings from this round (no runtime AdMob↔AppLovin
+fallback, AppLovin banner/native revenue-event gaps, `bootstrap()` with no
+hard-cap, a couple of dialog-stacking edge cases, a missing `min:1` floor on
+one remote-safety field, etc.) are catalogued in
+`doc/audit/audit_round32_deep_consolidated.md` — left for a follow-up round,
+prioritised with the user.
+
 ## [2.9.11] - 2026-09-02
 
 **Published to pub.dev** — nhảy thẳng từ 2.9.6 (5 version 2.9.7-2.9.10

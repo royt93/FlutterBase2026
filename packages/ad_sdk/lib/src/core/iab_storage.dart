@@ -90,7 +90,16 @@ class IabStorage {
     );
   }
 
+  /// Test-only seam so a test can make the open step itself hang (never
+  /// settle) without needing a real Android device — `Platform.isAndroid` is
+  /// fixed for the process and cannot be faked in `flutter test`. See the
+  /// round-32 BLOCKER test in `test/tcf_personalisation_consent_test.dart`.
+  @visibleForTesting
+  static Future<SharedPreferencesAsync?> Function()? debugOpenOverride;
+
   static Future<SharedPreferencesAsync?> _open() async {
+    final override = debugOpenOverride;
+    if (override != null) return override();
     final existing = _store;
     if (existing != null) return existing;
     try {
@@ -224,6 +233,17 @@ class IabStorage {
       // artifact, impossible on a real shipped app (see [_open]). Behave as
       // before: no TCF session has ever run.
       return null;
+    } catch (e) {
+      // Round-32 audit, BLOCKER fix — `_open()` only ever lets `StateError`
+      // escape on its own; anything else here is `.timeout(5s)` firing
+      // because the open itself never settled (e.g. a wedged
+      // `PackageInfo.fromPlatform()` binder call on Android cold-start).
+      // That must fail closed exactly like an unreadable store below, not
+      // escape uncaught — most call sites in ad_manager.dart have no
+      // try/catch around this function.
+      SafeLogger.w('IabStorage',
+          'tcfAllowsPersonalisedAds: platform open failed — failing closed: $e');
+      return false;
     }
     if (store == null) {
       SafeLogger.w('IabStorage',

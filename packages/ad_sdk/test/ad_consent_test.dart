@@ -105,6 +105,53 @@ void main() {
   });
 
   group(
+      'applyConsentToProviders — BLOCKER round-32: must not record consent '
+      'as applied when the provider write actually failed', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const alChannel = MethodChannel('applovin_max');
+    final gmaChannel = MethodChannel(
+      'plugins.flutter.io/google_mobile_ads',
+      StandardMethodCodec(AdMessageCodec()),
+    );
+
+    tearDown(() {
+      messenger.setMockMethodCallHandler(alChannel, null);
+      messenger.setMockMethodCallHandler(gmaChannel, null);
+      resetLastConsentAppliedToProviders();
+    });
+
+    test(
+        'AdMob updateRequestConfiguration throws → lastConsentAppliedToProviders '
+        'stays at the previous value instead of being overwritten with the '
+        'consent that failed to apply', () async {
+      messenger.setMockMethodCallHandler(alChannel, (call) async => null);
+      messenger.setMockMethodCallHandler(
+          gmaChannel, (call) async => throw PlatformException(code: 'boom'));
+
+      // Previous session had already committed conservative consent — this
+      // must survive a failed later apply, not be silently overwritten.
+      messenger.setMockMethodCallHandler(
+          gmaChannel, (call) async => null); // let the baseline apply land
+      await applyConsentToProviders(AdConsent.conservative);
+      expect(lastConsentAppliedToProviders, AdConsent.conservative);
+
+      // Now the provider write starts failing (e.g. transient channel/native
+      // error while the user is withdrawing consent).
+      messenger.setMockMethodCallHandler(
+          gmaChannel, (call) async => throw PlatformException(code: 'boom'));
+      await applyConsentToProviders(AdConsent.fullyAccepted);
+
+      expect(lastConsentAppliedToProviders, AdConsent.conservative,
+          reason: 'AdMob never actually received the new consent — the SDK '
+              'must not claim it did, or downstream reconcile logic will '
+              'skip retrying a write that never landed');
+    });
+  });
+
+  group(
       'applyConsentToProviders testDeviceIds re-apply '
       '(consent re-apply test gap, 2026-08-22 audit)', () {
     TestWidgetsFlutterBinding.ensureInitialized();

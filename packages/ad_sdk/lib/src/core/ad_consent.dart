@@ -145,6 +145,8 @@ Future<void> applyConsentToProviders(
 }) async {
   const tag = 'AdConsent';
   final outcome = _decideConsentOutcome(c, config);
+  var appLovinApplied = false;
+  var adMobApplied = false;
   // ─── AppLovin (4.6+ uses static methods on AppLovinMAX) ──────────────────
   try {
     AppLovinMAX.setHasUserConsent(outcome.appLovinHasUserConsent);
@@ -167,6 +169,7 @@ Future<void> applyConsentToProviders(
           're-initialize if you need the init-time gate (T40) to take effect.');
     }
     SafeLogger.d(tag, 'AppLovin privacy applied: $c');
+    appLovinApplied = true;
   } catch (e) {
     SafeLogger.w(tag, 'AppLovin privacy apply failed: $e');
   }
@@ -204,6 +207,7 @@ Future<void> applyConsentToProviders(
     await MobileAds.instance.updateRequestConfiguration(cfg);
     SafeLogger.d(tag,
         'AdMob RequestConfiguration applied: $c (testDevices=${testDeviceIds.length})');
+    adMobApplied = true;
   } catch (e) {
     SafeLogger.w(tag, 'AdMob privacy apply failed: $e');
   }
@@ -216,7 +220,16 @@ Future<void> applyConsentToProviders(
   // merely recorded for one that landed. Round 18 tracked this in `AdManager`
   // instead and so missed every caller that is not `AdManager.setConsent` —
   // `initialize()`'s own apply, and the built-in consent dialog.
-  _lastAppliedToProviders = c;
+  //
+  // Round-32 audit, BLOCKER — only record it as applied if BOTH provider
+  // writes actually completed. Recording it unconditionally (as before) made
+  // a swallowed AdMob exception look identical to success: reconcile-on-resume
+  // compares device state against this value and skips retrying whenever they
+  // already match, so a transient write failure during consent withdrawal
+  // could leave AdMob personalised while the SDK believed it was restrictive.
+  if (appLovinApplied && adMobApplied) {
+    _lastAppliedToProviders = c;
+  }
 }
 
 AdConsent? _lastAppliedToProviders;

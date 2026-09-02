@@ -1,5 +1,20 @@
 # Audit round 32 — tổng hợp 3 agent độc lập (codex / agy-Gemini / claude), 2026-09-02
 
+> **Cập nhật 2026-09-02 (sau khi user duyệt qua AskUserQuestion):**
+> - **Cả 2 BLOCKER (A và B) đã fix trong 2.9.12**, theo TDD (test RED tái hiện lỗi
+>   trước, rồi mới sửa) — xem CHANGELOG.md `[2.9.12]`. `flutter analyze` 0 lỗi,
+>   1555/1555 test pass (2 test mới thêm).
+> - Đã chạy 1 vòng verify độc lập thứ 4 (fork agent) cho **toàn bộ 15 MAJOR**
+>   bên dưới (không chỉ 2 BLOCKER như trước) — 1 mục cần sửa lại: **mục #6
+>   phần COPPA-AppLovin-runtime-change là FALSE POSITIVE** (đọc code kỹ hơn
+>   thấy `AppLovinAdapter` đã tự huỷ + reinit đúng lúc cờ trẻ em đổi giữa
+>   chừng — không phải bug). Phần US-state/GPP của mục #6 vẫn đúng nhưng là
+>   việc host phải tự cấu hình, không phải lỗi SDK. Mục #2 và #3 cũng được
+>   phân loại lại rõ hơn: **INTENTIONAL/KNOWN LIMIT**, không phải bug cần sửa
+>   (giới hạn của chính AppLovin / giới hạn kiến trúc no-backend đã biết).
+> - Bảng 15 mục dưới đây giữ nguyên làm hồ sơ gốc; xem note cập nhật ở cuối
+>   file cho verdict mới nhất từng mục + việc user đã chọn làm gì.
+
 ## Phương pháp
 
 Khác các round trước (1 agent hoặc agent tuần tự), round này chạy **3 CLI agent hoàn toàn độc lập song song**, mỗi agent trên một `git worktree` riêng biệt (detached tại `b0d0368`, = 2.9.11 đã publish lên pub.dev, verify qua WebFetch), không có context của nhau, không có context của phiên orchestrator này — để tránh lỗi "tự chấm điểm cho chính mình" ([[self-review-misses-what-independent-review-catches]]):
