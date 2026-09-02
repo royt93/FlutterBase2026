@@ -17,6 +17,15 @@
 > `AdManager().requestAtt()` before `requestUmpConsent()`/`initialize()` —
 > calling UMP consent before ATT logs a warning (`attOrderFootgunWarning`,
 > added in the 2026-08-19 audit).
+>
+> **Shortcut (added 2.9.x):** `bootstrap(AdBootstrapOptions(config: ...))`
+> wraps this exact ATT → UMP → `initialize()` sequence into one awaited
+> call — see `lib/src/core/ad_bootstrap.dart` / README. Its
+> `initTimeout` (default 20s) bounds how long it waits on `initialize()`
+> specifically (a wedged native init no longer hangs the caller for the
+> full ~130s worst-case retry pileup); pass `initTimeout: null` for the old
+> unbounded wait. Doesn't change anything about UMP/ATT ordering above —
+> just saves writing the three awaits by hand.
 
 **Status (2026-08-09): verified end-to-end.** Owner published the GDPR message
 against the Android production App ID

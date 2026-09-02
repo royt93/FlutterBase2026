@@ -459,6 +459,16 @@ void main() {
 > awaited call returning `AdBootstrapResult { att, ump, initSuccess, gaid }`.
 > It composes with the splash controller above (or your own UI) — bootstrap
 > only covers consent-then-init, not splash timing/App Open display.
+>
+> **`initTimeout` (round-32 audit fix, default 20s):** bounds how long
+> `bootstrap()` waits specifically on `initialize()` before giving up and
+> returning `initSuccess: false`. Without it, a wedged native init (never
+> calls back) could leave a bare `await bootstrap(...)` frozen for the full
+> ~130s worst-case retry pileup (`initialize()`'s own `[5s, 15s, 30s]`
+> backoff across 4 attempts). This does not cancel the real init — it keeps
+> running and still updates `AdManager`'s state — only this call stops
+> waiting on it. Pass `AdBootstrapOptions(config: ..., initTimeout: null)`
+> to restore the old unbounded wait.
 
 ```dart
 final result = await bootstrap(AdBootstrapOptions(config: myAdConfig));

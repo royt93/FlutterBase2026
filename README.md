@@ -15,8 +15,8 @@ directly.
 
 | Path | What it is |
 |---|---|
-| `packages/ad_sdk/` | The `applovin_admob_sdk` package — SDK source, its own README/CHANGELOG/MIGRATION, example app, ~699 tests. |
-| `doc/` | Project docs — see `doc/audit/` for the numbered audit rounds (12+ so far; read the latest before re-litigating an SDK design decision). |
+| `packages/ad_sdk/` | The `applovin_admob_sdk` package — SDK source, its own README/CHANGELOG (migration guide lives in `doc/AD_PROMPT_FLUTTER.MD` Appendix D), example app, 1562 tests. |
+| `doc/` | Project docs — see `doc/audit/` for the numbered audit rounds (32+ so far; read the latest before re-litigating an SDK design decision). |
 | `.github/workflows/test.yml` | CI: `sdk` (analyze + unit/widget tests), `sdk-integration` (Android emulator), `sdk-integration-ios` (iOS Simulator, 3-way sharded). |
 
 ## Quick start

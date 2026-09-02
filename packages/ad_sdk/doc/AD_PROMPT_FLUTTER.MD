@@ -299,6 +299,18 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
 }
 ```
 
+**Note on 4.2.4 (informational, does not change the hard rule above):** the SDK
+also ships `bootstrap(AdBootstrapOptions(config: ...))`, which wraps the
+`requestAtt() → requestUmpConsent() → initialize()` sequence into one awaited
+call returning `AdBootstrapResult`. It does NOT replace the hard-cap timer /
+hot-restart guard / App-Open dance mandated above — those still need writing
+by hand as shown. Its `initTimeout` option (default 20s) bounds how long it
+waits specifically on `initialize()`, so a wedged native init can't hang the
+splash for the ~130s worst-case retry pileup `AdManager.initialize()` itself
+can take. Use it only if you'd rather not hand-write the three `try/catch`
+blocks in 4.2.4 — the manual pattern above remains correct and is what most
+of this document assumes.
+
 ### 4.3 — Splash UI (disclaimer is mandatory — Q27)
 
 The splash screen must show a disclaimer before the App Open Ad appears:
@@ -481,6 +493,29 @@ showRewardedInterstitialAd(onDone: (shown, earned) {
 Declining the built-in intro screen reports `(shown: false, earned: false)` at no ad-budget cost. Pass
 `showDisclosure: false` only if the host app renders its own localized/branded intro screen first — then the
 host takes on the obligation to disclose the reward before the ad plays.
+
+### 4.11 — Known SDK limitations to design around (round-32 audit, 2026-09-02)
+
+Not bugs to fix — real, current limits of the SDK you are integrating against. Know these before you design
+around them, instead of rediscovering each one the hard way:
+
+- **`bypassSafety` (on `showAppOpenAd`) is not technically restricted to the splash screen** — it's a public
+  parameter, callable from anywhere in the host app. It exists so the splash's App Open call can skip the
+  daily/hourly/session caps and 60s throttle right after cold start (Step 4.2). Only ever pass
+  `bypassSafety: true` from that one splash call site. Passing it anywhere else (a settings screen, a
+  promotional button, ...) shows App Open ads with no frequency limit — a real AdMob/AppLovin
+  placement-policy violation, not just a code smell.
+- **`AdScreenRouteLogger`'s dialog-stacking guard only sees Flutter `Route`s.** A popup built by inserting an
+  `OverlayEntry` directly — common in third-party loading/toast/coach-mark packages, and `SnackBar` (goes
+  through `ScaffoldMessenger`, not a route) — is invisible to it. If the host app shows one of these at the
+  moment an App Open ad could resume, the ad can appear on top of it. There is no SDK-side fix; avoid
+  non-route popups during a window where App Open could resume, or accept the rare overlap.
+- **No automatic runtime failover between AdMob and AppLovin.** `AdConfig.provider` picks one backend per
+  session (including a stable per-install A/B split via the SDK's own cohort picker) — this is fully
+  runtime-configurable, no rebuild needed. But if the active provider degrades mid-session (outage, no-fill),
+  the SDK does not detect that and switch to the other one; it keeps retrying the same provider. Switching
+  requires the host calling `AdManager().destroy()` then `initialize()` with a different `AdConfig.provider`
+  itself.
 
 ## Step 5 — Scope of replacement (mandate replace-all — Q11)
 
@@ -1198,6 +1233,19 @@ Either way, treat this `AD_PROMPT_FLUTTER.MD` file itself as the primary, self-c
 **Fixed this round**: added Steps 4.8 (MREC), 4.9 (Native), 4.10 (Rewarded Interstitial), 3 new touchpoint-table rows, and Step 8.4 (COPPA/AppLovin asymmetry + the explicit question an integrator must ask the user for an always-child-directed app). The example app's own gap (`showRewardedInterstitialAd()` had zero demo/test coverage anywhere) was fixed in the same round — see `CHANGELOG.md` **[2.9.6]**.
 
 **Suggested next-round starting point**: when a future round adds a new public ad surface or config knob, check this file's touchpoint table and Step 4/8 sections got a matching addition in the same commit — this gap sat undetected for at least 2 SDK feature releases (MREC/Native predate this entry) before someone asked the completeness question directly instead of only auditing the SDK's own correctness.
+
+### Round — 2026-09-02 (SDK audit round 32)
+
+**Scope**: 3 fully independent CLI agents (codex, agy/Gemini, claude) audited the SDK in parallel, each on its own isolated `git worktree`, no shared context with each other or the orchestrating session. Full findings: `packages/ad_sdk/doc/audit/audit_round32_deep_consolidated.md` (also `audit_codex.md`, `audit_agy.md`, `audit_claude.md` for the raw per-agent reports).
+
+**Findings**: the 3 agents disagreed — 0/1/1 BLOCKER — and the 2 BLOCKERs found were independent of each other (neither agent that found one found the other); the orchestrator verified both directly against source before trusting them, both were real:
+
+1. `ad_consent.dart`'s `applyConsentToProviders()` recorded consent as applied even when a provider write threw, so a transient failure during a consent withdrawal could leave a provider still personalised while the SDK believed it had gone restrictive.
+2. `iab_storage.dart`'s `tcfAllowsPersonalisedAds()` had a `try { ... } on StateError` around opening the platform store that didn't catch `TimeoutException` — undoing round-31's fail-closed fix whenever the open itself hangs (e.g. a wedged `PackageInfo.fromPlatform()` binder call).
+
+**Fixed this round** (`CHANGELOG.md` **[2.9.12]**–**[2.9.14]**): both BLOCKERs (TDD, RED→GREEN); `remote_ad_safety_provider.dart`'s `minSessionDurationBeforeAd` missing floor; `canShowRewardedInterstitialAd()` missing the `AdLoadingDialog.isShowing` gate its two siblings have; a splash example race (`_navigated` check missing from a buffered App Open callback); `bootstrap()`'s previously-unbounded wait on `initialize()` (new `initTimeout`, see Step 4.2's note above); AppLovin banner/MREC/native's revenue-event timing/gap (see this file's Step 4 ad-type sections — no prompt content changed, this was pure `lib/src/` code). This document itself got 3 updates: the `bootstrap()`/`initTimeout` note in Step 4.2, new Step 4.11 (known SDK limitations), and this entry.
+
+**Suggested next-round starting point**: the AppLovin banner/MREC/native revenue-event wiring (2.9.14) has a known test gap — the platform-channel callback wiring has no test seam in this repo (`MaxAdView`/`MaxNativeAdView` are third-party platform views), only the pure event-mapping logic is unit tested. If a future round has real-device access, verify `AdRevenueEvent`s actually arrive for these 3 surfaces, not just that the code compiles.
 
 ## Appendix D — Migration guide (version history, merged from `MIGRATION.md` on 2026-08-20)
 

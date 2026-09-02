@@ -23,7 +23,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "2.9.13"
+    version: "2.9.14"
   applovin_max:
     dependency: "direct main"
     description:

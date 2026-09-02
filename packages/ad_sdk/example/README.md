@@ -39,6 +39,7 @@ and the rest of the integration contract.
 | Native ad | AdMob template ad vs AppLovin custom native layout |
 | Interstitial ad | `showInterstitialAd`, safety gate, show counter |
 | Rewarded ad | `showRewardedAd`, earned-reward callback, VIP auto-grant toggle |
+| Rewarded Interstitial ad | `showRewardedInterstitialAd`, built-in disclosure screen (AdMob-only surface) |
 | App-open ad | Background → foreground resume trigger |
 | VIP / redeem | The shared `VipRedeemScreen` — identical widget used by the host app |
 | VIP API playground | Raw `redeemVip` / signed-key redeem / watch-ad buttons for manual testing |
