@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [2.9.15] - 2026-09-03
 
+Published to pub.dev. Verified before publish: 1571/1571 unit tests, full 48-file
+Android integration suite on real hardware (46 pass, 1 skip needing an optional
+extra dart-define, 1 self-documented AppLovin-credentials gap — see
+`doc/audit/audit_round33_consolidated.md`), and the 4 iOS integration tests
+covering this release's changed code (banner/MREC/native/GPP) passing clean on
+a real Simulator. Two other iOS integration tests were also checked and confirmed
+failing identically on the pre-release baseline (bisected) — pre-existing, not a
+regression from this release.
+
 Round-33 audit follow-up — 3 independent agents (codex, agy/Gemini, claude)
 re-audited 2.9.14 and, again, disagreed; see
 `doc/audit/audit_round33_consolidated.md`. Two real gaps closed this round,
