@@ -57,4 +57,26 @@ void main() {
           isNull);
     });
   });
+
+  // Round-33 audit (R33-03, unconfirmed-but-plausible finding) — a rebuild
+  // of the widget-level `_AppLovinMaxAdView`/`_AppLovinMaxMrecView` (e.g. a
+  // reload that hands out a new adViewId) constructs a fresh
+  // `onAdRevenuePaidCallback` closure capturing the OLD adViewId as a local.
+  // If AppLovin's platform view still fires a callback for that old view
+  // after the widget has moved on, nothing previously stopped it from being
+  // recorded as if it were current — this is the pure comparison the guard
+  // in banner_ad_widget.dart/mrec_ad_widget.dart runs before recording.
+  group('isStaleAppLovinCallback', () {
+    test('captured identity still current → not stale', () {
+      expect(isStaleAppLovinCallback('view-1', 'view-1'), isFalse);
+    });
+
+    test('a newer identity has replaced the captured one → stale', () {
+      expect(isStaleAppLovinCallback('view-2', 'view-1'), isTrue);
+    });
+
+    test('current is null (slot torn down entirely) → stale', () {
+      expect(isStaleAppLovinCallback(null, 'view-1'), isTrue);
+    });
+  });
 }

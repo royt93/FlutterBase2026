@@ -1161,6 +1161,29 @@ void main() {
           reason: 'disposing 500 distinct keys must not leave 500 tombstones '
               'sitting in memory forever — the set must be bounded');
     });
+
+    // Round-33 audit (R33-03) — native_ad_widget.dart's onAdRevenuePaidCallback
+    // writes straight into the shared AdSafetyConfig counter and event sink,
+    // unlike onAdLoaded/onAdFailedToLoad which write into a per-key notifier
+    // that throws (and gets caught) once disposed. [isNativeInstanceDisposed]
+    // is the public check that callback needs to drop a late revenue event
+    // for an already-disposed instanceKey instead of silently recording it.
+    test('isNativeInstanceDisposed reflects the tombstone set', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      await a.initialize(_config);
+      addTearDown(a.dispose);
+
+      final key = Object();
+      expect(a.isNativeInstanceDisposed(key), isFalse,
+          reason: 'a key never touched is not disposed');
+
+      a.native(key); // materializes a live entry
+      expect(a.isNativeInstanceDisposed(key), isFalse);
+
+      a.disposeNativeInstance(key);
+      expect(a.isNativeInstanceDisposed(key), isTrue);
+    });
   });
 
   group('onAppResumed() recreates errored banner AdView (T34)', () {

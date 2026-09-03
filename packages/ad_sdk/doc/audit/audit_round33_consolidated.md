@@ -1,5 +1,22 @@
 # Audit round 33 — consolidated (3 agent độc lập + tự verify) — applovin_admob_sdk 2.9.14
 
+> **Cập nhật 2.9.15 (2026-09-03):** user đã review 3 finding dưới đây và quyết định xử lý từng
+> cái riêng biệt (không "sửa tất cả theo mặc định"). Kết quả:
+> - **R33-01 (BLOCKER, AppLovin consent-apply không xác nhận được):** **KHÔNG sửa code** — đây là
+>   giới hạn của dependency `applovin_max` (API `void`, fire-and-forget), không thể sửa triệt để
+>   chỉ bằng code phía SDK này. Quyết định: ghi nhận là known limitation trong `README.md` và
+>   `doc/AD_PROMPT_FLUTTER.MD` (step 4.11) thay vì tạo cảm giác an toàn giả. Vẫn là BLOCKER thật
+>   cho app có traffic AppLovin ở EEA/UK/California — xem phần known limitations để biết đầy đủ.
+> - **R33-02 (MAJOR, GPP US-state chưa parse):** **Đã sửa** (TDD, RED→GREEN) —
+>   `IabStorage.usPrivacyOptedOut()` giờ fallback đọc GPP USNAT (section id 7) khi không có legacy
+>   `IABUSPrivacy_String`. Chuỗi legacy vẫn có ưu tiên cao hơn khi tồn tại. Xem CHANGELOG `[2.9.15]`.
+> - **R33-03 (MAJOR, nghi vấn double-count AppLovin banner/MREC/native):** **Đã vá phòng ngừa**
+>   (TDD, RED→GREEN) dù chưa xác nhận được là bug thật (không có thiết bị để test) — thêm guard
+>   so khớp identity trước khi ghi nhận revenue cho banner/MREC, và check tombstone đã dispose cho
+>   native. Xem CHANGELOG `[2.9.15]`.
+>
+> `flutter analyze` sạch, 1571/1571 test pass (1567 cũ + 4 test mới) sau các thay đổi trên.
+
 **Ngày:** 2026-09-02. **Bản audit:** pubspec 2.9.14, đúng bản mới nhất trên pub.dev (publish
 trong vòng 1 giờ trước khi audit — repo local = bản đã publish, không có gap).
 

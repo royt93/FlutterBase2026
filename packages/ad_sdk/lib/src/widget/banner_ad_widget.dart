@@ -483,7 +483,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
               isLoaded: AdManager().bannerIsLoaded(this),
               adSize: AdManager().bannerAdSize(this),
               child: () => _AppLovinMaxAdView(
+                key: ValueKey(adViewId),
                 adViewId: adViewId as AdViewId,
+                ownerKey: this,
                 bannerId: AdManager().appLovinBannerId,
                 autoRefresh: AdManager().bannerAutoRefreshEnabled(this),
                 placement: widget.placement,
@@ -598,13 +600,21 @@ class _ShimmerOnlyContainer extends StatelessWidget {
 /// the native view.
 class _AppLovinMaxAdView extends StatelessWidget {
   const _AppLovinMaxAdView({
+    super.key,
     required this.adViewId,
+    required this.ownerKey,
     required this.bannerId,
     required this.autoRefresh,
     required this.placement,
   });
 
   final AdViewId adViewId;
+
+  /// The owning [_BannerAdWidgetState] (`this` from its build method) —
+  /// round-33 (R33-03): lets the revenue callback re-check, at fire time,
+  /// whether [adViewId] is still the one `AdManager` considers live for
+  /// this widget before recording anything from it.
+  final Object ownerKey;
   final String bannerId;
   final ValueListenable<bool> autoRefresh;
   final AdPlacement placement;
@@ -643,6 +653,13 @@ class _AppLovinMaxAdView extends StatelessWidget {
             // counting anything that filled but was never actually seen —
             // see applovin_adapter.dart's `_handleWidgetAdLoaded`.
             onAdRevenuePaidCallback: (ad) {
+              // Round-33 (R33-03) — drop a late callback for an adViewId
+              // this widget has since moved on from (a reload handed out a
+              // new one) instead of double-counting it as current revenue.
+              if (isStaleAppLovinCallback(
+                  AdManager().bannerAdViewId(ownerKey).value, adViewId)) {
+                return;
+              }
               SafeLogger.d('BannerAdWidget', 'MaxAdView 💰 impression');
               AdSafetyConfig.recordBannerImpression();
               final sink = AdManager().adapter?.eventSink;

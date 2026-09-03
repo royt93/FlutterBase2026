@@ -563,6 +563,17 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// [key], slot)` in admob_adapter.dart — and keeps no tombstone to lift).
   void reviveNativeInstance(Object key) => _disposedNativeKeys.remove(key);
 
+  /// Round-33 audit (R33-03) — public, concrete-class-only (not on
+  /// [AdProviderAdapter]; that interface is exported, see
+  /// [reviveNativeInstance]'s doc comment for why a new member there is a
+  /// breaking change) check for `native_ad_widget.dart`'s
+  /// `onAdRevenuePaidCallback`, which writes into shared state
+  /// (`AdSafetyConfig`, `eventSink`) rather than a per-key notifier — so it
+  /// has no other way to notice a late callback for an already-disposed
+  /// [key] the way `onAdLoaded`/`onAdFailedToLoad` do (their write throws on
+  /// the disposed sentinel; this one wouldn't).
+  bool isNativeInstanceDisposed(Object key) => _disposedNativeKeys.contains(key);
+
   // Unlike banner/mrec, MaxNativeAdView loads on mount and is self-contained
   // — this adapter never drives isLoaded/hasError itself, the widget layer
   // sets them directly from MaxNativeAdView's own listener callbacks (see

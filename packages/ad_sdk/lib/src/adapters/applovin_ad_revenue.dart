@@ -41,3 +41,17 @@ AdRevenueEvent? appLovinRevenueEvent(
     mediationWaterfall: [ad.networkName],
   );
 }
+
+/// Round-33 audit (R33-03) — true when a captured AppLovin ad-view/native
+/// identity is stale: something else (a reload, a dispose) now owns the
+/// slot, so a late native callback still carrying the old identity must be
+/// dropped rather than recorded as revenue/impression. [current] is
+/// whatever the owning widget's key currently resolves to (`null` if the
+/// slot was torn down entirely); [captured] is the identity the callback
+/// closure captured when it was built.
+///
+/// Pure comparison, extracted for a direct unit test — same reasoning as
+/// [appLovinRevenueEvent]: `MaxAdView`/`MaxNativeAdView` are third-party
+/// platform views with no test seam in this repo.
+bool isStaleAppLovinCallback(Object? current, Object captured) =>
+    current != captured;

@@ -39,6 +39,49 @@ import '../utils/safe_logger.dart';
 /// ⚠️ Verified on Android hardware. The iOS branch follows the plugin's
 /// documented behaviour but has NOT been exercised on a device — CI has been
 /// down since 2026-08-09, see doc/audit/audit_claude.md (MJ29).
+/// Reads GPP section strings' custom bit-packed encoding — MSB-first bits
+/// grouped into 6-bit chunks, each chunk mapped through a base64url alphabet
+/// (`A-Z a-z 0-9 - _`). Per the IAB Global Privacy Platform Core Consent
+/// String Specification: this is deliberately NOT standard base64 (no byte
+/// alignment, no `=` padding) — it treats the whole field-concatenated
+/// bitstream as one number and chops it into 6-bit digits.
+class _GppBitReader {
+  _GppBitReader(String section) : _bits = _decode(section);
+
+  static const _alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+  final List<int> _bits;
+  int _pos = 0;
+
+  static List<int> _decode(String section) {
+    final bits = <int>[];
+    for (final ch in section.codeUnits) {
+      final value = _alphabet.indexOf(String.fromCharCode(ch));
+      if (value == -1) {
+        throw FormatException('invalid GPP base64url character: $ch');
+      }
+      for (var b = 5; b >= 0; b--) {
+        bits.add((value >> b) & 1);
+      }
+    }
+    return bits;
+  }
+
+  void skip(int width) => _pos += width;
+
+  int readInt(int width) {
+    if (_pos + width > _bits.length) {
+      throw const FormatException('GPP section string too short');
+    }
+    var value = 0;
+    for (var i = 0; i < width; i++) {
+      value = (value << 1) | _bits[_pos++];
+    }
+    return value;
+  }
+}
+
 class IabStorage {
   IabStorage._();
 
@@ -50,6 +93,13 @@ class IabStorage {
 
   /// IAB Global Privacy Platform header string (the newer US-states signal).
   static const String keyGppString = 'IABGPP_HDR_GppString';
+
+  /// The isolated GPP "US National" (MSPA) section string, written directly
+  /// by CMPs that support the GPP CMP API storage spec — Section ID 7 in
+  /// the IAB Global Privacy Platform registry. Reading this instead of
+  /// decoding [keyGppString] avoids re-implementing the header's own
+  /// Fibonacci-range section-id encoding; the CMP already isolated it.
+  static const String keyGppUsNationalString = 'IABGPP_7_String';
 
   /// Per-purpose consent bitfield, one character per TCF purpose in order:
   /// `'1'` = consented, `'0'` = not. Index 0 is Purpose 1.
@@ -158,16 +208,49 @@ class IabStorage {
   /// string is present (which is NOT the same as "did not opt out"), so a
   /// caller can tell "no signal" from "signal says no".
   ///
-  /// m10 deliberately stops here rather than parsing GPP: a GPP payload is a
-  /// base64 bundle of per-jurisdiction sections, and mis-parsing a privacy
-  /// signal is worse than not reading one. [read] with [keyGppString] exposes
-  /// the raw value for a host that wants to decode it properly.
+  /// The legacy string is authoritative when present — unchanged since m10.
+  /// Round-33 audit (R33-02) closed the gap m10 deliberately left open: a CMP
+  /// that writes *only* the newer GPP US National section (no legacy
+  /// `IABUSPrivacy_String` at all, which some new-state CMPs do) used to read
+  /// as "no signal" here. [_gppUsNationalOptedOut] is consulted only when the
+  /// legacy string is entirely absent — this SDK still does not attempt to
+  /// decode the GPP header's own section-id list or any state-specific
+  /// section beyond US National (usnat, section id 7); mis-parsing a privacy
+  /// signal is worse than not reading one, so the scope stays narrow and
+  /// exact rather than broad and guessed.
   static Future<bool?> usPrivacyOptedOut() async {
     final usp = await read(keyUsPrivacy);
-    if (usp == null || usp.length < 3) return null;
-    final flag = usp[2].toUpperCase();
-    if (flag != 'Y' && flag != 'N') return null;
-    return flag == 'Y';
+    if (usp != null && usp.length >= 3) {
+      final flag = usp[2].toUpperCase();
+      if (flag == 'Y' || flag == 'N') return flag == 'Y';
+    }
+    return _gppUsNationalOptedOut();
+  }
+
+  /// Reads the GPP US National (MSPA) Core Segment's `SaleOptOut` /
+  /// `SharingOptOut` fields and returns `true` if either says "Opted Out".
+  /// `null` when the section is absent, unparseable, or both fields are
+  /// "Not Applicable" — see the MSPA US National Technical Specification's
+  /// Core Segment table for the field layout this decodes:
+  /// Version(6) SharingNotice(2) SaleOptOutNotice(2) SharingOptOutNotice(2)
+  /// TargetedAdvertisingOptOutNotice(2) SensitiveDataProcessingOptOutNotice(2)
+  /// SensitiveDataLimitUseNotice(2) SaleOptOut(2) SharingOptOut(2) — each
+  /// OptOut field is `0`=Not Applicable, `1`=Opted Out, `2`=Did Not Opt Out.
+  static Future<bool?> _gppUsNationalOptedOut() async {
+    final section = await read(keyGppUsNationalString);
+    if (section == null) return null;
+    try {
+      final bits = _GppBitReader(section);
+      bits.skip(6 + 2 * 6); // Version + 6 Notice fields
+      final saleOptOut = bits.readInt(2);
+      final sharingOptOut = bits.readInt(2);
+      if (saleOptOut == 1 || sharingOptOut == 1) return true;
+      if (saleOptOut == 2 || sharingOptOut == 2) return false;
+      return null; // both Not Applicable — no usable signal
+    } on FormatException catch (e) {
+      SafeLogger.d('IabStorage', () => 'GPP USNAT parse failed: $e');
+      return null;
+    }
   }
 
   /// Reads one IAB integer flag, or `null` if absent/unreadable/not an int.

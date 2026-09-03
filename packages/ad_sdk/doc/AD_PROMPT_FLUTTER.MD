@@ -516,6 +516,15 @@ around them, instead of rediscovering each one the hard way:
   the SDK does not detect that and switch to the other one; it keeps retrying the same provider. Switching
   requires the host calling `AdManager().destroy()` then `initialize()` with a different `AdConfig.provider`
   itself.
+- **AppLovin consent writes cannot be confirmed as successful (round-33 audit).** `applyConsentToProviders()`
+  calls `AppLovinMAX.setHasUserConsent`/`setDoNotSell` — both fire-and-forget `void` methods in the
+  `applovin_max` package with no `Future` to await, unlike AdMob's `updateRequestConfiguration` which is
+  properly awaited and only recorded as applied on success. If that platform-channel write silently fails
+  (cold/backgrounded channel, transient native exception), AppLovin can keep serving personalised ads to a
+  user who just withdrew consent, with no way for this SDK to detect it — a dependency-level gap, not
+  something the Dart side alone can close. If the host app has real EEA/UK/California traffic on
+  `AdProvider.appLovin`, do not treat the AppLovin branch of consent as a hard guarantee; see
+  `doc/audit/audit_round33_consolidated.md` for the full trace.
 
 ## Step 5 — Scope of replacement (mandate replace-all — Q11)
 
@@ -1246,6 +1255,19 @@ Either way, treat this `AD_PROMPT_FLUTTER.MD` file itself as the primary, self-c
 **Fixed this round** (`CHANGELOG.md` **[2.9.12]**–**[2.9.14]**): both BLOCKERs (TDD, RED→GREEN); `remote_ad_safety_provider.dart`'s `minSessionDurationBeforeAd` missing floor; `canShowRewardedInterstitialAd()` missing the `AdLoadingDialog.isShowing` gate its two siblings have; a splash example race (`_navigated` check missing from a buffered App Open callback); `bootstrap()`'s previously-unbounded wait on `initialize()` (new `initTimeout`, see Step 4.2's note above); AppLovin banner/MREC/native's revenue-event timing/gap (see this file's Step 4 ad-type sections — no prompt content changed, this was pure `lib/src/` code). This document itself got 3 updates: the `bootstrap()`/`initTimeout` note in Step 4.2, new Step 4.11 (known SDK limitations), and this entry.
 
 **Suggested next-round starting point**: the AppLovin banner/MREC/native revenue-event wiring (2.9.14) has a known test gap — the platform-channel callback wiring has no test seam in this repo (`MaxAdView`/`MaxNativeAdView` are third-party platform views), only the pure event-mapping logic is unit tested. If a future round has real-device access, verify `AdRevenueEvent`s actually arrive for these 3 surfaces, not just that the code compiles.
+
+### Round — 2026-09-02 (SDK audit round 33)
+
+**Scope**: same 3-independent-agent method as round 32 (codex, agy/Gemini, claude), this round tasked with (a) verifying round 32's 6 fixes against real source (not the changelog) and (b) a fresh full re-audit. Full findings: `packages/ad_sdk/doc/audit/audit_round33_consolidated.md` (also `audit_codex_round33.md`, `audit_agy_round33.md`, `audit_claude_round33.md`).
+
+**Findings**: the 3 agents disagreed again — codex found 2 new issues the other two missed entirely; the orchestrator traced the disagreement one level deeper than either the Gemini agent or the orchestrator's own first-pass Claude sub-agent had gone, into the `applovin_max` dependency's actual method signatures, and confirmed codex was right:
+
+1. Round 32's BLOCKER-A fix (`ad_consent.dart`) is correct for the AdMob branch (properly `await`ed) but not the AppLovin branch — `AppLovinMAX.setHasUserConsent`/`setDoNotSell` are fire-and-forget `void` calls with no `Future` to await, so the surrounding `try/catch` cannot see a platform-channel failure; `appLovinApplied = true` is effectively unconditional in practice. This is a dependency-level ceiling, not fixable by changing this SDK's code alone — documented as a known limitation instead (README.md, this file's Step 4.11).
+2. US state privacy signals sent only via the newer GPP string (not the legacy US Privacy string) were not read — same gap round 32 already classified MAJOR (#6), not a regression; user chose to close it this round (see below) rather than leave it deferred.
+
+**Fixed this round**: GPP US-state opt-out parsing (`iab_storage.dart`, TDD) — closing round-32/33's MAJOR #6/R33-02 gap; a defensive per-instance ownership guard on AppLovin banner/MREC/native revenue callbacks (`banner_ad_widget.dart`/`mrec_ad_widget.dart`/`native_ad_widget.dart`, TDD) against a plausible-but-unconfirmed double-count risk codex flagged (R33-03) when the underlying `MaxAdView`/`MaxNativeAdView` platform view is torn down and a late native callback still arrives.
+
+**Documented, not fixed** (user decision): the AppLovin consent-write confirmation gap (#1 above) — a dependency limitation, not something the Dart side can close; recorded as a known limitation in `README.md` and this file's Step 4.11 rather than papered over with a false sense of certainty.
 
 ## Appendix D — Migration guide (version history, merged from `MIGRATION.md` on 2026-08-20)
 

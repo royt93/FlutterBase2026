@@ -363,7 +363,9 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
               isLoaded: AdManager().mrecIsLoaded(this),
               adSize: AdManager().mrecAdSize(this),
               child: () => _AppLovinMaxMrecView(
+                key: ValueKey(adViewId),
                 adViewId: adViewId as AdViewId,
+                ownerKey: this,
                 mrecId: AdManager().appLovinMrecId,
                 autoRefresh: AdManager().mrecAutoRefreshEnabled(this),
                 placement: widget.placement,
@@ -476,13 +478,20 @@ class _ShimmerOnlyMrecContainer extends StatelessWidget {
 /// AppLovin only — thin wrapper around `MaxAdView` sized for MREC.
 class _AppLovinMaxMrecView extends StatelessWidget {
   const _AppLovinMaxMrecView({
+    super.key,
     required this.adViewId,
+    required this.ownerKey,
     required this.mrecId,
     required this.autoRefresh,
     required this.placement,
   });
 
   final AdViewId adViewId;
+
+  /// The owning `_MrecAdWidgetState` (`this` from its build method) —
+  /// round-33 (R33-03), same reasoning as `_AppLovinMaxAdView.ownerKey` in
+  /// banner_ad_widget.dart.
+  final Object ownerKey;
   final String mrecId;
   final ValueListenable<bool> autoRefresh;
   final AdPlacement placement;
@@ -515,6 +524,13 @@ class _AppLovinMaxMrecView extends StatelessWidget {
             // identical fix for the full explanation; same bug, same fix,
             // for MREC's own onAdLoadedCallback/_handleWidgetAdLoaded path.
             onAdRevenuePaidCallback: (ad) {
+              // Round-33 (R33-03) — see banner_ad_widget.dart's identical
+              // guard: drop a late callback for an adViewId this widget has
+              // since moved on from.
+              if (isStaleAppLovinCallback(
+                  AdManager().mrecAdViewId(ownerKey).value, adViewId)) {
+                return;
+              }
               SafeLogger.d('MrecAdWidget', 'MaxAdView 💰 impression');
               AdSafetyConfig.recordBannerImpression();
               final sink = AdManager().adapter?.eventSink;

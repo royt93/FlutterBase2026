@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 
 import '../adapters/applovin_ad_revenue.dart';
+import '../adapters/applovin_adapter.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
@@ -486,10 +487,19 @@ class _AppLovinMaxNativeView extends StatelessWidget {
         // above; it was just never given one.
         onAdRevenuePaidCallback: (ad) {
           try {
-            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 💰 impression');
-            AdSafetyConfig.recordBannerImpression();
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
+            // Round-33 (R33-03) — unlike onAdLoaded/onAdFailedToLoad above,
+            // this callback writes into shared state (AdSafetyConfig,
+            // eventSink) rather than a per-instanceKey notifier, so a late
+            // callback for an already-disposed instanceKey wouldn't throw
+            // and get caught below — it would just silently double-count.
+            if (adapter is AppLovinAdapter &&
+                adapter.isNativeInstanceDisposed(instanceKey)) {
+              return;
+            }
+            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 💰 impression');
+            AdSafetyConfig.recordBannerImpression();
             final sink = adapter.eventSink;
             sink?.call(AdImpressionEvent(
               providerTag: '[AppLovin]',

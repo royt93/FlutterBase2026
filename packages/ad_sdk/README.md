@@ -108,6 +108,21 @@ be clear-eyed about the gap before depending on it for revenue:
   dismiss) can only be verified manually, not via CI. Everything else in the
   lifecycle (load, show, click, reward callbacks, VIP suppression, safety
   gating) is automated and re-run on every change.
+- **AppLovin consent writes cannot be confirmed as successful (round-33
+  audit).** `AppLovinMAX.setHasUserConsent`/`setDoNotSell` (from the
+  `applovin_max` package) are fire-and-forget `void` methods over a platform
+  channel — they don't return a `Future`, so `applyConsentToProviders()`
+  cannot `await` them or catch a failed platform-channel write the way it
+  does for AdMob's `updateRequestConfiguration` (which is properly awaited,
+  and only recorded as applied on success). In the rare case that write
+  silently fails — a cold/backgrounded channel, a transient native
+  exception — AppLovin can keep serving personalised ads to a user who just
+  withdrew consent, and this SDK has no way to detect it; this is a
+  dependency-level limitation, not something fixable purely on the Dart
+  side. If your app operates in the EEA/UK/California with `AdProvider
+  .appLovin` traffic, be aware of this before treating the AppLovin branch
+  of `applyConsentToProviders()` as a hard guarantee. Full analysis:
+  `doc/audit/audit_round33_consolidated.md`.
 - **AdMob rewarded test ads can get permanently stuck on Android, unrelated
   to this SDK.** Manually verified 2026-08-08: an `AdMobAdapter`-shown
   rewarded ad occasionally shows a frozen countdown label and a static
