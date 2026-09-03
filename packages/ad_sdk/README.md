@@ -1925,12 +1925,18 @@ Two deliberate limits:
   absence of any string, which is the normal case outside the US — never
   clears a `doNotSell` you set yourself through `setConsent`. Your own switch
   is treated as the newer, deliberate decision.
-- **The GPP string is not decoded.** `IABGPP_HDR_GppString` (the multi-state
-  signal covering Virginia, Colorado, Texas and the rest) is exposed raw via
-  `AdManager().gppConsentString` and nothing more. It is a base64 bundle of
-  per-jurisdiction sections, and mis-parsing a privacy signal is worse than
-  not reading one; both native SDKs read it themselves. If you need
-  per-state handling beyond the sale opt-out above, decode it yourself and
+- **The GPP string is only partially decoded.** `IABGPP_HDR_GppString` (the
+  multi-state signal covering Virginia, Colorado, Texas and the rest) is
+  exposed raw via `AdManager().gppConsentString` for your own use. As a
+  fallback when no legacy `IABUSPrivacy_String` exists, `usPrivacyOptedOut`
+  also decodes the GPP **US National** section's `SaleOptOut`/`SharingOptOut`
+  fields only — it does **not** read that section's separate
+  `TargetedAdvertisingOptOut` field, and it does **not** decode any
+  state-specific section (California, Colorado, Virginia, Connecticut, ...).
+  Mis-parsing a privacy signal is worse than not reading one, so the scope
+  stays narrow and exact; both native SDKs also read the raw string
+  themselves. If you need targeted-advertising opt-out or per-state handling
+  beyond sale/sharing opt-out, decode the rest of the string yourself and
   call `setConsent`.
 
 ### Consent country analytics (optional, host-supplied)

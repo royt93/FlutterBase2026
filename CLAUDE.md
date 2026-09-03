@@ -66,3 +66,20 @@ The full contract lives in `packages/ad_sdk/README.md` — summary:
 - VIP grants **stack globally** — `addVip`/`redeemVip` with `stack: true` add onto the latest expiry across all active entries (clamped at `AdConfig.maxVipStackDuration`, ~90 days). A VIP can voluntarily watch a real rewarded ad to extend their window: pass `bypassVipGuard: true` to `showRewardedAd` so the (normally VIP-suppressed) rewarded surface still plays.
 - Keys are **Ed25519-signed and verified offline** — only the public key ships in a consuming app, so decompiling the binary doesn't let anyone forge new valid keys. Mint new keys with the matching private key via `packages/ad_sdk/tool/vip_mint.dart` (never commit the private key). Redemption goes through `VipManager.redeemSignedKey(...)`, not a lookup table.
 - `packages/ad_sdk/example` ships a reference `VipRedeemScreen` consuming apps can wrap with their own localized strings, signing public key, and privacy-policy launcher.
+
+## Known pending security debt — repo git history
+
+**`android/app/private_key.pepk` (a Play App Signing key export, leftover from
+when the host app lived in this repo) was committed at `60a1f3d` (2024-12-20)
+and removed from HEAD since, but is still retrievable from anyone who can
+clone this repo via `git cat-file -p 60a1f3d:android/app/private_key.pepk`.**
+Decided 2026-09-03 (audit round 34, see `doc/audit/audit_round34_consolidated.md`
+finding F3): **not acting on this now** — repo is currently private, risk is
+low today. Before this repo's access ever widens (goes public, gains an
+untrusted collaborator, moves CI to a third-party service), do first:
+1. Check Google Play Console whether this key was ever used to sign an
+   actual published app.
+2. If yes, rotate the app signing key via Play Console's key-upload-key
+   rotation before doing anything else.
+3. Only then purge the blob from git history (`git filter-repo` or BFG) —
+   purging without rotating first is false safety if the key was ever live.

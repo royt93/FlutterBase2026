@@ -261,7 +261,9 @@ class DemoConfig {
         mrecId: _kAppLovinMrecId,
         nativeId: _kAppLovinNativeId,
       ),
-      logLevel: AdLogLevel.verbose,
+      // Verbose logs include the raw device advertising ID (GAID) — keep
+      // this off release builds, matching AdConfig's own safe default.
+      logLevel: kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning,
       onLog: LogBuffer.instance.sink,
       vipKeyValidator: demoVipValidator,
       // Cap the total stacked VIP window (cộng dồn) — demo at 90 days. null = uncapped.
