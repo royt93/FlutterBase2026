@@ -92,6 +92,25 @@ void main() {
             'confusing API contract — it must at least be visible in logs');
   });
 
+  test(
+      'bootstrap called again with the SAME AdPreferences instance does '
+      'NOT warn — this is the normal, expected usage pattern', () async {
+    final warnings = <String>[];
+    SafeLogger.configure(
+        level: AdLogLevel.warning,
+        onLog: (level, tag, message) => warnings.add('$tag: $message'));
+    addTearDown(() => SafeLogger.configure());
+
+    await ConsentManager.bootstrap(prefs: prefs, strings: ConsentDialogStrings.vi);
+    await ConsentManager.bootstrap(prefs: prefs, strings: ConsentDialogStrings.vi);
+    await ConsentManager.bootstrap(prefs: prefs, strings: ConsentDialogStrings.vi);
+
+    expect(warnings, isEmpty,
+        reason: 'AdManager.initialize() re-bootstraps with the same '
+            'AdPreferences singleton every time — that must stay silent, '
+            'not log a false-positive warning on every ordinary re-init');
+  });
+
   test('set() persists, updates listenable, and re-applies to providers',
       () async {
     final m = await ConsentManager.bootstrap(

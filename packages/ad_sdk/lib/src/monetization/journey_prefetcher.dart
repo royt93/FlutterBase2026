@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
 import '../state/ad_slot.dart';
@@ -27,7 +29,10 @@ import '../state/ad_slot.dart';
 /// nothing is tracked and nothing is preloaded unless a host app calls
 /// [notifySignal] itself.
 class JourneyPrefetcher {
-  JourneyPrefetcher({this.maxHoldDuration = const Duration(minutes: 5)}) {
+  JourneyPrefetcher({
+    this.maxHoldDuration = const Duration(minutes: 5),
+    @visibleForTesting DateTime Function() debugClock = DateTime.now,
+  }) : _now = debugClock {
     _sub = AdManager().events.listen(_onEvent);
   }
 
@@ -37,7 +42,17 @@ class JourneyPrefetcher {
   /// (and burning cap/impression budget) for a show that isn't imminent.
   final Duration maxHoldDuration;
 
+  final DateTime Function() _now;
+
   final Map<String, DateTime> _lastSignalAt = {};
+
+  /// Monotonically increasing per-key call order, used to break a genuine
+  /// `DateTime` tie in [_onEvent] — [_now]'s resolution can return the same
+  /// instant for two back-to-back [notifySignal] calls, and a tie must
+  /// still resolve to whichever one actually fired last, not to whichever
+  /// happens to iterate first in [_lastSignalAt].
+  int _sequence = 0;
+  final Map<String, int> _lastSignalSeq = {};
   final Map<String, List<Duration>> _timeToShow = {};
   static const int _rollingWindowSize = 10;
 
@@ -57,20 +72,27 @@ class JourneyPrefetcher {
     if (event is! AdShowEvent || !event.success) return;
     String? latestKey;
     DateTime? latestAt;
+    int? latestSeq;
     for (final entry in _lastSignalAt.entries) {
       final parts = entry.key.split('|');
       if (parts.length != 2 || parts[1] != event.type.name) continue;
-      if (latestAt == null || entry.value.isAfter(latestAt)) {
+      // Compare by call-order sequence, not by DateTime — DateTime.now()'s
+      // resolution can tie two back-to-back notifySignal() calls, and a tie
+      // must still resolve to whichever one actually fired last.
+      final seq = _lastSignalSeq[entry.key] ?? -1;
+      if (latestSeq == null || seq > latestSeq) {
         latestAt = entry.value;
+        latestSeq = seq;
         latestKey = entry.key;
       }
     }
     if (latestKey == null || latestAt == null) return;
-    final elapsed = DateTime.now().difference(latestAt);
+    final elapsed = _now().difference(latestAt);
     final samples = _timeToShow.putIfAbsent(latestKey, () => []);
     samples.add(elapsed);
     if (samples.length > _rollingWindowSize) samples.removeAt(0);
     _lastSignalAt.remove(latestKey);
+    _lastSignalSeq.remove(latestKey);
   }
 
   /// Rolling average time between [signal] firing and [type] actually being
@@ -88,7 +110,8 @@ class JourneyPrefetcher {
   /// already known to exceed [maxHoldDuration].
   void notifySignal(String signal, AdSlotType type) {
     final key = _key(signal, type);
-    _lastSignalAt[key] = DateTime.now();
+    _lastSignalAt[key] = _now();
+    _lastSignalSeq[key] = _sequence++;
 
     final avg = averageTimeToShow(signal, type);
     if (avg != null && avg > maxHoldDuration) return;

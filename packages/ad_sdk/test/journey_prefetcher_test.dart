@@ -143,6 +143,46 @@ void main() {
             'each other');
   });
 
+  test(
+      'a genuine timestamp tie between two signals still credits the one '
+      'that actually fired LAST, not whichever happens to iterate first',
+      () async {
+    // DateTime.now() resolution can genuinely tie two back-to-back calls on
+    // some platforms/VMs — this pins that exact case with an injected clock
+    // instead of hoping for a real tie to happen (or not) in CI.
+    final frozenNow = DateTime(2026, 1, 1, 12, 0, 0);
+    final tiedPrefetcher = JourneyPrefetcher(debugClock: () => frozenNow);
+    addTearDown(tiedPrefetcher.dispose);
+
+    tiedPrefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
+    tiedPrefetcher.notifySignal('screenEntered', AdSlotType.interstitial);
+    await Future<void>.delayed(Duration.zero);
+
+    AdManager().debugEmit(const AdShowEvent(
+      providerTag: '[Fake]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: true,
+    ));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      tiedPrefetcher.averageTimeToShow(
+          'screenEntered', AdSlotType.interstitial),
+      isNotNull,
+      reason: '"screenEntered" was the one actually called last (even '
+          'though both share the exact same timestamp) — it must be the '
+          'one credited, by call order, not by map iteration order',
+    );
+    expect(
+      tiedPrefetcher.averageTimeToShow(
+          'levelStarted', AdSlotType.interstitial),
+      isNull,
+      reason: 'the earlier-called signal must stay pending, not be '
+          'incorrectly credited instead',
+    );
+  });
+
   test('dispose() stops recording new time-to-show samples', () async {
     prefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
     prefetcher.dispose();

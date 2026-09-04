@@ -12,7 +12,26 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/ad_crash_guard.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+/// A widget whose `build()` calls into a real SDK function
+/// (`MonetizationArbitrator.decide`) with a host-supplied callback that
+/// throws — for the widget-test below, proving the crash-guard fix holds
+/// under Flutter's OWN exception-during-build handling, not just a plain
+/// unit-test `try`/`catch`.
+class _ThrowingDuringBuildWidget extends StatelessWidget {
+  const _ThrowingDuringBuildWidget();
+
+  @override
+  Widget build(BuildContext context) {
+    final arbitrator = MonetizationArbitrator();
+    arbitrator.registerVipLikelihoodEstimator(
+        () => throw StateError('host bug thrown during widget build'));
+    arbitrator.decide(AdSlotType.interstitial);
+    return const SizedBox.shrink();
+  }
+}
 
 /// Minimal fake adapter exposing real [AdSlot]s — mirrors the pattern used in
 /// ad_manager_core_test.dart's `_FakeAdapter`. Everything not needed here is
@@ -96,6 +115,48 @@ void main() {
     expect(isSdkAttributable(stack), isFalse,
         reason: 'the throw site is host code; the SDK merely appears '
             'further down the call chain because it invoked the callback');
+  });
+
+  test(
+      'REAL (not fabricated) stack trace from a host callback thrown out of '
+      'an actual SDK call also does not attribute to the SDK', () {
+    // MonetizationArbitrator.decide() calls a host-supplied estimator
+    // synchronously and unguarded (lib/src/monetization/
+    // monetization_arbitrator.dart:263) — a real, structurally identical
+    // stand-in for onReward/onAdDismiss for the purpose of proving the
+    // FIRST-FRAME assumption holds against genuine Dart runtime stack
+    // trace formatting, not just a hand-written fake string.
+    final arbitrator = MonetizationArbitrator();
+    arbitrator.registerVipLikelihoodEstimator(() {
+      throw StateError('host bug inside the likelihood estimator');
+    });
+
+    try {
+      arbitrator.decide(AdSlotType.interstitial);
+      fail('expected decide() to propagate the estimator\'s exception');
+    } catch (e, st) {
+      expect(e, isA<StateError>());
+      // Empirical proof this SDK's package genuinely appears somewhere in
+      // this REAL stack trace beneath the actual throw site — exactly why
+      // the old whole-trace `contains` check misattributed this kind of
+      // host bug to the SDK.
+      expect(st.toString(), contains('package:applovin_admob_sdk/'),
+          reason: 'sanity — if this fails, the test stopped proving what '
+              'it claims to prove');
+      expect(isSdkAttributable(st), isFalse,
+          reason: 'the throw site (frame #0) is the host\'s own callback, '
+              'even though the SDK genuinely appears deeper in this real '
+              'stack trace');
+    }
+  });
+
+  test('empty stack trace is not attributed to the SDK (no crash)', () {
+    expect(isSdkAttributable(StackTrace.fromString('')), isFalse);
+  });
+
+  test('stack trace with only blank lines before nothing real is not '
+      'attributed to the SDK (no crash)', () {
+    expect(isSdkAttributable(StackTrace.fromString('\n\n   \n')), isFalse);
   });
 
   group('installAdCrashGuard', () {
@@ -200,6 +261,54 @@ void main() {
       expect(adapter.rewardedSlot.isShowing, isTrue);
     });
 
+    test(
+        'a host bug thrown from inside a real SDK call (SDK genuinely on '
+        'the stack, just not at the throw site) still reaches the '
+        'previous handler through the FULL installAdCrashGuard() pipeline',
+        () {
+      // Regression test for the exact bug this round fixed: this is not
+      // just isSdkAttributable() in isolation, but the real
+      // FlutterError.onError wiring installAdCrashGuard() sets up, fed a
+      // REAL stack trace where the SDK genuinely appears (proving the old
+      // whole-trace `contains` check really would have swallowed this).
+      FlutterErrorDetails? seenByPrevious;
+      FlutterError.onError = (details) => seenByPrevious = details;
+
+      adapter.rewardedSlot.beginLoad();
+      adapter.rewardedSlot.markReady();
+      adapter.rewardedSlot.beginShow();
+
+      installAdCrashGuard();
+
+      final arbitrator = MonetizationArbitrator();
+      arbitrator.registerVipLikelihoodEstimator(() {
+        throw StateError('host bug inside the likelihood estimator');
+      });
+      late StackTrace realStack;
+      try {
+        arbitrator.decide(AdSlotType.interstitial);
+        fail('expected decide() to propagate');
+      } catch (_, st) {
+        realStack = st;
+      }
+      expect(realStack.toString(), contains('package:applovin_admob_sdk/'),
+          reason: 'sanity — this must be a real stack where the SDK '
+              'genuinely appears, not a trivial host-only trace');
+
+      final details = FlutterErrorDetails(
+        exception: StateError('host bug inside the likelihood estimator'),
+        stack: realStack,
+      );
+      FlutterError.onError!(details);
+
+      expect(seenByPrevious, same(details),
+          reason: 'must reach the host\'s own crash handler, not be '
+              'swallowed as if it were an SDK bug');
+      expect(adapter.rewardedSlot.isShowing, isTrue,
+          reason: 'a non-attributable error must not trigger slot recovery '
+              'either — that machinery is only for the SDK\'s own bugs');
+    });
+
     test('non-SDK platform error is NOT swallowed — chains to previous handler',
         () {
       Object? seenByPrevious;
@@ -256,5 +365,25 @@ void main() {
           reason: 'must actually (re)install — the previous guard layer is '
               'gone, so silently no-op-ing here would leave no guard at all');
     });
+  });
+
+  testWidgets(
+      'WIDGET TEST — a host bug thrown during a real widget build (SDK '
+      'genuinely on the stack) surfaces via tester.takeException(), not '
+      'swallowed as an SDK bug', (tester) async {
+    installAdCrashGuard();
+    addTearDown(() {
+      FlutterError.onError = FlutterError.presentError;
+      PlatformDispatcher.instance.onError = null;
+    });
+
+    await tester.pumpWidget(const _ThrowingDuringBuildWidget());
+
+    final caught = tester.takeException();
+    expect(caught, isA<StateError>(),
+        reason: 'flutter_test\'s own error capture (chained to by '
+            'installAdCrashGuard()) must still see this host bug — proof '
+            'the fix holds under Flutter\'s real exception-during-build '
+            'handling, not just a plain try/catch');
   });
 }
