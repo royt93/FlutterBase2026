@@ -179,12 +179,26 @@ Việc nên làm trước khi release tiếp (mới phát hiện round 34, chi p
 6. Xác minh khoá `private_key.pepk` (đã xoá khỏi HEAD) có từng active trên
    Play Console không; nếu có, cân nhắc rotate qua Play Console và purge khỏi
    git history trước khi mở quyền truy cập repo.
+7. **(F5, MAJOR, xác nhận bằng test thiết bị thật)** Banner mount lần đầu
+   trong lúc VIP đang active không tự load lại sau khi VIP hết hạn — chỉ hồi
+   phục khi widget bị remount. Ảnh hưởng doanh thu thật, không phải edge case
+   hiếm (đúng lúc VIP hết hạn là lúc quan trọng nhất để banner quay lại).
+   Cần điều tra `banner_ad_widget.dart` (`_initStarted`/`_initBanner`/
+   `initRevision` reload path) và sửa trước khi coi round 34 đã đóng hẳn.
 
-Không có finding nào ở round 34 đủ để hạ mức "dùng được" xuống "không nên
-dùng" — codebase vẫn giữ kỷ luật kỹ thuật cao (dispose/lifecycle nhất quán,
-mọi claim "đã fix" ở round 33 verify lại bằng tay đều đúng thật), và các
-BLOCKER/MAJOR do Codex nêu đều là rủi ro đã biết, đã cân nhắc, đã công bố —
-không phải lỗ hổng mới phát sinh.
+Round 34 tìm được **1 bug thật mới** (F5, xác nhận bằng integration test
+thiết bị thật, tái lập 2/2 lần) — đủ để thêm vào điều kiện production, nhưng
+KHÔNG đủ nghiêm trọng để đổi khuyến nghị tổng thể từ "dùng được" sang "không
+nên dùng": phạm vi hẹp (chỉ 1 kịch bản chuyển tiếp VIP→hết hạn cụ thể trên
+banner, không phải core an toàn/pháp lý), có workaround tạm (dùng
+`bypassVipGuard`/hoặc chấp nhận banner chỉ hồi phục sau khi user tự chuyển
+màn hình — hầu hết app đều có điều hướng thường xuyên). Các BLOCKER/MAJOR
+còn lại do Codex nêu đều là rủi ro đã biết, đã cân nhắc, đã công bố từ trước
+— không phải lỗ hổng mới phát sinh. Codebase vẫn giữ kỷ luật kỹ thuật cao
+(dispose/lifecycle nhất quán, mọi claim "đã fix" ở round 33 verify lại bằng
+tay đều đúng thật) — F5 là lỗi thật đầu tiên round này tự tìm ra được bằng
+cách chạy trên thiết bị thật thay vì chỉ đọc code, đúng minh chứng cho việc
+test thiết bị thật vẫn cần thiết dù đã có 1571 test tĩnh xanh.
 
 ## Kết quả integration_test trên thiết bị/simulator thật (bổ sung)
 
@@ -228,11 +242,55 @@ không phải lỗ hổng mới phát sinh.
     ([[ios-simulator-cannot-run-consent-integration-tests]]). Cũng **CHƯA
     khẳng định chắc** — cần rerun riêng lẻ để loại trừ khả năng là bug thật.
 
-**Kết luận phần này:** 43/48 pass thật trên simulator củng cố thêm độ tin
-cậy (không chỉ dựa vào 1571 test tĩnh). 4/5 fail có lời giải thích hợp lý và
-khớp giới hạn đã biết. **2 file (`waterfall_tuner_test`,
-`r23_banner_revive_on_vip_expiry_test`) còn treo lửng — nghi ngờ là
-simulator-flake nhưng chưa loại trừ được khả năng bug thật**, cần 1 lần rerun
-riêng lẻ (không phải cả 48 file) trong phiên làm việc kế tiếp trước khi đóng
-hẳn round 34. Không đủ để đổi khuyến nghị production ở trên, nhưng là việc
-còn nợ lại — thêm vào danh sách theo dõi cùng 3 việc production đã liệt kê.
+**Cập nhật (rerun riêng lẻ trên simulator mới boot, không chạy song song):**
+
+- `waterfall_tuner_test.dart` → **PASS sạch khi chạy một mình.** Xác nhận là
+  simulator-flake (simulator đã sống 53+ phút lúc chạy chung 48 file), không
+  phải bug. Đóng, không cần theo dõi thêm.
+- `r23_banner_revive_on_vip_expiry_test.dart` → **FAIL LẠI, sạch, tái lập
+  được 2/2 lần** (lần chạy chung 48 file VÀ lần chạy riêng một mình) —
+  **đây là bug thật, không phải flake.**
+
+**F5 (MAJOR, bug thật, tái lập được) — banner không tự load lại sau khi VIP
+hết hạn, nếu banner được mount LẦN ĐẦU trong lúc đang VIP.**
+
+Kịch bản tái hiện chính xác (từ chính test): user đang VIP → mở trang có
+banner (banner bị ẩn vì VIP, đúng) → VIP hết hạn → theo thiết kế, biến đếm
+`AdManager().initRevision` phải tăng để báo `BannerAdWidget` load lại — xác
+nhận **tăng đúng** (`packages/ad_sdk/test` unit test level đã pass, và test
+integration dòng 112 pass) — nhưng banner **không thực sự gửi request quảng
+cáo mới** trong vòng 20 giây sau đó (dòng 127 fail: `bannerLoads` rỗng).
+
+Nghi vấn cụ thể nhất (chưa khẳng định 100%, cần điều tra thêm):
+`lib/src/widget/banner_ad_widget.dart` — `didChangeDependencies()` có cờ
+một-lần `_initStarted`: `if (!_initStarted.value) { _initStarted.value =
+true; _initBanner(context); return; }`. Nếu lần gọi `_initBanner` đầu tiên
+này rơi đúng lúc đang VIP, `_initBanner` return sớm ở check
+`mgr.isVIPMember()` (không load được gì) — NHƯNG `_initStarted.value` đã bị
+đánh dấu `true` vĩnh viễn cho vòng đời widget này, bất kể load có thành công
+hay không. Đường reload thứ hai (qua `ValueListenableBuilder<int>` lắng nghe
+`initRevision` ở `_buildBanner()`, điều kiện `!_allowed.value &&
+!_initScheduled && isInitialised`) về lý thuyết vẫn độc lập với
+`_initStarted` nên vẫn nên chạy được — đã đọc kỹ nhưng **chưa lần ra được
+chính xác điểm nào chặn nó** trong ngân sách audit round này.
+
+**Impact thật nếu đúng:** một banner mount lần đầu trong lúc user đang VIP
+(rất phổ biến — VIP mua/kích hoạt trước khi mở app) sẽ vĩnh viễn không hiện
+quảng cáo sau khi VIP hết hạn, cho tới khi widget bị dispose/remount (đổi
+màn hình, khởi động lại app...) — mất doanh thu thật cho đúng nhóm user vừa
+hết hạn gói VIP, không phải edge case hiếm.
+
+**Việc còn nợ:** cần 1 phiên làm việc riêng để (a) xác nhận chính xác điểm
+chặn bằng cách thêm log tạm thời hoặc breakpoint vào `_buildBanner`/
+`_initBanner`, (b) viết unit test tái hiện đúng thứ tự "mount trong lúc VIP
+→ revoke VIP" (khác với `r23_vip_expiry_banner_revive_test.dart` hiện có, có
+thể đang test thứ tự ngược lại), (c) sửa fix thật (có thể chỉ cần bỏ qua
+kiểm tra `_initStarted` khi lần init trước đó bị skip vì VIP, không phải vì
+lỗi thật).
+
+**Kết luận phần test thiết bị thật:** 43/48 pass thật củng cố thêm độ tin
+cậy so với chỉ dựa vào 1571 test tĩnh. 4/5 fail ban đầu có lời giải thích rõ
+(giới hạn UMP-simulator / thiếu AppLovin key / simulator-flake đã xác nhận).
+**1 fail (F5, banner không hồi sinh sau VIP hết hạn) là bug thật, tái lập
+2/2 lần, chưa fix.** Đây LÀ finding đủ quan trọng để đưa vào danh sách điều
+kiện production bên dưới.
