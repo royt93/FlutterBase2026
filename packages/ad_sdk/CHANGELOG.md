@@ -6,14 +6,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [2.9.16] - 2026-09-04
 
-**Not yet published to pub.dev** — version and CHANGELOG bumped ahead of
-publish per an explicit decision to batch this with a later release rather
-than publish immediately (see `doc/audit/audit_round35_consolidated.md`).
-
-Round-35 audit — line-by-line source review (not a diff-since-last-round),
-split across 4 parallel independent readers, each cross-checked against
-real code before being accepted. Found and fixed 3 real bugs; 1574/1574
-unit tests pass (3 new, TDD red→green), `flutter analyze` clean.
+Published to pub.dev. Round-35/36 audit — line-by-line source review of
+`lib/src/` (not a diff-since-last-round), split across 4 parallel
+independent readers, each cross-checked against real code before being
+accepted; a follow-up independent adversarial review of the fix diff
+(8.5/10 → gaps closed → 9.5/10, confirmed unchanged by a second
+independent pass in round 36). Found and fixed 3 real bugs. Verified
+before publish: 1581/1581 unit/widget tests pass (TDD red→green
+throughout), `flutter analyze` clean, and a full 48-file on-device
+integration run on a real TECNO KJ7 (Android 14, arm64) — 46/48 pass, the
+2 failures both pre-existing and unrelated to this release (missing local
+AppLovin credentials; a documented `vip_redeem_flow_test` timing flake
+tracked since round 34). See `doc/audit/audit_round35_consolidated.md` and
+`doc/audit/audit_round36_consolidated.md` for the full record.
 
 **Fixed:**
 
