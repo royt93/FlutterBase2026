@@ -109,16 +109,30 @@ cần sửa thêm.
 `flutter analyze`: sạch. `flutter test`: **1574/1574 pass** (1571 cũ + 3
 test mới, TDD red→green đầy đủ cho cả 3 fix).
 
-## Phạm vi CHƯA đọc 100% (khai báo minh bạch)
+## Phạm vi còn nợ — ĐÃ ĐỌC HẾT (cập nhật cùng ngày)
 
-Fork 2 (adapters+vip) không kịp đọc line-by-line: `applovin_adapter.dart`
-dòng ~1300–2571 (phần load banner/mrec/native), `vip_manager.dart` dòng
-~500–1280 (grace/stacking logic) và ~1462–1779, `vip_redeem_screen.dart`/
-`vip_dialog_strings.dart` (ngoài phần dispose đã check). Đây là các phần
-đã qua 35+ vòng QC nội bộ trước đó (comment trong code tự trích dẫn), độ
-nghi ngờ thấp hơn theo pattern đã thấy, nhưng chưa được xác nhận "sạch" một
-cách adversarial 100% — nên coi là còn nợ cho vòng sau nếu muốn thực sự
-"line-by-line toàn bộ".
+Phần còn thiếu ở trên (`applovin_adapter.dart` dòng ~1300–2571,
+`vip_manager.dart` ~500–1280 và ~1462–1779, `vip_redeem_screen.dart` toàn
+bộ 1458 dòng, `vip_dialog_strings.dart`) đã được 1 fork riêng đọc hết
+line-by-line ngay trong ngày. **Kết quả: không có finding mới.** Mọi
+callback có guard `identical()` chống stale-callback, mọi preload xử lý
+đúng disposed-mid-await, `vip_redeem_screen.dart` 100% dùng
+`ValueListenableBuilder`/`ValueNotifier` (không `setState`, loại trừ hẳn
+lớp bug "setState sau dispose"), mọi async handler check `mounted` sau
+await trước khi đụng `context`, `dispose()` giải phóng đủ mọi
+controller/subscription/timer.
+
+1 điểm không chắc chắn được nêu tham khảo (không phải finding độc lập):
+`vip_redeem_screen.dart`'s `_onWatchAdForVip` đợi 1 `Completer<bool>` được
+complete bởi `onEarnedReward`; nếu native rewarded ad treo SAU khi đã hiển
+thị (không phải never-confirmed-show), nút "Watch ad" có thể kẹt ở trạng
+thái processing — nhưng đây là hệ quả trực tiếp của tradeoff **đã biết và
+đã chấp nhận** ở `applovin_adapter.dart` (không có watchdog đối xứng cho
+rewarded/interstitial sau khi show, ghi rõ lý do trong code, round-10-E),
+không phải bug mới của riêng file này.
+
+**Kết luận: audit line-by-line toàn bộ `lib/src/` đã hoàn tất trong round
+35 — không còn vùng nào chưa được đọc trực tiếp.**
 
 ## Verdict
 
