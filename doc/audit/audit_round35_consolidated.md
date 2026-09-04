@@ -134,6 +134,45 @@ không phải bug mới của riêng file này.
 **Kết luận: audit line-by-line toàn bộ `lib/src/` đã hoàn tất trong round
 35 — không còn vùng nào chưa được đọc trực tiếp.**
 
+## Review độc lập (fork adversarial) + đóng gap + smoke test thiết bị thật
+
+Sau khi 3 fix + test ban đầu xanh, 1 fork khác (không phải người viết fix)
+review adversarial riêng diff `211b942..fd15ac1`, tự thực nghiệm lại giả
+định kỹ thuật cốt lõi (frame đầu tiên của stack trace luôn đúng nơi throw,
+kể cả qua async gap — verify bằng code Dart thật với `runZonedGuarded`).
+**Điểm ban đầu: 8.5/10**, 3 gap thật:
+
+1. `journey_prefetcher.dart` — so sánh "signal gần nhất" bằng `DateTime`
+   dùng `isAfter` (tương đương `>`), có thể sai nếu 2 signal trùng đúng 1
+   timestamp (độ phân giải đồng hồ) — entry chèn trước trong map thắng do
+   thứ tự lặp, không phải do gọi sau thật. **Sửa tận gốc**: thêm bộ đếm
+   `_sequence` tăng dần làm tiêu chí so sánh (miễn nhiễm với tie đồng hồ)
+   + inject clock để test tái hiện tie xác định (không phụ thuộc may rủi
+   đồng hồ thật).
+2. `ad_crash_guard_test.dart` — thiếu test stack trace rỗng/toàn khoảng
+   trắng. Đã thêm 2 test.
+3. `consent_manager_test.dart` — thiếu test âm (gọi lại `bootstrap()` với
+   **cùng** instance — đúng pattern `AdManager.initialize()` dùng thật —
+   không được warn). Đã thêm.
+
+Bổ sung thêm (không phải gap bị chỉ ra, nhưng nâng chất lượng chứng minh):
+test dùng stack trace THẬT (ném qua `MonetizationArbitrator.decide()` thật,
+không phải `StackTrace.fromString(...)` giả lập), 1 test full-pipeline qua
+đúng `installAdCrashGuard()` (không chỉ hàm thuần `isSdkAttributable`), 1
+**widget test** dùng `testWidgets`/`tester.takeException()` chứng minh fix
+đứng vững dưới cơ chế bắt lỗi thật của Flutter khi widget `build()` throw,
+và 1 **integration test** (`example/integration_test/
+crash_guard_host_bug_test.dart`) chạy full pipeline này trên **thiết bị
+Android thật** (TECNO KJ7, Android 14, arm64) — **PASS**.
+
+**Kết quả cuối:** `flutter test`: 1581/1581 pass, `flutter analyze` sạch.
+**Điểm cuối: 9.5/10** (không tuyệt đối 10 vì chưa verify được dưới build
+`--release --obfuscate` thật — obfuscation xoá hẳn path
+`package:applovin_admob_sdk/` nên cơ chế attribution này vốn không dùng
+được trong kịch bản đó, một giới hạn tách biệt khỏi fix, đã ghi rõ trong
+comment file test). Đủ điều kiện >9/10 theo tiêu chí user đặt ra — đã push
+`00cf21c`.
+
 ## Verdict
 
 Không có finding nào đủ nghiêm trọng để đổi khuyến nghị "dùng được cho
