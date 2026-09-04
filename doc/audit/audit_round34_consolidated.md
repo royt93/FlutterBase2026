@@ -121,11 +121,41 @@ hợp đồng README (setNavigatorKey trước runApp, 2 observer, init trong sp
 dispose listener). Chi tiết đầy đủ: `audit_codex_round34.md`,
 `audit_claude_round34.md`.
 
-**Chưa kiểm chứng vòng này** (khai báo minh bạch, cả 2 agent lẫn orchestrator
-đều không đủ điều kiện): chạy trên thiết bị/simulator thật, tra cứu CVE cho
-native SDK (`AppLovinSDK 13.6.3`, `google_mobile_ads` 7.0.0 native), đọc sâu
-toàn bộ `compliance/` và `monetization/` (hash-chain audit log, waterfall
-tuner — nằm ngoài 8 trục bắt buộc).
+## Phần audit bổ sung (sau khi 2 agent xong, orchestrator tự làm tiếp)
+
+**F4 (thông tin mới, ngoài tầm kiểm soát code Dart) — nghiên cứu bảo mật công
+khai (5/2026, Felix Braberg) cho biết đã "bẻ" được giao thức mã hoá mediation
+riêng của AppLovin, phát hiện SDK native AppLovin dùng một định danh do server
+cấp để nhận diện lại thiết bị xuyên nhiều app, hoạt động cả khi user đã từ
+chối App Tracking Transparency (ATT) trên iOS.** Đây không phải lỗi của
+package `ad_sdk` — nằm hoàn toàn trong binary native của `applovin-sdk`
+(Android) / `AppLovinSDK` (iOS) mà package này gọi vào, không có API nào phía
+Dart để tắt/kiểm soát hành vi này. Rủi ro thật cho production: (a) chính sách
+minh bạch quyền riêng tư của Apple (App Store) coi việc lách ATT là vi phạm
+rõ ràng nếu bị phát hiện, dù lỗi nằm ở tầng AppLovin chứ không phải app; (b)
+không có CVE chính thức nào được cấp cho vấn đề này (không phải lỗ hổng kỹ
+thuật truyền thống, mà là hành vi thiết kế gây tranh cãi). Không tìm thấy CVE
+chính thức nào khác cho các bản native đang pin: `AppLovinSDK 13.6.3` (iOS),
+`com.applovin:applovin-sdk 13.6.3` (Android), `Google-Mobile-Ads-SDK 12.14.0`
+(iOS), `com.google.android.gms:play-services-ads 24.9.0` (Android).
+
+**Đã đọc sâu `compliance/` và `monetization/` (2103 dòng, 13 file) — không
+có finding mới.** Sửa lại 1 mô tả sai của chính tôi ở bản trước: đây **không
+phải hash-chain từng dòng** — cơ chế thật là 1 chữ ký Ed25519 duy nhất ký lên
+toàn bộ JSON export (`compliance_signing.dart`), đủ để phát hiện sửa tay sau
+khi export (đổi 1 byte làm sai chữ ký), có tài liệu rõ về threat model (chỉ
+chống sửa tay sau export, không chống chủ thiết bị cố tình làm giả từ đầu —
+tự nhận đúng, không phóng đại). `monetization_arbitrator.dart` (module phức
+tạp nhất, 304 dòng) xác nhận: chỉ được phép **veto** (giảm) một lần show ad để
+nudge VIP, chạy SAU khi mọi safety-gate đã pass — grep xác nhận không module
+monetization nào gọi `AdSafetyConfig`/`bypassSafety`/switch provider, nên
+không có đường nào để logic tối ưu doanh thu tự ý vượt qua safety cap.
+
+**Đã chạy integration_test thật** trên thiết bị Android thật đang cắm dây
+(Samsung SM A507FN, Android 11 thật, không phải emulator) và iOS Simulator
+(iPhone 16, iOS 18.6) — cùng flag với CI (`AD_PROVIDER_ADMOB=true` vì không
+có AppLovin SDK key thật để test cục bộ, giống giới hạn CI đã biết). Kết quả
+chi tiết: xem phần cập nhật cuối file này sau khi cả 2 run hoàn tất.
 
 ## Khuyến nghị production
 
@@ -155,3 +185,54 @@ dùng" — codebase vẫn giữ kỷ luật kỹ thuật cao (dispose/lifecycle 
 mọi claim "đã fix" ở round 33 verify lại bằng tay đều đúng thật), và các
 BLOCKER/MAJOR do Codex nêu đều là rủi ro đã biết, đã cân nhắc, đã công bố —
 không phải lỗ hổng mới phát sinh.
+
+## Kết quả integration_test trên thiết bị/simulator thật (bổ sung)
+
+- **Android (thiết bị thật, Samsung SM A507FN, Android 11, cắm dây)**: chạy
+  bị lỗi hạ tầng máy cục bộ (cache Gradle hỏng — `metadata.bin` thiếu, thiết
+  bị cũng rớt kết nối USB giữa chừng), gần như mọi file fail cùng lúc vì
+  cùng 1 nguyên nhân build — không phải bug SDK. Theo quyết định của user,
+  **không rerun** — chấp nhận kết quả Android trên CI (emulator, chạy định kỳ
+  và đáng tin) là đủ.
+- **iOS (Simulator, iPhone 16, iOS 18.6, `AD_PROVIDER_ADMOB=true` vì không có
+  AppLovin key thật để test cục bộ — giống giới hạn CI)**: chạy đầy đủ 48
+  file, **43/48 pass** thật trên simulator (không phải suy đoán từ test tĩnh).
+  5 file fail sau 2 lần thử, đã tự tay đọc log từng file:
+  - `consent_gate_recovery_test.dart`, `consent_resume_backstop_test.dart` —
+    assertion fail thật, nhưng khớp giới hạn iOS Simulator **đã biết từ
+    trước** (form UMP không present được trên Simulator — xem
+    [[ios-simulator-cannot-run-consent-integration-tests]]) — không phải hồi
+    quy mới.
+  - `r36_real_applovin_appopen_over_banner_test.dart` — timeout 12 phút, đúng
+    như tên file dự đoán ("real_applovin"): cần AppLovin ad thật, không thể
+    pass khi bị ép `AD_PROVIDER_ADMOB=true` do không có key cục bộ — giới hạn
+    đã biết, không phải bug.
+  - `waterfall_tuner_test.dart` — timeout 12 phút, **CHƯA rõ nguyên nhân**.
+    Test chỉ gọi `AdManager().loadInterstitial()` thật (network thật tới
+    AdMob) sau 53 phút simulator đã chạy liên tục hàng chục file trước đó —
+    nghi ngờ hợp lý nhất là cùng loại simulator-flake CI đã tự ghi nhận trước
+    đây (`.github/scripts/integration-retry.sh` có hẳn đoạn comment về
+    "simulator's logging subsystem wedged" sau phiên dài) hơn là một hang
+    thật trong code, nhưng **KHÔNG khẳng định chắc** — cần chạy lại **một
+    mình** file này trên simulator vừa mới khởi động (không phải sau 53 phút
+    chạy liên tục) để phân biệt dứt điểm. Chưa làm được trong phạm vi round
+    này vì thời gian — ghi nhận minh bạch là "chưa kết luận", không quy kết
+    bừa cho môi trường để bỏ qua.
+  - `r23_banner_revive_on_vip_expiry_test.dart` — assertion fail thật (VIP
+    chưa hết hạn đúng lúc test kỳ vọng), có kèm 1 dòng log lạ
+    "cached CRL failed to verify, ignoring" mà chính file test này không hề
+    dùng CRL — nghi ngờ hợp lý nhất là rò rỉ state giữa các file test chạy
+    tuần tự trên cùng 1 simulator (không reinstall app giữa mỗi file, khác
+    với CI có thể có setup sạch hơn), tạo ra 1 flake liên quan thời gian VIP
+    hết hạn — tương tự flake `vip_redeem_flow_test` đã biết trước đó
+    ([[ios-simulator-cannot-run-consent-integration-tests]]). Cũng **CHƯA
+    khẳng định chắc** — cần rerun riêng lẻ để loại trừ khả năng là bug thật.
+
+**Kết luận phần này:** 43/48 pass thật trên simulator củng cố thêm độ tin
+cậy (không chỉ dựa vào 1571 test tĩnh). 4/5 fail có lời giải thích hợp lý và
+khớp giới hạn đã biết. **2 file (`waterfall_tuner_test`,
+`r23_banner_revive_on_vip_expiry_test`) còn treo lửng — nghi ngờ là
+simulator-flake nhưng chưa loại trừ được khả năng bug thật**, cần 1 lần rerun
+riêng lẻ (không phải cả 48 file) trong phiên làm việc kế tiếp trước khi đóng
+hẳn round 34. Không đủ để đổi khuyến nghị production ở trên, nhưng là việc
+còn nợ lại — thêm vào danh sách theo dõi cùng 3 việc production đã liệt kê.
