@@ -45,17 +45,32 @@ class JourneyPrefetcher {
 
   String _key(String signal, AdSlotType type) => '$signal|${type.name}';
 
+  /// A single show can only have been preceded by ONE signal — matching
+  /// every pending signal for [type] (as opposed to just the most recent
+  /// one) would credit this one show as a sample for every one of them,
+  /// conflating timing data between journey signals that have nothing to do
+  /// with each other (e.g. `"levelStarted"` and `"screenEntered"` both
+  /// pending for the same ad type at once). Only the most-recently-fired
+  /// pending signal for this type is resolved; an older, still-pending
+  /// signal for a different key is left alone rather than guessed at.
   void _onEvent(AdEvent event) {
     if (event is! AdShowEvent || !event.success) return;
-    for (final entry in _lastSignalAt.entries.toList()) {
+    String? latestKey;
+    DateTime? latestAt;
+    for (final entry in _lastSignalAt.entries) {
       final parts = entry.key.split('|');
       if (parts.length != 2 || parts[1] != event.type.name) continue;
-      final elapsed = DateTime.now().difference(entry.value);
-      final samples = _timeToShow.putIfAbsent(entry.key, () => []);
-      samples.add(elapsed);
-      if (samples.length > _rollingWindowSize) samples.removeAt(0);
-      _lastSignalAt.remove(entry.key);
+      if (latestAt == null || entry.value.isAfter(latestAt)) {
+        latestAt = entry.value;
+        latestKey = entry.key;
+      }
     }
+    if (latestKey == null || latestAt == null) return;
+    final elapsed = DateTime.now().difference(latestAt);
+    final samples = _timeToShow.putIfAbsent(latestKey, () => []);
+    samples.add(elapsed);
+    if (samples.length > _rollingWindowSize) samples.removeAt(0);
+    _lastSignalAt.remove(latestKey);
   }
 
   /// Rolling average time between [signal] firing and [type] actually being

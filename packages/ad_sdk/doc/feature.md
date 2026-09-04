@@ -18,7 +18,7 @@ Updated: 2026-08-19 (version pointers refreshed 2026-08-25)
 > for historical context — those files no longer exist in this repo, but the
 > SDK-side fix/feature being described is still accurate and kept for the
 > audit trail. See `packages/ad_sdk/CHANGELOG.md` for the authoritative,
-> up-to-date version history (current: **2.4.0**) and `doc/audit/` for the
+> up-to-date version history (current: **see CHANGELOG.md's top entry**) and `doc/audit/` for the
 > full audit-round history.
 >
 > **Coding rules for every Picked item** (from `doc/init.md` + `doc/TODO.md`):
@@ -38,12 +38,12 @@ Updated: 2026-08-19 (version pointers refreshed 2026-08-25)
 > scope for this repo — see `doc/task/` / `doc/archive/` if the historical
 > detail is ever needed.)
 
-### 📣 Ad / SDK — `applovin_admob_sdk` (current: **2.4.0**, see `packages/ad_sdk/CHANGELOG.md`)
+### 📣 Ad / SDK — `applovin_admob_sdk` (current: **see `packages/ad_sdk/CHANGELOG.md`'s top entry**)
 
 > The version/host-app details in this specific bullet block below (pub.dev
 > `^1.1.0`/`1.1.1`, "ACTIVE 2026-07-18") are a snapshot from when this entry
 > was first written and are stale — kept as historical context for the
-> narrative that follows. Current SDK version is 2.4.0; the narrative below stops at 2.1.0 on purpose — everything after it lives in CHANGELOG.md.
+> narrative that follows. Current SDK version: see CHANGELOG.md's top entry; the narrative below stops at 2.1.0 on purpose — everything after it lives in CHANGELOG.md.
 
 - **2.1.0 (2026-08-19) — same-day audit + fix pass** (`doc/audit/audit_claude_20260819.md`,
   `CHANGELOG.md`): App Open (and interstitial/rewarded/rewarded-interstitial)

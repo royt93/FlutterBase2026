@@ -4,10 +4,12 @@
 // (Allow/Reject/dismiss), programmatic set/reset, persistence round-trip,
 // and the reactive listenable.
 
+import 'package:applovin_admob_sdk/src/config/ad_log_level.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/utils/safe_logger.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,6 +67,29 @@ void main() {
         prefs: prefs, strings: ConsentDialogStrings.vi);
     expect(identical(m1, m2), isTrue,
         reason: 'second bootstrap call must reuse the singleton');
+  });
+
+  test(
+      'bootstrap called again with a DIFFERENT AdPreferences instance warns '
+      'instead of silently ignoring it', () async {
+    final warnings = <String>[];
+    SafeLogger.configure(
+        level: AdLogLevel.warning,
+        onLog: (level, tag, message) => warnings.add('$tag: $message'));
+    addTearDown(() => SafeLogger.configure());
+
+    await ConsentManager.bootstrap(prefs: prefs, strings: ConsentDialogStrings.vi);
+
+    AdPreferences.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    final otherPrefs = await AdPreferences.getInstance();
+    addTearDown(AdPreferences.resetForTest);
+    await ConsentManager.bootstrap(
+        prefs: otherPrefs, strings: ConsentDialogStrings.vi);
+
+    expect(warnings, isNotEmpty,
+        reason: 'silently discarding the second call\'s prefs argument is a '
+            'confusing API contract — it must at least be visible in logs');
   });
 
   test('set() persists, updates listenable, and re-applies to providers',

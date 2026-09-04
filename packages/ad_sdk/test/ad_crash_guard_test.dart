@@ -79,6 +79,25 @@ void main() {
     }
   });
 
+  test(
+      'a host callback (onReward/onAdDismiss) exception is NOT attributed to '
+      'the SDK just because the SDK invoked it and appears deeper in the '
+      'stack', () {
+    // The SDK is always on the stack beneath a host ad-callback throw — it's
+    // what called the callback. Only the frame where the exception actually
+    // originated (frame #0) should decide attribution; a substring search
+    // over the whole trace would misattribute every host-callback bug to
+    // this SDK, silently swallowing it instead of reporting it to the
+    // host's own crash tool.
+    final stack = StackTrace.fromString(
+        '#0      MyHostWidget._onReward (package:my_app/home.dart:42:5)\n'
+        '#1      AdManager._deliverReward (package:applovin_admob_sdk/src/core/ad_manager.dart:1000:5)\n'
+        '#2      AdManager.showRewardedAd (package:applovin_admob_sdk/src/core/ad_manager.dart:990:5)\n');
+    expect(isSdkAttributable(stack), isFalse,
+        reason: 'the throw site is host code; the SDK merely appears '
+            'further down the call chain because it invoked the callback');
+  });
+
   group('installAdCrashGuard', () {
     late _FakeAdapter adapter;
 

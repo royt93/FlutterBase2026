@@ -11,12 +11,24 @@ const String _sdkPackage = 'package:applovin_admob_sdk/';
 
 const String _tag = 'AdCrashGuard';
 
-/// Whether [stack] contains at least one frame from this SDK's own package —
-/// i.e. whether the error is attributable to a bug in ad-SDK code (as opposed
-/// to a host-app bug that merely happened to be caught here).
+/// Whether [stack]'s throw site (its first frame) is inside this SDK's own
+/// package — i.e. whether the error is attributable to a bug in ad-SDK code,
+/// as opposed to a host-app bug that merely happened to be caught here.
+///
+/// Deliberately checks only the first frame, not the whole trace: the SDK is
+/// always on the stack beneath a host ad-callback (`onReward`,
+/// `onAdDismiss`, ...) because it's what invoked the callback, so a
+/// whole-trace substring search would misattribute every bug in a host's own
+/// callback to this SDK and silently swallow it (see [installAdCrashGuard]'s
+/// doc comment) instead of reporting it to the host's own crash tool.
 @visibleForTesting
-bool isSdkAttributable(StackTrace stack) =>
-    stack.toString().contains(_sdkPackage);
+bool isSdkAttributable(StackTrace stack) {
+  final firstLine = stack
+      .toString()
+      .split('\n')
+      .firstWhere((line) => line.trim().isNotEmpty, orElse: () => '');
+  return firstLine.contains(_sdkPackage);
+}
 
 /// Best-effort recovery: any slot currently stuck `showing`/`loading` can't
 /// finish its normal callback (the callback is what crashed), so it would

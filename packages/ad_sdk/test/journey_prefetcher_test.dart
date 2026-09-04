@@ -111,6 +111,38 @@ void main() {
             'worth preloading for');
   });
 
+  test(
+      'two different signals pending for the same type do not both get '
+      'credited by one show event', () async {
+    // Both journey signals precede the same ad type without an intervening
+    // show — a real scenario (e.g. a level-complete screen that also counts
+    // as "screen entered"). Only ONE show event follows, so it can only be
+    // attributed to whichever signal actually preceded it, not both.
+    prefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    prefetcher.notifySignal('screenEntered', AdSlotType.interstitial);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+
+    AdManager().debugEmit(const AdShowEvent(
+      providerTag: '[Fake]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: true,
+    ));
+    await Future<void>.delayed(Duration.zero);
+
+    final levelStartedAvg =
+        prefetcher.averageTimeToShow('levelStarted', AdSlotType.interstitial);
+    final screenEnteredAvg = prefetcher.averageTimeToShow(
+        'screenEntered', AdSlotType.interstitial);
+    final bothCredited = levelStartedAvg != null && screenEnteredAvg != null;
+    expect(bothCredited, isFalse,
+        reason: 'a single show event must not be recorded as a sample for '
+            'two different, unrelated journey signals — that conflates '
+            'timing data between signals that have nothing to do with '
+            'each other');
+  });
+
   test('dispose() stops recording new time-to-show samples', () async {
     prefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
     prefetcher.dispose();

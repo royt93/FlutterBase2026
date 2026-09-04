@@ -47,12 +47,25 @@ class ConsentManager {
 
   /// Initialise and load persisted settings. Idempotent: a second call
   /// updates the strings and re-loads from disk but does not re-run init
-  /// side-effects.
+  /// side-effects — in particular, [prefs] is silently ignored on a second
+  /// call (the singleton keeps the one from its first `bootstrap()`), which
+  /// used to be a confusing, undocumented-in-behavior contract. Now warns
+  /// when that actually discards a different instance than the one already
+  /// in use, so passing a fresh `AdPreferences` the second time around
+  /// doesn't fail silently.
   static Future<ConsentManager> bootstrap({
     required AdPreferences prefs,
     required ConsentDialogStrings strings,
   }) async {
-    final m = _instance ?? ConsentManager._(prefs: prefs, strings: strings);
+    final existing = _instance;
+    if (existing != null && !identical(existing._prefs, prefs)) {
+      SafeLogger.w(
+          _tag,
+          'bootstrap() called again with a different AdPreferences instance '
+          '— ignored; the singleton keeps using the one from its first '
+          'bootstrap() call. Pass the same AdPreferences every time.');
+    }
+    final m = existing ?? ConsentManager._(prefs: prefs, strings: strings);
     m._strings = strings;
     await m._load();
     _instance = m;

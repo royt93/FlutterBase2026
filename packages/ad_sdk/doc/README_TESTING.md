@@ -6,8 +6,9 @@
 > this repo at all — per `CLAUDE.md` it now lives in its own separate repo, so
 > there is no host-app `test/` directory here anymore (verified 2026-08-19:
 > repo root has no `test/` dir).
-> The real automated tests (1562/1562 passing across 140 files as of 2026-09-02,
-> SDK v2.9.14) live in **`packages/ad_sdk/test/`** — run them with
+> The real automated tests (all passing — see `CHANGELOG.md`'s top entry for
+> the current file/test counts and SDK version) live in
+> **`packages/ad_sdk/test/`** — run them with
 > `cd packages/ad_sdk && flutter test`. There's also a 51-suite on-device set
 > at `packages/ad_sdk/example/integration_test/`. CI (`.github/workflows/test.yml`,
 > at the repo root) runs four jobs: `sdk` (analyze + test, primary gate),
