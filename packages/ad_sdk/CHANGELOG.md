@@ -4,6 +4,44 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.16] - 2026-09-04
+
+**Not yet published to pub.dev** — version and CHANGELOG bumped ahead of
+publish per an explicit decision to batch this with a later release rather
+than publish immediately (see `doc/audit/audit_round35_consolidated.md`).
+
+Round-35 audit — line-by-line source review (not a diff-since-last-round),
+split across 4 parallel independent readers, each cross-checked against
+real code before being accepted. Found and fixed 3 real bugs; 1574/1574
+unit tests pass (3 new, TDD red→green), `flutter analyze` clean.
+
+**Fixed:**
+
+- `AdCrashGuard.isSdkAttributable()` matched this SDK's package name against
+  the **entire** stack trace, not just the throw site. Because the SDK is
+  always on the stack immediately beneath any host ad callback it invokes
+  (`onReward`, `onAdDismiss`, `onAdClicked`, ...), a genuine bug thrown
+  *inside a host app's own callback* was misattributed to the SDK and
+  silently swallowed by `installAdCrashGuard()` — logged only to this SDK's
+  internal tag, never reaching the host's own Crashlytics/Sentry. Now checks
+  only the trace's first (throw-site) frame.
+- `ConsentManager.bootstrap()` silently discarded a second call's `prefs`
+  argument when a singleton already existed, with no signal that it had
+  happened. Now logs a warning via `SafeLogger` when a second call actually
+  passes a different `AdPreferences` instance than the one already in use.
+- `JourneyPrefetcher` (opt-in, off by default) — a single successful
+  `AdShowEvent` credited *every* pending journey signal for that ad type,
+  not just the one that actually preceded it. Two different signals pending
+  for the same slot type at once (e.g. `"levelStarted"` and
+  `"screenEntered"` both awaiting an interstitial) had their time-to-show
+  samples conflated. Now resolves only the most recently fired pending
+  signal for that type.
+
+**Docs:** replaced hardcoded, release-to-release-drifting test-count and
+version numbers in `CLAUDE.md`, `doc/feature.md`, `doc/README_TESTING.md`,
+and `doc/architecture.md` with pointers to this file's top entry, so they
+stop going stale the way `README.md`'s GPP section did before round 33.
+
 ## [2.9.15] - 2026-09-03
 
 Published to pub.dev. Verified before publish: 1571/1571 unit tests, full 48-file

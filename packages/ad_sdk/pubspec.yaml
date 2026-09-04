@@ -3,7 +3,7 @@ name: applovin_admob_sdk
 # drops 10 points (the upload API itself allows up to 200 — two different
 # limits, see the screenshots note below).
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Offline-verified VIP codes, GDPR/COPPA/CCPA consent, safety caps, AdEvent stream, debug overlay.
-version: 2.9.15
+version: 2.9.16
 
 # Monorepo: the package lives in packages/ad_sdk/ of the host app's repo, so
 # `repository` points at the subdirectory (pub.dev resolves it for the
