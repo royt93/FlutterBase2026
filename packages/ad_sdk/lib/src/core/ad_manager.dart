@@ -1205,6 +1205,7 @@ class AdManager with WidgetsBindingObserver {
   // itself. Bounded backoff retry closes that gap without risking an
   // infinite retry loop on a persistently broken host config.
   static const int _maxInitRetryAttempts = 3;
+
   /// Round-25 QC round 11 — test seam. The real backoff starts at 5s, and the
   /// teardown/retry ordering tests have to out-wait it; with the event-stream
   /// close now capped at 2s they can no longer hold a teardown open that long,
@@ -1582,7 +1583,8 @@ class AdManager with WidgetsBindingObserver {
   /// several source changes in the same synchronous callback only notifies
   /// listeners once. Read `.value` for the current snapshot immediately, or
   /// wrap in a `ValueListenableBuilder`/`addListener` to react to changes.
-  ValueListenable<AdSdkStateSnapshot> get stateSnapshot => _stateSnapshotNotifier;
+  ValueListenable<AdSdkStateSnapshot> get stateSnapshot =>
+      _stateSnapshotNotifier;
 
   void _attachFullscreenBusySlotListeners() {
     final ad = _adapterField;
@@ -2270,7 +2272,8 @@ class AdManager with WidgetsBindingObserver {
     // grace block right below: the flag is set only once the grant actually
     // landed.
     if (vip.isDisposed) {
-      SafeLogger.w(_tag,
+      SafeLogger.w(
+          _tag,
           'GAID whitelist grant abandoned (destroy() mid-write) — not marking '
           'the one-shot flag over a dropped grant');
       return;
@@ -2393,7 +2396,8 @@ class AdManager with WidgetsBindingObserver {
       _pendingRetryOnComplete = null;
       if (stranded != null) {
         if (_queuedInitCallbacks.length >= _maxQueuedInitCallbacks) {
-          SafeLogger.w(_tag,
+          SafeLogger.w(
+              _tag,
               'the pending retry callback cannot be parked (queue full) — '
               'answering it false right away');
           try {
@@ -2402,7 +2406,8 @@ class AdManager with WidgetsBindingObserver {
             SafeLogger.e(_tag, 'host onComplete(false) threw: $e\n$st');
           }
         } else {
-          SafeLogger.d(_tag,
+          SafeLogger.d(
+              _tag,
               'a host-initiated initialize() cancelled a pending retry — the '
               'retry\'s caller is parked on this attempt instead');
           _queuedInitCallbacks.add(stranded);
@@ -2647,7 +2652,8 @@ class AdManager with WidgetsBindingObserver {
             // first-time user with no backend to hand it back. Same rule as
             // round 18: the flag is set only once the grant actually landed.
             if (vip.isDisposed) {
-              SafeLogger.w(_tag,
+              SafeLogger.w(
+                  _tag,
                   'first-install VIP grace abandoned (destroy() mid-grant) — '
                   'not marking either flag over a grant that was dropped');
             } else {
@@ -2697,7 +2703,8 @@ class AdManager with WidgetsBindingObserver {
       // after destroy()'), and it guards the same failure: a torn-down SDK
       // whose `AdManager().consent` answers for a dead session.
       if (_initSuperseded(initGen)) {
-        _reportAbandonedInit(onComplete, 'destroy() during the consent bootstrap');
+        _reportAbandonedInit(
+            onComplete, 'destroy() during the consent bootstrap');
         return;
       }
       _consentManager = consentMgr;
@@ -3155,8 +3162,8 @@ class AdManager with WidgetsBindingObserver {
         // something has to come back for it. [_recoverConsentGate] is the one
         // path that both re-applies a stricter device state and arms the
         // bounded retry when it cannot (and it times out its own UMP read).
-        unawaited(_recoverConsentGate(knownTcfRefusal: true)
-            .catchError((Object e) {
+        unawaited(
+            _recoverConsentGate(knownTcfRefusal: true).catchError((Object e) {
           SafeLogger.w(_tag, 'init consent reconcile threw: $e');
         }));
       }
@@ -3510,8 +3517,7 @@ class AdManager with WidgetsBindingObserver {
   /// host that `await`ed a second `initialize()` while the first was in flight
   /// waited forever. Whatever fires the event must also drain the queue: they
   /// are the same claim ("nobody else is coming") made to two audiences.
-  void _reportAbandonedInit(
-      void Function(bool, String) onComplete, String why,
+  void _reportAbandonedInit(void Function(bool, String) onComplete, String why,
       {bool fireEvent = false}) {
     SafeLogger.w(_tag, 'init attempt abandoned ($why) — reporting failure');
     try {
@@ -3592,8 +3598,9 @@ class AdManager with WidgetsBindingObserver {
     // this same function, the second throw escaped `initialize()` and the
     // host's `onComplete` was never called at all.
     final override = debugInitRetryDelays;
-    final schedule =
-        (override != null && override.isNotEmpty) ? override : _kInitRetryDelays;
+    final schedule = (override != null && override.isNotEmpty)
+        ? override
+        : _kInitRetryDelays;
     final raw = schedule[_initRetryAttempts.clamp(0, schedule.length - 1)];
     // Round-25 QC round 13 (`codex`, MINOR) — a debug override is capped at the
     // longest production backoff. Uncapped, `[Duration(days: 36500)]` plus a
@@ -3792,11 +3799,12 @@ class AdManager with WidgetsBindingObserver {
 
     Map<String, dynamic>? overrides;
     try {
-      overrides =
-          await provider.fetchSafetyParamOverrides().timeout(const Duration(seconds: 5));
+      overrides = await provider
+          .fetchSafetyParamOverrides()
+          .timeout(const Duration(seconds: 5));
     } catch (e) {
-      SafeLogger.w(
-          _tag, '⚠️ refreshRemoteSafetyParams: fetch failed, keeping current params: $e');
+      SafeLogger.w(_tag,
+          '⚠️ refreshRemoteSafetyParams: fetch failed, keeping current params: $e');
       return;
     }
     if (overrides == null) return;
@@ -3849,6 +3857,16 @@ class AdManager with WidgetsBindingObserver {
       _pendingConsentApply = null;
       _lastHostConsentIntent = consent;
     }
+    // Round-38 audit fix (MAJOR) — every OTHER consent-apply site that
+    // writes to the native provider after an `await` (see
+    // `_recoverConsentGate` and its siblings) captures the epoch and loses
+    // to a newer intent. This call's own tail write below did not, so two
+    // overlapping setConsent() calls could land in either order: an older,
+    // already-superseded call finishing last would silently re-apply its
+    // stale value to the native AdMob/AppLovin SDK even though `_consent`
+    // (and everything the host reads back) correctly reflected the newer
+    // call. Captured once here, checked before the tail write.
+    final consentEpoch = _consentIntentEpoch;
     // MJ7 — capture this BEFORE the assignment below: the AppLovin COPPA check
     // further down needs the value the provider was actually initialised with,
     // and `_consent` is overwritten on the next line.
@@ -3982,14 +4000,54 @@ class AdManager with WidgetsBindingObserver {
           _tag, '🛑 COPPA child-directed on AppLovin → hard-stop ad requests');
       _updateCanRequestAds(false);
     }
-    if (tighteningPersonalisation) _consentProviderApplyInFlight = true;
-    try {
-      await applyConsentToProviders(consent, config: _config);
-    } finally {
-      if (tighteningPersonalisation) _consentProviderApplyInFlight = false;
+    // Round-38 audit follow-up (MAJOR-2, real fix — the epoch guard further
+    // below on `_adapter?.applyConsent` only protects a MINOR secondary write
+    // (AdMob's per-request npa flag); this is the one that actually matters).
+    // `applyConsentToProviders` is where the real native write happens:
+    // AppLovin's `setHasUserConsent`/`setDoNotSell` fire synchronously the
+    // instant it's called, then it awaits AdMob's `updateRequestConfiguration`
+    // platform-channel round trip. Both are effectively "last message issued
+    // wins" on the native side — so the actual failure mode is an OLDER call
+    // that gets delayed somewhere ABOVE this point (the `_consentManager!
+    // .set()` persist-await, most likely) long enough for a NEWER overlapping
+    // call to race ahead of it and issue ITS write first. When the older
+    // call's delay finally clears, it would otherwise issue its own (stale)
+    // write chronologically AFTER the newer one, silently overwriting the
+    // correct, newer value on the real AdMob/AppLovin SDK. Checking the
+    // epoch right here — immediately before the write is issued, not after —
+    // is the only point that can actually prevent it: once
+    // `applyConsentToProviders` is called, the native side has already been
+    // told, and no later check can undo that.
+    //
+    // `debugSetConsentTailWriteBarrier` (test-only) is awaited HERE, before
+    // either epoch check below — not after — because delaying a call after
+    // it already reached `applyConsentToProviders` would be too late to
+    // prove anything: the real native write already happened by then. This
+    // lets a test hold an older call open at exactly the point a real delay
+    // (e.g. the `_consentManager!.set()` persist-await above) would, while a
+    // newer overlapping call races ahead and completes its own write first.
+    final tailWriteBarrier = debugSetConsentTailWriteBarrier;
+    if (tailWriteBarrier != null) await tailWriteBarrier;
+    if (consentEpoch == _consentIntentEpoch) {
+      if (tighteningPersonalisation) _consentProviderApplyInFlight = true;
+      try {
+        await applyConsentToProviders(consent, config: _config);
+      } finally {
+        if (tighteningPersonalisation) _consentProviderApplyInFlight = false;
+      }
+    } else {
+      SafeLogger.d(
+          _tag,
+          'setConsent: superseded by a newer intent before its provider '
+          'write ran — skipping (the newer call\'s own write is the one '
+          'that must land)');
     }
     // Keep the adapter's per-request personalization (AdMob npa) in sync.
-    _adapter?.applyConsent(consent);
+    // Guarded by the same epoch — an older, already-superseded call must
+    // lose here too (round-38 MAJOR fix).
+    if (consentEpoch == _consentIntentEpoch) {
+      _adapter?.applyConsent(consent);
+    }
     // N2 — the footgun block just cleared and ads may already be running;
     // refill slots that were held back while it was blocked.
     if (wasFootgunBlocked && canRequestAds && !_isVipMember) {
@@ -4914,6 +4972,16 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   static Future<void>? debugConsentWriteBarrier;
 
+  /// Test-only barrier awaited right before `setConsent()`'s own tail write
+  /// to the native provider (the epoch-guarded call added by the round-38
+  /// MAJOR fix) — lets an integration test hold one call's write open while
+  /// a newer, overlapping `setConsent()` call lands underneath it, without
+  /// needing to fight real platform-channel FIFO ordering to reproduce the
+  /// race. Purely a Dart-side delay: the write it guards is still the real
+  /// call into the real native SDK once released.
+  @visibleForTesting
+  static Future<void>? debugSetConsentTailWriteBarrier;
+
   Future<void> _applyConsentResultOnce(PrivacyOptionsResult result) async {
     final epoch = _consentIntentEpoch;
     final barrier = debugConsentApplyBarrier;
@@ -5279,7 +5347,9 @@ class AdManager with WidgetsBindingObserver {
   Future<void> destroy() async {
     final pending = _destroyInFlight;
     if (pending != null) {
-      SafeLogger.d(_tag, 'destroy() while a teardown is already running — '
+      SafeLogger.d(
+          _tag,
+          'destroy() while a teardown is already running — '
           'waiting for it instead of tearing down twice');
       await pending;
       // Round-25 QC round 8 (`codex` and `agy`, independently, MAJOR) — and
@@ -5387,7 +5457,8 @@ class AdManager with WidgetsBindingObserver {
     final strandedByTeardown = _pendingRetryOnComplete;
     _pendingRetryOnComplete = null;
     if (strandedByTeardown != null) {
-      SafeLogger.w(_tag,
+      SafeLogger.w(
+          _tag,
           'destroy() cancelled a pending init retry — answering its caller '
           'false instead of leaving it waiting');
       try {
@@ -5440,13 +5511,13 @@ class AdManager with WidgetsBindingObserver {
     // get its done event, and the ordering matters for hosts that clean UI up
     // on it) but capped.
     await _eventStream.close().timeout(
-      const Duration(seconds: 2),
-      onTimeout: () => SafeLogger.w(
-          _tag,
-          'the events stream did not finish closing within 2s — a paused '
-          'subscriber is holding the done event. Continuing the teardown '
-          'without it rather than hanging destroy() forever'),
-    );
+          const Duration(seconds: 2),
+          onTimeout: () => SafeLogger.w(
+              _tag,
+              'the events stream did not finish closing within 2s — a paused '
+              'subscriber is holding the done event. Continuing the teardown '
+              'without it rather than hanging destroy() forever'),
+        );
     _eventStream = StreamController<AdEvent>.broadcast();
     await _disposeAdapter();
     // Bump revision so subscribed widgets rebuild against the now-null adapter
@@ -5557,12 +5628,12 @@ class AdManager with WidgetsBindingObserver {
     // hang destroy() forever, and every later initialize() parks behind it
     // via `_destroyInFlight`. Bounded, same as the other teardown waits.
     await _eventLog?.flush().timeout(
-      const Duration(seconds: 2),
-      onTimeout: () => SafeLogger.w(
-          _tag,
-          'event log flush did not finish within 2s — continuing teardown '
-          'without waiting further rather than hanging destroy() forever'),
-    );
+          const Duration(seconds: 2),
+          onTimeout: () => SafeLogger.w(
+              _tag,
+              'event log flush did not finish within 2s — continuing teardown '
+              'without waiting further rather than hanging destroy() forever'),
+        );
     _eventLog = null;
 
     if (_isObserverAdded) {
@@ -5689,7 +5760,8 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (showing.isEmpty) return;
-    SafeLogger.d(_tag,
+    SafeLogger.d(
+        _tag,
         'destroy(): waiting up to ${_fullscreenShowDrainTimeout.inSeconds}s '
         'for ${showing.length} showing slot(s) to finish before teardown');
     final done = Completer<void>();
@@ -5761,11 +5833,12 @@ class AdManager with WidgetsBindingObserver {
         // `_destroyInFlight` never clears, and every future `initialize()`
         // waits on it forever.
         await old.dispose().timeout(const Duration(seconds: 2), onTimeout: () {
-          SafeLogger.w(_tag, '⏱️ adapter dispose() timed out — proceeding anyway');
+          SafeLogger.w(
+              _tag, '⏱️ adapter dispose() timed out — proceeding anyway');
         });
       } catch (e) {
-        SafeLogger.w(
-            _tag, 'the adapter dispose() threw — clearing SDK state anyway: $e');
+        SafeLogger.w(_tag,
+            'the adapter dispose() threw — clearing SDK state anyway: $e');
       }
     }
     // Guarded for its own reason: the `_adapter` setter re-runs the fullscreen
@@ -5916,8 +5989,8 @@ class AdManager with WidgetsBindingObserver {
 
   bool _teardownBlocksShow(AdSlotType type, AdPlacement placement) {
     if (_destroyInFlight == null) return false;
-    SafeLogger.d(_tag,
-        '⏭️ show ${type.name} skipped — a teardown is in flight');
+    SafeLogger.d(
+        _tag, '⏭️ show ${type.name} skipped — a teardown is in flight');
     _emitSkip(type, 'show', 'teardown_in_flight', placement: placement);
     return true;
   }
@@ -6286,7 +6359,8 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (AdSafetyConfig.isNetworkFatigued(AdSlotType.interstitial)) {
-      SafeLogger.d(_tag, '⏭️ loadInterstitial skipped — network fatigue cooldown');
+      SafeLogger.d(
+          _tag, '⏭️ loadInterstitial skipped — network fatigue cooldown');
       _emitSkip(AdSlotType.interstitial, 'load', 'network_fatigue');
       return;
     }
@@ -6390,7 +6464,8 @@ class AdManager with WidgetsBindingObserver {
     final blocked = _presentBlockedReason(ad);
     if (blocked != null) {
       SafeLogger.w(_tag, '⏭️ showInterstitial skipped — $blocked');
-      _emitSkip(AdSlotType.interstitial, 'show', 'blocked', placement: placement);
+      _emitSkip(AdSlotType.interstitial, 'show', 'blocked',
+          placement: placement);
       onDoneFlow(false);
       return;
     }
@@ -6757,7 +6832,8 @@ class AdManager with WidgetsBindingObserver {
         // showRewardedAd() call for the rest of the process.
         if (shownOwnDialog) AdLoadingDialog.dismiss();
         _rewardedInFlight = false;
-        SafeLogger.e(_tag, '⏭️ showRewarded (bypass) — on-demand load threw: $e');
+        SafeLogger.e(
+            _tag, '⏭️ showRewarded (bypass) — on-demand load threw: $e');
         onEarnedReward(false);
         return;
       }
@@ -6784,7 +6860,6 @@ class AdManager with WidgetsBindingObserver {
         onEarnedReward(false);
         return;
       }
-
     }
     // Round-25 QC round 22 (`codex`, BLOCKER) — the consent gate at the top of
     // this method is read BEFORE a load that can take `onDemandLoadTimeout`
@@ -7003,7 +7078,8 @@ class AdManager with WidgetsBindingObserver {
     final blocked = _presentBlockedReason(ad);
     if (blocked != null) {
       SafeLogger.w(_tag, '⏭️ showRewardedInterstitial skipped — $blocked');
-      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'blocked', placement: placement);
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'blocked',
+          placement: placement);
       onDone(false, false);
       return;
     }

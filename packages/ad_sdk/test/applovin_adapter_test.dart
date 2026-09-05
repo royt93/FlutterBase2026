@@ -790,6 +790,61 @@ void main() {
     });
   });
 
+  group('round-38 audit (own finding, hedge): dispose() while genuinely '
+      'showing', () {
+    final captured = <String>[];
+
+    setUp(() {
+      captured.clear();
+      SafeLogger.configure(
+        level: AdLogLevel.warning,
+        onLog: (level, tag, message) => captured.add(message),
+      );
+    });
+
+    tearDown(() => SafeLogger.resetForTest());
+
+    test(
+        'a whole-adapter dispose() while rewarded is genuinely showing '
+        'still resolves the pending callback (no hang) and logs a warning '
+        'instead of silently pretending it was an ordinary teardown',
+        () async {
+      // Own local instance — NOT the shared `adapter`/`bridge` from the
+      // outer setUp, so this test's own explicit dispose() (needed to
+      // capture the warning inside this group's log window) doesn't race
+      // the outer file-level tearDown's unconditional `adapter.dispose()`
+      // on that shared instance (AppLovinAdapter.dispose() isn't
+      // idempotent — a real, pre-existing constraint, not something this
+      // fix introduced).
+      final localBridge = FakeAppLovinBridge();
+      final localAdapter = AppLovinAdapter(bridge: localBridge);
+      expect(await localAdapter.initialize(_config), isTrue);
+
+      final ad = _fakeAd();
+      await localAdapter.loadRewarded();
+      localBridge.rewarded!.onAdLoadedCallback(ad);
+      expect(localAdapter.rewardedSlot.isReady, isTrue);
+
+      RewardResult? result;
+      await localAdapter.showRewarded(onDone: (r) => result = r);
+      localBridge.rewarded!.onAdDisplayedCallback(ad);
+      expect(localAdapter.rewardedSlot.isShowing, isTrue,
+          reason: 'precondition: no hidden/dismiss callback has fired yet');
+
+      await localAdapter.dispose();
+
+      expect(result, isNotNull,
+          reason: 'the pending caller must not hang forever');
+      expect(result!.shown, isFalse);
+      expect(
+          captured.any((m) =>
+              m.contains('genuinely showing') && m.contains('rewarded')),
+          isTrue,
+          reason: 'this rare edge case must be diagnosable in logs, since '
+              'AppLovin MAX has no API to actually dismiss the native view');
+    });
+  });
+
   group('repeated-failure warning log (T44)', () {
     final captured = <String>[];
 

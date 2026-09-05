@@ -84,6 +84,28 @@ class ConsentManager {
 
   ConsentSettings _current = ConsentSettings.unset;
 
+  // Round-38 audit follow-up (on-device integration test caught this — no
+  // unit test ever exercised it, since all of them bypass `ConsentManager`
+  // entirely via `AdManager.debugSetAdapter`/`debugConfig`) — `_setInternal`
+  // below persists THEN applies, with a real async gap (`_persist()`) in
+  // between. `AdManager.setConsent()` was fixed to guard its OWN direct
+  // `applyConsentToProviders` call with an epoch, but that call is a
+  // redundant SECOND apply — `_setInternal` here is the FIRST, and every
+  // caller of `set()`/`showDialog()`/`reset()` (not just AdManager) goes
+  // through it. It had no ordering protection of its own at all, so an
+  // older, already-superseded call whose `_persist()` await resolves after a
+  // newer overlapping call still silently re-applied its stale value here —
+  // the actual real-world reproduction of the race the AdManager-level guard
+  // only partially closed. Fixed at the root, self-contained, so it protects
+  // every caller uniformly rather than each one individually.
+  int _applyEpoch = 0;
+
+  /// Test-only barrier awaited right before [_applyToProviders], after the
+  /// epoch check — lets a test hold an older call's real provider-apply open
+  /// while a newer overlapping call races ahead and completes its own first.
+  @visibleForTesting
+  static Future<void>? debugApplyBarrier;
+
   /// Reactive listenable — rebuilds widgets when settings change.
   ValueListenable<ConsentSettings> get listenable => _settingsListenable;
   final ValueNotifier<ConsentSettings> _settingsListenable =
@@ -178,8 +200,13 @@ class ConsentManager {
   /// config hot-swap that changed `testDeviceIds` (which gets wiped from
   /// AdMob's RequestConfiguration on every update).
   Future<void> applyToProviders({AdConfig? config}) async {
+    final epoch = ++_applyEpoch;
     SafeLogger.d(_tag, () => 'applyToProviders ($_current)');
-    await _applyToProviders(config);
+    final barrier = debugApplyBarrier;
+    if (barrier != null) await barrier;
+    if (epoch == _applyEpoch) {
+      await _applyToProviders(config);
+    }
   }
 
   /// Wipe the user's per-install consent answer (`hasUserConsent`,
@@ -199,6 +226,7 @@ class ConsentManager {
   /// otherwise (call [applyToProviders] separately), but the code never
   /// matched that: it called `_applyToProviders` unconditionally regardless.
   Future<void> reset({AdConfig? config}) async {
+    final epoch = ++_applyEpoch;
     _current = ConsentSettings.unset.copyWith(
       isAgeRestrictedUser: _current.isAgeRestrictedUser,
       doNotSell: _current.doNotSell,
@@ -206,16 +234,34 @@ class ConsentManager {
     _settingsListenable.value = _current;
     await _persist();
     SafeLogger.d(_tag, 'reset → unset (COPPA/CCPA flags preserved)');
-    await _applyToProviders(config);
+    final barrier = debugApplyBarrier;
+    if (barrier != null) await barrier;
+    if (epoch == _applyEpoch) {
+      await _applyToProviders(config);
+    } else {
+      SafeLogger.d(_tag,
+          'reset: superseded by a newer call before its own apply ran — skipping');
+    }
   }
 
   // ─── Internals ────────────────────────────────────────────────────────────
 
   Future<void> _setInternal(ConsentSettings s, {AdConfig? config}) async {
+    final epoch = ++_applyEpoch;
     _current = s;
     _settingsListenable.value = s;
     await _persist();
     SafeLogger.d(_tag, () => 'set → $s');
-    await _applyToProviders(config);
+    // An overlapping, newer call may have already bumped `_applyEpoch` and
+    // applied its own (correct) value while this call was awaiting persist
+    // above — an older call landing here after that must not stomp it back.
+    final barrier = debugApplyBarrier;
+    if (barrier != null) await barrier;
+    if (epoch == _applyEpoch) {
+      await _applyToProviders(config);
+    } else {
+      SafeLogger.d(_tag,
+          'set: superseded by a newer call before its own apply ran — skipping');
+    }
   }
 }

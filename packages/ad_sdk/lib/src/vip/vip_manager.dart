@@ -1362,8 +1362,14 @@ class VipManager {
       SafeLogger.w(_tag, 'redeemSignedKey invalid: ${e.message}');
       return SignedVipRedeemResult.invalid(e.message);
     } catch (e) {
+      // Round-38 audit fix (MINOR) — this public result's `error` field is
+      // not surfaced by the bundled VipRedeemScreen, but a consuming app
+      // building its own redeem UI directly against this API could display
+      // an internal exception's raw `toString()` to an end user. Every
+      // OTHER branch here returns a fixed, user-safe message; this one
+      // leaked `$e` instead. Full detail stays in the log line above.
       SafeLogger.w(_tag, 'redeemSignedKey error: $e');
-      return SignedVipRedeemResult.invalid('$e');
+      return const SignedVipRedeemResult.invalid('invalid key format');
     }
 
     // T95 — CRL check. Uses the SAME publicKeyBase64 already passed in for

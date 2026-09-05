@@ -211,6 +211,7 @@ class _FillRateRegressionRows extends StatefulWidget {
 
 class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
   StreamSubscription<FillRateRegressionAlert>? _sub;
+  int? _subscribedRevision;
 
   @override
   void initState() {
@@ -226,8 +227,20 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
   // visible again if something ELSE happened to rebuild this widget.
   // Cheap to retry every build: a debug tool, not a hot path, and a no-op
   // once subscribed.
+  //
+  // Round-38 audit fix (MINOR) — a bare `_sub != null` guard only ever
+  // subscribes once. A `destroy()`+`initialize()` cycle in the same debug
+  // session disposes the old monitor (closing its `StreamController`) and
+  // hands out a new one, but this stayed latched onto the dead stream
+  // forever — unlike `_SlotRows` above, which correctly rebuilds on
+  // `initRevision`. Now keyed on the revision instead of a plain null-check,
+  // and `build()` listens to `initRevision` too so a revision bump actually
+  // triggers the resubscribe.
   void _trySubscribe() {
-    if (_sub != null) return;
+    final revision = AdManager().initRevision.value;
+    if (_sub != null && _subscribedRevision == revision) return;
+    _sub?.cancel();
+    _subscribedRevision = revision;
     _sub = AdManager().fillRateBaselineMonitor?.alerts.listen((_) {
       if (mounted) setState(() {});
     });
@@ -241,26 +254,32 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
 
   @override
   Widget build(BuildContext context) {
-    _trySubscribe();
-    final alerts = AdManager().fillRateBaselineMonitor?.activeAlerts ?? const {};
-    if (alerts.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final alert in alerts.values)
-            Text(
-              '⚠️ ${alert.type.name} '
-              '${alert.fillRateRegressed ? 'fill ${(alert.sessionFillRate * 100).toStringAsFixed(0)}% '
-                  'vs 7d ${(alert.baselineFillRate * 100).toStringAsFixed(0)}%' : ''}'
-              '${alert.fillRateRegressed && alert.revenueRegressed ? '  ' : ''}'
-              '${alert.revenueRegressed ? 'rev ${alert.sessionAvgRevenueMicros} '
-                  'vs 7d ${alert.baselineAvgRevenueMicros}µ' : ''}',
-              style: const TextStyle(color: Colors.orangeAccent),
-            ),
-        ],
-      ),
+    return ValueListenableBuilder<int>(
+      valueListenable: AdManager().initRevision,
+      builder: (context, _, __) {
+        _trySubscribe();
+        final alerts =
+            AdManager().fillRateBaselineMonitor?.activeAlerts ?? const {};
+        if (alerts.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final alert in alerts.values)
+                Text(
+                  '⚠️ ${alert.type.name} '
+                  '${alert.fillRateRegressed ? 'fill ${(alert.sessionFillRate * 100).toStringAsFixed(0)}% '
+                      'vs 7d ${(alert.baselineFillRate * 100).toStringAsFixed(0)}%' : ''}'
+                  '${alert.fillRateRegressed && alert.revenueRegressed ? '  ' : ''}'
+                  '${alert.revenueRegressed ? 'rev ${alert.sessionAvgRevenueMicros} '
+                      'vs 7d ${alert.baselineAvgRevenueMicros}µ' : ''}',
+                  style: const TextStyle(color: Colors.orangeAccent),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

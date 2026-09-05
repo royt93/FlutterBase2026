@@ -308,7 +308,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     if (_mrecDisposed) {
       return _disposedMrecSlot ??= (AdSlot(type: AdSlotType.mrec)..dispose());
     }
-    return _mrecSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.mrec));
+    return _mrecSlotsByKey.putIfAbsent(
+        key, () => AdSlot(type: AdSlotType.mrec));
   }
 
   BannerListenables _mrecListenablesFor(Object key) {
@@ -433,7 +434,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         return;
       }
       if (attempt >= _destroyRetryDelays.length) {
-        SafeLogger.w(_logTag,
+        SafeLogger.w(
+            _logTag,
             'destroyWidgetAdView ($what dispose) still failing after $attempt '
             'retries, giving up: $e');
         return;
@@ -572,7 +574,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// has no other way to notice a late callback for an already-disposed
   /// [key] the way `onAdLoaded`/`onAdFailedToLoad` do (their write throws on
   /// the disposed sentinel; this one wouldn't).
-  bool isNativeInstanceDisposed(Object key) => _disposedNativeKeys.contains(key);
+  bool isNativeInstanceDisposed(Object key) =>
+      _disposedNativeKeys.contains(key);
 
   // Unlike banner/mrec, MaxNativeAdView loads on mount and is self-contained
   // — this adapter never drives isLoaded/hasError itself, the widget layer
@@ -890,6 +893,32 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         } catch (e) {
           SafeLogger.w(_logTag, 'destroyWidgetAdView (mrec) threw: $e');
         }
+      }
+    }
+    // Round-38 audit fix (own finding, hedge) — a whole-adapter teardown
+    // (e.g. a COPPA flip re-initialising AppLovin) can land while one of
+    // these is genuinely `isShowing` on screen right now (rare: the host
+    // must flip consent at the exact moment a fullscreen ad is up). The
+    // listener clears above already mean the real dismiss event can never
+    // reach Dart after this point regardless, so the placeholder callback
+    // below still has to fire — the caller's pending `await
+    // showRewardedAd()`/etc. must not hang forever. There is no
+    // programmatic "close this ad" API in AppLovin MAX's plugin bridge, so
+    // the native view itself keeps rendering until the user dismisses it —
+    // this warning at least makes that rare, otherwise-silent case
+    // diagnosable instead of looking like an ordinary teardown.
+    for (final entry in {
+      'appOpen': appOpenSlot,
+      'interstitial': interstitialSlot,
+      'rewarded': rewardedSlot,
+    }.entries) {
+      if (entry.value.isShowing) {
+        SafeLogger.w(
+            _logTag,
+            'dispose() torn down while ${entry.key} was genuinely showing — '
+            'its callback fires now with a placeholder outcome so the '
+            'caller does not hang, but the native ad view stays on screen '
+            '(AppLovin MAX has no programmatic dismiss API)');
       }
     }
     _appOpenDismiss?.call(false);
@@ -1433,7 +1462,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         // declaration. A stale failure must not touch the current cycle's
         // slot/callback nor trigger a redundant reload.
         if (!identical(ad, _interstitialAd)) {
-          SafeLogger.w(_logTag, 'inter $tag ⛔ stale display-failed — discarding');
+          SafeLogger.w(
+              _logTag, 'inter $tag ⛔ stale display-failed — discarding');
           return;
         }
         SafeLogger.w(
@@ -1680,7 +1710,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
             // 2026-08-16 audit: bypasses AdManager.loadRewardedAd's
             // watchdog — arm one directly so a native callback that never
             // arrives can't leave the slot stuck `loading` forever.
-            rewardedSlot.armLoadWatchdog('rewarded', const Duration(seconds: 30));
+            rewardedSlot.armLoadWatchdog(
+                'rewarded', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload rewarded threw: $e');
             rewardedSlot.markFailed();
@@ -1729,7 +1760,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
             _bridge.loadRewardedAd(unitId);
             // 2026-08-16 audit: same reasoning as onAdDisplayFailedCallback's
             // reload above — bypasses AdManager.loadRewardedAd's watchdog.
-            rewardedSlot.armLoadWatchdog('rewarded', const Duration(seconds: 30));
+            rewardedSlot.armLoadWatchdog(
+                'rewarded', const Duration(seconds: 30));
           } catch (e) {
             SafeLogger.e(_logTag, 'reload rewarded threw: $e');
             rewardedSlot.markFailed();
@@ -2048,33 +2080,33 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     _ensureWidgetAdViewListener();
 
     try {
-    // M3 — register this key in the slot map AND put it into `loading` before
-    // the request goes out. Without it the no-fill handler below was dead code
-    // twice over: `_bannerSlotsByKey`/`_mrecSlotsByKey` stayed empty on the
-    // success path, and its `if (slot.isLoading)` filter could never be true
-    // because nothing on either adapter's widget-format path ever called
-    // beginLoad. A banner that got no fill therefore sat in the widget's
-    // shimmer for the rest of the session — the resume recovery keys off the
-    // failure flags, which never got set — and emitted no failure event, so
-    // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
-    // called beginLoad; this brings AppLovin in line, and with it the load
-    // watchdog that state enables.
-    // Round-6 QC — honour the answer. Throwing it away sent the request
-    // with the slot left in cooldown, which is precisely the state that made
-    // the no-fill handler dead code, so the retry path stayed broken even
-    // after the first fix. AdMob's banner path has always returned here, with
-    // the same rationale: a flapping banner is cheap to skip.
-    final slot = _bannerSlotFor(key);
-    // A refusal here is safe to honour outright: the recovery path keeps
-    // `BannerListenables.needsRecovery` set until a load actually succeeds, so
-    // a slot turned away for being in backoff is simply retried on the next
-    // resume rather than stranded blank. No backoff bypass is needed, and the
-    // backoff itself is what rate-limits a flapping app.
-    if (!slot.beginLoad()) {
-      SafeLogger.d(_logTag,
-          'preloadBanner $tag \u23ed\ufe0f already loading/showing or in cooldown');
-      return;
-    }
+      // M3 — register this key in the slot map AND put it into `loading` before
+      // the request goes out. Without it the no-fill handler below was dead code
+      // twice over: `_bannerSlotsByKey`/`_mrecSlotsByKey` stayed empty on the
+      // success path, and its `if (slot.isLoading)` filter could never be true
+      // because nothing on either adapter's widget-format path ever called
+      // beginLoad. A banner that got no fill therefore sat in the widget's
+      // shimmer for the rest of the session — the resume recovery keys off the
+      // failure flags, which never got set — and emitted no failure event, so
+      // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
+      // called beginLoad; this brings AppLovin in line, and with it the load
+      // watchdog that state enables.
+      // Round-6 QC — honour the answer. Throwing it away sent the request
+      // with the slot left in cooldown, which is precisely the state that made
+      // the no-fill handler dead code, so the retry path stayed broken even
+      // after the first fix. AdMob's banner path has always returned here, with
+      // the same rationale: a flapping banner is cheap to skip.
+      final slot = _bannerSlotFor(key);
+      // A refusal here is safe to honour outright: the recovery path keeps
+      // `BannerListenables.needsRecovery` set until a load actually succeeds, so
+      // a slot turned away for being in backoff is simply retried on the next
+      // resume rather than stranded blank. No backoff bypass is needed, and the
+      // backoff itself is what rate-limits a flapping app.
+      if (!slot.beginLoad()) {
+        SafeLogger.d(_logTag,
+            'preloadBanner $tag \u23ed\ufe0f already loading/showing or in cooldown');
+        return;
+      }
       final adViewId = await _bridge.preloadWidgetAdView(
         cfg.bannerId,
         AdFormat.banner,
@@ -2100,13 +2132,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // timers were just cancelled by `dispose()` — a retry armed now would
       // outlive the adapter that owns it.
       if (_bannerDisposed) {
-        SafeLogger.d(_logTag,
+        SafeLogger.d(
+            _logTag,
             'banner $tag ⏭️ adapter torn down mid-preload — destroying adViewId='
             '$adViewId');
         try {
           await _bridge.destroyWidgetAdView(adViewId);
         } catch (e) {
-          SafeLogger.w(_logTag, 'destroyWidgetAdView (banner, post-dispose) threw: $e');
+          SafeLogger.w(
+              _logTag, 'destroyWidgetAdView (banner, post-dispose) threw: $e');
         }
         return;
       }
@@ -2123,7 +2157,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // followed by a re-mount installs a *different* slot for the same key,
       // and this in-flight load belongs to neither.
       if (!identical(_bannerSlotsByKey[key], slot)) {
-        SafeLogger.d(_logTag,
+        SafeLogger.d(
+            _logTag,
             'banner $tag ⏭️ instance disposed while loading — destroying adViewId='
             '$adViewId');
         unawaited(_destroyWidgetAdViewWhenDetached(adViewId, 'banner'));
@@ -2220,33 +2255,33 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     _ensureWidgetAdViewListener();
 
     try {
-    // M3 — register this key in the slot map AND put it into `loading` before
-    // the request goes out. Without it the no-fill handler below was dead code
-    // twice over: `_bannerSlotsByKey`/`_mrecSlotsByKey` stayed empty on the
-    // success path, and its `if (slot.isLoading)` filter could never be true
-    // because nothing on either adapter's widget-format path ever called
-    // beginLoad. A banner that got no fill therefore sat in the widget's
-    // shimmer for the rest of the session — the resume recovery keys off the
-    // failure flags, which never got set — and emitted no failure event, so
-    // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
-    // called beginLoad; this brings AppLovin in line, and with it the load
-    // watchdog that state enables.
-    // Round-6 QC — honour the answer. Throwing it away sent the request
-    // with the slot left in cooldown, which is precisely the state that made
-    // the no-fill handler dead code, so the retry path stayed broken even
-    // after the first fix. AdMob's banner path has always returned here, with
-    // the same rationale: a flapping mrec is cheap to skip.
-    final slot = _mrecSlotFor(key);
-    // A refusal here is safe to honour outright: the recovery path keeps
-    // `BannerListenables.needsRecovery` set until a load actually succeeds, so
-    // a slot turned away for being in backoff is simply retried on the next
-    // resume rather than stranded blank. No backoff bypass is needed, and the
-    // backoff itself is what rate-limits a flapping app.
-    if (!slot.beginLoad()) {
-      SafeLogger.d(_logTag,
-          'preloadMrec $tag \u23ed\ufe0f already loading/showing or in cooldown');
-      return;
-    }
+      // M3 — register this key in the slot map AND put it into `loading` before
+      // the request goes out. Without it the no-fill handler below was dead code
+      // twice over: `_bannerSlotsByKey`/`_mrecSlotsByKey` stayed empty on the
+      // success path, and its `if (slot.isLoading)` filter could never be true
+      // because nothing on either adapter's widget-format path ever called
+      // beginLoad. A banner that got no fill therefore sat in the widget's
+      // shimmer for the rest of the session — the resume recovery keys off the
+      // failure flags, which never got set — and emitted no failure event, so
+      // fill-rate monitoring saw nothing. AdMob's equivalent paths have always
+      // called beginLoad; this brings AppLovin in line, and with it the load
+      // watchdog that state enables.
+      // Round-6 QC — honour the answer. Throwing it away sent the request
+      // with the slot left in cooldown, which is precisely the state that made
+      // the no-fill handler dead code, so the retry path stayed broken even
+      // after the first fix. AdMob's banner path has always returned here, with
+      // the same rationale: a flapping mrec is cheap to skip.
+      final slot = _mrecSlotFor(key);
+      // A refusal here is safe to honour outright: the recovery path keeps
+      // `BannerListenables.needsRecovery` set until a load actually succeeds, so
+      // a slot turned away for being in backoff is simply retried on the next
+      // resume rather than stranded blank. No backoff bypass is needed, and the
+      // backoff itself is what rate-limits a flapping app.
+      if (!slot.beginLoad()) {
+        SafeLogger.d(_logTag,
+            'preloadMrec $tag \u23ed\ufe0f already loading/showing or in cooldown');
+        return;
+      }
       final adViewId = await _bridge.preloadWidgetAdView(
         cfg.mrecId,
         AdFormat.mrec,
@@ -2272,13 +2307,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // timers were just cancelled by `dispose()` — a retry armed now would
       // outlive the adapter that owns it.
       if (_mrecDisposed) {
-        SafeLogger.d(_logTag,
+        SafeLogger.d(
+            _logTag,
             'mrec $tag ⏭️ adapter torn down mid-preload — destroying adViewId='
             '$adViewId');
         try {
           await _bridge.destroyWidgetAdView(adViewId);
         } catch (e) {
-          SafeLogger.w(_logTag, 'destroyWidgetAdView (mrec, post-dispose) threw: $e');
+          SafeLogger.w(
+              _logTag, 'destroyWidgetAdView (mrec, post-dispose) threw: $e');
         }
         return;
       }
@@ -2295,7 +2332,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // followed by a re-mount installs a *different* slot for the same key,
       // and this in-flight load belongs to neither.
       if (!identical(_mrecSlotsByKey[key], slot)) {
-        SafeLogger.d(_logTag,
+        SafeLogger.d(
+            _logTag,
             'mrec $tag ⏭️ instance disposed while loading — destroying adViewId='
             '$adViewId');
         unawaited(_destroyWidgetAdViewWhenDetached(adViewId, 'mrec'));
@@ -2554,8 +2592,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
           _reassertAppLovinRefreshHolds(listenables, key, isMrec: true);
           if (oldId != null) {
             unawaited(_bridge.destroyWidgetAdView(oldId).catchError((e) {
-              SafeLogger.w(_logTag,
-                  'destroyWidgetAdView (onAppResumed mrec) threw: $e');
+              SafeLogger.w(
+                  _logTag, 'destroyWidgetAdView (onAppResumed mrec) threw: $e');
             }));
           }
           preloadMrec(key);

@@ -134,6 +134,14 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     _retryTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
       SafeLogger.d(_tag, 'retrying after load failure');
+      // Round-38 audit fix (MAJOR) — AdMob's own load call resets its
+      // `hasError` notifier on retry, but AppLovin's native view only ever
+      // loads on mount, and mount is gated on `hasError == false` (see
+      // _buildAppLovin). Without dropping the stale bundle first, AppLovin
+      // native ads stayed blank forever after a single load failure — this
+      // timer kept firing but had no effect. Mirrors
+      // _onPersonalisationWithdrawn/_onCanRequestAdsChanged just below.
+      AdManager().disposeNativeInstance(this);
       _allowed.value = false;
       _initNative();
     });

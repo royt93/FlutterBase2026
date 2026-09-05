@@ -385,10 +385,21 @@ class IabStorage {
   /// Checks every US state GPP section in [_usStateSkipBits] (section-ID
   /// order) and returns the first non-null signal, or `null` if none of
   /// them is present/readable.
+  ///
+  /// Round-38 audit fix (MINOR) — this used to `await` each of the 19
+  /// sections one at a time. It runs unconditionally on every app resume
+  /// (inside `_reconcileDeviceUsPrivacy()`, itself inside
+  /// `_resumeAdWorkAfterConsent`'s hard 5s budget), so on a device with a
+  /// slow platform channel the sequential reads could approach or exceed
+  /// that budget and silently skip a refill cycle. Reading all sections
+  /// concurrently removes that latency without changing the result:
+  /// `Future.wait` preserves list order regardless of completion order, so
+  /// "first non-null in `_usStateSkipBits`'s order wins" still holds.
   static Future<bool?> _gppUsStatesOptedOut() async {
-    for (final entry in _usStateSkipBits.entries) {
-      final result =
-          await _gppUsStateSaleTargetedOptedOut(entry.key, entry.value);
+    final entries = _usStateSkipBits.entries.toList();
+    final results = await Future.wait(entries.map(
+        (entry) => _gppUsStateSaleTargetedOptedOut(entry.key, entry.value)));
+    for (final result in results) {
       if (result != null) return result;
     }
     return null;

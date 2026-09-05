@@ -80,9 +80,18 @@ class AdScreenRouteLogger extends NavigatorObserver {
   /// `true` when at least one dialog/popup route is currently presented.
   static bool get isDialogOnTop => _popupDepth > 0;
 
-  /// Reset the popup counter. Called by [AdManager.destroy] so a mid-dialog
-  /// teardown (or hot restart) doesn't leave [isDialogOnTop] stuck true and
-  /// permanently suppress App Open ads.
+  /// Reset the popup counter.
+  ///
+  /// Round-38 audit fix (NITPICK) — this docstring used to say "Called by
+  /// [AdManager.destroy]", but round 37 deliberately REMOVED that call (a
+  /// live dialog/popup route survives `destroy()`, same as a live UMP form;
+  /// zeroing this here made `isDialogOnTop` lie `false` while a dialog was
+  /// still genuinely on screen, letting an App Open ad stack on top of it —
+  /// see `ad_manager.dart`'s own comment at that removal site). Left in
+  /// place only for test isolation across a shared Dart isolate and crash
+  /// recovery paths that don't go through `destroy()`. A stale docstring
+  /// here risked a future maintainer re-adding the exact call round 37
+  /// removed, reintroducing that bug.
   static void resetState() {
     _popupDepth = 0;
     _navigationEventsObserved = 0;

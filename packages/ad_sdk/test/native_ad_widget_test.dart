@@ -443,6 +443,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'round-38 audit (MAJOR): AppLovin native ad error-retry disposes the '
+      'stale bundle so the widget can actually recover, not just re-trigger '
+      'a load that a still-true hasError notifier keeps hidden forever',
+      (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.nativeListenablesByKey, isNotEmpty);
+    final firstBundle = adapter.nativeListenablesByKey.values.first;
+
+    // The native ad fails to load once (transient no-fill/network blip).
+    firstBundle.hasError.value = true;
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(tester.getSize(find.byType(NativeAdWidget)).height, 0,
+        reason: 'collapses while hasError is true, same as before the fix');
+
+    AdManager().debugResetNativeCooldown();
+    await tester.pump(const Duration(seconds: 31));
+    await tester.pump();
+    await tester.pump();
+
+    expect(adapter.nativeListenablesByKey, isNotEmpty);
+    final rebuiltBundle = adapter.nativeListenablesByKey.values.first;
+    expect(identical(rebuiltBundle, firstBundle), isFalse,
+        reason: 'the retry must dispose the stale, permanently-errored '
+            'bundle and let mount recreate a fresh one — before the fix, '
+            'nothing ever disposed it, so the same stuck-true hasError '
+            'notifier lived on forever and the widget stayed blank');
+    expect(rebuiltBundle.hasError.value, isFalse);
+    expect(tester.getSize(find.byType(NativeAdWidget)).height, greaterThan(0),
+        reason: 'AppLovin native ad recovers and renders again after retry');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('VIP active → native ad collapses to empty box, never loads',
       (tester) async {
     final adapter = _NativeCountingAdapter();
