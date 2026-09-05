@@ -5454,7 +5454,6 @@ class AdManager with WidgetsBindingObserver {
     // until something else triggers a rebuild).
     initRevision.value = initRevision.value + 1;
     AdLoadingDialog.resetState();
-    AdScreenRouteLogger.resetState();
     // Round-7 final QC put a `resetUmpFormOnScreen()` here, on the grounds
     // that a form counter left standing would carry its ad block across the
     // teardown into the next initialize().
@@ -5466,6 +5465,22 @@ class AdManager with WidgetsBindingObserver {
     // draw straight over a live consent form. The leak the old reset guarded
     // against is now bounded by each presentation's own 15-minute backstop
     // ([kUmpFormOnScreenBackstop]), which did not exist when it was written.
+    //
+    // Round-37 audit MAJOR — `AdScreenRouteLogger.resetState()` used to run
+    // right here too, and it is exactly the same mistake: destroy() doesn't
+    // dismiss a real dialog/popup route either (it isn't a Flutter route
+    // this teardown owns), so zeroing `popupDepth` unconditionally made
+    // `isDialogOnTop` lie `false` while that dialog was still genuinely on
+    // screen — letting an App Open ad on the next resume stack right on top
+    // of it, the identical failure mode the round-13 removal above was
+    // written to prevent. `AdScreenRouteLogger` stays registered on the
+    // host's `Navigator` across a destroy()/initialize() cycle (it is added
+    // once in `navigatorObservers`, not re-created per cycle), so its count
+    // keeps tracking real push/pop callbacks on its own without any manual
+    // reset here. `resetState()` itself is left in place for the genuine
+    // stale-state case (test isolation across a shared Dart isolate; a crash
+    // recovery path that does not go through this teardown) — it is simply
+    // no longer this method's job to call it.
     AdSafetyConfig.resetForReinit();
     SimpleEventBus().clearAll();
 
@@ -5930,6 +5945,9 @@ class AdManager with WidgetsBindingObserver {
     // invoked from, not that it enforces where it's allowed to be called.
     String callSiteTag = 'unspecified',
   }) async {
+    // Independent review (round 37 verification) — set before onDismiss
+    // runs, not after; see the catch block far below for why.
+    var delivered = false;
     if (bypassSafety) {
       bypassAuditTrail.record(
         kind: 'bypassSafety',
@@ -6057,6 +6075,7 @@ class AdManager with WidgetsBindingObserver {
     _lastShownPlacement[AdSlotType.appOpen] = placement;
     try {
       await ad.showAppOpen(onDismiss: (dismissed) {
+        delivered = true;
         inline?.setInlineAdsHidden(false);
         if (dismissed) {
           AdSafetyConfig.recordFullscreenAdShown();
@@ -6072,10 +6091,21 @@ class AdManager with WidgetsBindingObserver {
         onAdDismiss(dismissed);
         unawaited(loadAppOpenAd());
       });
-    } catch (e) {
-      // The show never got off the ground, so no dismiss callback is coming.
+    } catch (e, st) {
+      // The show never got off the ground, so no dismiss callback is coming
+      // from the native side.
+      //
+      // Round-37 audit (MAJOR) — this used to `rethrow`, which left whoever
+      // awaited this call (typically the splash screen, per the documented
+      // `showAdBuffer(...).onComplete` → `showAppOpenAd(bypassSafety: true)`
+      // integration contract) with an unhandled exception AND a callback
+      // that never fires — the exact failure class `showRewardedAd` was
+      // hardened against in round-29. Resolve it the same way instead.
+      SafeLogger.e(_tag, 'showAppOpenAd threw: $e\n$st');
       inline?.setInlineAdsHidden(false);
-      rethrow;
+      // Independent review (round 37 verification) — only fall back if the
+      // real callback never ran (see showInterstitial's identical guard).
+      if (!delivered) onAdDismiss(false);
     }
   }
 
@@ -6369,25 +6399,48 @@ class AdManager with WidgetsBindingObserver {
         () =>
             '▶️ showInterstitial (placement=${placement.id}, slot=${ad.interstitialSlot.value.name})');
     _lastShownPlacement[AdSlotType.interstitial] = placement;
-    await ad.showInterstitial(onDone: (shown) {
-      if (shown) {
-        AdSafetyConfig.recordFullscreenAdShown();
-        AdSafetyConfig.recordPlacementAdShown(placement); // T92
-        _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
-      }
-      _emit(AdShowEvent(
-        providerTag: ad.tag,
-        type: AdSlotType.interstitial,
-        placement: placement,
-        success: shown,
-      ));
-      onDoneFlow(shown);
-      // Fix #1 (preserved from 1.x): reload after dismiss OR show-fail to
-      // keep the slot filled for the next user-triggered show. AppLovin
-      // adapter ALSO reloads internally; the dedup in adapter.loadInterstitial
-      // (`isReady` / `isLoading` early-return) makes the duplicate harmless.
-      unawaited(loadInterstitial());
-    });
+    // Independent review (round 37 verification) — set BEFORE onDoneFlow
+    // runs, not after: the catch below must not re-deliver a result once
+    // the real callback has been entered, even if onDoneFlow (or something
+    // else in this lambda) itself throws. Confirmed empirically that
+    // without this, a throwing host callback was invoked twice with
+    // contradictory results.
+    var delivered = false;
+    try {
+      await ad.showInterstitial(onDone: (shown) {
+        delivered = true;
+        if (shown) {
+          AdSafetyConfig.recordFullscreenAdShown();
+          AdSafetyConfig.recordPlacementAdShown(placement); // T92
+          _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+        }
+        _emit(AdShowEvent(
+          providerTag: ad.tag,
+          type: AdSlotType.interstitial,
+          placement: placement,
+          success: shown,
+        ));
+        onDoneFlow(shown);
+        // Fix #1 (preserved from 1.x): reload after dismiss OR show-fail to
+        // keep the slot filled for the next user-triggered show. AppLovin
+        // adapter ALSO reloads internally; the dedup in
+        // adapter.loadInterstitial (`isReady` / `isLoading` early-return)
+        // makes the duplicate harmless.
+        unawaited(loadInterstitial());
+      });
+    } catch (e, st) {
+      // Round-37 audit (MAJOR) — a throw here (native platform-channel
+      // exception, wedged native SDK) used to propagate straight out of
+      // this method with `onDoneFlow` never called, matching the exact
+      // failure `showRewardedAd` was hardened against in round-29.
+      SafeLogger.e(_tag, 'showInterstitial threw: $e\n$st');
+      // Independent review (round 37 verification) — only fall back here if
+      // the real callback never ran. Otherwise this double-delivers: the
+      // host already got its result, and re-invoking it with a different
+      // one (e.g. because onDoneFlow itself threw) is worse than the
+      // exception it produced.
+      if (!delivered) onDoneFlow(false);
+    }
   }
 
   bool canShowInterstitial() {
@@ -6400,6 +6453,12 @@ class AdManager with WidgetsBindingObserver {
     if (!canRequestAds) return false;
     if (ad.interstitialSlot.isShowing) return false;
     if (AdLoadingDialog.isShowing) return false;
+    // Round-37 audit (MAJOR) — this peek is used as the pre-check before
+    // showInterstitial() opens the SDK's own dialogs; missing this let a
+    // second call land while a popup/dialog from another in-flight flow was
+    // already on screen (see _fullscreenBusyReason, which the real show
+    // path re-checks and which already covers this signal).
+    if (AdScreenRouteLogger.isDialogOnTop) return false;
     // Peek, not canShowFullscreenAd() — this is a read-only "should I enable
     // my UI" query a host may poll repeatedly; the non-peek variant has a
     // CTR-anomaly side effect that would otherwise re-arm/escalate a
@@ -6753,11 +6812,21 @@ class AdManager with WidgetsBindingObserver {
         () =>
             '▶️ showRewarded (placement=${placement.id}, vipAutoGrant=$vipAutoGrant, slot=${ad.rewardedSlot.value.name})');
     _lastShownPlacement[AdSlotType.rewarded] = placement;
+    // Independent review (round 37 verification) — the pre-existing
+    // round-29 catch below unconditionally called `onEarnedReward(false)`,
+    // even when the real `onDone` had already delivered a result and then
+    // something inside it (or `onEarnedReward` itself) threw — a
+    // double-delivery with a contradictory result. Confirmed empirically
+    // (see the same fix applied to `showInterstitial` for the full
+    // reasoning); `delivered` is set before `onEarnedReward` runs so the
+    // catch never re-fires it once the real callback was entered.
+    var delivered = false;
     try {
       await ad.showRewarded(
           ssvCustomData: ssvCustomData,
           ssvUserId: ssvUserId,
           onDone: (result) {
+            delivered = true;
             _rewardedInFlight = false;
             if (result.shown) {
               AdSafetyConfig.recordFullscreenAdShown();
@@ -6791,7 +6860,9 @@ class AdManager with WidgetsBindingObserver {
       // showRewardedAd() call would report "busy" forever.
       _rewardedInFlight = false;
       SafeLogger.e(_tag, '⏭️ showRewarded — adapter call threw: $e');
-      onEarnedReward(false);
+      // Independent review (round 37 verification) — only fall back if the
+      // real callback never ran (see above).
+      if (!delivered) onEarnedReward(false);
     }
   }
 
@@ -6937,44 +7008,57 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     _lastShownPlacement[AdSlotType.rewardedInterstitial] = placement;
-    await ad.showRewardedInterstitial(onDone: (result) {
-      // Round-23 QC (reviewer A, MAJOR) — the impression is counted from
-      // `shown`, NOT from `earned`. A user who closes the ad before the reward
-      // point still consumed a real, paid, AdMob-billed impression: it has to
-      // consume the session/hourly/daily/placement budget and re-arm the 30s
-      // fullscreen pacing, or repeated early closes hand out far more
-      // fullscreen inventory than the anti-invalid-traffic caps allow.
-      //
-      // Round-25 QC (reviewer B, MINOR) — this comment used to claim the
-      // ordinary rewarded path "has always done this correctly". It had not:
-      // the same release moves that path from `earned` to `shown` too. Both
-      // were wrong, and a comment that misdescribes its own diff is worse than
-      // no comment, because the next reader trusts it.
-      if (result.shown) {
-        AdSafetyConfig.recordFullscreenAdShown();
-        AdSafetyConfig.recordPlacementAdShown(placement); // T92
-      }
-      if (result.earned) {
-        _emit(AdRewardEvent(
+    // Independent review (round 37 verification) — see showInterstitial's
+    // identical `delivered` guard above for why this must be set before
+    // `onDone` runs, not after.
+    var delivered = false;
+    try {
+      await ad.showRewardedInterstitial(onDone: (result) {
+        delivered = true;
+        // Round-23 QC (reviewer A, MAJOR) — the impression is counted from
+        // `shown`, NOT from `earned`. A user who closes the ad before the
+        // reward point still consumed a real, paid, AdMob-billed
+        // impression: it has to consume the session/hourly/daily/placement
+        // budget and re-arm the 30s fullscreen pacing, or repeated early
+        // closes hand out far more fullscreen inventory than the
+        // anti-invalid-traffic caps allow.
+        //
+        // Round-25 QC (reviewer B, MINOR) — this comment used to claim the
+        // ordinary rewarded path "has always done this correctly". It had
+        // not: the same release moves that path from `earned` to `shown`
+        // too. Both were wrong, and a comment that misdescribes its own
+        // diff is worse than no comment, because the next reader trusts it.
+        if (result.shown) {
+          AdSafetyConfig.recordFullscreenAdShown();
+          AdSafetyConfig.recordPlacementAdShown(placement); // T92
+        }
+        if (result.earned) {
+          _emit(AdRewardEvent(
+            providerTag: ad.tag,
+            placement: placement,
+            label: result.label,
+            amount: result.amount,
+          ));
+        }
+        _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+        _emit(AdShowEvent(
           providerTag: ad.tag,
+          type: AdSlotType.rewardedInterstitial,
           placement: placement,
-          label: result.label,
-          amount: result.amount,
+          // Same round-23 finding: `success` on a *show* event means the ad
+          // was displayed, not that the reward was granted. Reporting the
+          // reward here made the SDK's own analytics disagree with the
+          // impression it billed.
+          success: result.shown,
         ));
-      }
-      _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
-      _emit(AdShowEvent(
-        providerTag: ad.tag,
-        type: AdSlotType.rewardedInterstitial,
-        placement: placement,
-        // Same round-23 finding: `success` on a *show* event means the ad was
-        // displayed, not that the reward was granted. Reporting the reward here
-        // made the SDK's own analytics disagree with the impression it billed.
-        success: result.shown,
-      ));
-      onDone(result.shown, result.earned);
-      unawaited(loadRewardedInterstitialAd());
-    });
+        onDone(result.shown, result.earned);
+        unawaited(loadRewardedInterstitialAd());
+      });
+    } catch (e, st) {
+      // Round-37 audit (MAJOR) — see showInterstitial's identical fix above.
+      SafeLogger.e(_tag, 'showRewardedInterstitialAd threw: $e\n$st');
+      if (!delivered) onDone(false, false);
+    }
   }
 
   bool canShowRewardedInterstitialAd() {
@@ -6989,6 +7073,8 @@ class AdManager with WidgetsBindingObserver {
     // fullscreen flow's non-dismissable AdLoadingDialog is up would see
     // `true` and open the RI disclosure dialog on top of it.
     if (AdLoadingDialog.isShowing) return false;
+    // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
+    if (AdScreenRouteLogger.isDialogOnTop) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;
@@ -7024,6 +7110,8 @@ class AdManager with WidgetsBindingObserver {
     if (!canRequestAds) return false;
     if (ad.rewardedSlot.isShowing) return false;
     if (AdLoadingDialog.isShowing) return false;
+    // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
+    if (AdScreenRouteLogger.isDialogOnTop) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek();
     if (!s.canShow) return false;

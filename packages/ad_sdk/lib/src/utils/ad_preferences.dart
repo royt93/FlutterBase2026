@@ -94,15 +94,39 @@ class AdPreferences {
   /// the MJ9 case) instantly changes what "today" means, resetting this
   /// counter to 0 on demand, repeatedly, on the same real calendar day.
   /// UTC has no such user-facing knob.
-  static String _todayUtc() =>
-      DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  static String _todayUtc({DateTime? now}) =>
+      (now ?? DateTime.now()).toUtc().toIso8601String().substring(0, 10);
 
   static const String _keyDailyAdCount = 'ad_sdk_daily_count';
   static const String _keyDailyDate = 'ad_sdk_daily_date';
   static const String _keySuspiciousCount = 'ad_sdk_suspicious_count';
 
-  int getDailyAdCount() {
-    final today = _todayUtc();
+  // Round-37 audit MAJOR — `_todayUtc()` alone is a raw wall-clock reading,
+  // so winding the system clock back one day made `today != saved` fire in
+  // the *other* direction from what round-31's UTC fix closed, resetting
+  // the daily/per-placement counters below to 0 on demand and defeating the
+  // safety cap that protects the AdMob account from invalid-traffic flags.
+  // Mirrors `VipManager`'s clock-rollback guard
+  // (`getVipMaxObservedClockMs`/`setVipMaxObservedClockMs`): a high-water
+  // mark of the latest UTC day ever observed, so a day that looks earlier
+  // than one already recorded is never trusted. ISO-8601 `YYYY-MM-DD`
+  // strings compare lexicographically the same as chronologically, so plain
+  // `String.compareTo` is sufficient.
+  static const String _keyDailyDateHighWaterMark =
+      'ad_sdk_daily_date_high_water_mark';
+
+  String _todayUtcClamped({DateTime? now}) {
+    final real = _todayUtc(now: now);
+    final observed = _prefs?.getString(_keyDailyDateHighWaterMark);
+    if (observed == null || real.compareTo(observed) > 0) {
+      _prefs?.setString(_keyDailyDateHighWaterMark, real);
+      return real;
+    }
+    return observed;
+  }
+
+  int getDailyAdCount({DateTime? now}) {
+    final today = _todayUtcClamped(now: now);
     final saved = _prefs?.getString(_keyDailyDate) ?? '';
     if (saved != today) {
       _prefs?.setString(_keyDailyDate, today);
@@ -133,9 +157,9 @@ class AdPreferences {
   // synchronous cache mutation by a microtask broke every caller (in
   // `AdSafetyConfig`, and its tests) that reads `getDailyAdCount()`
   // synchronously right after recording a show, which is the norm here.
-  Future<void> incrementDailyAdCount() async {
-    final today = _todayUtc();
-    final current = getDailyAdCount();
+  Future<void> incrementDailyAdCount({DateTime? now}) async {
+    final today = _todayUtcClamped(now: now);
+    final current = getDailyAdCount(now: now);
     await _prefs?.setInt(_keyDailyAdCount, current + 1);
     await _prefs?.setString(_keyDailyDate, today);
   }
@@ -149,8 +173,8 @@ class AdPreferences {
   static const String _keyPlacementDailyCounts = 'ad_sdk_placement_daily_counts';
   static const String _keyPlacementDailyDate = 'ad_sdk_placement_daily_date';
 
-  Map<String, int> getPlacementDailyCounts() {
-    final today = _todayUtc();
+  Map<String, int> getPlacementDailyCounts({DateTime? now}) {
+    final today = _todayUtcClamped(now: now);
     final saved = _prefs?.getString(_keyPlacementDailyDate) ?? '';
     if (saved != today) {
       _prefs?.setString(_keyPlacementDailyDate, today);
@@ -170,9 +194,10 @@ class AdPreferences {
 
   // Round-31 audit — see the reverted write-serializer comment on
   // [incrementDailyAdCount] above; the same reasoning applies here.
-  Future<void> incrementPlacementDailyCount(String placementId) async {
-    final today = _todayUtc();
-    final counts = getPlacementDailyCounts(); // handles rollover
+  Future<void> incrementPlacementDailyCount(String placementId,
+      {DateTime? now}) async {
+    final today = _todayUtcClamped(now: now);
+    final counts = getPlacementDailyCounts(now: now); // handles rollover
     counts[placementId] = (counts[placementId] ?? 0) + 1;
     await _prefs?.setString(_keyPlacementDailyCounts, jsonEncode(counts));
     await _prefs?.setString(_keyPlacementDailyDate, today);

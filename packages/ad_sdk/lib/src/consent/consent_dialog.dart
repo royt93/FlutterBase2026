@@ -12,6 +12,15 @@ const _kDialogRadius = 24.0;
 const _kAccent = Color(0xFF6366F1); // indigo-500
 const _kRejectFg = Color(0xFF64748B); // slate-500
 
+/// Round-37 audit (MAJOR) — the minimum fill opacity `_RejectButton` must
+/// use to read as an equally-solid, equally-prominent choice next to
+/// `_AllowButton`'s opaque gradient (EDPB Guidelines 03/2022 "equal
+/// prominence"). Named so the regression test can assert against the real
+/// requirement instead of just "a color is set" — a value like `0.02` would
+/// pass that weaker check while still looking like an outline-only ghost
+/// button.
+const _kRejectMinFillAlpha = 0.18;
+
 /// Show the binary consent dialog (Allow / Reject).
 ///
 /// A custom Material [Dialog] (not a stock CupertinoAlertDialog) — gives us
@@ -348,12 +357,26 @@ class _RejectButton extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: onTap,
+          // Round-37 audit (MAJOR) — this used to be outline-only (a thin
+          // border, no fill, lighter font weight/size than _AllowButton's
+          // solid gradient). An outline-only "no" next to a solid filled
+          // "yes" reads as the secondary/discouraged choice, which is
+          // exactly the asymmetry EDPB Guidelines 03/2022 on deceptive
+          // design ("equal prominence" between accept and reject) flags.
+          // Independent review (round 37 verification) — the first version
+          // of this fix used alpha 0.12, which is barely visible and did
+          // not actually deliver on "equal prominence" despite the comment
+          // (and the test guarding it) claiming so. `_kRejectMinFillAlpha`
+          // names the real minimum this fill must clear, so a future
+          // regression back to a near-invisible tint fails loudly instead
+          // of quietly passing a test that only checked `color != null`.
           child: Container(
             height: 50,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
+              color: _kRejectFg.withValues(alpha: _kRejectMinFillAlpha),
               border: Border.all(
-                color: _kRejectFg.withValues(alpha: 0.25),
+                color: _kRejectFg.withValues(alpha: 0.35),
                 width: 1.2,
               ),
             ),
@@ -366,8 +389,9 @@ class _RejectButton extends StatelessWidget {
                   maxLines: 1,
                   style: const TextStyle(
                     color: _kRejectFg,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    letterSpacing: 0.2,
                   ),
                 ),
               ),

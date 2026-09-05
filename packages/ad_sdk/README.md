@@ -68,7 +68,13 @@ be clear-eyed about the gap before depending on it for revenue:
   data", and only when backup is enabled and the same Google account is used.
   Decide with that in mind before handing out keys at scale — and prefer AVP2
   keys with a short `--valid-days`, since a key that has expired cannot be
-  reused no matter how the device is wiped.
+  reused no matter how the device is wiped. **This is a real, unfixed
+  limitation of the "no backend" design (round-37 audit), not a bug with a
+  pending fix** — do not sell high-value/long-duration VIP tiers on this
+  mechanism alone; pair it with Google Play Billing (or another
+  server-verified purchase flow) for anything where an Android user
+  repeatedly wiping app data to keep VIP for free is a real revenue risk you
+  care about.
 - **A leaked key is a leaked key — mitigated, not eliminated, by the
   revocation list (T95).** Signature verification is offline and sound — only
   the public key ships, so nobody can forge NEW keys by decompiling the app.
@@ -102,6 +108,16 @@ be clear-eyed about the gap before depending on it for revenue:
   buttons, or other tappable controls, and don't show one on a screen the
   user is continuously interacting with (accidental clicks are treated as
   invalid traffic and can risk your AdMob account).
+- **`BannerAdWidget`/`MrecAdWidget` inside an `IndexedStack` bottom-nav tab
+  keeps auto-refreshing while that tab is hidden (round-37 audit).** They
+  pause/resume via `RouteAware` and `TickerMode`, but switching the `index`
+  of an `IndexedStack` does neither — no `Route` push/pop happens, and the
+  default `TickerMode` doesn't change either, so a banner on an inactive tab
+  keeps loading/serving ads the user cannot see, which risks Google's
+  ["don't refresh ads while hidden/off-screen"](https://support.google.com/admob/answer/6128877)
+  rule. **Fix:** wrap each tab's content in `Visibility(maintainState: true)`
+  (its `TickerMode` correctly follows visibility) instead of relying on
+  `IndexedStack` alone, or gate the tab's own visibility state manually.
 - **The real ad show/dismiss lifecycle is only partially automatable.**
   Real AppLovin MAX test-ad creatives expose no accessible dismiss element,
   so 3 of the ~15 integration_test scenarios (app-open/interstitial/rewarded
@@ -1063,6 +1079,33 @@ Key format: `AVP1.<b64url(payload)>.<b64url(sig)>`, `payload = "<seconds>|<keyId
 The VIP duration is read from the key; `keyId` drives per-device one-time-use.
 Use `verifySignedVipKey(code, publicKeyBase64: ...)` directly if you only need to
 inspect a key without redeeming.
+
+### Pre-built redeem screen (`VipRedeemScreen`)
+
+Round-37 audit MAJOR (doc drift) — the raw `redeemSignedKey`/`redeemVip` calls
+above are the low-level API. Don't hand-roll a redeem UI around them: the SDK
+ships a complete, ready-to-use screen (status, redeem field, watch-ad-to-extend,
+revoke, Do Not Sell toggle) that the example app itself uses as-is — "the
+experience is identical everywhere" is the whole point of sharing it:
+
+```dart
+Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (_) => VipRedeemScreen(
+      publicKeyBase64: kVipPublicKeyBase64, // your public key
+      onPrivacyPolicyTap: () => launchYourPrivacyPolicyUrl(),
+      onPrivacyOptionsTap: () => AdManager().showPrivacyOptions(),
+    ),
+  ),
+);
+```
+
+Only `publicKeyBase64` is required. Everything else is optional: `strings:` for
+localization (`VipRedeemStrings`), `onDoNotSellChanged`/`doNotSellValue` to wire
+up the CCPA toggle, `rewardWatchAdDuration` for the watch-ad-to-extend grant
+length. See `example/lib/main.dart`'s `VipDemoPage` for the full reference
+usage, including the demo (never-ship) keypair.
 
 ### Conflict policy: latest-expiry-wins vs. global stacking
 

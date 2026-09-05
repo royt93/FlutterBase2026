@@ -183,5 +183,24 @@ void main() {
       const b = Backoff(baseMs: 1000, maxMs: 5000);
       expect(b.compute(10), 5000);
     });
+
+    // Round-37 audit MAJOR — `math.pow(2, n)` on two `int` arguments silently
+    // wraps 64-bit two's-complement on overflow instead of throwing; with the
+    // default baseMs (15s), `baseMs * 2^(n-1)` overflows int64 once
+    // n-1 >= 50, i.e. n >= 51. `.clamp(baseMs, maxMs)` on the resulting
+    // negative number then returns the *lower* bound (baseMs) instead of
+    // holding the maxMs cap — a slot failing for ~20h straight would
+    // suddenly start retrying every 15s instead of every 30min, right when
+    // the network/ad-network is having sustained trouble.
+    test(
+        'round-37 audit (MAJOR): stays at maxMs (does not collapse to '
+        'baseMs) past 51 consecutive failures — default base/cap', () {
+      const b = Backoff(); // baseMs: 15s, maxMs: 30min
+      for (final failures in [51, 64, 100, 1000]) {
+        expect(b.compute(failures), b.maxMs,
+            reason: 'consecutiveFailures=$failures must still be clamped to '
+                'maxMs, not collapse to baseMs via int overflow');
+      }
+    });
   });
 }

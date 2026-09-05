@@ -136,4 +136,57 @@ void main() {
       expect(prefs.getPlacementDailyCounts()['rewarded_home'], 2);
     });
   });
+
+  group('round-37 audit (MAJOR): daily/placement counters survive a '
+      'backwards system-clock change', () {
+    // VIP/trial already has a high-water-mark guard against the device
+    // clock being wound back (`getVipMaxObservedClockMs`); the daily and
+    // per-placement ad-count "which UTC day is it" boundary did not, so
+    // winding the clock back one day reset the safety cap on demand. The
+    // `now` parameter (mirroring `AdMobAdapter.isAdFresh`'s testable clock
+    // seam) lets the test move "today" without touching the real system
+    // clock.
+    test('getDailyAdCount does not reset when the clock moves backward',
+        () async {
+      final day1 = DateTime.utc(2026, 9, 5);
+      final day0 = DateTime.utc(2026, 9, 4); // "yesterday" relative to day1
+
+      for (var i = 0; i < 5; i++) {
+        await prefs.incrementDailyAdCount(now: day1);
+      }
+      expect(prefs.getDailyAdCount(now: day1), 5);
+
+      expect(prefs.getDailyAdCount(now: day0), 5,
+          reason: 'the clock reporting an earlier day than one already '
+              'observed must not reset the counter');
+    });
+
+    test(
+        'getPlacementDailyCounts does not reset when the clock moves '
+        'backward', () async {
+      final day1 = DateTime.utc(2026, 9, 5);
+      final day0 = DateTime.utc(2026, 9, 4);
+
+      await prefs.incrementPlacementDailyCount('rewarded_home', now: day1);
+      await prefs.incrementPlacementDailyCount('rewarded_home', now: day1);
+      expect(prefs.getPlacementDailyCounts(now: day1)['rewarded_home'], 2);
+
+      expect(prefs.getPlacementDailyCounts(now: day0)['rewarded_home'], 2,
+          reason: 'the clock reporting an earlier day than one already '
+              'observed must not reset the counter');
+    });
+
+    test('the clock legitimately advancing still rolls the counter over',
+        () async {
+      final day1 = DateTime.utc(2026, 9, 5);
+      final day2 = DateTime.utc(2026, 9, 6);
+
+      await prefs.incrementDailyAdCount(now: day1);
+      expect(prefs.getDailyAdCount(now: day1), 1);
+
+      expect(prefs.getDailyAdCount(now: day2), 0,
+          reason: 'a real, forward day change must still roll the '
+              'counter over to 0');
+    });
+  });
 }

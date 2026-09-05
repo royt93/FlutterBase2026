@@ -822,7 +822,32 @@ abstract final class AdKey {
 
 **Usage:** `AdManager().initialize(config: AdConfig(provider: AdProvider.appLovin, appLovin: AdKey.appLovin, admob: AdKey.adMob, ...))`.
 
-### 10.3 — UI structure (13 components required — Q19A + Q33A)
+### 10.2b — Or skip 10.3 entirely: wrap the SDK's `VipRedeemScreen` (round-37 audit — this note was a dangling forward-reference before, fixed here)
+
+If the project has no existing VIP screen to reuse (Step 2's audit found none), **prefer this over building
+the 13-component screen in Step 10.3 from scratch** — the SDK ships a complete, ready-to-use screen (status
+header, redeem field, watch-ad-to-extend, revoke, Do Not Sell toggle) that its own example app uses verbatim:
+
+```dart
+Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (_) => VipRedeemScreen(
+      publicKeyBase64: AdKey.vipPublicKeyBase64, // your public key, not the private one
+      onPrivacyPolicyTap: () => launchUrl(Uri.parse(AdKey.privacyPolicyUrl)),
+      onPrivacyOptionsTap: () => AdManager().showPrivacyOptions(),
+    ),
+  ),
+);
+```
+
+Only `publicKeyBase64` is required; `strings:` (a `VipRedeemStrings`) covers localisation instead of the
+`.tr` keys Step 10.3 assumes. Only fall back to building the 13-component screen manually (Step 10.3) if the
+project needs a bespoke design `VipRedeemScreen`'s stock layout can't match, or is enhancing an existing
+screen per Step 2. See `packages/ad_sdk/README.md`'s "Pre-built redeem screen (`VipRedeemScreen`)" section and
+`example/lib/main.dart`'s `VipDemoPage` for the full reference usage.
+
+### 10.3 — UI structure (13 components required — Q19A + Q33A, only if not using `VipRedeemScreen` above)
 
 | # | Component | Detail (Flutter idiom, no `setState`/`!`/`late`) |
 |---|---|---|

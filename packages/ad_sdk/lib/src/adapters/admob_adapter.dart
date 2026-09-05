@@ -876,8 +876,14 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       return;
     }
 
-    // Fresh ad already in slot? Reuse.
-    if (_appOpenAd != null) {
+    // Fresh ad already in slot? Reuse. Round-37 audit BLOCKER — skip this
+    // whole reuse/expire-and-dispose decision while the ad is on screen:
+    // disposing it here (because the cache looks stale) would null out the
+    // native listener before the real dismiss callback can arrive, wedging
+    // the slot in `showing` forever (see AdSlot.beginShow's doc comment —
+    // nothing else ever force-releases that state). `beginLoad()` below
+    // already refuses while `isShowing`, so falling through is safe.
+    if (_appOpenAd != null && !appOpenSlot.isShowing) {
       if (isAdFresh(appOpenSlot.lastLoadedAt, _appOpenExpiryHours)) {
         SafeLogger.d(_logTag, 'loadAppOpen $tag ⏭️ already fresh, reuse');
         onAdLoaded?.call(true);
@@ -1218,7 +1224,10 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     final cfg = _admob;
     if (cfg == null) return;
     // Reuse only if still fresh (≤1h); a stale cached ad fails on show().
-    if (_interstitialAd != null) {
+    // Round-37 audit BLOCKER — never touch it while it is on screen (see
+    // loadAppOpen's comment above for why); beginLoad() below already
+    // refuses while isShowing.
+    if (_interstitialAd != null && !interstitialSlot.isShowing) {
       if (isAdFresh(interstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
         return; // fresh — keep it
       }
@@ -1458,7 +1467,10 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     final cfg = _admob;
     if (cfg == null) return;
     // Reuse only if still fresh (≤1h); a stale cached ad fails on show().
-    if (_rewardedAd != null) {
+    // Round-37 audit BLOCKER — never touch it while it is on screen (see
+    // loadAppOpen's comment above for why); beginLoad() below already
+    // refuses while isShowing.
+    if (_rewardedAd != null && !rewardedSlot.isShowing) {
       if (isAdFresh(rewardedSlot.lastLoadedAt, _fullscreenExpiryHours)) {
         return; // fresh — keep it
       }
@@ -1719,7 +1731,11 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   Future<void> loadRewardedInterstitial() async {
     final cfg = _admob;
     if (cfg == null) return;
-    if (_rewardedInterstitialAd != null) {
+    // Round-37 audit BLOCKER — never touch it while it is on screen (see
+    // loadAppOpen's comment above for why); beginLoad() below already
+    // refuses while isShowing.
+    if (_rewardedInterstitialAd != null &&
+        !rewardedInterstitialSlot.isShowing) {
       if (isAdFresh(
           rewardedInterstitialSlot.lastLoadedAt, _fullscreenExpiryHours)) {
         return; // fresh — keep it

@@ -264,5 +264,17 @@ void main() {
             'showAppOpenAd() must not run afterward on whatever screen '
             'comes next');
     expect(readyCount, 1, reason: 'onReady must still only fire once');
+
+    // Round-37 audit (MAJOR claimed, verified FALSE POSITIVE) — an external
+    // reviewer flagged this exact race as leaving the non-dismissable buffer
+    // dialog stranded forever. It does not: `showAdBuffer`'s own internal
+    // `Future.delayed(bufferMs)` timer dismisses it on its own schedule,
+    // independent of `_navigated`/hard-cap state (see its source — the pop
+    // is keyed by its own generation token, not by this controller). Kept as
+    // a regression guard for that actually-correct property.
+    expect(AdLoadingDialog.isShowing, isFalse,
+        reason: 'the buffer dialog must have self-dismissed via its own '
+            'timer by the time this pump completes, regardless of the hard '
+            'cap racing ahead of it');
   });
 }

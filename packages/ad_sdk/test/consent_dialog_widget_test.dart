@@ -107,4 +107,36 @@ void main() {
         reason: 'Reject must get the same Expanded flex as Allow, not half '
             'its width');
   });
+
+  testWidgets(
+      'round-37 audit (MAJOR): Reject gets equal visual prominence to '
+      'Allow, not just equal width (EDPB Guidelines 03/2022 "equal '
+      'prominence" between accept/reject)', (tester) async {
+    await pumpDialog(tester);
+
+    final allowText = tester.widget<Text>(find.text('Allow personalized ads'));
+    final rejectText = tester.widget<Text>(find.text('No thanks'));
+    expect(rejectText.style?.fontWeight, allowText.style?.fontWeight,
+        reason: 'Reject reading as a lighter font weight than Allow makes '
+            'it look like the secondary/less-important choice');
+    expect(rejectText.style?.fontSize, allowText.style?.fontSize);
+
+    final rejectContainer = tester.widget<Container>(find
+        .ancestor(
+            of: find.text('No thanks'), matching: find.byType(Container))
+        .first);
+    final rejectDecoration = rejectContainer.decoration as BoxDecoration?;
+    // Independent review (round 37 verification) — `color != null` alone
+    // would pass even for a near-invisible alpha like 0.02, which is
+    // exactly the kind of ghost-button fill this fix exists to replace.
+    // Assert a real minimum opacity so a regression back to that fails
+    // loudly.
+    expect(rejectDecoration?.color?.a, isNotNull);
+    expect(rejectDecoration!.color!.a, greaterThanOrEqualTo(0.15),
+        reason: 'Reject must have a clearly visible fill like Allow\'s '
+            'gradient, not just a thin outline or a barely-there tint — an '
+            'outline-only (or near-invisible-fill) "no" next to a solid '
+            'filled "yes" is exactly the asymmetry EDPB\'s deceptive-design '
+            'guidance calls out');
+  });
 }

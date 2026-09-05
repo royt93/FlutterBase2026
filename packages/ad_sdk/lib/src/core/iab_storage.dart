@@ -212,19 +212,31 @@ class IabStorage {
   /// Round-33 audit (R33-02) closed the gap m10 deliberately left open: a CMP
   /// that writes *only* the newer GPP US National section (no legacy
   /// `IABUSPrivacy_String` at all, which some new-state CMPs do) used to read
-  /// as "no signal" here. [_gppUsNationalOptedOut] is consulted only when the
-  /// legacy string is entirely absent — this SDK still does not attempt to
-  /// decode the GPP header's own section-id list or any state-specific
-  /// section beyond US National (usnat, section id 7); mis-parsing a privacy
-  /// signal is worse than not reading one, so the scope stays narrow and
-  /// exact rather than broad and guessed.
+  /// as "no signal" here. [_gppUsNationalOptedOut] and [_gppCaliforniaOptedOut]
+  /// are consulted (in that order) only when the legacy string is entirely
+  /// absent.
+  ///
+  /// Round-37 audit MAJOR — added [_gppCaliforniaOptedOut] (usca, section 8),
+  /// [_gppUsStatesOptedOut] (all 19 remaining US state sections, 9-27), and
+  /// `TargetedAdvertisingOptOut` within US National itself (see that
+  /// method). This SDK does not decode the GPP header's own section-id
+  /// list — it directly probes every known US privacy section's own
+  /// isolated storage key instead (the CMP API storage convention every
+  /// section is read through elsewhere in this class) and returns the
+  /// first one with a usable signal, checked in this priority order:
+  /// legacy `IABUSPrivacy_String` → US National → California → every other
+  /// US state, section-ID ascending.
   static Future<bool?> usPrivacyOptedOut() async {
     final usp = await read(keyUsPrivacy);
     if (usp != null && usp.length >= 3) {
       final flag = usp[2].toUpperCase();
       if (flag == 'Y' || flag == 'N') return flag == 'Y';
     }
-    return _gppUsNationalOptedOut();
+    final usNational = await _gppUsNationalOptedOut();
+    if (usNational != null) return usNational;
+    final california = await _gppCaliforniaOptedOut();
+    if (california != null) return california;
+    return _gppUsStatesOptedOut();
   }
 
   /// Reads the GPP US National (MSPA) Core Segment's `SaleOptOut` /
@@ -244,13 +256,142 @@ class IabStorage {
       bits.skip(6 + 2 * 6); // Version + 6 Notice fields
       final saleOptOut = bits.readInt(2);
       final sharingOptOut = bits.readInt(2);
-      if (saleOptOut == 1 || sharingOptOut == 1) return true;
-      if (saleOptOut == 2 || sharingOptOut == 2) return false;
-      return null; // both Not Applicable — no usable signal
+      // Round-37 audit MAJOR — verified against the IAB Tech Lab's MSPA US
+      // National Technical Specification's Core Segment table
+      // (TargetedAdvertisingOptOut is Int(2), immediately after
+      // SharingOptOut, same 0=N/A 1=Opted Out 2=Did Not Opt Out encoding):
+      // a valid opt-out expressed ONLY in this field (a CMP can set
+      // Sale/Sharing to "Not Applicable" while still opting the user out of
+      // targeted advertising specifically) used to be invisible here.
+      final targetedAdvertisingOptOut = bits.readInt(2);
+      if (saleOptOut == 1 ||
+          sharingOptOut == 1 ||
+          targetedAdvertisingOptOut == 1) {
+        return true;
+      }
+      if (saleOptOut == 2 ||
+          sharingOptOut == 2 ||
+          targetedAdvertisingOptOut == 2) {
+        return false;
+      }
+      return null; // all three Not Applicable — no usable signal
     } on FormatException catch (e) {
       SafeLogger.d('IabStorage', () => 'GPP USNAT parse failed: $e');
       return null;
     }
+  }
+
+  /// The isolated GPP California section string — Section ID 8. Same CMP
+  /// storage-spec convention as [keyGppUsNationalString].
+  static const String keyGppCaliforniaString = 'IABGPP_8_String';
+
+  /// Reads the GPP California section's `SaleOptOut`/`SharingOptOut` fields.
+  ///
+  /// Round-37 audit MAJOR — a CMP that implements ONLY the California
+  /// section (no US National/legacy USPrivacy string at all) used to produce
+  /// no signal here. Deliberately its own decoder, not a reuse of
+  /// [_gppUsNationalOptedOut]'s bit offsets: verified against the IAB Tech
+  /// Lab's "GPP Extension: California Privacy" Technical Specification, and
+  /// California's Core Segment is NOT the same layout as US National — it
+  /// has 3 Notice fields (SaleOptOutNotice, SharingOptOutNotice,
+  /// SensitiveDataLimitUseNotice), not 6, and no
+  /// `TargetedAdvertisingOptOut` field at all (CCPA/CPRA folds that concept
+  /// into "Sharing"). Reusing USNAT's `skip(6 + 2*6)` here would silently
+  /// read the wrong bits — exactly the "mis-parsing is worse than not
+  /// reading" failure this class's own design already guards against
+  /// elsewhere.
+  static Future<bool?> _gppCaliforniaOptedOut() async {
+    final section = await read(keyGppCaliforniaString);
+    if (section == null) return null;
+    try {
+      final bits = _GppBitReader(section);
+      bits.skip(6 + 2 * 3); // Version + 3 Notice fields
+      final saleOptOut = bits.readInt(2);
+      final sharingOptOut = bits.readInt(2);
+      if (saleOptOut == 1 || sharingOptOut == 1) return true;
+      if (saleOptOut == 2 || sharingOptOut == 2) return false;
+      return null;
+    } on FormatException catch (e) {
+      SafeLogger.d('IabStorage', () => 'GPP California parse failed: $e');
+      return null;
+    }
+  }
+
+  /// Round-37 audit MAJOR — the remaining 19 US state GPP sections this SDK
+  /// did not read at all: Virginia(9)/Colorado(10)/Utah(11)/Connecticut(12)/
+  /// Florida(13)/Montana(14)/Oregon(15)/Texas(16)/Delaware(17)/Iowa(18)/
+  /// Nebraska(19)/New Hampshire(20)/New Jersey(21)/Tennessee(22)/
+  /// Minnesota(23)/Maryland(24)/Indiana(25)/Kentucky(26)/Rhode Island(27).
+  ///
+  /// Unlike US National/California, none of these 19 has a `SharingOptOut`
+  /// value field — every one of them encodes exactly `SaleOptOut(2)`
+  /// immediately followed by `TargetedAdvertisingOptOut(2)`, so a single
+  /// generic decoder covers all of them; only the skip-before-`SaleOptOut`
+  /// differs per state.
+  ///
+  /// The skip amounts below are NOT derived from each state's published
+  /// Technical Specification prose alone — verified empirically instead, by
+  /// instantiating the IAB Tech Lab's own official reference encoder
+  /// (`@iabgpp/cmpapi` npm package) for every one of these 19 states and
+  /// reading its internal field list + `bitStringLength` in order. That
+  /// verification caught a real discrepancy: Maryland/Indiana/Kentucky/Rhode
+  /// Island's reference implementation uses a
+  /// `MspaVersion/MspaCoveredTransaction/MspaMode`-prefixed segment layout,
+  /// NOT the `SectionID(6)+Version(6)+...` layout their own spec's field
+  /// table literally lists — reading the prose alone here would have
+  /// silently decoded the wrong bits, exactly the "mis-parsing is worse
+  /// than not reading" failure this class's design already guards against
+  /// elsewhere.
+  static const Map<String, int> _usStateSkipBits = {
+    'IABGPP_9_String': 12, // Virginia
+    'IABGPP_10_String': 12, // Colorado
+    'IABGPP_11_String': 14, // Utah
+    'IABGPP_12_String': 12, // Connecticut
+    'IABGPP_13_String': 12, // Florida
+    'IABGPP_14_String': 12, // Montana
+    'IABGPP_15_String': 12, // Oregon
+    'IABGPP_16_String': 12, // Texas
+    'IABGPP_17_String': 12, // Delaware
+    'IABGPP_18_String': 14, // Iowa
+    'IABGPP_19_String': 12, // Nebraska
+    'IABGPP_20_String': 12, // New Hampshire
+    'IABGPP_21_String': 12, // New Jersey
+    'IABGPP_22_String': 12, // Tennessee
+    'IABGPP_23_String': 12, // Minnesota
+    'IABGPP_24_String': 16, // Maryland
+    'IABGPP_25_String': 16, // Indiana
+    'IABGPP_26_String': 16, // Kentucky
+    'IABGPP_27_String': 16, // Rhode Island
+  };
+
+  static Future<bool?> _gppUsStateSaleTargetedOptedOut(
+      String key, int skipBits) async {
+    final section = await read(key);
+    if (section == null) return null;
+    try {
+      final bits = _GppBitReader(section);
+      bits.skip(skipBits);
+      final saleOptOut = bits.readInt(2);
+      final targetedAdvertisingOptOut = bits.readInt(2);
+      if (saleOptOut == 1 || targetedAdvertisingOptOut == 1) return true;
+      if (saleOptOut == 2 || targetedAdvertisingOptOut == 2) return false;
+      return null;
+    } on FormatException catch (e) {
+      SafeLogger.d('IabStorage', () => 'GPP $key parse failed: $e');
+      return null;
+    }
+  }
+
+  /// Checks every US state GPP section in [_usStateSkipBits] (section-ID
+  /// order) and returns the first non-null signal, or `null` if none of
+  /// them is present/readable.
+  static Future<bool?> _gppUsStatesOptedOut() async {
+    for (final entry in _usStateSkipBits.entries) {
+      final result =
+          await _gppUsStateSaleTargetedOptedOut(entry.key, entry.value);
+      if (result != null) return result;
+    }
+    return null;
   }
 
   /// Reads one IAB integer flag, or `null` if absent/unreadable/not an int.

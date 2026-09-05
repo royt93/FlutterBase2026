@@ -174,14 +174,20 @@ void main() {
     final adapter = _InlineAwareAdapter()..throwOnShow = true;
     AdManager().debugSetAdapter(adapter);
 
-    await expectLater(
-      AdManager().showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {}),
-      throwsA(isA<StateError>()),
-    );
+    // Round-37 audit (MAJOR) — this used to rethrow out of showAppOpenAd(),
+    // leaving the caller (typically the splash screen) with an unhandled
+    // exception and no dismiss callback. It now resolves cleanly and calls
+    // onAdDismiss(false), matching showRewardedAd's round-29 fix — but the
+    // inline-surface restore this test exists for must not have depended on
+    // that dismiss callback either way.
+    bool? dismissed;
+    await AdManager()
+        .showAppOpenAd(bypassSafety: true, onAdDismiss: (d) => dismissed = d);
 
+    expect(dismissed, isFalse);
     expect(adapter.bannerL.visible.value, isTrue,
-        reason: 'no dismiss callback is coming after a throw, so the restore '
-            'cannot live only in that callback');
+        reason: 'the restore must not live only in the dismiss callback — '
+            'it has to run from the catch block too');
   });
 
   test('CONTROL — a surface hidden for another reason stays hidden', () async {

@@ -136,10 +136,19 @@ class _FakeAdapter implements AdProviderAdapter {
   @override
   Future<void> loadInterstitial() async => loadInterstitialCalls++;
 
+  /// Round-37 audit (MAJOR) — when true, [showInterstitial] throws instead
+  /// of calling `onDone`, simulating a native platform-channel exception
+  /// (the same class of failure `throwOnShow` already covers for
+  /// [showRewarded]).
+  bool throwOnShowInterstitial = false;
+
   @override
   Future<void> showInterstitial(
       {required void Function(bool shown) onDone}) async {
     showInterstitialCalls++;
+    if (throwOnShowInterstitial) {
+      throw StateError('fake native platform-channel throw');
+    }
     onDone(true);
   }
 
@@ -194,11 +203,17 @@ class _FakeAdapter implements AdProviderAdapter {
     }
   }
 
+  /// Round-37 audit (MAJOR) — see [throwOnShowInterstitial].
+  bool throwOnShowRewardedInterstitial = false;
+
   @override
   Future<void> showRewardedInterstitial({
     required void Function(RewardResult result) onDone,
   }) async {
     showRewardedInterstitialCalls++;
+    if (throwOnShowRewardedInterstitial) {
+      throw StateError('fake native platform-channel throw');
+    }
     rewardedInterstitialSlot.beginShow();
     rewardedInterstitialSlot.markDismissed();
     onDone(nextRewardedInterstitialEarned
@@ -222,10 +237,16 @@ class _FakeAdapter implements AdProviderAdapter {
     onAdLoaded?.call(appOpenLoadMarksReady);
   }
 
+  /// Round-37 audit (MAJOR) — see [throwOnShowInterstitial].
+  bool throwOnShowAppOpen = false;
+
   @override
   Future<void> showAppOpen(
       {required void Function(bool dismissed) onDismiss}) async {
     showAppOpenCalls++;
+    if (throwOnShowAppOpen) {
+      throw StateError('fake native platform-channel throw');
+    }
     appOpenSlot.beginShow();
     appOpenSlot.markDismissed();
     onDismiss(true);
@@ -1144,6 +1165,92 @@ void main() {
               'now would stack a second dialog on top of it');
     });
 
+    // Round-37 audit (MAJOR) — the round-32 fix above closed the gap for
+    // `AdLoadingDialog.isShowing` but `_fullscreenBusyReason` (used by the
+    // real show* paths) also treats `AdScreenRouteLogger.isDialogOnTop` as
+    // busy, and none of the three canShow* peeks checked it. A double-tap on
+    // a rewarded/rewarded-interstitial button opens the SDK's own disclosure
+    // dialog (a real PopupRoute) before the loading buffer exists, so the
+    // peek used for the *second* tap's pre-check saw `true` and let a second
+    // disclosure dialog stack on top of the first — one of the two flows
+    // then failed silently later at the real `_fullscreenBusyReason` gate.
+    group('round-37 audit (MAJOR): canShow* peeks also respect '
+        'isDialogOnTop, not just AdLoadingDialog', () {
+      setUp(() async {
+        SharedPreferences.setMockInitialValues({});
+        final prefs = await AdPreferences.getInstance();
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugVipManager = _FakeVip(false);
+      });
+
+      tearDown(AdScreenRouteLogger.resetState);
+
+      test('canShowInterstitial() is false while a dialog/popup is on top',
+          () {
+        adapter.interstitialSlot.beginLoad();
+        adapter.interstitialSlot.markReady();
+        expect(AdManager().canShowInterstitial(), isTrue,
+            reason: 'sanity check: a freshly loaded ad is showable');
+
+        final route = _FakePopupRoute();
+        AdScreenRouteLogger().didPush(route, null);
+
+        expect(AdManager().canShowInterstitial(), isFalse,
+            reason: 'a dialog/popup (e.g. the reward disclosure from '
+                'another in-flight tap) is already on screen — the show '
+                'path would refuse via _fullscreenBusyReason anyway');
+
+        // Independent review (round 37 verification) — the on-device
+        // integration test for this only proves isDialogOnTop itself
+        // clears on a real pop (ad-readiness on a real device isn't
+        // deterministic); this proves the full canShow* recovery with a
+        // ready ad under full control.
+        AdScreenRouteLogger().didPop(route, null);
+        expect(AdManager().canShowInterstitial(), isTrue,
+            reason: 'once the popup is gone, the gate must open back up '
+                'again, not stay stuck closed');
+      });
+
+      test('canShowRewardedAd() is false while a dialog/popup is on top', () {
+        adapter.rewardedSlot.beginLoad();
+        adapter.rewardedSlot.markReady();
+        expect(AdManager().canShowRewardedAd(), isTrue,
+            reason: 'sanity check: a freshly loaded ad is showable');
+
+        final route = _FakePopupRoute();
+        AdScreenRouteLogger().didPush(route, null);
+
+        expect(AdManager().canShowRewardedAd(), isFalse,
+            reason: 'a dialog/popup is already on screen');
+
+        AdScreenRouteLogger().didPop(route, null);
+        expect(AdManager().canShowRewardedAd(), isTrue,
+            reason: 'once the popup is gone, the gate must open back up '
+                'again, not stay stuck closed');
+      });
+
+      test(
+          'canShowRewardedInterstitialAd() is false while a dialog/popup is '
+          'on top', () {
+        adapter.rewardedInterstitialSlot.beginLoad();
+        adapter.rewardedInterstitialSlot.markReady();
+        expect(AdManager().canShowRewardedInterstitialAd(), isTrue,
+            reason: 'sanity check: a freshly loaded ad is showable');
+
+        final route = _FakePopupRoute();
+        AdScreenRouteLogger().didPush(route, null);
+
+        expect(AdManager().canShowRewardedInterstitialAd(), isFalse,
+            reason: 'a dialog/popup is already on screen');
+
+        AdScreenRouteLogger().didPop(route, null);
+        expect(AdManager().canShowRewardedInterstitialAd(), isTrue,
+            reason: 'once the popup is gone, the gate must open back up '
+                'again, not stay stuck closed');
+      });
+    });
+
     test(
         'VIP active → showAppOpenAd is skipped even with bypassSafety '
         '(never stacks on top of the no-ads state)', () async {
@@ -1334,6 +1441,165 @@ void main() {
       expect(dismissed, isFalse);
       expect(adapter.showAppOpenCalls, 0,
           reason: 'must consult the shared mutex, not just its own slot');
+    });
+  });
+
+  group(
+      'round-37 audit (MAJOR): an adapter throw during show*() must still '
+      'resolve the host callback, matching showRewardedAd\'s round-29 fix',
+      () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      // AdPreferences.getInstance() caches its singleton across the whole
+      // test file run — without this, the daily-ad-count this group's
+      // several successful show* calls record leaks into later, unrelated
+      // tests (e.g. T76's load-watchdog group started failing with "daily
+      // cap reached" once these tests were added).
+      AdPreferences.resetForTest();
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugVipManager = _FakeVip(false);
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugVipManager = null;
+    });
+
+    test('showInterstitial() throwing still calls onDoneFlow(false)',
+        () async {
+      adapter.interstitialSlot.beginLoad();
+      adapter.interstitialSlot.markReady();
+      adapter.throwOnShowInterstitial = true;
+
+      bool? flow;
+      await AdManager().showInterstitial(onDoneFlow: (v) => flow = v);
+
+      expect(flow, isFalse,
+          reason: 'the throw must resolve as a clean miss, not leave the '
+              'host callback uncalled forever');
+    });
+
+    // Independent review (round 37 verification pass, MAJOR, confirmed via
+    // an empirical probe before this fix existed) — the try/catch above
+    // wraps the ENTIRE `await ad.show*(onDone: callback)` expression, so if
+    // the real callback already ran and delivered a result to the host, but
+    // something inside it (or after it, in the same lambda) then throws,
+    // the outer catch used to call the host callback a SECOND time with a
+    // contradictory result. Confirmed empirically: a host `onDoneFlow` that
+    // throws on its first call was invoked twice (callCount reached 2)
+    // before this fix.
+    test(
+        'showInterstitial() does NOT double-invoke onDoneFlow when the host '
+        'callback itself throws after being delivered', () async {
+      adapter.interstitialSlot.beginLoad();
+      adapter.interstitialSlot.markReady();
+
+      var callCount = 0;
+      await AdManager().showInterstitial(onDoneFlow: (v) {
+        callCount++;
+        throw StateError('host callback throws after being delivered');
+      });
+
+      expect(callCount, 1,
+          reason: 'the host callback must be delivered exactly once, even '
+              'if it throws — a second, contradictory call is worse than '
+              'letting the host\'s own exception surface');
+    });
+
+    test(
+        'showRewardedInterstitialAd() throwing still calls onDone(false, '
+        'false)', () async {
+      adapter.rewardedInterstitialSlot.beginLoad();
+      adapter.rewardedInterstitialSlot.markReady();
+      adapter.throwOnShowRewardedInterstitial = true;
+
+      bool? shown;
+      bool? earned;
+      await AdManager().showRewardedInterstitialAd(onDone: (s, e) {
+        shown = s;
+        earned = e;
+      });
+
+      expect(shown, isFalse);
+      expect(earned, isFalse);
+    });
+
+    test(
+        'showAppOpenAd() throwing calls onAdDismiss(false) instead of '
+        'rethrowing', () async {
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+      adapter.throwOnShowAppOpen = true;
+
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+
+      expect(dismissed, isFalse,
+          reason: 'a rethrow here leaves whoever awaited this call (e.g. '
+              'the splash screen) with an unhandled exception AND a '
+              'callback that never fires');
+    });
+
+    test(
+        'showRewardedInterstitialAd() does NOT double-invoke onDone when '
+        'the host callback itself throws after being delivered', () async {
+      adapter.rewardedInterstitialSlot.beginLoad();
+      adapter.rewardedInterstitialSlot.markReady();
+
+      var callCount = 0;
+      await AdManager().showRewardedInterstitialAd(onDone: (s, e) {
+        callCount++;
+        throw StateError('host callback throws after being delivered');
+      });
+
+      expect(callCount, 1);
+    });
+
+    test(
+        'showAppOpenAd() does NOT double-invoke onAdDismiss when the host '
+        'callback itself throws after being delivered', () async {
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      var callCount = 0;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) {
+          callCount++;
+          throw StateError('host callback throws after being delivered');
+        },
+      );
+
+      expect(callCount, 1);
+    });
+
+    test(
+        'showRewardedAd() (pre-existing round-29 pattern) does NOT '
+        'double-invoke onEarnedReward when the host callback itself throws '
+        'after being delivered', () async {
+      adapter.rewardedSlot.beginLoad();
+      adapter.rewardedSlot.markReady();
+
+      var callCount = 0;
+      await AdManager().showRewardedAd(onEarnedReward: (earned) {
+        callCount++;
+        throw StateError('host callback throws after being delivered');
+      });
+
+      expect(callCount, 1,
+          reason: 'this is the ORIGINAL round-29 pattern showInterstitial '
+              'etc. copied — it had the same latent double-invoke bug, '
+              'caught by independent review of the round-37 diff, not just '
+              'the 3 new call sites');
     });
   });
 
@@ -3332,6 +3598,33 @@ void main() {
     });
   });
 
+  group(
+      'round-37 audit (MAJOR): destroy() must not clear isDialogOnTop out '
+      'from under a dialog that is genuinely still on screen', () {
+    tearDown(AdScreenRouteLogger.resetState);
+
+    test(
+        'a live dialog/popup stays reflected in isDialogOnTop across '
+        'destroy()', () async {
+      AdScreenRouteLogger().didPush(_FakePopupRoute(), null);
+      expect(AdScreenRouteLogger.isDialogOnTop, isTrue,
+          reason: 'sanity check: pushing a popup route sets the flag');
+
+      // A host re-initializing the provider (or switching consent flow)
+      // mid-dialog is a documented, supported destroy()+initialize() cycle —
+      // round-13 already made the analogous call for `umpFormOnScreen`,
+      // reasoning that destroy() doesn't actually dismiss the thing on
+      // screen, so clearing the tracking flag just lets an App Open ad draw
+      // straight over it on the next resume.
+      await AdManager().destroy();
+
+      expect(AdScreenRouteLogger.isDialogOnTop, isTrue,
+          reason: 'destroy() does not dismiss the real dialog still on '
+              'screen — the flag must keep reflecting that, or '
+              'showAppOpenAdOnResume can stack an App Open ad on top of it');
+    });
+  });
+
   group('isOfflineListenable (T33)', () {
     tearDown(() => AdManager().debugConnectivityChanged(true));
 
@@ -3600,6 +3893,189 @@ void main() {
       expect(await AdManager().usPrivacyOptedOut, isFalse,
           reason: 'the legacy string is an explicit definitive answer; GPP '
               'is only a fallback for when no legacy signal exists at all');
+    });
+
+    // Round-37 audit MAJOR — USNAT parsing only ever read SaleOptOut/
+    // SharingOptOut, so a CMP that expresses an opt-out ONLY through
+    // TargetedAdvertisingOptOut (a real, distinct field per the IAB Tech
+    // Lab's MSPA US National spec — e.g. Virginia's VCDPA opt-out right,
+    // which a CMP can propagate into USNAT without touching Sale/Sharing)
+    // was invisible. Fixtures generated the same way as the round-33 ones
+    // above, via the official reference encoder:
+    //   node -e "const {UsNatCoreSegment}=require('@iabgpp/cmpapi');
+    //     const s=new UsNatCoreSegment();
+    //     s.setFieldValue('TargetedAdvertisingOptOut',1);
+    //     console.log(s.encode());"
+    test(
+        'usPrivacyOptedOut: GPP USNAT TargetedAdvertisingOptOut=Opted-Out '
+        'ONLY (Sale/Sharing left Not-Applicable) → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_7_String': 'CAABAAAAAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP USNAT TargetedAdvertisingOptOut=Did-Not-Opt-'
+        'Out ONLY → not opted out (false, not null)', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_7_String': 'CAACAAAAAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isFalse);
+    });
+
+    // Round-37 audit MAJOR — a CMP implementing ONLY the GPP California
+    // section (section id 8, no US National section and no legacy
+    // IABUSPrivacy_String) used to produce no signal at all.
+    // California's Core Segment is its OWN bit layout (verified against
+    // the IAB Tech Lab's "GPP Extension: California Privacy" spec — 3
+    // Notice fields, not 6, and no TargetedAdvertisingOptOut field).
+    // Fixtures via the same official reference encoder:
+    //   node -e "const {UsCaCoreSegment}=require('@iabgpp/cmpapi');
+    //     const s=new UsCaCoreSegment();
+    //     s.setFieldValue('SaleOptOut',1); console.log(s.encode());"
+    test(
+        'usPrivacyOptedOut: GPP California SaleOptOut=Opted-Out (no USNAT, '
+        'no legacy string) → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_8_String': 'BAQAAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP California SharingOptOut=Opted-Out, '
+        'SaleOptOut=Did-Not → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_8_String': 'BAkAAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP California both opt-outs Not-Applicable → '
+        'null', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_8_String': 'BAAAAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isNull);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP USNAT present but all-Not-Applicable falls '
+        'through to GPP California', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABGPP_7_String': 'CAAAAAAAAABA', // USNAT: no signal
+        'IABGPP_8_String': 'BAQAAABA', // California: opted out
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'USNAT with no usable signal must not shadow a real '
+              'California-only opt-out');
+    });
+
+    // Round-37 audit MAJOR — the 19 other US state GPP sections
+    // (Virginia(9) through Rhode Island(27)) were not read at all. None of
+    // them has a `SharingOptOut` value field, so a single decoder reading
+    // `SaleOptOut(2)` then `TargetedAdvertisingOptOut(2)` covers all of
+    // them — only the skip-before-`SaleOptOut` differs per state (12/14/16
+    // bits). Fixtures generated via the official reference encoder for
+    // EVERY state individually (not derived from one and reused), e.g.:
+    //   node -e "const {UsVaCoreSegment}=require('@iabgpp/cmpapi');
+    //     const s=new UsVaCoreSegment(); s.setFieldValue('SaleOptOut',1);
+    //     console.log(s.encode());"
+    // This caught a real mismatch between Maryland/Indiana/Kentucky/Rhode
+    // Island's published spec prose (which lists a `SectionID`+`Version`
+    // preamble) and the reference encoder's actual field layout (which has
+    // neither) — the skip values below are the verified ones.
+    const usStateSaleOptedOutFixtures = {
+      9: 'BAQAABA', // Virginia
+      10: 'BAQAAEA', // Colorado
+      11: 'BAEAAAQA', // Utah
+      12: 'BAQAAAEA', // Connecticut
+      13: 'BAQAAABA', // Florida
+      14: 'BAQAAABA', // Montana
+      15: 'BAQAAAABAA', // Oregon
+      16: 'BAQAAAQA', // Texas
+      17: 'BAQAAAABAA', // Delaware
+      18: 'BAEAAAQA', // Iowa
+      19: 'BAQAAAQA', // Nebraska
+      20: 'BAQAAABA', // New Hampshire
+      21: 'BAQAAAAAQA', // New Jersey
+      22: 'BAQAAAQA', // Tennessee
+      23: 'BAQAAAQA', // Minnesota
+      24: 'BQBA', // Maryland
+      25: 'BQBA', // Indiana
+      26: 'BQBA', // Kentucky
+      27: 'BQBA', // Rhode Island
+    };
+    for (final entry in usStateSaleOptedOutFixtures.entries) {
+      test(
+          'usPrivacyOptedOut: GPP US state section ${entry.key} '
+          'SaleOptOut=Opted-Out → opted out', () async {
+        SharedPreferencesAsyncPlatform.instance =
+            InMemorySharedPreferencesAsync.withData(
+                {'IABGPP_${entry.key}_String': entry.value});
+        expect(await AdManager().usPrivacyOptedOut, isTrue);
+      });
+    }
+
+    // Deeper mechanism check (one per distinct skip-bit-count group: 12,
+    // 14, 16) — proves TargetedAdvertisingOptOut alone is read (not just
+    // SaleOptOut) and that "both Did Not Opt Out" correctly resolves false,
+    // not just true/opted-out.
+    test(
+        'usPrivacyOptedOut: GPP Virginia (skip=12) TargetedAdvertisingOptOut '
+        '=Opted-Out ONLY → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_9_String': 'BAEAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP Virginia both Did-Not-Opt-Out → false, not '
+        'null', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_9_String': 'BAoAABA'});
+      expect(await AdManager().usPrivacyOptedOut, isFalse);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP Utah (skip=14) TargetedAdvertisingOptOut '
+        '=Opted-Out ONLY → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_11_String': 'BABAAAQA'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP Maryland (skip=16) TargetedAdvertisingOptOut '
+        '=Opted-Out ONLY → opted out', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_24_String': 'BQAQ'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: GPP Maryland both Did-Not-Opt-Out → false, not '
+        'null', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_24_String': 'BQCg'});
+      expect(await AdManager().usPrivacyOptedOut, isFalse);
+    });
+
+    test(
+        'usPrivacyOptedOut: USNAT and California both absent falls through '
+        'to a US state section', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_21_String': 'BAQAAAAAQA'}); // New Jersey, opted out
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
     });
   });
 

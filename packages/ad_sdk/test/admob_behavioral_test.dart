@@ -393,6 +393,103 @@ void main() {
     });
   });
 
+  // Round-37 audit BLOCKER — a reload call must never dispose an ad that is
+  // currently on screen just because its cache looks stale. Doing so
+  // null-outs the native listener before the real dismiss callback can
+  // arrive, wedging the slot in `showing` for the rest of the session (no
+  // other recovery timer exists once `markDisplayed` has confirmed the ad
+  // reached the screen — see AdSlot.beginShow's doc comment).
+  group('round-37 audit (BLOCKER): reload must not dispose a showing ad', () {
+    test(
+        'loadInterstitial while showing does not dispose the live ad even '
+        'when its load timestamp looks stale', () async {
+      await adapter.loadInterstitial();
+      final ad = bridge.lastInter!;
+
+      bool? shown;
+      await adapter.showInterstitial(onDone: (s) => shown = s);
+      expect(ad.showCount, 1);
+      expect(adapter.interstitialSlot.isShowing, isTrue);
+
+      // A long-running show (video ad, or a click-out to the app store and
+      // back) can easily outlive the 1h freshness window while still on
+      // screen.
+      adapter.interstitialSlot.lastLoadedAt =
+          DateTime.now().subtract(const Duration(hours: 2));
+
+      // A background refill/preload call lands while the ad is still
+      // showing.
+      await adapter.loadInterstitial();
+
+      expect(ad.disposeCount, 0,
+          reason: 'a live, on-screen ad must never be disposed by a reload '
+              'call');
+      expect(adapter.interstitialSlot.isShowing, isTrue);
+
+      // The real dismiss must still resolve normally afterwards.
+      ad.shown!.onDismissed!();
+      expect(shown, isTrue);
+      expect(ad.disposeCount, 1);
+    });
+
+    test(
+        'loadRewarded while showing does not dispose the live ad even when '
+        'its load timestamp looks stale', () async {
+      await adapter.loadRewarded();
+      final ad = bridge.lastRewarded!;
+
+      await adapter.showRewarded(onDone: (_) {});
+      expect(adapter.rewardedSlot.isShowing, isTrue);
+
+      adapter.rewardedSlot.lastLoadedAt =
+          DateTime.now().subtract(const Duration(hours: 2));
+      await adapter.loadRewarded();
+
+      expect(ad.disposeCount, 0,
+          reason: 'a live, on-screen ad must never be disposed by a reload '
+              'call');
+      expect(adapter.rewardedSlot.isShowing, isTrue);
+    });
+
+    test(
+        'loadRewardedInterstitial while showing does not dispose the live '
+        'ad even when its load timestamp looks stale', () async {
+      await adapter.loadRewardedInterstitial();
+      final ad = bridge.lastRewardedInterstitial!;
+
+      await adapter.showRewardedInterstitial(onDone: (_) {});
+      expect(adapter.rewardedInterstitialSlot.isShowing, isTrue);
+
+      adapter.rewardedInterstitialSlot.lastLoadedAt =
+          DateTime.now().subtract(const Duration(hours: 2));
+      await adapter.loadRewardedInterstitial();
+
+      expect(ad.disposeCount, 0,
+          reason: 'a live, on-screen ad must never be disposed by a reload '
+              'call');
+      expect(adapter.rewardedInterstitialSlot.isShowing, isTrue);
+    });
+
+    test(
+        'loadAppOpen while showing does not dispose the live ad even when '
+        'its load timestamp looks stale', () async {
+      await adapter.loadAppOpen();
+      final ad = bridge.lastAppOpen!;
+
+      await adapter.showAppOpen(onDismiss: (_) {});
+      expect(adapter.appOpenSlot.isShowing, isTrue);
+
+      adapter.appOpenSlot.lastLoadedAt =
+          DateTime.now().subtract(const Duration(hours: 5));
+      await adapter.loadAppOpen();
+
+      expect(ad.disposeCount, 0,
+          reason: 'a live, on-screen ad must never be disposed by a reload '
+              'call');
+      expect(adapter.appOpenSlot.isShowing, isTrue);
+    });
+  });
+
   group('Rewarded earned vs dismissed', () {
     test('earning then dismiss → earned=true exactly once', () async {
       await adapter.loadRewarded();
