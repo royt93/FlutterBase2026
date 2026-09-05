@@ -4,6 +4,32 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.17] - 2026-09-05
+
+Round-37 full re-audit (dual-provider correctness, offline/online
+resilience, ad lifecycle, VIP, consent-for-every-country, AdMob/AppLovin
+policy compliance). Fixes a BLOCKER: reloading a fullscreen ad in the
+background could dispose the ad currently on screen if its cache looked
+stale, killing its dismiss callback mid-show. Also: full GPP coverage
+(US National + California + 19 US states, previously only partial),
+a `Backoff` integer-overflow that silently collapsed exponential backoff
+to its base delay after ~51 consecutive failures, a daily/placement ad
+cap that had no protection against the device clock being wound
+backward, a double-tap that could stack two safety dialogs on top of
+each other, three `show*()` paths that left the host with an unhandled
+exception and no callback if the underlying adapter threw, and a
+consent-dialog visual asymmetry between Allow/Reject flagged by EDPB
+deceptive-design guidance. A follow-up independent review then found the
+new exception-handling fix could itself double-invoke the host's own
+callback if that callback threw — fixed with a delivery-tracking guard,
+applied to all four fullscreen show paths including the pre-existing
+`showRewardedAd()`. Verified before publish: `flutter analyze` clean,
+1632/1632 unit/widget tests, three independent review passes (9.5-9.8/10),
+and a full on-device smoke test on a real Samsung S24 Ultra covering every
+fix including a real interstitial surviving the reload race and a real
+tap dismissing it. See `doc/audit/audit_round37_consolidated.md` for the
+complete finding list and scoring rationale.
+
 ## [2.9.16] - 2026-09-04
 
 Published to pub.dev. Round-35/36 audit — line-by-line source review of
