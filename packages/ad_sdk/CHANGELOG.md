@@ -4,6 +4,28 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.18] - 2026-09-05
+
+Round-38 audit (4 independent reviewers, 2 further re-audit rounds).
+Fixes 2 MAJOR bugs: an AppLovin native ad that failed to load once stayed
+permanently blank for the widget's remaining lifetime (its retry timer
+never disposed the stale, still-errored bundle); and a `setConsent()`
+race where an older, delayed call could silently re-apply a stale
+consent value to the real AdMob/AppLovin SDK after a newer overlapping
+call had already applied the correct one — the root cause turned out to
+be two layers deep (`ConsentManager`'s own persist-then-apply cycle, used
+by every `set()`/`reset()`/`showDialog()` call, not just `AdManager`'s),
+found only by testing on real hardware, not mocks. Also: the debug
+overlay's fill-rate monitor no longer stays latched onto a disposed
+monitor after a `destroy()`+`initialize()` cycle; VIP redeem's generic
+error handler no longer leaks a raw exception message; 19 sequential GPP
+US-state reads now run in parallel (same precedence preserved); and
+`dispose()`-while-showing on AppLovin is now logged as diagnosable (no
+programmatic dismiss API exists to fully fix it). Verified: 1640/1640
+unit/widget tests, `flutter analyze` clean, 2 new on-device integration
+tests passing for real on a Samsung device, full app build+install+smoke
+run with no crashes. See `doc/audit/audit_round38_consolidated.md`.
+
 ## [2.9.17] - 2026-09-05
 
 Round-37 full re-audit (dual-provider correctness, offline/online
