@@ -310,3 +310,27 @@ có ai xác nhận bằng mắt thật trên thiết bị là "đủ prominence"
 bằng số, không phải bằng mắt).
 
 **Quyết định: điểm > 9/10 → đủ điều kiện push theo yêu cầu.**
+
+## Vòng verify độc lập lần 3 (sau khi đã push, trước khi publish pub.dev)
+
+Chạy thêm 1 review độc lập khác bằng `agy --dangerously-skip-permissions` (Gemini) trên commit
+`aa437b1` đã push, cô lập trong bản copy riêng (không cho biết trước kết quả 2 vòng review kia).
+
+Lưu ý kỹ thuật: `agy` tự ghi report vào scratch riêng của nó
+(`~/.gemini/antigravity-cli/scratch/`) và các đường dẫn trong report trỏ thẳng vào working tree
+thật thay vì bản copy cô lập đã chỉ định — đã kiểm tra `git status`/`git log`/`git reflog` ngay
+sau đó, xác nhận working tree thật **không hề bị mutate** (không có gì để mất vì review chỉ
+đọc/chạy `flutter analyze`/`flutter test`, không sửa file). Ghi lại làm lưu ý cho lần dùng `agy`
+sau: không nên tin `agy` sẽ tôn trọng đường dẫn/cwd chỉ định như `codex` đã làm.
+
+Kết quả: **0 BLOCKER, 0 MAJOR, 0 MINOR**, chỉ 1 Nitpick (đã biết từ trước — vị trí khai báo biến
+`delivered` trong `showAppOpenAd()` khác 3 hàm kia vì lý do `show_paths_guard_test.dart`, không
+phải lỗi). Xác nhận lại toàn bộ 6 trọng điểm kỹ thuật (cờ `delivered`, guard `isShowing`, bảng GPP
+skip-bits, high-water-mark chống lùi ngày, cleanup test daily-cap, ngưỡng alpha consent dialog)
+đều đúng, không sót edge case.
+
+### Điểm vòng 3: 9.8/10
+
+Ba vòng review độc lập (Codex round 2, tự-review, Gemini round 3) đều không còn tìm ra vấn đề
+mới. Điểm cuối cùng giữ nguyên ở mức **9.5–9.8/10** tuỳ reviewer — đã đủ điều kiện production,
+không cần thêm vòng audit nào nữa trước khi publish.
