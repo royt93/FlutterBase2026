@@ -1669,6 +1669,30 @@ There is no `disableArbitrator` for host apps — it exists only as a
 `@visibleForTesting` seam, since a session normally either wants the
 arbitrator on for its whole lifetime or not at all.
 
+### Debugging a decision (`decideWithContext`)
+
+`decide()` (used internally by the SDK) only ever returns the
+`ArbitratorDecision` enum — `showAd` or `nudgeVip`, with no explanation. If
+you want to log or debug WHY a slot keeps getting vetoed (which threshold it
+was compared against, what the trailing eCPM actually was, whether the
+`maxVetoRate` guardrail forced the outcome), call `decideWithContext`
+instead — it runs the exact same logic as `decide()` (same result, same
+internal bookkeeping) and additionally returns an `ArbitratorDecisionDetail`:
+
+```dart
+final detail = AdManager().arbitrator!.decideWithContext(AdSlotType.interstitial);
+myLogger.log(
+  'arbitrator: ${detail.decision} — ${detail.reason} '
+  '(trailing eCPM ${detail.trailingEcpmMicros}µ vs threshold ${detail.thresholdMicros}µ, '
+  'guardrail: ${detail.guardrailTripped})',
+);
+```
+
+Call either `decide()` or `decideWithContext()` per real decision point, not
+both for the same one — each call advances the arbitrator's internal
+decision history (used by the `maxVetoRate` guardrail above), the same way
+`decide()` alone always has.
+
 ## Fill-rate monitor (opt-in)
 
 **Default OFF, production-safe** — same as the arbitrator above: no

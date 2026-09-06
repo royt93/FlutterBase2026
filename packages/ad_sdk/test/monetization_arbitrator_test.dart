@@ -13,6 +13,8 @@
 //      is skipped, ArbitratorNudgeEvent fires on events, and the completion
 //      callback signals "not shown" exactly like other early-exit gates.
 
+import 'dart:convert';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
@@ -540,6 +542,222 @@ void main() {
       expect(arb.vetoRate, 0.0,
           reason: 'window now [showAd, showAd] — fully recovered');
       arb.dispose();
+    });
+  });
+
+  // T138 — decideWithContext() exposes WHY a decision was made (which
+  // threshold, what trailing eCPM, whether the guardrail forced it) without
+  // changing decide()'s existing enum-only signature (still compared
+  // directly at 3 real call sites in ad_manager.dart).
+  group('decideWithContext (T138)', () {
+    test('no evidence yet (ecpm == 0) → showAd, reason says so', () {
+      final arb = MonetizationArbitrator();
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.showAd);
+      expect(detail.trailingEcpmMicros, 0);
+      expect(detail.guardrailTripped, isFalse);
+      expect(detail.reason.toLowerCase(), contains('no'));
+      arb.dispose();
+    });
+
+    // Self-caught regression — an earlier draft of this refactor added an
+    // `ecpm == 0` short-circuit BEFORE the estimator-registered branch,
+    // which skipped calling the registered estimator entirely whenever a
+    // slot had no revenue evidence yet. decide()'s pre-T138 behavior always
+    // invoked a registered estimator unconditionally (computed before any
+    // ecpm check) — this test pins that exact call, independent of
+    // ad_crash_guard_test.dart (which is what actually caught the
+    // regression, via its own unrelated estimator-throws-during-build
+    // scenario, when this session's own full test suite run turned it up).
+    test(
+        'a registered estimator is ALWAYS invoked when ecpm == 0 too — not '
+        'skipped just because there is no revenue evidence yet', () {
+      final arb = MonetizationArbitrator();
+      var calls = 0;
+      arb.registerVipLikelihoodEstimator(() {
+        calls++;
+        return 0.9;
+      });
+      arb.decideWithContext(AdSlotType.interstitial);
+      expect(calls, 1,
+          reason: 'the estimator must be called even when ecpm == 0, '
+              'matching decide()\'s original unconditional-call behavior — '
+              'a host relying on this call for its own side effects (e.g. '
+              'refreshing a cached likelihood value) must not be silently '
+              'skipped');
+      arb.dispose();
+    });
+
+    test('low eCPM, no estimator → nudgeVip, reason cites the threshold',
+        () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.nudgeVip);
+      expect(detail.trailingEcpmMicros, 100000);
+      expect(detail.thresholdMicros, 5000000);
+      expect(detail.guardrailTripped, isFalse);
+      expect(detail.reason, isNotEmpty);
+      arb.dispose();
+    });
+
+    test('high eCPM (above threshold) → showAd', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(10000));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.showAd);
+      expect(detail.trailingEcpmMicros, 10000000);
+      arb.dispose();
+    });
+
+    test(
+        'estimator registered, low likelihood → showAd despite low eCPM, '
+        'reason mentions likelihood', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      arb.registerVipLikelihoodEstimator(() => 0.1);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.showAd);
+      expect(detail.reason.toLowerCase(), contains('likelihood'));
+      arb.dispose();
+    });
+
+    test(
+        'estimator registered, high likelihood + low eCPM → nudgeVip, '
+        'reason mentions likelihood', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      arb.registerVipLikelihoodEstimator(() => 0.9);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.nudgeVip);
+      expect(detail.reason.toLowerCase(), contains('likelihood'));
+      arb.dispose();
+    });
+
+    test(
+        'an active FillRateBaselineMonitor regression alert flips showAd → '
+        'nudgeVip, reason mentions the regression/baseline', () async {
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+      final prefs = await AdPreferences.getInstance();
+
+      // Same seeding shape as fill_rate_baseline_monitor_test.dart's own
+      // "fires a fill-rate regression alert" case: a healthy 90% baseline
+      // over the last couple of days, then a session running at 20%.
+      Future<void> seedPastDay(int daysAgo, int attempts, int successes) async {
+        final raw = await SharedPreferences.getInstance();
+        final existing = raw.getString('ad_sdk_fill_rate_baseline_history_v1');
+        final history = existing == null
+            ? <String, dynamic>{}
+            : jsonDecode(existing) as Map<String, dynamic>;
+        final date = DateTime.now()
+            .subtract(Duration(days: daysAgo))
+            .toIso8601String()
+            .substring(0, 10);
+        history[date] = {
+          'interstitial': {
+            'attempts': attempts,
+            'successes': successes,
+            'revenueMicros': 0,
+            'revenueCount': 0,
+          },
+        };
+        await raw.setString(
+            'ad_sdk_fill_rate_baseline_history_v1', jsonEncode(history));
+      }
+
+      await seedPastDay(1, 60, 54);
+      await seedPastDay(2, 40, 36);
+
+      final monitor = FillRateBaselineMonitor(prefs, minSamples: 5);
+      for (final ok in [true, false, false, false, false]) {
+        AdManager().debugEmit(AdLoadEvent(
+          providerTag: 'fake',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          success: ok,
+        ));
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(monitor.activeAlerts, contains(AdSlotType.interstitial),
+          reason: 'sanity: the monitor must have detected the regression '
+              '(20% session vs. 90% baseline)');
+
+      final arb = MonetizationArbitrator(fillRateBaselineMonitor: monitor);
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.nudgeVip);
+      expect(detail.reason.toLowerCase(),
+          anyOf(contains('regress'), contains('baseline')));
+      monitor.dispose();
+      arb.dispose();
+    });
+
+    test(
+        'guardrail tripping forces showAd, and guardrailTripped/reason '
+        'reflect that specifically', () async {
+      final arb = MonetizationArbitrator(
+        ecpmThresholdMicros: 5000000,
+        maxVetoRate: 0.5,
+        decisionWindowSize: 2,
+      );
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // Fill the decision window at 100% veto via decideWithContext itself
+      // (it must record decisions the same way decide() does).
+      expect(arb.decideWithContext(AdSlotType.interstitial).decision,
+          ArbitratorDecision.nudgeVip);
+      expect(arb.decideWithContext(AdSlotType.interstitial).decision,
+          ArbitratorDecision.nudgeVip);
+
+      final tripped = arb.decideWithContext(AdSlotType.interstitial);
+      expect(tripped.decision, ArbitratorDecision.showAd,
+          reason: 'guardrail must force showAd on the 3rd call');
+      expect(tripped.guardrailTripped, isTrue);
+      expect(tripped.reason.toLowerCase(), contains('guardrail'));
+      arb.dispose();
+    });
+
+    test(
+        'decide() and decideWithContext() agree on the decision for the '
+        'exact same arbitrator state — no divergent logic paths', () async {
+      // Two separately-constructed, identically-fed arbitrators: one only
+      // ever asked via decide(), the other only ever asked via
+      // decideWithContext() — proves the shared implementation actually
+      // produces the SAME decision either way, without letting one call
+      // advance the other's internal _decisions bookkeeping.
+      final arbA = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      final arbB = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(100));
+      }
+      await Future<void>.delayed(Duration.zero);
+      // Re-emit for arbB — both arbitrators are separately subscribed to
+      // the same AdManager().events stream, so both already received the
+      // events above; no separate feed needed.
+
+      expect(arbA.decide(AdSlotType.interstitial),
+          arbB.decideWithContext(AdSlotType.interstitial).decision);
+      arbA.dispose();
+      arbB.dispose();
     });
   });
 

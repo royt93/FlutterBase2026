@@ -1,3 +1,14 @@
+## Tiến độ (cập nhật 2026-09-06, phần 10 — T138 done)
+
+- **T138 done, 9.7/10** — MonetizationArbitrator.decideWithContext() trả
+  lý do quyết định (reason/trailingEcpm/threshold/guardrailTripped), giữ
+  nguyên `decide()`. 1 vòng review độc lập `codex`, PUSH ngay. **Tự bắt
+  được 1 regression thật khi refactor** (early-return sai thứ tự làm
+  registered VIP-likelihood estimator không được gọi khi ecpm==0) — bị 1
+  test KHÔNG LIÊN QUAN (`ad_crash_guard_test.dart`) bắt được khi chạy full
+  suite, TRƯỚC CẢ review ngoài. `todo/` còn 10 (T87, T114, T131, T139,
+  T141-T146); `done/` có 191.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 9 — T140 done, loop 3 hoàn tất)
 
 - **T140 done, 9.1/10** — PlacementRegistry (per-placement behavior

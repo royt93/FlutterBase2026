@@ -15,6 +15,51 @@ enum ArbitratorDecision {
   nudgeVip,
 }
 
+/// T138 — the full "why" behind a [MonetizationArbitrator.decideWithContext]
+/// call: [decision] alone (what [MonetizationArbitrator.decide] returns)
+/// doesn't say which threshold was compared against, what the trailing eCPM
+/// actually was, or whether the [MonetizationArbitrator.maxVetoRate]
+/// guardrail overrode the heuristic — useful for logging/debugging why a
+/// slot keeps getting vetoed, without changing `decide()`'s existing
+/// enum-only signature (still compared directly at several
+/// `ad_manager.dart` call sites).
+class ArbitratorDecisionDetail {
+  const ArbitratorDecisionDetail({
+    required this.decision,
+    required this.reason,
+    required this.trailingEcpmMicros,
+    required this.thresholdMicros,
+    required this.guardrailTripped,
+  });
+
+  /// Identical to what a same-moment call to
+  /// [MonetizationArbitrator.decide] would return — both route through the
+  /// same internal decision logic, no duplicated/divergent implementation.
+  final ArbitratorDecision decision;
+
+  /// Human-readable explanation of which rule actually produced
+  /// [decision] — e.g. "no trailing eCPM evidence yet", "trailing eCPM
+  /// below threshold, no likelihood estimator registered", "guardrail
+  /// tripped (vetoRate ... > ...) — forcing showAd". Not a stable/parseable
+  /// format — for logs and debugging, not for branching logic on.
+  final String reason;
+
+  /// [MonetizationArbitrator.estimatedEcpmMicrosFor] for this slot at the
+  /// moment of this decision. `0` means no evidence yet for this slot.
+  final int trailingEcpmMicros;
+
+  /// The eCPM threshold (in micros) this slot was actually compared
+  /// against — [MonetizationArbitrator]'s per-slot override if configured,
+  /// otherwise its global default.
+  final int thresholdMicros;
+
+  /// `true` only when [MonetizationArbitrator.maxVetoRate]'s guardrail is
+  /// what forced THIS specific decision to [ArbitratorDecision.showAd] —
+  /// not whether the guardrail has tripped at some other point in the
+  /// session.
+  final bool guardrailTripped;
+}
+
 /// Opt-in "Smart Monetization Arbitrator" — v1.
 ///
 /// At each fullscreen ad-show attempt (after all existing gates, including
@@ -246,7 +291,16 @@ class MonetizationArbitrator {
   /// decisions exceeds [maxVetoRate], this call is forced to [showAd]
   /// regardless of the heuristic above — a misconfigured/too-high threshold
   /// should never be allowed to suppress ads indefinitely.
-  ArbitratorDecision decide(AdSlotType slot) {
+  ArbitratorDecision decide(AdSlotType slot) => _decide(slot).decision;
+
+  /// T138 — same decision as [decide], plus the reasoning behind it (see
+  /// [ArbitratorDecisionDetail]'s doc comment). Both methods route through
+  /// [_decide] — no duplicated logic, and [decide]'s existing signature
+  /// (and behavior) is completely unchanged by this method's addition.
+  ArbitratorDecisionDetail decideWithContext(AdSlotType slot) =>
+      _decide(slot);
+
+  ArbitratorDecisionDetail _decide(AdSlotType slot) {
     final threshold = _perSlotThresholdMicros[slot] ?? ecpmThresholdMicros;
     // Round-23 QC (reviewer A, MAJOR) — this slot's own history, in this
     // slot's own currency. `0` (no samples for it yet) fails open to showAd
@@ -255,15 +309,53 @@ class MonetizationArbitrator {
     final ecpm = estimatedEcpmMicrosFor(slot);
     final estimator = _vipLikelihoodEstimator;
     ArbitratorDecision decision;
+    String reason;
     if (estimator == null) {
-      decision = ecpm > 0 && ecpm < threshold
-          ? ArbitratorDecision.nudgeVip
-          : ArbitratorDecision.showAd;
+      if (ecpm == 0) {
+        decision = ArbitratorDecision.showAd;
+        reason = 'no trailing eCPM evidence yet for this slot — failing '
+            'open to showAd rather than suppressing revenue on no evidence';
+      } else if (ecpm < threshold) {
+        decision = ArbitratorDecision.nudgeVip;
+        reason = 'trailing eCPM ($ecpm micros) below threshold ($threshold '
+            'micros), no likelihood estimator registered';
+      } else {
+        decision = ArbitratorDecision.showAd;
+        reason =
+            'trailing eCPM ($ecpm micros) at or above threshold ($threshold micros)';
+      }
     } else {
+      // Round-2 self-caught regression (own full-suite run surfaced an
+      // unrelated test, ad_crash_guard_test.dart, deterministically
+      // failing) — the original decide() called the registered estimator
+      // UNCONDITIONALLY whenever one was registered (computed before any
+      // `ecpm > 0` check, so its result — and any side effect, like the
+      // crash-guard test's deliberately-throwing estimator — always ran).
+      // An earlier draft of this refactor added an `ecpm == 0` short-
+      // circuit ABOVE this branch, which skipped calling the estimator
+      // entirely on a slot with no revenue evidence yet — a real
+      // behavior change this ticket explicitly must not make. Restructured
+      // so `estimator()` is still always invoked exactly when one is
+      // registered, matching decide()'s pre-T138 behavior byte for byte.
       final likelihood = estimator();
-      decision = (ecpm > 0 && ecpm < threshold && likelihood > 0.5)
-          ? ArbitratorDecision.nudgeVip
-          : ArbitratorDecision.showAd;
+      if (ecpm == 0) {
+        decision = ArbitratorDecision.showAd;
+        reason = 'no trailing eCPM evidence yet for this slot — failing '
+            'open to showAd rather than suppressing revenue on no evidence';
+      } else if (ecpm < threshold && likelihood > 0.5) {
+        decision = ArbitratorDecision.nudgeVip;
+        reason = 'trailing eCPM ($ecpm micros) below threshold ($threshold '
+            'micros) and VIP-conversion likelihood ($likelihood) above 0.5';
+      } else if (ecpm < threshold) {
+        decision = ArbitratorDecision.showAd;
+        reason = 'trailing eCPM ($ecpm micros) below threshold ($threshold '
+            'micros) but VIP-conversion likelihood ($likelihood) is not '
+            'above 0.5';
+      } else {
+        decision = ArbitratorDecision.showAd;
+        reason =
+            'trailing eCPM ($ecpm micros) at or above threshold ($threshold micros)';
+      }
     }
 
     // T112 — opt-in additional veto signal: a slot already flagged as
@@ -274,12 +366,19 @@ class MonetizationArbitrator {
     if (decision == ArbitratorDecision.showAd &&
         _fillRateBaselineMonitor?.activeAlerts.containsKey(slot) == true) {
       decision = ArbitratorDecision.nudgeVip;
+      reason = 'fill-rate/eCPM regression alert active for this slot '
+          '(T97 7-day baseline)';
     }
 
+    var guardrailTripped = false;
     if (decision == ArbitratorDecision.nudgeVip &&
         _decisions.length >= _decisionWindowSize &&
         vetoRate > maxVetoRate) {
       decision = ArbitratorDecision.showAd;
+      guardrailTripped = true;
+      reason =
+          'guardrail tripped (vetoRate=$vetoRate > $maxVetoRate) — vetoing '
+          'too often, forcing showAd';
       if (!_guardrailTripped) {
         _guardrailTripped = true;
         SafeLogger.w('MonetizationArbitrator',
@@ -293,7 +392,13 @@ class MonetizationArbitrator {
     if (_decisions.length > _decisionWindowSize) {
       _decisions.removeAt(0);
     }
-    return decision;
+    return ArbitratorDecisionDetail(
+      decision: decision,
+      reason: reason,
+      trailingEcpmMicros: ecpm,
+      thresholdMicros: threshold,
+      guardrailTripped: guardrailTripped,
+    );
   }
 
   /// Release the internal [AdManager().events] subscription. Call this if

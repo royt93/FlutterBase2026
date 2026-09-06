@@ -60,6 +60,30 @@ ra 1 hàm chung, thêm 1 lớp kết quả mới), không đổi kiến trúc �
 KHÔNG đổi chữ ký `decide()` hiện có (breaking change không cần thiết, đã
 có 3 call site production đang dùng enum trực tiếp).
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm: 9.7/10** (1 vòng review độc lập `codex`,
+  PUSH ngay).
+- Giữ nguyên `decide()`, thêm `decideWithContext()` trả `ArbitratorDecisionDetail`
+  (decision/reason/trailingEcpmMicros/thresholdMicros/guardrailTripped), cả
+  2 route qua 1 hàm private `_decide()` chung — không duplicate logic.
+- **Tự bắt được 1 regression thật** khi refactor: bản draft đầu thêm
+  early-return khi `ecpm == 0` TRƯỚC cả khi check estimator đã đăng ký hay
+  chưa — làm registered VIP-likelihood estimator KHÔNG được gọi trong case
+  đó. Code gốc LUÔN gọi `estimator()` vô điều kiện khi đã đăng ký (tính
+  trước cả check `ecpm > 0`). Bug này bị chính 1 test KHÔNG LIÊN QUAN
+  (`ad_crash_guard_test.dart` — dùng estimator throw để test crash guard)
+  bắt được khi chạy full suite, TRƯỚC CẢ review ngoài. Sửa: đảo thứ tự
+  check (estimator đã đăng ký? → luôn gọi trước → mới xét ecpm), khớp lại
+  đúng behavior gốc. Thêm test riêng pin đúng bug này trong
+  `monetization_arbitrator_test.dart` (không dựa vào test crash-guard
+  không liên quan để bắt lại).
+- Baseline: `flutter analyze` sạch; `flutter test` 1726/1726 (kể cả
+  `ad_crash_guard_test.dart` — test đã catch bug — giờ pass sạch);
+  integration test `t138_arbitrator_decide_with_context_test.dart` pass
+  thật trên Samsung Galaxy S24 Ultra.
+- README có section "Debugging a decision (decideWithContext)".
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```
