@@ -14,12 +14,54 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
 - **`Txx`** — SDK `applovin_admob_sdk` (`packages/ad_sdk/`). T01-T56 đã ✅ done (xem bảng "Backlog" bên dưới). **Vòng 3 (2026-08-15)** — repo đã prune host app ra riêng (commit `a684b0a`), audit round mới full scope cho `packages/ad_sdk/` only, tổng hợp tại `doc/task/BACKLOG-sdk-2026-08-15.md`. Thêm **T57-T99** (43 ticket mới: 12 bug, 11 enhancement, 8 nợ kỹ thuật, 7 ý tưởng, 5 flagship). Sau đó tách thêm **T100** từ T62. Hiện có **T01-T100** (66 done, 34 todo). **Round 27 (2026-08-31)** — sau round-26 audit (3/3 finding còn mở đã fix, version 2.4.3), 3 agent độc lập đề xuất roadmap mới (`doc/task/BACKLOG-sdk-2026-08-31.md`, nguồn `PROPOSALS-{codex,agy,claude}-2026-08-31.md`). User duyệt qua AskUserQuestion, tách **T101-T130** (30 ticket mới: 5 bug, 8 enhancement, 4 tech-debt — DEBT-1 bị user bỏ qua hẳn, 9 idea, 4 flagship). 9 ticket đã done cùng ngày (T101, T103-T105 bug; T110/T112/T113/T119/T120 batch A enhancement/idea, version 2.4.4-2.5.0) — T102 (event-log flush race) đã điều tra kỹ, tự tạo hang thật khi fix trần, để lại `todo/` có ghi chú bisection. Hiện có **T01-T130** (108 done, 22 todo).
 - **`Pxx`** — Product/host app cũ (`lib/mckimquyen/`, `lib/translations/`, `lib/main.dart`, `test/`) — **đã prune khỏi repo này** (host app giờ ở repo riêng, xem `CLAUDE.md`). Ticket P01-P56 giữ lại làm lịch sử; `P55` còn lại trong `todo/` KHÔNG thuộc scope repo hiện tại, đừng nhặt làm nếu không có repo host app. Nguồn cũ: `doc/task/BACKLOG-product-2026-08-10.md`, `doc/task/BACKLOG-product-2026-08-11.md`.
 
+## Tiến độ (cập nhật 2026-09-06, phần 2 — round 43 brainstorm)
+
+- **T132-T146 mới (15 ticket, backlog)** — brainstorm round 43: đọc toàn bộ
+  `lib/` + `example/lib/`, tham khảo ý kiến độc lập `codex`/`agy` (bản copy
+  cô lập), user chọn qua AskUserQuestion 15/25 candidate. Mỗi ticket có
+  mục "Prompt vòng lặp" tự chứa (paste vào 1 coding session mới để bắt đầu
+  implement TDD, kết ở gate: tự audit + chấm điểm /10 + unit/widget/
+  integration test đủ case + smoke test device, chỉ push khi >9/10 —
+  đúng flow đã dùng ở round 40). Ràng buộc xuyên suốt cả 15 ticket: **SDK
+  không dùng remote config/backend/server riêng** — mọi cơ chế remote chỉ
+  qua interface host-tự-cung-cấp (kiểu `RemoteAdSafetyProvider`).
+
+  | # | Loại | Ticket | Priority | Effort | Dependency |
+  |---|---|---|---|---|---|
+  | T132 | Fix | Stale-session race `refreshRemoteSafetyParams()` | P2 | M | — |
+  | T133 | Fix | JourneyPrefetcher stale pending-signal | P2 | S | — |
+  | T134 | Harden | AdReadinessSplashController double-start | P3 | S | — |
+  | T135 | Fix | RevenuePanel bỏ qua currency code | P3 | S | — |
+  | T136 | Enhancement | WaterfallTuner/SelfHealingObserver on-device | P1 | L | — |
+  | T137 | Enhancement | RemoteAdSafetyProvider periodic + kill-switch | P2 | L | T132 |
+  | T138 | Enhancement | Arbitrator trả DecisionContext | P2 | M | — |
+  | T139 | Enhancement | JourneyPrefetcher auto-route signal | P3 | M | T133 |
+  | T140 | Tính năng mới | Placement Registry | P2 | L | — |
+  | T141 | Tính năng mới | In-feed Native Ad ListView | P3 | L | — |
+  | T142 | Tính năng mới | Offline scenario runner (QA) | P3 | L | — |
+  | T143 | Độc quyền | Zero-shadow dual-provider failover | P1 | XL | T136 |
+  | T144 | Độc quyền | Dispute kit (export ký số hợp nhất) | P3 | S | — |
+  | T145 | Độc quyền | Cross-provider revenue integrity ledger | P2 | L | — |
+  | T146 | Độc quyền | Privacy-safe cohort optimizer | P3 | XL | — |
+
+  Cả 3 fork viết ticket đều tự verify lại premise gốc bằng code thật và
+  **điều chỉnh xuống** ở nhiều chỗ (không chỉ copy nguyên brainstorm): T134
+  hạ severity (guard tình cờ đã che phần lớn), T135 hạ priority (currency
+  luôn là USD thật trong thực tế), T138 bỏ phần "đa tiền tệ" (đã đúng từ
+  trước), T142 phát hiện `FakeAdapter` dùng chung KHÔNG tồn tại (3 bản
+  trùng lặp riêng lẻ, phải dọn trước), **T143 phát hiện giới hạn kiến trúc
+  nghiêm trọng** (`AdConfig` hiện chỉ cho 1 provider/install, "failover
+  runtime" cần đổi kiến trúc lớn hơn ước lượng ban đầu — đọc kỹ ticket
+  trước khi bắt đầu code), T144 phát hiện 2/3 phần đã có sẵn (giảm
+  effort L→S), T145 viết lại thành match heuristic (không có ID chung
+  thật giữa show/revenue event như brainstorm giả định).
+
 ## Tiến độ (cập nhật 2026-09-06)
 - **T131 mới (backlog, P3)** — sau đánh giá "go global" round 41 (xem
   `doc/audit/audit_round41.md`), thêm **T131: tích hợp AppLovin bản Trung
   Quốc** vào `todo/`. Chưa code — user chọn "research + viết kế hoạch
-  trước", chưa quyết định launch TQ. `todo/` hiện có 3 ticket mở
-  (T87, T114, T131); `done/` có 183.
+  trước", chưa quyết định launch TQ. `todo/` hiện có 18 ticket mở
+  (T87, T114, T131-T146); `done/` có 183.
 
 ## Tiến độ (cập nhật 2026-08-15)
 - **Vòng 3 — audit round mới sau khi prune host app**: 3/4 agent độc lập hoàn tất (codex CLI, agy CLI, Claude subagent — gemini CLI lỗi tài khoản `IneligibleTierError`, bỏ qua). 1 pass verify độc lập đối chiếu source thật trước khi chốt ticket — refute 1 claim (UMP fail-open là tradeoff cố ý, không phải bug), reframe 1 claim sai phạm vi (`suspiciousViolationCount` đã decay từ T25, gap thật là snapshot lag decay real-time → T68), thu hẹp phạm vi 2 claim khác (T60, T64). Xem bảng verify đầy đủ trong `doc/task/BACKLOG-sdk-2026-08-15.md`.

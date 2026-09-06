@@ -362,3 +362,46 @@ one section literally titled "migration guide") and one MINOR
 completeness gap (opt-in monetization companion classes undocumented by
 name). Both are docs-only; no code defect found. `flutter analyze`: no
 issues (unchanged from earlier in this round).
+
+## Round 43 — AD_PROMPT_FLUTTER.MD usability fix (partner feedback: "không hiểu, không tích hợp được")
+
+**Root cause:** the file is technically accurate (spot-checked several
+snippets against real code — no new bugs beyond round 42's already-fixed
+D.5 one) but never tells the reader *how* to consume it. It is written as
+an AI-agent execution prompt (imperative "the AI must...", 12 Steps + 4
+Appendices, 1748 lines) with zero orientation up front — a human handed
+this file cold, with no AI-agent workflow, has no way to know it's meant
+to be pasted whole into a coding assistant rather than read top-to-bottom
+as a tutorial. Compounding it: the "Core rules" section states GetX /
+`BaseStatefulState` / `SafeLogger` / no-`setState` as **absolute, grep-
+enforced-reject** requirements with no visible escape hatch for a project
+that doesn't already use those exact conventions (Section 0 asks "what's
+your state management?" implying adaptability, but the enforcement section
+never branches on the answer) — a partner not using GetX would hit this
+and reasonably conclude the document doesn't apply to their project.
+
+**Fixed (direct edits, not just this report):**
+1. Added a "How to use this document" section right after the title —
+   states plainly this is an AI-agent prompt (paste the whole file into
+   Claude Code/Cursor/Copilot Chat), tells a human-only team to read
+   `README.md`'s Quick Start instead, and clarifies GetX/`BaseStatefulState`/
+   `SafeLogger` are this document's own reference-implementation
+   conventions, not an SDK requirement — swap in your project's real
+   equivalent.
+2. Reworded the "Core rules" heading to scope it explicitly to *new code
+   this integration generates*, not a mandate to refactor the rest of an
+   existing project (the ambiguity a first-time reader would hit on the
+   absolute no-`setState`/`!`/`late` ban).
+3. Replaced the generic "read example/lib/main.dart" pointer (a 3000+
+   line, 21-page file with zero navigation aid) with a durable
+   feature→class-name lookup table (`BannerDemoPage`, `VipDemoPage`,
+   `RemoteSafetyDemoPage`, ... all 18 pages) — names instead of line
+   numbers so it doesn't go stale as the file grows.
+
+File grew 1748 → 1764 lines (net +16, despite three insertions — the
+example-lookup table replaced a 1-line generic pointer with a compact
+list). **Verdict: patch, not a rewrite** — the underlying content (Steps
+1-12, Appendices) is accurate and detailed; the fix needed was orientation
+at the entry point, not restructuring 1700 lines of already-correct
+step-by-step instructions. `flutter analyze`: no issues (doc-only change,
+no Dart touched).

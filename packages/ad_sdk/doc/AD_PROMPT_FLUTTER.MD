@@ -1,5 +1,13 @@
 # Prompt Template: Integrating `applovin_admob_sdk` into a Flutter Project
 
+## How to use this document
+
+**This is a prompt for an AI coding agent, not a tutorial for a human to read start-to-finish.** If you are a human engineer who just received this file: open an AI coding assistant that can read/edit your project's files (Claude Code, Cursor, GitHub Copilot Chat, etc.), start it inside your Flutter project, and paste this **entire file** as your first message. It will fill in Section 0 by asking you questions (ad unit IDs, SDK key, Privacy Policy URL, ...), then execute Steps 1-12 itself, editing files and running builds/tests as it goes. You only need to answer its questions and review its output — you do not need to manually perform Steps 1-12 yourself.
+
+If your team has no AI-agent workflow and needs to integrate by hand: don't start here. Read `packages/ad_sdk/README.md`'s Quick Start section first for a plain human-readable walkthrough, then use this file only as a detailed reference for specific steps (splash lifecycle in Step 4, consent in Step 8, VIP in Step 9-10) as you go — trying to read all 12 Steps + 4 Appendices top-to-bottom as prose is exactly the kind of dense, imperative "the AI must..." checklist that will be confusing without an agent actually executing it.
+
+**A note on the conventions below (GetX, `BaseStatefulState`, `SafeLogger`, i18n `.tr` keys):** these come from one reference integration this template was extracted from — they are this document's own conventions, **not** a requirement of the SDK itself, which has zero dependency on GetX or any particular state-management/logging setup. If your project already uses Provider/Riverpod/Bloc/plain `setState`, or its own logger, keep using it — swap every GetX/`BaseStatefulState`/`SafeLogger` reference below for your project's real equivalent. Only the ad-integration-specific rules (splash bootstrap order, `bypassSafety` restriction, VIP grace, consent ordering) are actual SDK constraints that don't bend to your architecture.
+
 > **Maintenance note:** this file is the complete, self-contained handoff given to a partner engineering team integrating this SDK. Whenever the SDK version, ad unit conventions, native config requirements, splash lifecycle, VIP flow, or consent flow changes, update this file at the same time.
 >
 > **Filling in this template:** Section 0 below is where you record the *consuming* project's own values — SDK version pinned, provider choice, ad unit IDs, bundle ID, native config, logging setup, and so on. Do not carry over IDs, paths, or config from any other project. Every `<...>` placeholder must be filled with values that belong to the project you are integrating into.
@@ -7,7 +15,7 @@
 > This template applies to any **Flutter** project. Before handing it to an AI agent, **fill in every `<...>` placeholder** in Section 0. The VIP feature is **mandatory** — every project must ship a VIP screen plus first-install grace (already built into the SDK — do not reimplement it).
 > If your project already has a VIP-related screen, reuse or enhance it following Step 10 below. If not, build a new one — the SDK also ships a ready-made `VipRedeemScreen` widget you can wrap directly (see the usage note in Step 10.2, and `packages/ad_sdk/README.md` if you happen to have the SDK's source available).
 >
-> **Core rules (apply to the entire generated codebase):**
+> **Core rules (apply only to the NEW code this integration generates — the splash screen, VIP screen, and any other file the agent writes/edits for this task — not a mandate to refactor the rest of the existing project):**
 > 1. **Do NOT** use `setState` — use `ValueNotifier<T>` + `ValueListenableBuilder` instead (or the reactive equivalent of whatever state manager is in use — GetX `Rx<T>` + `Obx` preferred).
 > 2. **Do NOT** use `!` (the bang operator) — use a null-safe pattern instead: `if (x case final v?)`, `final v = x; if (v == null) return;`, or the null-coalescing operator `??`.
 > 3. **Do NOT** use `late` / `late final` — use a nullable field initialized in `initState` instead, read via a local copy (`final c = _controller; if (c != null) ...`).
@@ -96,7 +104,15 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
   - Safety: `AdSafetyParams.auto` (default, do NOT override).
   - Logger pipe: `AdConfig.onLog: (level, tag, msg) { ... }`.
 - Read `packages/ad_sdk/CHANGELOG.md` — the "What's new" section for the version you're using, to learn about newer features (UMP wrapper, smart App-Open timeout, slot-state dismiss watcher, first-install grace, the anti-bypass guard if present in that version, the taskAffinity pitfall).
-- Read `packages/ad_sdk/example/lib/main.dart` to see which demo pages are active.
+- Read `packages/ad_sdk/example/lib/main.dart` to see which demo pages are active. It is one large file (3000+ lines, 21 demo pages) — don't read it end to end; instead `grep -n "^class <Name>"` for the specific page below matching the feature you're integrating right now, and read just that class:
+  - Banner → `BannerDemoPage` · MREC → `MrecDemoPage` · Native → `NativeDemoPage`
+  - Interstitial → `InterstitialDemoPage` · Rewarded → `RewardedDemoPage` · Rewarded interstitial → `RewardedInterstitialDemoPage`
+  - App Open → `AppOpenDemoPage` · Adaptive banner/MREC switch → `AdaptiveSurfaceDemoPage`
+  - Consent/UMP/ATT → `ConsentDemoPage` · VIP redeem/revoke → `VipDemoPage`
+  - Safety caps/dry-run/arbitrator toggle → `SafetyDemoPage` · Remote-controlled safety params (T88) → `RemoteSafetyDemoPage`
+  - Splash-controller shortcut (T94) → `ReadinessControllerDemoPage` · Compliance export → `ComplianceDemoPage`
+  - Diagnostics/self-check → `DiagnosticsDemoPage` · Event log viewer → `LogViewerDemoPage` · Events feed → `EventsDemoPage`
+  - Revenue dashboard → `RevenueDemoPage` · Internal state panel → `StatePanelDemoPage` · Test-device hash → `TestDeviceHashDemoPage`
 
 **Required output**: a summary of ≤ 10 lines covering the library's API surface and everything the SDK manages automatically (App Open auto-show via `WidgetsBindingObserver`, banner auto pause/resume via `adRouteObserver` + RouteAware, frequency caps via the multi-layer safety gate, VIP auto-expire via `Timer`, consent dialog auto-show ~1s post-splash, first-install grace, anti-bypass guard if that version has it).
 
