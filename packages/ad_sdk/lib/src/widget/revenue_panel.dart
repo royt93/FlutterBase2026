@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
+import '../utils/safe_logger.dart';
 
 /// Tiny widget that subscribes to [AdManager.events] and shows running
 /// revenue totals for the current session — useful in debug builds for
@@ -53,10 +54,28 @@ class _RevenuePanelState extends State<RevenuePanel> {
     }
   }
 
+  static const String _tag = 'RevenuePanel';
+  bool _warnedNonUsd = false;
+
   void _onEvent(AdEvent event) {
     if (!mounted) return;
     if (event is AdRevenueEvent) {
-      _totalUsd.value = _totalUsd.value + event.value;
+      // T135 — _totalUsd is a USD-only running sum (the UI prefixes it
+      // with a bare '$'); event.value is just valueMicros / 1_000_000, a
+      // pure arithmetic conversion with no currency conversion behind it.
+      // Adding a non-USD event's raw value here would silently mix
+      // currencies into one number with no unit conversion — wrong, not
+      // just imprecise. Skip it instead (impressions still count — that
+      // part is currency-agnostic); log once so a host actually running
+      // multi-currency mediation notices instead of wondering why the
+      // total looks off.
+      if (event.currencyCode == 'USD') {
+        _totalUsd.value = _totalUsd.value + event.value;
+      } else if (!_warnedNonUsd) {
+        _warnedNonUsd = true;
+        SafeLogger.w(_tag,
+            'AdRevenueEvent with currencyCode=${event.currencyCode} (not USD) — skipping it in the USD total to avoid mixing currencies. (further non-USD events will be skipped silently)');
+      }
       _impressions.value = _impressions.value + 1;
     }
   }

@@ -61,6 +61,23 @@ Effort S — widget nhỏ (120 dòng), logic thêm chỉ là 1 nhánh check
 là widget công khai của SDK, không nên âm thầm giả định currency), nhưng
 không cấp bách bằng T132 (race thật, đã tự verify gây sai state thật).
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm: 9.5/10** (1 vòng review độc lập `codex`, PUSH
+  ngay).
+- Chọn option (a) — bỏ qua event khác USD (không cộng vào `_totalUsd`),
+  log cảnh báo 1 lần qua `_warnedNonUsd`, impression vẫn tăng bình thường.
+- **Bug tự bắt được khi viết test (không phải bug ở code sửa)**: phát hiện
+  `AdManager().events` là broadcast StreamController không đồng bộ +
+  `ValueListenableBuilder` cần thêm 1 frame sau `setState()` — cần **2 lần
+  `pump()`** sau mỗi `debugEmit()` mới thấy được UI cập nhật trong test
+  (1 lần không đủ). Không phải lỗi trong `revenue_panel.dart`, chỉ là
+  pattern test cần đúng cho mọi widget nghe `AdManager().events`.
+- Baseline: `flutter analyze` sạch; `flutter test` 1702/1702; integration
+  test `t135_revenue_panel_currency_guard_test.dart` pass thật trên
+  Samsung Galaxy S24 Ultra (Pixel 7 Pro mất kết nối giữa session, dùng
+  máy Android khác sẵn có).
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

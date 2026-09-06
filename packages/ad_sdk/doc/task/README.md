@@ -1,3 +1,12 @@
+## Tiến độ (cập nhật 2026-09-06, phần 8 — T135 done, loop 2 hoàn tất)
+
+- **T135 done, 9.5/10** — RevenuePanel không còn cộng lẫn revenue khác USD
+  vào tổng USD. 1 vòng review độc lập `codex`, PUSH ngay. Tự bắt được 1
+  quirk timing test thật (broadcast StreamController không đồng bộ +
+  ValueListenableBuilder cần 2 lần `pump()`), không phải bug ở code sửa.
+  **Loop 2 (T133+T134+T135) hoàn tất** — cả 3 pass, không có gì phải quay
+  lại sửa. `todo/` còn 12 (T87, T114, T131, T138-T146); `done/` có 189.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 7 — T134 done)
 
 - **T134 done, 9.2/10** — AdReadinessSplashController chống gọi `start()`
