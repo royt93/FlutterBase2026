@@ -2386,7 +2386,7 @@ See `doc/AD_PROMPT_FLUTTER.MD` → Appendix D for a step-by-step guide (merged f
 ## Support
 
 - **Bug reports**: this package's source repo is private, so there's no public issue tracker — email `loitp@skyjoy.vn` with `roy93~` log output, SDK version, and provider (admob/appLovin). Best-effort, single maintainer, no SLA.
-- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 15 self-contained demo pages, one per feature
+- **Demo app**: `packages/ad_sdk/example/lib/main.dart` — 21 self-contained demo pages, one per feature
 - **Architecture deep-dive**: `doc/architecture.md` — state machine, splash flow, safety gate, memory management (in the git repo only; `doc/` is excluded from the pub.dev tarball)
 
 ---
