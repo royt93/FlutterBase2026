@@ -80,6 +80,24 @@ quyết được vấn đề thật) — nên tham khảo `maxHoldDuration`'s de
 phút) làm điểm khởi đầu hợp lý cho ngưỡng mới, hoặc dùng chung luôn nếu ý
 nghĩa gộp lại rõ ràng.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm: 9.4/10** (1 vòng review độc lập `codex`, PUSH
+  ngay không có finding blocking).
+- **Quyết định khác với gợi ý ban đầu:** thử gộp chung `maxHoldDuration` làm
+  ngưỡng TTL trước — VỠ ngay 1 test cũ (`maxHoldDuration: 1ms` để test
+  preload-stop, cũng vô tình làm MỌI sample bị coi là "stale") — xác nhận
+  đúng cảnh báo của ticket, chuyển sang tham số riêng
+  `maxPendingSignalAge` (default 5 phút, độc lập với `maxHoldDuration`).
+- `_onEvent`: entry pending luôn bị xoá (không phụ thuộc kết quả check TTL);
+  chỉ SAMPLE bị bỏ khi `elapsed > maxPendingSignalAge`.
+- Baseline: `flutter analyze` sạch; `flutter test` 1697/1697; integration
+  test `t133_journey_prefetcher_stale_signal_test.dart` pass thật trên
+  Pixel 7 Pro (TTL 300ms thật + wall-clock thật, không debugClock).
+- 1 finding non-blocking còn lại (reviewer tự nói "đừng trì hoãn vì cái
+  này"): test thứ 3 chứng minh gián tiếp qua overwrite key, không chứng
+  minh trực tiếp entry bị xoá — bỏ qua theo khuyến nghị của reviewer.
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

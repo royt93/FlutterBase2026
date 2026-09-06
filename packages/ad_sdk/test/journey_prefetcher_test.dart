@@ -183,6 +183,119 @@ void main() {
     );
   });
 
+  // T133 — a pending signal has no TTL: if the app is backgrounded for a
+  // long stretch between notifySignal() and the next matching AdShowEvent
+  // (which may be completely unrelated to the original journey step), the
+  // huge elapsed gap was recorded as a normal time-to-show sample, wrongly
+  // dragging the rolling average up and potentially disabling eager preload
+  // for a signal that is actually fine.
+  group('stale pending signal TTL (T133)', () {
+    test(
+        'a pending signal older than maxPendingSignalAge is treated as expired '
+        '— no sample recorded, entry cleared', () async {
+      var now = DateTime(2026, 1, 1, 12, 0, 0);
+      final staleAwarePrefetcher = JourneyPrefetcher(
+        maxHoldDuration: const Duration(minutes: 5),
+        debugClock: () => now,
+      );
+      addTearDown(staleAwarePrefetcher.dispose);
+
+      staleAwarePrefetcher.notifySignal(
+          'levelStarted', AdSlotType.interstitial);
+
+      // Simulate a long backgrounding — well past maxHoldDuration — before
+      // an (unrelated) interstitial finally shows.
+      now = now.add(const Duration(hours: 2));
+
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        staleAwarePrefetcher.averageTimeToShow(
+            'levelStarted', AdSlotType.interstitial),
+        isNull,
+        reason: 'a 2-hour-old pending signal must not be recorded as a '
+            '2-hour time-to-show sample — it must be discarded as stale, '
+            'not folded into the rolling average',
+      );
+    });
+
+    test(
+        'a pending signal younger than maxPendingSignalAge still records a '
+        'normal sample (TTL must not fire on ordinary timing)', () async {
+      var now = DateTime(2026, 1, 1, 12, 0, 0);
+      final staleAwarePrefetcher = JourneyPrefetcher(
+        maxHoldDuration: const Duration(minutes: 5),
+        debugClock: () => now,
+      );
+      addTearDown(staleAwarePrefetcher.dispose);
+
+      staleAwarePrefetcher.notifySignal(
+          'levelStarted', AdSlotType.interstitial);
+      now = now.add(const Duration(seconds: 30)); // well within 5 minutes
+
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      final avg = staleAwarePrefetcher.averageTimeToShow(
+          'levelStarted', AdSlotType.interstitial);
+      expect(avg, isNotNull);
+      expect(avg!.inSeconds, 30);
+    });
+
+    test('an expired pending signal is cleared even though it is never '
+        'sampled — a later notifySignal for the same key starts fresh, '
+        'not blocked by the stale entry', () async {
+      var now = DateTime(2026, 1, 1, 12, 0, 0);
+      final staleAwarePrefetcher = JourneyPrefetcher(
+        maxHoldDuration: const Duration(minutes: 5),
+        debugClock: () => now,
+      );
+      addTearDown(staleAwarePrefetcher.dispose);
+
+      staleAwarePrefetcher.notifySignal(
+          'levelStarted', AdSlotType.interstitial);
+      now = now.add(const Duration(hours: 2));
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // A fresh signal + a prompt (non-stale) show afterwards.
+      staleAwarePrefetcher.notifySignal(
+          'levelStarted', AdSlotType.interstitial);
+      now = now.add(const Duration(seconds: 5));
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      final avg = staleAwarePrefetcher.averageTimeToShow(
+          'levelStarted', AdSlotType.interstitial);
+      expect(avg, isNotNull);
+      expect(avg!.inSeconds, 5,
+          reason: 'only the fresh 5s sample should count — the earlier '
+              'stale/expired entry must not have lingered to conflate '
+              'averages once a new signal arrived');
+    });
+  });
+
   test('dispose() stops recording new time-to-show samples', () async {
     prefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
     prefetcher.dispose();

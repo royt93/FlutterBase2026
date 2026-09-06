@@ -31,6 +31,7 @@ import '../state/ad_slot.dart';
 class JourneyPrefetcher {
   JourneyPrefetcher({
     this.maxHoldDuration = const Duration(minutes: 5),
+    this.maxPendingSignalAge = const Duration(minutes: 5),
     @visibleForTesting DateTime Function() debugClock = DateTime.now,
   }) : _now = debugClock {
     _sub = AdManager().events.listen(_onEvent);
@@ -41,6 +42,21 @@ class JourneyPrefetcher {
   /// stops preloading eagerly for it — avoids holding a stale-feeling ad
   /// (and burning cap/impression budget) for a show that isn't imminent.
   final Duration maxHoldDuration;
+
+  /// T133 — a DIFFERENT threshold from [maxHoldDuration], despite the
+  /// similar-sounding names: this one guards a single pending signal
+  /// against being matched to a show that comes long after it (the app
+  /// was backgrounded for a long stretch, say) and having that huge gap
+  /// recorded as a normal time-to-show sample — which would wrongly drag
+  /// the rolling average up. [maxHoldDuration] instead reacts to that
+  /// average AFTER it's already been computed from real, non-stale
+  /// samples. Kept as a separate parameter (not reusing [maxHoldDuration])
+  /// because a caller can legitimately configure a very short
+  /// [maxHoldDuration] to test/tune preload-stop behavior without that
+  /// also shrinking how old a pending signal is allowed to be before it's
+  /// discarded outright — the two failure modes this class guards against
+  /// are independent.
+  final Duration maxPendingSignalAge;
 
   final DateTime Function() _now;
 
@@ -88,11 +104,20 @@ class JourneyPrefetcher {
     }
     if (latestKey == null || latestAt == null) return;
     final elapsed = _now().difference(latestAt);
+    _lastSignalAt.remove(latestKey);
+    _lastSignalSeq.remove(latestKey);
+    // T133 — a pending signal has no TTL otherwise: the app can be
+    // backgrounded for a long stretch between notifySignal() and the next
+    // matching show (which may be completely unrelated to the original
+    // journey step), and that huge gap would get folded in as a normal
+    // time-to-show sample, wrongly dragging the rolling average up (and
+    // potentially disabling eager preload for a signal that's actually
+    // fine). See maxPendingSignalAge's own doc comment for why this is a
+    // separate threshold from maxHoldDuration, not a reuse of it.
+    if (elapsed > maxPendingSignalAge) return;
     final samples = _timeToShow.putIfAbsent(latestKey, () => []);
     samples.add(elapsed);
     if (samples.length > _rollingWindowSize) samples.removeAt(0);
-    _lastSignalAt.remove(latestKey);
-    _lastSignalSeq.remove(latestKey);
   }
 
   /// Rolling average time between [signal] firing and [type] actually being

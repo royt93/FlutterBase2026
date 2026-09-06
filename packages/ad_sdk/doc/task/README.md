@@ -1,3 +1,12 @@
+## Tiến độ (cập nhật 2026-09-06, phần 6 — T133 done)
+
+- **T133 done, 9.4/10** — JourneyPrefetcher thêm TTL cho pending signal
+  (tránh backgrounding dài kéo sai rolling average). 1 vòng review độc lập
+  `codex`, PUSH ngay. Thử gộp chung `maxHoldDuration` làm ngưỡng TTL trước
+  — vỡ ngay 1 test cũ (đúng cảnh báo của ticket) — chuyển sang tham số
+  riêng `maxPendingSignalAge`. `todo/` còn 14 (T87, T114, T131,
+  T134-T135, T138-T146); `done/` có 187.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 5 — T136 done)
 
 - **T136 done, 9.5/10** — WaterfallTuner/SelfHealingObserver giờ hoạt động
