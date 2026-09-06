@@ -277,4 +277,53 @@ void main() {
             'timer by the time this pump completes, regardless of the hard '
             'cap racing ahead of it');
   });
+
+  // T134 — start() had no guard against being called twice on the SAME
+  // instance (a caller bug, not a legitimate flow): the second call
+  // overwrote _context/_onReady, re-incremented splash count, restarted
+  // the hard-cap timer, and attached a second SimpleEventBus listener —
+  // silently wrong behavior (not a crash) if the FIRST call's flow fired
+  // in the narrow window before the second call's own
+  // countInitSplashScreen > 1 short-circuit could run.
+  testWidgets(
+      'calling start() twice on the same instance is a no-op the second '
+      'time — no double-count, no timer reset, no second listener',
+      (tester) async {
+    late BuildContext ctx;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(builder: (c) {
+          ctx = c;
+          return const SizedBox.shrink();
+        }),
+      ),
+    ));
+
+    final controller = AdReadinessSplashController(
+      config: _config,
+      hardCapDuration: const Duration(milliseconds: 100),
+    );
+    addTearDown(controller.dispose);
+
+    var readyCount = 0;
+    controller.start(ctx, onReady: () => readyCount++);
+    final countAfterFirstStart = AdManager().countInitSplashScreen;
+
+    // A second start() call on the SAME instance — a caller bug this
+    // guard exists for.
+    controller.start(ctx, onReady: () => readyCount++);
+
+    expect(AdManager().countInitSplashScreen, countAfterFirstStart,
+        reason: 'a second start() call must not increment splash count '
+            'again — it must be rejected before that side effect runs');
+
+    // The FIRST call's 100ms hard cap must still be the one in effect —
+    // if the second call had restarted it, onReady would not have fired
+    // yet at this point.
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(readyCount, 1,
+        reason: 'onReady must fire exactly once, from the FIRST call\'s '
+            'hard cap — the second call must not have reset it, and must '
+            'not have registered its own onReady to fire alongside it');
+  });
 }

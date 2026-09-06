@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import '../config/ad_config.dart';
 import '../core/ad_manager.dart';
 import '../core/event_bus.dart';
+import '../utils/safe_logger.dart';
 import 'ad_loading_dialog.dart';
 
 /// T94 — officialized version of the splash-screen orchestration the README
@@ -49,6 +50,8 @@ class AdReadinessSplashController {
     this.showAppOpenOnReady = true,
   });
 
+  static const String _tag = 'AdReadinessSplashController';
+
   /// Passed straight through to [AdManager.initialize].
   final AdConfig config;
 
@@ -64,6 +67,7 @@ class AdReadinessSplashController {
 
   Timer? _hardCap;
   bool _navigated = false;
+  bool _started = false;
   BuildContext? _context;
   VoidCallback? _onReady;
   void Function(BoolEvent)? _busListener;
@@ -71,12 +75,34 @@ class AdReadinessSplashController {
   /// Starts the orchestration. [onReady] fires exactly once — after the
   /// splash App Open ad is dismissed/skipped/failed, immediately once init
   /// completes if [showAppOpenOnReady] is `false`, or if [hardCapDuration]
-  /// elapses first. Safe to call only once per controller instance.
+  /// elapses first. Safe to call only once per controller instance — a
+  /// second call is a caller bug (create a new controller per splash
+  /// instead) and is rejected outright, logged, and otherwise ignored; see
+  /// [_started].
   void start(
     BuildContext context, {
     required VoidCallback onReady,
     void Function(bool success, String gaid)? onInitComplete,
   }) {
+    // T134 — a second start() call on the SAME instance used to silently
+    // overwrite _context/_onReady and re-increment splash count
+    // unconditionally (both happened on every ordinary sequential
+    // double-call, not just a race) — and, in the narrower window where
+    // the FIRST call's own flow (a Timer or the event bus) fired before
+    // reaching the old `countInitSplashScreen > 1` short-circuit further
+    // along, could also restart the hard-cap timer and attach a second
+    // SimpleEventBus listener. This guard is deliberately checked and set
+    // BEFORE any of those side effects (not just the narrow-window ones),
+    // and independent of `countInitSplashScreen` (that check exists for a
+    // DIFFERENT scenario — a previous splash INSTANCE still on the stack —
+    // not calling `start()` twice on THIS instance).
+    if (_started) {
+      SafeLogger.w(_tag,
+          'start() called more than once on the same AdReadinessSplashController instance — ignoring. Create a new controller per splash screen instead of reusing one.');
+      return;
+    }
+    _started = true;
+
     _context = context;
     _onReady = onReady;
 

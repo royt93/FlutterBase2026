@@ -69,6 +69,22 @@ không tự gọi lại `initState()` trong vòng đời bình thường của 1
 Vẫn đáng làm vì rẻ (effort S) và làm API khó dùng sai hơn, nhưng không
 khẩn cấp như T132.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm: 9.2/10** (1 vòng review độc lập `codex`, PUSH
+  ngay).
+- Thêm `bool _started`, guard đầu `start()` — độc lập hoàn toàn với
+  `countInitSplashScreen` (guard cũ giữ nguyên mục đích gốc của nó).
+- 2 finding non-blocking (reviewer tự nói "không đáng giữ lại push"): test
+  dùng chung 1 counter cho cả 2 callback (không tách riêng chứng minh
+  callback đầu KHÔNG bị ghi đè) — chấp nhận, thứ tự code đã rõ ràng qua
+  đọc trực tiếp; comment ban đầu hơi phóng đại hành vi lỗi cũ (nói "luôn
+  restart timer" trong khi thực tế chỉ xảy ra ở race hẹp) — đã sửa lại
+  comment cho chính xác.
+- Baseline: `flutter analyze` sạch; `flutter test` 1698/1698; integration
+  test `t134_splash_controller_double_start_test.dart` pass thật trên
+  Pixel 7 Pro.
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

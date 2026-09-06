@@ -1,3 +1,9 @@
+## Tiến độ (cập nhật 2026-09-06, phần 7 — T134 done)
+
+- **T134 done, 9.2/10** — AdReadinessSplashController chống gọi `start()`
+  2 lần trên cùng 1 instance. 1 vòng review độc lập `codex`, PUSH ngay.
+  `todo/` còn 13 (T87, T114, T131, T135, T138-T146); `done/` có 188.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 6 — T133 done)
 
 - **T133 done, 9.4/10** — JourneyPrefetcher thêm TTL cho pending signal
