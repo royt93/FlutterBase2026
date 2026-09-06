@@ -15,6 +15,8 @@
 // it) that first touch reliably raced `AdInstanceManager.initialize()`'s own
 // setup and crashed with a null-check — unrelated to this ticket's logic.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +34,23 @@ class _ThrowingRemoteSafetyProvider implements RemoteAdSafetyProvider {
   @override
   Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async {
     throw StateError('simulated network failure');
+  }
+}
+
+/// T132 — a provider whose fetch pauses at [fetchStarted] until [releaseWith]
+/// completes, so a test can deterministically land a `destroy()`+
+/// `initialize()` cycle (simulated via `debugBumpInitGen()`) exactly inside
+/// the await window `refreshRemoteSafetyParams()` is waiting on.
+class _DelayedRemoteSafetyProvider implements RemoteAdSafetyProvider {
+  _DelayedRemoteSafetyProvider(
+      {required this.fetchStarted, required this.releaseWith});
+  final Completer<void> fetchStarted;
+  final Future<Map<String, dynamic>?> releaseWith;
+
+  @override
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async {
+    fetchStarted.complete();
+    return releaseWith;
   }
 }
 
@@ -213,5 +232,41 @@ void main() {
             'survive a refresh whose override never mentions '
             'maxFullscreenAdsPerDay — falling back to the raw config\'s '
             '999/day would silently undo the ramp');
+  });
+
+  // T132 regression — a slow fetch that is still in flight when a
+  // destroy()+initialize() cycle completes must discard its now-stale
+  // result instead of stomping the new session's live AdSafetyConfig with a
+  // baseline computed from the OLD session's config.
+  test(
+      'a refresh superseded mid-fetch (new session initialized while '
+      'fetching) discards its stale override instead of applying it',
+      () async {
+    await wireUp(_FakeRemoteSafetyProvider({}));
+
+    final fetchStarted = Completer<void>();
+    final releaseFetch = Completer<Map<String, dynamic>?>();
+    AdManager().debugRemoteSafetyProvider = _DelayedRemoteSafetyProvider(
+      fetchStarted: fetchStarted,
+      releaseWith: releaseFetch.future,
+    );
+
+    final refreshFuture = AdManager().refreshRemoteSafetyParams();
+    await fetchStarted.future;
+
+    // Simulate destroy()+initialize() completing a NEW session while the
+    // fetch above is still in flight — the only observable state change a
+    // real cycle leaves behind that this method's guard can see.
+    AdManager().debugBumpInitGen();
+
+    // Now let the stale fetch resolve, with an override that would be very
+    // obviously wrong if it landed (drops the cap to 1/day).
+    releaseFetch.complete({'maxFullscreenAdsPerDay': 1});
+    await refreshFuture;
+
+    expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 5,
+        reason: 'the fetch belonged to a session that no longer exists by '
+            'the time it resolved — its override must be discarded, not '
+            'merged onto the live AdSafetyConfig the NEW session is using');
   });
 }

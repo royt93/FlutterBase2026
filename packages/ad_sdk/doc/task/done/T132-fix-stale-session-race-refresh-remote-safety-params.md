@@ -84,6 +84,30 @@ test mô phỏng đúng race (destroy()+initialize() xen giữa lúc
 `fetchSafetyParamOverrides()` đang await) — cần 1 `RemoteAdSafetyProvider`
 giả lập delay được điều khiển bằng tay (`Completer`) trong test.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 10/10** (3 vòng review độc lập `codex`,
+  bản copy cô lập: 7/10 → 8/10 → 10/10).
+- **Code:** guard `_initSuperseded(myGen)` duy nhất, đặt ngay trước
+  `AdSafetyConfig.updateParams(...)`, sau CẢ HAI await (fetch + `AdPreferences
+  .getInstance()`) — vòng 1 review bắt được guard ban đầu đặt trước await
+  thứ hai vẫn còn hở, đã sửa thành 1 check duy nhất ngay sát write.
+- **Test:** `test/refresh_remote_safety_params_test.dart` (+1 unit test,
+  generation-token mutation test, nhanh/deterministic) và
+  `example/integration_test/t132_stale_session_race_test.dart` (mới, real
+  device — `destroy()`+`initialize()` THẬT, không debug seam). Vòng 2 review
+  bắt được bản đầu của integration test là **false positive** (provider bị
+  gọi 2 lần bởi chính `initialize()` lẫn `refresh()`, `Completer` complete 2
+  lần → `StateError` → rơi vào catch, chưa từng chạm guard) — đã sửa bằng
+  provider đếm `callCount` (lần 1 từ `initialize()` trả `null` ngay, lần 2
+  mới delay), có assertion `callCount==1`/`callCount==2` chứng minh đúng kịch
+  bản, verify lại bằng log `session superseded mid-fetch` xuất hiện thật.
+- **Baseline:** `flutter analyze` sạch; `flutter test` 1663/1663; integration
+  test pass thật trên Pixel 7 Pro (`2B051FDH3006MU`).
+- Thêm 1 test-only seam `AdManager.debugBumpInitGen()` (`@visibleForTesting`)
+  cho unit test nhanh; giữ lại vì vẫn hữu ích làm regression guard tốc độ
+  cao song song với integration test thật.
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

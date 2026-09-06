@@ -1249,6 +1249,13 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   bool get debugInitRetryScheduled => _initRetryTimer?.isActive ?? false;
 
+  /// T132 — regression seam: simulates a `destroy()`+`initialize()` cycle
+  /// completing (bumping [_initGen]) while some other async op captured an
+  /// earlier generation and is still in flight, without the weight of a
+  /// real adapter init.
+  @visibleForTesting
+  void debugBumpInitGen() => _initGen++;
+
   /// T80 — regression seam for the 2.0.1 fix: simulates an internal retry
   /// timer firing while another `initialize()` call already holds the busy
   /// guard (`_isInitializing`) — the exact race that used to strand
@@ -3796,6 +3803,13 @@ class AdManager with WidgetsBindingObserver {
     final provider = _remoteSafetyProvider;
     final cfg = _config;
     if (provider == null || cfg == null) return;
+    // T132 — captured alongside `cfg` so the guard right before the global
+    // write below can tell "destroyed mid-fetch" apart from the more
+    // dangerous "destroy()+initialize() BOTH completed mid-fetch, so
+    // _config is non-null again but is now a different (newer) session's
+    // config than `cfg` above". Checking `_config == null` alone only
+    // caught the first case.
+    final myGen = _initGen;
 
     Map<String, dynamic>? overrides;
     try {
@@ -3809,15 +3823,24 @@ class AdManager with WidgetsBindingObserver {
     }
     if (overrides == null) return;
 
-    // The SDK could have been destroy()'d while the fetch above was in
-    // flight — same guard shape as refreshRevocationList's disposed check.
-    if (_config == null) {
+    final prefs = await AdPreferences.getInstance();
+
+    // T132 (round 2, independent adversarial review) — checking
+    // `_initSuperseded` right after the fetch above and NOT again here used
+    // to leave this exact same race open across the `await
+    // AdPreferences.getInstance()` suspension point: a destroy()+
+    // initialize() cycle completing between that early check and the merge
+    // below would still slip through. The only check that actually matters
+    // for correctness is the one immediately before the global write —
+    // deliberately a single check, placed here and nowhere earlier, so a
+    // future edit that adds another `await` between this line and the
+    // write below can't reopen the same gap without moving this guard too.
+    if (_initSuperseded(myGen)) {
       SafeLogger.w(_tag,
-          'refreshRemoteSafetyParams: destroyed mid-fetch — overrides discarded');
+          'refreshRemoteSafetyParams: session superseded mid-fetch — overrides discarded');
       return;
     }
 
-    final prefs = await AdPreferences.getInstance();
     // Round-31 audit fix — initialize() wraps this same merge in a try/catch
     // (above); this method did not, asymmetrically. A malformed remote
     // payload (e.g. a numeric field serialized as `Infinity`, which

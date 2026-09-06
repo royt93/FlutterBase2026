@@ -14,6 +14,17 @@ doc/task/done/         → xong (di chuyển file sang đây, tick hết accepta
 - **`Txx`** — SDK `applovin_admob_sdk` (`packages/ad_sdk/`). T01-T56 đã ✅ done (xem bảng "Backlog" bên dưới). **Vòng 3 (2026-08-15)** — repo đã prune host app ra riêng (commit `a684b0a`), audit round mới full scope cho `packages/ad_sdk/` only, tổng hợp tại `doc/task/BACKLOG-sdk-2026-08-15.md`. Thêm **T57-T99** (43 ticket mới: 12 bug, 11 enhancement, 8 nợ kỹ thuật, 7 ý tưởng, 5 flagship). Sau đó tách thêm **T100** từ T62. Hiện có **T01-T100** (66 done, 34 todo). **Round 27 (2026-08-31)** — sau round-26 audit (3/3 finding còn mở đã fix, version 2.4.3), 3 agent độc lập đề xuất roadmap mới (`doc/task/BACKLOG-sdk-2026-08-31.md`, nguồn `PROPOSALS-{codex,agy,claude}-2026-08-31.md`). User duyệt qua AskUserQuestion, tách **T101-T130** (30 ticket mới: 5 bug, 8 enhancement, 4 tech-debt — DEBT-1 bị user bỏ qua hẳn, 9 idea, 4 flagship). 9 ticket đã done cùng ngày (T101, T103-T105 bug; T110/T112/T113/T119/T120 batch A enhancement/idea, version 2.4.4-2.5.0) — T102 (event-log flush race) đã điều tra kỹ, tự tạo hang thật khi fix trần, để lại `todo/` có ghi chú bisection. Hiện có **T01-T130** (108 done, 22 todo).
 - **`Pxx`** — Product/host app cũ (`lib/mckimquyen/`, `lib/translations/`, `lib/main.dart`, `test/`) — **đã prune khỏi repo này** (host app giờ ở repo riêng, xem `CLAUDE.md`). Ticket P01-P56 giữ lại làm lịch sử; `P55` còn lại trong `todo/` KHÔNG thuộc scope repo hiện tại, đừng nhặt làm nếu không có repo host app. Nguồn cũ: `doc/task/BACKLOG-product-2026-08-10.md`, `doc/task/BACKLOG-product-2026-08-11.md`.
 
+## Tiến độ (cập nhật 2026-09-06, phần 3 — T132 done)
+
+- **T132 done, 10/10** — stale-session race trong `refreshRemoteSafetyParams()`
+  fixed. 3 vòng review độc lập `codex` (7/10 → 8/10 → 10/10), mỗi vòng bắt
+  1 vấn đề thật: vòng 1 guard đặt trước 1 await còn hở, vòng 2 integration
+  test mới là false positive (provider bị gọi 2 lần, `Completer` complete 2
+  lần → `StateError` → rơi catch, chưa từng chạm guard) — cả 2 đã sửa. Real
+  device (Pixel 7 Pro) integration test `t132_stale_session_race_test.dart`
+  pass thật, log có đúng dòng "session superseded mid-fetch". `todo/` còn 17
+  (T87, T114, T131, T133-T146); `done/` có 184.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 2 — round 43 brainstorm)
 
 - **T132-T146 mới (15 ticket, backlog)** — brainstorm round 43: đọc toàn bộ
