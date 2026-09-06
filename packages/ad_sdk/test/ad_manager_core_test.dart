@@ -3883,16 +3883,32 @@ void main() {
     });
 
     test(
-        'usPrivacyOptedOut: legacy US Privacy string present takes precedence over GPP',
+        'usPrivacyOptedOut: R40-A round 2 (R2-01) — a real GPP opt-out is '
+        'not shadowed by a legacy string saying "did not opt out"',
         () async {
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.withData({
         'IABUSPrivacy_String': '1YNN', // legacy says NOT opted out
         'IABGPP_7_String': 'CAAYAAAAAABA', // GPP says opted out
       });
-      expect(await AdManager().usPrivacyOptedOut, isFalse,
-          reason: 'the legacy string is an explicit definitive answer; GPP '
-              'is only a fallback for when no legacy signal exists at all');
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'the legacy string and GPP are both just keys a CMP '
+              'wrote, with no ordering/timestamp to say one is more '
+              'definitive than the other — a real opt-out from either '
+              'must not be shadowed by the other saying "did not opt out"');
+    });
+
+    test(
+        'usPrivacyOptedOut: R40-A round 2 (R2-01) — a real legacy opt-out '
+        'is not shadowed by GPP saying "did not opt out"', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABUSPrivacy_String': '1YYN', // legacy: opted out
+        'IABGPP_7_String': 'CAACAAAAAABA', // GPP USNAT: Did-Not-Opt-Out
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'the union rule must work in both directions, not just '
+              'GPP-over-legacy');
     });
 
     // Round-37 audit MAJOR — USNAT parsing only ever read SaleOptOut/
@@ -4076,6 +4092,87 @@ void main() {
           InMemorySharedPreferencesAsync.withData(
               {'IABGPP_21_String': 'BAQAAAAAQA'}); // New Jersey, opted out
       expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    // Round-40 audit MAJOR (R40-A) — an earlier-checked GPP tier's
+    // explicit "did not opt out" used to permanently shadow a real
+    // opt-out sitting in a later-checked tier. Reuses the exact fixtures
+    // from the tests above (each already verified independently) so this
+    // test isolates only the cross-tier combination behavior.
+    test(
+        'usPrivacyOptedOut: R40-A regression — GPP USNAT explicit '
+        'Did-Not-Opt-Out must not shadow a real California opt-out',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABGPP_7_String': 'CAACAAAAAABA', // USNAT: Did-Not-Opt-Out (false)
+        'IABGPP_8_String': 'BAQAAABA', // California: opted out (true)
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'a real opt-out in one GPP tier must not be swallowed by '
+              'another tier\'s explicit "did not opt out"');
+    });
+
+    // Round-40 audit MAJOR (R40-A) — same shadowing bug existed *within*
+    // the 19-state check itself: whichever state happened to be checked
+    // first won, even with an explicit `false`.
+    test(
+        'usPrivacyOptedOut: R40-A regression — GPP Virginia explicit '
+        'Did-Not-Opt-Out must not shadow a real Colorado opt-out',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABGPP_9_String': 'BAoAABA', // Virginia: Did-Not-Opt-Out (false)
+        'IABGPP_10_String': 'BAQAAEA', // Colorado: opted out (true)
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'a real opt-out in one state section must not be '
+              'swallowed by another state\'s explicit "did not opt out"');
+    });
+
+    // Round-40 audit — independent-review follow-up: the two regression
+    // tests above only combined (USNAT, California) and (state, state).
+    // These three lock in the same true-beats-false rule across every
+    // other pairing the fix touches, reusing only fixtures already proven
+    // correct individually above (no new hand-encoded GPP bit-strings).
+    test(
+        'usPrivacyOptedOut: R40-A — GPP USNAT opted out beats a real '
+        'Virginia Did-Not-Opt-Out too, not just California', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABGPP_7_String': 'CAAYAAAAAABA', // USNAT: opted out (true)
+        'IABGPP_9_String': 'BAoAABA', // Virginia: Did-Not-Opt-Out (false)
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue);
+    });
+
+    test(
+        'usPrivacyOptedOut: R40-A — a truncated/malformed GPP section '
+        '(→ null) does not block a real opt-out in another section',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABGPP_7_String': 'AA', // USNAT: truncated/malformed → null
+        'IABGPP_8_String': 'BAQAAABA', // California: opted out (true)
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'a parse failure must be treated as "no signal", not as a '
+              'false that could shadow a real opt-out elsewhere');
+    });
+
+    test(
+        'usPrivacyOptedOut: R40-A — a malformed legacy string falls through '
+        'to a real GPP opt-out instead of being treated as precedence',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData({
+        'IABUSPrivacy_String': '1', // malformed (too short) legacy string
+        'IABGPP_8_String': 'BAQAAABA', // California: opted out (true)
+      });
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'only a legacy string that actually parses gets '
+              'precedence over GPP — a malformed one must not silently '
+              'suppress a real GPP signal');
     });
   });
 

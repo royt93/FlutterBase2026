@@ -208,13 +208,13 @@ class IabStorage {
   /// string is present (which is NOT the same as "did not opt out"), so a
   /// caller can tell "no signal" from "signal says no".
   ///
-  /// The legacy string is authoritative when present — unchanged since m10.
-  /// Round-33 audit (R33-02) closed the gap m10 deliberately left open: a CMP
-  /// that writes *only* the newer GPP US National section (no legacy
-  /// `IABUSPrivacy_String` at all, which some new-state CMPs do) used to read
-  /// as "no signal" here. [_gppUsNationalOptedOut] and [_gppCaliforniaOptedOut]
-  /// are consulted (in that order) only when the legacy string is entirely
-  /// absent.
+  /// Historical note (superseded — see R2-01 below): from m10 through
+  /// round-40 round 1, the legacy string was authoritative when present,
+  /// and [_gppUsNationalOptedOut]/[_gppCaliforniaOptedOut] were consulted
+  /// only when it was entirely absent. Round-33 audit (R33-02) closed the
+  /// gap m10 deliberately left open: a CMP that writes *only* the newer GPP
+  /// US National section (no legacy `IABUSPrivacy_String` at all, which
+  /// some new-state CMPs do) used to read as "no signal" here.
   ///
   /// Round-37 audit MAJOR — added [_gppCaliforniaOptedOut] (usca, section 8),
   /// [_gppUsStatesOptedOut] (all 19 remaining US state sections, 9-27), and
@@ -222,21 +222,50 @@ class IabStorage {
   /// method). This SDK does not decode the GPP header's own section-id
   /// list — it directly probes every known US privacy section's own
   /// isolated storage key instead (the CMP API storage convention every
-  /// section is read through elsewhere in this class) and returns the
-  /// first one with a usable signal, checked in this priority order:
-  /// legacy `IABUSPrivacy_String` → US National → California → every other
-  /// US state, section-ID ascending.
+  /// section is read through elsewhere in this class).
+  ///
+  /// Round-40 audit MAJOR (R40-A) — the three GPP tiers (US National,
+  /// California, other US states) used to be checked in a fixed priority
+  /// order and the first one to return a *non-null* result won, even when
+  /// that result was `false` (Did Not Opt Out). A CMP can legitimately
+  /// populate more than one tier at once (e.g. a coarse national default
+  /// alongside a jurisdiction-specific override), so an explicit "did not
+  /// opt out" in the higher-priority tier used to permanently swallow a
+  /// real `true` opt-out sitting in a lower-priority tier — the opt-out
+  /// signal was never wrong, it was just never read. Now every GPP tier is
+  /// read and `true` (opted out) from ANY tier wins over `false` from any
+  /// other; only `null` (no tier has a usable signal) falls through. The
+  /// same true-beats-false rule applies *within* [_gppUsStatesOptedOut]
+  /// across the 19 individual states for the same reason.
+  ///
+  /// Round-40 audit MAJOR (R40-A, round 2 — independent re-review, R2-01) —
+  /// the legacy `IABUSPrivacy_String` used to be checked FIRST and, if
+  /// parseable, returned immediately — fully authoritative even over a
+  /// real GPP opt-out. That is the exact same failure shape R40-A fixed
+  /// between GPP tiers: a CMP that writes a legacy `N` (e.g. from an older
+  /// CCPA-only flow, or a stale value a migration never cleared) alongside
+  /// a genuinely newer GPP section reporting a real opt-out would have that
+  /// opt-out permanently swallowed. There is no way to tell, from storage
+  /// alone, that the legacy string is "more definitive" than GPP — both are
+  /// just keys a CMP wrote, with no ordering/timestamp to arbitrate them.
+  /// The legacy string is now unioned into the same true-beats-false rule
+  /// as every GPP tier, not treated as a separate short-circuit.
   static Future<bool?> usPrivacyOptedOut() async {
     final usp = await read(keyUsPrivacy);
+    bool? legacy;
     if (usp != null && usp.length >= 3) {
       final flag = usp[2].toUpperCase();
-      if (flag == 'Y' || flag == 'N') return flag == 'Y';
+      if (flag == 'Y' || flag == 'N') legacy = flag == 'Y';
     }
-    final usNational = await _gppUsNationalOptedOut();
-    if (usNational != null) return usNational;
-    final california = await _gppCaliforniaOptedOut();
-    if (california != null) return california;
-    return _gppUsStatesOptedOut();
+    final results = await Future.wait([
+      _gppUsNationalOptedOut(),
+      _gppCaliforniaOptedOut(),
+      _gppUsStatesOptedOut(),
+    ]);
+    final signals = [legacy, ...results];
+    if (signals.any((r) => r == true)) return true;
+    if (signals.any((r) => r == false)) return false;
+    return null;
   }
 
   /// Reads the GPP US National (MSPA) Core Segment's `SaleOptOut` /
@@ -382,9 +411,10 @@ class IabStorage {
     }
   }
 
-  /// Checks every US state GPP section in [_usStateSkipBits] (section-ID
-  /// order) and returns the first non-null signal, or `null` if none of
-  /// them is present/readable.
+  /// Checks every US state GPP section in [_usStateSkipBits] and returns
+  /// `true` if ANY of them opted out, else `false` if any explicitly did
+  /// not (and none opted out), else `null` if none of them is
+  /// present/readable.
   ///
   /// Round-38 audit fix (MINOR) — this used to `await` each of the 19
   /// sections one at a time. It runs unconditionally on every app resume
@@ -392,16 +422,20 @@ class IabStorage {
   /// `_resumeAdWorkAfterConsent`'s hard 5s budget), so on a device with a
   /// slow platform channel the sequential reads could approach or exceed
   /// that budget and silently skip a refill cycle. Reading all sections
-  /// concurrently removes that latency without changing the result:
-  /// `Future.wait` preserves list order regardless of completion order, so
-  /// "first non-null in `_usStateSkipBits`'s order wins" still holds.
+  /// concurrently removes that latency.
+  ///
+  /// Round-40 audit MAJOR (R40-A) — this used to return the first
+  /// *non-null* result in `_usStateSkipBits`'s (arbitrary) order, so an
+  /// earlier state's explicit "did not opt out" could shadow a later
+  /// state's real opt-out if a CMP ever wrote more than one state section
+  /// with differing values. `true` now wins over `false` regardless of
+  /// order — see [usPrivacyOptedOut]'s doc comment for the full rationale.
   static Future<bool?> _gppUsStatesOptedOut() async {
     final entries = _usStateSkipBits.entries.toList();
     final results = await Future.wait(entries.map(
         (entry) => _gppUsStateSaleTargetedOptedOut(entry.key, entry.value)));
-    for (final result in results) {
-      if (result != null) return result;
-    }
+    if (results.any((r) => r == true)) return true;
+    if (results.any((r) => r == false)) return false;
     return null;
   }
 

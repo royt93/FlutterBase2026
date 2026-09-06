@@ -661,6 +661,26 @@ class HomePage extends StatelessWidget {
                 MaterialPageRoute(
                     builder: (_) => const TestDeviceHashDemoPage())),
           ),
+          DemoTile(
+            icon: Icons.cloud_sync,
+            title: 'Remote safety provider (T88)',
+            subtitle: 'RemoteAdSafetyProvider — live push, no app release',
+            color: Colors.indigo,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const RemoteSafetyDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.rocket_launch,
+            title: 'Splash shortcut (T94)',
+            subtitle: 'AdReadinessSplashController — the same flow, wrapped',
+            color: Colors.deepPurple,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const ReadinessControllerDemoPage())),
+          ),
         ],
       ),
     );
@@ -3066,4 +3086,396 @@ class _DemoCrlProvider implements VipRevocationProvider {
     debugPrint('[example] fetchSignedCrl: no real CRL backend in this demo');
     return null;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RemoteAdSafetyProvider demo (T88) — README "Remote-controlled AdSafetyParams"
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Demo-only stand-in for a real backend (Firebase Remote Config, a
+/// self-hosted config API, ...) — see README's "Remote-controlled
+/// AdSafetyParams" section. A real host reads its own remote-config SDK
+/// inside [fetchSafetyParamOverrides]; this demo reads [overrides] instead,
+/// which the demo page's own sliders act as the "remote" source of truth.
+class DemoRemoteAdSafetyProvider implements RemoteAdSafetyProvider {
+  final ValueNotifier<Map<String, dynamic>?> overrides =
+      ValueNotifier<Map<String, dynamic>?>(null);
+
+  @override
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async {
+    debugPrint('[example] fetchSafetyParamOverrides: ${overrides.value}');
+    return overrides.value;
+  }
+}
+
+class RemoteSafetyDemoPage extends StatefulWidget {
+  const RemoteSafetyDemoPage({super.key});
+
+  // Round-40 audit round 2 (independent re-review, R2-02) — the double-tap
+  // regression tests could only assert on converged end-state ("wired" /
+  // "one demo page"), which two racing operations could equally reach.
+  // These count actual invocations past the `_busy` guard so a test can
+  // assert exactly one real destroy()/initialize() ran, not just that the
+  // UI looks fine afterward. Test-only — never read outside integration
+  // tests.
+  @visibleForTesting
+  static int debugApplyCallCount = 0;
+  @visibleForTesting
+  static int debugPushCallCount = 0;
+  @visibleForTesting
+  static int debugRestoreCallCount = 0;
+
+  // Round-40 audit round 4 (follow-up to R3-01) — a real
+  // `AdManager().initialize()` failure is network-dependent and not
+  // reliably forceable from a test, so `onComplete(false, ...)`'s branch
+  // (see R3-01) had no deterministic regression coverage. When set, this
+  // skips the real destroy()/initialize() call entirely and uses the given
+  // value as `success` directly — the real call itself is already proven
+  // on-device by the other round40 integration tests; this isolates just
+  // the success/failure branch handling so it can run as a fast, reliable
+  // plain widget test. Test-only; reset to `null` in `tearDown`.
+  @visibleForTesting
+  static bool? debugForceApplyResult;
+  @visibleForTesting
+  static bool? debugForceRestoreResult;
+
+  @override
+  State<RemoteSafetyDemoPage> createState() => _RemoteSafetyDemoPageState();
+}
+
+class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
+  final _provider = DemoRemoteAdSafetyProvider();
+  double _maxPerDay = 20;
+  bool _dryRun = false;
+  bool _wired = false;
+  // Round-40 audit (independent review, IMPORTANT) — without this, a fast
+  // double-tap on "Apply provider" (or "Push update") started a second
+  // destroy()/initialize() (or refresh) before the first one's await
+  // resolved, since only `_wired` gated the button and it only flips
+  // after everything finishes. Guards every button below.
+  bool _busy = false;
+  String _status = 'Not wired yet — tap "Apply provider" below first.';
+
+  Future<void> _applyProvider() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _status = 'Destroying + re-initializing with provider...';
+    });
+    RemoteSafetyDemoPage.debugApplyCallCount++;
+    // Round-40 audit round 3 (independent re-review, R3-01) — `onComplete`
+    // was ignored, so a legitimate `onComplete(false, ...)` (SDK init
+    // failing without throwing) still fell through to the success branch
+    // below, claiming "Provider wired" while the SDK was actually left
+    // uninitialised post-destroy().
+    var success = false;
+    try {
+      final forced = RemoteSafetyDemoPage.debugForceApplyResult;
+      if (forced != null) {
+        success = forced;
+      } else {
+        await AdManager().destroy();
+        await AdManager().initialize(
+          config: DemoConfig.instance.build(),
+          remoteSafetyProvider: _provider,
+          onComplete: (ok, _) => success = ok,
+        );
+      }
+      if (!mounted) return;
+      if (!success) {
+        setState(() =>
+            _status = 'Failed to apply provider — the SDK did not initialize.');
+        return;
+      }
+      setState(() {
+        _wired = true;
+        _status = 'Provider wired. Adjust below, then "Push update".';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _status = 'Failed to apply provider: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _pushUpdate() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _status = 'Fetching...';
+    });
+    RemoteSafetyDemoPage.debugPushCallCount++;
+    _provider.overrides.value = {
+      'maxFullscreenAdsPerDay': _maxPerDay.round(),
+      'dryRun': _dryRun,
+    };
+    try {
+      await AdManager().refreshRemoteSafetyParams();
+      if (!mounted) return;
+      setState(() => _status = 'Applied — see "Live status" below.');
+    } catch (e) {
+      if (mounted) setState(() => _status = 'Failed to push update: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // Round-40 audit (independent review, MINOR) — "Apply provider" mutates
+  // the whole app's live AdSafetyConfig, not just this page; it used to
+  // stay mutated with no way back short of restarting the app, which could
+  // make every other demo screen visited afterward confusing (dry-run ads,
+  // a lowered daily cap). Detaches the provider and puts the SDK back on
+  // DemoConfig's own defaults.
+  Future<void> _restoreDefaults() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _status = 'Restoring demo defaults...';
+    });
+    RemoteSafetyDemoPage.debugRestoreCallCount++;
+    // R3-01 (see _applyProvider) — same capture-and-branch fix.
+    var success = false;
+    try {
+      final forced = RemoteSafetyDemoPage.debugForceRestoreResult;
+      if (forced != null) {
+        success = forced;
+      } else {
+        await AdManager().destroy();
+        await AdManager().initialize(
+          config: DemoConfig.instance.build(),
+          onComplete: (ok, _) => success = ok,
+        );
+      }
+      if (!mounted) return;
+      if (!success) {
+        setState(() => _status =
+            'Failed to restore defaults — the SDK did not initialize.');
+        return;
+      }
+      setState(() {
+        _wired = false;
+        _maxPerDay = 20;
+        _dryRun = false;
+        _status = 'Restored — provider detached, SDK back on demo defaults.';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _status = 'Failed to restore defaults: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Remote safety provider demo')),
+      body: ListView(
+        padding: bottomSafe(context, const EdgeInsets.all(16)),
+        children: [
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Simulates a backend (Firebase Remote Config, your own API, '
+                '...) pushing new AdSafetyParams without an app store '
+                'release. The controls below stand in for "what the backend '
+                'returns" — a real host reads them from its own remote-config '
+                'SDK instead. See README "Remote-controlled AdSafetyParams".',
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Card(
+            color: Color(0xFFFFF3E0),
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                '⚠️ "Apply provider" mutates the whole app\'s live '
+                'AdSafetyParams, not just this page — other demo screens '
+                'will reflect it too, until you tap "Restore demo defaults" '
+                'below.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: (_busy || _wired) ? null : _applyProvider,
+            child: Text(_wired
+                ? 'Provider already wired'
+                : _busy
+                    ? 'Applying...'
+                    : 'Apply provider (destroy + re-initialize)'),
+          ),
+          const SizedBox(height: 16),
+          Text(
+              'Simulated remote maxFullscreenAdsPerDay: ${_maxPerDay.round()}'),
+          Slider(
+            value: _maxPerDay,
+            min: 1,
+            max: 50,
+            divisions: 49,
+            label: '${_maxPerDay.round()}',
+            onChanged: (_wired && !_busy)
+                ? (v) => setState(() => _maxPerDay = v)
+                : null,
+          ),
+          SwitchListTile(
+            title: const Text('Simulated remote dryRun'),
+            value: _dryRun,
+            onChanged: (_wired && !_busy)
+                ? (v) => setState(() => _dryRun = v)
+                : null,
+          ),
+          const SizedBox(height: 8),
+          FilledButton.tonal(
+            onPressed: (_wired && !_busy) ? _pushUpdate : null,
+            child: const Text('Push update (refreshRemoteSafetyParams)'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: (_wired && !_busy) ? _restoreDefaults : null,
+            child: const Text('Restore demo defaults (destroy + re-initialize)'),
+          ),
+          const Divider(height: 32),
+          Text(_status),
+          const SizedBox(height: 12),
+          const Text('Live status',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(AdSafetyConfig.getStatus(),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AdReadinessSplashController demo (T94) — README's splash-wrapper shortcut
+// ─────────────────────────────────────────────────────────────────────────
+
+class ReadinessControllerDemoPage extends StatefulWidget {
+  const ReadinessControllerDemoPage({super.key});
+
+  // Round-40 audit round 2 (independent re-review, R2-02) — test-only
+  // counter so a double-tap test can assert exactly one real replay ran
+  // past the `_busy` guard, not just that the end state looks converged.
+  @visibleForTesting
+  static int debugReplayCallCount = 0;
+
+  @override
+  State<ReadinessControllerDemoPage> createState() =>
+      _ReadinessControllerDemoPageState();
+}
+
+class _ReadinessControllerDemoPageState
+    extends State<ReadinessControllerDemoPage> {
+  // Round-40 audit (independent review, IMPORTANT) — without this, a fast
+  // double-tap could push two `_ReadinessControllerSplash` routes on top of
+  // a single `destroy()`, racing two controllers against one SDK instance
+  // (the second short-circuits via `countInitSplashScreen > 1`, but which
+  // one "wins" the pop back becomes timing-dependent). Held true for the
+  // whole time the splash route is on screen, not just during destroy() —
+  // `Navigator.push`'s Future only resolves once it's popped.
+  bool _busy = false;
+
+  Future<void> _replay(BuildContext context) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    ReadinessControllerDemoPage.debugReplayCallCount++;
+    try {
+      await AdManager().destroy();
+      if (!context.mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const _ReadinessControllerSplash(),
+      ));
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Replay failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('AdReadinessSplashController demo')),
+      body: ListView(
+        padding: bottomSafe(context, const EdgeInsets.all(16)),
+        children: [
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'This example\'s real splash screen (SplashScreen) wires '
+                'everything by hand, to demo the full manual flow the '
+                'README documents. AdReadinessSplashController (T94) wraps '
+                'that exact same sequence — subscribe-before-init, hard-cap '
+                'timer, splash-active bookkeeping, buffered App Open ad — '
+                'behind one start()/onReady call, for hosts that do not need '
+                'the manual flow\'s extra steps.\n\n'
+                'Tapping below destroys the SDK (the same "Destroy SDK" '
+                'action used elsewhere in this app) and re-initializes it '
+                'through the controller instead, so it runs for real.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _busy ? null : () => _replay(context),
+            child: Text(_busy
+                ? 'Replaying...'
+                : 'Destroy SDK + replay via controller'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadinessControllerSplash extends StatefulWidget {
+  const _ReadinessControllerSplash();
+
+  @override
+  State<_ReadinessControllerSplash> createState() =>
+      _ReadinessControllerSplashState();
+}
+
+class _ReadinessControllerSplashState
+    extends State<_ReadinessControllerSplash> {
+  late final _controller =
+      AdReadinessSplashController(config: DemoConfig.instance.build());
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.start(context, onReady: () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        backgroundColor: Colors.deepPurple,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text('AdReadinessSplashController running...',
+                  style: TextStyle(color: Colors.white)),
+            ],
+          ),
+        ),
+      );
 }

@@ -4,6 +4,154 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.20] - 2026-09-06
+
+Round-40 audit — 3 independent reviews (in-session Claude + `codex` + `agy`/
+Gemini, each on an isolated repo copy) plus a rebuttal of two user-raised
+doubts (docs accuracy, example-app completeness). 0 BLOCKER. 1 MAJOR found and
+fixed:
+
+- **Fix (MAJOR, R40-A):** `IabStorage.usPrivacyOptedOut()` and
+  `_gppUsStatesOptedOut()` used to return the first *non-null* GPP signal in a
+  fixed priority order (US National → California → other US states; and,
+  within the 19 states, section-ID order), even when that signal was `false`
+  (Did Not Opt Out). A CMP that legitimately populates more than one section
+  at once (e.g. a coarse national default alongside a jurisdiction-specific
+  override) could have a real opt-out in a lower-priority section
+  permanently shadowed by an earlier section's stale/default "did not opt
+  out". `true` now wins over `false` from any GPP tier/state; only `null`
+  (no section has a usable signal at all) falls through. Found by `codex`,
+  independently confirmed against source by both in-session Claude passes;
+  missed by `agy`.
+- **Fix (MAJOR, R40-A round 2 — a second independent re-review, R2-01):**
+  the legacy `IABUSPrivacy_String` was left OUT of the round-1 fix above —
+  still checked first and returned immediately if parseable, fully
+  authoritative even over a real GPP opt-out. That is the identical failure
+  shape round 1 fixed between GPP tiers: neither the legacy string nor GPP
+  carries a timestamp, so there is no basis to treat one as more definitive
+  than the other. The legacy string is now unioned into the same
+  true-beats-false rule as every GPP tier, not treated as a separate
+  short-circuit. The existing "legacy takes precedence" test's expectation
+  flipped (legacy `N` + GPP opted-out now correctly reads `true`, not
+  `false`) and a second test locks in the reverse direction (legacy opted
+  out + GPP `N` still `true`).
+- **Docs (MINOR):** `CHANGELOG.md` was missing "Published to pub.dev." on
+  the 2.9.17-2.9.19 entries — verified via the live pub.dev listing that
+  2.9.19 is in fact published and matches local source; only the note was
+  missing, not the content.
+- **Example app:** added two demo screens exercising features the README
+  already documented but the example never ran: `RemoteAdSafetyProvider`
+  (T88, `RemoteSafetyDemoPage` — destroys + re-initializes the SDK with a
+  live provider, then calls `refreshRemoteSafetyParams()` for real) and
+  `AdReadinessSplashController` (T94, `ReadinessControllerDemoPage` —
+  destroys + replays splash through the controller shortcut instead of the
+  manual flow). `home_page_test.dart` updated (19 → 21 tiles) with new
+  navigation tests for both.
+- **Fix (IMPORTANT, independent re-review):** both new demo pages let a
+  fast double-tap start a second `destroy()`/`initialize()` (or a second
+  splash route) before the first one's await resolved — the button only
+  disabled once everything had already finished. Added a `_busy` guard on
+  both, disabling the button synchronously on the first tap and resetting
+  in a `finally` (with a `mounted` check). Confirmed fixed with two
+  double-tap regression tests run for real on a Pixel 7 Pro (see below) —
+  the fix caught the exact race the review named, no theoretical-only fix.
+- **UX (MINOR, independent re-review):** `RemoteSafetyDemoPage`'s "Apply
+  provider" mutates the app's live `AdSafetyConfig` globally, with no way
+  back short of restarting the app — every other demo screen visited
+  afterward would silently inherit the simulated remote values. Added a
+  visible warning card and a "Restore demo defaults" button that detaches
+  the provider and re-initializes on `DemoConfig`'s own defaults.
+- **Fix (IMPORTANT, round 2, R2-02 — test-quality):** the two double-tap
+  regression tests originally only asserted a converged end-state ("Provider
+  already wired" / exactly one demo-page instance), which two racing
+  operations could equally reach — not proof the guard actually stopped a
+  second invocation. `RemoteSafetyDemoPage` and `ReadinessControllerDemoPage`
+  each gained a `@visibleForTesting` invocation counter
+  (`debugApplyCallCount`/`debugReplayCallCount`, incremented only past the
+  `_busy` guard); both double-tap tests now assert the counter is exactly
+  `1` on top of the end-state checks.
+- **Fix (MINOR, round 2, R2-04 — resilience):** `_applyProvider`,
+  `_pushUpdate`, `_restoreDefaults`, and `_replay` used `finally` without a
+  `catch` — a destroy()/initialize()/refresh failure would surface as an
+  unhandled async error with the status stuck on "Applying.../Fetching...".
+  All four now catch and surface the failure in the UI (status text or a
+  SnackBar) instead.
+- **On-device proof (Pixel 7 Pro, real hardware, `AD_PROVIDER_ADMOB=true`):**
+  6 `integration_test/` files (7 tests total), each run individually for
+  real and passing — `round40_gpp_shadow_test.dart` (2 tests: the R40-A
+  fix's cross-tier and within-states shadowing scenarios, off the real
+  platform preference store, not a mock), `round40_remote_safety_demo_test.dart`
+  (wires a real provider, drags the slider, calls
+  `refreshRemoteSafetyParams()`, and asserts `AdSafetyConfig`'s live
+  snapshot actually changed to the pushed value),
+  `round40_remote_safety_demo_doubletap_test.dart` (asserts
+  `debugApplyCallCount == 1`), `round40_remote_safety_demo_restore_test.dart`
+  (round 2, R2-03 — confirms "Restore demo defaults" actually puts the live
+  `AdSafetyConfig` back on `DemoConfig`'s own default, not just that the
+  button doesn't crash), `round40_readiness_controller_demo_test.dart`
+  (destroys + replays splash through the real controller, confirms
+  `onReady` fires and the SDK is initialised again), and
+  `round40_readiness_controller_demo_doubletap_test.dart` (asserts
+  `debugReplayCallCount == 1`).
+- 5 more unit fixtures for the R40-A fix's remaining cross-tier/malformed/
+  legacy-boundary combinations (3 from the first re-review, 2 from R2-01),
+  reusing only already-verified fixtures (no new hand-encoded GPP
+  bit-strings). 1656/1656 unit/widget tests passing before this round's
+  additions, 1662/1662 after, plus 6 example-package widget tests
+  updated/added (including the 2 new R3-01 failure-branch tests) and 6
+  example-package `integration_test/` files (7 tests) added. 2 known MAJOR-tier trade-offs re-confirmed unchanged from round 39
+  (Android trial/VIP replay via reinstall/clear-data — no-backend design,
+  documented in README's VIP section).
+- **Fix (IMPORTANT, round 5 — a fifth independent re-review):**
+  `test/iab_storage_us_states_parallel_test.dart` still asserted the
+  pre-R40-A expectation (Virginia's earlier, non-null `false` beats Rhode
+  Island's `true`) — this session had re-run `test/ad_manager_core_test.dart`
+  directly after every follow-up fix but never the SDK's full `test/` suite
+  again after round 1's `_gppUsStatesOptedOut()` change, so this file's own
+  contradiction with the round's own fix went unnoticed until an
+  independent reviewer ran the whole suite. Updated to expect `true`
+  (Rhode Island's real opt-out wins), reusing the same already-verified
+  fixtures. Full suite now **1662/1662, 0 failures** (previous full runs
+  this round showed 1 failure each time, but a different, genuinely
+  order-dependent pre-existing flake in a timing-sensitive test unrelated
+  to this round — see `doc/audit/audit_round40_consolidated.md`'s
+  Addendum for detail on telling the two apart).
+- **Note on R40-A's design:** honoring `true` from any GPP tier/state/legacy
+  string over `false` from any other is intentionally fail-closed for
+  privacy — a stale signal can still force an opt-out even if it is no
+  longer the user's current one. That is the accepted tradeoff (a
+  wrongly-honored opt-out costs some monetization; a wrongly-ignored one is
+  a compliance risk), not an oversight.
+- **Fix (IMPORTANT, round 3, R3-01):** `RemoteSafetyDemoPage._applyProvider()`
+  and `_restoreDefaults()` passed `AdManager().initialize()` an
+  `onComplete` callback that discarded its `success` flag — a legitimate
+  `onComplete(false, gaid)` (init failing without throwing) still fell
+  through to the success branch, claiming "Provider wired"/"Restored" while
+  the SDK was actually left uninitialised right after `destroy()`. Both now
+  capture `success` and branch on it, showing a failure status instead. A
+  real `initialize()` failure is network-dependent and not reliably
+  forceable from a test, so `debugForceApplyResult`/
+  `debugForceRestoreResult` (`@visibleForTesting`, round 4 follow-up) skip
+  the real destroy()/initialize() call and inject the outcome directly,
+  isolating just this branch's UI handling — `example/test/
+  remote_safety_demo_page_test.dart` (2 new tests) exercises both failure
+  paths deterministically; the real call's happy path stays proven
+  on-device by the existing round40 integration tests.
+- **Doc (MINOR, round 3, R3-02):** `usPrivacyOptedOut()`'s doc comment still
+  described the pre-R2-01 "legacy is authoritative" behavior a few
+  paragraphs above the R2-01 note that superseded it — reworded as an
+  explicit historical note so a future maintainer can't restore the old
+  precedence by pattern-matching the wrong paragraph.
+- Three rounds of independent adversarial review (`codex`, isolated repo
+  copy each time, no shared context with this session or with each other):
+  round 1 scored 7/10 (GPP fix itself sound; flagged the double-tap race,
+  now fixed, and said example test coverage didn't yet match what this file
+  claimed). Round 2 scored 6.5/10 and blocked production on R2-01 (above,
+  fixed) plus R2-02/R2-03 (above, fixed). Round 3 scored 7/10 and blocked
+  production on R3-01 (above, fixed) plus R3-02 (above, fixed). See
+  `doc/audit/audit_round40_consolidated.md`'s Addendum for all three
+  reviews in full and what shipped in response to each.
+
 ## [2.9.19] - 2026-09-05
 
 Round-39 audit (4 independent reviewers: codex, Gemini, and two independent
@@ -72,7 +220,8 @@ Verified: 1656/1656 unit/widget tests, `flutter analyze` clean, no
 regressions, plus 65/65 on-device integration test files run for real on a
 Pixel 7 Pro (63 genuine passes; 2 failures are a pre-existing, documented gap
 — no real AppLovin SDK key is committed in this repo — unrelated to this
-round). See `doc/audit/audit_round39_consolidated.md`.
+round). See `doc/audit/audit_round39_consolidated.md`. Published to
+pub.dev.
 
 ## [2.9.18] - 2026-09-05
 
@@ -94,7 +243,8 @@ US-state reads now run in parallel (same precedence preserved); and
 programmatic dismiss API exists to fully fix it). Verified: 1640/1640
 unit/widget tests, `flutter analyze` clean, 2 new on-device integration
 tests passing for real on a Samsung device, full app build+install+smoke
-run with no crashes. See `doc/audit/audit_round38_consolidated.md`.
+run with no crashes. See `doc/audit/audit_round38_consolidated.md`. Published
+to pub.dev.
 
 ## [2.9.17] - 2026-09-05
 
@@ -120,7 +270,7 @@ applied to all four fullscreen show paths including the pre-existing
 and a full on-device smoke test on a real Samsung S24 Ultra covering every
 fix including a real interstitial surviving the reload race and a real
 tap dismissing it. See `doc/audit/audit_round37_consolidated.md` for the
-complete finding list and scoring rationale.
+complete finding list and scoring rationale. Published to pub.dev.
 
 ## [2.9.16] - 2026-09-04
 
