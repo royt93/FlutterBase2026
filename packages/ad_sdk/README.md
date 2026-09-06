@@ -1679,6 +1679,47 @@ into `AdManager.diagnostics()` (`fillRateRegressionBySlot`) and the built-in
 `DebugAdOverlay`, so enabling it is the only integration step needed to see
 it in the panel.
 
+## Other advanced opt-in modules (brief)
+
+The two above (arbitrator, fill-rate monitor) aren't the only opt-in
+modules this SDK ships — these are lower-profile, advanced, or niche
+enough that they don't need a full section, but are real public API a host
+app can reach for:
+
+- **`AdSafetyConfig`** — the anti-fraud engine itself (throttle,
+  session/hourly/daily caps, CTR monitoring, progressive cooldown). Query
+  live state any time via `AdSafetyConfig.getStatus()` (string) or
+  `.getStatusSnapshot()` (structured `AdSafetySnapshot`) — see
+  `RemoteSafetyDemoPage` in the example app for a working usage.
+- **`AdRetryPolicy`** — per-slot retry/backoff tuning that distinguishes
+  no-fill from network/invalid-request/timeout failures, since a
+  misconfigured ad unit will never self-resolve by retrying while a
+  network blip often should retry sooner than the default backoff window.
+- **`BypassAuditTrail`** — always-on audit log proving every
+  `bypassSafety`/`bypassVipGuard` call only ever fired at this SDK's own
+  documented call sites (splash App Open, VIP watch-to-extend), not
+  somewhere patched in to farm impressions.
+- **`IncidentRecorder`** — a short rolling window of recent top-level
+  state transitions, for diagnosing "why didn't this ad show" races that a
+  single point-in-time diagnostics snapshot can't explain by itself.
+- **`MonetizationDigitalTwin`** — deterministic, read-only replay over
+  `AdEventLog` history for analytics; never issues an ad request or
+  touches `AdSafetyConfig`'s live state.
+- **`JourneyPrefetcher`** — opt-in, engagement-signal-driven prefetching
+  via `AdManager().enableJourneyPrefetcher(...)`; nothing is tracked or
+  preloaded unless the host app calls `notifySignal`.
+- **`WaterfallTuner`** — per-provider eCPM score tracking meant for
+  *cross-install* mediation experiments (e.g. deciding a new install's
+  `AdConfig.provider` from server-side analytics) — not a within-install
+  auto-switcher.
+- **`TopToast`** — the small built-in toast this SDK uses internally for
+  "ad not ready" messaging (`TopToast.show(context, icon: ..., message:
+  ...)`), reusable directly by a host app that wants the same look.
+
+`SelfHealingObserver` is intentionally omitted above — its own doc comment
+notes it stays dormant on any single real install by design; treat it as
+experimental/advanced rather than something to wire up by default.
+
 ## Diagnostics & integration self-check
 
 `AdManager.diagnostics()` is a one-shot, read-only snapshot that combines the

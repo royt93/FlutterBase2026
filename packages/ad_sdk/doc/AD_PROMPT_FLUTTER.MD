@@ -1598,10 +1598,12 @@ The default before any `setConsent` call is `AdConsent.conservative` (all flags 
 ```diff
 - if (AdManager().bannerLoaded) { ... }
 + ValueListenableBuilder<bool>(
-+   valueListenable: AdManager().adapter!.banner.isLoaded,
++   valueListenable: AdManager().adapter!.banner(myBannerWidgetKey).isLoaded,
 +   builder: (_, loaded, __) => loaded ? BannerView() : Skeleton(),
 + );
 ```
+
+`banner(Object key)` is keyed per `BannerAdWidget` instance (`myBannerWidgetKey` above stands in for that widget instance), since multiple banners can be mounted at once — it is not a bare property. In practice, prefer the simpler option below over wiring this by hand.
 
 Or simpler: extend `AdScreen` and use `buildBanner()` which handles all this automatically.
 

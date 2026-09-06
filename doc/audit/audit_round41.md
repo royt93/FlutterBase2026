@@ -267,3 +267,98 @@ line against current source (only checked the section headers/dates and
 the version-pin distinction above); did not diff the "Public API" cheat
 sheet against every symbol actually exported from `lib/applovin_admob_sdk.dart`
 (spot-checked ~25 named claims instead, all matched — see above).
+
+## Round 42 — full export/README cross-check + AD_PROMPT_FLUTTER.MD Appendix D verify
+
+Full follow-up on both gaps flagged above. 111 public symbols (every
+class/enum/typedef exported — whole-file exports enumerated via
+`grep "^class \|^enum \|..."` per file, `show`-restricted exports read
+directly from the barrel) cross-checked against `README.md` by exact name
+(case-sensitive word-boundary, then a case-insensitive re-check on the
+non-trivial misses). All 450 lines of Appendix D (`doc/AD_PROMPT_FLUTTER.MD`
+lines 1297-1746) read in full; every code snippet's API names/signatures
+verified against current source with targeted `grep`/`Read`.
+
+### MAJOR — Appendix D.5 §5's migration snippet no longer compiles: `.banner` is a keyed method, not a property
+
+```dart
+// doc/AD_PROMPT_FLUTTER.MD:1600-1603
++ ValueListenableBuilder<bool>(
++   valueListenable: AdManager().adapter!.banner.isLoaded,
++   builder: (_, loaded, __) => loaded ? BannerView() : Skeleton(),
++ );
+```
+
+`AdProviderAdapter.banner` is `BannerListenables banner(Object key)` —
+`lib/src/core/ad_provider_adapter.dart:210` — a **method that requires a
+key argument** (banners are multi-instance/keyed, one per mounted widget —
+see `bannerSlot(Object key)` on the line above it, and
+`test/fake_adapter_test.dart:101` calling `adapter.banner(key).isLoaded.value`
+for the real usage). The doc snippet calls it as a bare property with no
+key and no parens — a developer pasting this exact snippet gets a compile
+error ("banner isn't a getter" / missing argument), not a subtle runtime
+bug. This is D.5 (the 1.x→2.x migration section), so anyone migrating an
+old 1.x app today hits this immediately. Likely stale from before
+multi-instance banner support existed; the snippet was never updated when
+`banner` gained its `key` parameter. Fix: change the snippet to
+`AdManager().adapter!.banner(someKey).isLoaded` (or point at the simpler,
+actually-current recommended path — `extend AdScreen` + `buildBanner()` —
+which the very next line already says is the "simpler" alternative;
+consider just deleting the raw-listenable snippet in favor of that).
+
+Everything else spot-checked in Appendix D matched current source exactly:
+`stack`/`maxVipStackDuration` (default `Duration(days: 90)`,
+`ad_config.dart:401`), `bypassVipGuard`/`onDemandLoadTimeout` (default 15s,
+`ad_manager.dart:6693-6694`), `requestAtt()`/`AttResult{status,idfa,
+allowsTracking}` (`att_consent.dart:35-48`, field names and semantics
+exact), `logLevel`/`logTagFilter`/`onLog` (`ad_config.dart:392-442`),
+`vip.redeemVip(context, {key, duration, validator, strings, stack})`
+(`vip_manager.dart:1174-1180`, positional+named shape exact),
+`vip.isActive`/`activeListenable` (`vip_manager.dart:275-278`),
+`AdConsent.conservative` (`ad_consent.dart:63`), and AVP1/AVP2 signed-key
+format handling. D.6/D.7/D.8 (fix-only release note, common issues, FAQ)
+read fully — no stale claims found; D.6 already correctly avoids
+hardcoding a version number (points at the pub.dev API instead, matching
+this project's own `avoid-hardcoded-version-numbers-in-docs` convention).
+
+### MINOR — ~15 real opt-in public classes never named in README (host must construct them directly, not just internal plumbing)
+
+Confirmed these are genuinely part of the public API surface a host must
+touch directly — each has an `AdManager().enable*(instance)` facade that
+takes the class as a constructor argument (`ad_manager.dart:494` `enableArbitrator(MonetizationArbitrator)`,
+`:518` `enableFillRateMonitor(FillRateMonitor)`, `:549`
+`enableWaterfallTuner(WaterfallTuner)`, `:578`
+`enableSelfHealingObserver(SelfHealingObserver)`, `:616`
+`enableJourneyPrefetcher(JourneyPrefetcher)`, `:1032`
+`MonetizationDigitalTwin(log.entries)`) — so a host adopting any of these
+opt-in monetization features must import and construct the type by name,
+yet README never mentions: `JourneyPrefetcher`, `WaterfallTuner`,
+`WaterfallRecommendation`, `SelfHealingObserver`, `MonetizationDigitalTwin`,
+`DigitalTwinForecast`, `DailyAdOutcome`, `FillRateAlert`,
+`FillRateRegressionAlert`, `AdRetryPolicy`, `AdaptiveAdSurface`, `TopToast`,
+`AdSafetyConfig` (the static class itself — `AdSafetyParams`/`AdConfig.safety`
+ARE documented, but the runtime status/snapshot accessor class isn't named),
+`BypassAuditTrail`/`BypassAuditEntry`, `IncidentRecorder`/`IncidentEntry`/
+`IncidentBundle`, `SignedComplianceReport`/`SignedPayload`. README does
+cover the sibling `MonetizationArbitrator` (verified present) — these are
+its undocumented neighbors, not a from-scratch gap. Lower severity than the
+finding above because nothing here is *wrong*, just silent; a developer
+who finds these via IDE autocomplete or `CHANGELOG.md`'s T-number history
+can still use them (each class carries its own doc comment), but README's
+own "Public API" cheat sheet doesn't mention them at all, so a reader
+relying on README alone would not discover these features exist.
+
+The remaining ~28 unmentioned symbols (individual `AdEvent` subclasses
+like `AdSkipEvent`/`AdImpressionEvent`, `AdSlotState`/`AdSlotType` enum
+values, `FakeAdProviderAdapter`, `BannerListenables`, `ConsentSimulationResult`,
+etc.) are reasonably left undocumented by name — they're either data-shape
+types read off an already-documented parent (`AdEvent`), test-only seams,
+or types whose containing feature (consent, adapters) is already covered
+in prose without needing every helper type spelled out.
+
+**Verdict:** docs remain largely trustworthy — one real MAJOR (a
+migration-guide snippet that won't compile if followed verbatim, in the
+one section literally titled "migration guide") and one MINOR
+completeness gap (opt-in monetization companion classes undocumented by
+name). Both are docs-only; no code defect found. `flutter analyze`: no
+issues (unchanged from earlier in this round).
