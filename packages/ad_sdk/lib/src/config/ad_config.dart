@@ -8,6 +8,7 @@ import '../core/ad_safety_config.dart';
 import '../utils/safe_logger.dart';
 import '../vip/vip_dialog_strings.dart';
 import 'ad_log_level.dart';
+import 'placement_registry.dart';
 
 export 'ad_log_level.dart';
 
@@ -395,6 +396,7 @@ class AdConfig {
     this.adNotReadyMessage = 'Ad not ready — please wait and try again.',
     this.adLoadingMessage = 'Loading…',
     this.safety = AdSafetyParams.auto,
+    this.placements,
     this.safetyRampSchedule,
     this.vipKeyValidator,
     this.vipDialogStrings = const VipDialogStrings(),
@@ -450,6 +452,15 @@ class AdConfig {
 
   /// Tunable safety parameters (caps, throttle, click-rate, dryRun, ...).
   final AdSafetyParams safety;
+
+  /// T140 — optional per-placement BEHAVIOR overrides (e.g. a stricter
+  /// daily cap for one specific placement) keyed by the [AdPlacement.id]
+  /// every show method already takes. Does NOT store ad unit IDs — those
+  /// stay on [admob]/[appLovin] as the single source of truth; see
+  /// [PlacementRegistry]'s own doc comment. `null` (the default) disables
+  /// this entirely — every show call behaves exactly as before this field
+  /// existed.
+  final PlacementRegistry? placements;
 
   /// T121 — fully local alternative to a remote-config safety ramp
   /// (`remoteSafetyProvider` in [AdManager.initialize], which needs a

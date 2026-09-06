@@ -970,6 +970,32 @@ This is checked in **addition** to the global cap, never instead of it — a
 placement with no entry has no extra limit beyond the global one, and this
 whole feature is opt-in (`null` by default, fully backward-compatible).
 
+### Centralized placement behavior overrides (`PlacementRegistry`)
+
+`AdConfig.placements` lets you configure per-`AdPlacement.id` behavior
+overrides in one place, instead of scattering `if (placement == ...)`
+branches across your app:
+
+```dart
+AdConfig(
+  // ...
+  placements: const PlacementRegistry({
+    'level_complete': PlacementSpec(
+      format: AdSlotType.interstitial,
+      frequencyCapOverride: 3, // stricter than this placement's default cap
+    ),
+  }),
+)
+```
+
+`PlacementRegistry` deliberately does NOT store ad unit IDs — those stay on
+`AdMobConfig`/`AppLovinConfig` as the single source of truth, avoiding a
+second place that could drift out of sync. It only overrides optional
+per-placement behavior knobs (currently `frequencyCapOverride`, which wins
+over `maxPerPlacementAdsPerDay`/`maxPerPlacementAdsPerDayById` above for
+that one placement). `null` (the default) disables this feature entirely —
+every show call behaves exactly as it did before this existed.
+
 ### Remote-controlled `AdSafetyParams` (`RemoteAdSafetyProvider`)
 
 Adjust caps/frequency from a backend (Firebase Remote Config, a self-hosted

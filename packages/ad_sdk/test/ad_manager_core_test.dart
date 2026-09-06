@@ -2127,6 +2127,317 @@ void main() {
           isEmpty);
     });
 
+    // T140 — PlacementRegistry's frequencyCapOverride, end to end through a
+    // real showInterstitial call, not just AdSafetyConfig's own unit tests.
+    group('PlacementRegistry frequencyCapOverride (T140)', () {
+      tearDown(() => AdManager().debugConfig = null);
+
+      test(
+          'a registered placement with frequencyCapOverride blocks even '
+          'though AdSafetyParams itself configures NO cap for it',
+          () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'level_complete': PlacementSpec(
+              format: AdSlotType.interstitial,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('level_complete'));
+
+        await AdManager().showInterstitial(
+          onDoneFlow: (_) {},
+          placement: const AdPlacement.custom('level_complete'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final skip = lastSkip();
+        expect(skip, isNotNull);
+        expect(skip!.reason, 'placement_cap',
+            reason: 'the registry\'s override (1/day) must block this — '
+                'AdSafetyParams.debug configures no per-placement cap at '
+                'all on its own');
+      });
+
+      test(
+          'a placement NOT in the registry is completely unaffected by it '
+          'being configured for OTHER placements', () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'level_complete': PlacementSpec(
+              format: AdSlotType.interstitial,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.home);
+
+        events.clear();
+        await AdManager().showInterstitial(
+            onDoneFlow: (_) {}, placement: AdPlacement.home);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+            events
+                .whereType<AdSkipEvent>()
+                .where((e) => e.reason == 'placement_cap'),
+            isEmpty,
+            reason: 'AdPlacement.home has no registry entry — the override '
+                'registered for a DIFFERENT placement id must not leak '
+                'into it');
+      });
+
+      test('no registry configured at all (AdConfig.placements: null, the '
+          'default) behaves identically to every release before T140',
+          () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          // placements: intentionally omitted — defaults to null.
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('level_complete'));
+
+        events.clear();
+        await AdManager().showInterstitial(
+          onDoneFlow: (_) {},
+          placement: const AdPlacement.custom('level_complete'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+            events
+                .whereType<AdSkipEvent>()
+                .where((e) => e.reason == 'placement_cap'),
+            isEmpty,
+            reason: 'no registry at all must mean no per-call override '
+                'ever applies — AdSafetyParams.debug has no configured '
+                'per-placement cap either, so nothing should block this');
+      });
+
+      // Round-2 independent review (IMPORTANT) — a spec's `format` used to
+      // be required but never actually checked at runtime: a registry
+      // entry declared for `interstitial` would silently ALSO gate any
+      // OTHER format's show call that happened to reuse the same
+      // AdPlacement.id (nothing stops a host from doing that —
+      // AdPlacement itself carries no format).
+      test(
+          'a spec registered for a DIFFERENT format than the actual show '
+          'call is NOT applied — format is checked, not just the id',
+          () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            // Registered for interstitial ...
+            'shared_id': PlacementSpec(
+              format: AdSlotType.interstitial,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('shared_id'));
+
+        // ... but THIS call is a rewarded ad reusing the same placement id.
+        events.clear();
+        await AdManager().showRewardedAd(
+          onEarnedReward: (_) {},
+          placement: const AdPlacement.custom('shared_id'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+            events
+                .whereType<AdSkipEvent>()
+                .where((e) => e.reason == 'placement_cap'),
+            isEmpty,
+            reason: 'the interstitial-only override must not leak into a '
+                'rewarded show call just because the placement id matches');
+      });
+
+      test(
+          'showRewardedAd() also honors a registered frequencyCapOverride',
+          () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'reward_shop': PlacementSpec(
+              format: AdSlotType.rewarded,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('reward_shop'));
+
+        events.clear();
+        await AdManager().showRewardedAd(
+          onEarnedReward: (_) {},
+          placement: const AdPlacement.custom('reward_shop'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final skip =
+            events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap');
+        expect(skip, isNotEmpty);
+      });
+
+      test(
+          'showRewardedInterstitialAd() also honors a registered '
+          'frequencyCapOverride', () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'ri_placement': PlacementSpec(
+              format: AdSlotType.rewardedInterstitial,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('ri_placement'));
+
+        events.clear();
+        await AdManager().showRewardedInterstitialAd(
+          onDone: (_, __) {},
+          placement: const AdPlacement.custom('ri_placement'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final skip =
+            events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap');
+        expect(skip, isNotEmpty);
+      });
+
+      test(
+          'showAppOpenAd(bypassSafety: false) honors a registered '
+          'frequencyCapOverride', () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'splash': PlacementSpec(
+              format: AdSlotType.appOpen,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('splash'));
+
+        events.clear();
+        await AdManager().showAppOpenAd(
+          onAdDismiss: (_) {},
+          placement: const AdPlacement.custom('splash'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final skip =
+            events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap');
+        expect(skip, isNotEmpty);
+      });
+
+      test(
+          'showAppOpenAd(bypassSafety: true) still bypasses the placement '
+          'cap entirely — same exemption as every other safety check it '
+          'already bypasses, unchanged by T140', () async {
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'splash': PlacementSpec(
+              format: AdSlotType.appOpen,
+              frequencyCapOverride: 1,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordPlacementAdShown(
+            const AdPlacement.custom('splash'));
+
+        events.clear();
+        await AdManager().showAppOpenAd(
+          onAdDismiss: (_) {},
+          bypassSafety: true,
+          placement: const AdPlacement.custom('splash'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+            events
+                .whereType<AdSkipEvent>()
+                .where((e) => e.reason == 'placement_cap'),
+            isEmpty,
+            reason: 'bypassSafety: true must still exempt the placement '
+                'cap too, T140 or not — same rule as the global safety '
+                'checks it already bypasses');
+      });
+    });
+
     // T119 — explainLastSkip is a thin read of the exact same AdSkipEvent
     // this whole group already asserts on, so this doesn't re-test every
     // reason code — just that the read side actually reflects it.

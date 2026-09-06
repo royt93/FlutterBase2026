@@ -521,8 +521,19 @@ class AdSafetyConfig {
   /// show time, never in place of them. `false` (never blocks) if
   /// [AdSafetyParams.maxPerPlacementAdsPerDay] has no entry for [placement] —
   /// the global cap alone still applies as always.
-  static bool placementDailyCapReached(AdPlacement placement) {
-    final maxPerDay = _params.maxPerPlacementAdsPerDay?[placement] ??
+  ///
+  /// T140 — [capOverride], when non-null, wins over whatever
+  /// [AdSafetyParams.maxPerPlacementAdsPerDay]/`maxPerPlacementAdsPerDayById`
+  /// would otherwise resolve to for [placement], for THIS call only — it
+  /// never mutates the underlying configured value (a later call without
+  /// `capOverride` falls straight back to it). Fed by
+  /// `PlacementRegistry`/`PlacementSpec.frequencyCapOverride` in
+  /// `ad_manager.dart`'s show methods; `null` (the default) is the exact
+  /// pre-T140 behavior.
+  static bool placementDailyCapReached(AdPlacement placement,
+      {int? capOverride}) {
+    final maxPerDay = capOverride ??
+        _params.maxPerPlacementAdsPerDay?[placement] ??
         _params.maxPerPlacementAdsPerDayById?[placement.id];
     if (maxPerDay == null) return false;
     final counts = _prefs?.getPlacementDailyCounts() ?? const {};

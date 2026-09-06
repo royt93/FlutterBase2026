@@ -117,6 +117,30 @@ class AdManager with WidgetsBindingObserver {
   AdConfig? _config;
   AdProviderAdapter? _adapterField;
 
+  /// T140 — resolves this session's [AdConfig.placements] registry (if
+  /// any) for [placement], returning its [PlacementSpec.frequencyCapOverride]
+  /// to feed into [AdSafetyConfig.placementDailyCapReached]'s
+  /// `capOverride` at every fullscreen show call site. `null` whenever
+  /// `placements` isn't configured, or has no entry for this exact
+  /// placement — every existing caller (no registry ever set up) sees
+  /// unchanged behavior.
+  ///
+  /// Round-2 independent review (IMPORTANT) — [actualFormat] is REQUIRED
+  /// and checked against [PlacementSpec.format]: a mismatch returns `null`
+  /// (no override applied) instead of silently applying a cap meant for a
+  /// DIFFERENT format. Without this, a host that happens to reuse the same
+  /// [AdPlacement.id] across two different ad formats (nothing stops
+  /// that — `AdPlacement` doesn't carry a format itself) would have a
+  /// spec registered for e.g. `interstitial` silently also gate
+  /// `showRewardedAd`/`showAppOpenAd`/`showRewardedInterstitialAd` calls
+  /// that happen to reuse that same id — the exact opposite of what a
+  /// required `format` field on the spec is supposed to prevent.
+  int? _placementCapOverride(AdPlacement placement, AdSlotType actualFormat) {
+    final spec = _config?.placements?[placement.id];
+    if (spec == null || spec.format != actualFormat) return null;
+    return spec.frequencyCapOverride;
+  }
+
   /// T111 — kept from the last [initialize] call so [refreshRemoteSafetyParams]
   /// can re-fetch without a full destroy()+initialize() cycle. Cleared by
   /// [destroy] alongside [_config].
@@ -2691,8 +2715,7 @@ class AdManager with WidgetsBindingObserver {
             // session).
             if (merged != null) {
               effectiveSafety = merged;
-              SafeLogger.d(
-                  _tag, '🌐 remote AdSafetyParams overrides applied');
+              SafeLogger.d(_tag, '🌐 remote AdSafetyParams overrides applied');
             }
           }
         } catch (e) {
@@ -6488,8 +6511,7 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (!bypassSafety) {
-      final s =
-          AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.appOpen);
+      final s = AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.appOpen);
       if (!s.canShow) {
         SafeLogger.d(
             _tag, () => '⏭️ showAppOpen blocked by safety: ${s.reason}');
@@ -6499,7 +6521,8 @@ class AdManager with WidgetsBindingObserver {
       // T92 — additional per-placement daily cap, same bypassSafety
       // exemption as the global cooldown check just above (a host that
       // opted out of ALL safety for this call shouldn't get half-exempted).
-      if (AdSafetyConfig.placementDailyCapReached(placement)) {
+      if (AdSafetyConfig.placementDailyCapReached(placement,
+          capOverride: _placementCapOverride(placement, AdSlotType.appOpen))) {
         SafeLogger.d(_tag,
             '⏭️ showAppOpen skipped — placement daily cap reached ($placement)');
         _emitSkip(AdSlotType.appOpen, 'show', 'placement_cap',
@@ -6814,8 +6837,8 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
-    final safety = AdSafetyConfig.canShowFullscreenAd(
-        forType: AdSlotType.interstitial);
+    final safety =
+        AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.interstitial);
     if (!safety.canShow) {
       SafeLogger.d(_tag,
           () => '⏭️ showInterstitial blocked by safety: ${safety.reason}');
@@ -6826,7 +6849,9 @@ class AdManager with WidgetsBindingObserver {
     }
     // T92 — additional per-placement daily cap, on top of (never instead
     // of) the global one just above.
-    if (AdSafetyConfig.placementDailyCapReached(placement)) {
+    if (AdSafetyConfig.placementDailyCapReached(placement,
+        capOverride:
+            _placementCapOverride(placement, AdSlotType.interstitial))) {
       SafeLogger.d(_tag,
           '⏭️ showInterstitial skipped — placement daily cap reached ($placement)');
       _emitSkip(AdSlotType.interstitial, 'show', 'placement_cap',
@@ -7144,7 +7169,8 @@ class AdManager with WidgetsBindingObserver {
     }
     // T92 — additional per-placement daily cap, on top of (never instead
     // of) the global one just above.
-    if (AdSafetyConfig.placementDailyCapReached(placement)) {
+    if (AdSafetyConfig.placementDailyCapReached(placement,
+        capOverride: _placementCapOverride(placement, AdSlotType.rewarded))) {
       SafeLogger.d(_tag,
           '⏭️ showRewarded skipped — placement daily cap reached ($placement)');
       _emitSkip(AdSlotType.rewarded, 'show', 'placement_cap',
@@ -7445,7 +7471,9 @@ class AdManager with WidgetsBindingObserver {
     }
     // T92 — additional per-placement daily cap, on top of (never instead
     // of) the global one just above.
-    if (AdSafetyConfig.placementDailyCapReached(placement)) {
+    if (AdSafetyConfig.placementDailyCapReached(placement,
+        capOverride: _placementCapOverride(
+            placement, AdSlotType.rewardedInterstitial))) {
       SafeLogger.d(_tag,
           '⏭️ showRewardedInterstitial skipped — placement daily cap reached ($placement)');
       _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'placement_cap',
@@ -7943,7 +7971,8 @@ class AdManager with WidgetsBindingObserver {
           runZonedGuarded(() {
             unawaited(_retryUmpConsent());
           }, (e, st) {
-            SafeLogger.w(_tag,
+            SafeLogger.w(
+                _tag,
                 '⚠️ UMP backstop retry threw unhandled: $e — ignoring, will '
                 'retry again next backstop tick');
           });
@@ -8075,7 +8104,8 @@ class AdManager with WidgetsBindingObserver {
           runZonedGuarded(() {
             unawaited(_retryUmpConsent());
           }, (e, st) {
-            SafeLogger.w(_tag,
+            SafeLogger.w(
+                _tag,
                 '⚠️ UMP reconnect retry threw unhandled: $e — ignoring, will '
                 'retry again next reconnect');
           });

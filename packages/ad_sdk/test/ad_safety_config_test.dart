@@ -771,6 +771,69 @@ void main() {
       expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.home),
           isFalse);
     });
+
+    // T140 — PlacementRegistry's frequencyCapOverride feeds in here.
+    group('capOverride parameter (T140)', () {
+      test('capOverride applies even when this placement has NO configured '
+          'cap otherwise', () async {
+        await AdSafetyConfig.init(prefs); // no maxPerPlacementAdsPerDay at all
+        AdSafetyConfig.resetForReinit();
+
+        expect(
+            AdSafetyConfig.placementDailyCapReached(AdPlacement.splash,
+                capOverride: 1),
+            isFalse);
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(
+            AdSafetyConfig.placementDailyCapReached(AdPlacement.splash,
+                capOverride: 1),
+            isTrue,
+            reason: 'capOverride must be able to introduce a cap where '
+                'AdSafetyParams configured none at all');
+      });
+
+      test('capOverride takes precedence over the configured '
+          'maxPerPlacementAdsPerDay value for this call', () async {
+        await AdSafetyConfig.init(prefs,
+            params:
+                AdSafetyParams(maxPerPlacementAdsPerDay: {
+              AdPlacement.splash: 5
+            }));
+        AdSafetyConfig.resetForReinit();
+
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        // Configured cap (5) is not reached yet — but a stricter override
+        // (1) for THIS call must still block.
+        expect(
+            AdSafetyConfig.placementDailyCapReached(AdPlacement.splash,
+                capOverride: 1),
+            isTrue,
+            reason: 'capOverride must win over the configured 5/day cap');
+        // The SAME placement, with no override passed, still uses the
+        // configured cap — proving the override is call-scoped, not a
+        // mutation of the underlying configured value.
+        expect(
+            AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isFalse,
+            reason: 'omitting capOverride must fall back to the '
+                'configured cap unchanged — 1 shown is still below 5');
+      });
+
+      test('capOverride: null (the default) preserves the exact pre-T140 '
+          'behavior', () async {
+        await AdSafetyConfig.init(prefs,
+            params:
+                AdSafetyParams(maxPerPlacementAdsPerDay: {
+              AdPlacement.splash: 1
+            }));
+        AdSafetyConfig.resetForReinit();
+
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(
+            AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isTrue);
+      });
+    });
   });
 
   // ─────────────────────────────────────────────────

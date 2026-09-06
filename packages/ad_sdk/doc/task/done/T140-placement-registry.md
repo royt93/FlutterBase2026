@@ -50,6 +50,41 @@ nguồn sự thật THỨ HAI cho ad unit ID (dễ gây nhầm lẫn/desync vớ
 `AdMobConfig`/`AppLovinConfig` đã có) — registry chỉ nên quản lý
 BEHAVIOR override, không quản lý ID.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 9.1/10** (2 vòng review độc lập `codex`:
+  8.7/10 → 9.1/10).
+- **Điều chỉnh thiết kế quan trọng so với mô tả ban đầu**: ticket viết
+  "thêm optional `String? placementId` vào các method show" — nhưng đọc
+  code thật phát hiện `showInterstitial`/`showRewardedAd`/... **ĐÃ CÓ SẴN**
+  tham số `placement: AdPlacement` (và `AdPlacement.id` đã là `String`).
+  Thêm 1 tham số `placementId` MỚI sẽ tạo ra 2 khái niệm trùng lặp cho
+  CÙNG 1 thứ (placement identity) — đúng loại rủi ro ticket tự cảnh báo
+  ("đừng để... nguồn sự thật thứ hai") nhưng áp dụng cho identity chứ
+  không chỉ ad unit ID. Quyết định: KHÔNG thêm tham số mới —
+  `PlacementRegistry` tra cứu qua `AdPlacement.id` đã có sẵn. Cả 2 vòng
+  review độc lập đều xác nhận điều chỉnh này đúng với ý định thật của
+  ticket, không phải bỏ sót scope.
+- **Vòng 1 (8.7/10) — 2 finding Important:**
+  1. `PlacementSpec.format` required nhưng KHÔNG được check ở runtime —
+     spec đăng ký cho `interstitial` vẫn âm thầm chặn `showRewardedAd`
+     nếu host vô tình tái dùng cùng `AdPlacement.id`. Sửa:
+     `_placementCapOverride` giờ nhận thêm `AdSlotType actualFormat`,
+     chỉ trả override khi `spec.format == actualFormat` khớp.
+  2. Test chỉ cover `showInterstitial`, thiếu appOpen/rewarded/
+     rewardedInterstitial dù đây chính là lý do Effort L. Thêm test cho
+     cả 4 format + 1 test format-mismatch + 1 test riêng
+     `bypassSafety: true` vẫn bypass hoàn toàn (không bị T140 phá vỡ).
+- **Vòng 2 (9.1/10) — 1 finding Important:** doc comment cũ của
+  `PlacementSpec.format` nói "không được enforce ở runtime" — MÂU THUẪN
+  với chính fix vừa sửa ở vòng 1 (giờ CÓ enforce). Đã sửa lại doc comment
+  cho khớp hành vi thật.
+- Baseline: `flutter analyze` sạch; `flutter test` 1717/1717; integration
+  test `t140_placement_registry_test.dart` (cả interstitial VÀ rewarded)
+  pass thật trên Samsung Galaxy S24 Ultra (Pixel 7 Pro mất kết nối giữa
+  session) — phải tắt `firstInstallVipGrace` vì debug build mặc định cấp
+  VIP grace che mất gate cần test.
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

@@ -1,3 +1,14 @@
+## Tiến độ (cập nhật 2026-09-06, phần 9 — T140 done, loop 3 hoàn tất)
+
+- **T140 done, 9.1/10** — PlacementRegistry (per-placement behavior
+  override tập trung). 2 vòng review độc lập `codex`: 8.7/10 → 9.1/10.
+  **Điều chỉnh thiết kế quan trọng**: KHÔNG thêm tham số `placementId`
+  mới như mô tả gốc — dùng lại `AdPlacement.id` đã có sẵn (tránh 2 khái
+  niệm trùng lặp cho cùng 1 thứ, đúng tinh thần cảnh báo của ticket).
+  1 bug thật bắt được ở vòng 1 (format không được check ở runtime, có
+  thể leak override sai format nếu trùng placementId). `todo/` còn 11
+  (T87, T114, T131, T138, T139, T141-T146); `done/` có 190.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 8 — T135 done, loop 2 hoàn tất)
 
 - **T135 done, 9.5/10** — RevenuePanel không còn cộng lẫn revenue khác USD
