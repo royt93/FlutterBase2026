@@ -108,16 +108,23 @@ be clear-eyed about the gap before depending on it for revenue:
   buttons, or other tappable controls, and don't show one on a screen the
   user is continuously interacting with (accidental clicks are treated as
   invalid traffic and can risk your AdMob account).
-- **`BannerAdWidget`/`MrecAdWidget` inside an `IndexedStack` bottom-nav tab
-  keeps auto-refreshing while that tab is hidden (round-37 audit).** They
-  pause/resume via `RouteAware` and `TickerMode`, but switching the `index`
-  of an `IndexedStack` does neither — no `Route` push/pop happens, and the
-  default `TickerMode` doesn't change either, so a banner on an inactive tab
-  keeps loading/serving ads the user cannot see, which risks Google's
+- **`BannerAdWidget`/`MrecAdWidget` auto-pause when scrolled off-screen or
+  obscured (round-39 audit fix)**, via a `visibility_detector`-backed check —
+  no wiring needed for that case. **`IndexedStack` bottom-nav tabs still need
+  manual wiring**, and always will: switching the `index` of an
+  `IndexedStack` triggers neither a `Route` push/pop nor a `TickerMode`
+  change, and — this is the part that isn't just a missing signal —
+  `IndexedStack` never even calls `paint()` on its non-current child, which
+  is exactly what the automatic visibility check depends on to notice
+  anything changed. A banner on an inactive `IndexedStack` tab that isn't
+  wired up keeps loading/serving ads the user cannot see, which risks
+  Google's
   ["don't refresh ads while hidden/off-screen"](https://support.google.com/admob/answer/6128877)
   rule. **Fix:** wrap each tab's content in `Visibility(maintainState: true)`
-  (its `TickerMode` correctly follows visibility) instead of relying on
-  `IndexedStack` alone, or gate the tab's own visibility state manually.
+  instead of relying on `IndexedStack` alone (its `TickerMode` correctly
+  follows visibility, and the automatic check above applies) — or, if you
+  must keep a bare `IndexedStack`, pass `active: selectedIndex == myIndex`
+  to `BannerAdWidget`/`MrecAdWidget` explicitly.
 - **The real ad show/dismiss lifecycle is only partially automatable.**
   Real AppLovin MAX test-ad creatives expose no accessible dismiss element,
   so 3 of the ~15 integration_test scenarios (app-open/interstitial/rewarded

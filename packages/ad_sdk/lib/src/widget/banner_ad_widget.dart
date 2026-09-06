@@ -1,6 +1,7 @@
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
 import '../core/ad_manager.dart';
@@ -25,22 +26,34 @@ import 'shimmer_view.dart';
 /// - subscribes to [adRouteObserver] for route-aware pause/resume
 /// - reacts to `TickerMode` (e.g. `Visibility(maintainState: true)`) so a
 ///   hidden-but-still-mounted instance also pauses/resumes
+/// - auto-pauses when a [VisibilityDetector] reports it's scrolled off-screen
+///   or obscured by another layer (round-39 audit fix) — but see [active]'s
+///   doc comment for a real gap this does NOT cover
 /// - delegates everything provider-specific to the active [AdProviderAdapter]
 ///
-/// **Known gap (round-31 audit):** a bottom-nav built directly on
-/// `IndexedStack` (switching `index` to show/hide tabs, with no `Route`
-/// push/pop and no `TickerMode` change either) gives this widget no signal
-/// at all that it went off-screen — it keeps auto-refreshing/serving ad
-/// requests in the background on a hidden tab, which is a genuine AdMob/
-/// AppLovin policy risk ("don't request ads that aren't visible"). If your
-/// bottom nav uses `IndexedStack`, wrap each tab's content in
-/// `Visibility(maintainState: true)` instead (or `TickerMode` directly) so
-/// this widget's existing pause/resume logic can see the transition.
+/// **`IndexedStack` still needs [active] wired manually.** A bottom-nav tab
+/// built on a bare `IndexedStack` gives none of the signals above anything to
+/// react to — worse, [VisibilityDetector] specifically *cannot* detect it
+/// either: `RenderIndexedStack.paintStack` never calls `paint()` on a
+/// non-current child at all, and `VisibilityDetector`'s own mechanism only
+/// ever re-evaluates visibility from inside its `paint()` call. No paint call
+/// ever happens for the hidden tab, so no "now invisible" signal ever fires —
+/// this is a real limitation of the render pipeline, not something client
+/// code can route around. Wrap each tab in `Visibility(maintainState: true)`
+/// instead (works via `TickerMode`, see above) — or, if you must keep a bare
+/// `IndexedStack`, pass `active: selectedIndex == myIndex` explicitly.
+///
+/// [active]: manual override — required for `IndexedStack` (see above), and
+/// otherwise available for any other layout none of the automatic signals
+/// can see through. Pass `false` while hidden and `true` (or omit — the
+/// default, `null`, defers entirely to the automatic signals) once visible
+/// again.
 class BannerAdWidget extends StatefulWidget {
   const BannerAdWidget({
     super.key,
     this.collapseAnimationDuration = const Duration(milliseconds: 250),
     this.placement = AdPlacement.unspecified,
+    this.active,
   });
 
   /// T91 — how long the banner takes to animate its height when it
@@ -53,6 +66,10 @@ class BannerAdWidget extends StatefulWidget {
   /// the `placement` param on `showInterstitialAd`/`showRewardedAd`. Every
   /// `AdLoadEvent`/`AdShowEvent` this banner emits carries it.
   final AdPlacement placement;
+
+  /// Manual visibility override — see the class doc comment. `null` (the
+  /// default) defers entirely to the automatic [VisibilityDetector] signal.
+  final bool? active;
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -110,6 +127,71 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   /// doc comment for the documented gap and the workaround.
   bool? _lastTickerMode;
 
+  /// Round-39 audit fix (MAJOR) — mirrors [_lastTickerMode] but for the
+  /// automatic [VisibilityDetector] signal (or [BannerAdWidget.active] when
+  /// the host takes manual control), so a bare `IndexedStack` tab — which
+  /// gives neither of the other two signals anything to react to — still
+  /// gets paused/resumed via the same [didPushNext]/[didPopNext] path.
+  bool? _lastEffectiveVisible;
+
+  /// Round-39 audit re-review (MAJOR, independent Gemini pass) — whether
+  /// [_initBanner] has ever actually been called. Needed to tell "never
+  /// loaded at all" (mounted with `active: false` — the primary IndexedStack
+  /// use case) apart from "loaded once, then paused" when [_applyVisibility]
+  /// later sees `visible: true`: the former must call [_initBanner] itself
+  /// (nothing to "resume" — [didPopNext] alone no-ops for AdMob when
+  /// `_admobIsTop` is already true, which `didPush()` sets independently of
+  /// `active` on every mount regardless), the latter must go through
+  /// [didPopNext] as before.
+  bool _bannerInitCalled = false;
+
+  void _onVisibilityChanged(VisibilityInfo info) {
+    // VisibilityDetector's composition callback can fire on a post-frame
+    // schedule that outlives this State's own dispose() (unlike RouteAware,
+    // which Flutter guarantees stops before that point) — mounted must be
+    // checked here explicitly, or this reaches into an already-disposed
+    // `_allowed` ValueNotifier via didPushNext/didPopNext.
+    if (!mounted) return;
+    if (widget.active != null) return; // host has taken manual control
+    _applyVisibility(info.visibleFraction > 0);
+  }
+
+  void _applyVisibility(bool visible) {
+    final last = _lastEffectiveVisible;
+    _lastEffectiveVisible = visible;
+    if (last == visible) return;
+    if (visible) {
+      if (!_bannerInitCalled) {
+        // Never loaded at all — e.g. mounted with active: false and this is
+        // the first time it's become active. Nothing to "resume": start a
+        // real load. didPopNext() alone would wrongly no-op here for AdMob
+        // (didPush() already set `_admobIsTop` true independently of
+        // `active` back at mount — see `_bannerInitCalled`'s doc comment).
+        _initBanner(context);
+      } else if (last != null) {
+        // A real resume — the very first callback ever (last == null) with
+        // _bannerInitCalled already true (normal init already ran) must not
+        // fire one before any pause has actually happened.
+        didPopNext();
+      }
+    } else {
+      // Unlike the visible branch above, this must fire even as the FIRST
+      // callback (last == null): a bare `IndexedStack` tab that starts
+      // hidden (any index other than the initially-selected one) needs its
+      // very first, still-mounting frame suppressed just as much as a later
+      // tab switch — that first frame is exactly the request this fix
+      // exists to stop. Only meaningful once something has actually loaded.
+      if (_bannerInitCalled) didPushNext();
+    }
+  }
+
+  @override
+  void didUpdateWidget(BannerAdWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final active = widget.active;
+    if (active != null) _applyVisibility(active);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -139,6 +221,10 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     mgr.disposeBannerInstance(this);
     _allowed.value = false;
     if (!mgr.canRequestAds || !mgr.isInitialised || mgr.isVIPMember()) return;
+    // Round-39 audit re-review (MAJOR) — same active-param gate as the
+    // build-time reinit path above; this consent-driven one is independent
+    // of it and knew nothing about it either.
+    if (widget.active == false) return;
     if (_initScheduled) return;
     _initScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -155,7 +241,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
       if (!_allowed.value &&
           !_initScheduled &&
           mgr.isInitialised &&
-          !mgr.isVIPMember()) {
+          !mgr.isVIPMember() &&
+          widget.active != false) {
         _initScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _initScheduled = false;
@@ -211,7 +298,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     }
     if (!_initStarted.value) {
       _initStarted.value = true;
-      _initBanner(context);
+      // Round-39 audit re-review (MAJOR) — mounting directly with
+      // active: false (e.g. an IndexedStack tab that isn't the initially-
+      // selected one) must never load in the first place; see
+      // _bannerInitCalled's doc comment for how the eventual active:true
+      // flip recovers from this without going through _initBanner twice.
+      if (widget.active == false) {
+        _lastEffectiveVisible = false;
+      } else {
+        _initBanner(context);
+      }
       return;
     }
     // Round-29 audit (MAJOR) — reload the AdMob adaptive banner when the
@@ -233,6 +329,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   }
 
   void _initBanner(BuildContext ctx) {
+    _bannerInitCalled = true;
     final mgr = AdManager();
     if (!mgr.isInitialised) {
       SafeLogger.d(_tag, '_initBanner ⏭️ AdManager not initialised yet');
@@ -371,13 +468,20 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     // same layout pass and re-dirty the RenderAnimatedSize while Flutter is
     // still laying it out (a genuine framework-level re-entrant-layout
     // assertion, not something callers can work around from outside).
-    if (widget.collapseAnimationDuration == Duration.zero) {
-      return _buildBanner(context);
-    }
-    return AnimatedSize(
-      duration: widget.collapseAnimationDuration,
-      alignment: Alignment.topCenter,
-      child: _buildBanner(context),
+    final child = widget.collapseAnimationDuration == Duration.zero
+        ? _buildBanner(context)
+        : AnimatedSize(
+            duration: widget.collapseAnimationDuration,
+            alignment: Alignment.topCenter,
+            child: _buildBanner(context),
+          );
+    // Round-39 audit fix (MAJOR) — see this widget's class doc comment and
+    // _onVisibilityChanged. Keyed on the State object itself: stable across
+    // rebuilds of this same instance, unique across every other banner.
+    return VisibilityDetector(
+      key: ObjectKey(this),
+      onVisibilityChanged: _onVisibilityChanged,
+      child: child,
     );
   }
 
@@ -388,7 +492,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {
-        if (!_allowed.value && !_initScheduled && AdManager().isInitialised) {
+        // Round-39 audit re-review (MAJOR) — this destroy→reinit retry path
+        // is independent of the active-param gate above and knew nothing
+        // about it: mounting with active: false still hit this on every
+        // rebuild (initRevision listener fires unconditionally) and loaded
+        // anyway. widget.active == false must suppress this exactly like it
+        // suppresses the initial didChangeDependencies call.
+        if (!_allowed.value &&
+            !_initScheduled &&
+            AdManager().isInitialised &&
+            widget.active != false) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;

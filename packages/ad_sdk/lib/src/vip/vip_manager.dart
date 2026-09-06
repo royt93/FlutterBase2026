@@ -1240,6 +1240,21 @@ class VipManager {
   /// itself. Enforces **per-device one-time-use**: the same key id cannot be
   /// redeemed twice on this device.
   ///
+  /// **Not enforced: cross-device replay.** A single valid key shared
+  /// publicly (leaked, posted online) can be redeemed once EACH on any
+  /// number of different devices, since there is no central server to claim
+  /// a key id globally — an inherent limit of an offline-only design, not a
+  /// bug. Re-raised independently at round 39 (same conclusion as round-26's
+  /// audit): mitigated, not eliminated, by [AppLovinConfig]/[AdMobConfig]-
+  /// independent `expiresAtEpochSeconds` + `bundleId` binding in the `AVP2`
+  /// key format (see `signed_vip_key.dart`) and [VipRevocationProvider] for
+  /// after-the-fact revocation once a leak is discovered. A host for whom
+  /// a VIP code is a real monetized product (not a one-off gift/support
+  /// gesture) — where this risk is a real revenue concern, not an
+  /// acceptable trade-off — needs a server-side per-code claim, which is
+  /// out of scope for this SDK's deliberately offline, no-backend design
+  /// (see `CLAUDE.md`'s VIP entitlement section).
+  ///
   /// Requires connectivity to even attempt redemption (checked via
   /// [_isConnectedCheck], not a network call the key verification itself
   /// needs) — a deliberate product gate against redeeming with the device

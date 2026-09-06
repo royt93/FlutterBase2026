@@ -20,6 +20,7 @@ void main() {
       params: AdSafetyParams.debug.copyWith(
         suspiciousCtrThreshold: 0.5,
         maxRapidResumesPerMinute: 3,
+        minTimeBetweenFullscreenAds: 0,
       ),
     );
     AdSafetyConfig.resetForReinit();
@@ -72,10 +73,10 @@ void main() {
     test('CTR-anomaly suspicious pause does not double-count into the score',
         () {
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordFullscreenAdShown();
       }
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordAdClick(); // 100% CTR > 0.5 threshold
+        AdSafetyConfig.recordAdClick(fullscreen: true); // 100% CTR > 0.5
       }
       final beforeGate = AdSafetyConfig.getPolicyRiskScore();
 

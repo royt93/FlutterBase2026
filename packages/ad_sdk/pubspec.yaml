@@ -3,7 +3,7 @@ name: applovin_admob_sdk
 # drops 10 points (the upload API itself allows up to 200 — two different
 # limits, see the screenshots note below).
 description: Dual-provider ad SDK for Flutter (AdMob + AppLovin MAX). Offline-verified VIP codes, GDPR/COPPA/CCPA consent, safety caps, AdEvent stream, debug overlay.
-version: 2.9.18
+version: 2.9.19
 
 # Monorepo: the package lives in packages/ad_sdk/ of the host app's repo, so
 # `repository` points at the subdirectory (pub.dev resolves it for the
@@ -112,6 +112,14 @@ dependencies:
   # silently disable the check).
   package_info_plus: ^9.0.0
   confetti: ^0.8.0
+
+  # Round-39 audit fix (MAJOR) — auto-pauses banner/MREC ads that go
+  # off-screen without being disposed (e.g. a bare `IndexedStack` bottom-nav
+  # tab, which gives Flutter's own `TickerMode`/`Visibility(maintainState:
+  # true)` no signal at all — see banner_ad_widget.dart's own doc comment).
+  # Maintained by the Flutter team itself; tiny, no transitive dependencies
+  # of its own.
+  visibility_detector: ^0.4.0+2
 
 dev_dependencies:
   flutter_test:

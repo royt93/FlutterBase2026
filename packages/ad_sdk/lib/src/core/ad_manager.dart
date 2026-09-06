@@ -3959,24 +3959,39 @@ class AdManager with WidgetsBindingObserver {
         // re-init completing.
         _updateCanRequestAds(false);
       }
-      await applyConsentToProviders(consent, config: cfg);
-      // No infinite-recursion risk: initialize() reaches consent through
-      // `_consentManager.set(...)`, not through this method, and the one
-      // setConsent() call it does trigger (via auto-UMP) carries the child
-      // flag through unchanged — so it cannot re-enter this branch.
-      //
-      // It CAN be a no-op though: initialize() early-returns while another
-      // init is in flight. Say so rather than leaving it silent — a host that
-      // flips this flag mid-init would otherwise be left wondering why
-      // AppLovin never picked it up.
-      if (_isInitializing) {
-        SafeLogger.w(
-            _tag,
-            '⚠️ COPPA flag changed while initialize() is still running — the '
-            'AppLovin re-init cannot run now. Call initialize() again once it '
-            'completes, or set the flag before initialize().');
-      } else {
-        unawaited(initialize(config: cfg, onComplete: (_, __) {}));
+      // Round-39 audit fix (MAJOR) — this was the one sibling write round-38's
+      // epoch guard never reached: it calls `applyConsentToProviders` directly
+      // then `return`s below before the guarded tail write at the bottom of
+      // this function ever runs. Two overlapping COPPA-flipping calls could
+      // both reach here; without this check the older one's stale write can
+      // land after the newer one's, silently re-enforcing a withdrawn (or
+      // wrongly child-directed) decision on the real AppLovin SDK.
+      // Round-39 audit re-review (MINOR, independent Gemini pass) — this
+      // whole re-init decision must live INSIDE the same epoch check above,
+      // not just the provider write: a superseded call reaching here with
+      // `_isInitializing` already back to false (the newer call's own
+      // re-init already completed) would otherwise still fire a whole extra,
+      // redundant `initialize()` cycle from a stale, overridden intent.
+      if (consentEpoch == _consentIntentEpoch) {
+        await applyConsentToProviders(consent, config: cfg);
+        // No infinite-recursion risk: initialize() reaches consent through
+        // `_consentManager.set(...)`, not through this method, and the one
+        // setConsent() call it does trigger (via auto-UMP) carries the child
+        // flag through unchanged — so it cannot re-enter this branch.
+        //
+        // It CAN be a no-op though: initialize() early-returns while another
+        // init is in flight. Say so rather than leaving it silent — a host
+        // that flips this flag mid-init would otherwise be left wondering
+        // why AppLovin never picked it up.
+        if (_isInitializing) {
+          SafeLogger.w(
+              _tag,
+              '⚠️ COPPA flag changed while initialize() is still running — the '
+              'AppLovin re-init cannot run now. Call initialize() again once it '
+              'completes, or set the flag before initialize().');
+        } else {
+          unawaited(initialize(config: cfg, onComplete: (_, __) {}));
+        }
       }
       return;
     }
@@ -4254,7 +4269,13 @@ class AdManager with WidgetsBindingObserver {
   }
 
   /// Replays the most recent [requestUmpConsent] params — see [_lastUmpParams].
+  /// Round-39 audit test seam: also honours [debugForceAutoUmpError], same as
+  /// the init-time auto-UMP flow, so both retry call sites' `runZonedGuarded`
+  /// wrapping can be exercised without a real UMP channel.
   Future<UmpConsentResult> _retryUmpConsent() {
+    if (debugForceAutoUmpError != null) {
+      throw debugForceAutoUmpError!;
+    }
     final p = _lastUmpParams;
     if (p == null) return requestUmpConsent();
     return requestUmpConsent(
@@ -7532,7 +7553,20 @@ class AdManager with WidgetsBindingObserver {
         } else {
           SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
           _umpBackstopRetryCount++;
-          unawaited(_retryUmpConsent());
+          // Round-39 audit fix (MAJOR) — same class of bug as the init-time
+          // auto-UMP flow (see its own comment): requestConsentInfoUpdate is
+          // a callback API that throws from a future nobody awaits when the
+          // channel is missing/misconfigured — an unhandled zone error no
+          // try/catch around the call can see. Sibling call site round 38
+          // never patched. Flapping connectivity would otherwise crash the
+          // whole app repeatedly.
+          runZonedGuarded(() {
+            unawaited(_retryUmpConsent());
+          }, (e, st) {
+            SafeLogger.w(_tag,
+                '⚠️ UMP backstop retry threw unhandled: $e — ignoring, will '
+                'retry again next backstop tick');
+          });
         }
       }
       _retryRefillAds();
@@ -7653,7 +7687,18 @@ class AdManager with WidgetsBindingObserver {
           unawaited(_recheckAbandonedUmpForm());
         } else {
           SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
-          unawaited(_retryUmpConsent());
+          // Round-39 audit fix (MAJOR) — same class of bug as the init-time
+          // auto-UMP flow and the periodic backstop above: an unhandled zone
+          // error from requestConsentInfoUpdate no try/catch around this
+          // call can see. A user cycling through a weak-signal area (subway,
+          // elevator) would otherwise crash the app once per reconnect.
+          runZonedGuarded(() {
+            unawaited(_retryUmpConsent());
+          }, (e, st) {
+            SafeLogger.w(_tag,
+                '⚠️ UMP reconnect retry threw unhandled: $e — ignoring, will '
+                'retry again next reconnect');
+          });
         }
       }
       // Round-20 QC, MAJOR — a debt whose retries all failed offline had

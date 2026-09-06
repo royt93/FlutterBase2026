@@ -68,7 +68,13 @@ class AdRetryPolicy {
     final rand = random ??
         math.Random(lastErrorAt.microsecondsSinceEpoch ^ consecutiveFailures);
     final jitterMs = base * jitterFraction * (rand.nextDouble() * 2 - 1);
-    final delay = (base + jitterMs).round().clamp(0, backoff.maxMs);
+    // Round-39 audit fix (MINOR) — a `jitterFraction` near 1.0 combined with
+    // an unlucky draw could collapse `delay` all the way to ~0, retrying
+    // immediately regardless of `consecutiveFailures` and defeating backoff
+    // entirely. Floor it at 10% of the un-jittered `base` so jitter can only
+    // ever shorten the wait, never erase it.
+    final floor = (base * 0.1).round();
+    final delay = (base + jitterMs).round().clamp(floor, backoff.maxMs);
     return elapsed >= delay;
   }
 }

@@ -1,6 +1,7 @@
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
 import '../core/ad_manager.dart';
@@ -30,11 +31,16 @@ class MrecAdWidget extends StatefulWidget {
   const MrecAdWidget({
     super.key,
     this.placement = AdPlacement.unspecified,
+    this.active,
   });
 
   /// T107 — tags this instance for analytics/per-placement caps, same as
   /// the `placement` param on `showInterstitialAd`/`showRewardedAd`.
   final AdPlacement placement;
+
+  /// Manual visibility override — see `BannerAdWidget.active`'s doc comment;
+  /// this widget follows the identical pattern.
+  final bool? active;
 
   @override
   State<MrecAdWidget> createState() => _MrecAdWidgetState();
@@ -57,6 +63,45 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
   /// for the full reasoning (IndexedStack/PageView tab switches keep this
   /// widget mounted with no route change to key off).
   bool? _lastTickerMode;
+
+  /// Round-39 audit fix (MAJOR) — see `BannerAdWidget`'s matching field for
+  /// the full reasoning.
+  bool? _lastEffectiveVisible;
+
+  /// Round-39 audit re-review (MAJOR, independent Gemini pass) — see
+  /// `BannerAdWidget._bannerInitCalled`'s doc comment for the full reasoning;
+  /// this widget follows the identical pattern.
+  bool _mrecInitCalled = false;
+
+  void _onVisibilityChanged(VisibilityInfo info) {
+    // See `BannerAdWidget._onVisibilityChanged`'s doc comment for why this
+    // must be checked explicitly here.
+    if (!mounted) return;
+    if (widget.active != null) return; // host has taken manual control
+    _applyVisibility(info.visibleFraction > 0);
+  }
+
+  void _applyVisibility(bool visible) {
+    final last = _lastEffectiveVisible;
+    _lastEffectiveVisible = visible;
+    if (last == visible) return;
+    if (visible) {
+      if (!_mrecInitCalled) {
+        _initMrec(context);
+      } else if (last != null) {
+        didPopNext();
+      }
+    } else {
+      if (_mrecInitCalled) didPushNext();
+    }
+  }
+
+  @override
+  void didUpdateWidget(MrecAdWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final active = widget.active;
+    if (active != null) _applyVisibility(active);
+  }
 
   @override
   void initState() {
@@ -83,6 +128,10 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     mgr.disposeMrecInstance(this);
     _allowed.value = false;
     if (!mgr.canRequestAds || !mgr.isInitialised || mgr.isVIPMember()) return;
+    // Round-39 audit re-review (MAJOR) — see BannerAdWidget's matching
+    // comment: this consent-driven reinit path is independent of the
+    // active-param gate and must respect it too.
+    if (widget.active == false) return;
     if (_initScheduled) return;
     _initScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,7 +148,8 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
       if (!_allowed.value &&
           !_initScheduled &&
           mgr.isInitialised &&
-          !mgr.isVIPMember()) {
+          !mgr.isVIPMember() &&
+          widget.active != false) {
         _initScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _initScheduled = false;
@@ -149,11 +199,19 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     }
     if (!_initStarted.value) {
       _initStarted.value = true;
-      _initMrec(context);
+      // Round-39 audit re-review (MAJOR) — mounting directly with
+      // active: false must never load in the first place; see
+      // BannerAdWidget's matching comment for the full reasoning.
+      if (widget.active == false) {
+        _lastEffectiveVisible = false;
+      } else {
+        _initMrec(context);
+      }
     }
   }
 
   void _initMrec(BuildContext ctx) {
+    _mrecInitCalled = true;
     final mgr = AdManager();
     if (!mgr.isInitialised) {
       SafeLogger.d(_tag, '_initMrec ⏭️ AdManager not initialised yet');
@@ -270,10 +328,27 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
+    // Round-39 audit fix (MAJOR) — see this widget's class doc comment and
+    // `_onVisibilityChanged`. Keyed on the State object itself: stable
+    // across rebuilds of this same instance, unique across every other one.
+    return VisibilityDetector(
+      key: ObjectKey(this),
+      onVisibilityChanged: _onVisibilityChanged,
+      child: _buildContent(context),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {
-        if (!_allowed.value && !_initScheduled && AdManager().isInitialised) {
+        // Round-39 audit re-review (MAJOR) — see BannerAdWidget's matching
+        // comment: this destroy→reinit retry path is independent of the
+        // active-param gate and must respect it too.
+        if (!_allowed.value &&
+            !_initScheduled &&
+            AdManager().isInitialised &&
+            widget.active != false) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;

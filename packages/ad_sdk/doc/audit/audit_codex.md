@@ -1,160 +1,53 @@
-# Audit độc lập SDK `applovin_admob_sdk` 2.9.17 — Codex (round 38)
+# Audit round 39 — `applovin_admob_sdk` 2.9.18
 
-**Ngày audit:** 2026-09-05
-**Revision:** `f1ddcad`
-**Phạm vi:** `packages/ad_sdk/lib/`, `packages/ad_sdk/test/`, `packages/ad_sdk/example/`.
-**Phương pháp:** chạy thật `codex exec --dangerously-bypass-approvals-and-sandbox` (codex-cli 0.147.0,
-non-interactive, auto-approve, không sandbox) trỏ vào `packages/ad_sdk`, cho phép đọc file thật và tự chạy
-`flutter analyze`/`flutter test` để verify. Sau khi codex trả kết quả, agent này (Claude, không chia sẻ context
-với codex) tự đọc lại source cho từng finding trước khi đưa vào báo cáo — không copy nguyên văn kết luận của
-codex mà không verify, đúng nguyên tắc "audit phải chậm và đối kháng" đã rút ra từ các round trước.
+## Tóm tắt
 
-## Tóm tắt kết quả
+Source ở commit `1af945e` có chất lượng cao: guard consent của round 38 còn nguyên ở cả `ConsentManager` và `AdManager`, các đường load/show đều có gate VIP/consent/connectivity/cap, và teardown đã quản lý timer/subscription/callback khá chặt. `flutter analyze` sạch và toàn bộ **1640/1640** unit/widget test pass. Audit vẫn xác nhận 3 giới hạn sản phẩm có hậu quả thực tế: trial và ledger VIP có thể bị reset trên Android khi reinstall không restore backup; một mã VIP có thể replay trên nhiều thiết bị; banner/MREC trong `IndexedStack` trần vẫn request/refresh khi tab bị ẩn.
 
-Codex tự báo cáo 3 MAJOR + 1 MINOR, không có BLOCKER, không phát hiện regression nào của các fix round 37.
-**Sau khi verify lại nguồn thật, cả 4 finding đều KHÔNG PHẢI vấn đề mới**: 2/4 là quyết định sản phẩm cố ý đã
-được ghi rõ ngay trong code là "đã bị audit flag nhiều lần, đừng sửa" (khớp với
-`vip-offline-gate-and-qa-hashes-are-features` trong bộ nhớ người dùng), 1/4 là hành vi đã tài liệu hoá công khai
-trong README (raw API vs. safe wrapper), và 1/4 là gap round-37 đã tự nhận nhưng đã có workaround/tài liệu ở
-README hiện tại (codex có vẻ không đọc tới đoạn README đó). Không có finding mới nào đủ điều kiện MAJOR/BLOCKER
-sau verify.
+## Findings
 
-| Mức độ (theo codex, trước verify) | Số lượng | Mức độ sau verify của agent này |
-|---|---:|---|
-| BLOCKER | 0 | 0 |
-| MAJOR | 3 | 0 (cả 3 đều pre-existing, đã tài liệu hoá / đã quyết định giữ nguyên) |
-| MINOR | 1 | 0 (đã fix/tài liệu hoá kể từ round 37) |
+### MAJOR-1 — Trial 1 ngày có thể lấy lại vô hạn bằng reinstall trên Android khi Auto Backup không restore
 
-## Kiểm chứng tự động (do codex tự chạy, số liệu trùng khớp CHANGELOG 2.9.17)
+- **Dẫn chứng:** `lib/src/vip/_first_install_guard.dart:27-47`, `lib/src/vip/_first_install_guard.dart:126-145`, `lib/src/core/ad_manager.dart:2593-2603`.
+- **Lỗi:** `FirstInstallGuard.hasAlreadyGranted()` luôn trả `false` trên Android. Chống reinstall chỉ dựa vào `SharedPreferences` được Android Auto Backup khôi phục; đây không phải tín hiệu bền vững và không hoạt động khi người dùng tắt backup/sync, đổi Google account, thiết bị/OEM không restore đúng lúc, hoặc chủ động clear backup. Chính source cũng xác nhận trường hợp này là bypass (`_first_install_guard.dart:49-56`).
+- **Kịch bản:** người dùng Android nhận `firstInstallVipGrace` 24 giờ → uninstall app → backup bị tắt/không restore → reinstall → `isFirstInstallGraceApplied()` lại false và guard Android lại trả false → `vip.addVip(... duration: 1 day)` chạy lần nữa. Có thể lặp để duy trì VIP không quảng cáo.
+- **Hậu quả:** trial không còn là “một lần/thiết bị”; thất thoát doanh thu và không đáp ứng yêu cầu “không bypass dễ dàng bằng xoá app data/reinstall”. Đây là giới hạn kiến trúc local-only, không phải crash.
+- **Đề xuất fix:** nếu yêu cầu thật sự là one-device/one-trial, cần backend/account entitlement hoặc Play Integrity + server-issued claim. Nếu bắt buộc offline, đổi đặc tả thành “best effort”, mặc định tắt trial trên Android, hoặc yêu cầu host tự cấp trial sau xác thực account. Không nên quảng bá Auto Backup như một anti-abuse guarantee.
 
-- `flutter analyze` tại `packages/ad_sdk/`: **No issues found! (ran in 7.1s)**.
-- `flutter test` tại `packages/ad_sdk/`: **1632/1632 passed**, khớp con số CHANGELOG `[2.9.17]` đã công bố.
-- `flutter test` tại `packages/ad_sdk/example/` (chỉ `example/test/`, KHÔNG phải `example/integration_test/`
-  cần thiết bị thật): **28/28 passed**.
-- `example/integration_test/` chỉ được đọc qua, không chạy (không có emulator/simulator trong môi trường codex).
-- Không có source file nào bị sửa; codex chỉ đọc + `pub get` (tạo `.dart_tool` local, không ảnh hưởng gì khác).
+### MAJOR-2 — Mã VIP offline chỉ one-time trên từng thiết bị, có thể chia sẻ/replay trên nhiều thiết bị
 
-## Chi tiết 4 finding của codex và kết quả verify
+- **Dẫn chứng:** `lib/src/vip/vip_manager.dart:1237-1246`, `lib/src/vip/vip_manager.dart:1375-1406`, `lib/src/vip/_redeemed_key_ledger.dart:9-25`, `lib/src/vip/_redeemed_key_ledger.dart:79-99`.
+- **Lỗi:** Ed25519 bảo vệ tính xác thực của payload tốt — public key nhúng trong app không giúp forge chữ ký — nhưng replay ledger hoàn toàn local. `kid` chỉ được kiểm tra trong prefs/Keychain của thiết bị hiện tại; không có global claim. Vì vậy cùng một code hợp lệ có thể redeem một lần trên mỗi thiết bị. Yêu cầu “có mạng” ở `redeemSignedKey()` không thay đổi điều này vì không có request claim tới server.
+- **Kịch bản:** một khách hàng mua/nhận code AVP1/AVP2 rồi đăng code công khai; N thiết bị online nhập cùng code trước khi CRL mới được phát hành → cả N đều pass signature và local ledger → mỗi thiết bị nhận VIP. AVP2 chỉ khóa theo bundle ID, không khóa theo user/device. Trên Android, cùng một thiết bị còn có thể replay sau reinstall nếu prefs backup không restore vì durable ledger là iOS-only.
+- **Hậu quả:** không thể bảo đảm code bán ra là single-use toàn hệ thống; revoke chỉ có tác dụng sau khi host tải được CRL và không thu hồi tức thời entitlement đã cấp (có grace window).
+- **Đề xuất fix:** dùng backend atomic claim theo `kid`/account/device và trả signed entitlement ngắn hạn; giữ Ed25519 để verify entitlement offline sau claim. Nếu tuyệt đối không backend, phải ghi rõ “one use per local install/device, transferable code”, phát code thời hạn ngắn, refresh CRL bắt buộc trước redeem và chấp nhận replay là rủi ro không thể loại bỏ.
 
-### 1. [Codex: MAJOR] "Offline-signed VIP code không redeem được thật sự offline"
+### MAJOR-3 — Banner/MREC vẫn refresh/request khi bị ẩn trong `IndexedStack` không có `TickerMode`
 
-**Vị trí codex trích:** `lib/src/vip/vip_manager.dart:1243-1246`, `1301-1313` (`_waitForConnectivity()` gọi
-trước khi verify chữ ký trong `redeemSignedKey()`).
+- **Dẫn chứng:** `lib/src/widget/banner_ad_widget.dart:30-38`, `lib/src/widget/banner_ad_widget.dart:93-110`, `lib/src/widget/banner_ad_widget.dart:202-210`, `lib/src/widget/mrec_ad_widget.dart:27-28`, `lib/src/widget/mrec_ad_widget.dart:56-59`.
+- **Lỗi:** visibility detection chỉ dựa vào `RouteAware` và `TickerMode`. Một `IndexedStack` thông thường giữ các child mounted, không push/pop route và không tự đổi `TickerMode`; vì vậy `didPushNext()` không chạy. AppLovin platform view tiếp tục auto-refresh; AdMob object vẫn sống và có thể tiếp tục refresh dù tab không nhìn thấy. Source đã tự ghi nhận đây là policy risk, nhưng workaround chỉ nằm trong documentation và API không cưỡng chế được.
+- **Kịch bản:** app có bottom navigation bằng `IndexedStack(index: selectedTab, children: [... BannerAdWidget() ...])`; user chuyển sang tab khác → banner/MREC cũ offstage nhưng không dispose/pause → provider tiếp tục request ad không visible trong suốt thời gian tab ẩn.
+- **Hậu quả:** impression/request không gắn với viewability, tốn quota và có rủi ro vi phạm chính sách traffic chất lượng của cả AdMob/MAX; mức độ đáng kể vì `IndexedStack` là pattern Flutter phổ biến.
+- **Đề xuất fix:** cung cấp visibility contract bắt buộc (`active`/`visible` parameter hoặc controller) và dispose/pause khi false; tích hợp `visibility_detector` nếu chấp nhận dependency; hoặc cung cấp widget tab wrapper chính thức. Ít nhất integration self-check/debug overlay nên cảnh báo khi ad platform view không paint nhưng vẫn active. Áp dụng đồng nhất cho banner và MREC.
 
-**Verify:** Đọc lại `vip_manager.dart:1237-1362`. Đây đúng là hành vi thật: `redeemSignedKey()` chờ tối đa 2s
-kết nối mạng (polling, không phải network call thật cho việc verify) trước khi verify Ed25519. NHƯNNG code đã
-tự ghi chú **ngay tại chỗ** (dòng 1301-1308):
+## Các vùng đã kiểm chứng, không phát hiện regression mới
 
-> `⚠️ DELIBERATE PRODUCT GATE — do NOT "fix" this. Three independent audit agents have now flagged this twice
-> as a bug ("Ed25519 verification is offline, so why require network?"). The signature check IS fully offline;
-> requiring connectivity to *redeem* is a product decision by the owner of this SDK, not an oversight.`
+- **Provider/platform:** AdMob và AppLovin có adapter riêng cho app-open/interstitial/rewarded/banner; AppLovin không nhận COPPA runtime nhưng SDK fail-closed/không init provider đó cho child-directed session (`lib/src/adapters/applovin_adapter.dart:673-700`). Đây là thiếu capability upstream đã được xử lý an toàn, không phải đường âm thầm chạy sai.
+- **Offline/retry:** connectivity watch có generation guard, timeout, cancel subscription/debounce khi teardown và chỉ refill trên offline→online; refill còn gate VIP/daily cap (`lib/src/core/ad_manager.dart:7588-7630`, `lib/src/core/ad_manager.dart:7632-7684`, `lib/src/core/ad_manager.dart:7687-7726`). Không thấy retry loop vô hạn hoặc tạo “loaded” giả.
+- **Fullscreen lifecycle:** slot state chặn double-show; callback/timeout/dispose paths hiện có test regression cho late callback, dispose-while-showing và native teardown. Không phát hiện đường mới hiển thị sau host `State.dispose()` trong API `AdScreen`.
+- **Consent:** epoch root ở `ConsentManager` bảo vệ `set/reset/apply` sau async gap (`lib/src/consent/consent_manager.dart:87-107`, `lib/src/consent/consent_manager.dart:202-209`, `lib/src/consent/consent_manager.dart:228-265`); epoch thứ hai ngay trước provider write ở `AdManager.setConsent()` vẫn còn (`lib/src/core/ad_manager.dart:3850-3869`, `lib/src/core/ad_manager.dart:4029-4037`). AdMob nhận COPPA/TFUA; AppLovin nhận consent/do-not-sell trước init; TCF/GPP được reconcile. Không thấy site provider-write mới thiếu guard ngoài caveat COPPA-flip đã document và tự lành qua re-init.
+- **Policy khác:** không có code auto-click; fullscreen arbitration/caps tồn tại; test-device IDs được giữ khi thay `RequestConfiguration` (`lib/src/core/ad_consent.dart:177-209`). Privacy policy/options vẫn cần host cấu hình/publish UMP đúng app ID — package không thể tự bảo đảm cấu hình console của app tiêu thụ.
 
-Đây chính là hành vi ghi trong bộ nhớ người dùng (`vip-offline-gate-and-qa-hashes-are-features.md`): **hai hành
-vi bị audit flag lặp lại nhưng là chủ ý, đừng "sửa"**. Codex (không có context này) là audit agent thứ ~4 lặp
-lại đúng finding này. **Kết luận: không phải bug, không đưa vào danh sách MAJOR.** Nếu chủ sở hữu SDK muốn đổi
-quyết định sản phẩm này thì đó là quyết định business, không phải fix kỹ thuật.
+## Điểm tổng thể
 
-### 2. [Codex: MAJOR] "AVP2 app-binding fail-open khi không đọc được package id"
-
-**Vị trí codex trích:** `lib/src/vip/vip_manager.dart:1317-1355`, `lib/src/vip/signed_vip_key.dart:225-242`.
-
-**Verify:** Đọc lại đúng đoạn — nếu `PackageInfo.fromPlatform()` throw, `bundleId` giữ `null`, và
-`verifySignedVipKey()` chỉ reject khi `currentBundleId` non-null/non-empty, nên binding bị bỏ qua trong trường
-hợp lỗi platform-channel. Nhưng comment tại chỗ (dòng 1322-1336) ghi rõ:
-
-> `Round-32 audit — reviewed and kept as-is (product decision, not an oversight): a real
-> PackageInfo.fromPlatform() failure on a shipped app is rare... this fail-OPEN choice means that rare case
-> degrades to "bundle binding skipped" rather than "a user with a genuinely valid code cannot redeem it".`
-
-Đã được audit round 32 xem xét và quyết định giữ nguyên có chủ đích (đánh đổi: ưu tiên không khoá nhầm user hợp
-lệ, chấp nhận rủi ro nhỏ khi platform channel lỗi + đúng lúc có code AVP2 hợp lệ của app khác). Đây KHÔNG cho
-phép forge chữ ký mới — chỉ là một chữ ký hợp lệ của app A dùng lại được trên app B trong cửa sổ lỗi hiếm.
-**Kết luận: quyết định sản phẩm đã re-review ở round 32, không phải finding mới.**
-
-### 3. [Codex: MAJOR] "API `AdManager().showRewardedInterstitialAd()` công khai có thể bỏ qua màn hình giới thiệu bắt buộc"
-
-**Vị trí codex trích:** `lib/src/core/ad_manager.dart:6922-7062` (raw API, không có bước disclosure) so với
-`lib/src/core/ad_screen.dart:252-338` (`AdScreenState.showRewardedInterstitialAd()`, có disclosure mặc định
-`showDisclosure: true`).
-
-**Verify:** Đọc lại cả 2 hàm — đúng là `AdManager().showRewardedInterstitialAd()` (raw) không có bất kỳ bước
-disclosure nào; chỉ `AdScreenState.showRewardedInterstitialAd()` (safe wrapper) mới render intro screen. Nhưng
-`README.md:1247-1255` ghi rõ, công khai, ngay tại phần giới thiệu format này:
-
-> `Policy: this format requires an intro screen. ... AdScreenState.showRewardedInterstitialAd() renders that
-> screen for you and is the recommended entry point. AdManager().showRewardedInterstitialAd() is the raw call
-> and does not announce anything — if you use it directly, the intro screen is yours to build.`
-
-Đây là cùng một pattern kiến trúc đã ghi trong CLAUDE.md mục "Integration contract" #5-#7 (raw `AdManager` API
-thấp tầng, `AdScreen`/`AdScreenState` là lớp an toàn mặc định được khuyến nghị; `bypassSafety`/`bypassVipGuard`
-cũng là API "nhạy cảm" tương tự, có tài liệu, không phải lỗ hổng ẩn). Một host cố tình gọi thẳng raw API thay vì
-wrapper là đi ra ngoài integration contract đã tài liệu hoá, tương tự việc một host có thể tự ý bỏ qua
-`AdScreenRouteLogger` hay không gọi `setNavigatorKey`. **Kết luận: hành vi đã tài liệu hoá công khai trong
-README, không phải finding mới; không nâng cấp thành BLOCKER.**
-
-Có 1 gợi ý cải thiện nhỏ đáng cân nhắc (không phải bug, hạ xuống NITPICK): đổi thứ tự tham số/docstring của
-`AdManager().showRewardedInterstitialAd()` để dòng đầu tiên của doc-comment nhắc lại cảnh báo compliance
-(hiện đã có nhưng nằm ở `AdScreenState`'s doc, không nằm ở chính hàm raw trong `ad_manager.dart`) — giúp
-IDE-autocomplete của host nhìn thấy cảnh báo ngay cả khi họ gọi thẳng raw API mà chưa đọc README.
-
-### 4. [Codex: MINOR] "Banner/MREC trong `IndexedStack` tiếp tục refresh khi tab ẩn"
-
-**Vị trí codex trích:** `lib/src/widget/banner_ad_widget.dart:30-38, 93-110`,
-`lib/src/widget/mrec_ad_widget.dart:27-28, 56-59`.
-
-**Verify:** Đây chính xác là MAJOR #13 (round 37, đã hạ xuống MINOR) — gap kỹ thuật có thật (một
-`IndexedStack` trần không tạo route transition nên banner/MREC ẩn vẫn tiếp tục refresh), nhưng round 37 ghi
-nhận workaround `Visibility(maintainState: true)` đã tồn tại từ round 31 và chỉ thiếu ở README. Đọc lại
-`README.md:111-120` (hiện tại, revision `f1ddcad`) xác nhận workaround **đã** được viết vào README:
-
-```
-- **`BannerAdWidget`/`MrecAdWidget` inside an `IndexedStack` bottom-nav tab
-  ...no `Route` push/pop happens...
-  **Fix:** wrap each tab's content in `Visibility(maintainState: true)`
-  ...`IndexedStack` alone, or gate the tab's own visibility state manually.
-```
-
-Codex đọc code widget nhưng không tham chiếu README này trong câu trả lời — có thể do giới hạn phạm vi đọc của
-phiên đó. **Kết luận: gap đã được đóng (tài liệu hoá) trước khi round audit này chạy; không còn là finding
-tồn đọng.**
-
-## Đối chiếu 6 yêu cầu (dựa trên phần "Areas that passed review" của codex + tự verify chọn lọc)
-
-1. **Dual-provider Android+iOS:** codex xác nhận cả AdMob/AppLovin adapter, mediation cache invalidation, COPPA
-   fail-safe (AppLovin từ chối init cho child-directed vì Flutter surface hiện tại không forward được flag —
-   đây là hành vi đã biết, fail-safe chứ không fail-open).
-2. **Online/offline:** codex xác nhận offline degrade không crash, reconnect có refill có kiểm soát; ngoại lệ
-   duy nhất được nêu (VIP redeem cần mạng) là quyết định sản phẩm cố ý (mục 1 ở trên), không phải bug.
-3. **Ad type lifecycle/memory leak:** codex xác nhận có full guard round-37 (`!isShowing`, `delivered`), tự đọc
-   timer/subscription/observer/controller và **không tìm ra memory leak nào**.
-4. **Trial 1 ngày:** codex xác nhận default production là `FirstInstallVipGrace.auto` → resolve về
-   `FirstInstallVipGrace.day` ở release build — đúng yêu cầu.
-5. **VIP by-code không backend:** codex xác nhận Ed25519 verify đúng payload, key rotation, atomic in-flight
-   guard, ledger per-device. 2 điểm "MAJOR" ban đầu (mục 1, 2 trên) là quyết định sản phẩm đã re-review nhiều
-   lần, không phải lỗ hổng forge chữ ký mới.
-6. **Consent mọi jurisdiction:** codex xác nhận UMP gate trước request, TCF purpose check (không coi
-   `ConsentStatus.obtained` là personalization consent mặc nhiên), GPP/US-state/CCPA/RDP/COPPA/TFUA propagate
-   nhất quán, ATT/UMP/SDK dialog đều tham gia fullscreen-exclusion mutex.
+**8.6/10**
 
 ## Kết luận production
 
-**Không tìm thấy finding mới đủ điều kiện BLOCKER/MAJOR/MINOR sau khi verify.** Toàn bộ 4 điểm codex nêu đều là
-(a) quyết định sản phẩm cố ý đã được audit trước đó xem xét và giữ nguyên có ghi chú rõ trong code, hoặc (b)
-hành vi đã tài liệu hoá công khai trong README, hoặc (c) gap đã đóng bằng tài liệu trước khi round này chạy.
-Đây là bằng chứng củng cố thêm (không thay thế) kết luận 9.5-9.8/10 của round 37: một audit độc lập thứ 4-5 vẫn
-không tìm ra lỗ hổng forge/replay/memory-leak/lifecycle mới nào sau khi verify kỹ.
+**CÓ thể đưa SDK vào production app thông thường, nhưng KHÔNG nên tuyên bố trial/VIP code là chống abuse hoặc single-use toàn hệ thống ở trạng thái hiện tại.** Trước khi dùng code VIP như hàng hóa có giá trị hoặc trial 1 ngày là yêu cầu kinh doanh cứng, phải xử lý **MAJOR-1 và MAJOR-2 bằng server-side claim/account entitlement**, hoặc chính thức chấp nhận và công bố giới hạn offline. Với app dùng bottom navigation `IndexedStack`, phải xử lý **MAJOR-3** ở host (bọc `TickerMode`/`Visibility` hoặc truyền trạng thái active) trước production để tránh request quảng cáo khi tab ẩn.
 
-**Điểm round này: 9.5/10** (giữ nguyên mức round 37, không có thông tin mới làm thay đổi verdict). Trừ điểm
-tương tự lý do round 37 đã nêu (chưa có on-device visual re-confirm cho ngưỡng `_kRejectMinFillAlpha`, và các
-quyết định "no backend" ở mục 1/2/3 trên vẫn là giới hạn kiến trúc — không phải điểm codex tìm thấy mới, mà là
-đánh đổi đã biết trước, người sở hữu sản phẩm cần tiếp tục ý thức rõ trước khi nới rộng quy mô).
+## Kiểm chứng thực thi
 
-## Ghi chú phương pháp cho lần audit tiếp theo
-
-Nếu tiếp tục dùng codex (hoặc bất kỳ audit agent mới nào) làm nguồn độc lập, nên tính đến việc các quyết định
-sản phẩm cố ý này (mục 1, 2 ở trên) gần như chắc chắn sẽ bị flag lại — đây là chi phí chấp nhận được của việc
-giữ agent "không chia sẻ context/kết luận cũ" để tránh confirmation bias, nhưng người tổng hợp báo cáo (bước
-sau khi agent trả lời) luôn phải tự đọc lại code + README + comment tại chỗ trước khi liệt kê bất kỳ finding nào
-vào danh sách MAJOR/BLOCKER thật, đúng bài học "self-review misses what independent review catches" — nhưng ở
-đây là chiều ngược lại: independent review cũng có thể catch lại đúng non-issue đã biết, người tổng hợp phải là
-lớp lọc cuối.
+- `flutter analyze`: **No issues found**.
+- `flutter test`: **1640 tests passed**.
+- Không chạy device integration trong round này; các kết luận platform-native ngoài phần đã có test cần được smoke lại trên Android/iOS thật khi nâng plugin/native SDK.

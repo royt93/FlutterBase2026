@@ -4,6 +4,76 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.19] - 2026-09-05
+
+Round-39 audit (4 independent reviewers: codex, Gemini, and two independent
+Claude passes that disagreed on one finding — see `doc/audit/audit_claude.md`
+for how that got resolved by writing a regression test instead of taking
+either side's word for it). Fixes 4 MAJOR and 3 MINOR bugs, all with
+regression tests, plus a real product gap:
+
+- A second `setConsent()` race the round-38 epoch guard didn't reach: the
+  AppLovin-only COPPA re-initialisation branch wrote to the real native SDK
+  unconditionally, so an older, superseded consent-toggle call could still
+  land after a newer one.
+- `ConsentManager`'s own disk write (`_persist()`) wasn't serialized: two
+  overlapping `set()`/`reset()` calls' real platform-channel writes could
+  finish out of order, leaving a stale value on disk that silently reverted
+  the user's actual choice the next time the app launched.
+- The invalid-traffic (CTR) fraud detector shared one counter across every
+  ad type; a continuously auto-refreshing banner/MREC could dilute the ratio
+  enough for a bot clicking only fullscreen ads to slip under the threshold.
+  Fullscreen now has its own counter.
+- The UMP consent retry (both the periodic backstop and the offline→online
+  reconnect path) could throw an unhandled zone error and crash the host app
+  repeatedly on flaky connectivity combined with a broken UMP integration —
+  now wrapped in `runZonedGuarded`, matching the pattern already used at
+  init time.
+- **Banner/MREC widgets now auto-pause when scrolled off-screen or obscured**
+  (new `visibility_detector` dependency), and gained a manual `active`
+  parameter — required specifically for a bare `IndexedStack` bottom-nav tab,
+  which the automatic detector genuinely cannot see (Flutter never calls
+  `paint()` on a non-current `IndexedStack` child, and that's exactly what
+  the detector's re-evaluation depends on — see `BannerAdWidget`'s class doc
+  comment).
+- 3 MINOR: a missing footgun-warning when no privacy-policy link is
+  configured for the consent dialog; `AdRetryPolicy.jitterFraction` near
+  1.0 could collapse backoff to near-zero (now floored at 10% of the base
+  delay); the example app never demonstrated VIP-code revocation (CRL) —
+  it now has a demo button.
+- Documented (not changed — deliberate design trade-offs of this SDK's
+  no-backend architecture): the 1-day trial can be re-farmed on Android by
+  reinstalling with Auto Backup off, and a leaked VIP code can be redeemed
+  once per device rather than once globally. Both were already partially
+  documented; round 39 re-confirmed them and closed the loop.
+
+A second, independent review pass of this round's own fixes (requested
+separately, after the above landed) found 3 more real issues in them:
+
+- **MAJOR** — the new `active` param on `BannerAdWidget`/`MrecAdWidget` was
+  ignored at the very first mount (only `didUpdateWidget` checked it) — the
+  primary `IndexedStack`-tab-not-at-index-0 use case the param exists for
+  still loaded an ad on a hidden tab. Fixing it surfaced 3 more independent
+  init paths (a destroy→reinit retry, and two consent/VIP-change listeners)
+  that also didn't know about `active` and needed the same guard.
+- **MINOR** — the COPPA re-init branch's `initialize()` call sat outside its
+  own epoch guard, so a superseded call could still trigger a redundant
+  extra SDK re-initialisation.
+- **NITPICK** — `ConsentManager.resetForTest()` didn't reset two test-only
+  static fields, risking cross-test pollution.
+
+A full re-run of all 65 on-device integration test files (Pixel 7 Pro) also
+caught a real gap the CTR counter split (above) introduced: one integration
+test still used the old banner-based trigger to exercise the CTR-anomaly
+event stream, which silently stopped working once banners no longer feed the
+fullscreen-only counter — fixed to use the new trigger shape.
+
+Verified: 1656/1656 unit/widget tests, `flutter analyze` clean, no
+regressions, plus 65/65 on-device integration test files run for real on a
+Pixel 7 Pro (63 genuine passes; 2 failures are a pre-existing, documented gap
+— no real AppLovin SDK key is committed in this repo — unrelated to this
+round). See `doc/audit/audit_round39_consolidated.md`.
+
 ## [2.9.18] - 2026-09-05
 
 Round-38 audit (4 independent reviewers, 2 further re-audit rounds).

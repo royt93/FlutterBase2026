@@ -49,16 +49,29 @@ void main() {
     // The demo app's own AdSafetyParams (kDemoSafetyParams) sets
     // suspiciousCtrThreshold: 1.0 and maxClicksPerMinute: 999 — deliberately
     // permissive so manual demo-page tapping never trips the safety layer.
-    // The CTR check only engages once totalImpressions >= 5; more clicks
-    // than impressions still pushes CTR > 100%, so this stays a faithful
-    // trigger against the real wired config instead of overriding it.
+    // The CTR check only engages once fullscreenImpressions >= 5; more
+    // clicks than impressions still pushes CTR > 100%, so this stays a
+    // faithful trigger against the real wired config instead of overriding
+    // it.
+    //
+    // Round-39 audit fix (MAJOR) — the CTR gate is now fullscreen-only (see
+    // AdSafetyConfig's own doc comments), so triggering it needs
+    // recordFullscreenAdShown()/recordAdClick(fullscreen: true) — banner
+    // impressions/clicks no longer feed it at all. This test used the old
+    // banner-based trigger and would otherwise silently stop catching any
+    // regression in the real anomaly-event wiring it exists to test.
     AdSafetyConfig.resetForReinit();
     for (var i = 0; i < 5; i++) {
-      AdSafetyConfig.recordBannerImpression();
+      AdSafetyConfig.recordFullscreenAdShown();
     }
     for (var i = 0; i < 6; i++) {
-      AdSafetyConfig.recordAdClick();
+      AdSafetyConfig.recordAdClick(fullscreen: true);
     }
+    // recordFullscreenAdShown() also updates the throttle timestamp
+    // (minTimeBetweenFullscreenAds, 2s in the demo's debug safety params) —
+    // a real wait is needed on real hardware so the throttle gate doesn't
+    // block canShowFullscreenAd() before the CTR check underneath it runs.
+    await Future<void>.delayed(const Duration(seconds: 3));
     AdSafetyConfig.canShowFullscreenAd();
     await tester.pump();
 

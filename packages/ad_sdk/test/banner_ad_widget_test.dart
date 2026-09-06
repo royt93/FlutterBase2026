@@ -785,6 +785,170 @@ void main() {
       expect(adapter.loadBannerCalls, 2,
           reason: 'must request a fresh banner once visible again');
     });
+
+    // Round-39 audit fix — a bare IndexedStack gives neither a Route change
+    // nor a TickerMode change (unlike Visibility(maintainState: true) above)
+    // — AND, verified separately, the automatic VisibilityDetector cannot
+    // catch it either (RenderIndexedStack.paintStack never calls paint() on
+    // a non-current child, and VisibilityDetector only ever re-evaluates
+    // from inside paint() — see this widget's own class doc comment). The
+    // `active` param is the only thing that actually closes this gap.
+    testWidgets(
+        'a bare IndexedStack tab switch needs the active param — the '
+        'automatic detector alone cannot see it', (tester) async {
+      final selected = ValueNotifier<int>(0);
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: ValueListenableBuilder<int>(
+            valueListenable: selected,
+            builder: (context, index, _) => IndexedStack(
+              index: index,
+              children: [
+                BannerAdWidget(active: index == 0),
+                const Text('other tab'),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.disposeCalls, 0);
+
+      selected.value = 1; // switch away — banner tab now offstage
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'wiring active: index == 0 is what actually pauses it — '
+              'IndexedStack itself gives no usable signal at all');
+
+      selected.value = 0; // switch back
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'must request a fresh banner once visible again');
+    });
+
+    testWidgets(
+        'the manual active:false override pauses it even while the '
+        'automatic detector would report it visible', (tester) async {
+      final active = ValueNotifier<bool>(true);
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: active,
+            builder: (context, isActive, _) =>
+                BannerAdWidget(active: isActive),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.disposeCalls, 0);
+
+      active.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'active:false must pause it regardless of what the '
+              'automatic VisibilityDetector — still reporting 100% visible '
+              'in this layout — would otherwise decide');
+
+      active.value = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'active:true must resume it');
+    });
+
+    // Round-39 audit re-review (MAJOR, independent Gemini pass) — the
+    // previous test only covered active flipping AFTER the widget was
+    // already mounted with the default (null). The actual primary use case
+    // — an IndexedStack tab that starts at index != 0, so the widget's very
+    // FIRST build already has active: false — was never covered, and was
+    // in fact broken: didChangeDependencies() called _initBanner()
+    // unconditionally on first mount with no active check at all.
+    testWidgets(
+        'mounting directly with active:false never loads, and flipping to '
+        'true afterward loads it for the first time', (tester) async {
+      final active = ValueNotifier<bool>(false);
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: active,
+            builder: (context, isActive, _) =>
+                BannerAdWidget(active: isActive),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 0,
+          reason: 'a widget that starts inactive (e.g. an IndexedStack tab '
+              'that isn\'t the initially-selected one) must never load an '
+              'ad it was never allowed to show in the first place');
+
+      active.value = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'switching to the now-active tab must load it for the '
+              'first time — not silently no-op because nothing was ever '
+              'considered "loaded" to resume');
+    });
+
+    // The genuinely automatic case: unlike IndexedStack (which never repaints
+    // an offstage child at all — see the two tests above), a scrolled-away
+    // child in a plain (non-lazy) Column inside a scroll view is still
+    // painted every frame, just clipped — exactly what VisibilityDetector's
+    // clip-bounds check is built to catch, with zero host wiring.
+    testWidgets(
+        'scrolling the banner out of the viewport pauses it automatically, '
+        'with no active param wired at all', (tester) async {
+      final controller = ScrollController();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: controller,
+            child: Column(
+              children: const [
+                SizedBox(height: 2000, child: Text('spacer')),
+                BannerAdWidget(),
+              ],
+            ),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      // The very first visibility callback only ever reports becoming
+      // visible, never becoming invisible (nothing to compare against yet —
+      // see VisibilityDetector's own _fireCallback), so mounting already
+      // off-screen doesn't suppress the initial load. What matters here —
+      // and what the assertions below actually cover — is that a REAL
+      // scroll-away transition afterward gets caught with zero host wiring.
+      expect(adapter.loadBannerCalls, 1);
+
+      controller.jumpTo(2000); // scroll it fully into view (already loaded)
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      controller.jumpTo(0); // scroll back away
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'scrolled back out of the viewport — the automatic '
+              'VisibilityDetector must catch this with zero host wiring');
+    });
   });
 
   group('T107 — placement', () {

@@ -75,6 +75,17 @@ import '../utils/safe_logger.dart';
 /// The guard never throws to callers; any internal error degrades to
 /// "allow grace" (false negative on bypass) so legitimate first-time users
 /// are never falsely denied.
+///
+/// **Round-39 audit** — independently re-raised as a MAJOR ("Android trial
+/// can be farmed indefinitely via reinstall with Auto Backup off/unsynced").
+/// Re-confirmed as the SAME accepted trade-off documented above, not a new
+/// bug: the grace is 1 day, so each successful farm attempt costs the abuser
+/// a full reinstall for one day of ad-free use, and closing it fully would
+/// require a server-side account/device claim this SDK deliberately does not
+/// have (see `CLAUDE.md`'s VIP entitlement section — no backend, by design).
+/// Decision: ship as-is; a host with trial-abuse as a hard business
+/// requirement should treat this doc comment as the starting point for their
+/// own server-backed check, not file it as a fresh finding next round.
 class FirstInstallGuard {
   /// All `*Override` parameters exist solely for unit tests — production
   /// callers should use `FirstInstallGuard()` with no args, which wires

@@ -131,6 +131,29 @@ void main() {
       );
       expect(canRetry, isTrue);
     });
+
+    test(
+        'round-39 audit (MINOR): jitterFraction near 1.0 must never collapse '
+        'the delay to near-zero, defeating backoff entirely', () {
+      final policy = const AdRetryPolicy(
+        backoff: Backoff(baseMs: 10000, maxMs: 60000),
+        jitterFraction: 1.0,
+      );
+      // nextDouble() == 0 → fully negative jitter term → pre-fix this
+      // collapses the 10s base delay all the way to 0, so retrying the
+      // very instant the error happened (elapsed=0) would be allowed —
+      // consecutiveFailures is irrelevant at that point, backoff has no
+      // effect at all.
+      final canRetryImmediately = policy.canRetryNow(
+        lastErrorAt: DateTime.now(),
+        consecutiveFailures: 5,
+        lastErrorCode: null,
+        random: _FixedRandom(0),
+      );
+      expect(canRetryImmediately, isFalse,
+          reason: 'even maximal negative jitter must leave a real floor — '
+              'an immediate retry (elapsed=0) must still be blocked');
+    });
   });
 
   group('resetOnConnectivityRestored', () {

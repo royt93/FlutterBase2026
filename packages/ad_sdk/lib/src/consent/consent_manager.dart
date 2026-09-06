@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -73,14 +75,53 @@ class ConsentManager {
   }
 
   /// For tests: clear the singleton.
+  ///
+  /// Round-39 audit re-review (NITPICK, independent Gemini pass) — also
+  /// clears [debugPersistDelay]/[debugApplyBarrier]: a test that sets either
+  /// and aborts before its own tearDown runs would otherwise leak an
+  /// artificial delay/barrier into every subsequent test in the same
+  /// process.
   @visibleForTesting
   static void resetForTest() {
     _instance?._settingsListenable.dispose();
     _instance = null;
+    debugPersistDelay = null;
+    debugApplyBarrier = null;
   }
 
   final AdPreferences _prefs;
   ConsentDialogStrings _strings;
+
+  /// Round-39 audit fix (MAJOR) — serializes every [_persist] call after
+  /// whatever previous one is still in flight, same intent as
+  /// `AdEventLog._persistChain`, so two overlapping `set()`/`reset()` calls'
+  /// real platform-channel writes can never be in flight at once and finish
+  /// out of order. Without this, an older call's slower write could land on
+  /// disk AFTER a newer call's faster one, invisibly reverting the user's
+  /// real, most-recent consent choice until they change it again.
+  ///
+  /// Deliberately `null` (not a resolved `Future.value()`) when nothing is in
+  /// flight, so the common, non-overlapping case calls [_persist] with no
+  /// preceding `await` at all: a widget test that calls `set()`/`reset()` as
+  /// its very first statement, before ever pumping a frame, depends on this
+  /// — inserting even one extra already-resolved `await` ahead of the real
+  /// platform-channel call left it permanently unresolved with nothing left
+  /// to ever pump it (caught by `ccpa_opt_out_toggle_test.dart`'s "reflects
+  /// an already-true doNotSell on first build").
+  Completer<void>? _persistLock;
+
+  Future<void> _schedulePersist() async {
+    final prior = _persistLock;
+    final mine = Completer<void>();
+    _persistLock = mine;
+    if (prior != null) await prior.future;
+    try {
+      await _persist();
+    } finally {
+      mine.complete();
+      if (identical(_persistLock, mine)) _persistLock = null;
+    }
+  }
 
   ConsentSettings _current = ConsentSettings.unset;
 
@@ -137,8 +178,19 @@ class ConsentManager {
     SafeLogger.d(_tag, () => 'load → $_current');
   }
 
+  /// Test-only hook: when set, awaited right before the real platform write
+  /// inside [_persist] (after the value to write has already been captured),
+  /// to reproduce the real-device timing gap a mock `SharedPreferences` is
+  /// too fast to ever exhibit on its own. Same pattern as
+  /// `AdEventLog.debugPersistDelay`.
+  @visibleForTesting
+  static Duration? debugPersistDelay;
+
   Future<void> _persist() async {
-    await _prefs.setConsentSettingsRaw(ConsentSettings.encode(_current));
+    final encoded = ConsentSettings.encode(_current);
+    final delay = debugPersistDelay;
+    if (delay != null) await Future<void>.delayed(delay);
+    await _prefs.setConsentSettingsRaw(encoded);
   }
 
   Future<void> _applyToProviders(AdConfig? config) async {
@@ -157,6 +209,17 @@ class ConsentManager {
     bool barrierDismissible = false,
     void Function(String url)? onPrivacyPolicyTap,
   }) async {
+    // Round-39 audit (MINOR) — a host wiring neither privacy-policy signal
+    // ships this dialog with no way for the user to actually reach the
+    // policy it references. Every other release footgun in this package
+    // warns loudly (see AdManager.releaseFootgunWarnings); this one had no
+    // signal at all, debug or release.
+    if (_strings.privacyPolicyUrl == null && onPrivacyPolicyTap == null) {
+      SafeLogger.w(_tag,
+          '🚨 showDialog: neither ConsentDialogStrings.privacyPolicyUrl nor '
+          'onPrivacyPolicyTap is set — this consent dialog has no way for '
+          'the user to reach your privacy policy. Set one of them.');
+    }
     final result = await showConsentDialog(
       context,
       strings: _strings,
@@ -232,7 +295,7 @@ class ConsentManager {
       doNotSell: _current.doNotSell,
     );
     _settingsListenable.value = _current;
-    await _persist();
+    await _schedulePersist();
     SafeLogger.d(_tag, 'reset → unset (COPPA/CCPA flags preserved)');
     final barrier = debugApplyBarrier;
     if (barrier != null) await barrier;
@@ -250,7 +313,7 @@ class ConsentManager {
     final epoch = ++_applyEpoch;
     _current = s;
     _settingsListenable.value = s;
-    await _persist();
+    await _schedulePersist();
     SafeLogger.d(_tag, () => 'set → $s');
     // An overlapping, newer call may have already bumped `_applyEpoch` and
     // applied its own (correct) value while this call was awaiting persist

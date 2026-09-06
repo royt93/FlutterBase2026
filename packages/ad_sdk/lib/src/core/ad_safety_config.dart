@@ -338,8 +338,20 @@ class AdSafetyConfig {
   static int _totalImpressions = 0;
   static int _totalClicks = 0;
 
-  /// Round-31 audit fix (MAJOR) — `_totalImpressions` snapshot at the last
-  /// CTR-anomaly trigger. A blocked show attempt never adds an impression,
+  /// Round-39 audit fix (MAJOR) — fullscreen-only counterparts of
+  /// [_totalImpressions]/[_totalClicks], used exclusively by the anti-fraud
+  /// CTR gate in [canShowFullscreenAd]. Banner/MREC/native traffic (which
+  /// still feeds the shared counters above, for [_computeRiskScore]'s
+  /// general display) refreshes continuously and would otherwise dilute
+  /// that ratio — letting a bot that clicks only the higher-value fullscreen
+  /// ad slip under a threshold heavy legitimate banner traffic had already
+  /// pushed the shared ratio below.
+  static int _fullscreenImpressions = 0;
+  static int _fullscreenClicks = 0;
+
+  /// Round-31 audit fix (MAJOR) — `_fullscreenImpressions` (round-39: was
+  /// `_totalImpressions`) snapshot at the last CTR-anomaly trigger. A
+  /// blocked show attempt never adds an impression,
   /// so without this, the very next genuine show attempt after a pause
   /// window elapses re-evaluates the exact same stale ratio and
   /// re-triggers immediately, escalating the pause exponentially (30m → 1h
@@ -592,12 +604,18 @@ class AdSafetyConfig {
     // attempt through so the ratio actually has a chance to dilute; the
     // running CTR itself is untouched, so [_computeRiskScore]'s
     // `ctrComponent` still reflects the true cumulative ratio throughout.
-    if (_totalImpressions >= 5 &&
-        _totalImpressions - _ctrPauseTriggeredAtImpressionCount >= 5) {
-      final ctr = _totalClicks.toDouble() / _totalImpressions.toDouble();
+    //
+    // Round-39 audit fix (MAJOR) — this ratio now uses the fullscreen-only
+    // counters, not the shared [_totalImpressions]/[_totalClicks] every ad
+    // type fed into. A continuously auto-refreshing banner/MREC/native ad
+    // could otherwise dilute this ratio, letting a bot that clicks only
+    // fullscreen ads slip under the threshold.
+    if (_fullscreenImpressions >= 5 &&
+        _fullscreenImpressions - _ctrPauseTriggeredAtImpressionCount >= 5) {
+      final ctr = _fullscreenClicks.toDouble() / _fullscreenImpressions.toDouble();
       if (ctr > _params.suspiciousCtrThreshold) {
         if (recordViolation) {
-          _ctrPauseTriggeredAtImpressionCount = _totalImpressions;
+          _ctrPauseTriggeredAtImpressionCount = _fullscreenImpressions;
           _triggerSuspiciousPause(
             'CTR anomaly: ${(ctr * 100).toInt()}% '
             '(threshold: ${(_params.suspiciousCtrThreshold * 100).toInt()}%)',
@@ -729,6 +747,7 @@ class AdSafetyConfig {
     _lastFullscreenAdTime = now;
     _fullscreenAdsShownInSession++;
     _totalImpressions++;
+    _fullscreenImpressions++;
     _hourlyAdTimestamps.add(now);
     _prefs?.incrementDailyAdCount();
 
@@ -743,8 +762,12 @@ class AdSafetyConfig {
     _refreshRiskScore();
   }
 
-  /// Record a banner ad impression (initial load only, not refreshes).
-  /// Counts towards total impressions for CTR calculation.
+  /// Record a banner/MREC/native ad impression. Fires on EVERY real
+  /// impression — including each auto-refresh, not just the initial load
+  /// (round-39 audit: this docstring previously said otherwise). Counts
+  /// towards [_totalImpressions] for [_computeRiskScore]'s general display
+  /// only — the fullscreen-only CTR gate in [canShowFullscreenAd] does not
+  /// use this counter; see [_fullscreenImpressions].
   static void recordBannerImpression() {
     _totalImpressions++;
     SafeLogger.d(
@@ -787,10 +810,14 @@ class AdSafetyConfig {
     return v;
   }
 
-  static void recordAdClick() {
+  /// [fullscreen]: pass `true` only from a real fullscreen ad's own click
+  /// callback (app open/interstitial/rewarded/rewarded-interstitial) — see
+  /// [_fullscreenClicks]'s doc comment for why this must stay accurate.
+  static void recordAdClick({bool fullscreen = false}) {
     final now = DateTime.now().millisecondsSinceEpoch;
     _lastAdClickAt = now;
     _totalClicks++;
+    if (fullscreen) _fullscreenClicks++;
     _clickTimestamps.add(now);
     _clickTimestamps.removeWhere((t) => now - t > 60000);
 
@@ -867,6 +894,8 @@ class AdSafetyConfig {
     _resumeTimestamps.clear();
     _totalImpressions = 0;
     _totalClicks = 0;
+    _fullscreenImpressions = 0;
+    _fullscreenClicks = 0;
     _ctrPauseTriggeredAtImpressionCount = -5;
     _clickTimestamps.clear();
     _networkShowTimestamps.clear();
@@ -892,6 +921,8 @@ class AdSafetyConfig {
     _resumeTimestamps.clear();
     _totalImpressions = 0;
     _totalClicks = 0;
+    _fullscreenImpressions = 0;
+    _fullscreenClicks = 0;
     _ctrPauseTriggeredAtImpressionCount = -5;
     // T24 re-audit fix: the click-spam sliding window is per-session state
     // too — leaving it here meant clicks from before a reset still counted

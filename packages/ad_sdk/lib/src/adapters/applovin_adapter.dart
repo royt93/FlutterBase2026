@@ -1144,7 +1144,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       },
       onAdClickedCallback: (ad) {
         SafeLogger.d(_logTag, 'appOpen $tag 🎯 click');
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
         _emit(AdClickEvent(
           providerTag: tag,
           type: AdSlotType.appOpen,
@@ -1496,7 +1496,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       },
       onAdClickedCallback: (ad) {
         SafeLogger.d(_logTag, 'inter $tag 🎯 click');
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
         _emit(AdClickEvent(
           providerTag: tag,
           type: AdSlotType.interstitial,
@@ -1720,7 +1720,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       },
       onAdClickedCallback: (ad) {
         SafeLogger.d(_logTag, 'rewarded $tag 🎯 click');
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
         _emit(AdClickEvent(
           providerTag: tag,
           type: AdSlotType.rewarded,

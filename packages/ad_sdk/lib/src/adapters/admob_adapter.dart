@@ -1082,7 +1082,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         },
         onClicked: () {
           SafeLogger.d(_logTag, 'showAppOpen $tag 🎯 click');
-          AdSafetyConfig.recordAdClick();
+          AdSafetyConfig.recordAdClick(fullscreen: true);
           _emit(AdClickEvent(
             providerTag: tag,
             type: AdSlotType.appOpen,
@@ -1402,7 +1402,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         },
         onClicked: () {
           SafeLogger.d(_logTag, 'showInterstitial $tag 🎯 click');
-          AdSafetyConfig.recordAdClick();
+          AdSafetyConfig.recordAdClick(fullscreen: true);
           _emit(AdClickEvent(
             providerTag: tag,
             type: AdSlotType.interstitial,
@@ -1678,7 +1678,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             },
             onClicked: () {
               SafeLogger.d(_logTag, 'showRewarded $tag 🎯 click');
-              AdSafetyConfig.recordAdClick();
+              AdSafetyConfig.recordAdClick(fullscreen: true);
               _emit(AdClickEvent(
                 providerTag: tag,
                 type: AdSlotType.rewarded,
@@ -1936,7 +1936,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             },
             onClicked: () {
               SafeLogger.d(_logTag, 'showRewardedInterstitial $tag 🎯 click');
-              AdSafetyConfig.recordAdClick();
+              AdSafetyConfig.recordAdClick(fullscreen: true);
               _emit(AdClickEvent(
                 providerTag: tag,
                 type: AdSlotType.rewardedInterstitial,

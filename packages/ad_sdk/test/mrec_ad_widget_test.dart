@@ -45,8 +45,11 @@ class _MrecCountingAdapter implements AdProviderAdapter {
             visible: ValueNotifier<bool>(true),
           ));
 
+  int disposeCalls = 0;
+
   @override
   void disposeMrecInstance(Object key) {
+    disposeCalls++;
     mrecSlotsByKey.remove(key);
     mrecListenablesByKey.remove(key);
   }
@@ -214,6 +217,83 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(MrecAdWidget), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  // Round-39 audit fix (MAJOR) — same `active` param, same gap, as
+  // BannerAdWidget (see its own class doc comment for the full reasoning:
+  // a bare IndexedStack tab needs this wired manually — neither TickerMode
+  // nor the automatic VisibilityDetector can see it going offstage).
+  testWidgets(
+      'the manual active:false override pauses it, active:true resumes it',
+      (tester) async {
+    final adapter = _MrecCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetMrecCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(true);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => MrecAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump();
+    expect(adapter.loadMrecCalls, 1);
+    expect(adapter.disposeCalls, 0);
+
+    active.value = false;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.disposeCalls, 1,
+        reason: 'active:false must dispose the MREC instance');
+
+    active.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.loadMrecCalls, 2, reason: 'active:true must resume it');
+  });
+
+  // Round-39 audit re-review (MAJOR, independent Gemini pass) — mirrors
+  // BannerAdWidget's matching test: mounting directly with active: false
+  // (the actual IndexedStack use case, not just flipping it after mount)
+  // was never covered and was in fact broken.
+  testWidgets(
+      'mounting directly with active:false never loads, flipping to true '
+      'afterward loads it for the first time', (tester) async {
+    final adapter = _MrecCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetMrecCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(false);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => MrecAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.loadMrecCalls, 0,
+        reason: 'a widget that starts inactive must never load an ad it '
+            'was never allowed to show in the first place');
+
+    active.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(adapter.loadMrecCalls, 1,
+        reason: 'switching to active must load it for the first time');
   });
 
   testWidgets('repeated rebuilds trigger exactly one MREC load',

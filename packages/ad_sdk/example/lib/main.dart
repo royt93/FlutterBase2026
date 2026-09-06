@@ -3023,8 +3023,47 @@ class _VipDemoPageState extends State<VipDemoPage> {
             },
             child: const Text('Revoke ALL'),
           ),
+          const SizedBox(height: 24),
+
+          // Round-39 audit (MINOR): this demo previously never showed how to
+          // wire VipRevocationProvider/refreshRevocationList — a partner
+          // copying this example verbatim could ship VIP-code revocation
+          // completely inert without realising it, since the SDK has no way
+          // to warn about a feature it was simply never asked to use. A real
+          // host app would call this from a `Timer.periodic` (see
+          // VipRevocationProvider's own doc comment) with a provider that
+          // fetches `tool/vip_crl_mint.dart`'s output from its own backend —
+          // this button just demonstrates the call shape with a stub.
+          OutlinedButton.icon(
+            onPressed: () async {
+              await vip?.refreshRevocationList(
+                publicKeyBase64: kDemoVipPublicKey,
+                revocationProvider: _DemoCrlProvider(),
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text(
+                        'Checked for a revocation list (demo stub — wire '
+                        'your own backend via VipRevocationProvider)')));
+              }
+            },
+            icon: const Icon(Icons.block_flipped),
+            label: const Text('Refresh revocation list (CRL)'),
+          ),
         ],
       ),
     );
+  }
+}
+
+/// Demo-only stub — a real host implements [fetchSignedCrl] against its own
+/// backend (see [VipRevocationProvider]'s own doc comment). Returning `null`
+/// is a normal, safe result: `refreshRevocationList` fails open and leaves
+/// whatever was already cached untouched.
+class _DemoCrlProvider implements VipRevocationProvider {
+  @override
+  Future<String?> fetchSignedCrl() async {
+    debugPrint('[example] fetchSignedCrl: no real CRL backend in this demo');
+    return null;
   }
 }

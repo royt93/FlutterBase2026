@@ -51,13 +51,14 @@ void main() {
     test('canShowFullscreenAd emits one event on CTR-over-threshold', () async {
       await initWith(AdSafetyParams.debug.copyWith(
         suspiciousCtrThreshold: 0.5,
+        minTimeBetweenFullscreenAds: 0,
       ));
 
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordFullscreenAdShown();
       }
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordAdClick(); // 100% CTR > 50% threshold
+        AdSafetyConfig.recordAdClick(fullscreen: true); // 100% CTR > 50%
       }
 
       final result = AdSafetyConfig.canShowFullscreenAd();
@@ -83,13 +84,14 @@ void main() {
       await initWith(AdSafetyParams.debug.copyWith(
         suspiciousCtrThreshold: 0.5,
         maxClicksPerMinute: 10, // high enough the CTR setup clicks don't spam
+        minTimeBetweenFullscreenAds: 0,
       ));
 
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordFullscreenAdShown();
       }
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordAdClick(); // 100% CTR > 50% threshold
+        AdSafetyConfig.recordAdClick(fullscreen: true); // 100% CTR > 50%
       }
       AdSafetyConfig.canShowFullscreenAd(); // 1st violation: CTR anomaly
 
@@ -125,13 +127,14 @@ void main() {
       await initWith(AdSafetyParams.debug.copyWith(
         suspiciousCtrThreshold: 0.5,
         dryRun: true,
+        minTimeBetweenFullscreenAds: 0,
       ));
 
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
+        AdSafetyConfig.recordFullscreenAdShown();
       }
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
       }
 
       final result = AdSafetyConfig.canShowFullscreenAd();

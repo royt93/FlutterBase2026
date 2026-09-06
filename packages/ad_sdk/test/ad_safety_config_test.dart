@@ -177,16 +177,21 @@ void main() {
       final prefs = await AdPreferences.getInstance();
       await AdSafetyConfig.init(
         prefs,
-        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+        params: AdSafetyParams.debug.copyWith(
+          suspiciousCtrThreshold: 0.5,
+          // Round-39 audit fix: the CTR gate is now fullscreen-only, so
+          // triggering it here needs recordFullscreenAdShown() calls, which
+          // also update the throttle timestamp — zero it out so these tight
+          // loops don't trip "wait N seconds" before the CTR check runs.
+          minTimeBetweenFullscreenAds: 0,
+        ),
       );
       AdSafetyConfig.resetForReinit();
 
       // Click cap is 999 in debug params — force a violation via CTR instead.
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
-      }
-      for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
       }
       AdSafetyConfig.canShowFullscreenAd(); // triggers a CTR-anomaly pause
       expect(prefs.getSuspiciousCount(), greaterThan(0));
@@ -218,13 +223,20 @@ void main() {
       final p = await AdPreferences.getInstance();
       await AdSafetyConfig.init(
         p,
-        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+        params: AdSafetyParams.debug.copyWith(
+          suspiciousCtrThreshold: 0.5,
+          // Round-39 audit fix: the CTR gate is now fullscreen-only, so
+          // triggering it here needs recordFullscreenAdShown() calls, which
+          // also update the throttle timestamp — zero it out so these tight
+          // loops don't trip "wait N seconds" before the CTR check runs.
+          minTimeBetweenFullscreenAds: 0,
+        ),
       );
       AdSafetyConfig.resetForReinit();
 
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
       }
       AdSafetyConfig.canShowFullscreenAd(); // 100% CTR — triggers violation 1
       expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 1,
@@ -275,13 +287,20 @@ void main() {
       final prefs = await AdPreferences.getInstance();
       await AdSafetyConfig.init(
         prefs,
-        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+        params: AdSafetyParams.debug.copyWith(
+          suspiciousCtrThreshold: 0.5,
+          // Round-39 audit fix: the CTR gate is now fullscreen-only, so
+          // triggering it here needs recordFullscreenAdShown() calls, which
+          // also update the throttle timestamp — zero it out so these tight
+          // loops don't trip "wait N seconds" before the CTR check runs.
+          minTimeBetweenFullscreenAds: 0,
+        ),
       );
       AdSafetyConfig.resetForReinit();
 
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
       }
       AdSafetyConfig.canShowFullscreenAd(); // 100% CTR — triggers a violation
 
@@ -474,14 +493,21 @@ void main() {
       final prefs = await AdPreferences.getInstance();
       await AdSafetyConfig.init(
         prefs,
-        params: AdSafetyParams.debug.copyWith(suspiciousCtrThreshold: 0.5),
+        params: AdSafetyParams.debug.copyWith(
+          suspiciousCtrThreshold: 0.5,
+          // Round-39 audit fix: the CTR gate is now fullscreen-only, so
+          // triggering it here needs recordFullscreenAdShown() calls, which
+          // also update the throttle timestamp — zero it out so these tight
+          // loops don't trip "wait N seconds" before the CTR check runs.
+          minTimeBetweenFullscreenAds: 0,
+        ),
       );
       AdSafetyConfig.resetForReinit();
 
       // Force a CTR anomaly: 100% CTR, well above the 0.5 threshold.
       for (var i = 0; i < 5; i++) {
-        AdSafetyConfig.recordBannerImpression();
-        AdSafetyConfig.recordAdClick();
+        AdSafetyConfig.recordFullscreenAdShown();
+        AdSafetyConfig.recordAdClick(fullscreen: true);
       }
 
       for (var i = 0; i < 10; i++) {
