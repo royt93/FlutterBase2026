@@ -72,6 +72,52 @@ SAU T132 (đã ghi rõ ở Dependency) vì auto-refresh định kỳ khuếch đ
 race condition T132 đang sửa — sửa T137 trước T132 sẽ tạo ra 1 tính năng
 mới ngay lập tức lộ race cũ thường xuyên hơn.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 9.5/10** (2 vòng review độc lập `codex`,
+  bản copy cô lập: 7/10 → 9.5/10).
+- **Đã làm cả 3 phần:** kill-switch theo format (`AdSafetyParams
+  .disabledFormats` + `canShowFullscreenAd/Peek(forType:)`, gate ở cả 4
+  format fullscreen: appOpen/interstitial/rewarded/rewardedInterstitial),
+  periodic auto-refresh (`initialize(..., remoteSafetyAutoRefreshInterval:)`
+  → `Timer.periodic`), revision/rollback-protection
+  (`AdPreferences.getRemoteSafetyRevision/setRemoteSafetyRevision` +
+  `_applyRemoteOverridesWithRevisionGuard`).
+- **Vòng 1 review bắt 2 bug thật:**
+  1. **BLOCKING — TOCTOU race khi 2 refresh chồng lấp** (chính periodic
+     timer làm chuyện này thành thường xuyên): guard cũ là `async`, có
+     khoảng hở giữa check-revision và `AdSafetyConfig.updateParams()`, nên
+     request cũ resolve SAU request mới vẫn có thể đè ngược state mới hơn.
+     Đã sửa: guard giờ HOÀN TOÀN ĐỒNG BỘ (không `await` bên trong), dùng
+     field in-memory `_lastAppliedRemoteSafetyRevision` làm compare-and-set
+     atomic, gộp cả bước ghi `AdSafetyConfig.updateParams()` vào cùng bước
+     đồng bộ đó (`applyToLiveConfig` param) — event loop 1 luồng của Dart
+     đảm bảo không request nào chen được vào giữa.
+  2. **IMPORTANT — timer sống sót qua đường init thất bại**: timer cũ start
+     ngay đầu `initialize()`, trước khi biết init có thành công không, và
+     không bị cancel ở các đường adapter fail/retry exhaust/superseded. Đã
+     sửa bằng cách DỜI vị trí start timer tới đúng điểm "init đã thành
+     công" duy nhất trong toàn file (ngay trước `onComplete(true, ...)`,
+     chỉ có 1 chỗ gọi trong cả file) — mọi đường fail/abort đều return/vào
+     catch trước dòng đó, nên không cần rải cancel vào từng path.
+  3. **MINOR — thiếu test malformed revision**: đã thêm 4 case
+     (String/double không nguyên/bool/null) verify cả live behavior lẫn
+     không ghi persisted revision sai.
+- **Bug tự bắt được TRƯỚC khi có review ngoài** (khi tự viết test theo TDD):
+  guard ban đầu return `null` khi reject nhưng caller vẫn gọi
+  `AdSafetyConfig.updateParams(local)` — `local` là baseline tính lại từ
+  đầu, không phải state đang live, nên "reject" vô tình xóa sạch mọi
+  override đã áp dụng trước đó thay vì thật sự "giữ nguyên". Sửa: đổi guard
+  trả `null` = caller bỏ qua HOÀN TOÀN, không gọi `updateParams` gì cả.
+- **Baseline:** `flutter analyze` sạch; `flutter test` 1680/1680 (12 test
+  mới); integration test `t137_periodic_refresh_test.dart` pass thật trên
+  Pixel 7 Pro (proof: 1 fetch lúc init + ≥2 tick tự động trong 5s với
+  interval 2s + không còn fetch nào sau `destroy()`), re-verify lại sau khi
+  dời vị trí start timer.
+- 2 test-only seam mới: `AdManager.debugRemoteSafetyRefreshTimerActive`
+  (getter) và `debugLastAppliedRemoteSafetyRevision` (setter), cả 2
+  `@visibleForTesting`.
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

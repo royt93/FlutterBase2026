@@ -833,4 +833,77 @@ void main() {
       expect(AdSafetyConfig.isNetworkFatigued(AdSlotType.appOpen), isFalse);
     });
   });
+
+  // ─────────────────────────────────────────────────
+  // T137 — disabledFormats kill switch
+  // ─────────────────────────────────────────────────
+  group('disabledFormats kill switch (T137)', () {
+    test('a disabled format is blocked when forType is passed', () async {
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(disabledFormats: {'rewarded'}));
+
+      final result =
+          AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.rewarded);
+
+      expect(result.canShow, isFalse);
+      expect(result.reason, 'formatDisabledRemotely');
+    });
+
+    test('a format NOT in disabledFormats is unaffected', () async {
+      // AdSafetyParams.debug — every OTHER gate (session-too-young,
+      // cold-start, throttle) loosened to 0/999 so a `true` result here can
+      // only be about disabledFormats, not some unrelated gate.
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(disabledFormats: {'rewarded'}));
+
+      final result = AdSafetyConfig.canShowFullscreenAd(
+          forType: AdSlotType.interstitial);
+
+      expect(result.canShow, isTrue);
+    });
+
+    test('omitting forType never blocks — every caller outside this SDK '
+        'that never passes it keeps its exact pre-T137 behavior', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(disabledFormats: {'rewarded'}));
+
+      final result = AdSafetyConfig.canShowFullscreenAd();
+
+      expect(result.canShow, isTrue,
+          reason: 'disabledFormats can only ever gate a caller that '
+              'explicitly opts in via forType');
+    });
+
+    test('null disabledFormats (the default) blocks nothing', () async {
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+
+      final result =
+          AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.rewarded);
+
+      expect(result.canShow, isTrue);
+    });
+
+    test('canShowFullscreenAdPeek() also honors forType, without recording '
+        'a violation', () async {
+      await AdSafetyConfig.init(prefs,
+          params: const AdSafetyParams(disabledFormats: {'appOpen'}));
+
+      final result = AdSafetyConfig.canShowFullscreenAdPeek(
+          forType: AdSlotType.appOpen);
+
+      expect(result.canShow, isFalse);
+      expect(result.reason, 'formatDisabledRemotely');
+    });
+
+    test('copyWith(disabledFormats: ...) replaces the set; omitting it '
+        'preserves the old one', () {
+      const original = AdSafetyParams(disabledFormats: {'rewarded'});
+      final unchanged = original.copyWith(maxFullscreenAdsPerDay: 10);
+      final replaced =
+          original.copyWith(disabledFormats: {'interstitial'});
+
+      expect(unchanged.disabledFormats, {'rewarded'});
+      expect(replaced.disabledFormats, {'interstitial'});
+    });
+  });
 }

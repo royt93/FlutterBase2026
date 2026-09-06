@@ -156,6 +156,23 @@ class AdSafetyParams {
   /// (default: 900 000 = 15 min).
   final int networkFatigueWindowMs;
 
+  /// T137 — remote-controllable kill switch by fullscreen ad format, keyed
+  /// by [AdSlotType.name] (`'interstitial'`, `'rewarded'`,
+  /// `'rewardedInterstitial'`, `'appOpen'`). Checked by
+  /// [AdSafetyConfig.canShowFullscreenAd]/[AdSafetyConfig.canShowFullscreenAdPeek]
+  /// when called with a `forType` argument — ad_manager.dart's own
+  /// show-methods always pass one. `null` (default) or a format absent from
+  /// the set is never blocked — this is purely additive, an empty/absent
+  /// set changes nothing versus every prior release. Banner/MREC/native are
+  /// NOT covered (they are persistent widgets with their own load/dispose
+  /// lifecycle, not a single "show" gate this mechanism hooks into) — this
+  /// only reaches the four fullscreen formats.
+  ///
+  /// ```dart
+  /// AdSafetyParams(disabledFormats: {'rewarded'})
+  /// ```
+  final Set<String>? disabledFormats;
+
   const AdSafetyParams({
     this.minTimeBetweenFullscreenAds = 60000,
     this.maxFullscreenAdsPerSession = 6,
@@ -172,6 +189,7 @@ class AdSafetyParams {
     this.maxPerPlacementAdsPerDayById,
     this.maxSameNetworkShowsPerWindow = 4,
     this.networkFatigueWindowMs = 900000,
+    this.disabledFormats,
   });
 
   // ─── Presets ──────────────────────────────────────────────────────────────
@@ -229,6 +247,7 @@ class AdSafetyParams {
     Map<String, int>? maxPerPlacementAdsPerDayById,
     int? maxSameNetworkShowsPerWindow,
     int? networkFatigueWindowMs,
+    Set<String>? disabledFormats,
   }) {
     return AdSafetyParams(
       minTimeBetweenFullscreenAds:
@@ -258,6 +277,7 @@ class AdSafetyParams {
           maxSameNetworkShowsPerWindow ?? this.maxSameNetworkShowsPerWindow,
       networkFatigueWindowMs:
           networkFatigueWindowMs ?? this.networkFatigueWindowMs,
+      disabledFormats: disabledFormats ?? this.disabledFormats,
     );
   }
 
@@ -461,8 +481,13 @@ class AdSafetyConfig {
   /// re-trigger and escalate the SAME violation forever, even with zero new
   /// clicks — a permanent, ever-worsening lockout from nothing but reading
   /// state.
-  static AdSafetyResult canShowFullscreenAd() {
-    final result = _canShowFullscreenAdStrict(recordViolation: true);
+  /// T137 — [forType] is optional (default `null`, unchanged behavior) so
+  /// existing callers outside this SDK keep compiling; ad_manager.dart's own
+  /// show-methods always pass their own [AdSlotType] so
+  /// [AdSafetyParams.disabledFormats] can actually gate them.
+  static AdSafetyResult canShowFullscreenAd({AdSlotType? forType}) {
+    final result =
+        _canShowFullscreenAdStrict(recordViolation: true, forType: forType);
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(
           _tag, '⚠️ dryRun: would have blocked (${result.reason}) — allowing');
@@ -476,8 +501,9 @@ class AdSafetyConfig {
   /// without re-arming/escalating the CTR-anomaly suspicious-pause window.
   /// Use this for any "should I show/enable" query; reserve
   /// [canShowFullscreenAd] for an actual show attempt.
-  static AdSafetyResult canShowFullscreenAdPeek() {
-    final result = _canShowFullscreenAdStrict(recordViolation: false);
+  static AdSafetyResult canShowFullscreenAdPeek({AdSlotType? forType}) {
+    final result =
+        _canShowFullscreenAdStrict(recordViolation: false, forType: forType);
     if (!result.canShow && _params.dryRun) {
       return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
     }
@@ -544,7 +570,14 @@ class AdSafetyConfig {
   }
 
   static AdSafetyResult _canShowFullscreenAdStrict(
-      {required bool recordViolation}) {
+      {required bool recordViolation, AdSlotType? forType}) {
+    // T137 — remote kill switch, checked first: cheapest check, and a host
+    // reacting to a live mediation incident wants this format gone
+    // immediately, not after every other throttle/cap check below.
+    if (forType != null &&
+        (_params.disabledFormats?.contains(forType.name) ?? false)) {
+      return const AdSafetyResult(false, 'formatDisabledRemotely');
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
 
     if (now < _suspiciousPauseUntil) {

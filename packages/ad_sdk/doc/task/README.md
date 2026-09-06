@@ -1,3 +1,15 @@
+## Tiến độ (cập nhật 2026-09-06, phần 4 — T137 done)
+
+- **T137 done, 9.5/10** — RemoteAdSafetyProvider nâng cấp (kill-switch theo
+  format, periodic auto-refresh, revision/rollback-protection) fixed. 2
+  vòng review độc lập `codex` (7/10 → 9.5/10): vòng 1 bắt 1 race BLOCKING
+  (2 refresh chồng lấp, cái cũ resolve sau đè ngược cái mới — sửa bằng
+  guard đồng bộ hoàn toàn + compare-and-set in-memory) + 1 timer-lifecycle
+  IMPORTANT (dời start timer tới đúng điểm init thành công duy nhất). Tự
+  bắt thêm 1 bug (reject-path ghi đè nhầm state live) TRƯỚC KHI có review
+  ngoài, khi tự viết test theo TDD. `todo/` còn 16 (T87, T114, T131,
+  T133-T136, T138-T146); `done/` có 185.
+
 # Board task — Audit SDK `applovin_admob_sdk` + Product backlog (host app)
 
 Nguồn: `doc/audit/audit_claude.md`. Quy trình scrum theo thư mục:

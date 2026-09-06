@@ -442,6 +442,20 @@ class AdPreferences {
     await _prefs?.setString(_keyComplianceLog, json);
   }
 
+  // T137 — last `revision` a remote safety-params payload actually applied
+  // successfully. Lets `AdManager` reject a stale/rolled-back payload (an
+  // older revision than this) without needing to track it in memory only —
+  // persisted so a stale payload can't slip back in across app restarts.
+  static const String _keyRemoteSafetyRevision =
+      'ad_sdk_remote_safety_revision';
+
+  int? getRemoteSafetyRevision() =>
+      _prefs?.getInt(_keyRemoteSafetyRevision);
+
+  Future<void> setRemoteSafetyRevision(int revision) async {
+    await _prefs?.setInt(_keyRemoteSafetyRevision, revision);
+  }
+
   Future<void> clearAllData() async => _prefs?.clear();
 
   // T93 — a stable pseudonymous per-install id for AdManager.experimentBucket

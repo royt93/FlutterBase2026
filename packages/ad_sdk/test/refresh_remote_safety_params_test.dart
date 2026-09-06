@@ -96,6 +96,14 @@ void main() {
   /// dailyCapReached()'s persisted-count read has something to compare
   /// against) without touching the real ad adapter.
   Future<void> wireUp(RemoteAdSafetyProvider provider) async {
+    // T137 — AdPreferences caches its instance across the whole file run;
+    // without this reset, `setMockInitialValues({})` below replaces the
+    // MOCK STORE's backing data, but the already-initialized AdPreferences
+    // singleton (obtained by an earlier test in this file) keeps its OLD
+    // in-memory reads for anything not re-fetched (e.g. the persisted
+    // remote-safety revision), leaking that state across otherwise
+    // independent tests.
+    AdPreferences.resetForTest();
     SharedPreferences.setMockInitialValues({});
     final prefs = await AdPreferences.getInstance();
     await AdSafetyConfig.init(prefs, params: _config.safety, isRelease: false);
@@ -108,6 +116,7 @@ void main() {
     AdManager().debugSetAdapter(null);
     AdManager().debugConfig = null;
     AdManager().debugRemoteSafetyProvider = null;
+    AdManager().debugLastAppliedRemoteSafetyRevision = null;
     AdSafetyConfig.updateParams(const AdSafetyParams());
   });
 
@@ -268,5 +277,139 @@ void main() {
         reason: 'the fetch belonged to a session that no longer exists by '
             'the time it resolved — its override must be discarded, not '
             'merged onto the live AdSafetyConfig the NEW session is using');
+  });
+
+  // ─────────────────────────────────────────────────
+  // T137 — revision-guard (rollback protection)
+  // ─────────────────────────────────────────────────
+  group('revision guard (T137)', () {
+    test('no revision key — always applies, unchanged from pre-T137 behavior',
+        () async {
+      await wireUp(
+          _FakeRemoteSafetyProvider({'maxFullscreenAdsPerDay': 1}));
+
+      await AdManager().refreshRemoteSafetyParams();
+
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 1);
+    });
+
+    test('a revision higher than nothing-applied-yet is accepted and '
+        'persisted', () async {
+      await wireUp(_FakeRemoteSafetyProvider(
+          {'maxFullscreenAdsPerDay': 1, 'revision': 5}));
+
+      await AdManager().refreshRemoteSafetyParams();
+
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 1);
+      final prefs = await AdPreferences.getInstance();
+      expect(prefs.getRemoteSafetyRevision(), 5);
+    });
+
+    test('a revision strictly lower than the last applied one is rejected — '
+        'the whole payload is discarded, not just the revision field',
+        () async {
+      await wireUp(_FakeRemoteSafetyProvider(
+          {'maxFullscreenAdsPerDay': 1, 'revision': 10}));
+      await AdManager().refreshRemoteSafetyParams();
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 1,
+          reason: 'sanity: revision 10 applied first');
+
+      AdManager().debugRemoteSafetyProvider = _FakeRemoteSafetyProvider(
+          {'maxFullscreenAdsPerDay': 999, 'revision': 3});
+      await AdManager().refreshRemoteSafetyParams();
+
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 1,
+          reason: 'revision 3 is older than the already-applied 10 — the '
+              'whole payload (including maxFullscreenAdsPerDay: 999) must '
+              'be discarded');
+      final prefs = await AdPreferences.getInstance();
+      expect(prefs.getRemoteSafetyRevision(), 10,
+          reason: 'the rejected payload must not overwrite the persisted '
+              'revision either');
+    });
+
+    test('a revision equal to the last applied one is still accepted '
+        '(only STRICTLY older is rejected)', () async {
+      await wireUp(_FakeRemoteSafetyProvider(
+          {'maxFullscreenAdsPerDay': 1, 'revision': 7}));
+      await AdManager().refreshRemoteSafetyParams();
+
+      AdManager().debugRemoteSafetyProvider = _FakeRemoteSafetyProvider(
+          {'maxFullscreenAdsPerDay': 2, 'revision': 7});
+      await AdManager().refreshRemoteSafetyParams();
+
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 2);
+    });
+
+    // Round-2 independent adversarial review (BLOCKING) — the guard used
+    // to be `async`, checking the persisted revision then `await`-ing a
+    // write before the caller separately `await`-ed its own apply. Two
+    // overlapping refreshes could both pass the check before either
+    // write landed, and whichever one's async tail finished LAST won —
+    // regardless of which revision was actually newer. This test pins the
+    // exact scenario the review described: an OLDER revision's fetch
+    // resolving AFTER a NEWER one already applied must not roll it back.
+    test(
+        'overlapping refreshes: an older revision whose fetch resolves '
+        'LAST does not roll back a newer one that already applied',
+        () async {
+      await wireUp(_FakeRemoteSafetyProvider({}));
+
+      final oldFetchStarted = Completer<void>();
+      final oldRelease = Completer<Map<String, dynamic>?>();
+      AdManager().debugRemoteSafetyProvider = _DelayedRemoteSafetyProvider(
+          fetchStarted: oldFetchStarted, releaseWith: oldRelease.future);
+      // Captures this (soon-to-be-stale) provider synchronously, before
+      // the newer refresh below ever runs — the real shape of "a periodic
+      // tick's fetch is still in flight when a manual/newer one lands".
+      final oldRefresh = AdManager().refreshRemoteSafetyParams();
+      await oldFetchStarted.future;
+
+      // The "newer" refresh — a different provider captured synchronously
+      // by ITS OWN call, resolves immediately (no Completer to wait on).
+      AdManager().debugRemoteSafetyProvider = _FakeRemoteSafetyProvider(
+          {'maxFullscreenAdsPerDay': 2, 'revision': 10});
+      await AdManager().refreshRemoteSafetyParams();
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 2,
+          reason: 'sanity: the newer refresh (revision 10) applied first');
+
+      // Now let the OLDER (revision 3) fetch resolve — its own guard check
+      // must see revision 10 already applied (in-memory, synchronously)
+      // and reject itself, even though its fetch happens to finish AFTER
+      // the newer one's.
+      oldRelease.complete({'maxFullscreenAdsPerDay': 999, 'revision': 3});
+      await oldRefresh;
+
+      expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 2,
+          reason: 'the older (revision 3) refresh resolving AFTER the '
+              'newer (revision 10) one must not roll back the live '
+              'AdSafetyConfig');
+    });
+
+    // Round-2 independent adversarial review (MINOR) — the ticket
+    // explicitly asks for malformed-value tests on every new field, same
+    // spirit as `posInt`/`unitDouble`'s own tests elsewhere in this file.
+    test('a malformed (non-int) revision is treated as absent — legacy '
+        'always-apply behavior, does not touch the persisted revision',
+        () async {
+      for (final malformed in <Object?>[
+        'not-a-number',
+        3.5,
+        true,
+        null,
+      ]) {
+        await wireUp(_FakeRemoteSafetyProvider(
+            {'maxFullscreenAdsPerDay': 1, 'revision': malformed}));
+
+        await AdManager().refreshRemoteSafetyParams();
+
+        expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 1,
+            reason: 'malformed revision $malformed must still always-apply');
+        final prefs = await AdPreferences.getInstance();
+        expect(prefs.getRemoteSafetyRevision(), isNull,
+            reason: 'a malformed revision must never be persisted as if '
+                'it were a real one');
+      }
+    });
   });
 }

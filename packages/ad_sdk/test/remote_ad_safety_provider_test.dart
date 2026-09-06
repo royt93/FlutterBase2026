@@ -205,4 +205,41 @@ void main() {
       expect(merged.networkFatigueWindowMs, local.networkFatigueWindowMs);
     });
   });
+
+  // T137 — remote kill switch by format.
+  group('disabledFormats (T137)', () {
+    test('a valid string list is parsed into a Set', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'disabledFormats': ['rewarded', 'interstitial']});
+      expect(merged.disabledFormats, {'rewarded', 'interstitial'});
+    });
+
+    test('missing key keeps the old value (fail-safe, not cleared)', () {
+      final withOld = local.copyWith(disabledFormats: {'appOpen'});
+      final merged = applyRemoteSafetyOverrides(withOld, {});
+      expect(merged.disabledFormats, {'appOpen'});
+    });
+
+    test('an explicit empty list clears to an empty Set, not the old value',
+        () {
+      final withOld = local.copyWith(disabledFormats: {'appOpen'});
+      final merged =
+          applyRemoteSafetyOverrides(withOld, {'disabledFormats': []});
+      expect(merged.disabledFormats, isEmpty);
+    });
+
+    test('non-string entries in the list are dropped, not rejecting the '
+        'whole field', () {
+      final merged = applyRemoteSafetyOverrides(
+          local, {'disabledFormats': ['rewarded', 42, null, '']});
+      expect(merged.disabledFormats, {'rewarded'});
+    });
+
+    test('a non-List value for the key is ignored (keeps old value)', () {
+      final withOld = local.copyWith(disabledFormats: {'appOpen'});
+      final merged = applyRemoteSafetyOverrides(
+          withOld, {'disabledFormats': 'rewarded'});
+      expect(merged.disabledFormats, {'appOpen'});
+    });
+  });
 }

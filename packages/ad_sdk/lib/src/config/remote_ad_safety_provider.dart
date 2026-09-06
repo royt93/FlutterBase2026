@@ -20,8 +20,27 @@ import '../core/ad_safety_config.dart';
 /// AdManager().initialize(
 ///   config: myConfig,
 ///   remoteSafetyProvider: MyFirebaseSafetyProvider(),
+///   // T137 — optional: re-fetches on this schedule via
+///   // AdManager().refreshRemoteSafetyParams() automatically, in addition
+///   // to the one-time fetch at init. Omit (default null) for the original
+///   // behavior — only the one-time fetch, host calls
+///   // refreshRemoteSafetyParams() itself on whatever schedule it wants.
+///   remoteSafetyAutoRefreshInterval: const Duration(minutes: 30),
 /// );
 /// ```
+///
+/// T137 — the override map [fetchSafetyParamOverrides] returns may also
+/// include two keys with no matching [AdSafetyParams] field of their own:
+/// - `disabledFormats`: a list of [AdSlotType.name] strings (e.g.
+///   `['rewarded', 'interstitial']`) to kill-switch immediately — see
+///   [AdSafetyParams.disabledFormats].
+/// - `revision`: an int a host can bump each time it publishes a genuinely
+///   new payload. If present and *lower* than the last revision this SDK
+///   actually applied, the WHOLE payload (not just this key) is rejected —
+///   protects against a stale/rolled-back remote config (a CDN cache, or a
+///   host accidentally re-publishing an old value) undoing a newer one.
+///   Omit it (or never send it) to keep the original always-apply
+///   behavior — this is purely opt-in.
 abstract class RemoteAdSafetyProvider {
   /// Returns override values keyed by [AdSafetyParams] field name (e.g.
   /// `{'maxFullscreenAdsPerDay': 8}`), or `null`/throws if unavailable —
@@ -89,6 +108,19 @@ AdSafetyParams applyRemoteSafetyOverrides(
     return v is bool ? v : null;
   }
 
+  // T137 — kill switch by format. `null` (key absent/wrong type) keeps
+  // whatever was already applied, matching every other field's fail-safe
+  // default; a present `List` — even an empty one — is a deliberate value
+  // and replaces the old set. Unknown/malformed entries inside the list are
+  // dropped rather than rejecting the whole field: an unrecognised string
+  // never matches any real `AdSlotType.name`, so it is harmless, not a
+  // reason to fall back to the old set for the entries that ARE valid.
+  Set<String>? disabledFormats() {
+    final v = overrides['disabledFormats'];
+    if (v is! List) return null;
+    return {for (final e in v) if (e is String && e.isNotEmpty) e};
+  }
+
   return local.copyWith(
     minTimeBetweenFullscreenAds: posInt('minTimeBetweenFullscreenAds',
         min: 1, max: 3600000 /* 1h */),
@@ -118,5 +150,6 @@ AdSafetyParams applyRemoteSafetyOverrides(
         posInt('maxSameNetworkShowsPerWindow', max: 100),
     networkFatigueWindowMs:
         posInt('networkFatigueWindowMs', min: 1, max: 3600000 /* 1h */),
+    disabledFormats: disabledFormats(),
   );
 }

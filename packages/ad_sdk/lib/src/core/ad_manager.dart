@@ -121,9 +121,32 @@ class AdManager with WidgetsBindingObserver {
   /// [destroy] alongside [_config].
   RemoteAdSafetyProvider? _remoteSafetyProvider;
 
+  /// T137 — periodic auto-refresh, opt-in via `initialize`'s
+  /// `remoteSafetyAutoRefreshInterval`. `null` unless that param was set.
+  /// Cancelled by [_resetGuardState] alongside every other Timer field.
+  Timer? _remoteSafetyRefreshTimer;
+
+  /// T137 — see [_applyRemoteOverridesWithRevisionGuard]'s doc comment for
+  /// why this is a plain in-memory field, not just read from [AdPreferences]
+  /// each time.
+  int? _lastAppliedRemoteSafetyRevision;
+
   @visibleForTesting
   set debugRemoteSafetyProvider(RemoteAdSafetyProvider? p) =>
       _remoteSafetyProvider = p;
+
+  /// T137 — test-only reset for [_lastAppliedRemoteSafetyRevision]. A test
+  /// file whose `tearDown` clears the other `debugRemoteSafetyProvider`-
+  /// adjacent state via debug setters (rather than a real `destroy()`,
+  /// which reaches [_resetGuardState] on its own) needs this one too, or
+  /// a revision one test applies leaks into the next test's guard check.
+  @visibleForTesting
+  set debugLastAppliedRemoteSafetyRevision(int? v) =>
+      _lastAppliedRemoteSafetyRevision = v;
+
+  @visibleForTesting
+  bool get debugRemoteSafetyRefreshTimerActive =>
+      _remoteSafetyRefreshTimer?.isActive ?? false;
 
   /// T75 — every assignment (real init, `destroy()`'s reset, and the
   /// `debugSetAdapter` test seam) funnels through this setter so
@@ -2320,6 +2343,12 @@ class AdManager with WidgetsBindingObserver {
     // (Firebase Remote Config, a self-hosted config API, ...). See
     // RemoteAdSafetyProvider's doc comment for the full contract.
     RemoteAdSafetyProvider? remoteSafetyProvider,
+    // T137 — optional: when set (and remoteSafetyProvider is also set),
+    // automatically calls refreshRemoteSafetyParams() on this schedule in
+    // addition to the one-time fetch above. `null` (default) keeps the
+    // original behavior — no automatic re-fetch, host calls
+    // refreshRemoteSafetyParams() itself on whatever schedule it wants.
+    Duration? remoteSafetyAutoRefreshInterval,
     @visibleForTesting bool isRelease = kReleaseMode,
   }) async {
     // Read + clear the internal-retry flag before the early-return guard —
@@ -2493,9 +2522,20 @@ class AdManager with WidgetsBindingObserver {
               .fetchSafetyParamOverrides()
               .timeout(const Duration(seconds: 5));
           if (overrides != null) {
-            effectiveSafety =
-                applyRemoteSafetyOverrides(effectiveSafety, overrides);
-            SafeLogger.d(_tag, '🌐 remote AdSafetyParams overrides applied');
+            final merged = _applyRemoteOverridesWithRevisionGuard(
+                effectiveSafety, overrides, prefs,
+                applyToLiveConfig: false);
+            // T137 — a stale-revision rejection here just means "boot with
+            // the local config's own safety params", same as if
+            // remoteSafetyProvider had never returned anything at all —
+            // there is no earlier "live" AdSafetyConfig yet to preserve
+            // (this runs before the FIRST AdSafetyConfig.init() of this
+            // session).
+            if (merged != null) {
+              effectiveSafety = merged;
+              SafeLogger.d(
+                  _tag, '🌐 remote AdSafetyParams overrides applied');
+            }
           }
         } catch (e) {
           SafeLogger.w(_tag,
@@ -3197,6 +3237,25 @@ class AdManager with WidgetsBindingObserver {
             onComplete, 'destroy() or a newer initialize() during consent');
         return;
       }
+      // T137 — deliberately started here, at the same "init HAS succeeded"
+      // point as the success report a few lines below, not any earlier.
+      // Round-2 independent review (IMPORTANT) — starting it up near the
+      // top of this function (right after `_remoteSafetyProvider` is set)
+      // meant a terminal adapter failure, a thrown init, or this exact
+      // `_initSuperseded` abort left it ticking indefinitely: none of
+      // those paths call `_resetGuardState()` or cancel it directly, and
+      // while `_config` stays null each tick is a near no-op, "leaks a
+      // live Timer against a session that never actually started"
+      // forever is still a real bug, not just wasted CPU. `_resetGuardState()`
+      // above (before this whole init attempt began) already cancelled any
+      // timer a PRIOR session left running.
+      _remoteSafetyRefreshTimer?.cancel();
+      if (remoteSafetyProvider != null &&
+          remoteSafetyAutoRefreshInterval != null) {
+        _remoteSafetyRefreshTimer = Timer.periodic(
+            remoteSafetyAutoRefreshInterval,
+            (_) => unawaited(refreshRemoteSafetyParams()));
+      }
       try {
         onComplete(true, _currentDeviceGAID);
       } catch (e, st) {
@@ -3849,14 +3908,87 @@ class AdManager with WidgetsBindingObserver {
     // uncaught instead of falling back to "keep current params" as the
     // class doc promises.
     try {
-      final merged = applyRemoteSafetyOverrides(
-          _rampAdjustedSafety(cfg, prefs), overrides);
-      AdSafetyConfig.updateParams(merged, isRelease: kReleaseMode);
+      // T137 — `null` means the revision guard rejected this payload as
+      // stale; the currently-live AdSafetyConfig (set by whatever payload
+      // is actually newest) must be left exactly as it is, not overwritten
+      // with a `merged` computed from this call's own now-stale baseline.
+      // `applyToLiveConfig: true` folds the actual write into this same
+      // synchronous call — see the method's doc comment for why that
+      // matters against overlapping refreshes.
+      final merged = _applyRemoteOverridesWithRevisionGuard(
+          _rampAdjustedSafety(cfg, prefs), overrides, prefs,
+          applyToLiveConfig: true);
+      if (merged == null) return;
       SafeLogger.d(_tag, '🌐 refreshRemoteSafetyParams: applied new overrides');
     } catch (e) {
       SafeLogger.w(_tag,
           '⚠️ refreshRemoteSafetyParams: applying overrides failed, keeping current params: $e');
     }
+  }
+
+  /// T137 — shared by [initialize]'s one-time fetch and
+  /// [refreshRemoteSafetyParams]'s explicit/periodic ones. If [overrides]
+  /// carries an int `revision` strictly lower than the last one this SDK
+  /// actually applied (persisted in [prefs]), the whole payload is rejected
+  /// and [local] is returned unchanged — a stale/rolled-back remote config
+  /// must not undo a newer one already live. No `revision` key (or one
+  /// that isn't an int) skips this guard entirely — always-apply, matching
+  /// every release before this field existed.
+  ///
+  /// Returns `null` when the payload is rejected as stale — the caller must
+  /// then apply NOTHING at all (not even [local]), since [local] is only
+  /// the freshly-recomputed ramp-adjusted baseline, not whatever is
+  /// currently live in [AdSafetyConfig]. Calling
+  /// `AdSafetyConfig.updateParams(local)` on a rejection would silently
+  /// discard every override already applied by an earlier, newer-revision
+  /// payload — the opposite of what "reject the stale one, keep the
+  /// current one" is supposed to mean.
+  ///
+  /// T137 round 2 (independent adversarial review, BLOCKING) — this used to
+  /// be `async`, `await`-ing the persisted-revision write between the check
+  /// and the caller's own (also awaited-apart) `AdSafetyConfig.updateParams`
+  /// call. Two overlapping refreshes (exactly what periodic auto-refresh
+  /// makes routine once the interval is shorter than the provider's
+  /// latency) could both pass the "is this newer" check before either
+  /// one's write landed, and whichever one's async tail happened to finish
+  /// LAST won — regardless of which revision was actually newer, so an
+  /// older payload could roll back a newer one already live.
+  ///
+  /// Now deliberately fully SYNCHRONOUS — no `await` anywhere in this
+  /// method — and [applyToLiveConfig] folds the actual
+  /// `AdSafetyConfig.updateParams` write into this same synchronous step
+  /// for the `refreshRemoteSafetyParams` path. Dart's single-threaded event
+  /// loop cannot interleave another call between two statements with no
+  /// suspension point between them, so the compare-and-claim on
+  /// [_lastAppliedRemoteSafetyRevision] and the live-state write happen
+  /// atomically relative to any other refresh in flight — whichever call's
+  /// *own* fetch happens to resolve and reach this method first wins the
+  /// comparison, regardless of how long some other call's fetch or
+  /// persistence write takes. Persisting to [prefs] is fire-and-forget
+  /// (`unawaited`) — durability across app restarts only, not part of the
+  /// concurrency guard (the in-memory field is authoritative for that,
+  /// seeded from the persisted value on first use so a value from a
+  /// previous run isn't forgotten across a restart).
+  AdSafetyParams? _applyRemoteOverridesWithRevisionGuard(
+      AdSafetyParams local, Map<String, dynamic> overrides, AdPreferences prefs,
+      {required bool applyToLiveConfig}) {
+    final revision = overrides['revision'];
+    if (revision is int) {
+      final lastApplied =
+          _lastAppliedRemoteSafetyRevision ?? prefs.getRemoteSafetyRevision();
+      if (lastApplied != null && revision < lastApplied) {
+        SafeLogger.w(_tag,
+            '⚠️ remote safety override rejected: revision $revision is older than already-applied $lastApplied');
+        return null;
+      }
+      _lastAppliedRemoteSafetyRevision = revision;
+      unawaited(prefs.setRemoteSafetyRevision(revision));
+    }
+    final merged = applyRemoteSafetyOverrides(local, overrides);
+    if (applyToLiveConfig) {
+      AdSafetyConfig.updateParams(merged, isRelease: kReleaseMode);
+    }
+    return merged;
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -5751,6 +5883,22 @@ class AdManager with WidgetsBindingObserver {
     _consentDialogScheduled = false;
     _consentDialogTimer?.cancel();
     _consentDialogTimer = null;
+    // T137 — same rule as every Timer field above: a reinit-without-
+    // destroy() (this function's other caller) must not leave the PREVIOUS
+    // session's periodic refresh still ticking against whatever provider/
+    // config the new session set up. initialize() itself starts a fresh one
+    // right after this call if the new session asked for one.
+    _remoteSafetyRefreshTimer?.cancel();
+    _remoteSafetyRefreshTimer = null;
+    // T137 (round 2) — cleared alongside the timer above, not left to leak
+    // into a new session: `_applyRemoteOverridesWithRevisionGuard`'s `??
+    // prefs.getRemoteSafetyRevision()` fallback re-seeds it lazily from
+    // persisted storage the next time it's actually needed, so this does
+    // NOT lose cross-restart rollback protection — it only forgets an
+    // in-memory value that a new session has no business inheriting from
+    // whatever session used it last (a fresh `AdManager()` test double, or
+    // this same singleton reinitialised without destroy()).
+    _lastAppliedRemoteSafetyRevision = null;
     // Audit fix: a stale GAID from the previous session used to survive
     // destroy()/re-init, so currentDeviceGaid (and adMobTestDeviceHashHint())
     // could report a device's ad ID after the SDK claimed to be torn down —
@@ -6139,7 +6287,8 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (!bypassSafety) {
-      final s = AdSafetyConfig.canShowFullscreenAd();
+      final s =
+          AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.appOpen);
       if (!s.canShow) {
         SafeLogger.d(
             _tag, () => '⏭️ showAppOpen blocked by safety: ${s.reason}');
@@ -6464,7 +6613,8 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
-    final safety = AdSafetyConfig.canShowFullscreenAd();
+    final safety = AdSafetyConfig.canShowFullscreenAd(
+        forType: AdSlotType.interstitial);
     if (!safety.canShow) {
       SafeLogger.d(_tag,
           () => '⏭️ showInterstitial blocked by safety: ${safety.reason}');
@@ -6578,11 +6728,13 @@ class AdManager with WidgetsBindingObserver {
     // already on screen (see _fullscreenBusyReason, which the real show
     // path re-checks and which already covers this signal).
     if (AdScreenRouteLogger.isDialogOnTop) return false;
+    // T137 forType — this peek gates interstitial specifically.
     // Peek, not canShowFullscreenAd() — this is a read-only "should I enable
     // my UI" query a host may poll repeatedly; the non-peek variant has a
     // CTR-anomaly side effect that would otherwise re-arm/escalate a
     // suspicious-pause window forever on every poll (2026-08-16 audit).
-    final s = AdSafetyConfig.canShowFullscreenAdPeek();
+    final s = AdSafetyConfig.canShowFullscreenAdPeek(
+        forType: AdSlotType.interstitial);
     if (!s.canShow) return false;
     // m18 — `ready` alone is not showable: a cached AdMob ad expires after 1h
     // and showInterstitial() discards it instead of showing it. Reporting
@@ -6780,7 +6932,8 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
-    final safety = AdSafetyConfig.canShowFullscreenAd();
+    final safety =
+        AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.rewarded);
     if (!safety.canShow) {
       SafeLogger.d(
           _tag, () => '⏭️ showRewarded blocked by safety: ${safety.reason}');
@@ -7077,7 +7230,8 @@ class AdManager with WidgetsBindingObserver {
       onDone(false, false);
       return;
     }
-    final safety = AdSafetyConfig.canShowFullscreenAd();
+    final safety = AdSafetyConfig.canShowFullscreenAd(
+        forType: AdSlotType.rewardedInterstitial);
     if (!safety.canShow) {
       SafeLogger.d(
           _tag,
@@ -7196,7 +7350,8 @@ class AdManager with WidgetsBindingObserver {
     // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
     if (AdScreenRouteLogger.isDialogOnTop) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
-    final s = AdSafetyConfig.canShowFullscreenAdPeek();
+    final s = AdSafetyConfig.canShowFullscreenAdPeek(
+        forType: AdSlotType.rewardedInterstitial);
     if (!s.canShow) return false;
     // m18 — see canShowInterstitial. This peek was missed when m18 wired the
     // other two (round-3 QC finding): without it a host polling this method
@@ -7233,7 +7388,8 @@ class AdManager with WidgetsBindingObserver {
     // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
     if (AdScreenRouteLogger.isDialogOnTop) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
-    final s = AdSafetyConfig.canShowFullscreenAdPeek();
+    final s = AdSafetyConfig.canShowFullscreenAdPeek(
+        forType: AdSlotType.rewardedInterstitial);
     if (!s.canShow) return false;
     // m18 — see canShowInterstitial.
     if (ad is AdMobAdapter && !ad.isFullscreenSlotFresh(ad.rewardedSlot)) {
