@@ -335,7 +335,7 @@ Edit your app's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^2.4.0
+  applovin_admob_sdk: ^X.Y.Z  # use the latest version from pub.dev
 
   # Optional — only if you want to use AppLovin as an AdMob mediation network.
   # Skip this line if you are using AppLovin directly via AdProvider.appLovin
