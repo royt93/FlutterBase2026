@@ -90,6 +90,62 @@ của A/B đúng nghĩa trên device, không có cách nào tránh hoàn toàn).
 trong README trước khi ai bật lên thật. Effort L vì đụng tới luồng
 `initialize()`/session lifecycle, không chỉ thêm field.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 9.5/10** sau **4 vòng review độc lập**
+  `codex` (bản copy cô lập): 4/10 → 7/10 → 8/10 → 9.5/10 — đây là task khó
+  nhất round này, đụng thật vào session lifecycle như ticket đã cảnh báo.
+- **Đã làm cả 3 phần:** `AdManager().pickSessionProvider()` (session-alternate
+  exploration, opt-in qua `explorationRate`, rate-limit 1/ngày, không ảnh
+  hưởng VIP), `WaterfallTuner`/`SelfHealingObserver` giờ **persist thật qua
+  AdPreferences** (không chỉ trong RAM — đây là phần biến "recommendation
+  không bao giờ non-null" thành thật khả thi trên 1 device thật), xoá bỏ
+  tuyên bố "sits dead forever" khỏi doc comment cả 2 class.
+- **Vòng 1 (4/10) — 2 bug BLOCKING:**
+  1. `pickSessionProvider()` (khi đó sync) đọc `AdPreferences.instanceOrNull`
+     — null lúc cold-start thật (process vừa mở, chưa ai gọi `getInstance()`),
+     bypass hoàn toàn rate-limit ngày. Sửa: đổi thành `async`, `await
+     AdPreferences.getInstance()` thật.
+  2. Reconcile "đã explore" chạy ngay sau `vip.load()` — SỚM hơn GAID
+     whitelist import + first-install grace, nên 1 session sau đó mới thật
+     sự thành VIP (qua grace) vẫn bị tính nhầm là non-VIP và persist mất 1
+     slot explore. Sửa: dời reconcile tới SAU toàn bộ 3 bước VIP-affecting.
+  3. (Blocker thứ 3 vòng 1): WaterfallTuner không persist qua session thật
+     — implement persist JSON qua AdPreferences.
+- **Vòng 2 (7/10) — 3 bug MAJOR:**
+  1. **TOCTOU y hệt lớp bug T137 gặp**: guard cũ vẫn còn `await` giữa lúc
+     check và lúc apply, khiến 2 refresh chồng lấp có thể ghi đè ngược.
+     Riêng T136: reject-path trả `local` (baseline tính lại) thay vì giữ
+     nguyên state đang live — tự bắt được TRƯỚC review ngoài nhờ viết test
+     trước.
+  2. Persist fire-and-forget, không có `ready`/flush contract — sửa bằng
+     `Future<void> get ready`, `_writeChain` serialize từng write, `dispose()`
+     giờ async chờ write đang chạy (có timeout).
+  3. Hydrate không trim về `rollingWindowSize` — sửa bằng lấy N phần tử cuối.
+- **Vòng 3 (8/10) — 2 bug MAJOR (tự gây ra khi sửa vòng 2):**
+  1. `AdManager.destroy()` gọi `dispose()` KHÔNG await rồi set field `null`
+     NGAY — nên `await` phía sau chỉ là `await null` (no-op thật). Sửa:
+     capture 2 local TRƯỚC khi null field, await 2 local đó.
+  2. Hydrate-vs-first-event race: subscribe stream ngay trong constructor,
+     TRƯỚC khi hydrate xong — event thật đến giữa lúc hydrate await có thể
+     bị hydrate ghi đè mất. Sửa: `_init()` await hydrate xong mới `.listen()`,
+     thêm `_disposed` flag tránh subscribe "ma" nếu dispose() gọi giữa lúc
+     hydrate.
+  - Khi sửa xong vòng 3, tự chạy full suite bắt được 1 **regression thật do
+    chính mình gây ra**: test cũ emit event ngay sau constructor không còn
+    được nhận (listener giờ subscribe trễ hơn) — sửa `setUp()` await
+    `ready` trước khi emit, đúng theo public contract mới, không phải che
+    lỗi bằng delay giả.
+- **Baseline cuối:** `flutter analyze` sạch; `flutter test` 1694/1694; 3
+  integration test thật trên Pixel 7 Pro pass
+  (`t136_session_exploration_test.dart`,
+  `t136_waterfall_tuner_persistence_test.dart`, và re-verify
+  `t137_periodic_refresh_test.dart` không bị ảnh hưởng).
+- API mới: `AdManager.pickSessionProvider()`,
+  `WaterfallTuner({persist, rollingWindowSize})` + `.ready`/`.dispose()` giờ
+  async, `SelfHealingObserver({persist})` + `.ready`/`.dispose()` giờ async.
+  README có section "Session-alternate exploration" ghi rõ trade-off.
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

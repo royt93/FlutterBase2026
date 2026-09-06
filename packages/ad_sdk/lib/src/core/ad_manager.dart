@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:advertising_id/advertising_id.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
@@ -498,6 +499,150 @@ class AdManager with WidgetsBindingObserver {
       experimentBucket(key, buckets: 2) == 0
           ? AdProvider.admob
           : AdProvider.appLovin;
+
+  /// T136 — session-alternate exploration for [WaterfallTuner]/
+  /// [SelfHealingObserver]: with probability [explorationRate] (default 0,
+  /// i.e. off), returns the OTHER provider instead of
+  /// [installCohortProvider] for THIS session only — [pickProviderCohort]'s
+  /// own per-install assignment is unaffected, this only changes what a
+  /// single app launch requests ads from. Call this the same way as
+  /// [pickProviderCohort] — BEFORE building [AdConfig] — passing whatever
+  /// [pickProviderCohort] (or your own stable per-install assignment)
+  /// already returned:
+  ///
+  /// ```dart
+  /// final installProvider = AdManager().pickProviderCohort();
+  /// final sessionProvider = await AdManager().pickSessionProvider(
+  ///   installCohortProvider: installProvider,
+  ///   explorationRate: 0.05, // 5% of eligible sessions explore
+  /// );
+  /// await AdManager().initialize(
+  ///   config: AdConfig(provider: sessionProvider, admob: ..., appLovin: ...),
+  ///   onComplete: (success, gaid) { /* ... */ },
+  /// );
+  /// ```
+  ///
+  /// This is a REAL session on the alternate provider — real ad requests,
+  /// real fills, real revenue — not a shadow request; see [WaterfallTuner]'s
+  /// doc comment for why a shadow request was rejected instead. The
+  /// tradeoff is real too: an explored session may perform worse than the
+  /// install's normal provider for that session's users — that is the
+  /// actual cost of an on-device A/B comparison, not a bug. Keep
+  /// [explorationRate] low (the default 0 means "never"; anything above 0
+  /// is an explicit choice).
+  ///
+  /// [minIntervalBetweenExplorations] rate-limits how often ANY session
+  /// explores (persisted, survives app restarts) — the default of 1 day
+  /// means at most one explored session per day regardless of how many
+  /// times the app launches. This is `async` — round 2 of independent
+  /// review (BLOCKER) caught that a synchronous version reading only
+  /// [AdPreferences.instanceOrNull] saw `null` on a cold app launch (the
+  /// singleton has no reason to already be populated that early), silently
+  /// defeating the persisted rate limit on exactly the call pattern this
+  /// method's own doc recommends (call it before the FIRST [initialize]).
+  /// Awaiting [AdPreferences.getInstance] here loads it for real.
+  ///
+  /// VIP sessions are handled specially: VIP suppresses every ad surface,
+  /// so an explored VIP session would waste a rare exploration slot on a
+  /// session that could never produce [WaterfallTuner] data anyway — but
+  /// VIP status is not known until AFTER every VIP-affecting phase of
+  /// [initialize] has run (same constraint [pickProviderCohort] has), so
+  /// this method cannot check it up front. Instead, the decision to
+  /// actually COUNT this call against [minIntervalBetweenExplorations] is
+  /// deferred until VIP status is truly final — see
+  /// [_reconcileProviderExplorationSlot], invoked internally once
+  /// `VipManager.load()`, the configured VIP GAID whitelist import, AND
+  /// first-install VIP grace have ALL been applied (round 2 review,
+  /// BLOCKER — reconciling right after `VipManager.load()` alone persisted
+  /// the exploration before first-install grace could flip this session to
+  /// VIP, wrongly counting it). A VIP session's provider choice for that
+  /// session is still committed (there is no way to un-choose it after the
+  /// fact), only the "did this count as today's explore" bookkeeping is
+  /// skipped.
+  Future<AdProvider> pickSessionProvider({
+    required AdProvider installCohortProvider,
+    double explorationRate = 0,
+    Duration minIntervalBetweenExplorations = const Duration(days: 1),
+    @visibleForTesting math.Random? debugRandom,
+  }) async {
+    // Clamp rather than assert — a misconfigured release build (a host
+    // computing this rate dynamically, say) must fail safe toward "explore
+    // never/always as documented", not silently accept e.g. 1.5 as "150%"
+    // or a negative interval as "no rate limit at all".
+    final rate = explorationRate.clamp(0.0, 1.0);
+    final interval = minIntervalBetweenExplorations.isNegative
+        ? Duration.zero
+        : minIntervalBetweenExplorations;
+    if (rate <= 0) return installCohortProvider;
+    final prefs = await AdPreferences.getInstance();
+    final lastMs = prefs.getLastProviderExplorationAtMs();
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (lastMs != null && nowMs - lastMs < interval.inMilliseconds) {
+      return installCohortProvider;
+    }
+    if ((debugRandom ?? math.Random()).nextDouble() >= rate) {
+      return installCohortProvider;
+    }
+    // Committing the persisted timestamp is deferred to
+    // _reconcileProviderExplorationSlot — see this method's doc comment
+    // for why (VIP status not yet final at this point).
+    _pendingExplorationCommitAtMs = nowMs;
+    return installCohortProvider == AdProvider.admob
+        ? AdProvider.appLovin
+        : AdProvider.admob;
+  }
+
+  /// T136 — set by [pickSessionProvider] when it decides to explore this
+  /// session. Captured into a local by [initialize] as the very first
+  /// synchronous step (before any `await`) and cleared here immediately —
+  /// see the capture site's comment for why this must not be read back
+  /// from this field again after that point.
+  int? _pendingExplorationCommitAtMs;
+
+  /// T136 — call once per session, once VIP status is TRULY final (after
+  /// `VipManager.load()`, the VIP GAID whitelist import, AND first-install
+  /// VIP grace have all been applied inside [initialize] — see that call
+  /// site). [pendingExplorationAtMs] is the value [initialize] captured
+  /// from [_pendingExplorationCommitAtMs] at its own start, not read from
+  /// the field again (a later, unrelated session may have already set a
+  /// new one by the time this runs). If it is non-null, this is where that
+  /// decision actually gets persisted against
+  /// [AdPreferences.setLastProviderExplorationAtMs] — but only when
+  /// [vipActive] is false. A VIP session's exploration attempt is
+  /// discarded here (not persisted, not counted against the rate limit) —
+  /// see [pickSessionProvider]'s doc comment for the full reasoning.
+  ///
+  /// `async` and meant to be `await`-ed by the caller (round 2 review,
+  /// MAJOR) — a fire-and-forget write here could lose the daily-cap
+  /// timestamp to a process kill right after [initialize] returns,
+  /// silently permitting another explore sooner than intended.
+  Future<void> _reconcileProviderExplorationSlot({
+    required int? pendingExplorationAtMs,
+    required bool vipActive,
+  }) async {
+    if (pendingExplorationAtMs == null || vipActive) return;
+    final prefs = await AdPreferences.getInstance();
+    await prefs.setLastProviderExplorationAtMs(pendingExplorationAtMs);
+  }
+
+  /// Test seam — exercises [_reconcileProviderExplorationSlot] directly,
+  /// without needing a real [initialize] call to reach the point where VIP
+  /// status becomes final.
+  @visibleForTesting
+  Future<void> debugReconcileProviderExplorationSlot({
+    required bool vipActive,
+  }) {
+    final pendingMs = _pendingExplorationCommitAtMs;
+    _pendingExplorationCommitAtMs = null;
+    return _reconcileProviderExplorationSlot(
+        pendingExplorationAtMs: pendingMs, vipActive: vipActive);
+  }
+
+  /// Test seam — exposes whether [pickSessionProvider] currently has an
+  /// uncommitted exploration pending reconciliation.
+  @visibleForTesting
+  bool get debugHasPendingExplorationCommit =>
+      _pendingExplorationCommitAtMs != null;
 
   /// Opt-in "Smart Monetization Arbitrator" (default OFF) — `null` unless the
   /// host app calls [enableArbitrator]. When `null`, [showInterstitial] and
@@ -2351,6 +2496,19 @@ class AdManager with WidgetsBindingObserver {
     Duration? remoteSafetyAutoRefreshInterval,
     @visibleForTesting bool isRelease = kReleaseMode,
   }) async {
+    // T136 (round 2, MAJOR #4 in independent review) — captured and
+    // cleared as the very first synchronous step, before any `await`,
+    // because `pickSessionProvider()` is required to run synchronously
+    // right before this call: whatever it just set belongs to THIS
+    // attempt only. Without this, a pending decision left dangling by an
+    // earlier attempt that threw or got superseded before reaching the
+    // reconcile point further down could get wrongly attributed to a
+    // LATER, unrelated session's VIP status. Threaded through as a local
+    // all the way to `_reconcileProviderExplorationSlot` — never read back
+    // from the field itself.
+    final pendingExplorationAtMs = _pendingExplorationCommitAtMs;
+    _pendingExplorationCommitAtMs = null;
+
     // Read + clear the internal-retry flag before the early-return guard —
     // otherwise a retry timer firing while another call already holds
     // `_isInitializing` leaves the flag stuck `true` forever (this call
@@ -2730,6 +2888,31 @@ class AdManager with WidgetsBindingObserver {
           }
         }
       }
+
+      // T136 (round 2 review, MAJOR) — the GAID whitelist import and
+      // first-install grace above both `await`, so a destroy() racing
+      // this exact init attempt could land here with `vip.isActive` still
+      // reading `false` for a session that is actually being abandoned,
+      // not a real non-VIP session — wrongly persisting the exploration
+      // and consuming a real day's rate-limit slot for an attempt that
+      // will never produce any WaterfallTuner data at all. Same guard,
+      // same convention as every other supersede check in this function.
+      if (_initSuperseded(initGen)) {
+        _reportAbandonedInit(
+            onComplete, 'destroy() during whitelist import / VIP grace');
+        return;
+      }
+
+      // VIP status for this session is now TRULY final: vip.load(), the
+      // GAID whitelist import, and first-install grace above have all run
+      // (and the supersede check just above confirms this attempt is
+      // still the live one). Reconcile whatever pickSessionProvider
+      // decided before this initialize() call started (captured into
+      // `pendingExplorationAtMs` at the very top of this function, before
+      // either of those two VIP mutations could have happened).
+      await _reconcileProviderExplorationSlot(
+          pendingExplorationAtMs: pendingExplorationAtMs,
+          vipActive: vip.isActive);
 
       // T40 — bootstrap ConsentManager (loads persisted user choice from
       // prefs) BEFORE picking/initialising the adapter, so a previously
@@ -5758,9 +5941,19 @@ class AdManager with WidgetsBindingObserver {
     _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;
-    _waterfallTuner?.dispose();
+    // T136 (round 3 review, MAJOR/blocking) — capture BEFORE nulling the
+    // fields, not after: the previous round put the awaited dispose()
+    // calls below (right before `_resetGuardState()`), by which point
+    // these two fields were ALREADY null from right here, making
+    // `await _waterfallTuner?.dispose()` an unconditional no-op
+    // (`await null` on an already-null field) — the exact bug this
+    // capture avoids. `_resetGuardState()` further down still nulls
+    // these fields too (needed for its other callers); disposing the
+    // same instance twice is harmless (cancelling an already-null
+    // subscription, re-awaiting the same settled write-chain Future).
+    final tunerToFlush = _waterfallTuner;
     _waterfallTuner = null;
-    _selfHealingObserver?.dispose();
+    final observerToFlush = _selfHealingObserver;
     _selfHealingObserver = null;
     _journeyPrefetcher?.dispose();
     _journeyPrefetcher = null;
@@ -5778,6 +5971,14 @@ class AdManager with WidgetsBindingObserver {
     _lastFullscreenDismissAt = 0;
     _rewardedInFlight = false;
     _offlineNotifier.value = false;
+    // T136 (round 2 review, MAJOR) — `_resetGuardState()` below disposes
+    // whatever is still non-null too, but that call is synchronous and
+    // cannot await the bounded flush WaterfallTuner/SelfHealingObserver's
+    // own `dispose()` now does — without awaiting the CAPTURED locals
+    // here, a real destroy() (a real app process teardown included)
+    // could lose whatever sample/dedupe write was still in flight.
+    await tunerToFlush?.dispose();
+    await observerToFlush?.dispose();
     _resetGuardState();
 
     // T70 — same reasoning as vipManager/consentManager/arbitrator above: a

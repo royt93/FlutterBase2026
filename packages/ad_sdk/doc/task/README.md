@@ -1,3 +1,17 @@
+## Tiến độ (cập nhật 2026-09-06, phần 5 — T136 done)
+
+- **T136 done, 9.5/10** — WaterfallTuner/SelfHealingObserver giờ hoạt động
+  thật trên device (session-alternate exploration + persist qua
+  AdPreferences). Task khó nhất round này — **4 vòng review độc lập**
+  `codex`: 4/10 → 7/10 → 8/10 → 9.5/10, tổng cộng 7 bug thật bị bắt (2
+  BLOCKING vòng 1 về cold-start/timing VIP, 3 MAJOR vòng 2 gồm 1 TOCTOU
+  y hệt lớp bug T137 + persist fire-and-forget + hydrate không trim, 2
+  MAJOR vòng 3 do TỰ GÂY RA khi sửa vòng 2 — await-null bug ở
+  `AdManager.destroy()` + hydrate-vs-first-event race — và tự bắt thêm 1
+  regression thật khi chạy full suite sau vòng 3, trước cả khi có review
+  ngoài xác nhận). `todo/` còn 15 (T87, T114, T131, T133-T135, T138-T146);
+  `done/` có 186.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 4 — T137 done)
 
 - **T137 done, 9.5/10** — RemoteAdSafetyProvider nâng cấp (kill-switch theo

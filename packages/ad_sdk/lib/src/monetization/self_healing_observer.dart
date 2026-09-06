@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
+import '../utils/ad_preferences.dart';
 import 'waterfall_tuner.dart';
 
 /// T127 — flagship self-healing dual-provider runtime, **observe-only**
@@ -13,36 +14,86 @@ import 'waterfall_tuner.dart';
 /// (format, placement) pair's trailing data recommends a different provider.
 ///
 /// Deliberately never switches anything itself: the SDK still serves exactly
-/// one provider per session (`AdConfig.provider`). Acting on the
-/// recommendation for real would need both adapters alive in the same
-/// session — a real architecture change out of scope for this prototype,
-/// left for a dedicated follow-up ticket once observe-only data validates
-/// the idea is worth building.
+/// one provider per session (`AdConfig.provider`). Same as
+/// [WaterfallTuner.recommendation] itself, "switching" only makes sense at
+/// the NEXT session boundary — a host reads the emitted
+/// [AdSelfHealingObserveEvent] (e.g. logs it to its own analytics, or
+/// simply persists "recommended provider" for its next launch) and picks a
+/// different `provider:` on its next `initialize()` call. No simultaneous
+/// dual-adapter runtime is needed for that, and none is planned here —
+/// this class only automates the "notice the recommendation" step, not the
+/// "act on it" step, which stays a host decision.
 ///
-/// **Round-31 audit — this "once data validates the idea" step cannot
-/// happen on a real device today.** The internal [WaterfallTuner] this
-/// wraps only ever sees events for the ONE provider a given install is
-/// running (see [WaterfallTuner]'s own doc comment) — the non-active
-/// provider's data stays empty for that install's whole lifetime, so the
-/// recommendation this event fires on can never actually be produced. In
-/// practice this observer will sit silent forever on any real install,
-/// not "wait for enough data." See [WaterfallTuner]'s doc comment for what
-/// this data IS still useful for (cross-install analytics, not this
-/// observer's in-session trigger).
+/// **Round-31 audit — this used to be unable to ever fire on a real
+/// device; T136 closed that.** The internal [WaterfallTuner] this wraps
+/// only sees events for provider(s) a session actually requests ads from
+/// — normally just one (see [WaterfallTuner]'s own doc comment). With
+/// `AdManager().pickSessionProvider(...)` (T136) opted into at a low
+/// exploration rate, some sessions genuinely run the alternate provider,
+/// seeding real data for it over time — this observer can then actually
+/// fire once enough of those sessions accumulate. Without opting into
+/// T136's exploration, this observer is still effectively silent forever,
+/// for the same reason as before — that has not changed, only the escape
+/// hatch exists now.
 class SelfHealingObserver {
-  SelfHealingObserver({int rollingWindowSize = 20})
-      : _tuner = WaterfallTuner(rollingWindowSize: rollingWindowSize) {
-    _sub = AdManager().events.listen(_onEvent);
+  /// [persist] (default `true`, same reasoning as [WaterfallTuner]'s own
+  /// flag) is what this class's dedupe actually needs now that its
+  /// internal [_tuner]'s data survives across sessions: without ALSO
+  /// persisting [_alreadyObserved], a recommendation that stays non-null
+  /// for many sessions in a row would re-fire the exact same
+  /// [AdSelfHealingObserveEvent] every single launch instead of once (a
+  /// fresh in-memory dedupe set every session never remembers it already
+  /// fired). Set to `false` to keep the original per-session-only dedupe.
+  SelfHealingObserver({int rollingWindowSize = 20, bool persist = true})
+      : _tuner = WaterfallTuner(
+            rollingWindowSize: rollingWindowSize, persist: persist),
+        _persist = persist {
+    _ready = _init();
   }
 
   final WaterfallTuner _tuner;
+  final bool _persist;
   StreamSubscription<AdEvent>? _sub;
+  bool _disposed = false;
+
+  // T136 (round 3 review, MAJOR) — same reasoning as
+  // WaterfallTuner._init(): only start listening for events once the
+  // persisted dedupe set has actually been hydrated, so a real
+  // observation can't race ahead of it and then get silently clobbered.
+  Future<void> _init() async {
+    if (_persist) await _loadObserved();
+    if (_disposed) return;
+    _sub = AdManager().events.listen(_onEvent);
+  }
+
+  /// T136 (round 2 review, MAJOR) — same contract as
+  /// [WaterfallTuner.ready]: completes once the persisted dedupe set has
+  /// been loaded AND this instance has started listening for new events
+  /// (or immediately for `persist: false`).
+  Future<void> get ready => _ready;
+  late final Future<void> _ready;
+
+  /// T136 (round 2 review, MAJOR) — same reasoning as
+  /// [WaterfallTuner._writeChain]: serializes persisted writes of
+  /// [_alreadyObserved] so two observations landing close together can't
+  /// race each other's `AdPreferences.getInstance()` and have the OLDER
+  /// snapshot's write win.
+  Future<void> _writeChain = Future.value();
 
   /// One observation per (type, placement, recommendedProvider) — once
-  /// logged, a recommendation that keeps holding across later events isn't
-  /// re-reported every time. Cleared implicitly on [dispose] (a fresh
-  /// instance starts with a clean slate).
+  /// logged, a recommendation that keeps holding across later events (and,
+  /// with [persist], later SESSIONS too) isn't re-reported every time. A
+  /// DIFFERENT recommended provider for the same (type, placement) is a
+  /// different key, so it still gets its own fresh notification. Cleared
+  /// implicitly on [dispose] when not persisting (a fresh instance starts
+  /// with a clean slate); loaded from [AdPreferences] on construction when
+  /// persisting.
   final Set<String> _alreadyObserved = {};
+
+  Future<void> _loadObserved() async {
+    final prefs = await AdPreferences.getInstance();
+    _alreadyObserved.addAll(prefs.getSelfHealingObservedKeys());
+  }
 
   void _onEvent(AdEvent event) {
     if (event is! AdLoadEvent && event is! AdRevenueEvent) return;
@@ -57,12 +108,25 @@ class SelfHealingObserver {
     final key =
         '${rec.type.name}|${rec.placement.id}|${rec.recommendedProvider}';
     if (!_alreadyObserved.add(key)) return;
+    if (_persist) {
+      _writeChain = _writeChain.then((_) => AdPreferences.getInstance()
+          .then((p) => p.setSelfHealingObservedKeys(_alreadyObserved.toList())));
+    }
     AdManager().emitSelfHealingObservation(rec);
   }
 
-  void dispose() {
+  /// Stops listening immediately, then — same reasoning as
+  /// [WaterfallTuner.dispose] — waits (bounded by [timeout]) for both this
+  /// instance's own pending dedupe write AND the internal [_tuner]'s
+  /// pending sample write to actually land before returning.
+  Future<void> dispose({Duration timeout = const Duration(seconds: 2)}) async {
+    _disposed = true;
     _sub?.cancel();
     _sub = null;
-    _tuner.dispose();
+    final tunerDone = _tuner.dispose(timeout: timeout);
+    if (_persist) {
+      await _writeChain.timeout(timeout, onTimeout: () {});
+    }
+    await tunerDone;
   }
 }

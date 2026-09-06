@@ -456,6 +456,55 @@ class AdPreferences {
     await _prefs?.setInt(_keyRemoteSafetyRevision, revision);
   }
 
+  // T136 — last time `pickSessionProvider()` actually committed a
+  // session-alternate exploration (epoch ms), so the rate limit
+  // (`minIntervalBetweenExplorations`) survives across app restarts, not
+  // just within one process. Set only once VIP status is known to be
+  // false for that session — see `AdManager._reconcileProviderExploration
+  // Slot`'s doc comment for why the write is deferred rather than
+  // immediate.
+  static const String _keyLastProviderExplorationAtMs =
+      'ad_sdk_last_provider_exploration_at_ms';
+
+  int? getLastProviderExplorationAtMs() =>
+      _prefs?.getInt(_keyLastProviderExplorationAtMs);
+
+  Future<void> setLastProviderExplorationAtMs(int epochMs) async {
+    await _prefs?.setInt(_keyLastProviderExplorationAtMs, epochMs);
+  }
+
+  // T136 (round 2, BLOCKER #3 in independent review) — WaterfallTuner's
+  // rolling per-(provider,format,placement) samples, serialized as raw
+  // JSON so they survive a destroy()+initialize() cycle (a real app
+  // process restart included) — without this, a session-alternate
+  // exploration's data was thrown away the moment that session ended,
+  // making cross-session accumulation impossible regardless of how many
+  // sessions explored.
+  static const String _keyWaterfallTunerState = 'ad_sdk_waterfall_tuner_state';
+
+  String? getWaterfallTunerStateRaw() =>
+      _prefs?.getString(_keyWaterfallTunerState);
+
+  Future<void> setWaterfallTunerStateRaw(String json) async {
+    await _prefs?.setString(_keyWaterfallTunerState, json);
+  }
+
+  // T136 (round 2) — SelfHealingObserver's "already fired this exact
+  // recommendation" dedupe keys. Persisted for the same reason as the
+  // WaterfallTuner state above: once its underlying data survives across
+  // sessions, a recommendation can stay non-null for many sessions in a
+  // row — without this, a fresh in-memory dedupe set every session would
+  // re-fire the SAME recommendation every single launch instead of once.
+  static const String _keySelfHealingObservedKeys =
+      'ad_sdk_self_healing_observed_keys';
+
+  List<String> getSelfHealingObservedKeys() =>
+      _prefs?.getStringList(_keySelfHealingObservedKeys) ?? const [];
+
+  Future<void> setSelfHealingObservedKeys(List<String> keys) async {
+    await _prefs?.setStringList(_keySelfHealingObservedKeys, keys);
+  }
+
   Future<void> clearAllData() async => _prefs?.clear();
 
   // T93 — a stable pseudonymous per-install id for AdManager.experimentBucket

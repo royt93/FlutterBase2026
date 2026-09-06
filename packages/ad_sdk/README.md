@@ -1222,6 +1222,40 @@ every event on `AdManager().events` already carries `providerTag`
 install base. Built on `experimentBucket` below — same GAID/install-id
 fallback guarantee.
 
+### Session-alternate exploration for `WaterfallTuner`/`SelfHealingObserver` (`pickSessionProvider`)
+
+`pickProviderCohort` above assigns a provider ONCE, at install — every
+session of that install runs the same provider forever. `WaterfallTuner`
+and `SelfHealingObserver` (below) can only ever compare the two providers
+on a single device if SOME sessions genuinely run the alternate one —
+`pickSessionProvider` is that mechanism:
+
+```dart
+final installProvider = AdManager().pickProviderCohort(); // stable per install
+final sessionProvider = await AdManager().pickSessionProvider(
+  installCohortProvider: installProvider,
+  explorationRate: 0.05, // 5% of eligible sessions explore — keep this LOW
+);
+
+await AdManager().initialize(
+  config: AdConfig(provider: sessionProvider, admob: ..., appLovin: ...),
+  onComplete: (success, gaid) { /* ... */ },
+);
+```
+
+**Read this before enabling:** an explored session is a REAL session on
+the alternate provider — real ad requests, real fills, real revenue for
+THAT session's users, not a shadow request. That is the actual cost of an
+on-device A/B comparison: some sessions may perform worse than the
+install's normal provider, on purpose, so the SDK can learn whether the
+alternate would have done better overall. `explorationRate` defaults to 0
+(never explores) — anything above 0 is an explicit tradeoff you are
+opting into, and it should stay low (the 5% above is a starting point, not
+a recommendation for every app). Exploration is also rate-limited to at
+most once per day per device regardless of `explorationRate`, and never
+counts against a VIP session (VIP suppresses every ad surface, so there
+would be nothing to observe anyway).
+
 ### A/B testing local knobs (`experimentBucket`)
 
 Deterministic bucket assignment for A/B testing `AdSafetyParams`/arbitrator

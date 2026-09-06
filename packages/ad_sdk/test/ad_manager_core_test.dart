@@ -15,6 +15,7 @@
 //      AdRevenueEvents through debugEmit must accumulate on screen.
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
@@ -51,6 +52,24 @@ class _HangingRemoteSafetyProvider implements RemoteAdSafetyProvider {
   @override
   Future<Map<String, dynamic>?> fetchSafetyParamOverrides() =>
       Completer<Map<String, dynamic>?>().future; // never completes
+}
+
+/// T136 — deterministic stand-in for `pickSessionProvider`'s
+/// `debugRandom` seam. `Random` is abstract in `dart:math`, so a plain
+/// `implements` fake is enough — no real randomness needed to pin
+/// "rolled below the exploration rate" vs "rolled above it".
+class _FixedRandom implements Random {
+  _FixedRandom(this._value);
+  final double _value;
+
+  @override
+  double nextDouble() => _value;
+
+  @override
+  int nextInt(int max) => 0;
+
+  @override
+  bool nextBool() => false;
 }
 
 /// In-memory fake so VIP tests don't hit the real (unavailable-in-test)
@@ -2520,6 +2539,182 @@ void main() {
         seen.add(AdManager().pickProviderCohort());
       }
       expect(seen, {AdProvider.admob, AdProvider.appLovin});
+    });
+  });
+
+  group('pickSessionProvider (T136)', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+      await AdPreferences.getInstance();
+    });
+
+    tearDown(() async {
+      await AdManager().debugReconcileProviderExplorationSlot(vipActive: false);
+    });
+
+    test('explorationRate 0 (the default) always returns the install '
+        'cohort provider, regardless of the random roll', () async {
+      final result = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        debugRandom: _FixedRandom(0), // would explore at any positive rate
+      );
+      expect(result, AdProvider.admob);
+      expect(AdManager().debugHasPendingExplorationCommit, isFalse);
+    });
+
+    test('a roll below explorationRate returns the OTHER provider and '
+        'marks a pending commit', () async {
+      final result = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 0.5,
+        debugRandom: _FixedRandom(0.1), // 0.1 < 0.5
+      );
+      expect(result, AdProvider.appLovin);
+      expect(AdManager().debugHasPendingExplorationCommit, isTrue);
+    });
+
+    test('a roll at or above explorationRate keeps the install cohort '
+        'provider', () async {
+      final result = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.appLovin,
+        explorationRate: 0.5,
+        debugRandom: _FixedRandom(0.5), // 0.5 is NOT < 0.5
+      );
+      expect(result, AdProvider.appLovin);
+      expect(AdManager().debugHasPendingExplorationCommit, isFalse);
+    });
+
+    test('explorationRate above 1 is clamped to 1, not treated as >100%',
+        () async {
+      // A roll of exactly 1.0 fails a clamped-to-1.0 rate (1.0 >= 1.0 —
+      // does NOT explore) but would pass an un-clamped 1.5 (1.0 >= 1.5 is
+      // false — WOULD explore) — the one roll value that actually tells
+      // the two cases apart. Real Random.nextDouble() never returns
+      // exactly 1.0, but debugRandom is a plain test double, not required
+      // to.
+      final result = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1.5,
+        debugRandom: _FixedRandom(1.0),
+      );
+      expect(result, AdProvider.admob,
+          reason: 'must be clamped to 1.0, not accepted as-is (1.5)');
+    });
+
+    test('a negative minIntervalBetweenExplorations is clamped to zero, '
+        'not treated as "rate limit disabled forever"', () async {
+      await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1,
+        debugRandom: _FixedRandom(0),
+      );
+      await AdManager()
+          .debugReconcileProviderExplorationSlot(vipActive: false);
+
+      final second = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1,
+        minIntervalBetweenExplorations: const Duration(seconds: -5),
+        debugRandom: _FixedRandom(0),
+      );
+
+      expect(second, AdProvider.appLovin,
+          reason: 'a clamped-to-zero interval means "no minimum wait", so '
+              'this explores again immediately — the opposite of the bug '
+              'this test guards (a raw negative Duration making the '
+              'nowMs - lastMs < interval check always true, i.e. rate '
+              'limit ALWAYS blocking, would also be wrong)');
+    });
+
+    // Round 2 independent review, BLOCKER — a synchronous version of this
+    // method that only read AdPreferences.instanceOrNull saw `null` on a
+    // cold process (nobody had called AdPreferences.getInstance() yet),
+    // silently bypassing the persisted daily rate limit on exactly the
+    // call pattern this method's own doc recommends.
+    test(
+        'a cold process (AdPreferences.instanceOrNull still null) still '
+        'sees a persisted last-exploration timestamp', () async {
+      final recentMs = DateTime.now().millisecondsSinceEpoch - 1000;
+      SharedPreferences.setMockInitialValues(
+          {'ad_sdk_last_provider_exploration_at_ms': recentMs});
+      AdPreferences.resetForTest();
+      expect(AdPreferences.instanceOrNull, isNull,
+          reason: 'sanity: nobody has touched AdPreferences yet, matching '
+              'a real cold app launch');
+
+      final result = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1, // would explore every time if the rate limit
+        // were bypassed by a stale/absent AdPreferences read
+        debugRandom: _FixedRandom(0),
+      );
+
+      expect(result, AdProvider.admob,
+          reason: 'must await AdPreferences for real and see the persisted '
+              'timestamp — must not explore again this soon after');
+    });
+
+    test(
+        'reconciling with vipActive: true discards the pending commit — '
+        'never persisted, never counted against the rate limit', () async {
+      await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1,
+        debugRandom: _FixedRandom(0),
+      );
+      expect(AdManager().debugHasPendingExplorationCommit, isTrue,
+          reason: 'sanity: exploration was decided');
+
+      await AdManager()
+          .debugReconcileProviderExplorationSlot(vipActive: true);
+
+      expect(AdManager().debugHasPendingExplorationCommit, isFalse);
+      final prefs = await AdPreferences.getInstance();
+      expect(prefs.getLastProviderExplorationAtMs(), isNull,
+          reason: 'a VIP session\'s exploration attempt must not be '
+              'persisted — it could never produce WaterfallTuner data '
+              'anyway, so it must not count against the daily rate limit '
+              'either');
+    });
+
+    test(
+        'reconciling with vipActive: false persists the commit, and a '
+        'second pickSessionProvider call within the rate-limit window no '
+        'longer explores even with a roll that would otherwise qualify',
+        () async {
+      final first = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1,
+        debugRandom: _FixedRandom(0),
+      );
+      expect(first, AdProvider.appLovin, reason: 'sanity: first one explored');
+      await AdManager()
+          .debugReconcileProviderExplorationSlot(vipActive: false);
+
+      final prefs = await AdPreferences.getInstance();
+      expect(prefs.getLastProviderExplorationAtMs(), isNotNull,
+          reason: 'sanity: the non-VIP commit above must have persisted');
+
+      final second = await AdManager().pickSessionProvider(
+        installCohortProvider: AdProvider.admob,
+        explorationRate: 1, // would explore every single time if not rate-limited
+        debugRandom: _FixedRandom(0),
+      );
+
+      expect(second, AdProvider.admob,
+          reason: 'the default 1-day rate limit must block a second '
+              'exploration this soon after the first one actually counted');
+    });
+
+    test('a reconciliation call with no pending commit is a safe no-op',
+        () async {
+      await expectLater(
+          AdManager().debugReconcileProviderExplorationSlot(vipActive: false),
+          completes);
+      await expectLater(
+          AdManager().debugReconcileProviderExplorationSlot(vipActive: true),
+          completes);
     });
   });
 
