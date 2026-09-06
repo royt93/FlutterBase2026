@@ -1,3 +1,12 @@
+## Tiến độ (cập nhật 2026-09-06, phần 11 — T139 done)
+
+- **T139 done, 9.7/10** — JourneyPrefetcher opt-in auto-mode qua route
+  push (`autoRouteSignalType` + `routeObserver`, cùng pattern
+  `AdScreenRouteLogger`). 2 vòng review độc lập `codex`: 8.8/10 → 9.7/10.
+  Tự bắt được 1 lỗi TRONG TEST (không phải code) khi viết test:
+  `MaterialApp(home:)` tự gán tên `'/'` cho route đầu, tự kích hoạt signal
+  ngoài ý muốn. `todo/` còn 9 (T87, T114, T131, T141-T146); `done/` có 192.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 10 — T138 done)
 
 - **T138 done, 9.7/10** — MonetizationArbitrator.decideWithContext() trả

@@ -56,6 +56,32 @@ lúc nào cũng match đúng ý nghĩa "signal" mà `notifySignal` gốc kỳ v�
 trong doc comment đây là tiện lợi/gần đúng, không thay thế hoàn toàn signal
 tinh chỉnh tay.
 
+## Kết quả (2026-09-06) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 9.7/10** (2 vòng review độc lập
+  `codex`: 8.8/10 → 9.7/10).
+- Dùng lại đúng pattern `AdScreenRouteLogger` (NavigatorObserver thêm vào
+  `navigatorObservers`, không dùng `RouteAware.subscribe`) — không phải
+  literal "subscribe vào adRouteObserver" như câu chữ gốc, nhưng đúng tinh
+  thần "như cách AdScreenRouteLogger đang làm". `autoRouteSignalType:
+  AdSlotType?` (null mặc định = tắt) — chỉ 1 format mỗi instance, route
+  push không tự biết ad format nào cần predict.
+- **Tự bắt được 1 lỗi TRONG TEST (không phải trong code)** khi viết test:
+  `MaterialApp(home: ...)` tự gán tên `'/'` cho route ban đầu, khiến route
+  này CŨNG tự kích hoạt signal — làm sai giả định của 2 test đầu. Sửa bằng
+  `onGenerateRoute` custom không gán tên cho route ban đầu.
+- **Vòng 1 (8.8/10)** — 1 finding Important: test "không dedupe" chỉ
+  assert không throw, không thực sự chứng minh lần auto-call không bị bỏ
+  qua. Sửa bằng `debugClock`: gọi manual tại t0, auto push tại t0+10s,
+  emit AdShowEvent tại +5s nữa, assert average đúng 5s (không phải 15s) —
+  nếu có bug dedupe thật, test này sẽ FAIL chứ không chỉ pass suông. +1
+  finding Minor: doc comment class-level nói chỉ notifySignal thủ công
+  mới hoạt động, mâu thuẫn với chính tính năng vừa thêm — đã sửa.
+- Baseline: `flutter analyze` sạch; `flutter test` 1731/1731; integration
+  test `t139_journey_prefetcher_auto_route_signal_test.dart` pass thật
+  trên Samsung Galaxy S24 Ultra (vòng 2 không đổi code production nên
+  không cần chạy lại device).
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

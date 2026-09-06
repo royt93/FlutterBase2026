@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
@@ -26,15 +26,56 @@ import '../state/ad_slot.dart';
 /// the same way.
 ///
 /// Completely opt-in via `AdManager().enableJourneyPrefetcher(...)` —
-/// nothing is tracked and nothing is preloaded unless a host app calls
-/// [notifySignal] itself.
+/// nothing is tracked and nothing is preloaded unless the host app calls
+/// [notifySignal] itself, or opts into [autoRouteSignalType] (T139) and
+/// registers [routeObserver] in its `navigatorObservers` so a named route
+/// push calls [notifySignal] automatically instead.
 class JourneyPrefetcher {
   JourneyPrefetcher({
     this.maxHoldDuration = const Duration(minutes: 5),
     this.maxPendingSignalAge = const Duration(minutes: 5),
+    this.autoRouteSignalType,
     @visibleForTesting DateTime Function() debugClock = DateTime.now,
   }) : _now = debugClock {
     _sub = AdManager().events.listen(_onEvent);
+  }
+
+  /// T139 — opt-in auto-mode: when set, [routeObserver] becomes a real
+  /// `NavigatorObserver` that calls [notifySignal] automatically for every
+  /// newly-pushed route, using [Route.settings.name] as the `signal`
+  /// string and this field as the `type`. `null` (the default) — the
+  /// pre-T139 behavior: nothing is called automatically, [notifySignal]
+  /// stays the only entry point.
+  ///
+  /// One format only, on purpose — a route push alone doesn't say which ad
+  /// format it precedes, and mapping individual route names to individual
+  /// formats is a bigger feature than this ticket's scope. A host whose
+  /// journey involves more than one fullscreen format should keep calling
+  /// [notifySignal] manually for the others (or construct a second
+  /// `JourneyPrefetcher` — auto-mode and manual calls are not mutually
+  /// exclusive, see [notifySignal]'s own doc comment).
+  ///
+  /// Only worth enabling if this app's route names are actually meaningful
+  /// as journey signals (e.g. named routes like `'level_complete'`) — many
+  /// apps don't name routes at all, or name them after the screen widget
+  /// class rather than the user's in-app behavior. If that's not the case
+  /// here, prefer calling [notifySignal] by hand at the actual journey
+  /// points instead; auto-mode is a convenience/approximation, not a
+  /// replacement for a hand-tuned signal.
+  final AdSlotType? autoRouteSignalType;
+
+  NavigatorObserver? _routeObserver;
+
+  /// `null` unless [autoRouteSignalType] was set at construction. Add this
+  /// to your app's `navigatorObservers` (alongside `adRouteObserver`/
+  /// `AdScreenRouteLogger()` — see the package README's integration
+  /// contract) to have [notifySignal] fire automatically on every
+  /// newly-pushed NAMED route. An unnamed route (`settings.name == null`)
+  /// is silently skipped — there is no signal value to key it by.
+  NavigatorObserver? get routeObserver {
+    final type = autoRouteSignalType;
+    if (type == null) return null;
+    return _routeObserver ??= _JourneyPrefetcherRouteObserver(this, type);
   }
 
   /// If the rolling average time-to-show for a (signal, type) pair would
@@ -161,5 +202,24 @@ class JourneyPrefetcher {
   void dispose() {
     _sub?.cancel();
     _sub = null;
+  }
+}
+
+/// T139 — [JourneyPrefetcher.routeObserver]'s actual implementation. Same
+/// registration shape as [AdScreenRouteLogger] (added directly to
+/// `navigatorObservers`, no `RouteAware.subscribe` needed) — every push on
+/// whichever `Navigator` this is registered on calls [notifySignal] with
+/// that route's name, unless it doesn't have one.
+class _JourneyPrefetcherRouteObserver extends NavigatorObserver {
+  _JourneyPrefetcherRouteObserver(this._prefetcher, this._type);
+
+  final JourneyPrefetcher _prefetcher;
+  final AdSlotType _type;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final name = route.settings.name;
+    if (name == null) return;
+    _prefetcher.notifySignal(name, _type);
   }
 }

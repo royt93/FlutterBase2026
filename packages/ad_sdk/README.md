@@ -1791,7 +1791,35 @@ app can reach for:
   touches `AdSafetyConfig`'s live state.
 - **`JourneyPrefetcher`** — opt-in, engagement-signal-driven prefetching
   via `AdManager().enableJourneyPrefetcher(...)`; nothing is tracked or
-  preloaded unless the host app calls `notifySignal`.
+  preloaded unless the host app calls `notifySignal`, or opts into
+  `autoRouteSignalType` (below) so a route push does it automatically.
+
+  ```dart
+  final prefetcher = JourneyPrefetcher(
+    autoRouteSignalType: AdSlotType.interstitial, // opt-in, T139
+  );
+  AdManager().enableJourneyPrefetcher(prefetcher);
+  // ...
+  MaterialApp(
+    navigatorObservers: [
+      adRouteObserver,
+      AdScreenRouteLogger(),
+      prefetcher.routeObserver!, // only non-null when autoRouteSignalType is set
+    ],
+  );
+  ```
+
+  This fires `notifySignal(routeName, autoRouteSignalType)` for every
+  NAMED route push, using `ModalRoute.settings.name` as the signal — a
+  convenience for apps whose route names are already meaningful as
+  journey signals (e.g. `'level_complete'`). An unnamed route is silently
+  skipped. Only ONE format is auto-signaled per `JourneyPrefetcher`
+  instance — a route push alone doesn't say which ad format it precedes,
+  so a journey involving more than one fullscreen format should keep
+  calling `notifySignal` by hand for the others. Manual calls and
+  auto-mode are not mutually exclusive and are never deduplicated against
+  each other — firing the same signal twice (once auto, once manual) is
+  accepted as two independent signals by design.
 - **`WaterfallTuner`** — per-provider eCPM score tracking meant for
   *cross-install* mediation experiments (e.g. deciding a new install's
   `AdConfig.provider` from server-side analytics) — not a within-install

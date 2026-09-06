@@ -3,6 +3,7 @@
 // through its real state machine, not just a mock expectation.
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -312,5 +313,137 @@ void main() {
       prefetcher.averageTimeToShow('levelStarted', AdSlotType.interstitial),
       isNull,
     );
+  });
+
+  // T139 — opt-in auto-mode: notifySignal() fired automatically from real
+  // route pushes, using the route's own name, instead of requiring the
+  // host to call notifySignal() by hand at every journey point.
+  group('autoRouteSignal (T139)', () {
+    test('autoRouteSignalType: null (the default) — routeObserver is null',
+        () {
+      final p = JourneyPrefetcher();
+      expect(p.routeObserver, isNull);
+      p.dispose();
+    });
+
+    test('autoRouteSignalType set — routeObserver is a real NavigatorObserver',
+        () {
+      final p =
+          JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      expect(p.routeObserver, isA<NavigatorObserver>());
+      p.dispose();
+    });
+
+    // `MaterialApp(home: ...)` assigns the initial route the name '/' —
+    // which would ALSO auto-fire (correctly! any named route does, home
+    // included) and confound these tests' own assertions about the
+    // SECOND, explicitly-pushed route. `onGenerateRoute` sidesteps that by
+    // building the initial route with no name of its own.
+    Widget hostApp(NavigatorObserver observer) => MaterialApp(
+          navigatorObservers: [observer],
+          onGenerateRoute: (_) => MaterialPageRoute(
+            settings: const RouteSettings(),
+            builder: (_) => const Scaffold(body: Text('home')),
+          ),
+        );
+
+    testWidgets(
+        'pushing a NAMED route auto-fires notifySignal using the route '
+        'name — triggers a real preload just like a manual call would',
+        (tester) async {
+      final autoPrefetcher =
+          JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      addTearDown(autoPrefetcher.dispose);
+
+      await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
+
+      expect(adapter.interstitialSlot.isIdle, isTrue,
+          reason: 'sanity: the unnamed initial route must not have fired '
+              'anything on its own');
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(MaterialPageRoute(
+        settings: const RouteSettings(name: 'level_complete'),
+        builder: (_) => const Scaffold(body: Text('next')),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(adapter.interstitialSlot.isReady, isTrue,
+          reason: 'the route push must have auto-fired notifySignal('
+              '"level_complete", AdSlotType.interstitial) exactly like a '
+              'manual call would');
+    });
+
+    testWidgets(
+        'pushing an UNNAMED route does not throw and does not fire any '
+        'signal (nothing to key it by)', (tester) async {
+      final autoPrefetcher =
+          JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      addTearDown(autoPrefetcher.dispose);
+
+      await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(MaterialPageRoute(
+        // No `settings.name` — the default.
+        builder: (_) => const Scaffold(body: Text('next')),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.interstitialSlot.isIdle, isTrue,
+          reason: 'an unnamed route has no signal value to key by — must '
+              'be silently skipped, not crash or fall back to some other '
+              'placeholder value');
+    });
+
+    testWidgets(
+        'manual notifySignal() and auto-route-signal for the SAME route '
+        'name are NOT deduped — the LATER (auto) call\'s timestamp is what '
+        'actually gets used for the sample, proving it was really '
+        'received rather than silently ignored', (tester) async {
+      var now = DateTime(2026, 1, 1, 12, 0, 0);
+      final autoPrefetcher = JourneyPrefetcher(
+        autoRouteSignalType: AdSlotType.interstitial,
+        debugClock: () => now,
+      );
+      addTearDown(autoPrefetcher.dispose);
+
+      await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
+
+      // Manual call at t0.
+      autoPrefetcher.notifySignal('level_complete', AdSlotType.interstitial);
+
+      // Auto call (via the route push) at t1 — a real, later, independent
+      // signal for the exact same key.
+      now = now.add(const Duration(seconds: 10));
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(MaterialPageRoute(
+        settings: const RouteSettings(name: 'level_complete'),
+        builder: (_) => const Scaffold(body: Text('next')),
+      ));
+      await tester.pumpAndSettle();
+
+      // Matching show lands at t2 — 5s after the AUTO call, not 15s after
+      // the manual one.
+      now = now.add(const Duration(seconds: 5));
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await tester.pump();
+
+      final avg = autoPrefetcher.averageTimeToShow(
+          'level_complete', AdSlotType.interstitial);
+      expect(avg, isNotNull);
+      expect(avg!.inSeconds, 5,
+          reason: 'if the auto call had been silently deduped/ignored in '
+              'favor of the earlier manual one, this would read 15s '
+              '(measured from t0) instead of 5s (measured from t1) — a '
+              'dedupe bug would make this test fail, not just avoid a '
+              'crash');
+    });
   });
 }
