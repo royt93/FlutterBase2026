@@ -27,7 +27,7 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
 | Dart package name (from `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | Current state management | `<GetX \| Provider \| Riverpod \| Bloc \| none>` (GetX preferred; if empty → ask the user) |
 | Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
-| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **fetch `https://pub.dev/api/packages/applovin_admob_sdk` (or run `flutter pub outdated`) to get the current latest stable version and fill it in here before running Step 1.** As of this writing (2026-08-09) the latest published version is `2.0.4` — treat that as a data point, not a hardcoded target; always use whatever is actually latest at integration time. |
+| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **fetch `https://pub.dev/api/packages/applovin_admob_sdk` (or run `flutter pub outdated`) to get the current latest stable version and fill it in here before running Step 1.** Always use whatever is actually latest at integration time — never hardcode a version number in this template, it goes stale the moment a new release ships. |
 | Local library reference (if monorepo) | `packages/ad_sdk/` |
 | Library's own spec files | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (feature history) + this file's Appendix D (migration guide) |
 | Sample app | `packages/ad_sdk/example/lib/main.dart` (demo pages, one page per feature) |
