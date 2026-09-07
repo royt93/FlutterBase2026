@@ -32,6 +32,7 @@ import '../monetization/digital_twin.dart';
 import '../monetization/self_healing_observer.dart';
 import '../monetization/waterfall_tuner.dart';
 import '../monetization/monetization_arbitrator.dart';
+import '../monetization/provider_failover_advisor.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_sdk_state_snapshot.dart';
@@ -779,6 +780,60 @@ class AdManager with WidgetsBindingObserver {
   void disableWaterfallTuner() {
     _waterfallTuner?.dispose();
     _waterfallTuner = null;
+  }
+
+  ProviderFailoverAdvisor? _providerFailoverAdvisor;
+
+  /// `null` by default — see [enableProviderFailoverAdvisor].
+  ProviderFailoverAdvisor? get providerFailoverAdvisor =>
+      _providerFailoverAdvisor;
+
+  /// T143 — opt in to tracking consecutive load failures for
+  /// [applyProviderFailover] to act on before the host's NEXT
+  /// `initialize()` call. See [ProviderFailoverAdvisor]'s own doc comment
+  /// for why this is a purely CURRENT-provider reliability signal, not
+  /// [WaterfallTuner]'s cross-provider quality comparison.
+  void enableProviderFailoverAdvisor(ProviderFailoverAdvisor advisor) {
+    _providerFailoverAdvisor?.dispose();
+    _providerFailoverAdvisor = advisor;
+  }
+
+  /// Test/host seam: clear a previously-registered failover advisor.
+  @visibleForTesting
+  void disableProviderFailoverAdvisor() {
+    _providerFailoverAdvisor?.dispose();
+    _providerFailoverAdvisor = null;
+  }
+
+  /// T143 — apply [advisor]'s recommendation to [provider]: if
+  /// [ProviderFailoverAdvisor.failingProvider] equals [provider] — i.e.
+  /// [provider] is the SAME one whose consecutive failures actually
+  /// tripped the streak — returns the other provider; otherwise returns
+  /// [provider] unchanged. Call this LAST — after
+  /// `pickProviderCohort`/`pickSessionProvider` — right before building
+  /// the [AdConfig] passed to `initialize()`.
+  ///
+  /// Round-1 independent review (MAJOR) — checking only
+  /// [ProviderFailoverAdvisor.shouldFailoverNextSession] (a bare bool)
+  /// used to flip WHATEVER [provider] the caller passed, even if that
+  /// caller's own earlier `pickProviderCohort`/`pickSessionProvider` had
+  /// already independently picked the healthy provider — flipping it back
+  /// to the one that just failed. Comparing against [failingProvider]
+  /// specifically fixes that: a candidate that is already the other
+  /// (healthy) provider is left alone.
+  ///
+  /// Purely a decision helper: it never switches anything itself, never
+  /// touches [advisor]'s own state, and the SDK still only ever serves
+  /// whichever provider ends up in the [AdConfig] the host builds from the
+  /// result — no concurrent dual-adapter runtime exists or is needed here.
+  AdProvider applyProviderFailover(
+    AdProvider provider, {
+    required ProviderFailoverAdvisor advisor,
+  }) {
+    if (advisor.failingProvider != provider) return provider;
+    return provider == AdProvider.admob
+        ? AdProvider.appLovin
+        : AdProvider.admob;
   }
 
   /// T127 — flagship self-healing dual-provider runtime, OBSERVE-ONLY

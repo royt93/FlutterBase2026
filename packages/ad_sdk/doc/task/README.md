@@ -1,3 +1,16 @@
+## Tiến độ (cập nhật 2026-09-07, phần 13 — T143 done)
+
+- **T143 done, 9.6/10** — ProviderFailoverAdvisor: track N lần load fail
+  liên tục của provider hiện tại, recommend provider khác cho session
+  SAU (không cần 2 adapter sống). User ban đầu chọn bản đầy đủ (runtime
+  dual-adapter), nhưng audit phát hiện xung đột với chính sách "no shadow
+  request" đã có ở T136 (WaterfallTuner) — đổi sang bản thu nhỏ TRƯỚC khi
+  code. 3 vòng review độc lập `codex`: 8.0/10 → 8.8/10 → 9.6/10 — cả 2
+  vòng đầu đều tìm ra finding MAJOR THẬT (candidate không đúng provider
+  fail vẫn bị flip; integration test dùng tag giả không map được
+  provider). `todo/` còn 7 (T87, T114, T131, T141, T142, T145, T146);
+  `done/` có 194.
+
 ## Tiến độ (cập nhật 2026-09-07, phần 12 — T144 done)
 
 - **T144 done, 9.4/10** — DisputeKit: gộp 3 signed export có sẵn

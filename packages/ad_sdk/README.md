@@ -1282,6 +1282,39 @@ most once per day per device regardless of `explorationRate`, and never
 counts against a VIP session (VIP suppresses every ad surface, so there
 would be nothing to observe anyway).
 
+### Zero-shadow dual-provider failover (`ProviderFailoverAdvisor`)
+
+The SDK still serves exactly one provider per session by design (see
+above) — a live concurrent dual-adapter runtime is a much bigger
+architectural change this package does not make. `ProviderFailoverAdvisor`
+covers a narrower, much cheaper win: recommend switching to the OTHER
+provider for your app's NEXT `initialize()` call once the CURRENT one has
+failed to load `consecutiveFailureThreshold` times in a row (any format,
+no successful load in between — a genuinely intermittent failure pattern
+never trips this). Unlike `WaterfallTuner.recommendation()`, this needs no
+accumulated data for the provider it recommends switching TO — "zero
+shadow requests".
+
+```dart
+final advisor = ProviderFailoverAdvisor(consecutiveFailureThreshold: 5);
+AdManager().enableProviderFailoverAdvisor(advisor);
+
+// ... later, building next session's config:
+final provider = AdManager().applyProviderFailover(
+  installProvider, // from pickProviderCohort()/pickSessionProvider()
+  advisor: advisor,
+);
+await AdManager().initialize(
+  config: AdConfig(provider: provider, admob: ..., appLovin: ...),
+  onComplete: (success, gaid) { /* ... */ },
+);
+```
+
+Persists by default (`persist: true`) — the whole point is surviving the
+app restart between "this session failed repeatedly" and "the host reads
+that before starting the next one". Never switches anything itself; it
+only recommends, same as `WaterfallTuner`/`SelfHealingObserver`.
+
 ### A/B testing local knobs (`experimentBucket`)
 
 Deterministic bucket assignment for A/B testing `AdSafetyParams`/arbitrator

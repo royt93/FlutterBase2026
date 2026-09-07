@@ -61,6 +61,43 @@ thật sự lớn hơn nhiều — nên tách thành 1 ticket kiến trúc riên
 ("T143a — hỗ trợ dual-provider runtime") trước khi làm phần failover logic
 ("T143b"), thay vì gộp chung 1 ticket XL duy nhất.
 
+## Kết quả (2026-09-07) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 9.6/10** (3 vòng review độc lập
+  `codex`: 8.0/10 → 8.8/10 → 9.6/10).
+- **User ban đầu chọn bản ĐẦY ĐỦ (runtime dual-adapter)**, nhưng audit
+  code thật (fork riêng) phát hiện `WaterfallTuner` (T136) đã có doc
+  comment RÕ RÀNG: "never switches providers itself... no shadow ad is
+  ever requested for the non-active provider" — bản đầy đủ cần giữ
+  adapter thứ 2 sống/sẵn sàng, nghĩa là PHẢI request quảng cáo thật từ
+  provider không dùng, đi ngược đúng quyết định kiến trúc vừa làm ở T136.
+  Báo lại user, **đổi sang bản thu nhỏ** (session-based, đúng option B
+  ticket đề xuất) trước khi viết bất kỳ dòng code nào.
+- `ProviderFailoverAdvisor` (file mới) — track N lần load fail LIÊN TỤC
+  (configurable `consecutiveFailureThreshold`) của provider HIỆN TẠI,
+  KHÔNG cần dữ liệu provider kia (khác `WaterfallTuner.recommendation()`
+  vốn cần cả 2 provider có data thật). Persist qua restart (mục đích
+  chính: quyết định cho session SAU). Auto-reset streak khi providerTag
+  đổi. `AdManager().applyProviderFailover()` áp dụng recommendation.
+- **Vòng 1 (8.0/10)** — 1 finding MAJOR: `applyProviderFailover(provider)`
+  flip BẤT KỲ provider nào được truyền vào miễn `shouldFailoverNextSession`
+  true, không check candidate có ĐÚNG LÀ provider đã fail hay không — nếu
+  `pickProviderCohort()` đã độc lập chọn provider khoẻ mạnh, hàm này flip
+  NGƯỢC về provider vừa fail. Sửa bằng getter `failingProvider` (map
+  providerTag → đúng AdProvider enum) + so sánh `!= provider` thay vì chỉ
+  check bool.
+- **Vòng 2 (8.8/10)** — 1 finding MAJOR: integration test tự viết dùng tag
+  giả `[RealDeviceFake]` không map được AdProvider nào (chỉ
+  `[AdMob]`/`[AppLovin]` map được) — assertion cũ không còn đúng với fix
+  vòng 1. Sửa dùng tag thật `[AppLovin]`, verify cả 2 chiều
+  (candidate=provider-fail → flip; candidate=provider-khoẻ → giữ nguyên).
+- Baseline: `flutter analyze` sạch (2 info deprecation pre-existing không
+  liên quan); `flutter test` 1748/1748; integration test
+  `t143_provider_failover_advisor_test.dart` pass thật trên Pixel 7 Pro
+  (cả trước và sau fix vòng 2).
+- README có section "Zero-shadow dual-provider failover
+  (`ProviderFailoverAdvisor`)".
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

@@ -505,6 +505,37 @@ class AdPreferences {
     await _prefs?.setStringList(_keySelfHealingObservedKeys, keys);
   }
 
+  // T143 — ProviderFailoverAdvisor's consecutive-load-failure streak for
+  // the current provider, plus which provider tag that streak belongs to
+  // (so a real provider switch since the last event doesn't let a stale
+  // streak from the OLD provider carry over onto the new one). Persisted
+  // for the same reason as WaterfallTuner's state above: the whole point
+  // is deciding the provider for the host's NEXT `initialize()` call, so
+  // the streak must survive the app restart between "this session failed
+  // repeatedly" and "the host reads that before starting the next one".
+  static const String _keyProviderFailoverConsecutiveFailures =
+      'ad_sdk_provider_failover_consecutive_failures';
+  static const String _keyProviderFailoverLastProviderTag =
+      'ad_sdk_provider_failover_last_provider_tag';
+
+  int getProviderFailoverConsecutiveFailures() =>
+      _prefs?.getInt(_keyProviderFailoverConsecutiveFailures) ?? 0;
+
+  Future<void> setProviderFailoverConsecutiveFailures(int count) async {
+    await _prefs?.setInt(_keyProviderFailoverConsecutiveFailures, count);
+  }
+
+  String? getProviderFailoverLastProviderTag() =>
+      _prefs?.getString(_keyProviderFailoverLastProviderTag);
+
+  Future<void> setProviderFailoverLastProviderTag(String? tag) async {
+    if (tag == null) {
+      await _prefs?.remove(_keyProviderFailoverLastProviderTag);
+    } else {
+      await _prefs?.setString(_keyProviderFailoverLastProviderTag, tag);
+    }
+  }
+
   Future<void> clearAllData() async => _prefs?.clear();
 
   // T93 — a stable pseudonymous per-install id for AdManager.experimentBucket

@@ -56,6 +56,7 @@ export 'src/monetization/digital_twin.dart';
 export 'src/monetization/self_healing_observer.dart';
 export 'src/monetization/waterfall_tuner.dart';
 export 'src/monetization/monetization_arbitrator.dart';
+export 'src/monetization/provider_failover_advisor.dart';
 // Re-export Google's UMP enums, and TemplateType (T73 — NativeAdWidget's
 // templateType param), so callers don't need a direct google_mobile_ads import.
 export 'package:google_mobile_ads/google_mobile_ads.dart'
