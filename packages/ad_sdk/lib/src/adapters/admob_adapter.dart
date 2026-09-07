@@ -38,7 +38,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   void setInlineAdsHidden(bool hidden) {
     final surfaces = [
       ..._bannerRegistry.listenablesList,
-      ..._mrecListenablesByKey.values,
+      ..._mrecRegistry.listenablesList,
     ];
     if (hidden) {
       _fullscreenOverInline = true;
@@ -221,42 +221,11 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   // T65 (phase 3) — one AdSlot/BannerListenables per MrecAdWidget instance,
   // same pattern as banner (phase 2).
-  final Map<Object, AdSlot> _mrecSlotsByKey = {};
-  final Map<Object, BannerListenables> _mrecListenablesByKey = {};
-  bool _mrecDisposed = false;
-  AdSlot? _disposedMrecSlot;
-  BannerListenables? _disposedMrecListenables;
-
-  AdSlot _mrecSlotFor(Object key) {
-    if (_mrecDisposed) {
-      return _disposedMrecSlot ??= (AdSlot(type: AdSlotType.mrec)..dispose());
-    }
-    return _mrecSlotsByKey.putIfAbsent(key, () => AdSlot(type: AdSlotType.mrec));
-  }
-
-  BannerListenables _mrecListenablesFor(Object key) {
-    if (_mrecDisposed) {
-      return _disposedMrecListenables ??= (BannerListenables(
-        isLoaded: ValueNotifier<bool>(false),
-        hasError: ValueNotifier<bool>(false),
-        adSize: ValueNotifier<Size?>(null),
-        autoRefreshEnabled: ValueNotifier<bool>(true),
-        visible: ValueNotifier<bool>(true),
-      )..dispose());
-    }
-    final existing = _mrecListenablesByKey[key];
-    if (existing != null) return existing;
-    final created = BannerListenables(
-      isLoaded: ValueNotifier<bool>(false),
-      hasError: ValueNotifier<bool>(false),
-      adSize: ValueNotifier<Size?>(null),
-      autoRefreshEnabled: ValueNotifier<bool>(true),
-      visible: ValueNotifier<bool>(true),
-    );
-    _mrecListenablesByKey[key] = created;
-    _inheritFullscreenHold(created);
-    return created;
-  }
+  // T114 (phase 2 of the banner extraction) — map bookkeeping + disposed-
+  // sentinel pattern extracted into the same shared InlineAdInstanceRegistry
+  // banner already uses; see that class's own doc comment.
+  final InlineAdInstanceRegistry _mrecRegistry =
+      InlineAdInstanceRegistry(AdSlotType.mrec);
 
   /// Round-30 QC (reviewer B, MAJOR) — a surface that appears WHILE a fullscreen
   /// ad is up inherits the hold.
@@ -278,16 +247,19 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   }
 
   @override
-  AdSlot mrecSlot(Object key) => _mrecSlotFor(key);
+  AdSlot mrecSlot(Object key) => _mrecRegistry.slotFor(key);
 
   @override
-  Iterable<AdSlot> get mrecSlots => _mrecSlotsByKey.values;
+  Iterable<AdSlot> get mrecSlots => _mrecRegistry.slots;
 
   @override
   Iterable<AdSlot> get nativeSlots => _nativeSlotsByKey.values;
 
   @override
-  BannerListenables mrec(Object key) => _mrecListenablesFor(key);
+  BannerListenables mrec(Object key) => _mrecRegistry.listenablesFor(
+        key,
+        onCreated: _inheritFullscreenHold,
+      );
 
   // Test seam: hand back the real BannerAdListener created by
   // loadBannerIfNeeded/loadMrecIfNeeded so a test can fire its onAdLoaded /
@@ -307,8 +279,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   @override
   void disposeMrecInstance(Object key) {
     _mrecAdsByKey.remove(key)?.dispose();
-    _mrecSlotsByKey.remove(key)?.dispose();
-    final gone = _mrecListenablesByKey.remove(key);
+    final gone = _mrecRegistry.removeKey(key);
     if (gone != null) {
       _inlineVisibility.forget(gone);
       gone.dispose();
@@ -585,7 +556,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     for (final slot in _bannerRegistry.slots) {
       slot.reset();
     }
-    for (final slot in _mrecSlotsByKey.values) {
+    for (final slot in _mrecRegistry.slots) {
       slot.reset();
     }
     for (final slot in _nativeSlotsByKey.values) {
@@ -602,7 +573,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     _inlineVisibility.forgetAll();
     _bannerRoutePausedByKey.clear();
 
-    for (final l in _mrecListenablesByKey.values) {
+    for (final l in _mrecRegistry.listenablesList) {
       l.isLoaded.value = false;
       l.clearError();
       l.adSize.value = null;
@@ -642,13 +613,12 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     // nothing else can run between the loop and this line regardless.
     _bannerRegistry.markDisposed();
     // T65 (phase 3) — same pattern as banner above.
-    for (final key in <Object>{
-      ..._mrecSlotsByKey.keys,
-      ..._mrecListenablesByKey.keys,
-    }) {
+    for (final key in _mrecRegistry.allKeys) {
       disposeMrecInstance(key);
     }
-    _mrecDisposed = true;
+    // Safe to leave markDisposed() here for the same reason as the banner
+    // registry above — no `await` anywhere in this method.
+    _mrecRegistry.markDisposed();
     // T65 (phase 1) — dispose every NativeAdWidget instance's slot/ad/
     // listenables (already cleared _nativeAdsByKey above); same union as above.
     for (final key in <Object>{
@@ -2249,8 +2219,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       SafeLogger.d(_logTag, 'loadMrec $tag ⏭️ already cached');
       return;
     }
-    final slot = _mrecSlotFor(key);
-    final listenables = _mrecListenablesFor(key);
+    final slot = _mrecRegistry.slotFor(key);
+    final listenables = mrec(key);
     // Same beginLoad-before-create ordering as banner — see loadBannerIfNeeded.
     if (!slot.beginLoad()) {
       SafeLogger.d(
@@ -2284,7 +2254,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!identical(_mrecSlotsByKey[key], slot)) return;
+            if (!_mrecRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'loadMrec $tag ✅');
             listenables.isLoaded.value = true;
             listenables.clearError();
@@ -2312,7 +2282,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!identical(_mrecSlotsByKey[key], slot)) return;
+            if (!_mrecRegistry.isCurrent(key, slot)) return;
             SafeLogger.w(_logTag, 'loadMrec $tag ❌ ${err.code}');
             try {
               ad.dispose();
@@ -2333,7 +2303,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           // above: was onAdOpened, now onAdClicked for consistency.
           onAdClicked: (ad) {
             // T105 — same identity guard as onAdFailedToLoad above.
-            if (!identical(_mrecSlotsByKey[key], slot)) return;
+            if (!_mrecRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'mrec $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
@@ -2347,7 +2317,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           // actual on-screen impression), and no AdImpressionEvent was ever
           // emitted for this format.
           onAdImpression: (ad) {
-            if (!identical(_mrecSlotsByKey[key], slot)) return;
+            if (!_mrecRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'mrec $tag 👁 impression');
             AdSafetyConfig.recordBannerImpression();
             _emit(AdImpressionEvent(
@@ -2528,7 +2498,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       }
     }
     if (_mrecAdsByKey.isNotEmpty) {
-      for (final l in _mrecListenablesByKey.values) {
+      for (final l in _mrecRegistry.listenablesList) {
         _inlineVisibility.hide(l, InlineHideReason.background);
       }
     }
@@ -2552,7 +2522,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       // VIP: suppression runs through `BannerAdWidget._allowed`, not `visible`.
       for (final l in [
         ..._bannerRegistry.listenablesList,
-        ..._mrecListenablesByKey.values,
+        ..._mrecRegistry.listenablesList,
       ]) {
         _inlineVisibility.show(l, InlineHideReason.background);
       }
@@ -2616,8 +2586,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     // Mirror for MREC — width doesn't matter (fixed size) but loadMrecIfNeeded
     // still accepts it for interface parity. T65 (phase 3): every known
     // instance key, not just a single shared one.
-    for (final key in _mrecListenablesByKey.keys.toList()) {
-      final listenables = _mrecListenablesByKey[key]!;
+    for (final key in _mrecRegistry.listenablesKeys.toList()) {
+      final listenables = _mrecRegistry.listenablesByKey(key)!;
       // Same unconditional release and hand-off as the banner loop above.
       final reloading =
           listenables.needsRecovery && !_mrecAdsByKey.containsKey(key);

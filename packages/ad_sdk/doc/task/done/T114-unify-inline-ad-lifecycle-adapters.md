@@ -74,6 +74,24 @@ sang bước kế.
   `test/inline_ad_instance_registry_test.dart` (37 test mới cho class)
   đều pass; integration test `banner_ad_test.dart` pass thật trên Samsung
   Galaxy S24 Ultra CẢ 2 provider (trước và sau fix vòng 1).
-- **Còn lại cho lần sau:** áp dụng ĐÚNG pattern này (đã proof, đã review,
-  đã sửa 1 bug thật) cho mrec rồi native — mỗi bước tự chạy contract test
-  + full suite + review trước khi sang bước kế, đúng khuyến nghị gốc.
+## Kết quả (2026-09-07, phase 2) — DONE (scope: MREC)
+
+- **Status:** ✅ done cho phần mrec. **Điểm: 10/10** (1 vòng review độc
+  lập `codex`, PUSH ngay — 0 finding). **native CHƯA làm** — để lại cho
+  lần sau.
+- Áp dụng ĐÚNG pattern đã proof ở banner, lần này đặt `markDisposed()`
+  ĐÚNG VỊ TRÍ (đầu `dispose()`, cạnh `_bannerRegistry.markDisposed()`)
+  NGAY TỪ ĐẦU — không cần review tìm ra bug rồi mới sửa như banner.
+- Thêm test race mirror đúng banner (`mrec onAdLoadFailedCallback landing
+  WHILE dispose() is still destroying the AdView...`) — tự verify bằng
+  mutation test (revert tạm `markDisposed()`, xác nhận RED, restore lại
+  xác nhận GREEN) TRƯỚC KHI gửi review, không đợi reviewer bắt.
+- Baseline: `flutter analyze` sạch; `flutter test` 1772/1772;
+  `test/adapter_contract_test.dart` + `test/admob_adapter_test.dart` +
+  `test/applovin_adapter_test.dart` + `test/inline_ad_instance_registry_test.dart`
+  đều pass; integration test `mrec_ad_test.dart` pass thật trên iOS
+  Simulator CẢ 2 provider (Samsung/iPhone thật gặp sự cố kết nối tạm
+  thời trong session này nên dùng simulator thay thế).
+- **Còn lại cho lần sau:** áp dụng pattern này cho native — mỗi bước tự
+  chạy contract test + full suite + review trước khi sang bước kế, đúng
+  khuyến nghị gốc.

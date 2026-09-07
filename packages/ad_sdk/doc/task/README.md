@@ -1,3 +1,11 @@
+## Tiến độ (cập nhật 2026-09-07, phần 15 — T114 phase 2, mrec done)
+
+- **T114 phase 2 (mrec) done, 10/10** — áp dụng ĐÚNG pattern
+  `InlineAdInstanceRegistry` đã proof ở banner, lần này đặt
+  `markDisposed()` đúng vị trí (đầu `dispose()`) NGAY TỪ ĐẦU, tự mutation-
+  test (revert tạm, xác nhận RED, restore) TRƯỚC KHI gửi review — 1 vòng
+  review độc lập `codex`, PUSH ngay, 0 finding. native CHƯA làm.
+
 ## Tiến độ (cập nhật 2026-09-07, phần 14 — T114 done, banner only)
 
 - **T114 done (banner only), 10/10** — `InlineAdInstanceRegistry` (map

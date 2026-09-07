@@ -1944,6 +1944,52 @@ void main() {
       b.destroyGate.complete();
       await disposing;
     });
+
+    // T114 (phase 2 — mrec) — same race as the banner test above, mirrored
+    // for mrec now that _mrecRegistry.markDisposed() runs in the same early
+    // synchronous prefix as _bannerRegistry.markDisposed() (fixed there
+    // FIRST, applied here from the start rather than found by a later
+    // review round).
+    test(
+        'mrec onAdLoadFailedCallback landing WHILE dispose() is still '
+        'destroying the AdView is already a no-op via the scratch-slot '
+        'fallback', () async {
+      final b = _TeardownRaceBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(
+        await a.initialize(const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'sdk',
+            bannerId: 'banner-id',
+            mrecId: 'mrec-id',
+            interstitialId: 'inter-id',
+            appOpenId: 'appopen-id',
+            rewardedId: 'rewarded-id',
+          ),
+        )),
+        isTrue,
+      );
+      await a.preloadMrec('k');
+      final slot = a.mrecSlot('k');
+      final stale = b.widget!;
+
+      final disposing = a.dispose();
+      await Future<void>.delayed(Duration.zero);
+      expect(b.destroyWidgetAdViewCalls, isNotEmpty,
+          reason: 'control — dispose() really is parked in the destroy '
+              'await, which is the window under test');
+
+      stale.onAdLoadFailedCallback('mrec-id', _fakeError());
+
+      expect(slot.lastErrorAt, isNull,
+          reason: 'a load failure landing mid-teardown must not touch the '
+              'REAL slot — it should have been routed to a disposed '
+              'scratch object instead');
+
+      b.destroyGate.complete();
+      await disposing;
+    });
   });
 
   // Round-29 audit follow-up (MAJOR) — AppLovin wires ONE persistent
