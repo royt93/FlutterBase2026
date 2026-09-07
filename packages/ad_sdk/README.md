@@ -1282,6 +1282,40 @@ most once per day per device regardless of `explorationRate`, and never
 counts against a VIP session (VIP suppresses every ad surface, so there
 would be nothing to observe anyway).
 
+### Cross-provider revenue integrity (`RevenueIntegrityLedger`)
+
+**This is a time-window heuristic, not exact reconciliation.** Neither
+`AdShowEvent` nor `AdRevenueEvent` carries a shared request/impression
+ID — both only carry `providerTag`/`type`/`placement` — so there is no
+way to prove a specific show and a specific revenue callback are "the
+same impression". `RevenueIntegrityLedger` expects a same-
+`(providerTag, placement)` `AdRevenueEvent` within `matchWindow` after
+every successful show; one with none is flagged via
+`AdManager().incidentRecorder` as a **possible** gap — most often just a
+revenue callback arriving later than `matchWindow`, not proof of fraud
+or a lost impression.
+
+```dart
+final ledger = RevenueIntegrityLedger(matchWindow: const Duration(seconds: 60));
+// ... later, read incidents the same way any other IncidentRecorder
+// entry is read — see the "Debugging a decision" / dispute-kit sections
+// above for the export path.
+```
+
+No new reporting mechanism: flags land in the same `IncidentRecorder`
+`AdManager().exportDisputeKit()`/`exportSignedIncidentBundle()` already
+export. Completely on-device — only consumes events the SDK already
+emits, no third-party API calls.
+
+**Known limitation — purely event-driven, no internal timer.**
+`matchWindow` is only actually checked the next time ANY ad event
+arrives (any type/provider/placement) — not on a schedule. A show with
+no matching revenue callback, followed by total ad inactivity, sits
+un-flagged in memory until the next event of any kind arrives (or until
+the ledger is disposed, which silently drops it). In a normally-active
+app this delay is negligible; it only matters for a session that goes
+completely quiet right after the show in question.
+
 ### Zero-shadow dual-provider failover (`ProviderFailoverAdvisor`)
 
 The SDK still serves exactly one provider per session by design (see

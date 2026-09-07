@@ -50,6 +50,35 @@ lý (quá ngắn → false positive nhiều, quá dài → phát hiện chậm) 
 liệu thật (không phải giả định) để hiệu chỉnh ngưỡng — nên có 1 giai đoạn
 thu thập dữ liệu thật trước khi chốt threshold mặc định.
 
+## Kết quả (2026-09-07) — DONE
+
+- **Status:** ✅ done. **Điểm cuối: 9.5/10** (2 vòng review độc lập
+  `codex`: 8.5/10 → 9.5/10).
+- `RevenueIntegrityLedger` (file mới) — lắng nghe `AdManager().events`
+  (không phải AdEventLog trực tiếp — class đó là log thụ động, không có
+  API stream riêng; dùng đúng nguồn event thật mọi class T1xx khác trong
+  SDK đều dùng). Mỗi `AdShowEvent(success:true)` → pending List (không
+  phải Map, vì có thể nhiều pending cùng key). `AdRevenueEvent` khớp
+  (providerTag, placement) xoá entry CŨ NHẤT (FIFO — không có ID thật nên
+  đây là lựa chọn hợp lý nhất). Entry quá `matchWindow` → báo qua
+  `AdManager().incidentRecorder` (đã có sẵn từ T144, không tự chế cơ chế
+  mới). Thuần event-driven, KHÔNG dùng Timer thật.
+- **Vòng 1 (8.5/10)** — 2 finding Important:
+  1. Thiếu document giới hạn "purely event-driven, no Timer" — matchWindow
+     chỉ check khi có event MỚI tới, app im lặng hoàn toàn thì entry
+     "treo" chưa sweep. Đã thêm "Known limitation" vào doc comment class +
+     README.
+  2. 4 test không thực sự chứng minh điều tuyên bố (FIFO chỉ assert count
+     giảm — LIFO cũng pass; thiếu case khác placement; test click không
+     chứng minh event không liên quan không xoá entry ĐANG pending; test
+     missing-revenue không verify đúng 1 lần). Viết lại cả 4, tự
+     mutation-test FIFO (đổi tạm `indexWhere`→`lastIndexWhere`, xác nhận
+     FAIL đúng, restore lại) TRƯỚC KHI gửi review vòng 2.
+- Baseline: `flutter analyze` sạch (2 info deprecation pre-existing không
+  liên quan); `flutter test` 1782/1782; integration test
+  `t145_revenue_integrity_ledger_test.dart` pass thật trên Pixel 7 Pro
+  (Android thật).
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```
