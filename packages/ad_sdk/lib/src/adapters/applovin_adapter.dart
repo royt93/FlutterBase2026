@@ -10,6 +10,7 @@ import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
 import '../core/ad_provider_adapter.dart';
 import '_inline_visibility.dart';
+import 'inline_ad_instance_registry.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
@@ -63,8 +64,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // `_buildAppLovin` that does read it inherits the behaviour.
     if (hidden) {
       _fullscreenOverInline = true;
-      for (final key in _bannerListenablesByKey.keys.toList()) {
-        _holdAppLovinInline(_bannerListenablesByKey[key]!,
+      for (final key in _bannerRegistry.listenablesKeys.toList()) {
+        _holdAppLovinInline(_bannerRegistry.listenablesByKey(key)!,
             _bannerAdViewIdByKey[key]?.value, InlineHideReason.fullscreen);
       }
       for (final key in _mrecListenablesByKey.keys.toList()) {
@@ -75,7 +76,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     }
     _fullscreenOverInline = false;
     for (final l in [
-      ..._bannerListenablesByKey.values,
+      ..._bannerRegistry.listenablesList,
       ..._mrecListenablesByKey.values,
     ]) {
       _inlineVisibility.show(l, InlineHideReason.fullscreen);
@@ -200,59 +201,32 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   // identical singleton bug agy found on AdMob — one shared
   // preloadWidgetAdView id, so two simultaneous BannerAdWidgets would fight
   // over the same MaxAdView.
-  final Map<Object, AdSlot> _bannerSlotsByKey = {};
-  final Map<Object, BannerListenables> _bannerListenablesByKey = {};
+  // T114 — map bookkeeping + disposed-sentinel pattern for slot/listenables
+  // extracted into a shared InlineAdInstanceRegistry (see that class's own
+  // doc comment); adViewId stays here — it's AppLovin-specific (a native
+  // platform view id AdMob has no equivalent of).
+  final InlineAdInstanceRegistry _bannerRegistry =
+      InlineAdInstanceRegistry(AdSlotType.banner);
   final Map<Object, ValueNotifier<AdViewId?>> _bannerAdViewIdByKey = {};
   final Map<Object, bool> _bannerRoutePausedByKey = {};
 
   bool _bannerDisposed = false;
-  AdSlot? _disposedBannerSlot;
-  BannerListenables? _disposedBannerListenables;
   final ValueNotifier<AdViewId?> _disposedBannerAdViewId =
       ValueNotifier<AdViewId?>(null)..dispose();
 
-  AdSlot _bannerSlotFor(Object key) {
-    if (_bannerDisposed) {
-      return _disposedBannerSlot ??=
-          (AdSlot(type: AdSlotType.banner)..dispose());
-    }
-    return _bannerSlotsByKey.putIfAbsent(
-        key, () => AdSlot(type: AdSlotType.banner));
-  }
-
-  BannerListenables _bannerListenablesFor(Object key) {
-    if (_bannerDisposed) {
-      return _disposedBannerListenables ??= (BannerListenables(
-        isLoaded: ValueNotifier<bool>(false),
-        hasError: ValueNotifier<bool>(false),
-        adSize: ValueNotifier<Size?>(null),
-        autoRefreshEnabled: ValueNotifier<bool>(true),
-        visible: ValueNotifier<bool>(true),
-      )..dispose());
-    }
-    final existing = _bannerListenablesByKey[key];
-    if (existing != null) return existing;
-    final created = BannerListenables(
-      isLoaded: ValueNotifier<bool>(false),
-      hasError: ValueNotifier<bool>(false),
-      adSize: ValueNotifier<Size?>(null),
-      autoRefreshEnabled: ValueNotifier<bool>(true),
-      visible: ValueNotifier<bool>(true),
-    );
-    _bannerListenablesByKey[key] = created;
-    // Round-30 QC (reviewer B, MAJOR) — a surface that appears while a
-    // fullscreen ad is up inherits the hold; see AdMobAdapter's copy for the
-    // reasoning. Round-31 — BOTH flags, because on AppLovin `visible` is inert:
-    // `_buildAppLovin` never reads it, so a hold on it alone changes nothing a
-    // user or an ad account can see.
+  // Round-30 QC (reviewer B, MAJOR) — a surface that appears while a
+  // fullscreen ad is up inherits the hold; see AdMobAdapter's copy for the
+  // reasoning. Round-31 — BOTH flags, because on AppLovin `visible` is inert:
+  // `_buildAppLovin` never reads it, so a hold on it alone changes nothing a
+  // user or an ad account can see.
+  void _inheritBannerFullscreenHold(BannerListenables l) {
     if (_fullscreenOverInline) {
-      _inlineVisibility.hide(created, InlineHideReason.fullscreen);
-      _inlineRefresh.hide(created, InlineHideReason.fullscreen);
+      _inlineVisibility.hide(l, InlineHideReason.fullscreen);
+      _inlineRefresh.hide(l, InlineHideReason.fullscreen);
     }
     if (_appBackgroundedForInline) {
-      _inlineRefresh.hide(created, InlineHideReason.background);
+      _inlineRefresh.hide(l, InlineHideReason.background);
     }
-    return created;
   }
 
   ValueNotifier<AdViewId?> _bannerAdViewIdFor(Object key) {
@@ -262,18 +236,20 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   }
 
   @override
-  AdSlot bannerSlot(Object key) => _bannerSlotFor(key);
+  AdSlot bannerSlot(Object key) => _bannerRegistry.slotFor(key);
 
   @override
-  Iterable<AdSlot> get bannerSlots => _bannerSlotsByKey.values;
+  Iterable<AdSlot> get bannerSlots => _bannerRegistry.slots;
 
   @override
-  BannerListenables banner(Object key) => _bannerListenablesFor(key);
+  BannerListenables banner(Object key) => _bannerRegistry.listenablesFor(
+        key,
+        onCreated: _inheritBannerFullscreenHold,
+      );
 
   @override
   void disposeBannerInstance(Object key) {
-    _bannerSlotsByKey.remove(key)?.dispose();
-    final goneB = _bannerListenablesByKey.remove(key);
+    final goneB = _bannerRegistry.removeKey(key);
     if (goneB != null) {
       _inlineVisibility.forget(goneB);
       _inlineRefresh.forget(goneB);
@@ -561,8 +537,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// Deliberately NOT on [AdProviderAdapter]: that interface is exported, so
   /// a new member there is a source-breaking change for anyone implementing
   /// it, and AdMob would only ever supply an empty body (it guards a
-  /// mid-load dispose with slot identity — see `identical(_bannerSlotsByKey
-  /// [key], slot)` in admob_adapter.dart — and keeps no tombstone to lift).
+  /// mid-load dispose with slot identity — see `_bannerRegistry.isCurrent(
+  /// key, slot)` in admob_adapter.dart — and keeps no tombstone to lift).
   void reviveNativeInstance(Object key) => _disposedNativeKeys.remove(key);
 
   /// Round-33 audit (R33-03) — public, concrete-class-only (not on
@@ -642,7 +618,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // Round-30 QC (reviewer A) — an owner, not a condition. A MAX banner under
     // another route must not keep refreshing, and `onAppResumed` must be able
     // to release its own hold without having to know about this one.
-    final l = _bannerListenablesFor(key);
+    final l = banner(key);
     if (paused) {
       // Round-31 QC (reviewer B) — no `adViewId` guard. Pass 8 promoted
       // `routePaused` from a condition to an owner but inherited the same
@@ -837,6 +813,14 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // insertion can happen; the loops below are also iterated over snapshots
     // as a second line of defence.
     _teardownStarted = true;
+    // T114 round-1 review (BLOCKER) — `_bannerRegistry.markDisposed()` used
+    // to only run at the END of this method (after the await-based AdView
+    // destroy loops below), leaving the exact race window the round-25 fix
+    // above describes reopened for `slotFor`/`banner` specifically: a stale
+    // callback resuming inside those awaits got the REAL slot/listenables
+    // back from the registry instead of the disposed scratch object. Must
+    // be set here, synchronously, right alongside `_bannerDisposed`.
+    _bannerRegistry.markDisposed();
     _bannerDisposed = true;
     _mrecDisposed = true;
     _nativeDisposed = true;
@@ -936,7 +920,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // stays idle by design on MAX, but a stale state across teardown is still
     // wrong.
     rewardedInterstitialSlot.reset();
-    for (final slot in _bannerSlotsByKey.values) {
+    for (final slot in _bannerRegistry.slots) {
       slot.reset();
     }
     for (final slot in _mrecSlotsByKey.values) {
@@ -945,7 +929,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     for (final slot in _nativeSlotsByKey.values) {
       slot.reset();
     }
-    for (final l in _bannerListenablesByKey.values) {
+    for (final l in _bannerRegistry.listenablesList) {
       l.isLoaded.value = false;
       l.clearError();
       l.adSize.value = null;
@@ -986,13 +970,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // that was only ever asked for those had its ValueNotifiers left
     // undisposed here. Union of every per-key map.
     for (final key in <Object>{
-      ..._bannerSlotsByKey.keys,
-      ..._bannerListenablesByKey.keys,
+      ..._bannerRegistry.allKeys,
       ..._bannerAdViewIdByKey.keys,
     }) {
       disposeBannerInstance(key);
     }
-    _bannerDisposed = true;
+    // `_bannerRegistry.markDisposed()`/`_bannerDisposed = true` already ran
+    // at the top of this method — see the round-1 review comment there.
     for (final key in <Object>{
       ..._mrecSlotsByKey.keys,
       ..._mrecListenablesByKey.keys,
@@ -1970,8 +1954,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'banner $tag ✅ loaded but no matching widget key (stale callback?) — dropping');
           return;
         }
-        _handleWidgetAdLoaded(ad, _bannerListenablesFor(matchedKey),
-            _bannerSlotFor(matchedKey), AdSlotType.banner, 'banner');
+        _handleWidgetAdLoaded(ad, banner(matchedKey),
+            _bannerRegistry.slotFor(matchedKey), AdSlotType.banner, 'banner');
       },
       onAdLoadFailedCallback: (id, err) {
         // AppLovin passes back the ad-unit id, not the adViewId, on failure —
@@ -1995,10 +1979,10 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         // attributed to one specific BannerAdWidget key when multiple are
         // concurrently loading. Known limitation: mark every key currently
         // mid-load as failed rather than leaving any stranded in `loading`.
-        for (final key in _bannerSlotsByKey.keys.toList()) {
-          final slot = _bannerSlotFor(key);
+        for (final key in _bannerRegistry.slotKeys.toList()) {
+          final slot = _bannerRegistry.slotFor(key);
           if (slot.isLoading) {
-            _handleWidgetAdLoadFailed(_bannerListenablesFor(key), slot,
+            _handleWidgetAdLoadFailed(banner(key), slot,
                 AdSlotType.banner, 'banner', err);
           }
         }
@@ -2082,7 +2066,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     try {
       // M3 — register this key in the slot map AND put it into `loading` before
       // the request goes out. Without it the no-fill handler below was dead code
-      // twice over: `_bannerSlotsByKey`/`_mrecSlotsByKey` stayed empty on the
+      // twice over: `_bannerRegistry`'s slot map/`_mrecSlotsByKey` stayed empty on the
       // success path, and its `if (slot.isLoading)` filter could never be true
       // because nothing on either adapter's widget-format path ever called
       // beginLoad. A banner that got no fill therefore sat in the widget's
@@ -2096,7 +2080,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // the no-fill handler dead code, so the retry path stayed broken even
       // after the first fix. AdMob's banner path has always returned here, with
       // the same rationale: a flapping banner is cheap to skip.
-      final slot = _bannerSlotFor(key);
+      final slot = _bannerRegistry.slotFor(key);
       // A refusal here is safe to honour outright: the recovery path keeps
       // `BannerListenables.needsRecovery` set until a load actually succeeds, so
       // a slot turned away for being in backoff is simply retried on the next
@@ -2119,8 +2103,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         // watches — and a resurrected slot stays in `bannerSlots`, which the
         // reload/refill sweeps iterate, so the adapter would keep requesting
         // ads for a dead widget. Same reason as the identity check below.
-        _bannerListenablesByKey[key]?.markError();
-        _bannerSlotsByKey[key]?.markFailed();
+        _bannerRegistry.listenablesByKey(key)?.markError();
+        _bannerRegistry.slotByKey(key)?.markFailed();
         return;
       }
       SafeLogger.d(_logTag, 'banner $tag ✅ preload started adViewId=$adViewId');
@@ -2156,7 +2140,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // bounce off `beginLoad()`. Identity, not `containsKey`, because dispose
       // followed by a re-mount installs a *different* slot for the same key,
       // and this in-flight load belongs to neither.
-      if (!identical(_bannerSlotsByKey[key], slot)) {
+      if (!_bannerRegistry.isCurrent(key, slot)) {
         SafeLogger.d(
             _logTag,
             'banner $tag ⏭️ instance disposed while loading — destroying adViewId='
@@ -2180,8 +2164,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // and re-request (see onAppResumed). Doing it twice, from two places, is
       // how the earlier double-destroy leaks happened.
       slot.armLoadWatchdog('banner', _widgetLoadWatchdog, onTimeout: () {
-        _bannerListenablesFor(key).isLoaded.value = false;
-        _bannerListenablesFor(key).markError();
+        banner(key).isLoaded.value = false;
+        banner(key).markError();
       });
       final notifier = _bannerAdViewIdFor(key);
       final oldId = notifier.value;
@@ -2197,8 +2181,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     } catch (e, st) {
       SafeLogger.e(_logTag, 'banner $tag preload THREW: $e\n$st');
       // Map lookups for the same reason as the null branch above.
-      _bannerListenablesByKey[key]?.markError();
-      _bannerSlotsByKey[key]?.markFailed();
+      _bannerRegistry.listenablesByKey(key)?.markError();
+      _bannerRegistry.slotByKey(key)?.markFailed();
     }
   }
 
@@ -2257,7 +2241,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     try {
       // M3 — register this key in the slot map AND put it into `loading` before
       // the request goes out. Without it the no-fill handler below was dead code
-      // twice over: `_bannerSlotsByKey`/`_mrecSlotsByKey` stayed empty on the
+      // twice over: `_bannerRegistry`'s slot map/`_mrecSlotsByKey` stayed empty on the
       // success path, and its `if (slot.isLoading)` filter could never be true
       // because nothing on either adapter's widget-format path ever called
       // beginLoad. A banner that got no fill therefore sat in the widget's
@@ -2455,7 +2439,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // took no hold, then attached with auto-refresh on while the user was
       // elsewhere. Taken BY NAME, so an App Open dismissed while the app is
       // still backgrounded cannot hand it back.
-      for (final l in _bannerListenablesByKey.values) {
+      for (final l in _bannerRegistry.listenablesList) {
         _inlineRefresh.hide(l, InlineHideReason.background);
       }
       SafeLogger.d(_logTag, 'onAppPaused $tag — banner.autoRefresh disabled');
@@ -2492,7 +2476,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       // and the MAX banner never refreshed again for the session. Releasing a
       // hold requests nothing; it does not belong behind a load gate.
       for (final l in [
-        ..._bannerListenablesByKey.values,
+        ..._bannerRegistry.listenablesList,
         ..._mrecListenablesByKey.values,
       ]) {
         _inlineRefresh.show(l, InlineHideReason.background);
@@ -2516,8 +2500,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     }
     try {
       // T65 (phase 2) — every known BannerAdWidget instance, not just one.
-      for (final key in _bannerListenablesByKey.keys.toList()) {
-        final listenables = _bannerListenablesFor(key);
+      for (final key in _bannerRegistry.listenablesKeys.toList()) {
+        final listenables = banner(key);
         final adViewIdNotifier = _bannerAdViewIdFor(key);
         // Round-33 QC (reviewer A, MAJOR) — released UNCONDITIONALLY, before
         // either branch below, mirroring AdMob's round-29 fix. The old

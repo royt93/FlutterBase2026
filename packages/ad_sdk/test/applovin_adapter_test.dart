@@ -1930,13 +1930,19 @@ void main() {
 
       stale.onAdLoadFailedCallback('banner-id', _fakeError());
 
-      b.destroyGate.complete();
-      await disposing;
-
+      // T114 round-1 review finding — check BEFORE completing the destroy
+      // gate. dispose()'s own reset-loop runs AFTER the destroy-await
+      // completes and unconditionally clears `lastErrorAt` to null; asserting
+      // only after `await disposing` is a false negative that passes even if
+      // the callback DID mutate the real slot moments earlier — this check
+      // has to land inside the exact race window, before that loop ever runs.
       expect(slot.lastErrorAt, isNull,
           reason: 'a load failure landing mid-teardown must not touch the '
               'REAL slot — it should have been routed to a disposed '
               'scratch object instead');
+
+      b.destroyGate.complete();
+      await disposing;
     });
   });
 

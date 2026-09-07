@@ -1,3 +1,15 @@
+## Tiến độ (cập nhật 2026-09-07, phần 14 — T114 done, banner only)
+
+- **T114 done (banner only), 10/10** — `InlineAdInstanceRegistry` (map
+  bookkeeping + disposed-sentinel, KHÔNG đụng identity-check trong load
+  callback), áp dụng cho banner ở CẢ 2 adapter. mrec/native CHƯA làm —
+  để lại đúng gợi ý "từng bước" của chính ticket. 2 vòng review độc lập
+  `codex`: 5/10 → 10/10 — vòng 1 tìm ra 1 BLOCKER THẬT (AppLovin
+  `markDisposed()` gọi quá trễ, tái mở race window mà round-25/round-31
+  đã vá) + 1 test hiện có là false negative (assert sau khi dispose()
+  xong bị reset-loop tự xoá dấu vết bug). `todo/` còn 6 (T87, T131, T141,
+  T142, T145, T146); `done/` có 195.
+
 ## Tiến độ (cập nhật 2026-09-07, phần 13 — T143 done)
 
 - **T143 done, 9.6/10** — ProviderFailoverAdvisor: track N lần load fail
