@@ -309,7 +309,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   Iterable<AdSlot> get mrecSlots => _mrecRegistry.slots;
 
   @override
-  Iterable<AdSlot> get nativeSlots => _nativeSlotsByKey.values;
+  Iterable<AdSlot> get nativeSlots => _nativeRegistry.slots;
 
   @override
   BannerListenables mrec(Object key) => _mrecRegistry.listenablesFor(
@@ -408,8 +408,17 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   // shared bundle: two simultaneous NativeAdWidgets on AppLovin wouldn't
   // crash, but one ad finishing (or failing) would flip the OTHER widget's
   // shimmer/loaded state too, since both read/wrote the same notifiers.
-  final Map<Object, AdSlot> _nativeSlotsByKey = {};
-  final Map<Object, BannerListenables> _nativeListenablesByKey = {};
+  // T114 (phase 3) — map bookkeeping delegated to the same shared
+  // InlineAdInstanceRegistry banner/mrec use, but native ALSO needs the
+  // per-key tombstone set below (_disposedNativeKeys) — a second, DIFFERENT
+  // disposal mechanism the registry does not (and should not) know about;
+  // see that field's own doc comment for why identity-checking alone (what
+  // banner/mrec use) doesn't work here. `_nativeSlotFor`/`_nativeListenablesFor`
+  // below check the tombstone set FIRST, and only delegate to the registry
+  // (which handles its own global-disposed sentinel) once a key is neither
+  // tombstoned nor the whole adapter torn down.
+  final InlineAdInstanceRegistry _nativeRegistry =
+      InlineAdInstanceRegistry(AdSlotType.native);
 
   // T65 (phase 1) — see AdMobAdapter's identical guard for the rationale:
   // once disposed, must not silently resurrect a live bundle for an unseen
@@ -460,8 +469,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       return _disposedNativeSlot ??=
           (AdSlot(type: AdSlotType.native)..dispose());
     }
-    return _nativeSlotsByKey.putIfAbsent(
-        key, () => AdSlot(type: AdSlotType.native));
+    return _nativeRegistry.slotFor(key);
   }
 
   BannerListenables _nativeListenablesFor(Object key) {
@@ -474,15 +482,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         visible: ValueNotifier<bool>(true),
       )..dispose());
     }
-    return _nativeListenablesByKey.putIfAbsent(
-        key,
-        () => BannerListenables(
-              isLoaded: ValueNotifier<bool>(false),
-              hasError: ValueNotifier<bool>(false),
-              adSize: ValueNotifier<Size?>(null),
-              autoRefreshEnabled: ValueNotifier<bool>(true),
-              visible: ValueNotifier<bool>(true),
-            ));
+    return _nativeRegistry.listenablesFor(key);
   }
 
   @override
@@ -502,8 +502,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     while (_disposedNativeKeys.length > _maxDisposedNativeKeys) {
       _disposedNativeKeys.remove(_disposedNativeKeys.first);
     }
-    _nativeSlotsByKey.remove(key)?.dispose();
-    _nativeListenablesByKey.remove(key)?.dispose();
+    _nativeRegistry.removeKey(key)?.dispose();
   }
 
   /// Lift [key]'s [disposeNativeInstance] tombstone because a live widget is
@@ -797,6 +796,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // own doc comment for the full race).
     _bannerRegistry.markDisposed();
     _mrecRegistry.markDisposed();
+    // Native's OWN `_nativeDisposed` flag (checked first, below) already
+    // fully gates `_nativeSlotFor`/`_nativeListenablesFor` before they ever
+    // reach `_nativeRegistry` — this call is defense-in-depth (protects
+    // against any future code path that calls `_nativeRegistry.slotFor()`/
+    // `listenablesFor()` directly), not the actual fix native needed. Native's
+    // real race protection is the pre-existing `_disposedNativeKeys`
+    // per-key tombstone set (see its own doc comment for why a plain
+    // identity check doesn't work for `MaxNativeAdView`'s callbacks).
+    _nativeRegistry.markDisposed();
     _bannerDisposed = true;
     _mrecDisposed = true;
     _nativeDisposed = true;
@@ -902,7 +910,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     for (final slot in _mrecRegistry.slots) {
       slot.reset();
     }
-    for (final slot in _nativeSlotsByKey.values) {
+    for (final slot in _nativeRegistry.slots) {
       slot.reset();
     }
     for (final l in _bannerRegistry.listenablesList) {
@@ -960,13 +968,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     }) {
       disposeMrecInstance(key);
     }
-    for (final key in <Object>{
-      ..._nativeSlotsByKey.keys,
-      ..._nativeListenablesByKey.keys,
-    }) {
+    for (final key in _nativeRegistry.allKeys) {
       disposeNativeInstance(key);
     }
-    _nativeDisposed = true;
+    // `_nativeRegistry.markDisposed()`/`_nativeDisposed = true` already ran
+    // at the top of this method — see the round-1-derived comment there.
 
     _max = null;
     _config = null;

@@ -1,3 +1,15 @@
+## Tiến độ (cập nhật 2026-09-07, phần 16 — T114 HOÀN TẤT, phase 3 native done)
+
+- **T114 phase 3 (native) done, 9/10 — TICKET HOÀN TẤT (banner+mrec+native
+  cả 3 đều xong).** Native ở AppLovin dùng cơ chế bảo vệ race KHÁC HẲN
+  (tombstone set theo key, không phải identity-check) — thiết kế LAI:
+  giữ nguyên 100% wrapper cũ, chỉ delegate map bookkeeping thuần qua
+  registry khi không bị tombstone. 1 vòng review độc lập `codex`, PUSH
+  ngay. 1 finding MINOR: tự sửa lại cách mô tả evidence integration test
+  cho chính xác (round38 test không verify retry 30s thật end-to-end).
+  Verify thật trên Pixel 7 Pro (Android thật) cả 2 provider. `todo/` còn
+  6 (T87, T131, T141, T142, T145, T146); `done/` có 196.
+
 ## Tiến độ (cập nhật 2026-09-07, phần 15 — T114 phase 2, mrec done)
 
 - **T114 phase 2 (mrec) done, 10/10** — áp dụng ĐÚNG pattern

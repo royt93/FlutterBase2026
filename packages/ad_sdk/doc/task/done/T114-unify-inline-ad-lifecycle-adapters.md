@@ -92,6 +92,31 @@ sang bước kế.
   đều pass; integration test `mrec_ad_test.dart` pass thật trên iOS
   Simulator CẢ 2 provider (Samsung/iPhone thật gặp sự cố kết nối tạm
   thời trong session này nên dùng simulator thay thế).
-- **Còn lại cho lần sau:** áp dụng pattern này cho native — mỗi bước tự
-  chạy contract test + full suite + review trước khi sang bước kế, đúng
-  khuyến nghị gốc.
+## Kết quả (2026-09-07, phase 3) — DONE (scope: NATIVE) — T114 HOÀN TẤT CẢ 3 LOẠI
+
+- **Status:** ✅ done. **Điểm: 9/10** (1 vòng review độc lập `codex`, PUSH
+  ngay). **T114 hoàn tất — banner + mrec + native đều đã áp dụng
+  `InlineAdInstanceRegistry`.**
+- **Khác biệt quan trọng so với banner/mrec:** AppLovin's native dùng cơ
+  chế bảo vệ race KHÁC HẲN — không phải identity-check (`isCurrent(key,
+  slot)`) mà là tombstone set theo key (`_disposedNativeKeys`, bounded
+  `LinkedHashSet`), vì `MaxNativeAdView`'s callback không capture 1 `slot`
+  cục bộ để so sánh. Thiết kế LAI (hybrid): giữ nguyên 100% wrapper
+  `_nativeSlotFor`/`_nativeListenablesFor`/`disposeNativeInstance`/
+  `reviveNativeInstance`/`isNativeInstanceDisposed` (check tombstone
+  TRƯỚC, y hệt logic gốc), CHỈ delegate phần map bookkeeping thuần (khi
+  KHÔNG bị tombstone/disposed) qua `_nativeRegistry`. `AdMob`'s native
+  đơn giản hơn — không có tombstone set, delegate thẳng qua registry.
+- 1 finding MINOR (không chặn push): review chỉ ra prompt review của tôi
+  overstate `round38_native_ad_error_retry_test.dart` là "verify retry
+  end-to-end" — thực tế test này tự ghi rõ "NOT automated past this
+  point" (chỉ verify widget collapse khi có lỗi, không đợi retry 30s
+  thật). Sửa cách mô tả evidence cho chính xác (không phải sửa code).
+- Baseline: `flutter analyze` sạch; `flutter test` 1772/1772;
+  `test/adapter_contract_test.dart` + `test/admob_adapter_test.dart` +
+  `test/applovin_adapter_test.dart` + `test/inline_ad_instance_registry_test.dart`
+  đều pass; integration test `native_ad_test.dart` +
+  `round38_native_ad_error_retry_test.dart` (verify widget collapse khi
+  lỗi — KHÔNG verify retry 30s thật end-to-end, xem finding trên) pass
+  thật trên **Pixel 7 Pro thật** (Android thật, không phải simulator) CẢ
+  2 provider.

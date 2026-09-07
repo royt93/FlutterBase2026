@@ -253,7 +253,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   Iterable<AdSlot> get mrecSlots => _mrecRegistry.slots;
 
   @override
-  Iterable<AdSlot> get nativeSlots => _nativeSlotsByKey.values;
+  Iterable<AdSlot> get nativeSlots => _nativeRegistry.slots;
 
   @override
   BannerListenables mrec(Object key) => _mrecRegistry.listenablesFor(
@@ -289,18 +289,17 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     _mrecRoutePausedByKey.remove(key);
   }
 
-  // T65 (phase 1) — one AdSlot per NativeAdWidget instance (see nativeSlot()
-  // below), instead of one shared across every mounted widget.
-  final Map<Object, AdSlot> _nativeSlotsByKey = {};
-
-
-  // ─── Native listenables ───────────────────────────────────────────────────
-  // adSize/autoRefreshEnabled/visible are unused stubs — native ads have no
-  // adaptive size or auto-refresh ticker (see AdProviderAdapter.native doc).
-  // T65 (phase 1) — one bundle per NativeAdWidget instance (see native()
-  // below), instead of one shared across every mounted widget.
-
-  final Map<Object, BannerListenables> _nativeListenablesByKey = {};
+  // T65 (phase 1) — one AdSlot/BannerListenables per NativeAdWidget
+  // instance, instead of one shared across every mounted widget.
+  // T114 (phase 3) — map bookkeeping + disposed-sentinel pattern extracted
+  // into the same shared InlineAdInstanceRegistry banner/mrec already use.
+  // Native does NOT inherit the fullscreen/background hold (no `onCreated`
+  // callback needed here) and is never registered with `_inlineVisibility`
+  // — see `AdProviderAdapter.native`'s own doc for why: native ads have no
+  // adaptive size or auto-refresh ticker, and this adapter never hides them
+  // the way banner/mrec are hidden.
+  final InlineAdInstanceRegistry _nativeRegistry =
+      InlineAdInstanceRegistry(AdSlotType.native);
 
   // T73 — remembers each key's requested template, so the connectivity/
   // resume retry path (which calls preloadNative(key) with no explicit
@@ -308,56 +307,16 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   // asked for, instead of silently falling back to the medium default.
   final Map<Object, TemplateType> _nativeTemplateTypeByKey = {};
 
-  // T65 (phase 1) — once this adapter instance is disposed (discarded; a
-  // fresh one is constructed on the next initialize()), any further call
-  // must not silently resurrect a live slot/listenables bundle for a key
-  // that's never been seen — it should fail exactly like the singleton
-  // fields already did (a disposed ValueNotifier throws on use).
-  bool _nativeDisposed = false;
-  AdSlot? _disposedNativeSlot;
-  BannerListenables? _disposedNativeListenables;
-
-  AdSlot _nativeSlotFor(Object key) {
-    if (_nativeDisposed) {
-      return _disposedNativeSlot ??=
-          (AdSlot(type: AdSlotType.native)..dispose());
-    }
-    return _nativeSlotsByKey.putIfAbsent(
-        key, () => AdSlot(type: AdSlotType.native));
-  }
-
-  BannerListenables _nativeListenablesFor(Object key) {
-    if (_nativeDisposed) {
-      return _disposedNativeListenables ??= (BannerListenables(
-        isLoaded: ValueNotifier<bool>(false),
-        hasError: ValueNotifier<bool>(false),
-        adSize: ValueNotifier<Size?>(null),
-        autoRefreshEnabled: ValueNotifier<bool>(true),
-        visible: ValueNotifier<bool>(true),
-      )..dispose());
-    }
-    return _nativeListenablesByKey.putIfAbsent(
-        key,
-        () => BannerListenables(
-              isLoaded: ValueNotifier<bool>(false),
-              hasError: ValueNotifier<bool>(false),
-              adSize: ValueNotifier<Size?>(null),
-              autoRefreshEnabled: ValueNotifier<bool>(true),
-              visible: ValueNotifier<bool>(true),
-            ));
-  }
+  @override
+  AdSlot nativeSlot(Object key) => _nativeRegistry.slotFor(key);
 
   @override
-  AdSlot nativeSlot(Object key) => _nativeSlotFor(key);
-
-  @override
-  BannerListenables native(Object key) => _nativeListenablesFor(key);
+  BannerListenables native(Object key) => _nativeRegistry.listenablesFor(key);
 
   @override
   void disposeNativeInstance(Object key) {
     _nativeAdsByKey.remove(key)?.dispose();
-    _nativeSlotsByKey.remove(key)?.dispose();
-    _nativeListenablesByKey.remove(key)?.dispose();
+    _nativeRegistry.removeKey(key)?.dispose();
     _nativeTemplateTypeByKey.remove(key);
   }
 
@@ -559,7 +518,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     for (final slot in _mrecRegistry.slots) {
       slot.reset();
     }
-    for (final slot in _nativeSlotsByKey.values) {
+    for (final slot in _nativeRegistry.slots) {
       slot.reset();
     }
 
@@ -621,13 +580,12 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     _mrecRegistry.markDisposed();
     // T65 (phase 1) — dispose every NativeAdWidget instance's slot/ad/
     // listenables (already cleared _nativeAdsByKey above); same union as above.
-    for (final key in <Object>{
-      ..._nativeSlotsByKey.keys,
-      ..._nativeListenablesByKey.keys,
-    }) {
+    for (final key in _nativeRegistry.allKeys) {
       disposeNativeInstance(key);
     }
-    _nativeDisposed = true;
+    // Safe to leave markDisposed() here for the same reason as the banner
+    // registry above — no `await` anywhere in this method.
+    _nativeRegistry.markDisposed();
 
     _admob = null;
     _config = null;
@@ -2374,8 +2332,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
       SafeLogger.d(_logTag, 'preloadNative $tag ⏭️ already cached');
       return;
     }
-    final slot = _nativeSlotFor(key);
-    final listenables = _nativeListenablesFor(key);
+    final slot = _nativeRegistry.slotFor(key);
+    final listenables = native(key);
     if (!slot.beginLoad()) {
       SafeLogger.d(_logTag,
           'preloadNative $tag ⏭️ already loading/showing or in cooldown');
@@ -2405,7 +2363,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!identical(_nativeSlotsByKey[key], slot)) return;
+            if (!_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'preloadNative $tag ✅');
             listenables.isLoaded.value = true;
             listenables.clearError();
@@ -2423,7 +2381,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!identical(_nativeSlotsByKey[key], slot)) return;
+            if (!_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.w(_logTag, 'preloadNative $tag ❌ ${err.code}');
             try {
               ad.dispose();
@@ -2442,7 +2400,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           },
           onAdClicked: (ad) {
             // T105 — same identity guard as onAdFailedToLoad above.
-            if (!identical(_nativeSlotsByKey[key], slot)) return;
+            if (!_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'native $tag 🎯 click');
             AdSafetyConfig.recordAdClick();
             _emit(AdClickEvent(
@@ -2456,7 +2414,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
           // actual on-screen impression), and no AdImpressionEvent was ever
           // emitted for this format.
           onAdImpression: (ad) {
-            if (!identical(_nativeSlotsByKey[key], slot)) return;
+            if (!_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'native $tag 👁 impression');
             AdSafetyConfig.recordBannerImpression();
             _emit(AdImpressionEvent(
@@ -2605,8 +2563,8 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     // Mirror for Native — preloadNative() takes no width, unlike
     // loadMrecIfNeeded. T65 (phase 1): retry every known instance key that's
     // in error state, not just a single shared one.
-    for (final key in _nativeListenablesByKey.keys.toList()) {
-      final listenables = _nativeListenablesByKey[key]!;
+    for (final key in _nativeRegistry.listenablesKeys.toList()) {
+      final listenables = _nativeRegistry.listenablesByKey(key)!;
       if (listenables.needsRecovery && !_nativeAdsByKey.containsKey(key)) {
         // Display flag only — see the banner loop above.
         listenables.hasError.value = false;
