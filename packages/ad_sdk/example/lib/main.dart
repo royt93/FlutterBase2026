@@ -1110,13 +1110,26 @@ class ComplianceDemoPage extends StatefulWidget {
 
 class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
   String? _reportJson;
-  int _eventCount = 0;
+  String _summary = '';
 
   void _generate() {
     final report = AdManager().exportComplianceReport();
     setState(() {
-      _eventCount = report.events.length;
+      _summary = '${report.events.length} event(s) in log';
       _reportJson = report.toJsonString(pretty: true);
+    });
+  }
+
+  // T144 — the 3 signed exports AdManager already had, bundled into one
+  // artifact for a dispute/appeal, instead of a host calling 3 methods and
+  // gluing the JSON together itself.
+  Future<void> _generateDisputeKit() async {
+    final kit = await AdManager().exportDisputeKit();
+    if (!mounted) return;
+    setState(() {
+      _summary = 'dispute kit: compliance + bypass audit trail + incident '
+          'bundle, all signed';
+      _reportJson = kit.toJsonString(pretty: true);
     });
   }
 
@@ -1161,6 +1174,12 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
               icon: const Icon(Icons.description_outlined),
               label: const Text('Generate report'),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _generateDisputeKit,
+              icon: const Icon(Icons.gavel_outlined),
+              label: const Text('Generate dispute kit (T144)'),
+            ),
             const SizedBox(height: 12),
             if (json == null)
               const Expanded(
@@ -1174,7 +1193,7 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.all(8),
-                        child: Text('$_eventCount event(s) in log',
+                        child: Text(_summary,
                             style:
                                 const TextStyle(fontWeight: FontWeight.bold)),
                       ),

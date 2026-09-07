@@ -1,3 +1,14 @@
+## Tiến độ (cập nhật 2026-09-07, phần 12 — T144 done)
+
+- **T144 done, 9.4/10** — DisputeKit: gộp 3 signed export có sẵn
+  (compliance report, bypass audit trail, incident bundle) thành 1
+  artifact, thêm nút demo. 1 vòng review độc lập `codex`, PUSH ngay. Tự
+  bắt được 1 bug TRONG WIDGET TEST (không phải code production): gọi
+  export (ký Ed25519 thật) qua nút bấm trong `testWidgets()` HANG VÔ THỜI
+  HẠN vì fake-async pump loop — sửa bằng `tester.runAsync()` bọc cả
+  `tap()` và delay thật. `todo/` còn 8 (T87, T114, T131, T141, T142, T143,
+  T145, T146); `done/` có 193.
+
 ## Tiến độ (cập nhật 2026-09-06, phần 11 — T139 done)
 
 - **T139 done, 9.7/10** — JourneyPrefetcher opt-in auto-mode qua route

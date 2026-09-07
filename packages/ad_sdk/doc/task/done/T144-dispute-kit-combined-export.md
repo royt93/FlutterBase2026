@@ -54,6 +54,29 @@ Effort giảm từ L→S sau khi tự verify — đây là ví dụ tốt cho vi
 code thật trước khi ước lượng effort từ brainstorm, không tin nguyên văn.
 Rủi ro thấp vì chỉ gộp API đã có, không thiết kế cơ chế ký/redaction mới.
 
+## Kết quả (2026-09-07) — DONE
+
+- **Status:** ✅ done. **Điểm: 9.4/10** (1 vòng review độc lập `codex`,
+  PUSH ngay).
+- Đúng scope: chỉ gộp 3 API có sẵn — `exportSignedComplianceReport`,
+  `exportSignedBypassAuditTrail`, `signIncidentBundle` (qua `incidentRecorder`
+  field mới, không reset khi `destroy()`, giống `bypassAuditTrail`). `DisputeKit`
+  class + `exportSignedIncidentBundle()`/`exportDisputeKit({from, to})` —
+  không tự viết logic ký/verify/redaction mới.
+- Demo thêm nút trong `ComplianceDemoPage` (không trang mới, đúng ticket).
+- **Tự bắt được 1 bug trong WIDGET TEST (không phải code production)**:
+  gọi `exportDisputeKit()` (ký Ed25519 thật qua `package:cryptography`) qua
+  nút bấm trong `testWidgets()` ban đầu HANG VÔ THỜI HẠN — `flutter_test`'s
+  fake-async pump loop không cho crypto/isolate work thật hoàn tất. Sửa
+  bằng `tester.runAsync()` bọc CẢ `tester.tap()` và 1 `Future.delayed`
+  THẬT (200ms, không phải `Duration.zero`) bên trong.
+- 1 finding P3/minor từ review: thiếu `if (!mounted) return;` sau await
+  trong demo — đã sửa (chỉ ảnh hưởng example UI, không phải API production).
+- Baseline: `flutter analyze` sạch (cả `ad_sdk` và `example`); `flutter
+  test` 1736/1736 (`ad_sdk`) + 33/33 (`example`); integration test
+  `t144_dispute_kit_test.dart` pass thật trên iOS Simulator (Samsung Galaxy
+  S24 Ultra mất kết nối wireless giữa session, dùng simulator thay thế).
+
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 
 ```

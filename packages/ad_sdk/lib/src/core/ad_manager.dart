@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert' show JsonEncoder;
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
@@ -18,6 +19,7 @@ import '../compliance/ad_event_log.dart';
 import '../compliance/compliance_report.dart';
 import '../compliance/bypass_audit_trail.dart';
 import '../compliance/compliance_signing.dart';
+import '../compliance/incident_recorder.dart';
 import '../config/ad_config.dart';
 import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
@@ -52,6 +54,35 @@ import 'iab_storage.dart';
 import 'event_bus.dart';
 import 'ump_consent.dart';
 import 'ump_consent.dart' as core_ump;
+
+/// T144 — the 3 signed exports [AdManager] already had, bundled into one
+/// artifact via [AdManager.exportDisputeKit]. Each field verifies
+/// independently with its own existing verifier
+/// ([verifySignedComplianceReportJson] / [verifySignedJsonPayload]) — this
+/// class is pure aggregation, it introduces no new signing/redaction logic.
+class DisputeKit {
+  const DisputeKit({
+    required this.compliance,
+    required this.bypassAuditTrail,
+    required this.incidentBundle,
+  });
+
+  final SignedComplianceReport compliance;
+  final SignedPayload bypassAuditTrail;
+  final SignedPayload incidentBundle;
+
+  Map<String, dynamic> toJson() => {
+        'compliance': compliance.toJson(),
+        'bypassAuditTrail': bypassAuditTrail.toJson(),
+        'incidentBundle': incidentBundle.toJson(),
+      };
+
+  String toJsonString({bool pretty = false}) {
+    final encoder =
+        pretty ? const JsonEncoder.withIndent('  ') : const JsonEncoder();
+    return encoder.convert(toJson());
+  }
+}
 
 /// Orchestrator singleton.
 ///
@@ -1212,6 +1243,46 @@ class AdManager with WidgetsBindingObserver {
   /// `tool/incident_replay.dart`/`tool/verify_compliance_report.dart`).
   Future<SignedPayload> exportSignedBypassAuditTrail() =>
       signBypassAuditTrail(bypassAuditTrail);
+
+  /// T144 — same "not reset by destroy()" reasoning as [bypassAuditTrail]:
+  /// a provider switch mid-session is exactly the kind of event a dispute
+  /// export should still be able to explain. Export via
+  /// [exportSignedIncidentBundle]. Nothing in the SDK calls `.record()` on
+  /// this yet — it's exposed so a host (or a future ticket) can feed it at
+  /// its own state-transition points; T144's own scope is only the export
+  /// side, not wiring up recording call sites.
+  final IncidentRecorder incidentRecorder = IncidentRecorder();
+
+  /// Signs [incidentRecorder]'s current buffer with the same on-device
+  /// Ed25519 key as [exportSignedComplianceReport] — verify with
+  /// `verifySignedJsonPayload` or `dart run tool/incident_replay.dart`.
+  ///
+  /// Safe to call before [initialize] — [IncidentBundle.capture] needs an
+  /// [AdConfig] only for its redacted config fingerprint, so an empty
+  /// fingerprint is used instead of throwing.
+  Future<SignedPayload> exportSignedIncidentBundle() {
+    final config = _config;
+    final bundle = config == null
+        ? IncidentBundle(
+            entries: incidentRecorder.entries,
+            configFingerprint: const {},
+            generatedAtMs: DateTime.now().millisecondsSinceEpoch,
+          )
+        : IncidentBundle.capture(incidentRecorder, config);
+    return signIncidentBundle(bundle);
+  }
+
+  /// T144 — all 3 signed exports above, bundled into one artifact so a host
+  /// can hand a partner/reviewer a single file during a dispute/appeal
+  /// instead of calling 3 methods and gluing the JSON together itself. Pure
+  /// aggregation — no new signing/redaction logic of its own.
+  Future<DisputeKit> exportDisputeKit({DateTime? from, DateTime? to}) async {
+    return DisputeKit(
+      compliance: await exportSignedComplianceReport(from: from, to: to),
+      bypassAuditTrail: await exportSignedBypassAuditTrail(),
+      incidentBundle: await exportSignedIncidentBundle(),
+    );
+  }
 
   /// T129 — flagship Monetization Digital Twin (v0, daily-cap axis only —
   /// see [MonetizationDigitalTwin]'s class doc for why this is deliberately

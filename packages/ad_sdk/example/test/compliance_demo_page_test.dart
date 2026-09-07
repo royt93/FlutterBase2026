@@ -28,4 +28,29 @@ void main() {
     expect(find.textContaining('"generatedAt"'), findsOneWidget);
     expect(find.byIcon(Icons.copy), findsOneWidget);
   });
+
+  testWidgets(
+      'generating a dispute kit (T144) renders all 3 signed parts as JSON',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: ComplianceDemoPage()));
+
+    // T144's export chain does real Ed25519 signing (package:cryptography),
+    // which needs actual wall-clock time to complete, not just flutter_test's
+    // fake-async pump loop — the tap AND a real (non-zero) delay both need
+    // to happen inside runAsync for the signing work to genuinely finish
+    // before the assertions below run.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Generate dispute kit (T144)'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+
+    expect(find.text('(no report generated yet)'), findsNothing);
+    expect(find.textContaining('compliance + bypass audit trail'),
+        findsOneWidget);
+    expect(find.textContaining('"compliance"'), findsOneWidget);
+    expect(find.textContaining('"bypassAuditTrail"'), findsOneWidget);
+    expect(find.textContaining('"incidentBundle"'), findsOneWidget);
+    expect(find.byIcon(Icons.copy), findsOneWidget);
+  });
 }
