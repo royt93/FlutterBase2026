@@ -2,9 +2,19 @@
 
 **Loại:** bug (quyền riêng tư)
 **Ưu tiên:** P0
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 3 vòng review độc lập)
 **Nguồn phát hiện:** subagent core+state (tự verify trực tiếp code), đối chiếu doc/audit round 31/32 (BLOCKER cũ, chỉ fix cho TCF chứ chưa fix cho CCPA/GPP)
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
+
+## Kết quả (2026-09-08)
+Fixed. `usPrivacyOptedOut()` giờ mở store 1 lần + đọc TOÀN BỘ ~24 key (legacy + national + california + 19 state) trong đúng 1 `Future.wait` bọc 1 try/catch — bất kỳ lỗi đọc nào (không chỉ lỗi mở store) đều fail-closed (`true`), tách hẳn phần đọc (throw-aware) khỏi phần parse (pure, `_parseGppUsNational`/`_parseGppCalifornia`/`_parseGppUsState`).
+
+3 vòng codex review độc lập, 3 finding thật đã sửa:
+1. (P1) Bản đầu chỉ probe đúng 1 key (`keyUsPrivacy`) — key khác lỗi vẫn lọt qua `read()` nuốt thành null. Sửa: gộp mọi key vào 1 `Future.wait`/1 try-catch.
+2. (P2) Đọc tuần tự 3 key đầu trước khi batch 19 state key — chậm hơn code cũ (vốn đọc song song hoàn toàn). Sửa: gộp lại 1 `Future.wait` duy nhất cho cả ~24 key.
+3. (P2) Demo trong `example/` swap `SharedPreferencesAsyncPlatform.instance` toàn cục — có thể ảnh hưởng plugin/package khác đang đọc storage cùng lúc. Sửa: dùng `IabStorage.debugOpenOverride` (seam nội bộ, phạm vi hẹp hơn nhiều) + thêm `mounted` check thiếu.
+
+Test: 6 unit test mới (`test/us_privacy_fail_closed_test.dart`, gồm 1 test khoá đúng finding #1), 1 integration test on-device mới (`example/integration_test/consent_privacy_storage_fail_closed_test.dart`) — **chạy PASS thật trên TECNO KJ7 Android 14** (2 lần, trước và sau khi đổi sang `debugOpenOverride`). Toàn bộ suite: 1788/1788 (ad_sdk) + 33/33 (example) xanh, `flutter analyze` sạch cả 2 package.
 
 ## Vấn đề (giải thích thực tế)
 Khi thiết bị người dùng gặp lỗi đọc bộ nhớ tạm (hiếm, ví dụ máy yếu/lag lúc đọc SharedPreferences), hệ thống đang coi đó là "chưa ai từ chối quảng cáo cá nhân hoá" — kể cả khi người dùng ĐÃ bấm từ chối trước đó. Hậu quả: một số quảng cáo cá nhân hoá vẫn hiện ra dù người dùng đã từ chối, vi phạm đúng điều họ yêu cầu (CCPA "Do Not Sell", GPP opt-out).

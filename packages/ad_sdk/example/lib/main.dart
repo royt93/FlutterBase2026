@@ -34,8 +34,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+// T146 demo only — IabStorage is an internal implementation detail, not part
+// of the package's public API (a real consuming app has no access to it
+// either). Imported here solely so ConsentDemoPage's "Simulate broken
+// privacy store" button can prove the fail-closed fix against the real
+// class, not a re-implementation of it.
+// ignore: implementation_imports
+import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:shared_preferences/shared_preferences.dart' show SharedPreferencesAsync;
 
 final _navigatorKey = GlobalKey<NavigatorState>();
 
@@ -1242,6 +1250,10 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
   /// reflects the just-applied AdManager().consent state.
   final ValueNotifier<int> _appliedRev = ValueNotifier<int>(0);
 
+  // T146 demo state — see [_simulateBrokenPrivacyStore] below.
+  String? _t146Result;
+  bool _t146Busy = false;
+
   @override
   void initState() {
     super.initState();
@@ -1276,6 +1288,45 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
     _hasConsent.value = AdManager().consent.hasUserConsent;
     _isAge.value = AdManager().consent.isAgeRestrictedUser;
     _doNotSell.value = AdManager().consent.doNotSell;
+  }
+
+  /// T146 — proves `IabStorage.usPrivacyOptedOut()` fails CLOSED (returns
+  /// `true`) when the platform preference store cannot be read, instead of
+  /// silently returning `null` (which every real caller treats as "no
+  /// signal", i.e. NOT an opt-out).
+  ///
+  /// Uses `IabStorage.debugOpenOverride` — the SDK's own `IabStorage`-scoped
+  /// test seam (same one `us_privacy_fail_closed_test.dart` uses) — rather
+  /// than swapping the process-wide `SharedPreferencesAsyncPlatform.instance`
+  /// singleton: an independent `codex` re-review caught that the wider swap
+  /// would also break any OTHER plugin/package reading shared_preferences
+  /// during this window (host-app code, other SDKs), not just this demo's
+  /// own read.
+  Future<void> _simulateBrokenPrivacyStore() async {
+    setState(() {
+      _t146Busy = true;
+      _t146Result = null;
+    });
+    // ignore: invalid_use_of_visible_for_testing_member
+    IabStorage.debugOpenOverride = () => Future<SharedPreferencesAsync?>.error(
+        PlatformException(code: 'CHANNEL_ERROR', message: 'store is gone'));
+    // ignore: invalid_use_of_visible_for_testing_member
+    IabStorage.debugResetForTest();
+    try {
+      final result = await IabStorage.usPrivacyOptedOut();
+      if (!mounted) return;
+      setState(() {
+        _t146Result = result == true
+            ? '✅ true (fail-closed — treated as opted-out)'
+            : '❌ $result (BUG — should be true, see T146)';
+      });
+    } finally {
+      // ignore: invalid_use_of_visible_for_testing_member
+      IabStorage.debugOpenOverride = null;
+      // ignore: invalid_use_of_visible_for_testing_member
+      IabStorage.debugResetForTest();
+      if (mounted) setState(() => _t146Busy = false);
+    }
   }
 
   @override
@@ -1510,6 +1561,51 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                     }
                   },
                 ),
+              ],
+            ),
+          ),
+          const Divider(height: 32),
+          // ─── T146: privacy-store fail-closed proof ────────────────────
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              'CCPA/GPP storage fail-closed (T146)',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'A broken platform preference store must never be read as '
+                  '"no opt-out signal" — it must fail CLOSED (treated as '
+                  'opted-out) instead. Tap below to simulate the store '
+                  'throwing on every read and see the real result.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  icon: _t146Busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.warning_amber_outlined),
+                  label: const Text('Simulate broken privacy store'),
+                  onPressed:
+                      _t146Busy ? null : _simulateBrokenPrivacyStore,
+                ),
+                if (_t146Result != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'usPrivacyOptedOut() → $_t146Result',
+                      style: const TextStyle(
+                          fontFamily: 'monospace', fontSize: 12),
+                    ),
+                  ),
               ],
             ),
           ),

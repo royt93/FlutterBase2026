@@ -250,19 +250,94 @@ class IabStorage {
   /// just keys a CMP wrote, with no ordering/timestamp to arbitrate them.
   /// The legacy string is now unioned into the same true-beats-false rule
   /// as every GPP tier, not treated as a separate short-circuit.
+  /// T146 fix (P1 follow-up — an independent `codex` re-review of the first
+  /// version of this fix caught that a store-reachable *probe* reading only
+  /// [keyUsPrivacy] is not enough: a transient or key-specific failure on any
+  /// of the ~24 keys read below it still landed on [read]'s blanket
+  /// catch-to-`null`, so a broken read of, say, one GPP state section could
+  /// still resolve to `false`/`null` instead of failing closed). Every method
+  /// above fails soft to `null` on a platform read error, which used to
+  /// collapse "the store is broken" into the same value as "no CMP has ever
+  /// written a key here" (typical outside applicable jurisdictions).
+  /// [_reconcileDeviceUsPrivacy] in `ad_manager.dart` only acts on a `true`
+  /// result, so a store outage at the exact moment a user had already opted
+  /// out silently kept selling/personalising their data.
+  ///
+  /// Fixed the same way [tcfAllowsPersonalisedAds] already solved this for
+  /// TCF: open the store once, then read EVERY key this method needs
+  /// directly (bypassing [read]'s catch) inside one try/catch — any read
+  /// throwing anywhere fails the whole call CLOSED, not just a store-open
+  /// failure. Parsing is split into pure `_parseGpp*` helpers below that take
+  /// an already-fetched string, so the fetch-vs-parse failure modes can never
+  /// be conflated again.
   static Future<bool?> usPrivacyOptedOut() async {
-    final usp = await read(keyUsPrivacy);
+    SharedPreferencesAsync? store;
+    try {
+      store = await _open().timeout(const Duration(seconds: 5));
+    } on StateError {
+      // No platform implementation registered — a test-harness artifact,
+      // impossible on a real shipped app (see [_open]). Behave as before:
+      // no signal at all.
+      return null;
+    } catch (e) {
+      SafeLogger.w('IabStorage',
+          'usPrivacyOptedOut: platform open failed — failing closed: $e');
+      return true;
+    }
+    if (store == null) {
+      SafeLogger.w('IabStorage',
+          'usPrivacyOptedOut: platform store unreadable — failing closed');
+      return true;
+    }
+    final s = store;
+
+    String? clean(String? v) => (v == null || v.isEmpty) ? null : v;
+
+    // Round 2 of the codex re-review above (P2) — reading legacy/national/
+    // california one at a time before the states batch serialized what the
+    // pre-T146 code read fully in parallel (each tier had its own top-level
+    // Future.wait), so a slow channel could take ~3x as long per read tier.
+    // All ~24 keys are fetched in a single Future.wait instead: same one
+    // try/catch, same fail-closed contract, no latency regression.
+    final allKeys = [
+      keyUsPrivacy,
+      keyGppUsNationalString,
+      keyGppCaliforniaString,
+      ..._usStateSkipBits.keys,
+    ];
+    final stateKeys = _usStateSkipBits.keys.toList(growable: false);
+    late final String? usp;
+    late final String? national;
+    late final String? california;
+    final stateValues = <String, String?>{};
+    try {
+      final raw = await Future.wait(allKeys
+          .map((k) => s.getString(k).timeout(const Duration(seconds: 5))));
+      usp = clean(raw[0]);
+      national = clean(raw[1]);
+      california = clean(raw[2]);
+      for (var i = 0; i < stateKeys.length; i++) {
+        stateValues[stateKeys[i]] = clean(raw[3 + i]);
+      }
+    } catch (e) {
+      SafeLogger.w('IabStorage',
+          'usPrivacyOptedOut: platform read failed — failing closed: $e');
+      return true;
+    }
+
     bool? legacy;
     if (usp != null && usp.length >= 3) {
       final flag = usp[2].toUpperCase();
       if (flag == 'Y' || flag == 'N') legacy = flag == 'Y';
     }
-    final results = await Future.wait([
-      _gppUsNationalOptedOut(),
-      _gppCaliforniaOptedOut(),
-      _gppUsStatesOptedOut(),
-    ]);
-    final signals = [legacy, ...results];
+
+    final signals = <bool?>[
+      legacy,
+      _parseGppUsNational(national),
+      _parseGppCalifornia(california),
+      for (final key in stateKeys)
+        _parseGppUsState(stateValues[key], _usStateSkipBits[key]!),
+    ];
     if (signals.any((r) => r == true)) return true;
     if (signals.any((r) => r == false)) return false;
     return null;
@@ -277,8 +352,11 @@ class IabStorage {
   /// TargetedAdvertisingOptOutNotice(2) SensitiveDataProcessingOptOutNotice(2)
   /// SensitiveDataLimitUseNotice(2) SaleOptOut(2) SharingOptOut(2) — each
   /// OptOut field is `0`=Not Applicable, `1`=Opted Out, `2`=Did Not Opt Out.
-  static Future<bool?> _gppUsNationalOptedOut() async {
-    final section = await read(keyGppUsNationalString);
+  ///
+  /// T146 — pure parser, takes an already-fetched section string. The actual
+  /// platform read happens once, up front, in [usPrivacyOptedOut] so a read
+  /// failure can fail the whole call CLOSED instead of being swallowed here.
+  static bool? _parseGppUsNational(String? section) {
     if (section == null) return null;
     try {
       final bits = _GppBitReader(section);
@@ -329,8 +407,8 @@ class IabStorage {
   /// read the wrong bits — exactly the "mis-parsing is worse than not
   /// reading" failure this class's own design already guards against
   /// elsewhere.
-  static Future<bool?> _gppCaliforniaOptedOut() async {
-    final section = await read(keyGppCaliforniaString);
+  /// T146 — pure parser, see [_parseGppUsNational]'s doc comment.
+  static bool? _parseGppCalifornia(String? section) {
     if (section == null) return null;
     try {
       final bits = _GppBitReader(section);
@@ -393,9 +471,17 @@ class IabStorage {
     'IABGPP_27_String': 16, // Rhode Island
   };
 
-  static Future<bool?> _gppUsStateSaleTargetedOptedOut(
-      String key, int skipBits) async {
-    final section = await read(key);
+  /// T146 — pure parser for one US state GPP section, see
+  /// [_parseGppUsNational]'s doc comment. `usPrivacyOptedOut` folds every
+  /// state's result directly into its own flat `signals` list and applies
+  /// one global true-beats-false pass over all of them (legacy + national +
+  /// California + every state) — mathematically identical to first resolving
+  /// true-beats-false within just the states and then merging that single
+  /// result into the outer list, since true-beats-false is associative
+  /// across any grouping of the same signals. See Round-40 audit MAJOR
+  /// (R40-A) in `usPrivacyOptedOut`'s doc comment for why true must beat
+  /// false at all.
+  static bool? _parseGppUsState(String? section, int skipBits) {
     if (section == null) return null;
     try {
       final bits = _GppBitReader(section);
@@ -406,37 +492,9 @@ class IabStorage {
       if (saleOptOut == 2 || targetedAdvertisingOptOut == 2) return false;
       return null;
     } on FormatException catch (e) {
-      SafeLogger.d('IabStorage', () => 'GPP $key parse failed: $e');
+      SafeLogger.d('IabStorage', () => 'GPP state section parse failed: $e');
       return null;
     }
-  }
-
-  /// Checks every US state GPP section in [_usStateSkipBits] and returns
-  /// `true` if ANY of them opted out, else `false` if any explicitly did
-  /// not (and none opted out), else `null` if none of them is
-  /// present/readable.
-  ///
-  /// Round-38 audit fix (MINOR) — this used to `await` each of the 19
-  /// sections one at a time. It runs unconditionally on every app resume
-  /// (inside `_reconcileDeviceUsPrivacy()`, itself inside
-  /// `_resumeAdWorkAfterConsent`'s hard 5s budget), so on a device with a
-  /// slow platform channel the sequential reads could approach or exceed
-  /// that budget and silently skip a refill cycle. Reading all sections
-  /// concurrently removes that latency.
-  ///
-  /// Round-40 audit MAJOR (R40-A) — this used to return the first
-  /// *non-null* result in `_usStateSkipBits`'s (arbitrary) order, so an
-  /// earlier state's explicit "did not opt out" could shadow a later
-  /// state's real opt-out if a CMP ever wrote more than one state section
-  /// with differing values. `true` now wins over `false` regardless of
-  /// order — see [usPrivacyOptedOut]'s doc comment for the full rationale.
-  static Future<bool?> _gppUsStatesOptedOut() async {
-    final entries = _usStateSkipBits.entries.toList();
-    final results = await Future.wait(entries.map(
-        (entry) => _gppUsStateSaleTargetedOptedOut(entry.key, entry.value)));
-    if (results.any((r) => r == true)) return true;
-    if (results.any((r) => r == false)) return false;
-    return null;
   }
 
   /// Reads one IAB integer flag, or `null` if absent/unreadable/not an int.
