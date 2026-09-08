@@ -2,9 +2,14 @@
 
 **Loại:** bug
 **Ưu tiên:** P1
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 1 vòng review độc lập, sạch ngay)
 **Nguồn phát hiện:** subagent core+state, tự verify trực tiếp code (copy-paste sai từ hàm bên cạnh)
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
+
+## Kết quả (2026-09-08)
+Fixed. `canShowRewardedAd()` đổi `AdSlotType.rewardedInterstitial` → `AdSlotType.rewarded` (dòng ~7746), khớp đúng với `showRewardedAd()` thật (dòng ~7288).
+
+Test: 3 unit test mới (`test/rewarded_kill_switch_gate_test.dart`, cả 2 chiều bug + 1 sanity cho sibling method), 1 integration test on-device mới (`example/integration_test/remote_safety_demo_format_kill_switch_test.dart`) — **PASS thật trên TECNO KJ7**, log xác nhận `disabledFormats: [rewarded]` áp đúng, `canShowFullscreenAdPeek` phân biệt đúng 2 format. Thêm demo trong `RemoteSafetyDemoPage` (2 switch bật/tắt kill-switch riêng + dòng live status). Suite: 1791/1791 (ad_sdk) + 33/33 (example) xanh, `flutter analyze` sạch. Codex review: 0 finding, sạch ngay vòng 1.
 
 ## Vấn đề (giải thích thực tế)
 Có 3 loại quảng cáo có thưởng gần giống nhau (rewarded thường + rewarded-interstitial). Có 1 công tắc từ xa (remote kill-switch T137) để tắt riêng từng loại khi có sự cố. Do copy nhầm code, hàm kiểm tra "có nên hiện nút xem rewarded thường không" lại đi kiểm tra công tắc của loại rewarded-interstitial — nên bật/tắt có thể ngược. Hậu quả: nút bấm cho người dùng xem có thể hiện ra nhưng bấm không chiếu được, hoặc ngược lại (nút bị ẩn dù thực ra vẫn xem được).

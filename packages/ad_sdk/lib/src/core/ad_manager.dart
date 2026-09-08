@@ -7743,8 +7743,13 @@ class AdManager with WidgetsBindingObserver {
     // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
     if (AdScreenRouteLogger.isDialogOnTop) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
-    final s = AdSafetyConfig.canShowFullscreenAdPeek(
-        forType: AdSlotType.rewardedInterstitial);
+    // T147 — this used to pass AdSlotType.rewardedInterstitial (copy-paste
+    // from canShowRewardedInterstitialAd() below), so a remote kill switch
+    // (T137) disabling one of these two formats gated the WRONG one's
+    // button: the real showRewardedAd() call below gates on
+    // AdSlotType.rewarded, so this peek must agree with it.
+    final s =
+        AdSafetyConfig.canShowFullscreenAdPeek(forType: AdSlotType.rewarded);
     if (!s.canShow) return false;
     // m18 — see canShowInterstitial.
     if (ad is AdMobAdapter && !ad.isFullscreenSlotFresh(ad.rewardedSlot)) {

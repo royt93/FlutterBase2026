@@ -3263,6 +3263,11 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
   double _maxPerDay = 20;
   bool _dryRun = false;
   bool _wired = false;
+  // T147 — remote per-format kill switch (T137). Lets this page prove
+  // canShowRewardedAd()/canShowRewardedInterstitialAd() each gate on their
+  // OWN format only, not the wrong sibling's.
+  bool _rewardedDisabled = false;
+  bool _rewardedInterstitialDisabled = false;
   // Round-40 audit (independent review, IMPORTANT) — without this, a fast
   // double-tap on "Apply provider" (or "Push update") started a second
   // destroy()/initialize() (or refresh) before the first one's await
@@ -3323,6 +3328,10 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
     _provider.overrides.value = {
       'maxFullscreenAdsPerDay': _maxPerDay.round(),
       'dryRun': _dryRun,
+      'disabledFormats': [
+        if (_rewardedDisabled) 'rewarded',
+        if (_rewardedInterstitialDisabled) 'rewardedInterstitial',
+      ],
     };
     try {
       await AdManager().refreshRemoteSafetyParams();
@@ -3371,6 +3380,8 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
         _wired = false;
         _maxPerDay = 20;
         _dryRun = false;
+        _rewardedDisabled = false;
+        _rewardedInterstitialDisabled = false;
         _status = 'Restored — provider detached, SDK back on demo defaults.';
       });
     } catch (e) {
@@ -3441,6 +3452,22 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
                 ? (v) => setState(() => _dryRun = v)
                 : null,
           ),
+          const Text('Per-format kill switch (T147)',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          SwitchListTile(
+            title: const Text('Disable rewarded'),
+            value: _rewardedDisabled,
+            onChanged: (_wired && !_busy)
+                ? (v) => setState(() => _rewardedDisabled = v)
+                : null,
+          ),
+          SwitchListTile(
+            title: const Text('Disable rewardedInterstitial'),
+            value: _rewardedInterstitialDisabled,
+            onChanged: (_wired && !_busy)
+                ? (v) => setState(() => _rewardedInterstitialDisabled = v)
+                : null,
+          ),
           const SizedBox(height: 8),
           FilledButton.tonal(
             onPressed: (_wired && !_busy) ? _pushUpdate : null,
@@ -3459,6 +3486,14 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
           const SizedBox(height: 8),
           Text(AdSafetyConfig.getStatus(),
               style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+          const SizedBox(height: 8),
+          if (_wired)
+            Text(
+              'canShowRewardedAd()=${AdManager().canShowRewardedAd()}  '
+              'canShowRewardedInterstitialAd()='
+              '${AdManager().canShowRewardedInterstitialAd()}',
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+            ),
         ],
       ),
     );
