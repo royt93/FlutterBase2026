@@ -2343,6 +2343,14 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     slot.armLoadWatchdog('native', _widgetLoadWatchdog, onTimeout: () {
       // M3 — see loadBanner.
       _nativeAdsByKey.remove(key)?.dispose();
+      // T152 — this was missing here (banner/mrec both have it): without
+      // markError(), needsRecovery (only set inside markError()) never
+      // flips, so onAppResumed()'s native mirror never retries, and the
+      // widget shows no error state either — stuck on its shimmer
+      // placeholder for the rest of the session instead of self-healing
+      // on resume or at least reporting hasError.
+      listenables.markError();
+      listenables.isLoaded.value = false;
     });
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'preloadNative $tag 🔄');

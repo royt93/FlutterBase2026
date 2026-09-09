@@ -91,8 +91,31 @@ void main() {
 
         expect(adapter.nativeSlot('k').isLoading, isFalse,
             reason: 'MJ20: the watchdog must move the slot out of loading');
+        // T152 — native's watchdog was missing this call (banner/mrec
+        // above both have it): without markError(), needsRecovery (only
+        // set inside markError()) never flips, so onAppResumed()'s native
+        // mirror never retries — the widget can be stuck on its shimmer
+        // placeholder forever, with hasError staying false, instead of
+        // showing an error state or self-healing on resume.
+        expect(adapter.native('k').hasError.value, isTrue);
         expect(adapter.debugNativeListenerFor('k'), isNull,
             reason: 'M3: the dead NativeAd must be dropped from the cache');
+        // T152 — the actual end-to-end claim: needsRecovery is what
+        // onAppResumed()'s native mirror checks before retrying (see
+        // admob_resume_recovery_test.dart for the same pattern on a
+        // real onAdFailedToLoad callback instead of a watchdog timeout).
+        expect(adapter.native('k').needsRecovery, isTrue);
+
+        // Clear the failure backoff so the resume retry isn't refused by
+        // it, then prove the resume mirror actually fires a new request.
+        adapter.nativeSlot('k').lastErrorAt =
+            DateTime.now().subtract(const Duration(seconds: 20));
+        adapter.onAppResumed();
+        async.flushMicrotasks();
+
+        expect(adapter.debugNativeListenerFor('k'), isNotNull,
+            reason: 'T152 — resume must self-heal a watchdog-timed-out '
+                'native slot, same as it already does for banner/mrec');
       });
     });
 

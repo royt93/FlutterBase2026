@@ -236,7 +236,7 @@ class AdSlot {
     // watchdog before the previous one's deadline) fires markFailed()
     // against the NEW loading window early.
     _watchdogTimer?.cancel();
-    _watchdogTimer = Timer(timeout, () {
+    void fire() {
       if (!isLoading) return;
       SafeLogger.w(
           'AdSlot',
@@ -248,10 +248,26 @@ class AdSlot {
         SafeLogger.w('AdSlot', '$label watchdog onTimeout threw: $e');
       }
       markFailed();
-    });
+    }
+
+    _debugFireWatchdogNow = fire;
+    _watchdogTimer = Timer(timeout, fire);
   }
 
   Timer? _watchdogTimer;
+
+  /// T152 — a native ad unit that genuinely never calls back cannot be
+  /// reproduced on demand through the public API (a deliberately-bad ad
+  /// unit ID still gets a real, fast no-fill error from the native SDK, not
+  /// silence) — this lets a demo/test fire the exact same onTimeout logic
+  /// [armLoadWatchdog] would run after the real deadline, instead of
+  /// blindly waiting out the real 30s.
+  void Function()? _debugFireWatchdogNow;
+  @visibleForTesting
+  void debugFireLoadWatchdogNow() {
+    _watchdogTimer?.cancel();
+    _debugFireWatchdogNow?.call();
+  }
 
   /// Mark load successful: slot becomes [AdSlotState.ready].
   void markReady() {

@@ -2216,6 +2216,54 @@ class NativeDemoPage extends AdScreen {
 }
 
 class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
+  // T152 — a native ad unit that genuinely never calls back can't be
+  // reproduced on demand through the widget/UI layer (a deliberately-bad
+  // ad unit ID still gets a fast, real no-fill error, not silence), so
+  // this drives the same adapter+key any real NativeAdWidget uses, but
+  // with its own dedicated key — proving the fix on the real adapter and
+  // real onAppResumed() recovery loop, not a mock.
+  static const _demoKey = 'T152_watchdog_demo';
+  String _watchdogStatus = 'Tap "Simulate watchdog timeout" to start.';
+
+  Future<void> _simulateWatchdogTimeout() async {
+    final adapter = AdManager().adapter;
+    if (adapter == null) {
+      setState(() => _watchdogStatus =
+          'SDK not initialised yet — try again after splash.');
+      return;
+    }
+    await adapter.preloadNative(_demoKey);
+    // ignore: invalid_use_of_visible_for_testing_member
+    adapter.nativeSlot(_demoKey).debugFireLoadWatchdogNow();
+    setState(() => _watchdogStatus =
+        'Watchdog fired. hasError=${adapter.native(_demoKey).hasError.value} '
+        '(expect true — T152, was stuck with no error state before this '
+        'fix). Now background + foreground the app (or tap below) to '
+        'prove onAppResumed() self-heals it.');
+  }
+
+  void _simulateResume() {
+    final adapter = AdManager().adapter;
+    if (adapter == null) return;
+    // T152 (codex re-review) — without this, onAppResumed() calls
+    // preloadNative() while the slot is still inside markFailed()'s own
+    // failure backoff, which refuses the request — hasError clears
+    // (display-only) but NO new request actually goes out, so the
+    // previous version of this demo/test "proved" self-healing that
+    // never happened. Clear the backoff first, same as
+    // admob_resume_recovery_test.dart's unit-level proof of this exact
+    // claim.
+    adapter.nativeSlot(_demoKey).lastErrorAt =
+        DateTime.now().subtract(const Duration(minutes: 5));
+    adapter.onAppResumed();
+    setState(() => _watchdogStatus =
+        'onAppResumed() called. hasError='
+        '${adapter.native(_demoKey).hasError.value} (expect false), '
+        'isLoading=${adapter.nativeSlot(_demoKey).isLoading} (expect '
+        'true — a real new request went out, not just the display flag '
+        'clearing).');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2242,6 +2290,41 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
             ),
           ),
           buildNative(),
+          const Divider(height: 32),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Watchdog recovery (T152)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _simulateWatchdogTimeout,
+                          child: const Text('Simulate watchdog timeout'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _simulateResume,
+                          child: const Text('Simulate app resume'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(_watchdogStatus,
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

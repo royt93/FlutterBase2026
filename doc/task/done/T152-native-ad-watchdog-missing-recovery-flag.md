@@ -2,8 +2,17 @@
 
 **Loại:** bug
 **Ưu tiên:** P1
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 2 vòng review độc lập, 1 finding sửa xong)
 **Nguồn phát hiện:** subagent adapters+adaptive, tự verify (đối chiếu banner/mrec đã fix cùng vấn đề)
+
+## Kết quả (2026-09-09)
+Fixed. Thêm `listenables.markError(); listenables.isLoaded.value = false;` vào watchdog `onTimeout` của `preloadNative`, y hệt banner/mrec.
+
+Thêm debug seam mới `AdSlot.debugFireLoadWatchdogNow()` (kích hoạt watchdog ngay, không cần chờ 30s thật) vì không có cách nào tái hiện "native SDK thật sự im lặng" qua UI thật (ad unit ID sai vẫn trả lỗi nhanh, không treo).
+
+Codex review vòng 1 bắt 1 finding thật: assertion "hasError=false sau resume" là false positive — vì `onAppResumed()` xoá cờ `hasError` (chỉ để hiển thị) TRƯỚC khi thử load lại, load lại đó vẫn bị chặn bởi backoff (chưa hết cooldown) nên không thực sự retry — test vẫn pass dù không có gì tự phục hồi thật. Đã sửa: xoá backoff (`lastErrorAt`) trước khi resume, assert thêm `isLoading=true` để chứng minh có request thật đi ra, giống hệt cách `admob_resume_recovery_test.dart` đã làm cho banner/mrec. Vòng 2: sạch.
+
+Test: 1 assertion mới (`hasError`) + 1 đoạn resume-retry mới trong `test/admob_widget_load_watchdog_test.dart` (native watchdog → needsRecovery → resume tự phục hồi, PASS). Demo mới trong `NativeDemoPage` (2 nút: "Simulate watchdog timeout" + "Simulate app resume") + widget test mới (pre-init fallback) + integration test mới (viết đúng, nhưng device thật bị App Open ad thật che màn hình splash — hành vi ĐÚNG của SDK, không phải bug, chỉ là chưa tìm được cách dismiss tự động an toàn trong test). Suite: 1799/1799 (ad_sdk) + 37/37 (example) xanh, `flutter analyze` sạch.
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
 
 ## Vấn đề (giải thích thực tế)
