@@ -2075,6 +2075,12 @@ class AdManager with WidgetsBindingObserver {
   /// host already obtained instead of inventing a value or re-running the flow.
   UmpConsentResult? _lastUmpResult;
 
+  /// T149 — lets an on-device test force [_umpAnswered] to `false` without
+  /// a real unanswered EEA session, so the reconnect/backstop UMP-retry
+  /// branches (gated on `!_umpAnswered`) can be reached deterministically.
+  @visibleForTesting
+  set debugLastUmpResult(UmpConsentResult? r) => _lastUmpResult = r;
+
   /// True when the last [requestUmpConsent] attempt failed (network error or
   /// the 20s timeout) — retried by [_onConnectivityChanged] on the next
   /// offline→online transition, and as a backstop by [_scheduleNextRetry]'s
@@ -2092,6 +2098,12 @@ class AdManager with WidgetsBindingObserver {
 
   @visibleForTesting
   bool get debugUmpFormAbandoned => _umpFormAbandoned;
+
+  /// T149 — lets a test drive the periodic-backstop/reconnect call sites'
+  /// `if (_umpFormAbandoned)` branch (their `runZonedGuarded` crash guard)
+  /// without first having to reproduce a real abandoned-form sequence.
+  @visibleForTesting
+  set debugUmpFormAbandoned(bool v) => _umpFormAbandoned = v;
 
   /// Test seam for [_recheckAbandonedUmpForm] (M-3) — the periodic backstop
   /// and reconnect call sites are themselves timer/plugin-driven and out of
@@ -5005,7 +5017,13 @@ class AdManager with WidgetsBindingObserver {
   /// seconds after our timeout lost every ad for the rest of the session.
   /// This only reads what Google's SDK already knows locally (no form, no
   /// network round trip), so it is always safe to call on every tick.
+  /// T149 audit test seam: also honours [debugForceAutoUmpError], same as
+  /// [_retryUmpConsent], so both retry call sites' `runZonedGuarded`
+  /// wrapping can be exercised without a real UMP channel.
   Future<void> _recheckAbandonedUmpForm() async {
+    if (debugForceAutoUmpError != null) {
+      throw debugForceAutoUmpError!;
+    }
     final result = await recheckUmpConsentStatus();
     SafeLogger.d(
         _tag,
@@ -8095,7 +8113,17 @@ class AdManager with WidgetsBindingObserver {
           // M-3 — a form may still be on screen; recheck status instead of
           // risking a second one. Not counted against the retry budget: it
           // never touches the network or the native form.
-          unawaited(_recheckAbandonedUmpForm());
+          // T149 — same class of unhandled-zone-error bug as the `else`
+          // branch's own fix below: recheckUmpConsentStatus() awaits the
+          // same UMP channel calls, and was missing this guard.
+          runZonedGuarded(() {
+            unawaited(_recheckAbandonedUmpForm());
+          }, (e, st) {
+            SafeLogger.w(
+                _tag,
+                '⚠️ UMP backstop abandoned-form recheck threw unhandled: $e '
+                '— ignoring, will retry again next backstop tick');
+          });
         } else {
           SafeLogger.d(_tag, '🔐 retrying UMP consent on periodic backstop');
           _umpBackstopRetryCount++;
@@ -8231,7 +8259,16 @@ class AdManager with WidgetsBindingObserver {
         if (_umpFormAbandoned) {
           // M-3 — same reasoning as the periodic backstop: a form may still
           // be on screen, so recheck instead of risking a second one.
-          unawaited(_recheckAbandonedUmpForm());
+          // T149 — same class of unhandled-zone-error bug as the `else`
+          // branch's own fix below.
+          runZonedGuarded(() {
+            unawaited(_recheckAbandonedUmpForm());
+          }, (e, st) {
+            SafeLogger.w(
+                _tag,
+                '⚠️ UMP reconnect abandoned-form recheck threw unhandled: $e '
+                '— ignoring, will retry again next reconnect/backstop tick');
+          });
         } else {
           SafeLogger.d(_tag, '🔐 retrying UMP consent after reconnect');
           // Round-39 audit fix (MAJOR) — same class of bug as the init-time

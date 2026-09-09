@@ -2,8 +2,15 @@
 
 **Loại:** bug
 **Ưu tiên:** P1
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 1 vòng review độc lập, sạch ngay)
 **Nguồn phát hiện:** subagent core+state, tự verify trực tiếp code (đối chiếu round-39 MAJOR #3)
+
+## Kết quả (2026-09-09)
+Fixed. Bọc `runZonedGuarded` quanh `unawaited(_recheckAbandonedUmpForm())` ở cả 2 vị trí (`_scheduleNextRetry`'s periodic backstop, `_onConnectivityChanged`'s reconnect), y hệt cách nhánh `else` (`_retryUmpConsent()`) đã được vá ở round-39.
+
+Thêm 2 test seam mới cần thiết để test được: `debugUmpFormAbandoned` (setter, trước chỉ có getter), `debugLastUmpResult` (force `_umpAnswered` về false — phát hiện lúc viết integration test on-device, vì flow init thật đã tự resolve UMP thành công khiến `_umpAnswered` luôn true, che mất nhánh cần test). Cũng thêm hook đọc `debugForceAutoUmpError` vào `_recheckAbandonedUmpForm()` (trước chỉ `_retryUmpConsent()` có).
+
+Test: 2 unit test mới (`test/ump_abandoned_form_zone_guard_test.dart`, mirror round-39's `ump_retry_zone_guard_test.dart`) — cả 2 nhánh reconnect + backstop, PASS. Integration test mới on-device (`example/integration_test/ump_abandoned_form_crash_guard_test.dart`) — **PASS thật trên Pixel 7 Pro Android 17**, log xác nhận đúng dòng `"UMP reconnect abandoned-form recheck threw unhandled"` chạy mà app không crash (2 lần thử đầu bị VIP grace/UMP-đã-answered che mất nhánh — đã sửa bằng revokeAll() + debugLastUmpResult trước khi trigger). Suite: 1795/1795 (ad_sdk) + 33/33 (example) xanh, `flutter analyze` sạch.
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
 
 ## Vấn đề (giải thích thực tế)
