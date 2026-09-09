@@ -55,6 +55,58 @@ void main() {
           ['com.new.adapter', 'com.other.adapter']);
       expect(result[AdSlotType.rewarded], ['com.rewarded.adapter']);
     });
+
+    // T151 — a persisted compliance-log entry can outlive an SDK version
+    // (an old slotType name), be corrupted, or have a field manually edited.
+    // This is the sole reader of that log that used AdSlotType.values.byName
+    // directly instead of a safe tryParse-style lookup — every other reader
+    // in the package (ad_event_log.dart's own _load(), WaterfallTuner's
+    // _Key.tryParse) skips a malformed entry instead of throwing, precisely
+    // because this data is untrusted persisted state, not an in-memory
+    // invariant.
+    test(
+        'a garbage/unknown slotType entry is skipped, not thrown — valid '
+        'entries around it still process', () {
+      final result = AdDiagnostics.lastWaterfallBySlotFrom([
+        {
+          'eventType': 'AdRevenueEvent',
+          'slotType': 'interstitial',
+          'mediationWaterfall': ['com.before.adapter'],
+        },
+        {
+          'eventType': 'AdRevenueEvent',
+          'slotType': 'not_a_real_slot_type',
+          'mediationWaterfall': ['com.garbage.adapter'],
+        },
+        {
+          'eventType': 'AdRevenueEvent',
+          'slotType': 'rewarded',
+          'mediationWaterfall': ['com.after.adapter'],
+        },
+      ]);
+
+      expect(result[AdSlotType.interstitial], ['com.before.adapter']);
+      expect(result[AdSlotType.rewarded], ['com.after.adapter']);
+      expect(result.length, 2,
+          reason: 'the garbage slotType must not appear under any key');
+    });
+
+    test('a null/missing slotType entry is skipped, not thrown', () {
+      final result = AdDiagnostics.lastWaterfallBySlotFrom([
+        {
+          'eventType': 'AdRevenueEvent',
+          'slotType': null,
+          'mediationWaterfall': ['com.orphan.adapter'],
+        },
+        {
+          'eventType': 'AdRevenueEvent',
+          // slotType key entirely absent, not just null.
+          'mediationWaterfall': ['com.also.orphan'],
+        },
+      ]);
+
+      expect(result, isEmpty);
+    });
   });
 
   group('AdManager().diagnostics()', () {

@@ -1284,6 +1284,14 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugEventLog(AdEventLog? log) => _eventLog = log;
 
+  /// T151 — lets a demo/test reach the real, currently-active event log
+  /// (or discover there isn't one yet) to inject a raw entry via
+  /// [AdEventLog.debugInjectRawEntry], so [diagnostics] can be exercised
+  /// end to end against a malformed persisted entry instead of only
+  /// calling [AdDiagnostics.lastWaterfallBySlotFrom] directly.
+  @visibleForTesting
+  AdEventLog? get debugEventLog => _eventLog;
+
   /// T128 — flagship proof-of-compliance: every time [showAppOpenAd]'s
   /// `bypassSafety` or [showRewardedAd]'s `bypassVipGuard` back door was
   /// actually exercised, across the whole process — deliberately NOT reset

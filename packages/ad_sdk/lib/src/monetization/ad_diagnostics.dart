@@ -1,4 +1,5 @@
 import '../state/ad_slot.dart';
+import '../utils/safe_logger.dart';
 import 'fill_rate_baseline_monitor.dart';
 
 /// One-shot snapshot combining the monetization signals that otherwise live
@@ -62,13 +63,41 @@ class AdDiagnostics {
   static Map<AdSlotType, List<String>> lastWaterfallBySlotFrom(
       List<Map<String, dynamic>> entries) {
     final waterfalls = <AdSlotType, List<String>>{};
+    var skipped = 0;
     for (final e in entries) {
       if (e['eventType'] != 'AdRevenueEvent') continue;
       final waterfall = e['mediationWaterfall'];
-      if (waterfall is List) {
-        final slot = AdSlotType.values.byName(e['slotType'] as String);
-        waterfalls[slot] = waterfall.cast<String>();
+      if (waterfall is! List) continue;
+      // T151 — this persisted compliance-log entry can outlive an SDK
+      // version (a renamed/removed slotType), be corrupted, or have a
+      // field edited by hand. AdSlotType.values.byName() used to throw on
+      // any of that, crashing the whole diagnostics() call for every
+      // caller over one bad entry — every other reader of this same log
+      // (ad_event_log.dart's own _load(), WaterfallTuner's
+      // _Key.tryParse) already skips a malformed entry instead. Same
+      // fix here: skip, don't throw.
+      final slotTypeName = e['slotType'];
+      if (slotTypeName is! String) {
+        skipped++;
+        continue;
       }
+      AdSlotType? slot;
+      for (final candidate in AdSlotType.values) {
+        if (candidate.name == slotTypeName) {
+          slot = candidate;
+          break;
+        }
+      }
+      if (slot == null) {
+        skipped++;
+        continue;
+      }
+      waterfalls[slot] = waterfall.cast<String>();
+    }
+    if (skipped > 0) {
+      SafeLogger.w('AdDiagnostics',
+          'lastWaterfallBySlotFrom: skipped $skipped malformed compliance-log '
+          'entr${skipped == 1 ? 'y' : 'ies'} (missing/unrecognised slotType)');
     }
     return waterfalls;
   }

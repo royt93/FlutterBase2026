@@ -43,6 +43,18 @@ class AdEventLog {
   /// Read-only view of every log entry, oldest first.
   List<Map<String, dynamic>> get entries => List.unmodifiable(_entries);
 
+  /// T151 — appends a raw (possibly malformed) entry directly, bypassing
+  /// [recordEvent]'s normal AdEvent-shaped serialization. Every real
+  /// caller only ever produces well-formed entries; the one way this log
+  /// legitimately ends up with a malformed one is an entry written by an
+  /// older/different SDK version outliving an upgrade. Lets a test or demo
+  /// reproduce that specific persisted-data shape in-memory (never
+  /// persisted to disk by this call) instead of only exercising readers
+  /// like [AdDiagnostics.lastWaterfallBySlotFrom] with a hand-built list
+  /// that bypasses this log entirely.
+  @visibleForTesting
+  void debugInjectRawEntry(Map<String, dynamic> entry) => _entries.add(entry);
+
   void _load() {
     final raw = _prefs.getComplianceLogRaw();
     if (raw == null || raw.isEmpty) return;

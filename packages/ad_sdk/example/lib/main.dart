@@ -41,6 +41,12 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 // class, not a re-implementation of it.
 // ignore: implementation_imports
 import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
+// T151 demo only — AdPreferences is an internal implementation detail, not
+// part of the public API. Imported solely so DiagnosticsDemoPage's
+// "Simulate corrupted log entry" button can construct a real AdEventLog
+// (which requires it) when AdManager().debugEventLog is still null.
+// ignore: implementation_imports
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart' show SharedPreferencesAsync;
@@ -1649,6 +1655,43 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
     setState(() => _diagnosticsJson = _encoder.convert(diag.toJson()));
   }
 
+  // T151 — proves the REAL AdManager().diagnostics() call (not just its
+  // lastWaterfallBySlotFrom() helper in isolation) survives a corrupted/
+  // outdated compliance-log entry, by injecting one into the actual event
+  // log this app uses and then calling diagnostics() for real — the exact
+  // path a host app takes, not a hand-built in-memory substitute. An
+  // independent codex re-review of this task's first draft caught that
+  // calling the helper directly bypassed the persisted-log path entirely.
+  Future<void> _simulateCorruptedLogEntry() async {
+    // ignore: invalid_use_of_visible_for_testing_member
+    var log = AdManager().debugEventLog;
+    if (log == null) {
+      log = AdEventLog(await AdPreferences.getInstance());
+      // ignore: invalid_use_of_visible_for_testing_member
+      AdManager().debugEventLog = log;
+    }
+    // ignore: invalid_use_of_visible_for_testing_member
+    log.debugInjectRawEntry({
+      'eventType': 'AdRevenueEvent',
+      'slotType': 'interstitial',
+      'mediationWaterfall': ['com.example.adapter'],
+    });
+    // ignore: invalid_use_of_visible_for_testing_member
+    log.debugInjectRawEntry({
+      'eventType': 'AdRevenueEvent',
+      'slotType': 'not_a_real_slot_type_from_an_old_sdk_version',
+      'mediationWaterfall': ['com.garbage.adapter'],
+    });
+    final diag = AdManager().diagnostics();
+    if (!mounted) return;
+    setState(() => _diagnosticsJson =
+        'AdManager().diagnostics() with 1 valid + 1 corrupted entry '
+        'injected into the real event log did NOT throw. Result '
+        '(corrupted entry silently skipped, see log for the skip '
+        'warning):\n'
+        '${_encoder.convert(diag.toJson())}');
+  }
+
   Future<void> _runSelfCheck() async {
     setState(() => _runningSelfCheck = true);
     final result = await AdManager().runIntegrationSelfCheck();
@@ -1679,6 +1722,12 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
             onPressed: _runDiagnostics,
             icon: const Icon(Icons.query_stats),
             label: const Text('Run diagnostics()'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _simulateCorruptedLogEntry,
+            icon: const Icon(Icons.bug_report_outlined),
+            label: const Text('Simulate corrupted log entry (T151)'),
           ),
           if (diagJson != null) ...[
             const SizedBox(height: 8),

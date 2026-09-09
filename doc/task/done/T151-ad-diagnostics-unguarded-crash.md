@@ -2,8 +2,15 @@
 
 **Loại:** bug
 **Ưu tiên:** P1 (không ảnh hưởng người dùng cuối, chỉ dev)
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 2 vòng review độc lập, 2 finding sửa xong)
 **Nguồn phát hiện:** subagent vip+monetization, tự verify
+
+## Kết quả (2026-09-09)
+Fixed. `lastWaterfallBySlotFrom` thay `AdSlotType.values.byName(...)` (throw) bằng vòng lặp tìm khớp an toàn (giống `WaterfallTuner._Key.tryParse`), skip entry lỗi thay vì crash.
+
+Codex review vòng 1 bắt 2 finding: (P2) thiếu log đếm số entry bị skip (đúng yêu cầu gốc của task) — đã thêm `SafeLogger.w`; (P2) demo trong example gọi thẳng hàm pure `lastWaterfallBySlotFrom` với list tự dựng, bỏ qua đúng đường thật (`AdManager().diagnostics()` đọc từ `AdEventLog` đã persist) — đã sửa bằng cách thêm debug seam `AdEventLog.debugInjectRawEntry()` + `AdManager().debugEventLog` getter, demo giờ tiêm entry lỗi vào log thật rồi gọi `diagnostics()` thật. Vòng 2: sạch.
+
+Test: 2 unit test mới (garbage slotType + null/thiếu slotType) trong `test/ad_diagnostics_test.dart` (nay 9 test). Demo mới trong `DiagnosticsDemoPage` (nút "Simulate corrupted log entry") + widget test mới. Smoke test thật **PASS trên Pixel 7 Pro** — log xác nhận đúng dòng cảnh báo skip xuất hiện qua đường `AdManager().diagnostics()` thật. Suite: 1799/1799 (ad_sdk) + 36/36 (example) xanh, `flutter analyze` sạch.
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
 
 ## Vấn đề (giải thích thực tế)
