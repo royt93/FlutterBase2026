@@ -2,8 +2,15 @@
 
 **Loại:** bug
 **Ưu tiên:** P1
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 2 vòng review độc lập, 2 finding P2 sửa xong)
 **Nguồn phát hiện:** subagent core+state, tự verify trực tiếp code
+
+## Kết quả (2026-09-09)
+Fixed. Thêm `unawaited(loadRewardedInterstitialAd())` vào cả `_onVipActiveChanged()` (dòng ~4039) và `_onAppOpenStateChange()`'s first-secondary-load (dòng ~4141), song song với 3 format kia.
+
+Codex review vòng 1 bắt 2 finding P2 trong integration test demo (test có thể "pass giả" khi VIP không active do phụ thuộc first-install-grace ephemeral) — sửa bằng cách dùng `vip.addVip()` thật để tạo trạng thái xác định thay vì dựa vào grace ngẫu nhiên. Vòng 2: sạch, không finding.
+
+Test: 2 unit test mới (`test/fast_refill_rewarded_interstitial_test.dart`) — cả 2 đường fast-refill, PASS. Demo mới trong `VipDemoPage` ("Fast-refill proof (T148)" — nút "End VIP now"). Integration test mới (`example/integration_test/vip_fast_refill_demo_test.dart`) viết đúng, nhưng **script đóng gói không chạy hết được do adb/USB rớt kết nối 3 lần liên tiếp cùng 1 điểm trên 2 thiết bị khác nhau (TECNO KJ7, Pixel 7 Pro)** — lỗi môi trường, không phải lỗi code. Bằng chứng smoke-test thật: log thiết bị thật (nhiều lần chạy, cả 2 máy) đã bắt được đúng dòng fix chạy: `"first secondary load → inter + rewarded + RI"` và `"loadRewardedInterstitial skipped — VIP member"` (gate đúng khi VIP active). Suite: 1793/1793 (ad_sdk) + 33/33 (example) xanh, `flutter analyze` sạch.
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
 
 ## Vấn đề (giải thích thực tế)

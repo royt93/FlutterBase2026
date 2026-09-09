@@ -3079,6 +3079,49 @@ class _VipDemoPageState extends State<VipDemoPage> {
             ),
           const SizedBox(height: 16),
 
+          // T148 — fast-refill proof: ending VIP reloads App Open,
+          // Interstitial, Rewarded AND Rewarded Interstitial right away
+          // instead of waiting out the 5-minute retry timer. Watch the
+          // floating debug overlay (bottom of every screen, kDebugMode only)
+          // — all four should start loading together, not just the first
+          // three.
+          if (vip != null && vip.isActive)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Fast-refill proof (T148)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Ends VIP now and reloads all four fullscreen formats '
+                      'immediately. Watch the debug overlay at the bottom of '
+                      'the screen — Rewarded Interstitial must start loading '
+                      'together with the other three, not 5 minutes later.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () async {
+                        final at = DateTime.now();
+                        await vip.revokeAll();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('VIP ended at '
+                                '${at.toIso8601String().substring(11, 19)} — '
+                                'check the debug overlay')));
+                        setState(() {});
+                      },
+                      child: const Text('End VIP now'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 16),
+
           // Quick redeem buttons
           const Text('Quick redeem',
               style: TextStyle(fontWeight: FontWeight.bold)),

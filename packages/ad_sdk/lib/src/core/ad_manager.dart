@@ -4057,6 +4057,10 @@ class AdManager with WidgetsBindingObserver {
     unawaited(loadAppOpenAd());
     unawaited(loadInterstitial());
     unawaited(loadRewardedAd());
+    // T148 — rewardedInterstitial was missing from this fast-refill path,
+    // left to wait out the 5-minute periodic retry timer instead of
+    // reloading immediately like its three siblings above.
+    unawaited(loadRewardedInterstitialAd());
     // T65 (phase 2) — no widget key at this call site; shares the sentinel
     // key (see its doc comment).
     unawaited(ad.preloadBanner(_globalBannerWarmupKey));
@@ -4146,9 +4150,12 @@ class AdManager with WidgetsBindingObserver {
       if (_isFirstAdLoadTriggered) return;
       _isFirstAdLoadTriggered = true;
       ad.appOpenSlot.state.removeListener(_onAppOpenStateChange);
-      SafeLogger.d(_tag, 'first secondary load → inter + rewarded');
+      SafeLogger.d(_tag, 'first secondary load → inter + rewarded + RI');
       unawaited(loadInterstitial());
       unawaited(loadRewardedAd());
+      // T148 — rewardedInterstitial was missing here too, same gap as
+      // _onVipActiveChanged above.
+      unawaited(loadRewardedInterstitialAd());
     }
   }
 
