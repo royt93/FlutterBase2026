@@ -2205,21 +2205,98 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
 
 // T117 — revenue demo page. Split out of main.dart.
 
-class RevenueDemoPage extends StatelessWidget {
+class RevenueDemoPage extends StatefulWidget {
   const RevenueDemoPage({super.key});
+
+  @override
+  State<RevenueDemoPage> createState() => _RevenueDemoPageState();
+}
+
+class _RevenueDemoPageState extends State<RevenueDemoPage> {
+  // T150 — RevenueIntegrityLedger (T145) was never demoed in the example
+  // app before this. Own instance here rather than one wired into
+  // AdManager globally, so tapping these buttons doesn't affect real ad
+  // events elsewhere in the app.
+  //
+  // Constructed eagerly in initState(), not via a lazy `late final` field
+  // initializer: `late final x = ctor()` only runs on the FIRST READ of
+  // `x`, which here would have been AFTER _simulateTwoShows() already
+  // called debugEmit() twice — the ledger would miss both events, always
+  // reporting 0 pending.
+  late RevenueIntegrityLedger _ledger;
+  static const _placement = AdPlacement.unspecified;
+  String _status = 'Tap "Simulate 2 shows" to start.';
+
+  @override
+  void initState() {
+    super.initState();
+    _ledger = RevenueIntegrityLedger();
+  }
+
+  @override
+  void dispose() {
+    _ledger.dispose();
+    super.dispose();
+  }
+
+  Future<void> _simulateTwoShows() async {
+    // T150 (codex re-review) — without this, tapping this button more
+    // than once kept appending to the SAME ledger's pending list (2, then
+    // 4, then 6...), silently invalidating the "(expect 2)" this demo
+    // advertises. Dispose + recreate so every tap starts a clean sequence.
+    _ledger.dispose();
+    _ledger = RevenueIntegrityLedger();
+    // ignore: invalid_use_of_visible_for_testing_member
+    AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.banner,
+        placement: _placement,
+        success: true));
+    // ignore: invalid_use_of_visible_for_testing_member
+    AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: _placement,
+        success: true));
+    // AdManager().events is a plain (non-sync) broadcast stream, so the
+    // ledger's listener processes these on the next microtask, not
+    // synchronously — a real microtask turn is needed before pendingCount
+    // reflects them.
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    setState(() => _status =
+        'Simulated banner + interstitial shows at the same placement '
+        '(both [AdMob]). Pending: ${_ledger.pendingCount} (expect 2).');
+  }
+
+  Future<void> _simulateInterstitialRevenue() async {
+    // ignore: invalid_use_of_visible_for_testing_member
+    AdManager().debugEmit(const AdRevenueEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: _placement,
+        valueMicros: 1230000,
+        currencyCode: 'USD'));
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    setState(() => _status =
+        'Simulated revenue for the INTERSTITIAL only. Pending: '
+        '${_ledger.pendingCount} (expect 1 — the banner\'s show must '
+        'still be waiting on its own revenue event, T150).');
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Revenue dashboard')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: bottomSafe(context, const EdgeInsets.all(16)),
-        child: const Column(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            RevenuePanel(),
-            SizedBox(height: 16),
-            Card(
+            const RevenuePanel(),
+            const SizedBox(height: 16),
+            const Card(
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Text(
@@ -2230,6 +2307,45 @@ class RevenueDemoPage extends StatelessWidget {
                   'Pipe the same stream into your Firebase / AppsFlyer LTV '
                   'tracking — see README.',
                   style: TextStyle(color: Colors.grey),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Revenue integrity ledger — type match (T150)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'A revenue event must only clear a pending show of '
+                      'the SAME ad format, even at the same placement — '
+                      'not just the same provider.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _simulateTwoShows,
+                          child: const Text('Simulate 2 shows\n(banner + interstitial)',
+                              textAlign: TextAlign.center),
+                        ),
+                        OutlinedButton(
+                          onPressed: _simulateInterstitialRevenue,
+                          child: const Text('Simulate revenue\n(interstitial only)',
+                              textAlign: TextAlign.center),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(_status, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                  ],
                 ),
               ),
             ),

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
+import '../state/ad_slot.dart' show AdSlotType;
+import '../utils/safe_logger.dart';
 
 /// T145 — "Cross-provider Revenue Integrity Ledger".
 ///
@@ -14,7 +16,10 @@ import '../state/ad_placement.dart';
 /// `providerTag`, `type`, `placement`), so there is no way to prove a
 /// specific show and a specific revenue callback are "the same impression".
 /// What this DOES do: for every successful show, expect a same-
-/// `(providerTag, placement)` [AdRevenueEvent] within [matchWindow]. A show
+/// `(providerTag, type, placement)` [AdRevenueEvent] within [matchWindow]
+/// (T150 — `type` added to the key after a bug where two different ad
+/// formats shown at the same placement could FIFO-match each other's
+/// revenue events). A show
 /// with none is flagged as a **possible** revenue-integrity issue — most
 /// often simply a revenue callback arriving later than [matchWindow] (a
 /// slow network, a mediation SDK quirk), not proof of fraud or a lost
@@ -66,6 +71,7 @@ class RevenueIntegrityLedger {
       if (!event.success) return;
       _pending.add(_PendingShow(
         providerTag: event.providerTag,
+        type: event.type,
         placement: event.placement,
         at: _now(),
       ));
@@ -73,13 +79,36 @@ class RevenueIntegrityLedger {
     }
     if (event is AdRevenueEvent) {
       // FIFO: no shared ID exists, so the OLDEST still-pending show for
-      // this (providerTag, placement) is the best-effort match — matches
-      // the order revenue callbacks almost always arrive in for a given
-      // key, and avoids an arbitrary/unstable match choice.
+      // this (providerTag, type, placement) is the best-effort match —
+      // matches the order revenue callbacks almost always arrive in for a
+      // given key, and avoids an arbitrary/unstable match choice.
+      //
+      // T150 — `type` was missing from this key until here: an app showing
+      // two different ad formats at the same placement (e.g. both left at
+      // AdPlacement.unspecified) with the same provider could have a
+      // revenue event for one format FIFO-match a pending show of the
+      // OTHER format, silently "paying off" the wrong show and hiding a
+      // genuine gap on whichever format actually lost its callback.
       final index = _pending.indexWhere((p) =>
           p.providerTag == event.providerTag &&
+          p.type == event.type &&
           p.placement == event.placement);
-      if (index != -1) _pending.removeAt(index);
+      if (index != -1) {
+        _pending.removeAt(index);
+      } else {
+        // T150 (codex re-review) — with `type` now part of the key, a
+        // revenue event that matches no pending show at all (as opposed
+        // to one that matched the wrong entry, the bug this fixed) went
+        // completely unlogged. Debug level, not a warning: a revenue
+        // event for a show this ledger's window already expired (see
+        // _sweepExpired) or one this particular instance never saw is
+        // routine, not alarming on its own.
+        SafeLogger.d(
+            'RevenueIntegrityLedger',
+            () => 'revenue event matched no pending show: '
+                '${event.providerTag}/${event.type.name}/'
+                '${event.placement.id}');
+      }
     }
   }
 
@@ -88,7 +117,8 @@ class RevenueIntegrityLedger {
     _pending.removeWhere((p) {
       if (now.difference(p.at) <= matchWindow) return false;
       AdManager().incidentRecorder.record(
-        'revenue_integrity_missing:${p.providerTag}:${p.placement.id}',
+        'revenue_integrity_missing:${p.providerTag}:${p.type.name}:'
+        '${p.placement.id}',
         AdManager().stateSnapshot.value,
         now: now,
       );
@@ -110,11 +140,13 @@ class RevenueIntegrityLedger {
 class _PendingShow {
   const _PendingShow({
     required this.providerTag,
+    required this.type,
     required this.placement,
     required this.at,
   });
 
   final String providerTag;
+  final AdSlotType type;
   final AdPlacement placement;
   final DateTime at;
 }

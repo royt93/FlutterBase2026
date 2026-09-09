@@ -11,20 +11,22 @@ import 'package:flutter_test/flutter_test.dart';
 AdShowEvent _show(
         {String providerTag = '[AdMob]',
         AdPlacement placement = AdPlacement.unspecified,
+        AdSlotType type = AdSlotType.interstitial,
         bool success = true}) =>
     AdShowEvent(
       providerTag: providerTag,
-      type: AdSlotType.interstitial,
+      type: type,
       placement: placement,
       success: success,
     );
 
 AdRevenueEvent _revenue(
         {String providerTag = '[AdMob]',
-        AdPlacement placement = AdPlacement.unspecified}) =>
+        AdPlacement placement = AdPlacement.unspecified,
+        AdSlotType type = AdSlotType.interstitial}) =>
     AdRevenueEvent(
       providerTag: providerTag,
-      type: AdSlotType.interstitial,
+      type: type,
       placement: placement,
       valueMicros: 1000,
       currencyCode: 'USD',
@@ -163,6 +165,51 @@ void main() {
       expect(ledger.pendingCount, 1,
           reason: 'same providerTag but different placement — must not '
               'match');
+      ledger.dispose();
+    });
+
+    // T150 — the match key used to be just (providerTag, placement), with
+    // no `type`. If an app shows two different ad formats at the same
+    // placement (e.g. both left at AdPlacement.unspecified) with the same
+    // provider, a revenue event for one format could FIFO-match a pending
+    // show of the OTHER format — silently "paying off" the wrong show and
+    // hiding a genuine gap on whichever format actually lost its callback.
+    test(
+        'a revenue event for a DIFFERENT type (same providerTag+placement) '
+        'does not clear an unrelated pending show', () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      AdManager().debugEmit(_show(type: AdSlotType.interstitial));
+      await _flush();
+
+      AdManager().debugEmit(_revenue(type: AdSlotType.rewarded));
+      await _flush();
+
+      expect(ledger.pendingCount, 1,
+          reason: 'same providerTag+placement but different type — must '
+              'not match, or a revenue event for one ad format silently '
+              'pays off a pending show of a completely different format');
+      ledger.dispose();
+    });
+
+    test(
+        'a revenue event for the MATCHING type (same providerTag+placement) '
+        'still clears the pending show, even when a different-type entry '
+        'is also pending for the same providerTag+placement', () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      AdManager().debugEmit(_show(type: AdSlotType.interstitial));
+      await _flush();
+      AdManager().debugEmit(_show(type: AdSlotType.rewarded));
+      await _flush();
+      expect(ledger.pendingCount, 2, reason: 'sanity: both pending');
+
+      AdManager().debugEmit(_revenue(type: AdSlotType.rewarded));
+      await _flush();
+
+      expect(ledger.pendingCount, 1,
+          reason: 'only the rewarded entry must clear, leaving the '
+              'interstitial one still pending');
       ledger.dispose();
     });
 

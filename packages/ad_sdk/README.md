@@ -1289,7 +1289,7 @@ would be nothing to observe anyway).
 ID — both only carry `providerTag`/`type`/`placement` — so there is no
 way to prove a specific show and a specific revenue callback are "the
 same impression". `RevenueIntegrityLedger` expects a same-
-`(providerTag, placement)` `AdRevenueEvent` within `matchWindow` after
+`(providerTag, type, placement)` `AdRevenueEvent` within `matchWindow` after
 every successful show; one with none is flagged via
 `AdManager().incidentRecorder` as a **possible** gap — most often just a
 revenue callback arriving later than `matchWindow`, not proof of fraud

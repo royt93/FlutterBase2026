@@ -2,8 +2,15 @@
 
 **Loại:** bug
 **Ưu tiên:** P1
-**Trạng thái:** todo
+**Trạng thái:** DONE — verified 9.5/10 (codex, 2 vòng review độc lập, 2 finding sửa xong)
 **Nguồn phát hiện:** 3/3 nguồn độc lập xác nhận (subagent vip+monetization, codex, agy) — độ tin cậy rất cao
+
+## Kết quả (2026-09-09)
+Fixed. Thêm `type` (`AdSlotType`) vào `_PendingShow` và điều kiện so khớp trong `_onEvent` — match phải đúng cả `providerTag + type + placement`. Cũng thêm `type` vào tag incident để dễ chẩn đoán, và cập nhật docstring + README (mô tả cũ nói sai key là `(providerTag, placement)`).
+
+Codex review vòng 1 bắt 2 finding: (P2) revenue event không khớp pending nào bị bỏ qua im lặng, không log — đã thêm `SafeLogger.d`; (P3) demo trong example bị cộng dồn sai nếu bấm "Simulate 2 shows" nhiều lần (2→4→6...) — đã sửa bằng dispose+tạo lại ledger mỗi lần bấm. Vòng 2: sạch.
+
+Test: 2 unit test mới cho type-mismatch + type-match (cùng chỗ pending khác type) trong `test/revenue_integrity_ledger_test.dart` (nay 13 test, tất cả xanh). Demo mới trong `RevenueDemoPage` (2 nút mô phỏng banner+interstitial cùng placement, rồi revenue chỉ cho interstitial) + widget test mới (3 test) trong `example/test/revenue_demo_page_test.dart` — bắt được đúng 2 bug thật lúc viết demo (`late final` khởi tạo trễ bỏ lỡ event, và RenderFlex overflow). Integration test on-device viết đúng nhưng 2 lần thử trên Pixel 7 Pro đều gặp lỗi môi trường không liên quan code (1 lần rớt adb, 1 lần crash navigator ở splash-flow trước khi chạm trang Revenue) — chấp nhận bằng chứng ở tầng widget test (chạy đúng class `RevenueIntegrityLedger` thật, không mock). Suite: 1797/1797 (ad_sdk) + 35/35 (example) xanh, `flutter analyze` sạch.
 **Quyết định chủ dự án (2026-09-08):** Sửa ngay
 
 ## Vấn đề (giải thích thực tế)
