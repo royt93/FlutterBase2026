@@ -3850,6 +3850,38 @@ void main() {
       expect(adapter.onAppResumedCalls, 0);
     });
 
+    // T155 (codex round 2, P1) — showAppOpenAd(bypassSafety: true) records
+    // into bypassAuditTrail before it ever checks the adapter, so a real
+    // bypass can be recorded with no adapter yet (very early in the splash
+    // window). The flush used to sit behind `if (ad == null) return;` and
+    // silently skip for exactly that case.
+    test(
+        'paused with no adapter yet still flushes a bypass recorded before '
+        'it', () async {
+      final prefs = await AdPreferences.getInstance();
+      AdManager().bypassAuditTrail.attach(prefs);
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+
+      AdManager().bypassAuditTrail.record(
+          kind: 'bypassSafety',
+          callSiteTag: 'pre_init_paused_test',
+          type: AdSlotType.appOpen);
+
+      expect(
+          () => AdManager()
+              .didChangeAppLifecycleState(AppLifecycleState.paused),
+          returnsNormally);
+      // The flush is unawaited (fire-and-forget) — give it a couple of
+      // microtask turns to actually run.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final raw = prefs.getBypassAuditTrailRaw();
+      expect(raw, isNotNull);
+      expect(raw, contains('pre_init_paused_test'));
+    });
+
     test(
         'resumed → calls adapter.onAppResumed() and reaches '
         'showAppOpenAdOnResume()', () async {

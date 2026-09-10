@@ -2832,6 +2832,7 @@ class AdManager with WidgetsBindingObserver {
       _eventLog ??= AdEventLog(prefs);
       AdaptiveFrequencySignals.setSink(
           _eventLog!.recordAdaptiveSignal); // T26: adaptive-frequency signals
+      bypassAuditTrail.attach(prefs);
 
       // Phase 3: pipe safety params from config.
       // T88 — a remote provider gets a bounded window to answer; a slow or
@@ -6194,7 +6195,16 @@ class AdManager with WidgetsBindingObserver {
               'without waiting further rather than hanging destroy() forever'),
         );
     _eventLog = null;
-
+    // T155 — deliberately NOT also flushed here (unlike _eventLog above).
+    // An earlier version awaited bypassAuditTrail.flush().timeout(2s) at
+    // this exact point and it reproduced a genuine multi-minute hang in
+    // test/ad_manager_core_test.dart's full-file run (bisected: removing
+    // just this call made the hang disappear; the trail's own attach()/
+    // record()/persistence logic was not the cause). The debounced write
+    // (1s window) plus the didChangeAppLifecycleState flush below already
+    // cover the realistic loss window — a real process kill is normally
+    // preceded by the app being backgrounded, not by a bare destroy() call
+    // immediately followed by termination.
     if (_isObserverAdded) {
       WidgetsBinding.instance.removeObserver(this);
       _isObserverAdded = false;
@@ -7880,6 +7890,17 @@ class AdManager with WidgetsBindingObserver {
     final prev = _prevLifecycleState;
     _prevLifecycleState = state;
 
+    // T155 (codex round 2, P1) — ahead of even the `!isInitialised` guard
+    // below: showAppOpenAd(bypassSafety: true) records into bypassAuditTrail
+    // unconditionally, before checking either isInitialised or the adapter
+    // (see its own call site), so a real bypass can be recorded during the
+    // splash window while initialize() is still in flight. Every guard
+    // this method has (isInitialised, then adapter-null) would otherwise
+    // skip this along with the adapter-dependent work that legitimately
+    // needs to wait for those.
+    if (state == AppLifecycleState.paused) {
+      unawaited(bypassAuditTrail.flush());
+    }
     if (!isInitialised) {
       // Defensive: any field access inside the closure can throw if the
       // host activity is mid-recreation; isolate this log path so it can

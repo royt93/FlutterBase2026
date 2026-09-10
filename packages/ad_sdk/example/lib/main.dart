@@ -1199,12 +1199,27 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
   String? _reportJson;
   String _summary = '';
 
+  // T155 — bypass audit trail entries, shown across app restarts to prove
+  // it survives a real process kill (not just backgrounding), unlike
+  // before this fix (RAM-only ring buffer, wiped on every cold start).
+  List<BypassAuditEntry> _bypassEntries = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _bypassEntries = AdManager().bypassAuditTrail.entries;
+  }
+
   void _generate() {
     final report = AdManager().exportComplianceReport();
     setState(() {
       _summary = '${report.events.length} event(s) in log';
       _reportJson = report.toJsonString(pretty: true);
     });
+  }
+
+  void _refreshBypassHistory() {
+    setState(() => _bypassEntries = AdManager().bypassAuditTrail.entries);
   }
 
   // T144 — the 3 signed exports AdManager already had, bundled into one
@@ -1266,6 +1281,65 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
               onPressed: _generateDisputeKit,
               icon: const Icon(Icons.gavel_outlined),
               label: const Text('Generate dispute kit (T144)'),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Bypass audit trail (T155)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Persisted across restarts — kill this app for real '
+                      '(swipe away from recents, not just background it) '
+                      'and reopen; entries recorded before the kill are '
+                      'still listed below.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () {
+                            AdManager().bypassAuditTrail.record(
+                                  kind: 'bypassSafety',
+                                  callSiteTag: 'demo_simulated_'
+                                      '${DateTime.now().millisecondsSinceEpoch}',
+                                  type: AdSlotType.appOpen,
+                                );
+                            _refreshBypassHistory();
+                          },
+                          child: const Text('Simulate a bypass'),
+                        ),
+                        OutlinedButton(
+                          onPressed: _refreshBypassHistory,
+                          child: const Text('Refresh'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${_bypassEntries.length} '
+                      'entr${_bypassEntries.length == 1 ? 'y' : 'ies'} total',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    ..._bypassEntries.reversed.take(5).map((e) => Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            '${DateTime.fromMillisecondsSinceEpoch(e.timestampMs)} '
+                            '— ${e.kind} (${e.callSiteTag})',
+                            style: const TextStyle(
+                                fontFamily: 'monospace', fontSize: 11),
+                          ),
+                        )),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             if (json == null)

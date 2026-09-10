@@ -442,6 +442,18 @@ class AdPreferences {
     await _prefs?.setString(_keyComplianceLog, json);
   }
 
+  // T155 — bypass audit trail (T128), persisted the same way as the
+  // compliance event log above so it survives a cold start, not just the
+  // process that recorded it.
+
+  static const String _keyBypassAuditTrail = 'ad_sdk_bypass_audit_trail_v1';
+
+  String? getBypassAuditTrailRaw() => _prefs?.getString(_keyBypassAuditTrail);
+
+  Future<void> setBypassAuditTrailRaw(String json) async {
+    await _prefs?.setString(_keyBypassAuditTrail, json);
+  }
+
   // T137 — last `revision` a remote safety-params payload actually applied
   // successfully. Lets `AdManager` reject a stale/rolled-back payload (an
   // older revision than this) without needing to track it in memory only —

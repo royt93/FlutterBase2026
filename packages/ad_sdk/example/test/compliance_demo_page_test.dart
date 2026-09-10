@@ -5,6 +5,7 @@
 // back to an empty event log, unset consent and non-VIP state.
 
 import 'package:ad_sdk_example/main.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -52,5 +53,28 @@ void main() {
     expect(find.textContaining('"bypassAuditTrail"'), findsOneWidget);
     expect(find.textContaining('"incidentBundle"'), findsOneWidget);
     expect(find.byIcon(Icons.copy), findsOneWidget);
+  });
+
+  testWidgets(
+      'T155 — Simulate a bypass records it in-memory (pre-init) and shows '
+      'it in the list, no crash', (tester) async {
+    // Relative delta, not an absolute count — AdManager().bypassAuditTrail
+    // is a real singleton shared with whatever earlier tests in this same
+    // file (or a real production session) may have already recorded.
+    final before = AdManager().bypassAuditTrail.entries.length;
+
+    await tester.pumpWidget(const MaterialApp(home: ComplianceDemoPage()));
+    expect(find.text('$before entr${before == 1 ? 'y' : 'ies'} total'),
+        findsOneWidget);
+
+    await tester.tap(find.text('Simulate a bypass'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    final after = before + 1;
+    expect(find.text('$after entr${after == 1 ? 'y' : 'ies'} total'),
+        findsOneWidget);
+    expect(
+        find.textContaining('bypassSafety (demo_simulated_'), findsOneWidget);
   });
 }
