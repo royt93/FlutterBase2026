@@ -37,6 +37,22 @@ import 'shimmer_view.dart';
 /// through `disposeNativeInstance`. What remains held is one ad view per
 /// mounted screen. See doc/audit/audit_claude.md § m25.
 ///
+/// **T154 — [active] (default `true`) gates the ONE-TIME initial load —
+/// there is no automatic signal, unlike Banner/MREC's `active`.** Those
+/// widgets pair a manual override with an automatic `VisibilityDetector`
+/// fallback because they need to PAUSE an already-loaded, auto-refreshing
+/// ad once it scrolls off-screen. Native has neither an auto-refresh ticker
+/// nor anything to pause once loaded, so a `VisibilityDetector` here would
+/// buy nothing — worse, it would still fire too late to help: native's
+/// initial load must happen in `initState` (there is no adaptive-size
+/// platform round-trip to delay it behind, unlike Banner), which always
+/// runs a full frame before any visibility callback ever could. Pass
+/// `active: selectedIndex == myIndex` explicitly for any container that
+/// mounts children it doesn't currently show — `IndexedStack` is the most
+/// common case, and `VisibilityDetector` cannot help there either: its
+/// hidden child is never painted at all (see [BannerAdWidget]'s doc
+/// comment for why), so no signal would ever fire regardless.
+///
 /// Place anywhere in your screen tree:
 /// ```dart
 /// Column(children: [buildNative(), ...])   // inside an AdScreenState
@@ -53,11 +69,18 @@ class NativeAdWidget extends StatefulWidget {
     this.templateType = TemplateType.medium,
     this.height,
     this.placement = AdPlacement.unspecified,
+    this.active = true,
   });
 
   /// T107 — tags this instance for analytics/per-placement caps, same as
   /// the `placement` param on `showInterstitialAd`/`showRewardedAd`.
   final AdPlacement placement;
+
+  /// T154 — whether this instance is currently allowed to load/show. See
+  /// the class doc comment for how this differs from
+  /// `BannerAdWidget.active`/`MrecAdWidget.active` (no automatic fallback
+  /// here — pass it explicitly wherever this widget could mount hidden).
+  final bool active;
 
   /// AdMob's built-in native template layout. Ignored by AppLovin (no
   /// equivalent concept — `MaxNativeAdView` is a custom-drawn layout).
@@ -113,10 +136,23 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
   }
 
   @override
+  void didUpdateWidget(NativeAdWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // T154 — host flipped active:false → true (e.g. IndexedStack tab
+    // switch) after this widget mounted hidden and never loaded (or its
+    // load previously failed and reset `_allowed`, same as every other
+    // retry path in this class — see `_onCanRequestAdsChanged`).
+    if (widget.active && !_allowed.value) _initNative();
+  }
+
+  @override
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState');
-    _initNative();
+    // T154 — active: false (e.g. an IndexedStack tab that isn't the
+    // initially-selected one) must never load in the first place; the
+    // didUpdateWidget hook above picks it up once it flips to true.
+    if (widget.active) _initNative();
     AdManager().canRequestAdsListenable.addListener(_onCanRequestAdsChanged);
     // M1 — withdrawing personalisation does NOT close the canRequestAds gate,
     // so the listener above never fires for it and this widget would keep
@@ -143,7 +179,13 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
       // _onPersonalisationWithdrawn/_onCanRequestAdsChanged just below.
       AdManager().disposeNativeInstance(this);
       _allowed.value = false;
-      _initNative();
+      // T154 (codex re-review) — a hidden tab must still get this reset
+      // (an earlier version returned early instead and skipped it), or
+      // `_allowed` stayed stuck true+errored forever: `didUpdateWidget`'s
+      // own retry only fires on `!_allowed.value`, so reactivating this
+      // widget later would never load anything again. Only the actual
+      // reload is conditional on `active` — the retry chance itself is not.
+      if (widget.active) _initNative();
     });
   }
 
@@ -159,6 +201,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     mgr.disposeNativeInstance(this);
     _allowed.value = false;
     if (!mgr.canRequestAds || !mgr.isInitialised || mgr.isVIPMember()) return;
+    if (!widget.active) return;
     if (_initScheduled) return;
     _initScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -175,7 +218,8 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
       if (!_allowed.value &&
           !_initScheduled &&
           mgr.isInitialised &&
-          !mgr.isVIPMember()) {
+          !mgr.isVIPMember() &&
+          widget.active) {
         _initScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _initScheduled = false;
@@ -199,6 +243,34 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
   }
 
   void _initNative() {
+    // T154 (codex re-review, P1) — every call site above only checks
+    // `widget.active` at SCHEDULE time; the three that go through
+    // `addPostFrameCallback` (personalisation-withdrawn, consent-reopen,
+    // build's own retry) can fire a frame or more later, after a parent
+    // rebuild has since flipped this widget back to hidden. The single
+    // authoritative check belongs here, exactly like every other gate
+    // below (mgr.isInitialised/isVIPMember/canRequestAds/...) — those
+    // callers already rely on `_initNative()` alone being the source of
+    // truth, not on their own schedule-time pre-filter.
+    if (!widget.active) {
+      SafeLogger.d(_tag, '_initNative ⏭️ inactive');
+      return;
+    }
+    // T154 (codex re-review, P1) — a post-frame callback queued while
+    // `_allowed` was still false (consent-reopen/personalisation-withdrawn/
+    // build's retry) can be overtaken by `didUpdateWidget` firing a
+    // SYNCHRONOUS `_initNative()` earlier in that same frame (any parent
+    // rebuild re-triggers it, not just an active flip). Without this, both
+    // calls pass every gate below and `mgr.recordNativeLoad`/the real
+    // provider load both fire twice for one transition. Every legitimate
+    // retry path (`_onNativeErrorChanged`, `_onPersonalisationWithdrawn`,
+    // the consent-close branch of `_onCanRequestAdsChanged`) already resets
+    // `_allowed` to false right before calling this, so this only ever
+    // blocks the genuine duplicate, never a real retry.
+    if (_allowed.value) {
+      SafeLogger.d(_tag, '_initNative ⏭️ already allowed/in-flight');
+      return;
+    }
     final mgr = AdManager();
     if (!mgr.isInitialised) {
       SafeLogger.d(_tag, '_initNative ⏭️ AdManager not initialised yet');
@@ -260,7 +332,10 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {
-        if (!_allowed.value && !_initScheduled && AdManager().isInitialised) {
+        if (!_allowed.value &&
+            !_initScheduled &&
+            AdManager().isInitialised &&
+            widget.active) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;

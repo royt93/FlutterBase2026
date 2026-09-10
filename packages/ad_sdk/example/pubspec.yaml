@@ -31,6 +31,11 @@ dev_dependencies:
   mocktail: ^1.0.0
   cryptography: ^2.9.0
   package_info_plus: ^9.0.0
+  # T154 — test/flutter_test_config.dart zeroes VisibilityDetector's debounce
+  # timer for the whole suite (a real dependency of BannerAdWidget/
+  # MrecAdWidget, transitively pulled in via applovin_admob_sdk already, but
+  # not declared directly here before now).
+  visibility_detector: ^0.4.0+2
 
 flutter:
   uses-material-design: true

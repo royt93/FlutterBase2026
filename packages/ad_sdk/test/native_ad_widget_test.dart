@@ -691,6 +691,214 @@ void main() {
     });
   });
 
+  group('T154 — active (IndexedStack visibility)', () {
+    // The actual bug: a native ad mounted on a hidden IndexedStack tab
+    // loaded (and counted an impression for) content nobody ever saw.
+    // Mirrors MrecAdWidget's identical test for the identical gap.
+    testWidgets(
+        'mounting directly with active:false never loads, flipping to true '
+        'afterward loads it for the first time', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      final active = ValueNotifier<bool>(false);
+      await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+        valueListenable: active,
+        builder: (context, isActive, _) => NativeAdWidget(active: isActive),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 0,
+          reason: 'a widget that starts inactive must never load an ad it '
+              'was never allowed to show in the first place — the T154 '
+              'bug this test pins');
+
+      active.value = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 1,
+          reason: 'switching to active must load it for the first time');
+    });
+
+    // Codex re-review (P2) of the first version of this fix: the retry-
+    // after-failure timer used to early-return while inactive, skipping the
+    // dispose+reset it must always do — leaving the bundle stuck
+    // `_allowed == true` + errored forever, so reactivating the widget
+    // later never loaded anything again (didUpdateWidget's own retry only
+    // fires on `!_allowed.value`).
+    testWidgets(
+        'a load failure while hidden still resets so reactivating later '
+        'retries, instead of staying blank forever', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      final active = ValueNotifier<bool>(true);
+      await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+        valueListenable: active,
+        builder: (context, isActive, _) => NativeAdWidget(active: isActive),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 1);
+
+      // The load fails, then the tab is hidden before the 30s retry timer
+      // fires.
+      adapter.nativeListenablesByKey.values.first.hasError.value = true;
+      active.value = false;
+      await tester.pump(const Duration(milliseconds: 50));
+
+      AdManager().debugResetNativeCooldown();
+      await tester.pump(const Duration(seconds: 31));
+      expect(adapter.loadNativeCalls, 1,
+          reason: 'still hidden — must not reload while nobody can see it');
+
+      // Tab becomes visible again — the bundle must have been reset by the
+      // timer above (even though it skipped the reload itself), or this
+      // never recovers.
+      active.value = true;
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 2,
+          reason: 'T154 (codex re-review) — reactivating must retry, not '
+              'stay stuck errored forever because the retry timer fired '
+              'while hidden');
+      expect(tester.takeException(), isNull);
+    });
+
+    // Codex re-review (P1) of the second version of this fix: consent-reopen/
+    // personalisation-withdrawn/build's own retry all defer the actual
+    // _initNative() call through addPostFrameCallback, checking `active` only
+    // at SCHEDULE time — a parent rebuild can flip it to hidden before the
+    // callback actually FIRES, one or more frames later.
+    testWidgets(
+        'a deferred reload scheduled while active must not fire once the '
+        'tab has since become hidden', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      final active = ValueNotifier<bool>(true);
+      await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+        valueListenable: active,
+        builder: (context, isActive, _) => NativeAdWidget(active: isActive),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 1);
+
+      // Close the gate (disposes the instance, _allowed → false), then
+      // reopen it — _onCanRequestAdsChanged sees widget.active == true right
+      // now and schedules a post-frame reload.
+      AdManager().debugCanRequestAds = false;
+      await tester.pump(const Duration(milliseconds: 50));
+      AdManager().debugCanRequestAds = true;
+
+      // The tab is hidden before that scheduled callback actually runs.
+      active.value = false;
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 1,
+          reason: 'T154 (codex re-review, P1) — the deferred reload must '
+              'recheck active at fire time, not just when it was scheduled, '
+              'or a hidden tab still loads (and counts an impression for) '
+              'an ad nobody sees');
+      expect(tester.takeException(), isNull);
+    });
+
+    // Codex re-review (P1) of the third version of this fix: a queued
+    // post-frame reload (scheduled while `_allowed` was false) can be
+    // overtaken by `didUpdateWidget` firing a SYNCHRONOUS `_initNative()`
+    // earlier in the same frame — ANY parent rebuild re-triggers
+    // didUpdateWidget, not just an active flip. Without a guard, both calls
+    // pass every gate and the real provider load fires twice for one
+    // transition (double impression/request — an ad-network policy risk).
+    testWidgets(
+        'a post-frame reload racing a synchronous didUpdateWidget reload '
+        'must only load once', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        AdManager().debugCanRequestAds = true;
+      });
+
+      final rebuildTick = ValueNotifier<int>(0);
+      await tester.pumpWidget(host(ValueListenableBuilder<int>(
+        valueListenable: rebuildTick,
+        // Deliberately NOT const: a canonicalized const widget is
+        // `identical()` across rebuilds, so Flutter's Element.update skips
+        // `didUpdateWidget` entirely — this test needs a genuinely new
+        // instance each rebuild, exactly like the real IndexedStack demo's
+        // `NativeAdWidget(active: _tabIndex == 1)` is.
+        builder: (context, tick, __) => NativeAdWidget(active: tick >= 0),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 1);
+
+      // Close then reopen the gate: _onCanRequestAdsChanged schedules a
+      // post-frame _initNative() (still `_allowed == false` at this point).
+      AdManager().debugCanRequestAds = false;
+      await tester.pump(const Duration(milliseconds: 50));
+      AdManager().debugCanRequestAds = true;
+
+      // Before that scheduled callback fires, an unrelated parent rebuild
+      // hands this State a brand new NativeAdWidget instance (active still
+      // true) — didUpdateWidget fires SYNCHRONOUSLY, during this same
+      // frame's build phase, i.e. strictly before the post-frame callback.
+      rebuildTick.value++;
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 2,
+          reason: 'T154 (codex re-review, P1) — exactly one real reload for '
+              'one gate-reopen event: didUpdateWidget\'s synchronous reload '
+              'must win and the already-queued post-frame callback must '
+              'back off once `_allowed` is already true, not double-load');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('active:true (the default) behaves exactly as before',
+        (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget(active: true)));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 1);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('T107 — placement', () {
     test('defaults to AdPlacement.unspecified', () {
       const widget = NativeAdWidget();

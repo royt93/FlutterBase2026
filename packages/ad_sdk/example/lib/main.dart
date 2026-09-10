@@ -2225,6 +2225,13 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
   static const _demoKey = 'T152_watchdog_demo';
   String _watchdogStatus = 'Tap "Simulate watchdog timeout" to start.';
 
+  // T154 — which IndexedStack tab is currently selected. Tab 1 has no ad;
+  // tab 2 hosts a NativeAdWidget wired with active: selectedIndex == 1. Both
+  // tabs stay mounted the whole time (that's the point of IndexedStack) —
+  // before this fix, tab 2's ad requested (and counted an impression for)
+  // itself the moment the PAGE opened, even while tab 1 was showing.
+  int _tabIndex = 0;
+
   Future<void> _simulateWatchdogTimeout() async {
     final adapter = AdManager().adapter;
     if (adapter == null) {
@@ -2320,6 +2327,73 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
                     Text(_watchdogStatus,
                         style: const TextStyle(
                             fontFamily: 'monospace', fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('IndexedStack visibility (T154)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Tab 1 has no ad. Tab 2 has a native ad wired with '
+                      'active: selectedIndex == 1 — switch to it and only '
+                      'THEN does it request/load, never while hidden on '
+                      "tab 1. Check the app's logs for _initNative — you'll "
+                      "never see it fire while tab 1 is selected.",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => setState(() => _tabIndex = 0),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: _tabIndex == 0
+                                  ? Colors.blue.withValues(alpha: 0.1)
+                                  : null,
+                            ),
+                            child: const Text('Tab 1 (no ad)'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => setState(() => _tabIndex = 1),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: _tabIndex == 1
+                                  ? Colors.blue.withValues(alpha: 0.1)
+                                  : null,
+                            ),
+                            child: const Text('Tab 2 (native ad)'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    IndexedStack(
+                      index: _tabIndex,
+                      children: [
+                        const SizedBox(
+                          height: 80,
+                          child: Center(child: Text('Tab 1 — nothing here')),
+                        ),
+                        NativeAdWidget(
+                          key: const ValueKey('T154_indexedstack_demo'),
+                          active: _tabIndex == 1,
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
