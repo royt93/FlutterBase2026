@@ -771,6 +771,11 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
           children: [
             // Anchored adaptive banner. Auto-loads, auto-pauses on
             // navigation, auto-resumes on return, auto-skips if VIP.
+            //
+            // On a bare IndexedStack tab (all tabs stay mounted, only one
+            // painted), pass active: selectedIndex == myIndex explicitly —
+            // buildBanner()/buildMrec()/buildNative() all forward it to the
+            // underlying widget the same as constructing it directly would.
             buildBanner(),
 
             const SizedBox(height: 24),
@@ -2439,9 +2444,9 @@ class HomeScreen extends AdScreen {
 }
 
 class _HomeScreenState extends AdScreenState<HomeScreen> {
-  Widget buildBanner();                                  // anchored adaptive banner
-  Widget buildMrec();                                    // fixed 300x250 rectangle
-  Widget buildNative();                                  // fixed layout v1, see Native Ad (v1)
+  Widget buildBanner({placement, active});               // anchored adaptive banner
+  Widget buildMrec({placement, active});                 // fixed 300x250 rectangle
+  Widget buildNative({placement, active});               // fixed layout v1, see Native Ad (v1)
   void showInterstitialAd({required onDone, ...});       // pre-check + buffer + show
   Future<void> showRewardedAd({                          // pre-check + buffer + show
     required onEarnedReward,

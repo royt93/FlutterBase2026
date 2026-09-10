@@ -196,6 +196,65 @@ void main() {
         AdPlacement.gameOver);
   });
 
+  testWidgets(
+      'T153: buildBanner/buildMrec/buildNative forward active to the '
+      'underlying widget — the IndexedStack use case active exists for was '
+      'unreachable through this documented helper before this fix',
+      (tester) async {
+    await tester.pumpWidget(host(Scaffold(
+      body: Builder(builder: (context) {
+        // ignore: invalid_use_of_protected_member
+        final state = _DemoAdScreenState();
+        return Column(children: [
+          state.buildBanner(active: false),
+          state.buildMrec(active: false),
+          state.buildNative(active: false),
+        ]);
+      }),
+    )));
+    await tester.pumpAndSettle();
+    expect(
+        (tester.widget(find.byType(BannerAdWidget)) as BannerAdWidget).active,
+        isFalse);
+    expect(
+        (tester.widget(find.byType(MrecAdWidget)) as MrecAdWidget).active,
+        isFalse);
+    expect(
+        (tester.widget(find.byType(NativeAdWidget)) as NativeAdWidget).active,
+        isFalse);
+  });
+
+  testWidgets(
+      'T153: omitting active from buildBanner/buildMrec/buildNative keeps '
+      'each widget\'s own pre-T153 default — not breaking for existing '
+      'callers that never pass it', (tester) async {
+    await tester.pumpWidget(host(Scaffold(
+      body: Builder(builder: (context) {
+        // ignore: invalid_use_of_protected_member
+        final state = _DemoAdScreenState();
+        return Column(children: [
+          state.buildBanner(),
+          state.buildMrec(),
+          state.buildNative(),
+        ]);
+      }),
+    )));
+    await tester.pumpAndSettle();
+    expect(
+        (tester.widget(find.byType(BannerAdWidget)) as BannerAdWidget).active,
+        isNull,
+        reason: 'null defers to BannerAdWidget\'s own automatic signal, '
+            'same as constructing it directly with no active param');
+    expect(
+        (tester.widget(find.byType(MrecAdWidget)) as MrecAdWidget).active,
+        isNull);
+    expect(
+        (tester.widget(find.byType(NativeAdWidget)) as NativeAdWidget).active,
+        isTrue,
+        reason: 'NativeAdWidget has no automatic signal (T154) — its own '
+            'default is true, not null');
+  });
+
   testWidgets('showInterstitialAd fails the pre-check → onDone(false)',
       (tester) async {
     bool? result;

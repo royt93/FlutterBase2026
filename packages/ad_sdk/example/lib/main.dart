@@ -1040,6 +1040,12 @@ class BannerDemoPage extends AdScreen {
 }
 
 class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
+  // T153 — which IndexedStack tab is selected below. Built through
+  // buildBanner(active: ...) — the documented AdScreenState helper — not by
+  // constructing BannerAdWidget directly, since that helper forwarding
+  // `active` at all is exactly what this task fixed.
+  int _tabIndex = 0;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1078,6 +1084,73 @@ class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
                   ),
                 ),
                 buildBanner(),
+                const Divider(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                              'IndexedStack via buildBanner() (T153)',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'buildBanner(active: selectedIndex == 1) — the '
+                            'documented AdScreenState helper, not the raw '
+                            'BannerAdWidget constructor. Tab 2\'s banner only '
+                            'loads once selected.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () =>
+                                      setState(() => _tabIndex = 0),
+                                  style: OutlinedButton.styleFrom(
+                                    backgroundColor: _tabIndex == 0
+                                        ? Colors.blue.withValues(alpha: 0.1)
+                                        : null,
+                                  ),
+                                  child: const Text('Tab 1 (no ad)'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () =>
+                                      setState(() => _tabIndex = 1),
+                                  style: OutlinedButton.styleFrom(
+                                    backgroundColor: _tabIndex == 1
+                                        ? Colors.blue.withValues(alpha: 0.1)
+                                        : null,
+                                  ),
+                                  child: const Text('Tab 2 (banner)'),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          IndexedStack(
+                            index: _tabIndex,
+                            children: [
+                              const SizedBox(
+                                height: 80,
+                                child:
+                                    Center(child: Text('Tab 1 — nothing here')),
+                              ),
+                              buildBanner(active: _tabIndex == 1),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

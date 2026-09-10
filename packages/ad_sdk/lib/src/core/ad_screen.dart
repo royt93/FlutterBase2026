@@ -53,23 +53,50 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   /// unreachable from the documented `AdScreen`/`buildBanner()` integration
   /// path, so every per-placement cap/stat host apps actually use this
   /// helper for silently stayed on `AdPlacement.unspecified`.
-  Widget buildBanner({AdPlacement placement = AdPlacement.unspecified}) {
+  ///
+  /// T153 — [active] forwards through the same way. `null` (the default)
+  /// defers entirely to [BannerAdWidget]'s own automatic `VisibilityDetector`
+  /// signal, exactly like constructing `BannerAdWidget` directly — pass
+  /// `active: selectedIndex == myIndex` for a bare `IndexedStack` tab (see
+  /// [BannerAdWidget]'s own doc comment for why the automatic signal cannot
+  /// see a hidden `IndexedStack` child at all). Before this, a host using
+  /// this documented helper (rather than constructing `BannerAdWidget`
+  /// directly) had no way to reach that param — the exact `IndexedStack`
+  /// use-case `active` exists for was unreachable through the recommended
+  /// integration path.
+  Widget buildBanner({
+    AdPlacement placement = AdPlacement.unspecified,
+    bool? active,
+  }) {
     SafeLogger.d(_tag, 'buildBanner $runtimeType');
-    return BannerAdWidget(placement: placement);
+    return BannerAdWidget(placement: placement, active: active);
   }
 
   /// Returns a [MrecAdWidget] that manages its own lifecycle.
   /// Place this anywhere in your widget tree.
-  Widget buildMrec({AdPlacement placement = AdPlacement.unspecified}) {
+  ///
+  /// T153 — [active] forwards through the same way as [buildBanner]'s.
+  Widget buildMrec({
+    AdPlacement placement = AdPlacement.unspecified,
+    bool? active,
+  }) {
     SafeLogger.d(_tag, 'buildMrec $runtimeType');
-    return MrecAdWidget(placement: placement);
+    return MrecAdWidget(placement: placement, active: active);
   }
 
   /// Returns a [NativeAdWidget] that manages its own lifecycle.
   /// Place this anywhere in your widget tree.
-  Widget buildNative({AdPlacement placement = AdPlacement.unspecified}) {
+  ///
+  /// T153 — [active] forwards through too. Unlike [buildBanner]/[buildMrec],
+  /// [NativeAdWidget.active] has no automatic fallback (see its own class
+  /// doc comment for why) — it defaults to `true`, matching
+  /// [NativeAdWidget]'s own default.
+  Widget buildNative({
+    AdPlacement placement = AdPlacement.unspecified,
+    bool active = true,
+  }) {
     SafeLogger.d(_tag, 'buildNative $runtimeType');
-    return NativeAdWidget(placement: placement);
+    return NativeAdWidget(placement: placement, active: active);
   }
 
   // ════════════════════════════════════════════════════
