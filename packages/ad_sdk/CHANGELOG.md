@@ -4,6 +4,23 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fix (T157):** `BannerAdWidget`'s AdMob adaptive banner sized itself from
+  `MediaQuery.of(context).size.width` — the FULL SCREEN — regardless of what
+  container it was actually placed in, so a banner inside anything narrower
+  than the screen (a popup, a dialog, a sidebar, a split-screen pane)
+  requested a too-wide banner and overflowed its own container. It now
+  measures its real available width and requests a banner sized for that
+  instead, with MediaQuery kept only as the fallback for a genuinely
+  unbounded container (unchanged full-screen behavior otherwise). Also
+  catches a later resize of that container — a rotation, a split-screen
+  pane resizing, even one animated by an `AnimatedContainer` with no widget
+  rebuild at all — and reloads at the corrected width, debounced so a
+  continuously-animating container settles to a single reload instead of
+  reloading every frame. `MrecAdWidget` needed no change: its size is
+  fixed (300×250) regardless of the width value it passes internally.
+
 ## [2.9.20] - 2026-09-06
 
 Round-40 audit — 3 independent reviews (in-session Claude + `codex` + `agy`/

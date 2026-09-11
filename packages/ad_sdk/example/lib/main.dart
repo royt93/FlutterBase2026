@@ -514,6 +514,16 @@ class HomePage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const BannerDemoPage())),
           ),
           DemoTile(
+            icon: Icons.aspect_ratio,
+            title: 'Banner adaptive sizing (T157)',
+            subtitle: 'Full-screen banner vs. one in a 220px popup',
+            color: Colors.indigo,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const BannerAdaptiveSizingDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.crop_landscape,
             title: 'MREC ad',
             subtitle: 'Fixed 300x250 rectangle with route lifecycle',
@@ -1153,6 +1163,74 @@ class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// T157 — adaptive AdMob banner width now tracks its own container instead
+/// of the full screen. Deliberately its own isolated screen (not bundled
+/// into [BannerDemoPage], which already has 3 other banner instances that
+/// would all react to this dialog push too, muddying the comparison): one
+/// banner spans the full screen, the other sits in a 220px-wide popup —
+/// before this fix the popup one requested a full-screen-sized banner and
+/// overflowed its own popup.
+class BannerAdaptiveSizingDemoPage extends AdScreen {
+  const BannerAdaptiveSizingDemoPage({super.key});
+
+  @override
+  State<BannerAdaptiveSizingDemoPage> createState() =>
+      _BannerAdaptiveSizingDemoPageState();
+}
+
+class _BannerAdaptiveSizingDemoPageState
+    extends AdScreenState<BannerAdaptiveSizingDemoPage> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Adaptive banner sizing (T157)')),
+      body: ListView(
+        padding: bottomSafe(context, const EdgeInsets.all(16)),
+        children: [
+          const Text('Full-screen banner',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          buildBanner(),
+          const SizedBox(height: 24),
+          const Text('220px-wide popup',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text(
+            'Before T157 the popup banner requested a FULL-SCREEN-sized '
+            'AdMob adaptive banner and overflowed its own popup. It now '
+            'measures its real container and requests a banner sized for '
+            'it instead.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => Dialog(
+                child: SizedBox(
+                  width: 220,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text('220px-wide popup',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                      buildBanner(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            child: const Text('Show banner in narrow popup'),
           ),
         ],
       ),

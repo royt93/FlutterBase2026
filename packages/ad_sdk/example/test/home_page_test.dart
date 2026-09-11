@@ -8,9 +8,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Future<void> pumpHomePage(WidgetTester tester) async {
-    // The list has 21 tiles — grow the viewport so they all build without
+    // The list has 22 tiles — grow the viewport so they all build without
     // needing a scroll gesture.
-    tester.view.physicalSize = const Size(800, 4600);
+    tester.view.physicalSize = const Size(800, 4700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -21,8 +21,9 @@ void main() {
   testWidgets('renders a DemoTile for every demo', (tester) async {
     await pumpHomePage(tester);
 
-    expect(find.byType(DemoTile), findsNWidgets(21));
+    expect(find.byType(DemoTile), findsNWidgets(22));
     expect(find.text('Banner ad'), findsOneWidget);
+    expect(find.text('Banner adaptive sizing (T157)'), findsOneWidget);
     expect(find.text('MREC ad'), findsOneWidget);
     expect(find.text('Native ad'), findsOneWidget);
     expect(find.text('Rewarded interstitial ad'), findsOneWidget);
@@ -63,6 +64,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ReadinessControllerDemoPage), findsOneWidget);
+    expect(find.byType(HomePage), findsNothing);
+  });
+
+  testWidgets(
+      'tapping the T157 tile navigates to BannerAdaptiveSizingDemoPage',
+      (tester) async {
+    await pumpHomePage(tester);
+
+    await tester.tap(find.text('Banner adaptive sizing (T157)'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BannerAdaptiveSizingDemoPage), findsOneWidget);
     expect(find.byType(HomePage), findsNothing);
   });
 }

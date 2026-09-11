@@ -62,9 +62,12 @@ class _BannerCountingAdapter implements AdProviderAdapter {
 
   @override
   String get tag => 'counting';
+  double? lastWidthPx;
   @override
-  Future<void> loadBannerIfNeeded(Object key, double widthPx) async =>
-      loadBannerCalls++;
+  Future<void> loadBannerIfNeeded(Object key, double widthPx) async {
+    loadBannerCalls++;
+    lastWidthPx = widthPx;
+  }
   @override
   Future<void> preloadBanner(Object key) async {}
   @override
@@ -639,9 +642,13 @@ void main() {
   });
 
   group('round-29 audit (MAJOR): AdMob adaptive banner reload on resize', () {
+    // T157 — real layout constraints, not just injected MediaQueryData:
+    // BannerAdWidget now prefers its own measured width (LayoutBuilder) over
+    // MediaQuery, so simulating a resize must actually change both together,
+    // the same way a real rotation does.
     Widget wrapWithWidth(double width) => MediaQuery(
           data: const MediaQueryData().copyWith(size: Size(width, 800)),
-          child: host(const BannerAdWidget()),
+          child: host(SizedBox(width: width, child: const BannerAdWidget())),
         );
 
     late _BannerCountingAdapter adapter;
@@ -665,7 +672,9 @@ void main() {
       expect(adapter.loadBannerCalls, 1);
 
       await tester.pumpWidget(wrapWithWidth(800)); // e.g. rotation
-      await tester.pump(const Duration(milliseconds: 50));
+      // T157 — the correction is debounced (see
+      // _widthCorrectionDebounceDuration); must pump past that window.
+      await tester.pump(const Duration(milliseconds: 350));
 
       expect(adapter.disposeCalls, 1,
           reason: 'the stale-width ad must be torn down before reloading');
@@ -960,6 +969,170 @@ void main() {
     test('accepts a custom placement', () {
       const widget = BannerAdWidget(placement: AdPlacement.shop);
       expect(widget.placement, AdPlacement.shop);
+    });
+  });
+
+  // T157 — the AdMob adaptive banner used to size itself from
+  // MediaQuery.of(context).size.width (the FULL SCREEN) regardless of what
+  // container this widget was actually placed in — a popup, sidebar, or
+  // split-screen pane narrower than the screen got a banner sized for the
+  // whole screen, overflowing it.
+  group('T157 — adaptive banner sizing follows its own container', () {
+    late _BannerCountingAdapter adapter;
+
+    setUp(() {
+      adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets(
+        'inside SizedBox(width: 200) requests ~200 on the very first load, '
+        'not the full screen width', (tester) async {
+      await tester.pumpWidget(host(const SizedBox(
+        width: 200,
+        child: BannerAdWidget(),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // T157 — the initial load is deferred one frame (see
+      // didChangeDependencies' comment) specifically so it happens AFTER
+      // build()'s own LayoutBuilder has measured the real container width —
+      // one clean request at the right size, not a wasted full-screen guess
+      // corrected a moment later.
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'exactly one load — no wasted wrong-width request first');
+      expect(adapter.lastWidthPx, 200,
+          reason: 'T157 — must request the widget\'s own constrained width, '
+              'not MediaQuery\'s full-screen width (the test viewport is '
+              '800, per host()\'s default surface size)');
+    });
+
+    testWidgets(
+        'unconstrained on mount (active:false, never actually loads) does '
+        'not crash — sanity check that this widget tree mounts cleanly',
+        (tester) async {
+      await tester.pumpWidget(host(const SizedBox(
+        width: 200,
+        child: BannerAdWidget(active: false),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.loadBannerCalls, 0,
+          reason: 'active:false must never load at all');
+    });
+
+    // codex re-review (P1) — mounting inactive already lays this widget out
+    // once at its real, collapsed size (SizedBox.shrink() while inactive,
+    // but still constrained by whatever real container the host placed it
+    // in) — a later activation must use THAT measured width, not fall back
+    // to MediaQuery's full-screen guess as if this were a fresh mount with
+    // nothing known yet.
+    testWidgets(
+        'activating an inactive banner inside SizedBox(width: 200) requests '
+        '~200, not the full screen width', (tester) async {
+      final active = ValueNotifier<bool>(false);
+      await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+        valueListenable: active,
+        builder: (context, isActive, _) => SizedBox(
+          width: 200,
+          child: BannerAdWidget(active: isActive),
+        ),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 0);
+
+      active.value = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.lastWidthPx, 200,
+          reason: 'T157 — an IndexedStack tab activated for the first '
+              'time must request its own container width, not the screen');
+    });
+
+    // codex re-review (P1) — a host resizing the container it placed this
+    // widget in (e.g. a split-screen pane) rebuilds this widget with new
+    // constraints without necessarily changing any MediaQuery/Route/
+    // TickerMode this widget depends on — didChangeDependencies alone
+    // would never fire for this; build()'s own postFrameCallback must
+    // catch it independently.
+    testWidgets(
+        'a plain container resize (no MediaQuery/route/TickerMode change) '
+        'still reloads at the new width', (tester) async {
+      final width = ValueNotifier<double>(200);
+      await tester.pumpWidget(host(ValueListenableBuilder<double>(
+        valueListenable: width,
+        // Deliberately not `const`: a `const BannerAdWidget()` is the same
+        // canonicalized instance across rebuilds, so Flutter's element
+        // diffing skips reconciling it entirely (`identical(new, old)`
+        // short-circuits `Element.updateChild` before `update()`/`build()`
+        // ever run) — this widget must still react to a resize even when a
+        // host writes ordinary, non-const widget code (the common case).
+        builder: (context, w, _) => SizedBox(width: w, child: BannerAdWidget()),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.lastWidthPx, 200);
+
+      width.value = 350; // e.g. a split-screen pane resizing
+      await tester.pump();
+      // T157 — the correction is debounced (see
+      // _widthCorrectionDebounceDuration); must pump past that window.
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'the stale-width ad must be torn down before reloading');
+      expect(adapter.loadBannerCalls, 2);
+      expect(adapter.lastWidthPx, 350,
+          reason: 'T157 — a bare container resize (not just rotation) '
+              'must also be caught and reloaded at the new width');
+    });
+
+    // codex re-review (P1) — the strongest form of the gap: AnimatedContainer
+    // relayouts its (const, identical-instance) child on every animation
+    // tick without EVER rebuilding it — this widget's own Element never
+    // reruns build()/didUpdateWidget at all for the whole animation, only
+    // its RenderObject goes through repeated real layout passes.
+    testWidgets(
+        'a resize with no widget rebuild at all (AnimatedContainer '
+        'animating its own width) still reloads at the final width',
+        (tester) async {
+      await tester.pumpWidget(host(TweenAnimationBuilder<double>(
+        tween: Tween(begin: 200, end: 350),
+        duration: const Duration(milliseconds: 200),
+        builder: (context, w, child) => SizedBox(width: w, child: child),
+        // `const` and passed as TweenAnimationBuilder's `child` — built
+        // exactly ONCE for the whole animation, never rebuilt per tick.
+        child: const BannerAdWidget(),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.lastWidthPx, 200);
+
+      // Advance through the animation without ever touching the widget
+      // tree itself — only ticks, no new BannerAdWidget instance ever
+      // created. Each tick resets the debounce (see
+      // _widthCorrectionDebounceDuration), so the settle window only
+      // starts counting down once the 200ms animation itself finishes.
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'the stale-width ad must be torn down before reloading, '
+              'even with no Element rebuild involved at all');
+      expect(adapter.loadBannerCalls, 2);
+      expect(adapter.lastWidthPx, 350,
+          reason: 'T157 — must end up at the animation\'s FINAL width');
     });
   });
 }

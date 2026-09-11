@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
@@ -48,6 +52,15 @@ import 'shimmer_view.dart';
 /// can see through. Pass `false` while hidden and `true` (or omit — the
 /// default, `null`, defers entirely to the automatic signals) once visible
 /// again.
+///
+/// **AdMob sizing tracks its own container** — see [_resolveAdmobWidth] —
+/// but only re-requests when the surrounding layout changes AND this
+/// widget's Element actually reconciles. A `const BannerAdWidget()` inside a
+/// container a host resizes is the one case that can miss this: Flutter
+/// treats it as the identical instance across rebuilds and skips
+/// reconciling it entirely, so it never learns the container resized.
+/// Drop `const` if the surrounding container's size can change after
+/// mount.
 class BannerAdWidget extends StatefulWidget {
   const BannerAdWidget({
     super.key,
@@ -90,6 +103,104 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
   /// fires on every `MediaQuery` change, including rotation) can tell a
   /// real resize apart from an unrelated dependency change and reload.
   double? _admobWidthPx;
+
+  /// T157 — collapses a burst of [_maybeCorrectAdmobWidth] triggers (e.g.
+  /// every tick of an animating container) into a single reload once the
+  /// width actually settles. See [_maybeCorrectAdmobWidth]'s doc comment.
+  Timer? _widthCorrectionDebounce;
+  static const _widthCorrectionDebounceDuration = Duration(milliseconds: 300);
+
+  /// T157 — this widget's own rendered width, read from [context] (via
+  /// `context.size`, only ever valid AFTER layout completes — see
+  /// [_refreshLayoutWidth]) rather than `MediaQuery.of(...).size.width` (the
+  /// previous, only, width source): that is the FULL SCREEN, correct only
+  /// when the banner happens to span it, and silently wrong (requests a
+  /// too-wide adaptive banner, which then overflows) whenever a host places
+  /// it inside anything narrower (a popup, a sidebar, a split-screen pane).
+  /// `null` means "not measured yet" (nothing has completed layout with
+  /// this widget in the tree so far) — every reader of this field falls
+  /// back to `MediaQuery` in that case, preserving the old full-screen
+  /// behavior exactly.
+  ///
+  /// Deliberately NOT a [LayoutBuilder]: an earlier version used one, and
+  /// it silently broke [VisibilityDetector]'s own scroll-visibility
+  /// callback entirely (0 calls — confirmed via
+  /// test/banner_ad_widget_test.dart's scroll-away coverage). Reading
+  /// `context.size` off this State's own existing Element inserts no new
+  /// RenderObject into the tree at all, unlike LayoutBuilder.
+  double? _layoutWidth;
+
+  void _refreshLayoutWidth() {
+    // T157 — reads the INCOMING constraint this widget's own RenderObject
+    // (VisibilityDetector's) was laid out within, not its rendered SIZE
+    // (`context.size`/`RenderBox.size`): the content collapses to
+    // `SizedBox.shrink()` (0-width) whenever nothing has loaded yet
+    // (`_allowed == false`, true for the entire first load this exists to
+    // fix), so `context.size` would always read 0 at exactly the moment
+    // this needs a real answer. `RenderBox.constraints` is available on any
+    // already-laid-out RenderBox — no LayoutBuilder (a SEPARATE RenderObject)
+    // needed to obtain it.
+    final ro = context.findRenderObject();
+    if (ro is RenderBox && ro.hasSize) {
+      final maxWidth = ro.constraints.maxWidth;
+      _layoutWidth = maxWidth.isFinite ? maxWidth : null;
+    }
+  }
+
+  /// Resolves the width an AdMob adaptive banner should actually request:
+  /// this widget's own constrained space when known, the screen otherwise.
+  double _resolveAdmobWidth(BuildContext ctx) =>
+      _layoutWidth ?? MediaQuery.of(ctx).size.width;
+
+  /// Round-29 audit (MAJOR), reworked for T157 — reloads the AdMob adaptive
+  /// banner when its real available width changes after already having
+  /// loaded (rotation, split-screen, foldable unfold, or a host resizing
+  /// the container it placed this widget in). AppLovin is exempt: its
+  /// `MaxAdView` handles resizing natively (`isAdaptiveBannerEnabled:
+  /// true`), and re-preloading it here would just tear down a perfectly
+  /// good native view for nothing.
+  ///
+  /// Called from a postFrameCallback triggered by [_AdmobWidthObserver],
+  /// which fires on every LAYOUT pass this widget goes through, for any
+  /// cause — a dependency change like rotation, a host passing a new
+  /// incoming constraint on rebuild, or even a relayout with no rebuild at
+  /// all (an `AnimatedContainer` ancestor animating its own width ticks
+  /// this on every frame of the animation). By the time it runs,
+  /// [_refreshLayoutWidth] has already captured this frame's real,
+  /// post-layout size, so the comparison below is never stale.
+  ///
+  /// Debounced (see [_widthCorrectionDebounce]): a continuously-animating
+  /// container would otherwise trigger a real dispose+reload of the ad on
+  /// EVERY intermediate tick, not just the final settled width — wasteful
+  /// (a real ad network request per frame) for something that, in
+  /// practice, only needs to happen once the resize actually settles.
+  void _maybeCorrectAdmobWidth() {
+    final mgr = AdManager();
+    if (!_allowed.value || !mgr.isAdMobProvider) return;
+    // codex re-review (P2) — resolved (fallback-aware), not raw
+    // _layoutWidth: a loaded banner whose container BECOMES unbounded
+    // (finite width -> null) must still be caught and reloaded at
+    // MediaQuery's width, the same fallback _initBanner itself would use —
+    // comparing the raw (now-null) _layoutWidth against _admobWidthPx
+    // would short-circuit on `width == null` and leave it stale forever.
+    if (_admobWidthPx == null || _resolveAdmobWidth(context) == _admobWidthPx) {
+      return;
+    }
+    _widthCorrectionDebounce?.cancel();
+    _widthCorrectionDebounce =
+        Timer(_widthCorrectionDebounceDuration, () {
+      if (!mounted) return;
+      final mgr = AdManager();
+      if (!_allowed.value || !mgr.isAdMobProvider) return;
+      final width = _resolveAdmobWidth(context);
+      if (_admobWidthPx == null || width == _admobWidthPx) return;
+      SafeLogger.d(_tag,
+          'width changed ($_admobWidthPx → $width) — reloading AdMob adaptive banner');
+      mgr.disposeBannerInstance(this);
+      _allowed.value = false;
+      _initBanner(context);
+    });
+  }
 
   /// T14 — the [ModalRoute] this widget is currently subscribed to via
   /// [adRouteObserver]. Re-resolved every `didChangeDependencies` so a route
@@ -167,7 +278,24 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
         // real load. didPopNext() alone would wrongly no-op here for AdMob
         // (didPush() already set `_admobIsTop` true independently of
         // `active` back at mount — see `_bannerInitCalled`'s doc comment).
-        _initBanner(context);
+        //
+        // T157 (codex re-review) — deferred one frame, same reason as the
+        // first-mount branch in didChangeDependencies: this runs
+        // synchronously mid-update (didUpdateWidget, itself called from
+        // this branch's caller), before this frame's own layout has run,
+        // so an immediate call would still see whatever _layoutWidth this
+        // widget had (possibly null, e.g. an IndexedStack tab activated on
+        // its very first frame) and fall back to MediaQuery's full-screen
+        // value — this widget was already laid out at least once while
+        // collapsed (SizedBox.shrink() while inactive, but still within
+        // whatever real container the host placed it in), so a fresh
+        // read one frame later already has the right answer, no different
+        // from a completely fresh first load.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _refreshLayoutWidth();
+          _initBanner(context);
+        });
       } else if (last != null) {
         // A real resume — the very first callback ever (last == null) with
         // _bannerInitCalled already true (normal init already ran) must not
@@ -306,26 +434,33 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
       if (widget.active == false) {
         _lastEffectiveVisible = false;
       } else {
-        _initBanner(context);
+        // T157 — deferred one frame: this FIRST-ever call happens before
+        // this widget has ever completed layout (didChangeDependencies
+        // always precedes the first build), so an immediate call here
+        // would have no measured width yet and fall back to MediaQuery's
+        // full-screen value — wasting a real AdMob request at the wrong
+        // size for any constrained banner, exactly the bug this task
+        // fixes. By the time a postFrameCallback fires, this same frame's
+        // layout has already completed, so context.size is valid.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _refreshLayoutWidth();
+          _initBanner(context);
+        });
       }
       return;
     }
     // Round-29 audit (MAJOR) — reload the AdMob adaptive banner when the
     // available width actually changed (rotation, split-screen, foldable
-    // unfold). AppLovin is exempt: its `MaxAdView` handles resizing natively
-    // (`isAdaptiveBannerEnabled: true`), and re-preloading it here would
-    // just tear down a perfectly good native view for nothing.
-    final mgr = AdManager();
-    if (_allowed.value && mgr.isAdMobProvider) {
-      final width = MediaQuery.of(context).size.width;
-      if (_admobWidthPx != null && width != _admobWidthPx) {
-        SafeLogger.d(_tag,
-            'width changed ($_admobWidthPx → $width) — reloading AdMob adaptive banner');
-        mgr.disposeBannerInstance(this);
-        _allowed.value = false;
-        _initBanner(context);
-      }
-    }
+    // unfold, or a host resizing the container it placed this widget in).
+    //
+    // T157 — the actual correction runs from [_AdmobWidthObserver] (see
+    // its doc comment), a plain RenderProxyBox wired into build() below
+    // whose performLayout fires on EVERY real layout pass this widget's
+    // RenderObject goes through — independent of whether this Element
+    // ever rebuilds at all (an ancestor like AnimatedContainer can
+    // relayout its child every tick without rebuilding it), so this
+    // method no longer needs its own copy of that check.
   }
 
   void _initBanner(BuildContext ctx) {
@@ -355,7 +490,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     _allowed.value = true;
 
     if (mgr.isAdMobProvider) {
-      final width = MediaQuery.of(ctx).size.width;
+      // T157 — the widget's own constrained space, not the full screen;
+      // see _resolveAdmobWidth's doc comment.
+      final width = _resolveAdmobWidth(ctx);
       _admobWidthPx = width;
       mgr.loadAdmobBannerIfNeeded(this, width);
     } else {
@@ -441,6 +578,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
 
   @override
   void dispose() {
+    _widthCorrectionDebounce?.cancel();
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     AdManager()
         .personalisationRevision
@@ -468,6 +606,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     // same layout pass and re-dirty the RenderAnimatedSize while Flutter is
     // still laying it out (a genuine framework-level re-entrant-layout
     // assertion, not something callers can work around from outside).
+    //
     final child = widget.collapseAnimationDuration == Duration.zero
         ? _buildBanner(context)
         : AnimatedSize(
@@ -481,7 +620,18 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     return VisibilityDetector(
       key: ObjectKey(this),
       onVisibilityChanged: _onVisibilityChanged,
-      child: child,
+      // T157 (codex re-review) — see _AdmobWidthObserver's doc comment:
+      // catches a real resize even when nothing about this widget's own
+      // Element ever rebuilds (e.g. an AnimatedContainer ancestor
+      // relayouting its child every animation tick).
+      child: _AdmobWidthObserver(
+        onWidthChanged: () {
+          if (!mounted) return;
+          _refreshLayoutWidth();
+          _maybeCorrectAdmobWidth();
+        },
+        child: child,
+      ),
     );
   }
 
@@ -793,5 +943,69 @@ class _AppLovinMaxAdView extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+/// T157 (codex re-review, P1) — notifies on every LAYOUT pass where this
+/// subtree's incoming width actually changes, even when no [Element] ever
+/// rebuilds (e.g. an `AnimatedContainer` ancestor ticking its own width
+/// animation, which relayouts its child every frame without necessarily
+/// rebuilding it) — a rebuild-driven check alone is not guaranteed to run
+/// for every real resize.
+///
+/// Deliberately NOT a [LayoutBuilder]: a [LayoutBuilder] defers building
+/// its `builder` callback until layout time via a special reentrant
+/// (`invokeLayoutCallback`) mechanism — placing one anywhere near
+/// [VisibilityDetector] in this widget's tree (tried both as an ancestor
+/// and as a descendant) silently broke its scroll-visibility callback
+/// entirely (0 calls, confirmed via this file's own test coverage). This
+/// is a plain [RenderProxyBox]: its child is built eagerly, exactly like
+/// [Padding] or [Container] — structurally no different from any other
+/// simple decorator widget that already coexists with [VisibilityDetector]
+/// in real Flutter apps without issue. Reports no width value itself —
+/// callers re-read the current one (via [BuildContext.findRenderObject])
+/// once notified, since layout for this frame has already finished by the
+/// time the deferred callback below actually runs.
+class _AdmobWidthObserver extends SingleChildRenderObjectWidget {
+  const _AdmobWidthObserver({required this.onWidthChanged, super.child});
+
+  final VoidCallback onWidthChanged;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderAdmobWidthObserver(onWidthChanged);
+
+  @override
+  void updateRenderObject(
+      BuildContext context, _RenderAdmobWidthObserver renderObject) {
+    renderObject.onWidthChanged = onWidthChanged;
+  }
+}
+
+class _RenderAdmobWidthObserver extends RenderProxyBox {
+  _RenderAdmobWidthObserver(this.onWidthChanged);
+
+  VoidCallback onWidthChanged;
+  double? _lastWidth;
+  bool _pendingReport = false;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    final maxWidth = constraints.maxWidth;
+    final width = maxWidth.isFinite ? maxWidth : null;
+    if (width == _lastWidth) return;
+    _lastWidth = width;
+    // Calling back into widget/element code (setState, etc.) synchronously
+    // from inside performLayout — while Flutter is still laying THIS frame
+    // out — is unsafe; deferring to a postFrameCallback is the same
+    // pattern this file already uses everywhere else for exactly this
+    // reason (see e.g. didPush, _onCanRequestAdsChanged).
+    if (_pendingReport) return;
+    _pendingReport = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _pendingReport = false;
+      onWidthChanged();
+    });
   }
 }
