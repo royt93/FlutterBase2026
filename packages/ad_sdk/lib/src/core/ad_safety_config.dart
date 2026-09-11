@@ -530,11 +530,31 @@ class AdSafetyConfig {
   /// `PlacementRegistry`/`PlacementSpec.frequencyCapOverride` in
   /// `ad_manager.dart`'s show methods; `null` (the default) is the exact
   /// pre-T140 behavior.
+  ///
+  /// T159 — when [capOverride] is null and BOTH
+  /// [AdSafetyParams.maxPerPlacementAdsPerDay] and `maxPerPlacementAdsPerDayById`
+  /// have an entry for the same [placement], the stricter (smaller) of the
+  /// two applies — not whichever map happened to be checked first.
   static bool placementDailyCapReached(AdPlacement placement,
       {int? capOverride}) {
-    final maxPerDay = capOverride ??
-        _params.maxPerPlacementAdsPerDay?[placement] ??
-        _params.maxPerPlacementAdsPerDayById?[placement.id];
+    int? maxPerDay;
+    if (capOverride != null) {
+      maxPerDay = capOverride;
+    } else {
+      // T159 — both maps are meant to be checked "in addition to" each
+      // other (see maxPerPlacementAdsPerDayById's doc comment), not one
+      // shadowing the other: `??` here used to just take whichever map
+      // had an entry FIRST, silently ignoring a stricter cap set in the
+      // other map for the same placement. The stricter (smaller) of the
+      // two now always wins when both are set.
+      final byEnum = _params.maxPerPlacementAdsPerDay?[placement];
+      final byId = _params.maxPerPlacementAdsPerDayById?[placement.id];
+      if (byEnum != null && byId != null) {
+        maxPerDay = byEnum < byId ? byEnum : byId;
+      } else {
+        maxPerDay = byEnum ?? byId;
+      }
+    }
     if (maxPerDay == null) return false;
     final counts = _prefs?.getPlacementDailyCounts() ?? const {};
     return (counts[placement.id] ?? 0) >= maxPerDay;

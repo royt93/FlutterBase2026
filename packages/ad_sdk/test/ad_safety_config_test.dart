@@ -772,6 +772,117 @@ void main() {
           isFalse);
     });
 
+    // T159 — both maps are "checked in addition to" each other per their
+    // own doc comments, not one shadowing the other when both are set for
+    // the same placement.
+    group('both maps set for the same placement (T159)', () {
+      test(
+          'maxPerPlacementAdsPerDay stricter than maxPerPlacementAdsPerDayById '
+          '→ the stricter (smaller) one wins', () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.splash: 1},
+              maxPerPlacementAdsPerDayById: {'splash': 5},
+            ));
+        AdSafetyConfig.resetForReinit();
+
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isFalse);
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isTrue,
+            reason: 'the stricter cap (1, from maxPerPlacementAdsPerDay) '
+                'must apply even though maxPerPlacementAdsPerDayById (5) '
+                'would have been checked first under the old `??` logic');
+      });
+
+      test(
+          'maxPerPlacementAdsPerDayById stricter than maxPerPlacementAdsPerDay '
+          '→ the stricter (smaller) one wins', () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.splash: 5},
+              maxPerPlacementAdsPerDayById: {'splash': 1},
+            ));
+        AdSafetyConfig.resetForReinit();
+
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isFalse);
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isTrue,
+            reason: 'the stricter cap (1, from maxPerPlacementAdsPerDayById) '
+                'must apply even though maxPerPlacementAdsPerDay (5) is '
+                'the map checked first');
+      });
+
+      test('equal caps in both maps behave exactly as either alone',
+          () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.splash: 2},
+              maxPerPlacementAdsPerDayById: {'splash': 2},
+            ));
+        AdSafetyConfig.resetForReinit();
+
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isFalse);
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isTrue);
+      });
+
+      test('only maxPerPlacementAdsPerDay set — unaffected (no breaking '
+          'change to the single-map case)', () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams(
+                maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}));
+        AdSafetyConfig.resetForReinit();
+
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isFalse);
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isTrue);
+      });
+
+      test('only maxPerPlacementAdsPerDayById set — unaffected (no '
+          'breaking change to the single-map case)', () async {
+        const params =
+            AdSafetyParams(maxPerPlacementAdsPerDayById: {'splash': 1});
+        await AdSafetyConfig.init(prefs, params: params);
+        AdSafetyConfig.resetForReinit();
+
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isFalse);
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        expect(AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+            isTrue);
+      });
+
+      test('capOverride still wins over BOTH maps, even when they disagree',
+          () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams(
+              maxPerPlacementAdsPerDay: {AdPlacement.splash: 1},
+              maxPerPlacementAdsPerDayById: {'splash': 9},
+            ));
+        AdSafetyConfig.resetForReinit();
+
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        // Both configured caps disagree (1 vs 9) — a capOverride of 5 must
+        // still take precedence over whichever of the two would otherwise
+        // apply (the stricter, 1).
+        expect(
+            AdSafetyConfig.placementDailyCapReached(AdPlacement.splash,
+                capOverride: 5),
+            isFalse,
+            reason: 'capOverride (5) must win over both configured maps, '
+                'not just the stricter of the two');
+      });
+    });
+
     // T140 — PlacementRegistry's frequencyCapOverride feeds in here.
     group('capOverride parameter (T140)', () {
       test('capOverride applies even when this placement has NO configured '

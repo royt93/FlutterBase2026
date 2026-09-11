@@ -31,3 +31,45 @@ Sửa packages/ad_sdk/lib/src/core/ad_safety_config.dart dòng ~535-537: placeme
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: smoke test thật trên device, cấu hình cả 2 giới hạn khác nhau cho 1 placement, xác nhận quảng cáo dừng đúng ở mức chặt hơn.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Kết quả (2026-09-11)
+
+**Giải thích cho người không rành kỹ thuật:** SDK cho phép cài giới hạn
+"tối đa N quảng cáo/ngày cho vị trí X" theo 2 cách (theo tên vị trí, hoặc
+theo mã ID vị trí). Nếu dev lỡ cài CẢ HAI cách cho cùng 1 vị trí với 2 con
+số khác nhau (VD: 1 lần/ngày theo cách A, 9 lần/ngày theo cách B), đúng ra
+phải áp dụng con số CHẶT HƠN (1). Nhưng code cũ chỉ nhìn cách A trước — nếu
+cách A có set gì đó, dùng luôn số của A, bỏ qua B hoàn toàn (kể cả khi B
+chặt hơn). Kết quả: dev tưởng đã siết giới hạn xuống còn 1, nhưng người
+dùng vẫn thấy quảng cáo tới 9 lần — không giữ đúng cam kết giới hạn tần
+suất.
+
+**Kỹ thuật đã sửa (`ad_safety_config.dart:533-551`):** khi cả 2 map đều có
+entry cho cùng placement, lấy giá trị NHỎ HƠN (min) làm giới hạn thật.
+`capOverride` (tham số riêng cho use-case khác, T140) vẫn thắng tuyệt đối
+như trước — không bị ảnh hưởng. Cập nhật docstring nêu rõ hành vi mới.
+
+**Test coverage:**
+- `test/ad_safety_config_test.dart`: thêm 6 test mới (nhóm "both maps set
+  for the same placement (T159)") — map A chặt hơn, map B chặt hơn, 2 map
+  bằng nhau, chỉ map A set, chỉ map B set, capOverride vẫn thắng cả 2 map
+  dù chúng bất đồng. Không sửa test cũ nào (không breaking).
+- Full SDK suite: 1829 test xanh.
+- Full example suite: 42 test xanh.
+- `codex review --uncommitted` vòng 1: sạch, không tìm ra lỗi.
+
+**Smoke test thật trên device (Pixel 7 Pro, `2B051FDH3006MU`, Android
+17):** file mới `example/integration_test/r159_placement_cap_strictest_test.dart`
+— cấu hình `AdPlacement.shop` với `maxPerPlacementAdsPerDay: {shop: 1}` và
+`maxPerPlacementAdsPerDayById: {'shop': 9}` (2 giới hạn bất đồng) qua
+`AdSafetyConfig.updateParams(...)` (đúng API app thật dùng để cập nhật cấu
+hình runtime) trên tiến trình app thật, ghi 1 lượt hiển thị qua
+`AdPreferences` thật (SharedPreferences thật, không mock), xác nhận
+`placementDailyCapReached` trả `true` ngay sau 1 lượt — đúng giới hạn chặt
+(1), không phải giới hạn lỏng (9). PASS. Có snapshot/restore state thật
+trên device để không làm hỏng dữ liệu app thật sau khi test chạy xong.
+
+**Tự chấm điểm: 9.5/10.** Trừ điểm vì: bug thuộc loại logic thuần túy
+(không có UI để "nhìn thấy" trực tiếp), nên bằng chứng device chỉ chứng
+minh qua API nội bộ (`AdSafetyConfig`/`AdPreferences`) chứ không qua thao
+tác chạm màn hình thực tế.

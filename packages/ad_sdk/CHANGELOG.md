@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T159):** `AdSafetyConfig.placementDailyCapReached` used `??` between
+  `maxPerPlacementAdsPerDay` and `maxPerPlacementAdsPerDayById` when both had
+  an entry for the same placement — whichever map was checked first silently
+  won, ignoring a stricter cap configured in the other map, contradicting
+  both maps' own doc comments ("checked in ADDITION to"). The stricter
+  (smaller) of the two now always applies when both are set; unchanged when
+  only one is set, and `capOverride` still wins over both as before.
 - **Fix (T157):** `BannerAdWidget`'s AdMob adaptive banner sized itself from
   `MediaQuery.of(context).size.width` — the FULL SCREEN — regardless of what
   container it was actually placed in, so a banner inside anything narrower
