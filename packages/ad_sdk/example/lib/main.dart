@@ -3361,14 +3361,14 @@ class TestDeviceHashDemoPage extends StatelessWidget {
 
 // T117 — vip demo page. Split out of main.dart.
 
-class VipDemoPage extends StatefulWidget {
+class VipDemoPage extends AdScreen {
   const VipDemoPage({super.key});
 
   @override
   State<VipDemoPage> createState() => _VipDemoPageState();
 }
 
-class _VipDemoPageState extends State<VipDemoPage> {
+class _VipDemoPageState extends AdScreenState<VipDemoPage> {
   final TextEditingController _ctrl = TextEditingController();
 
   @override
@@ -3415,11 +3415,18 @@ class _VipDemoPageState extends State<VipDemoPage> {
   /// Watch a real rewarded ad to EXTEND VIP — works even while already VIP
   /// (`bypassVipGuard: true` plays a real ad; the SDK loads it on demand). The
   /// reward is granted into a fixed key with `stack: true` so repeats add up.
+  ///
+  /// T156 — goes through `showRewardedAd()` (the documented AdScreenState
+  /// helper), not `AdManager().showRewardedAd()` directly: that helper used
+  /// to have no way to reach `bypassVipGuard` at all, so this exact
+  /// voluntary-watch-to-extend flow was unreachable through the
+  /// recommended integration path.
   Future<void> _watchAdToExtend() async {
     final vip = AdManager().vip;
     if (vip == null) return;
-    AdManager().showRewardedAd(
+    showRewardedAd(
       bypassVipGuard: true,
+      callSiteTag: 'vip_extend_screen',
       onEarnedReward: (earned) {
         if (!earned) return;
         vip.addVip(

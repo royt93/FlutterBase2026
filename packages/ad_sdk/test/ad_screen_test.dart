@@ -6,6 +6,7 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -101,6 +102,8 @@ class _DemoAdScreen extends AdScreen {
     this.disclosureCancelLabel,
     this.ssvUserId,
     this.ssvCustomData,
+    this.bypassVipGuard = false,
+    this.callSiteTag = 'unspecified',
   });
   final void Function(bool) onInter;
   final void Function(bool) onReward;
@@ -110,6 +113,8 @@ class _DemoAdScreen extends AdScreen {
   final String? disclosureCancelLabel;
   final String? ssvUserId;
   final String? ssvCustomData;
+  final bool bypassVipGuard;
+  final String callSiteTag;
 
   @override
   State<_DemoAdScreen> createState() => _DemoAdScreenState();
@@ -140,6 +145,8 @@ class _DemoAdScreenState extends AdScreenState<_DemoAdScreen> {
               disclosureCancelLabel: widget.disclosureCancelLabel,
               ssvUserId: widget.ssvUserId,
               ssvCustomData: widget.ssvCustomData,
+              bypassVipGuard: widget.bypassVipGuard,
+              callSiteTag: widget.callSiteTag,
             ),
             child: const Text('reward'),
           ),
@@ -147,6 +154,26 @@ class _DemoAdScreenState extends AdScreenState<_DemoAdScreen> {
       ),
     );
   }
+}
+
+class _FakeVip implements VipManager {
+  _FakeVip(this._active);
+  final bool _active;
+
+  @override
+  bool get isActive => _active;
+
+  // BannerAdWidget (rendered by buildBanner() inside _DemoAdScreen) reads
+  // this directly — without it, the property falls through to
+  // noSuchMethod's default (throws), crashing that widget's build.
+  @override
+  ValueListenable<bool> get activeListenable => ValueNotifier<bool>(_active);
+
+  @override
+  void resyncSessionClock() {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -483,6 +510,77 @@ void main() {
       expect(adapter.showRewardedCalls, 1);
       expect(adapter.lastSsvUserId, 'user-123');
       expect(adapter.lastSsvCustomData, 'custom-abc');
+    });
+  });
+
+  // T156 — AdScreenState.showRewardedAd() had no way to reach
+  // AdManager().showRewardedAd(bypassVipGuard: true) — a VIP member's own
+  // short-circuit inside the helper always won first, regardless of the
+  // param, since the param didn't even exist on the helper yet.
+  group('rewarded bypassVipGuard forwarding (T156)', () {
+    late _ReadyAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _ReadyAdapter();
+      adapter.rewardedSlot.beginReload();
+      adapter.rewardedSlot.markReady();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugVipManager = _FakeVip(true);
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugVipManager = null;
+    });
+
+    testWidgets(
+        'VIP active + bypassVipGuard:true still reaches the real ad — the '
+        'exact voluntary watch-to-extend flow this param exists for',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (_) {},
+          onReward: (_) {},
+          bypassVipGuard: true,
+          callSiteTag: 'vip_extend_screen',
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('reward')));
+      await tester.pump(); // start buffer delay
+      await tester.pump(const Duration(seconds: 2)); // let buffer timer fire
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.showRewardedCalls, 1,
+          reason: 'T156 — bypassVipGuard:true must reach the real ad even '
+              'while VIP is active, matching AdManager().showRewardedAd\'s '
+              'own contract');
+    });
+
+    testWidgets(
+        'VIP active + bypassVipGuard:false (the default) still suppresses '
+        'the ad, not breaking existing callers', (tester) async {
+      var reward = true;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (_) {},
+          onReward: (r) => reward = r,
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('reward')));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.showRewardedCalls, 0,
+          reason:
+              'omitting bypassVipGuard must keep the pre-T156 VIP-suppresses '
+              'behavior unchanged');
+      expect(reward, isFalse);
     });
   });
 }

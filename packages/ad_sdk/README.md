@@ -1460,6 +1460,12 @@ re-entrancy-safe — a second tap while a load/show is in flight is rejected wit
 > instead grant VIP without an ad — that loses revenue and risks rewarded-ad
 > policy violations. Spam is bounded by the SDK's fullscreen safety caps.
 
+`AdScreenState.showRewardedAd()` (the documented `AdScreen` helper — see
+[Step 6 — Show ads on any screen](#step-6--show-ads-on-any-screen)) forwards
+`bypassVipGuard` and `onDemandLoadTimeout` the same way, so this flow works
+identically whether you call `AdManager().showRewardedAd()` directly or
+through that helper.
+
 ### Waiting for VIP to be ready
 
 `AdManager().vip` is `null` until SDK init completes. If a screen can render

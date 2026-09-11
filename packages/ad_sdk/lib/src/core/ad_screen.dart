@@ -182,9 +182,25 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   /// [disclosureButtonLabel]/[disclosureCancelLabel] localize the two dialog
   /// actions; both default to English so non-English callers should pass
   /// their own (e.g. a `vi_VN` host should not rely on the fallback).
+  ///
+  /// T156 — [bypassVipGuard] (default `false`) forwards to
+  /// [AdManager.showRewardedAd]: a VIP voluntarily watching a real rewarded
+  /// ad to extend their own window (see CLAUDE.md's VIP entitlement
+  /// section). Without this, a host using this documented helper (rather
+  /// than calling `AdManager().showRewardedAd()` directly) had no way to
+  /// reach that already-supported flow — the VIP short-circuit just below
+  /// always won first. [callSiteTag] forwards too, for the same
+  /// proof-of-compliance audit trail [AdManager.showRewardedAd] itself
+  /// documents.
   Future<void> showRewardedAd({
     required void Function(bool) onEarnedReward,
     bool vipAutoGrant = false,
+    bool bypassVipGuard = false,
+    // T156 (codex round 1, P2) — bypassVipGuard's own real path loads a
+    // rewarded ad on demand when nothing was preloaded (VIP members never
+    // preload one); without forwarding this, that load was hardcoded to
+    // AdManager.showRewardedAd's 15s default with no way to tune it here.
+    Duration onDemandLoadTimeout = const Duration(seconds: 15),
     AdPlacement placement = AdPlacement.unspecified,
     String? disclosureTitle,
     String? disclosureSubtitle,
@@ -192,11 +208,13 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     String? disclosureCancelLabel,
     String? ssvUserId,
     String? ssvCustomData,
+    String callSiteTag = 'unspecified',
   }) async {
     SafeLogger.d(
       _tag,
       'showRewardedAd called from $runtimeType, '
-      'isDisposed=$_isDisposed, mounted=$mounted, vipAutoGrant=$vipAutoGrant',
+      'isDisposed=$_isDisposed, mounted=$mounted, vipAutoGrant=$vipAutoGrant, '
+      'bypassVipGuard=$bypassVipGuard',
     );
 
     if (_isDisposed || !mounted) {
@@ -205,8 +223,10 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       return;
     }
 
-    // VIP device: caller opt-in required (Q12B)
-    if (AdManager().isVIPMember()) {
+    // VIP device: caller opt-in required (Q12B) — bypassVipGuard is the one
+    // documented exception, matching AdManager().showRewardedAd's own
+    // contract exactly.
+    if (AdManager().isVIPMember() && !bypassVipGuard) {
       if (vipAutoGrant) {
         SafeLogger.d(_tag, 'showRewardedAd ✅ VIP + opt-in → auto-reward');
         onEarnedReward(true);
@@ -265,9 +285,12 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       SafeLogger.d(_tag, 'showRewardedAd → calling AdManager.showRewardedAd()');
       AdManager().showRewardedAd(
         vipAutoGrant: vipAutoGrant,
+        bypassVipGuard: bypassVipGuard,
+        onDemandLoadTimeout: onDemandLoadTimeout,
         placement: placement,
         ssvUserId: ssvUserId,
         ssvCustomData: ssvCustomData,
+        callSiteTag: callSiteTag,
         onEarnedReward: (result) {
           SafeLogger.d(_tag, 'showRewardedAd onEarnedReward: result=$result');
           onEarnedReward(result);
