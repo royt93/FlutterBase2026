@@ -446,4 +446,76 @@ void main() {
               'crash');
     });
   });
+
+  // T162 — the internal key is built as '$signal|${type.name}' (see _key);
+  // a signal string that itself contains '|' (a route name like
+  // '/store|deal', or any host-chosen signal string) used to break the
+  // matching logic entirely, because it split the key on EVERY '|'
+  // instead of only the last one.
+  group('signal containing a literal "|" (T162)', () {
+    test('still matches and records a normal rolling-average sample',
+        () async {
+      const signal = '/store|deal';
+      prefetcher.notifySignal(signal, AdSlotType.interstitial);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      final avg = prefetcher.averageTimeToShow(signal, AdSlotType.interstitial);
+      expect(avg, isNotNull,
+          reason: 'T162 — a signal containing "|" must still match its own '
+              'entry and record a sample, not be silently skipped forever');
+      expect(avg!.inMilliseconds, greaterThanOrEqualTo(0));
+    });
+
+    test('does not cross-match a DIFFERENT signal that happens to share a '
+        'prefix up to a "|"', () async {
+      // '/store' (no pipe) and '/store|deal' (with one) must be tracked as
+      // two entirely separate keys, not accidentally merged by a
+      // last-index-of-'|' split that's too permissive.
+      prefetcher.notifySignal('/store', AdSlotType.interstitial);
+      prefetcher.notifySignal('/store|deal', AdSlotType.rewarded);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.rewarded,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+          prefetcher.averageTimeToShow('/store|deal', AdSlotType.rewarded),
+          isNotNull);
+      expect(prefetcher.averageTimeToShow('/store', AdSlotType.interstitial),
+          isNull,
+          reason: 'the rewarded show must not have been credited to the '
+              'unrelated, still-pending interstitial signal');
+    });
+
+    test('multiple "|" characters in the signal are all treated as part of '
+        'the signal, not the type separator', () async {
+      const signal = 'a|b|c|d';
+      prefetcher.notifySignal(signal, AdSlotType.interstitial);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(prefetcher.averageTimeToShow(signal, AdSlotType.interstitial),
+          isNotNull);
+    });
+  });
 }

@@ -131,8 +131,19 @@ class JourneyPrefetcher {
     DateTime? latestAt;
     int? latestSeq;
     for (final entry in _lastSignalAt.entries) {
-      final parts = entry.key.split('|');
-      if (parts.length != 2 || parts[1] != event.type.name) continue;
+      // T162 — `entry.key.split('|')` used to assume exactly 2 parts
+      // (`[signal, type]`); a host's own `signal` string (or route name,
+      // under auto-mode) containing a literal '|' produced a key with
+      // MORE than 2 parts (e.g. `notifySignal('/store|deal', ...)` keyed
+      // as `'/store|deal|interstitial'`), which then never matched here
+      // (`parts.length != 2`) — silently disabling prefetch for that
+      // signal forever, with no error. [_key] always appends the type
+      // name LAST, so splitting at the LAST '|' instead correctly
+      // recovers it regardless of how many '|' the signal itself
+      // contains; everything before that is the signal, '|'s included.
+      final sepIndex = entry.key.lastIndexOf('|');
+      if (sepIndex == -1) continue;
+      if (entry.key.substring(sepIndex + 1) != event.type.name) continue;
       // Compare by call-order sequence, not by DateTime — DateTime.now()'s
       // resolution can tie two back-to-back notifySignal() calls, and a tie
       // must still resolve to whichever one actually fired last.

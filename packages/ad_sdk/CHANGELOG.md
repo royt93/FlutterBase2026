@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T162):** `JourneyPrefetcher` keys its internal timing map as
+  `'$signal|${type.name}'` but split every key on EVERY `|` when matching an
+  `AdShowEvent` back to its signal, assuming exactly 2 parts. A `signal`
+  string containing a literal `|` (a route name like `/store|deal` under
+  auto-mode, or any host-chosen signal string) produced a key with more than
+  2 parts, which then never matched — silently disabling time-to-show
+  tracking and prefetch timing for that signal forever, with no error.
+  Splits on the LAST `|` instead, correctly recovering the type suffix
+  regardless of how many `|` the signal itself contains.
 - **Fix (T161):** `requestAttIfNeeded()` had no guard against overlapping
   calls — a caller triggering it twice before the first resolved (a bug, or
   a user tapping a "grant permission" button twice) could present Apple's
