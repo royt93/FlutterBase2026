@@ -1,7 +1,8 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, unawaited;
 import 'dart:io';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../utils/safe_logger.dart';
 import 'ump_consent.dart' show markUmpFormOnScreen;
@@ -92,27 +93,113 @@ AttStatus _map(TrackingStatus s) {
 /// The optional `*Override` parameters exist purely for unit testing (the
 /// real platform/plugin APIs are not reachable from the test environment).
 /// Production callers use `requestAttIfNeeded()` with no args.
+///
+/// T161 — guarded against overlapping calls: if a call is already in
+/// flight (the previous one hasn't resolved yet — e.g. a caller bug, or a
+/// user tapping a "grant permission" button twice before the system
+/// prompt appears), a second call joins the SAME in-flight request rather
+/// than presenting Apple's native prompt a second time. Apple's own
+/// `ATTrackingManager` has no documented behavior for two concurrent
+/// `requestTrackingAuthorization` calls — this avoids relying on
+/// whatever the OS happens to do.
+Completer<AttResult>? _pendingAttRequest;
+
+/// Test seam: clears the in-flight-request guard. Every real call path
+/// clears it automatically once it resolves — this exists only for a test
+/// that intentionally leaves a request unresolved (e.g. to assert the
+/// guard's join behavior) and needs to isolate that from later tests.
+@visibleForTesting
+void resetPendingAttRequest() => _pendingAttRequest = null;
+
 Future<AttResult> requestAttIfNeeded({
   bool Function()? platformIsIosOverride,
   Future<TrackingStatus> Function()? readStatusOverride,
   Future<TrackingStatus> Function()? requestAuthorizationOverride,
   Future<String> Function()? readIdfaOverride,
-}) async {
-  const tag = 'AttConsent';
+}) {
+  final pending = _pendingAttRequest;
+  if (pending != null) return pending.future;
 
-  final isIos = (platformIsIosOverride ?? () => Platform.isIOS)();
-  if (!isIos) {
-    return const AttResult(status: AttStatus.notSupported);
+  final completer = Completer<AttResult>();
+  _pendingAttRequest = completer;
+
+  // codex re-review (P2, twice) — the guard must not release until BOTH:
+  // (1) the underlying native interaction has actually settled, not
+  // merely until this function's own (possibly 20s-timed-out) Future
+  // resolves — same distinction `markUmpFormOnScreen`'s release (below)
+  // exists for: a `Future.timeout` only stops THIS Dart call waiting, the
+  // real native alert can still be up. AND (2) this call's own result
+  // processing (e.g. the `readIdfa()` call after an authorized result)
+  // has also finished — releasing right after (1) alone let a second call
+  // arrive mid-IDFA-read and start an entirely separate request, possibly
+  // resolving with a different result than the one it should have joined.
+  // `_requestAttIfNeededImpl` completes [nativeSettled] exactly once, on
+  // every exit path (including a thrown error), tied to the RAW native
+  // future for the one path where a prompt was shown.
+  final nativeSettled = Completer<void>();
+  var nativeDone = false;
+  var resultDone = false;
+  void maybeReleaseGuard() {
+    if (nativeDone && resultDone && identical(_pendingAttRequest, completer)) {
+      _pendingAttRequest = null;
+    }
   }
 
-  final readStatus = readStatusOverride ??
-      () => AppTrackingTransparency.trackingAuthorizationStatus;
-  final requestAuthorization = requestAuthorizationOverride ??
-      () => AppTrackingTransparency.requestTrackingAuthorization();
-  final readIdfa = readIdfaOverride ??
-      () => AppTrackingTransparency.getAdvertisingIdentifier();
+  unawaited(nativeSettled.future.then((_) {
+    nativeDone = true;
+    maybeReleaseGuard();
+  }));
+
+  _requestAttIfNeededImpl(
+    platformIsIosOverride: platformIsIosOverride,
+    readStatusOverride: readStatusOverride,
+    requestAuthorizationOverride: requestAuthorizationOverride,
+    readIdfaOverride: readIdfaOverride,
+    nativeSettled: nativeSettled,
+  ).then((result) {
+    resultDone = true;
+    maybeReleaseGuard();
+    completer.complete(result);
+  }, onError: (Object e, StackTrace st) {
+    // codex re-review (P2) — _requestAttIfNeededImpl is designed to never
+    // throw (its own try/catch degrades every failure to a safe
+    // AttResult), but nothing enforces that at the type level — if it
+    // ever did, the guard must still release and the caller must still
+    // get a result rather than hanging forever.
+    if (!nativeSettled.isCompleted) nativeSettled.complete();
+    resultDone = true;
+    maybeReleaseGuard();
+    completer.completeError(e, st);
+  });
+  return completer.future;
+}
+
+Future<AttResult> _requestAttIfNeededImpl({
+  bool Function()? platformIsIosOverride,
+  Future<TrackingStatus> Function()? readStatusOverride,
+  Future<TrackingStatus> Function()? requestAuthorizationOverride,
+  Future<String> Function()? readIdfaOverride,
+  required Completer<void> nativeSettled,
+}) async {
+  const tag = 'AttConsent';
+  // Whether the prompt branch below has taken over responsibility for
+  // completing [nativeSettled] (tied to the raw native future instead of
+  // completing it immediately) — read in the `finally` below.
+  var settledByPrompt = false;
 
   try {
+    final isIos = (platformIsIosOverride ?? () => Platform.isIOS)();
+    if (!isIos) {
+      return const AttResult(status: AttStatus.notSupported);
+    }
+
+    final readStatus = readStatusOverride ??
+        () => AppTrackingTransparency.trackingAuthorizationStatus;
+    final requestAuthorization = requestAuthorizationOverride ??
+        () => AppTrackingTransparency.requestTrackingAuthorization();
+    final readIdfa = readIdfaOverride ??
+        () => AppTrackingTransparency.getAdvertisingIdentifier();
+
     var status = await readStatus();
     SafeLogger.d(tag, () => 'current status=${status.name}');
 
@@ -160,8 +247,11 @@ Future<AttResult> requestAttIfNeeded({
       // only unblocks this function's own caller.
       final releaseAttForm = markUmpFormOnScreen();
       final rawAuthorization = requestAuthorization();
-      unawaited(
-          rawAuthorization.then((_) {}, onError: (_) {}).whenComplete(releaseAttForm));
+      settledByPrompt = true;
+      unawaited(rawAuthorization.then((_) {}, onError: (_) {}).whenComplete(() {
+        releaseAttForm();
+        if (!nativeSettled.isCompleted) nativeSettled.complete();
+      }));
       status = await rawAuthorization.timeout(
         const Duration(seconds: 20),
         onTimeout: () {
@@ -189,5 +279,12 @@ Future<AttResult> requestAttIfNeeded({
     // safe "denied" so callers serve non-personalized ads rather than crash.
     SafeLogger.w(tag, 'ATT request failed, treating as denied: $e');
     return const AttResult(status: AttStatus.denied);
+  } finally {
+    // Every exit path EXCEPT the prompt-shown one (which took over via
+    // `settledByPrompt`, tied to the raw native future instead) has no
+    // outstanding native interaction to wait for — release the guard now.
+    if (!settledByPrompt && !nativeSettled.isCompleted) {
+      nativeSettled.complete();
+    }
   }
 }

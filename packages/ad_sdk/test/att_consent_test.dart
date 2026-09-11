@@ -35,6 +35,10 @@ void main() {
   // leaves that mark set forever otherwise, bleeding into whichever test
   // runs next.
   tearDown(resetUmpFormOnScreen);
+  // T161 — same reasoning, for the duplicate-call guard: it stays held
+  // until the RAW native future settles (see requestAttIfNeeded's doc
+  // comment), which the SAME abandoned-Completer tests above never do.
+  tearDown(resetPendingAttRequest);
 
   group('AttResult.allowsTracking', () {
     test('true for authorized', () {
@@ -180,6 +184,26 @@ void main() {
       );
       expect(result.status, AttStatus.denied);
     });
+
+    // codex re-review (T161, P2) — platformIsIosOverride() (and Platform.isIOS
+    // in real code) is called before any prompt is ever shown; a throw here
+    // has no native interaction to wait for, so the duplicate-call guard
+    // must still release immediately, not hang forever.
+    test('platformIsIosOverride() itself throwing degrades to denied AND '
+        'releases the duplicate-call guard immediately', () async {
+      final result = await requestAttIfNeeded(
+        platformIsIosOverride: () => throw StateError('platform check failed'),
+      );
+      expect(result.status, AttStatus.denied);
+
+      // If the guard were stuck, this second call would hang forever
+      // joining a completer that never resolves — timeout proves it didn't.
+      final second = await requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.authorized,
+      ).timeout(const Duration(seconds: 5));
+      expect(second.status, AttStatus.authorized);
+    });
   });
 
   group('requestAttIfNeeded — prompt hang timeout', () {
@@ -259,6 +283,176 @@ void main() {
             reason: 'must still release once the real alert resolves, '
                 'however much later than the synthetic timeout');
       });
+    });
+  });
+
+  // T161 — a second requestAttIfNeeded() call before the first resolves
+  // (a caller bug, or a user tapping a "grant permission" button twice)
+  // must not present Apple's native prompt a second time.
+  group('requestAttIfNeeded — duplicate-call guard (T161)', () {
+    test(
+        'two overlapping calls before the native prompt resolves only call '
+        'native requestAuthorization once, and both callers get the same '
+        'result', () async {
+      var requestAuthorizationCalls = 0;
+      final promptCompleter = Completer<TrackingStatus>();
+
+      final first = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () {
+          requestAuthorizationCalls++;
+          return promptCompleter.future;
+        },
+      );
+      // Second call fires before the first has resolved — must join the
+      // same in-flight request rather than starting a new one.
+      final second = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () {
+          requestAuthorizationCalls++;
+          return promptCompleter.future;
+        },
+      );
+
+      // Let both calls' async bodies actually run up to (and past) the
+      // requestAuthorization call — issuing the Future above only starts
+      // it; the body suspends at its first `await` (reading status) until
+      // the event loop gets a turn.
+      await Future<void>.delayed(Duration.zero);
+      expect(requestAuthorizationCalls, 1,
+          reason: 'T161 — native requestAuthorization must be called at '
+              'most once while a request is already in flight');
+
+      promptCompleter.complete(TrackingStatus.authorized);
+      final results = await Future.wait([first, second]);
+
+      expect(results[0].status, AttStatus.authorized);
+      expect(results[1].status, AttStatus.authorized,
+          reason: 'the joined call must resolve with the SAME result as '
+              'the in-flight request it joined');
+      expect(requestAuthorizationCalls, 1,
+          reason: 'still exactly one native call after both resolve');
+    });
+
+    test('three overlapping calls all join the same single native call',
+        () async {
+      var requestAuthorizationCalls = 0;
+      final promptCompleter = Completer<TrackingStatus>();
+      Future<TrackingStatus> nativeCall() {
+        requestAuthorizationCalls++;
+        return promptCompleter.future;
+      }
+
+      final futures = [
+        requestAttIfNeeded(
+          platformIsIosOverride: () => true,
+          readStatusOverride: () async => TrackingStatus.notDetermined,
+          requestAuthorizationOverride: nativeCall,
+        ),
+        requestAttIfNeeded(
+          platformIsIosOverride: () => true,
+          readStatusOverride: () async => TrackingStatus.notDetermined,
+          requestAuthorizationOverride: nativeCall,
+        ),
+        requestAttIfNeeded(
+          platformIsIosOverride: () => true,
+          readStatusOverride: () async => TrackingStatus.notDetermined,
+          requestAuthorizationOverride: nativeCall,
+        ),
+      ];
+
+      await Future<void>.delayed(Duration.zero);
+      expect(requestAuthorizationCalls, 1);
+      promptCompleter.complete(TrackingStatus.denied);
+      final results = await Future.wait(futures);
+      expect(results.map((r) => r.status).toSet(), {AttStatus.denied});
+      expect(requestAuthorizationCalls, 1);
+    });
+
+    // codex re-review (T161, round 2, P2) — the native ATT alert closing
+    // is not the end of the work: an `authorized` result still triggers a
+    // readIdfa() call afterward. A second call arriving in exactly that
+    // window must still join the first, not start a fresh, independent
+    // request.
+    test(
+        'a second call arriving after the native alert closes but WHILE '
+        'the IDFA read is still in flight still joins the first call',
+        () async {
+      var requestAuthorizationCalls = 0;
+      var readIdfaCalls = 0;
+      final idfaCompleter = Completer<String>();
+
+      final first = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () {
+          requestAuthorizationCalls++;
+          return Future.value(TrackingStatus.authorized);
+        },
+        readIdfaOverride: () {
+          readIdfaCalls++;
+          return idfaCompleter.future;
+        },
+      );
+
+      // Give the native alert time to "close" (resolve) and the function
+      // to reach its readIdfa() call, which is still pending.
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final second = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () {
+          requestAuthorizationCalls++;
+          return Future.value(TrackingStatus.authorized);
+        },
+        readIdfaOverride: () {
+          readIdfaCalls++;
+          return idfaCompleter.future;
+        },
+      );
+
+      expect(requestAuthorizationCalls, 1,
+          reason: 'T161 (round 2) — the second call must join the first '
+              'even though the native alert has already closed, because '
+              'the first call\'s OWN result (its IDFA read) has not '
+              'finished yet');
+      expect(readIdfaCalls, 1);
+
+      idfaCompleter.complete('11111111-2222-3333-4444-555555555555');
+      final results = await Future.wait([first, second]);
+      expect(results[0].idfa, results[1].idfa);
+      expect(requestAuthorizationCalls, 1);
+      expect(readIdfaCalls, 1);
+    });
+
+    test(
+        'a call AFTER the previous one has fully resolved starts a fresh '
+        'native request (the guard does not stick around)', () async {
+      var requestAuthorizationCalls = 0;
+      Future<TrackingStatus> nativeCall() {
+        requestAuthorizationCalls++;
+        return Future.value(TrackingStatus.authorized);
+      }
+
+      await requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: nativeCall,
+      );
+      expect(requestAuthorizationCalls, 1);
+
+      await requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: nativeCall,
+      );
+      expect(requestAuthorizationCalls, 2,
+          reason: 'a genuinely NEW request, made after the previous one '
+              'already resolved, must not be blocked by a stale guard');
     });
   });
 }

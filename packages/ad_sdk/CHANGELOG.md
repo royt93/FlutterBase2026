@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T161):** `requestAttIfNeeded()` had no guard against overlapping
+  calls — a caller triggering it twice before the first resolved (a bug, or
+  a user tapping a "grant permission" button twice) could present Apple's
+  native ATT prompt a second time, an undocumented and untested interaction.
+  A second call now joins the same in-flight request and resolves with its
+  result instead of triggering native `requestAuthorization` again.
 - **Fix (T159):** `AdSafetyConfig.placementDailyCapReached` used `??` between
   `maxPerPlacementAdsPerDay` and `maxPerPlacementAdsPerDayById` when both had
   an entry for the same placement — whichever map was checked first silently
