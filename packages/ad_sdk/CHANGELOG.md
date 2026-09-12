@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T173):** `DebugAdOverlay`'s slot panel now shows a row for banner/
+  MREC/native too — previously only App Open/Interstitial/Rewarded had one.
+  Unlike those three (exactly one `AdSlot` each), banner/MREC/native are
+  keyed per widget instance, so the new row is a count-by-state summary
+  (`Banner  (2) ready=1 loading=1 fails=0`) across every currently-mounted
+  instance rather than one line per instance.
 - **Fix (T171):** `ProviderFailoverAdvisor(consecutiveFailureThreshold:)`,
   `WaterfallTuner(rollingWindowSize:)`, and `IncidentRecorder(capacity:)`
   now validate their config parameter — a `<= 0` value used to make each

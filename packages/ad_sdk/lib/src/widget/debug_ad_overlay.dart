@@ -182,8 +182,10 @@ class _SlotRows extends StatelessWidget {
             _slotRow('AppOpen ', ad.appOpenSlot),
             _slotRow('Inter   ', ad.interstitialSlot),
             _slotRow('Rewarded', ad.rewardedSlot),
-            // T65 (phase 2): banner is now keyed per BannerAdWidget instance
-            // — no single slot to show here, same as mrec/native already.
+            // T173 — banner/mrec/native have no single AdSlot to subscribe
+            // to (T65 keys them per widget instance instead), so they get
+            // their own polling sub-widget rather than a ValueListenableBuilder.
+            _MultiSlotRows(),
           ],
         );
       },
@@ -196,6 +198,77 @@ class _SlotRows extends StatelessWidget {
         builder: (context, state, _) => Text(
             '$label ${state.name.padRight(9)} fails=${slot.consecutiveFailures}'),
       );
+}
+
+/// T173 — banner/mrec/native previously had no row here at all (see this
+/// class's own history: T65 moved them off a single shared [AdSlot] per
+/// type, onto one per still-mounted widget instance, and nothing filled
+/// this gap back in afterwards) — a dev debugging why a banner/mrec/native
+/// never shows had no state to look at in this panel, unlike AppOpen/
+/// Inter/Rewarded above.
+class _MultiSlotRows extends StatefulWidget {
+  @override
+  State<_MultiSlotRows> createState() => _MultiSlotRowsState();
+}
+
+class _MultiSlotRowsState extends State<_MultiSlotRows> {
+  // Unlike the singleton slots above (each has exactly one AdSlot, directly
+  // listenable), the SET of banner/mrec/native instances itself changes as
+  // widgets mount/unmount — there is no single, fixed listenable to
+  // subscribe to. Polling is the simple, correct-enough answer for a
+  // `kDebugMode`-only diagnostic panel a developer is actively looking at:
+  // only ticks while this row is actually built (the panel expanded), and
+  // is cheap (a handful of enum reads, no allocation of consequence).
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll = Timer.periodic(
+        const Duration(milliseconds: 500), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ad = AdManager().adapter;
+    if (ad == null) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _multiSlotRow('Banner  ', ad.bannerSlots),
+        _multiSlotRow('Mrec    ', ad.mrecSlots),
+        _multiSlotRow('Native  ', ad.nativeSlots),
+      ],
+    );
+  }
+
+  /// Banner/mrec/native can have several simultaneous instances (one per
+  /// still-mounted widget), unlike the singleton AppOpen/Inter/Rewarded
+  /// slots. Summarized as a count-by-state (`ready=2 loading=1`) rather
+  /// than one line per instance: an unbounded per-instance listing would
+  /// grow without limit on a screen showing many banners at once (e.g. a
+  /// list view), which defeats the point of a small diagnostic panel.
+  /// Total consecutive-failure count across every instance is shown
+  /// alongside, same signal `_SlotRows._slotRow` shows per singleton slot.
+  Widget _multiSlotRow(String label, Iterable<AdSlot> slots) {
+    final list = slots.toList(growable: false);
+    if (list.isEmpty) return Text('$label (0)');
+    final counts = <AdSlotState, int>{};
+    var fails = 0;
+    for (final slot in list) {
+      counts.update(slot.state.value, (n) => n + 1, ifAbsent: () => 1);
+      fails += slot.consecutiveFailures;
+    }
+    final summary =
+        counts.entries.map((e) => '${e.key.name}=${e.value}').join(' ');
+    return Text('$label (${list.length}) $summary fails=$fails');
+  }
 }
 
 /// T97 — renders any active `FillRateBaselineMonitor` regression alerts.
