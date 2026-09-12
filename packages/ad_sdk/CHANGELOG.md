@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T166):** `CcpaOptOutToggle` read `AdManager().consentManager?.listenable`
+  exactly once, at `initState()` — if this widget mounted before
+  `AdManager().initialize()` finished (e.g. shown during the first few
+  seconds of a cold start), `consentManager` was still null and the toggle
+  stayed permanently disabled for the rest of that mount, even once init
+  genuinely finished moments later. It now also listens to
+  `AdManager().initRevision` (the same general-purpose "SDK init state
+  changed" signal `BannerAdWidget` already uses for its own analogous
+  problem) and re-attaches to the real listenable the first time it becomes
+  available, so the toggle self-recovers without the host having to leave
+  and re-enter the screen.
 - **Fix (T165):** the fill-rate baseline monitor's day computation
   (`AdPreferences.recordFillRateBaselineSample`/`getFillRateBaselineHistory`,
   `FillRateBaselineMonitor._baselineFor`) used `DateTime.now()` (local time),

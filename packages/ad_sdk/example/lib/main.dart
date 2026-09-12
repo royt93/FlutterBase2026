@@ -686,6 +686,14 @@ class HomePage extends StatelessWidget {
                     builder: (_) => const TestDeviceHashDemoPage())),
           ),
           DemoTile(
+            icon: Icons.toggle_on,
+            title: 'CCPA opt-out toggle (T166)',
+            subtitle: 'Self-recovers if shown before init finishes',
+            color: Colors.brown,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const CcpaToggleDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.cloud_sync,
             title: 'Remote safety provider (T88)',
             subtitle: 'RemoteAdSafetyProvider — live push, no app release',
@@ -3379,6 +3387,39 @@ class StatePanelDemoPage extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────
 // demos/test_device_hash_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
+
+// T166 — CCPA opt-out toggle demo. Deliberately a StatelessWidget with the
+// toggle mounted directly in build(): pushed as the FIRST route (before
+// splash even has a chance to replace it, in the device smoke test) is
+// exactly the "mounted before AdManager().initialize() finished" scenario
+// this task's fix is for.
+class CcpaToggleDemoPage extends StatelessWidget {
+  const CcpaToggleDemoPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('CCPA opt-out toggle')),
+      body: const Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'If this screen is shown before AdManager().initialize() '
+              'finishes, the toggle below starts disabled and must '
+              're-enable itself on its own once init completes — no need '
+              'to leave and come back.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            SizedBox(height: 16),
+            CcpaOptOutToggle(),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // T117 — test device hash demo page. Split out of main.dart.
 

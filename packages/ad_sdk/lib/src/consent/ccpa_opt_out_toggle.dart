@@ -24,7 +24,10 @@ import 'consent_settings.dart';
 /// Requires [AdManager().initialize] to have already completed — the
 /// [ConsentManager] this reads from doesn't exist before then. Shown
 /// disabled (with the same copy) if that hasn't happened yet, rather than
-/// silently doing nothing when tapped.
+/// silently doing nothing when tapped — and (T166) automatically re-enables
+/// itself once init finishes, if this widget is mounted before that point
+/// (e.g. shown during the first few seconds of a cold start) rather than
+/// staying disabled until the host leaves and re-enters the screen.
 class CcpaOptOutToggle extends StatefulWidget {
   const CcpaOptOutToggle({
     super.key,
@@ -43,12 +46,45 @@ class _CcpaOptOutToggleState extends State<CcpaOptOutToggle> {
   @override
   void initState() {
     super.initState();
+    _attachListenable();
+    // T166 — `AdManager().initRevision` bumps once `initialize()` has
+    // fully completed, including `_consentManager` becoming non-null (see
+    // ad_manager.dart, right after the adapter/config are set) — the same
+    // general-purpose "SDK init state changed" signal `BannerAdWidget`
+    // already listens to for its own analogous "was null at mount, may
+    // become available later" problem. Without this, mounting this widget
+    // during the first few seconds of a cold start (before
+    // AdManager().initialize() resolves) left `_listenable` permanently
+    // null: nothing else here ever re-checked it, so the toggle stayed
+    // greyed out for the rest of this mount even once init genuinely
+    // finished moments later — the user had to leave and re-enter the
+    // screen to see it light up.
+    AdManager().initRevision.addListener(_onInitRevisionChanged);
+  }
+
+  void _attachListenable() {
+    _listenable?.removeListener(_onChanged);
     _listenable = AdManager().consentManager?.listenable;
     _listenable?.addListener(_onChanged);
   }
 
+  void _onInitRevisionChanged() {
+    if (!mounted) return;
+    // Only do anything the FIRST time consentManager actually becomes
+    // available — once attached, _onChanged (from the real listenable)
+    // is the only thing that should trigger further rebuilds; a LATER
+    // destroy()/re-init cycle deliberately isn't chased here as it would
+    // need this widget to also handle consentManager going back to null
+    // mid-session, a state showConsentDialog-adjacent surfaces don't
+    // attempt either.
+    if (_listenable != null) return;
+    _attachListenable();
+    if (_listenable != null) setState(() {});
+  }
+
   @override
   void dispose() {
+    AdManager().initRevision.removeListener(_onInitRevisionChanged);
     _listenable?.removeListener(_onChanged);
     super.dispose();
   }

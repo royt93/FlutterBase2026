@@ -114,6 +114,75 @@ void main() {
           reason: 'must be visibly disabled, not silently no-op on tap');
     });
 
+    // T166 — mounted before AdManager().initialize() finishes, then init
+    // finishes WHILE the widget is still on screen. Must self-recover
+    // without the host having to leave and re-enter the screen.
+    testWidgets(
+        'auto-recovers once AdManager finishes initialising, without '
+        'needing to leave and re-enter the screen', (tester) async {
+      final realConsentManager = AdManager().consentManager;
+      AdManager().debugConsentManager = null;
+      await tester.pumpWidget(host(const CcpaOptOutToggle()));
+
+      var s = tester.widget<Switch>(find.byType(Switch));
+      expect(s.onChanged, isNull,
+          reason: 'sanity: starts disabled, same as before this fix');
+
+      // Simulate the rest of a real initialize() call landing: the
+      // ConsentManager becomes available, then initRevision bumps —
+      // exactly the order ad_manager.dart's own initialize() does it in.
+      AdManager().debugConsentManager = realConsentManager;
+      AdManager().initRevision.value = AdManager().initRevision.value + 1;
+      await tester.pump();
+
+      s = tester.widget<Switch>(find.byType(Switch));
+      expect(s.onChanged, isNotNull,
+          reason: 'T166 — must re-enable itself once init genuinely '
+              'finishes, without remounting');
+
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      expect(AdManager().doNotSell, isTrue,
+          reason: 'the recovered toggle must be a REAL, working switch, '
+              'not just visually re-enabled');
+    });
+
+    testWidgets(
+        'an initRevision bump with NO ConsentManager available yet stays '
+        'disabled (not a false recovery)', (tester) async {
+      AdManager().debugConsentManager = null;
+      await tester.pumpWidget(host(const CcpaOptOutToggle()));
+
+      AdManager().initRevision.value = AdManager().initRevision.value + 1;
+      await tester.pump();
+
+      final s = tester.widget<Switch>(find.byType(Switch));
+      expect(s.onChanged, isNull,
+          reason: 'T166 — initRevision alone proves nothing; the toggle '
+              'must actually re-check consentManager, not assume init '
+              'succeeded just because the revision counter moved');
+    });
+
+    testWidgets(
+        'a LATER initRevision bump, after already having recovered once, '
+        'does not re-attach or misbehave', (tester) async {
+      final realConsentManager = AdManager().consentManager;
+      AdManager().debugConsentManager = null;
+      await tester.pumpWidget(host(const CcpaOptOutToggle()));
+
+      AdManager().debugConsentManager = realConsentManager;
+      AdManager().initRevision.value = AdManager().initRevision.value + 1;
+      await tester.pump();
+      expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNotNull);
+
+      // A further bump (e.g. a later destroy()+reinit cycle) must not
+      // throw or double-attach a listener.
+      AdManager().initRevision.value = AdManager().initRevision.value + 1;
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNotNull);
+    });
+
     testWidgets('accepts custom strings (localisation)', (tester) async {
       await tester.pumpWidget(host(const CcpaOptOutToggle(
         strings: CcpaOptOutStrings.vi,
