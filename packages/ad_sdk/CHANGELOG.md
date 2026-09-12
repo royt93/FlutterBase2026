@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T171):** `ProviderFailoverAdvisor(consecutiveFailureThreshold:)`,
+  `WaterfallTuner(rollingWindowSize:)`, and `IncidentRecorder(capacity:)`
+  now validate their config parameter — a `<= 0` value used to make each
+  class misbehave silently or crash instead of doing what a dev almost
+  certainly intended: `consecutiveFailureThreshold <= 0` recommended a
+  provider failover immediately, with zero real failures; `rollingWindowSize
+  <= 0` silently disabled all sample tracking (0) or threw a `RangeError`
+  on the very first trim (negative); `capacity <= 0` threw a `RangeError`
+  on the very first `record()` in release builds, where the class's old
+  bare `assert` is stripped. All three now log a `SafeLogger.w` warning and
+  substitute that class's own existing default instead.
 - **Internal (T170):** silenced the `deprecated_member_use` warning
   `flutter analyze` raised on `TickerMode.of` in `BannerAdWidget`/
   `MrecAdWidget`. Flutter's own replacement (`TickerMode.valuesOf`) doesn't

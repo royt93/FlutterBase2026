@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../config/ad_config.dart';
 import '../state/ad_sdk_state_snapshot.dart';
+import '../utils/safe_logger.dart';
 import 'compliance_signing.dart';
 
 /// T125 — one state-transition observation: a labeled cause plus the SDK's
@@ -64,7 +65,29 @@ class IncidentEntry {
 /// point-in-time diagnostics snapshot alone. [capacity] is small on purpose:
 /// this is a short recent window, not an audit trail.
 class IncidentRecorder {
-  IncidentRecorder({this.capacity = 200}) : assert(capacity > 0);
+  static const _tag = 'IncidentRecorder';
+  static const _defaultCapacity = 200;
+
+  IncidentRecorder({int capacity = _defaultCapacity})
+      : capacity = _validCapacity(capacity);
+
+  /// T171 — this class used to have a bare `assert(capacity > 0)`, which
+  /// release builds strip (asserts are debug-only): a `<= 0` value that
+  /// slipped through in production reached [record]'s `removeRange(0,
+  /// _entries.length - capacity)` and threw a `RangeError` on the very
+  /// first call (a negative `capacity` makes the end index exceed the
+  /// list's length even when it's empty). Substituting the default rather
+  /// than throwing/asserting keeps a dev's config typo from crashing the
+  /// app in ANY build mode, debug included.
+  static int _validCapacity(int value) {
+    if (value <= 0) {
+      SafeLogger.w(_tag,
+          'capacity=$value is <= 0 (would throw on the next record()) — '
+          'using default $_defaultCapacity instead');
+      return _defaultCapacity;
+    }
+    return value;
+  }
 
   final int capacity;
   final List<IncidentEntry> _entries = [];

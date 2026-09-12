@@ -157,4 +157,34 @@ void main() {
       expect(await verifySignedJsonPayload(tampered.toJsonString()), isFalse);
     });
   });
+
+  group('T171 — capacity <= 0 falls back to the default instead of '
+      'crashing on the first record()', () {
+    test('capacity=0 still records instead of RangeError-ing immediately',
+        () {
+      final recorder = IncidentRecorder(capacity: 0);
+      // T171 — with the old bare `assert(capacity > 0)` (stripped in
+      // release builds), a 0 here made `removeRange(0, _entries.length -
+      // capacity)` run with `_entries.length - 0 == _entries.length` right
+      // after the very first add — same end as start, which is valid and
+      // just clears the buffer straight back to empty (a silent, not a
+      // crashing, bug). The real crash was for negative — see below.
+      recorder.record('boot', _snapA, now: DateTime(2026, 1, 1));
+      expect(recorder.capacity, 200,
+          reason: 'substituted the class\'s own documented default');
+      expect(recorder.entries, hasLength(1));
+    });
+
+    test('a negative capacity also falls back instead of throwing a '
+        'RangeError on the very first record()', () {
+      final recorder = IncidentRecorder(capacity: -5);
+      expect(recorder.capacity, 200);
+      // Old bug: entries.length(0) - capacity(-5) == 5, and
+      // removeRange(0, 5) on a still-empty list throws a RangeError —
+      // this used to crash on the FIRST call, not just once the buffer
+      // filled up.
+      recorder.record('boot', _snapA, now: DateTime(2026, 1, 1));
+      expect(recorder.entries, hasLength(1));
+    });
+  });
 }

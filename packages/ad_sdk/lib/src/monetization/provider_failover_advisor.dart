@@ -4,6 +4,7 @@ import '../config/ad_config.dart';
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
 import '../utils/ad_preferences.dart';
+import '../utils/safe_logger.dart';
 
 /// Maps an [AdLoadEvent.providerTag] (`'[AdMob]'`/`'[AppLovin]'`) back to
 /// the [AdProvider] it came from — `null` for anything else (e.g. a test
@@ -38,6 +39,9 @@ AdProvider? _providerForTag(String? tag) => switch (tag) {
 /// Completely opt-in via `AdManager().enableProviderFailoverAdvisor(...)` —
 /// nothing is tracked unless a host app calls that.
 class ProviderFailoverAdvisor {
+  static const _tag = 'ProviderFailoverAdvisor';
+  static const _defaultConsecutiveFailureThreshold = 5;
+
   /// [persist] (default `true`) is what makes this class's whole purpose
   /// possible: the failing session and the host reading
   /// [shouldFailoverNextSession] are, by definition, two different app
@@ -47,10 +51,33 @@ class ProviderFailoverAdvisor {
   /// read back as 0 on the very call site that needs it. Set to `false`
   /// only for a purely in-memory, single-session use (e.g. tests).
   ProviderFailoverAdvisor({
-    this.consecutiveFailureThreshold = 5,
+    int consecutiveFailureThreshold = _defaultConsecutiveFailureThreshold,
     bool persist = true,
-  }) : _persist = persist {
+  })  : consecutiveFailureThreshold =
+            _validThreshold(consecutiveFailureThreshold),
+        _persist = persist {
     _ready = _init();
+  }
+
+  /// T171 — a value `<= 0` would make [shouldFailoverNextSession] read
+  /// `true` (`_consecutiveFailures >= threshold`, and `_consecutiveFailures`
+  /// starts at 0) before a single real failure ever happened — a
+  /// misconfigured host would get an immediate, silent failover
+  /// recommendation with no failures behind it. Substituting the default
+  /// rather than throwing/asserting keeps a dev's config typo from crashing
+  /// the app in ANY build mode, debug included — a thrown assert here would
+  /// take down the whole app over a config mistake this class can recover
+  /// from on its own.
+  static int _validThreshold(int value) {
+    if (value <= 0) {
+      SafeLogger.w(
+          _tag,
+          'consecutiveFailureThreshold=$value is <= 0 (would recommend '
+          'failover immediately, with zero real failures) — using default '
+          '$_defaultConsecutiveFailureThreshold instead');
+      return _defaultConsecutiveFailureThreshold;
+    }
+    return value;
   }
 
   /// Below this many consecutive load failures, [shouldFailoverNextSession]

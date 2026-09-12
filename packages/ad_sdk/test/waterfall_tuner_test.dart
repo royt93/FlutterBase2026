@@ -291,4 +291,48 @@ void main() {
             'time dispose() returns, not just whichever had already '
             'settled before dispose() happened to be called');
   });
+
+  group('T171 — rollingWindowSize <= 0 falls back to the default instead of '
+      'silently disabling all sample tracking', () {
+    test('rollingWindowSize=0 still accumulates samples (would otherwise '
+        'trim every list back to empty right after each add)', () async {
+      final t = WaterfallTuner(rollingWindowSize: 0, persist: false);
+      await t.ready;
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AdMob]', success: i.isEven);
+      }
+      emitRevenue('[AdMob]', 1000);
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AppLovin]', success: true);
+      }
+      emitRevenue('[AppLovin]', 50000);
+      await Future<void>.delayed(Duration.zero);
+
+      final rec = t.recommendation(
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.home,
+        currentProvider: '[AdMob]',
+      );
+      expect(rec, isNotNull,
+          reason: 'T171 — with the old bug, rollingWindowSize=0 trimmed '
+              'every rolling list back to empty right after each add, so '
+              'recommendation() could never see enough samples and would '
+              'always return null here regardless of how many events fired');
+      expect(rec!.recommendedProvider, '[AppLovin]');
+      await t.dispose();
+    });
+
+    test('a negative rollingWindowSize also falls back instead of throwing '
+        'a RangeError on the first trim', () async {
+      final t = WaterfallTuner(rollingWindowSize: -4, persist: false);
+      await t.ready;
+      // T171 — with the old bug this event's async delivery to _onEvent
+      // threw an uncaught RangeError (sublist(length - (-4)) starts past
+      // the list's own length). No throw reaching here, and the flush
+      // below completing normally, is the proof it no longer does.
+      emitLoad('[AdMob]', success: true);
+      await Future<void>.delayed(Duration.zero);
+      await t.dispose();
+    });
+  });
 }

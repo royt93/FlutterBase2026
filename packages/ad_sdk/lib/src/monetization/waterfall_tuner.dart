@@ -6,6 +6,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/ad_preferences.dart';
+import '../utils/safe_logger.dart';
 
 /// A local recommendation: switch [type]/[placement] to [recommendedProvider]
 /// next session, based on trailing fill-rate and eCPM across both providers.
@@ -63,6 +64,9 @@ class WaterfallRecommendation {
 /// Across enough of those sessions, [recommendation] can genuinely return
 /// non-null on a single real device — not just across installs.
 class WaterfallTuner {
+  static const _tag = 'WaterfallTuner';
+  static const _defaultRollingWindowSize = 20;
+
   /// [persist] (default `true`) is what actually closes the "sits dead
   /// forever" gap noted in this class's own doc comment above — without
   /// it, every sample [_onEvent] records is lost the moment this instance
@@ -71,10 +75,31 @@ class WaterfallTuner {
   /// could never accumulate into anything [recommendation] could compare.
   /// Set to `false` only for a host that wants a purely in-memory,
   /// single-session tuner (e.g. tests, or a host with its own persistence).
-  WaterfallTuner({int rollingWindowSize = 20, bool persist = true})
-      : _rollingWindowSize = rollingWindowSize,
+  WaterfallTuner({
+    int rollingWindowSize = _defaultRollingWindowSize,
+    bool persist = true,
+  })  : _rollingWindowSize = _validWindowSize(rollingWindowSize),
         _persist = persist {
     _ready = _init();
+  }
+
+  /// T171 — `0` silently disables sample tracking (every rolling list gets
+  /// trimmed back to empty right after each add, so [recommendation] can
+  /// never see enough samples); negative throws a `RangeError` the first
+  /// time a trailing window is trimmed (`sublist` with a start past the
+  /// list's own length). Substituting the default rather than
+  /// throwing/asserting keeps a dev's config typo from crashing the app in
+  /// ANY build mode, debug included.
+  static int _validWindowSize(int value) {
+    if (value <= 0) {
+      SafeLogger.w(
+          _tag,
+          'rollingWindowSize=$value is <= 0 (0 silently disables sample '
+          'tracking, negative throws) — using default '
+          '$_defaultRollingWindowSize instead');
+      return _defaultRollingWindowSize;
+    }
+    return value;
   }
 
   final int _rollingWindowSize;

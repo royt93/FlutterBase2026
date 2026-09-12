@@ -224,4 +224,45 @@ void main() {
       await advisor.dispose();
     });
   });
+
+  group('T171 — consecutiveFailureThreshold <= 0 falls back to the default '
+      'instead of recommending failover with zero real failures', () {
+    test('threshold=0 does not immediately read as "should fail over"',
+        () async {
+      final advisor = ProviderFailoverAdvisor(
+          consecutiveFailureThreshold: 0, persist: false);
+      await advisor.ready;
+      expect(advisor.shouldFailoverNextSession, isFalse,
+          reason: 'T171 — a misconfigured 0 threshold must not make this '
+              'true with zero failures ever recorded');
+      expect(advisor.consecutiveFailureThreshold, 5,
+          reason: 'substituted the class\'s own documented default');
+      await advisor.dispose();
+    });
+
+    test('a negative threshold also falls back to the default', () async {
+      final advisor = ProviderFailoverAdvisor(
+          consecutiveFailureThreshold: -3, persist: false);
+      await advisor.ready;
+      expect(advisor.shouldFailoverNextSession, isFalse);
+      expect(advisor.consecutiveFailureThreshold, 5);
+      await advisor.dispose();
+    });
+
+    test('the substituted default still behaves like a real threshold — '
+        'takes exactly 5 consecutive failures to trip', () async {
+      final advisor = ProviderFailoverAdvisor(
+          consecutiveFailureThreshold: 0, persist: false);
+      await advisor.ready;
+      for (var i = 0; i < 4; i++) {
+        AdManager().debugEmit(_load(false));
+      }
+      await _flush();
+      expect(advisor.shouldFailoverNextSession, isFalse);
+      AdManager().debugEmit(_load(false));
+      await _flush();
+      expect(advisor.shouldFailoverNextSession, isTrue);
+      await advisor.dispose();
+    });
+  });
 }
