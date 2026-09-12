@@ -187,6 +187,9 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     }
     // Round-31 audit fix (MAJOR) — see `_lastTickerMode`'s doc comment and
     // `BannerAdWidget`'s matching hook, which this mirrors.
+    // T170 — see BannerAdWidget's matching hook for why this stays on the
+    // deprecated `of` (suppressed) instead of migrating to `valuesOf`.
+    // ignore: deprecated_member_use
     final tickerMode = TickerMode.of(context);
     final lastTickerMode = _lastTickerMode;
     _lastTickerMode = tickerMode;

@@ -414,6 +414,14 @@ class _BannerAdWidgetState extends State<BannerAdWidget> with RouteAware {
     // Routed through the existing didPushNext/didPopNext handlers so this
     // shares their exact pause/dispose and resume/reload logic rather than
     // duplicating it.
+    // T170 — TickerMode.of was deprecated after Flutter v3.35.0-0.0.pre in
+    // favor of valuesOf, but valuesOf doesn't exist before that version and
+    // this package declares `flutter: '>=3.27.0'` in pubspec.yaml — switching
+    // would compile-fail for any consumer still on an older Flutter (codex
+    // review caught this). Suppressing is the same workaround Flutter's own
+    // deprecation doc comment on `of` recommends; revisit once the package's
+    // floor moves past 3.35.
+    // ignore: deprecated_member_use
     final tickerMode = TickerMode.of(context);
     final lastTickerMode = _lastTickerMode;
     _lastTickerMode = tickerMode;

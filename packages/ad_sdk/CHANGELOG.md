@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Internal (T170):** silenced the `deprecated_member_use` warning
+  `flutter analyze` raised on `TickerMode.of` in `BannerAdWidget`/
+  `MrecAdWidget`. Flutter's own replacement (`TickerMode.valuesOf`) doesn't
+  exist before v3.35.0-0.0.pre, and this package still declares
+  `flutter: '>=3.27.0'` in `pubspec.yaml` — switching now would compile-fail
+  for any consumer on an older Flutter, so the call itself stays and the
+  warning is suppressed with `// ignore: deprecated_member_use` instead
+  (the same workaround Flutter's own deprecation doc comment on `of`
+  recommends). No behavior change.
 - **New (T168):** App Open (and every other fullscreen ad path) could show
   over a host's own custom overlay (e.g. a manually-inserted `OverlayEntry`
   via `Overlay.of(context).insert(...)`) — `AdScreenRouteLogger.isDialogOnTop`
