@@ -6,6 +6,18 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T167):** the consent dialog's ad-partners caption unconditionally
+  read `'Ad partners: Google AdMob, AppLovin'`, regardless of which network
+  the app is actually configured for — this SDK supports exactly one active
+  provider per app (AdMob XOR AppLovin, never both at once), so this
+  overstated who receives the user's data for every single integration, not
+  just a rare misconfiguration. `ConsentDialogStrings.adPartnersLabel`'s
+  default now contains a `{providers}` token
+  (`ConsentDialogStrings.autoProvidersToken`), auto-substituted by
+  `AdManager`/`ConsentManager` with the network the app's `AdConfig.provider`
+  actually names. A fully custom `adPartnersLabel` (no token in it) is left
+  untouched; a custom template that reuses the token still gets real
+  substitution.
 - **Fix (T166):** `CcpaOptOutToggle` read `AdManager().consentManager?.listenable`
   exactly once, at `initState()` — if this widget mounted before
   `AdManager().initialize()` finished (e.g. shown during the first few

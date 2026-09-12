@@ -4,7 +4,9 @@
 // (Allow/Reject/dismiss), programmatic set/reset, persistence round-trip,
 // and the reactive listenable.
 
-import 'package:applovin_admob_sdk/src/config/ad_log_level.dart';
+import 'dart:async';
+
+import 'package:applovin_admob_sdk/src/config/ad_config.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
@@ -287,6 +289,111 @@ void main() {
     expect(result, ConsentSettings.unset);
     expect(m.current.hasBeenAsked, isFalse,
         reason: 'dismiss-without-choice must not mark hasBeenAsked');
+  });
+
+  // T167 — the ad-partners caption must name the network this app is
+  // actually configured for (via the `config` param), not unconditionally
+  // both, since this SDK supports exactly one active provider per app.
+  group('showDialog names the real configured provider (T167)', () {
+    testWidgets('AdConfig.provider: admob shows only "Google AdMob"',
+        (tester) async {
+      final m = await ConsentManager.bootstrap(prefs: prefs, strings: const ConsentDialogStrings());
+
+      late BuildContext capturedContext;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(builder: (context) {
+          capturedContext = context;
+          return const SizedBox();
+        }),
+      ));
+
+      unawaited(m.showDialog(
+        capturedContext,
+        config: const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+              bannerId: 'b', interstitialId: 'i', appOpenId: 'a'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ad partners: Google AdMob'), findsOneWidget);
+      expect(find.textContaining('AppLovin'), findsNothing);
+
+      await tester.tap(find.text(ConsentDialogStrings().rejectButton));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('AdConfig.provider: appLovin shows only "AppLovin"',
+        (tester) async {
+      final m = await ConsentManager.bootstrap(prefs: prefs, strings: const ConsentDialogStrings());
+
+      late BuildContext capturedContext;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(builder: (context) {
+          capturedContext = context;
+          return const SizedBox();
+        }),
+      ));
+
+      unawaited(m.showDialog(
+        capturedContext,
+        config: const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+            sdkKey: 'sdk',
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ad partners: AppLovin'), findsOneWidget);
+      expect(find.textContaining('Google AdMob'), findsNothing);
+
+      await tester.tap(find.text(ConsentDialogStrings().rejectButton));
+      await tester.pumpAndSettle();
+    });
+
+    // codex re-review (P2) — the auto-show flow skips calling showDialog
+    // entirely once the user was already asked in a PRIOR session
+    // (hasBeenAsked), so a returning user's fresh session could reach a
+    // documented config-less settings-page re-show having never once
+    // called showDialog with a config this session. noteProvider() must
+    // be the thing carrying it, called unconditionally by
+    // AdManager.initialize (simulated directly here, since driving a full
+    // real initialize() is out of scope for this file).
+    testWidgets(
+        'a config-less re-show (documented Privacy-settings-page usage) '
+        'still names the real provider, once noteProvider() has been '
+        'called at least once this session', (tester) async {
+      final m = await ConsentManager.bootstrap(
+          prefs: prefs, strings: const ConsentDialogStrings());
+      m.noteProvider(AdProvider.admob);
+
+      late BuildContext capturedContext;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(builder: (context) {
+          capturedContext = context;
+          return const SizedBox();
+        }),
+      ));
+
+      // No `config:` at all — the exact documented re-show call shape.
+      unawaited(m.showDialog(capturedContext));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ad partners: Google AdMob'), findsOneWidget,
+          reason: 'T167 (codex re-review) — a config-less re-show must '
+              'still use the provider noted earlier this session, not '
+              'regress to naming both networks');
+
+      await tester.tap(find.text(ConsentDialogStrings().rejectButton));
+      await tester.pumpAndSettle();
+    });
   });
 
   testWidgets(

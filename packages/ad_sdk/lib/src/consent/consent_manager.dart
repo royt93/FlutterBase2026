@@ -92,6 +92,25 @@ class ConsentManager {
   final AdPreferences _prefs;
   ConsentDialogStrings _strings;
 
+  /// T167 — remembers the app's configured provider so a LATER [showDialog]
+  /// call with no [AdConfig] at all — documented as legal, e.g. a re-show
+  /// from a host's own Privacy settings page — still names the real
+  /// configured network instead of falling back to naming both.
+  ///
+  /// Populated by [AdManager.initialize] via [noteProvider] on EVERY
+  /// successful init (see that call site), not only when [showDialog]
+  /// itself happens to be given one: the auto-show flow skips calling
+  /// [showDialog] entirely once the user has already been asked in a
+  /// PRIOR session (`hasBeenAsked`), so a returning user's fresh session
+  /// could otherwise reach a settings-page re-show having never once
+  /// called this with a config at all.
+  AdProvider? _lastKnownProvider;
+
+  /// See [_lastKnownProvider]. Public so [AdManager] (which owns the
+  /// current session's [AdConfig]) can call it unconditionally right after
+  /// bootstrapping this instance.
+  void noteProvider(AdProvider provider) => _lastKnownProvider = provider;
+
   /// Round-39 audit fix (MAJOR) — serializes every [_persist] call after
   /// whatever previous one is still in flight, same intent as
   /// `AdEventLog._persistChain`, so two overlapping `set()`/`reset()` calls'
@@ -220,12 +239,24 @@ class ConsentManager {
           'onPrivacyPolicyTap is set — this consent dialog has no way for '
           'the user to reach your privacy policy. Set one of them.');
     }
+    // Defensive extra layer alongside AdManager.initialize's own
+    // unconditional noteProvider() call — see _lastKnownProvider's doc
+    // comment for why relying on THAT call alone was not enough.
+    if (config != null) noteProvider(config.provider);
     final result = await showConsentDialog(
       context,
       strings: _strings,
       current: _current,
       barrierDismissible: barrierDismissible,
       onPrivacyPolicyTap: onPrivacyPolicyTap,
+      // T167 — the ad partners caption must name the network(s) this app
+      // is ACTUALLY configured for, not unconditionally both (this SDK
+      // supports exactly one active provider per app at a time).
+      autoProviderNames: switch (_lastKnownProvider) {
+        AdProvider.admob => 'Google AdMob',
+        AdProvider.appLovin => 'AppLovin',
+        null => null,
+      },
     );
     if (result == null) {
       SafeLogger.d(_tag, 'dialog dismissed without choice');

@@ -13,7 +13,7 @@ class ConsentDialogStrings {
     this.rejectButton = 'No thanks',
     this.privacyPolicyLabel = 'Privacy Policy',
     this.privacyPolicyUrl,
-    this.adPartnersLabel = 'Ad partners: Google AdMob, AppLovin',
+    this.adPartnersLabel = 'Ad partners: $autoProvidersToken',
   });
 
   final String title;
@@ -29,7 +29,24 @@ class ConsentDialogStrings {
 
   /// Small transparency caption naming the ad networks that may receive
   /// consent signals from this dialog. Set to `null` to hide it.
+  ///
+  /// T167 — the default contains [autoProvidersToken] (`'{providers}'`),
+  /// which `showConsentDialog` substitutes with the network(s) this app is
+  /// ACTUALLY configured for (`AdConfig.provider`) at render time — this
+  /// SDK supports exactly one active provider per app (AdMob XOR AppLovin,
+  /// never both at once; see [AdProvider]), so naming both unconditionally
+  /// (the pre-T167 hardcoded default) misstated who receives the user's
+  /// data for every single integration, not just a rare misconfiguration.
+  /// A custom string with no [autoProvidersToken] in it (a full manual
+  /// override) is used exactly as given, with no substitution — this only
+  /// touches the SDK's own default.
   final String? adPartnersLabel;
+
+  /// T167 — substituted for the real, actually-configured ad network
+  /// name(s) inside [adPartnersLabel] at render time. Only present in the
+  /// two SDK-provided defaults below; a fully custom [adPartnersLabel]
+  /// naturally has none of these and is left untouched.
+  static const autoProvidersToken = '{providers}';
 
   /// Convenience: Vietnamese-localised strings.
   static const ConsentDialogStrings vi = ConsentDialogStrings(
@@ -42,6 +59,6 @@ class ConsentDialogStrings {
     allowButton: 'Đồng ý',
     rejectButton: 'Từ chối',
     privacyPolicyLabel: 'Chính sách bảo mật',
-    adPartnersLabel: 'Đối tác quảng cáo: Google AdMob, AppLovin',
+    adPartnersLabel: 'Đối tác quảng cáo: $autoProvidersToken',
   );
 }

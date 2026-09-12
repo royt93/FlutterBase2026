@@ -9,6 +9,7 @@ void main() {
     WidgetTester tester, {
     ConsentDialogStrings strings = const ConsentDialogStrings(),
     void Function(String url)? onPrivacyPolicyTap,
+    String? autoProviderNames,
   }) async {
     await tester.pumpWidget(MaterialApp(
       home: Builder(
@@ -18,6 +19,7 @@ void main() {
             strings: strings,
             current: ConsentSettings.unset,
             onPrivacyPolicyTap: onPrivacyPolicyTap,
+            autoProviderNames: autoProviderNames,
           ),
           child: const Text('open'),
         ),
@@ -43,6 +45,77 @@ void main() {
     );
 
     expect(find.textContaining('Ad partners'), findsNothing);
+  });
+
+  // T167 — the caption must name only the ad network(s) this app is
+  // ACTUALLY configured for (this SDK supports exactly one active provider
+  // per app at a time, never both simultaneously), not unconditionally
+  // both regardless of real configuration.
+  group('ad-partners caption names the real configured provider (T167)', () {
+    testWidgets('AdMob-only app shows only "Google AdMob"', (tester) async {
+      await pumpDialog(tester, autoProviderNames: 'Google AdMob');
+
+      expect(find.text('Ad partners: Google AdMob'), findsOneWidget);
+      expect(find.textContaining('AppLovin'), findsNothing,
+          reason: 'T167 — an AdMob-only app must not name AppLovin, which '
+              'it never actually sends any data to');
+    });
+
+    testWidgets('AppLovin-only app shows only "AppLovin"', (tester) async {
+      await pumpDialog(tester, autoProviderNames: 'AppLovin');
+
+      expect(find.text('Ad partners: AppLovin'), findsOneWidget);
+      expect(find.textContaining('Google AdMob'), findsNothing,
+          reason: 'T167 — an AppLovin-only app must not name AdMob, which '
+              'it never actually sends any data to');
+    });
+
+    testWidgets(
+        'no autoProviderNames passed (e.g. a caller with no provider '
+        'context) falls back to the original both-networks wording',
+        (tester) async {
+      await pumpDialog(tester); // no autoProviderNames — same as before T167
+
+      expect(find.text('Ad partners: Google AdMob, AppLovin'), findsOneWidget,
+          reason: 'T167 — backward compatible for any caller (this is '
+              'public API) that cannot supply provider info');
+    });
+
+    testWidgets(
+        'a fully custom adPartnersLabel with no {providers} token is used '
+        'verbatim, not substituted into', (tester) async {
+      await pumpDialog(
+        tester,
+        strings: const ConsentDialogStrings(
+            adPartnersLabel: 'We share data with our own custom partner'),
+        autoProviderNames: 'Google AdMob',
+      );
+
+      expect(
+          find.text('We share data with our own custom partner'),
+          findsOneWidget,
+          reason: 'T167 — a dev\'s own custom string (no substitution '
+              'token in it) must never be silently rewritten');
+      expect(find.textContaining('Google AdMob'), findsNothing);
+    });
+
+    testWidgets(
+        'a custom adPartnersLabel that DOES reuse the {providers} token '
+        'still gets it substituted', (tester) async {
+      await pumpDialog(
+        tester,
+        strings: const ConsentDialogStrings(
+            adPartnersLabel:
+                'Partners we work with: ${ConsentDialogStrings.autoProvidersToken}'),
+        autoProviderNames: 'Google AdMob',
+      );
+
+      expect(find.text('Partners we work with: Google AdMob'),
+          findsOneWidget,
+          reason: 'T167 — a dev reusing the documented token in their own '
+              'custom template must still get real substitution, not just '
+              'the SDK-authored default strings');
+    });
   });
 
   testWidgets(

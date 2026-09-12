@@ -50,7 +50,31 @@ Future<ConsentDialogResult> showConsentDialog(
   required ConsentSettings current,
   bool barrierDismissible = false,
   void Function(String url)? onPrivacyPolicyTap,
+  // T167 — the actual ad network name(s) this app is configured for
+  // (`AdConfig.provider`, resolved by the caller — `ConsentManager
+  // .showDialog`, which has the `AdConfig`), substituted into
+  // [ConsentDialogStrings.adPartnersLabel]'s
+  // [ConsentDialogStrings.autoProvidersToken] at render time. Left null
+  // (falls back to naming both networks, the exact pre-T167 wording) for a
+  // caller — this is public API, so a host may call it directly — that
+  // doesn't have provider info to pass.
+  String? autoProviderNames,
 }) {
+  final resolvedStrings = strings.adPartnersLabel?.contains(
+              ConsentDialogStrings.autoProvidersToken) ==
+          true
+      ? ConsentDialogStrings(
+          title: strings.title,
+          message: strings.message,
+          allowButton: strings.allowButton,
+          rejectButton: strings.rejectButton,
+          privacyPolicyLabel: strings.privacyPolicyLabel,
+          privacyPolicyUrl: strings.privacyPolicyUrl,
+          adPartnersLabel: strings.adPartnersLabel!.replaceAll(
+              ConsentDialogStrings.autoProvidersToken,
+              autoProviderNames ?? 'Google AdMob, AppLovin'),
+        )
+      : strings;
   return showGeneralDialog<ConsentSettings>(
     context: context,
     barrierDismissible: barrierDismissible,
@@ -76,7 +100,7 @@ Future<ConsentDialogResult> showConsentDialog(
     pageBuilder: (ctx, _, __) => PopScope(
       canPop: barrierDismissible,
       child: _ConsentBinaryDialog(
-        strings: strings,
+        strings: resolvedStrings,
         current: current,
         onPrivacyPolicyTap: onPrivacyPolicyTap,
       ),

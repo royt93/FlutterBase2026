@@ -3109,6 +3109,12 @@ class AdManager with WidgetsBindingObserver {
       }
       _consentManager = consentMgr;
       _consent = consentMgr.adConsent;
+      // T167 — unconditionally, on EVERY successful init, not only when
+      // the auto-show consent dialog actually fires (it skips entirely
+      // once a PRIOR session already recorded an answer — hasBeenAsked —
+      // so a returning user's session could otherwise never populate
+      // this at all before a later settings-page re-show).
+      consentMgr.noteProvider(config.provider);
 
       // B2 fix (audit_claude.md) — a caller (e.g. requestUmpConsent(), or a
       // host's own setConsent(isAgeRestrictedUser: true) for COPPA) may have
