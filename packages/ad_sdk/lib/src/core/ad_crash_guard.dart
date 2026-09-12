@@ -69,6 +69,8 @@ void _recoverSlots() {
 /// ever made in the process.
 void Function(FlutterErrorDetails)? _installedOnError;
 bool Function(Object, StackTrace)? _installedOnPlatformError;
+void Function(FlutterErrorDetails)? _previousOnError;
+bool Function(Object, StackTrace)? _previousOnPlatformError;
 
 /// Registers a process-wide crash guard for exceptions attributable to this
 /// ad SDK, so a bug in an ad callback recovers the affected slot instead of
@@ -89,6 +91,7 @@ void installAdCrashGuard() {
     return;
   }
   final previousOnError = FlutterError.onError;
+  _previousOnError = previousOnError;
   void onError(FlutterErrorDetails details) {
     if (isSdkAttributable(details.stack ?? StackTrace.empty)) {
       SafeLogger.e(
@@ -107,6 +110,7 @@ void installAdCrashGuard() {
   _installedOnError = onError;
 
   final previousOnPlatformError = PlatformDispatcher.instance.onError;
+  _previousOnPlatformError = previousOnPlatformError;
   bool onPlatformError(Object error, StackTrace stack) {
     if (isSdkAttributable(stack)) {
       SafeLogger.e(_tag, 'caught SDK-attributable platform error: $error');
@@ -120,4 +124,20 @@ void installAdCrashGuard() {
 
   PlatformDispatcher.instance.onError = onPlatformError;
   _installedOnPlatformError = onPlatformError;
+}
+
+/// Removes the guard only when it still owns each global handler. A host
+/// replacement made after installation is preserved.
+void uninstallAdCrashGuard() {
+  if (identical(FlutterError.onError, _installedOnError)) {
+    FlutterError.onError = _previousOnError;
+  }
+  if (identical(
+      PlatformDispatcher.instance.onError, _installedOnPlatformError)) {
+    PlatformDispatcher.instance.onError = _previousOnPlatformError;
+  }
+  _installedOnError = null;
+  _installedOnPlatformError = null;
+  _previousOnError = null;
+  _previousOnPlatformError = null;
 }

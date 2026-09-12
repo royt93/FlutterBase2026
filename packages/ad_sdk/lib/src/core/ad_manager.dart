@@ -2853,6 +2853,7 @@ class AdManager with WidgetsBindingObserver {
 
       if (config.enableCrashGuard) {
         installAdCrashGuard();
+        _ownsCrashGuard = true;
       }
 
       final prefs = await AdPreferences.getInstance();
@@ -5902,6 +5903,8 @@ class AdManager with WidgetsBindingObserver {
   /// [initialize], which waits on it rather than racing it.
   Future<void>? _destroyInFlight;
 
+  bool _ownsCrashGuard = false;
+
   /// Test seam: whether a teardown is currently in flight.
   @visibleForTesting
   bool get debugDestroyInFlight => _destroyInFlight != null;
@@ -5965,6 +5968,10 @@ class AdManager with WidgetsBindingObserver {
     // connectivity watch into the torn-down SDK, then reported success. See
     // [_initSuperseded].
     _initGen++;
+    if (_ownsCrashGuard) {
+      uninstallAdCrashGuard();
+      _ownsCrashGuard = false;
+    }
     // A host tearing the SDK down while an init is still in flight would
     // otherwise leave anyone parked by the duplicate guard waiting on a
     // callback nothing will ever fire.
