@@ -1,5 +1,10 @@
+import 'dart:convert';
+
+import 'package:cryptography/cryptography.dart';
+
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import '../utils/sensitive_data_redactor.dart';
 import 'fill_rate_baseline_monitor.dart';
 
 /// One-shot snapshot combining the monetization signals that otherwise live
@@ -44,16 +49,102 @@ class AdDiagnostics {
         'fillRateBySlot': fillRateBySlot.map((k, v) => MapEntry(k.name, v)),
         'arbitratorEstimatedEcpmMicros': arbitratorEstimatedEcpmMicros,
         'arbitratorVetoRate': arbitratorVetoRate,
-        'fillRateRegressionBySlot': fillRateRegressionBySlot.map((k, v) =>
-            MapEntry(k.name, {
-              'sessionFillRate': v.sessionFillRate,
-              'baselineFillRate': v.baselineFillRate,
-              'sessionAvgRevenueMicros': v.sessionAvgRevenueMicros,
-              'baselineAvgRevenueMicros': v.baselineAvgRevenueMicros,
-              'fillRateRegressed': v.fillRateRegressed,
-              'revenueRegressed': v.revenueRegressed,
-            })),
+        'fillRateRegressionBySlot':
+            fillRateRegressionBySlot.map((k, v) => MapEntry(k.name, {
+                  'sessionFillRate': v.sessionFillRate,
+                  'baselineFillRate': v.baselineFillRate,
+                  'sessionAvgRevenueMicros': v.sessionAvgRevenueMicros,
+                  'baselineAvgRevenueMicros': v.baselineAvgRevenueMicros,
+                  'fillRateRegressed': v.fillRateRegressed,
+                  'revenueRegressed': v.revenueRegressed,
+                })),
       };
+
+  /// Privacy-safe, bounded export for support bundles and telemetry.
+  ///
+  /// The payload contains diagnostics only (never preferences or event-log
+  /// metadata), redacts known identifiers/credentials, and is wrapped with a
+  /// schema version and SHA-256 checksum. The returned UTF-8 JSON is bounded
+  /// by [maxBytes]; large waterfall arrays are deterministically truncated.
+  Future<String> toSafeJsonString({int maxBytes = 65536}) async {
+    if (maxBytes < 256) {
+      throw ArgumentError.value(maxBytes, 'maxBytes', 'must be at least 256');
+    }
+    var truncated = false;
+    final waterfalls = <String, List<String>>{};
+    for (final entry in lastWaterfallBySlot.entries) {
+      final values = entry.value.map((v) {
+        final redacted = redactSensitiveData(v);
+        final end = redacted.length > 256 ? 256 : redacted.length;
+        return redacted.substring(0, end);
+      }).toList(growable: false);
+      final kept = values.take(64).toList(growable: false);
+      if (kept.length != values.length) truncated = true;
+      waterfalls[entry.key.name] = kept;
+    }
+    final payload = <String, dynamic>{
+      'lastWaterfallBySlot': waterfalls,
+      'fillRateBySlot': fillRateBySlot.map((k, v) => MapEntry(k.name, v)),
+      'arbitratorEstimatedEcpmMicros': arbitratorEstimatedEcpmMicros,
+      'arbitratorVetoRate': arbitratorVetoRate,
+      'fillRateRegressionBySlot':
+          fillRateRegressionBySlot.map((k, v) => MapEntry(k.name, {
+                'sessionFillRate': v.sessionFillRate,
+                'baselineFillRate': v.baselineFillRate,
+                'sessionAvgRevenueMicros': v.sessionAvgRevenueMicros,
+                'baselineAvgRevenueMicros': v.baselineAvgRevenueMicros,
+                'fillRateRegressed': v.fillRateRegressed,
+                'revenueRegressed': v.revenueRegressed,
+              })),
+    };
+    var payloadJson = jsonEncode(payload);
+    while (utf8.encode(payloadJson).length > maxBytes ~/ 2 &&
+        waterfalls.isNotEmpty) {
+      final key = waterfalls.keys.last;
+      final list = waterfalls[key]!;
+      if (list.length <= 1) {
+        waterfalls.remove(key);
+      } else {
+        waterfalls[key] = list.take((list.length / 2).ceil()).toList();
+      }
+      truncated = true;
+      payloadJson = jsonEncode(payload);
+    }
+    final digest = await Sha256().hash(utf8.encode(payloadJson));
+    final envelope = {
+      'schemaVersion': 1,
+      'truncated': truncated,
+      'payload': payload,
+      'sha256': base64Url.encode(digest.bytes),
+    };
+    var encoded = jsonEncode(envelope);
+    if (utf8.encode(encoded).length > maxBytes) {
+      final minimal = {
+        'schemaVersion': 1,
+        'truncated': true,
+        'payload': {'lastWaterfallBySlot': <String, dynamic>{}},
+      };
+      final minimalJson = jsonEncode(minimal['payload']);
+      final minimalDigest = await Sha256().hash(utf8.encode(minimalJson));
+      encoded = jsonEncode(
+          {...minimal, 'sha256': base64Url.encode(minimalDigest.bytes)});
+    }
+    return encoded;
+  }
+
+  /// Verifies the checksum of a string produced by [toSafeJsonString].
+  static Future<bool> verifySafeJsonString(String encoded) async {
+    try {
+      final envelope = jsonDecode(encoded) as Map<String, dynamic>;
+      final payload = envelope['payload'];
+      final expected = envelope['sha256'];
+      if (payload is! Map || expected is! String) return false;
+      final digest = await Sha256().hash(utf8.encode(jsonEncode(payload)));
+      return base64Url.encode(digest.bytes) == expected;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Pure indexing helper — the most recent `AdRevenueEvent.mediationWaterfall`
   /// per slot from a list of persisted event-log entries (oldest-first, same
@@ -95,9 +186,10 @@ class AdDiagnostics {
       waterfalls[slot] = waterfall.cast<String>();
     }
     if (skipped > 0) {
-      SafeLogger.w('AdDiagnostics',
+      SafeLogger.w(
+          'AdDiagnostics',
           'lastWaterfallBySlotFrom: skipped $skipped malformed compliance-log '
-          'entr${skipped == 1 ? 'y' : 'ies'} (missing/unrecognised slotType)');
+              'entr${skipped == 1 ? 'y' : 'ies'} (missing/unrecognised slotType)');
     }
     return waterfalls;
   }

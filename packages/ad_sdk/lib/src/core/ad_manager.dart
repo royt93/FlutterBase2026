@@ -1001,6 +1001,11 @@ class AdManager with WidgetsBindingObserver {
     );
   }
 
+  /// Exports a privacy-safe, bounded diagnostics snapshot for support tools.
+  /// No preferences, credentials, or raw compliance-log metadata are included.
+  Future<String> exportSafeDiagnostics({int maxBytes = 65536}) =>
+      diagnostics().toSafeJsonString(maxBytes: maxBytes);
+
   /// Debug-only integration sanity check: verifies init/consent state, then
   /// attempts an interstitial/rewarded/app-open load and waits for the
   /// resulting [AdLoadEvent] on [events]. Lets a partner confirm their

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../config/ad_log_level.dart';
+import 'sensitive_data_redactor.dart';
 
 /// Pluggable callback signature for [SafeLogger]'s `onLog` hook.
 typedef AdLogSink = void Function(AdLogLevel level, String tag, String message);
@@ -117,26 +118,7 @@ class SafeLogger {
   }
 
   /// Defense in depth: sensitive values must not cross the host log boundary.
-  static String _redact(String message) {
-    var result = message;
-    result = result.replaceAllMapped(
-      RegExp(r'\b(gaid|idfa|devicegaid|advertising[_ -]?id)\s*[:=]\s*[^\s,;)]+',
-          caseSensitive: false),
-      (m) => '${m.group(1)}=<redacted>',
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'\b(test[_ -]?device(?:[_ -]?id|[_ -]?hash)?)\s*[:=]\s*[^\s,;)]+',
-          caseSensitive: false),
-      (m) => '${m.group(1)}=<redacted>',
-    );
-    result = result.replaceAllMapped(
-      RegExp(
-          r'\b(vip[_ -]?(?:key|code|token)|private[_ -]?key)\s*[:=]\s*[^\s,;)]+',
-          caseSensitive: false),
-      (m) => '${m.group(1)}=<redacted>',
-    );
-    return result;
-  }
+  static String _redact(String message) => redactSensitiveData(message);
 
   static String _resolve(Object msg) {
     if (msg is String Function()) return msg();
