@@ -2120,6 +2120,56 @@ class AdManager with WidgetsBindingObserver {
   /// the existing future; independent slots remain fully parallel.
   final Map<AdSlotType, Future<void>> _inFlightAdLoads = {};
   final Map<AdSlotType, int> _adLoadGenerations = {};
+  final List<void Function(bool)> _appOpenLoadCallbacks = [];
+
+  Future<void> _coalesceAppOpenLoad(
+      AdProviderAdapter ad, void Function(bool)? callback) {
+    if (callback != null) _appOpenLoadCallbacks.add(callback);
+    final existing = _inFlightAdLoads[AdSlotType.appOpen];
+    if (existing != null) return existing;
+    final generation = (_adLoadGenerations[AdSlotType.appOpen] ?? 0) + 1;
+    _adLoadGenerations[AdSlotType.appOpen] = generation;
+    final completer = Completer<void>();
+    final started = completer.future;
+    bool? loadedResult;
+    var adapterFutureDone = false;
+    var callbackReceived = false;
+    void dispatchCallbacks() {
+      if (!adapterFutureDone || !callbackReceived) return;
+      final callbacks = List<void Function(bool)>.from(_appOpenLoadCallbacks);
+      _appOpenLoadCallbacks.clear();
+      for (final cb in callbacks) {
+        try {
+          cb(loadedResult ?? false);
+        } catch (e) {
+          SafeLogger.w(_tag, 'app-open load callback threw: $e');
+        }
+      }
+    }
+
+    // Publish the future before invoking the adapter: a synchronous fake or
+    // native bridge callback must not race the map insertion.
+    _inFlightAdLoads[AdSlotType.appOpen] = started;
+    unawaited(ad.loadAppOpen(onAdLoaded: (loaded) {
+      loadedResult = loaded;
+      callbackReceived = true;
+      dispatchCallbacks();
+    }).then((_) {
+      adapterFutureDone = true;
+      if (!completer.isCompleted) completer.complete();
+      dispatchCallbacks();
+    }).catchError((Object error, StackTrace stack) {
+      if (!completer.isCompleted) completer.completeError(error, stack);
+    }).whenComplete(() {
+      if (identical(_inFlightAdLoads[AdSlotType.appOpen], started) &&
+          _adLoadGenerations[AdSlotType.appOpen] == generation &&
+          callbackReceived) {
+        _inFlightAdLoads.remove(AdSlotType.appOpen);
+        _appOpenLoadCallbacks.clear();
+      }
+    }));
+    return started;
+  }
 
   Future<void> _coalesceAdLoad(
       AdSlotType type, Future<void> Function() operation) {
@@ -2143,6 +2193,7 @@ class AdManager with WidgetsBindingObserver {
       _adLoadGenerations[type] = (_adLoadGenerations[type] ?? 0) + 1;
     }
     _inFlightAdLoads.clear();
+    _appOpenLoadCallbacks.clear();
   }
 
   /// T149 — lets an on-device test force [_umpAnswered] to `false` without
@@ -6643,7 +6694,14 @@ class AdManager with WidgetsBindingObserver {
     }
     // Adapter emits AdLoadEvent itself on listener fire — orchestrator only
     // forwards the boolean callback to the caller (avoids double-emit).
-    await ad.loadAppOpen(onAdLoaded: onAdLoaded);
+    // Internal lifecycle preloads intentionally keep their historical
+    // fire-and-forget semantics (they do not have a caller callback). The
+    // fan-out path is for explicit callers that need completion delivery.
+    if (onAdLoaded == null) {
+      await ad.loadAppOpen();
+    } else {
+      await _coalesceAppOpenLoad(ad, onAdLoaded);
+    }
     _armLoadWatchdog('appOpen', ad.appOpenSlot, watchdog);
   }
 
