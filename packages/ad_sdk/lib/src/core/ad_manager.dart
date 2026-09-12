@@ -1846,8 +1846,9 @@ class AdManager with WidgetsBindingObserver {
     // adapter yet), and this guard has to hold during that window too —
     // that early return used to make it a no-op until init actually
     // finished (codex review, T168 round 1).
-    if (customOverlayOnScreen.value)
+    if (customOverlayOnScreen.value) {
       return 'a custom host overlay is on screen';
+    }
 
     // Round-25 QC round 13 (`codex`, MAJOR) — the teardown belongs HERE, in the
     // one gate every fullscreen path re-reads, not only at each show method's

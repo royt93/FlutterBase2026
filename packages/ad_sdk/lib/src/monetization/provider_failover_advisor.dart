@@ -15,6 +15,8 @@ AdProvider? _providerForTag(String? tag) => switch (tag) {
       _ => null,
     };
 
+enum ProviderCircuitState { closed, open, halfOpen }
+
 /// T143 — "Zero-shadow dual-provider failover", reduced scope (the SDK
 /// still serves exactly one provider per session by design — see
 /// `AdConfig.provider` — a full concurrent dual-adapter runtime is a much
@@ -53,9 +55,15 @@ class ProviderFailoverAdvisor {
   ProviderFailoverAdvisor({
     int consecutiveFailureThreshold = _defaultConsecutiveFailureThreshold,
     bool persist = true,
+    this.cooldown = const Duration(minutes: 5),
+    DateTime Function()? now,
   })  : consecutiveFailureThreshold =
             _validThreshold(consecutiveFailureThreshold),
-        _persist = persist {
+        _persist = persist,
+        _now = now ?? DateTime.now {
+    if (cooldown <= Duration.zero) {
+      throw ArgumentError.value(cooldown, 'cooldown', 'must be positive');
+    }
     _ready = _init();
   }
 
@@ -87,6 +95,8 @@ class ProviderFailoverAdvisor {
   final int consecutiveFailureThreshold;
 
   final bool _persist;
+  final Duration cooldown;
+  final DateTime Function() _now;
 
   int _consecutiveFailures = 0;
 
@@ -95,6 +105,8 @@ class ProviderFailoverAdvisor {
   /// of letting the OLD provider's near-threshold count carry over onto
   /// whichever provider is now actually active.
   String? _lastProviderTag;
+  DateTime? _openedAt;
+  bool _probeClaimed = false;
 
   bool _disposed = false;
   StreamSubscription<AdEvent>? _sub;
@@ -132,12 +144,25 @@ class ProviderFailoverAdvisor {
       _lastProviderTag = event.providerTag;
       _consecutiveFailures = 0;
     }
-    _consecutiveFailures = event.success ? 0 : _consecutiveFailures + 1;
+    if (event.success) {
+      _consecutiveFailures = 0;
+      _openedAt = null;
+      _probeClaimed = false;
+    } else {
+      _consecutiveFailures++;
+      if (_consecutiveFailures >= consecutiveFailureThreshold) {
+        if (circuitState == ProviderCircuitState.halfOpen) {
+          _openedAt = _now();
+          _probeClaimed = false;
+        } else {
+          _openedAt ??= _now();
+        }
+      }
+    }
     if (!_persist) return;
     _writeChain = _writeChain.then((_) async {
       final prefs = await AdPreferences.getInstance();
-      await prefs
-          .setProviderFailoverConsecutiveFailures(_consecutiveFailures);
+      await prefs.setProviderFailoverConsecutiveFailures(_consecutiveFailures);
       await prefs.setProviderFailoverLastProviderTag(_lastProviderTag);
     });
   }
@@ -148,7 +173,24 @@ class ProviderFailoverAdvisor {
   /// call should pick the other provider instead (see
   /// [AdManager.applyProviderFailover]).
   bool get shouldFailoverNextSession =>
-      _consecutiveFailures >= consecutiveFailureThreshold;
+      circuitState == ProviderCircuitState.open;
+
+  ProviderCircuitState get circuitState {
+    final opened = _openedAt;
+    if (opened == null) return ProviderCircuitState.closed;
+    if (_now().difference(opened) >= cooldown) {
+      return ProviderCircuitState.halfOpen;
+    }
+    return ProviderCircuitState.open;
+  }
+
+  bool allowHalfOpenProbe() {
+    if (circuitState != ProviderCircuitState.halfOpen || _probeClaimed) {
+      return false;
+    }
+    _probeClaimed = true;
+    return true;
+  }
 
   /// The specific [AdProvider] whose consecutive failures actually tripped
   /// [shouldFailoverNextSession] — `null` when it's `false`, or when the
