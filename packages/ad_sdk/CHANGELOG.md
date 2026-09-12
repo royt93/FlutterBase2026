@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T174):** `AdSafetyConfig.canShowAppOpenOnResumePeek()` — a
+  side-effect-free "would this pass right now" variant of
+  `canShowAppOpenOnResume()`, safe to call repeatedly (e.g. to drive UI)
+  without consuming the one-shot cold-start flag, the pending-resume gate,
+  or growing the rolling resume-timestamp window used for the rapid-resume
+  cap. Same split as the existing `canShowFullscreenAd`/
+  `canShowFullscreenAdPeek` pair.
 - **New (T173):** `DebugAdOverlay`'s slot panel now shows a row for banner/
   MREC/native too — previously only App Open/Interstitial/Rewarded had one.
   Unlike those three (exactly one `AdSlot` each), banner/MREC/native are

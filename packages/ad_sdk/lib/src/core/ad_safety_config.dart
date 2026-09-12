@@ -715,7 +715,7 @@ class AdSafetyConfig {
         now - _lastBackgroundTime,
       );
     }
-    final result = _canShowAppOpenOnResumeStrict();
+    final result = _canShowAppOpenOnResumeStrict(recordSideEffects: true);
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(_tag,
           '⚠️ dryRun: would have blocked App Open on resume — allowing (${result.reason})');
@@ -724,7 +724,32 @@ class AdSafetyConfig {
     return result;
   }
 
-  static AdSafetyResult _canShowAppOpenOnResumeStrict() {
+  /// T174 — same checks as [canShowAppOpenOnResume], but **no side
+  /// effects** — safe to poll repeatedly (e.g. to drive a "should I offer
+  /// to bring the app back" UI signal) without consuming the one-shot
+  /// cold-start flag, the pending-resume gate, or growing the rolling
+  /// resume-timestamp window. Use this for any "would this currently
+  /// pass" query; reserve [canShowAppOpenOnResume] for the actual
+  /// resume-time decision — same split as [canShowFullscreenAd]/
+  /// [canShowFullscreenAdPeek] above.
+  ///
+  /// Deliberately does NOT run [canShowAppOpenOnResume]'s own pre-check
+  /// side effect either (consuming `_backgroundToResumeSignalPending` and
+  /// recording the background→resume gap via
+  /// [AdaptiveFrequencySignals.record]) — that is a one-shot diagnostic
+  /// signal, not part of the actual gating logic, and this function calls
+  /// [_canShowAppOpenOnResumeStrict] directly rather than through
+  /// [canShowAppOpenOnResume].
+  static AdSafetyResult canShowAppOpenOnResumePeek() {
+    final result = _canShowAppOpenOnResumeStrict(recordSideEffects: false);
+    if (!result.canShow && _params.dryRun) {
+      return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
+    }
+    return result;
+  }
+
+  static AdSafetyResult _canShowAppOpenOnResumeStrict(
+      {required bool recordSideEffects}) {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Fix #45: Respect minTimeBetweenFullscreenAds — prevents showing
@@ -746,8 +771,9 @@ class AdSafetyConfig {
       // by other checks, cold start protection isn't wasted.
       SafeLogger.d(_tag,
           '🛡️ Skipping App Open on cold start (one-shot, will allow next resume)');
-      _isColdStart =
-          false; // consumed regardless — first resume is always skipped
+      // T174 — a peek must not consume this one-shot flag; only the real
+      // (recordSideEffects: true) call does.
+      if (recordSideEffects) _isColdStart = false;
       return const AdSafetyResult(
           false, 'cold start (one-shot — next resume will pass)');
     }
@@ -764,7 +790,8 @@ class AdSafetyConfig {
         SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
         return const AdSafetyResult(false, reason);
       }
-      _pendingResumeGate = false;
+      // T174 — a peek must not consume the pending-resume gate either.
+      if (recordSideEffects) _pendingResumeGate = false;
       final timeInBackground = now - _lastBackgroundTime;
       if (timeInBackground < _params.minTimeAppOpenResume) {
         final waitMs = _params.minTimeAppOpenResume - timeInBackground;
@@ -775,12 +802,19 @@ class AdSafetyConfig {
       }
     }
 
-    _resumeTimestamps.add(now);
-    _resumeTimestamps.removeWhere((t) => now - t > 60000);
-    _refreshRiskScore();
-    if (_resumeTimestamps.length > _params.maxRapidResumesPerMinute) {
+    // T174 — a peek must not grow the real rolling window either; check
+    // against what it WOULD become without actually mutating it.
+    final projectedResumeTimestamps = recordSideEffects
+        ? (_resumeTimestamps
+          ..add(now)
+          ..removeWhere((t) => now - t > 60000))
+        : (List<int>.from(_resumeTimestamps)
+          ..add(now)
+          ..removeWhere((t) => now - t > 60000));
+    if (recordSideEffects) _refreshRiskScore();
+    if (projectedResumeTimestamps.length > _params.maxRapidResumesPerMinute) {
       final reason =
-          'rapid resume (${_resumeTimestamps.length} resumes/min > cap ${_params.maxRapidResumesPerMinute}, wait up to 60s)';
+          'rapid resume (${projectedResumeTimestamps.length} resumes/min > cap ${_params.maxRapidResumesPerMinute}, wait up to 60s)';
       SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
       // Round-29 audit (MAJOR) — this used to `.clear()` the whole rolling
       // window on trip, which wiped its own evidence: the very next resume

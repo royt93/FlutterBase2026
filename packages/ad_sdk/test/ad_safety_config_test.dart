@@ -637,6 +637,93 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────
+  // canShowAppOpenOnResumePeek (T174)
+  // ─────────────────────────────────────────────────
+  group('canShowAppOpenOnResumePeek (T174)', () {
+    test('repeated peeks never consume the one-shot cold-start flag — '
+        'canShowAppOpenOnResume() (non-peek) still does', () async {
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+
+      for (var i = 0; i < 5; i++) {
+        final peek = AdSafetyConfig.canShowAppOpenOnResumePeek();
+        expect(peek.canShow, isFalse);
+        expect(peek.reason, contains('cold start'));
+      }
+
+      final real1 = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(real1.canShow, isFalse,
+          reason:
+              'cold start must still be pending — peek never consumed it, '
+              'no matter how many times it was called');
+      expect(real1.reason, contains('cold start'));
+
+      // Cold start is consumed now (by real1). A later call must no longer
+      // take the cold-start branch.
+      AdSafetyConfig.recordAppWentBackground();
+      final real2 = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(real2.reason, isNot(contains('cold start')));
+    });
+
+    test('repeated peeks never consume the pending-resume gate — a later '
+        'call still sees a genuine (not spurious) resume', () async {
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdSafetyConfig.canShowAppOpenOnResume(); // consume cold start
+      AdSafetyConfig.recordAppWentBackground(); // sets the pending-resume gate
+
+      for (var i = 0; i < 5; i++) {
+        final peek = AdSafetyConfig.canShowAppOpenOnResumePeek();
+        expect(peek.reason, isNot(contains('spurious')),
+            reason: 'T174 — if an earlier peek in this loop had consumed '
+                'the pending-resume gate, THIS peek would misread the '
+                'still-genuine backgrounding as a spurious resume');
+      }
+
+      final real = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(real.reason, isNot(contains('spurious')),
+          reason: 'the gate must still be pending for the real call too — '
+              'none of the peeks above may have consumed it');
+    });
+
+    test('repeated peeks never grow the rolling resume-timestamp window '
+        'used for the rapid-resume cap', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug.copyWith(maxRapidResumesPerMinute: 2));
+      AdSafetyConfig.resetForReinit();
+      // Consumes cold start; no background recorded yet, so this falls
+      // straight through to the resume-timestamp check and adds ONE real
+      // entry to the window (1/2 of the cap).
+      AdSafetyConfig.canShowAppOpenOnResume();
+
+      for (var i = 0; i < 10; i++) {
+        AdSafetyConfig.canShowAppOpenOnResumePeek();
+      }
+
+      // If any of the 10 peeks above had leaked into the real window, it
+      // would already be over the cap of 2 by now.
+      final real2 = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(real2.canShow, isTrue,
+          reason: 'T174 — only one real resume happened before this (2nd '
+              'of a cap of 2) — peek must not have silently grown the '
+              'window past it');
+    });
+
+    test('reports the same canShow/reason as canShowAppOpenOnResume for a '
+        'non-blocked state', () async {
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      AdSafetyConfig.canShowAppOpenOnResume(); // consume cold start
+      AdSafetyConfig.recordAppWentBackground();
+
+      final peek = AdSafetyConfig.canShowAppOpenOnResumePeek();
+      final real = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(peek.canShow, isTrue);
+      expect(real.canShow, peek.canShow);
+    });
+  });
+
+  // ─────────────────────────────────────────────────
   // applyDryRunReleaseGuard (R12-A)
   // ─────────────────────────────────────────────────
   group('applyDryRunReleaseGuard (R12-A)', () {
