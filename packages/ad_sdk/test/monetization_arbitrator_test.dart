@@ -786,6 +786,51 @@ void main() {
     });
   });
 
+  group('T175 — dispose() during an in-flight event', () {
+    test(
+        'dispose() called in the SAME synchronous turn as debugEmit() means '
+        '_onEvent never partially runs — the event is never processed at '
+        'all, proving there is no async gap in _onEvent for dispose() to '
+        'race against', () async {
+      // _onEvent is plain `void` — no `await` inside it anywhere in this
+      // class (unlike WaterfallTuner/SelfHealingObserver, which persist to
+      // SharedPreferences and so have a real fire-and-forget write dispose()
+      // must wait for). AdManager().events is a non-sync broadcast
+      // StreamController, so delivery needs at least one microtask turn —
+      // calling dispose() here, with no `await` between debugEmit() and it,
+      // guarantees the subscription is cancelled before that microtask ever
+      // fires _onEvent.
+      final arb = MonetizationArbitrator();
+      AdManager().debugEmit(_rev(5000));
+      arb.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(arb.estimatedEcpmMicros, 0,
+          reason: 'T175 — the event emitted right before dispose() must '
+              'never have been processed at all: not partially applied, '
+              'not applied late after dispose()');
+    });
+
+    test(
+        'dispose() does not throw and further events after it are silently '
+        'ignored, no leaked subscription', () async {
+      final arb = MonetizationArbitrator();
+      AdManager().debugEmit(_rev(1000));
+      await Future<void>.delayed(Duration.zero);
+      expect(arb.estimatedEcpmMicros, 1000000);
+
+      expect(arb.dispose, returnsNormally);
+
+      // Events after dispose() must be silently ignored — not accumulate,
+      // not throw.
+      AdManager().debugEmit(_rev(9999999));
+      await Future<void>.delayed(Duration.zero);
+      expect(arb.estimatedEcpmMicros, 1000000,
+          reason: 'a post-dispose event must not reach the now-cancelled '
+              'subscription');
+    });
+  });
+
   group('T112 — FillRateBaselineMonitor as an additional veto signal', () {
     FillRateBaselineMonitor? monitor;
 
