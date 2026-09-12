@@ -73,7 +73,8 @@ void main() {
     );
 
     expect(
-        () => SafeLogger.d('Tag', () => throw StateError('interpolation blew up')),
+        () => SafeLogger.d(
+            'Tag', () => throw StateError('interpolation blew up')),
         returnsNormally);
     expect(captured, hasLength(1));
     expect(captured.single, contains('threw while being built'));
@@ -89,6 +90,22 @@ void main() {
 
     expect(() => SafeLogger.w('Tag', 'anything'), returnsNormally);
     expect(() => SafeLogger.critical('Tag', 'anything'), returnsNormally);
+  });
+
+  test('redacts identifiers and entitlement secrets before sink delivery', () {
+    final captured = <String>[];
+    SafeLogger.configure(
+      onLog: (level, tag, message) => captured.add(message),
+    );
+    SafeLogger.d('Security',
+        'GAID=abc123 IDFA:ios-id test-device-hash=hash VIP_KEY=secret private-key:priv');
+    expect(captured.single, isNot(contains('abc123')));
+    expect(captured.single, isNot(contains('ios-id')));
+    expect(captured.single, isNot(contains('=hash')));
+    expect(captured.single, isNot(contains('secret')));
+    expect(captured.single, isNot(contains('=priv')));
+    expect(captured.single, contains('GAID=<redacted>'));
+    expect(captured.single, contains('VIP_KEY=<redacted>'));
   });
 
   test(

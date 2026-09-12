@@ -100,7 +100,7 @@ class SafeLogger {
   static void _emit(AdLogLevel level, String tag, String marker, Object msg) {
     String s;
     try {
-      s = _resolve(msg);
+      s = _redact(_resolve(msg));
     } catch (e) {
       s = 'a log message threw while being built: $e';
     }
@@ -114,6 +114,28 @@ class SafeLogger {
       // sink is the same risk again.
       debugPrint('roy93~ [SafeLogger] ⚠️ the host onLog sink threw: $e');
     }
+  }
+
+  /// Defense in depth: sensitive values must not cross the host log boundary.
+  static String _redact(String message) {
+    var result = message;
+    result = result.replaceAllMapped(
+      RegExp(r'\b(gaid|idfa|devicegaid|advertising[_ -]?id)\s*[:=]\s*[^\s,;)]+',
+          caseSensitive: false),
+      (m) => '${m.group(1)}=<redacted>',
+    );
+    result = result.replaceAllMapped(
+      RegExp(r'\b(test[_ -]?device(?:[_ -]?id|[_ -]?hash)?)\s*[:=]\s*[^\s,;)]+',
+          caseSensitive: false),
+      (m) => '${m.group(1)}=<redacted>',
+    );
+    result = result.replaceAllMapped(
+      RegExp(
+          r'\b(vip[_ -]?(?:key|code|token)|private[_ -]?key)\s*[:=]\s*[^\s,;)]+',
+          caseSensitive: false),
+      (m) => '${m.group(1)}=<redacted>',
+    );
+    return result;
   }
 
   static String _resolve(Object msg) {

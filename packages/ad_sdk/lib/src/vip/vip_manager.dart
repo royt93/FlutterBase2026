@@ -159,7 +159,6 @@ class VipManager {
     _savesInFlight = 0;
   }
 
-
   /// How long [load] waits for pending writes to land before giving up on
   /// them. Bounded because a wedged platform channel would otherwise hang
   /// `AdManager.initialize()` forever — see the drain in [_load].
@@ -793,8 +792,7 @@ class VipManager {
     // answers stalls later PERSISTENCE only. RAM keeps the right entitlement for
     // the session, the drain in [_load] is separately bounded so startup cannot
     // hang, and the next launch reads disk fresh.
-    final predecessor =
-        _savesInFlight > 0 ? _saveQueue : Future<void>.value();
+    final predecessor = _savesInFlight > 0 ? _saveQueue : Future<void>.value();
     _savesInFlight++;
     final task = predecessor.then((_) async {
       try {
@@ -1131,9 +1129,10 @@ class VipManager {
       );
       if (newEntry.expiresAt.isAfter(old.expiresAt)) {
         _entries[existing] = newEntry;
-        SafeLogger.d(_tag, 'addVip: replaced ${old.key} (later expiry wins)');
+        SafeLogger.d(
+            _tag, 'addVip: replaced existing entry (later expiry wins)');
       } else {
-        SafeLogger.d(_tag, 'addVip: kept existing ${old.key} (still later)');
+        SafeLogger.d(_tag, 'addVip: kept existing entry (still later)');
         return old;
       }
     } else {
@@ -1474,8 +1473,7 @@ class VipManager {
   /// trusting it. A verify failure (corrupt storage, tampered value) degrades
   /// to an empty revoked set rather than blocking redemption — fail-open.
   Future<void> _ensureCachedRevocationLoaded(String publicKeyBase64) async {
-    if (_revocationCacheLoaded &&
-        _revocationVerifiedUnder == publicKeyBase64) {
+    if (_revocationCacheLoaded && _revocationVerifiedUnder == publicKeyBase64) {
       return;
     }
     _revocationCacheLoaded = true;

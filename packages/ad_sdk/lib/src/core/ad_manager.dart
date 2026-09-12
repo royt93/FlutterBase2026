@@ -1846,7 +1846,8 @@ class AdManager with WidgetsBindingObserver {
     // adapter yet), and this guard has to hold during that window too —
     // that early return used to make it a no-op until init actually
     // finished (codex review, T168 round 1).
-    if (customOverlayOnScreen.value) return 'a custom host overlay is on screen';
+    if (customOverlayOnScreen.value)
+      return 'a custom host overlay is on screen';
 
     // Round-25 QC round 13 (`codex`, MAJOR) — the teardown belongs HERE, in the
     // one gate every fullscreen path re-reads, not only at each show method's
@@ -2600,7 +2601,8 @@ class AdManager with WidgetsBindingObserver {
     } catch (e) {
       SafeLogger.w(_tag, () => 'GAID error: $e');
     }
-    SafeLogger.d(_tag, () => 'GAID=$_currentDeviceGAID');
+    SafeLogger.d(
+        _tag, () => 'GAID resolved (present=${_currentDeviceGAID.isNotEmpty})');
   }
 
   /// First-init: import VIP GAIDs from `config.vipDeviceGaids` (release

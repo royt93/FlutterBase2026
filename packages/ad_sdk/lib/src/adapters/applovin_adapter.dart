@@ -720,7 +720,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     if (kDebugMode && deviceGaid.isNotEmpty) {
       try {
         _bridge.setTestDeviceAdvertisingIds([deviceGaid]);
-        SafeLogger.d(_logTag, 'AppLovin test device registered: $deviceGaid');
+        SafeLogger.d(_logTag, 'AppLovin test device registered');
       } catch (e) {
         SafeLogger.w(_logTag, 'setTestDeviceAdvertisingIds failed: $e');
       }
@@ -2000,8 +2000,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         for (final key in _bannerRegistry.slotKeys.toList()) {
           final slot = _bannerRegistry.slotFor(key);
           if (slot.isLoading) {
-            _handleWidgetAdLoadFailed(banner(key), slot,
-                AdSlotType.banner, 'banner', err);
+            _handleWidgetAdLoadFailed(
+                banner(key), slot, AdSlotType.banner, 'banner', err);
           }
         }
       },
