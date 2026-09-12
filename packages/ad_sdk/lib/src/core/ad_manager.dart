@@ -21,6 +21,7 @@ import '../compliance/bypass_audit_trail.dart';
 import '../compliance/compliance_signing.dart';
 import '../compliance/incident_recorder.dart';
 import '../config/ad_config.dart';
+import '../config/feature_flags.dart';
 import '../consent/consent_fallback.dart';
 import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
@@ -913,6 +914,39 @@ class AdManager with WidgetsBindingObserver {
   void disableJourneyPrefetcher() {
     _journeyPrefetcher?.dispose();
     _journeyPrefetcher = null;
+  }
+
+  int? _featureFlagsRevision;
+
+  /// Applies a verified feature-flag payload. Invalid, expired, or stale
+  /// payloads are rejected and leave the current configuration untouched.
+  Future<bool> applySignedFeatureFlags(
+    SignedFeatureFlags payload, {
+    required String publicKeyBase64,
+    DateTime? now,
+  }) async {
+    if (!await payload.verify(
+        publicKeyBase64: publicKeyBase64,
+        previousRevision: _featureFlagsRevision,
+        now: now)) {
+      return false;
+    }
+    _featureFlagsRevision = payload.revision;
+    if (payload.flags['arbitrator'] == false) {
+      disableArbitrator();
+    }
+    if (payload.flags['waterfallTuner'] == false) {
+      disableWaterfallTuner();
+    }
+    if (payload.flags['journeyPrefetcher'] == false) {
+      disableJourneyPrefetcher();
+    }
+    if (payload.flags['selfHealingObserver'] == false) {
+      disableSelfHealingObserver();
+    }
+    SafeLogger.d(
+        _tag, () => 'feature flags applied revision=${payload.revision}');
+    return true;
   }
 
   /// Opt-in 7-day fill-rate/eCPM baseline regression detector (T97, default
