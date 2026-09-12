@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T164):** `applyConsentToProviders` only recorded consent as
+  actually applied to the providers when BOTH AdMob's and AppLovin's writes
+  succeeded, even for an app that only ever configures ONE via
+  `AdConfig.provider`. Now only the provider(s) `config` actually names need
+  to have applied; `config == null` keeps the original, more conservative
+  require-both behavior.
 - **Fix (T163):** `SelfHealingObserver`'s dedupe (one recommendation per
   (type, placement, recommendedProvider)) used a plain `Set<String>` that
   never forgot a key — once a (format, placement) pair had been recommended

@@ -32,3 +32,57 @@ Sửa packages/ad_sdk/lib/src/core/ad_consent.dart dòng ~148-231: điều kiệ
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: smoke test thật trên device với app mẫu cấu hình chỉ AdMob, xác nhận consent-gate logic hoạt động đúng.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Kết quả (2026-09-12)
+
+**Giải thích cho người không rành kỹ thuật:** SDK có 1 biến nội bộ ghi lại
+"consent (đồng ý cho phép quảng cáo) đã thực sự được gửi tới cả 2 hãng
+quảng cáo chưa" — dùng để so sánh "máy nói gì" với "đã áp dụng thật chưa".
+Trước đây, biến này chỉ được ghi nhận khi CẢ Google VÀ AppLovin đều xác
+nhận thành công — nhưng nếu app chỉ dùng 1 trong 2 hãng (rất phổ biến),
+phía KHÔNG dùng sẽ không bao giờ xác nhận, khiến biến này mãi mãi trống —
+không gây lỗi thấy ngay (đã có sẵn 1 cơ chế dự phòng lấy giá trị khác thay
+thế), nhưng làm yếu đi độ chính xác của vài phép so sánh nội bộ.
+
+**Kỹ thuật đã sửa (`ad_consent.dart:230-246`):** chỉ yêu cầu ĐÚNG các
+hãng app THỰC SỰ cấu hình (`AdConfig.provider`) phải xác nhận thành công,
+không mặc định đòi cả 2.
+
+**Phát hiện quan trọng khi verify (trước khi viết test):** đã xác minh
+`AppLovinMAX.setHasUserConsent`/`setDoNotSell` (thư viện AppLovin thật) là
+hàm `void`, gọi kiểu "bắn rồi quên" (không `await`) — nghĩa là phía
+AppLovin trong thực tế LUÔN được ghi nhận "thành công" ngay lập tức, bất
+kể native có thật sự nhận được hay không (lỗi native chỉ nổi lên sau, độc
+lập, không thể bắt bằng try/catch tại chỗ). Điều này khiến 1 nửa lý do gốc
+task mô tả (phía AppLovin "thất bại" chặn app chỉ-dùng-AdMob) không có
+đường tái hiện thật trong code hiện tại — nhưng nửa còn lại (phía AdMob,
+gọi CÓ `await` nên lỗi thật sự bắt được) vẫn là bug thật 100%: app chỉ
+dùng AppLovin mà lỡ có lỗi tạm thời phía AdMob (hãng app không hề dùng)
+vẫn bị chặn không ghi nhận consent. Bản sửa vẫn đúng và cần thiết cho cả 2
+chiều, chỉ là chiều AppLovin không tái hiện được bằng test giả lập lỗi
+(ghi chú rõ trong code test).
+
+**Kết quả review độc lập (`codex review --uncommitted`, 1 vòng):** sạch,
+không tìm ra lỗi.
+
+**Test coverage:**
+- `test/ad_consent_test.dart`: thêm 4 test mới (nhóm "T164") — app chỉ
+  AppLovin: lỗi AdMob (không dùng) không chặn ghi nhận; app chỉ AdMob: lỗi
+  CHÍNH AdMob (hãng đang dùng) vẫn phải chặn như cũ; không có config
+  (`config: null`) vẫn giữ nguyên yêu cầu cả 2 như hành vi round-32 gốc;
+  app chỉ AdMob thành công bình thường vẫn ghi nhận đúng. Không sửa/
+  breaking test cũ nào (14 test trong file vẫn xanh nguyên — có 1 dòng
+  dọn dẹp code chết không đổi hành vi).
+- Full SDK suite: 1851 test xanh.
+- Full example suite: 42 test xanh.
+
+**Smoke test thật trên device (Pixel 7 Pro, `2B051FDH3006MU`, Android
+17):** file mới
+`example/integration_test/r164_admob_only_consent_committed_test.dart` —
+chạy app thật với cấu hình mặc định của example (chỉ AdMob, qua
+`--dart-define=AD_PROVIDER_ADMOB=true`), xác nhận
+`lastConsentAppliedToProviders` KHÔNG còn `null` sau khi init thật — đúng
+bug thật task mô tả (trước fix, giá trị này sẽ mãi mãi `null` cho app 1
+mạng). PASS.
+
+**Tự chấm điểm: 9.5/10.**

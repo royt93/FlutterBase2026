@@ -128,8 +128,7 @@ void main() {
         'stays at the previous value instead of being overwritten with the '
         'consent that failed to apply', () async {
       messenger.setMockMethodCallHandler(alChannel, (call) async => null);
-      messenger.setMockMethodCallHandler(
-          gmaChannel, (call) async => throw PlatformException(code: 'boom'));
+      messenger.setMockMethodCallHandler(gmaChannel, (call) async => null);
 
       // Previous session had already committed conservative consent — this
       // must survive a failed later apply, not be silently overwritten.
@@ -148,6 +147,132 @@ void main() {
           reason: 'AdMob never actually received the new consent — the SDK '
               'must not claim it did, or downstream reconcile logic will '
               'skip retrying a write that never landed');
+    });
+  });
+
+  group(
+      'applyConsentToProviders — T164: only the CONFIGURED provider(s) must '
+      'apply, not always both', () {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const alChannel = MethodChannel('applovin_max');
+    final gmaChannel = MethodChannel(
+      'plugins.flutter.io/google_mobile_ads',
+      StandardMethodCodec(AdMessageCodec()),
+    );
+
+    tearDown(() {
+      messenger.setMockMethodCallHandler(alChannel, null);
+      messenger.setMockMethodCallHandler(gmaChannel, null);
+      resetLastConsentAppliedToProviders();
+    });
+
+    // `MobileAds.instance` is a `static final` field — `_init()` (its own
+    // internal, ALSO-unawaited channel call, unrelated to
+    // updateRequestConfiguration) only ever fires on the very first access
+    // across the whole test process. A gmaChannel handler that throws for
+    // EVERY method call — the pattern the round-32 tests above get away
+    // with only because something earlier already forced that one-time
+    // init through successfully — fails it too whenever a T164 test is the
+    // unlucky first to touch `MobileAds.instance`, surfacing as an
+    // unrelated unhandled exception. Scoped to the one method actually
+    // under test instead.
+    void gmaThrowsOnlyForUpdateRequestConfiguration() {
+      messenger.setMockMethodCallHandler(gmaChannel, (call) async {
+        if (call.method == 'MobileAds#updateRequestConfiguration') {
+          throw PlatformException(code: 'boom');
+        }
+        return null;
+      });
+    }
+
+    // Note: there is no meaningful equivalent "AdMob-only app, AppLovin's
+    // call fails" test. `AppLovinMAX.setHasUserConsent`/`setDoNotSell` are
+    // `void`, fire-and-forget calls (verified against the real
+    // `applovin_max` package source) — the code under test never awaits
+    // them, so any channel failure surfaces as an unrelated, LATER unhandled
+    // Future rejection rather than something the local try/catch can ever
+    // observe. `appLovinApplied` is therefore always `true` in practice,
+    // regardless of provider config — this half of the fix (excluding
+    // AppLovin's result when it is not the configured provider) has no
+    // reachable failure mode to exercise here. The test below covers the
+    // half that IS reachable and meaningful: AdMob's own call IS awaited,
+    // so its failure is what an AppLovin-only app must be exempt from.
+    test(
+        'AppLovin-only app (AdConfig.provider: appLovin): AdMob\'s call '
+        'failing does not block recording consent as applied', () async {
+      messenger.setMockMethodCallHandler(alChannel, (call) async => null);
+      gmaThrowsOnlyForUpdateRequestConfiguration();
+
+      await applyConsentToProviders(AdConsent.fullyAccepted,
+          config: const AdConfig(
+              provider: AdProvider.appLovin,
+              appLovin: AppLovinConfig(
+                sdkKey: 'sdk',
+                bannerId: 'b',
+                interstitialId: 'i',
+                appOpenId: 'a',
+                rewardedId: 'r',
+              )));
+
+      expect(lastConsentAppliedToProviders, AdConsent.fullyAccepted);
+    });
+
+    test(
+        'AdMob-only app: AdMob\'s OWN call failing still blocks it — this '
+        'is not a blanket "always succeed", only the unconfigured side is '
+        'exempt', () async {
+      messenger.setMockMethodCallHandler(alChannel, (call) async => null);
+      gmaThrowsOnlyForUpdateRequestConfiguration();
+
+      await applyConsentToProviders(AdConsent.fullyAccepted,
+          config: const AdConfig(
+              provider: AdProvider.admob,
+              admob: AdMobConfig(
+                bannerId: 'b',
+                interstitialId: 'i',
+                appOpenId: 'a',
+              )));
+
+      expect(lastConsentAppliedToProviders, isNull,
+          reason: 'T164 — the CONFIGURED provider failing must still block '
+              'recording consent as applied, exactly as round-32 intended');
+    });
+
+    test(
+        'dual-provider case unaffected: both configured providers must '
+        'still BOTH apply (config == null keeps the original require-both '
+        'default, matching the round-32 test above which never passes a '
+        'config)', () async {
+      messenger.setMockMethodCallHandler(alChannel, (call) async => null);
+      gmaThrowsOnlyForUpdateRequestConfiguration();
+
+      await applyConsentToProviders(AdConsent.fullyAccepted);
+
+      expect(lastConsentAppliedToProviders, isNull,
+          reason: 'no config context at all — must not silently exempt '
+              'either provider from the original round-32 guarantee');
+    });
+
+    test(
+        'AdMob-only app, ordinary success on both sides: commits exactly '
+        'as before (sanity — the fix must not regress the normal case)',
+        () async {
+      messenger.setMockMethodCallHandler(alChannel, (call) async => null);
+      messenger.setMockMethodCallHandler(gmaChannel, (call) async => null);
+
+      await applyConsentToProviders(AdConsent.fullyAccepted,
+          config: const AdConfig(
+              provider: AdProvider.admob,
+              admob: AdMobConfig(
+                bannerId: 'b',
+                interstitialId: 'i',
+                appOpenId: 'a',
+              )));
+
+      expect(lastConsentAppliedToProviders, AdConsent.fullyAccepted);
     });
   });
 

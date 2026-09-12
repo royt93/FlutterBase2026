@@ -227,7 +227,21 @@ Future<void> applyConsentToProviders(
   // compares device state against this value and skips retrying whenever they
   // already match, so a transient write failure during consent withdrawal
   // could leave AdMob personalised while the SDK believed it was restrictive.
-  if (appLovinApplied && adMobApplied) {
+  //
+  // T164 — that condition unconditionally required BOTH providers, even
+  // for an app that only ever configures ONE via `AdConfig.provider` (this
+  // SDK supports either AdMob or AppLovin, not both active at once — see
+  // that enum). The other provider's SDK was never initialized for such an
+  // app, so its apply call above is expected to fail (or is meaningless
+  // even if it happens to succeed) — requiring it too meant a single-
+  // provider app could NEVER set `_lastAppliedToProviders` at all, only
+  // ever comparing against `null`. Only the provider(s) [config] actually
+  // names need to have applied; `config == null` (this function called
+  // with no config context) keeps the original, more conservative
+  // require-both behavior rather than guessing.
+  final needsAppLovin = config == null || config.provider == AdProvider.appLovin;
+  final needsAdMob = config == null || config.provider == AdProvider.admob;
+  if ((!needsAppLovin || appLovinApplied) && (!needsAdMob || adMobApplied)) {
     _lastAppliedToProviders = c;
   }
 }
