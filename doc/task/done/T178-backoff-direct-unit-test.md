@@ -2,7 +2,7 @@
 
 **Loại:** test-coverage
 **Ưu tiên:** P2
-**Trạng thái:** todo
+**Trạng thái:** done
 **Nguồn phát hiện:** subagent test-coverage-gap
 **Quyết định chủ dự án (2026-09-08):** Thêm test ngay
 
@@ -31,3 +31,22 @@ Tạo file mới packages/ad_sdk/test/backoff_test.dart: viết unit test trực
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: không cần smoke test thiết bị riêng (đây là công thức toán học thuần, unit test đã đủ chứng minh) — bỏ qua bước 7 gốc, đi thẳng bước push nếu audit >9/10.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Completion audit (2026-09-13)
+
+- Added `test/backoff_test.dart` with direct coverage for negative/zero input,
+  early exponential values, the historical overflow boundaries (51/63),
+  very-large failure counts (1000), and zero-duration configuration.
+- Added `example/integration_test/t178_backoff_test.dart` to exercise the
+  exported runtime contract on Android.
+- `flutter analyze` clean. Backoff, AdSlot, and retry-policy suites passed.
+- Device smoke passed on `SM S928B` (Android 16/API 36).
+- The repository-wide suite still has two pre-existing order-sensitive failures
+  in monetization/debug-overlay tests; neither touches Backoff and both fail
+  when run independently.
+
+Audit score: **9.5/10**. The requested direct boundaries and runtime smoke are
+covered; deduction is only for unrelated repository baseline failures.
+
+End-loop signal: audit, score, unit/widget/integration coverage, and device
+smoke completed. Push because the feature score is above 9/10.
