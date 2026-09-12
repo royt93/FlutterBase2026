@@ -22,6 +22,7 @@ import '../compliance/compliance_signing.dart';
 import '../compliance/incident_recorder.dart';
 import '../config/ad_config.dart';
 import '../config/feature_flags.dart';
+import '../monetization/revenue_anomaly_detector.dart';
 import '../consent/consent_fallback.dart';
 import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
@@ -1035,6 +1036,11 @@ class AdManager with WidgetsBindingObserver {
       fillRateRegressionBySlot: baselineMonitor?.activeAlerts ?? const {},
     );
   }
+
+  /// Observe-only analysis of persisted revenue events.
+  List<RevenueAnomaly> revenueAnomalies({int minimumSamples = 5}) =>
+      RevenueAnomalyDetector(minimumSamples: minimumSamples)
+          .analyze(_eventLog?.entries ?? const <Map<String, dynamic>>[]);
 
   /// Exports a privacy-safe, bounded diagnostics snapshot for support tools.
   /// No preferences, credentials, or raw compliance-log metadata are included.
