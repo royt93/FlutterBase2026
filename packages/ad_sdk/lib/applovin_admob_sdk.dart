@@ -23,6 +23,7 @@ export 'src/consent/ccpa_opt_out_toggle.dart';
 export 'src/consent/consent_dialog.dart' show showConsentDialog;
 export 'src/consent/consent_dialog_strings.dart';
 export 'src/consent/consent_manager.dart';
+export 'src/consent/consent_fallback.dart';
 export 'src/consent/consent_settings.dart';
 
 // Orchestrator

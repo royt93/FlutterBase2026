@@ -9,6 +9,7 @@ import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
 import 'consent_dialog.dart';
 import 'consent_dialog_strings.dart';
+import 'consent_fallback.dart';
 import 'consent_settings.dart';
 
 /// Standalone consent helper — owns the dialog UI, persistence, and
@@ -143,6 +144,7 @@ class ConsentManager {
   }
 
   ConsentSettings _current = ConsentSettings.unset;
+  ConsentFallbackState? _fallback;
 
   // Round-38 audit follow-up (on-device integration test caught this — no
   // unit test ever exercised it, since all of them bypass `ConsentManager`
@@ -180,6 +182,9 @@ class ConsentManager {
   /// `set(current.copyWith(country: 'DE'))`.
   ConsentSettings get current => _current;
 
+  /// Provenance of the last conservative offline/error decision, if any.
+  ConsentFallbackState? get fallback => _fallback;
+
   /// Convenience — same as `current.hasBeenAsked`.
   bool get hasBeenAsked => _current.hasBeenAsked;
 
@@ -193,6 +198,16 @@ class ConsentManager {
 
   Future<void> _load() async {
     _current = ConsentSettings.decode(_prefs.getConsentSettingsRaw());
+    final rawFallback = _prefs.getConsentFallbackRaw();
+    _fallback = rawFallback == null
+        ? null
+        : () {
+            try {
+              return ConsentFallbackState.decode(rawFallback);
+            } catch (_) {
+              return null;
+            }
+          }();
     _settingsListenable.value = _current;
     SafeLogger.d(_tag, () => 'load → $_current');
   }
@@ -234,7 +249,8 @@ class ConsentManager {
     // warns loudly (see AdManager.releaseFootgunWarnings); this one had no
     // signal at all, debug or release.
     if (_strings.privacyPolicyUrl == null && onPrivacyPolicyTap == null) {
-      SafeLogger.w(_tag,
+      SafeLogger.w(
+          _tag,
           '🚨 showDialog: neither ConsentDialogStrings.privacyPolicyUrl nor '
           'onPrivacyPolicyTap is set — this consent dialog has no way for '
           'the user to reach your privacy policy. Set one of them.');
@@ -288,6 +304,24 @@ class ConsentManager {
   /// shortcuts or restoring persisted state from server.
   Future<void> set(ConsentSettings settings, {AdConfig? config}) async {
     await _setInternal(settings, config: config);
+  }
+
+  /// Records a versioned, conservative fallback when UMP/ATT cannot resolve.
+  Future<void> recordFallback({
+    required ConsentFallbackReason reason,
+    required String policyRevision,
+  }) async {
+    _fallback = ConsentFallbackState.create(
+      reason: reason,
+      policyRevision: policyRevision,
+    );
+    await _prefs.setConsentFallbackRaw(_fallback!.encode());
+  }
+
+  /// Clears fallback provenance after a fresh successful consent resolution.
+  Future<void> clearFallback() async {
+    _fallback = null;
+    await _prefs.clearConsentFallback();
   }
 
   /// Re-apply the current cached settings to providers. Useful after a

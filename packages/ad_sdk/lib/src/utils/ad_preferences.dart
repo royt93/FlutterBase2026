@@ -179,7 +179,8 @@ class AdPreferences {
   // ended strings — a dynamic-key-per-placement scheme would need its own
   // "list of known keys" bookkeeping for no real benefit over one blob).
 
-  static const String _keyPlacementDailyCounts = 'ad_sdk_placement_daily_counts';
+  static const String _keyPlacementDailyCounts =
+      'ad_sdk_placement_daily_counts';
   static const String _keyPlacementDailyDate = 'ad_sdk_placement_daily_date';
 
   Map<String, int> getPlacementDailyCounts({DateTime? now}) {
@@ -243,11 +244,22 @@ class AdPreferences {
   // ─── Consent settings (JSON) ──────────────────────────────────────────────
 
   static const String _keyConsentSettings = 'ad_sdk_consent_settings_v1';
+  static const String _keyConsentFallback = 'ad_sdk_consent_fallback_v2';
 
   String? getConsentSettingsRaw() => _prefs?.getString(_keyConsentSettings);
 
   Future<void> setConsentSettingsRaw(String json) async {
     await _prefs?.setString(_keyConsentSettings, json);
+  }
+
+  String? getConsentFallbackRaw() => _prefs?.getString(_keyConsentFallback);
+
+  Future<void> setConsentFallbackRaw(String json) async {
+    await _prefs?.setString(_keyConsentFallback, json);
+  }
+
+  Future<void> clearConsentFallback() async {
+    await _prefs?.remove(_keyConsentFallback);
   }
 
   // ─── 2.x VIP entries — legacy checksum-prefixed SharedPreferences value ───
@@ -350,8 +362,8 @@ class AdPreferences {
     if (sep == -1) return null;
     final raw = payload.substring(sep + 1);
     if (payload.substring(0, sep) != _vipEntriesChecksum(raw)) {
-      SafeLogger.w(
-          _tag, 'VIP entries fallback checksum mismatch — ignoring as tampered');
+      SafeLogger.w(_tag,
+          'VIP entries fallback checksum mismatch — ignoring as tampered');
       return null;
     }
     return raw;
@@ -432,10 +444,10 @@ class AdPreferences {
   // `VipManager` — secure storage is async, so that migration is a real
   // refactor of its own, not a one-line change, and is deliberately not
   // bundled into an audit round.
-  static const String _keyVipMaxObservedClockMs = 'ad_sdk_vip_max_observed_clock_ms';
+  static const String _keyVipMaxObservedClockMs =
+      'ad_sdk_vip_max_observed_clock_ms';
 
-  int? getVipMaxObservedClockMs() =>
-      _prefs?.getInt(_keyVipMaxObservedClockMs);
+  int? getVipMaxObservedClockMs() => _prefs?.getInt(_keyVipMaxObservedClockMs);
 
   Future<void> setVipMaxObservedClockMs(int millisSinceEpoch) async {
     await _prefs?.setInt(_keyVipMaxObservedClockMs, millisSinceEpoch);
@@ -470,8 +482,7 @@ class AdPreferences {
   static const String _keyRemoteSafetyRevision =
       'ad_sdk_remote_safety_revision';
 
-  int? getRemoteSafetyRevision() =>
-      _prefs?.getInt(_keyRemoteSafetyRevision);
+  int? getRemoteSafetyRevision() => _prefs?.getInt(_keyRemoteSafetyRevision);
 
   Future<void> setRemoteSafetyRevision(int revision) async {
     await _prefs?.setInt(_keyRemoteSafetyRevision, revision);
@@ -714,15 +725,15 @@ class AdPreferences {
     int revenueCount = 0,
     DateTime? now,
   }) {
-    final result = _fillRateBaselineChain.then((_) =>
-        _recordFillRateBaselineSampleNow(
-          slotTypeName: slotTypeName,
-          attempts: attempts,
-          successes: successes,
-          revenueMicros: revenueMicros,
-          revenueCount: revenueCount,
-          now: now,
-        ));
+    final result =
+        _fillRateBaselineChain.then((_) => _recordFillRateBaselineSampleNow(
+              slotTypeName: slotTypeName,
+              attempts: attempts,
+              successes: successes,
+              revenueMicros: revenueMicros,
+              revenueCount: revenueCount,
+              now: now,
+            ));
     _fillRateBaselineChain = result.catchError((e) {
       SafeLogger.w(_tag, 'fill-rate baseline write failed: $e');
     });
@@ -752,7 +763,8 @@ class AdPreferences {
         {'attempts': 0, 'successes': 0, 'revenueMicros': 0, 'revenueCount': 0});
     existing['attempts'] = (existing['attempts'] ?? 0) + attempts;
     existing['successes'] = (existing['successes'] ?? 0) + successes;
-    existing['revenueMicros'] = (existing['revenueMicros'] ?? 0) + revenueMicros;
+    existing['revenueMicros'] =
+        (existing['revenueMicros'] ?? 0) + revenueMicros;
     existing['revenueCount'] = (existing['revenueCount'] ?? 0) + revenueCount;
     todayMap[slotTypeName] = existing;
     history[today] = todayMap;
@@ -768,7 +780,8 @@ class AdPreferences {
 
   static const String _keyVipRevocationCache = 'ad_sdk_vip_revocation_cache_v1';
 
-  String? getVipRevocationCacheRaw() => _prefs?.getString(_keyVipRevocationCache);
+  String? getVipRevocationCacheRaw() =>
+      _prefs?.getString(_keyVipRevocationCache);
 
   Future<void> setVipRevocationCacheRaw(String code) async {
     await _prefs?.setString(_keyVipRevocationCache, code);
@@ -815,7 +828,10 @@ class AdPreferences {
         if (map is Map) {
           final raw = map['raw'];
           final key = map['key'];
-          if (raw is String && key is String && raw.isNotEmpty && key.isNotEmpty) {
+          if (raw is String &&
+              key is String &&
+              raw.isNotEmpty &&
+              key.isNotEmpty) {
             return (raw: raw, publicKey: key);
           }
         }

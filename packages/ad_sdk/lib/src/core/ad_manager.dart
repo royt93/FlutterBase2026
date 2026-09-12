@@ -21,6 +21,7 @@ import '../compliance/bypass_audit_trail.dart';
 import '../compliance/compliance_signing.dart';
 import '../compliance/incident_recorder.dart';
 import '../config/ad_config.dart';
+import '../consent/consent_fallback.dart';
 import '../config/remote_ad_safety_provider.dart';
 import '../consent/consent_manager.dart';
 import '../consent/consent_settings.dart';
@@ -4906,6 +4907,19 @@ class AdManager with WidgetsBindingObserver {
       testIdentifiers: testIdentifiers,
       tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
     );
+    final cm = _consentManager;
+    if (cm != null) {
+      if (result.error != null) {
+        await cm.recordFallback(
+          reason: result.error!.toLowerCase().contains('timed out')
+              ? ConsentFallbackReason.timeout
+              : ConsentFallbackReason.platformError,
+          policyRevision: 'ump-v1',
+        );
+      } else {
+        await cm.clearFallback();
+      }
+    }
     await _applyUmpConsentResult(result, session: session);
     return result;
   }
