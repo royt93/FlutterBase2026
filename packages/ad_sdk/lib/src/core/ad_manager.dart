@@ -2116,6 +2116,35 @@ class AdManager with WidgetsBindingObserver {
   /// host already obtained instead of inventing a value or re-running the flow.
   UmpConsentResult? _lastUmpResult;
 
+  /// One native load per fullscreen slot at a time. Concurrent callers join
+  /// the existing future; independent slots remain fully parallel.
+  final Map<AdSlotType, Future<void>> _inFlightAdLoads = {};
+  final Map<AdSlotType, int> _adLoadGenerations = {};
+
+  Future<void> _coalesceAdLoad(
+      AdSlotType type, Future<void> Function() operation) {
+    final existing = _inFlightAdLoads[type];
+    if (existing != null) return existing;
+    final generation = (_adLoadGenerations[type] ?? 0) + 1;
+    _adLoadGenerations[type] = generation;
+    late final Future<void> started;
+    started = operation().whenComplete(() {
+      if (identical(_inFlightAdLoads[type], started) &&
+          _adLoadGenerations[type] == generation) {
+        _inFlightAdLoads.remove(type);
+      }
+    });
+    _inFlightAdLoads[type] = started;
+    return started;
+  }
+
+  void _invalidateCoalescedLoads() {
+    for (final type in _inFlightAdLoads.keys.toList()) {
+      _adLoadGenerations[type] = (_adLoadGenerations[type] ?? 0) + 1;
+    }
+    _inFlightAdLoads.clear();
+  }
+
   /// T149 — lets an on-device test force [_umpAnswered] to `false` without
   /// a real unanswered EEA session, so the reconnect/backstop UMP-retry
   /// branches (gated on `!_umpAnswered`) can be reached deterministically.
@@ -6286,6 +6315,7 @@ class AdManager with WidgetsBindingObserver {
   // could later fire markSplashInactive() or an app-open show against the
   // freshly re-initialized adapter.
   void _resetGuardState() {
+    _invalidateCoalescedLoads();
     _footgunBlocked = false;
     _umpRequested = false;
     _umpFlowStarted = false;
@@ -7032,7 +7062,7 @@ class AdManager with WidgetsBindingObserver {
       _emitSkip(AdSlotType.interstitial, 'load', 'no_network');
       return;
     }
-    await ad.loadInterstitial();
+    await _coalesceAdLoad(AdSlotType.interstitial, ad.loadInterstitial);
     _armLoadWatchdog('interstitial', ad.interstitialSlot, watchdog);
   }
 
@@ -7257,7 +7287,7 @@ class AdManager with WidgetsBindingObserver {
       _emitSkip(AdSlotType.rewarded, 'load', 'no_network');
       return;
     }
-    await ad.loadRewarded();
+    await _coalesceAdLoad(AdSlotType.rewarded, ad.loadRewarded);
     _armLoadWatchdog('rewarded', ad.rewardedSlot, watchdog);
   }
 
@@ -7657,7 +7687,8 @@ class AdManager with WidgetsBindingObserver {
       _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'no_network');
       return;
     }
-    await ad.loadRewardedInterstitial();
+    await _coalesceAdLoad(
+        AdSlotType.rewardedInterstitial, ad.loadRewardedInterstitial);
     _armLoadWatchdog(
         'rewardedInterstitial', ad.rewardedInterstitialSlot, watchdog);
   }
