@@ -3458,6 +3458,65 @@ void main() {
   });
 
   group(
+      '_resetGuardState clears stale _lastShownPlacement (T160 — revenue '
+      "attribution must not survive destroy()/re-init", () {
+    late List<AdEvent> events;
+    late StreamSubscription<AdEvent> sub;
+
+    setUp(() {
+      events = <AdEvent>[];
+      sub = AdManager().events.listen(events.add);
+    });
+    tearDown(() async {
+      await sub.cancel();
+      AdManager().debugResetGuardState();
+    });
+
+    AdRevenueEvent revenueFor(AdPlacement placement) => AdRevenueEvent(
+          providerTag: '[Fake]',
+          type: AdSlotType.interstitial,
+          placement: placement,
+          valueMicros: 1000,
+          currencyCode: 'USD',
+        );
+
+    test(
+        'a revenue event is still attributed to the last-shown placement '
+        'BEFORE any reset (sanity — proves the mechanism actually works)',
+        () async {
+      final mgr = AdManager();
+      mgr.debugSetLastShownPlacement(AdSlotType.interstitial, AdPlacement.shop);
+
+      mgr.debugEmit(revenueFor(AdPlacement.unspecified));
+      await Future<void>.delayed(Duration.zero);
+
+      final revenue = events.whereType<AdRevenueEvent>().last;
+      expect(revenue.placement, AdPlacement.shop,
+          reason: 'sanity: the show-time placement must win over the '
+              'adapter-reported one, as documented on _lastShownPlacement');
+    });
+
+    test(
+        'debugResetGuardState() clears it, so a LATER revenue event is not '
+        'attributed to a placement from the previous session', () async {
+      final mgr = AdManager();
+      mgr.debugSetLastShownPlacement(AdSlotType.interstitial, AdPlacement.shop);
+
+      mgr.debugResetGuardState();
+      mgr.debugEmit(revenueFor(AdPlacement.unspecified));
+      await Future<void>.delayed(Duration.zero);
+
+      final revenue = events.whereType<AdRevenueEvent>().last;
+      expect(revenue.placement, AdPlacement.unspecified,
+          reason: 'T160 — a placement from a session that ended (destroy() '
+              'or a reinit-without-destroy(), both of which reach '
+              '_resetGuardState()) must not survive to misattribute a '
+              'revenue event the NEW session\'s adapter reports before its '
+              'own first show call');
+    });
+  });
+
+  group(
       '_resetGuardState cancels _splashBudgetTimer (re-init timer leak '
       'regression)', () {
     // Before the fix, _resetGuardState() reset the footgun/UMP/consent flags

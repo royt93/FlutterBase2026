@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T160):** `_lastShownPlacement` (the map used to attribute a
+  revenue event to the placement the ad was actually shown under, rather
+  than whatever the adapter reports) was not cleared by
+  `destroy()`/reinit-without-destroy(), unlike every other per-session
+  field in `_resetGuardState()`. A stale placement from a session that just
+  ended could misattribute a revenue event the new session's adapter
+  reports before its own first show call. Now cleared in
+  `_resetGuardState()` alongside the other session-boundary resets there.
 - **Fix (T158):** AppLovin's `onAdLoadFailedCallback` disambiguated a
   banner-vs-MREC failure purely by comparing the reported ad-unit id
   against the configured `bannerId`/`mrecId` — a host configuring the SAME

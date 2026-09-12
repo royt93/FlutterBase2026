@@ -6300,6 +6300,17 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, 'resetGuardState: clearing stale GAID');
     }
     _currentDeviceGAID = '';
+    // T160 — [_lastShownPlacement]'s own doc comment says "never cleared",
+    // but that's about WITHIN a live session (a slightly-late paid event
+    // still naming the last real show of that format is the right answer
+    // there). This is the opposite case: BOTH callers of this method cross
+    // a session boundary (a real destroy(), or `initialize()` called again
+    // while already initialised) — a stale placement from the OLD
+    // session's last show must not get attributed to a revenue event the
+    // NEW session's adapter reports before its own first show call. Every
+    // other per-session field in this method follows the same reset-on-
+    // session-boundary rule.
+    _lastShownPlacement.clear();
   }
 
   /// Test seam for [_resetGuardState] — exercised directly by
@@ -8415,12 +8426,26 @@ class AdManager with WidgetsBindingObserver {
   /// money got one undifferentiated bucket, which is the whole point of the
   /// placement API.
   ///
-  /// ponytail: written before the show, never cleared. The paid event fires on
-  /// impression, i.e. between the show call and the dismiss callback — but some
-  /// mediation adapters report it a beat late, and a stale entry names the last
-  /// show of that same format, which is still the right answer. Clearing would
-  /// only turn "slightly late" into "unattributed".
+  /// ponytail: written before the show, never cleared WITHIN a session. The
+  /// paid event fires on impression, i.e. between the show call and the
+  /// dismiss callback — but some mediation adapters report it a beat late,
+  /// and a stale entry names the last show of that same format, which is
+  /// still the right answer. Clearing would only turn "slightly late" into
+  /// "unattributed".
+  ///
+  /// T160 — this DOES get cleared at a session boundary, in
+  /// [_resetGuardState] (see its own comment): a stale placement from a
+  /// session that just ended must not get attributed to a revenue event
+  /// the NEXT session's adapter reports before its own first show call.
   final Map<AdSlotType, AdPlacement> _lastShownPlacement = {};
+
+  /// Test seam for [_lastShownPlacement] — populating it for real requires
+  /// driving a full show() call through a fake adapter; this sets the same
+  /// state directly for tests that only care about the attribution/reset
+  /// behavior around it (T160).
+  @visibleForTesting
+  void debugSetLastShownPlacement(AdSlotType type, AdPlacement placement) =>
+      _lastShownPlacement[type] = placement;
 
   // ──────────────────────────────────────────────────────────────────────────
   //  EVENT EMIT — single `_emit()` chokepoint: records to the compliance
