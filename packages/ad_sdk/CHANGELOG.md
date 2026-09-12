@@ -6,6 +6,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T163):** `SelfHealingObserver`'s dedupe (one recommendation per
+  (type, placement, recommendedProvider)) used a plain `Set<String>` that
+  never forgot a key — once a (format, placement) pair had been recommended
+  in one direction and later the other, a genuine LATER need to recommend
+  the exact same thing as the first time stayed silent forever, since that
+  key was already "seen". Now keyed to WHEN it last fired instead: a new
+  `reobserveAfter` parameter (default 7 days) lets the same key fire again
+  once enough time has passed, while still suppressing a near-duplicate in
+  the short term exactly as before. `AdPreferences.getSelfHealingObservedKeys`/
+  `setSelfHealingObservedKeys` (a plain key list, no timestamps) are replaced
+  by `getSelfHealingObservedAt`/`setSelfHealingObservedAt` (key → last-fired
+  timestamp) under a new pref key — the old data is left unread rather than
+  migrated, since it has no timestamp to migrate from.
 - **Fix (T160):** `_lastShownPlacement` (the map used to attribute a
   revenue event to the placement the ad was actually shown under, rather
   than whatever the adapter reports) was not cleared by

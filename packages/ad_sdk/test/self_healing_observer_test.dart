@@ -186,8 +186,128 @@ void main() {
     await observer.dispose();
 
     final prefs = await AdPreferences.getInstance();
-    expect(prefs.getSelfHealingObservedKeys(), isNotEmpty,
+    expect(prefs.getSelfHealingObservedAt(), isNotEmpty,
         reason: 'the observation fired by the loop above must have '
             'reached disk by the time dispose() returns');
+  });
+
+  // T163 — the ORIGINAL `Set<String>` dedupe blocked a key FOREVER once it
+  // had fired once, with no way for a genuinely later, real need for the
+  // exact same recommendation to ever fire again. reobserveAfter bounds
+  // that instead: still suppresses a near-duplicate (the existing "does
+  // not re-emit twice" test above), but lets the same key fire again once
+  // enough time has passed.
+  group('reobserveAfter (T163) — the same key can fire again after enough '
+      'time, not never', () {
+    test(
+        'a recommendation observed once stays silent for a SECOND round '
+        'within reobserveAfter, then fires again once it elapses',
+        () async {
+      // The shared `observer` from setUp() would also react to every
+      // emitted event below and race this test's own persisted dedupe
+      // state — same reason the "prior session" test above disposes it
+      // before constructing its own instance.
+      await observer.dispose();
+
+      var fakeNow = DateTime(2026, 1, 1);
+      final ttlObserver = SelfHealingObserver(
+        reobserveAfter: const Duration(days: 7),
+        debugClock: () => fakeNow,
+      );
+      await ttlObserver.ready;
+      addTearDown(ttlObserver.dispose);
+
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+      addTearDown(sub.cancel);
+
+      void feedLopsidedData() {
+        for (var i = 0; i < 6; i++) {
+          emitLoad('[Fake]', success: false);
+          emitLoad('[AdMob]', success: true);
+          emitRevenue('[AdMob]', 5000000);
+        }
+      }
+
+      feedLopsidedData();
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<AdSelfHealingObserveEvent>(), hasLength(1),
+          reason: 'sanity: first round fires the recommendation');
+
+      // A second round of the exact same data, clock barely moved — must
+      // still be suppressed (the near-duplicate-in-a-row behavior this
+      // mechanism has always had, and must keep).
+      fakeNow = fakeNow.add(const Duration(hours: 1));
+      feedLopsidedData();
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<AdSelfHealingObserveEvent>(), hasLength(1),
+          reason: 'still just the one — too soon to re-fire');
+
+      // Now advance PAST reobserveAfter and feed the exact same data a
+      // third time.
+      fakeNow = fakeNow.add(const Duration(days: 8));
+      feedLopsidedData();
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<AdSelfHealingObserveEvent>(), hasLength(2),
+          reason: 'T163 — once reobserveAfter has elapsed, the SAME '
+              '(type, placement, recommendedProvider) key must be able '
+              'to fire again. Pre-fix, a Set-based "ever observed" '
+              'dedupe would have kept this silent forever after the '
+              'very first round, with no way back — the exact bug this '
+              'task fixes.');
+    });
+
+    // codex re-review (P2) — a device clock correction backward (NTP
+    // resync, a wrong manual clock setting fixed) must not recreate the
+    // silent-forever bug this whole mechanism exists to fix.
+    test(
+        'a device clock rollback since the last observation does NOT keep '
+        'the key suppressed — it fires again immediately, not months/years '
+        'later', () async {
+      await observer.dispose();
+
+      var fakeNow = DateTime(2026, 6, 1);
+      final ttlObserver = SelfHealingObserver(
+        reobserveAfter: const Duration(days: 7),
+        debugClock: () => fakeNow,
+      );
+      await ttlObserver.ready;
+      addTearDown(ttlObserver.dispose);
+
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+      addTearDown(sub.cancel);
+
+      void feedLopsidedData() {
+        for (var i = 0; i < 6; i++) {
+          emitLoad('[Fake]', success: false);
+          emitLoad('[AdMob]', success: true);
+          emitRevenue('[AdMob]', 5000000);
+        }
+      }
+
+      feedLopsidedData();
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<AdSelfHealingObserveEvent>(), hasLength(1));
+
+      // Clock corrected BACKWARD past the observation just recorded — a
+      // naive `elapsed < reobserveAfter` check would read this as a large
+      // NEGATIVE elapsed duration, which compares as "less than" 7 days
+      // just like a small positive one would, and stay suppressed for
+      // (fakeNow's original distance in the future) + 7 more days.
+      fakeNow = fakeNow.subtract(const Duration(days: 30));
+      feedLopsidedData();
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<AdSelfHealingObserveEvent>(), hasLength(2),
+          reason: 'T163 (codex re-review) — a clock rollback since the '
+              'last observation must be treated as immediately expired, '
+              'not as "still fresh"');
+    });
+
+    test('defaults to 7 days when not overridden', () async {
+      final defaultObserver = SelfHealingObserver();
+      addTearDown(defaultObserver.dispose);
+      expect(defaultObserver.reobserveAfter, const Duration(days: 7));
+    });
   });
 }

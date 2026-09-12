@@ -501,20 +501,38 @@ class AdPreferences {
     await _prefs?.setString(_keyWaterfallTunerState, json);
   }
 
-  // T136 (round 2) — SelfHealingObserver's "already fired this exact
-  // recommendation" dedupe keys. Persisted for the same reason as the
-  // WaterfallTuner state above: once its underlying data survives across
-  // sessions, a recommendation can stay non-null for many sessions in a
-  // row — without this, a fresh in-memory dedupe set every session would
-  // re-fire the SAME recommendation every single launch instead of once.
-  static const String _keySelfHealingObservedKeys =
-      'ad_sdk_self_healing_observed_keys';
+  // T163 — SelfHealingObserver's "already fired this exact recommendation"
+  // dedupe, now keyed to WHEN each key last fired rather than a permanent
+  // set membership (see that class's own doc comment on _alreadyObserved
+  // for why: a plain Set never forgot a key, so once a (format, placement)
+  // pair had been recommended BOTH directions — e.g. "switch to AppLovin"
+  // then later "switch to Google" — a real, later need to recommend
+  // "switch to AppLovin" again (the exact same key as before) stayed
+  // silent forever, even though the underlying data genuinely changed
+  // back). A new pref key on purpose: the old `List<String>` format (no
+  // timestamps) has no way to represent "when", so migrating it would
+  // mean guessing — left as unread legacy data instead, which just means
+  // a key that WAS permanently blocked pre-fix becomes immediately
+  // eligible again post-upgrade (the direction of error that actually
+  // matters here: a spurious re-notification is a minor annoyance, a
+  // silent-forever tuner is the whole bug being fixed).
+  static const String _keySelfHealingObservedAt =
+      'ad_sdk_self_healing_observed_at';
 
-  List<String> getSelfHealingObservedKeys() =>
-      _prefs?.getStringList(_keySelfHealingObservedKeys) ?? const [];
+  /// Key → epoch-millis it was last recommended at.
+  Map<String, int> getSelfHealingObservedAt() {
+    final raw = _prefs?.getString(_keySelfHealingObservedAt);
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return decoded.map((k, v) => MapEntry(k, v as int));
+    } catch (_) {
+      return const {};
+    }
+  }
 
-  Future<void> setSelfHealingObservedKeys(List<String> keys) async {
-    await _prefs?.setStringList(_keySelfHealingObservedKeys, keys);
+  Future<void> setSelfHealingObservedAt(Map<String, int> observedAt) async {
+    await _prefs?.setString(_keySelfHealingObservedAt, jsonEncode(observedAt));
   }
 
   // T143 — ProviderFailoverAdvisor's consecutive-load-failure streak for
