@@ -24,6 +24,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-gate-static:
+    name: ad_sdk — release readiness static gates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ad_sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1'
+          channel: 'stable'
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Secret scan
+        run: tool/release_readiness_gate.sh secret
+      - name: Public API surface gate
+        run: tool/release_readiness_gate.sh api
+      - name: Package size gate
+        run: tool/release_readiness_gate.sh size
+      - name: Dependency and license lock gate
+        run: tool/release_readiness_gate.sh dependency
+
   # The ad SDK package owns all the automated tests (unit/widget/integration
   # under packages/ad_sdk/test/). This is the primary gate.
   sdk:
