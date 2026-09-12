@@ -2403,6 +2403,10 @@ The SDK's `_lastFullscreenDismissAt` is recorded by a slot-state watcher on the 
 
 `AdProviderAdapter.loadBannerIfNeeded(widthPx)` is only meaningful for AdMob (`AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(widthPx)` picks the pixel-perfect adaptive size at load time). AppLovin's implementation discards `widthPx` — this is not a gap, it's already handled at a different layer: the banner is rendered via `MaxAdView` with `isAdaptiveBannerEnabled: true` (the plugin's default) and no explicit `width`, so `applovin_max` reads the live `MediaQuery` screen width itself at build time (`max_ad_view.dart`'s `_getWidth()`), including on rotation. The one AppLovin API that *does* take an explicit width, `AppLovinMAX.setBannerWidth(adUnitId, width)`, only applies to the native overlay banner created via `createBanner`/`showBanner` — a separate code path this SDK does not use (it exclusively uses the embedded `MaxAdView` widget path), so wiring it in would touch dead API surface for no rendering change. Net effect: AppLovin banners here are adaptive-width in practice, just via automatic `MediaQuery` sizing at display time rather than an explicit width passed at load time like AdMob.
 
+### 8. Don't configure the same AppLovin ad-unit id for `bannerId` and `mrecId`
+
+AppLovin's native load-failure callback reports back the ad-unit id, not which widget (banner vs MREC) requested it — this SDK tells them apart by comparing that id against your configured `bannerId`/`mrecId`. If you configure the exact same ad-unit id for both (a plausible copy-paste mistake — nothing stops you, and some setups may even intend a shared unit), a failure can't always be attributed to the right one with certainty; the SDK logs a warning at `initialize()` if it detects this, and falls back to whichever of banner/MREC actually has a load in flight to disambiguate, but a failure while BOTH are loading at once still can't be told apart. Use two distinct ad-unit ids for banner and MREC.
+
 ---
 
 ## Public API

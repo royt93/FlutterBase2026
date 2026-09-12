@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T158):** AppLovin's `onAdLoadFailedCallback` disambiguated a
+  banner-vs-MREC failure purely by comparing the reported ad-unit id
+  against the configured `bannerId`/`mrecId` — a host configuring the SAME
+  ad-unit id for both (a plausible copy-paste mistake) made that comparison
+  always false, silently misrouting every MREC failure into the banner
+  branch (no data lost, just a slower — 30s watchdog instead of immediate —
+  recovery for the MREC side). `initialize()` now logs a warning if
+  `bannerId == mrecId` (both non-empty), and the failure callback falls back
+  to checking which registry actually has a load in flight to disambiguate
+  the genuinely-shared-id case, only defaulting to the pre-existing
+  banner-branch behavior when truly ambiguous (both loading at once).
 - **Fix (T162):** `JourneyPrefetcher` keys its internal timing map as
   `'$signal|${type.name}'` but split every key on EVERY `|` when matching an
   `AdShowEvent` back to its signal, assuming exactly 2 parts. A `signal`

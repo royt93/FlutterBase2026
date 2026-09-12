@@ -1992,6 +1992,117 @@ void main() {
     });
   });
 
+  // T158 — onAdLoadFailedCallback disambiguates banner vs MREC purely by
+  // comparing `id` against the configured bannerId/mrecId. If a host
+  // misconfigures the SAME ad-unit id for both, that comparison can never
+  // tell them apart on its own.
+  group('T158 — bannerId == mrecId misconfiguration', () {
+    final captured = <String>[];
+
+    setUp(() {
+      captured.clear();
+      SafeLogger.configure(
+        level: AdLogLevel.warning,
+        onLog: (level, tag, message) => captured.add(message),
+      );
+    });
+
+    tearDown(() => SafeLogger.resetForTest());
+
+    const sharedIdConfig = AdConfig(
+      provider: AdProvider.appLovin,
+      appLovin: AppLovinConfig(
+        sdkKey: 'sdk',
+        bannerId: 'shared-id',
+        mrecId: 'shared-id',
+        interstitialId: 'inter-id',
+        appOpenId: 'appopen-id',
+        rewardedId: 'rewarded-id',
+      ),
+    );
+
+    test('initialize() logs a warning when bannerId == mrecId', () async {
+      final a = AppLovinAdapter(bridge: FakeAppLovinBridge());
+      expect(await a.initialize(sharedIdConfig), isTrue);
+      addTearDown(a.dispose);
+
+      expect(
+          captured.any((m) =>
+              m.contains('bannerId') &&
+              m.contains('mrecId') &&
+              m.contains('shared-id')),
+          isTrue,
+          reason: 'T158 — a shared ad-unit id between banner and MREC is a '
+              'real footgun (see onAdLoadFailedCallback below) and must be '
+              'surfaced loudly at init, not only in a code comment');
+    });
+
+    test('a distinct bannerId/mrecId configuration logs no such warning',
+        () async {
+      final a = AppLovinAdapter(bridge: FakeAppLovinBridge());
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      expect(captured.any((m) => m.contains('bannerId') && m.contains('mrecId')),
+          isFalse);
+    });
+
+    test(
+        'an MREC-only load failure is still routed to the MREC slot, not '
+        'the banner one, when only the MREC is actually loading',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(sharedIdConfig), isTrue);
+      addTearDown(a.dispose);
+
+      await a.preloadMrec('k'); // banner never loaded — not "loading"
+      b.widget!.onAdLoadFailedCallback('shared-id', _fakeError());
+
+      expect(a.mrecSlot('k').lastErrorAt, isNotNull,
+          reason: 'T158 — with only the MREC actually in flight, the '
+              'shared-id failure must still land on the MREC slot');
+      expect(a.bannerSlot('k').lastErrorAt, isNull,
+          reason: 'the banner slot was never loading — must stay untouched');
+    });
+
+    test(
+        'a banner-only load failure is still routed to the banner slot, '
+        'not the MREC one, when only the banner is actually loading',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(sharedIdConfig), isTrue);
+      addTearDown(a.dispose);
+
+      await a.preloadBanner('k'); // MREC never loaded — not "loading"
+      b.widget!.onAdLoadFailedCallback('shared-id', _fakeError());
+
+      expect(a.bannerSlot('k').lastErrorAt, isNotNull);
+      expect(a.mrecSlot('k').lastErrorAt, isNull,
+          reason: 'the MREC slot was never loading — must stay untouched');
+    });
+
+    test(
+        'when BOTH are genuinely loading at once (truly ambiguous), the '
+        'failure falls back to the banner slot — same as before this fix, '
+        'not a regression, just an unavoidable limit of a shared id',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(sharedIdConfig), isTrue);
+      addTearDown(a.dispose);
+
+      await a.preloadBanner('k1');
+      await a.preloadMrec('k2');
+      b.widget!.onAdLoadFailedCallback('shared-id', _fakeError());
+
+      expect(a.bannerSlot('k1').lastErrorAt, isNotNull,
+          reason: 'genuinely ambiguous — falls back to the pre-existing '
+              'banner-branch default rather than guessing');
+    });
+  });
+
   // Round-29 audit follow-up (MAJOR) — AppLovin wires ONE persistent
   // listener per ad type at initialize() time, so unlike AdMob (fresh
   // closure per show() call) it had no way to tell a stale cycle's late

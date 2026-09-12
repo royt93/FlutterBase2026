@@ -652,6 +652,27 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     }
     _config = config;
     _max = cfg;
+    // T158 — onAdLoadFailedCallback (banner/MREC, below) disambiguates
+    // WHICH surface failed purely by comparing the reported ad-unit id
+    // against `cfg.bannerId`/`cfg.mrecId` — the bridge gives no other
+    // correlation info on failure. If a host configures the same ad-unit
+    // id for both (a plausible copy-paste mistake, not something the SDK
+    // can refuse to accept — some networks/setups may even intend a
+    // shared unit), that comparison can never tell the two apart, and
+    // every MREC failure gets silently misrouted into the banner branch
+    // instead (see that callback's own comment). No data is lost — the
+    // affected surface still recovers via its 30s watchdog instead of
+    // immediately — but it's a real, easy-to-hit footgun worth surfacing
+    // loudly rather than only in a code comment nobody reads.
+    if (cfg.bannerId.isNotEmpty && cfg.bannerId == cfg.mrecId) {
+      SafeLogger.w(
+          _logTag,
+          '⚠️ AppLovin bannerId and mrecId are configured to the SAME '
+          'ad-unit id (${cfg.bannerId}) — a load failure for one cannot be '
+          'reliably attributed to the right surface, so an MREC failure '
+          'may recover only via the 30s watchdog instead of immediately. '
+          'Use two separate ad-unit ids for banner and MREC.');
+    }
     SafeLogger.d(_logTag, 'initialize $tag wiring listeners…');
     _wireAppOpenListener(cfg.appOpenId);
     _wireInterstitialListener(cfg.interstitialId);
@@ -1941,7 +1962,23 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       onAdLoadFailedCallback: (id, err) {
         // AppLovin passes back the ad-unit id, not the adViewId, on failure —
         // match against the configured bannerId/mrecId instead.
-        final isMrec = id == _max?.mrecId && id != _max?.bannerId;
+        var isMrec = id == _max?.mrecId && id != _max?.bannerId;
+        // T158 — when bannerId == mrecId (see initialize()'s startup
+        // warning for this misconfiguration), `id` alone can never tell
+        // banner and MREC failures apart — the check above is always
+        // false, silently misrouting every MREC failure into the banner
+        // branch below. Refine using which registry actually has a load
+        // in flight instead: far more often than not, exactly one of the
+        // two genuinely does, even sharing an ad-unit id. Left `isMrec =
+        // false` (falls through to the banner branch, same as before this
+        // fix) for the genuinely ambiguous case — both loading at once,
+        // or neither — rather than guessing.
+        if (!isMrec && id == _max?.mrecId && id == _max?.bannerId) {
+          final mrecLoading = _mrecRegistry.slots.any((slot) => slot.isLoading);
+          final bannerLoading =
+              _bannerRegistry.slots.any((slot) => slot.isLoading);
+          if (mrecLoading && !bannerLoading) isMrec = true;
+        }
         if (isMrec) {
           // T65 (phase 3) — same limitation/fallback as banner below: can't
           // attribute the failure to one specific key, so mark every
