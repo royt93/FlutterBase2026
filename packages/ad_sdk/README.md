@@ -266,17 +266,19 @@ Backwards-compatible with 1.0.1x. Recent additions:
     top of it. Fix: use the SDK's `showAdSafeModalBottomSheet` (same
     parameters, always `useRootNavigator: true`) instead of the raw Flutter
     API for any bottom sheet in a multi-Navigator app.
-  - **Overlay-based popups are invisible to this guard too (round-32 audit):**
-    `isDialogOnTop` only counts `PopupRoute`s pushed through a `Navigator`. A
-    popup built by inserting an `OverlayEntry` directly (common in
-    third-party loading/toast/coach-mark packages, and `SnackBar`, which goes
-    through `ScaffoldMessenger` rather than a route) is not a `Route` at all
-    and is never seen. If your app shows one of these at the moment
-    `showAppOpenAdOnResume` fires, the App Open ad can appear on top of it.
-    There is no SDK-side fix for this — it would have to poll every overlay
-    in the tree, which the framework does not expose safely. Avoid
-    non-route popups during a window where an App Open ad could resume, or
-    accept the (rare) overlap.
+  - **Overlay-based popups are invisible to this guard too (round-32 audit)
+    — opt-in fix added in T168:** `isDialogOnTop` only counts `PopupRoute`s
+    pushed through a `Navigator`. A popup built by inserting an
+    `OverlayEntry` directly (common in third-party loading/toast/coach-mark
+    packages, and `SnackBar`, which goes through `ScaffoldMessenger` rather
+    than a route) is not a `Route` at all and the SDK cannot poll every
+    overlay in the tree automatically (the framework does not expose that
+    safely). Call `markCustomOverlayOnScreen(true)` right before inserting
+    your own overlay and `markCustomOverlayOnScreen(false)` right after
+    removing it — the SDK cannot detect this on its own, but once declared
+    it's folded into the exact same fullscreen mutex `isDialogOnTop` already
+    feeds, blocking App Open on resume and every other fullscreen ad show.
+    If you never call it, nothing changes from before — this is opt-in.
 - **VIP time stacking (1.0.22)** — `VipManager.addVip` / `redeemVip` gained an
   opt-in `stack` flag (default `false`). With `stack: true` the grant
   **accumulates onto the latest expiry across ALL active entries** (global

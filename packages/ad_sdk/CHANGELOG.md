@@ -6,6 +6,18 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T168):** App Open (and every other fullscreen ad path) could show
+  over a host's own custom overlay (e.g. a manually-inserted `OverlayEntry`
+  via `Overlay.of(context).insert(...)`) — `AdScreenRouteLogger.isDialogOnTop`
+  only tracks `PopupRoute`s pushed through a `Navigator`, and Flutter has no
+  public API for the SDK to hook an arbitrary host overlay automatically.
+  New opt-in API: `markCustomOverlayOnScreen(bool value)` /
+  `customOverlayOnScreen` (same pattern as `markUmpFormOnScreen` for the
+  native UMP form) — call with `true` right before inserting your overlay
+  and `false` right after removing it. Folded into the SDK's fullscreen
+  mutex the same way `isDialogOnTop` already is, so it blocks App Open on
+  resume AND `canShowInterstitial`/`canShowRewardedAd`/
+  `canShowRewardedInterstitialAd`.
 - **Fix (T167):** the consent dialog's ad-partners caption unconditionally
   read `'Ad partners: Google AdMob, AppLovin'`, regardless of which network
   the app is actually configured for — this SDK supports exactly one active

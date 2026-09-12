@@ -694,6 +694,16 @@ class HomePage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const CcpaToggleDemoPage())),
           ),
           DemoTile(
+            icon: Icons.layers,
+            title: 'Custom overlay blocks App Open (T168)',
+            subtitle: 'Overlay.insert() popup — App Open must not cover it',
+            color: Colors.deepOrange,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const CustomOverlayDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.cloud_sync,
             title: 'Remote safety provider (T88)',
             subtitle: 'RemoteAdSafetyProvider — live push, no app release',
@@ -3387,6 +3397,128 @@ class StatePanelDemoPage extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────
 // demos/test_device_hash_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
+
+// T168 — custom-overlay-blocks-App-Open demo. Deliberately NOT a
+// PopupRoute/showDialog (that path is already covered by
+// AdScreenRouteLogger.isDialogOnTop) — a raw Overlay.insert() is exactly
+// the case that guard cannot see on its own, and markCustomOverlayOnScreen
+// exists for.
+class CustomOverlayDemoPage extends StatefulWidget {
+  const CustomOverlayDemoPage({super.key});
+
+  @override
+  State<CustomOverlayDemoPage> createState() => _CustomOverlayDemoPageState();
+}
+
+class _CustomOverlayDemoPageState extends State<CustomOverlayDemoPage> {
+  OverlayEntry? _entry;
+
+  void _showOverlay() {
+    if (_entry != null) return;
+    // Declare BEFORE inserting — see markCustomOverlayOnScreen's doc
+    // comment: a resume/canShow* check racing the insert must already see
+    // it blocked.
+    markCustomOverlayOnScreen(true);
+    final entry = OverlayEntry(
+      builder: (context) => Positioned.fill(
+        child: Material(
+          color: Colors.black54,
+          child: Center(
+            child: Card(
+              margin: const EdgeInsets.all(32),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Custom overlay (Overlay.insert — NOT a PopupRoute)\n\n'
+                      'Background the app and bring it back — App Open '
+                      'must not appear over this.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _hideOverlay,
+                      child: const Text('Close overlay'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    _entry = entry;
+    Overlay.of(context).insert(entry);
+    setState(() {});
+  }
+
+  void _hideOverlay() {
+    _entry?.remove();
+    _entry = null;
+    // Cleared AFTER removing — the mirror of _showOverlay's ordering.
+    markCustomOverlayOnScreen(false);
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    // A host must not leave this set past its own overlay's lifetime —
+    // otherwise every fullscreen ad stays blocked for the rest of the
+    // session. Demo hygiene, not part of the SDK contract itself.
+    //
+    // codex review (T168, round 1) — the entry itself also has to come
+    // down here, not just the flag: `Overlay.of(context).insert(entry)`
+    // put it on the enclosing Navigator's Overlay, which outlives this
+    // page's route, so popping this page without closing the popup first
+    // left a ghost overlay on screen with a "Close overlay" button whose
+    // onPressed (_hideOverlay) called setState() on this now-disposed
+    // State.
+    if (_entry != null) {
+      try {
+        _entry!.remove();
+      } catch (_) {
+        // Already removed (e.g. its own Overlay was torn down first).
+      }
+      _entry = null;
+      markCustomOverlayOnScreen(false);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Custom overlay blocks App Open')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tap to show a popup built with Overlay.insert() directly — '
+              'not a PopupRoute/showDialog, which AdScreenRouteLogger'
+              '.isDialogOnTop already covers. Then background the app and '
+              'bring it back: App Open must not appear over this popup.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _entry == null ? _showOverlay : null,
+              child: const Text('Show custom overlay'),
+            ),
+            const SizedBox(height: 8),
+            Text(_entry == null
+                ? 'customOverlayOnScreen: false'
+                : 'customOverlayOnScreen: true'),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 // T166 — CCPA opt-out toggle demo. Deliberately a StatelessWidget with the
 // toggle mounted directly in build(): pushed as the FIRST route (before

@@ -117,6 +117,17 @@ class AdManager with WidgetsBindingObserver {
     AdLoadingDialog.isShowingNotifier.addListener(_recomputeFullscreenBusy);
     AdScreenRouteLogger.isDialogOnTopNotifier
         .addListener(_recomputeFullscreenBusy);
+    // T168 — same reasoning: lives for the whole process.
+    customOverlayOnScreen.addListener(_recomputeFullscreenBusy);
+    // codex review (T168, round 1) — a host can call
+    // markCustomOverlayOnScreen(true) before ever touching AdManager (it is
+    // a plain top-level function), so by the time this constructor runs the
+    // flag can already be true. The listeners above only react to a FUTURE
+    // change; without this, `fullscreenBusy` would stay stuck at its false
+    // default — wrong, though harmless to actual gating, since every real
+    // show path reads _fullscreenBusyReason directly rather than this
+    // mirror — until some other busy input flips. Seed it once, now.
+    _recomputeFullscreenBusy();
     // T109 — same reasoning: these three also live for the whole process.
     _offlineNotifier.addListener(_scheduleStateSnapshotRecompute);
     _canRequestAdsNotifier.addListener(_scheduleStateSnapshotRecompute);
@@ -1824,6 +1835,19 @@ class AdManager with WidgetsBindingObserver {
     // never in the picture either.
     if (umpFormOnScreen.value) return 'a consent form is on screen';
 
+    // T168 — same class of gap `umpFormOnScreen` above closes for the
+    // native UMP form: a host's own custom overlay (e.g. a manual
+    // `Overlay.of(context).insert(...)`, not a `PopupRoute` through a
+    // `Navigator`) is invisible to `isDialogOnTop` below. Opt-in and
+    // host-declared via `markCustomOverlayOnScreen` — see that function's
+    // doc comment. Must sit here, ahead of the `ad == null` early return
+    // below, for the same reason `umpFormOnScreen` does: a host can show
+    // its own overlay before `AdManager().initialize()` has ever run (no
+    // adapter yet), and this guard has to hold during that window too —
+    // that early return used to make it a no-op until init actually
+    // finished (codex review, T168 round 1).
+    if (customOverlayOnScreen.value) return 'a custom host overlay is on screen';
+
     // Round-25 QC round 13 (`codex`, MAJOR) — the teardown belongs HERE, in the
     // one gate every fullscreen path re-reads, not only at each show method's
     // entry. `showRewardedAd` checks `_teardownBlocksShow` up front, then awaits
@@ -1859,10 +1883,11 @@ class AdManager with WidgetsBindingObserver {
   /// only being able to check it at the moment it calls a show method.
   ///
   /// Kept in sync by [_recomputeFullscreenBusy], called whenever any of
-  /// [_fullscreenBusyReason]'s six inputs changes: the four fullscreen ad
+  /// [_fullscreenBusyReason]'s seven inputs changes: the four fullscreen ad
   /// slots (via [_attachFullscreenBusySlotListeners], re-wired on every
-  /// adapter swap by the `_adapter` setter above), [AdLoadingDialog]'s and
-  /// [AdScreenRouteLogger]'s own notifiers (wired once in [_internal]).
+  /// adapter swap by the `_adapter` setter above), [AdLoadingDialog]'s,
+  /// [AdScreenRouteLogger]'s, and (T168) [customOverlayOnScreen]'s own
+  /// notifiers (wired once in [_internal]).
   final ValueNotifier<bool> fullscreenBusy = ValueNotifier<bool>(false);
 
   void _recomputeFullscreenBusy() {
@@ -7140,6 +7165,10 @@ class AdManager with WidgetsBindingObserver {
     // already on screen (see _fullscreenBusyReason, which the real show
     // path re-checks and which already covers this signal).
     if (AdScreenRouteLogger.isDialogOnTop) return false;
+    // T168 — same reasoning, for a host's own custom overlay
+    // (isDialogOnTop above cannot see it — see customOverlayOnScreen's doc
+    // comment).
+    if (customOverlayOnScreen.value) return false;
     // T137 forType — this peek gates interstitial specifically.
     // Peek, not canShowFullscreenAd() — this is a read-only "should I enable
     // my UI" query a host may poll repeatedly; the non-peek variant has a
@@ -7764,6 +7793,8 @@ class AdManager with WidgetsBindingObserver {
     if (AdLoadingDialog.isShowing) return false;
     // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
     if (AdScreenRouteLogger.isDialogOnTop) return false;
+    // T168 — see canShowInterstitial's comment.
+    if (customOverlayOnScreen.value) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek(
         forType: AdSlotType.rewardedInterstitial);
@@ -7802,6 +7833,8 @@ class AdManager with WidgetsBindingObserver {
     if (AdLoadingDialog.isShowing) return false;
     // Round-37 audit (MAJOR) — see canShowInterstitial's comment.
     if (AdScreenRouteLogger.isDialogOnTop) return false;
+    // T168 — see canShowInterstitial's comment.
+    if (customOverlayOnScreen.value) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     // T147 — this used to pass AdSlotType.rewardedInterstitial (copy-paste
     // from canShowRewardedInterstitialAd() below), so a remote kill switch

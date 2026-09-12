@@ -42,6 +42,31 @@ Future<T?> showAdSafeModalBottomSheet<T>({
   );
 }
 
+/// T168 — host-declared: true while the app has its OWN custom overlay on
+/// screen (e.g. a manually-inserted `OverlayEntry` via
+/// `Overlay.of(context).insert(...)`), which [AdScreenRouteLogger
+/// .isDialogOnTop] cannot see — that only tracks [PopupRoute]s pushed
+/// through a `Navigator`, and Flutter has no public API for the SDK to hook
+/// an arbitrary host `OverlayEntry` automatically. Same purpose as
+/// `markUmpFormOnScreen` (round 31) for the native UMP form, just opt-in
+/// and host-controlled instead of automatic, since there is no equivalent
+/// automatic signal available here. Call [markCustomOverlayOnScreen] with
+/// `true` right before inserting your overlay and `false` right after
+/// removing it — folded into [AdManager]'s fullscreen mutex
+/// (`_fullscreenBusyReason`) the same way [isDialogOnTop] already is, so it
+/// blocks App Open on resume AND every other fullscreen ad path, not just
+/// App Open.
+///
+/// A host with more than one independent custom overlay open at once is
+/// responsible for its own true count — this is a plain boolean, not a
+/// ref-count: call `markCustomOverlayOnScreen(false)` only once your LAST
+/// custom overlay has actually closed, not after each individual one.
+final ValueNotifier<bool> customOverlayOnScreen = ValueNotifier<bool>(false);
+
+/// See [customOverlayOnScreen]'s doc comment.
+void markCustomOverlayOnScreen(bool value) =>
+    customOverlayOnScreen.value = value;
+
 /// Global RouteObserver for banner ad lifecycle management.
 ///
 /// Register in your app's [navigatorObservers]:

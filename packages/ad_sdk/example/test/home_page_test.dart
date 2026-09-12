@@ -8,9 +8,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Future<void> pumpHomePage(WidgetTester tester) async {
-    // The list has 23 tiles — grow the viewport so they all build without
+    // The list has 24 tiles — grow the viewport so they all build without
     // needing a scroll gesture.
-    tester.view.physicalSize = const Size(800, 4800);
+    tester.view.physicalSize = const Size(800, 4900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -21,7 +21,7 @@ void main() {
   testWidgets('renders a DemoTile for every demo', (tester) async {
     await pumpHomePage(tester);
 
-    expect(find.byType(DemoTile), findsNWidgets(23));
+    expect(find.byType(DemoTile), findsNWidgets(24));
     expect(find.text('Banner ad'), findsOneWidget);
     expect(find.text('Banner adaptive sizing (T157)'), findsOneWidget);
     expect(find.text('MREC ad'), findsOneWidget);
@@ -87,6 +87,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(CcpaToggleDemoPage), findsOneWidget);
+    expect(find.byType(HomePage), findsNothing);
+  });
+
+  testWidgets('tapping the T168 tile navigates to CustomOverlayDemoPage',
+      (tester) async {
+    await pumpHomePage(tester);
+
+    await tester.tap(find.text('Custom overlay blocks App Open (T168)'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CustomOverlayDemoPage), findsOneWidget);
     expect(find.byType(HomePage), findsNothing);
   });
 }

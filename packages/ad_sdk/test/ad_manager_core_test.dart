@@ -1270,6 +1270,73 @@ void main() {
       });
     });
 
+    // T168 — a host's own custom overlay (e.g. a manual
+    // Overlay.of(context).insert(...), which AdScreenRouteLogger.
+    // isDialogOnTop cannot see) must fold into the exact same fullscreen
+    // mutex the round-37 group above already proves for a real PopupRoute.
+    group('T168: canShow* peeks also respect customOverlayOnScreen '
+        '(host-declared custom overlay)', () {
+      setUp(() async {
+        SharedPreferences.setMockInitialValues({});
+        final prefs = await AdPreferences.getInstance();
+        await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugVipManager = _FakeVip(false);
+      });
+
+      tearDown(() => markCustomOverlayOnScreen(false));
+
+      test('canShowInterstitial() is false while a custom overlay is on '
+          'screen', () {
+        adapter.interstitialSlot.beginLoad();
+        adapter.interstitialSlot.markReady();
+        expect(AdManager().canShowInterstitial(), isTrue,
+            reason: 'sanity check: a freshly loaded ad is showable');
+
+        markCustomOverlayOnScreen(true);
+        expect(AdManager().canShowInterstitial(), isFalse,
+            reason: 'a host-declared custom overlay is on screen');
+        expect(AdManager().debugFullscreenBusyReason,
+            'a custom host overlay is on screen');
+
+        markCustomOverlayOnScreen(false);
+        expect(AdManager().canShowInterstitial(), isTrue,
+            reason: 'once the host clears its flag, the gate must open '
+                'back up again, not stay stuck closed');
+      });
+
+      test('canShowRewardedAd() is false while a custom overlay is on '
+          'screen', () {
+        adapter.rewardedSlot.beginLoad();
+        adapter.rewardedSlot.markReady();
+        expect(AdManager().canShowRewardedAd(), isTrue);
+
+        markCustomOverlayOnScreen(true);
+        expect(AdManager().canShowRewardedAd(), isFalse);
+
+        markCustomOverlayOnScreen(false);
+        expect(AdManager().canShowRewardedAd(), isTrue);
+      });
+
+      test('canShowRewardedInterstitialAd() is false while a custom '
+          'overlay is on screen', () {
+        adapter.rewardedInterstitialSlot.beginLoad();
+        adapter.rewardedInterstitialSlot.markReady();
+        expect(AdManager().canShowRewardedInterstitialAd(), isTrue);
+
+        markCustomOverlayOnScreen(true);
+        expect(AdManager().canShowRewardedInterstitialAd(), isFalse);
+
+        markCustomOverlayOnScreen(false);
+        expect(AdManager().canShowRewardedInterstitialAd(), isTrue);
+      });
+
+      test('customOverlayOnScreen defaults to false — no accidental block',
+          () {
+        expect(customOverlayOnScreen.value, isFalse);
+      });
+    });
+
     test(
         'VIP active → showAppOpenAd is skipped even with bypassSafety '
         '(never stacks on top of the no-ads state)', () async {
@@ -3761,6 +3828,33 @@ void main() {
       AdManager().showAppOpenAdOnResume();
       expect(adapter.loadAppOpenCalls, 0);
       expect(adapter.showAppOpenCalls, 0);
+    });
+
+    // T168 — the exact scenario this task describes: a host's own custom
+    // overlay (invisible to AdScreenRouteLogger.isDialogOnTop above) must
+    // block App Open on resume too, via the fullscreen mutex
+    // (_fullscreenBusyReason) markCustomOverlayOnScreen feeds into.
+    test('host-declared custom overlay on screen → skipped, no reload '
+        'triggered', () {
+      markCustomOverlayOnScreen(true);
+      addTearDown(() => markCustomOverlayOnScreen(false));
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, 0);
+      expect(adapter.showAppOpenCalls, 0);
+    });
+
+    test('clearing the custom-overlay flag lets a resume reach the refill '
+        'again', () {
+      markCustomOverlayOnScreen(true);
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, 0,
+          reason: 'sanity: still blocked while the flag is set');
+
+      markCustomOverlayOnScreen(false);
+      AdManager().showAppOpenAdOnResume();
+      expect(adapter.loadAppOpenCalls, greaterThanOrEqualTo(1),
+          reason: 'T168 — once the host clears its flag, resume must '
+              'reach the refill path again, not stay stuck blocked');
     });
 
     test('cold start (first resume ever) → skipped but triggers a reload', () {
