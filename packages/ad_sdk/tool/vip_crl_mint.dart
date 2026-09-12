@@ -1,7 +1,7 @@
 // Mint a signed VIP-key revocation list (CRL, T95). Same private key as
 // tool/vip_mint.dart (from tool/vip_keygen.dart) — no new key material.
 //
-//   dart run tool/vip_crl_mint.dart --priv <b64privkey> --kids kid1,kid2,kid3
+//   dart run tool/vip_crl_mint.dart --priv-file .vip-private-key --kids kid1,kid2,kid3
 //
 // Mints CRL1.<b64url(payload)>.<b64url(signature)>
 // payload = UTF-8 of "<issuedAtEpochSeconds>|<comma-separated kids>"
@@ -19,15 +19,13 @@
 // VipManager.refreshRevocationList(publicKeyBase64: ..., revocationProvider: ...)
 // — see lib/src/vip/vip_revocation_provider.dart for the fetch-side contract.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 
 Future<void> main(List<String> args) async {
   final opts = _parse(args);
-  final privB64 = opts['priv'];
-  if (privB64 == null) {
-    _fail('missing --priv <base64 private key> (from vip_keygen.dart)');
-  }
+  final privB64 = await _readPrivateKey(opts);
 
   // No '|' in any kid — it's the payload separator, and a stray one would
   // shift field boundaries when signed_vip_key.dart's verifySignedCrl parses
@@ -77,6 +75,25 @@ Map<String, String> _parse(List<String> args) {
     }
   }
   return m;
+}
+
+Future<String> _readPrivateKey(Map<String, String> opts) async {
+  if (opts.containsKey('priv')) {
+    _fail(
+        '--priv is disabled because argv is observable; use --priv-file or --priv-stdin');
+  }
+  final path = opts['priv-file'];
+  if (path != null) {
+    try {
+      return (await File(path).readAsString()).trim();
+    } catch (_) {
+      _fail('could not read --priv-file');
+    }
+  }
+  if (opts.containsKey('priv-stdin')) {
+    return (await stdin.transform(utf8.decoder).join()).trim();
+  }
+  _fail('provide --priv-file <0600 file> or --priv-stdin');
 }
 
 Never _fail(String msg) {

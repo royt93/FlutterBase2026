@@ -1,8 +1,8 @@
 // Mint a signed offline VIP key (T18). Requires the Ed25519 PRIVATE key from
 // tool/vip_keygen.dart.
 //
-//   dart run tool/vip_mint.dart --priv <b64privkey> --days 30 [--kid abc123]
-//   dart run tool/vip_mint.dart --priv <b64privkey> --seconds 3600 --kid demo1
+//   dart run tool/vip_mint.dart --priv-file .vip-private-key --days 30 [--kid abc123]
+//   cat .vip-private-key | dart run tool/vip_mint.dart --priv-stdin --seconds 3600 --kid demo1
 //
 // Mints AVP2 by default:  AVP2.<b64url(payload)>.<b64url(signature)>
 // payload = UTF-8 of "<seconds>|<kid>|<expiresAtEpochSeconds>|<bundleId>"
@@ -22,15 +22,13 @@
 // The user redeems it via
 // VipManager.redeemSignedKey(code, publicKeyBase64: <matching public key>).
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 
 Future<void> main(List<String> args) async {
   final opts = _parse(args);
-  final privB64 = opts['priv'];
-  if (privB64 == null) {
-    _fail('missing --priv <base64 private key> (from vip_keygen.dart)');
-  }
+  final privB64 = await _readPrivateKey(opts);
 
   int? seconds = int.tryParse(opts['seconds'] ?? '');
   final days = int.tryParse(opts['days'] ?? '');
@@ -102,6 +100,25 @@ Map<String, String> _parse(List<String> args) {
     }
   }
   return m;
+}
+
+Future<String> _readPrivateKey(Map<String, String> opts) async {
+  if (opts.containsKey('priv')) {
+    _fail(
+        '--priv is disabled because argv is observable; use --priv-file or --priv-stdin');
+  }
+  final path = opts['priv-file'];
+  if (path != null) {
+    try {
+      return (await File(path).readAsString()).trim();
+    } catch (_) {
+      _fail('could not read --priv-file');
+    }
+  }
+  if (opts.containsKey('priv-stdin')) {
+    return (await stdin.transform(utf8.decoder).join()).trim();
+  }
+  _fail('provide --priv-file <0600 file> or --priv-stdin');
 }
 
 Never _fail(String msg) {

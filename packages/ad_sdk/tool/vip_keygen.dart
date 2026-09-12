@@ -9,19 +9,52 @@
 //
 // Because only the public key ships, a decompiler cannot forge new valid keys.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 
-Future<void> main() async {
+Future<void> main([List<String> args = const []]) async {
   final algo = Ed25519();
   final kp = await algo.newKeyPair();
   final priv = await kp.extractPrivateKeyBytes(); // 32-byte seed
   final pub = (await kp.extractPublicKey()).bytes;
 
+  final opts = _parse(args);
+  final privatePath = opts['private-out'] ?? '.vip-private-key';
+  final privateFile = File(privatePath);
+  if (await privateFile.exists() && !opts.containsKey('force')) {
+    _fail('refusing to overwrite existing private-key file; use --force');
+  }
+  await privateFile.writeAsString(base64Url.encode(priv), flush: true);
+  if (!Platform.isWindows) {
+    final chmod = await Process.run('chmod', ['600', privateFile.path]);
+    if (chmod.exitCode != 0) {
+      _fail('could not set private-key file permissions to 0600');
+    }
+  }
   // ignore: avoid_print
   print('Ed25519 VIP signing key pair');
   // ignore: avoid_print
   print('PUBLIC  (embed in app, safe to commit): ${base64Url.encode(pub)}');
   // ignore: avoid_print
-  print('PRIVATE (KEEP SECRET, never commit):    ${base64Url.encode(priv)}');
+  print('PRIVATE stored in 0600 file: $privatePath (never commit)');
+}
+
+Map<String, String> _parse(List<String> args) {
+  final m = <String, String>{};
+  for (var i = 0; i < args.length; i++) {
+    final a = args[i];
+    if (!a.startsWith('--')) continue;
+    final key = a.substring(2);
+    m[key] = (i + 1 < args.length && !args[i + 1].startsWith('--'))
+        ? args[++i]
+        : 'true';
+  }
+  return m;
+}
+
+Never _fail(String msg) {
+  // ignore: avoid_print
+  print('ERROR: $msg');
+  throw ArgumentError(msg);
 }
