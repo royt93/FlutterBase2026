@@ -24,6 +24,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compatibility-matrix:
+    name: ad_sdk — compatibility matrix (${{ matrix.platform }}/${{ matrix.provider }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [android]
+        provider: [admob, appLovin]
+    defaults:
+      run:
+        working-directory: packages/ad_sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.1'
+          channel: stable
+      - run: flutter pub get
+      - name: Validate matrix target
+        run: dart run tool/validate_compatibility_matrix.dart '${{ matrix.platform }}' '${{ matrix.provider }}'
+
   release-gate-static:
     name: ad_sdk — release readiness static gates
     runs-on: ubuntu-latest
