@@ -6,6 +6,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T165):** the fill-rate baseline monitor's day computation
+  (`AdPreferences.recordFillRateBaselineSample`/`getFillRateBaselineHistory`,
+  `FillRateBaselineMonitor._baselineFor`) used `DateTime.now()` (local time),
+  independent from the anti-fraud daily-cap counters' UTC-based, clock-
+  rollback-clamped `_todayUtcClamped`. A device timezone change could split
+  or merge a day's fill-rate samples differently than the anti-fraud
+  counters saw the same moment — a reporting/alerting inconsistency only,
+  never a cap-enforcement issue. All three now compute "today" through the
+  exact same UTC day key (`AdPreferences.todayUtcClamped`, a new public
+  wrapper). Also fixed a parsing bug this surfaced: pruning stored history
+  parsed a bare `'YYYY-MM-DDZ'` string, which `DateTime.tryParse` silently
+  rejects (not valid ISO8601) — every stored day looked "too old" and was
+  discarded on every read-modify-write. Fixed to `'YYYY-MM-DDT00:00:00Z'`.
 - **Fix (T164):** `applyConsentToProviders` only recorded consent as
   actually applied to the providers when BOTH AdMob's and AppLovin's writes
   succeeded, even for an app that only ever configures ONE via

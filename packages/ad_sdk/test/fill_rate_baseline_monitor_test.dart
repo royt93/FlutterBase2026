@@ -31,8 +31,15 @@ AdRevenueEvent _revenue(AdSlotType type, int valueMicros) => AdRevenueEvent(
       currencyCode: 'USD',
     );
 
-String _daysAgo(int n) =>
-    DateTime.now().subtract(Duration(days: n)).toIso8601String().substring(0, 10);
+// T165 — UTC, matching the production code's own day keys (see
+// fill_rate_baseline_monitor.dart/ad_preferences.dart) — a LOCAL-time key
+// here would silently land on the wrong day (or the right day the wrong
+// way) whenever this machine's local timezone isn't UTC.
+String _daysAgo(int n) => DateTime.now()
+    .toUtc()
+    .subtract(Duration(days: n))
+    .toIso8601String()
+    .substring(0, 10);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -255,7 +262,7 @@ void main() {
     await f1;
     await f2;
 
-    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
     final todayHistory = prefs.getFillRateBaselineHistory()[today];
     expect(todayHistory?[AdSlotType.interstitial.name]?['attempts'], 1,
         reason: 'the first sample must not be discarded by the second');

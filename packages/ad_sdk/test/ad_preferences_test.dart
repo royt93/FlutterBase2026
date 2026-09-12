@@ -2,6 +2,7 @@
 // that backs VIP entries, consent settings, first-install state and the legacy
 // GAID list. Uses the in-memory SharedPreferences mock.
 
+import 'package:applovin_admob_sdk/src/state/ad_slot.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -187,6 +188,109 @@ void main() {
       expect(prefs.getDailyAdCount(now: day2), 0,
           reason: 'a real, forward day change must still roll the '
               'counter over to 0');
+    });
+  });
+
+  // T165 — the fill-rate baseline monitor's day computation used to be a
+  // separate, LOCAL-time `DateTime.now()` read, independent from the
+  // anti-fraud daily-cap counters' UTC `_todayUtcClamped`. A device
+  // timezone change (or simply being on opposite sides of UTC midnight
+  // from wherever the two happened to disagree) could split or merge a
+  // day's fill-rate samples differently than the anti-fraud counters saw
+  // the same moment — purely a reporting/alerting inconsistency (this
+  // data never fed any cap enforcement), but a real synchronization bug.
+  group('fill-rate baseline day key stays in sync with the anti-fraud '
+      'daily-cap day key (T165)', () {
+    test(
+        'the exact same moment produces the exact same day key in both '
+        'subsystems, right at a UTC day boundary', () async {
+      // 23:30 UTC — a moment a device set to a timezone AHEAD of UTC (e.g.
+      // UTC+9) would already consider the FOLLOWING calendar day in local
+      // time. Before this fix, recordFillRateBaselineSample's local-time
+      // read would have keyed this under the wrong (later) day than the
+      // anti-fraud counters' UTC-based one on such a device.
+      final moment = DateTime.utc(2026, 9, 11, 23, 30);
+
+      await prefs.recordFillRateBaselineSample(
+        slotTypeName: AdSlotType.interstitial.name,
+        attempts: 1,
+        successes: 1,
+        now: moment,
+      );
+      await prefs.incrementDailyAdCount(now: moment);
+
+      final fillRateDayKeys = prefs.getFillRateBaselineHistory(now: moment).keys;
+      final antiFraudDay = prefs.todayUtcClamped(now: moment);
+
+      expect(fillRateDayKeys, contains(antiFraudDay),
+          reason: 'T165 — the fill-rate sample must land under the exact '
+              'same UTC calendar day the anti-fraud daily-cap counter '
+              'uses for the same moment, not a separately-computed '
+              '(previously LOCAL-time) day of its own');
+      expect(fillRateDayKeys.length, 1,
+          reason: 'sanity: exactly one day bucket, not accidentally split '
+              'across two');
+    });
+
+    test(
+        'a sample recorded just before UTC midnight and read back just '
+        'after still lands on, and is retrievable from, the correct '
+        '(earlier) UTC day', () async {
+      final beforeMidnight = DateTime.utc(2026, 9, 11, 23, 59, 59);
+      final afterMidnight = DateTime.utc(2026, 9, 12, 0, 0, 1);
+
+      await prefs.recordFillRateBaselineSample(
+        slotTypeName: AdSlotType.rewarded.name,
+        attempts: 1,
+        successes: 1,
+        now: beforeMidnight,
+      );
+
+      // Read back a moment LATER, on the new UTC day — the sample must
+      // still be there under the 9/11 key (within the 7-day retention
+      // window), not silently dropped by the pruning logic mistaking a
+      // valid recent day for an unparseable/too-old one.
+      final history = prefs.getFillRateBaselineHistory(now: afterMidnight);
+      expect(history['2026-09-11']?[AdSlotType.rewarded.name]?['attempts'], 1,
+          reason: 'T165 — a sample from just before UTC midnight must '
+              'survive being read back just after it, not be pruned away');
+    });
+
+    // codex re-review (T165) — the retention cutoff must be derived from
+    // the same clamped "today" every other read of this data uses, not a
+    // raw clock read that a rollback could make read EARLIER than the
+    // clamped day already observed (which would loosen the retention
+    // window relative to what "today" means everywhere else).
+    test(
+        'the 7-day retention cutoff is anchored to the clamped "today", '
+        'not a raw clock read that a rollback could desync from it',
+        () async {
+      final day10 = DateTime.utc(2026, 9, 10);
+      // Advance the high-water mark to day 18 first — day 10 is then
+      // exactly 8 days before the OBSERVED (clamped) "today", one day
+      // past the 7-day retention window.
+      final day18 = DateTime.utc(2026, 9, 18);
+      prefs.todayUtcClamped(now: day18);
+
+      await prefs.recordFillRateBaselineSample(
+        slotTypeName: AdSlotType.interstitial.name,
+        attempts: 1,
+        successes: 1,
+        now: day10,
+      );
+
+      // A rollback to day 11 reads EARLIER than the clamped high-water
+      // mark (day 18) — a cutoff derived from this raw, rolled-back clock
+      // would compute "day 4", which incorrectly keeps day 10 in
+      // history. Anchored to the clamped day instead, the cutoff is
+      // "day 11" (18 - 7), correctly pruning day 10 as one day too old.
+      final rollback = DateTime.utc(2026, 9, 11);
+      final history = prefs.getFillRateBaselineHistory(now: rollback);
+
+      expect(history.containsKey('2026-09-10'), isFalse,
+          reason: 'T165 (codex re-review) — day 10 is 8 days before the '
+              'clamped "today" (day 18) and must be pruned, regardless of '
+              'what a rolled-back raw clock reads');
     });
   });
 }

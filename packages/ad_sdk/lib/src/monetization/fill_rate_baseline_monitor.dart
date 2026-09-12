@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
 import '../state/ad_slot.dart';
@@ -76,13 +78,16 @@ class FillRateBaselineMonitor {
     this._prefs, {
     this.regressionThreshold = 0.2,
     this.minSamples = 5,
+    @visibleForTesting DateTime Function() debugClock = DateTime.now,
   })  : assert(regressionThreshold > 0 && regressionThreshold < 1,
             'regressionThreshold must be between 0 and 1 (exclusive)'),
-        assert(minSamples > 0, 'minSamples must be positive') {
+        assert(minSamples > 0, 'minSamples must be positive'),
+        _now = debugClock {
     _sub = AdManager().events.listen(_onEvent);
   }
 
   final AdPreferences _prefs;
+  final DateTime Function() _now;
 
   /// A session metric counts as "regressed" once it's at least this
   /// fraction below the 7-day baseline (default 0.2 = 20% worse).
@@ -126,6 +131,7 @@ class FillRateBaselineMonitor {
         slotTypeName: event.type.name,
         attempts: 1,
         successes: event.success ? 1 : 0,
+        now: _now(),
       ));
     } else if (event is AdRevenueEvent) {
       final tally = _session.putIfAbsent(event.type, () => _Tally());
@@ -135,6 +141,7 @@ class FillRateBaselineMonitor {
         slotTypeName: event.type.name,
         revenueMicros: event.valueMicros,
         revenueCount: 1,
+        now: _now(),
       ));
     } else {
       return;
@@ -143,8 +150,15 @@ class FillRateBaselineMonitor {
   }
 
   _Tally _baselineFor(AdSlotType type) {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-    final history = _prefs.getFillRateBaselineHistory();
+    // T165 — the SAME "today" [AdPreferences] itself uses to write these
+    // samples (UTC, clock-rollback-clamped), not a separate LOCAL-time
+    // computation of "today". A device timezone change (or even just
+    // being on opposite sides of UTC midnight from where the samples were
+    // written) could otherwise make this exclude the wrong day, or the
+    // right day under the wrong key, silently corrupting which samples
+    // count as "history" versus "today's in-progress session".
+    final today = _prefs.todayUtcClamped(now: _now());
+    final history = _prefs.getFillRateBaselineHistory(now: _now());
     final baseline = _Tally();
     history.forEach((date, perType) {
       if (date == today) return; // exclude the in-progress session's own day

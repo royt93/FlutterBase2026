@@ -125,6 +125,15 @@ class AdPreferences {
     return observed;
   }
 
+  /// T165 — public wrapper so callers outside this file (e.g.
+  /// `FillRateBaselineMonitor`, which excludes "today" from the baseline it
+  /// compares the current session against) can compute "today" the exact
+  /// same way this class's own daily counters do, instead of each
+  /// maintaining its own (previously local-time, timezone-sensitive)
+  /// definition of "today" that could disagree with the date keys this
+  /// class actually writes.
+  String todayUtcClamped({DateTime? now}) => _todayUtcClamped(now: now);
+
   int getDailyAdCount({DateTime? now}) {
     final today = _todayUtcClamped(now: now);
     final saved = _prefs?.getString(_keyDailyDate) ?? '';
@@ -633,16 +642,37 @@ class AdPreferences {
   /// revenueCount}}}`, already pruned to the last [_fillRateBaselineDays]
   /// calendar days. Corrupt storage degrades to an empty history (no
   /// baseline to compare against, never a fabricated one).
-  Map<String, Map<String, Map<String, int>>> getFillRateBaselineHistory() {
+  Map<String, Map<String, Map<String, int>>> getFillRateBaselineHistory(
+      {DateTime? now}) {
     final raw = _prefs?.getString(_keyFillRateBaselineHistory);
     if (raw == null) return {};
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      final cutoff =
-          DateTime.now().subtract(const Duration(days: _fillRateBaselineDays));
+      // T165 — UTC throughout, matching the date keys
+      // [_recordFillRateBaselineSampleNow] actually writes (via
+      // `_todayUtcClamped`) — comparing a LOCAL cutoff against a bare
+      // 'YYYY-MM-DD' string (which `DateTime.parse` treats as LOCAL
+      // midnight when it carries no zone marker) would silently
+      // reintroduce a timezone dependency this class's daily-cap counters
+      // were already fixed to not have (round-31/37).
+      //
+      // codex re-review (T165) — derived from `_todayUtcClamped` (the
+      // clock-rollback-clamped day), not a raw `DateTime.now().toUtc()`:
+      // during an actual clock rollback the raw clock reads earlier than
+      // the clamped high-water-mark day already observed, which would
+      // make the retention window looser than intended (relative to
+      // "today" as every OTHER read of this data understands it) for as
+      // long as the rollback persists.
+      final cutoff = DateTime.parse('${_todayUtcClamped(now: now)}T00:00:00Z')
+          .subtract(const Duration(days: _fillRateBaselineDays));
       final result = <String, Map<String, Map<String, int>>>{};
       decoded.forEach((date, perType) {
-        final parsed = DateTime.tryParse(date);
+        // A bare 'YYYY-MM-DDZ' (no time component) is NOT valid ISO8601 and
+        // silently fails to parse (verified: `DateTime.tryParse` returns
+        // null for it, unlike 'YYYY-MM-DDT00:00:00Z') — every stored day
+        // would otherwise look "unparseable" and get pruned as if it were
+        // too old, discarding legitimate history on every read-modify-write.
+        final parsed = DateTime.tryParse('${date}T00:00:00Z');
         if (parsed == null || parsed.isBefore(cutoff)) return;
         final typeMap = <String, Map<String, int>>{};
         (perType as Map<String, dynamic>).forEach((type, counts) {
@@ -682,6 +712,7 @@ class AdPreferences {
     int successes = 0,
     int revenueMicros = 0,
     int revenueCount = 0,
+    DateTime? now,
   }) {
     final result = _fillRateBaselineChain.then((_) =>
         _recordFillRateBaselineSampleNow(
@@ -690,6 +721,7 @@ class AdPreferences {
           successes: successes,
           revenueMicros: revenueMicros,
           revenueCount: revenueCount,
+          now: now,
         ));
     _fillRateBaselineChain = result.catchError((e) {
       SafeLogger.w(_tag, 'fill-rate baseline write failed: $e');
@@ -703,9 +735,18 @@ class AdPreferences {
     required int successes,
     required int revenueMicros,
     required int revenueCount,
+    DateTime? now,
   }) async {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-    final history = getFillRateBaselineHistory(); // already pruned
+    // T165 — UTC (via the same `_todayUtcClamped` the anti-fraud daily
+    // counters use), not `DateTime.now()` (local) — a device's timezone
+    // change (travel, a manual clock-settings change) used to be able to
+    // split or merge a day's fill-rate samples differently than the
+    // anti-fraud counters saw it, purely a reporting/alerting
+    // inconsistency (this data feeds `FillRateBaselineMonitor`'s
+    // regression alerts, not any cap enforcement), but still worth being
+    // consistent about.
+    final today = _todayUtcClamped(now: now);
+    final history = getFillRateBaselineHistory(now: now); // already pruned
     final todayMap = Map<String, Map<String, int>>.from(history[today] ?? {});
     final existing = Map<String, int>.from(todayMap[slotTypeName] ??
         {'attempts': 0, 'successes': 0, 'revenueMicros': 0, 'revenueCount': 0});
