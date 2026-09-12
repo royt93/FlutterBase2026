@@ -666,7 +666,12 @@ void main() {
         final history = existing == null
             ? <String, dynamic>{}
             : jsonDecode(existing) as Map<String, dynamic>;
+        // T165 fix: history is keyed by UTC day (AdPreferences
+        // ._todayUtcClamped) — a local-time date here drifts a day off
+        // during the daily window where local and UTC calendar dates
+        // differ (e.g. any UTC+ timezone shortly after local midnight).
         final date = DateTime.now()
+            .toUtc()
             .subtract(Duration(days: daysAgo))
             .toIso8601String()
             .substring(0, 10);
@@ -854,7 +859,9 @@ void main() {
       // — force a truly fresh one so this test's seeded history is what it
       // actually reads, same as fill_rate_baseline_monitor_test.dart.
       AdPreferences.resetForTest();
+      // T165 fix: same UTC-day reasoning as seedPastDay above.
       final yesterday = DateTime.now()
+          .toUtc()
           .subtract(const Duration(days: 1))
           .toIso8601String()
           .substring(0, 10);

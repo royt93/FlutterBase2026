@@ -40,7 +40,11 @@ void main() {
     final prefs = await AdPreferences.getInstance();
     int attemptsFor(AdSlotType type) {
       final history = prefs.getFillRateBaselineHistory();
-      final today = DateTime.now().toIso8601String().substring(0, 10);
+      // T165 fix: baseline history is keyed by UTC day (matches production
+      // — see AdPreferences._todayUtcClamped) — a LOCAL date here is wrong
+      // during the daily window where the local calendar day differs from
+      // UTC's (e.g. any UTC+ timezone shortly after local midnight).
+      final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
       return history[today]?[type.name]?['attempts'] ?? 0;
     }
 

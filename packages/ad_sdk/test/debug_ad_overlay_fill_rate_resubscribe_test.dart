@@ -20,8 +20,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _historyKey = 'ad_sdk_fill_rate_baseline_history_v1';
 
-String _daysAgo(int n) =>
-    DateTime.now().subtract(Duration(days: n)).toIso8601String().substring(0, 10);
+// T165 fix: history is keyed by UTC day (AdPreferences._todayUtcClamped) —
+// a local-time date here drifts a day off during the daily window where
+// local and UTC calendar dates differ (e.g. any UTC+ timezone shortly
+// after local midnight).
+String _daysAgo(int n) => DateTime.now()
+    .toUtc()
+    .subtract(Duration(days: n))
+    .toIso8601String()
+    .substring(0, 10);
 
 Future<void> _seedPastDay(
   AdSlotType type, {
