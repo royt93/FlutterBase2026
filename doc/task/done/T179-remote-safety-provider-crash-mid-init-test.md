@@ -2,7 +2,7 @@
 
 **Loại:** test-coverage
 **Ưu tiên:** P2
-**Trạng thái:** todo
+**Trạng thái:** done
 **Nguồn phát hiện:** subagent test-coverage-gap
 **Quyết định chủ dự án (2026-09-08):** Thêm test ngay
 
@@ -31,3 +31,43 @@ Tính năng tải cấu hình an toàn từ server (`RemoteAdSafetyProvider`, c�
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: nếu có sửa code, smoke test thật qua `RemoteSafetyDemoPage` trong `example/`, mô phỏng lỗi server giữa chừng, xác nhận không crash.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Kết quả (2026-09-13) — chỉ xác nhận lại, không sửa code/test
+
+Đọc kỹ `lib/src/core/ad_manager.dart` (2 nơi gọi
+`remoteSafetyProvider.fetchSafetyParamOverrides()`: trong `initialize()`
+và trong `refreshRemoteSafetyParams()`) và toàn bộ test hiện có, phát
+hiện: **case "throw giữa initialize()" đã có test từ trước**, không phải
+lỗ hổng thật như "nguồn phát hiện: subagent test-coverage-gap" nghĩ.
+
+- `test/ad_manager_core_test.dart`, group `'remoteSafetyProvider (T88)'`,
+  test `'a throwing provider falls back to local AdSafetyParams, does not
+  block init'` — dùng `_ThrowingRemoteSafetyProvider` (throw `StateError`
+  ngay trong `fetchSafetyParamOverrides()`), gọi thẳng qua tham số
+  `remoteSafetyProvider:` của `AdManager().initialize()` thật (không
+  phải mock riêng lẻ) — xác nhận `AdSafetyConfig` vẫn init đúng bằng giá
+  trị local, không crash, không treo init.
+- Cùng group có thêm test provider TREO (không bao giờ trả lời) — xác
+  nhận timeout 5s fallback đúng, không phải chỉ throw ngay lập tức.
+- Production code (`ad_manager.dart` quanh dòng 3046) đã bọc
+  `try/catch` quanh `await remoteSafetyProvider.fetchSafetyParamOverrides()
+  .timeout(Duration(seconds: 5))`, log `SafeLogger.w` rõ ràng khi lỗi,
+  fallback về `effectiveSafety` (config local/ramp-adjusted) — đúng y
+  hệt hành vi khi mất mạng hoàn toàn, đúng như task yêu cầu.
+- Về "lỗi nửa chừng" (response 500, JSON hỏng) khác "mất mạng hoàn
+  toàn": xét từ góc nhìn `AdManager`, `RemoteAdSafetyProvider` là
+  interface do host tự implement — bất kể lý do thật (mất mạng, HTTP
+  500, JSON parse lỗi) là gì, tất cả đều biểu hiện thành 1 `Future` bị
+  reject (throw) ở phía `AdManager`. Test "provider throws" ĐÃ bao phủ
+  đúng mức trừu tượng này — không cần giả lập HTTP request thật để chứng
+  minh thêm gì, vì `AdManager` không bao giờ nhìn thấy tầng HTTP.
+- Chạy lại 3 test trong group `remoteSafetyProvider (T88)`: **xanh cả
+  3** (valid overrides / throwing provider / hanging provider).
+
+Không có code nào cần sửa, không có test nào cần thêm. Đóng task ở dạng
+xác nhận tài liệu (giống T204) — không có commit code, chỉ có việc di
+chuyển file task.
+
+Điểm tự chấm: **9.5/10** (không tạo giá trị code mới, nhưng xác nhận lại
+đúng 1 gap nghi ngờ hoá ra không có thật — tránh việc viết test trùng lặp
+không cần thiết).
