@@ -63,22 +63,41 @@ class ConsentSettings {
         askedAt: DateTime.now(),
       );
 
+  /// T196 — [askedAt]/[country] are themselves nullable fields, so
+  /// `copyWith(askedAt: null)` is indistinguishable from "I didn't pass
+  /// this parameter at all" — `askedAt ?? this.askedAt` falls through to
+  /// keeping the OLD value either way, meaning there was previously no
+  /// way to actually CLEAR either field once set (e.g. for a privacy/
+  /// data-erasure flow). [clearAskedAt]/[clearCountry] are separate,
+  /// additive `bool` flags (default `false`, matching every existing
+  /// call site's behavior exactly) that explicitly null out the
+  /// corresponding field, checked BEFORE the `?? this.field` fallback —
+  /// changing [askedAt]/[country] themselves to a sentinel-based API, or
+  /// widening this method's own nullability semantics, would be a
+  /// breaking change for every existing caller.
   ConsentSettings copyWith({
     bool? hasUserConsent,
     bool? isAgeRestrictedUser,
     bool? doNotSell,
     bool? hasBeenAsked,
     DateTime? askedAt,
+    bool clearAskedAt = false,
     String? country,
-  }) =>
-      ConsentSettings(
+    bool clearCountry = false,
+  }) {
+    assert(!(clearAskedAt && askedAt != null),
+        'copyWith: passed both askedAt and clearAskedAt: true — contradictory, pick one');
+    assert(!(clearCountry && country != null),
+        'copyWith: passed both country and clearCountry: true — contradictory, pick one');
+    return ConsentSettings(
         hasUserConsent: hasUserConsent ?? this.hasUserConsent,
         isAgeRestrictedUser: isAgeRestrictedUser ?? this.isAgeRestrictedUser,
         doNotSell: doNotSell ?? this.doNotSell,
         hasBeenAsked: hasBeenAsked ?? this.hasBeenAsked,
-        askedAt: askedAt ?? this.askedAt,
-        country: country ?? this.country,
+        askedAt: clearAskedAt ? null : (askedAt ?? this.askedAt),
+        country: clearCountry ? null : (country ?? this.country),
       );
+  }
 
   /// Project to the runtime flag struct used by `applyConsentToProviders`.
   AdConsent toAdConsent() => AdConsent(

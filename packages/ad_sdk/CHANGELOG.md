@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T196):** `ConsentSettings.copyWith` gained `clearAskedAt`/
+  `clearCountry` (`bool`, default `false`) — `askedAt`/`country` are
+  themselves nullable fields, so `copyWith(askedAt: null)` was previously
+  indistinguishable from "parameter omitted" and could never actually
+  clear either one once set (e.g. for a privacy/data-erasure flow).
+  Purely additive: every existing call site is completely unaffected.
+  Passing both a value and its matching `clear*: true` flag together
+  throws an `AssertionError` in debug mode (the two are contradictory).
 - **Fix (T195):** `signComplianceReport`/`signJsonPayload` could mint two
   DIFFERENT Ed25519 signing keys when two calls raced on first use
   (before any key was persisted) — both read no stored key, both minted

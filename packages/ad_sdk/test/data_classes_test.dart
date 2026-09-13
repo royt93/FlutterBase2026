@@ -50,6 +50,108 @@ void main() {
       expect(noCountryJson['country'], isNull);
       expect(ConsentSettings.fromJson(noCountryJson).country, isNull);
     });
+
+    // T196 — askedAt/country are themselves nullable, so
+    // copyWith(askedAt: null)/copyWith(country: null) was previously
+    // indistinguishable from "field omitted" and could never actually
+    // clear either one once set.
+    group('clearAskedAt/clearCountry (T196)', () {
+      test('omitting askedAt/country preserves the existing values — '
+          'exact pre-T196 behavior, unchanged', () {
+        final now = DateTime.utc(2026, 1, 1);
+        final s =
+            ConsentSettings(askedAt: now, country: 'DE', hasBeenAsked: true);
+
+        final copy = s.copyWith(hasUserConsent: true);
+
+        expect(copy.askedAt, now);
+        expect(copy.country, 'DE');
+      });
+
+      test('passing askedAt: null WITHOUT clearAskedAt still preserves '
+          'the old value — null alone was never enough to clear it, and '
+          'still isn\'t (avoids a silent behavior change for any caller '
+          'already passing an explicit null by habit)', () {
+        final now = DateTime.utc(2026, 1, 1);
+        final s = ConsentSettings(askedAt: now);
+
+        // ignore: avoid_redundant_argument_values
+        final copy = s.copyWith(askedAt: null);
+
+        expect(copy.askedAt, now);
+      });
+
+      test('clearAskedAt: true actually clears it', () {
+        final s = ConsentSettings(askedAt: DateTime.utc(2026, 1, 1));
+
+        final cleared = s.copyWith(clearAskedAt: true);
+
+        expect(cleared.askedAt, isNull);
+      });
+
+      test('clearCountry: true actually clears it', () {
+        const s = ConsentSettings(country: 'DE');
+
+        final cleared = s.copyWith(clearCountry: true);
+
+        expect(cleared.country, isNull);
+      });
+
+      test('clearing one field leaves every other field untouched', () {
+        final now = DateTime.utc(2026, 1, 1);
+        final s = ConsentSettings(
+          hasUserConsent: true,
+          hasBeenAsked: true,
+          askedAt: now,
+          country: 'DE',
+        );
+
+        final cleared = s.copyWith(clearAskedAt: true);
+
+        expect(cleared.askedAt, isNull);
+        expect(cleared.country, 'DE', reason: 'country must be untouched');
+        expect(cleared.hasUserConsent, isTrue);
+        expect(cleared.hasBeenAsked, isTrue);
+      });
+
+      test('clearing both at once works', () {
+        final s = ConsentSettings(
+            askedAt: DateTime.utc(2026, 1, 1), country: 'DE');
+
+        final cleared = s.copyWith(clearAskedAt: true, clearCountry: true);
+
+        expect(cleared.askedAt, isNull);
+        expect(cleared.country, isNull);
+      });
+
+      test('a cleared value round-trips through JSON as null, not '
+          'silently reappearing on reload', () {
+        final s = ConsentSettings(
+            askedAt: DateTime.utc(2026, 1, 1), country: 'DE');
+        final cleared = s.copyWith(clearAskedAt: true, clearCountry: true);
+
+        final decoded = ConsentSettings.fromJson(cleared.toJson());
+
+        expect(decoded.askedAt, isNull);
+        expect(decoded.country, isNull);
+      });
+
+      test('passing both askedAt and clearAskedAt: true is a contradiction '
+          'the API refuses in debug mode', () {
+        final s = ConsentSettings();
+        expect(
+            () => s.copyWith(
+                askedAt: DateTime.utc(2026, 1, 1), clearAskedAt: true),
+            throwsA(isA<AssertionError>()));
+      });
+
+      test('passing both country and clearCountry: true is a contradiction '
+          'the API refuses in debug mode', () {
+        final s = ConsentSettings();
+        expect(() => s.copyWith(country: 'DE', clearCountry: true),
+            throwsA(isA<AssertionError>()));
+      });
+    });
   });
 
   group('FirstInstallVipGrace', () {
