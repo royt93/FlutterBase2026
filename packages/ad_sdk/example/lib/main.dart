@@ -2758,6 +2758,22 @@ class _RevenueDemoPageState extends State<RevenueDemoPage> {
         'still be waiting on its own revenue event, T150).');
   }
 
+  /// T186 — a second ad TYPE's revenue, so the RevenuePanel above visibly
+  /// shows a separate breakdown row for `rewarded` alongside whatever
+  /// `interstitial`/`banner` totals the other two buttons already
+  /// produced — not tied to the ledger demo below (that's `_status`'s
+  /// job); this just exercises `RevenuePanel`'s own per-type accumulation
+  /// with a real widget, real device screen.
+  void _simulateRewardedRevenue() {
+    // ignore: invalid_use_of_visible_for_testing_member
+    AdManager().debugEmit(const AdRevenueEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.rewarded,
+        placement: _placement,
+        valueMicros: 4560000,
+        currencyCode: 'USD'));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2812,6 +2828,11 @@ class _RevenueDemoPageState extends State<RevenueDemoPage> {
                         OutlinedButton(
                           onPressed: _simulateInterstitialRevenue,
                           child: const Text('Simulate revenue\n(interstitial only)',
+                              textAlign: TextAlign.center),
+                        ),
+                        OutlinedButton(
+                          onPressed: _simulateRewardedRevenue,
+                          child: const Text('Simulate revenue\n(rewarded, T186)',
                               textAlign: TextAlign.center),
                         ),
                       ],

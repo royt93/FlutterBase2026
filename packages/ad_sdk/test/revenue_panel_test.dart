@@ -85,4 +85,84 @@ void main() {
 
     expect(find.text('\$0.0000'), findsOneWidget);
   });
+
+  AdRevenueEvent revenueOfType(AdSlotType type, int valueMicros) =>
+      AdRevenueEvent(
+        providerTag: '[Fake]',
+        type: type,
+        placement: AdPlacement.unspecified,
+        valueMicros: valueMicros,
+        currencyCode: 'USD',
+      );
+
+  group('per-type breakdown (T186)', () {
+    testWidgets(
+        'multiple ad types each show their OWN total, and the session '
+        'total still equals their sum', (tester) async {
+      await tester.pumpWidget(host(
+          const RevenuePanel(debugModeOverride: true, showDecimals: true)));
+      await tester.pump();
+
+      await emitAndSettle(
+          tester, revenueOfType(AdSlotType.interstitial, 1500000)); // $1.50
+      await emitAndSettle(
+          tester, revenueOfType(AdSlotType.rewarded, 2500000)); // $2.50
+      await emitAndSettle(
+          tester, revenueOfType(AdSlotType.interstitial, 500000)); // +$0.50
+
+      // Session total: 1.50 + 2.50 + 0.50 = 4.50.
+      expect(find.text('\$4.5000'), findsOneWidget);
+      // interstitial: 1.50 + 0.50 = 2.00, 2 impressions.
+      expect(find.textContaining('2.0000'), findsOneWidget);
+      expect(find.textContaining('2 imp'), findsOneWidget);
+      // rewarded: 2.50, 1 impression.
+      expect(find.textContaining('2.5000'), findsOneWidget);
+      expect(find.textContaining('1 imp'), findsOneWidget);
+      expect(find.text('interstitial'), findsOneWidget);
+      expect(find.text('rewarded'), findsOneWidget);
+    });
+
+    testWidgets('no breakdown rows before any revenue event has arrived',
+        (tester) async {
+      await tester.pumpWidget(host(
+          const RevenuePanel(debugModeOverride: true, showDecimals: true)));
+      await tester.pump();
+
+      expect(find.text('interstitial'), findsNothing);
+      expect(find.text('rewarded'), findsNothing);
+    });
+
+    testWidgets(
+        'a non-USD event does not pollute its type\'s USD breakdown either '
+        '— same skip rule as the session total', (tester) async {
+      await tester.pumpWidget(host(
+          const RevenuePanel(debugModeOverride: true, showDecimals: true)));
+      await tester.pump();
+
+      await emitAndSettle(
+          tester, revenueOfType(AdSlotType.interstitial, 1000000)); // $1.00
+      await emitAndSettle(tester,
+          revenue(2000000, 'EUR')); // interstitial too, but must be skipped
+
+      expect(find.text('\$1.0000  /  1 imp'), findsOneWidget,
+          reason: 'the EUR event must not have been folded into '
+              'interstitial\'s USD breakdown (which would show '
+              '\$3.0000 / 2 imp) — it never entered the per-type USD map '
+              'at all, not even as a zero-revenue entry');
+    });
+
+    testWidgets('compact mode never shows a per-type breakdown',
+        (tester) async {
+      await tester.pumpWidget(host(
+          const RevenuePanel(debugModeOverride: true, compact: true)));
+      await tester.pump();
+
+      await emitAndSettle(
+          tester, revenueOfType(AdSlotType.interstitial, 1500000));
+
+      expect(find.text('interstitial'), findsNothing,
+          reason: 'compact mode is a one-line summary — the breakdown is '
+              'part of the full (non-compact) Card layout only');
+    });
+  });
 }

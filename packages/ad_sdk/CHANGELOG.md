@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T186):** `RevenuePanel` (non-compact mode) now shows a
+  per-`AdSlotType` revenue breakdown below the existing session total —
+  each type present shows its own USD total and impression count, sorted
+  alphabetically. Same USD-only skip rule as the session total (a
+  non-USD `AdRevenueEvent` is never folded into either figure). Compact
+  mode (`RevenuePanel(compact: true)`) is unchanged — still a one-line
+  summary with no breakdown.
 - **New (T185):** `AdShowEvent`/`AdRevenueEvent` gained an optional
   `requestId` (`String?`) — a per-load correlation ID both adapters now
   stamp once and carry through to both events for that same ad instance.
