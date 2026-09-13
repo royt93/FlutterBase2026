@@ -2199,6 +2199,26 @@ class AdManager with WidgetsBindingObserver {
     var callbackReceived = false;
     void dispatchCallbacks() {
       if (!adapterFutureDone || !callbackReceived) return;
+      // Post-T218 audit fix (CONFIRMED race) — this used to only clear the
+      // callback queue here and remove the in-flight marker separately, a
+      // whole microtask later, in `.whenComplete()` below (`.then()`'s
+      // callback body — which calls this function — runs synchronously,
+      // but its own completion is only OBSERVED by `.whenComplete()` on
+      // the next microtask). A caller whose own dispatched callback
+      // synchronously starts ANOTHER app-open load (a common "retry on
+      // failure" pattern) would run inside that gap: `_inFlightAdLoads`
+      // still held this (already fully resolved, never dispatching again)
+      // future, so the reentrant call silently "joined" it — its own
+      // Future still resolved eventually, but its callback was queued
+      // into a slot nothing would ever dispatch to again. Removing the
+      // marker HERE, before any callback runs (not after all of them,
+      // in a separate later step), means a reentrant call from inside one
+      // of these callbacks sees a clean slate and correctly starts a
+      // fresh load instead.
+      if (identical(_inFlightAdLoads[AdSlotType.appOpen], started) &&
+          _adLoadGenerations[AdSlotType.appOpen] == generation) {
+        _inFlightAdLoads.remove(AdSlotType.appOpen);
+      }
       final callbacks = List<void Function(bool)>.from(_appOpenLoadCallbacks);
       _appOpenLoadCallbacks.clear();
       for (final cb in callbacks) {
