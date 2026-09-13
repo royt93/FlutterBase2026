@@ -832,22 +832,45 @@ class AdManager with WidgetsBindingObserver {
   /// used to flip WHATEVER [provider] the caller passed, even if that
   /// caller's own earlier `pickProviderCohort`/`pickSessionProvider` had
   /// already independently picked the healthy provider — flipping it back
-  /// to the one that just failed. Comparing against [failingProvider]
-  /// specifically fixes that: a candidate that is already the other
-  /// (healthy) provider is left alone.
+  /// to the one that just failed. Comparing against
+  /// [ProviderFailoverAdvisor.circuitTrackedProvider] specifically fixes
+  /// that: a candidate that is already the other (healthy) provider is
+  /// left alone.
+  ///
+  /// Post-T208 audit fix (CONFIRMED bug) — this used to compare against
+  /// [ProviderFailoverAdvisor.failingProvider], which is `null` for the
+  /// whole `halfOpen` window (not just once fully `closed`), so every
+  /// call here during `halfOpen` silently returned [provider] unchanged —
+  /// reverting straight back to the previously-failing provider on pure
+  /// elapsed time, with ZERO real verification it had recovered, and with
+  /// [ProviderFailoverAdvisor.allowHalfOpenProbe]'s single-probe guard
+  /// never consulted at all (the class had it, calling code just never
+  /// used it). Routing `halfOpen` through `allowHalfOpenProbe` restores
+  /// the single-probe design the class was actually built for: exactly
+  /// ONE call gets to use the real provider again per half-open window: if
+  /// it fails, [ProviderFailoverAdvisor]'s own event handling reopens the
+  /// circuit for another full cooldown; if it succeeds, the circuit closes.
   ///
   /// Purely a decision helper: it never switches anything itself, never
-  /// touches [advisor]'s own state, and the SDK still only ever serves
-  /// whichever provider ends up in the [AdConfig] the host builds from the
-  /// result — no concurrent dual-adapter runtime exists or is needed here.
+  /// touches [advisor]'s own state beyond claiming the probe slot, and the
+  /// SDK still only ever serves whichever provider ends up in the
+  /// [AdConfig] the host builds from the result — no concurrent
+  /// dual-adapter runtime exists or is needed here.
   AdProvider applyProviderFailover(
     AdProvider provider, {
     required ProviderFailoverAdvisor advisor,
   }) {
-    if (advisor.failingProvider != provider) return provider;
-    return provider == AdProvider.admob
-        ? AdProvider.appLovin
-        : AdProvider.admob;
+    if (advisor.circuitTrackedProvider != provider) return provider;
+    final other =
+        provider == AdProvider.admob ? AdProvider.appLovin : AdProvider.admob;
+    switch (advisor.circuitState) {
+      case ProviderCircuitState.open:
+        return other;
+      case ProviderCircuitState.halfOpen:
+        return advisor.allowHalfOpenProbe() ? provider : other;
+      case ProviderCircuitState.closed:
+        return provider;
+    }
   }
 
   /// T127 — flagship self-healing dual-provider runtime, OBSERVE-ONLY

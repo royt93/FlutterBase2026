@@ -210,6 +210,25 @@ class ProviderFailoverAdvisor {
   AdProvider? get failingProvider =>
       shouldFailoverNextSession ? _providerForTag(_lastProviderTag) : null;
 
+  /// Audit fix (post-T208) — the provider [circuitState] is currently
+  /// tracking whenever that state is anything other than
+  /// [ProviderCircuitState.closed] (`open` OR `halfOpen`), unlike
+  /// [failingProvider] above, which only reports it during `open`.
+  ///
+  /// [AdManager.applyProviderFailover] needs this: the pre-fix version
+  /// checked `failingProvider` alone, which is `null` throughout the whole
+  /// `halfOpen` window — every call during that window silently read as
+  /// "provider is healthy, do nothing", reverting straight back to the
+  /// previously-failing provider with NO real verification it recovered,
+  /// and with [allowHalfOpenProbe]'s single-claim guard never even
+  /// consulted (dead code — nothing gated on it). This getter lets that
+  /// call site tell `open` and `halfOpen` apart and route `halfOpen`
+  /// through [allowHalfOpenProbe] instead.
+  AdProvider? get circuitTrackedProvider =>
+      circuitState == ProviderCircuitState.closed
+          ? null
+          : _providerForTag(_lastProviderTag);
+
   /// Stops listening immediately, then waits (bounded by [timeout]) for
   /// any still-in-flight persisted write to actually land — same
   /// "wait a bit, then proceed anyway" convention as this package's other

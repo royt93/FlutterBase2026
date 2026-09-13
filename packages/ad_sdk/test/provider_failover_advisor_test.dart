@@ -225,6 +225,83 @@ void main() {
     });
   });
 
+  group(
+      'AdManager().applyProviderFailover() during the half-open probe '
+      'window (post-T208 audit fix)', () {
+    test(
+        'circuitState == open: always fails over, never even consults '
+        'allowHalfOpenProbe', () async {
+      var now = DateTime(2026, 1, 1);
+      final advisor = ProviderFailoverAdvisor(
+        consecutiveFailureThreshold: 1,
+        persist: false,
+        cooldown: const Duration(seconds: 10),
+        now: () => now,
+      );
+      await advisor.ready;
+      AdManager().debugEmit(_load(false));
+      await _flush();
+      expect(advisor.circuitState, ProviderCircuitState.open);
+
+      final result = AdManager()
+          .applyProviderFailover(AdProvider.appLovin, advisor: advisor);
+      expect(result, AdProvider.admob);
+      // The probe slot must still be unclaimed — open never touches it.
+      now = now.add(const Duration(seconds: 11));
+      expect(advisor.allowHalfOpenProbe(), isTrue);
+      await advisor.dispose();
+    });
+
+    test(
+        'circuitState == halfOpen: the FIRST caller gets the real provider '
+        'back (the designated probe), a SECOND concurrent caller in the '
+        'same window still fails over — this is the exact bug: the old '
+        'code let EVERY caller through during half-open, not just one',
+        () async {
+      var now = DateTime(2026, 1, 1);
+      final advisor = ProviderFailoverAdvisor(
+        consecutiveFailureThreshold: 1,
+        persist: false,
+        cooldown: const Duration(seconds: 10),
+        now: () => now,
+      );
+      await advisor.ready;
+      AdManager().debugEmit(_load(false));
+      await _flush();
+      now = now.add(const Duration(seconds: 11));
+      expect(advisor.circuitState, ProviderCircuitState.halfOpen);
+
+      final first = AdManager()
+          .applyProviderFailover(AdProvider.appLovin, advisor: advisor);
+      expect(first, AdProvider.appLovin,
+          reason: 'T208 fix — the designated probe call must get the real '
+              '(previously-failing) provider back, not be silently failed '
+              'over again');
+
+      final second = AdManager()
+          .applyProviderFailover(AdProvider.appLovin, advisor: advisor);
+      expect(second, AdProvider.admob,
+          reason: 'T208 fix — the probe slot is already claimed; a second '
+              'call in the same half-open window must NOT also get the '
+              'unverified provider — this is exactly what the old code '
+              'got wrong, since it never called allowHalfOpenProbe() at '
+              'all and let unlimited callers through');
+      await advisor.dispose();
+    });
+
+    test(
+        'circuitState == closed: always returns the candidate unchanged, '
+        'no failover applied', () async {
+      final advisor = ProviderFailoverAdvisor(persist: false);
+      await advisor.ready;
+      expect(advisor.circuitState, ProviderCircuitState.closed);
+      final result = AdManager()
+          .applyProviderFailover(AdProvider.appLovin, advisor: advisor);
+      expect(result, AdProvider.appLovin);
+      await advisor.dispose();
+    });
+  });
+
   group('T171 — consecutiveFailureThreshold <= 0 falls back to the default '
       'instead of recommending failover with zero real failures', () {
     test('threshold=0 does not immediately read as "should fail over"',
