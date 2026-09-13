@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T198):** `JourneyPrefetcher`'s opt-in `routeObserver` (T139) only
+  ever fired `notifySignal` on `didPush` — returning to a previous screen
+  (`didPop`) or a route being swapped in place (`didReplace`) silently
+  missed the journey signal entirely. Now fires on all three: a pop uses
+  the REVEALED previous route's name (the screen the user is now looking
+  at again), not the one being removed; a replace uses the new route's
+  name. No new API — same `notifySignal` entry point, same behavior for
+  a host that only ever sees `didPush` fire.
 - **Fix (T197):** `FillRateMonitor`, `FillRateBaselineMonitor`, and
   `BypassAuditTrail` now throw a real `ArgumentError` for an invalid
   constructor value (`lowFillRateThreshold`/`regressionThreshold` outside

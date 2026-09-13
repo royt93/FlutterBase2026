@@ -69,8 +69,10 @@ class JourneyPrefetcher {
   /// `null` unless [autoRouteSignalType] was set at construction. Add this
   /// to your app's `navigatorObservers` (alongside `adRouteObserver`/
   /// `AdScreenRouteLogger()` — see the package README's integration
-  /// contract) to have [notifySignal] fire automatically on every
-  /// newly-pushed NAMED route. An unnamed route (`settings.name == null`)
+  /// contract) to have [notifySignal] fire automatically whenever a NAMED
+  /// route becomes the active one — on push, on pop (the revealed
+  /// PREVIOUS route counts, not the one being removed — T198), and on
+  /// replace (the new route). An unnamed route (`settings.name == null`)
   /// is silently skipped — there is no signal value to key it by.
   NavigatorObserver? get routeObserver {
     final type = autoRouteSignalType;
@@ -218,19 +220,45 @@ class JourneyPrefetcher {
 
 /// T139 — [JourneyPrefetcher.routeObserver]'s actual implementation. Same
 /// registration shape as [AdScreenRouteLogger] (added directly to
-/// `navigatorObservers`, no `RouteAware.subscribe` needed) — every push on
-/// whichever `Navigator` this is registered on calls [notifySignal] with
-/// that route's name, unless it doesn't have one.
+/// `navigatorObservers`, no `RouteAware.subscribe` needed).
+///
+/// T198 — was `didPush`-only: a user journey that returns to a previous
+/// screen via the back button/gesture (`didPop`), or one where a route is
+/// swapped in place (`didReplace` — e.g. a deep link resolving to its real
+/// destination, or an onboarding step replacing itself), never fired
+/// [JourneyPrefetcher.notifySignal] at all — silently missing exactly the
+/// kind of "user just arrived somewhere that precedes an ad" moment this
+/// auto-mode exists to catch, and potentially leaving a stale preload
+/// held from whatever the PUSH-only path last saw. All three callbacks
+/// funnel through the same [_notify] helper and the same
+/// [JourneyPrefetcher.notifySignal] entry point a host's own manual call
+/// would use — no new API, no behavior change for a host that only ever
+/// sees `didPush` fire in their app.
 class _JourneyPrefetcherRouteObserver extends NavigatorObserver {
   _JourneyPrefetcherRouteObserver(this._prefetcher, this._type);
 
   final JourneyPrefetcher _prefetcher;
   final AdSlotType _type;
 
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    final name = route.settings.name;
+  void _notify(Route<dynamic>? route) {
+    final name = route?.settings.name;
     if (name == null) return;
     _prefetcher.notifySignal(name, _type);
   }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _notify(route);
+
+  /// A pop REVEALS [previousRoute] — that's the screen the user is now
+  /// looking at again, so it's the one that should count as the journey
+  /// signal, not [route] (the one being removed).
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _notify(previousRoute);
+
+  /// [newRoute] becomes the active route in [oldRoute]'s place.
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) =>
+      _notify(newRoute);
 }

@@ -445,6 +445,98 @@ void main() {
               'dedupe bug would make this test fail, not just avoid a '
               'crash');
     });
+
+    // T198 — before this, the route observer only ever fired on didPush,
+    // silently missing a journey signal on returning to a previous
+    // screen (didPop) or on a route swap (didReplace).
+    testWidgets(
+        'popping back to a NAMED previous route auto-fires notifySignal '
+        'using the REVEALED route\'s name — not the one being removed',
+        (tester) async {
+      final autoPrefetcher =
+          JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      addTearDown(autoPrefetcher.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [autoPrefetcher.routeObserver!],
+        onGenerateRoute: (_) => MaterialPageRoute(
+          settings: const RouteSettings(name: 'home_screen'),
+          builder: (_) => const Scaffold(body: Text('home')),
+        ),
+      ));
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(MaterialPageRoute(
+        // Unnamed on purpose — the push itself must not be what fires
+        // the signal this test asserts on; only the pop back to the
+        // NAMED 'home_screen' route should.
+        builder: (_) => const Scaffold(body: Text('detail')),
+      ));
+      await tester.pumpAndSettle();
+      // Consume whatever the initial 'home_screen' push at app start
+      // already fired, so only the POP's own signal is being measured.
+      adapter.interstitialSlot.beginShow();
+      adapter.interstitialSlot.markDismissed();
+      expect(adapter.interstitialSlot.isIdle, isTrue);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(adapter.interstitialSlot.isReady, isTrue,
+          reason: 'popping back to "home_screen" must auto-fire '
+              'notifySignal("home_screen", interstitial) — the REVEALED '
+              'route, not the unnamed one being removed');
+    });
+
+    testWidgets(
+        'popping to reveal an UNNAMED previous route does not throw and '
+        'does not fire any signal', (tester) async {
+      final autoPrefetcher =
+          JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      addTearDown(autoPrefetcher.dispose);
+
+      await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(MaterialPageRoute(
+        settings: const RouteSettings(name: 'level_complete'),
+        builder: (_) => const Scaffold(body: Text('next')),
+      ));
+      await tester.pumpAndSettle();
+      // Consume the push's own signal so only the pop is measured.
+      adapter.interstitialSlot.beginShow();
+      adapter.interstitialSlot.markDismissed();
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.interstitialSlot.isIdle, isTrue,
+          reason: 'the revealed initial route is unnamed (see hostApp) — '
+              'nothing to key a signal by');
+    });
+
+    testWidgets(
+        'replacing the current route with a NAMED one auto-fires '
+        'notifySignal for the NEW route, not the one being replaced',
+        (tester) async {
+      final autoPrefetcher =
+          JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      addTearDown(autoPrefetcher.dispose);
+
+      await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
+      expect(adapter.interstitialSlot.isIdle, isTrue,
+          reason: 'sanity: the unnamed initial route fired nothing');
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.pushReplacement(MaterialPageRoute(
+        settings: const RouteSettings(name: 'level_complete'),
+        builder: (_) => const Scaffold(body: Text('replacement')),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(adapter.interstitialSlot.isReady, isTrue,
+          reason: 'a route replacement must auto-fire notifySignal('
+              '"level_complete", interstitial) for the NEW route');
+    });
   });
 
   // T162 — the internal key is built as '$signal|${type.name}' (see _key);
