@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Internal (T212):** `AdStressHarness`/`AdStressReport` — briefly added
+  and exported publicly in this same "Unreleased" window, never actually
+  published — turned out to be a disconnected simulation with no
+  connection to `AdManager`/`AdEvent`/a real adapter at all. Rewritten to
+  genuinely exercise the SDK (real event bursts, real
+  `initialize()`/`destroy()` reinit cycles) and moved out of the published
+  package into the SDK's own test suite, since every real check it makes
+  needs test-only seams that can't legitimately live in `lib/`. No
+  behavior change for any real consumer: this was never shipped in a
+  release.
 - **New (T174):** `AdSafetyConfig.canShowAppOpenOnResumePeek()` — a
   side-effect-free "would this pass right now" variant of
   `canShowAppOpenOnResume()`, safe to call repeatedly (e.g. to drive UI)
