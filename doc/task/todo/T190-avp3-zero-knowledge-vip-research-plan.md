@@ -27,5 +27,73 @@ Hệ thống khoá VIP hiện tại (Ed25519-signed keys, xem CLAUDE.md mục "V
 ## Tín hiệu kết thúc (KHÔNG code, KHÔNG push code)
 Dừng khi đã điền đầy đủ mục "Kết luận nghiên cứu" bên dưới. KHÔNG commit code mới, KHÔNG động vào file trong `lib/src/vip/`. Chờ chủ dự án đọc và quyết định — đây là quyết định RỦI RO CAO, cần chủ dự án tự cân nhắc kỹ trước khi cho phép bất kỳ code nào được viết.
 
-## Kết luận nghiên cứu
-(để trống, điền sau khi nghiên cứu xong)
+## Kết luận nghiên cứu (2026-09-13)
+
+**Không sửa bất kỳ file nào trong `lib/src/vip/` — chỉ đọc để nghiên
+cứu, đúng yêu cầu.**
+
+### (1) Điểm yếu THẬT SỰ nào của cơ chế hiện tại?
+
+Đã đọc kỹ `signed_vip_key.dart` (379 dòng) và `vip_manager.dart` (1798
+dòng). Cơ chế hiện tại (AVP1/AVP2, Ed25519 offline-signed + CRL + key
+rotation + per-app bundle binding + per-device one-time-use) đã rất kỹ
+lưỡng — 12+ vòng audit độc lập đã rà soát.
+
+**Chỉ tìm thấy 1 điểm yếu thật sự, và nó là CHỦ Ý, không phải sơ suất**:
+khoá VIP không có "one-time-use TOÀN CỤC" — chỉ chặn dùng lại TRÊN CÙNG 1
+thiết bị (comment gốc trong code, `signed_vip_key.dart` dòng 119: "A
+leaked key can still be reused on other devices — true global one-time-
+use needs a server"). Nghĩa là: nếu 1 key bị lộ ra ngoài (VD đăng công
+khai), nhiều thiết bị khác nhau đều dùng được — không có cách nào chặn
+trên thiết bị, vì thiết kế cố ý KHÔNG dùng server trung tâm (offline-
+first, đã ghi rõ trong memory: "vip-offline-gate-and-qa-hashes-are-
+features" — đây là quyết định có chủ đích, từng bị audit flag rồi xác
+nhận giữ nguyên).
+
+**Kết luận (1): điểm yếu duy nhất tìm được (cross-device replay) là hệ
+quả TẤT YẾU của chính yêu cầu "không cần server" — không phải lỗi thiết
+kế có thể sửa bằng cách đổi thuật toán mã hoá.**
+
+### (2) Mức độ nghiêm trọng thực tế
+
+Thấp trong thực tế: key phải bị LỘ RA NGOÀI trước (VD đăng công khai/rò
+rỉ) thì mới khai thác được — không phải lỗ hổng có thể tự khai thác từ
+xa. Không có bằng chứng ghi nhận đã từng bị khai thác thật (không tìm
+thấy nhắc tới trong lịch sử audit round 6-41+ đã đọc).
+
+### (3) "Merkle tree + epoch + device-secret masking" có giải quyết được
+điểm yếu này không?
+
+**KHÔNG.** Cả 3 kỹ thuật này đều là cách tổ chức/nén dữ liệu chữ ký hoặc
+thêm ràng buộc theo thời gian (epoch) — không kỹ thuật nào trong 3 cái
+này tạo ra được "one-time-use toàn cục" nếu không có server để các thiết
+bị đối chiếu với nhau real-time. Nói cách khác: đổi sang kiến trúc phức
+tạp hơn nhưng VẪN offline-only thì điểm yếu duy nhất đã xác định vẫn y
+nguyên — chỉ có "trông phức tạp hơn", không giải quyết được vấn đề gốc.
+
+### (4) Giải pháp rủi ro thấp hơn (thắt chặt tham số) có đủ không?
+
+Có — và đã sẵn có, không cần code thêm gì:
+- **Thời hạn key (`expiresAt`, AVP2)**: đã có sẵn field này, do người
+  mint key (`tool/vip_mint.dart`) tự quyết định khi tạo, không phải hạn
+  chế của SDK. Muốn "thắt chặt" chỉ cần mint key với thời hạn ngắn hơn —
+  không cần đổi code.
+- **Tần suất kiểm tra CRL**: `refreshRevocationList()` là hàm HOST TỰ GỌI
+  (không có timer tự động bên trong SDK) — tần suất hoàn toàn do app
+  dùng SDK quyết định. Muốn kiểm tra thường xuyên hơn, host chỉ cần gọi
+  hàm này thường xuyên hơn — cũng không cần đổi code SDK.
+- Nếu key bị lộ: đã có key rotation (danh sách public key phân tách bởi
+  dấu phẩy) — rút khoá bị lộ khỏi danh sách + phát hành key mới, quy
+  trình đã có sẵn, không cần redesign.
+
+### Khuyến nghị cuối
+
+**KHÔNG nên redesign toàn bộ kiến trúc.** Không tìm thấy lý do kỹ thuật
+thuyết phục để thay đổi — điểm yếu duy nhất tìm được (cross-device
+replay của key bị lộ) là hệ quả tất yếu của yêu cầu "không server", và
+"Merkle tree + epoch + device-secret masking" không giải quyết được nó
+dù có làm hay không (vẫn cần server để có one-time-use toàn cục thật
+sự). Nếu muốn siết chặt hơn, dùng ngay các đòn bẩy tham số đã có sẵn
+(thời hạn key ngắn hơn lúc mint, gọi `refreshRevocationList()` thường
+xuyên hơn, rotation nhanh khi phát hiện lộ key) — không cần bất kỳ thay
+đổi code nào trong `lib/src/vip/`.
