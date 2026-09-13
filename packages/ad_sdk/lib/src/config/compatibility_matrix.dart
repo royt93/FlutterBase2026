@@ -35,10 +35,33 @@ class CompatibilityMatrix {
         apiLevel: 26),
   ];
 
-  static bool isSupported(CompatibilityTarget target) =>
-      target.apiLevel >=
-          (target.platform == CompatibilityPlatform.android ? 23 : 15) &&
-      target.flutter.isNotEmpty;
+  /// Audit fix (post-T215) — this used to be a floor check against a
+  /// hardcoded constant (`apiLevel >= 23/15`, `flutter.isNotEmpty`) that
+  /// [target] would pass no matter what real value it carried, since
+  /// [validate_compatibility_matrix.dart] (the CI tool that calls this)
+  /// also hardcoded its own `flutter`/`apiLevel` values rather than
+  /// reading the real environment — the whole gate checked a constant
+  /// against itself and could never fail, so a genuinely incompatible CI
+  /// Flutter/API-level bump would have passed silently. Now compares
+  /// [target] against the declared [minimum] entry for the SAME
+  /// platform+provider: no matching entry (nothing declared as minimum
+  /// for that combination) is NOT supported by default, matching this
+  /// SDK's fail-safe convention elsewhere rather than fail-open.
+  ///
+  /// Second audit round found this still fail-open on the Flutter version:
+  /// a `>=` floor let an UNAPPROVED newer Flutter pin bump pass silently,
+  /// exactly the scenario this gate exists to catch — a new Flutter release
+  /// is not proven compatible just by being newer. `apiLevel` keeps the
+  /// floor check (a higher Android API level is genuinely still supported,
+  /// that's what API-level backward compatibility means); `flutter` is now
+  /// an exact match against the declared, reviewed [minimum] entry.
+  static bool isSupported(CompatibilityTarget target) {
+    final match = minimum.where(
+        (m) => m.platform == target.platform && m.provider == target.provider);
+    if (match.isEmpty) return false;
+    final min = match.first;
+    return target.apiLevel >= min.apiLevel && target.flutter == min.flutter;
+  }
 
   static void validate(Iterable<CompatibilityTarget> targets) {
     if (targets.isEmpty || targets.any((t) => !isSupported(t))) {

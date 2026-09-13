@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T215):** `CompatibilityMatrix.isSupported()` — the check that CI's
+  compatibility gate is built on used to compare hardcoded constants
+  against themselves and could never fail, so a genuinely incompatible
+  Flutter/API-level bump in CI would have passed silently. Now compares
+  the real target against the declared, reviewed `minimum` matrix entry
+  for the same platform+provider: unknown combinations are rejected by
+  default (fail-safe), and — after a second audit round — an unapproved
+  *newer* Flutter version is rejected too (exact match on `flutter`, not
+  a `>=` floor), since a new Flutter release isn't proven compatible just
+  by being newer. `apiLevel` keeps a `>=` floor (a higher Android API
+  level is genuinely still supported). `tool/validate_compatibility_matrix.dart`
+  now reads the real running `flutter --version --machine` instead of a
+  hardcoded string. Also removed a vacuous widget test that only rendered
+  and matched a hand-typed string (`CompatibilityMatrix` has no UI
+  anywhere in the SDK).
 - **Internal (T212):** `AdStressHarness`/`AdStressReport` — briefly added
   and exported publicly in this same "Unreleased" window, never actually
   published — turned out to be a disconnected simulation with no
