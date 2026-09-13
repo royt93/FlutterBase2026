@@ -36,6 +36,12 @@ dev_dependencies:
   # MrecAdWidget, transitively pulled in via applovin_admob_sdk already, but
   # not declared directly here before now).
   visibility_detector: ^0.4.0+2
+  # T195 — integration_test/t195_concurrent_key_mint_test.dart constructs a
+  # real FlutterSecureStorage() directly (to clear/reuse the same real
+  # platform-channel entry signComplianceReport() itself defaults to),
+  # transitively pulled in via applovin_admob_sdk already, but not declared
+  # directly here before now.
+  flutter_secure_storage: '>=10.0.0 <12.0.0'
 
 flutter:
   uses-material-design: true

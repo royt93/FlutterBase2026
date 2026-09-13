@@ -175,4 +175,112 @@ void main() {
       expect(ok, isFalse, reason: 'should reject "$bad"');
     }
   });
+
+  // T195 — before the fix, two callers racing on FIRST use (no key
+  // persisted yet) both read null, both minted their OWN independent
+  // Ed25519 key pair, and whichever write won silently stranded the
+  // other caller's already-returned signature under a key that would
+  // never again match what's persisted.
+  group('concurrent first-use key mint (T195)', () {
+    test('two concurrent signComplianceReport calls on a fresh storage '
+        'end up with the SAME public key', () async {
+      final storage = _FakeSecureStorage();
+
+      final results = await Future.wait([
+        signComplianceReport(report(), secureStorage: storage),
+        signComplianceReport(report(eventCount: 2), secureStorage: storage),
+      ]);
+
+      expect(results[1].publicKeyBase64, results[0].publicKeyBase64,
+          reason: 'a race on first use must not mint two different keys');
+      expect(await verifySignedComplianceReportJson(results[0].toJsonString()),
+          isTrue);
+      expect(await verifySignedComplianceReportJson(results[1].toJsonString()),
+          isTrue);
+    });
+
+    test('a concurrent signComplianceReport + signJsonPayload pair on a '
+        'fresh storage share the SAME public key — both APIs go through '
+        'the same lock', () async {
+      final storage = _FakeSecureStorage();
+
+      final results = await Future.wait([
+        signComplianceReport(report(), secureStorage: storage),
+        signJsonPayload('{"k":"v"}', secureStorage: storage),
+      ]);
+      final reportResult = results[0] as SignedComplianceReport;
+      final payloadResult = results[1] as SignedPayload;
+
+      expect(payloadResult.publicKeyBase64, reportResult.publicKeyBase64,
+          reason: 'a race across the two different signing entry points '
+              'must still land on one shared key, not two');
+    });
+
+    test('many concurrent calls on a fresh storage all converge on the '
+        'same key, not just the first pair', () async {
+      final storage = _FakeSecureStorage();
+
+      final results = await Future.wait(List.generate(
+          8, (i) => signComplianceReport(report(), secureStorage: storage)));
+
+      final keys = results.map((r) => r.publicKeyBase64).toSet();
+      expect(keys, hasLength(1),
+          reason: 'every concurrent caller must converge on one key');
+    });
+
+    test('a caller that arrives strictly AFTER an in-flight mint '
+        'completes reuses the now-persisted key rather than minting a '
+        'second one', () async {
+      final storage = _FakeSecureStorage();
+
+      final first = await signComplianceReport(report(),
+          secureStorage: storage);
+      final second = await signComplianceReport(report(),
+          secureStorage: storage);
+
+      expect(second.publicKeyBase64, first.publicKeyBase64);
+    });
+
+    test('if the winning mint-and-persist attempt throws, every caller '
+        'sharing that lock fails together instead of one hanging forever',
+        () async {
+      final storage = _ThrowingWriteSecureStorage();
+
+      // Both calls share the SAME lock — the underlying write failure is
+      // swallowed and logged inside _loadOrCreateKeyPairLocked (matching
+      // the pre-existing "could not persist... will re-mint next export"
+      // behavior), so neither call actually throws; both still succeed
+      // using the freshly-minted (unpersisted) in-memory key pair.
+      final results = await Future.wait([
+        signComplianceReport(report(), secureStorage: storage),
+        signComplianceReport(report(eventCount: 2), secureStorage: storage),
+      ]);
+
+      expect(results[1].publicKeyBase64, results[0].publicKeyBase64,
+          reason: 'both callers shared the same in-flight (unpersisted) '
+              'key pair — a write failure must not make them diverge '
+              'either');
+    });
+  });
+}
+
+/// Write always throws — simulates the secure-storage platform channel
+/// genuinely failing to persist (already-handled, logged-and-continue
+/// path in `_loadOrCreateKeyPairLocked`), used to prove the T195 lock
+/// still resolves every waiting caller instead of leaving one hanging on
+/// a completer that never completes.
+class _ThrowingWriteSecureStorage extends _FakeSecureStorage {
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    throw StateError('simulated secure-storage write failure');
+  }
 }

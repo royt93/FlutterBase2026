@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
@@ -75,7 +76,48 @@ Future<SignedComplianceReport> signComplianceReport(
   );
 }
 
-Future<SimpleKeyPair> _loadOrCreateKeyPair(FlutterSecureStorage storage) async {
+/// T195 — process-wide lock serializing every [_loadOrCreateKeyPairLocked]
+/// call. Without it, two callers racing before any key is persisted (e.g.
+/// [signComplianceReport] and [signJsonPayload] both firing on first use)
+/// both read `null`, both mint their OWN independent Ed25519 key pair, and
+/// whichever write wins silently strands the other caller's
+/// already-returned signature under a key that will never again match
+/// what's persisted — breaking the "same install, same public key across
+/// every export" guarantee this file exists to provide. (Each signature
+/// stays internally valid on its own — the public key travels WITH the
+/// bundle — but cross-export key stability is exactly what this class
+/// promises and the race silently defeats.)
+///
+/// A caller that arrives WHILE another is minting shares that SAME
+/// in-flight result (awaits the same [Completer]'s future) instead of
+/// racing it. A caller that arrives strictly AFTER the lock has released
+/// re-enters [_loadOrCreateKeyPairLocked] fresh, which re-reads storage
+/// first — by then the winning write has landed, so it finds the
+/// now-persisted key instead of minting a second one. No separate
+/// "double-check inside the lock" step is needed on top of that: the
+/// existing read-storage-first order already gives every non-concurrent
+/// caller the up-to-date value.
+Completer<SimpleKeyPair>? _pendingKeyPairLoad;
+
+Future<SimpleKeyPair> _loadOrCreateKeyPair(FlutterSecureStorage storage) {
+  final pending = _pendingKeyPairLoad;
+  if (pending != null) return pending.future;
+  final completer = Completer<SimpleKeyPair>();
+  _pendingKeyPairLoad = completer;
+  unawaited(() async {
+    try {
+      completer.complete(await _loadOrCreateKeyPairLocked(storage));
+    } catch (e, st) {
+      completer.completeError(e, st);
+    } finally {
+      _pendingKeyPairLoad = null;
+    }
+  }());
+  return completer.future;
+}
+
+Future<SimpleKeyPair> _loadOrCreateKeyPairLocked(
+    FlutterSecureStorage storage) async {
   try {
     final existing = await storage.read(key: _secureKeySeed);
     if (existing != null) {

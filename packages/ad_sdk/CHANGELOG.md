@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T195):** `signComplianceReport`/`signJsonPayload` could mint two
+  DIFFERENT Ed25519 signing keys when two calls raced on first use
+  (before any key was persisted) — both read no stored key, both minted
+  their own, and whichever write won silently stranded the other call's
+  already-returned signature under a key that would never again match
+  what's persisted, breaking the "same install, same public key across
+  every export" guarantee. A process-wide async lock now serializes the
+  mint-and-persist step: a concurrent caller shares the same in-flight
+  result instead of racing it, and a caller arriving after the lock
+  releases re-reads the (by-then persisted) key instead of minting a
+  second one.
 - **Fix (T194):** `MonetizationArbitrator` used to treat a genuinely
   CONFIRMED $0 trailing eCPM (≥ warm-up samples, real average revenue is
   exactly 0 — e.g. a run of pure house ads/cross-promo) identically to
