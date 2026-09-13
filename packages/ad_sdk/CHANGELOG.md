@@ -6,6 +6,22 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T213):** `tool/release_readiness_gate.sh`'s `secret_scan` stage
+  could report "release gate: secret passed" with a false PASS when `rg`
+  (ripgrep) was not installed — its `rg` call sat inside an `if (...)`,
+  where bash's `set -e` does not apply, so `rg`'s "command not found"
+  (exit 127) was indistinguishable from "no secret found". Confirmed live:
+  reproduced with `rg` genuinely absent from a clean subprocess PATH.
+  `api_check` had the same missing-dependency gap, though it already
+  failed (just with a confusing raw error) rather than silently passing.
+  Both stages now check for `rg` explicitly first, failing with a clear
+  diagnostic instead of either a silent pass or an unclear crash. Rewrote
+  the test suite to run the real script as a real subprocess (the old
+  test only grepped the script's source text for stage names — it could
+  not have caught this at all), with real pass/fail fixtures for both
+  stages, and removed a vacuous widget test (rendered hand-typed labels)
+  and device test (asserted a tautology) — this is a CI shell script with
+  no real device-specific behavior to prove.
 - **Test (T207):** the SDK lifecycle contract suite only exercised
   `initialize→load→show→background→destroy→reinitialize` through
   `debugSetAdapter`/`debugConfig`, bypassing the real `initialize()`/
