@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Test (T211):** the ad-load coalescing tests (unit, widget, device
+  integration) only asserted the slot's end state after concurrent load
+  calls, which is identical whether the manager's coalescing map actually
+  joined the calls or let every one of them through as a real native
+  request — `AdSlot.beginLoad()`'s own "already loading" guard already
+  masks the difference. Rewrote them to count real adapter invocations,
+  added a case proving a failed load's retry issues a genuinely new
+  native request (not a stale join), and a case proving
+  `debugResetGuardState()` (the same path `destroy()`/reinit use)
+  correctly invalidates an in-flight coalesced load so the next call
+  starts fresh. Also fixed the device test file, which was missing
+  `IntegrationTestWidgetsFlutterBinding.ensureInitialized()` and so never
+  ran through the integration_test device harness at all. No production
+  behavior change — `_coalesceAdLoad`/`_invalidateCoalescedLoads` were
+  already correct; only the tests proving it were not.
 - **Fix (T215):** `CompatibilityMatrix.isSupported()` — the check that CI's
   compatibility gate is built on used to compare hardcoded constants
   against themselves and could never fail, so a genuinely incompatible
