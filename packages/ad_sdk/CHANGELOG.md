@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T187):** `AdSafetySnapshot` gained `fullscreenClickThroughRate`
+  — the exact fullscreen-only click/impression ratio the real CTR-anomaly
+  gate (round-39) evaluates, distinct from the pre-existing
+  `clickThroughRate` (which mixes in banner/mrec/native traffic and can
+  disagree with what actually triggered an anomaly). `AdDiagnostics`
+  gained `pendingRevenueChecks` (`int?`, `null` unless the host calls the
+  new `AdManager().enableRevenueIntegrityLedger(...)`) and
+  `recentRevenueIntegrityIncidents` (`int`, always computable from
+  `AdManager().incidentRecorder`) — so "why is revenue low today" answers
+  live in the same one-shot snapshot as the rest of `AdDiagnostics`.
 - **New (T186):** `RevenuePanel` (non-compact mode) now shows a
   per-`AdSlotType` revenue breakdown below the existing session total —
   each type present shows its own USD total and impression count, sorted

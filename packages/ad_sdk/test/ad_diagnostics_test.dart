@@ -113,6 +113,8 @@ void main() {
     tearDown(() {
       AdManager().disableArbitrator();
       AdManager().disableFillRateMonitor();
+      AdManager().disableRevenueIntegrityLedger();
+      AdManager().incidentRecorder.clear();
     });
 
     test('nothing enabled → empty fillRate map, null arbitrator fields', () {
@@ -120,6 +122,53 @@ void main() {
       expect(d.fillRateBySlot, isEmpty);
       expect(d.arbitratorEstimatedEcpmMicros, isNull);
       expect(d.arbitratorVetoRate, isNull);
+    });
+
+    // T187
+    test('revenueIntegrityLedger never enabled → pendingRevenueChecks is '
+        'null', () {
+      final d = AdManager().diagnostics();
+      expect(d.pendingRevenueChecks, isNull);
+    });
+
+    test('revenueIntegrityLedger enabled → pendingRevenueChecks reflects '
+        'its live pendingCount', () async {
+      AdManager().enableRevenueIntegrityLedger(RevenueIntegrityLedger());
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(AdManager().diagnostics().pendingRevenueChecks, 1);
+
+      AdManager().debugEmit(_rev(2000));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(AdManager().diagnostics().pendingRevenueChecks, 0,
+          reason: 'the matching revenue event must have cleared it');
+    });
+
+    test('recentRevenueIntegrityIncidents counts only '
+        'revenue_integrity_missing: entries, ignoring unrelated ones', () {
+      AdManager().incidentRecorder.record(
+          'revenue_integrity_missing:[AdMob]:interstitial:unspecified',
+          AdManager().stateSnapshot.value);
+      AdManager().incidentRecorder.record(
+          'revenue_integrity_missing:[AppLovin]:rewarded:unspecified',
+          AdManager().stateSnapshot.value);
+      AdManager()
+          .incidentRecorder
+          .record('some_unrelated_incident', AdManager().stateSnapshot.value);
+
+      expect(AdManager().diagnostics().recentRevenueIntegrityIncidents, 2);
+    });
+
+    test('recentRevenueIntegrityIncidents defaults to 0, not null, when '
+        'nothing was ever recorded', () {
+      expect(AdManager().diagnostics().recentRevenueIntegrityIncidents, 0);
     });
 
     test('fillRateMonitor enabled → every slot type present, defaults to 1.0',

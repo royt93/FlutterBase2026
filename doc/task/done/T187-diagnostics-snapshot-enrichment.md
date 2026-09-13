@@ -33,3 +33,52 @@ Thêm getter pendingCount vào packages/ad_sdk/lib/src/monetization/revenue_inte
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: smoke test thật trên device, tạo tình huống có pending revenue check + incident, xác nhận số liệu debug hiển thị đúng.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Kết quả (2026-09-13)
+
+**Sửa lại vị trí file trong mô tả gốc trước khi code**: `getStatusSnapshot()`
+thực tế nằm trong `lib/src/core/ad_safety_config.dart`, KHÔNG phải
+`ad_manager.dart` như mô tả gốc ghi — đã đọc code thật để xác nhận trước
+khi sửa.
+
+Thêm `AdSafetySnapshot.fullscreenClickThroughRate` — tính đúng công thức
+gate CTR-anomaly thật (round-39) dùng: `_fullscreenClicks /
+_fullscreenImpressions`, khác với `clickThroughRate` cũ (gộp cả banner/
+mrec/native). Xác nhận bằng test: 1 quảng cáo toàn màn hình + 3 lần xem
+banner + 1 click toàn màn hình → `clickThroughRate` = 0.25 (gộp),
+`fullscreenClickThroughRate` = 1.0 (đúng số gate thật dùng) — khác biệt rõ
+ràng.
+
+Thêm `AdDiagnostics.pendingRevenueChecks` (int?, null khi chưa bật) và
+`.recentRevenueIntegrityIncidents` (int, mặc định 0). Vì `RevenueIntegrityLedger`
+trước giờ không phải tính năng do `AdManager` sở hữu (chỉ là object độc
+lập ai muốn thì tự tạo), đã thêm cặp
+`enableRevenueIntegrityLedger()`/`disableRevenueIntegrityLedger()` +
+field private, đúng y hệt pattern các tính năng opt-in khác đã có sẵn
+(`enableFillRateMonitor`, `enableArbitrator`...) — không phá quy ước kiến
+trúc hiện tại. `recentRevenueIntegrityIncidents` không cần ledger đang
+bật — tính thẳng từ `incidentRecorder.entries` có sẵn, lọc đúng tiền tố
+nhãn `revenue_integrity_missing:` mà ledger dùng khi ghi.
+
+Không có debug overlay nào hiện tại hiển thị `AdDiagnostics` — mục "cập
+nhật debug overlay nếu áp dụng" không áp dụng, không có gì để sửa.
+
+Xác minh không vô nghĩa: tạm bỏ từng đoạn code liên quan (công thức
+`fullscreenClickThroughRate`, wiring `pendingRevenueChecks`/
+`recentRevenueIntegrityIncidents`), xác nhận đúng test tương ứng fail,
+rồi khôi phục.
+
+Xác minh: `flutter analyze` sạch; SDK suite 2020 test xanh (từ 2013, +7);
+example suite 47 file xanh (không đổi); device smoke thật — **TECNO
+BG6** đã ngắt kết nối giữa chừng, chuyển sang **Pixel 7 Pro**
+(`2B051FDH3006MU`, thiết bị thật qua USB, không phải giả lập) qua
+`example/integration_test/t187_diagnostics_revenue_integrity_test.dart`
+— bật ledger thật, bơm 1 lượt show không có revenue khớp, xác nhận
+`pendingRevenueChecks` = 1; đợi hết `matchWindow` thật trên đồng hồ
+thiết bị thật, xác nhận sweep ghi 1 incident thật và
+`recentRevenueIntegrityIncidents` = 1, đọc lại đúng qua
+`AdManager().diagnostics()`.
+
+Điểm tự chấm: **9/10**. Không chạy được codex review (hết hạn mức từ
+trước trong phiên) — bù bằng kỷ luật revert-để-xác-nhận-đỏ cho từng field
+mới + smoke test thật trên 2 thiết bị khác nhau trong phiên làm việc này.

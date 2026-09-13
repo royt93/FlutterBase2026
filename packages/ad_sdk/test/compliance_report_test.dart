@@ -14,6 +14,7 @@ void main() {
     dailyAdCount: 4,
     maxFullscreenAdsPerDay: 5,
     clickThroughRate: 0.1,
+    fullscreenClickThroughRate: 0.1,
     suspiciousCtrThreshold: 0.3,
     clicksLastMinute: 0,
     suspiciousViolationCount: 0,

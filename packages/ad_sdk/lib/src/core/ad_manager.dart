@@ -36,6 +36,7 @@ import '../monetization/self_healing_observer.dart';
 import '../monetization/waterfall_tuner.dart';
 import '../monetization/monetization_arbitrator.dart';
 import '../monetization/provider_failover_advisor.dart';
+import '../monetization/revenue_integrity_ledger.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_sdk_state_snapshot.dart';
@@ -793,6 +794,32 @@ class AdManager with WidgetsBindingObserver {
         _fillRateMonitor, null, (m) => m.dispose());
   }
 
+  /// T187 — opt-in revenue integrity ledger (default OFF) — `null` unless
+  /// the host app calls [enableRevenueIntegrityLedger]. Purely
+  /// observational, same shape as [enableFillRateMonitor]: it never
+  /// affects show/load gating, it only watches [events] and flags a
+  /// possible revenue-integrity gap via [incidentRecorder]. Read
+  /// [RevenueIntegrityLedger]'s own doc comment for what "flagged" means
+  /// (a heuristic signal, not a fraud verdict).
+  RevenueIntegrityLedger? _revenueIntegrityLedger;
+
+  /// `null` by default — see [enableRevenueIntegrityLedger].
+  RevenueIntegrityLedger? get revenueIntegrityLedger => _revenueIntegrityLedger;
+
+  /// Opt in to the revenue integrity ledger: starts watching [events] for
+  /// successful shows without a timely matching revenue event.
+  void enableRevenueIntegrityLedger(RevenueIntegrityLedger ledger) {
+    _revenueIntegrityLedger = _swapDisposable(
+        _revenueIntegrityLedger, ledger, (l) => l.dispose());
+  }
+
+  /// Test/host seam: clear a previously-registered revenue integrity ledger.
+  @visibleForTesting
+  void disableRevenueIntegrityLedger() {
+    _revenueIntegrityLedger = _swapDisposable<RevenueIntegrityLedger>(
+        _revenueIntegrityLedger, null, (l) => l.dispose());
+  }
+
   /// T122 — opt-in on-device waterfall tuner (default OFF) — `null` unless
   /// the host app calls [enableWaterfallTuner]. Purely observational, same
   /// shape as [enableFillRateMonitor]: it never affects show/load gating or
@@ -1085,6 +1112,11 @@ class AdManager with WidgetsBindingObserver {
       arbitratorEstimatedEcpmMicros: arbitrator?.estimatedEcpmMicros,
       arbitratorVetoRate: arbitrator?.vetoRate,
       fillRateRegressionBySlot: baselineMonitor?.activeAlerts ?? const {},
+      // T187
+      pendingRevenueChecks: _revenueIntegrityLedger?.pendingCount,
+      recentRevenueIntegrityIncidents: incidentRecorder.entries
+          .where((e) => e.label.startsWith('revenue_integrity_missing:'))
+          .length,
     );
   }
 
@@ -6392,6 +6424,8 @@ class AdManager with WidgetsBindingObserver {
     _arbitrator = null;
     _fillRateMonitor?.dispose();
     _fillRateMonitor = null;
+    _revenueIntegrityLedger?.dispose();
+    _revenueIntegrityLedger = null;
     _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
     _fillRateBaselineMonitor = null;

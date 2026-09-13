@@ -133,6 +133,44 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────
+  // fullscreenClickThroughRate (T187)
+  // ─────────────────────────────────────────────────
+  group('fullscreenClickThroughRate (T187)', () {
+    test('is computed from fullscreen impressions/clicks only — differs '
+        'from the broader clickThroughRate when banner impressions exist',
+        () {
+      AdSafetyConfig.recordFullscreenAdShown(); // fullscreen imp=1, total imp=1
+      AdSafetyConfig.recordBannerImpression(); // total imp=2 only
+      AdSafetyConfig.recordBannerImpression(); // total imp=3 only
+      AdSafetyConfig.recordBannerImpression(); // total imp=4 only
+      AdSafetyConfig.recordAdClick(fullscreen: true); // fullscreen click=1
+
+      final snapshot = AdSafetyConfig.getStatusSnapshot();
+
+      expect(snapshot.clickThroughRate, closeTo(0.25, 0.001),
+          reason: '1 click / 4 TOTAL impressions (fullscreen + 3 banner)');
+      expect(snapshot.fullscreenClickThroughRate, closeTo(1.0, 0.001),
+          reason: '1 fullscreen click / 1 FULLSCREEN impression only — '
+              'this is the exact ratio the real CTR-anomaly gate '
+              'evaluates, and it must not be diluted by banner traffic');
+    });
+
+    test('a non-fullscreen click does not count toward '
+        'fullscreenClickThroughRate', () {
+      AdSafetyConfig.recordFullscreenAdShown();
+      AdSafetyConfig.recordAdClick(); // fullscreen: false (default)
+
+      expect(AdSafetyConfig.getStatusSnapshot().fullscreenClickThroughRate, 0,
+          reason: 'a non-fullscreen click must not inflate the fullscreen-'
+              'only ratio the real anomaly gate reads');
+    });
+
+    test('0 fullscreen impressions → 0.0, not a division-by-zero crash', () {
+      expect(AdSafetyConfig.getStatusSnapshot().fullscreenClickThroughRate, 0);
+    });
+  });
+
+  // ─────────────────────────────────────────────────
   // resetSession
   // ─────────────────────────────────────────────────
   group('resetSession', () {

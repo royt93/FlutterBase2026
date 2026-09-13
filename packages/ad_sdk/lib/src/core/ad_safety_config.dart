@@ -36,6 +36,17 @@ class AdSafetySnapshot {
   final int dailyAdCount;
   final int maxFullscreenAdsPerDay;
   final double clickThroughRate;
+
+  /// T187 — the ACTUAL ratio the CTR-anomaly gate itself evaluates
+  /// against [suspiciousCtrThreshold] (round-39: fullscreen clicks over
+  /// fullscreen impressions ONLY — see the `_fullscreenClicks`/
+  /// `_fullscreenImpressions` counters this mirrors). [clickThroughRate]
+  /// above is a DIFFERENT, broader figure (all ad formats, including
+  /// banner/mrec/native clicks/impressions) kept only for
+  /// backward-compatible display — it can disagree with what actually
+  /// triggered (or didn't trigger) an anomaly. A dev debugging "why did
+  /// the CTR-anomaly gate fire" should read THIS field.
+  final double fullscreenClickThroughRate;
   final double suspiciousCtrThreshold;
   final int clicksLastMinute;
   final int suspiciousViolationCount;
@@ -50,6 +61,7 @@ class AdSafetySnapshot {
     required this.dailyAdCount,
     required this.maxFullscreenAdsPerDay,
     required this.clickThroughRate,
+    required this.fullscreenClickThroughRate,
     required this.suspiciousCtrThreshold,
     required this.clicksLastMinute,
     required this.suspiciousViolationCount,
@@ -65,6 +77,7 @@ class AdSafetySnapshot {
         'dailyAdCount': dailyAdCount,
         'maxFullscreenAdsPerDay': maxFullscreenAdsPerDay,
         'clickThroughRate': clickThroughRate,
+        'fullscreenClickThroughRate': fullscreenClickThroughRate,
         'suspiciousCtrThreshold': suspiciousCtrThreshold,
         'clicksLastMinute': clicksLastMinute,
         'suspiciousViolationCount': suspiciousViolationCount,
@@ -1148,6 +1161,12 @@ class AdSafetyConfig {
     final ctr = _totalImpressions > 0
         ? _totalClicks.toDouble() / _totalImpressions
         : 0.0;
+    // T187 — mirrors the CTR-anomaly gate's own formula exactly (see the
+    // check inside `_canShowFullscreenAdStrict`, which reads
+    // `_fullscreenClicks`/`_fullscreenImpressions` the same way).
+    final fullscreenCtr = _fullscreenImpressions > 0
+        ? _fullscreenClicks.toDouble() / _fullscreenImpressions
+        : 0.0;
     return AdSafetySnapshot(
       fullscreenAdsShownInSession: _fullscreenAdsShownInSession,
       maxFullscreenAdsPerSession: _params.maxFullscreenAdsPerSession,
@@ -1156,6 +1175,7 @@ class AdSafetyConfig {
       dailyAdCount: _prefs?.getDailyAdCount() ?? 0,
       maxFullscreenAdsPerDay: _params.maxFullscreenAdsPerDay,
       clickThroughRate: ctr,
+      fullscreenClickThroughRate: fullscreenCtr,
       suspiciousCtrThreshold: _params.suspiciousCtrThreshold,
       clicksLastMinute: _clickTimestamps.length,
       suspiciousViolationCount: _decayedSuspiciousCountForDisplay(),

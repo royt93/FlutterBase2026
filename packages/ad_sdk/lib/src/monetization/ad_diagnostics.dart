@@ -19,6 +19,8 @@ class AdDiagnostics {
     this.arbitratorEstimatedEcpmMicros,
     this.arbitratorVetoRate,
     this.fillRateRegressionBySlot = const {},
+    this.pendingRevenueChecks,
+    this.recentRevenueIntegrityIncidents = 0,
   });
 
   /// Most recent `AdRevenueEvent.mediationWaterfall` seen per slot (from the
@@ -43,6 +45,25 @@ class AdDiagnostics {
   /// regressed.
   final Map<AdSlotType, FillRateRegressionAlert> fillRateRegressionBySlot;
 
+  /// T187 — `RevenueIntegrityLedger.pendingCount` (successful shows still
+  /// waiting on a matching `AdRevenueEvent`), lets a dev see "why is
+  /// revenue low today" in the SAME snapshot as the rest of this class
+  /// instead of cross-referencing a separate ledger instance. `null` when
+  /// `AdManager.enableRevenueIntegrityLedger` was never called — same
+  /// "subsystem never opted in" convention as [arbitratorEstimatedEcpmMicros].
+  final int? pendingRevenueChecks;
+
+  /// T187 — count of `AdManager.incidentRecorder` entries tagged
+  /// `revenue_integrity_missing:*` (the exact label
+  /// `RevenueIntegrityLedger._sweepExpired` records under). Always
+  /// computable from the incident recorder alone — unlike
+  /// [pendingRevenueChecks], this does NOT require a live ledger to be
+  /// enabled right now, since the recorder already persisted whatever a
+  /// PAST ledger instance (this session or an earlier one) reported.
+  /// Defaults to `0`, not nullable — an empty incident recorder legitimately
+  /// means zero, not "unknown".
+  final int recentRevenueIntegrityIncidents;
+
   Map<String, dynamic> toJson() => {
         'lastWaterfallBySlot':
             lastWaterfallBySlot.map((k, v) => MapEntry(k.name, v)),
@@ -58,6 +79,8 @@ class AdDiagnostics {
                   'fillRateRegressed': v.fillRateRegressed,
                   'revenueRegressed': v.revenueRegressed,
                 })),
+        'pendingRevenueChecks': pendingRevenueChecks,
+        'recentRevenueIntegrityIncidents': recentRevenueIntegrityIncidents,
       };
 
   /// Privacy-safe, bounded export for support bundles and telemetry.
@@ -96,6 +119,8 @@ class AdDiagnostics {
                 'fillRateRegressed': v.fillRateRegressed,
                 'revenueRegressed': v.revenueRegressed,
               })),
+      'pendingRevenueChecks': pendingRevenueChecks,
+      'recentRevenueIntegrityIncidents': recentRevenueIntegrityIncidents,
     };
     var payloadJson = jsonEncode(payload);
     while (utf8.encode(payloadJson).length > maxBytes ~/ 2 &&
