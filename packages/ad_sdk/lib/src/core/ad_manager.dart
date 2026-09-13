@@ -714,6 +714,25 @@ class AdManager with WidgetsBindingObserver {
   bool get debugHasPendingExplorationCommit =>
       _pendingExplorationCommitAtMs != null;
 
+  /// Disposes [current] (if non-null) via [dispose] and returns [next] —
+  /// the shared "swap out an opt-in feature" pattern behind every
+  /// enable*/disable* pair below (arbitrator, fillRateMonitor,
+  /// waterfallTuner, providerFailoverAdvisor, selfHealingObserver,
+  /// journeyPrefetcher).
+  ///
+  /// Audit fix (post-T180) — these were six ~15-line copy-pasted
+  /// "dispose old, assign new" bodies with no behavior difference between
+  /// them (confirmed: every current call site disposes with default args,
+  /// fire-and-forget, whether the underlying `dispose()` is sync `void` or
+  /// async `Future<void>` — [dispose] just needs to be callable as a
+  /// statement either way, which `void Function(T)` already permits). Kept
+  /// generic rather than a shared interface: these six classes are
+  /// otherwise unrelated and don't need one just for this.
+  T? _swapDisposable<T>(T? current, T? next, void Function(T) dispose) {
+    if (current != null) dispose(current);
+    return next;
+  }
+
   /// Opt-in "Smart Monetization Arbitrator" (default OFF) — `null` unless the
   /// host app calls [enableArbitrator]. When `null`, [showInterstitial] and
   /// [showRewardedAd] behave exactly as if this feature didn't exist.
@@ -730,15 +749,14 @@ class AdManager with WidgetsBindingObserver {
   /// Byte-for-byte no-op until this is called: [showInterstitial] and
   /// [showRewardedAd] only consult [arbitrator] when it's non-null.
   void enableArbitrator(MonetizationArbitrator arbitrator) {
-    _arbitrator?.dispose();
-    _arbitrator = arbitrator;
+    _arbitrator = _swapDisposable(_arbitrator, arbitrator, (a) => a.dispose());
   }
 
   /// Test/host seam: clear a previously-registered arbitrator.
   @visibleForTesting
   void disableArbitrator() {
-    _arbitrator?.dispose();
-    _arbitrator = null;
+    _arbitrator = _swapDisposable<MonetizationArbitrator>(
+        _arbitrator, null, (a) => a.dispose());
   }
 
   /// Opt-in fill-rate monitor (default OFF) — `null` unless the host app
@@ -754,15 +772,15 @@ class AdManager with WidgetsBindingObserver {
   /// rate per [AdSlotType] from [events], and exposes [FillRateMonitor.alerts]
   /// for a low-fill-rate warning.
   void enableFillRateMonitor(FillRateMonitor monitor) {
-    _fillRateMonitor?.dispose();
-    _fillRateMonitor = monitor;
+    _fillRateMonitor =
+        _swapDisposable(_fillRateMonitor, monitor, (m) => m.dispose());
   }
 
   /// Test/host seam: clear a previously-registered fill-rate monitor.
   @visibleForTesting
   void disableFillRateMonitor() {
-    _fillRateMonitor?.dispose();
-    _fillRateMonitor = null;
+    _fillRateMonitor = _swapDisposable<FillRateMonitor>(
+        _fillRateMonitor, null, (m) => m.dispose());
   }
 
   /// T122 — opt-in on-device waterfall tuner (default OFF) — `null` unless
@@ -785,15 +803,15 @@ class AdManager with WidgetsBindingObserver {
   /// cannot compare against real data for the other provider and will
   /// never return non-null on a real device.
   void enableWaterfallTuner(WaterfallTuner tuner) {
-    _waterfallTuner?.dispose();
-    _waterfallTuner = tuner;
+    _waterfallTuner =
+        _swapDisposable(_waterfallTuner, tuner, (t) => t.dispose());
   }
 
   /// Test/host seam: clear a previously-registered waterfall tuner.
   @visibleForTesting
   void disableWaterfallTuner() {
-    _waterfallTuner?.dispose();
-    _waterfallTuner = null;
+    _waterfallTuner = _swapDisposable<WaterfallTuner>(
+        _waterfallTuner, null, (t) => t.dispose());
   }
 
   ProviderFailoverAdvisor? _providerFailoverAdvisor;
@@ -808,15 +826,15 @@ class AdManager with WidgetsBindingObserver {
   /// for why this is a purely CURRENT-provider reliability signal, not
   /// [WaterfallTuner]'s cross-provider quality comparison.
   void enableProviderFailoverAdvisor(ProviderFailoverAdvisor advisor) {
-    _providerFailoverAdvisor?.dispose();
-    _providerFailoverAdvisor = advisor;
+    _providerFailoverAdvisor = _swapDisposable(
+        _providerFailoverAdvisor, advisor, (a) => a.dispose());
   }
 
   /// Test/host seam: clear a previously-registered failover advisor.
   @visibleForTesting
   void disableProviderFailoverAdvisor() {
-    _providerFailoverAdvisor?.dispose();
-    _providerFailoverAdvisor = null;
+    _providerFailoverAdvisor = _swapDisposable<ProviderFailoverAdvisor>(
+        _providerFailoverAdvisor, null, (a) => a.dispose());
   }
 
   /// T143 — apply [advisor]'s recommendation to [provider]: if
@@ -891,15 +909,15 @@ class AdManager with WidgetsBindingObserver {
   /// production expecting it to eventually fire: given the current
   /// one-provider-per-install architecture, it cannot.
   void enableSelfHealingObserver(SelfHealingObserver observer) {
-    _selfHealingObserver?.dispose();
-    _selfHealingObserver = observer;
+    _selfHealingObserver =
+        _swapDisposable(_selfHealingObserver, observer, (o) => o.dispose());
   }
 
   /// Test/host seam: clear a previously-registered self-healing observer.
   @visibleForTesting
   void disableSelfHealingObserver() {
-    _selfHealingObserver?.dispose();
-    _selfHealingObserver = null;
+    _selfHealingObserver = _swapDisposable<SelfHealingObserver>(
+        _selfHealingObserver, null, (o) => o.dispose());
   }
 
   /// T127 — the only way anything outside [AdManager] reaches [_emit]:
@@ -929,15 +947,15 @@ class AdManager with WidgetsBindingObserver {
 
   /// Opt in to the journey prefetcher.
   void enableJourneyPrefetcher(JourneyPrefetcher prefetcher) {
-    _journeyPrefetcher?.dispose();
-    _journeyPrefetcher = prefetcher;
+    _journeyPrefetcher =
+        _swapDisposable(_journeyPrefetcher, prefetcher, (p) => p.dispose());
   }
 
   /// Test/host seam: clear a previously-registered journey prefetcher.
   @visibleForTesting
   void disableJourneyPrefetcher() {
-    _journeyPrefetcher?.dispose();
-    _journeyPrefetcher = null;
+    _journeyPrefetcher = _swapDisposable<JourneyPrefetcher>(
+        _journeyPrefetcher, null, (p) => p.dispose());
   }
 
   int? _featureFlagsRevision;

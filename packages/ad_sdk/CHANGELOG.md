@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Internal (T180):** the six opt-in feature `enable*`/`disable*` pairs
+  (arbitrator, fillRateMonitor, waterfallTuner, providerFailoverAdvisor,
+  selfHealingObserver, journeyPrefetcher) each repeated the same
+  "dispose old, assign new" body. Replaced with a shared generic
+  `_swapDisposable` helper. Public API (names/signatures) and behavior
+  are unchanged — verified by re-running the full test suite plus each
+  feature's own on-device integration test.
 - **Fix (T177):** `MonetizationDigitalTwin.forecastDailyCap()` used to treat
   a negative `hypotheticalDailyCap` as silently meaning "uncapped", with no
   documentation of that behavior and no test for it — a dev who passed a
