@@ -79,10 +79,18 @@ class FillRateBaselineMonitor {
     this.regressionThreshold = 0.2,
     this.minSamples = 5,
     @visibleForTesting DateTime Function() debugClock = DateTime.now,
-  })  : assert(regressionThreshold > 0 && regressionThreshold < 1,
-            'regressionThreshold must be between 0 and 1 (exclusive)'),
-        assert(minSamples > 0, 'minSamples must be positive'),
-        _now = debugClock {
+  }) : _now = debugClock {
+    // T197 — a real runtime check, not just `assert` (compiled out of
+    // release builds): see FillRateMonitor's matching constructor
+    // comment for why throwing beats silently clamping here.
+    if (regressionThreshold <= 0 || regressionThreshold >= 1) {
+      throw ArgumentError.value(regressionThreshold, 'regressionThreshold',
+          'must be between 0 and 1 (exclusive)');
+    }
+    if (minSamples <= 0) {
+      throw ArgumentError.value(
+          minSamples, 'minSamples', 'must be positive');
+    }
     _sub = AdManager().events.listen(_onEvent);
   }
 

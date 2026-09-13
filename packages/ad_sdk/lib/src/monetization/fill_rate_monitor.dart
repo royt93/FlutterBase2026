@@ -38,12 +38,25 @@ class FillRateMonitor {
   FillRateMonitor({
     this.lowFillRateThreshold = 0.3, // below 30% is considered abnormal.
     int rollingWindowSize = 20,
-  })  : assert(
-            lowFillRateThreshold > 0 && lowFillRateThreshold < 1,
-            'lowFillRateThreshold must be between 0 and 1 (exclusive) — a '
-            'value near 1.0 alerts on almost every load, near 0.0 never '
-            'alerts at all'),
-        _rollingWindowSize = rollingWindowSize {
+  }) : _rollingWindowSize = rollingWindowSize {
+    // T197 — a real runtime check, not just `assert` (compiled out of
+    // release builds): a misconfigured threshold/window here doesn't
+    // crash anything downstream — the monitor just silently never alerts
+    // (or spams every load) for the rest of the app's life in
+    // production, with no signal to the host that anything is wrong.
+    // Throwing here beats clamping the value into range: clamping would
+    // hide the bug behind a value the host never actually asked for.
+    if (lowFillRateThreshold <= 0 || lowFillRateThreshold >= 1) {
+      throw ArgumentError.value(
+          lowFillRateThreshold,
+          'lowFillRateThreshold',
+          'must be between 0 and 1 (exclusive) — a value near 1.0 alerts '
+              'on almost every load, near 0.0 never alerts at all');
+    }
+    if (rollingWindowSize <= 0) {
+      throw ArgumentError.value(rollingWindowSize, 'rollingWindowSize',
+          'must be positive — a zero or negative window can never fill');
+    }
     _sub = AdManager().events.listen(_onEvent);
   }
 

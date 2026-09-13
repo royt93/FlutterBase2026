@@ -73,7 +73,20 @@ class BypassAuditEntry {
 /// comment), before any storage handle exists, so persistence is opt-in via
 /// [attach] rather than a constructor parameter.
 class BypassAuditTrail {
-  BypassAuditTrail({this.maxEntries = 200});
+  BypassAuditTrail({this.maxEntries = 200}) {
+    // T197 — a real runtime check, not just `assert` (compiled out of
+    // release builds). Worse than the other opt-in monitors' matching
+    // check: an unvalidated NEGATIVE maxEntries doesn't just make this
+    // trail silently useless — [record]'s
+    // `removeRange(0, _entries.length - maxEntries)` computes an END
+    // index LARGER than the list's own length (subtracting a negative
+    // adds), which throws a RangeError the very first time the ring
+    // buffer would trim — a real crash in production, not just a
+    // mistuned monitor.
+    if (maxEntries <= 0) {
+      throw ArgumentError.value(maxEntries, 'maxEntries', 'must be positive');
+    }
+  }
 
   static const String _tag = 'BypassAuditTrail';
 

@@ -25,6 +25,43 @@ void main() {
 
   late FillRateMonitor monitor;
 
+  // T197 — a real runtime ArgumentError, not just a debug-only `assert`
+  // (compiled out of release builds — a misconfigured monitor would
+  // otherwise silently never alert, or spam every load, for the rest of
+  // a release app's life with no signal anything is wrong).
+  group('constructor validation (T197)', () {
+    test('lowFillRateThreshold <= 0 throws ArgumentError', () {
+      expect(() => FillRateMonitor(lowFillRateThreshold: 0),
+          throwsArgumentError);
+      expect(() => FillRateMonitor(lowFillRateThreshold: -0.1),
+          throwsArgumentError);
+    });
+
+    test('lowFillRateThreshold >= 1 throws ArgumentError', () {
+      expect(() => FillRateMonitor(lowFillRateThreshold: 1),
+          throwsArgumentError);
+      expect(() => FillRateMonitor(lowFillRateThreshold: 1.5),
+          throwsArgumentError);
+    });
+
+    test('a value strictly between 0 and 1 is accepted', () {
+      final m = FillRateMonitor(lowFillRateThreshold: 0.5);
+      expect(m.lowFillRateThreshold, 0.5);
+      m.dispose();
+    });
+
+    test('rollingWindowSize <= 0 throws ArgumentError', () {
+      expect(() => FillRateMonitor(rollingWindowSize: 0), throwsArgumentError);
+      expect(
+          () => FillRateMonitor(rollingWindowSize: -5), throwsArgumentError);
+    });
+
+    test('a positive rollingWindowSize is accepted', () {
+      final m = FillRateMonitor(rollingWindowSize: 1);
+      m.dispose();
+    });
+  });
+
   group('fillRate()', () {
     tearDown(() => monitor.dispose());
 

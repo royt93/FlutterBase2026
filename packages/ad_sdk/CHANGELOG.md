@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T197):** `FillRateMonitor`, `FillRateBaselineMonitor`, and
+  `BypassAuditTrail` now throw a real `ArgumentError` for an invalid
+  constructor value (`lowFillRateThreshold`/`regressionThreshold` outside
+  `(0, 1)`, `rollingWindowSize`/`minSamples`/`maxEntries` `<= 0`) instead
+  of relying on a debug-only `assert` (compiled out of release builds) or
+  — for `BypassAuditTrail` — nothing at all. Before this, an invalid
+  value in a release build either left the monitor silently useless
+  (never alerting, or alerting on almost everything) or, for a negative
+  `BypassAuditTrail.maxEntries`, crashed for real the first time its ring
+  buffer tried to trim. None of the values are silently clamped into
+  range — that would hide the same misconfiguration a different way.
 - **New (T196):** `ConsentSettings.copyWith` gained `clearAskedAt`/
   `clearCountry` (`bool`, default `false`) — `askedAt`/`country` are
   themselves nullable fields, so `copyWith(askedAt: null)` was previously

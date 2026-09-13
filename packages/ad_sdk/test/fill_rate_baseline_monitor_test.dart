@@ -83,6 +83,50 @@ void main() {
 
   tearDown(() => monitor.dispose());
 
+  // T197 — a real runtime ArgumentError, not just a debug-only `assert`
+  // (compiled out of release builds). The shared tearDown above calls
+  // `monitor.dispose()` unconditionally, so every test here assigns
+  // `monitor` to a harmless valid instance FIRST (via this group's own
+  // setUp) — the throwing construction itself is never assigned to it,
+  // and the "accepted" tests just replace it with the one under test
+  // (disposing the setUp placeholder first, so nothing leaks).
+  group('constructor validation (T197)', () {
+    setUp(() => monitor = FillRateBaselineMonitor(prefs));
+
+    test('regressionThreshold <= 0 throws ArgumentError', () {
+      expect(() => FillRateBaselineMonitor(prefs, regressionThreshold: 0),
+          throwsArgumentError);
+      expect(
+          () => FillRateBaselineMonitor(prefs, regressionThreshold: -0.1),
+          throwsArgumentError);
+    });
+
+    test('regressionThreshold >= 1 throws ArgumentError', () {
+      expect(() => FillRateBaselineMonitor(prefs, regressionThreshold: 1),
+          throwsArgumentError);
+      expect(
+          () => FillRateBaselineMonitor(prefs, regressionThreshold: 1.5),
+          throwsArgumentError);
+    });
+
+    test('a regressionThreshold strictly between 0 and 1 is accepted', () {
+      monitor.dispose();
+      monitor = FillRateBaselineMonitor(prefs, regressionThreshold: 0.5);
+    });
+
+    test('minSamples <= 0 throws ArgumentError', () {
+      expect(() => FillRateBaselineMonitor(prefs, minSamples: 0),
+          throwsArgumentError);
+      expect(() => FillRateBaselineMonitor(prefs, minSamples: -3),
+          throwsArgumentError);
+    });
+
+    test('a positive minSamples is accepted', () {
+      monitor.dispose();
+      monitor = FillRateBaselineMonitor(prefs, minSamples: 1);
+    });
+  });
+
   test('no alert when there is no baseline history yet', () async {
     monitor = FillRateBaselineMonitor(prefs, minSamples: 3);
     for (var i = 0; i < 5; i++) {

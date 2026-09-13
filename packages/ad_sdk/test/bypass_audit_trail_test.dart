@@ -13,6 +13,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // T197 — a real runtime ArgumentError, not just silently accepted. A
+  // negative maxEntries used to be worse than a mistuned monitor: it
+  // crashed for real the first time record()'s ring-buffer trim ran
+  // (removeRange's end index landed past the list's own length, since
+  // subtracting a negative number adds).
+  group('constructor validation (T197)', () {
+    test('maxEntries <= 0 throws ArgumentError', () {
+      expect(() => BypassAuditTrail(maxEntries: 0), throwsArgumentError);
+      expect(() => BypassAuditTrail(maxEntries: -1), throwsArgumentError);
+    });
+
+    test('a positive maxEntries is accepted', () {
+      final trail = BypassAuditTrail(maxEntries: 1);
+      expect(trail.maxEntries, 1);
+    });
+
+    test(
+        'a negative maxEntries, if it were still accepted, would crash '
+        'record() on the very first trim — proving why this must throw '
+        'up front instead of failing later', () {
+      // Documents the actual pre-fix crash mode for future readers — does
+      // not construct a real BypassAuditTrail with an invalid value
+      // (the constructor now refuses that outright, by design).
+      final list = <int>[1, 2, 3];
+      final maxEntries = -1;
+      expect(() => list.removeRange(0, list.length - maxEntries),
+          throwsRangeError);
+    });
+  });
+
   group('BypassAuditTrail ring buffer', () {
     test('records kind/callSiteTag/type, newest last', () {
       final trail = BypassAuditTrail();
