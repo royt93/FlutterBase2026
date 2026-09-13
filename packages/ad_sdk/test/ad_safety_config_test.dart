@@ -1167,4 +1167,158 @@ void main() {
       expect(replaced.disabledFormats, {'interstitial'});
     });
   });
+
+  // ─────────────────────────────────────────────────
+  // T181 — minIntervalOverrideMs (per-placement throttle override)
+  // ─────────────────────────────────────────────────
+  group('minIntervalOverrideMs (T181)', () {
+    test('a TIGHTER override blocks even though the app-wide throttle '
+        'alone would allow it', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 0));
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result =
+          AdSafetyConfig.canShowFullscreenAd(minIntervalOverrideMs: 999999999);
+
+      expect(result.canShow, isFalse);
+      expect(result.reason, contains('Throttle'));
+    });
+
+    test('a LOOSER override allows even though the app-wide throttle alone '
+        'would still be blocking', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result =
+          AdSafetyConfig.canShowFullscreenAd(minIntervalOverrideMs: 0);
+
+      expect(result.canShow, isTrue);
+    });
+
+    test('omitting minIntervalOverrideMs (the default) uses the app-wide '
+        'value unchanged — exact pre-T181 behavior', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result = AdSafetyConfig.canShowFullscreenAd();
+
+      expect(result.canShow, isFalse,
+          reason: 'no override passed — the app-wide throttle alone must '
+              'still apply, same as before T181');
+    });
+
+    test('canShowFullscreenAdPeek() also honors minIntervalOverrideMs, '
+        'without recording a violation', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 0));
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result =
+          AdSafetyConfig.canShowFullscreenAdPeek(minIntervalOverrideMs: 999999999);
+
+      expect(result.canShow, isFalse);
+      expect(result.reason, contains('Throttle'));
+    });
+
+    // codex round-6 fix — a negative override used to make
+    // `elapsed < minInterval` unconditionally false (elapsed is never
+    // negative), silently disabling the throttle entirely — even though
+    // the app-wide interval itself is a perfectly valid, deliberately
+    // configured value. `0` is the real, intentional bypass value; a
+    // negative value is not a deliberate choice of anything, so it is
+    // REJECTED outright and falls back to the app-wide value, exactly as
+    // if no override had been passed.
+    test('a NEGATIVE override is rejected — it falls back to the app-wide '
+        'value instead of disabling the throttle', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result =
+          AdSafetyConfig.canShowFullscreenAdPeek(minIntervalOverrideMs: -1);
+
+      expect(result.canShow, isFalse,
+          reason: 'a negative override must not disable the throttle — it '
+              'must fall back to the app-wide value, which is still '
+              'blocking here');
+      expect(result.reason, contains('Throttle'));
+    });
+
+    test('canShowAppOpenOnResume() also rejects a negative override, '
+        'falling back to the app-wide value', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      // `minIntervalOverrideMs: 0` here bypasses the throttle for JUST this
+      // consume call — a leftover _lastFullscreenAdTime from an earlier
+      // test (never reset by resetSession()) combined with this test's
+      // deliberately huge app-wide value would otherwise block the
+      // throttle check BEFORE the cold-start check even runs, leaving
+      // cold start un-consumed for the real assertion below.
+      AdSafetyConfig.canShowAppOpenOnResume(minIntervalOverrideMs: 0);
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result = AdSafetyConfig.canShowAppOpenOnResumePeek(
+          minIntervalOverrideMs: -999999999);
+
+      expect(result.canShow, isFalse);
+    });
+
+    // codex round-1 fix — canShowAppOpenOnResume/Peek used to have no
+    // override at all: the resume-triggered App Open flow's own preflight
+    // check only ever saw the app-wide minTimeBetweenFullscreenAds.
+    test('canShowAppOpenOnResume() honors minIntervalOverrideMs too', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 0));
+      AdSafetyConfig.canShowAppOpenOnResume(); // consume cold start
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result = AdSafetyConfig.canShowAppOpenOnResume(
+          minIntervalOverrideMs: 999999999);
+
+      expect(result.canShow, isFalse);
+      expect(result.reason, contains('fullscreen throttle'));
+    });
+
+    test('canShowAppOpenOnResumePeek() honors minIntervalOverrideMs too',
+        () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      // minIntervalOverrideMs: 0 bypasses the throttle for JUST this
+      // consume call — see the matching comment on the negative-override
+      // test above for why this is needed with such a large app-wide value.
+      AdSafetyConfig.canShowAppOpenOnResume(minIntervalOverrideMs: 0);
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result = AdSafetyConfig.canShowAppOpenOnResumePeek(
+          minIntervalOverrideMs: 0);
+
+      expect(result.canShow, isTrue,
+          reason: 'a looser override must let this through even though the '
+              'app-wide throttle alone would still be blocking');
+    });
+
+    test('omitting minIntervalOverrideMs on canShowAppOpenOnResume uses the '
+        'app-wide value unchanged — exact pre-T181 behavior', () async {
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      AdSafetyConfig.canShowAppOpenOnResume(minIntervalOverrideMs: 0);
+      AdSafetyConfig.recordFullscreenAdShown();
+
+      final result = AdSafetyConfig.canShowAppOpenOnResume();
+
+      expect(result.canShow, isFalse);
+    });
+  });
 }

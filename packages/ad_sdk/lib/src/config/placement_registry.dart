@@ -8,6 +8,7 @@ class PlacementSpec {
   const PlacementSpec({
     required this.format,
     this.frequencyCapOverride,
+    this.minIntervalOverrideMs,
   });
 
   /// Which ad format this spec applies to. Enforced against the actual
@@ -29,6 +30,27 @@ class PlacementSpec {
   /// `null` (default) — no override, existing `AdSafetyParams`-configured
   /// cap (or no cap at all) applies unchanged.
   final int? frequencyCapOverride;
+
+  /// T181 — when set, this placement's minimum interval since the last
+  /// fullscreen ad (any format — the app-wide throttle it overrides is
+  /// itself global, not per-format) becomes this value, in milliseconds,
+  /// instead of `AdSafetyParams.minTimeBetweenFullscreenAds` (see
+  /// `AdSafetyConfig.canShowFullscreenAd`'s `minIntervalOverrideMs`
+  /// parameter). Same override semantics as [frequencyCapOverride]: applies
+  /// for THIS show call only, never mutates the underlying configured
+  /// value, and `null` (default) leaves the app-wide throttle unchanged.
+  ///
+  /// A SMALLER value here loosens this placement's own throttle relative to
+  /// the rest of the app (e.g. a rewarded-video placement the host wants
+  /// available more often than interstitials); a LARGER value tightens it.
+  /// Either way this only affects the "time since last fullscreen ad of ANY
+  /// kind" check for a show attempt through THIS placement's format — it
+  /// never changes what counts as "the last fullscreen ad" for any other
+  /// placement's own check. A NEGATIVE value is rejected and falls back to
+  /// the app-wide value, same as `null` — `0` is the real "no throttle for
+  /// this placement" bypass; a negative number must not silently disable a
+  /// real safety throttle.
+  final int? minIntervalOverrideMs;
 }
 
 /// T140 — maps [AdPlacement.id] (the SDK's existing placement-identity
@@ -53,6 +75,7 @@ class PlacementSpec {
 ///     'level_complete': PlacementSpec(
 ///       format: AdSlotType.interstitial,
 ///       frequencyCapOverride: 3, // stricter than the global default here
+///       minIntervalOverrideMs: 120000, // 2 min — looser than app-wide here
 ///     ),
 ///   }),
 /// )

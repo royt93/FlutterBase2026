@@ -294,6 +294,19 @@ class DemoConfig {
       // ⚠️ DO NOT copy kDemoSafetyParams into a production app — use
       // AdSafetyParams.auto (default) or AdSafetyParams.production there.
       safety: kQaAdStress ? kDemoSafetyParams : AdSafetyParams.auto,
+      // T181 — demo-only placement: PlacementThrottleDemoPage shows this
+      // placement can bypass the app-wide fullscreen throttle above with
+      // its own, looser 500ms minimum interval — looser than
+      // AdSafetyParams.debug's own 2s (kQaAdStress off, the normal debug
+      // run) so the demo's two buttons actually differ. Inert for every
+      // other screen — no other show call in this app uses this
+      // placement id.
+      placements: const PlacementRegistry({
+        't181_demo_override': PlacementSpec(
+          format: AdSlotType.interstitial,
+          minIntervalOverrideMs: 500,
+        ),
+      }),
       // First-install VIP grace: 30 s in debug (so QA can verify "after
       // grace expires, ads return" without waiting 24 h), 24 h in release.
       // Other options:
@@ -702,6 +715,17 @@ class HomePage extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                     builder: (_) => const CustomOverlayDemoPage())),
+          ),
+          DemoTile(
+            icon: Icons.hourglass_bottom,
+            title: 'Placement min-interval override (T181)',
+            subtitle:
+                'PlacementSpec.minIntervalOverrideMs — per-placement throttle',
+            color: Colors.teal,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const PlacementThrottleDemoPage())),
           ),
           DemoTile(
             icon: Icons.cloud_sync,
@@ -3598,6 +3622,120 @@ class TestDeviceHashDemoPage extends StatelessWidget {
               icon: const Icon(Icons.copy),
               label: const Text('Copy hint text'),
               onPressed: () => _copy(context, 'Hint', hint),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// T181 — per-placement min-interval throttle override demo.
+// ─────────────────────────────────────────────────────────────────────────
+
+class PlacementThrottleDemoPage extends StatefulWidget {
+  const PlacementThrottleDemoPage({super.key});
+
+  @override
+  State<PlacementThrottleDemoPage> createState() =>
+      _PlacementThrottleDemoPageState();
+}
+
+class _PlacementThrottleDemoPageState
+    extends State<PlacementThrottleDemoPage> {
+  static const _overridePlacement = AdPlacement.custom('t181_demo_override');
+
+  final _log = <String>[];
+
+  void _addLog(String line) {
+    final t = DateTime.now().toIso8601String().substring(11, 19);
+    setState(() => _log.insert(0, '$t — $line'));
+  }
+
+  // codex round-1 fix — tapping showInterstitial() twice fast doesn't work:
+  // a fullscreen ad is single-use per load, so the SECOND tap fails with
+  // "slot not ready" regardless of throttle, not distinguishing the two
+  // placements.
+  //
+  // codex round-2 fix — the first replacement called
+  // AdSafetyConfig.recordFullscreenAdShown() directly to fake "an ad was
+  // just shown" without actually showing one. That mutates REAL persisted
+  // production counters (daily/session/hourly caps, risk score) — in a
+  // release build (production limit: 5/day), tapping this demo 5 times
+  // would exhaust every real fullscreen ad's daily cap for the rest of the
+  // day. It also checked a hardcoded `500` literal instead of the actual
+  // registered value, so the demo would keep claiming success even if the
+  // registry entry were removed or AdManager's override plumbing broke.
+  //
+  // Fixed: "Show once" performs a REAL showInterstitial() call for the
+  // override placement — recordFullscreenAdShown() firing as its normal,
+  // honest side effect (a real ad WAS shown) is correct, not fake. "Check
+  // status" then goes through the real, placement-aware
+  // AdManager().canShowInterstitial(placement:) — the exact same method
+  // AdScreenState's pre-check calls — so this demo breaks if the registry
+  // entry or the override plumbing itself ever breaks.
+  Future<void> _showOnce() async {
+    await AdManager().showInterstitial(
+      placement: _overridePlacement,
+      onDoneFlow: (shown) => _addLog(shown
+          ? 'showInterstitial(t181_demo_override): shown ✅ — '
+              '_lastFullscreenAdTime is now "now"'
+          : 'showInterstitial(t181_demo_override): blocked — '
+              '${AdManager().explainLastSkip(AdSlotType.interstitial) ?? "?"}'),
+    );
+  }
+
+  void _checkStatus() {
+    final overrideMs = AdManager()
+        .config
+        ?.placements?['t181_demo_override']
+        ?.minIntervalOverrideMs;
+    final override =
+        AdManager().canShowInterstitial(placement: _overridePlacement);
+    final appWide = AdManager().canShowInterstitial();
+    _addLog('registered override for t181_demo_override: '
+        '${overrideMs == null ? "(none — check placements: registry)" : "${overrideMs}ms"}');
+    _addLog('canShowInterstitial(placement: t181_demo_override): $override');
+    _addLog('canShowInterstitial() [default/app-wide placement]: $appWide');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar:
+          AppBar(title: const Text('Placement min-interval override (T181)')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Placement id 't181_demo_override' is registered (see "
+              "DemoConfig.build's placements:) with a looser "
+              'minIntervalOverrideMs than the app-wide throttle.\n\n'
+              '1. Tap "Show once" — a REAL interstitial for that placement '
+              '(consumes this app\'s real daily fullscreen cap, same as '
+              'any other demo page).\n'
+              '2. Tap "Check status" right away — canShowInterstitial() '
+              'for the override placement reads true (or blocked only by '
+              "readiness/reload, never by throttle) sooner than the "
+              'default placement does.',
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _showOnce,
+              child: const Text('1. Show once (real ad, override placement)'),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: _checkStatus,
+              child: const Text('2. Check status now'),
+            ),
+            const SizedBox(height: 16),
+            Text('Log', style: Theme.of(context).textTheme.titleSmall),
+            Expanded(
+              child: ListView(children: [for (final l in _log) Text(l)]),
             ),
           ],
         ),

@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T181):** `PlacementSpec.minIntervalOverrideMs` — a per-placement
+  override for `AdSafetyParams.minTimeBetweenFullscreenAds` (the app-wide
+  "minimum time between two fullscreen ads" throttle), same override
+  contract as the existing `frequencyCapOverride`: applies for that
+  placement's show calls only, `null` (default) leaves the app-wide
+  throttle unchanged. Also threaded through `canShowInterstitial`/
+  `canShowRewardedAd`/`canShowRewardedInterstitialAd` (now accept an
+  optional `placement` parameter, default `AdPlacement.unspecified` —
+  existing callers unaffected) and the resume-triggered App Open flow
+  (matched against `AdPlacement.splash`, its default placement), so the
+  documented `AdScreenState` pre-check pattern and the automatic resume
+  path both see the same override the real show call does. A negative
+  `minIntervalOverrideMs` is rejected outright (falls back to the
+  app-wide value) rather than silently disabling the throttle — `0`
+  remains the real, intentional "no throttle for this placement" value.
 - **Internal (T180):** the six opt-in feature `enable*`/`disable*` pairs
   (arbitrator, fillRateMonitor, waterfallTuner, providerFailoverAdvisor,
   selfHealingObserver, journeyPrefetcher) each repeated the same

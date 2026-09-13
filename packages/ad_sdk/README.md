@@ -990,6 +990,7 @@ AdConfig(
     'level_complete': PlacementSpec(
       format: AdSlotType.interstitial,
       frequencyCapOverride: 3, // stricter than this placement's default cap
+      minIntervalOverrideMs: 120000, // 2 min — looser than the app-wide throttle
     ),
   }),
 )
@@ -998,10 +999,22 @@ AdConfig(
 `PlacementRegistry` deliberately does NOT store ad unit IDs — those stay on
 `AdMobConfig`/`AppLovinConfig` as the single source of truth, avoiding a
 second place that could drift out of sync. It only overrides optional
-per-placement behavior knobs (currently `frequencyCapOverride`, which wins
-over `maxPerPlacementAdsPerDay`/`maxPerPlacementAdsPerDayById` above for
-that one placement). `null` (the default) disables this feature entirely —
-every show call behaves exactly as it did before this existed.
+per-placement behavior knobs for that one placement:
+
+- `frequencyCapOverride` — wins over `maxPerPlacementAdsPerDay`/
+  `maxPerPlacementAdsPerDayById` above.
+- `minIntervalOverrideMs` — wins over `AdSafetyParams.minTimeBetweenFullscreenAds`
+  (the app-wide "minimum time between two fullscreen ads" throttle) for
+  THIS placement's show calls. A smaller value loosens the throttle for
+  this placement relative to the rest of the app; a larger value tightens
+  it. Applies to every fullscreen format's real show call
+  (`showInterstitial`/`showRewardedAd`/`showRewardedInterstitialAd`/
+  `showAppOpenAd`) and to the matching `canShowInterstitial`/
+  `canShowRewardedAd`/`canShowRewardedInterstitialAd` pre-check helpers
+  when you pass the same `placement` to them.
+
+`null` (the default, for either field) disables that override entirely —
+every show call behaves exactly as it did before this feature existed.
 
 ### Remote-controlled `AdSafetyParams` (`RemoteAdSafetyProvider`)
 

@@ -187,6 +187,16 @@ class AdManager with WidgetsBindingObserver {
     return spec.frequencyCapOverride;
   }
 
+  /// T181 — same resolution/format-match rules as [_placementCapOverride],
+  /// feeding [AdSafetyConfig.canShowFullscreenAd]'s `minIntervalOverrideMs`
+  /// instead of `placementDailyCapReached`'s `capOverride`.
+  int? _placementMinIntervalOverride(
+      AdPlacement placement, AdSlotType actualFormat) {
+    final spec = _config?.placements?[placement.id];
+    if (spec == null || spec.format != actualFormat) return null;
+    return spec.minIntervalOverrideMs;
+  }
+
   /// T111 — kept from the last [initialize] call so [refreshRemoteSafetyParams]
   /// can re-fetch without a full destroy()+initialize() cycle. Cleared by
   /// [destroy] alongside [_config].
@@ -6960,7 +6970,10 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     if (!bypassSafety) {
-      final s = AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.appOpen);
+      final s = AdSafetyConfig.canShowFullscreenAd(
+          forType: AdSlotType.appOpen,
+          minIntervalOverrideMs:
+              _placementMinIntervalOverride(placement, AdSlotType.appOpen));
       if (!s.canShow) {
         SafeLogger.d(
             _tag, () => '⏭️ showAppOpen blocked by safety: ${s.reason}');
@@ -7125,7 +7138,12 @@ class AdManager with WidgetsBindingObserver {
               '⏭️ skipping app-open on resume (recent fullscreen dismiss ${dismissDelta}ms ago)');
       return;
     }
-    final safetyResume = AdSafetyConfig.canShowAppOpenOnResume();
+    // T181 (codex round-1 fix) — AdPlacement.splash matches showAppOpenAd's
+    // own default placement, which is what the subsequent successful-resume
+    // show call below actually uses.
+    final safetyResume = AdSafetyConfig.canShowAppOpenOnResume(
+        minIntervalOverrideMs:
+            _placementMinIntervalOverride(AdPlacement.splash, AdSlotType.appOpen));
     if (!safetyResume.canShow) {
       SafeLogger.d(
           _tag,
@@ -7286,8 +7304,10 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
-    final safety =
-        AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.interstitial);
+    final safety = AdSafetyConfig.canShowFullscreenAd(
+        forType: AdSlotType.interstitial,
+        minIntervalOverrideMs:
+            _placementMinIntervalOverride(placement, AdSlotType.interstitial));
     if (!safety.canShow) {
       SafeLogger.d(_tag,
           () => '⏭️ showInterstitial blocked by safety: ${safety.reason}');
@@ -7387,7 +7407,18 @@ class AdManager with WidgetsBindingObserver {
     }
   }
 
-  bool canShowInterstitial() {
+  /// T181 (codex round-1 fix) — [placement] defaults to
+  /// [AdPlacement.unspecified], the same default [showInterstitial] itself
+  /// uses, so an existing caller passing nothing sees exactly the same
+  /// result as before this parameter existed (no registry entry for
+  /// `unspecified` means no override, same as always). Pass the SAME
+  /// [AdPlacement] you intend to hand [showInterstitial] — without this,
+  /// a placement with a LOOSER `minIntervalOverrideMs` than the app-wide
+  /// throttle would have this peek (used to gate a "Watch Ad" button in
+  /// the documented `AdScreenState` pre-check pattern) say `false` while
+  /// the real [showInterstitial] call for that same placement would have
+  /// actually succeeded.
+  bool canShowInterstitial({AdPlacement placement = AdPlacement.unspecified}) {
     final ad = _adapter;
     if (ad == null) return false;
     if (_isVipMember) return false;
@@ -7413,7 +7444,9 @@ class AdManager with WidgetsBindingObserver {
     // CTR-anomaly side effect that would otherwise re-arm/escalate a
     // suspicious-pause window forever on every poll (2026-08-16 audit).
     final s = AdSafetyConfig.canShowFullscreenAdPeek(
-        forType: AdSlotType.interstitial);
+        forType: AdSlotType.interstitial,
+        minIntervalOverrideMs: _placementMinIntervalOverride(
+            placement, AdSlotType.interstitial));
     if (!s.canShow) return false;
     // m18 — `ready` alone is not showable: a cached AdMob ad expires after 1h
     // and showInterstitial() discards it instead of showing it. Reporting
@@ -7611,8 +7644,10 @@ class AdManager with WidgetsBindingObserver {
       onEarnedReward(false);
       return;
     }
-    final safety =
-        AdSafetyConfig.canShowFullscreenAd(forType: AdSlotType.rewarded);
+    final safety = AdSafetyConfig.canShowFullscreenAd(
+        forType: AdSlotType.rewarded,
+        minIntervalOverrideMs:
+            _placementMinIntervalOverride(placement, AdSlotType.rewarded));
     if (!safety.canShow) {
       SafeLogger.d(
           _tag, () => '⏭️ showRewarded blocked by safety: ${safety.reason}');
@@ -7912,7 +7947,9 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     final safety = AdSafetyConfig.canShowFullscreenAd(
-        forType: AdSlotType.rewardedInterstitial);
+        forType: AdSlotType.rewardedInterstitial,
+        minIntervalOverrideMs: _placementMinIntervalOverride(
+            placement, AdSlotType.rewardedInterstitial));
     if (!safety.canShow) {
       SafeLogger.d(
           _tag,
@@ -8018,7 +8055,11 @@ class AdManager with WidgetsBindingObserver {
     }
   }
 
-  bool canShowRewardedInterstitialAd() {
+  /// T181 (codex round-1 fix) — see [canShowInterstitial]'s doc comment:
+  /// same reasoning, [placement] defaults to [AdPlacement.unspecified] so
+  /// existing callers see unchanged behavior.
+  bool canShowRewardedInterstitialAd(
+      {AdPlacement placement = AdPlacement.unspecified}) {
     final ad = _adapter;
     if (ad == null) return false;
     if (_isVipMember) return false;
@@ -8036,7 +8077,9 @@ class AdManager with WidgetsBindingObserver {
     if (customOverlayOnScreen.value) return false;
     // Peek, not canShowFullscreenAd() — see canShowInterstitial's comment.
     final s = AdSafetyConfig.canShowFullscreenAdPeek(
-        forType: AdSlotType.rewardedInterstitial);
+        forType: AdSlotType.rewardedInterstitial,
+        minIntervalOverrideMs: _placementMinIntervalOverride(
+            placement, AdSlotType.rewardedInterstitial));
     if (!s.canShow) return false;
     // m18 — see canShowInterstitial. This peek was missed when m18 wired the
     // other two (round-3 QC finding): without it a host polling this method
@@ -8057,7 +8100,10 @@ class AdManager with WidgetsBindingObserver {
   /// [showRewardedAd] with the default `vipAutoGrant: false`, a VIP user will
   /// tap the button and get `earned == false` (no reward). Keep the two in sync:
   /// gate the button on `canShowRewardedAd()` AND pass `vipAutoGrant: true`.
-  bool canShowRewardedAd() {
+  /// T181 (codex round-1 fix) — see [canShowInterstitial]'s doc comment:
+  /// same reasoning, [placement] defaults to [AdPlacement.unspecified] so
+  /// existing callers see unchanged behavior.
+  bool canShowRewardedAd({AdPlacement placement = AdPlacement.unspecified}) {
     final ad = _adapter;
     if (ad == null) return false;
     // Deliberately BEFORE the consent check: this is a UI-gating quirk (the
@@ -8080,8 +8126,10 @@ class AdManager with WidgetsBindingObserver {
     // (T137) disabling one of these two formats gated the WRONG one's
     // button: the real showRewardedAd() call below gates on
     // AdSlotType.rewarded, so this peek must agree with it.
-    final s =
-        AdSafetyConfig.canShowFullscreenAdPeek(forType: AdSlotType.rewarded);
+    final s = AdSafetyConfig.canShowFullscreenAdPeek(
+        forType: AdSlotType.rewarded,
+        minIntervalOverrideMs:
+            _placementMinIntervalOverride(placement, AdSlotType.rewarded));
     if (!s.canShow) return false;
     // m18 — see canShowInterstitial.
     if (ad is AdMobAdapter && !ad.isFullscreenSlotFresh(ad.rewardedSlot)) {

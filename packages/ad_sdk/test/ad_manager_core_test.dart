@@ -2505,6 +2505,179 @@ void main() {
       });
     });
 
+    // T181 — PlacementRegistry's minIntervalOverrideMs, end to end through a
+    // real showInterstitial/showRewardedAd call, mirroring T140's
+    // frequencyCapOverride group above.
+    group('PlacementRegistry minIntervalOverrideMs (T181)', () {
+      tearDown(() => AdManager().debugConfig = null);
+
+      test(
+          'a registered placement with a TIGHTER minIntervalOverrideMs '
+          'blocks even though AdSafetyParams itself allows it '
+          '(minTimeBetweenFullscreenAds: 0)', () async {
+        await AdSafetyConfig.init(prefs,
+            params:
+                AdSafetyParams.debug.copyWith(minTimeBetweenFullscreenAds: 0));
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'level_complete': PlacementSpec(
+              format: AdSlotType.interstitial,
+              minIntervalOverrideMs: 999999999,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordFullscreenAdShown();
+
+        await AdManager().showInterstitial(
+          onDoneFlow: (_) {},
+          placement: const AdPlacement.custom('level_complete'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        final skip = lastSkip();
+        expect(skip, isNotNull);
+        expect(skip!.reason, 'cooldown',
+            reason: 'the registry\'s tighter interval override must block '
+                'this even though AdSafetyParams.debug itself was just '
+                'set to allow any interval at all');
+      });
+
+      test(
+          'a registered placement with a LOOSER minIntervalOverrideMs is '
+          'allowed even though AdSafetyParams itself would still be '
+          'blocking', () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams.debug
+                .copyWith(minTimeBetweenFullscreenAds: 999999999));
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'reward_shop': PlacementSpec(
+              format: AdSlotType.rewarded,
+              minIntervalOverrideMs: 0,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordFullscreenAdShown();
+
+        events.clear();
+        await AdManager().showRewardedAd(
+          onEarnedReward: (_) {},
+          placement: const AdPlacement.custom('reward_shop'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+            events
+                .whereType<AdSkipEvent>()
+                .where((e) => e.reason == 'cooldown'),
+            isEmpty,
+            reason: 'the registry\'s looser interval override (0ms) must '
+                'let this through even though AdSafetyParams alone would '
+                'still be well within its throttle window');
+      });
+
+      test(
+          'a placement NOT in the registry is unaffected by an override '
+          'configured for a DIFFERENT placement', () async {
+        await AdSafetyConfig.init(prefs,
+            params:
+                AdSafetyParams.debug.copyWith(minTimeBetweenFullscreenAds: 0));
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'level_complete': PlacementSpec(
+              format: AdSlotType.interstitial,
+              minIntervalOverrideMs: 999999999,
+            ),
+          }),
+        );
+        AdSafetyConfig.recordFullscreenAdShown();
+
+        events.clear();
+        await AdManager().showInterstitial(
+            onDoneFlow: (_) {}, placement: AdPlacement.home);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+            events
+                .whereType<AdSkipEvent>()
+                .where((e) => e.reason == 'cooldown'),
+            isEmpty,
+            reason: 'AdPlacement.home has no registry entry — the override '
+                'registered for a DIFFERENT placement id must not leak '
+                'into it (AdSafetyParams.debug allows any interval on its '
+                'own, so a leak would show up as a spurious cooldown '
+                'skip)');
+      });
+
+      // codex round-1 fix — canShowInterstitial()/canShowRewardedAd()/
+      // canShowRewardedInterstitialAd() (the documented pre-check UI-gating
+      // helpers) used to have no placement param at all, so a looser
+      // registry override could make showInterstitial() itself succeed
+      // while this peek still said false for the same placement.
+      test(
+          'canShowInterstitial(placement:) reflects the SAME registry '
+          'override the real showInterstitial() call for that placement '
+          'would use', () async {
+        await AdSafetyConfig.init(prefs,
+            params: AdSafetyParams.debug
+                .copyWith(minTimeBetweenFullscreenAds: 999999999));
+        AdSafetyConfig.resetForReinit();
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+            rewardedId: 'r',
+          ),
+          placements: PlacementRegistry({
+            'level_complete': PlacementSpec(
+              format: AdSlotType.interstitial,
+              minIntervalOverrideMs: 0,
+            ),
+          }),
+        );
+        adapter.interstitialSlot.beginLoad();
+        adapter.interstitialSlot.markReady();
+        AdSafetyConfig.recordFullscreenAdShown();
+
+        expect(
+            AdManager()
+                .canShowInterstitial(placement: const AdPlacement.custom('level_complete')),
+            isTrue,
+            reason: 'this placement has a 0ms override — it must read as '
+                'showable even though the app-wide throttle alone (set to '
+                'an effectively infinite wait above) would say no');
+        expect(AdManager().canShowInterstitial(), isFalse,
+            reason: 'the default placement (unspecified) has no registry '
+                'entry — it must still see the app-wide throttle unchanged');
+      });
+    });
+
     // T119 — explainLastSkip is a thin read of the exact same AdSkipEvent
     // this whole group already asserts on, so this doesn't re-test every
     // reason code — just that the read side actually reflects it.

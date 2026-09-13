@@ -123,7 +123,10 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       return;
     }
 
-    final canShow = AdManager().canShowInterstitial();
+    // T181 (codex round-2 fix) — pass placement so a registered
+    // minIntervalOverrideMs actually applies here too, not just in the
+    // real showInterstitial() call below.
+    final canShow = AdManager().canShowInterstitial(placement: placement);
     SafeLogger.d(_tag, 'showInterstitialAd pre-check result: canShow=$canShow');
 
     if (!canShow) {
@@ -238,7 +241,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       return;
     }
 
-    final canShow = AdManager().canShowRewardedAd();
+    // T181 (codex round-2 fix) — see showInterstitialAd's comment.
+    final canShow = AdManager().canShowRewardedAd(placement: placement);
     SafeLogger.d(_tag, 'showRewardedAd pre-check result: canShow=$canShow');
 
     if (!canShow) {
@@ -339,7 +343,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     // AdManager — deliberately not duplicated here. The only thing checked
     // before the intro screen is whether an ad exists at all, because showing
     // an announcement for an ad that cannot play is worse than showing nothing.
-    if (!AdManager().canShowRewardedInterstitialAd()) {
+    // T181 (codex round-2 fix) — see showInterstitialAd's comment.
+    if (!AdManager().canShowRewardedInterstitialAd(placement: placement)) {
       SafeLogger.d(_tag, 'showRewardedInterstitialAd ⏭️ no valid ad');
       TopToast.show(
         context,

@@ -30,6 +30,11 @@ class _ReadyAdapter implements AdProviderAdapter {
   AdSlot bannerSlot(Object key) => _bannerSlot;
   @override
   Iterable<AdSlot> get bannerSlots => [_bannerSlot];
+  // T181 — a real BannerAdWidget mount (as _DemoAdScreen's own buildBanner()
+  // does) reaches this once its cooldown clears; previously missing here,
+  // it fell through to noSuchMethod and threw.
+  @override
+  Future<void> loadBannerIfNeeded(Object key, double widthPx) async {}
 
   int showInterstitialCalls = 0;
   int showRewardedCalls = 0;
@@ -581,6 +586,75 @@ void main() {
               'omitting bypassVipGuard must keep the pre-T156 VIP-suppresses '
               'behavior unchanged');
       expect(reward, isFalse);
+    });
+  });
+
+  // T181 (codex round-2 fix) — showInterstitialAd's own pre-check
+  // (AdManager().canShowInterstitial()) used to never receive the
+  // placement it was about to show for, so a registry override looser
+  // than the app-wide throttle blocked the pre-check here even though the
+  // real showInterstitial() call below it (which DOES take placement)
+  // would have gone on to succeed.
+  group('minIntervalOverrideMs reaches the AdScreenState pre-check (T181)',
+      () {
+    late _ReadyAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs,
+          params: AdSafetyParams.debug
+              .copyWith(minTimeBetweenFullscreenAds: 999999999));
+      AdSafetyConfig.resetForReinit();
+      adapter = _ReadyAdapter();
+      adapter.interstitialSlot.beginReload();
+      adapter.interstitialSlot.markReady();
+      AdManager().debugSetAdapter(adapter);
+      // _DemoAdScreen's interstitial button always passes
+      // placement: AdPlacement.gameOver.
+      AdManager().debugConfig = const AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+            bannerId: 'b', interstitialId: 'i', appOpenId: 'a', rewardedId: 'r'),
+        placements: PlacementRegistry({
+          'game_over': PlacementSpec(
+            format: AdSlotType.interstitial,
+            minIntervalOverrideMs: 0,
+          ),
+        }),
+      );
+      AdSafetyConfig.recordFullscreenAdShown();
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets(
+        'a registered gameOver override lets the pre-check pass and reach '
+        'the real show call, even though the app-wide throttle alone is '
+        'set to an effectively infinite wait', (tester) async {
+      bool? result;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (v) => result = v,
+          onReward: (_) {},
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('inter')));
+      // Just past showAdBuffer's 1000ms delay — not a longer pump, which
+      // lets the demo screen's own banner widget's retry timer fire a
+      // real loadBannerIfNeeded() call this file's fake adapter doesn't
+      // implement (unrelated to what this test is about).
+      await tester.pump(const Duration(milliseconds: 1100));
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.showInterstitialCalls, 1,
+          reason: 'the pre-check must have honored the gameOver override '
+              'and let this reach AdManager.showInterstitial()');
+      expect(result, isTrue);
     });
   });
 }

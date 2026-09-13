@@ -485,9 +485,23 @@ class AdSafetyConfig {
   /// existing callers outside this SDK keep compiling; ad_manager.dart's own
   /// show-methods always pass their own [AdSlotType] so
   /// [AdSafetyParams.disabledFormats] can actually gate them.
-  static AdSafetyResult canShowFullscreenAd({AdSlotType? forType}) {
-    final result =
-        _canShowFullscreenAdStrict(recordViolation: true, forType: forType);
+  /// T181 — [minIntervalOverrideMs], when non-null AND `>= 0`, replaces
+  /// [AdSafetyParams.minTimeBetweenFullscreenAds] for THIS call's throttle
+  /// check only — same override contract as `placementDailyCapReached`'s
+  /// `capOverride`: never mutates the underlying configured value, `null`
+  /// (default) is the exact pre-T181 behavior. A NEGATIVE value is
+  /// rejected outright (codex round-6 fix) and falls back to the app-wide
+  /// value, same as `null` — `0` is the real, intentional "no throttle for
+  /// this placement" bypass; a negative number is not a deliberate choice
+  /// of anything and must not silently disable a real safety throttle.
+  /// Fed by `PlacementSpec.minIntervalOverrideMs` in `ad_manager.dart`'s
+  /// show methods.
+  static AdSafetyResult canShowFullscreenAd(
+      {AdSlotType? forType, int? minIntervalOverrideMs}) {
+    final result = _canShowFullscreenAdStrict(
+        recordViolation: true,
+        forType: forType,
+        minIntervalOverrideMs: minIntervalOverrideMs);
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(
           _tag, '⚠️ dryRun: would have blocked (${result.reason}) — allowing');
@@ -501,9 +515,12 @@ class AdSafetyConfig {
   /// without re-arming/escalating the CTR-anomaly suspicious-pause window.
   /// Use this for any "should I show/enable" query; reserve
   /// [canShowFullscreenAd] for an actual show attempt.
-  static AdSafetyResult canShowFullscreenAdPeek({AdSlotType? forType}) {
-    final result =
-        _canShowFullscreenAdStrict(recordViolation: false, forType: forType);
+  static AdSafetyResult canShowFullscreenAdPeek(
+      {AdSlotType? forType, int? minIntervalOverrideMs}) {
+    final result = _canShowFullscreenAdStrict(
+        recordViolation: false,
+        forType: forType,
+        minIntervalOverrideMs: minIntervalOverrideMs);
     if (!result.canShow && _params.dryRun) {
       return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
     }
@@ -601,7 +618,9 @@ class AdSafetyConfig {
   }
 
   static AdSafetyResult _canShowFullscreenAdStrict(
-      {required bool recordViolation, AdSlotType? forType}) {
+      {required bool recordViolation,
+      AdSlotType? forType,
+      int? minIntervalOverrideMs}) {
     // T137 — remote kill switch, checked first: cheapest check, and a host
     // reacting to a live mediation incident wants this format gone
     // immediately, not after every other throttle/cap check below.
@@ -650,9 +669,22 @@ class AdSafetyConfig {
     }
 
     if (_lastFullscreenAdTime > 0) {
+      // codex round-6 fix (T181) — a negative minIntervalOverrideMs made
+      // `elapsed < minInterval` unconditionally false (elapsed is never
+      // negative), silently disabling this throttle entirely for that
+      // placement even though the app-wide interval itself is a perfectly
+      // valid, deliberately-configured value. `0` is the real, intentional
+      // bypass value (a host can genuinely mean "no throttle for this
+      // placement") — a NEGATIVE value is not a deliberate choice of
+      // anything, so it is rejected outright and falls back to the
+      // app-wide value, exactly as if no override had been passed at all.
+      final minInterval = (minIntervalOverrideMs != null &&
+              minIntervalOverrideMs >= 0)
+          ? minIntervalOverrideMs
+          : _params.minTimeBetweenFullscreenAds;
       final elapsed = now - _lastFullscreenAdTime;
-      if (elapsed < _params.minTimeBetweenFullscreenAds) {
-        final waitMs = _params.minTimeBetweenFullscreenAds - elapsed;
+      if (elapsed < minInterval) {
+        final waitMs = minInterval - elapsed;
         SafeLogger.d(_tag,
             '🛡️ Throttle: last fullscreen ${_fmtWait(elapsed)} ago, wait ${_fmtWait(waitMs)}');
         return AdSafetyResult(false, 'Throttle: wait ${_fmtWait(waitMs)}');
@@ -700,7 +732,16 @@ class AdSafetyConfig {
   ///
   /// Honours `params.dryRun` — if set, blocks are logged but always returns
   /// `canShow=true` (with the original block reason annotated).
-  static AdSafetyResult canShowAppOpenOnResume() {
+  ///
+  /// T181 (codex round-1 fix) — [minIntervalOverrideMs], same contract as
+  /// [canShowFullscreenAd]'s parameter of the same name: the resume-
+  /// triggered App Open flow's own preflight check used to only ever see
+  /// the app-wide `minTimeBetweenFullscreenAds`, so a placement override
+  /// registered for `AdPlacement.splash` (the default placement the actual
+  /// subsequent `showAppOpenAd` call on a successful resume uses) could
+  /// reject here even when the real show call for that same placement
+  /// would have gone on to succeed.
+  static AdSafetyResult canShowAppOpenOnResume({int? minIntervalOverrideMs}) {
     // T26 Phase 1: proxy signal (b) — gap between the last backgrounding and
     // this resume. Diagnostic only, recorded before any gate so it always
     // fires regardless of the strict-check outcome. Gated on the one-shot
@@ -715,7 +756,8 @@ class AdSafetyConfig {
         now - _lastBackgroundTime,
       );
     }
-    final result = _canShowAppOpenOnResumeStrict(recordSideEffects: true);
+    final result = _canShowAppOpenOnResumeStrict(
+        recordSideEffects: true, minIntervalOverrideMs: minIntervalOverrideMs);
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(_tag,
           '⚠️ dryRun: would have blocked App Open on resume — allowing (${result.reason})');
@@ -740,8 +782,11 @@ class AdSafetyConfig {
   /// signal, not part of the actual gating logic, and this function calls
   /// [_canShowAppOpenOnResumeStrict] directly rather than through
   /// [canShowAppOpenOnResume].
-  static AdSafetyResult canShowAppOpenOnResumePeek() {
-    final result = _canShowAppOpenOnResumeStrict(recordSideEffects: false);
+  static AdSafetyResult canShowAppOpenOnResumePeek(
+      {int? minIntervalOverrideMs}) {
+    final result = _canShowAppOpenOnResumeStrict(
+        recordSideEffects: false,
+        minIntervalOverrideMs: minIntervalOverrideMs);
     if (!result.canShow && _params.dryRun) {
       return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
     }
@@ -749,15 +794,22 @@ class AdSafetyConfig {
   }
 
   static AdSafetyResult _canShowAppOpenOnResumeStrict(
-      {required bool recordSideEffects}) {
+      {required bool recordSideEffects, int? minIntervalOverrideMs}) {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Fix #45: Respect minTimeBetweenFullscreenAds — prevents showing
     // App Open immediately after an interstitial/rewarded dismissal.
     if (_lastFullscreenAdTime > 0) {
+      // codex round-6 fix (T181) — see canShowFullscreenAd's matching
+      // comment: a negative override is rejected outright (falls back to
+      // the app-wide value) rather than silently disabling this throttle.
+      final minInterval = (minIntervalOverrideMs != null &&
+              minIntervalOverrideMs >= 0)
+          ? minIntervalOverrideMs
+          : _params.minTimeBetweenFullscreenAds;
       final elapsed = now - _lastFullscreenAdTime;
-      if (elapsed < _params.minTimeBetweenFullscreenAds) {
-        final waitMs = _params.minTimeBetweenFullscreenAds - elapsed;
+      if (elapsed < minInterval) {
+        final waitMs = minInterval - elapsed;
         final reason =
             'fullscreen throttle (last fullscreen ${elapsed}ms ago, wait ${_fmtWait(waitMs)})';
         SafeLogger.d(_tag, '🛡️ App Open on resume blocked: $reason');
