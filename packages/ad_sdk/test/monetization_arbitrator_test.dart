@@ -766,6 +766,92 @@ void main() {
     });
   });
 
+  // T194 — a genuinely CONFIRMED $0 eCPM (≥ warm-up samples, real average
+  // revenue is exactly 0 — e.g. a run of pure house ads/cross-promo) used
+  // to be treated identically to "no evidence yet" and always failed open
+  // to showAd. It must now be treated as real evidence below threshold,
+  // same as any other low eCPM.
+  group('confirmed zero eCPM vs. no evidence yet (T194)', () {
+    test('confirmed \$0 eCPM (5 samples, all zero revenue) → nudgeVip, not '
+        'the fail-open showAd "no evidence" path', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(0));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.nudgeVip,
+          reason: 'a CONFIRMED worthless format is real evidence to act '
+              'on, not "unknown" — failing open here defeats the entire '
+              'point of the arbitrator');
+      expect(detail.trailingEcpmMicros, 0);
+      expect(detail.reason.toLowerCase(), contains('below threshold'),
+          reason: 'the reason must reflect a real below-threshold '
+              'decision, not the "no trailing eCPM evidence yet" wording');
+      expect(detail.reason.toLowerCase(), isNot(contains('no trailing')));
+      arb.dispose();
+    });
+
+    test('genuinely NO samples yet (0 fed) still fails open to showAd — '
+        'unchanged', () {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.showAd);
+      expect(detail.reason.toLowerCase(), contains('no trailing'));
+      arb.dispose();
+    });
+
+    test('fewer than warm-up samples (below _minSamplesToPrice) still '
+        'fails open — a handful of zero-revenue samples is still "not '
+        'enough data", not "confirmed zero"', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      // Default rollingWindowSize (20) has a 5-sample warm-up — feed only 2.
+      AdManager().debugEmit(_rev(0));
+      AdManager().debugEmit(_rev(0));
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.showAd);
+      expect(detail.reason.toLowerCase(), contains('no trailing'));
+      arb.dispose();
+    });
+
+    test('a registered estimator is still ALWAYS invoked for a confirmed '
+        '\$0 eCPM slot too — same guarantee as the no-evidence case',
+        () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      var calls = 0;
+      arb.registerVipLikelihoodEstimator(() {
+        calls++;
+        return 0.9;
+      });
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(0));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      arb.decideWithContext(AdSlotType.interstitial);
+      expect(calls, 1);
+      arb.dispose();
+    });
+
+    test('confirmed \$0 eCPM + estimator with low likelihood → showAd, '
+        'same threshold logic as any other low-eCPM case', () async {
+      final arb = MonetizationArbitrator(ecpmThresholdMicros: 5000000);
+      arb.registerVipLikelihoodEstimator(() => 0.1);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_rev(0));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final detail = arb.decideWithContext(AdSlotType.interstitial);
+      expect(detail.decision, ArbitratorDecision.showAd);
+      expect(detail.reason.toLowerCase(), contains('likelihood'));
+      arb.dispose();
+    });
+  });
+
   group('enableArbitrator called twice disposes the previous instance', () {
     test(
         'replaced arbitrator stops receiving revenue events — its stream '

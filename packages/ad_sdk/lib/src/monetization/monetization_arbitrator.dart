@@ -269,6 +269,24 @@ class MonetizationArbitrator {
     return sum * 1000 ~/ bucket.length;
   }
 
+  /// T194 — distinguishes "no qualified samples yet" (genuinely unknown —
+  /// [estimatedEcpmMicrosFor]'s public `0` return is the right fail-open
+  /// signal for this) from "qualified samples exist, and their real
+  /// average eCPM happens to be exactly 0" (a CONFIRMED worthless format
+  /// this session — e.g. a run of pure house ads / cross-promo / test-mode
+  /// fills). [estimatedEcpmMicrosFor] returns `0` in BOTH cases (changing
+  /// its return type to nullable to distinguish them would be a breaking
+  /// public-API change), but [_decide] must not fail open on the second
+  /// case — a confirmed $0 format is exactly the kind of low-value
+  /// evidence a nudge-VIP threshold exists to act on, not something to
+  /// treat as "we don't know yet".
+  bool _hasQualifiedSamplesFor(AdSlotType slot) {
+    final currency = _lastCurrencyBySlot[slot];
+    if (currency == null) return false;
+    final bucket = _samplesByBucket[_bucketKey(slot, currency)];
+    return bucket != null && bucket.length >= _warmUpSamples;
+  }
+
   /// Current veto rate over the trailing [_decisionWindowSize] [decide]
   /// calls (vetoed / total). `0` if no decisions have been made yet.
   double get vetoRate {
@@ -303,15 +321,21 @@ class MonetizationArbitrator {
   ArbitratorDecisionDetail _decide(AdSlotType slot) {
     final threshold = _perSlotThresholdMicros[slot] ?? ecpmThresholdMicros;
     // Round-23 QC (reviewer A, MAJOR) — this slot's own history, in this
-    // slot's own currency. `0` (no samples for it yet) fails open to showAd
-    // below, which is the right direction: never suppress revenue on no
-    // evidence.
+    // slot's own currency.
     final ecpm = estimatedEcpmMicrosFor(slot);
+    // T194 — `ecpm == 0` alone used to mean "fail open, no evidence" even
+    // when there WERE ≥ warm-up samples and their real average genuinely
+    // is 0 (a confirmed worthless format this session, not an unknown
+    // one) — see [_hasQualifiedSamplesFor]'s doc comment. Only the
+    // absence of qualified samples fails open now; a confirmed $0 falls
+    // through to the same "below threshold" handling any other low eCPM
+    // gets.
+    final hasEvidence = _hasQualifiedSamplesFor(slot);
     final estimator = _vipLikelihoodEstimator;
     ArbitratorDecision decision;
     String reason;
     if (estimator == null) {
-      if (ecpm == 0) {
+      if (!hasEvidence) {
         decision = ArbitratorDecision.showAd;
         reason = 'no trailing eCPM evidence yet for this slot — failing '
             'open to showAd rather than suppressing revenue on no evidence';
@@ -338,7 +362,7 @@ class MonetizationArbitrator {
       // so `estimator()` is still always invoked exactly when one is
       // registered, matching decide()'s pre-T138 behavior byte for byte.
       final likelihood = estimator();
-      if (ecpm == 0) {
+      if (!hasEvidence) {
         decision = ArbitratorDecision.showAd;
         reason = 'no trailing eCPM evidence yet for this slot — failing '
             'open to showAd rather than suppressing revenue on no evidence';

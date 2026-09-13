@@ -6,6 +6,18 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T194):** `MonetizationArbitrator` used to treat a genuinely
+  CONFIRMED $0 trailing eCPM (≥ warm-up samples, real average revenue is
+  exactly 0 — e.g. a run of pure house ads/cross-promo) identically to
+  "no evidence yet", always failing open to `showAd` and defeating the
+  point of the arbitrator for exactly the format it should most want to
+  veto. It now distinguishes the two internally: only a genuine absence
+  of qualified samples fails open; a confirmed `$0` is treated as real
+  evidence below threshold, same as any other low eCPM (still subject to
+  the same `maxVetoRate` guardrail, still always invokes a registered VIP
+  likelihood estimator). `estimatedEcpmMicrosFor`'s public return value
+  is unchanged (still `int`, still `0` for both cases) — this is purely
+  an internal decision-logic fix, not a public API change.
 - **Fix (T193):** `AdManager().runIntegrationSelfCheck()`'s per-format load
   checks used to wait ONLY for a fresh `AdLoadEvent`, which a real
   adapter never emits when it silently reuses an already-fresh, still-ready
