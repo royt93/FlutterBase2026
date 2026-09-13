@@ -6,6 +6,23 @@
 **Nguồn phát hiện:** agy
 **Quyết định chủ dự án (2026-09-08):** Làm (lưu ý: phải có cơ chế lưu định kỳ xuống đĩa để bù lại rủi ro mất dữ liệu khi app bị tắt đột ngột — đã nêu rõ trong lúc hỏi ý kiến)
 
+## ⚠️ TẠM DỪNG — cần chủ dự án xác nhận lại (2026-09-13)
+
+Đã đọc kỹ `ad_manager.dart` (`didChangeAppLifecycleState`, dòng ~8226+)
+trước khi code. Phát hiện: lúc app từ background quay lại foreground
+(KHÔNG bị OS kill process), toàn bộ state quảng cáo (slot, VIP, consent)
+đã nằm sẵn trong RAM — process sống xuyên suốt, KHÔNG có bước đọc đĩa
+nào xảy ra lúc resume cả. Chỉ khi OS kill hẳn process (RAM mất, key
+AES-GCM cũng mất theo đúng thiết kế) thì mới cần đọc lại — nhưng đó là
+**cold start** (app mở lại từ đầu), không phải "resume", và GAID/
+consent/VIP đã có cơ chế lưu trữ riêng của chúng rồi.
+
+Nói cách khác: snapshot mã hoá trong RAM như mô tả ban đầu KHÔNG tăng
+tốc độ resume ở bất kỳ trường hợp nào — vì không có I/O nào để loại bỏ
+lúc resume thật. Task tạm dừng ở đây, CHƯA code, chờ chủ dự án xác nhận
+lại: có ngữ cảnh/mục tiêu nào khác chưa nêu rõ ban đầu không (VD thực ra
+muốn tối ưu cold-start thay vì resume), hay huỷ task này.
+
 ## Ý tưởng
 Thay vì lưu trạng thái phiên quảng cáo xuống đĩa mỗi lần, giữ tạm trong bộ nhớ mã hoá (AES-GCM, key tạo tạm mỗi phiên trong RAM) để mở lại app nhanh hơn (ít đợi chờ đĩa — loại bỏ độ trễ I/O khi chuyển background/foreground).
 
