@@ -11,10 +11,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Minimal fake adapter — reports success/failure per slot via a real
-/// eventSink (wired manually in setUp, mirroring what AdManager.initialize()
-/// does for a real adapter) so runIntegrationSelfCheck()'s AdLoadEvent
-/// listener has something to observe.
+/// Minimal fake adapter — mutates the real slot (beginLoad() +
+/// markReady()/markFailed()), mirroring what a real adapter does, since
+/// runIntegrationSelfCheck() (T193) watches slot state directly rather
+/// than the event stream. Also still emits the matching AdLoadEvent, same
+/// as a real adapter, for any other test/listener that cares about it.
 class _FakeAdapter implements AdProviderAdapter {
   @override
   AdEventSink? eventSink;
@@ -40,17 +41,43 @@ class _FakeAdapter implements AdProviderAdapter {
     AdSlotType.appOpen,
   };
 
+  AdSlot _slotFor(AdSlotType type) => switch (type) {
+        AdSlotType.appOpen => appOpenSlot,
+        AdSlotType.interstitial => interstitialSlot,
+        AdSlotType.rewarded => rewardedSlot,
+        AdSlotType.rewardedInterstitial => rewardedInterstitialSlot,
+        _ => throw ArgumentError('no fullscreen slot for $type'),
+      };
+
   void _reportLoad(AdSlotType type) {
+    final slot = _slotFor(type);
+    final success = succeeds.contains(type);
+    slot.beginLoad();
+    if (success) {
+      slot.markReady();
+    } else {
+      slot.markFailed();
+    }
     eventSink?.call(AdLoadEvent(
       providerTag: '[Fake]',
       type: type,
       placement: AdPlacement.unspecified,
-      success: succeeds.contains(type),
+      success: success,
     ));
   }
 
+  /// T193 — mirrors a real adapter's "fresh ad already cached — keep it"
+  /// early return (e.g. `AdMobAdapter.loadInterstitial`): when true,
+  /// `loadInterstitial()` does nothing at all — no `beginLoad()`, no new
+  /// `AdLoadEvent`. The slot must already be `ready` (set directly by the
+  /// test) for this to model a real "already preloaded" scenario.
+  bool interstitialAlreadyReadyNoOp = false;
+
   @override
-  Future<void> loadInterstitial() async => _reportLoad(AdSlotType.interstitial);
+  Future<void> loadInterstitial() async {
+    if (interstitialAlreadyReadyNoOp) return;
+    _reportLoad(AdSlotType.interstitial);
+  }
 
   @override
   Future<void> loadRewarded() async => _reportLoad(AdSlotType.rewarded);
@@ -168,6 +195,48 @@ void main() {
         result.items.firstWhere((i) => i.name == 'Interstitial load');
     expect(interstitial.status, SelfCheckStatus.fail);
     expect(interstitial.detail, contains('Interstitial load'));
+  });
+
+  // T193 — a slot that was already ready (a real, still-fresh preloaded ad)
+  // used to be reported as a FALSE FAIL: the self-check waited only for a
+  // NEW AdLoadEvent, but a real adapter's loadInterstitial() silently
+  // short-circuits without emitting one when it already has a fresh,
+  // ready ad cached — see AdMobAdapter.loadInterstitial's "fresh — keep
+  // it" early return.
+  test('an already-ready (preloaded) slot passes immediately, without '
+      'waiting for a new AdLoadEvent', () async {
+    adapter.succeeds = {AdSlotType.rewarded, AdSlotType.appOpen};
+    // Simulates a slot that was ALREADY loaded successfully before this
+    // self-check ever ran.
+    adapter.interstitialSlot.beginLoad();
+    adapter.interstitialSlot.markReady();
+    // Mirrors the real "fresh ad already cached" short-circuit: the load
+    // call itself does nothing at all when called again.
+    adapter.interstitialAlreadyReadyNoOp = true;
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _config();
+    AdManager().debugVipManager = _FakeVip();
+
+    final stopwatch = Stopwatch()..start();
+    // A LONG timeout — if the fix regressed back to event-only waiting,
+    // this test would still eventually pass, just slowly. The elapsed-time
+    // assertion below is what actually proves readiness-first, not a
+    // fallback wait.
+    final result = await AdManager()
+        .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 10));
+    stopwatch.stop();
+
+    final interstitial =
+        result.items.firstWhere((i) => i.name == 'Interstitial load');
+    expect(interstitial.status, SelfCheckStatus.pass,
+        reason: 'an already-ready slot must pass — the SDK genuinely has '
+            'a usable ad, silently reusing it is correct behavior, not a '
+            'failure');
+    expect(interstitial.detail, contains('already ready'));
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)),
+        reason: 'must resolve immediately via the readiness check, not by '
+            'waiting out (a fraction of) the 10s timeout for an event '
+            'that a real adapter would never emit in this scenario');
   });
 
   group('T98 — "doctor" checks', () {

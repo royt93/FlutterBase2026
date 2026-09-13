@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T193):** `AdManager().runIntegrationSelfCheck()`'s per-format load
+  checks used to wait ONLY for a fresh `AdLoadEvent`, which a real
+  adapter never emits when it silently reuses an already-fresh, still-ready
+  cached ad (e.g. `AdMobAdapter`/`AppLovinAdapter`'s "already ready/fresh
+  — keep it" short-circuits) — a genuinely healthy, preloaded slot timed
+  out and was reported as a false FAIL. The checks now look at the slot's
+  own state directly (readiness-first): an already-`ready` slot passes
+  immediately, an already-`cooldown` slot fails immediately with its last
+  error code, and only a genuinely in-flight load still waits, up to the
+  same timeout as before.
 - **Fix (T192):** `DebugAdOverlay` (debug-only, never shown to real users)
   could crash with `setState() or markNeedsBuild() called during build`
   if the panel was already expanded and a different, unrelated widget

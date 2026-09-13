@@ -1171,11 +1171,11 @@ class AdManager with WidgetsBindingObserver {
             : 'consent dialog has not been shown yet this session',
       ),
       await _selfCheckLoad('Interstitial load', AdSlotType.interstitial,
-          loadInterstitial, loadTimeout),
-      await _selfCheckLoad(
-          'Rewarded load', AdSlotType.rewarded, loadRewardedAd, loadTimeout),
+          loadInterstitial, loadTimeout, _adapter!.interstitialSlot),
+      await _selfCheckLoad('Rewarded load', AdSlotType.rewarded,
+          loadRewardedAd, loadTimeout, _adapter!.rewardedSlot),
       await _selfCheckLoad('App Open load', AdSlotType.appOpen,
-          () => loadAppOpenAd(), loadTimeout),
+          () => loadAppOpenAd(), loadTimeout, _adapter!.appOpenSlot),
       SelfCheckItem('VIP manager wired',
           vip != null ? SelfCheckStatus.pass : SelfCheckStatus.fail),
       _selfCheckNavigatorKey(),
@@ -1256,25 +1256,49 @@ class AdManager with WidgetsBindingObserver {
     }
   }
 
+  /// T193 — readiness-first, not event-only. Some `load()` calls
+  /// short-circuit without ever emitting a fresh `AdLoadEvent` when the
+  /// slot already holds a fresh, still-ready ad (e.g.
+  /// `AdMobAdapter.loadInterstitial`'s "fresh — keep it" early return) —
+  /// the pre-fix version here waited ONLY for a new event, so a genuinely
+  /// healthy, already-preloaded slot timed out and reported a false FAIL.
+  ///
+  /// Watching [slot]'s own state directly instead of the event stream
+  /// fixes this for free and needs no type/generation-matching either
+  /// way: an already-`ready` slot is caught by the immediate check below,
+  /// a slot already in `cooldown` (backoff blocked this very `load()`
+  /// call from attempting anything) is reported immediately too instead
+  /// of silently timing out, and a genuinely in-flight load is caught by
+  /// the listener once it resolves.
   Future<SelfCheckItem> _selfCheckLoad(String name, AdSlotType type,
-      Future<void> Function() load, Duration timeout) async {
-    final completer = Completer<bool>();
-    final sub = events.listen((e) {
-      if (e is AdLoadEvent && e.type == type && !completer.isCompleted) {
-        completer.complete(e.success);
-      }
-    });
+      Future<void> Function() load, Duration timeout, AdSlot slot) async {
     await load();
+    if (slot.isReady) {
+      return SelfCheckItem(
+          name, SelfCheckStatus.pass, 'already ready (preloaded)');
+    }
+    if (slot.isCooldown) {
+      return SelfCheckItem(name, SelfCheckStatus.fail,
+          '$name: slot in cooldown (last error code=${slot.lastErrorCode ?? "?"})');
+    }
+    final completer = Completer<bool>();
+    void onStateChange() {
+      if (completer.isCompleted) return;
+      if (slot.isReady) completer.complete(true);
+      if (slot.isCooldown) completer.complete(false);
+    }
+
+    slot.state.addListener(onStateChange);
     final success =
         await completer.future.timeout(timeout, onTimeout: () => false);
-    await sub.cancel();
+    slot.state.removeListener(onStateChange);
     return SelfCheckItem(
       name,
       success ? SelfCheckStatus.pass : SelfCheckStatus.fail,
       success
           ? null
-          : 'no successful AdLoadEvent for $name within '
-              '${timeout.inSeconds}s',
+          : '$name: slot never reached ready within ${timeout.inSeconds}s '
+              '(state=${slot.value.name})',
     );
   }
 
