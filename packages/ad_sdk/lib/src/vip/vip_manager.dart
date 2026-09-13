@@ -1772,9 +1772,44 @@ class VipManager {
   /// entries, not the anti-reuse ledger (which must survive revoke/reinstall
   /// in production). Production callers never call this.
   @visibleForTesting
-  Future<void> clearRedeemedKeyLedgerForTest() =>
-      // ignore: invalid_use_of_visible_for_testing_member
-      _redeemedKeyLedger.clearForTest();
+  Future<void> clearRedeemedKeyLedgerForTest() => _redeemedKeyLedger.erase();
+
+  /// T200 — erases ALL entitlement data for a confirmed
+  /// `AdManager().clearSdkData(scope:
+  /// SdkDataErasureScope.allIncludingEntitlements, ...)` request, on a
+  /// LIVE manager instance (the SDK is currently initialised): every VIP
+  /// entry via [revokeAll] (which also clears the in-memory list and
+  /// refreshes the live reactive `activeListenable` immediately — a
+  /// running app session must stop honouring an entitlement the instant
+  /// it's erased, not just after the next `destroy()`+re-`initialize()`),
+  /// PLUS the redeemed-key ledger (so a previously-redeemed key could be
+  /// redeemed again — a genuine "erase everything", not merely "revoke
+  /// current status").
+  ///
+  /// Does NOT clear `FirstInstallGuard`'s flag or `AdPreferences`' own
+  /// VIP-adjacent SharedPreferences keys — `AdManager.clearSdkData` is
+  /// the one place that orchestrates all of these together.
+  Future<void> eraseAllEntitlementData() async {
+    await revokeAll();
+    await _redeemedKeyLedger.erase();
+  }
+
+  /// T200 — same erasure as [eraseAllEntitlementData], for when no LIVE
+  /// `VipManager` instance exists yet (`clearSdkData` can be called
+  /// before `AdManager().initialize()` ever runs, e.g. from a settings
+  /// screen reacting to a privacy request — entitlement erasure must not
+  /// silently no-op just because the SDK happens not to be initialised
+  /// at that moment). `static`, and constructs FRESH, throwaway store
+  /// instances rather than needing a live manager's own fields — each
+  /// store's `erase()` only ever deletes its own one well-known
+  /// secure-storage key, safe to run against a fresh instance with no
+  /// other state (there is no in-memory/reactive state to refresh here,
+  /// since nothing is currently loaded).
+  static Future<void> eraseSecureEntitlementStorage(
+      AdPreferences prefs) async {
+    await VipEntriesStore(prefs).erase();
+    await RedeemedKeyLedger().erase();
+  }
 
   /// Cleanup. After this the manager can no longer fire stream events.
   ///

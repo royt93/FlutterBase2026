@@ -7,6 +7,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'safe_logger.dart';
 
+/// T200 — how much SDK-owned data `AdManager().clearSdkData(...)` /
+/// `AdPreferences.clearSdkData(...)` erases.
+enum SdkDataErasureScope {
+  /// Every SDK-owned key EXCEPT VIP/entitlement-related ones: safety
+  /// counters, consent settings, compliance/analytics history,
+  /// remote-config cache, experiment id. Never touches anything a user
+  /// may have paid for.
+  everythingExceptEntitlements,
+
+  /// Everything [everythingExceptEntitlements] covers, PLUS every VIP/
+  /// entitlement-related key and secure-storage entry (VIP entries,
+  /// migration flags, revocation cache, first-install grace, legacy GAID
+  /// list, redeemed-key ledger). Requires the call's own
+  /// `confirmedEntitlementErasure: true` — this deletes something a user
+  /// may have paid real money for, so it is never done as a side effect
+  /// of the default scope.
+  allIncludingEntitlements,
+}
+
 /// Thin wrapper around `SharedPreferences` for SDK-owned persistence.
 ///
 /// Stores:
@@ -586,7 +605,85 @@ class AdPreferences {
     }
   }
 
+  /// **Dangerous** — wipes the ENTIRE shared `SharedPreferences` instance,
+  /// including any key a HOST app (or a different plugin) stored in the
+  /// same namespace, not just this SDK's own `ad_sdk_`-prefixed keys.
+  /// Prefer [clearSdkData] (T200) for a privacy/data-erasure flow — it
+  /// only ever removes keys this SDK itself owns. Kept for backward
+  /// compatibility with any existing caller that genuinely wants a full
+  /// wipe (e.g. a test harness resetting everything between runs).
   Future<void> clearAllData() async => _prefs?.clear();
+
+  /// T200 — every SDK-owned SharedPreferences key that stores VIP/
+  /// entitlement-related state. Hand-curated, not pattern-matched: a
+  /// substring check on `'vip'` in the constant NAME would miss
+  /// [_keyListGAID] (the 1.x legacy VIP GAID list) and
+  /// [_keyFirstInstallApplied]/[_keyFirstInstallAt] (the first-install
+  /// VIP grace flag/anchor) — both real entitlement data despite the
+  /// name. Kept as one list right here so adding a new VIP-related key
+  /// elsewhere in this class has exactly one other place to update.
+  static const Set<String> _entitlementKeys = {
+    _keyListGAID,
+    _keyAddVIPFirstInit,
+    _keyFirstInstallApplied,
+    _keyFirstInstallAt,
+    _keyVipEntries,
+    _keyVipMigrated,
+    _keyVipEntriesChecksumMigrated,
+    _keyVipEntriesSecureMigrated,
+    _keyVipEntriesFallback,
+    _keyRedeemedVipKids,
+    _keyVipGraceNudgeAckExpiryMs,
+    _keyVipMaxObservedClockMs,
+    _keyVipRevocationCache,
+    _keyVipRevocationKey,
+    _keyVipRevocationPair,
+  };
+
+  /// T200 — clears SDK-owned SharedPreferences data, scoped by [scope].
+  /// Unlike [clearAllData] (which wipes the entire shared instance
+  /// indiscriminately), this only ever removes keys with this SDK's own
+  /// `ad_sdk_` prefix — safe to call from a privacy/data-erasure flow
+  /// without risking data a host app stored for itself in the same
+  /// SharedPreferences namespace.
+  ///
+  /// [scope] defaults to [SdkDataErasureScope.everythingExceptEntitlements]
+  /// — every [_entitlementKeys] entry is left untouched unless the
+  /// caller passes [SdkDataErasureScope.allIncludingEntitlements] AND
+  /// [confirmedEntitlementErasure]: true. Throws [ArgumentError] instead
+  /// of silently downgrading the scope when that combination isn't met —
+  /// a caller that means to erase entitlements must say so explicitly,
+  /// since this permanently deletes VIP entitlements a user may have
+  /// paid real money for.
+  ///
+  /// Only clears THIS class's own SharedPreferences-backed keys. VIP
+  /// entries also live in `flutter_secure_storage` (`VipEntriesStore`,
+  /// `RedeemedKeyLedger`, `FirstInstallGuard`) — a different storage
+  /// backend this class has no access to. `AdManager().clearSdkData(...)`
+  /// is the full orchestration; call that, not this, unless you
+  /// specifically only want the SharedPreferences half.
+  Future<void> clearSdkData({
+    SdkDataErasureScope scope =
+        SdkDataErasureScope.everythingExceptEntitlements,
+    bool confirmedEntitlementErasure = false,
+  }) async {
+    if (scope == SdkDataErasureScope.allIncludingEntitlements &&
+        !confirmedEntitlementErasure) {
+      throw ArgumentError(
+          'SdkDataErasureScope.allIncludingEntitlements requires '
+          'confirmedEntitlementErasure: true — this permanently deletes '
+          'VIP entitlements a user may have paid for.');
+    }
+    final prefs = _prefs;
+    if (prefs == null) return;
+    final includeEntitlements =
+        scope == SdkDataErasureScope.allIncludingEntitlements;
+    for (final key in prefs.getKeys().toList()) {
+      if (!key.startsWith('ad_sdk_')) continue;
+      if (!includeEntitlements && _entitlementKeys.contains(key)) continue;
+      await prefs.remove(key);
+    }
+  }
 
   // T93 — a stable pseudonymous per-install id for AdManager.experimentBucket
   // to hash, independent of GAID (which is empty/all-zeros for a user who

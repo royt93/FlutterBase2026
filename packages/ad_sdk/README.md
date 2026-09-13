@@ -2304,6 +2304,36 @@ the signing key, so this cannot prove the events themselves weren't
 fabricated by someone with that level of access. Treat it as "this file is
 unmodified since export", not "this device's history is definitely genuine".
 
+### Scoped data erasure (T200)
+
+For a "delete my data" / GDPR-style privacy request, use
+`AdManager().clearSdkData(...)`, **not** `AdPreferences.clearAllData()`
+(that call wipes the ENTIRE shared `SharedPreferences` instance,
+including any key a host app — or a different plugin — stored in the
+same namespace):
+
+```dart
+// Safe default — clears safety counters, consent settings,
+// compliance/analytics history, remote-config cache, experiment id.
+// Never touches VIP entitlements.
+await AdManager().clearSdkData();
+
+// Also erase VIP entitlements (a paying user LOSES their VIP status) —
+// requires an explicit confirmation flag; throws ArgumentError without it.
+await AdManager().clearSdkData(
+  scope: SdkDataErasureScope.allIncludingEntitlements,
+  confirmedEntitlementErasure: true,
+);
+```
+
+Only ever removes keys this SDK itself owns (across both
+`SharedPreferences` and `flutter_secure_storage`, where VIP entitlements
+live) — a host app's own keys in the same storage are never touched at
+either scope. If the SDK is already initialised when the entitlements
+scope runs, the live `VipManager` instance is used, so the running
+session's VIP status updates immediately rather than waiting for the
+next restart.
+
 ### Compliance checklist
 
 - [ ] `app-ads.txt` placed at the root of your app's domain

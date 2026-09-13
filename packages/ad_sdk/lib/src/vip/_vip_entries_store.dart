@@ -218,9 +218,13 @@ class VipEntriesStore {
     }
   }
 
-  /// Test hook — wipes secure storage so `getRaw` reports empty again.
-  @visibleForTesting
-  Future<void> clearForTest() async {
+  /// Wipes secure storage so `getRaw` reports empty again. T200 — was
+  /// test-only (`clearForTest`); now also the real production entry
+  /// point `VipManager.eraseSecureEntitlementStorage()` uses for a
+  /// confirmed VIP-entitlement data-erasure request. The operation
+  /// itself was already exactly this simple; only its intended callers
+  /// changed.
+  Future<void> erase() async {
     try {
       await _secure.delete(key: _secureKey);
     } catch (_) {/* ignore */}

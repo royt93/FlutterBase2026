@@ -17,7 +17,7 @@
 //   • Android always allows grace (anti-bypass disabled by design).
 //   • markGranted no-op on Android, write on iOS, idempotency, error swallow.
 //   • Cross-platform fall-through (e.g. macOS host) returns false.
-//   • clearForTest wipes the flag.
+//   • erase wipes the flag.
 
 import 'package:applovin_admob_sdk/src/vip/_first_install_guard.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -283,9 +283,9 @@ void main() {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // clearForTest
+  // erase
   // ────────────────────────────────────────────────────────────────────────
-  group('clearForTest', () {
+  group('erase', () {
     test('deletes the persisted flag', () async {
       final storage = _MockSecureStorage();
       when(() => storage.delete(key: any(named: 'key')))
@@ -293,7 +293,7 @@ void main() {
 
       final guard = buildGuard(secureStorage: storage);
 
-      await guard.clearForTest();
+      await guard.erase();
 
       verify(() => storage.delete(key: 'ad_sdk_first_install_granted_v1'))
           .called(1);
@@ -306,7 +306,7 @@ void main() {
 
       final guard = buildGuard(secureStorage: storage);
 
-      await expectLater(guard.clearForTest(), completes);
+      await expectLater(guard.erase(), completes);
     });
   });
 }

@@ -244,14 +244,14 @@ void main() {
     });
   });
 
-  group('clearForTest', () {
+  group('erase', () {
     test('deletes the persisted ledger', () async {
       final storage = _MockSecureStorage();
       when(() => storage.delete(key: any(named: 'key')))
           .thenAnswer((_) async {});
       final ledger = buildLedger(secureStorage: storage);
 
-      await ledger.clearForTest();
+      await ledger.erase();
 
       verify(() => storage.delete(key: 'ad_sdk_redeemed_vip_kids_v1'))
           .called(1);

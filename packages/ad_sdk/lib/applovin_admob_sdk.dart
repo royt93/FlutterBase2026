@@ -28,6 +28,10 @@ export 'src/consent/consent_manager.dart';
 export 'src/consent/consent_fallback.dart';
 export 'src/consent/consent_settings.dart';
 
+// T200 — AdPreferences itself stays internal (lib/src/utils/), but the
+// scope enum for AdManager().clearSdkData(...) is real public API.
+export 'src/utils/ad_preferences.dart' show SdkDataErasureScope;
+
 // Orchestrator
 export 'src/core/ad_consent.dart'
     show AdConsent, ConsentSimulationResult, simulateConsentOutcome;

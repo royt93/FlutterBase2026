@@ -128,10 +128,13 @@ class RedeemedKeyLedger {
     }
   }
 
-  /// Test hook — wipes the persisted ledger. Production callers never call
-  /// this.
-  @visibleForTesting
-  Future<void> clearForTest() async {
+  /// Wipes the persisted ledger. T200 — was test-only (`clearForTest`,
+  /// "production callers never call this"); now also the real
+  /// production entry point `VipManager.eraseSecureEntitlementStorage()`
+  /// uses for a confirmed VIP-entitlement data-erasure request. The
+  /// operation itself was already exactly this simple; only its
+  /// intended callers changed.
+  Future<void> erase() async {
     try {
       await _secure.delete(key: _storageKey);
     } catch (_) {/* ignore */}

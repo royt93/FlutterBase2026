@@ -728,6 +728,14 @@ class HomePage extends StatelessWidget {
                     builder: (_) => const PlacementThrottleDemoPage())),
           ),
           DemoTile(
+            icon: Icons.delete_forever,
+            title: 'Scoped SDK data erasure (T200)',
+            subtitle: 'clearSdkData — keeps entitlements unless confirmed',
+            color: Colors.red,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ClearSdkDataDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.cloud_sync,
             title: 'Remote safety provider (T88)',
             subtitle: 'RemoteAdSafetyProvider — live push, no app release',
@@ -4557,4 +4565,98 @@ class _ReadinessControllerSplashState
           ),
         ),
       );
+}
+
+/// T200 — scoped SDK data-erasure demo. Shows the "safe" default scope
+/// (never touches VIP entitlements) alongside the dangerous scope, which
+/// requires an explicit host-app confirmation dialog before it's ever
+/// invoked with `confirmedEntitlementErasure: true` — this page IS that
+/// confirmation flow, not just a description of one.
+class ClearSdkDataDemoPage extends StatefulWidget {
+  const ClearSdkDataDemoPage({super.key});
+
+  @override
+  State<ClearSdkDataDemoPage> createState() => _ClearSdkDataDemoPageState();
+}
+
+class _ClearSdkDataDemoPageState extends State<ClearSdkDataDemoPage> {
+  final List<String> _log = [];
+
+  void _addLog(String line) => setState(() => _log.insert(0, line));
+
+  Future<void> _clearSafe() async {
+    await AdManager().clearSdkData();
+    _addLog('clearSdkData() — safe scope done: '
+        'VIP active=${AdManager().vip?.isActive}');
+  }
+
+  Future<void> _clearEverythingWithConfirmation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xoá toàn bộ dữ liệu SDK?'),
+        content: const Text(
+            'Bao gồm cả VIP entitlements — người dùng đã trả tiền sẽ MẤT '
+            'quyền lợi VIP. Hành động này không thể hoàn tác.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Huỷ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Xoá hết',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      _addLog('user cancelled — nothing was erased');
+      return;
+    }
+    await AdManager().clearSdkData(
+      scope: SdkDataErasureScope.allIncludingEntitlements,
+      confirmedEntitlementErasure: true,
+    );
+    _addLog('clearSdkData(allIncludingEntitlements) done — confirmed by '
+        'user dialog. VIP active=${AdManager().vip?.isActive}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Scoped SDK data erasure (T200)')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('VIP active right now: ${AdManager().vip?.isActive}'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _clearSafe,
+              child: const Text(
+                  'Clear SDK data (safe — entitlements kept)'),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: _clearEverythingWithConfirmation,
+              child: const Text(
+                  'Clear ALL SDK data (including entitlements)',
+                  style: TextStyle(color: Colors.white)),
+            ),
+            const SizedBox(height: 16),
+            const Text('Log:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Expanded(
+              child: ListView(
+                children: [for (final line in _log) Text(line)],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

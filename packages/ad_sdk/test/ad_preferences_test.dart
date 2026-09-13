@@ -293,4 +293,68 @@ void main() {
               'what a rolled-back raw clock reads');
     });
   });
+
+  // T200 — clearSdkData must remove only this SDK's own keys, and must
+  // never touch VIP-entitlement keys unless BOTH the scope AND the
+  // explicit confirmation flag ask for it.
+  group('clearSdkData (T200)', () {
+    setUp(() async {
+      // A non-entitlement SDK key.
+      await prefs.setConsentSettingsRaw('{"hasUserConsent":true}');
+      // An entitlement SDK key.
+      await prefs.markFirstInstallGraceApplied();
+      // A key belonging to the HOST app (or a different plugin) in the
+      // SAME SharedPreferences namespace — must survive every scope.
+      final raw = await SharedPreferences.getInstance();
+      await raw.setString('host_apps_own_key', 'do not touch me');
+    });
+
+    test('everythingExceptEntitlements (the default) clears the '
+        'non-entitlement key but preserves the entitlement key AND the '
+        'host app\'s own key', () async {
+      await prefs.clearSdkData();
+
+      expect(prefs.getConsentSettingsRaw(), isNull);
+      expect(prefs.isFirstInstallGraceApplied(), isTrue,
+          reason: 'an entitlement key must survive the default scope');
+      final raw = await SharedPreferences.getInstance();
+      expect(raw.getString('host_apps_own_key'), 'do not touch me',
+          reason: 'a key this SDK does not own must never be touched, '
+              'unlike clearAllData()');
+    });
+
+    test('allIncludingEntitlements WITHOUT confirmedEntitlementErasure '
+        'throws ArgumentError and changes NOTHING', () async {
+      await expectLater(
+          prefs.clearSdkData(
+              scope: SdkDataErasureScope.allIncludingEntitlements),
+          throwsArgumentError);
+
+      expect(prefs.getConsentSettingsRaw(), isNotNull,
+          reason: 'a refused call must not have partially erased anything');
+      expect(prefs.isFirstInstallGraceApplied(), isTrue);
+    });
+
+    test('allIncludingEntitlements WITH confirmedEntitlementErasure '
+        'clears the entitlement key too, still preserves the host key',
+        () async {
+      await prefs.clearSdkData(
+        scope: SdkDataErasureScope.allIncludingEntitlements,
+        confirmedEntitlementErasure: true,
+      );
+
+      expect(prefs.getConsentSettingsRaw(), isNull);
+      expect(prefs.isFirstInstallGraceApplied(), isFalse,
+          reason: 'an explicit, confirmed request must actually clear '
+              'entitlement data');
+      final raw = await SharedPreferences.getInstance();
+      expect(raw.getString('host_apps_own_key'), 'do not touch me');
+    });
+
+    test('is idempotent — calling it again when already empty does not '
+        'throw', () async {
+      await prefs.clearSdkData();
+      await expectLater(prefs.clearSdkData(), completes);
+    });
+  });
 }

@@ -6,6 +6,27 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T200):** `AdManager().clearSdkData({scope, confirmedEntitlementErasure})`
+  — a scoped, privacy-safe data-erasure API. Unlike
+  `AdPreferences.clearAllData()` (still available, but now documented as
+  dangerous — it wipes the ENTIRE shared `SharedPreferences` instance,
+  including any key a host app or a different plugin stored in the same
+  namespace), this only ever removes keys the SDK itself owns, across
+  both storage backends it actually uses (`SharedPreferences` and
+  `flutter_secure_storage` for VIP entitlements).
+  `SdkDataErasureScope.everythingExceptEntitlements` (the default) clears
+  safety counters, consent settings, compliance/analytics history,
+  remote-config cache, and experiment id — VIP entitlements are left
+  completely untouched. `SdkDataErasureScope.allIncludingEntitlements`
+  additionally erases every VIP-entitlement key (VIP entries,
+  redeemed-key ledger, first-install grace flag, migration flags,
+  revocation cache, legacy GAID list) and requires
+  `confirmedEntitlementErasure: true` — passing that scope without it
+  throws an `ArgumentError` instead of silently downgrading, since this
+  permanently deletes VIP entitlements a user may have paid real money
+  for. When the SDK is already initialised, the live `VipManager`
+  instance is used so the running session's reactive VIP state updates
+  immediately, not just on the next restart.
 - **Fix (T199):** `IncidentEntry.deltaMs` could read negative when the
   wall clock moved backward between two `IncidentRecorder.record()`
   calls (an NTP sync, a manual clock edit, a timezone change) — a

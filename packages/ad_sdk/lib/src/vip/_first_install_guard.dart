@@ -203,10 +203,16 @@ class FirstInstallGuard {
     }
   }
 
-  /// Test hook — wipes the persisted flag so `hasAlreadyGranted` reports
-  /// `false` again. Production callers should never invoke this.
-  @visibleForTesting
-  Future<void> clearForTest() async {
+  /// Wipes the persisted flag so `hasAlreadyGranted` reports `false`
+  /// again. T200 — was test-only (`clearForTest`, "production callers
+  /// should never invoke this"); now also the real production entry
+  /// point `AdManager().clearSdkData(scope:
+  /// SdkDataErasureScope.allIncludingEntitlements, ...)` uses. The
+  /// operation itself was already exactly this simple; only its
+  /// intended callers changed — a confirmed VIP-entitlement erasure
+  /// request is exactly the "no, really, wipe this" case the old
+  /// warning was guarding against accidental use, not a categorical ban.
+  Future<void> erase() async {
     try {
       await _secure.delete(key: _grantedFlagKey);
     } catch (_) {/* ignore */}

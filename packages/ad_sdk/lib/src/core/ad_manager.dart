@@ -1130,6 +1130,66 @@ class AdManager with WidgetsBindingObserver {
   Future<String> exportSafeDiagnostics({int maxBytes = 65536}) =>
       diagnostics().toSafeJsonString(maxBytes: maxBytes);
 
+  /// T200 — clears SDK-owned persisted data for a privacy/data-erasure
+  /// request. Unlike `AdPreferences.clearAllData()` (which wipes the
+  /// ENTIRE shared `SharedPreferences` instance, including any key a
+  /// host app or a different plugin stored in the same namespace), this
+  /// only ever touches keys this SDK itself owns — across BOTH storage
+  /// backends it actually uses (`SharedPreferences` via `AdPreferences`,
+  /// and `flutter_secure_storage` for VIP entitlements).
+  ///
+  /// [scope] defaults to [SdkDataErasureScope.everythingExceptEntitlements]
+  /// — safety counters, consent settings, compliance/analytics history,
+  /// remote-config cache, experiment id. VIP entitlements are left
+  /// completely untouched at this scope.
+  ///
+  /// [SdkDataErasureScope.allIncludingEntitlements] ALSO erases every
+  /// VIP-entitlement key across both backends (VIP entries, redeemed-key
+  /// ledger, first-install grace flag, migration flags, revocation
+  /// cache, legacy GAID list) — and requires [confirmedEntitlementErasure]:
+  /// `true`. Passing that scope without it throws an [ArgumentError]
+  /// rather than silently downgrading the scope: this permanently
+  /// deletes VIP entitlements a user may have paid real money for, so a
+  /// caller must say so explicitly, not by accident.
+  ///
+  /// Deliberately does NOT touch the on-device Ed25519 compliance-signing
+  /// key (`signComplianceReport`/`signJsonPayload`'s shared key,
+  /// `compliance_signing.dart`) at either scope — it carries no personal
+  /// data (a device-generated keypair with no identifying content), and
+  /// erasing it would only cost future compliance-report/incident-bundle
+  /// exports their key continuity for no privacy benefit.
+  Future<void> clearSdkData({
+    SdkDataErasureScope scope =
+        SdkDataErasureScope.everythingExceptEntitlements,
+    bool confirmedEntitlementErasure = false,
+  }) async {
+    if (scope == SdkDataErasureScope.allIncludingEntitlements &&
+        !confirmedEntitlementErasure) {
+      throw ArgumentError(
+          'SdkDataErasureScope.allIncludingEntitlements requires '
+          'confirmedEntitlementErasure: true — this permanently deletes '
+          'VIP entitlements a user may have paid for.');
+    }
+    final prefs = await AdPreferences.getInstance();
+    await prefs.clearSdkData(
+      scope: scope,
+      confirmedEntitlementErasure: confirmedEntitlementErasure,
+    );
+    if (scope == SdkDataErasureScope.allIncludingEntitlements) {
+      final vip = _vipManager;
+      if (vip != null) {
+        // SDK is live — also clears the in-memory list and refreshes the
+        // reactive activeListenable immediately (see
+        // eraseAllEntitlementData's doc comment for why this matters).
+        await vip.eraseAllEntitlementData();
+      } else {
+        await VipManager.eraseSecureEntitlementStorage(prefs);
+      }
+      await (debugFirstInstallGuardFactory?.call() ?? FirstInstallGuard())
+          .erase();
+    }
+  }
+
   /// Debug-only integration sanity check: verifies init/consent state, then
   /// attempts an interstitial/rewarded/app-open load and waits for the
   /// resulting [AdLoadEvent] on [events]. Lets a partner confirm their
