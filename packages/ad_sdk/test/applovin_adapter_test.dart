@@ -2178,4 +2178,57 @@ void main() {
       expect(a.rewardedSlot.isShowing, isTrue);
     });
   });
+
+  group('T185: requestId stamped on load, tied to the ad instance via '
+      'Expando (not the slot\'s current, mutable value)', () {
+    MaxAd fakeAdWithRevenue(double revenue) => MaxAd('unit', 'APPOPEN', null,
+        'net', '', revenue, 'exact', 'cid', 'dsp', '', 0,
+        MaxAdWaterfallInfo('', '', const [], 0), null, null);
+
+    test('interstitial: a paid-event callback for the CURRENT ad gets its '
+        'own requestId, matching what was stamped on the slot at load',
+        () async {
+      final ad1 = fakeAdWithRevenue(1.0);
+      await adapter.loadInterstitial();
+      bridge.inter!.onAdLoadedCallback(ad1);
+      final id1 = adapter.interstitialSlot.requestId;
+      expect(id1, isNotNull);
+
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      bridge.inter!.onAdRevenuePaidCallback!(ad1);
+
+      expect(events.whereType<AdRevenueEvent>().single.requestId, id1);
+    });
+
+    test('a stale/late paid-event callback for an ad this adapter has '
+        'already moved on from resolves to THAT ad\'s OWN id — never to '
+        'whichever id is currently on the slot', () async {
+      final ad1 = fakeAdWithRevenue(1.0);
+      await adapter.loadInterstitial();
+      bridge.inter!.onAdLoadedCallback(ad1);
+      final id1 = adapter.interstitialSlot.requestId;
+
+      await adapter.showInterstitial(onDone: (_) {});
+      bridge.inter!.onAdHiddenCallback(ad1); // cycle 1 dismissed
+
+      final ad2 = fakeAdWithRevenue(2.0);
+      await adapter.loadInterstitial();
+      bridge.inter!.onAdLoadedCallback(ad2);
+      final id2 = adapter.interstitialSlot.requestId;
+      expect(id2, isNot(id1),
+          reason: 'two different loads must get two different ids');
+
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      // ad1's paid-event callback fires late, after ad2 already loaded.
+      bridge.inter!.onAdRevenuePaidCallback!(ad1);
+
+      final revenue = events.whereType<AdRevenueEvent>().single;
+      expect(revenue.requestId, id1,
+          reason: 'this is ad1\'s OWN revenue — must carry ad1\'s id even '
+              'though the slot itself has already moved on to ad2');
+      expect(revenue.requestId, isNot(id2));
+    });
+  });
 }

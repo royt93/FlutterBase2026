@@ -1042,4 +1042,73 @@ void main() {
     expect(events.whereType<AdImpressionEvent>().first.type,
         AdSlotType.interstitial);
   });
+
+  group('T185: requestId stamped on load reaches the revenue event', () {
+    test('interstitial: slot.requestId is set on load, and the SAME id '
+        'reaches the AdRevenueEvent from the paid-event callback', () async {
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+
+      await adapter.loadInterstitial();
+      final requestId = adapter.interstitialSlot.requestId;
+      expect(requestId, isNotNull);
+
+      bridge.lastInter!.paidCallback!(1.0, 'USD', 'estimated');
+
+      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+    });
+
+    test('rewarded: same guarantee', () async {
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+
+      await adapter.loadRewarded();
+      final requestId = adapter.rewardedSlot.requestId;
+      expect(requestId, isNotNull);
+
+      bridge.lastRewarded!.paidCallback!(1.0, 'USD', 'estimated');
+
+      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+    });
+
+    test('app open: same guarantee', () async {
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+
+      await adapter.loadAppOpen();
+      final requestId = adapter.appOpenSlot.requestId;
+      expect(requestId, isNotNull);
+
+      bridge.lastAppOpen!.paidCallback!(1.0, 'USD', 'estimated');
+
+      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+    });
+
+    test('rewarded interstitial: same guarantee', () async {
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+
+      await adapter.loadRewardedInterstitial();
+      final requestId = adapter.rewardedInterstitialSlot.requestId;
+      expect(requestId, isNotNull);
+
+      bridge.lastRewardedInterstitial!.paidCallback!(1.0, 'USD', 'estimated');
+
+      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+    });
+
+    test('two consecutive loads of the same format get two DIFFERENT '
+        'request IDs', () async {
+      await adapter.loadInterstitial();
+      final first = adapter.interstitialSlot.requestId;
+      await adapter.showInterstitial(onDone: (_) {});
+      bridge.lastInter!.shown!.onDismissed!();
+      await adapter.loadInterstitial();
+      final second = adapter.interstitialSlot.requestId;
+
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      expect(second, isNot(first));
+    });
+  });
 }

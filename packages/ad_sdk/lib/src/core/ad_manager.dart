@@ -7039,6 +7039,10 @@ class AdManager with WidgetsBindingObserver {
           type: AdSlotType.appOpen,
           placement: placement,
           success: dismissed,
+          // T185 — read BEFORE the reload below can overwrite it; see
+          // AdSlot.requestId's doc comment for why this is still the
+          // right value even though the slot is mutable.
+          requestId: ad.appOpenSlot.requestId,
         ));
         onAdDismiss(dismissed);
         unawaited(loadAppOpenAd());
@@ -7383,6 +7387,8 @@ class AdManager with WidgetsBindingObserver {
           type: AdSlotType.interstitial,
           placement: placement,
           success: shown,
+          // T185 — read BEFORE the reload below can overwrite it.
+          requestId: ad.interstitialSlot.requestId,
         ));
         onDoneFlow(shown);
         // Fix #1 (preserved from 1.x): reload after dismiss OR show-fail to
@@ -7834,6 +7840,8 @@ class AdManager with WidgetsBindingObserver {
               type: AdSlotType.rewarded,
               placement: placement,
               success: result.shown,
+              // T185 — read BEFORE the reload below can overwrite it.
+              requestId: ad.rewardedSlot.requestId,
             ));
             onEarnedReward(result.earned);
             // Fix #2 (preserved from 1.x): reload after dismiss/fail. Same
@@ -8044,6 +8052,8 @@ class AdManager with WidgetsBindingObserver {
           // reward here made the SDK's own analytics disagree with the
           // impression it billed.
           success: result.shown,
+          // T185 — read BEFORE the reload below can overwrite it.
+          requestId: ad.rewardedInterstitialSlot.requestId,
         ));
         onDone(result.shown, result.earned);
         unawaited(loadRewardedInterstitialAd());

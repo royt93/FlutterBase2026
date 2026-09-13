@@ -1304,13 +1304,17 @@ would be nothing to observe anyway).
 
 ### Cross-provider revenue integrity (`RevenueIntegrityLedger`)
 
-**This is a time-window heuristic, not exact reconciliation.** Neither
-`AdShowEvent` nor `AdRevenueEvent` carries a shared request/impression
-ID — both only carry `providerTag`/`type`/`placement` — so there is no
-way to prove a specific show and a specific revenue callback are "the
-same impression". `RevenueIntegrityLedger` expects a same-
-`(providerTag, type, placement)` `AdRevenueEvent` within `matchWindow` after
-every successful show; one with none is flagged via
+**Exact match when available, time-window heuristic otherwise.** Both
+`AdShowEvent` and `AdRevenueEvent` carry an optional `requestId` — a
+per-load correlation ID both adapters stamp once and carry through for
+that same ad instance. Whenever a revenue event's `requestId` matches a
+pending show's, that show is resolved EXACTLY — no guessing. `requestId`
+is `null` for banner/mrec/native (no matching `AdShowEvent` exists for
+those to correlate against) and for any adapter version that predates
+this, so the ORIGINAL heuristic below is unchanged and still runs
+whenever `requestId` is missing on either side: `RevenueIntegrityLedger`
+expects a same-`(providerTag, type, placement)` `AdRevenueEvent` within
+`matchWindow` after every successful show; one with none is flagged via
 `AdManager().incidentRecorder` as a **possible** gap — most often just a
 revenue callback arriving later than `matchWindow`, not proof of fraud
 or a lost impression.

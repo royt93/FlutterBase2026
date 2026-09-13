@@ -25,6 +25,11 @@ AdRevenueEvent? appLovinRevenueEvent(
   MaxAd ad, {
   required AdSlotType type,
   required AdPlacement placement,
+  // T185 — only the 4 fullscreen call sites pass this (looked up by ad
+  // identity, see `AppLovinAdapter._requestIds`); banner/mrec/native leave
+  // it null since no matching `AdShowEvent` exists for those to correlate
+  // against.
+  String? requestId,
 }) {
   final amount = ad.revenue;
   if (amount <= 0) return null;
@@ -39,6 +44,7 @@ AdRevenueEvent? appLovinRevenueEvent(
     // AppLovin only reports the winning network per impression — not a
     // step-by-step waterfall like AdMob's ResponseInfo.adapterResponses.
     mediationWaterfall: [ad.networkName],
+    requestId: requestId,
   );
 }
 

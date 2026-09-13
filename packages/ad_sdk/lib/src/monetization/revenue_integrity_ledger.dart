@@ -10,16 +10,21 @@ import '../utils/safe_logger.dart';
 
 /// T145 — "Cross-provider Revenue Integrity Ledger".
 ///
-/// **This is a time-window HEURISTIC, not exact reconciliation.** Neither
-/// [AdShowEvent] nor [AdRevenueEvent] carries a shared request/impression
-/// ID (verified directly against `ad_event.dart` — both only carry
-/// `providerTag`, `type`, `placement`), so there is no way to prove a
-/// specific show and a specific revenue callback are "the same impression".
-/// What this DOES do: for every successful show, expect a same-
-/// `(providerTag, type, placement)` [AdRevenueEvent] within [matchWindow]
-/// (T150 — `type` added to the key after a bug where two different ad
-/// formats shown at the same placement could FIFO-match each other's
-/// revenue events). A show
+/// **Exact match when available, time-window HEURISTIC otherwise.** T185
+/// added an optional `requestId` to both [AdShowEvent] and
+/// [AdRevenueEvent] — a per-load correlation ID the adapter stamps once
+/// and carries through to both events for that same ad instance (see
+/// `AdSlot.requestId`'s doc comment for exactly how each adapter avoids
+/// misattributing it). Whenever a revenue event carries a non-null
+/// `requestId` that matches a pending show's, that pending show is
+/// resolved EXACTLY — no guessing. `requestId` is null for banner/mrec/
+/// native (no matching [AdShowEvent] exists for those to correlate
+/// against) and for any adapter that hasn't been updated to set it, so
+/// the ORIGINAL fallback below is unchanged and still runs for those:
+/// for every successful show, expect a same-`(providerTag, type,
+/// placement)` [AdRevenueEvent] within [matchWindow] (T150 — `type` added
+/// to the key after a bug where two different ad formats shown at the
+/// same placement could FIFO-match each other's revenue events). A show
 /// with none is flagged as a **possible** revenue-integrity issue — most
 /// often simply a revenue callback arriving later than [matchWindow] (a
 /// slow network, a mediation SDK quirk), not proof of fraud or a lost
@@ -73,13 +78,29 @@ class RevenueIntegrityLedger {
         providerTag: event.providerTag,
         type: event.type,
         placement: event.placement,
+        requestId: event.requestId,
         at: _now(),
       ));
       return;
     }
     if (event is AdRevenueEvent) {
-      // FIFO: no shared ID exists, so the OLDEST still-pending show for
-      // this (providerTag, type, placement) is the best-effort match —
+      // T185 — an exact requestId match wins outright, regardless of
+      // (providerTag, type, placement): it's a stronger signal than that
+      // key ever was, and checking it first means a same-key show that
+      // ISN'T actually this revenue event's match (e.g. an older still-
+      // pending one from before this exact-ID pair) can never be picked
+      // over the pending show that's genuinely this one.
+      final requestId = event.requestId;
+      final exactIndex = requestId == null
+          ? -1
+          : _pending.indexWhere((p) => p.requestId == requestId);
+      if (exactIndex != -1) {
+        _pending.removeAt(exactIndex);
+        return;
+      }
+      // Fallback (pre-T185 behavior, unchanged) — FIFO: no requestId was
+      // available on one or both sides, so the OLDEST still-pending show
+      // for this (providerTag, type, placement) is the best-effort match —
       // matches the order revenue callbacks almost always arrive in for a
       // given key, and avoids an arbitrary/unstable match choice.
       //
@@ -143,10 +164,15 @@ class _PendingShow {
     required this.type,
     required this.placement,
     required this.at,
+    this.requestId,
   });
 
   final String providerTag;
   final AdSlotType type;
   final AdPlacement placement;
   final DateTime at;
+
+  /// T185 — null unless the adapter that emitted the originating
+  /// `AdShowEvent` stamped one.
+  final String? requestId;
 }

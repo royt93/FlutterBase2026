@@ -106,9 +106,23 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   void _emit(AdEvent e) => eventSink?.call(e);
 
+  /// T185 — monotonic per-adapter counter, turned into a fresh
+  /// [AdSlot.requestId] every time a fullscreen ad finishes loading. A
+  /// plain counter (not a real UUID) is enough: this only ever needs to
+  /// be unique within one adapter's lifetime, for on-device correlation —
+  /// never persisted, never compared across sessions or adapters.
+  int _requestSeq = 0;
+  String _nextRequestId() => '$tag-req${_requestSeq++}';
+
   /// Wires the fullscreen ad's paid-event (revenue) listener through the bridge.
-  void _wirePaidEvent(
-      GmaFullscreenAd ad, AdSlotType type, AdPlacement placement) {
+  ///
+  /// T185 — [requestId] is captured by this closure at the moment THIS
+  /// specific [ad] finished loading (see each `onLoaded:` call site), so
+  /// it stays attached to the right revenue event even if a later load
+  /// overwrites the slot's own `requestId` before this ad's paid-event
+  /// callback fires.
+  void _wirePaidEvent(GmaFullscreenAd ad, AdSlotType type,
+      AdPlacement placement, String? requestId) {
     ad.setPaidEventListener((valueMicros, currencyCode, precision) {
       _emit(AdRevenueEvent(
         providerTag: tag,
@@ -118,6 +132,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
         currencyCode: currencyCode,
         precision: precision,
         mediationWaterfall: ad.mediationWaterfall,
+        requestId: requestId,
       ));
     });
   }
@@ -820,7 +835,9 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             return;
           }
           _appOpenAd = ad;
-          _wirePaidEvent(ad, AdSlotType.appOpen, AdPlacement.splash);
+          final requestId = _nextRequestId();
+          appOpenSlot.requestId = requestId;
+          _wirePaidEvent(ad, AdSlotType.appOpen, AdPlacement.splash, requestId);
           appOpenSlot.markReady();
           _emit(AdLoadEvent(
             providerTag: tag,
@@ -1159,7 +1176,10 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             return;
           }
           _interstitialAd = ad;
-          _wirePaidEvent(ad, AdSlotType.interstitial, AdPlacement.unspecified);
+          final requestId = _nextRequestId();
+          interstitialSlot.requestId = requestId;
+          _wirePaidEvent(
+              ad, AdSlotType.interstitial, AdPlacement.unspecified, requestId);
           interstitialSlot.markReady();
           _emit(AdLoadEvent(
             providerTag: tag,
@@ -1398,7 +1418,10 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             return;
           }
           _rewardedAd = ad;
-          _wirePaidEvent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
+          final requestId = _nextRequestId();
+          rewardedSlot.requestId = requestId;
+          _wirePaidEvent(
+              ad, AdSlotType.rewarded, AdPlacement.unspecified, requestId);
           rewardedSlot.markReady();
           _emit(AdLoadEvent(
             providerTag: tag,
@@ -1668,8 +1691,10 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
             return;
           }
           _rewardedInterstitialAd = ad;
-          _wirePaidEvent(
-              ad, AdSlotType.rewardedInterstitial, AdPlacement.unspecified);
+          final requestId = _nextRequestId();
+          rewardedInterstitialSlot.requestId = requestId;
+          _wirePaidEvent(ad, AdSlotType.rewardedInterstitial,
+              AdPlacement.unspecified, requestId);
           rewardedInterstitialSlot.markReady();
           _emit(AdLoadEvent(
             providerTag: tag,

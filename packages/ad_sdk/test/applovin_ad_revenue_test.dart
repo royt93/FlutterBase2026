@@ -39,6 +39,25 @@ void main() {
               'step-by-step waterfall like AdMob');
     });
 
+    test('T185: requestId passes through untouched when given', () {
+      final ad = _adWithRevenue(1.0);
+      final event = appLovinRevenueEvent(ad,
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          requestId: 'req-abc');
+
+      expect(event!.requestId, 'req-abc');
+    });
+
+    test('T185: requestId defaults to null when omitted — exact '
+        'pre-T185 call shape (banner/mrec/native never pass it)', () {
+      final ad = _adWithRevenue(1.0);
+      final event = appLovinRevenueEvent(ad,
+          type: AdSlotType.banner, placement: AdPlacement.unspecified);
+
+      expect(event!.requestId, isNull);
+    });
+
     test('revenue == 0 (test mode / no fill data) returns null, not a '
         'zero-value event', () {
       final ad = _adWithRevenue(0);

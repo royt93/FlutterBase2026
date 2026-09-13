@@ -49,8 +49,19 @@ class AdShowEvent extends AdEvent {
     required super.type,
     required super.placement,
     required this.success,
+    this.requestId,
   });
   final bool success;
+
+  /// T185 — per-load correlation ID stamped by the adapter (see
+  /// [AdSlot.requestId]), carried through to this event so
+  /// `RevenueIntegrityLedger` can match this show to its
+  /// [AdRevenueEvent] EXACTLY instead of guessing by provider/type/
+  /// placement within a time window. `null` for any adapter/format that
+  /// doesn't stamp one (banner/mrec/native never emit `AdShowEvent` at
+  /// all) — the ledger's pre-T185 time-window match is the exact same
+  /// fallback whenever this is null on either side.
+  final String? requestId;
 }
 
 /// T77 — emitted whenever a `loadX`/`showX` call is gated/skipped before
@@ -129,6 +140,7 @@ class AdRevenueEvent extends AdEvent {
     this.networkName,
     this.precision,
     this.mediationWaterfall,
+    this.requestId,
   });
 
   /// Revenue in micros (`$1.23` → `1_230_000`).
@@ -152,6 +164,10 @@ class AdRevenueEvent extends AdEvent {
   /// just that network name. Null if the underlying SDK call didn't return
   /// response info.
   final List<String>? mediationWaterfall;
+
+  /// T185 — see [AdShowEvent.requestId]. `null` for banner/mrec/native (no
+  /// matching `AdShowEvent` exists for those to correlate against).
+  final String? requestId;
 
   /// Convenience: `valueMicros / 1_000_000` as a double.
   double get value => valueMicros / 1000000.0;

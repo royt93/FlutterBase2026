@@ -1,10 +1,14 @@
-// T145 — Cross-provider Revenue Integrity Ledger. NO shared request/
-// impression ID exists between AdShowEvent and AdRevenueEvent (verified in
-// the ticket itself, ad_event.dart:46-137 — both only carry providerTag,
-// type, placement) — this is a TIME-WINDOW HEURISTIC, not exact
-// reconciliation: a successful show with no matching AdRevenueEvent for the
-// same (providerTag, placement) within `matchWindow` is flagged via the
-// existing IncidentRecorder, not a new reporting mechanism.
+// T145 — Cross-provider Revenue Integrity Ledger. This is a TIME-WINDOW
+// HEURISTIC fallback: a successful show with no matching AdRevenueEvent for
+// the same (providerTag, type, placement) within `matchWindow` is flagged
+// via the existing IncidentRecorder, not a new reporting mechanism.
+//
+// T185 — both events now carry an OPTIONAL `requestId`; when both sides of
+// a pair carry the same non-null one, the ledger matches EXACTLY instead of
+// falling back to the heuristic above (see the "requestId exact match
+// (T185)" group below). `requestId` defaults to null in the helpers here so
+// every pre-T185 test in this file keeps exercising the exact fallback path
+// it always did.
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,24 +16,28 @@ AdShowEvent _show(
         {String providerTag = '[AdMob]',
         AdPlacement placement = AdPlacement.unspecified,
         AdSlotType type = AdSlotType.interstitial,
-        bool success = true}) =>
+        bool success = true,
+        String? requestId}) =>
     AdShowEvent(
       providerTag: providerTag,
       type: type,
       placement: placement,
       success: success,
+      requestId: requestId,
     );
 
 AdRevenueEvent _revenue(
         {String providerTag = '[AdMob]',
         AdPlacement placement = AdPlacement.unspecified,
-        AdSlotType type = AdSlotType.interstitial}) =>
+        AdSlotType type = AdSlotType.interstitial,
+        String? requestId}) =>
     AdRevenueEvent(
       providerTag: providerTag,
       type: type,
       placement: placement,
       valueMicros: 1000,
       currencyCode: 'USD',
+      requestId: requestId,
     );
 
 Future<void> _flush() => Future<void>.delayed(Duration.zero);
@@ -255,6 +263,95 @@ void main() {
       expect(ledger.pendingCount, 1,
           reason: '#2 (newer) is still legitimately pending, not yet '
               'expired');
+      ledger.dispose();
+    });
+  });
+
+  group('requestId exact match (T185)', () {
+    test('a revenue event with a matching requestId clears the pending '
+        'show even outside (providerTag, type, placement) — the ID alone '
+        'is authoritative', () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      AdManager().debugEmit(_show(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.custom('a'),
+        requestId: 'req-1',
+      ));
+      await _flush();
+
+      // Deliberately mismatched provider/type/placement — only requestId
+      // should decide this.
+      AdManager().debugEmit(_revenue(
+        providerTag: '[AppLovin]',
+        type: AdSlotType.rewarded,
+        placement: AdPlacement.custom('b'),
+        requestId: 'req-1',
+      ));
+      await _flush();
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, isEmpty);
+      ledger.dispose();
+    });
+
+    test('a requestId match is chosen over an unrelated pending show that '
+        'would otherwise match by (providerTag, type, placement) FIFO',
+        () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      // #1 has no requestId (simulates a not-yet-updated adapter) and would
+      // normally be the FIFO match for the same-key revenue event below.
+      AdManager().debugEmit(_show());
+      await _flush();
+      // #2 carries the real requestId this revenue event should resolve to.
+      AdManager().debugEmit(_show(requestId: 'req-exact'));
+      await _flush();
+
+      AdManager().debugEmit(_revenue(requestId: 'req-exact'));
+      await _flush();
+
+      expect(ledger.pendingCount, 1,
+          reason: '#2 (matched by requestId) is gone; #1 (no requestId, '
+              'FIFO-oldest) must still be pending — proves the exact match '
+              'was NOT bypassed in favor of FIFO ordering');
+      ledger.dispose();
+    });
+
+    test('a requestId that matches nothing pending falls back to the '
+        '(providerTag, type, placement) heuristic instead of being '
+        'dropped', () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      // Pending show has no requestId at all (adapter didn't stamp one).
+      AdManager().debugEmit(_show());
+      await _flush();
+
+      // Revenue event has a requestId, but it matches no pending show's id
+      // — must still fall back to the same-key FIFO match, not treat this
+      // as unmatched.
+      AdManager().debugEmit(_revenue(requestId: 'req-orphan'));
+      await _flush();
+
+      expect(ledger.pendingCount, 0,
+          reason: 'falls back to (providerTag, type, placement) FIFO when '
+              'the requestId itself matches no pending show');
+      expect(AdManager().incidentRecorder.entries, isEmpty);
+      ledger.dispose();
+    });
+
+    test('omitting requestId on both sides is the exact pre-T185 fallback '
+        'behavior — unchanged', () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      AdManager().debugEmit(_show());
+      await _flush();
+      AdManager().debugEmit(_revenue());
+      await _flush();
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, isEmpty);
       ledger.dispose();
     });
   });

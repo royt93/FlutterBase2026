@@ -166,6 +166,30 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   void _emit(AdEvent e) => eventSink?.call(e);
 
+  /// T185 — monotonic per-adapter counter, turned into a fresh
+  /// [AdSlot.requestId] every time a fullscreen ad finishes loading. A
+  /// plain counter (not a real UUID) is enough: this only ever needs to
+  /// be unique within one adapter's lifetime, for on-device correlation.
+  int _requestSeq = 0;
+  String _nextRequestId() => '$tag-req${_requestSeq++}';
+
+  /// T185 — maps a specific loaded [MaxAd] INSTANCE to the `requestId`
+  /// stamped for it at load time. Unlike `AdMobAdapter` (where a fresh
+  /// paid-event closure is created per load, capturing its own id — see
+  /// `AdMobAdapter._wirePaidEvent`), AppLovin's `onAdRevenuePaidCallback`
+  /// is wired ONCE per format and reused across every load cycle for
+  /// that format's lifetime (`_wireAppOpenListener`/
+  /// `_wireInterstitialListener`/`_wireRewardedListener`, each called
+  /// once from `initialize()`). Keying by the exact `ad` object this
+  /// callback receives — rather than reading the slot's current
+  /// (mutable) `requestId` — means a late/stale callback for an ad this
+  /// adapter has already moved on from (the same class of staleness the
+  /// `identical(ad, _interstitialAd)` guards elsewhere in this file exist
+  /// for) still resolves to ITS OWN correct id, or to nothing, instead of
+  /// ever being misattributed to whichever ad is current when the late
+  /// callback happens to arrive.
+  final Expando<String> _requestIds = Expando<String>();
+
   /// Round-31 audit fix — doc was stale/misleading: this is called from
   /// `onAdRevenuePaidCallback` (display/impression time, correct ILRD
   /// semantics), never from a load callback. `MaxAd.revenue` is `0` for no
@@ -176,7 +200,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// banner/mrec/native `onAdRevenuePaidCallback`s, which don't have an
   /// `AppLovinAdapter` instance to call this method on.
   void _emitRevenueIfPresent(MaxAd ad, AdSlotType type, AdPlacement placement) {
-    final event = appLovinRevenueEvent(ad, type: type, placement: placement);
+    final event = appLovinRevenueEvent(ad,
+        type: type, placement: placement, requestId: _requestIds[ad]);
     if (event != null) _emit(event);
   }
 
@@ -1040,6 +1065,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
         if (_discardIfConsentStale(appOpenSlot, 'appOpen')) return;
         _appOpenAd = ad;
+        final requestId = _nextRequestId();
+        _requestIds[ad] = requestId;
+        appOpenSlot.requestId = requestId;
         appOpenSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1394,6 +1422,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
         if (_discardIfConsentStale(interstitialSlot, 'inter')) return;
         _interstitialAd = ad;
+        final requestId = _nextRequestId();
+        _requestIds[ad] = requestId;
+        interstitialSlot.requestId = requestId;
         interstitialSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,
@@ -1636,6 +1667,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
         if (_discardIfConsentStale(rewardedSlot, 'rewarded')) return;
         _rewardedAd = ad;
+        final requestId = _nextRequestId();
+        _requestIds[ad] = requestId;
+        rewardedSlot.requestId = requestId;
         rewardedSlot.markReady();
         _emit(AdLoadEvent(
           providerTag: tag,

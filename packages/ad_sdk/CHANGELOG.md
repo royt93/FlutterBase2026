@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T185):** `AdShowEvent`/`AdRevenueEvent` gained an optional
+  `requestId` (`String?`) — a per-load correlation ID both adapters now
+  stamp once and carry through to both events for that same ad instance.
+  `RevenueIntegrityLedger` matches a show to its revenue event EXACTLY by
+  `requestId` when both sides carry one, instead of only guessing by
+  `(providerTag, type, placement)` within a time window (the T150
+  heuristic — unchanged, and still the fallback whenever `requestId` is
+  null on either side: banner/mrec/native never set it, since neither
+  emits a matching `AdShowEvent`). Purely additive: `requestId` defaults
+  to `null`, no existing constructor call or event listener breaks.
 - **New (T181):** `PlacementSpec.minIntervalOverrideMs` — a per-placement
   override for `AdSafetyParams.minTimeBetweenFullscreenAds` (the app-wide
   "minimum time between two fullscreen ads" throttle), same override
