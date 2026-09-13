@@ -74,6 +74,95 @@ void main() {
     });
   });
 
+  // T199 — a wall clock that reads BEHIND the previous entry (NTP sync,
+  // manual clock edit, timezone change) used to produce a raw negative
+  // deltaMs — confusing in a timeline, and not something a reader could
+  // tell apart from ordinary data.
+  group('clock rollback detection (T199)', () {
+    test('a clock that reads BEHIND the previous entry clamps deltaMs to '
+        '0 and records the raw rollback amount', () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('a', _snapA, now: t0);
+      recorder.record('b', _snapB,
+          now: t0.subtract(const Duration(seconds: 5)));
+
+      final entries = recorder.entries;
+      expect(entries[0].clockRolledBackMs, isNull);
+      expect(entries[1].deltaMs, 0,
+          reason: 'clamped for display sanity — never a negative number');
+      expect(entries[1].clockRolledBackMs, -5000,
+          reason: 'the raw rollback amount must still be visible, not '
+              'silently discarded by the clamp');
+    });
+
+    test('an ordinary forward-moving clock never sets clockRolledBackMs',
+        () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('a', _snapA, now: t0);
+      recorder.record('b', _snapB,
+          now: t0.add(const Duration(milliseconds: 500)));
+
+      expect(recorder.entries.every((e) => e.clockRolledBackMs == null),
+          isTrue);
+    });
+
+    test('the first entry in a buffer never has a rollback (nothing to '
+        'compare against yet)', () {
+      final recorder = IncidentRecorder();
+      recorder.record('a', _snapA, now: DateTime(2026, 1, 1));
+
+      expect(recorder.entries.single.clockRolledBackMs, isNull);
+      expect(recorder.entries.single.deltaMs, 0);
+    });
+
+    test('a rollback entry survives a JSON round-trip (IncidentBundle '
+        'export/import) — not silently dropped', () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('a', _snapA, now: t0);
+      recorder.record('b', _snapB,
+          now: t0.subtract(const Duration(seconds: 2)));
+
+      final bundle = IncidentBundle.capture(recorder, _config);
+      final decoded = IncidentBundle.fromJsonString(bundle.toJsonString());
+
+      expect(decoded.entries[1].clockRolledBackMs, -2000);
+      expect(decoded.entries[1].deltaMs, 0);
+    });
+
+    test('an entry with no rollback omits clockRolledBackMs from the JSON '
+        'entirely, not just as a null value — old exports without this '
+        'field must decode identically to a real "no rollback" entry', () {
+      const entry = IncidentEntry(
+        label: 'a',
+        snapshot: AdSdkStateSnapshot(
+          isInitialised: true,
+          canRequestAds: true,
+          isOffline: false,
+          isVipActive: false,
+          fullscreenBusy: false,
+        ),
+        deltaMs: 0,
+      );
+
+      expect(entry.toJson().containsKey('clockRolledBackMs'), isFalse);
+      expect(IncidentEntry.fromJson(entry.toJson()).clockRolledBackMs, isNull);
+    });
+
+    test('toString() surfaces the rollback for a human reading the '
+        'timeline directly', () {
+      final recorder = IncidentRecorder();
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      recorder.record('a', _snapA, now: t0);
+      recorder.record('b', _snapB,
+          now: t0.subtract(const Duration(seconds: 5)));
+
+      expect(recorder.entries[1].toString(), contains('rolled back'));
+    });
+  });
+
   group('redactedConfigFingerprint', () {
     test('carries provider/safety shape but never an ad-unit ID or SDK key',
         () {

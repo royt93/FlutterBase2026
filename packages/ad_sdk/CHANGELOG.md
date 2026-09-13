@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T199):** `IncidentEntry.deltaMs` could read negative when the
+  wall clock moved backward between two `IncidentRecorder.record()`
+  calls (an NTP sync, a manual clock edit, a timezone change) — a
+  confusing figure in a diagnostics timeline. `deltaMs` is now always
+  clamped to `>= 0`, and a new `clockRolledBackMs` field (`int?`, `null`
+  unless a rollback was observed) carries the raw negative delta so the
+  fact a clock jump happened is never silently hidden by the clamp.
+  Included in the JSON export (omitted entirely, not just `null`, when
+  there was no rollback — an old exported bundle without this field
+  decodes identically to a real "no rollback" entry).
 - **Fix (T198):** `JourneyPrefetcher`'s opt-in `routeObserver` (T139) only
   ever fired `notifySignal` on `didPush` — returning to a previous screen
   (`didPop`) or a route being swapped in place (`didReplace`) silently

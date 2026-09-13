@@ -16,6 +16,7 @@ class IncidentEntry {
     required this.label,
     required this.snapshot,
     required this.deltaMs,
+    this.clockRolledBackMs,
   });
 
   /// What triggered this observation — a short, stable string such as
@@ -27,12 +28,36 @@ class IncidentEntry {
   final AdSdkStateSnapshot snapshot;
 
   /// Milliseconds since the previous entry was recorded (`0` for the first
-  /// entry in a buffer/replay).
+  /// entry in a buffer/replay, and also whenever [clockRolledBackMs] is
+  /// set — see its doc comment for why this is clamped rather than left
+  /// negative).
   final int deltaMs;
+
+  /// T199 — non-null (and negative) only when the wall clock read BEHIND
+  /// the previous entry's (an NTP sync, a manual clock edit, a timezone
+  /// change) — the raw, negative `at.difference(previous)` that would
+  /// otherwise have produced a confusing negative [deltaMs]. `null` means
+  /// no rollback was observed between this entry and the previous one.
+  ///
+  /// Deliberately NOT "fixed" by substituting a `Stopwatch`-based
+  /// monotonic elapsed time instead (a natural-looking fix, and the first
+  /// design considered here): `Stopwatch` pauses while the device is
+  /// asleep/suspended, so an incident timeline spanning a real multi-hour
+  /// background gap would then under-report a huge legitimate delta as a
+  /// tiny one — a worse, silent inaccuracy than the rollback case this
+  /// exists to flag, and exactly the class of pitfall `VipManager`'s own
+  /// `_effectiveNow`/`resyncSessionClock` needed several audit rounds to
+  /// get right for a security-sensitive anti-rollback check. This class
+  /// is a lightweight diagnostics aid, not that — clamping to `0` and
+  /// flagging the raw rollback amount tells a reader everything they
+  /// need (a real clock jump happened here) without risking a worse,
+  /// silent misreport of a genuine long background gap.
+  final int? clockRolledBackMs;
 
   Map<String, dynamic> toJson() => {
         'label': label,
         'deltaMs': deltaMs,
+        if (clockRolledBackMs != null) 'clockRolledBackMs': clockRolledBackMs,
         'isInitialised': snapshot.isInitialised,
         'canRequestAds': snapshot.canRequestAds,
         'isOffline': snapshot.isOffline,
@@ -43,6 +68,7 @@ class IncidentEntry {
   factory IncidentEntry.fromJson(Map<String, dynamic> json) => IncidentEntry(
         label: json['label'] as String,
         deltaMs: json['deltaMs'] as int,
+        clockRolledBackMs: json['clockRolledBackMs'] as int?,
         snapshot: AdSdkStateSnapshot(
           isInitialised: json['isInitialised'] as bool,
           canRequestAds: json['canRequestAds'] as bool,
@@ -53,7 +79,9 @@ class IncidentEntry {
       );
 
   @override
-  String toString() => '+${deltaMs}ms $label -> $snapshot';
+  String toString() => '+${deltaMs}ms'
+      '${clockRolledBackMs != null ? " (clock rolled back ${-clockRolledBackMs!}ms)" : ""}'
+      ' $label -> $snapshot';
 }
 
 /// Small bounded ring buffer of [IncidentEntry] — deliberately NOT the same
@@ -98,10 +126,30 @@ class IncidentRecorder {
 
   void record(String label, AdSdkStateSnapshot snapshot, {DateTime? now}) {
     final at = now ?? DateTime.now();
-    final deltaMs =
-        _lastAt == null ? 0 : at.difference(_lastAt!).inMilliseconds;
+    // T199 — a wall clock that reads BEHIND the previous entry (NTP sync,
+    // manual clock edit, timezone change) produced a raw negative delta
+    // here before this fix — confusing in a timeline ("+-4500ms"), and
+    // silently clamping it to 0 (the obvious quick fix) would hide that a
+    // clock jump happened at all. Clamp for [IncidentEntry.deltaMs]'s
+    // display sanity, but keep the raw rollback amount in
+    // [IncidentEntry.clockRolledBackMs] so nothing is actually hidden.
+    int deltaMs = 0;
+    int? clockRolledBackMs;
+    if (_lastAt != null) {
+      final raw = at.difference(_lastAt!).inMilliseconds;
+      if (raw < 0) {
+        clockRolledBackMs = raw;
+      } else {
+        deltaMs = raw;
+      }
+    }
     _lastAt = at;
-    _entries.add(IncidentEntry(label: label, snapshot: snapshot, deltaMs: deltaMs));
+    _entries.add(IncidentEntry(
+      label: label,
+      snapshot: snapshot,
+      deltaMs: deltaMs,
+      clockRolledBackMs: clockRolledBackMs,
+    ));
     if (_entries.length > capacity) {
       _entries.removeRange(0, _entries.length - capacity);
     }
