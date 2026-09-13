@@ -6,6 +6,23 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Test (T207):** the SDK lifecycle contract suite only exercised
+  `initialize→load→show→background→destroy→reinitialize` through
+  `debugSetAdapter`/`debugConfig`, bypassing the real `initialize()`/
+  `destroy()` path entirely, and never dispatched an app-lifecycle
+  transition at all (unrelated `Text` widget in the widget test; a bare
+  double-`destroy()` in the device test). Added a real end-to-end chain
+  test through `AdManager().initialize()` (routed via
+  `debugAdapterFactory`), dispatching background/resume through the real
+  `WidgetsBinding.handleAppLifecycleStateChanged` (not calling the
+  callback directly, which would still pass even if `initialize()` never
+  registered the observer), with an observable pause/resume side effect
+  instead of just "didn't throw"; a genuine mid-native-init `destroy()`
+  race (not merely after both concurrent calls settle); and both
+  concurrent callers verified to receive the real init result. Rewrote
+  the widget test around a real `BannerAdWidget` surviving `destroy()`
+  while mounted, and the device test to mirror the same real chain on a
+  physical device. No production code changed; it was already correct.
 - **Test (T205):** the VIP CLI secret-handling tests (`vip_mint.dart`/
   `vip_keygen.dart`/`vip_crl_mint.dart`) only grepped the tool source for
   certain substrings, which cannot observe the actual security property
