@@ -85,6 +85,7 @@ class ConsentManager {
   @visibleForTesting
   static void resetForTest() {
     _instance?._settingsListenable.dispose();
+    _instance?._fallbackListenable.dispose();
     _instance = null;
     debugPersistDelay = null;
     debugApplyBarrier = null;
@@ -185,6 +186,19 @@ class ConsentManager {
   /// Provenance of the last conservative offline/error decision, if any.
   ConsentFallbackState? get fallback => _fallback;
 
+  /// Reactive mirror of [fallback] — audit fix (post-T210): [recordFallback]
+  /// and [clearFallback] used to update `_fallback` with no notification at
+  /// all, so a host UI built to show "why are ads conservative right now"
+  /// (the whole reason this state is public) could never react to it
+  /// changing — only a full rebuild triggered by something else would ever
+  /// pick up a new value. [listenable] is the wrong vehicle for this: it is
+  /// typed [ConsentSettings], a different shape, and is not touched by
+  /// fallback changes either.
+  ValueListenable<ConsentFallbackState?> get fallbackListenable =>
+      _fallbackListenable;
+  final ValueNotifier<ConsentFallbackState?> _fallbackListenable =
+      ValueNotifier<ConsentFallbackState?>(null);
+
   /// Convenience — same as `current.hasBeenAsked`.
   bool get hasBeenAsked => _current.hasBeenAsked;
 
@@ -199,7 +213,7 @@ class ConsentManager {
   Future<void> _load() async {
     _current = ConsentSettings.decode(_prefs.getConsentSettingsRaw());
     final rawFallback = _prefs.getConsentFallbackRaw();
-    _fallback = rawFallback == null
+    var fallback = rawFallback == null
         ? null
         : () {
             try {
@@ -208,6 +222,37 @@ class ConsentManager {
               return null;
             }
           }();
+    // Audit fix (post-T210) — `staleRevision` was declared as a reason but
+    // nothing in production ever produced it: a fallback recorded under an
+    // old policy revision was silently treated as still current forever.
+    // Reclassify it here (keeping the original policyRevision/recordedAt
+    // provenance, only the reason changes) so a host reading [fallback]
+    // after a policy bump sees `staleRevision`, not a stale `timeout`/
+    // `platformError` from an epoch that no longer applies.
+    //
+    // codex round-2 fix — [recordFallback] is a PUBLIC API documented for
+    // "UMP/ATT" and any other caller-supplied reason, so [policyRevision] is
+    // not always this SDK's own UMP namespace. Comparing every persisted
+    // value against [kUmpPolicyRevision] would permanently misclassify a
+    // host's own ATT/custom-policy fallback (e.g. `'att-v1'`) as
+    // `staleRevision` on every single bootstrap, forever, just for not
+    // being the UMP constant. Scope this migration to records that are
+    // actually in the UMP revision namespace (`kUmpPolicyRevision`'s own
+    // `'ump-vN'` convention) — the only namespace this SDK itself writes to
+    // today — and leave anything else alone.
+    if (fallback != null &&
+        fallback.policyRevision.startsWith('ump-') &&
+        fallback.policyRevision != kUmpPolicyRevision &&
+        fallback.reason != ConsentFallbackReason.staleRevision) {
+      fallback = ConsentFallbackState(
+        policyRevision: fallback.policyRevision,
+        reason: ConsentFallbackReason.staleRevision,
+        recordedAt: fallback.recordedAt,
+      );
+      await _prefs.setConsentFallbackRaw(fallback.encode());
+    }
+    _fallback = fallback;
+    _fallbackListenable.value = fallback;
     _settingsListenable.value = _current;
     SafeLogger.d(_tag, () => 'load → $_current');
   }
@@ -315,12 +360,14 @@ class ConsentManager {
       reason: reason,
       policyRevision: policyRevision,
     );
+    _fallbackListenable.value = _fallback;
     await _prefs.setConsentFallbackRaw(_fallback!.encode());
   }
 
   /// Clears fallback provenance after a fresh successful consent resolution.
   Future<void> clearFallback() async {
     _fallback = null;
+    _fallbackListenable.value = null;
     await _prefs.clearConsentFallback();
   }
 

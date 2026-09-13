@@ -8,6 +8,7 @@ import 'dart:async';
 
 import 'package:applovin_admob_sdk/src/config/ad_config.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
+import 'package:applovin_admob_sdk/src/consent/consent_fallback.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
@@ -435,5 +436,85 @@ void main() {
 
     await expectLater(m.applyToProviders(), completes);
     expect(m.current.hasUserConsent, isTrue);
+  });
+
+  group('T210 audit fix — a fallback recorded under an old policy revision '
+      'is reclassified as staleRevision on load', () {
+    test('a persisted fallback under an OLD policyRevision is reclassified',
+        () async {
+      final old = ConsentFallbackState.create(
+        policyRevision: 'ump-v0',
+        reason: ConsentFallbackReason.timeout,
+        now: DateTime.utc(2020, 1, 1),
+      );
+      await prefs.setConsentFallbackRaw(old.encode());
+
+      final m = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+
+      expect(m.fallback?.reason, ConsentFallbackReason.staleRevision,
+          reason: 'ump-v0 no longer matches the SDK\'s current declared '
+              'kUmpPolicyRevision — a host reading .fallback must be told '
+              'this record predates the current policy, not that it was '
+              'still a timeout/platformError');
+      expect(m.fallback?.policyRevision, 'ump-v0',
+          reason: 'original provenance (which revision it WAS recorded '
+              'under) must be preserved, not overwritten');
+      expect(m.fallback?.recordedAt, old.recordedAt);
+
+      // The reclassification is itself persisted, so a second bootstrap
+      // (e.g. a later app launch) reads it back the same way rather than
+      // re-deriving it every time.
+      final raw = prefs.getConsentFallbackRaw();
+      expect(raw, isNotNull);
+      expect(ConsentFallbackState.decode(raw).reason,
+          ConsentFallbackReason.staleRevision);
+    });
+
+    test('a persisted fallback under the CURRENT policyRevision is left '
+        'untouched', () async {
+      final current = ConsentFallbackState.create(
+        policyRevision: kUmpPolicyRevision,
+        reason: ConsentFallbackReason.offline,
+      );
+      await prefs.setConsentFallbackRaw(current.encode());
+
+      final m = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+
+      expect(m.fallback?.reason, ConsentFallbackReason.offline,
+          reason: 'a fallback recorded under the CURRENT policy revision '
+              'must keep its real reason, not be reclassified');
+    });
+
+    test('no persisted fallback at all stays null', () async {
+      final m = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+      expect(m.fallback, isNull);
+    });
+
+    test(
+        'codex round-2 fix — a fallback recorded under a NON-UMP '
+        'policyRevision (e.g. a host\'s own ATT fallback) is never '
+        'reclassified, even though it differs from kUmpPolicyRevision',
+        () async {
+      // recordFallback() is public and documented for UMP/ATT/any caller-
+      // supplied reason — 'att-v1' is a legitimate value a host could pass,
+      // not a stale UMP record. It must not be permanently misclassified as
+      // staleRevision just for not matching the UMP constant.
+      final attFallback = ConsentFallbackState.create(
+        policyRevision: 'att-v1',
+        reason: ConsentFallbackReason.platformError,
+      );
+      await prefs.setConsentFallbackRaw(attFallback.encode());
+
+      final m = await ConsentManager.bootstrap(
+          prefs: prefs, strings: ConsentDialogStrings.vi);
+
+      expect(m.fallback?.reason, ConsentFallbackReason.platformError,
+          reason: 'this is not a UMP-namespaced record — the staleRevision '
+              'migration must not touch it');
+      expect(m.fallback?.policyRevision, 'att-v1');
+    });
   });
 }

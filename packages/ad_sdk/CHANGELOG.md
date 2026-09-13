@@ -6,6 +6,26 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T210):** `ConsentFallbackReason.offline`/`.staleRevision` were
+  declared but never produced — every UMP failure was classified as
+  `timeout`/`platformError` even when the device had no connectivity, and
+  a fallback recorded under an old policy revision was treated as current
+  forever. Now: `AdManager` records `offline` when there is a REAL,
+  confirmed connectivity reading showing the device is offline (not the
+  optimistic pre-ready default — a `requestUmpConsent()` call from splash,
+  before the connectivity watch has resolved, still falls back to
+  text-based classification); `ConsentManager` reclassifies a persisted
+  fallback whose `policyRevision` is in the SDK's own UMP namespace
+  (`'ump-vN'`) but doesn't match the current `kUmpPolicyRevision` as
+  `staleRevision` on load, without touching a host's own ATT/custom-reason
+  fallback records. The hardcoded `'ump-v1'` literal is now the shared
+  `kUmpPolicyRevision` constant. Also added `ConsentManager.fallbackListenable`
+  — `recordFallback()`/`clearFallback()` previously updated state with no
+  notification at all, so a host status widget could never react to it.
+  Replaced a vacuous widget test (rendered and matched a hand-typed
+  string) with one exercising the new listenable for real, and fixed the
+  device test file, which was missing
+  `IntegrationTestWidgetsFlutterBinding.ensureInitialized()`.
 - **Test (T211):** the ad-load coalescing tests (unit, widget, device
   integration) only asserted the slot's end state after concurrent load
   calls, which is identical whether the manager's coalescing map actually

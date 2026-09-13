@@ -5073,11 +5073,31 @@ class AdManager with WidgetsBindingObserver {
     final cm = _consentManager;
     if (cm != null) {
       if (result.error != null) {
+        // Audit fix (post-T210) — `offline` was a declared reason nothing
+        // ever produced: every UMP failure was classified as `timeout` or
+        // `platformError` even when the real cause was the device having no
+        // connectivity at all (the actual native-plugin error message for
+        // that case varies by platform/SDK version and isn't reliable to
+        // string-match).
+        //
+        // codex round-1 fix — `isConnected` alone is not enough: this call
+        // commonly runs BEFORE `_startConnectivityWatch()` has resolved (the
+        // documented pattern is calling `requestUmpConsent()` from splash,
+        // ahead of `initialize()`; the auto-UMP flow starts UMP before the
+        // connectivity watch too), and `isConnected` optimistically returns
+        // `true` while `!_connectivityReady` — that is a "we don't actually
+        // know yet" state, not a real online reading. Only classify as
+        // `offline` when `_connectivityReady` confirms this is a real
+        // reading, not the pre-ready optimistic default; otherwise fall back
+        // to the text-based classification, same as before this fix.
+        final reason = _connectivityReady && !isConnected
+            ? ConsentFallbackReason.offline
+            : result.error!.toLowerCase().contains('timed out')
+                ? ConsentFallbackReason.timeout
+                : ConsentFallbackReason.platformError;
         await cm.recordFallback(
-          reason: result.error!.toLowerCase().contains('timed out')
-              ? ConsentFallbackReason.timeout
-              : ConsentFallbackReason.platformError,
-          policyRevision: 'ump-v1',
+          reason: reason,
+          policyRevision: kUmpPolicyRevision,
         );
       } else {
         await cm.clearFallback();

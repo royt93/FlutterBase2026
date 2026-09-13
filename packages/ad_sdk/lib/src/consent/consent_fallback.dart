@@ -3,6 +3,21 @@ import 'dart:convert';
 /// Why the SDK had to use its conservative consent fallback.
 enum ConsentFallbackReason { timeout, platformError, offline, staleRevision }
 
+/// The policy revision every fresh [ConsentFallbackState] this SDK records
+/// is stamped with.
+///
+/// Audit fix (post-T210) — this used to be the literal string `'ump-v1'`
+/// duplicated inline at the one call site in `AdManager._requestUmpConsent`
+/// and independently in tests, with nothing tying them together and no
+/// declared meaning for what "the policy revision" actually versions. Bump
+/// this constant when the UMP consent form / underlying privacy policy this
+/// SDK requests consent under changes meaningfully — [ConsentManager]
+/// compares a persisted fallback's `policyRevision` against this value on
+/// load and reclassifies a mismatch as [ConsentFallbackReason.staleRevision]
+/// so a host reading [ConsentManager.fallback] can tell a fallback recorded
+/// under a policy epoch that no longer applies from a fresh one.
+const String kUmpPolicyRevision = 'ump-v1';
+
 /// Versioned provenance for an offline/error consent decision.
 class ConsentFallbackState {
   const ConsentFallbackState({
