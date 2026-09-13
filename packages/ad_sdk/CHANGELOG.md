@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T177):** `MonetizationDigitalTwin.forecastDailyCap()` used to treat
+  a negative `hypotheticalDailyCap` as silently meaning "uncapped", with no
+  documentation of that behavior and no test for it — a dev who passed a
+  negative number by mistake got a real-looking forecast for a policy they
+  never asked to model. Now asserts `hypotheticalDailyCap >= 0` (stripped
+  in release builds, same cost/benefit as this internal debug/preview
+  tool's other guards); `0` remains a valid input, documented as
+  forecasting "fullscreen ads disabled entirely".
 - **Fix (T213):** `tool/release_readiness_gate.sh`'s `secret_scan` stage
   could report "release gate: secret passed" with a false PASS when `rg`
   (ripgrep) was not installed — its `rg` call sat inside an `if (...)`,

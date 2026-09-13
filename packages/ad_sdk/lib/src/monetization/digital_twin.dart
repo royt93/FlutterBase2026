@@ -137,7 +137,23 @@ class MonetizationDigitalTwin {
   /// the SDK already has; it does NOT model fatigue, fill-rate decay, or
   /// eCPM changing with volume — a host reading this must treat it as a
   /// rough estimate, not a promise, exactly like the class doc says.
+  ///
+  /// [hypotheticalDailyCap] must be `>= 0` — `0` is a valid, meaningful
+  /// input (forecasts zero impressions/revenue for every day, i.e. "what if
+  /// fullscreen ads were disabled entirely"). Audit fix (post-T177): a
+  /// negative value used to be silently treated as "uncapped" with no
+  /// documentation of that behavior and no test for it — a dev who fat-
+  /// fingered a negative number got a real-looking forecast for a policy
+  /// they never asked to model. This is a debug/preview tool, not something
+  /// that reaches real ad decisions, so an [assert] (stripped in release
+  /// builds, same as every other internal-tool guard in this class) is the
+  /// right cost/benefit: it catches the mistake immediately in debug builds
+  /// without adding runtime overhead to a shipped app.
   DigitalTwinForecast forecastDailyCap(int hypotheticalDailyCap) {
+    assert(hypotheticalDailyCap >= 0,
+        'hypotheticalDailyCap must not be negative — got $hypotheticalDailyCap. '
+        'Pass 0 to forecast "fullscreen ads disabled", not a negative number '
+        'for "uncapped" (that used to be silently accepted; it no longer is).');
     final outcomes = actualDailyOutcomes;
     if (outcomes.isEmpty) {
       return DigitalTwinForecast(
@@ -156,8 +172,7 @@ class MonetizationDigitalTwin {
 
     for (final day in outcomes) {
       final demand = day.shown + day.blockedByDailyCap;
-      final wouldShow =
-          hypotheticalDailyCap < 0 ? day.shown : _min(hypotheticalDailyCap, demand);
+      final wouldShow = _min(hypotheticalDailyCap, demand);
       final avgRevenuePerShow =
           day.shown == 0 ? 0.0 : day.revenueMicros / day.shown;
       // Scales uniformly off the day's own average — deliberately symmetric

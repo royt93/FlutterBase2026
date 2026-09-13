@@ -109,6 +109,34 @@ void main() {
     expect(forecast.meanDailyRevenueMicros, 1000000);
   });
 
+  group('T177 audit fix — hypotheticalDailyCap contract', () {
+    test('a negative cap throws in debug mode instead of silently meaning '
+        '"uncapped"', () {
+      final twin = MonetizationDigitalTwin([
+        _show(day1, revenueMicros: 1000000),
+        _revenue(day1, 1000000),
+      ]);
+
+      expect(() => twin.forecastDailyCap(-1), throwsA(isA<AssertionError>()));
+    });
+
+    test('a cap of 0 forecasts zero impressions/revenue for every day — a '
+        'valid input, not a special "uncapped" case', () {
+      final twin = MonetizationDigitalTwin([
+        _show(day1, revenueMicros: 1000000),
+        _revenue(day1, 1000000),
+        _dailyCapSkip(day1),
+      ]);
+
+      final forecast = twin.forecastDailyCap(0);
+      expect(forecast.meanDailyImpressions, 0);
+      expect(forecast.meanDailyRevenueMicros, 0);
+      expect(forecast.meanBlockedRequestsRemaining, 2,
+          reason: 'demand of 2 (1 shown + 1 blocked), none of it let '
+              'through at cap 0');
+    });
+  });
+
   test('AdManager().buildMonetizationDigitalTwin() is null before any '
       'event log exists, non-null once one does', () {
     AdManager().debugEventLog = null;
