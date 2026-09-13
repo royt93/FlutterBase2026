@@ -6,6 +6,20 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Test (T205):** the VIP CLI secret-handling tests (`vip_mint.dart`/
+  `vip_keygen.dart`/`vip_crl_mint.dart`) only grepped the tool source for
+  certain substrings, which cannot observe the actual security property
+  (a real process's stdout/stderr never containing the private key).
+  Rewrote to spawn each CLI as a real `dart run` subprocess and inspect
+  its real stdout/stderr/exit code, and to verify a subprocess-minted
+  key/CRL actually round-trips through the SDK's own real
+  `verifySignedVipKey`/`verifySignedCrl` — not just "the CLI exited 0 and
+  printed something key-shaped". Also removed a vacuous widget test
+  (rendered and matched a hand-typed string, same fake shape as T215's)
+  and a device test that only checked an irrelevant, always-unset
+  environment variable — this is a dev-machine/CI CLI tool with no real
+  device-specific behavior to prove. No production code changed; it was
+  already correct.
 - **Fix (T210):** `ConsentFallbackReason.offline`/`.staleRevision` were
   declared but never produced — every UMP failure was classified as
   `timeout`/`platformError` even when the device had no connectivity, and
