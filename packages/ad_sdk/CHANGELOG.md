@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fix (T192):** `DebugAdOverlay` (debug-only, never shown to real users)
+  could crash with `setState() or markNeedsBuild() called during build`
+  if the panel was already expanded and a different, unrelated widget
+  synchronously mutated an `AdSlot`'s state (or called
+  `AdManager().initialize()`) from its own `initState()`/`build()` — e.g.
+  a demo page preloading an interstitial in `initState()`, the same
+  pattern this package's own example app uses. The overlay's internal
+  `ValueListenableBuilder`s now defer their rebuild to the next frame
+  instead of reacting synchronously.
 - **New (T187):** `AdSafetySnapshot` gained `fullscreenClickThroughRate`
   — the exact fullscreen-only click/impression ratio the real CTR-anomaly
   gate (round-39) evaluates, distinct from the pre-existing

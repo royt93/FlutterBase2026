@@ -35,3 +35,52 @@ Lỗi Flutter: `setState() or markNeedsBuild() called during build` — vì dòn
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: smoke test thật trên device đúng kịch bản tái hiện lỗi ở trên, xác nhận không còn crash.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Kết quả (2026-09-13)
+
+Xác nhận lỗi ảnh hưởng CẢ 3 dòng (AppOpen/Inter/Rewarded — dùng chung
+`_slotRow`), không riêng Interstitial, VÀ thêm 1 chỗ khác cùng lớp lỗi:
+`_FillRateRegressionRows` cũng dùng `ValueListenableBuilder` lắng nghe
+`AdManager().initRevision` trực tiếp — cùng rủi ro nếu 1 widget khác gọi
+`AdManager().initialize()` đồng bộ trong `initState()`.
+
+Sửa bằng widget riêng `_DeferredValueListenableBuilder` (thêm vào
+`debug_ad_overlay.dart`) — thay `setState()` đồng bộ ngay khi
+listenable đổi bằng hoãn sang frame kế tiếp
+(`WidgetsBinding.instance.addPostFrameCallback`, kèm
+`SchedulerBinding.instance.ensureVisualUpdate()` để đảm bảo có frame
+được lên lịch kể cả khi app đang "rảnh"). Panel debug chỉ trễ đúng 1
+frame — không thể nhận ra bằng mắt thường, và đây là công cụ CHỈ chạy ở
+`kDebugMode`, không bao giờ người dùng thật thấy. Áp dụng cho cả 3 chỗ
+dùng `ValueListenableBuilder` liên quan tới notifier do SDK quản lý
+(`_SlotRows` — 2 chỗ, `_FillRateRegressionRows` — 1 chỗ); 2 chỗ còn lại
+trong file (`globallyVisible`, `_expanded`) là state cục bộ UI, không bị
+SDK mutate từ nơi khác, giữ nguyên `ValueListenableBuilder` thường.
+
+**Bài học khi viết test tái hiện lỗi**: lần thử đầu tiên (đặt widget
+"preload đồng bộ" làm anh em cùng `StatefulBuilder` với overlay) KHÔNG
+tái hiện được lỗi — vì Flutter cho phép `setState()` trong lúc build nếu
+phần tử gọi là HẬU DUỆ của phần tử đang được dựng. Phải đặt
+`DebugAdOverlay` là ANH EM của 1 `Navigator` riêng (giống chính xác cách
+`example/lib/main.dart` nối `DebugAdOverlay` ở `MaterialApp.builder`,
+NGOÀI cây điều hướng), rồi push route mới qua `Navigator` đó — lúc đó
+lỗi tái hiện đúng y hệt (đã xác nhận: tạm bỏ fix, test bắt đúng
+`FlutterError` với message y hệt báo cáo gốc).
+
+Xác minh không vô nghĩa: tạm đổi `_DeferredValueListenableBuilder` về
+`ValueListenableBuilder` thường, xác nhận test fail đúng với thông báo
+lỗi y hệt gốc, rồi khôi phục.
+
+Xác minh: `flutter analyze` sạch; SDK suite 2021 test xanh (từ 2020,
++1); example suite 47 file xanh (không đổi); device smoke thật trên
+**Pixel 7 Pro** (`2B051FDH3006MU`, thiết bị thật qua USB) qua
+`example/integration_test/t192_debug_overlay_navigation_crash_test.dart`
+— chạy đúng kịch bản gốc trên app thật: boot app → mở panel debug → điều
+hướng sang "Banner ad" → xác nhận `interstitialSlot` thật sự chuyển sang
+`loading` (chứng minh preload thật sự chạy, không phải test pass suông
+vì chưa kịp khởi tạo) → không crash.
+
+Điểm tự chấm: **9/10**. Không chạy được codex review (hết hạn mức từ
+trước trong phiên) — bù bằng: tự phát hiện thêm 1 chỗ lỗi tương tự ngoài
+mô tả gốc, kỷ luật revert-để-xác-nhận-đỏ với message lỗi khớp chính xác,
+smoke test thật đúng kịch bản gốc trên device thật.

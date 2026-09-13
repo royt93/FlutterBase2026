@@ -2,12 +2,90 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
 import '../core/integration_self_check.dart';
 import '../monetization/fill_rate_baseline_monitor.dart';
 import '../state/ad_slot.dart';
+
+/// T192 — like [ValueListenableBuilder], but never calls `setState()`
+/// synchronously from [valueListenable]'s notification.
+///
+/// This overlay listens to SDK-owned notifiers (`AdSlot.state`,
+/// `AdManager().initRevision`) that a HOST widget can mutate synchronously
+/// from its own `initState()`/`build()` — e.g. a demo page that calls
+/// `AdManager().loadInterstitial()` in `initState()` to preload while
+/// building. Flutter's `BuildOwner` refuses ANY `setState()`/
+/// `markNeedsBuild()` anywhere in the tree while ANY widget is mid-build
+/// ("setState() or markNeedsBuild() called during build"), regardless of
+/// which element is calling it — so a plain `ValueListenableBuilder` here
+/// crashes the instant a host's `initState()` triggers one of these
+/// notifiers while this (already-built, already-expanded) panel is still
+/// subscribed.
+///
+/// Deferring the rebuild to the next frame sidesteps this entirely. A
+/// one-frame-late debug-panel refresh is invisible in practice — this is a
+/// `kDebugMode`-only diagnostic tool, never shown to a real user, so
+/// instantaneous updates were never a real requirement to begin with.
+class _DeferredValueListenableBuilder<T> extends StatefulWidget {
+  const _DeferredValueListenableBuilder({
+    required this.valueListenable,
+    required this.builder,
+  });
+
+  final ValueListenable<T> valueListenable;
+  final ValueWidgetBuilder<T> builder;
+
+  @override
+  State<_DeferredValueListenableBuilder<T>> createState() =>
+      _DeferredValueListenableBuilderState<T>();
+}
+
+class _DeferredValueListenableBuilderState<T>
+    extends State<_DeferredValueListenableBuilder<T>> {
+  bool _frameScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.valueListenable.addListener(_onChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DeferredValueListenableBuilder<T> old) {
+    super.didUpdateWidget(old);
+    if (old.valueListenable != widget.valueListenable) {
+      old.valueListenable.removeListener(_onChanged);
+      widget.valueListenable.addListener(_onChanged);
+    }
+  }
+
+  void _onChanged() {
+    if (_frameScheduled) return;
+    _frameScheduled = true;
+    // ensureVisualUpdate() schedules a frame if the app is otherwise idle
+    // (addPostFrameCallback alone only fires once a frame actually runs) —
+    // without it, a value change with no other UI activity in flight could
+    // sit unshown until something else happened to trigger a frame.
+    SchedulerBinding.instance.ensureVisualUpdate();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _frameScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.valueListenable.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(context, widget.valueListenable.value, null);
+}
 
 /// Small floating panel showing realtime SDK state — only renders when
 /// `kDebugMode == true`.
@@ -171,7 +249,11 @@ class _Panel extends StatelessWidget {
 class _SlotRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
+    // T192 — deferred, not a plain ValueListenableBuilder: initRevision can
+    // change synchronously from a host's own initState() (calling
+    // AdManager().initialize()), which would crash this already-built panel
+    // otherwise. See _DeferredValueListenableBuilder's doc comment.
+    return _DeferredValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {
         final ad = AdManager().adapter;
@@ -193,7 +275,11 @@ class _SlotRows extends StatelessWidget {
   }
 
   Widget _slotRow(String label, AdSlot slot) =>
-      ValueListenableBuilder<AdSlotState>(
+      // T192 — deferred: slot.state flips synchronously from a host's own
+      // initState() (e.g. calling AdManager().loadInterstitial() there to
+      // preload) — the exact repro this ticket fixed. See
+      // _DeferredValueListenableBuilder's doc comment.
+      _DeferredValueListenableBuilder<AdSlotState>(
         valueListenable: slot.state,
         builder: (context, state, _) => Text(
             '$label ${state.name.padRight(9)} fails=${slot.consecutiveFailures}'),
@@ -327,7 +413,9 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
+    // T192 — deferred, same reason as _SlotRows above: initRevision can
+    // change synchronously from a host's own initState().
+    return _DeferredValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, __) {
         _trySubscribe();
