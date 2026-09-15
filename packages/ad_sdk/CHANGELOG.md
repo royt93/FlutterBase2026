@@ -6,6 +6,23 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T219):** `ConsentDialogStrings`, `CcpaOptOutStrings`,
+  `VipDialogStrings`, and `VipRedeemStrings` (found mid-task — a separate,
+  ~30-field string class for the full `VipRedeemScreen`, distinct from
+  `VipDialogStrings`' small redeem-confirmation-dialog subset) each gained
+  a named `.en` preset (identical to the plain default, just discoverable
+  by name symmetrically with `.vi`) and a `resolve([Locale? locale])`
+  static helper that picks `.vi` for a Vietnamese locale and `.en`
+  otherwise — pass `Localizations.localeOf(context)` to resolve against
+  the app's own configured locale, or omit it to fall back to the
+  device's own locale (works before any widget has built, e.g. directly
+  in `main()`). `VipDialogStrings` and `VipRedeemStrings` also each
+  gained a `.vi` preset for the first time — `VipDialogStrings`' Vietnamese
+  text previously only existed as a copy-paste example in a doc comment,
+  and `VipRedeemStrings` had no Vietnamese text anywhere at all. No
+  existing default changed — a host passing nothing still gets exactly
+  the same strings as before.
+
 - **New (T217):** Public API stability & deprecation policy, documented in
   README.md — semver commitment, `@Deprecated`/`@experimental` usage, and a
   minimum one-MINOR-version deprecation window before any removal.

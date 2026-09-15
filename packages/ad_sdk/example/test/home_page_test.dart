@@ -8,9 +8,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Future<void> pumpHomePage(WidgetTester tester) async {
-    // The list has 27 tiles — grow the viewport so they all build without
+    // The list has 28 tiles — grow the viewport so they all build without
     // needing a scroll gesture.
-    tester.view.physicalSize = const Size(800, 5500);
+    tester.view.physicalSize = const Size(800, 5700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -21,7 +21,7 @@ void main() {
   testWidgets('renders a DemoTile for every demo', (tester) async {
     await pumpHomePage(tester);
 
-    expect(find.byType(DemoTile), findsNWidgets(27));
+    expect(find.byType(DemoTile), findsNWidgets(28));
     expect(find.text('Banner ad'), findsOneWidget);
     expect(find.text('Banner adaptive sizing (T157)'), findsOneWidget);
     expect(find.text('MREC ad'), findsOneWidget);
@@ -121,6 +121,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(InlineAdControllerDemoPage), findsOneWidget);
+    expect(find.byType(HomePage), findsNothing);
+  });
+
+  testWidgets('tapping the T219 tile navigates to I18nPresetDemoPage',
+      (tester) async {
+    await pumpHomePage(tester);
+
+    await tester.tap(find.text('i18n string presets (T219)'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(I18nPresetDemoPage), findsOneWidget);
     expect(find.byType(HomePage), findsNothing);
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show Locale, PlatformDispatcher;
 
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
@@ -126,6 +127,75 @@ class VipRedeemStrings {
   final String Function(int hours) remainingHours;
   final String Function(int hours) remainingExtraHours;
   final String Function(int count) activeEntries;
+
+  /// T219 — Convenience: English-localised strings. Identical to the
+  /// plain, no-argument default above — named for symmetry with [vi] and
+  /// so `VipRedeemStrings.en` is as discoverable as `VipRedeemStrings.vi`.
+  static const VipRedeemStrings en = VipRedeemStrings();
+
+  /// T219 — Vietnamese-localised strings for the full VIP redeem screen.
+  static const VipRedeemStrings vi = VipRedeemStrings(
+    sdkNotReady: 'VIP chưa sẵn sàng. Vui lòng thử lại sau giây lát.',
+    enterKeyFirst: 'Vui lòng nhập mã VIP trước.',
+    successTitle: 'Kích hoạt VIP thành công 🎉',
+    keyAlreadyUsed: 'Mã này đã được sử dụng trên thiết bị này.',
+    failedMessage: 'Mã VIP bạn nhập không hợp lệ hoặc đã hết hạn.',
+    offlineMessage: 'Không có kết nối mạng. Vui lòng kết nối và thử lại — '
+        'mã của bạn vẫn còn hiệu lực.',
+    watchAdSuccess: '+3 ngày VIP đã được thêm 🎉',
+    watchAdFailed: 'Hiện không có quảng cáo thưởng. Vui lòng thử lại sau.',
+    revoke: 'Thu hồi',
+    revokeConfirm: 'Xoá mục VIP này?',
+    revokeAll: 'Thu hồi tất cả',
+    revokeAllConfirm: 'Xoá tất cả mục VIP đang hoạt động?',
+    cancel: 'Huỷ',
+    delete: 'Xoá',
+    error: 'Đã có lỗi xảy ra.',
+    statusActive: 'VIP ĐANG HOẠT ĐỘNG',
+    statusInactive: 'VIP CHƯA KÍCH HOẠT',
+    statusInactiveTagline: 'Trải nghiệm không quảng cáo với VIP.',
+    redeemTitle: 'Nhập mã VIP',
+    redeemSubtitle: 'Nhập mã kích hoạt để mở khoá trải nghiệm không quảng '
+        'cáo.',
+    keyHint: 'Mã kích hoạt của bạn',
+    activateButton: 'Kích hoạt',
+    noEntries: 'Chưa có mục VIP nào đang hoạt động.',
+    firstInstall: 'Quà chào mừng',
+    legacyDevice: 'Thiết bị cũ',
+    rewardEntry: 'Thưởng xem quảng cáo',
+    watchAdTitle: 'Xem quảng cáo → VIP miễn phí',
+    watchAdBadgeFree: 'MIỄN PHÍ',
+    watchAdSubtitle: 'Xem một quảng cáo ngắn để nhận 3 ngày VIP miễn phí.',
+    watchAdButton: 'Xem quảng cáo',
+    buyTitle: 'Mua VIP',
+    buy30d: '30 ngày',
+    buy90d: '90 ngày',
+    buy1y: '1 năm',
+    buyLifetime: 'Trọn đời',
+    buyLocked: 'SẮP RA MẮT',
+    restoreLocked: 'Khôi phục giao dịch mua (sắp ra mắt)',
+    privacyPolicy: 'Chính sách bảo mật',
+    privacyOptions: 'Tuỳ chọn quyền riêng tư',
+    doNotSell: 'Không bán hoặc chia sẻ thông tin của tôi',
+    expiresAt: _viExpiresAt,
+    remainingDays: _viRemainingDays,
+    remainingHours: _viRemainingHours,
+    remainingExtraHours: _viRemainingExtraHours,
+    activeEntries: _viActiveEntries,
+  );
+
+  static String _viExpiresAt(String date) => 'Hết hạn: $date';
+  static String _viRemainingDays(int days) => 'còn $days ngày';
+  static String _viRemainingHours(int hours) => 'còn $hours giờ';
+  static String _viRemainingExtraHours(int hours) => '$hours giờ';
+  static String _viActiveEntries(int count) => 'VIP đang hoạt động ($count)';
+
+  /// T219 — see `ConsentDialogStrings.resolve`'s matching doc comment.
+  static VipRedeemStrings resolve([Locale? locale]) {
+    final languageCode =
+        (locale ?? PlatformDispatcher.instance.locale).languageCode;
+    return languageCode == 'vi' ? vi : en;
+  }
 }
 
 /// A full, self-contained VIP redeem screen (T18). Host apps and the SDK example

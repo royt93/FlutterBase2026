@@ -640,7 +640,9 @@ BypassAuditTrail.new  [constructor]  BypassAuditTrail BypassAuditTrail({int maxE
 BypassAuditTrail.record  [method]  void record({required String kind, required String callSiteTag, required AdSlotType type})
 BypassAuditTrail.toPayloadJson  [method]  String toPayloadJson()
 CcpaOptOutStrings  [class]  class CcpaOptOutStrings
+CcpaOptOutStrings.en  [field]  CcpaOptOutStrings en
 CcpaOptOutStrings.new  [constructor]  CcpaOptOutStrings CcpaOptOutStrings({String title = 'Do Not Sell or Share My Personal Information', String subtitle = 'California residents (CCPA/CPRA) can opt out of the ' '"sale" or "sharing" of personal information used for ' 'personalized ads. Turning this on switches ads on this device ' 'to a non-personalized mode.'})
+CcpaOptOutStrings.resolve  [method]  CcpaOptOutStrings resolve([Locale? locale])
 CcpaOptOutStrings.subtitle  [field]  String subtitle
 CcpaOptOutStrings.title  [field]  String title
 CcpaOptOutStrings.vi  [field]  CcpaOptOutStrings vi
@@ -690,11 +692,13 @@ ConsentDialogStrings  [class]  class ConsentDialogStrings
 ConsentDialogStrings.adPartnersLabel  [field]  String? adPartnersLabel
 ConsentDialogStrings.allowButton  [field]  String allowButton
 ConsentDialogStrings.autoProvidersToken  [field]  String autoProvidersToken
+ConsentDialogStrings.en  [field]  ConsentDialogStrings en
 ConsentDialogStrings.message  [field]  String message
 ConsentDialogStrings.new  [constructor]  ConsentDialogStrings ConsentDialogStrings({String title = 'Privacy & Personalized Ads', String message = 'This app is free and supported by ads — you will see ' 'ads either way. With your permission, we can use your advertising ' 'ID to personalize them to your interests instead of showing ' 'generic ads. Change this anytime in Settings.', String allowButton = 'Allow personalized ads', String rejectButton = 'No thanks', String privacyPolicyLabel = 'Privacy Policy', String? privacyPolicyUrl, String? adPartnersLabel = 'Ad partners: $autoProvidersToken'})
 ConsentDialogStrings.privacyPolicyLabel  [field]  String privacyPolicyLabel
 ConsentDialogStrings.privacyPolicyUrl  [field]  String? privacyPolicyUrl
 ConsentDialogStrings.rejectButton  [field]  String rejectButton
+ConsentDialogStrings.resolve  [method]  ConsentDialogStrings resolve([Locale? locale])
 ConsentDialogStrings.title  [field]  String title
 ConsentDialogStrings.vi  [field]  ConsentDialogStrings vi
 ConsentFallbackReason  [enum]  enum ConsentFallbackReason
@@ -1134,15 +1138,18 @@ UmpConsentResult.status  [field]  ConsentStatus status
 UmpConsentResult.toString  [method]  String toString()
 VipDialogStrings  [class]  class VipDialogStrings
 VipDialogStrings.confirmButton  [field]  String confirmButton
+VipDialogStrings.en  [field]  VipDialogStrings en
 VipDialogStrings.failedMessage  [field]  String failedMessage
 VipDialogStrings.failedTitle  [field]  String failedTitle
 VipDialogStrings.networkErrorMessage  [field]  String networkErrorMessage
 VipDialogStrings.new  [constructor]  VipDialogStrings VipDialogStrings({String verifyingTitle = 'Verifying', String verifyingMessage = 'Please wait a moment…', String successTitle = 'VIP Activated', String Function(String)? successMessageBuilder, String failedTitle = 'Invalid Key', String failedMessage = 'The VIP key you entered is invalid or expired.', String networkErrorMessage = 'Network error — please try again.', String confirmButton = 'OK'})
+VipDialogStrings.resolve  [method]  VipDialogStrings resolve([Locale? locale])
 VipDialogStrings.successMessage  [method]  String successMessage(String validUntil)
 VipDialogStrings.successMessageBuilder  [field]  String Function(String)? successMessageBuilder
 VipDialogStrings.successTitle  [field]  String successTitle
 VipDialogStrings.verifyingMessage  [field]  String verifyingMessage
 VipDialogStrings.verifyingTitle  [field]  String verifyingTitle
+VipDialogStrings.vi  [field]  VipDialogStrings vi
 VipEntry  [class]  class VipEntry
 VipEntry.decodeList  [method]  List<VipEntry> decodeList(String? raw)
 VipEntry.encodeList  [method]  String encodeList(List<VipEntry> list)
@@ -1226,6 +1233,7 @@ VipRedeemStrings.buyTitle  [field]  String buyTitle
 VipRedeemStrings.cancel  [field]  String cancel
 VipRedeemStrings.delete  [field]  String delete
 VipRedeemStrings.doNotSell  [field]  String doNotSell
+VipRedeemStrings.en  [field]  VipRedeemStrings en
 VipRedeemStrings.enterKeyFirst  [field]  String enterKeyFirst
 VipRedeemStrings.error  [field]  String error
 VipRedeemStrings.expiresAt  [field]  String Function(String) expiresAt
@@ -1244,6 +1252,7 @@ VipRedeemStrings.redeemTitle  [field]  String redeemTitle
 VipRedeemStrings.remainingDays  [field]  String Function(int) remainingDays
 VipRedeemStrings.remainingExtraHours  [field]  String Function(int) remainingExtraHours
 VipRedeemStrings.remainingHours  [field]  String Function(int) remainingHours
+VipRedeemStrings.resolve  [method]  VipRedeemStrings resolve([Locale? locale])
 VipRedeemStrings.restoreLocked  [field]  String restoreLocked
 VipRedeemStrings.revoke  [field]  String revoke
 VipRedeemStrings.revokeAll  [field]  String revokeAll
@@ -1255,6 +1264,7 @@ VipRedeemStrings.statusActive  [field]  String statusActive
 VipRedeemStrings.statusInactive  [field]  String statusInactive
 VipRedeemStrings.statusInactiveTagline  [field]  String statusInactiveTagline
 VipRedeemStrings.successTitle  [field]  String successTitle
+VipRedeemStrings.vi  [field]  VipRedeemStrings vi
 VipRedeemStrings.watchAdBadgeFree  [field]  String watchAdBadgeFree
 VipRedeemStrings.watchAdButton  [field]  String watchAdButton
 VipRedeemStrings.watchAdFailed  [field]  String watchAdFailed

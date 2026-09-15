@@ -1,3 +1,5 @@
+import 'dart:ui' show Locale, PlatformDispatcher;
+
 /// Localisation strings for [CcpaOptOutToggle].
 ///
 /// Override every field to translate. Defaults are English.
@@ -21,4 +23,14 @@ class CcpaOptOutStrings {
         'Bật tuỳ chọn này sẽ chuyển quảng cáo trên thiết bị này sang chế '
         'độ không cá nhân hoá.',
   );
+
+  /// T219 — see `ConsentDialogStrings.en`'s matching doc comment.
+  static const CcpaOptOutStrings en = CcpaOptOutStrings();
+
+  /// T219 — see `ConsentDialogStrings.resolve`'s matching doc comment.
+  static CcpaOptOutStrings resolve([Locale? locale]) {
+    final languageCode =
+        (locale ?? PlatformDispatcher.instance.locale).languageCode;
+    return languageCode == 'vi' ? vi : en;
+  }
 }

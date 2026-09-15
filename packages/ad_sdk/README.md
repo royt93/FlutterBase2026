@@ -2113,12 +2113,21 @@ No code required — this is the default. To re-show from a Privacy settings scr
 await ConsentManager.instance.showDialog(context);
 ```
 
-To localize:
+To localize (T219 — built-in `.en`/`.vi` presets, or `resolve()` to pick
+automatically from a locale):
 
 ```dart
 AdConfig(
   consentDialogStrings: ConsentDialogStrings.vi,  // Vietnamese pre-canned
-  // or supply your own:
+  // or explicitly English (identical to the plain default, just named):
+  consentDialogStrings: ConsentDialogStrings.en,
+  // or pick automatically — .vi for a Vietnamese device, .en otherwise:
+  consentDialogStrings: ConsentDialogStrings.resolve(),
+  // or resolve against the app's own configured locale instead of the
+  // device's (respects MaterialApp.locale/supportedLocales):
+  consentDialogStrings:
+      ConsentDialogStrings.resolve(Localizations.localeOf(context)),
+  // or supply your own, in any language:
   consentDialogStrings: const ConsentDialogStrings(
     title: 'Privacy Preferences',
     message: 'This app shows ads to keep it free. ...',
@@ -2129,6 +2138,25 @@ AdConfig(
   ),
 )
 ```
+
+`CcpaOptOutStrings`, `VipDialogStrings` (`AdConfig.vipDialogStrings`, the
+small redeem-confirmation dialog), and `VipRedeemStrings`
+(`VipRedeemScreen.strings`, the full redeem screen — buttons, labels, and
+snackbar messages) all follow the exact same pattern — `.en`, `.vi`, and
+`.resolve([locale])`:
+
+```dart
+VipRedeemScreen(
+  publicKeyBase64: yourPublicKey,
+  strings: VipRedeemStrings.resolve(Localizations.localeOf(context)),
+)
+```
+
+These four are every widget/dialog this SDK shows a real end user. `DebugAdOverlay`
+and `RevenuePanel` are the only other SDK widgets that render text at all,
+and both are `kDebugMode`-gated (render nothing, subscribe to nothing, in a
+release build) — a developer debugging the SDK, not an end user, so they
+stay English-only on purpose, the same way Flutter's own DevTools do.
 
 To disable auto-show entirely (e.g., if you have your own consent UI):
 

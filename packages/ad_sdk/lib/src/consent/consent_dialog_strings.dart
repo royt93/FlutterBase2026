@@ -1,3 +1,5 @@
+import 'dart:ui' show Locale, PlatformDispatcher;
+
 /// Localisation strings for the consent dialog.
 ///
 /// Override every field to translate. Defaults are English. Keep messages
@@ -61,4 +63,26 @@ class ConsentDialogStrings {
     privacyPolicyLabel: 'Chính sách bảo mật',
     adPartnersLabel: 'Đối tác quảng cáo: $autoProvidersToken',
   );
+
+  /// T219 — Convenience: English-localised strings. Identical to the
+  /// plain, no-argument default above — named for symmetry with [vi] and
+  /// so `ConsentDialogStrings.en` is as discoverable as
+  /// `ConsentDialogStrings.vi`, instead of relying on an implicit default
+  /// a reader has to already know is English.
+  static const ConsentDialogStrings en = ConsentDialogStrings();
+
+  /// T219 — picks [vi] for a Vietnamese locale, [en] otherwise.
+  ///
+  /// Pass an explicit [locale] (e.g. `Localizations.localeOf(context)`) to
+  /// resolve against the app's own configured locale (respects
+  /// `MaterialApp.locale`/`supportedLocales`); omit it to fall back to the
+  /// device's own locale (`PlatformDispatcher.instance.locale`) — usable
+  /// before any widget has built, e.g. directly in `main()` ahead of
+  /// `runApp`. Only ever returns [vi] or [en] — for any other language,
+  /// build a fully custom [ConsentDialogStrings] instead.
+  static ConsentDialogStrings resolve([Locale? locale]) {
+    final languageCode =
+        (locale ?? PlatformDispatcher.instance.locale).languageCode;
+    return languageCode == 'vi' ? vi : en;
+  }
 }

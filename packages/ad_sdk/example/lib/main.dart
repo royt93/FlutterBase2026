@@ -745,6 +745,14 @@ class HomePage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const InlineAdControllerDemoPage())),
           ),
           DemoTile(
+            icon: Icons.translate,
+            title: 'i18n string presets (T219)',
+            subtitle: 'Switch .vi/.en preset — consent dialog, CCPA, VIP',
+            color: Colors.indigo,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const I18nPresetDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.cloud_sync,
             title: 'Remote safety provider (T88)',
             subtitle: 'RemoteAdSafetyProvider — live push, no app release',
@@ -3610,6 +3618,86 @@ class CcpaToggleDemoPage extends StatelessWidget {
             CcpaOptOutToggle(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// T219 — i18n preset demo: switching the toggle re-resolves
+// ConsentDialogStrings/CcpaOptOutStrings/VipDialogStrings via their
+// resolve(locale) helper and re-renders — real UI, real preset switching,
+// for a device smoke test to confirm each language's actual text shows up.
+class I18nPresetDemoPage extends StatefulWidget {
+  const I18nPresetDemoPage({super.key});
+
+  @override
+  State<I18nPresetDemoPage> createState() => _I18nPresetDemoPageState();
+}
+
+class _I18nPresetDemoPageState extends State<I18nPresetDemoPage> {
+  Locale _locale = const Locale('en');
+
+  @override
+  Widget build(BuildContext context) {
+    final consentStrings = ConsentDialogStrings.resolve(_locale);
+    final ccpaStrings = CcpaOptOutStrings.resolve(_locale);
+    final vipStrings = VipDialogStrings.resolve(_locale);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('i18n string presets (T219)')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          SegmentedButton<Locale>(
+            segments: const [
+              ButtonSegment(value: Locale('en'), label: Text('English')),
+              ButtonSegment(value: Locale('vi'), label: Text('Tiếng Việt')),
+            ],
+            selected: {_locale},
+            onSelectionChanged: (selected) =>
+                setState(() => _locale = selected.first),
+          ),
+          const SizedBox(height: 16),
+          Text('Consent dialog (${_locale.languageCode})',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          ElevatedButton(
+            onPressed: () => showConsentDialog(
+              context,
+              strings: consentStrings,
+              current: ConsentSettings.unset,
+            ),
+            child: const Text('Open consent dialog'),
+          ),
+          const Divider(height: 32),
+          Text('CCPA toggle (${_locale.languageCode})',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          CcpaOptOutToggle(strings: ccpaStrings),
+          const Divider(height: 32),
+          Text('VIP dialog strings preview (${_locale.languageCode})',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text('verifyingTitle: ${vipStrings.verifyingTitle}'),
+          Text('successTitle: ${vipStrings.successTitle}'),
+          Text('successMessage: ${vipStrings.successMessage('2026-12-31')}'),
+          Text('failedTitle: ${vipStrings.failedTitle}'),
+          const Divider(height: 32),
+          Text('VIP redeem screen (${_locale.languageCode})',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          ElevatedButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VipRedeemScreen(
+                  // Demo-only placeholder key (32 zero bytes) — this page
+                  // only demonstrates the preset text, not real redemption.
+                  publicKeyBase64:
+                      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                  strings: VipRedeemStrings.resolve(_locale),
+                ),
+              ),
+            ),
+            child: const Text('Open VIP redeem screen'),
+          ),
+        ],
       ),
     );
   }
