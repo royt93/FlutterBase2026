@@ -92,3 +92,7 @@ giữ nguyên "không khả thi" theo đúng điều kiện dừng của task n�
 - developers.google.com/admob/flutter/mediation/network-specific-parameters
 - Source code thật: `google_mobile_ads-7.0.0/lib/src/ad_containers.dart`,
   `mediation_extras.dart`; `applovin_max-4.6.4/lib/applovin_max.dart`
+
+## Đóng task (2026-09-15)
+
+Chủ dự án xác nhận: **không khả thi, đóng**. Kết luận nghiên cứu ở trên ("Không khả thi ở tầng SDK Flutter") là kết luận cuối — không chuyển thành task code, đóng theo đúng điều kiện dừng ban đầu của task này.

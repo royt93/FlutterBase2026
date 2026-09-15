@@ -116,3 +116,7 @@ Nếu làm, ưu tiên epsilon-greedy giảm dần tái dùng hạ tầng
 `WaterfallTuner`/`pickSessionProvider` sẵn có (rẻ, ít rủi ro hơn nhiều so
 với Thompson Sampling), và bắt buộc phải theo dõi số liệu thật nhiều tuần
 qua A/B test on-device trước khi cân nhắc bật mặc định.
+
+## Đóng task (2026-09-15)
+
+Chủ dự án xác nhận giữ nguyên quyết định ban đầu: **chưa làm**. Kết luận nghiên cứu ở trên ("chưa nên làm ngay", ưu tiên epsilon-greedy giảm dần nếu sau này làm) vẫn còn giá trị tham khảo cho lần xem xét sau — đóng, không triển khai, không code.

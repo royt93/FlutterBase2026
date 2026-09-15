@@ -97,3 +97,7 @@ sự). Nếu muốn siết chặt hơn, dùng ngay các đòn bẩy tham số đ
 (thời hạn key ngắn hơn lúc mint, gọi `refreshRevocationList()` thường
 xuyên hơn, rotation nhanh khi phát hiện lộ key) — không cần bất kỳ thay
 đổi code nào trong `lib/src/vip/`.
+
+## Đóng task (2026-09-15)
+
+Chủ dự án xác nhận: **không redesign**. Kết luận nghiên cứu ở trên ("KHÔNG nên redesign toàn bộ kiến trúc") là kết luận cuối — đóng, không triển khai. T203 (delta/Merkle VIP CRL) đã tham chiếu lại kết luận này và cũng đóng cùng đợt.

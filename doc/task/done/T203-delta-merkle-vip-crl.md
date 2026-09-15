@@ -60,3 +60,7 @@ thành 1 dòng tham chiếu tới T190 ("đã có kết luận, không redesign 
 trừ khi chủ dự án có lý do cụ thể KHÁC với lý do task hiện ghi (ví dụ:
 băng thông tải CRL rất chậm/đắt ở một thị trường cụ thể — đó là một vấn đề
 khác, cần đo đạc thật trước, không phải lý do "scale" nêu trong task này).
+
+## Đóng task (2026-09-15)
+
+Chủ dự án xác nhận: **đóng, không làm Phase 1**. Kết luận nghiên cứu ở trên (quy mô thực tế quá nhỏ so với Merkle delta-proof, trùng lặp với T190 đã bác bỏ kỹ thuật tương tự) là kết luận cuối — đóng, không triển khai.
