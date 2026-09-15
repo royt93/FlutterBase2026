@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T217):** Public API stability & deprecation policy, documented in
+  README.md — semver commitment, `@Deprecated`/`@experimental` usage, and a
+  minimum one-MINOR-version deprecation window before any removal.
+  Enforced by a new API golden test (`test/api_golden_test.dart` +
+  `tool/api_surface.dart`, dev-only `analyzer`/`path` dependencies): it walks
+  the fully resolved public export surface of `applovin_admob_sdk.dart`
+  (excluding `@internal`/`@visibleForTesting` seams) and fails on any
+  unreviewed diff from the checked-in `test/goldens/public_api_surface.txt`,
+  so an accidental breaking change can no longer slip through unnoticed in
+  an unrelated refactor.
+
 - **New (T201):** `InlineAdController` — an imperative `refresh()`/`pause()`/
   `resume()`/`status` handle a host attaches to ONE `BannerAdWidget`/
   `MrecAdWidget`/`NativeAdWidget` instance (new `controller` param on all

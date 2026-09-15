@@ -1,0 +1,1313 @@
+AdAnomalyEvent  [class]  class AdAnomalyEvent extends AdEvent
+AdAnomalyEvent.new  [constructor]  AdAnomalyEvent AdAnomalyEvent({required String reason, required int violationCount, required int pauseDurationMs})
+AdAnomalyEvent.pauseDurationMs  [field]  int pauseDurationMs
+AdAnomalyEvent.reason  [field]  String reason
+AdAnomalyEvent.violationCount  [field]  int violationCount
+AdBootstrapOptions  [class]  class AdBootstrapOptions
+AdBootstrapOptions.config  [field]  AdConfig config
+AdBootstrapOptions.initTimeout  [field]  Duration? initTimeout
+AdBootstrapOptions.new  [constructor]  AdBootstrapOptions AdBootstrapOptions({required AdConfig config, bool requestAtt = true, bool umpTestMode = false, DebugGeography? umpDebugGeography, List<String> umpTestIdentifiers = const [], bool tagForUnderAgeOfConsent = false, Duration? initTimeout = const Duration(seconds: 20)})
+AdBootstrapOptions.requestAtt  [field]  bool requestAtt
+AdBootstrapOptions.tagForUnderAgeOfConsent  [field]  bool tagForUnderAgeOfConsent
+AdBootstrapOptions.umpDebugGeography  [field]  DebugGeography? umpDebugGeography
+AdBootstrapOptions.umpTestIdentifiers  [field]  List<String> umpTestIdentifiers
+AdBootstrapOptions.umpTestMode  [field]  bool umpTestMode
+AdBootstrapResult  [class]  class AdBootstrapResult
+AdBootstrapResult.att  [field]  AttResult? att
+AdBootstrapResult.gaid  [field]  String gaid
+AdBootstrapResult.initSuccess  [field]  bool initSuccess
+AdBootstrapResult.new  [constructor]  AdBootstrapResult AdBootstrapResult({required AttResult? att, required UmpConsentResult ump, required bool initSuccess, required String gaid})
+AdBootstrapResult.toString  [method]  String toString()
+AdBootstrapResult.ump  [field]  UmpConsentResult ump
+AdClickEvent  [class]  class AdClickEvent extends AdEvent
+AdClickEvent.new  [constructor]  AdClickEvent AdClickEvent({required String providerTag, required AdSlotType type, required AdPlacement placement})
+AdConfig  [class]  class AdConfig
+AdConfig.adLoadingMessage  [field]  String adLoadingMessage
+AdConfig.adNotReadyMessage  [field]  String adNotReadyMessage
+AdConfig.admob  [field]  AdMobConfig? admob
+AdConfig.appLovin  [field]  AppLovinConfig? appLovin
+AdConfig.appOpenTrigger  [field]  AppOpenTrigger appOpenTrigger
+AdConfig.autoRequestUmpConsent  [field]  bool autoRequestUmpConsent
+AdConfig.autoShowConsentDialog  [field]  bool autoShowConsentDialog
+AdConfig.consentBarrierDismissible  [field]  bool consentBarrierDismissible
+AdConfig.consentDialogPostSplashDelay  [field]  Duration consentDialogPostSplashDelay
+AdConfig.consentDialogStrings  [field]  ConsentDialogStrings consentDialogStrings
+AdConfig.disableAppLovinCmpFlow  [field]  bool disableAppLovinCmpFlow
+AdConfig.enableCrashGuard  [field]  bool enableCrashGuard
+AdConfig.firstInstallVipGrace  [field]  FirstInstallVipGrace firstInstallVipGrace
+AdConfig.firstInstallVipKey  [field]  String firstInstallVipKey
+AdConfig.isAdMob  [getter]  bool get isAdMob
+AdConfig.loadingBufferMs  [field]  int loadingBufferMs
+AdConfig.logLevel  [field]  AdLogLevel logLevel
+AdConfig.logTagFilter  [field]  List<String>? logTagFilter
+AdConfig.maxVipStackDuration  [field]  Duration? maxVipStackDuration
+AdConfig.new  [constructor]  AdConfig AdConfig({required AdProvider provider, AppLovinConfig? appLovin, AdMobConfig? admob, List<String> vipDeviceGaids = const [], int loadingBufferMs = 1000, AdLogLevel logLevel = kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning, List<String>? logTagFilter, void Function(AdLogLevel, String, String)? onLog, String adNotReadyMessage = 'Ad not ready — please wait and try again.', String adLoadingMessage = 'Loading…', AdSafetyParams safety = AdSafetyParams.auto, PlacementRegistry? placements, Map<Duration, AdSafetyParams>? safetyRampSchedule, Future<bool> Function(String)? vipKeyValidator, VipDialogStrings vipDialogStrings = const VipDialogStrings(), Duration? maxVipStackDuration = const Duration(days: 90), Duration splashMaxDuration = const Duration(seconds: 8), FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto, String firstInstallVipKey = '__FIRST_INSTALL__', bool autoShowConsentDialog = true, ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(), void Function(String)? onPrivacyPolicyTap, bool consentBarrierDismissible = false, Duration consentDialogPostSplashDelay = const Duration(seconds: 1), bool autoRequestUmpConsent = true, bool umpTagForUnderAgeOfConsent = false, DebugGeography? umpDebugGeography, List<String> umpTestIdentifiers = const [], bool disableAppLovinCmpFlow = true, bool enableCrashGuard = true, AppOpenTrigger appOpenTrigger = AppOpenTrigger.both})
+AdConfig.onLog  [field]  void Function(AdLogLevel, String, String)? onLog
+AdConfig.onPrivacyPolicyTap  [field]  void Function(String)? onPrivacyPolicyTap
+AdConfig.placements  [field]  PlacementRegistry? placements
+AdConfig.provider  [field]  AdProvider provider
+AdConfig.safety  [field]  AdSafetyParams safety
+AdConfig.safetyRampSchedule  [field]  Map<Duration, AdSafetyParams>? safetyRampSchedule
+AdConfig.splashMaxDuration  [field]  Duration splashMaxDuration
+AdConfig.umpDebugGeography  [field]  DebugGeography? umpDebugGeography
+AdConfig.umpTagForUnderAgeOfConsent  [field]  bool umpTagForUnderAgeOfConsent
+AdConfig.umpTestIdentifiers  [field]  List<String> umpTestIdentifiers
+AdConfig.vipDeviceGaids  [field]  List<String> vipDeviceGaids
+AdConfig.vipDialogStrings  [field]  VipDialogStrings vipDialogStrings
+AdConfig.vipKeyValidator  [field]  Future<bool> Function(String)? vipKeyValidator
+AdConsent  [class]  class AdConsent
+AdConsent.conservative  [field]  AdConsent conservative
+AdConsent.doNotSell  [field]  bool doNotSell
+AdConsent.fullyAccepted  [field]  AdConsent fullyAccepted
+AdConsent.hasUserConsent  [field]  bool hasUserConsent
+AdConsent.isAgeRestrictedUser  [field]  bool isAgeRestrictedUser
+AdConsent.new  [constructor]  AdConsent AdConsent({bool hasUserConsent = false, bool isAgeRestrictedUser = false, bool doNotSell = false})
+AdDiagnostics  [class]  class AdDiagnostics
+AdDiagnostics.arbitratorEstimatedEcpmMicros  [field]  int? arbitratorEstimatedEcpmMicros
+AdDiagnostics.arbitratorVetoRate  [field]  double? arbitratorVetoRate
+AdDiagnostics.fillRateBySlot  [field]  Map<AdSlotType, double> fillRateBySlot
+AdDiagnostics.fillRateRegressionBySlot  [field]  Map<AdSlotType, FillRateRegressionAlert> fillRateRegressionBySlot
+AdDiagnostics.lastWaterfallBySlot  [field]  Map<AdSlotType, List<String>> lastWaterfallBySlot
+AdDiagnostics.lastWaterfallBySlotFrom  [method]  Map<AdSlotType, List<String>> lastWaterfallBySlotFrom(List<Map<String, dynamic>> entries)
+AdDiagnostics.new  [constructor]  AdDiagnostics AdDiagnostics({required Map<AdSlotType, List<String>> lastWaterfallBySlot, required Map<AdSlotType, double> fillRateBySlot, int? arbitratorEstimatedEcpmMicros, double? arbitratorVetoRate, Map<AdSlotType, FillRateRegressionAlert> fillRateRegressionBySlot = const {}, int? pendingRevenueChecks, int recentRevenueIntegrityIncidents = 0})
+AdDiagnostics.pendingRevenueChecks  [field]  int? pendingRevenueChecks
+AdDiagnostics.recentRevenueIntegrityIncidents  [field]  int recentRevenueIntegrityIncidents
+AdDiagnostics.toJson  [method]  Map<String, dynamic> toJson()
+AdDiagnostics.toSafeJsonString  [method]  Future<String> toSafeJsonString({int maxBytes = 65536})
+AdDiagnostics.verifySafeJsonString  [method]  Future<bool> verifySafeJsonString(String encoded)
+AdEvent  [class]  sealed class AdEvent
+AdEvent.new  [constructor]  AdEvent AdEvent({required String providerTag, required AdSlotType type, required AdPlacement placement})
+AdEvent.placement  [field]  AdPlacement placement
+AdEvent.providerTag  [field]  String providerTag
+AdEvent.type  [field]  AdSlotType type
+AdEventLog  [class]  class AdEventLog
+AdEventLog.clear  [method]  Future<void> clear()
+AdEventLog.entries  [getter]  List<Map<String, dynamic>> get entries
+AdEventLog.flush  [method]  Future<void> flush()
+AdEventLog.inRange  [method]  List<Map<String, dynamic>> inRange({DateTime? from, DateTime? to})
+AdEventLog.new  [constructor]  AdEventLog AdEventLog(AdPreferences _prefs, {int maxEntries = 5000})
+AdEventLog.recordAdaptiveSignal  [method]  void recordAdaptiveSignal(AdaptiveFrequencySignal signal)
+AdEventLog.recordEvent  [method]  void recordEvent(AdEvent event, {int? timestampMs, String? consentCountry})
+AdEventLog.recordSafetyBlock  [method]  void recordSafetyBlock(String reason, {int? timestampMs})
+AdImpressionEvent  [class]  class AdImpressionEvent extends AdEvent
+AdImpressionEvent.new  [constructor]  AdImpressionEvent AdImpressionEvent({required String providerTag, required AdSlotType type, required AdPlacement placement})
+AdLoadEvent  [class]  class AdLoadEvent extends AdEvent
+AdLoadEvent.errorCode  [field]  int? errorCode
+AdLoadEvent.new  [constructor]  AdLoadEvent AdLoadEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required bool success, int? errorCode})
+AdLoadEvent.success  [field]  bool success
+AdLoadingDialog  [class]  class AdLoadingDialog
+AdLoadingDialog.dismiss  [method]  void dismiss()
+AdLoadingDialog.isShowing  [getter]  bool get isShowing
+AdLoadingDialog.isShowingNotifier  [field]  ValueNotifier<bool> isShowingNotifier
+AdLoadingDialog.new  [constructor]  AdLoadingDialog AdLoadingDialog()
+AdLoadingDialog.resetState  [method]  void resetState()
+AdLoadingDialog.show  [method]  void show(BuildContext context)
+AdLoadingDialog.showAdBuffer  [method]  Future<void> showAdBuffer(BuildContext context, {required void Function() onComplete, int? durationMs})
+AdLogLevel  [enum]  enum AdLogLevel
+AdLogLevel.error  [field]  AdLogLevel error
+AdLogLevel.new  [constructor]  AdLogLevel AdLogLevel()
+AdLogLevel.none  [field]  AdLogLevel none
+AdLogLevel.verbose  [field]  AdLogLevel verbose
+AdLogLevel.warning  [field]  AdLogLevel warning
+AdLogSink  [type alias]  typedef AdLogSink = void Function(AdLogLevel level, String tag, String message)
+AdManager  [class]  class AdManager with WidgetsBindingObserver
+AdManager.adMobTestDeviceHashHint  [method]  String adMobTestDeviceHashHint()
+AdManager.adapter  [getter]  AdProviderAdapter? get adapter
+AdManager.addVIPMember  [method]  void addVIPMember(List<String> gaids)
+AdManager.admobBannerView  [method]  Widget? admobBannerView(Object key)
+AdManager.admobMrecView  [method]  Widget? admobMrecView(Object key)
+AdManager.admobNativeView  [method]  Widget? admobNativeView(Object key)
+AdManager.appLovinBannerId  [getter]  String get appLovinBannerId
+AdManager.appLovinMrecId  [getter]  String get appLovinMrecId
+AdManager.appLovinNativeId  [getter]  String get appLovinNativeId
+AdManager.applyProviderFailover  [method]  AdProvider applyProviderFailover(AdProvider provider, {required ProviderFailoverAdvisor advisor})
+AdManager.applySignedFeatureFlags  [method]  Future<bool> applySignedFeatureFlags(SignedFeatureFlags payload, {required String publicKeyBase64, DateTime? now})
+AdManager.arbitrator  [getter]  MonetizationArbitrator? get arbitrator
+AdManager.bannerAdSize  [method]  ValueListenable<Size?> bannerAdSize(Object key)
+AdManager.bannerAdViewId  [method]  ValueListenable<Object?> bannerAdViewId(Object key)
+AdManager.bannerAutoRefreshEnabled  [method]  ValueListenable<bool> bannerAutoRefreshEnabled(Object key)
+AdManager.bannerHasError  [method]  ValueListenable<bool> bannerHasError(Object key)
+AdManager.bannerIsLoaded  [method]  ValueListenable<bool> bannerIsLoaded(Object key)
+AdManager.bannerRoutePaused  [method]  bool bannerRoutePaused(Object key)
+AdManager.bannerVisible  [method]  ValueListenable<bool> bannerVisible(Object key)
+AdManager.buildMonetizationDigitalTwin  [method]  MonetizationDigitalTwin? buildMonetizationDigitalTwin()
+AdManager.bypassAuditTrail  [field]  BypassAuditTrail bypassAuditTrail
+AdManager.canLoadBanner  [method]  bool canLoadBanner(Object key)
+AdManager.canLoadMrec  [method]  bool canLoadMrec(Object key)
+AdManager.canLoadNative  [method]  bool canLoadNative(Object key)
+AdManager.canRequestAds  [getter]  bool get canRequestAds
+AdManager.canRequestAdsListenable  [getter]  ValueListenable<bool> get canRequestAdsListenable
+AdManager.canShowInterstitial  [method]  bool canShowInterstitial({AdPlacement placement = AdPlacement.unspecified})
+AdManager.canShowRewardedAd  [method]  bool canShowRewardedAd({AdPlacement placement = AdPlacement.unspecified})
+AdManager.canShowRewardedInterstitialAd  [method]  bool canShowRewardedInterstitialAd({AdPlacement placement = AdPlacement.unspecified})
+AdManager.clearSdkData  [method]  Future<void> clearSdkData({SdkDataErasureScope scope = SdkDataErasureScope.everythingExceptEntitlements, bool confirmedEntitlementErasure = false})
+AdManager.config  [getter]  AdConfig? get config
+AdManager.consent  [getter]  AdConsent get consent
+AdManager.consentManager  [getter]  ConsentManager? get consentManager
+AdManager.countInitSplashScreen  [getter]  int get countInitSplashScreen
+AdManager.currentDeviceGaid  [getter]  String get currentDeviceGaid
+AdManager.deleteVIPMember  [method]  void deleteVIPMember(List<String> gaids)
+AdManager.destroy  [method]  Future<void> destroy()
+AdManager.diagnostics  [method]  AdDiagnostics diagnostics()
+AdManager.didChangeAppLifecycleState  [method]  void didChangeAppLifecycleState(AppLifecycleState state)
+AdManager.didHaveMemoryPressure  [method]  void didHaveMemoryPressure()
+AdManager.disposeBannerInstance  [method]  void disposeBannerInstance(Object key)
+AdManager.disposeMrecInstance  [method]  void disposeMrecInstance(Object key)
+AdManager.disposeNativeInstance  [method]  void disposeNativeInstance(Object key)
+AdManager.doNotSell  [getter]  bool get doNotSell
+AdManager.emitSelfHealingObservation  [method]  void emitSelfHealingObservation(WaterfallRecommendation rec)
+AdManager.enableArbitrator  [method]  void enableArbitrator(MonetizationArbitrator arbitrator)
+AdManager.enableFillRateBaselineMonitor  [method]  Future<void> enableFillRateBaselineMonitor({double regressionThreshold = 0.2, int minSamples = 5})
+AdManager.enableFillRateMonitor  [method]  void enableFillRateMonitor(FillRateMonitor monitor)
+AdManager.enableJourneyPrefetcher  [method]  void enableJourneyPrefetcher(JourneyPrefetcher prefetcher)
+AdManager.enableProviderFailoverAdvisor  [method]  void enableProviderFailoverAdvisor(ProviderFailoverAdvisor advisor)
+AdManager.enableRevenueIntegrityLedger  [method]  void enableRevenueIntegrityLedger(RevenueIntegrityLedger ledger)
+AdManager.enableSelfHealingObserver  [method]  void enableSelfHealingObserver(SelfHealingObserver observer)
+AdManager.enableWaterfallTuner  [method]  void enableWaterfallTuner(WaterfallTuner tuner)
+AdManager.events  [getter]  Stream<AdEvent> get events
+AdManager.experimentBucket  [method]  int experimentBucket(String key, {required int buckets})
+AdManager.explainLastSkip  [method]  String? explainLastSkip(AdSlotType type)
+AdManager.exportComplianceReport  [method]  ComplianceReport exportComplianceReport({DateTime? from, DateTime? to})
+AdManager.exportDisputeKit  [method]  Future<DisputeKit> exportDisputeKit({DateTime? from, DateTime? to})
+AdManager.exportSafeDiagnostics  [method]  Future<String> exportSafeDiagnostics({int maxBytes = 65536})
+AdManager.exportSignedBypassAuditTrail  [method]  Future<SignedPayload> exportSignedBypassAuditTrail()
+AdManager.exportSignedComplianceReport  [method]  Future<SignedComplianceReport> exportSignedComplianceReport({DateTime? from, DateTime? to})
+AdManager.exportSignedIncidentBundle  [method]  Future<SignedPayload> exportSignedIncidentBundle()
+AdManager.fillRateBaselineMonitor  [getter]  FillRateBaselineMonitor? get fillRateBaselineMonitor
+AdManager.fillRateMonitor  [getter]  FillRateMonitor? get fillRateMonitor
+AdManager.fullscreenBusy  [field]  ValueNotifier<bool> fullscreenBusy
+AdManager.gppConsentString  [getter]  Future<String?> get gppConsentString
+AdManager.incidentRecorder  [field]  IncidentRecorder incidentRecorder
+AdManager.incrementSplashCount  [method]  void incrementSplashCount()
+AdManager.initRevision  [field]  ValueNotifier<int> initRevision
+AdManager.initialize  [method]  Future<void> initialize({required AdConfig config, required void Function(bool, String) onComplete, RemoteAdSafetyProvider? remoteSafetyProvider, Duration? remoteSafetyAutoRefreshInterval, bool isRelease = kReleaseMode})
+AdManager.isAdMobProvider  [getter]  bool get isAdMobProvider
+AdManager.isConnected  [getter]  bool get isConnected
+AdManager.isInitialised  [getter]  bool get isInitialised
+AdManager.isOfflineListenable  [getter]  ValueListenable<bool> get isOfflineListenable
+AdManager.isPrivacyOptionsRequired  [method]  Future<bool> isPrivacyOptionsRequired()
+AdManager.isSplashActive  [getter]  bool get isSplashActive
+AdManager.isVIPMember  [method]  bool isVIPMember()
+AdManager.journeyPrefetcher  [getter]  JourneyPrefetcher? get journeyPrefetcher
+AdManager.loadAdmobBannerIfNeeded  [method]  Future<void> loadAdmobBannerIfNeeded(Object key, double widthPx)
+AdManager.loadAdmobMrecIfNeeded  [method]  Future<void> loadAdmobMrecIfNeeded(Object key, double widthPx)
+AdManager.loadAdmobNativeIfNeeded  [method]  Future<void> loadAdmobNativeIfNeeded(Object key, {TemplateType templateType = TemplateType.medium})
+AdManager.loadAppOpenAd  [method]  Future<void> loadAppOpenAd({void Function(bool)? onAdLoaded, Duration watchdog = const Duration(seconds: 30)})
+AdManager.loadInterstitial  [method]  Future<void> loadInterstitial({Duration watchdog = const Duration(seconds: 30)})
+AdManager.loadRewardedAd  [method]  Future<void> loadRewardedAd({Duration watchdog = const Duration(seconds: 30)})
+AdManager.loadRewardedInterstitialAd  [method]  Future<void> loadRewardedInterstitialAd({Duration watchdog = const Duration(seconds: 30)})
+AdManager.markSplashActive  [method]  void markSplashActive()
+AdManager.markSplashInactive  [method]  void markSplashInactive()
+AdManager.mrecAdSize  [method]  ValueListenable<Size?> mrecAdSize(Object key)
+AdManager.mrecAdViewId  [method]  ValueListenable<Object?> mrecAdViewId(Object key)
+AdManager.mrecAutoRefreshEnabled  [method]  ValueListenable<bool> mrecAutoRefreshEnabled(Object key)
+AdManager.mrecHasError  [method]  ValueListenable<bool> mrecHasError(Object key)
+AdManager.mrecIsLoaded  [method]  ValueListenable<bool> mrecIsLoaded(Object key)
+AdManager.mrecRoutePaused  [method]  bool mrecRoutePaused(Object key)
+AdManager.mrecVisible  [method]  ValueListenable<bool> mrecVisible(Object key)
+AdManager.nativeHasError  [method]  ValueListenable<bool> nativeHasError(Object key)
+AdManager.nativeIsLoaded  [method]  ValueListenable<bool> nativeIsLoaded(Object key)
+AdManager.navigatorKey  [getter]  GlobalKey<NavigatorState>? get navigatorKey
+AdManager.new  [constructor]  AdManager AdManager()
+AdManager.personalisationRevision  [field]  ValueNotifier<int> personalisationRevision
+AdManager.pickProviderCohort  [method]  AdProvider pickProviderCohort({String key = 'provider_ab_test'})
+AdManager.pickSessionProvider  [method]  Future<AdProvider> pickSessionProvider({required AdProvider installCohortProvider, double explorationRate = 0, Duration minIntervalBetweenExplorations = const Duration(days: 1), Random? debugRandom})
+AdManager.policyRiskScore  [getter]  ValueListenable<int> get policyRiskScore
+AdManager.preloadBanner  [method]  Future<void> preloadBanner(Object key)
+AdManager.preloadMrec  [method]  Future<void> preloadMrec(Object key)
+AdManager.processStartedAtMs  [getter]  int get processStartedAtMs
+AdManager.providerFailoverAdvisor  [getter]  ProviderFailoverAdvisor? get providerFailoverAdvisor
+AdManager.recordBannerLoad  [method]  void recordBannerLoad(Object key)
+AdManager.recordMrecLoad  [method]  void recordMrecLoad(Object key)
+AdManager.recordNativeLoad  [method]  void recordNativeLoad(Object key)
+AdManager.refreshRemoteSafetyParams  [method]  Future<void> refreshRemoteSafetyParams()
+AdManager.requestAtt  [method]  Future<AttResult> requestAtt()
+AdManager.requestUmpConsent  [method]  Future<UmpConsentResult> requestUmpConsent({bool testMode = false, DebugGeography? debugGeography, List<String> testIdentifiers = const [], bool tagForUnderAgeOfConsent = false, bool skipIfAlreadyRequested = false})
+AdManager.revenueAnomalies  [method]  List<RevenueAnomaly> revenueAnomalies({int minimumSamples = 5})
+AdManager.revenueIntegrityLedger  [getter]  RevenueIntegrityLedger? get revenueIntegrityLedger
+AdManager.runIntegrationSelfCheck  [method]  Future<SelfCheckResult> runIntegrationSelfCheck({Duration loadTimeout = const Duration(seconds: 15)})
+AdManager.selfHealingObserver  [getter]  SelfHealingObserver? get selfHealingObserver
+AdManager.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, bool paused)
+AdManager.setConsent  [method]  Future<void> setConsent(AdConsent consent)
+AdManager.setDoNotSell  [method]  Future<void> setDoNotSell(bool value)
+AdManager.setMrecRoutePaused  [method]  void setMrecRoutePaused(Object key, bool paused)
+AdManager.setNavigatorKey  [method]  void setNavigatorKey(GlobalKey<NavigatorState> key)
+AdManager.showAppOpenAd  [method]  Future<void> showAppOpenAd({required void Function(bool) onAdDismiss, bool bypassSafety = false, AdPlacement placement = AdPlacement.splash, String callSiteTag = 'unspecified'})
+AdManager.showAppOpenAdOnResume  [method]  void showAppOpenAdOnResume()
+AdManager.showInterstitial  [method]  Future<void> showInterstitial({required void Function(bool) onDoneFlow, AdPlacement placement = AdPlacement.unspecified})
+AdManager.showPrivacyOptions  [method]  Future<PrivacyOptionsResult> showPrivacyOptions()
+AdManager.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? ssvCustomData, String? ssvUserId, String callSiteTag = 'unspecified'})
+AdManager.showRewardedInterstitialAd  [method]  Future<void> showRewardedInterstitialAd({required void Function(bool, bool) onDone, AdPlacement placement = AdPlacement.unspecified})
+AdManager.stateSnapshot  [getter]  ValueListenable<AdSdkStateSnapshot> get stateSnapshot
+AdManager.tcfConsentString  [getter]  Future<String?> get tcfConsentString
+AdManager.usPrivacyOptedOut  [getter]  Future<bool?> get usPrivacyOptedOut
+AdManager.vip  [getter]  VipManager? get vip
+AdManager.vipReady  [getter]  ValueListenable<bool> get vipReady
+AdManager.waterfallTuner  [getter]  WaterfallTuner? get waterfallTuner
+AdMobConfig  [class]  class AdMobConfig
+AdMobConfig.androidAppOpenId  [field]  String? androidAppOpenId
+AdMobConfig.androidBannerId  [field]  String? androidBannerId
+AdMobConfig.androidInterstitialId  [field]  String? androidInterstitialId
+AdMobConfig.androidMrecId  [field]  String? androidMrecId
+AdMobConfig.androidNativeId  [field]  String? androidNativeId
+AdMobConfig.androidRewardedId  [field]  String? androidRewardedId
+AdMobConfig.androidRewardedInterstitialId  [field]  String? androidRewardedInterstitialId
+AdMobConfig.appOpenId  [getter]  String get appOpenId
+AdMobConfig.bannerId  [getter]  String get bannerId
+AdMobConfig.effectiveTestDeviceIds  [getter]  List<String> get effectiveTestDeviceIds
+AdMobConfig.interstitialId  [getter]  String get interstitialId
+AdMobConfig.iosAppOpenId  [field]  String? iosAppOpenId
+AdMobConfig.iosBannerId  [field]  String? iosBannerId
+AdMobConfig.iosInterstitialId  [field]  String? iosInterstitialId
+AdMobConfig.iosMrecId  [field]  String? iosMrecId
+AdMobConfig.iosNativeId  [field]  String? iosNativeId
+AdMobConfig.iosRewardedId  [field]  String? iosRewardedId
+AdMobConfig.iosRewardedInterstitialId  [field]  String? iosRewardedInterstitialId
+AdMobConfig.mrecId  [getter]  String get mrecId
+AdMobConfig.nativeId  [getter]  String get nativeId
+AdMobConfig.new  [constructor]  AdMobConfig AdMobConfig({required String bannerId, required String interstitialId, required String appOpenId, String rewardedId = '', String rewardedInterstitialId = '', String mrecId = '', String nativeId = '', List<String> testDeviceIds = const [], String? androidBannerId, String? iosBannerId, String? androidInterstitialId, String? iosInterstitialId, String? androidAppOpenId, String? iosAppOpenId, String? androidRewardedId, String? iosRewardedId, String? androidRewardedInterstitialId, String? iosRewardedInterstitialId, String? androidMrecId, String? iosMrecId, String? androidNativeId, String? iosNativeId})
+AdMobConfig.rewardedId  [getter]  String get rewardedId
+AdMobConfig.rewardedInterstitialId  [getter]  String get rewardedInterstitialId
+AdMobConfig.testDeviceIds  [field]  List<String> testDeviceIds
+AdPlacement  [class]  class AdPlacement
+AdPlacement.==  [method]  bool ==(Object other)
+AdPlacement.custom  [constructor]  AdPlacement AdPlacement.custom(String id)
+AdPlacement.gameOver  [field]  AdPlacement gameOver
+AdPlacement.hashCode  [getter]  int get hashCode
+AdPlacement.home  [field]  AdPlacement home
+AdPlacement.id  [field]  String id
+AdPlacement.levelComplete  [field]  AdPlacement levelComplete
+AdPlacement.settings  [field]  AdPlacement settings
+AdPlacement.shop  [field]  AdPlacement shop
+AdPlacement.splash  [field]  AdPlacement splash
+AdPlacement.toString  [method]  String toString()
+AdPlacement.unspecified  [field]  AdPlacement unspecified
+AdProvider  [enum]  enum AdProvider
+AdProvider.admob  [field]  AdProvider admob
+AdProvider.appLovin  [field]  AdProvider appLovin
+AdProvider.new  [constructor]  AdProvider AdProvider()
+AdProviderAdapter  [class]  abstract class AdProviderAdapter
+AdProviderAdapter.appLovinBannerAdViewId  [method]  ValueListenable<Object?> appLovinBannerAdViewId(Object key)
+AdProviderAdapter.appLovinBannerId  [getter]  String? get appLovinBannerId
+AdProviderAdapter.appLovinMrecAdViewId  [method]  ValueListenable<Object?> appLovinMrecAdViewId(Object key)
+AdProviderAdapter.appLovinMrecId  [getter]  String? get appLovinMrecId
+AdProviderAdapter.appLovinNativeId  [getter]  String? get appLovinNativeId
+AdProviderAdapter.appOpenSlot  [getter]  AdSlot get appOpenSlot
+AdProviderAdapter.applyConsent  [method]  void applyConsent(AdConsent consent)
+AdProviderAdapter.banner  [method]  BannerListenables banner(Object key)
+AdProviderAdapter.bannerRoutePaused  [method]  bool bannerRoutePaused(Object key)
+AdProviderAdapter.bannerSlot  [method]  AdSlot bannerSlot(Object key)
+AdProviderAdapter.bannerSlots  [getter]  Iterable<AdSlot> get bannerSlots
+AdProviderAdapter.buildAdmobBannerView  [method]  Widget? buildAdmobBannerView(Object key)
+AdProviderAdapter.buildAdmobMrecView  [method]  Widget? buildAdmobMrecView(Object key)
+AdProviderAdapter.buildAdmobNativeView  [method]  Widget? buildAdmobNativeView(Object key)
+AdProviderAdapter.canReload  [getter]  bool Function() get canReload
+AdProviderAdapter.canReload  [setter]  set canReload(bool Function() gate)
+AdProviderAdapter.discardCachedFullscreenAds  [method]  Future<void> discardCachedFullscreenAds()
+AdProviderAdapter.dispose  [method]  Future<void> dispose()
+AdProviderAdapter.disposeBannerInstance  [method]  void disposeBannerInstance(Object key)
+AdProviderAdapter.disposeMrecInstance  [method]  void disposeMrecInstance(Object key)
+AdProviderAdapter.disposeNativeInstance  [method]  void disposeNativeInstance(Object key)
+AdProviderAdapter.eventSink  [getter]  void Function(AdEvent)? get eventSink
+AdProviderAdapter.eventSink  [setter]  set eventSink(void Function(AdEvent)? sink)
+AdProviderAdapter.initialize  [method]  Future<bool> initialize(AdConfig config, {String deviceGaid = '', bool isAgeRestrictedUser = false, AdConsent? consent})
+AdProviderAdapter.interstitialSlot  [getter]  AdSlot get interstitialSlot
+AdProviderAdapter.isInitialised  [getter]  bool get isInitialised
+AdProviderAdapter.loadAppOpen  [method]  Future<void> loadAppOpen({void Function(bool)? onAdLoaded})
+AdProviderAdapter.loadBannerIfNeeded  [method]  Future<void> loadBannerIfNeeded(Object key, double widthPx)
+AdProviderAdapter.loadInterstitial  [method]  Future<void> loadInterstitial()
+AdProviderAdapter.loadMrecIfNeeded  [method]  Future<void> loadMrecIfNeeded(Object key, double widthPx)
+AdProviderAdapter.loadRewarded  [method]  Future<void> loadRewarded()
+AdProviderAdapter.loadRewardedInterstitial  [method]  Future<void> loadRewardedInterstitial()
+AdProviderAdapter.mrec  [method]  BannerListenables mrec(Object key)
+AdProviderAdapter.mrecRoutePaused  [method]  bool mrecRoutePaused(Object key)
+AdProviderAdapter.mrecSlot  [method]  AdSlot mrecSlot(Object key)
+AdProviderAdapter.mrecSlots  [getter]  Iterable<AdSlot> get mrecSlots
+AdProviderAdapter.native  [method]  BannerListenables native(Object key)
+AdProviderAdapter.nativeSlot  [method]  AdSlot nativeSlot(Object key)
+AdProviderAdapter.nativeSlots  [getter]  Iterable<AdSlot> get nativeSlots
+AdProviderAdapter.new  [constructor]  AdProviderAdapter AdProviderAdapter()
+AdProviderAdapter.onAppPaused  [method]  void onAppPaused()
+AdProviderAdapter.onAppResumed  [method]  void onAppResumed()
+AdProviderAdapter.preloadBanner  [method]  Future<void> preloadBanner(Object key)
+AdProviderAdapter.preloadMrec  [method]  Future<void> preloadMrec(Object key)
+AdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium})
+AdProviderAdapter.rewardedInterstitialSlot  [getter]  AdSlot get rewardedInterstitialSlot
+AdProviderAdapter.rewardedSlot  [getter]  AdSlot get rewardedSlot
+AdProviderAdapter.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, bool paused)
+AdProviderAdapter.setMrecRoutePaused  [method]  void setMrecRoutePaused(Object key, bool paused)
+AdProviderAdapter.showAppOpen  [method]  Future<void> showAppOpen({required void Function(bool) onDismiss})
+AdProviderAdapter.showInterstitial  [method]  Future<void> showInterstitial({required void Function(bool) onDone})
+AdProviderAdapter.showRewarded  [method]  Future<void> showRewarded({required void Function(RewardResult) onDone, String? ssvCustomData, String? ssvUserId})
+AdProviderAdapter.showRewardedInterstitial  [method]  Future<void> showRewardedInterstitial({required void Function(RewardResult) onDone})
+AdProviderAdapter.tag  [getter]  String get tag
+AdReadinessSplashController  [class]  class AdReadinessSplashController
+AdReadinessSplashController.config  [field]  AdConfig config
+AdReadinessSplashController.dispose  [method]  void dispose()
+AdReadinessSplashController.hardCapDuration  [field]  Duration hardCapDuration
+AdReadinessSplashController.new  [constructor]  AdReadinessSplashController AdReadinessSplashController({required AdConfig config, Duration hardCapDuration = const Duration(seconds: 8), bool showAppOpenOnReady = true})
+AdReadinessSplashController.showAppOpenOnReady  [field]  bool showAppOpenOnReady
+AdReadinessSplashController.start  [method]  void start(BuildContext context, {required void Function() onReady, void Function(bool, String)? onInitComplete})
+AdRetryPolicy  [class]  class AdRetryPolicy
+AdRetryPolicy.backoff  [field]  Backoff backoff
+AdRetryPolicy.canRetryNow  [method]  bool canRetryNow({required DateTime? lastErrorAt, required int consecutiveFailures, required int? lastErrorCode, Random? random})
+AdRetryPolicy.isRetryable  [field]  bool Function(int?)? isRetryable
+AdRetryPolicy.jitterFraction  [field]  double jitterFraction
+AdRetryPolicy.new  [constructor]  AdRetryPolicy AdRetryPolicy({Backoff backoff = const Backoff(), double jitterFraction = 0.0, bool Function(int?)? isRetryable, bool resetOnConnectivityRestored = false})
+AdRetryPolicy.resetOnConnectivityRestored  [field]  bool resetOnConnectivityRestored
+AdRevenueEvent  [class]  class AdRevenueEvent extends AdEvent
+AdRevenueEvent.currencyCode  [field]  String currencyCode
+AdRevenueEvent.mediationWaterfall  [field]  List<String>? mediationWaterfall
+AdRevenueEvent.networkName  [field]  String? networkName
+AdRevenueEvent.new  [constructor]  AdRevenueEvent AdRevenueEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required int valueMicros, required String currencyCode, String? networkName, String? precision, List<String>? mediationWaterfall, String? requestId})
+AdRevenueEvent.precision  [field]  String? precision
+AdRevenueEvent.requestId  [field]  String? requestId
+AdRevenueEvent.value  [getter]  double get value
+AdRevenueEvent.valueMicros  [field]  int valueMicros
+AdRewardEvent  [class]  class AdRewardEvent extends AdEvent
+AdRewardEvent.amount  [field]  num? amount
+AdRewardEvent.label  [field]  String? label
+AdRewardEvent.new  [constructor]  AdRewardEvent AdRewardEvent({required String providerTag, required AdPlacement placement, required String? label, required num? amount, bool pendingServerConfirmation = false})
+AdRewardEvent.pendingServerConfirmation  [field]  bool pendingServerConfirmation
+AdSafetyConfig  [class]  class AdSafetyConfig
+AdSafetyConfig.canShowAppOpenOnResume  [method]  AdSafetyResult canShowAppOpenOnResume({int? minIntervalOverrideMs})
+AdSafetyConfig.canShowAppOpenOnResumePeek  [method]  AdSafetyResult canShowAppOpenOnResumePeek({int? minIntervalOverrideMs})
+AdSafetyConfig.canShowFullscreenAd  [method]  AdSafetyResult canShowFullscreenAd({AdSlotType? forType, int? minIntervalOverrideMs})
+AdSafetyConfig.canShowFullscreenAdPeek  [method]  AdSafetyResult canShowFullscreenAdPeek({AdSlotType? forType, int? minIntervalOverrideMs})
+AdSafetyConfig.consumeBackgroundedFromAdClick  [method]  bool consumeBackgroundedFromAdClick()
+AdSafetyConfig.dailyCapReached  [method]  bool dailyCapReached()
+AdSafetyConfig.getPolicyRiskScore  [method]  int getPolicyRiskScore()
+AdSafetyConfig.getSessionAdCount  [method]  int getSessionAdCount()
+AdSafetyConfig.getStatus  [method]  String getStatus()
+AdSafetyConfig.getStatusSnapshot  [method]  AdSafetySnapshot getStatusSnapshot()
+AdSafetyConfig.init  [method]  Future<void> init(AdPreferences prefs, {AdSafetyParams params = const AdSafetyParams(), bool isRelease = kReleaseMode})
+AdSafetyConfig.isInvalidTrafficPauseActive  [getter]  bool get isInvalidTrafficPauseActive
+AdSafetyConfig.isNetworkFatigued  [method]  bool isNetworkFatigued(AdSlotType type)
+AdSafetyConfig.new  [constructor]  AdSafetyConfig AdSafetyConfig()
+AdSafetyConfig.placementDailyCapReached  [method]  bool placementDailyCapReached(AdPlacement placement, {int? capOverride})
+AdSafetyConfig.policyRiskScore  [field]  ValueNotifier<int> policyRiskScore
+AdSafetyConfig.recordAdClick  [method]  void recordAdClick({bool fullscreen = false})
+AdSafetyConfig.recordAppWentBackground  [method]  void recordAppWentBackground()
+AdSafetyConfig.recordBannerImpression  [method]  void recordBannerImpression()
+AdSafetyConfig.recordFullscreenAdShown  [method]  void recordFullscreenAdShown()
+AdSafetyConfig.recordNetworkShown  [method]  void recordNetworkShown(AdSlotType type, String? network)
+AdSafetyConfig.recordPlacementAdShown  [method]  void recordPlacementAdShown(AdPlacement placement)
+AdSafetyConfig.resetForReinit  [method]  void resetForReinit()
+AdSafetyConfig.resetSessionCounters  [method]  void resetSessionCounters()
+AdSafetyConfig.setAnomalySink  [method]  void setAnomalySink(void Function(AdAnomalyEvent) sink)
+AdSafetyConfig.updateParams  [method]  void updateParams(AdSafetyParams params, {bool isRelease = kReleaseMode})
+AdSafetyParams  [class]  class AdSafetyParams
+AdSafetyParams.adToBackgroundSignalWindowMs  [field]  int adToBackgroundSignalWindowMs
+AdSafetyParams.auto  [field]  AdSafetyParams auto
+AdSafetyParams.copyWith  [method]  AdSafetyParams copyWith({int? minTimeBetweenFullscreenAds, int? maxFullscreenAdsPerSession, int? minTimeAppOpenResume, int? maxClicksPerMinute, int? maxFullscreenAdsPerDay, int? maxFullscreenAdsPerHour, int? minSessionDurationBeforeAd, double? suspiciousCtrThreshold, int? maxRapidResumesPerMinute, bool? dryRun, int? adToBackgroundSignalWindowMs, Map<AdPlacement, int>? maxPerPlacementAdsPerDay, Map<String, int>? maxPerPlacementAdsPerDayById, int? maxSameNetworkShowsPerWindow, int? networkFatigueWindowMs, Set<String>? disabledFormats})
+AdSafetyParams.debug  [field]  AdSafetyParams debug
+AdSafetyParams.disabledFormats  [field]  Set<String>? disabledFormats
+AdSafetyParams.dryRun  [field]  bool dryRun
+AdSafetyParams.maxClicksPerMinute  [field]  int maxClicksPerMinute
+AdSafetyParams.maxFullscreenAdsPerDay  [field]  int maxFullscreenAdsPerDay
+AdSafetyParams.maxFullscreenAdsPerHour  [field]  int maxFullscreenAdsPerHour
+AdSafetyParams.maxFullscreenAdsPerSession  [field]  int maxFullscreenAdsPerSession
+AdSafetyParams.maxPerPlacementAdsPerDay  [field]  Map<AdPlacement, int>? maxPerPlacementAdsPerDay
+AdSafetyParams.maxPerPlacementAdsPerDayById  [field]  Map<String, int>? maxPerPlacementAdsPerDayById
+AdSafetyParams.maxRapidResumesPerMinute  [field]  int maxRapidResumesPerMinute
+AdSafetyParams.maxSameNetworkShowsPerWindow  [field]  int maxSameNetworkShowsPerWindow
+AdSafetyParams.minSessionDurationBeforeAd  [field]  int minSessionDurationBeforeAd
+AdSafetyParams.minTimeAppOpenResume  [field]  int minTimeAppOpenResume
+AdSafetyParams.minTimeBetweenFullscreenAds  [field]  int minTimeBetweenFullscreenAds
+AdSafetyParams.networkFatigueWindowMs  [field]  int networkFatigueWindowMs
+AdSafetyParams.new  [constructor]  AdSafetyParams AdSafetyParams({int minTimeBetweenFullscreenAds = 60000, int maxFullscreenAdsPerSession = 6, int minTimeAppOpenResume = 5000, int maxClicksPerMinute = 3, int maxFullscreenAdsPerDay = 5, int maxFullscreenAdsPerHour = 3, int minSessionDurationBeforeAd = 10000, double suspiciousCtrThreshold = 0.30, int maxRapidResumesPerMinute = 3, bool dryRun = false, int adToBackgroundSignalWindowMs = 300000, Map<AdPlacement, int>? maxPerPlacementAdsPerDay, Map<String, int>? maxPerPlacementAdsPerDayById, int maxSameNetworkShowsPerWindow = 4, int networkFatigueWindowMs = 900000, Set<String>? disabledFormats})
+AdSafetyParams.production  [field]  AdSafetyParams production
+AdSafetyParams.suspiciousCtrThreshold  [field]  double suspiciousCtrThreshold
+AdSafetyParams.toString  [method]  String toString()
+AdSafetyResult  [class]  class AdSafetyResult
+AdSafetyResult.canShow  [field]  bool canShow
+AdSafetyResult.new  [constructor]  AdSafetyResult AdSafetyResult(bool canShow, String reason)
+AdSafetyResult.reason  [field]  String reason
+AdSafetySnapshot  [class]  class AdSafetySnapshot
+AdSafetySnapshot.clickThroughRate  [field]  double clickThroughRate
+AdSafetySnapshot.clicksLastMinute  [field]  int clicksLastMinute
+AdSafetySnapshot.dailyAdCount  [field]  int dailyAdCount
+AdSafetySnapshot.dryRun  [field]  bool dryRun
+AdSafetySnapshot.fullscreenAdsShownInSession  [field]  int fullscreenAdsShownInSession
+AdSafetySnapshot.fullscreenClickThroughRate  [field]  double fullscreenClickThroughRate
+AdSafetySnapshot.hourlyAdCount  [field]  int hourlyAdCount
+AdSafetySnapshot.isSuspended  [field]  bool isSuspended
+AdSafetySnapshot.maxFullscreenAdsPerDay  [field]  int maxFullscreenAdsPerDay
+AdSafetySnapshot.maxFullscreenAdsPerHour  [field]  int maxFullscreenAdsPerHour
+AdSafetySnapshot.maxFullscreenAdsPerSession  [field]  int maxFullscreenAdsPerSession
+AdSafetySnapshot.new  [constructor]  AdSafetySnapshot AdSafetySnapshot({required int fullscreenAdsShownInSession, required int maxFullscreenAdsPerSession, required int hourlyAdCount, required int maxFullscreenAdsPerHour, required int dailyAdCount, required int maxFullscreenAdsPerDay, required double clickThroughRate, required double fullscreenClickThroughRate, required double suspiciousCtrThreshold, required int clicksLastMinute, required int suspiciousViolationCount, required bool isSuspended, required bool dryRun})
+AdSafetySnapshot.suspiciousCtrThreshold  [field]  double suspiciousCtrThreshold
+AdSafetySnapshot.suspiciousViolationCount  [field]  int suspiciousViolationCount
+AdSafetySnapshot.toJson  [method]  Map<String, dynamic> toJson()
+AdScreen  [class]  abstract class AdScreen extends StatefulWidget
+AdScreen.new  [constructor]  AdScreen AdScreen({Key? key})
+AdScreenRouteLogger  [class]  class AdScreenRouteLogger extends NavigatorObserver
+AdScreenRouteLogger.didPop  [method]  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute)
+AdScreenRouteLogger.didPush  [method]  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute)
+AdScreenRouteLogger.didRemove  [method]  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute)
+AdScreenRouteLogger.didReplace  [method]  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute})
+AdScreenRouteLogger.isDialogOnTop  [getter]  bool get isDialogOnTop
+AdScreenRouteLogger.isDialogOnTopNotifier  [field]  ValueNotifier<bool> isDialogOnTopNotifier
+AdScreenRouteLogger.navigationEventsObserved  [getter]  int get navigationEventsObserved
+AdScreenRouteLogger.new  [constructor]  AdScreenRouteLogger AdScreenRouteLogger()
+AdScreenRouteLogger.resetState  [method]  void resetState()
+AdScreenState  [class]  abstract class AdScreenState<T extends AdScreen> extends State<T>
+AdScreenState.buildBanner  [method]  Widget buildBanner({AdPlacement placement = AdPlacement.unspecified, bool? active})
+AdScreenState.buildMrec  [method]  Widget buildMrec({AdPlacement placement = AdPlacement.unspecified, bool? active})
+AdScreenState.buildNative  [method]  Widget buildNative({AdPlacement placement = AdPlacement.unspecified, bool active = true})
+AdScreenState.dispose  [method]  void dispose()
+AdScreenState.initState  [method]  void initState()
+AdScreenState.new  [constructor]  AdScreenState<T> AdScreenState()
+AdScreenState.showInterstitialAd  [method]  void showInterstitialAd({required void Function(bool) onDone, AdPlacement placement = AdPlacement.unspecified})
+AdScreenState.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel, String? ssvUserId, String? ssvCustomData, String callSiteTag = 'unspecified'})
+AdScreenState.showRewardedInterstitialAd  [method]  Future<void> showRewardedInterstitialAd({required void Function(bool, bool) onDone, AdPlacement placement = AdPlacement.unspecified, bool showDisclosure = true, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel})
+AdSdkStateSnapshot  [class]  class AdSdkStateSnapshot
+AdSdkStateSnapshot.==  [method]  bool ==(Object other)
+AdSdkStateSnapshot.canRequestAds  [field]  bool canRequestAds
+AdSdkStateSnapshot.fullscreenBusy  [field]  bool fullscreenBusy
+AdSdkStateSnapshot.hashCode  [getter]  int get hashCode
+AdSdkStateSnapshot.isInitialised  [field]  bool isInitialised
+AdSdkStateSnapshot.isOffline  [field]  bool isOffline
+AdSdkStateSnapshot.isVipActive  [field]  bool isVipActive
+AdSdkStateSnapshot.new  [constructor]  AdSdkStateSnapshot AdSdkStateSnapshot({required bool isInitialised, required bool canRequestAds, required bool isOffline, required bool isVipActive, required bool fullscreenBusy})
+AdSdkStateSnapshot.toString  [method]  String toString()
+AdSelfHealingObserveEvent  [class]  class AdSelfHealingObserveEvent extends AdEvent
+AdSelfHealingObserveEvent.currentScore  [field]  double currentScore
+AdSelfHealingObserveEvent.new  [constructor]  AdSelfHealingObserveEvent AdSelfHealingObserveEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required String wouldSwitchToProvider, required double currentScore, required double recommendedScore})
+AdSelfHealingObserveEvent.recommendedScore  [field]  double recommendedScore
+AdSelfHealingObserveEvent.wouldSwitchToProvider  [field]  String wouldSwitchToProvider
+AdShowEvent  [class]  class AdShowEvent extends AdEvent
+AdShowEvent.new  [constructor]  AdShowEvent AdShowEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required bool success, String? requestId})
+AdShowEvent.requestId  [field]  String? requestId
+AdShowEvent.success  [field]  bool success
+AdSkipEvent  [class]  class AdSkipEvent extends AdEvent
+AdSkipEvent.action  [field]  String action
+AdSkipEvent.new  [constructor]  AdSkipEvent AdSkipEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required String action, required String reason})
+AdSkipEvent.reason  [field]  String reason
+AdSlot  [class]  class AdSlot
+AdSlot.armLoadWatchdog  [method]  void armLoadWatchdog(String label, Duration timeout, {void Function()? onTimeout})
+AdSlot.beginLoad  [method]  bool beginLoad({Backoff backoff = defaultBackoff})
+AdSlot.beginReload  [method]  bool beginReload()
+AdSlot.beginShow  [method]  bool beginShow({void Function()? onShowNeverConfirmed})
+AdSlot.clearCooldownOnReconnect  [method]  void clearCooldownOnReconnect()
+AdSlot.consecutiveFailures  [field]  int consecutiveFailures
+AdSlot.consentEpoch  [field]  int consentEpoch
+AdSlot.defaultBackoff  [field]  Backoff defaultBackoff
+AdSlot.displayConfirmed  [getter]  bool get displayConfirmed
+AdSlot.dispose  [method]  void dispose()
+AdSlot.isCooldown  [getter]  bool get isCooldown
+AdSlot.isCooldownActive  [method]  bool isCooldownActive(int cooldownMs)
+AdSlot.isIdle  [getter]  bool get isIdle
+AdSlot.isLoading  [getter]  bool get isLoading
+AdSlot.isReady  [getter]  bool get isReady
+AdSlot.isShowing  [getter]  bool get isShowing
+AdSlot.lastErrorAt  [field]  DateTime? lastErrorAt
+AdSlot.lastErrorCode  [field]  int? lastErrorCode
+AdSlot.lastLoadedAt  [field]  DateTime? lastLoadedAt
+AdSlot.loadedUnderStaleConsent  [getter]  bool get loadedUnderStaleConsent
+AdSlot.markDismissed  [method]  void markDismissed()
+AdSlot.markDisplayed  [method]  void markDisplayed()
+AdSlot.markFailed  [method]  void markFailed({int? errorCode})
+AdSlot.markReady  [method]  void markReady()
+AdSlot.markShowFailed  [method]  void markShowFailed()
+AdSlot.new  [constructor]  AdSlot AdSlot({required AdSlotType type})
+AdSlot.pendingCallback  [field]  void Function(bool)? pendingCallback
+AdSlot.requestId  [field]  String? requestId
+AdSlot.reset  [method]  void reset()
+AdSlot.retryPolicy  [field]  AdRetryPolicy? retryPolicy
+AdSlot.showConfirmTimeout  [field]  Duration showConfirmTimeout
+AdSlot.state  [field]  ValueNotifier<AdSlotState> state
+AdSlot.toString  [method]  String toString()
+AdSlot.type  [field]  AdSlotType type
+AdSlot.value  [getter]  AdSlotState get value
+AdSlotState  [enum]  enum AdSlotState
+AdSlotState.cooldown  [field]  AdSlotState cooldown
+AdSlotState.idle  [field]  AdSlotState idle
+AdSlotState.loading  [field]  AdSlotState loading
+AdSlotState.new  [constructor]  AdSlotState AdSlotState()
+AdSlotState.ready  [field]  AdSlotState ready
+AdSlotState.showing  [field]  AdSlotState showing
+AdSlotType  [enum]  enum AdSlotType
+AdSlotType.appOpen  [field]  AdSlotType appOpen
+AdSlotType.banner  [field]  AdSlotType banner
+AdSlotType.interstitial  [field]  AdSlotType interstitial
+AdSlotType.mrec  [field]  AdSlotType mrec
+AdSlotType.native  [field]  AdSlotType native
+AdSlotType.new  [constructor]  AdSlotType AdSlotType()
+AdSlotType.rewarded  [field]  AdSlotType rewarded
+AdSlotType.rewardedInterstitial  [field]  AdSlotType rewardedInterstitial
+AdaptiveAdSurface  [class]  class AdaptiveAdSurface extends StatefulWidget
+AdaptiveAdSurface.createState  [method]  State<AdaptiveAdSurface> createState()
+AdaptiveAdSurface.mrecBreakpoint  [field]  double mrecBreakpoint
+AdaptiveAdSurface.new  [constructor]  AdaptiveAdSurface AdaptiveAdSurface({Key? key, AdPlacement placement = AdPlacement.unspecified, double mrecBreakpoint = 600, Duration resizeDebounce = const Duration(milliseconds: 200)})
+AdaptiveAdSurface.placement  [field]  AdPlacement placement
+AdaptiveAdSurface.resizeDebounce  [field]  Duration resizeDebounce
+AppLovinConfig  [class]  class AppLovinConfig
+AppLovinConfig.androidAppOpenId  [field]  String? androidAppOpenId
+AppLovinConfig.androidBannerId  [field]  String? androidBannerId
+AppLovinConfig.androidInterstitialId  [field]  String? androidInterstitialId
+AppLovinConfig.androidMrecId  [field]  String? androidMrecId
+AppLovinConfig.androidNativeId  [field]  String? androidNativeId
+AppLovinConfig.androidRewardedId  [field]  String? androidRewardedId
+AppLovinConfig.appOpenId  [getter]  String get appOpenId
+AppLovinConfig.bannerId  [getter]  String get bannerId
+AppLovinConfig.interstitialId  [getter]  String get interstitialId
+AppLovinConfig.iosAppOpenId  [field]  String? iosAppOpenId
+AppLovinConfig.iosBannerId  [field]  String? iosBannerId
+AppLovinConfig.iosInterstitialId  [field]  String? iosInterstitialId
+AppLovinConfig.iosMrecId  [field]  String? iosMrecId
+AppLovinConfig.iosNativeId  [field]  String? iosNativeId
+AppLovinConfig.iosRewardedId  [field]  String? iosRewardedId
+AppLovinConfig.mrecId  [getter]  String get mrecId
+AppLovinConfig.nativeId  [getter]  String get nativeId
+AppLovinConfig.new  [constructor]  AppLovinConfig AppLovinConfig({required String sdkKey, required String bannerId, required String interstitialId, required String appOpenId, required String rewardedId, String mrecId = '', String nativeId = '', String? androidBannerId, String? iosBannerId, String? androidInterstitialId, String? iosInterstitialId, String? androidAppOpenId, String? iosAppOpenId, String? androidRewardedId, String? iosRewardedId, String? androidMrecId, String? iosMrecId, String? androidNativeId, String? iosNativeId})
+AppLovinConfig.rewardedId  [getter]  String get rewardedId
+AppLovinConfig.sdkKey  [field]  String sdkKey
+AppOpenTrigger  [enum]  enum AppOpenTrigger
+AppOpenTrigger.both  [field]  AppOpenTrigger both
+AppOpenTrigger.new  [constructor]  AppOpenTrigger AppOpenTrigger()
+AppOpenTrigger.resumeOnly  [field]  AppOpenTrigger resumeOnly
+AppOpenTrigger.splashOnly  [field]  AppOpenTrigger splashOnly
+ArbitratorDecision  [enum]  enum ArbitratorDecision
+ArbitratorDecision.new  [constructor]  ArbitratorDecision ArbitratorDecision()
+ArbitratorDecision.nudgeVip  [field]  ArbitratorDecision nudgeVip
+ArbitratorDecision.showAd  [field]  ArbitratorDecision showAd
+ArbitratorDecisionDetail  [class]  class ArbitratorDecisionDetail
+ArbitratorDecisionDetail.decision  [field]  ArbitratorDecision decision
+ArbitratorDecisionDetail.guardrailTripped  [field]  bool guardrailTripped
+ArbitratorDecisionDetail.new  [constructor]  ArbitratorDecisionDetail ArbitratorDecisionDetail({required ArbitratorDecision decision, required String reason, required int trailingEcpmMicros, required int thresholdMicros, required bool guardrailTripped})
+ArbitratorDecisionDetail.reason  [field]  String reason
+ArbitratorDecisionDetail.thresholdMicros  [field]  int thresholdMicros
+ArbitratorDecisionDetail.trailingEcpmMicros  [field]  int trailingEcpmMicros
+ArbitratorNudgeEvent  [class]  class ArbitratorNudgeEvent extends AdEvent
+ArbitratorNudgeEvent.estimatedEcpmMicros  [field]  int estimatedEcpmMicros
+ArbitratorNudgeEvent.new  [constructor]  ArbitratorNudgeEvent ArbitratorNudgeEvent({required AdSlotType type, required AdPlacement placement, required int estimatedEcpmMicros})
+AttResult  [class]  class AttResult
+AttResult.allowsTracking  [getter]  bool get allowsTracking
+AttResult.idfa  [field]  String? idfa
+AttResult.new  [constructor]  AttResult AttResult({required AttStatus status, String? idfa})
+AttResult.status  [field]  AttStatus status
+AttResult.toString  [method]  String toString()
+AttStatus  [enum]  enum AttStatus
+AttStatus.authorized  [field]  AttStatus authorized
+AttStatus.denied  [field]  AttStatus denied
+AttStatus.new  [constructor]  AttStatus AttStatus()
+AttStatus.notDetermined  [field]  AttStatus notDetermined
+AttStatus.notSupported  [field]  AttStatus notSupported
+AttStatus.restricted  [field]  AttStatus restricted
+Backoff  [class]  class Backoff
+Backoff.baseMs  [field]  int baseMs
+Backoff.compute  [method]  int compute(int consecutiveFailures)
+Backoff.isInCooldown  [method]  bool isInCooldown({required DateTime? lastErrorAt, required int consecutiveFailures})
+Backoff.maxMs  [field]  int maxMs
+Backoff.new  [constructor]  Backoff Backoff({int baseMs = 15 * 1000, int maxMs = 30 * 60 * 1000})
+BannerAdWidget  [class]  class BannerAdWidget extends StatefulWidget
+BannerAdWidget.active  [field]  bool? active
+BannerAdWidget.collapseAnimationDuration  [field]  Duration collapseAnimationDuration
+BannerAdWidget.controller  [field]  InlineAdController? controller
+BannerAdWidget.createState  [method]  State<BannerAdWidget> createState()
+BannerAdWidget.new  [constructor]  BannerAdWidget BannerAdWidget({Key? key, Duration collapseAnimationDuration = const Duration(milliseconds: 250), AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller})
+BannerAdWidget.placement  [field]  AdPlacement placement
+BannerListenables  [class]  class BannerListenables
+BannerListenables.adSize  [field]  ValueNotifier<Size?> adSize
+BannerListenables.autoRefreshEnabled  [field]  ValueNotifier<bool> autoRefreshEnabled
+BannerListenables.clearError  [method]  void clearError()
+BannerListenables.dispose  [method]  void dispose()
+BannerListenables.hasError  [field]  ValueNotifier<bool> hasError
+BannerListenables.isLoaded  [field]  ValueNotifier<bool> isLoaded
+BannerListenables.markError  [method]  void markError()
+BannerListenables.needsRecovery  [field]  bool needsRecovery
+BannerListenables.new  [constructor]  BannerListenables BannerListenables({required ValueNotifier<bool> isLoaded, required ValueNotifier<bool> hasError, required ValueNotifier<Size?> adSize, required ValueNotifier<bool> autoRefreshEnabled, required ValueNotifier<bool> visible})
+BannerListenables.visible  [field]  ValueNotifier<bool> visible
+BoolEvent  [class]  class BoolEvent
+BoolEvent.new  [constructor]  BoolEvent BoolEvent(bool value)
+BoolEvent.value  [field]  bool value
+BypassAuditEntry  [class]  class BypassAuditEntry
+BypassAuditEntry.callSiteTag  [field]  String callSiteTag
+BypassAuditEntry.fromJson  [constructor]  BypassAuditEntry BypassAuditEntry.fromJson(Map<String, dynamic> json)
+BypassAuditEntry.kind  [field]  String kind
+BypassAuditEntry.new  [constructor]  BypassAuditEntry BypassAuditEntry({required int timestampMs, required String kind, required String callSiteTag, required String type})
+BypassAuditEntry.timestampMs  [field]  int timestampMs
+BypassAuditEntry.toJson  [method]  Map<String, dynamic> toJson()
+BypassAuditEntry.type  [field]  String type
+BypassAuditTrail  [class]  class BypassAuditTrail
+BypassAuditTrail.attach  [method]  void attach(AdPreferences prefs)
+BypassAuditTrail.clear  [method]  Future<void> clear()
+BypassAuditTrail.entries  [getter]  List<BypassAuditEntry> get entries
+BypassAuditTrail.flush  [method]  Future<void> flush()
+BypassAuditTrail.maxEntries  [field]  int maxEntries
+BypassAuditTrail.new  [constructor]  BypassAuditTrail BypassAuditTrail({int maxEntries = 200})
+BypassAuditTrail.record  [method]  void record({required String kind, required String callSiteTag, required AdSlotType type})
+BypassAuditTrail.toPayloadJson  [method]  String toPayloadJson()
+CcpaOptOutStrings  [class]  class CcpaOptOutStrings
+CcpaOptOutStrings.new  [constructor]  CcpaOptOutStrings CcpaOptOutStrings({String title = 'Do Not Sell or Share My Personal Information', String subtitle = 'California residents (CCPA/CPRA) can opt out of the ' '"sale" or "sharing" of personal information used for ' 'personalized ads. Turning this on switches ads on this device ' 'to a non-personalized mode.'})
+CcpaOptOutStrings.subtitle  [field]  String subtitle
+CcpaOptOutStrings.title  [field]  String title
+CcpaOptOutStrings.vi  [field]  CcpaOptOutStrings vi
+CcpaOptOutToggle  [class]  class CcpaOptOutToggle extends StatefulWidget
+CcpaOptOutToggle.createState  [method]  State<CcpaOptOutToggle> createState()
+CcpaOptOutToggle.new  [constructor]  CcpaOptOutToggle CcpaOptOutToggle({Key? key, CcpaOptOutStrings strings = const CcpaOptOutStrings()})
+CcpaOptOutToggle.strings  [field]  CcpaOptOutStrings strings
+CompatibilityMatrix  [class]  class CompatibilityMatrix
+CompatibilityMatrix.isSupported  [method]  bool isSupported(CompatibilityTarget target)
+CompatibilityMatrix.minimum  [field]  List<CompatibilityTarget> minimum
+CompatibilityMatrix.new  [constructor]  CompatibilityMatrix CompatibilityMatrix()
+CompatibilityMatrix.validate  [method]  void validate(Iterable<CompatibilityTarget> targets)
+CompatibilityPlatform  [enum]  enum CompatibilityPlatform
+CompatibilityPlatform.android  [field]  CompatibilityPlatform android
+CompatibilityPlatform.ios  [field]  CompatibilityPlatform ios
+CompatibilityPlatform.new  [constructor]  CompatibilityPlatform CompatibilityPlatform()
+CompatibilityProvider  [enum]  enum CompatibilityProvider
+CompatibilityProvider.admob  [field]  CompatibilityProvider admob
+CompatibilityProvider.appLovin  [field]  CompatibilityProvider appLovin
+CompatibilityProvider.new  [constructor]  CompatibilityProvider CompatibilityProvider()
+CompatibilityTarget  [class]  class CompatibilityTarget
+CompatibilityTarget.apiLevel  [field]  int apiLevel
+CompatibilityTarget.flutter  [field]  String flutter
+CompatibilityTarget.new  [constructor]  CompatibilityTarget CompatibilityTarget({required String flutter, required CompatibilityPlatform platform, required CompatibilityProvider provider, required int apiLevel})
+CompatibilityTarget.platform  [field]  CompatibilityPlatform platform
+CompatibilityTarget.provider  [field]  CompatibilityProvider provider
+ComplianceReport  [class]  class ComplianceReport
+ComplianceReport.consentAskedAt  [field]  DateTime? consentAskedAt
+ComplianceReport.consentCountByCountry  [getter]  Map<String, int> get consentCountByCountry
+ComplianceReport.consentHasBeenAsked  [field]  bool consentHasBeenAsked
+ComplianceReport.doNotSell  [field]  bool doNotSell
+ComplianceReport.events  [field]  List<Map<String, dynamic>> events
+ComplianceReport.generate  [constructor]  ComplianceReport ComplianceReport.generate({required List<Map<String, dynamic>> events, required AdSafetySnapshot safety, required ConsentSettings consent, required bool vipActive, DateTime? from, DateTime? to, DateTime? now})
+ComplianceReport.generatedAt  [field]  DateTime generatedAt
+ComplianceReport.hasUserConsent  [field]  bool hasUserConsent
+ComplianceReport.isAgeRestrictedUser  [field]  bool isAgeRestrictedUser
+ComplianceReport.new  [constructor]  ComplianceReport ComplianceReport({required DateTime generatedAt, required DateTime? rangeFrom, required DateTime? rangeTo, required AdSafetySnapshot safety, required bool hasUserConsent, required bool isAgeRestrictedUser, required bool doNotSell, required bool consentHasBeenAsked, required DateTime? consentAskedAt, required bool vipActive, required List<Map<String, dynamic>> events})
+ComplianceReport.rangeFrom  [field]  DateTime? rangeFrom
+ComplianceReport.rangeTo  [field]  DateTime? rangeTo
+ComplianceReport.redacted  [method]  ComplianceReport redacted(ReportRedactionProfile profile)
+ComplianceReport.safety  [field]  AdSafetySnapshot safety
+ComplianceReport.schemaVersion  [field]  int schemaVersion
+ComplianceReport.toJson  [method]  Map<String, dynamic> toJson()
+ComplianceReport.toJsonString  [method]  String toJsonString({bool pretty = false})
+ComplianceReport.vipActive  [field]  bool vipActive
+ConsentDialogStrings  [class]  class ConsentDialogStrings
+ConsentDialogStrings.adPartnersLabel  [field]  String? adPartnersLabel
+ConsentDialogStrings.allowButton  [field]  String allowButton
+ConsentDialogStrings.autoProvidersToken  [field]  String autoProvidersToken
+ConsentDialogStrings.message  [field]  String message
+ConsentDialogStrings.new  [constructor]  ConsentDialogStrings ConsentDialogStrings({String title = 'Privacy & Personalized Ads', String message = 'This app is free and supported by ads — you will see ' 'ads either way. With your permission, we can use your advertising ' 'ID to personalize them to your interests instead of showing ' 'generic ads. Change this anytime in Settings.', String allowButton = 'Allow personalized ads', String rejectButton = 'No thanks', String privacyPolicyLabel = 'Privacy Policy', String? privacyPolicyUrl, String? adPartnersLabel = 'Ad partners: $autoProvidersToken'})
+ConsentDialogStrings.privacyPolicyLabel  [field]  String privacyPolicyLabel
+ConsentDialogStrings.privacyPolicyUrl  [field]  String? privacyPolicyUrl
+ConsentDialogStrings.rejectButton  [field]  String rejectButton
+ConsentDialogStrings.title  [field]  String title
+ConsentDialogStrings.vi  [field]  ConsentDialogStrings vi
+ConsentFallbackReason  [enum]  enum ConsentFallbackReason
+ConsentFallbackReason.new  [constructor]  ConsentFallbackReason ConsentFallbackReason()
+ConsentFallbackReason.offline  [field]  ConsentFallbackReason offline
+ConsentFallbackReason.platformError  [field]  ConsentFallbackReason platformError
+ConsentFallbackReason.staleRevision  [field]  ConsentFallbackReason staleRevision
+ConsentFallbackReason.timeout  [field]  ConsentFallbackReason timeout
+ConsentFallbackState  [class]  class ConsentFallbackState
+ConsentFallbackState.create  [method]  ConsentFallbackState create({required String policyRevision, required ConsentFallbackReason reason, DateTime? now})
+ConsentFallbackState.decode  [constructor]  ConsentFallbackState ConsentFallbackState.decode(String? raw)
+ConsentFallbackState.encode  [method]  String encode()
+ConsentFallbackState.new  [constructor]  ConsentFallbackState ConsentFallbackState({required String policyRevision, required ConsentFallbackReason reason, required DateTime recordedAt})
+ConsentFallbackState.policyRevision  [field]  String policyRevision
+ConsentFallbackState.reason  [field]  ConsentFallbackReason reason
+ConsentFallbackState.recordedAt  [field]  DateTime recordedAt
+ConsentFallbackState.schemaVersion  [field]  int schemaVersion
+ConsentFallbackState.toJson  [method]  Map<String, dynamic> toJson()
+ConsentManager  [class]  class ConsentManager
+ConsentManager.adConsent  [getter]  AdConsent get adConsent
+ConsentManager.applyToProviders  [method]  Future<void> applyToProviders({AdConfig? config})
+ConsentManager.bootstrap  [method]  Future<ConsentManager> bootstrap({required AdPreferences prefs, required ConsentDialogStrings strings})
+ConsentManager.clearFallback  [method]  Future<void> clearFallback()
+ConsentManager.current  [getter]  ConsentSettings get current
+ConsentManager.fallback  [getter]  ConsentFallbackState? get fallback
+ConsentManager.fallbackListenable  [getter]  ValueListenable<ConsentFallbackState?> get fallbackListenable
+ConsentManager.hasBeenAsked  [getter]  bool get hasBeenAsked
+ConsentManager.instance  [getter]  ConsentManager get instance
+ConsentManager.isReady  [getter]  bool get isReady
+ConsentManager.listenable  [getter]  ValueListenable<ConsentSettings> get listenable
+ConsentManager.noteProvider  [method]  void noteProvider(AdProvider provider)
+ConsentManager.recordFallback  [method]  Future<void> recordFallback({required ConsentFallbackReason reason, required String policyRevision})
+ConsentManager.reset  [method]  Future<void> reset({AdConfig? config})
+ConsentManager.set  [method]  Future<void> set(ConsentSettings settings, {AdConfig? config})
+ConsentManager.showDialog  [method]  Future<ConsentSettings> showDialog(BuildContext context, {AdConfig? config, bool barrierDismissible = false, void Function(String)? onPrivacyPolicyTap})
+ConsentManager.showDialogIfNeeded  [method]  Future<ConsentSettings> showDialogIfNeeded(BuildContext context, {AdConfig? config, bool barrierDismissible = false})
+ConsentManager.strings  [getter]  ConsentDialogStrings get strings
+ConsentManager.updateStrings  [method]  void updateStrings(ConsentDialogStrings v)
+ConsentSettings  [class]  class ConsentSettings
+ConsentSettings.accepted  [getter]  ConsentSettings get accepted
+ConsentSettings.askedAt  [field]  DateTime? askedAt
+ConsentSettings.copyWith  [method]  ConsentSettings copyWith({bool? hasUserConsent, bool? isAgeRestrictedUser, bool? doNotSell, bool? hasBeenAsked, DateTime? askedAt, bool clearAskedAt = false, String? country, bool clearCountry = false})
+ConsentSettings.country  [field]  String? country
+ConsentSettings.decode  [method]  ConsentSettings decode(String? raw)
+ConsentSettings.doNotSell  [field]  bool doNotSell
+ConsentSettings.encode  [method]  String encode(ConsentSettings s)
+ConsentSettings.fromJson  [constructor]  ConsentSettings ConsentSettings.fromJson(Map<String, dynamic> j)
+ConsentSettings.hasBeenAsked  [field]  bool hasBeenAsked
+ConsentSettings.hasUserConsent  [field]  bool hasUserConsent
+ConsentSettings.isAgeRestrictedUser  [field]  bool isAgeRestrictedUser
+ConsentSettings.new  [constructor]  ConsentSettings ConsentSettings({bool hasUserConsent = false, bool isAgeRestrictedUser = false, bool doNotSell = false, bool hasBeenAsked = false, DateTime? askedAt, String? country})
+ConsentSettings.rejected  [getter]  ConsentSettings get rejected
+ConsentSettings.toAdConsent  [method]  AdConsent toAdConsent()
+ConsentSettings.toJson  [method]  Map<String, dynamic> toJson()
+ConsentSettings.toString  [method]  String toString()
+ConsentSettings.unset  [field]  ConsentSettings unset
+ConsentSimulationResult  [class]  class ConsentSimulationResult
+ConsentSimulationResult.admobTagForChildDirectedTreatment  [field]  String admobTagForChildDirectedTreatment
+ConsentSimulationResult.admobTagForUnderAgeOfConsent  [field]  String admobTagForUnderAgeOfConsent
+ConsentSimulationResult.appLovinCoppaForwarded  [field]  bool appLovinCoppaForwarded
+ConsentSimulationResult.appLovinDoNotSell  [field]  bool appLovinDoNotSell
+ConsentSimulationResult.appLovinHasUserConsent  [field]  bool appLovinHasUserConsent
+ConsentSimulationResult.new  [constructor]  ConsentSimulationResult ConsentSimulationResult({required bool appLovinHasUserConsent, required bool appLovinDoNotSell, required bool appLovinCoppaForwarded, required String admobTagForChildDirectedTreatment, required String admobTagForUnderAgeOfConsent})
+ConsentStatus  [enum]  enum ConsentStatus
+ConsentStatus.new  [constructor]  ConsentStatus ConsentStatus()
+ConsentStatus.notRequired  [field]  ConsentStatus notRequired
+ConsentStatus.obtained  [field]  ConsentStatus obtained
+ConsentStatus.required  [field]  ConsentStatus required
+ConsentStatus.unknown  [field]  ConsentStatus unknown
+DailyAdOutcome  [class]  class DailyAdOutcome
+DailyAdOutcome.blockedByDailyCap  [field]  int blockedByDailyCap
+DailyAdOutcome.dayKey  [field]  String dayKey
+DailyAdOutcome.new  [constructor]  DailyAdOutcome DailyAdOutcome({required String dayKey, required int shown, required int blockedByDailyCap, required int revenueMicros})
+DailyAdOutcome.revenueMicros  [field]  int revenueMicros
+DailyAdOutcome.shown  [field]  int shown
+DebugAdOverlay  [class]  class DebugAdOverlay extends StatefulWidget
+DebugAdOverlay.alignment  [field]  Alignment alignment
+DebugAdOverlay.createState  [method]  State<DebugAdOverlay> createState()
+DebugAdOverlay.enabled  [field]  bool enabled
+DebugAdOverlay.globallyVisible  [field]  ValueNotifier<bool> globallyVisible
+DebugAdOverlay.new  [constructor]  DebugAdOverlay DebugAdOverlay({Key? key, Alignment alignment = Alignment.bottomLeft, EdgeInsets padding = const EdgeInsets.all(8), bool enabled = true})
+DebugAdOverlay.padding  [field]  EdgeInsets padding
+DebugGeography  [enum]  enum DebugGeography
+DebugGeography.debugGeographyDisabled  [field]  DebugGeography debugGeographyDisabled
+DebugGeography.debugGeographyEea  [field]  DebugGeography debugGeographyEea
+DebugGeography.debugGeographyNotEea  [field]  DebugGeography debugGeographyNotEea
+DebugGeography.debugGeographyOther  [field]  DebugGeography debugGeographyOther
+DebugGeography.debugGeographyRegulatedUsState  [field]  DebugGeography debugGeographyRegulatedUsState
+DebugGeography.new  [constructor]  DebugGeography DebugGeography()
+DigitalTwinForecast  [class]  class DigitalTwinForecast
+DigitalTwinForecast.daysObserved  [field]  int daysObserved
+DigitalTwinForecast.hypotheticalDailyCap  [field]  int hypotheticalDailyCap
+DigitalTwinForecast.meanBlockedRequestsRemaining  [field]  double meanBlockedRequestsRemaining
+DigitalTwinForecast.meanDailyImpressions  [field]  double meanDailyImpressions
+DigitalTwinForecast.meanDailyRevenueMicros  [field]  double meanDailyRevenueMicros
+DigitalTwinForecast.medianDailyImpressions  [field]  double medianDailyImpressions
+DigitalTwinForecast.new  [constructor]  DigitalTwinForecast DigitalTwinForecast({required int hypotheticalDailyCap, required int daysObserved, required double meanDailyImpressions, required double medianDailyImpressions, required double meanDailyRevenueMicros, required double meanBlockedRequestsRemaining})
+DisputeKit  [class]  class DisputeKit
+DisputeKit.bypassAuditTrail  [field]  SignedPayload bypassAuditTrail
+DisputeKit.compliance  [field]  SignedComplianceReport compliance
+DisputeKit.incidentBundle  [field]  SignedPayload incidentBundle
+DisputeKit.new  [constructor]  DisputeKit DisputeKit({required SignedComplianceReport compliance, required SignedPayload bypassAuditTrail, required SignedPayload incidentBundle})
+DisputeKit.toJson  [method]  Map<String, dynamic> toJson()
+DisputeKit.toJsonString  [method]  String toJsonString({bool pretty = false})
+FakeAdProviderAdapter  [class]  class FakeAdProviderAdapter implements AdProviderAdapter
+FakeAdProviderAdapter.appLovinBannerAdViewId  [method]  ValueListenable<Object?> appLovinBannerAdViewId(Object key)
+FakeAdProviderAdapter.appLovinBannerId  [getter]  String? get appLovinBannerId
+FakeAdProviderAdapter.appLovinMrecAdViewId  [method]  ValueListenable<Object?> appLovinMrecAdViewId(Object key)
+FakeAdProviderAdapter.appLovinMrecId  [getter]  String? get appLovinMrecId
+FakeAdProviderAdapter.appLovinNativeId  [getter]  String? get appLovinNativeId
+FakeAdProviderAdapter.appOpenSlot  [field]  AdSlot appOpenSlot
+FakeAdProviderAdapter.applyConsent  [method]  void applyConsent(AdConsent consent)
+FakeAdProviderAdapter.banner  [method]  BannerListenables banner(Object key)
+FakeAdProviderAdapter.bannerRoutePaused  [method]  bool bannerRoutePaused(Object key)
+FakeAdProviderAdapter.bannerSlot  [method]  AdSlot bannerSlot(Object key)
+FakeAdProviderAdapter.bannerSlots  [getter]  Iterable<AdSlot> get bannerSlots
+FakeAdProviderAdapter.buildAdmobBannerView  [method]  Widget? buildAdmobBannerView(Object key)
+FakeAdProviderAdapter.buildAdmobMrecView  [method]  Widget? buildAdmobMrecView(Object key)
+FakeAdProviderAdapter.buildAdmobNativeView  [method]  Widget? buildAdmobNativeView(Object key)
+FakeAdProviderAdapter.canReload  [field]  bool Function() canReload
+FakeAdProviderAdapter.discardCachedFullscreenAds  [method]  Future<void> discardCachedFullscreenAds()
+FakeAdProviderAdapter.dispose  [method]  Future<void> dispose()
+FakeAdProviderAdapter.disposeBannerInstance  [method]  void disposeBannerInstance(Object key)
+FakeAdProviderAdapter.disposeMrecInstance  [method]  void disposeMrecInstance(Object key)
+FakeAdProviderAdapter.disposeNativeInstance  [method]  void disposeNativeInstance(Object key)
+FakeAdProviderAdapter.eventSink  [field]  void Function(AdEvent)? eventSink
+FakeAdProviderAdapter.initialize  [method]  Future<bool> initialize(AdConfig config, {String deviceGaid = '', bool isAgeRestrictedUser = false, AdConsent? consent})
+FakeAdProviderAdapter.interstitialSlot  [field]  AdSlot interstitialSlot
+FakeAdProviderAdapter.isInitialised  [getter]  bool get isInitialised
+FakeAdProviderAdapter.loadAppOpen  [method]  Future<void> loadAppOpen({void Function(bool)? onAdLoaded})
+FakeAdProviderAdapter.loadBannerIfNeeded  [method]  Future<void> loadBannerIfNeeded(Object key, double widthPx)
+FakeAdProviderAdapter.loadDelay  [field]  Duration loadDelay
+FakeAdProviderAdapter.loadInterstitial  [method]  Future<void> loadInterstitial()
+FakeAdProviderAdapter.loadMrecIfNeeded  [method]  Future<void> loadMrecIfNeeded(Object key, double widthPx)
+FakeAdProviderAdapter.loadRewarded  [method]  Future<void> loadRewarded()
+FakeAdProviderAdapter.loadRewardedInterstitial  [method]  Future<void> loadRewardedInterstitial()
+FakeAdProviderAdapter.mrec  [method]  BannerListenables mrec(Object key)
+FakeAdProviderAdapter.mrecRoutePaused  [method]  bool mrecRoutePaused(Object key)
+FakeAdProviderAdapter.mrecSlot  [method]  AdSlot mrecSlot(Object key)
+FakeAdProviderAdapter.mrecSlots  [getter]  Iterable<AdSlot> get mrecSlots
+FakeAdProviderAdapter.native  [method]  BannerListenables native(Object key)
+FakeAdProviderAdapter.nativeSlot  [method]  AdSlot nativeSlot(Object key)
+FakeAdProviderAdapter.nativeSlots  [getter]  Iterable<AdSlot> get nativeSlots
+FakeAdProviderAdapter.new  [constructor]  FakeAdProviderAdapter FakeAdProviderAdapter({bool shouldSucceed = true, Duration loadDelay = Duration.zero})
+FakeAdProviderAdapter.onAppPaused  [method]  void onAppPaused()
+FakeAdProviderAdapter.onAppResumed  [method]  void onAppResumed()
+FakeAdProviderAdapter.preloadBanner  [method]  Future<void> preloadBanner(Object key)
+FakeAdProviderAdapter.preloadMrec  [method]  Future<void> preloadMrec(Object key)
+FakeAdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium})
+FakeAdProviderAdapter.rewardedInterstitialSlot  [field]  AdSlot rewardedInterstitialSlot
+FakeAdProviderAdapter.rewardedSlot  [field]  AdSlot rewardedSlot
+FakeAdProviderAdapter.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, bool paused)
+FakeAdProviderAdapter.setMrecRoutePaused  [method]  void setMrecRoutePaused(Object key, bool paused)
+FakeAdProviderAdapter.shouldSucceed  [field]  bool shouldSucceed
+FakeAdProviderAdapter.showAppOpen  [method]  Future<void> showAppOpen({required void Function(bool) onDismiss})
+FakeAdProviderAdapter.showInterstitial  [method]  Future<void> showInterstitial({required void Function(bool) onDone})
+FakeAdProviderAdapter.showRewarded  [method]  Future<void> showRewarded({required void Function(RewardResult) onDone, String? ssvCustomData, String? ssvUserId})
+FakeAdProviderAdapter.showRewardedInterstitial  [method]  Future<void> showRewardedInterstitial({required void Function(RewardResult) onDone})
+FakeAdProviderAdapter.tag  [getter]  String get tag
+FillRateAlert  [class]  class FillRateAlert
+FillRateAlert.fillRate  [field]  double fillRate
+FillRateAlert.new  [constructor]  FillRateAlert FillRateAlert({required AdSlotType type, required double fillRate, required double threshold})
+FillRateAlert.threshold  [field]  double threshold
+FillRateAlert.type  [field]  AdSlotType type
+FillRateBaselineMonitor  [class]  class FillRateBaselineMonitor
+FillRateBaselineMonitor.activeAlerts  [getter]  Map<AdSlotType, FillRateRegressionAlert> get activeAlerts
+FillRateBaselineMonitor.alerts  [getter]  Stream<FillRateRegressionAlert> get alerts
+FillRateBaselineMonitor.dispose  [method]  void dispose()
+FillRateBaselineMonitor.minSamples  [field]  int minSamples
+FillRateBaselineMonitor.new  [constructor]  FillRateBaselineMonitor FillRateBaselineMonitor(AdPreferences _prefs, {double regressionThreshold = 0.2, int minSamples = 5, DateTime Function() debugClock = DateTime.now})
+FillRateBaselineMonitor.regressionThreshold  [field]  double regressionThreshold
+FillRateMonitor  [class]  class FillRateMonitor
+FillRateMonitor.alerts  [getter]  Stream<FillRateAlert> get alerts
+FillRateMonitor.dispose  [method]  void dispose()
+FillRateMonitor.fillRate  [method]  double fillRate(AdSlotType type)
+FillRateMonitor.lowFillRateThreshold  [field]  double lowFillRateThreshold
+FillRateMonitor.new  [constructor]  FillRateMonitor FillRateMonitor({double lowFillRateThreshold = 0.3, int rollingWindowSize = 20})
+FillRateRegressionAlert  [class]  class FillRateRegressionAlert
+FillRateRegressionAlert.baselineAvgRevenueMicros  [field]  int? baselineAvgRevenueMicros
+FillRateRegressionAlert.baselineFillRate  [field]  double baselineFillRate
+FillRateRegressionAlert.fillRateRegressed  [field]  bool fillRateRegressed
+FillRateRegressionAlert.new  [constructor]  FillRateRegressionAlert FillRateRegressionAlert({required AdSlotType type, required double sessionFillRate, required double baselineFillRate, required int? sessionAvgRevenueMicros, required int? baselineAvgRevenueMicros, required bool fillRateRegressed, required bool revenueRegressed})
+FillRateRegressionAlert.revenueRegressed  [field]  bool revenueRegressed
+FillRateRegressionAlert.sessionAvgRevenueMicros  [field]  int? sessionAvgRevenueMicros
+FillRateRegressionAlert.sessionFillRate  [field]  double sessionFillRate
+FillRateRegressionAlert.type  [field]  AdSlotType type
+FirstInstallVipGrace  [class]  class FirstInstallVipGrace
+FirstInstallVipGrace.auto  [field]  FirstInstallVipGrace auto
+FirstInstallVipGrace.day  [field]  FirstInstallVipGrace day
+FirstInstallVipGrace.debugShort  [field]  FirstInstallVipGrace debugShort
+FirstInstallVipGrace.disabled  [field]  FirstInstallVipGrace disabled
+FirstInstallVipGrace.duration  [field]  Duration? duration
+FirstInstallVipGrace.isEnabled  [getter]  bool get isEnabled
+FirstInstallVipGrace.new  [constructor]  FirstInstallVipGrace FirstInstallVipGrace(Duration? duration)
+FirstInstallVipGrace.toString  [method]  String toString()
+IncidentBundle  [class]  class IncidentBundle
+IncidentBundle.capture  [constructor]  IncidentBundle IncidentBundle.capture(IncidentRecorder recorder, AdConfig config, {DateTime? now})
+IncidentBundle.configFingerprint  [field]  Map<String, dynamic> configFingerprint
+IncidentBundle.entries  [field]  List<IncidentEntry> entries
+IncidentBundle.fromJsonString  [constructor]  IncidentBundle IncidentBundle.fromJsonString(String json)
+IncidentBundle.generatedAtMs  [field]  int generatedAtMs
+IncidentBundle.new  [constructor]  IncidentBundle IncidentBundle({required List<IncidentEntry> entries, required Map<String, dynamic> configFingerprint, required int generatedAtMs})
+IncidentBundle.toJson  [method]  Map<String, dynamic> toJson()
+IncidentBundle.toJsonString  [method]  String toJsonString({bool pretty = false})
+IncidentEntry  [class]  class IncidentEntry
+IncidentEntry.clockRolledBackMs  [field]  int? clockRolledBackMs
+IncidentEntry.deltaMs  [field]  int deltaMs
+IncidentEntry.fromJson  [constructor]  IncidentEntry IncidentEntry.fromJson(Map<String, dynamic> json)
+IncidentEntry.label  [field]  String label
+IncidentEntry.new  [constructor]  IncidentEntry IncidentEntry({required String label, required AdSdkStateSnapshot snapshot, required int deltaMs, int? clockRolledBackMs})
+IncidentEntry.snapshot  [field]  AdSdkStateSnapshot snapshot
+IncidentEntry.toJson  [method]  Map<String, dynamic> toJson()
+IncidentEntry.toString  [method]  String toString()
+IncidentRecorder  [class]  class IncidentRecorder
+IncidentRecorder.capacity  [field]  int capacity
+IncidentRecorder.clear  [method]  void clear()
+IncidentRecorder.entries  [getter]  List<IncidentEntry> get entries
+IncidentRecorder.new  [constructor]  IncidentRecorder IncidentRecorder({int capacity = _defaultCapacity})
+IncidentRecorder.record  [method]  void record(String label, AdSdkStateSnapshot snapshot, {DateTime? now})
+InlineAdController  [class]  class InlineAdController extends ChangeNotifier
+InlineAdController.dispose  [method]  void dispose()
+InlineAdController.isAttached  [getter]  bool get isAttached
+InlineAdController.new  [constructor]  InlineAdController InlineAdController()
+InlineAdController.pause  [method]  void pause()
+InlineAdController.refresh  [method]  void refresh()
+InlineAdController.resume  [method]  void resume()
+InlineAdController.status  [getter]  InlineAdControllerStatus get status
+InlineAdControllerStatus  [enum]  enum InlineAdControllerStatus
+InlineAdControllerStatus.active  [field]  InlineAdControllerStatus active
+InlineAdControllerStatus.detached  [field]  InlineAdControllerStatus detached
+InlineAdControllerStatus.new  [constructor]  InlineAdControllerStatus InlineAdControllerStatus()
+InlineAdControllerStatus.paused  [field]  InlineAdControllerStatus paused
+JourneyPrefetcher  [class]  class JourneyPrefetcher
+JourneyPrefetcher.autoRouteSignalType  [field]  AdSlotType? autoRouteSignalType
+JourneyPrefetcher.averageTimeToShow  [method]  Duration? averageTimeToShow(String signal, AdSlotType type)
+JourneyPrefetcher.dispose  [method]  void dispose()
+JourneyPrefetcher.maxHoldDuration  [field]  Duration maxHoldDuration
+JourneyPrefetcher.maxPendingSignalAge  [field]  Duration maxPendingSignalAge
+JourneyPrefetcher.new  [constructor]  JourneyPrefetcher JourneyPrefetcher({Duration maxHoldDuration = const Duration(minutes: 5), Duration maxPendingSignalAge = const Duration(minutes: 5), AdSlotType? autoRouteSignalType, DateTime Function() debugClock = DateTime.now})
+JourneyPrefetcher.notifySignal  [method]  void notifySignal(String signal, AdSlotType type)
+JourneyPrefetcher.routeObserver  [getter]  NavigatorObserver? get routeObserver
+MonetizationArbitrator  [class]  class MonetizationArbitrator
+MonetizationArbitrator.decide  [method]  ArbitratorDecision decide(AdSlotType slot)
+MonetizationArbitrator.decideWithContext  [method]  ArbitratorDecisionDetail decideWithContext(AdSlotType slot)
+MonetizationArbitrator.dispose  [method]  void dispose()
+MonetizationArbitrator.ecpmThresholdMicros  [field]  int ecpmThresholdMicros
+MonetizationArbitrator.estimatedEcpmMicros  [getter]  int get estimatedEcpmMicros
+MonetizationArbitrator.estimatedEcpmMicrosFor  [method]  int estimatedEcpmMicrosFor(AdSlotType slot)
+MonetizationArbitrator.maxVetoRate  [field]  double maxVetoRate
+MonetizationArbitrator.new  [constructor]  MonetizationArbitrator MonetizationArbitrator({int ecpmThresholdMicros = 5000000, Map<AdSlotType, int> perSlotThresholdMicros = const {}, double maxVetoRate = 0.5, int rollingWindowSize = 20, int decisionWindowSize = 20, FillRateBaselineMonitor? fillRateBaselineMonitor})
+MonetizationArbitrator.registerVipLikelihoodEstimator  [method]  void registerVipLikelihoodEstimator(double Function()? estimator)
+MonetizationArbitrator.vetoRate  [getter]  double get vetoRate
+MonetizationDigitalTwin  [class]  class MonetizationDigitalTwin
+MonetizationDigitalTwin.actualDailyOutcomes  [getter]  List<DailyAdOutcome> get actualDailyOutcomes
+MonetizationDigitalTwin.forecastDailyCap  [method]  DigitalTwinForecast forecastDailyCap(int hypotheticalDailyCap)
+MonetizationDigitalTwin.new  [constructor]  MonetizationDigitalTwin MonetizationDigitalTwin(List<Map<String, dynamic>> logEntries)
+MrecAdWidget  [class]  class MrecAdWidget extends StatefulWidget
+MrecAdWidget.active  [field]  bool? active
+MrecAdWidget.controller  [field]  InlineAdController? controller
+MrecAdWidget.createState  [method]  State<MrecAdWidget> createState()
+MrecAdWidget.new  [constructor]  MrecAdWidget MrecAdWidget({Key? key, AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller})
+MrecAdWidget.placement  [field]  AdPlacement placement
+NativeAdWidget  [class]  class NativeAdWidget extends StatefulWidget
+NativeAdWidget.active  [field]  bool active
+NativeAdWidget.controller  [field]  InlineAdController? controller
+NativeAdWidget.createState  [method]  State<NativeAdWidget> createState()
+NativeAdWidget.height  [field]  double? height
+NativeAdWidget.new  [constructor]  NativeAdWidget NativeAdWidget({Key? key, TemplateType templateType = TemplateType.medium, double? height, AdPlacement placement = AdPlacement.unspecified, bool active = true, InlineAdController? controller})
+NativeAdWidget.placement  [field]  AdPlacement placement
+NativeAdWidget.templateType  [field]  TemplateType templateType
+PlacementRegistry  [class]  class PlacementRegistry
+PlacementRegistry.[]  [method]  PlacementSpec? [](String placementId)
+PlacementRegistry.new  [constructor]  PlacementRegistry PlacementRegistry(Map<String, PlacementSpec> _specs)
+PlacementSpec  [class]  class PlacementSpec
+PlacementSpec.format  [field]  AdSlotType format
+PlacementSpec.frequencyCapOverride  [field]  int? frequencyCapOverride
+PlacementSpec.minIntervalOverrideMs  [field]  int? minIntervalOverrideMs
+PlacementSpec.new  [constructor]  PlacementSpec PlacementSpec({required AdSlotType format, int? frequencyCapOverride, int? minIntervalOverrideMs})
+ProviderCircuitState  [enum]  enum ProviderCircuitState
+ProviderCircuitState.closed  [field]  ProviderCircuitState closed
+ProviderCircuitState.halfOpen  [field]  ProviderCircuitState halfOpen
+ProviderCircuitState.new  [constructor]  ProviderCircuitState ProviderCircuitState()
+ProviderCircuitState.open  [field]  ProviderCircuitState open
+ProviderFailoverAdvisor  [class]  class ProviderFailoverAdvisor
+ProviderFailoverAdvisor.allowHalfOpenProbe  [method]  bool allowHalfOpenProbe()
+ProviderFailoverAdvisor.circuitState  [getter]  ProviderCircuitState get circuitState
+ProviderFailoverAdvisor.circuitTrackedProvider  [getter]  AdProvider? get circuitTrackedProvider
+ProviderFailoverAdvisor.consecutiveFailureThreshold  [field]  int consecutiveFailureThreshold
+ProviderFailoverAdvisor.cooldown  [field]  Duration cooldown
+ProviderFailoverAdvisor.dispose  [method]  Future<void> dispose({Duration timeout = const Duration(seconds: 2)})
+ProviderFailoverAdvisor.failingProvider  [getter]  AdProvider? get failingProvider
+ProviderFailoverAdvisor.new  [constructor]  ProviderFailoverAdvisor ProviderFailoverAdvisor({int consecutiveFailureThreshold = _defaultConsecutiveFailureThreshold, bool persist = true, Duration cooldown = const Duration(minutes: 5), DateTime Function()? now})
+ProviderFailoverAdvisor.ready  [getter]  Future<void> get ready
+ProviderFailoverAdvisor.shouldFailoverNextSession  [getter]  bool get shouldFailoverNextSession
+RemoteAdSafetyProvider  [class]  abstract class RemoteAdSafetyProvider
+RemoteAdSafetyProvider.fetchSafetyParamOverrides  [method]  Future<Map<String, dynamic>?> fetchSafetyParamOverrides()
+RemoteAdSafetyProvider.new  [constructor]  RemoteAdSafetyProvider RemoteAdSafetyProvider()
+ReportRedactionProfile  [class]  class ReportRedactionProfile
+ReportRedactionProfile.fullLocal  [field]  ReportRedactionProfile fullLocal
+ReportRedactionProfile.name  [field]  String name
+ReportRedactionProfile.new  [constructor]  ReportRedactionProfile ReportRedactionProfile(String name, Set<String> redactedEventFields)
+ReportRedactionProfile.redactedEventFields  [field]  Set<String> redactedEventFields
+ReportRedactionProfile.supportSafe  [field]  ReportRedactionProfile supportSafe
+RevenueAnomaly  [class]  class RevenueAnomaly
+RevenueAnomaly.kind  [field]  RevenueAnomalyKind kind
+RevenueAnomaly.message  [field]  String message
+RevenueAnomaly.new  [constructor]  RevenueAnomaly RevenueAnomaly(RevenueAnomalyKind kind, String message, {String? requestId})
+RevenueAnomaly.requestId  [field]  String? requestId
+RevenueAnomalyDetector  [class]  class RevenueAnomalyDetector
+RevenueAnomalyDetector.analyze  [method]  List<RevenueAnomaly> analyze(Iterable<Map<String, dynamic>> entries)
+RevenueAnomalyDetector.minimumSamples  [field]  int minimumSamples
+RevenueAnomalyDetector.new  [constructor]  RevenueAnomalyDetector RevenueAnomalyDetector({int minimumSamples = 5})
+RevenueAnomalyKind  [enum]  enum RevenueAnomalyKind
+RevenueAnomalyKind.currencyMismatch  [field]  RevenueAnomalyKind currencyMismatch
+RevenueAnomalyKind.duplicateImpression  [field]  RevenueAnomalyKind duplicateImpression
+RevenueAnomalyKind.new  [constructor]  RevenueAnomalyKind RevenueAnomalyKind()
+RevenueAnomalyKind.requestIdCollision  [field]  RevenueAnomalyKind requestIdCollision
+RevenueAnomalyKind.spike  [field]  RevenueAnomalyKind spike
+RevenueAnomalyKind.zeroEcpm  [field]  RevenueAnomalyKind zeroEcpm
+RevenueIntegrityLedger  [class]  class RevenueIntegrityLedger
+RevenueIntegrityLedger.dispose  [method]  void dispose()
+RevenueIntegrityLedger.matchWindow  [field]  Duration matchWindow
+RevenueIntegrityLedger.new  [constructor]  RevenueIntegrityLedger RevenueIntegrityLedger({Duration matchWindow = const Duration(seconds: 60), DateTime Function() debugClock = DateTime.now})
+RevenueIntegrityLedger.pendingCount  [getter]  int get pendingCount
+RevenuePanel  [class]  class RevenuePanel extends StatefulWidget
+RevenuePanel.compact  [field]  bool compact
+RevenuePanel.createState  [method]  State<RevenuePanel> createState()
+RevenuePanel.new  [constructor]  RevenuePanel RevenuePanel({Key? key, bool showDecimals = true, bool compact = false, bool? debugModeOverride})
+RevenuePanel.showDecimals  [field]  bool showDecimals
+RevenueTypeStats  [class]  class RevenueTypeStats
+RevenueTypeStats.impressions  [field]  int impressions
+RevenueTypeStats.new  [constructor]  RevenueTypeStats RevenueTypeStats({required double totalUsd, required int impressions})
+RevenueTypeStats.totalUsd  [field]  double totalUsd
+RewardResult  [class]  class RewardResult
+RewardResult.amount  [field]  num? amount
+RewardResult.earned  [field]  bool earned
+RewardResult.label  [field]  String? label
+RewardResult.new  [constructor]  RewardResult RewardResult({required bool earned, String? label, num? amount, bool pendingServerConfirmation = false, bool shown = false})
+RewardResult.pendingServerConfirmation  [field]  bool pendingServerConfirmation
+RewardResult.shown  [field]  bool shown
+RewardResult.skipped  [field]  RewardResult skipped
+SafeLogger  [class]  class SafeLogger
+SafeLogger.configure  [method]  void configure({AdLogLevel level = AdLogLevel.verbose, List<String>? tagFilter, void Function(AdLogLevel, String, String)? onLog})
+SafeLogger.critical  [method]  void critical(String tag, Object msg)
+SafeLogger.d  [method]  void d(String tag, Object msg)
+SafeLogger.e  [method]  void e(String tag, Object msg)
+SafeLogger.level  [getter]  AdLogLevel get level
+SafeLogger.setEnabled  [method]  void setEnabled(bool enabled)
+SafeLogger.setVerbose  [method]  void setVerbose(bool v)
+SafeLogger.w  [method]  void w(String tag, Object msg)
+SdkDataErasureScope  [enum]  enum SdkDataErasureScope
+SdkDataErasureScope.allIncludingEntitlements  [field]  SdkDataErasureScope allIncludingEntitlements
+SdkDataErasureScope.everythingExceptEntitlements  [field]  SdkDataErasureScope everythingExceptEntitlements
+SdkDataErasureScope.new  [constructor]  SdkDataErasureScope SdkDataErasureScope()
+SelfCheckItem  [class]  class SelfCheckItem
+SelfCheckItem.detail  [field]  String? detail
+SelfCheckItem.name  [field]  String name
+SelfCheckItem.new  [constructor]  SelfCheckItem SelfCheckItem(String name, SelfCheckStatus status, [String? detail])
+SelfCheckItem.status  [field]  SelfCheckStatus status
+SelfCheckItem.toJson  [method]  Map<String, dynamic> toJson()
+SelfCheckResult  [class]  class SelfCheckResult
+SelfCheckResult.allPassed  [getter]  bool get allPassed
+SelfCheckResult.items  [field]  List<SelfCheckItem> items
+SelfCheckResult.new  [constructor]  SelfCheckResult SelfCheckResult(List<SelfCheckItem> items)
+SelfCheckResult.toJson  [method]  Map<String, dynamic> toJson()
+SelfCheckStatus  [enum]  enum SelfCheckStatus
+SelfCheckStatus.fail  [field]  SelfCheckStatus fail
+SelfCheckStatus.new  [constructor]  SelfCheckStatus SelfCheckStatus()
+SelfCheckStatus.pass  [field]  SelfCheckStatus pass
+SelfCheckStatus.skipped  [field]  SelfCheckStatus skipped
+SelfHealingObserver  [class]  class SelfHealingObserver
+SelfHealingObserver.dispose  [method]  Future<void> dispose({Duration timeout = const Duration(seconds: 2)})
+SelfHealingObserver.new  [constructor]  SelfHealingObserver SelfHealingObserver({int rollingWindowSize = 20, bool persist = true, Duration reobserveAfter = const Duration(days: 7), DateTime Function() debugClock = DateTime.now})
+SelfHealingObserver.ready  [getter]  Future<void> get ready
+SelfHealingObserver.reobserveAfter  [field]  Duration reobserveAfter
+SignedComplianceReport  [class]  class SignedComplianceReport
+SignedComplianceReport.new  [constructor]  SignedComplianceReport SignedComplianceReport({required String reportJson, required String publicKeyBase64, required String signatureBase64})
+SignedComplianceReport.publicKeyBase64  [field]  String publicKeyBase64
+SignedComplianceReport.reportJson  [field]  String reportJson
+SignedComplianceReport.signatureBase64  [field]  String signatureBase64
+SignedComplianceReport.toJson  [method]  Map<String, dynamic> toJson()
+SignedComplianceReport.toJsonString  [method]  String toJsonString({bool pretty = false})
+SignedFeatureFlags  [class]  class SignedFeatureFlags
+SignedFeatureFlags.canonicalPayload  [method]  String canonicalPayload()
+SignedFeatureFlags.expiresAt  [field]  DateTime expiresAt
+SignedFeatureFlags.flags  [field]  Map<String, bool> flags
+SignedFeatureFlags.fromJson  [constructor]  SignedFeatureFlags SignedFeatureFlags.fromJson(Map<String, dynamic> json)
+SignedFeatureFlags.new  [constructor]  SignedFeatureFlags SignedFeatureFlags({required int revision, required DateTime expiresAt, required Map<String, bool> flags, required String signatureBase64})
+SignedFeatureFlags.payload  [getter]  Map<String, dynamic> get payload
+SignedFeatureFlags.revision  [field]  int revision
+SignedFeatureFlags.signatureBase64  [field]  String signatureBase64
+SignedFeatureFlags.verify  [method]  Future<bool> verify({required String publicKeyBase64, int? previousRevision, DateTime? now})
+SignedPayload  [class]  class SignedPayload
+SignedPayload.new  [constructor]  SignedPayload SignedPayload({required String payloadJson, required String publicKeyBase64, required String signatureBase64})
+SignedPayload.payloadJson  [field]  String payloadJson
+SignedPayload.publicKeyBase64  [field]  String publicKeyBase64
+SignedPayload.signatureBase64  [field]  String signatureBase64
+SignedPayload.toJson  [method]  Map<String, dynamic> toJson()
+SignedPayload.toJsonString  [method]  String toJsonString({bool pretty = false})
+SignedVipKey  [class]  class SignedVipKey
+SignedVipKey.bundleId  [field]  String? bundleId
+SignedVipKey.duration  [field]  Duration duration
+SignedVipKey.expiresAt  [field]  DateTime? expiresAt
+SignedVipKey.keyId  [field]  String keyId
+SignedVipKey.new  [constructor]  SignedVipKey SignedVipKey({required Duration duration, required String keyId, DateTime? expiresAt, String? bundleId})
+SignedVipRedeemResult  [class]  class SignedVipRedeemResult
+SignedVipRedeemResult.alreadyUsed  [constructor]  SignedVipRedeemResult SignedVipRedeemResult.alreadyUsed()
+SignedVipRedeemResult.entry  [field]  VipEntry? entry
+SignedVipRedeemResult.error  [field]  String? error
+SignedVipRedeemResult.invalid  [constructor]  SignedVipRedeemResult SignedVipRedeemResult.invalid(String error)
+SignedVipRedeemResult.isOffline  [getter]  bool get isOffline
+SignedVipRedeemResult.offline  [constructor]  SignedVipRedeemResult SignedVipRedeemResult.offline(String error)
+SignedVipRedeemResult.ok  [getter]  bool get ok
+SignedVipRedeemResult.status  [field]  VipRedeemStatus status
+SignedVipRedeemResult.success  [constructor]  SignedVipRedeemResult SignedVipRedeemResult.success(VipEntry entry)
+SimpleEventBus  [class]  class SimpleEventBus
+SimpleEventBus.clearAll  [method]  void clearAll()
+SimpleEventBus.fire  [method]  void fire(BoolEvent event)
+SimpleEventBus.listen  [method]  void listen(void Function(BoolEvent) listener)
+SimpleEventBus.new  [constructor]  SimpleEventBus SimpleEventBus()
+SimpleEventBus.remove  [method]  void remove(void Function(BoolEvent) listener)
+TemplateType  [enum]  enum TemplateType
+TemplateType.medium  [field]  TemplateType medium
+TemplateType.new  [constructor]  TemplateType TemplateType()
+TemplateType.small  [field]  TemplateType small
+TopToast  [class]  class TopToast
+TopToast.show  [method]  void show(BuildContext context, {required IconData icon, required String message, Color iconColor = const Color(0xFFFFA726), Color bgColor = const Color(0xFF1E1E2E), Duration duration = const Duration(seconds: 3)})
+UmpConsentResult  [class]  class UmpConsentResult
+UmpConsentResult.canRequestAds  [field]  bool canRequestAds
+UmpConsentResult.error  [field]  String? error
+UmpConsentResult.formShown  [field]  bool formShown
+UmpConsentResult.isNotRequired  [getter]  bool get isNotRequired
+UmpConsentResult.isObtained  [getter]  bool get isObtained
+UmpConsentResult.isRequired  [getter]  bool get isRequired
+UmpConsentResult.new  [constructor]  UmpConsentResult UmpConsentResult({required bool canRequestAds, required ConsentStatus status, String? error, bool formShown = false})
+UmpConsentResult.status  [field]  ConsentStatus status
+UmpConsentResult.toString  [method]  String toString()
+VipDialogStrings  [class]  class VipDialogStrings
+VipDialogStrings.confirmButton  [field]  String confirmButton
+VipDialogStrings.failedMessage  [field]  String failedMessage
+VipDialogStrings.failedTitle  [field]  String failedTitle
+VipDialogStrings.networkErrorMessage  [field]  String networkErrorMessage
+VipDialogStrings.new  [constructor]  VipDialogStrings VipDialogStrings({String verifyingTitle = 'Verifying', String verifyingMessage = 'Please wait a moment…', String successTitle = 'VIP Activated', String Function(String)? successMessageBuilder, String failedTitle = 'Invalid Key', String failedMessage = 'The VIP key you entered is invalid or expired.', String networkErrorMessage = 'Network error — please try again.', String confirmButton = 'OK'})
+VipDialogStrings.successMessage  [method]  String successMessage(String validUntil)
+VipDialogStrings.successMessageBuilder  [field]  String Function(String)? successMessageBuilder
+VipDialogStrings.successTitle  [field]  String successTitle
+VipDialogStrings.verifyingMessage  [field]  String verifyingMessage
+VipDialogStrings.verifyingTitle  [field]  String verifyingTitle
+VipEntry  [class]  class VipEntry
+VipEntry.decodeList  [method]  List<VipEntry> decodeList(String? raw)
+VipEntry.encodeList  [method]  String encodeList(List<VipEntry> list)
+VipEntry.expiresAt  [field]  DateTime expiresAt
+VipEntry.fromJson  [constructor]  VipEntry VipEntry.fromJson(Map<String, dynamic> j)
+VipEntry.grantedAt  [field]  DateTime grantedAt
+VipEntry.isActive  [getter]  bool get isActive
+VipEntry.isActiveAt  [method]  bool isActiveAt(DateTime now)
+VipEntry.key  [field]  String key
+VipEntry.new  [constructor]  VipEntry VipEntry({required String key, required DateTime expiresAt, required DateTime grantedAt, Set<String> stackedFrom = const <String>{}})
+VipEntry.remaining  [getter]  Duration get remaining
+VipEntry.remainingAt  [method]  Duration remainingAt(DateTime now)
+VipEntry.stackedFrom  [field]  Set<String> stackedFrom
+VipEntry.toJson  [method]  Map<String, dynamic> toJson()
+VipEntry.toString  [method]  String toString()
+VipKeyException  [class]  class VipKeyException implements Exception
+VipKeyException.message  [field]  String message
+VipKeyException.new  [constructor]  VipKeyException VipKeyException(String message)
+VipKeyException.toString  [method]  String toString()
+VipManager  [class]  class VipManager
+VipManager.acknowledgeFirstInstallGrant  [method]  void acknowledgeFirstInstallGrant()
+VipManager.acknowledgeGraceNudge  [method]  void acknowledgeGraceNudge()
+VipManager.activeListenable  [getter]  ValueListenable<bool> get activeListenable
+VipManager.activeStream  [getter]  Stream<bool> get activeStream
+VipManager.addVip  [method]  Future<VipEntry> addVip({required String key, required Duration duration, bool stack = false})
+VipManager.dispose  [method]  void dispose()
+VipManager.entries  [getter]  List<VipEntry> get entries
+VipManager.eraseAllEntitlementData  [method]  Future<void> eraseAllEntitlementData()
+VipManager.eraseSecureEntitlementStorage  [method]  Future<void> eraseSecureEntitlementStorage(AdPreferences prefs)
+VipManager.expiresAt  [getter]  DateTime? get expiresAt
+VipManager.firstInstallGrantDueListenable  [getter]  ValueListenable<bool> get firstInstallGrantDueListenable
+VipManager.futureGrantSlack  [field]  Duration futureGrantSlack
+VipManager.graceNudgeDueListenable  [getter]  ValueListenable<bool> get graceNudgeDueListenable
+VipManager.graceNudgeThreshold  [field]  Duration graceNudgeThreshold
+VipManager.isActive  [getter]  bool get isActive
+VipManager.isDisposed  [getter]  bool get isDisposed
+VipManager.kSaveDrainTimeout  [field]  Duration kSaveDrainTimeout
+VipManager.lastFirstInstallGrantDuration  [getter]  Duration? get lastFirstInstallGrantDuration
+VipManager.load  [method]  Future<void> load({String currentDeviceGaid = ''})
+VipManager.maxStackDuration  [field]  Duration? maxStackDuration
+VipManager.new  [constructor]  VipManager VipManager(AdPreferences _prefs, {Duration? maxStackDuration, Duration graceNudgeThreshold = const Duration(hours: 24), RedeemedKeyLedger? redeemedKeyLedger, VipEntriesStore? vipEntriesStore, bool isRelease = kReleaseMode, bool Function()? isConnectedCheck})
+VipManager.normaliseKey  [method]  String normaliseKey(String raw)
+VipManager.notifyFirstInstallGrant  [method]  void notifyFirstInstallGrant(Duration duration)
+VipManager.redeemSignedKey  [method]  Future<SignedVipRedeemResult> redeemSignedKey(String code, {required String publicKeyBase64, bool stack = true})
+VipManager.redeemVip  [method]  Future<bool> redeemVip(BuildContext context, {required String key, required Duration duration, required Future<bool> Function(String)? validator, required VipDialogStrings strings, bool stack = false})
+VipManager.refreshRevocationList  [method]  Future<void> refreshRevocationList({required String publicKeyBase64, required VipRevocationProvider revocationProvider})
+VipManager.resyncSessionClock  [method]  void resyncSessionClock()
+VipManager.revokeAll  [method]  Future<void> revokeAll()
+VipManager.revokeVip  [method]  Future<void> revokeVip(String key)
+VipManager.revokedGraceWindow  [field]  Duration revokedGraceWindow
+VipManager.untrustedFallbackWindow  [field]  Duration untrustedFallbackWindow
+VipRedeemScreen  [class]  class VipRedeemScreen extends StatefulWidget
+VipRedeemScreen.createState  [method]  State<VipRedeemScreen> createState()
+VipRedeemScreen.doNotSellValue  [field]  bool doNotSellValue
+VipRedeemScreen.firstInstallKey  [field]  String firstInstallKey
+VipRedeemScreen.legacyKeyPrefix  [field]  String legacyKeyPrefix
+VipRedeemScreen.new  [constructor]  VipRedeemScreen VipRedeemScreen({Key? key, required String publicKeyBase64, VipRedeemStrings strings = const VipRedeemStrings(), Duration rewardWatchAdDuration = const Duration(days: 3), void Function()? onPrivacyPolicyTap, void Function()? onPrivacyOptionsTap, bool doNotSellValue = false, void Function(bool)? onDoNotSellChanged, String firstInstallKey = '__FIRST_INSTALL__', String rewardKey = 'REWARDED_VIP', String rewardKeyPrefix = 'REWARDED_', String legacyKeyPrefix = 'LEGACY_', bool showBuySection = true})
+VipRedeemScreen.onDoNotSellChanged  [field]  void Function(bool)? onDoNotSellChanged
+VipRedeemScreen.onPrivacyOptionsTap  [field]  void Function()? onPrivacyOptionsTap
+VipRedeemScreen.onPrivacyPolicyTap  [field]  void Function()? onPrivacyPolicyTap
+VipRedeemScreen.publicKeyBase64  [field]  String publicKeyBase64
+VipRedeemScreen.rewardKey  [field]  String rewardKey
+VipRedeemScreen.rewardKeyPrefix  [field]  String rewardKeyPrefix
+VipRedeemScreen.rewardWatchAdDuration  [field]  Duration rewardWatchAdDuration
+VipRedeemScreen.showBuySection  [field]  bool showBuySection
+VipRedeemScreen.strings  [field]  VipRedeemStrings strings
+VipRedeemStatus  [enum]  enum VipRedeemStatus
+VipRedeemStatus.alreadyUsed  [field]  VipRedeemStatus alreadyUsed
+VipRedeemStatus.invalid  [field]  VipRedeemStatus invalid
+VipRedeemStatus.new  [constructor]  VipRedeemStatus VipRedeemStatus()
+VipRedeemStatus.success  [field]  VipRedeemStatus success
+VipRedeemStrings  [class]  class VipRedeemStrings
+VipRedeemStrings.activateButton  [field]  String activateButton
+VipRedeemStrings.activeEntries  [field]  String Function(int) activeEntries
+VipRedeemStrings.buy1y  [field]  String buy1y
+VipRedeemStrings.buy30d  [field]  String buy30d
+VipRedeemStrings.buy90d  [field]  String buy90d
+VipRedeemStrings.buyLifetime  [field]  String buyLifetime
+VipRedeemStrings.buyLocked  [field]  String buyLocked
+VipRedeemStrings.buyTitle  [field]  String buyTitle
+VipRedeemStrings.cancel  [field]  String cancel
+VipRedeemStrings.delete  [field]  String delete
+VipRedeemStrings.doNotSell  [field]  String doNotSell
+VipRedeemStrings.enterKeyFirst  [field]  String enterKeyFirst
+VipRedeemStrings.error  [field]  String error
+VipRedeemStrings.expiresAt  [field]  String Function(String) expiresAt
+VipRedeemStrings.failedMessage  [field]  String failedMessage
+VipRedeemStrings.firstInstall  [field]  String firstInstall
+VipRedeemStrings.keyAlreadyUsed  [field]  String keyAlreadyUsed
+VipRedeemStrings.keyHint  [field]  String keyHint
+VipRedeemStrings.legacyDevice  [field]  String legacyDevice
+VipRedeemStrings.new  [constructor]  VipRedeemStrings VipRedeemStrings({String sdkNotReady = 'VIP is not ready yet. Please try again in a moment.', String enterKeyFirst = 'Enter a VIP key first.', String successTitle = 'VIP activated 🎉', String keyAlreadyUsed = 'This key has already been used on this device.', String failedMessage = 'The VIP key you entered is invalid or expired.', String offlineMessage = 'No internet connection. Connect and try again — your key is still ' 'valid.', String watchAdSuccess = '+3 days VIP added 🎉', String watchAdFailed = 'No rewarded ad available. Please try again later.', String revoke = 'Revoke', String revokeConfirm = 'Remove this VIP entry?', String revokeAll = 'Revoke all', String revokeAllConfirm = 'Remove all active VIP entries?', String cancel = 'Cancel', String delete = 'Delete', String error = 'Something went wrong.', String statusActive = 'VIP ACTIVE', String statusInactive = 'VIP NOT ACTIVE', String statusInactiveTagline = 'Enjoy an ad-free experience with VIP.', String redeemTitle = 'Enter VIP key', String redeemSubtitle = 'Enter your activation key to unlock the ad-free ' 'experience.', String keyHint = 'Your activation key', String activateButton = 'Activate', String noEntries = 'No active VIP entries.', String firstInstall = 'Welcome gift', String legacyDevice = 'Legacy device', String rewardEntry = 'Watch-ad reward', String watchAdTitle = 'Watch ad → free VIP', String watchAdBadgeFree = 'FREE', String watchAdSubtitle = 'Watch one short ad to get 3 days of VIP for free.', String watchAdButton = 'Watch ad', String buyTitle = 'Buy VIP', String buy30d = '30 days', String buy90d = '90 days', String buy1y = '1 year', String buyLifetime = 'Lifetime', String buyLocked = 'SOON', String restoreLocked = 'Restore purchase (coming soon)', String privacyPolicy = 'Privacy Policy', String privacyOptions = 'Privacy Options', String doNotSell = 'Do Not Sell or Share My Info', String Function(String) expiresAt = _defaultExpiresAt, String Function(int) remainingDays = _defaultRemainingDays, String Function(int) remainingHours = _defaultRemainingHours, String Function(int) remainingExtraHours = _defaultRemainingExtraHours, String Function(int) activeEntries = _defaultActiveEntries})
+VipRedeemStrings.noEntries  [field]  String noEntries
+VipRedeemStrings.offlineMessage  [field]  String offlineMessage
+VipRedeemStrings.privacyOptions  [field]  String privacyOptions
+VipRedeemStrings.privacyPolicy  [field]  String privacyPolicy
+VipRedeemStrings.redeemSubtitle  [field]  String redeemSubtitle
+VipRedeemStrings.redeemTitle  [field]  String redeemTitle
+VipRedeemStrings.remainingDays  [field]  String Function(int) remainingDays
+VipRedeemStrings.remainingExtraHours  [field]  String Function(int) remainingExtraHours
+VipRedeemStrings.remainingHours  [field]  String Function(int) remainingHours
+VipRedeemStrings.restoreLocked  [field]  String restoreLocked
+VipRedeemStrings.revoke  [field]  String revoke
+VipRedeemStrings.revokeAll  [field]  String revokeAll
+VipRedeemStrings.revokeAllConfirm  [field]  String revokeAllConfirm
+VipRedeemStrings.revokeConfirm  [field]  String revokeConfirm
+VipRedeemStrings.rewardEntry  [field]  String rewardEntry
+VipRedeemStrings.sdkNotReady  [field]  String sdkNotReady
+VipRedeemStrings.statusActive  [field]  String statusActive
+VipRedeemStrings.statusInactive  [field]  String statusInactive
+VipRedeemStrings.statusInactiveTagline  [field]  String statusInactiveTagline
+VipRedeemStrings.successTitle  [field]  String successTitle
+VipRedeemStrings.watchAdBadgeFree  [field]  String watchAdBadgeFree
+VipRedeemStrings.watchAdButton  [field]  String watchAdButton
+VipRedeemStrings.watchAdFailed  [field]  String watchAdFailed
+VipRedeemStrings.watchAdSubtitle  [field]  String watchAdSubtitle
+VipRedeemStrings.watchAdSuccess  [field]  String watchAdSuccess
+VipRedeemStrings.watchAdTitle  [field]  String watchAdTitle
+VipRevocationList  [class]  class VipRevocationList
+VipRevocationList.issuedAt  [field]  DateTime issuedAt
+VipRevocationList.new  [constructor]  VipRevocationList VipRevocationList({required Set<String> revokedKeyIds, required DateTime issuedAt})
+VipRevocationList.revokedKeyIds  [field]  Set<String> revokedKeyIds
+VipRevocationProvider  [class]  abstract class VipRevocationProvider
+VipRevocationProvider.fetchSignedCrl  [method]  Future<String?> fetchSignedCrl()
+VipRevocationProvider.new  [constructor]  VipRevocationProvider VipRevocationProvider()
+WaterfallRecommendation  [class]  class WaterfallRecommendation
+WaterfallRecommendation.currentProvider  [field]  String currentProvider
+WaterfallRecommendation.currentScore  [field]  double currentScore
+WaterfallRecommendation.new  [constructor]  WaterfallRecommendation WaterfallRecommendation({required AdSlotType type, required AdPlacement placement, required String recommendedProvider, required String currentProvider, required double recommendedScore, required double currentScore})
+WaterfallRecommendation.placement  [field]  AdPlacement placement
+WaterfallRecommendation.recommendedProvider  [field]  String recommendedProvider
+WaterfallRecommendation.recommendedScore  [field]  double recommendedScore
+WaterfallRecommendation.type  [field]  AdSlotType type
+WaterfallTuner  [class]  class WaterfallTuner
+WaterfallTuner.dispose  [method]  Future<void> dispose({Duration timeout = const Duration(seconds: 2)})
+WaterfallTuner.minSampleSize  [field]  int minSampleSize
+WaterfallTuner.new  [constructor]  WaterfallTuner WaterfallTuner({int rollingWindowSize = _defaultRollingWindowSize, bool persist = true})
+WaterfallTuner.ready  [getter]  Future<void> get ready
+WaterfallTuner.recommendation  [method]  WaterfallRecommendation? recommendation({required AdSlotType type, required AdPlacement placement, required String currentProvider})
+adMayAppearEn  [getter]  String get adMayAppearEn
+adMayAppearVi  [getter]  String get adMayAppearVi
+adPlsNoteEn  [getter]  String get adPlsNoteEn
+adPlsNoteVi  [getter]  String get adPlsNoteVi
+adRouteObserver  [getter]  RouteObserver<ModalRoute<void>> get adRouteObserver
+applyRemoteSafetyOverrides  [function]  AdSafetyParams applyRemoteSafetyOverrides(AdSafetyParams local, Map<String, dynamic> overrides)
+bootstrap  [function]  Future<AdBootstrapResult> bootstrap(AdBootstrapOptions options, {Future<AttResult> Function()? debugRequestAtt, Future<UmpConsentResult> Function()? debugRequestUmp})
+customOverlayOnScreen  [getter]  ValueNotifier<bool> get customOverlayOnScreen
+debugFormDismissTimeoutOverride  [getter]  Duration? get debugFormDismissTimeoutOverride
+debugFormDismissTimeoutOverride=  [setter]  set debugFormDismissTimeoutOverride(Duration? _debugFormDismissTimeoutOverride)
+kQaTestDeviceHashes  [getter]  List<String> get kQaTestDeviceHashes
+kUmpPolicyRevision  [getter]  String get kUmpPolicyRevision
+markCustomOverlayOnScreen  [function]  void markCustomOverlayOnScreen(bool value)
+redactedConfigFingerprint  [function]  Map<String, dynamic> redactedConfigFingerprint(AdConfig config)
+replayIncidentBundleJson  [function]  List<IncidentEntry> replayIncidentBundleJson(String bundleJson)
+requestAttIfNeeded  [function]  Future<AttResult> requestAttIfNeeded({bool Function()? platformIsIosOverride, Future<TrackingStatus> Function()? readStatusOverride, Future<TrackingStatus> Function()? requestAuthorizationOverride, Future<String> Function()? readIdfaOverride})
+requestUmpConsentFlow  [function]  Future<UmpConsentResult> requestUmpConsentFlow({bool testMode = false, DebugGeography? debugGeography, List<String> testIdentifiers = const [], bool tagForUnderAgeOfConsent = false})
+resolvePlatformAdUnitId  [function]  String resolvePlatformAdUnitId({required String fallback, required String? androidId, required String? iosId, required bool isAndroid, required bool isIos})
+showAdSafeModalBottomSheet  [function]  Future<T?> showAdSafeModalBottomSheet<T>({required BuildContext context, required Widget Function(BuildContext) builder, Color? backgroundColor, ShapeBorder? shape, bool isScrollControlled = false, bool isDismissible = true, bool enableDrag = true, bool useSafeArea = false, BoxConstraints? constraints, RouteSettings? routeSettings})
+showConsentDialog  [function]  Future<ConsentSettings?> showConsentDialog(BuildContext context, {required ConsentDialogStrings strings, required ConsentSettings current, bool barrierDismissible = false, void Function(String)? onPrivacyPolicyTap, String? autoProviderNames})
+signBypassAuditTrail  [function]  Future<SignedPayload> signBypassAuditTrail(BypassAuditTrail trail)
+signComplianceReport  [function]  Future<SignedComplianceReport> signComplianceReport(ComplianceReport report, {FlutterSecureStorage? secureStorage})
+signIncidentBundle  [function]  Future<SignedPayload> signIncidentBundle(IncidentBundle bundle)
+signJsonPayload  [function]  Future<SignedPayload> signJsonPayload(String payloadJson, {FlutterSecureStorage? secureStorage})
+simulateConsentOutcome  [function]  ConsentSimulationResult simulateConsentOutcome(AdConsent consent, {AdConfig? config})
+verifySignedComplianceReportJson  [function]  Future<bool> verifySignedComplianceReportJson(String bundleJson)
+verifySignedCrl  [function]  Future<VipRevocationList> verifySignedCrl(String code, {required String publicKeyBase64})
+verifySignedJsonPayload  [function]  Future<bool> verifySignedJsonPayload(String bundleJson)
+verifySignedVipKey  [function]  Future<SignedVipKey> verifySignedVipKey(String code, {required String publicKeyBase64, String? currentBundleId, DateTime? now})

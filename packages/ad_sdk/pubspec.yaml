@@ -133,6 +133,11 @@ dev_dependencies:
   # question the real store never receives, and so passed for four audit rounds
   # while `tcfConsentString` returned null on every device (MJ2).
   shared_preferences_platform_interface: '>=2.4.0 <3.0.0'
+  # T217 — test/api_golden_test.dart walks the resolved public export
+  # namespace of lib/applovin_admob_sdk.dart to catch breaking API changes.
+  # Dev-only: never shipped to a consuming app's dependency graph.
+  analyzer: ^7.3.0
+  path: ^1.9.0
 
 flutter:
   # This package does not use flutter_lints or other Flutter artifacts.

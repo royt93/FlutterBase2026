@@ -2710,6 +2710,40 @@ That was a bug in 1.0.14 — sub-second waits truncated to zero. Fixed in 1.0.15
 
 ---
 
+## API stability & deprecation policy (T217)
+
+This package follows [semantic versioning](https://semver.org/): a `MAJOR`
+bump means a breaking change, `MINOR` means new backwards-compatible API,
+`PATCH` means a fix with no API change. The "Migration" section below is the
+historical record of this in practice — every version jump so far has been
+"no breaking change" or "deprecations, not removals" (see 1.x → 2.x).
+
+- **Deprecating something:** mark it `@Deprecated('use X instead')` (never
+  delete it outright in the same release). It stays callable, with a
+  compile-time warning, for **at least one MINOR version** before an actual
+  removal — which itself only happens in a MAJOR bump, called out explicitly
+  in `CHANGELOG.md` and the "Migration" section above.
+- **Marking something not yet stable:** new, still-evolving API is tagged
+  `@experimental` (from `package:meta`) in its doc comment while it's being
+  shakedown-tested — a signal it may still change shape based on early
+  feedback, lifted once it's proven out over a release or two.
+- **Enforcement — the API golden test:** `test/api_golden_test.dart` walks
+  the fully resolved public export surface of
+  `lib/applovin_admob_sdk.dart` (every class/enum/top-level symbol a host
+  actually sees, and every public member declared on each — see
+  `tool/api_surface.dart`'s doc comment for exactly what counts and what's
+  deliberately excluded, namely `@internal`/`@visibleForTesting` seams)
+  and fails on any diff from the checked-in
+  `test/goldens/public_api_surface.txt`. A hand-written changelog entry is
+  easy to forget mid-refactor; a failing test in the same `flutter test` run
+  as everything else is not. On a genuine, intentional API change:
+  1. Update `CHANGELOG.md`.
+  2. Regenerate the golden file:
+     `dart run tool/api_surface.dart > test/goldens/public_api_surface.txt`
+  3. Review that diff like any other code change before committing it.
+
+---
+
 ## Migration
 
 See `doc/AD_PROMPT_FLUTTER.MD` → Appendix D for a step-by-step guide (merged from the former `MIGRATION.md`, 2026-08-20).
