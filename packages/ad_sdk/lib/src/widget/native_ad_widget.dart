@@ -13,6 +13,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'inline_ad_controller.dart';
 import 'shimmer_view.dart';
 
 /// Native ad widget — provider-agnostic.
@@ -70,7 +71,13 @@ class NativeAdWidget extends StatefulWidget {
     this.height,
     this.placement = AdPlacement.unspecified,
     this.active = true,
-  });
+    this.controller,
+  }) : assert(
+          active || controller == null,
+          'Pass either active: false or a controller, not both — attach a '
+          'controller and call pause() instead of also passing active: '
+          'false.',
+        );
 
   /// T107 — tags this instance for analytics/per-placement caps, same as
   /// the `placement` param on `showInterstitialAd`/`showRewardedAd`.
@@ -81,6 +88,14 @@ class NativeAdWidget extends StatefulWidget {
   /// `BannerAdWidget.active`/`MrecAdWidget.active` (no automatic fallback
   /// here — pass it explicitly wherever this widget could mount hidden).
   final bool active;
+
+  /// T201 — imperative refresh/pause/resume/status handle for this ONE
+  /// instance. Mutually exclusive with `active: false` (asserted in the
+  /// constructor) — see `BannerAdWidget.controller`'s doc comment.
+  /// Pausing a native instance disposes it (there is no auto-refresh
+  /// ticker to merely suspend, unlike Banner/MREC); resuming re-loads it
+  /// through the same gates a fresh mount would.
+  final InlineAdController? controller;
 
   /// AdMob's built-in native template layout. Ignored by AppLovin (no
   /// equivalent concept — `MaxNativeAdView` is a custom-drawn layout).
@@ -96,7 +111,8 @@ class NativeAdWidget extends StatefulWidget {
   State<NativeAdWidget> createState() => _NativeAdWidgetState();
 }
 
-class _NativeAdWidgetState extends State<NativeAdWidget> {
+class _NativeAdWidgetState extends State<NativeAdWidget>
+    implements InlineAdControllerTarget {
   static const String _tag = 'NativeAdWidget';
 
   double get _height =>
@@ -143,12 +159,17 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     // load previously failed and reset `_allowed`, same as every other
     // retry path in this class — see `_onCanRequestAdsChanged`).
     if (widget.active && !_allowed.value) _initNative();
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.detach(this);
+      widget.controller?.attach(this);
+    }
   }
 
   @override
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState');
+    widget.controller?.attach(this);
     // T154 — active: false (e.g. an IndexedStack tab that isn't the
     // initially-selected one) must never load in the first place; the
     // didUpdateWidget hook above picks it up once it flips to true.
@@ -252,7 +273,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     // below (mgr.isInitialised/isVIPMember/canRequestAds/...) — those
     // callers already rely on `_initNative()` alone being the source of
     // truth, not on their own schedule-time pre-filter.
-    if (!widget.active) {
+    if (!widget.active || _pausedByController) {
       SafeLogger.d(_tag, '_initNative ⏭️ inactive');
       return;
     }
@@ -308,8 +329,48 @@ class _NativeAdWidgetState extends State<NativeAdWidget> {
     }
   }
 
+  // ─── InlineAdControllerTarget (T201) ────────────────────────────────────
+
+  @override
+  void controllerRefresh() {
+    if (!mounted) return;
+    final mgr = AdManager();
+    if (!mgr.canLoadNative(this)) {
+      SafeLogger.d(_tag, 'controllerRefresh ⏭️ cooldown');
+      return;
+    }
+    SafeLogger.d(_tag, 'controllerRefresh — reloading');
+    mgr.disposeNativeInstance(this);
+    _allowed.value = false;
+    _initNative();
+  }
+
+  @override
+  void controllerSetPaused(bool paused) {
+    // T201 — native has no auto-refresh ticker to merely suspend
+    // (see this class's doc comment), so "paused" disposes the live
+    // instance outright and "resumed" reloads it through the same gates
+    // a fresh mount would — `_initNative`'s own top check on
+    // `_pausedByController` is what actually keeps it from reloading
+    // itself right back while still paused.
+    if (!mounted) return;
+    if (paused) {
+      if (!_allowed.value) return;
+      SafeLogger.d(_tag, 'controller paused — disposing native instance');
+      AdManager().disposeNativeInstance(this);
+      _allowed.value = false;
+      return;
+    }
+    if (!_allowed.value) _initNative();
+  }
+
+  /// T201 — see `BannerAdWidget._pausedByController`'s doc comment.
+  bool get _pausedByController =>
+      widget.controller?.status == InlineAdControllerStatus.paused;
+
   @override
   void dispose() {
+    widget.controller?.detach(this);
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     AdManager()
         .personalisationRevision

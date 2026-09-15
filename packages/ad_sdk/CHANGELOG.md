@@ -6,6 +6,31 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T201):** `InlineAdController` — an imperative `refresh()`/`pause()`/
+  `resume()`/`status` handle a host attaches to ONE `BannerAdWidget`/
+  `MrecAdWidget`/`NativeAdWidget` instance (new `controller` param on all
+  three, mutually exclusive with `active`), instead of juggling its own
+  `active: bool` state variable and forcing a rebuild every time it
+  changes, or reaching for `AdManager`'s singleton methods (which have no
+  notion of "this one slot" and risk touching every other placement using
+  the same format). Every command only ever calls into that widget's own
+  existing gated methods — `refresh()` respects the same
+  consent/VIP/connectivity/cooldown gate an automatic reload already
+  does (silently skipped, never forced, while in cooldown); `pause()`/
+  `resume()` reuse the exact same path `VisibilityDetector`/route-away
+  already use for Banner/MREC, and dispose-and-reload for Native (no
+  auto-refresh ticker to merely suspend there). A command issued before
+  any widget has attached is remembered, not lost, and replays once the
+  next widget attaches. `dispose()` is idempotent. Fixed two related gaps
+  found while building this: returning to a route (`didPopNext`) used to
+  silently reload a Banner/MREC a host had explicitly paused via the new
+  controller if a real route push/pop happened in between (a pre-existing,
+  narrower version of the same gap for plain `active: false` — outside
+  this fix's scope, left for a follow-up); and a controller-driven
+  `pause()`/`resume()` invoked from outside any build phase or route
+  transition could leave a deferred `addPostFrameCallback` stuck
+  unscheduled.
+
 - **New (T200):** `AdManager().clearSdkData({scope, confirmedEntitlementErasure})`
   — a scoped, privacy-safe data-erasure API. Unlike
   `AdPreferences.clearAllData()` (still available, but now documented as

@@ -11,6 +11,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'inline_ad_controller.dart';
 import 'shimmer_view.dart';
 
 /// MREC (medium rectangle, 300x250) ad widget — provider-agnostic.
@@ -32,7 +33,12 @@ class MrecAdWidget extends StatefulWidget {
     super.key,
     this.placement = AdPlacement.unspecified,
     this.active,
-  });
+    this.controller,
+  }) : assert(
+          active == null || controller == null,
+          'Pass either active or controller, not both — controller owns '
+          'pause/resume once attached.',
+        );
 
   /// T107 — tags this instance for analytics/per-placement caps, same as
   /// the `placement` param on `showInterstitialAd`/`showRewardedAd`.
@@ -42,11 +48,18 @@ class MrecAdWidget extends StatefulWidget {
   /// this widget follows the identical pattern.
   final bool? active;
 
+  /// T201 — imperative refresh/pause/resume/status handle for this ONE
+  /// instance. Mutually exclusive with [active] (asserted in the
+  /// constructor) — see `BannerAdWidget.controller`'s doc comment.
+  final InlineAdController? controller;
+
   @override
   State<MrecAdWidget> createState() => _MrecAdWidgetState();
 }
 
-class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
+class _MrecAdWidgetState extends State<MrecAdWidget>
+    with RouteAware
+    implements InlineAdControllerTarget {
   static const String _tag = 'MrecAdWidget';
 
   final ValueNotifier<bool> _initStarted = ValueNotifier<bool>(false);
@@ -77,9 +90,37 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     // See `BannerAdWidget._onVisibilityChanged`'s doc comment for why this
     // must be checked explicitly here.
     if (!mounted) return;
-    if (widget.active != null) return; // host has taken manual control
+    if (widget.active != null || widget.controller != null) return;
     _applyVisibility(info.visibleFraction > 0);
   }
+
+  // ─── InlineAdControllerTarget (T201) ────────────────────────────────────
+
+  @override
+  void controllerRefresh() {
+    if (!mounted) return;
+    final mgr = AdManager();
+    if (!mgr.canLoadMrec(this)) {
+      SafeLogger.d(_tag, 'controllerRefresh ⏭️ cooldown');
+      return;
+    }
+    SafeLogger.d(_tag, 'controllerRefresh — reloading');
+    mgr.disposeMrecInstance(this);
+    _allowed.value = false;
+    _initMrec(context);
+  }
+
+  @override
+  void controllerSetPaused(bool paused) {
+    if (!mounted) return;
+    _applyVisibility(!paused);
+    // T201 — see BannerAdWidget.controllerSetPaused's matching comment.
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  /// T201 — see `BannerAdWidget._pausedByController`'s doc comment.
+  bool get _pausedByController =>
+      widget.controller?.status == InlineAdControllerStatus.paused;
 
   void _applyVisibility(bool visible) {
     final last = _lastEffectiveVisible;
@@ -101,12 +142,17 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     super.didUpdateWidget(oldWidget);
     final active = widget.active;
     if (active != null) _applyVisibility(active);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.detach(this);
+      widget.controller?.attach(this);
+    }
   }
 
   @override
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState');
+    widget.controller?.attach(this);
     AdManager().canRequestAdsListenable.addListener(_onCanRequestAdsChanged);
     // M1 — withdrawing personalisation does NOT close the canRequestAds gate,
     // so the listener above never fires for it and this widget would keep
@@ -131,7 +177,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
     // Round-39 audit re-review (MAJOR) — see BannerAdWidget's matching
     // comment: this consent-driven reinit path is independent of the
     // active-param gate and must respect it too.
-    if (widget.active == false) return;
+    if (widget.active == false || _pausedByController) return;
     if (_initScheduled) return;
     _initScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -149,7 +195,8 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
           !_initScheduled &&
           mgr.isInitialised &&
           !mgr.isVIPMember() &&
-          widget.active != false) {
+          widget.active != false &&
+          !_pausedByController) {
         _initScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _initScheduled = false;
@@ -205,7 +252,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
       // Round-39 audit re-review (MAJOR) — mounting directly with
       // active: false must never load in the first place; see
       // BannerAdWidget's matching comment for the full reasoning.
-      if (widget.active == false) {
+      if (widget.active == false || _pausedByController) {
         _lastEffectiveVisible = false;
       } else {
         _initMrec(context);
@@ -294,15 +341,19 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
 
   @override
   void didPopNext() {
-    final mgr = AdManager();
-    if (!mgr.isAdMobProvider) {
-      mgr.setMrecRoutePaused(this, false);
-    } else if (!_admobIsTop.value) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _admobIsTop.value = true;
-        _initMrec(context);
-      });
+    // T201 — see BannerAdWidget.didPopNext's matching comment: returning
+    // to this route must not silently override a controller-driven pause.
+    if (!_pausedByController) {
+      final mgr = AdManager();
+      if (!mgr.isAdMobProvider) {
+        mgr.setMrecRoutePaused(this, false);
+      } else if (!_admobIsTop.value) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _admobIsTop.value = true;
+          _initMrec(context);
+        });
+      }
     }
     super.didPopNext();
   }
@@ -315,6 +366,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
 
   @override
   void dispose() {
+    widget.controller?.detach(this);
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     AdManager()
         .personalisationRevision
@@ -351,7 +403,8 @@ class _MrecAdWidgetState extends State<MrecAdWidget> with RouteAware {
         if (!_allowed.value &&
             !_initScheduled &&
             AdManager().isInitialised &&
-            widget.active != false) {
+            widget.active != false &&
+            !_pausedByController) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;

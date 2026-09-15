@@ -110,6 +110,8 @@ export 'src/widget/ad_readiness_splash_controller.dart';
 export 'src/widget/adaptive_ad_surface.dart';
 export 'src/widget/banner_ad_widget.dart';
 export 'src/widget/debug_ad_overlay.dart';
+export 'src/widget/inline_ad_controller.dart'
+    show InlineAdController, InlineAdControllerStatus;
 export 'src/widget/mrec_ad_widget.dart';
 export 'src/widget/native_ad_widget.dart';
 export 'src/widget/revenue_panel.dart';

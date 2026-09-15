@@ -736,6 +736,15 @@ class HomePage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const ClearSdkDataDemoPage())),
           ),
           DemoTile(
+            icon: Icons.settings_remote,
+            title: 'Inline ad controller (T201)',
+            subtitle:
+                'InlineAdController — refresh/pause/resume one slot, no rebuild',
+            color: Colors.teal,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const InlineAdControllerDemoPage())),
+          ),
+          DemoTile(
             icon: Icons.cloud_sync,
             title: 'Remote safety provider (T88)',
             subtitle: 'RemoteAdSafetyProvider — live push, no app release',
@@ -4656,6 +4665,91 @@ class _ClearSdkDataDemoPageState extends State<ClearSdkDataDemoPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// T201 — InlineAdController demo
+// ─────────────────────────────────────────────────────────────────────────
+
+class InlineAdControllerDemoPage extends StatefulWidget {
+  const InlineAdControllerDemoPage({super.key});
+
+  @override
+  State<InlineAdControllerDemoPage> createState() =>
+      _InlineAdControllerDemoPageState();
+}
+
+class _InlineAdControllerDemoPageState
+    extends State<InlineAdControllerDemoPage> {
+  final _bannerController = InlineAdController();
+  final _mrecController = InlineAdController();
+  final _nativeController = InlineAdController();
+
+  @override
+  void dispose() {
+    _bannerController.dispose();
+    _mrecController.dispose();
+    _nativeController.dispose();
+    super.dispose();
+  }
+
+  Widget _section(String title, InlineAdController controller, Widget ad) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            ad,
+            const SizedBox(height: 8),
+            ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) => Text('status: ${controller.status.name}'),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                ElevatedButton(
+                  onPressed: controller.refresh,
+                  child: const Text('Refresh'),
+                ),
+                ElevatedButton(
+                  onPressed: controller.pause,
+                  child: const Text('Pause'),
+                ),
+                ElevatedButton(
+                  onPressed: controller.resume,
+                  child: const Text('Resume'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Inline ad controller (T201)')),
+      body: ListView(
+        padding: bottomSafe(context, const EdgeInsets.symmetric(vertical: 8)),
+        children: [
+          _section('Banner', _bannerController,
+              BannerAdWidget(controller: _bannerController)),
+          _section('MREC', _mrecController,
+              MrecAdWidget(controller: _mrecController)),
+          _section('Native', _nativeController,
+              NativeAdWidget(controller: _nativeController)),
+        ],
       ),
     );
   }

@@ -831,6 +831,61 @@ You should see the splash screen, then a splash app-open ad (if available), then
 - ✅ **App Open ad auto-skips while a dialog/modal is on top** (1.0.23) — it never stacks over the consent dialog, a VIP redeem confirmation, or any bottom sheet.
 - ✅ **Anti-fraud** multi-layer safety gate protects your AdMob/AppLovin account.
 
+### Imperative inline ad control (T201)
+
+`BannerAdWidget`/`MrecAdWidget`/`NativeAdWidget` normally manage their own
+lifecycle entirely on their own (route-aware pause/resume, scroll-visibility,
+consent gating). For the rarer case where a host needs to imperatively
+`refresh()`/`pause()`/`resume()` ONE specific slot — e.g. a "reload ad" button
+next to a feed item, or pausing just the ad in a video player's overlay while
+it plays — attach an `InlineAdController` instead of juggling your own
+`active: bool` state variable and forcing a rebuild every time it changes:
+
+```dart
+final _bannerController = InlineAdController();
+
+@override
+void dispose() {
+  _bannerController.dispose(); // idempotent — safe even if never attached
+  super.dispose();
+}
+
+@override
+Widget build(BuildContext context) => Column(
+      children: [
+        BannerAdWidget(controller: _bannerController),
+        ElevatedButton(
+          onPressed: _bannerController.refresh,
+          child: const Text('Reload ad'),
+        ),
+        ElevatedButton(
+          onPressed: _bannerController.pause,
+          child: const Text('Pause'),
+        ),
+      ],
+    );
+```
+
+- `refresh()` re-requests an ad for that one slot — through the exact same
+  consent/VIP/connectivity/cooldown gate an automatic reload already goes
+  through. A refresh requested during cooldown is silently skipped, never
+  forced past the gate.
+- `pause()`/`resume()` reuse the same path route-away/scroll-away already use
+  for Banner/MREC; for Native (no auto-refresh ticker to merely suspend) they
+  dispose and reload the instance.
+- `controller.status` (`InlineAdControllerStatus.detached` / `.active` /
+  `.paused`) reflects whether a widget is currently attached and paused —
+  listen to it directly (`InlineAdController` is a `ChangeNotifier`) or wrap
+  it in a `ListenableBuilder`.
+- Pass either `active` or `controller`, never both on the same widget — the
+  constructor asserts against it.
+- A command issued before any widget has attached (or between a dispose and
+  a later re-mount) is remembered, not lost — it applies once the next
+  widget attaches.
+- One controller drives at most one mounted widget at a time; attaching it
+  to a second widget while still attached to another is a usage error
+  (asserts in debug).
+
 ---
 
 ## Configuration reference
