@@ -64,11 +64,34 @@ void main() {
       controller.dispose();
     });
 
-    test('attach() to a second target while already attached asserts', () {
+    // Audit finding (self-review) — this used to assert here, on the
+    // assumption a second attach while still attached could only be a
+    // real usage error. It isn't: a widget Key change makes Flutter mount
+    // the replacement's new State (attach) BEFORE disposing the old one
+    // (detach) — a legitimate remount the old assert crashed on (caught
+    // via an isolated widget-test repro in
+    // inline_ad_controller_widget_test.dart). Last attach wins instead.
+    test(
+        'attach() to a second target while already attached does not '
+        'throw — last attach wins (a real widget Key-change remount '
+        'attaches the new target before the old one ever detaches)', () {
       final controller = InlineAdController();
-      controller.attach(_FakeTarget());
+      final first = _FakeTarget();
+      final second = _FakeTarget();
+      controller.attach(first);
 
-      expect(() => controller.attach(_FakeTarget()), throwsAssertionError);
+      expect(() => controller.attach(second), returnsNormally);
+      expect(controller.isAttached, isTrue);
+
+      // The old target's stale, late detach() must be a safe no-op — it
+      // must not clear the NEWER attach.
+      controller.detach(first);
+      expect(controller.isAttached, isTrue,
+          reason: 'a stale detach from the first (no longer current) '
+              'target must not clear the second target\'s attachment');
+
+      controller.detach(second);
+      expect(controller.isAttached, isFalse);
       controller.dispose();
     });
   });

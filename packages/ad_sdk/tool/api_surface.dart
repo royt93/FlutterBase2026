@@ -23,6 +23,16 @@
 // inherited ones — inheriting from Flutter's own `StatefulWidget`/`State`/
 // etc. would otherwise flood this with framework noise this package does
 // not own and cannot break.
+//
+// Known gap (audit finding, self-review, no codex available this
+// session): only walks members on `InterfaceElement2` (classes/enums/
+// mixins/extension types) — a plain `extension Foo on Bar { ... }` is an
+// `ExtensionElement2`, not an `InterfaceElement2`, so only its top-level
+// declaration line would be recorded here, never its methods. Adding or
+// removing a method inside an already-exported extension would silently
+// NOT show up as an API diff. Currently moot — this package exports no
+// `extension` today (confirmed via grep) — but re-check this if one is
+// ever added.
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';

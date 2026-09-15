@@ -341,6 +341,37 @@ void main() {
       ledger.dispose();
     });
 
+    // Audit finding (self-review, no codex available this session) — the
+    // FIFO fallback used to consider EVERY pending entry for the key, even
+    // ones that carry their OWN distinct requestId. Two shows of the same
+    // (providerTag, type, placement) pending at once (A dismissed → reload
+    // → B, before A's slow revenue callback arrives) let an orphaned
+    // revenue event for A "resolve" B instead — silently misattributing
+    // revenue and masking A's real gap, the opposite of what an exact-ID
+    // match is supposed to guarantee.
+    test(
+        'an orphaned requestId does NOT fall back to FIFO-matching a '
+        'DIFFERENT pending show that has its own distinct requestId',
+        () async {
+      final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60));
+      // Show A has its own known requestId — it must only ever be
+      // resolved by that exact id, never by an unrelated orphaned one.
+      AdManager().debugEmit(_show(requestId: 'req-A'));
+      await _flush();
+
+      // A revenue event with a requestId that matches NOTHING pending
+      // (simulates a late/orphaned callback for an already-timed-out show).
+      AdManager().debugEmit(_revenue(requestId: 'req-orphan'));
+      await _flush();
+
+      expect(ledger.pendingCount, 1,
+          reason: 'show A (its own distinct requestId) must still be '
+              'pending — an orphaned, non-matching requestId must not '
+              'silently consume it via FIFO fallback');
+      ledger.dispose();
+    });
+
     test('omitting requestId on both sides is the exact pre-T185 fallback '
         'behavior — unchanged', () async {
       final ledger = RevenueIntegrityLedger(

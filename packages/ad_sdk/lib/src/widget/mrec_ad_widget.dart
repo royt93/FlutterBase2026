@@ -99,6 +99,12 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
   @override
   void controllerRefresh() {
     if (!mounted) return;
+    // Audit finding (self-review) — see BannerAdWidget.controllerRefresh's
+    // matching comment: refresh() must not silently resume a paused slot.
+    if (_pausedByController) {
+      SafeLogger.d(_tag, 'controllerRefresh ⏭️ paused');
+      return;
+    }
     final mgr = AdManager();
     if (!mgr.canLoadMrec(this)) {
       SafeLogger.d(_tag, 'controllerRefresh ⏭️ cooldown');

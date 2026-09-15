@@ -97,6 +97,18 @@ Future<SignedComplianceReport> signComplianceReport(
 /// "double-check inside the lock" step is needed on top of that: the
 /// existing read-storage-first order already gives every non-concurrent
 /// caller the up-to-date value.
+///
+/// Audit finding (self-review, no codex available this session) — this
+/// lock is keyed globally, not per-[FlutterSecureStorage] instance: two
+/// concurrent callers passing DIFFERENT `storage` instances would still
+/// share one in-flight completer, so the second caller's own `storage`
+/// would never actually be read from or written to — it would silently
+/// receive a key pair minted against the first caller's storage instead.
+/// Harmless today because every real call site passes
+/// `const FlutterSecureStorage()`, which canonicalizes to one identical
+/// const instance — but this is narrower than "serializes every call"
+/// might suggest if a future caller ever passed a distinct instance
+/// (e.g. per-profile or per-test isolation).
 Completer<SimpleKeyPair>? _pendingKeyPairLoad;
 
 Future<SimpleKeyPair> _loadOrCreateKeyPair(FlutterSecureStorage storage) {

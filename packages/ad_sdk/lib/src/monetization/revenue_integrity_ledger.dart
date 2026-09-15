@@ -98,11 +98,11 @@ class RevenueIntegrityLedger {
         _pending.removeAt(exactIndex);
         return;
       }
-      // Fallback (pre-T185 behavior, unchanged) — FIFO: no requestId was
-      // available on one or both sides, so the OLDEST still-pending show
-      // for this (providerTag, type, placement) is the best-effort match —
-      // matches the order revenue callbacks almost always arrive in for a
-      // given key, and avoids an arbitrary/unstable match choice.
+      // Fallback — FIFO: no EXACT requestId match was found, so the
+      // OLDEST still-pending show for this (providerTag, type, placement)
+      // is the best-effort match — matches the order revenue callbacks
+      // almost always arrive in for a given key, and avoids an
+      // arbitrary/unstable match choice.
       //
       // T150 — `type` was missing from this key until here: an app showing
       // two different ad formats at the same placement (e.g. both left at
@@ -110,7 +110,21 @@ class RevenueIntegrityLedger {
       // revenue event for one format FIFO-match a pending show of the
       // OTHER format, silently "paying off" the wrong show and hiding a
       // genuine gap on whichever format actually lost its callback.
+      //
+      // Audit finding (self-review, no codex available this session) —
+      // this fallback pool used to include EVERY pending entry for the
+      // key, even ones that themselves carry their own (different,
+      // non-matching) requestId. Two fullscreen shows of the same
+      // type/placement pending at once (show A dismissed → reload → show
+      // B, before A's slow revenue callback arrives) let a late/orphaned
+      // revenue event for A FIFO-match B's entry instead, even though B
+      // has its own distinct requestId — silently "resolving" the wrong
+      // show and masking a genuine gap. Restricting the fallback to
+      // requestId-less entries is what "resolved EXACTLY — no guessing"
+      // (this class's own doc comment) actually requires: an entry with
+      // its own known ID may only ever be resolved by that exact ID.
       final index = _pending.indexWhere((p) =>
+          p.requestId == null &&
           p.providerTag == event.providerTag &&
           p.type == event.type &&
           p.placement == event.placement);

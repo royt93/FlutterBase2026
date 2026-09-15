@@ -288,6 +288,13 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   @override
   void controllerRefresh() {
     if (!mounted) return;
+    // Audit finding (self-review) — refresh() must not silently resume a
+    // slot the controller has paused; every other reinit path already
+    // gates on this, this one was missed.
+    if (_pausedByController) {
+      SafeLogger.d(_tag, 'controllerRefresh ⏭️ paused');
+      return;
+    }
     final mgr = AdManager();
     if (!mgr.canLoadBanner(this)) {
       SafeLogger.d(_tag, 'controllerRefresh ⏭️ cooldown');

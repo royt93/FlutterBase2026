@@ -123,15 +123,20 @@ class InlineAdController extends ChangeNotifier {
 
   /// Called by the widget's `State.initState`/`didUpdateWidget` — not a
   /// public API.
+  ///
+  /// Audit finding (self-review, no codex available this session) — this
+  /// used to `assert(_target == null)` here, on the assumption a second
+  /// attach while still attached could only be a real usage error (the
+  /// same controller wired to two simultaneously-mounted widgets). It
+  /// isn't: changing a widget's `Key` forces Flutter to mount the
+  /// replacement's new State (calling this) BEFORE deactivating/disposing
+  /// the old one (calling [detach]) — a real, legitimate remount, not a
+  /// bug, and the assert crashed on it. Last attach wins instead; the old
+  /// State's later, stale [detach] call is already a safe no-op (its
+  /// `identical()` check no longer matches).
   @internal
   void attach(InlineAdControllerTarget target) {
     if (_disposed) return;
-    assert(
-      _target == null,
-      'InlineAdController is already attached to another inline ad '
-      'widget — one controller can only drive one mounted '
-      'BannerAdWidget/MrecAdWidget/NativeAdWidget at a time.',
-    );
     _target = target;
     if (_paused) target.controllerSetPaused(true);
     if (_pendingRefresh) {

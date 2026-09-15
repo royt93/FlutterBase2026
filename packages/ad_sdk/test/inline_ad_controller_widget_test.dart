@@ -334,6 +334,38 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    // Audit finding (self-review, no codex available this session) —
+    // changing a widget's Key forces Flutter to mount a brand-new
+    // Element/State for it before deactivating/disposing the old one, so
+    // the NEW State's initState() (attach()) runs before the OLD State's
+    // dispose() (detach()) — the reverse order didUpdateWidget-only
+    // rebuilds (the test above) go through. attach()'s old hard
+    // `assert(_target == null)` fired on exactly this real, legitimate
+    // pattern (same stable controller, but the widget it controls gets a
+    // new Key — e.g. a host resetting a slot for a fresh instance).
+    testWidgets(
+        'reusing the same controller across a real remount (Key change, '
+        'not just a rebuild) does not crash — last attach wins, and the '
+        'stale detach from the old State is a safe no-op', (tester) async {
+      await tester.pumpWidget(host(BannerAdWidget(
+          key: const ValueKey('first'), controller: controller)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.isAttached, isTrue);
+
+      // A DIFFERENT key — a real remount, not a rebuild of the same
+      // Element: the new State's initState() runs (attach()) before the
+      // old State's dispose() (detach()) does.
+      await tester.pumpWidget(host(BannerAdWidget(
+          key: const ValueKey('second'), controller: controller)));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(tester.takeException(), isNull,
+          reason: 'a Key-change remount reusing the same controller must '
+              'not crash via attach()\'s own-target assertion');
+      expect(controller.isAttached, isTrue,
+          reason: 'the new widget instance must end up attached');
+    });
+
     testWidgets('refresh() reloads through the same cooldown gate — '
         'skipped while in cooldown, applied once reset', (tester) async {
       await tester.pumpWidget(host(BannerAdWidget(controller: controller)));
@@ -369,6 +401,35 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
       expect(controller.status, InlineAdControllerStatus.active);
       expect(adapter.loadBannerCalls, 2);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Audit finding (self-review, no codex available this session) —
+    // NativeAdWidget's _initNative() checks _pausedByController as its own
+    // single authoritative gate, so controllerRefresh() calling into it is
+    // automatically covered. Banner/MREC's _initBanner()/_initMrec() have
+    // no such internal check (every OTHER call site gates itself before
+    // calling in) — controllerRefresh() was added without that gate,
+    // meaning a refresh() call while paused silently un-pauses and reloads.
+    testWidgets(
+        'refresh() while paused does not silently resume it — status '
+        'stays paused, no reload happens', (tester) async {
+      await tester.pumpWidget(host(BannerAdWidget(controller: controller)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+
+      controller.pause();
+      await tester.pump();
+      expect(adapter.disposeCalls, 1);
+
+      AdManager().debugResetBannerCooldown();
+      controller.refresh();
+      await tester.pump();
+
+      expect(controller.status, InlineAdControllerStatus.paused,
+          reason: 'refresh() must not silently resume a paused slot');
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'no reload must have happened while still paused');
       expect(tester.takeException(), isNull);
     });
 
@@ -475,6 +536,27 @@ void main() {
       controller.resume();
       await tester.pump(const Duration(milliseconds: 50));
       expect(adapter.loadMrecCalls, 2);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'refresh() while paused does not silently resume it — status '
+        'stays paused, no reload happens', (tester) async {
+      await tester.pumpWidget(host(MrecAdWidget(controller: controller)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadMrecCalls, 1);
+
+      controller.pause();
+      await tester.pump();
+      expect(adapter.disposeCalls, 1);
+
+      AdManager().debugResetMrecCooldown();
+      controller.refresh();
+      await tester.pump();
+
+      expect(controller.status, InlineAdControllerStatus.paused);
+      expect(adapter.loadMrecCalls, 1,
+          reason: 'no reload must have happened while still paused');
       expect(tester.takeException(), isNull);
     });
   });

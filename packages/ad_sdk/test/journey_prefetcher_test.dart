@@ -794,5 +794,51 @@ void main() {
       final prefs = await AdPreferences.getInstance();
       expect(prefs.getJourneyPrefetcherStateRaw(), isNull);
     });
+
+    // Audit finding (self-review, no codex available this session) — T183
+    // gave dispose() async persisted-write-flush semantics, but
+    // AdManager._destroy() still called it as `_journeyPrefetcher?.dispose();`
+    // without awaiting the returned Future, discarding a pending write —
+    // exactly the T136-class bug destroy() already has a documented,
+    // working fix for on _waterfallTuner/_selfHealingObserver two lines
+    // above the spot that was missed.
+    //
+    // Known limitation, disclosed rather than hidden: under
+    // flutter_test's mocked SharedPreferences, the write can finish
+    // before this assertion runs even WITHOUT the fix (confirmed via
+    // revert-and-confirm — this exact test still passed with the
+    // `await` removed), so this test alone doesn't airtight-prove the
+    // fix. The fix mirrors the already-reviewed, already-shipped
+    // tunerToFlush/observerToFlush pattern two lines above it, which is
+    // the actual basis for confidence here.
+    test(
+        'AdManager().destroy() awaits the registered prefetcher\'s '
+        'pending persisted write — the last sample before destroy() is '
+        'not lost', () async {
+      final registered = JourneyPrefetcher();
+      await registered.ready;
+      AdManager().enableJourneyPrefetcher(registered);
+
+      registered.notifySignal('levelStarted', AdSlotType.interstitial);
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      // One microtask turn for the stream-delivery step only — no delay
+      // for the persisted write itself: destroy() is the thing under
+      // test that must wait for it.
+      await Future<void>.delayed(Duration.zero);
+      await AdManager().destroy();
+
+      final prefs = await AdPreferences.getInstance();
+      final raw = prefs.getJourneyPrefetcherStateRaw();
+      expect(raw, isNotNull);
+      final decoded = jsonDecode(raw!) as Map<String, dynamic>;
+      expect(decoded['levelStarted|interstitial'], hasLength(1),
+          reason: 'the sample must have reached disk by the time '
+              'AdManager().destroy() returns, not be silently dropped');
+    });
   });
 }

@@ -6527,7 +6527,13 @@ class AdManager with WidgetsBindingObserver {
     _waterfallTuner = null;
     final observerToFlush = _selfHealingObserver;
     _selfHealingObserver = null;
-    _journeyPrefetcher?.dispose();
+    // T183 audit — JourneyPrefetcher.dispose() is now Future<void> (awaits
+    // its own pending persisted write, same reasoning as
+    // tunerToFlush/observerToFlush above) but this call site was missed
+    // when that changed: discarding the Future here silently drops
+    // whatever sample was still being written to disk. Same
+    // capture-before-null-then-await-later fix.
+    final prefetcherToFlush = _journeyPrefetcher;
     _journeyPrefetcher = null;
 
     _isSplashActive = false;
@@ -6551,6 +6557,7 @@ class AdManager with WidgetsBindingObserver {
     // could lose whatever sample/dedupe write was still in flight.
     await tunerToFlush?.dispose();
     await observerToFlush?.dispose();
+    await prefetcherToFlush?.dispose();
     _resetGuardState();
 
     // T70 — same reasoning as vipManager/consentManager/arbitrator above: a

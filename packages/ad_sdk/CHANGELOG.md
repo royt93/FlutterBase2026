@@ -6,6 +6,39 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (self-audit):** with `codex review` unavailable all session, a
+  self-review of every commit from this session (5 parallel adversarial
+  reads, no confirmation bias — fresh agents, not the same context that
+  wrote the code) found and fixed 4 real defects:
+  - `InlineAdController.attach()` (T201) crashed via its own debug assertion
+    on a legitimate Key-change remount (Flutter mounts the new State,
+    calling `attach()`, before disposing the old one, which calls
+    `detach()`) — the assert is gone; the last attach now simply wins, and
+    a stale detach from the old State is already a safe no-op.
+  - `BannerAdWidget`/`MrecAdWidget`'s `controllerRefresh()` (T201) didn't
+    check `_pausedByController` the way every other reinit path already
+    does — `refresh()` while paused silently un-paused and reloaded. Now
+    gated the same way `NativeAdWidget` already was.
+  - `RevenueIntegrityLedger` (T145/T185)'s FIFO fallback match could
+    misattribute a late/orphaned revenue event to a DIFFERENT pending show
+    that has its own distinct `requestId`, when two shows of the same
+    (providerTag, type, placement) were pending at once — silently masking
+    a real revenue-integrity gap. The fallback now only ever considers
+    requestId-less pending entries, matching this class's own "resolved
+    EXACTLY — no guessing" promise for entries that do carry an ID.
+  - `AdManager._destroy()` (T183) discarded `JourneyPrefetcher.dispose()`'s
+    returned `Future` instead of awaiting it (that method's signature
+    changed from `void` to `Future<void>` in T183, but this one call site
+    was missed) — a pending persisted write could be silently dropped on
+    teardown. Fixed with the exact same capture-before-null-then-
+    await-later pattern `_waterfallTuner`/`_selfHealingObserver` already
+    use two lines above it in the same function.
+  Also documented (no code change, low severity / already-moot today):
+  `compliance_signing.dart`'s concurrent-mint lock is keyed globally, not
+  per-`FlutterSecureStorage` instance; `tool/api_surface.dart`'s API golden
+  walker doesn't see members of a plain Dart `extension` (only
+  classes/enums/mixins/extension types) — this package exports none today.
+
 - **Changed (T183):** `JourneyPrefetcher`'s rolling time-to-show averages
   now persist across app restarts (`persist: true`, the new default) —
   previously purely in-memory, so every cold start re-learned "how long
