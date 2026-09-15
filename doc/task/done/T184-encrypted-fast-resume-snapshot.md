@@ -50,3 +50,50 @@ Thiết kế và implement cơ chế lưu tạm trạng thái phiên quảng cá
 5. ≤9/10: sửa tiếp, quay lại bước 1.
 6. >9/10: smoke test thật trên device, đo thời gian resume trước/sau bằng số liệu thật; test kill app (force-stop) giữa chừng, mở lại, xác nhận dữ liệu chỉ mất trong giới hạn đã thiết kế.
 7. Thành công: commit + push. Thất bại: quay lại bước 1.
+
+## Xác nhận lại với chủ dự án (2026-09-15) — mục tiêu thật là cold start
+
+Hỏi lại qua AskUserQuestion: mục tiêu thật không phải "resume" (đã xác
+nhận không có I/O nào ở kịch bản này) mà là **cold start** (mở app lại
+sau khi bị OS kill hẳn process).
+
+### Điều tra cold start thật (đọc kỹ `AdManager.initialize()`)
+
+Chuỗi await tuần tự trong `initialize()`
+(`lib/src/core/ad_manager.dart:2995-3900+`):
+- `AdPreferences.getInstance()` (SharedPreferences) — dòng 3173.
+- (tuỳ chọn) `remoteSafetyProvider.fetchSafetyParamOverrides()` — bounded 5s.
+- `AdSafetyConfig.init(prefs, ...)` — dòng 3215.
+- iOS: `AppTrackingTransparency.trackingAuthorizationStatus` — bounded 5s.
+- `_resolveDeviceGaid()` — platform channel GAID.
+- `vip.load(currentDeviceGaid: ...)` — đọc flutter_secure_storage, **phụ
+  thuộc thật** vào GAID vừa resolve ở bước trên (không song song hoá
+  được với bước đó).
+- `FirstInstallGuard.hasAlreadyGranted()` — đọc iOS Keychain, bounded 5s.
+- `ConsentManager.bootstrap()` — đọc SharedPreferences.
+- UMP consent flow: **KHÔNG await** — đã là fire-and-forget có chủ đích
+  từ trước (comment trong code giải thích: awaiting form user từng gây
+  "20s startup freeze" thật, đã fix).
+- `adapter.initialize(config, ...)` — **native AdMob/AppLovin SDK init
+  qua platform channel, bounded 20s timeout** — bước NẶNG NHẤT, bắt buộc
+  chạy SAU khi biết consent (comment trong code giải thích rõ lý do),
+  không song song hoá được.
+
+**Kết luận:** chi phí thật sự áp đảo cold start là `adapter.initialize()`
+(native SDK init, tới 20s) — **nằm ngoài khả năng kiểm soát của SDK
+Flutter này**, không cache/snapshot RAM/đĩa nào giúp được. Các bước I/O
+cục bộ (SharedPreferences/secure storage) vốn đã nhanh (đơn vị mili giây
+trên thiết bị hiện đại) — dù có song song hoá được cũng chỉ tiết kiệm vài
+chục ms, không đáng kể so với native init. `AdConfig.splashMaxDuration`
+(mặc định 8s) đã cap worst-case UX độc lập với timeout nội bộ của
+`initialize()`.
+
+**Cả 2 cách hiểu task (resume lẫn cold start) đều không có vấn đề thật để
+giải quyết ở tầng SDK Flutter này.**
+
+## Đóng task (2026-09-15)
+
+Chủ dự án xác nhận qua AskUserQuestion: **huỷ, đóng lại**. Không
+triển khai snapshot mã hoá RAM dưới bất kỳ cách hiểu nào của task gốc —
+lý do kỹ thuật đã ghi đầy đủ ở trên (2 vòng điều tra, cả 2 đều xác nhận
+không có bottleneck thật để giải quyết ở tầng này).
