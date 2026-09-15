@@ -40,6 +40,7 @@ void main() {
 
     final prefetcher = JourneyPrefetcher();
     addTearDown(prefetcher.dispose);
+    await prefetcher.ready;
     AdManager().enableJourneyPrefetcher(prefetcher);
     addTearDown(AdManager().disableJourneyPrefetcher);
 

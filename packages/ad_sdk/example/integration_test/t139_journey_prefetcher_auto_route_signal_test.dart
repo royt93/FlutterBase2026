@@ -39,6 +39,7 @@ void main() {
     final prefetcher =
         JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
     addTearDown(prefetcher.dispose);
+    await prefetcher.ready;
 
     await tester.pumpWidget(MaterialApp(
       navigatorObservers: [prefetcher.routeObserver!],

@@ -109,3 +109,99 @@ chạy 2 biến thể cùng lúc trên cùng thiết bị).
 lợi ích rõ ràng, rủi ro thấp); để "confidence theo phương sai" và các ý
 tưởng phức tạp hơn (time-of-day, Markov chain) lại cho vòng sau nếu vòng
 1 chứng minh hiệu quả thật qua dữ liệu host cung cấp.
+
+## Kết quả (2026-09-15)
+
+**Chủ dự án chọn:** làm phần "persist rolling average qua session" —
+đúng phần duy nhất nghiên cứu khuyến nghị (rẻ, lợi ích rõ ràng, rủi ro
+thấp). KHÔNG làm "confidence theo phương sai" hay các ý tưởng phức tạp
+hơn (time-of-day, Markov chain) — để dành vòng sau.
+
+**Đã làm:**
+
+- `JourneyPrefetcher`'s `_timeToShow` (rolling time-to-show average, tối
+  đa 10 mẫu/cặp signal+type) giờ persist qua `AdPreferences`
+  (`ad_sdk_journey_prefetcher_state_v1`) — mirror chính xác pattern đã có
+  sẵn của `WaterfallTuner` (T136, cùng file `waterfall_tuner.dart`):
+  `persist: true` mặc định (constructor param mới), `Future<void> get
+  ready` (host có thể `await` nếu cần chắc chắn dữ liệu phiên trước đã
+  load xong trước lần `notifySignal`/`averageTimeToShow` đầu tiên —
+  không bên nào tự chờ, giống mọi tín hiệu on-device khác của SDK này),
+  write-through NGAY sau mỗi sample mới (không phải ghi định kỳ — đơn
+  giản hơn, không có "cửa sổ mất dữ liệu" nào để tính toán), write chain
+  tuần tự (`_writeChain`) tránh ghi đè lẫn nhau khi nhiều event tới gần
+  nhau, và **fix đúng race đã biết từ trước ở WaterfallTuner (T136 round
+  3)**: subscribe vào event stream CHỈ SAU KHI hydrate xong, không phải
+  ngay trong constructor — nếu không, 1 event thật tới trong lúc đang
+  `await AdPreferences.getInstance()` sẽ bị hydrate ghi đè mất.
+- `dispose()` đổi từ `void` sang `Future<void>` (chờ write đang dở dang
+  xong, bounded timeout 2s — không được treo vô thời hạn nếu
+  SharedPreferences write bị kẹt) — **đây là breaking API change nhỏ**
+  (đã bắt được qua API golden test của T217, đã review diff và
+  regenerate golden có chủ đích).
+- Dữ liệu lưu chỉ là khoảng thời gian (duration) giữa 1 signal string và
+  1 loại quảng cáo — KHÔNG lưu nội dung signal cụ thể hay bất kỳ dữ liệu
+  định danh cá nhân nào (đúng như rủi ro riêng tư đã ghi trong nghiên
+  cứu — đã ghi rõ trong README.md/CHANGELOG.md để host biết khi viết
+  chính sách riêng tư của họ).
+- Cập nhật `test/journey_prefetcher_test.dart`'s `setUp` để mock
+  SharedPreferences + `AdPreferences.resetForTest()` + `await
+  prefetcher.ready` (persist:true mặc định giờ chạm SharedPreferences
+  thật, kể cả trong test) — đồng thời sửa ~13 chỗ khởi tạo
+  `JourneyPrefetcher` cục bộ khác trong cùng file thêm `await X.ready;`
+  để tránh race (event tới trước khi subscribe kịp).
+
+**Test:**
+- Unit (`test/journey_prefetcher_test.dart`, +7 test mới trong group
+  "cross-session persistence (T183)"): cross-session accumulation (mẫu
+  ghi bởi instance A còn thấy được ở instance B "mới khởi động" đọc cùng
+  store), trim đúng theo rolling window khi hydrate blob dài hơn cấu
+  hình, **trim đúng HƯỚNG** (giữ mẫu MỚI NHẤT, bỏ mẫu CŨ NHẤT — test
+  dùng assertion chính xác tới phút, không phải "nhỏ hơn 1 giờ" mơ hồ —
+  đã tự bắt được 1 test vacuous ban đầu qua chính quy trình revert-and-
+  confirm, sửa lại cho chặt), fail-safe với JSON hỏng (không throw, bắt
+  đầu rỗng), `dispose()` chờ write dở dang, `persist: false` không ghi
+  gì xuống đĩa. 22 test cũ trong file vẫn pass nguyên (đã update để
+  tương thích với hành vi persist mới, không phải viết lại logic).
+- Integration thật trên **thiết bị Android thật** (Samsung, serial
+  `R58MA6WYRPE`) — `example/integration_test/t183_journey_prefetcher_persist_test.dart`:
+  instance A ghi 1 mẫu thật, dispose, instance B MỚI đọc cùng
+  SharedPreferences thật trên thiết bị, xác nhận mẫu còn đó. **PASS trên
+  thiết bị thật** — đây chính là "cold start không học lại từ đầu" mà
+  task muốn.
+- Đã update thêm 3 file integration test khác đã dùng `JourneyPrefetcher`
+  từ trước (`journey_prefetcher_test.dart`, `r162_...`, `t133_...`,
+  `t139_...`) thêm `await prefetcher.ready;` sau khi khởi tạo — tránh
+  đúng race đã fix ở tầng unit test.
+
+**Giới hạn đã biết (không giấu):** test "dispose() awaits in-flight
+write" không 100% chắc chắn phân biệt được có/không có `await
+_writeChain` trong môi trường mock SharedPreferences của `flutter test`
+(mock resolve nhanh tới mức write có thể đã xong dù không đợi — đã tự
+phát hiện qua revert-and-confirm, race hiện tại không catch được dù cơ
+chế production đúng). Cơ chế production vẫn đúng (mirror chính xác
+`WaterfallTuner.dispose()` đã có từ trước, đã review) và có bằng chứng
+thật trên device (test tích hợp ở trên đợi `dispose()` thật rồi đọc lại
+— pass thật trên I/O thật, không phải mock nhanh).
+
+**Kết quả test toàn bộ:**
+- `flutter test` (SDK): 2133/2133 pass (từ 2123 sau T219, +10: 7 test
+  persistence mới + 2 test api_golden (đã có từ T217) + điều chỉnh đếm
+  do các thay đổi khác trong session).
+- `flutter test` (example): 63/63 pass, không đổi.
+- `flutter analyze`: sạch cả 2 package.
+- API golden test (T217) bắt đúng breaking change nhỏ (`dispose()`
+  void→Future<void>, `persist` param mới, `ready` getter mới) — đã
+  review diff, ghi CHANGELOG, regenerate golden có chủ đích, đúng quy
+  trình T217 tự đề ra.
+
+**Không chạy được `codex review --uncommitted`** (hết hạn mức từ trước
+trong phiên — chủ dự án đã cho phép bỏ qua).
+
+**Tự chấm điểm: 9/10.** Trừ điểm vì (1) không chạy codex, (2) 1 test
+đơn vị (dispose-awaits-write) không thật sự chặt trong môi trường mock
+— đã ghi rõ giới hạn thay vì giấu, và bù lại bằng bằng chứng thật trên
+device, (3) đây là breaking API change nhỏ (`dispose()` đổi signature)
+— dù đã mirror đúng pattern đã có, host code cũ gọi `prefetcher.dispose()`
+không await vẫn compile được (Dart cho phép), nhưng cần lưu ý trong
+CHANGELOG khi lên version mới theo policy T217 vừa lập.

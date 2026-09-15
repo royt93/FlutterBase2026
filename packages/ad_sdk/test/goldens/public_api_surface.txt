@@ -934,11 +934,12 @@ InlineAdControllerStatus.paused  [field]  InlineAdControllerStatus paused
 JourneyPrefetcher  [class]  class JourneyPrefetcher
 JourneyPrefetcher.autoRouteSignalType  [field]  AdSlotType? autoRouteSignalType
 JourneyPrefetcher.averageTimeToShow  [method]  Duration? averageTimeToShow(String signal, AdSlotType type)
-JourneyPrefetcher.dispose  [method]  void dispose()
+JourneyPrefetcher.dispose  [method]  Future<void> dispose({Duration timeout = const Duration(seconds: 2)})
 JourneyPrefetcher.maxHoldDuration  [field]  Duration maxHoldDuration
 JourneyPrefetcher.maxPendingSignalAge  [field]  Duration maxPendingSignalAge
-JourneyPrefetcher.new  [constructor]  JourneyPrefetcher JourneyPrefetcher({Duration maxHoldDuration = const Duration(minutes: 5), Duration maxPendingSignalAge = const Duration(minutes: 5), AdSlotType? autoRouteSignalType, DateTime Function() debugClock = DateTime.now})
+JourneyPrefetcher.new  [constructor]  JourneyPrefetcher JourneyPrefetcher({Duration maxHoldDuration = const Duration(minutes: 5), Duration maxPendingSignalAge = const Duration(minutes: 5), AdSlotType? autoRouteSignalType, bool persist = true, DateTime Function() debugClock = DateTime.now})
 JourneyPrefetcher.notifySignal  [method]  void notifySignal(String signal, AdSlotType type)
+JourneyPrefetcher.ready  [getter]  Future<void> get ready
 JourneyPrefetcher.routeObserver  [getter]  NavigatorObserver? get routeObserver
 MonetizationArbitrator  [class]  class MonetizationArbitrator
 MonetizationArbitrator.decide  [method]  ArbitratorDecision decide(AdSlotType slot)

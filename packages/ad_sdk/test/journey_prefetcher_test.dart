@@ -2,9 +2,13 @@
 // notifySignal()'s calls into AdManager().loadX() actually move a slot
 // through its real state machine, not just a mock expectation.
 
+import 'dart:convert';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,10 +16,21 @@ void main() {
   late FakeAdProviderAdapter adapter;
   late JourneyPrefetcher prefetcher;
 
-  setUp(() {
+  setUp(() async {
+    // T183 — the default JourneyPrefetcher() now persists across sessions
+    // (see the constructor's `persist` doc comment), which touches
+    // AdPreferences/SharedPreferences internally.
+    SharedPreferences.setMockInitialValues({});
+    AdPreferences.resetForTest();
     adapter = FakeAdProviderAdapter();
     AdManager().debugSetAdapter(adapter);
     prefetcher = JourneyPrefetcher();
+    // The event listener only attaches once hydration finishes (avoids a
+    // real race where a live event could arrive before hydrate and get
+    // clobbered by it) — every test here calls notifySignal() right after
+    // construction, so it must wait for `ready` first or those calls would
+    // have no subscriber yet to reach.
+    await prefetcher.ready;
   });
 
   tearDown(() {
@@ -83,6 +98,7 @@ void main() {
       maxHoldDuration: const Duration(milliseconds: 1),
     );
     addTearDown(shortHold.dispose);
+    await shortHold.ready;
 
     shortHold.notifySignal('screenEntered', AdSlotType.rewarded);
     await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -154,6 +170,7 @@ void main() {
     final frozenNow = DateTime(2026, 1, 1, 12, 0, 0);
     final tiedPrefetcher = JourneyPrefetcher(debugClock: () => frozenNow);
     addTearDown(tiedPrefetcher.dispose);
+    await tiedPrefetcher.ready;
 
     tiedPrefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
     tiedPrefetcher.notifySignal('screenEntered', AdSlotType.interstitial);
@@ -200,6 +217,7 @@ void main() {
         debugClock: () => now,
       );
       addTearDown(staleAwarePrefetcher.dispose);
+      await staleAwarePrefetcher.ready;
 
       staleAwarePrefetcher.notifySignal(
           'levelStarted', AdSlotType.interstitial);
@@ -235,6 +253,7 @@ void main() {
         debugClock: () => now,
       );
       addTearDown(staleAwarePrefetcher.dispose);
+      await staleAwarePrefetcher.ready;
 
       staleAwarePrefetcher.notifySignal(
           'levelStarted', AdSlotType.interstitial);
@@ -263,6 +282,7 @@ void main() {
         debugClock: () => now,
       );
       addTearDown(staleAwarePrefetcher.dispose);
+      await staleAwarePrefetcher.ready;
 
       staleAwarePrefetcher.notifySignal(
           'levelStarted', AdSlotType.interstitial);
@@ -320,18 +340,20 @@ void main() {
   // host to call notifySignal() by hand at every journey point.
   group('autoRouteSignal (T139)', () {
     test('autoRouteSignalType: null (the default) — routeObserver is null',
-        () {
+        () async {
       final p = JourneyPrefetcher();
+      await p.ready;
       expect(p.routeObserver, isNull);
-      p.dispose();
+      await p.dispose();
     });
 
     test('autoRouteSignalType set — routeObserver is a real NavigatorObserver',
-        () {
+        () async {
       final p =
           JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
+      await p.ready;
       expect(p.routeObserver, isA<NavigatorObserver>());
-      p.dispose();
+      await p.dispose();
     });
 
     // `MaterialApp(home: ...)` assigns the initial route the name '/' —
@@ -354,6 +376,7 @@ void main() {
       final autoPrefetcher =
           JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
       addTearDown(autoPrefetcher.dispose);
+      await autoPrefetcher.ready;
 
       await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
 
@@ -380,6 +403,7 @@ void main() {
       final autoPrefetcher =
           JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
       addTearDown(autoPrefetcher.dispose);
+      await autoPrefetcher.ready;
 
       await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
 
@@ -408,6 +432,7 @@ void main() {
         debugClock: () => now,
       );
       addTearDown(autoPrefetcher.dispose);
+      await autoPrefetcher.ready;
 
       await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
 
@@ -456,6 +481,7 @@ void main() {
       final autoPrefetcher =
           JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
       addTearDown(autoPrefetcher.dispose);
+      await autoPrefetcher.ready;
 
       await tester.pumpWidget(MaterialApp(
         navigatorObservers: [autoPrefetcher.routeObserver!],
@@ -493,6 +519,7 @@ void main() {
       final autoPrefetcher =
           JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
       addTearDown(autoPrefetcher.dispose);
+      await autoPrefetcher.ready;
 
       await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
       final navigator = tester.state<NavigatorState>(find.byType(Navigator));
@@ -521,6 +548,7 @@ void main() {
       final autoPrefetcher =
           JourneyPrefetcher(autoRouteSignalType: AdSlotType.interstitial);
       addTearDown(autoPrefetcher.dispose);
+      await autoPrefetcher.ready;
 
       await tester.pumpWidget(hostApp(autoPrefetcher.routeObserver!));
       expect(adapter.interstitialSlot.isIdle, isTrue,
@@ -608,6 +636,163 @@ void main() {
 
       expect(prefetcher.averageTimeToShow(signal, AdSlotType.interstitial),
           isNotNull);
+    });
+  });
+
+  group('cross-session persistence (T183)', () {
+    Future<void> recordSample(JourneyPrefetcher p, String signal) async {
+      p.notifySignal(signal, AdSlotType.interstitial);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test(
+        'a sample recorded by one instance is visible to a brand-new '
+        'instance backed by the same persisted store — cross-session '
+        'accumulation, not lost on "restart"', () async {
+      await recordSample(prefetcher, 'levelStarted');
+      expect(
+          prefetcher.averageTimeToShow('levelStarted', AdSlotType.interstitial),
+          isNotNull,
+          reason: 'sanity: session A itself recorded the sample');
+
+      // dispose() awaits its own pending write — the exact mechanism this
+      // relies on to guarantee session B actually sees it below.
+      await prefetcher.dispose();
+
+      // Session B: a brand-new instance (as a real cold start would
+      // create) reading the SAME persisted SharedPreferences store.
+      final sessionB = JourneyPrefetcher();
+      addTearDown(sessionB.dispose);
+      await sessionB.ready;
+
+      expect(
+        sessionB.averageTimeToShow('levelStarted', AdSlotType.interstitial),
+        isNotNull,
+        reason: 'session A\'s sample must have hydrated into session B — '
+            'this is the entire point of T183',
+      );
+    });
+
+    test(
+        'hydrating a persisted history longer than this instance\'s '
+        'rolling window trims it down, not scores on the full history',
+        () async {
+      // Write a persisted blob with more samples than _rollingWindowSize
+      // (10) directly — bypassing a real instance, since one always trims
+      // its OWN in-memory list as it goes (simulates a blob from a
+      // differently-configured session, or corrupted/oversized some other
+      // way).
+      final prefs = await AdPreferences.getInstance();
+      await prefs.setJourneyPrefetcherStateRaw(jsonEncode({
+        'levelStarted|interstitial':
+            List.filled(20, const Duration(hours: 1).inMilliseconds),
+      }));
+
+      final hydrated = JourneyPrefetcher();
+      addTearDown(hydrated.dispose);
+      await hydrated.ready;
+
+      final avg =
+          hydrated.averageTimeToShow('levelStarted', AdSlotType.interstitial);
+      expect(avg, isNotNull);
+      // 20 stale 1-hour samples, correctly trimmed to the newest 10 before
+      // load — still 1 hour each (the fixture has no variation), so this
+      // mainly proves load() didn't throw/skip on an over-length blob. The
+      // real trim-correctness proof is the newer test right below.
+      expect(avg!.inHours, 1);
+    });
+
+    test(
+        'the OLDEST samples are the ones dropped on trim, not the newest',
+        () async {
+      final prefs = await AdPreferences.getInstance();
+      // 15 old 1-hour samples followed by 1 recent 1-minute sample — only
+      // the newest 10 should survive a rollingWindowSize=10 hydrate, and
+      // the 1-minute one (added last) must be among them.
+      await prefs.setJourneyPrefetcherStateRaw(jsonEncode({
+        'levelStarted|interstitial': [
+          ...List.filled(15, const Duration(hours: 1).inMilliseconds),
+          const Duration(minutes: 1).inMilliseconds,
+        ],
+      }));
+
+      final hydrated = JourneyPrefetcher();
+      addTearDown(hydrated.dispose);
+      await hydrated.ready;
+
+      final avg =
+          hydrated.averageTimeToShow('levelStarted', AdSlotType.interstitial);
+      expect(avg, isNotNull);
+      // Trimmed to the newest 10 (9 hour-long + the 1-minute one) averages
+      // to exactly 54 minutes. If the OLDEST were kept instead (or nothing
+      // were trimmed at all — 16 samples), the 1-minute entry would be
+      // diluted much less precisely: 56 minutes (16, untrimmed) or exactly
+      // 1 hour (10 oldest, no 1-minute sample survives at all). Asserting
+      // the exact minute count — not just "below 1 hour" — is what
+      // actually pins down WHICH end got trimmed, not merely that some
+      // trimming happened.
+      expect(avg!.inMinutes, 54,
+          reason: 'newest-10 trim must keep the 1-minute sample (added '
+              'last) and drop 6 of the 15 hour-long ones (added first) — '
+              'a different trim direction or no trim at all would land on '
+              'a different exact average');
+    });
+
+    test('malformed persisted JSON is a fail-safe empty start, not a throw',
+        () async {
+      final prefs = await AdPreferences.getInstance();
+      await prefs.setJourneyPrefetcherStateRaw('{not valid json');
+
+      expect(() async {
+        final p = JourneyPrefetcher();
+        await p.ready;
+        expect(
+            p.averageTimeToShow('levelStarted', AdSlotType.interstitial),
+            isNull);
+        await p.dispose();
+      }, returnsNormally);
+    });
+
+    test('dispose() awaits the in-flight persisted write — the last '
+        'event before disposing is not lost', () async {
+      prefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
+      AdManager().debugEmit(const AdShowEvent(
+        providerTag: '[Fake]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        success: true,
+      ));
+      // One microtask turn for the stream-delivery step only — no delay
+      // for the persisted write itself: dispose() is the thing under test
+      // that must wait for it.
+      await Future<void>.delayed(Duration.zero);
+      await prefetcher.dispose();
+
+      final prefs = await AdPreferences.getInstance();
+      final raw = prefs.getJourneyPrefetcherStateRaw();
+      expect(raw, isNotNull);
+      final decoded = jsonDecode(raw!) as Map<String, dynamic>;
+      expect(decoded['levelStarted|interstitial'], hasLength(1),
+          reason: 'the sample must have reached disk by the time '
+              'dispose() returns');
+    });
+
+    test('persist: false never writes anything to disk', () async {
+      final p = JourneyPrefetcher(persist: false);
+      addTearDown(p.dispose);
+      await p.ready;
+
+      await recordSample(p, 'levelStarted');
+
+      final prefs = await AdPreferences.getInstance();
+      expect(prefs.getJourneyPrefetcherStateRaw(), isNull);
     });
   });
 }

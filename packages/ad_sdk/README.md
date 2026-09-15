@@ -1945,6 +1945,14 @@ app can reach for:
   via `AdManager().enableJourneyPrefetcher(...)`; nothing is tracked or
   preloaded unless the host app calls `notifySignal`, or opts into
   `autoRouteSignalType` (below) so a route push does it automatically.
+  T183 — its rolling time-to-show averages persist across app restarts by
+  default (`persist: true`), so it doesn't re-learn timing from zero every
+  cold start; this only ever stores durations between a signal string and
+  an ad type locally on-device, never the signal's own content. Pass
+  `persist: false` to opt out entirely, or `await prefetcher.ready` if a
+  caller needs last session's data guaranteed loaded before its first
+  `notifySignal`/`averageTimeToShow` call (neither waits for it on its
+  own — same as every other on-device signal in this SDK).
 
   ```dart
   final prefetcher = JourneyPrefetcher(

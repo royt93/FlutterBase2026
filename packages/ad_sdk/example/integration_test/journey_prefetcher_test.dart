@@ -28,6 +28,7 @@ void main() {
     await _waitForInit(tester);
 
     final prefetcher = JourneyPrefetcher();
+    await prefetcher.ready;
     AdManager().enableJourneyPrefetcher(prefetcher);
     addTearDown(AdManager().disableJourneyPrefetcher);
 

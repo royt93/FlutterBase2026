@@ -22,6 +22,7 @@ void main() {
       maxPendingSignalAge: const Duration(milliseconds: 300),
     );
     addTearDown(prefetcher.dispose);
+    await prefetcher.ready;
 
     prefetcher.notifySignal('levelStarted', AdSlotType.interstitial);
     await tester.pump(const Duration(milliseconds: 500)); // past the 300ms TTL

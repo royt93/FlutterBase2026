@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Changed (T183):** `JourneyPrefetcher`'s rolling time-to-show averages
+  now persist across app restarts (`persist: true`, the new default) —
+  previously purely in-memory, so every cold start re-learned "how long
+  after this signal does the user actually see the ad" from zero. New
+  `JourneyPrefetcher.ready` (a `Future<void>`) completes once a prior
+  session's data has finished hydrating and this instance has started
+  listening for new events — `notifySignal`/`averageTimeToShow` never wait
+  for it themselves, same as every other on-device signal in this SDK.
+  `dispose()` is now `Future<void>` (was `void`) so a pending persisted
+  write isn't silently dropped on teardown, bounded by a 2s timeout the
+  same way `WaterfallTuner.dispose` already is. Pass `persist: false` to
+  opt out of the disk write entirely. Only ever stores a duration between
+  an app-defined signal string and an ad type — never the signal's own
+  content or anything personally-identifying.
+
 - **New (T219):** `ConsentDialogStrings`, `CcpaOptOutStrings`,
   `VipDialogStrings`, and `VipRedeemStrings` (found mid-task — a separate,
   ~30-field string class for the full `VipRedeemScreen`, distinct from

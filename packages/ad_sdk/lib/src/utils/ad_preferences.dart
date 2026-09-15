@@ -540,6 +540,20 @@ class AdPreferences {
     await _prefs?.setString(_keyWaterfallTunerState, json);
   }
 
+  // T183 — JourneyPrefetcher's rolling time-to-show averages, persisted so
+  // "how long after this signal does the user actually see the ad" survives
+  // a cold start instead of re-learning from zero every process launch.
+  // Mirrors WaterfallTunerState's exact persistence pattern above.
+  static const String _keyJourneyPrefetcherState =
+      'ad_sdk_journey_prefetcher_state_v1';
+
+  String? getJourneyPrefetcherStateRaw() =>
+      _prefs?.getString(_keyJourneyPrefetcherState);
+
+  Future<void> setJourneyPrefetcherStateRaw(String json) async {
+    await _prefs?.setString(_keyJourneyPrefetcherState, json);
+  }
+
   // T163 — SelfHealingObserver's "already fired this exact recommendation"
   // dedupe, now keyed to WHEN each key last fired rather than a permanent
   // set membership (see that class's own doc comment on _alreadyObserved

@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 
 import '../core/ad_manager.dart';
 import '../state/ad_event.dart';
 import '../state/ad_slot.dart';
+import '../utils/ad_preferences.dart';
+import '../utils/safe_logger.dart';
 
 /// T123 — opt-in on-device smart prefetch (v1).
 ///
@@ -35,10 +38,99 @@ class JourneyPrefetcher {
     this.maxHoldDuration = const Duration(minutes: 5),
     this.maxPendingSignalAge = const Duration(minutes: 5),
     this.autoRouteSignalType,
+    bool persist = true,
     @visibleForTesting DateTime Function() debugClock = DateTime.now,
-  }) : _now = debugClock {
+  })  : _now = debugClock,
+        _persist = persist {
+    _ready = _init();
+  }
+
+  /// T183 — persists the rolling [_timeToShow] averages to [AdPreferences]
+  /// (`ad_sdk_journey_prefetcher_state_v1`) so a cold start doesn't re-learn
+  /// timing from zero every process launch. `true` by default; a host that
+  /// doesn't want this local behavioral-timing data written to disk at all
+  /// (see this class's own doc comment on what it tracks) can pass `false`.
+  /// Note this only ever stores durations between an app-defined signal
+  /// string and an ad type — never the signal's own content or any
+  /// personally-identifying data.
+  final bool _persist;
+
+  bool _disposed = false;
+
+  /// Completes once any persisted state from a prior session has finished
+  /// hydrating [_timeToShow] AND this instance has started listening for
+  /// new events (or immediately, with `persist: false`) — mirrors
+  /// `WaterfallTuner.ready`'s exact contract and reasoning. [notifySignal]/
+  /// [averageTimeToShow] never wait for this themselves (same as every
+  /// other on-device signal in this SDK — nothing here blocks a host on
+  /// disk I/O); await it explicitly if a caller needs last session's data
+  /// guaranteed loaded first.
+  Future<void> get ready => _ready;
+  late final Future<void> _ready;
+
+  // T136-style race (see WaterfallTuner._init's matching comment): the
+  // event subscription is only attached AFTER hydration finishes, not from
+  // the constructor directly — a real show event arriving during the
+  // `await AdPreferences.getInstance()` gap inside `_loadPersisted` would
+  // otherwise add a live sample first, only for hydrate's `target[key] =
+  // ...` to clobber it with the stale on-disk snapshot right after.
+  Future<void> _init() async {
+    if (_persist) await _loadPersisted();
+    // dispose() already ran while this was still hydrating (a host
+    // disposing immediately after construction, before ever awaiting
+    // `ready`) — don't attach a subscription on an already-disposed
+    // instance.
+    if (_disposed) return;
     _sub = AdManager().events.listen(_onEvent);
   }
+
+  Future<void> _loadPersisted() async {
+    final prefs = await AdPreferences.getInstance();
+    final raw = prefs.getJourneyPrefetcherStateRaw();
+    if (raw == null) return;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is! List) continue;
+        final samples = value
+            .whereType<int>()
+            .map((ms) => Duration(milliseconds: ms))
+            .toList();
+        // Same rolling-window bound _onEvent enforces going forward — a
+        // persisted blob from a session configured with a larger window
+        // (or corrupted/oversized some other way) must not make this
+        // instance's history start out longer than it's configured to keep.
+        _timeToShow[entry.key] = samples.length > _rollingWindowSize
+            ? samples.sublist(samples.length - _rollingWindowSize)
+            : samples;
+      }
+    } catch (e) {
+      // Malformed/corrupt persisted state (or a format from a future SDK
+      // version) — fail safe, start with empty history rather than
+      // throwing or half-applying it. Same convention as
+      // WaterfallTuner._loadPersisted / applyRemoteSafetyOverrides.
+      SafeLogger.w(_tag, '⚠️ persisted state unreadable, starting empty: $e');
+    }
+  }
+
+  Future<void> _writeChain = Future.value();
+
+  void _savePersisted() {
+    if (!_persist) return;
+    _writeChain = _writeChain.then((_) => _savePersistedAsync());
+  }
+
+  Future<void> _savePersistedAsync() async {
+    final prefs = await AdPreferences.getInstance();
+    final encoded = jsonEncode({
+      for (final e in _timeToShow.entries)
+        e.key: [for (final d in e.value) d.inMilliseconds],
+    });
+    await prefs.setJourneyPrefetcherStateRaw(encoded);
+  }
+
+  static const String _tag = 'JourneyPrefetcher';
 
   /// T139 — opt-in auto-mode: when set, [routeObserver] becomes a real
   /// `NavigatorObserver` that calls [notifySignal] automatically for every
@@ -172,6 +264,7 @@ class JourneyPrefetcher {
     final samples = _timeToShow.putIfAbsent(latestKey, () => []);
     samples.add(elapsed);
     if (samples.length > _rollingWindowSize) samples.removeAt(0);
+    _savePersisted();
   }
 
   /// Rolling average time between [signal] firing and [type] actually being
@@ -212,9 +305,17 @@ class JourneyPrefetcher {
     }
   }
 
-  void dispose() {
+  /// T183 — async so a pending persisted write isn't silently dropped on
+  /// teardown; bounded rather than unbounded so a wedged SharedPreferences
+  /// write can't hang whoever is disposing this forever — same "wait a
+  /// bit, then proceed anyway" convention as `WaterfallTuner.dispose` and
+  /// this SDK's other teardown paths.
+  Future<void> dispose({Duration timeout = const Duration(seconds: 2)}) async {
+    _disposed = true;
     _sub?.cancel();
     _sub = null;
+    if (!_persist) return;
+    await _writeChain.timeout(timeout, onTimeout: () {});
   }
 }
 
