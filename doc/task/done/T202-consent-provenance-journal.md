@@ -1,5 +1,5 @@
 # T202 — Consent provenance journal (IDEA)
-Priority P2 · Status todo.
+Priority P2 · Status **done** (2026-09-16).
 
 Lưu append-only lịch sử consent tối thiểu (source UMP/host/manual, policy revision, timestamp, region signal, hash chain), export cùng compliance report nhưng không raw PII. Khuyến nghị local-only, retention cap, opt-in export; server mạnh hơn nhưng tăng privacy/infra risk.
 
@@ -84,3 +84,35 @@ view + integration restart/export + device smoke offline/storage-full.
 hỏi luật sau) rủi ro cao hơn lợi ích của việc code sớm — task còn lại các
 phần kỹ thuật (schema, hash chain, retention, export) đều đã rõ ràng và
 effort thấp, không phải điểm nghẽn.
+
+## Resolved 2026-09-16
+
+Chủ dự án chọn: tự quyết định scope pháp lý, code luôn (không chờ luật sư).
+Quyết định kỹ thuật cuối — khác vài điểm so với draft trên:
+
+- **`policyRevision: String`**, không phải `int` — khớp quy ước sẵn có
+  (`kUmpPolicyRevision = 'ump-v1'`, `ConsentFallbackState.policyRevision`),
+  tránh 1 kiểu dữ liệu lệch pha trong cùng subsystem.
+- **Câu hỏi "khái niệm scope thứ 3" giải quyết KHÔNG bằng thêm
+  `SdkDataErasureScope` value mới** (sẽ lẫn với ý nghĩa entitlement/VIP tiền
+  thật của scope đó). Thay vào đó: cờ `purgeConsentProvenanceJournal`
+  riêng (mặc định `false`) trên `clearSdkData()` — journal sống sót CẢ HAI
+  scope mặc định, chỉ mất khi gọi cờ này tường minh. Đơn giản hơn, không
+  đụng enum export public.
+- **Không có retention cap** — thay đổi consent là sự kiện hiếm (vài lần
+  mỗi lifetime cài đặt), không cần ring-buffer như `IncidentRecorder`.
+- **Chưa gộp vào `ComplianceReport` export** và **chưa có widget history
+  view** — ngoài phạm vi lần implement này, có thể làm sau nếu có nhu cầu
+  thật (không đoán trước).
+- Implement: `lib/src/compliance/consent_provenance_journal.dart`
+  (`ConsentProvenanceEntry` + `ConsentProvenanceJournal`, SHA-256 hash
+  chain qua `package:cryptography` đã có sẵn), wiring qua
+  `ConsentManager.bootstrap(provenanceJournal:)` +
+  `set()`/`reset()` params `source`/`policyRevision` (optional, mặc định
+  `'host'`/`kUmpPolicyRevision` — backward compatible), expose
+  `AdManager().consentProvenanceJournal` (nullable tới khi init xong, cùng
+  quy ước `vip`). TDD: `test/consent_provenance_journal_test.dart` (8
+  test) + `test/consent_manager_provenance_test.dart` (5 test). Golden API
+  surface đã regenerate. Full suite xanh (2147 pass; 4 fail trong
+  `vip_cli_security_test.dart` là flake môi trường worktree cũ có sẵn,
+  không liên quan — xem commit).

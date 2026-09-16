@@ -19,6 +19,7 @@ import '../compliance/ad_event_log.dart';
 import '../compliance/compliance_report.dart';
 import '../compliance/bypass_audit_trail.dart';
 import '../compliance/compliance_signing.dart';
+import '../compliance/consent_provenance_journal.dart';
 import '../compliance/incident_recorder.dart';
 import '../config/ad_config.dart';
 import '../config/feature_flags.dart';
@@ -244,6 +245,7 @@ class AdManager with WidgetsBindingObserver {
 
   VipManager? _vipManager;
   ConsentManager? _consentManager;
+  ConsentProvenanceJournal? _provenanceJournal;
   AdConsent _consent = AdConsent.conservative;
   // T42 — consent captured by setConsent()/requestUmpConsent() while
   // _consentManager is still null (i.e. before initialize() bootstraps it).
@@ -490,6 +492,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// VIP manager — `null` until [initialize] completes.
   VipManager? get vip => _vipManager;
+
+  /// T202 — append-only, tamper-evident consent-change history. `null`
+  /// until [initialize] completes, same nullability contract as [vip].
+  ConsentProvenanceJournal? get consentProvenanceJournal => _provenanceJournal;
 
   /// T72 — fires exactly once `false → true` when [vip] transitions from
   /// `null` to ready, so a screen that renders before SDK init completes
@@ -3426,6 +3432,10 @@ class AdManager with WidgetsBindingObserver {
           pendingExplorationAtMs: pendingExplorationAtMs,
           vipActive: vip.isActive);
 
+      // T202 — loaded once BEFORE ConsentManager.bootstrap so the very
+      // first bootstrap() call (the only one that honors this param, same
+      // rule as `prefs`) can wire it in.
+      final provenanceJournal = await ConsentProvenanceJournal.load(prefs);
       // T40 — bootstrap ConsentManager (loads persisted user choice from
       // prefs) BEFORE picking/initialising the adapter, so a previously
       // recorded isAgeRestrictedUser=true can gate AppLovin's init (it has
@@ -3433,6 +3443,7 @@ class AdManager with WidgetsBindingObserver {
       final consentMgr = await ConsentManager.bootstrap(
         prefs: prefs,
         strings: config.consentDialogStrings,
+        provenanceJournal: provenanceJournal,
       );
       // Same round-6 MAJOR, next await: `ConsentManager.bootstrap` reads
       // persisted consent, and publishing it into a torn-down SDK leaves
@@ -3450,6 +3461,7 @@ class AdManager with WidgetsBindingObserver {
         return;
       }
       _consentManager = consentMgr;
+      _provenanceJournal = provenanceJournal;
       _consent = consentMgr.adConsent;
       // T167 — unconditionally, on EVERY successful init, not only when
       // the auto-show consent dialog actually fires (it skips entirely
@@ -6495,6 +6507,10 @@ class AdManager with WidgetsBindingObserver {
     // explicitly via `ConsentManager.instance.reset()`.
     _consentManager?.listenable.removeListener(_syncConsentToAdapter);
     _consentManager = null;
+    // Same rationale as ConsentManager just above — the journal itself is
+    // per-install persisted history, not tied to the adapter lifecycle.
+    // Only this AdManager-level reference is dropped.
+    _provenanceJournal = null;
     // A setConsent() call buffered before the (now torn-down) init never got
     // applied — dropping it here (rather than carrying it into a future
     // initialize()) matches destroy() being an explicit, deliberate teardown.
