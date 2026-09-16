@@ -144,6 +144,7 @@ AdManager.clearSdkData  [method]  Future<void> clearSdkData({SdkDataErasureScope
 AdManager.config  [getter]  AdConfig? get config
 AdManager.consent  [getter]  AdConsent get consent
 AdManager.consentManager  [getter]  ConsentManager? get consentManager
+AdManager.consentProvenanceJournal  [getter]  ConsentProvenanceJournal? get consentProvenanceJournal
 AdManager.countInitSplashScreen  [getter]  int get countInitSplashScreen
 AdManager.currentDeviceGaid  [getter]  String get currentDeviceGaid
 AdManager.deleteVIPMember  [method]  void deleteVIPMember(List<String> gaids)
@@ -720,7 +721,7 @@ ConsentFallbackState.toJson  [method]  Map<String, dynamic> toJson()
 ConsentManager  [class]  class ConsentManager
 ConsentManager.adConsent  [getter]  AdConsent get adConsent
 ConsentManager.applyToProviders  [method]  Future<void> applyToProviders({AdConfig? config})
-ConsentManager.bootstrap  [method]  Future<ConsentManager> bootstrap({required AdPreferences prefs, required ConsentDialogStrings strings})
+ConsentManager.bootstrap  [method]  Future<ConsentManager> bootstrap({required AdPreferences prefs, required ConsentDialogStrings strings, ConsentProvenanceJournal? provenanceJournal})
 ConsentManager.clearFallback  [method]  Future<void> clearFallback()
 ConsentManager.current  [getter]  ConsentSettings get current
 ConsentManager.fallback  [getter]  ConsentFallbackState? get fallback
@@ -731,12 +732,34 @@ ConsentManager.isReady  [getter]  bool get isReady
 ConsentManager.listenable  [getter]  ValueListenable<ConsentSettings> get listenable
 ConsentManager.noteProvider  [method]  void noteProvider(AdProvider provider)
 ConsentManager.recordFallback  [method]  Future<void> recordFallback({required ConsentFallbackReason reason, required String policyRevision})
-ConsentManager.reset  [method]  Future<void> reset({AdConfig? config})
-ConsentManager.set  [method]  Future<void> set(ConsentSettings settings, {AdConfig? config})
+ConsentManager.reset  [method]  Future<void> reset({AdConfig? config, String source = 'host', String policyRevision = kUmpPolicyRevision})
+ConsentManager.set  [method]  Future<void> set(ConsentSettings settings, {AdConfig? config, String source = 'host', String policyRevision = kUmpPolicyRevision})
 ConsentManager.showDialog  [method]  Future<ConsentSettings> showDialog(BuildContext context, {AdConfig? config, bool barrierDismissible = false, void Function(String)? onPrivacyPolicyTap})
 ConsentManager.showDialogIfNeeded  [method]  Future<ConsentSettings> showDialogIfNeeded(BuildContext context, {AdConfig? config, bool barrierDismissible = false})
 ConsentManager.strings  [getter]  ConsentDialogStrings get strings
 ConsentManager.updateStrings  [method]  void updateStrings(ConsentDialogStrings v)
+ConsentProvenanceEntry  [class]  class ConsentProvenanceEntry
+ConsentProvenanceEntry.==  [method]  bool ==(Object other)
+ConsentProvenanceEntry.at  [field]  DateTime at
+ConsentProvenanceEntry.doNotSell  [field]  bool doNotSell
+ConsentProvenanceEntry.entryHash  [field]  String entryHash
+ConsentProvenanceEntry.fromJson  [constructor]  ConsentProvenanceEntry ConsentProvenanceEntry.fromJson(Map<String, dynamic> j)
+ConsentProvenanceEntry.hasUserConsent  [field]  bool hasUserConsent
+ConsentProvenanceEntry.hashCode  [getter]  int get hashCode
+ConsentProvenanceEntry.hashedFields  [method]  Map<String, dynamic> hashedFields()
+ConsentProvenanceEntry.isAgeRestrictedUser  [field]  bool isAgeRestrictedUser
+ConsentProvenanceEntry.new  [constructor]  ConsentProvenanceEntry ConsentProvenanceEntry({required DateTime at, required String source, required String policyRevision, required bool hasUserConsent, required bool isAgeRestrictedUser, required bool doNotSell, required String entryHash, String? regionSignal})
+ConsentProvenanceEntry.policyRevision  [field]  String policyRevision
+ConsentProvenanceEntry.regionSignal  [field]  String? regionSignal
+ConsentProvenanceEntry.source  [field]  String source
+ConsentProvenanceEntry.toJson  [method]  Map<String, dynamic> toJson()
+ConsentProvenanceJournal  [class]  class ConsentProvenanceJournal
+ConsentProvenanceJournal.append  [method]  Future<ConsentProvenanceEntry> append({required String source, required String policyRevision, required bool hasUserConsent, required bool isAgeRestrictedUser, required bool doNotSell, String? regionSignal, DateTime? now})
+ConsentProvenanceJournal.clear  [method]  Future<void> clear()
+ConsentProvenanceJournal.entries  [getter]  List<ConsentProvenanceEntry> get entries
+ConsentProvenanceJournal.fromEntries  [method]  ConsentProvenanceJournal fromEntries(AdPreferences prefs, List<ConsentProvenanceEntry> entries)
+ConsentProvenanceJournal.load  [method]  Future<ConsentProvenanceJournal> load(AdPreferences prefs)
+ConsentProvenanceJournal.verifyChain  [method]  Future<bool> verifyChain()
 ConsentSettings  [class]  class ConsentSettings
 ConsentSettings.accepted  [getter]  ConsentSettings get accepted
 ConsentSettings.askedAt  [field]  DateTime? askedAt

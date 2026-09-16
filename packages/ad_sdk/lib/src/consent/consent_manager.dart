@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import '../compliance/consent_provenance_journal.dart';
 import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
 import '../utils/ad_preferences.dart';
@@ -27,8 +28,10 @@ class ConsentManager {
   ConsentManager._({
     required AdPreferences prefs,
     required ConsentDialogStrings strings,
+    ConsentProvenanceJournal? provenanceJournal,
   })  : _prefs = prefs,
-        _strings = strings;
+        _strings = strings,
+        _journal = provenanceJournal;
 
   static const String _tag = 'ConsentManager';
 
@@ -56,9 +59,16 @@ class ConsentManager {
   /// when that actually discards a different instance than the one already
   /// in use, so passing a fresh `AdPreferences` the second time around
   /// doesn't fail silently.
+  /// [provenanceJournal] (T202) is optional — when set, every [set] /
+  /// [showDialog] / [reset] call appends a [ConsentProvenanceEntry] to it.
+  /// Omitting it is a no-op: no behavior change for a caller that doesn't
+  /// need this. Only honored on the FIRST `bootstrap()` call, same as
+  /// [prefs] — a second call's value is ignored (the singleton keeps its
+  /// original journal).
   static Future<ConsentManager> bootstrap({
     required AdPreferences prefs,
     required ConsentDialogStrings strings,
+    ConsentProvenanceJournal? provenanceJournal,
   }) async {
     final existing = _instance;
     if (existing != null && !identical(existing._prefs, prefs)) {
@@ -68,7 +78,12 @@ class ConsentManager {
           '— ignored; the singleton keeps using the one from its first '
           'bootstrap() call. Pass the same AdPreferences every time.');
     }
-    final m = existing ?? ConsentManager._(prefs: prefs, strings: strings);
+    final m = existing ??
+        ConsentManager._(
+          prefs: prefs,
+          strings: strings,
+          provenanceJournal: provenanceJournal,
+        );
     m._strings = strings;
     await m._load();
     _instance = m;
@@ -93,6 +108,7 @@ class ConsentManager {
 
   final AdPreferences _prefs;
   ConsentDialogStrings _strings;
+  final ConsentProvenanceJournal? _journal;
 
   /// T167 — remembers the app's configured provider so a LATER [showDialog]
   /// call with no [AdConfig] at all — documented as legal, e.g. a re-show
@@ -265,6 +281,23 @@ class ConsentManager {
   @visibleForTesting
   static Duration? debugPersistDelay;
 
+  /// T202 — no-op when no journal was wired via `bootstrap()`.
+  Future<void> _recordProvenance({
+    required String source,
+    required String policyRevision,
+  }) async {
+    final journal = _journal;
+    if (journal == null) return;
+    await journal.append(
+      source: source,
+      policyRevision: policyRevision,
+      hasUserConsent: _current.hasUserConsent,
+      isAgeRestrictedUser: _current.isAgeRestrictedUser,
+      doNotSell: _current.doNotSell,
+      regionSignal: _current.country,
+    );
+  }
+
   Future<void> _persist() async {
     final encoded = ConsentSettings.encode(_current);
     final delay = debugPersistDelay;
@@ -347,8 +380,21 @@ class ConsentManager {
 
   /// Programmatic setter — no UI. Use for "Accept all" / "Reject all"
   /// shortcuts or restoring persisted state from server.
-  Future<void> set(ConsentSettings settings, {AdConfig? config}) async {
-    await _setInternal(settings, config: config);
+  ///
+  /// [source] / [policyRevision] (T202) are only used when a
+  /// [ConsentProvenanceJournal] was wired via `bootstrap()` — free-text
+  /// [source] (`'ump'`, `'host'`, `'manual'`, or a caller's own vocabulary,
+  /// same convention as `IncidentEntry.label`), defaulting to `'host'`
+  /// since this setter is normally called by the app's own UI/logic, not
+  /// forwarding a raw UMP result.
+  Future<void> set(
+    ConsentSettings settings, {
+    AdConfig? config,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
+  }) async {
+    await _setInternal(settings,
+        config: config, source: source, policyRevision: policyRevision);
   }
 
   /// Records a versioned, conservative fallback when UMP/ATT cannot resolve.
@@ -400,13 +446,18 @@ class ConsentManager {
   /// Always applies the result to providers — the doc comment used to claim
   /// otherwise (call [applyToProviders] separately), but the code never
   /// matched that: it called `_applyToProviders` unconditionally regardless.
-  Future<void> reset({AdConfig? config}) async {
+  Future<void> reset({
+    AdConfig? config,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
+  }) async {
     final epoch = ++_applyEpoch;
     _current = ConsentSettings.unset.copyWith(
       isAgeRestrictedUser: _current.isAgeRestrictedUser,
       doNotSell: _current.doNotSell,
     );
     _settingsListenable.value = _current;
+    await _recordProvenance(source: source, policyRevision: policyRevision);
     await _schedulePersist();
     SafeLogger.d(_tag, 'reset → unset (COPPA/CCPA flags preserved)');
     final barrier = debugApplyBarrier;
@@ -421,10 +472,16 @@ class ConsentManager {
 
   // ─── Internals ────────────────────────────────────────────────────────────
 
-  Future<void> _setInternal(ConsentSettings s, {AdConfig? config}) async {
+  Future<void> _setInternal(
+    ConsentSettings s, {
+    AdConfig? config,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
+  }) async {
     final epoch = ++_applyEpoch;
     _current = s;
     _settingsListenable.value = s;
+    await _recordProvenance(source: source, policyRevision: policyRevision);
     await _schedulePersist();
     SafeLogger.d(_tag, () => 'set → $s');
     // An overlapping, newer call may have already bumped `_applyEpoch` and

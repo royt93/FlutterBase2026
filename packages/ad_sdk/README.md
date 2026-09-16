@@ -2395,6 +2395,32 @@ the signing key, so this cannot prove the events themselves weren't
 fabricated by someone with that level of access. Treat it as "this file is
 unmodified since export", not "this device's history is definitely genuine".
 
+### Consent provenance journal (T202)
+
+`AdManager().consentProvenanceJournal` (nullable until SDK init completes,
+same contract as `AdManager().vip`) is an append-only, tamper-evident
+(SHA-256 hash chain) history of consent changes — distinct from
+`ConsentManager.current` (current state only, overwritten on every change)
+and `ComplianceReport` (a point-in-time snapshot): this is the change
+*history* neither of those keeps.
+
+```dart
+final journal = AdManager().consentProvenanceJournal;
+for (final entry in journal?.entries ?? const []) {
+  print('${entry.at}: ${entry.source} set hasUserConsent=${entry.hasUserConsent}');
+}
+await journal?.verifyChain(); // false ⇒ persisted history was tampered with
+```
+
+Every `ConsentManager.set`/`.reset` call records an entry automatically.
+Pass `source`/`policyRevision` to tag where a consent change came from
+(free text, e.g. `'ump'`, `'host'`, `'manual'` — same convention as
+`IncidentEntry.label`); both default to values that make sense for a plain
+`AdManager().setConsent(...)` call.
+
+**Deliberately excluded from `clearSdkData()`'s default sweep** — see
+below.
+
 ### Scoped data erasure (T200)
 
 For a "delete my data" / GDPR-style privacy request, use
@@ -2406,7 +2432,7 @@ same namespace):
 ```dart
 // Safe default — clears safety counters, consent settings,
 // compliance/analytics history, remote-config cache, experiment id.
-// Never touches VIP entitlements.
+// Never touches VIP entitlements OR the consent provenance journal.
 await AdManager().clearSdkData();
 
 // Also erase VIP entitlements (a paying user LOSES their VIP status) —
@@ -2415,6 +2441,12 @@ await AdManager().clearSdkData(
   scope: SdkDataErasureScope.allIncludingEntitlements,
   confirmedEntitlementErasure: true,
 );
+
+// Also purge the consent provenance journal (T202) — a SEPARATE decision
+// from entitlements, orthogonal to `scope`: some legal frameworks permit/
+// require KEEPING proof that consent was asked/received even after a
+// user's general erasure request, so this never happens implicitly.
+await AdManager().clearSdkData(purgeConsentProvenanceJournal: true);
 ```
 
 Only ever removes keys this SDK itself owns (across both

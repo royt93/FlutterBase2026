@@ -281,6 +281,24 @@ class AdPreferences {
     await _prefs?.remove(_keyConsentFallback);
   }
 
+  // ─── Consent provenance journal (T202, JSON array) ────────────────────────
+  // Deliberately excluded from clearSdkData()'s default sweep below — see
+  // ConsentProvenanceJournal's class doc comment for why.
+
+  static const String _keyConsentProvenanceJournal =
+      'ad_sdk_consent_provenance_journal_v1';
+
+  String? getConsentProvenanceJournalRaw() =>
+      _prefs?.getString(_keyConsentProvenanceJournal);
+
+  Future<void> setConsentProvenanceJournalRaw(String json) async {
+    await _prefs?.setString(_keyConsentProvenanceJournal, json);
+  }
+
+  Future<void> clearConsentProvenanceJournal() async {
+    await _prefs?.remove(_keyConsentProvenanceJournal);
+  }
+
   // ─── 2.x VIP entries — legacy checksum-prefixed SharedPreferences value ───
   // Superseded by `VipEntriesStore` (flutter_secure_storage). Kept here only
   // as the one-time migration source for installs that predate the secure
@@ -676,10 +694,18 @@ class AdPreferences {
   /// backend this class has no access to. `AdManager().clearSdkData(...)`
   /// is the full orchestration; call that, not this, unless you
   /// specifically only want the SharedPreferences half.
+  /// [purgeConsentProvenanceJournal] defaults `false` — the T202 consent
+  /// provenance journal survives EITHER [scope] unless the caller opts in
+  /// here explicitly. See `ConsentProvenanceJournal`'s class doc comment:
+  /// this is a deliberate legal-retention decision (GDPR Art. 17(3)/CCPA
+  /// "proof we asked/received consent" defense), not an oversight, and
+  /// intentionally a separate knob from [confirmedEntitlementErasure] —
+  /// that one is about VIP/paid entitlements, an unrelated concern.
   Future<void> clearSdkData({
     SdkDataErasureScope scope =
         SdkDataErasureScope.everythingExceptEntitlements,
     bool confirmedEntitlementErasure = false,
+    bool purgeConsentProvenanceJournal = false,
   }) async {
     if (scope == SdkDataErasureScope.allIncludingEntitlements &&
         !confirmedEntitlementErasure) {
@@ -695,6 +721,10 @@ class AdPreferences {
     for (final key in prefs.getKeys().toList()) {
       if (!key.startsWith('ad_sdk_')) continue;
       if (!includeEntitlements && _entitlementKeys.contains(key)) continue;
+      if (!purgeConsentProvenanceJournal &&
+          key == _keyConsentProvenanceJournal) {
+        continue;
+      }
       await prefs.remove(key);
     }
   }

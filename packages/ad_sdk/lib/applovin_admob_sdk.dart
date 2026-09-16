@@ -9,6 +9,7 @@ export 'src/compliance/ad_event_log.dart';
 export 'src/compliance/compliance_report.dart';
 export 'src/compliance/bypass_audit_trail.dart';
 export 'src/compliance/compliance_signing.dart';
+export 'src/compliance/consent_provenance_journal.dart';
 export 'src/compliance/incident_recorder.dart';
 
 // Configuration

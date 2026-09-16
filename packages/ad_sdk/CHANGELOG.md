@@ -6,6 +6,28 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **New (T202):** `ConsentProvenanceJournal` — append-only, tamper-evident
+  (SHA-256 hash chain) history of consent changes, exported from the
+  package barrel alongside `ConsentProvenanceEntry`. Reachable as
+  `AdManager().consentProvenanceJournal` (nullable until SDK init
+  completes, same contract as `AdManager().vip`); every `ConsentManager.set`
+  / `.reset` call now records an entry (`source`, `policyRevision`,
+  `hasUserConsent`, `isAgeRestrictedUser`, `doNotSell`, `regionSignal`).
+  Distinct from `ConsentSettings` (current state only) and
+  `ComplianceReport` (a point-in-time snapshot) — this is the change
+  history neither of those keeps.
+  - Deliberately kept OUT of `AdManager().clearSdkData()`'s default sweep,
+    under EITHER `SdkDataErasureScope` — some legal frameworks (GDPR Art.
+    17(3), CCPA) permit/require retaining proof that consent was
+    asked/received as a "legal basis defense" even after a user's general
+    erasure request. `clearSdkData(purgeConsentProvenanceJournal: true)`
+    removes it explicitly, as a deliberate, separate decision from erasing
+    VIP entitlements.
+  - `ConsentManager.bootstrap`/`.set`/`.reset` gained new optional
+    parameters (`provenanceJournal`, `source`, `policyRevision`) — all
+    additive with backward-compatible defaults, no behavior change for an
+    existing caller that doesn't pass them.
+
 - **Fixed (self-audit):** with `codex review` unavailable all session, a
   self-review of every commit from this session (5 parallel adversarial
   reads, no confirmation bias — fresh agents, not the same context that
