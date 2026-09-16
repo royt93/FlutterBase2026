@@ -245,6 +245,7 @@ class DemoConfig {
   AdConfig build() {
     return AdConfig(
       provider: kProvider,
+      enableConsentProvenanceJournal: true,
       admob: const AdMobConfig(
         bannerId: 'ca-app-pub-3940256099942544/6300978111',
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
@@ -1857,6 +1858,59 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                                 'Consent reset — next init will re-prompt')),
                       );
                     }
+                  },
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.history),
+                  label: const Text('Consent provenance journal (T202)'),
+                  onPressed: () async {
+                    final journal = AdManager().consentProvenanceJournal;
+                    if (journal == null) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content:
+                                  Text('null — SDK not initialised yet')),
+                        );
+                      }
+                      return;
+                    }
+                    final chainOk = await journal.verifyChain();
+                    if (!context.mounted) return;
+                    await showDialog<void>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: Text(
+                            'Provenance journal — ${journal.entries.length} entries'
+                            ' (chain ${chainOk ? "OK" : "TAMPERED"})'),
+                        content: SizedBox(
+                          width: double.maxFinite,
+                          child: ListView(
+                            shrinkWrap: true,
+                            children: [
+                              for (final e in journal.entries.reversed)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 4),
+                                  child: Text(
+                                    '${e.at.toLocal().toIso8601String().substring(0, 19)} '
+                                    '[${e.source}] consent=${e.hasUserConsent} '
+                                    'ccpa=${e.doNotSell}',
+                                    style: const TextStyle(
+                                        fontFamily: 'monospace', fontSize: 11),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Close'),
+                          ),
+                        ],
+                      ),
+                    );
                   },
                 ),
               ],

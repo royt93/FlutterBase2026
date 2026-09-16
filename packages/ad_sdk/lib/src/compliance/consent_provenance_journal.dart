@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../utils/ad_preferences.dart';
 
@@ -104,6 +105,15 @@ class ConsentProvenanceJournal {
   final AdPreferences _prefs;
   final List<ConsentProvenanceEntry> _entries;
 
+  /// Serializes [append] calls (audit finding A) — `ConsentManager.set()`/
+  /// `.reset()` don't serialize their own calls against each other, so two
+  /// overlapping consent changes could otherwise both read the same
+  /// `prevHash` before either finished hashing, producing a chain
+  /// [verifyChain] would wrongly flag as tampered. A simple Future-chained
+  /// mutex: each call waits for the previous one's write to fully land
+  /// (read `prevHash` → hash → append → persist) before starting its own.
+  Future<void> _writeQueue = Future<void>.value();
+
   /// Read-only view, oldest first.
   List<ConsentProvenanceEntry> get entries => List.unmodifiable(_entries);
 
@@ -115,6 +125,7 @@ class ConsentProvenanceJournal {
 
   /// Test-only: build a journal from entries not necessarily produced by
   /// [append] (e.g. hand-tampered JSON), to exercise [verifyChain].
+  @visibleForTesting
   static ConsentProvenanceJournal fromEntries(
     AdPreferences prefs,
     List<ConsentProvenanceEntry> entries,
@@ -149,6 +160,30 @@ class ConsentProvenanceJournal {
   /// string for the first entry), persists the whole journal, and returns
   /// the new entry.
   Future<ConsentProvenanceEntry> append({
+    required String source,
+    required String policyRevision,
+    required bool hasUserConsent,
+    required bool isAgeRestrictedUser,
+    required bool doNotSell,
+    String? regionSignal,
+    DateTime? now,
+  }) {
+    final result = _writeQueue.then((_) => _appendLocked(
+          source: source,
+          policyRevision: policyRevision,
+          hasUserConsent: hasUserConsent,
+          isAgeRestrictedUser: isAgeRestrictedUser,
+          doNotSell: doNotSell,
+          regionSignal: regionSignal,
+          now: now,
+        ));
+    // Swallow errors here so one failed append doesn't wedge the queue for
+    // every append after it — the error still propagates to `result`.
+    _writeQueue = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<ConsentProvenanceEntry> _appendLocked({
     required String source,
     required String policyRevision,
     required bool hasUserConsent,

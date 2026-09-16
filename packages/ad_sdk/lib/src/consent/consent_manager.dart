@@ -62,9 +62,18 @@ class ConsentManager {
   /// [provenanceJournal] (T202) is optional — when set, every [set] /
   /// [showDialog] / [reset] call appends a [ConsentProvenanceEntry] to it.
   /// Omitting it is a no-op: no behavior change for a caller that doesn't
-  /// need this. Only honored on the FIRST `bootstrap()` call, same as
-  /// [prefs] — a second call's value is ignored (the singleton keeps its
-  /// original journal).
+  /// need this. Unlike [prefs] (frozen after the first call), a non-null
+  /// [provenanceJournal] is adopted on EVERY `bootstrap()` call — same
+  /// unconditional-update treatment as [strings]. Audit finding B: freezing
+  /// it like [prefs] left `AdManager` (which loads a fresh
+  /// `ConsentProvenanceJournal` from disk on every `initialize()`) and this
+  /// singleton (which survives `destroy()`, per its own doc comment above)
+  /// pointing at two DIFFERENT journal instances after a destroy()+
+  /// reinitialize() cycle — real writes landed on the old, orphaned one
+  /// while `AdManager().consentProvenanceJournal` returned the new,
+  /// silently-stale one. Both instances read/write the same persisted
+  /// SharedPreferences key regardless of identity, so always adopting the
+  /// latest one loses no data — it just keeps the two objects in sync.
   static Future<ConsentManager> bootstrap({
     required AdPreferences prefs,
     required ConsentDialogStrings strings,
@@ -85,6 +94,9 @@ class ConsentManager {
           provenanceJournal: provenanceJournal,
         );
     m._strings = strings;
+    if (provenanceJournal != null) {
+      m._journal = provenanceJournal;
+    }
     await m._load();
     _instance = m;
     return m;
@@ -108,7 +120,7 @@ class ConsentManager {
 
   final AdPreferences _prefs;
   ConsentDialogStrings _strings;
-  final ConsentProvenanceJournal? _journal;
+  ConsentProvenanceJournal? _journal;
 
   /// T167 — remembers the app's configured provider so a LATER [showDialog]
   /// call with no [AdConfig] at all — documented as legal, e.g. a re-show
@@ -315,11 +327,17 @@ class ConsentManager {
   /// and re-applies to providers. Returns the new settings.
   ///
   /// Returns [current] unchanged if the dialog was dismissed without choice.
+  /// [source] / [policyRevision] (T202, audit finding E) — same meaning as
+  /// on [set]; previously hardcoded to `_setInternal`'s defaults with no way
+  /// for a caller to override, making the SDK's own dialog indistinguishable
+  /// in the provenance journal from a scripted [set] call.
   Future<ConsentSettings> showDialog(
     BuildContext context, {
     AdConfig? config,
     bool barrierDismissible = false,
     void Function(String url)? onPrivacyPolicyTap,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
   }) async {
     // Round-39 audit (MINOR) — a host wiring neither privacy-policy signal
     // ships this dialog with no way for the user to actually reach the
@@ -356,7 +374,8 @@ class ConsentManager {
       SafeLogger.d(_tag, 'dialog dismissed without choice');
       return _current;
     }
-    await _setInternal(result, config: config);
+    await _setInternal(result,
+        config: config, source: source, policyRevision: policyRevision);
     return _current;
   }
 

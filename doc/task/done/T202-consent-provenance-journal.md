@@ -116,3 +116,54 @@ Quyết định kỹ thuật cuối — khác vài điểm so với draft trên:
   surface đã regenerate. Full suite xanh (2147 pass; 4 fail trong
   `vip_cli_security_test.dart` là flake môi trường worktree cũ có sẵn,
   không liên quan — xem commit).
+
+## Audit follow-up 2026-09-16 (3 agent adversarial độc lập, trước khi publish)
+
+Chủ dự án yêu cầu audit lại trước khi lên pub.dev. 3 agent độc lập (không
+chung context, tránh confirmation bias) mỗi agent 1 góc: correctness/race,
+privacy/erasure semantics, API surface/test coverage. Tìm ra **4 bug thật**
+(2 MAJOR bị 2 agent xác nhận trùng nhau độc lập, 1 BLOCKER, 1 API hygiene)
++ 2 gap test — tất cả đã fix, có test TDD (RED xác nhận bằng cách tạm revert
+fix rồi chạy lại, không chỉ suy luận):
+
+1. **Race hash chain (MAJOR)** — 2 lệnh consent chồng nhau chưa await xong
+   đọc chung `prevHash` cũ → `verifyChain()` báo TAMPERED false-positive.
+   Fix: serialize `append()` qua 1 future-chain queue (mutex đơn giản).
+2. **Journal lệch instance sau destroy()+init lại (MAJOR, 2/3 agent xác
+   nhận)** — `ConsentManager.bootstrap()` chỉ nhận `provenanceJournal` lần
+   gọi ĐẦU, nhưng `AdManager` load bản journal MỚI mỗi lần `initialize()`
+   → getter trỏ instance mồ côi, ghi thật lại rơi vào instance cũ không ai
+   đọc được. Fix: bootstrap() giờ nhận journal mới mỗi lần gọi (giống cách
+   `_strings` đã làm), không chỉ lần đầu.
+3. **`AdManager().clearSdkData(purgeConsentProvenanceJournal:)` không tồn
+   tại (BLOCKER)** — tôi chỉ thêm param vào `AdPreferences.clearSdkData()`
+   (class nội bộ, không export), quên forward qua `AdManager` — README/
+   CHANGELOG dạy code mẫu không compile. Fix: thêm param ở `AdManager`,
+   khi SDK đang chạy live thì xoá cả bản trong bộ nhớ ngay (giống cách
+   `VipManager.eraseAllEntitlementData()` đã làm cho VIP), không chỉ đợi
+   load lại từ đĩa.
+4. **`showDialog()` không cho set nguồn riêng + chưa test (MAJOR)** —
+   đường dùng thật nhiều nhất (dialog SDK tự vẽ) bị hardcode `source: 'host'`
+   không override được, không phân biệt được với `set()` chạy tay trong
+   journal. Fix: thêm param `source`/`policyRevision` giống `set()`.
+5. `fromEntries` (chỉ để test) rò ra API public golden vì thiếu
+   `@visibleForTesting` — đã thêm annotation, golden đã regenerate.
+
+**Phát hiện thêm ngoài dự kiến khi viết test cho các fix trên — nghiêm
+trọng hơn cả 4 bug gốc:** thiết kế ban đầu để `AdManager.initialize()` TỰ
+ĐỘNG bật journal cho MỌI app (không cần xin phép). Khi viết test tái hiện
+bug #2 qua đường `AdManager().initialize()` thật (không chỉ unit
+`ConsentManager` cô lập), phát hiện 2 test **có sẵn từ trước** trong bộ
+2147 test (`ad_manager_core_test.dart` T60, `ump_consent_round5_test.dart`
+M6) bắt đầu treo vô thời hạn — vì `package:cryptography`'s SHA-256 (chạy
+qua background isolate) xung đột với `flutter_test`'s `testWidgets()`
+fake-async khi 1 `test()` thường trong CÙNG file đã chạm crypto thật trước
+đó (không phải lỗi ở fix, mà lỗi ở chính thiết kế "bật mặc định" khiến bất
+kỳ test nào trong 2147 test gọi `set()`/`showDialog()` cũng vô tình dính
+crypto thật). Sửa triệt để: đổi journal thành **opt-in** qua
+`AdConfig.enableConsentProvenanceJournal` (mặc định `false`) thay vì tự
+động bật — không phải chỉ né bug test, mà đúng hơn về latency cho app
+không cần tính năng này. Full suite sau fix: 2153 pass, chỉ còn 4 fail cũ
+(flake môi trường worktree, không liên quan). README/CHANGELOG/example app
+cập nhật theo (`enableConsentProvenanceJournal: true` ở example để nút demo
+hoạt động thật).

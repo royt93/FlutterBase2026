@@ -1164,10 +1164,18 @@ class AdManager with WidgetsBindingObserver {
   /// data (a device-generated keypair with no identifying content), and
   /// erasing it would only cost future compliance-report/incident-bundle
   /// exports their key continuity for no privacy benefit.
+  ///
+  /// [purgeConsentProvenanceJournal] (T202, audit finding C) — the T202
+  /// consent provenance journal is EXCLUDED from both [scope]s above by
+  /// design (see `ConsentProvenanceJournal`'s class doc comment: some legal
+  /// frameworks permit/require keeping proof consent was asked/received
+  /// even after a general erasure request). Pass `true` here to purge it
+  /// explicitly, as a separate decision from [scope].
   Future<void> clearSdkData({
     SdkDataErasureScope scope =
         SdkDataErasureScope.everythingExceptEntitlements,
     bool confirmedEntitlementErasure = false,
+    bool purgeConsentProvenanceJournal = false,
   }) async {
     if (scope == SdkDataErasureScope.allIncludingEntitlements &&
         !confirmedEntitlementErasure) {
@@ -1181,6 +1189,16 @@ class AdManager with WidgetsBindingObserver {
       scope: scope,
       confirmedEntitlementErasure: confirmedEntitlementErasure,
     );
+    if (purgeConsentProvenanceJournal) {
+      final journal = _provenanceJournal;
+      if (journal != null) {
+        // SDK is live — clears the in-memory list too, not just the
+        // persisted key, same reasoning as the VIP branch below.
+        await journal.clear();
+      } else {
+        await prefs.clearConsentProvenanceJournal();
+      }
+    }
     if (scope == SdkDataErasureScope.allIncludingEntitlements) {
       final vip = _vipManager;
       if (vip != null) {
@@ -3432,10 +3450,14 @@ class AdManager with WidgetsBindingObserver {
           pendingExplorationAtMs: pendingExplorationAtMs,
           vipActive: vip.isActive);
 
-      // T202 — loaded once BEFORE ConsentManager.bootstrap so the very
+      // T202 — opt-in only (AdConfig.enableConsentProvenanceJournal,
+      // default false — see its own doc comment for why not on by
+      // default). Loaded once BEFORE ConsentManager.bootstrap so the very
       // first bootstrap() call (the only one that honors this param, same
       // rule as `prefs`) can wire it in.
-      final provenanceJournal = await ConsentProvenanceJournal.load(prefs);
+      final provenanceJournal = config.enableConsentProvenanceJournal
+          ? await ConsentProvenanceJournal.load(prefs)
+          : null;
       // T40 — bootstrap ConsentManager (loads persisted user choice from
       // prefs) BEFORE picking/initialising the adapter, so a previously
       // recorded isAgeRestrictedUser=true can gate AppLovin's init (it has

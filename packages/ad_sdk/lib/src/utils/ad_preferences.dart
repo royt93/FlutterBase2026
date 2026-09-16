@@ -14,6 +14,11 @@ enum SdkDataErasureScope {
   /// counters, consent settings, compliance/analytics history,
   /// remote-config cache, experiment id. Never touches anything a user
   /// may have paid for.
+  ///
+  /// ONE exception, at EITHER scope value (audit finding D): the T202
+  /// consent provenance journal survives both — see
+  /// `AdPreferences.clearSdkData`'s `purgeConsentProvenanceJournal` param
+  /// and `ConsentProvenanceJournal`'s class doc comment for why.
   everythingExceptEntitlements,
 
   /// Everything [everythingExceptEntitlements] covers, PLUS every VIP/

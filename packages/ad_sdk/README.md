@@ -2397,11 +2397,16 @@ unmodified since export", not "this device's history is definitely genuine".
 
 ### Consent provenance journal (T202)
 
-`AdManager().consentProvenanceJournal` (nullable until SDK init completes,
-same contract as `AdManager().vip`) is an append-only, tamper-evident
-(SHA-256 hash chain) history of consent changes — distinct from
-`ConsentManager.current` (current state only, overwritten on every change)
-and `ComplianceReport` (a point-in-time snapshot): this is the change
+Opt-in — pass `AdConfig(enableConsentProvenanceJournal: true, ...)`. Default
+`false`: it does real SHA-256 hashing (`package:cryptography`) on every
+consent change, latency an app with no legal-audit-trail need shouldn't pay
+for by default.
+
+`AdManager().consentProvenanceJournal` (nullable until SDK init completes AND
+until enabled, same contract as `AdManager().vip`) is an append-only,
+tamper-evident (SHA-256 hash chain) history of consent changes — distinct
+from `ConsentManager.current` (current state only, overwritten on every
+change) and `ComplianceReport` (a point-in-time snapshot): this is the change
 *history* neither of those keeps.
 
 ```dart
@@ -2412,11 +2417,11 @@ for (final entry in journal?.entries ?? const []) {
 await journal?.verifyChain(); // false ⇒ persisted history was tampered with
 ```
 
-Every `ConsentManager.set`/`.reset` call records an entry automatically.
-Pass `source`/`policyRevision` to tag where a consent change came from
-(free text, e.g. `'ump'`, `'host'`, `'manual'` — same convention as
-`IncidentEntry.label`); both default to values that make sense for a plain
-`AdManager().setConsent(...)` call.
+When enabled, every `ConsentManager.set`/`.reset`/`.showDialog` call records
+an entry automatically. Pass `source`/`policyRevision` to tag where a
+consent change came from (free text, e.g. `'ump'`, `'host'`, `'manual'` —
+same convention as `IncidentEntry.label`); both default to values that make
+sense for a plain `AdManager().setConsent(...)` call.
 
 **Deliberately excluded from `clearSdkData()`'s default sweep** — see
 below.

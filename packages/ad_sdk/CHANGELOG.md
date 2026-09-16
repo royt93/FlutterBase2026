@@ -8,10 +8,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - **New (T202):** `ConsentProvenanceJournal` — append-only, tamper-evident
   (SHA-256 hash chain) history of consent changes, exported from the
-  package barrel alongside `ConsentProvenanceEntry`. Reachable as
-  `AdManager().consentProvenanceJournal` (nullable until SDK init
-  completes, same contract as `AdManager().vip`); every `ConsentManager.set`
-  / `.reset` call now records an entry (`source`, `policyRevision`,
+  package barrel alongside `ConsentProvenanceEntry`. **Opt-in** —
+  `AdConfig(enableConsentProvenanceJournal: true, ...)`, default `false`
+  (real SHA-256 hashing on every consent change is latency an app with no
+  legal-audit-trail need shouldn't pay for by default — a 5-parallel-
+  adversarial-review follow-up on this same feature also found it hangs
+  `flutter_test`'s `testWidgets()` in specific file/test-ordering
+  combinations if wired unconditionally, so it stays off unless a host asks
+  for it). Reachable as `AdManager().consentProvenanceJournal` (nullable
+  until SDK init completes AND until enabled, same contract as
+  `AdManager().vip`); when enabled, every `ConsentManager.set` / `.reset` /
+  `.showDialog` call records an entry (`source`, `policyRevision`,
   `hasUserConsent`, `isAgeRestrictedUser`, `doNotSell`, `regionSignal`).
   Distinct from `ConsentSettings` (current state only) and
   `ComplianceReport` (a point-in-time snapshot) — this is the change
@@ -20,13 +27,28 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
     under EITHER `SdkDataErasureScope` — some legal frameworks (GDPR Art.
     17(3), CCPA) permit/require retaining proof that consent was
     asked/received as a "legal basis defense" even after a user's general
-    erasure request. `clearSdkData(purgeConsentProvenanceJournal: true)`
-    removes it explicitly, as a deliberate, separate decision from erasing
-    VIP entitlements.
-  - `ConsentManager.bootstrap`/`.set`/`.reset` gained new optional
-    parameters (`provenanceJournal`, `source`, `policyRevision`) — all
-    additive with backward-compatible defaults, no behavior change for an
-    existing caller that doesn't pass them.
+    erasure request. `AdManager().clearSdkData(purgeConsentProvenanceJournal:
+    true)` removes it explicitly (also clears the live in-memory copy
+    immediately, same as `VipManager`'s entitlement erasure does), as a
+    deliberate, separate decision from erasing VIP entitlements.
+  - `ConsentManager.bootstrap`/`.set`/`.reset`/`.showDialog` gained new
+    optional parameters (`provenanceJournal`, `source`, `policyRevision`) —
+    all additive with backward-compatible defaults, no behavior change for
+    an existing caller that doesn't pass them.
+  - **Follow-up self-audit (5 parallel adversarial reviews) found and fixed
+    4 real bugs** in this feature before it shipped: (1) concurrent
+    `append()` calls could read a stale `prevHash`, producing a chain
+    `verifyChain()` wrongly flagged as tampered — now serialized via a
+    Future-chained queue; (2) a `destroy()`+reinitialize() cycle orphaned
+    the journal `ConsentManager` actually wrote to, leaving
+    `AdManager().consentProvenanceJournal` permanently stale — `bootstrap()`
+    now adopts a non-null journal on every call, not just the first; (3)
+    `AdManager().clearSdkData(purgeConsentProvenanceJournal: true)` — the
+    documented erasure escape hatch — didn't exist at the `AdManager` layer
+    (only on the internal, unexported `AdPreferences`), a compile error if
+    copied from the docs verbatim; (4) `showDialog()` recorded an entry but
+    could never be told a distinct `source`, making the SDK's own consent
+    dialog indistinguishable from a scripted `set()` call in the journal.
 
 - **Fixed (self-audit):** with `codex review` unavailable all session, a
   self-review of every commit from this session (5 parallel adversarial

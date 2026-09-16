@@ -160,4 +160,50 @@ void main() {
     await prefs.clearSdkData(purgeConsentProvenanceJournal: true);
     expect((await ConsentProvenanceJournal.load(prefs)).entries, isEmpty);
   });
+
+  test(
+      'two overlapping append() calls never corrupt the chain (audit finding A)',
+      () async {
+    final journal = await ConsentProvenanceJournal.load(prefs);
+    // Fired without awaiting between them — both start, both read
+    // `prevHash` before either finishes hashing/persisting, exactly the
+    // interleaving `ConsentManager.set()`/`.reset()` can produce (neither
+    // call is serialized against the other at that layer).
+    final a = journal.append(
+      source: 'host',
+      policyRevision: 'ump-v1',
+      hasUserConsent: true,
+      isAgeRestrictedUser: false,
+      doNotSell: false,
+    );
+    final b = journal.append(
+      source: 'ump',
+      policyRevision: 'ump-v1',
+      hasUserConsent: false,
+      isAgeRestrictedUser: false,
+      doNotSell: false,
+    );
+    await Future.wait([a, b]);
+
+    expect(journal.entries, hasLength(2));
+    expect(await journal.verifyChain(), isTrue,
+        reason: 'two legitimate, un-tampered concurrent writes must never '
+            'produce a chain verifyChain() flags as tampered');
+  });
+
+  test('load() degrades gracefully on corrupted persisted JSON', () async {
+    await prefs.setConsentProvenanceJournalRaw('not valid json{{{');
+    final journal = await ConsentProvenanceJournal.load(prefs);
+    expect(journal.entries, isEmpty);
+
+    // And appending after a corrupt load still works normally.
+    await journal.append(
+      source: 'host',
+      policyRevision: 'ump-v1',
+      hasUserConsent: true,
+      isAgeRestrictedUser: false,
+      doNotSell: false,
+    );
+    expect(journal.entries, hasLength(1));
+  });
 }

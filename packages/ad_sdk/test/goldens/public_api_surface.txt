@@ -33,6 +33,7 @@ AdConfig.consentBarrierDismissible  [field]  bool consentBarrierDismissible
 AdConfig.consentDialogPostSplashDelay  [field]  Duration consentDialogPostSplashDelay
 AdConfig.consentDialogStrings  [field]  ConsentDialogStrings consentDialogStrings
 AdConfig.disableAppLovinCmpFlow  [field]  bool disableAppLovinCmpFlow
+AdConfig.enableConsentProvenanceJournal  [field]  bool enableConsentProvenanceJournal
 AdConfig.enableCrashGuard  [field]  bool enableCrashGuard
 AdConfig.firstInstallVipGrace  [field]  FirstInstallVipGrace firstInstallVipGrace
 AdConfig.firstInstallVipKey  [field]  String firstInstallVipKey
@@ -41,7 +42,7 @@ AdConfig.loadingBufferMs  [field]  int loadingBufferMs
 AdConfig.logLevel  [field]  AdLogLevel logLevel
 AdConfig.logTagFilter  [field]  List<String>? logTagFilter
 AdConfig.maxVipStackDuration  [field]  Duration? maxVipStackDuration
-AdConfig.new  [constructor]  AdConfig AdConfig({required AdProvider provider, AppLovinConfig? appLovin, AdMobConfig? admob, List<String> vipDeviceGaids = const [], int loadingBufferMs = 1000, AdLogLevel logLevel = kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning, List<String>? logTagFilter, void Function(AdLogLevel, String, String)? onLog, String adNotReadyMessage = 'Ad not ready — please wait and try again.', String adLoadingMessage = 'Loading…', AdSafetyParams safety = AdSafetyParams.auto, PlacementRegistry? placements, Map<Duration, AdSafetyParams>? safetyRampSchedule, Future<bool> Function(String)? vipKeyValidator, VipDialogStrings vipDialogStrings = const VipDialogStrings(), Duration? maxVipStackDuration = const Duration(days: 90), Duration splashMaxDuration = const Duration(seconds: 8), FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto, String firstInstallVipKey = '__FIRST_INSTALL__', bool autoShowConsentDialog = true, ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(), void Function(String)? onPrivacyPolicyTap, bool consentBarrierDismissible = false, Duration consentDialogPostSplashDelay = const Duration(seconds: 1), bool autoRequestUmpConsent = true, bool umpTagForUnderAgeOfConsent = false, DebugGeography? umpDebugGeography, List<String> umpTestIdentifiers = const [], bool disableAppLovinCmpFlow = true, bool enableCrashGuard = true, AppOpenTrigger appOpenTrigger = AppOpenTrigger.both})
+AdConfig.new  [constructor]  AdConfig AdConfig({required AdProvider provider, AppLovinConfig? appLovin, AdMobConfig? admob, List<String> vipDeviceGaids = const [], int loadingBufferMs = 1000, AdLogLevel logLevel = kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning, List<String>? logTagFilter, void Function(AdLogLevel, String, String)? onLog, String adNotReadyMessage = 'Ad not ready — please wait and try again.', String adLoadingMessage = 'Loading…', AdSafetyParams safety = AdSafetyParams.auto, PlacementRegistry? placements, Map<Duration, AdSafetyParams>? safetyRampSchedule, Future<bool> Function(String)? vipKeyValidator, VipDialogStrings vipDialogStrings = const VipDialogStrings(), Duration? maxVipStackDuration = const Duration(days: 90), Duration splashMaxDuration = const Duration(seconds: 8), FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto, String firstInstallVipKey = '__FIRST_INSTALL__', bool autoShowConsentDialog = true, ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(), void Function(String)? onPrivacyPolicyTap, bool consentBarrierDismissible = false, Duration consentDialogPostSplashDelay = const Duration(seconds: 1), bool autoRequestUmpConsent = true, bool umpTagForUnderAgeOfConsent = false, DebugGeography? umpDebugGeography, List<String> umpTestIdentifiers = const [], bool disableAppLovinCmpFlow = true, bool enableConsentProvenanceJournal = false, bool enableCrashGuard = true, AppOpenTrigger appOpenTrigger = AppOpenTrigger.both})
 AdConfig.onLog  [field]  void Function(AdLogLevel, String, String)? onLog
 AdConfig.onPrivacyPolicyTap  [field]  void Function(String)? onPrivacyPolicyTap
 AdConfig.placements  [field]  PlacementRegistry? placements
@@ -140,7 +141,7 @@ AdManager.canRequestAdsListenable  [getter]  ValueListenable<bool> get canReques
 AdManager.canShowInterstitial  [method]  bool canShowInterstitial({AdPlacement placement = AdPlacement.unspecified})
 AdManager.canShowRewardedAd  [method]  bool canShowRewardedAd({AdPlacement placement = AdPlacement.unspecified})
 AdManager.canShowRewardedInterstitialAd  [method]  bool canShowRewardedInterstitialAd({AdPlacement placement = AdPlacement.unspecified})
-AdManager.clearSdkData  [method]  Future<void> clearSdkData({SdkDataErasureScope scope = SdkDataErasureScope.everythingExceptEntitlements, bool confirmedEntitlementErasure = false})
+AdManager.clearSdkData  [method]  Future<void> clearSdkData({SdkDataErasureScope scope = SdkDataErasureScope.everythingExceptEntitlements, bool confirmedEntitlementErasure = false, bool purgeConsentProvenanceJournal = false})
 AdManager.config  [getter]  AdConfig? get config
 AdManager.consent  [getter]  AdConsent get consent
 AdManager.consentManager  [getter]  ConsentManager? get consentManager
@@ -734,7 +735,7 @@ ConsentManager.noteProvider  [method]  void noteProvider(AdProvider provider)
 ConsentManager.recordFallback  [method]  Future<void> recordFallback({required ConsentFallbackReason reason, required String policyRevision})
 ConsentManager.reset  [method]  Future<void> reset({AdConfig? config, String source = 'host', String policyRevision = kUmpPolicyRevision})
 ConsentManager.set  [method]  Future<void> set(ConsentSettings settings, {AdConfig? config, String source = 'host', String policyRevision = kUmpPolicyRevision})
-ConsentManager.showDialog  [method]  Future<ConsentSettings> showDialog(BuildContext context, {AdConfig? config, bool barrierDismissible = false, void Function(String)? onPrivacyPolicyTap})
+ConsentManager.showDialog  [method]  Future<ConsentSettings> showDialog(BuildContext context, {AdConfig? config, bool barrierDismissible = false, void Function(String)? onPrivacyPolicyTap, String source = 'host', String policyRevision = kUmpPolicyRevision})
 ConsentManager.showDialogIfNeeded  [method]  Future<ConsentSettings> showDialogIfNeeded(BuildContext context, {AdConfig? config, bool barrierDismissible = false})
 ConsentManager.strings  [getter]  ConsentDialogStrings get strings
 ConsentManager.updateStrings  [method]  void updateStrings(ConsentDialogStrings v)
@@ -757,7 +758,6 @@ ConsentProvenanceJournal  [class]  class ConsentProvenanceJournal
 ConsentProvenanceJournal.append  [method]  Future<ConsentProvenanceEntry> append({required String source, required String policyRevision, required bool hasUserConsent, required bool isAgeRestrictedUser, required bool doNotSell, String? regionSignal, DateTime? now})
 ConsentProvenanceJournal.clear  [method]  Future<void> clear()
 ConsentProvenanceJournal.entries  [getter]  List<ConsentProvenanceEntry> get entries
-ConsentProvenanceJournal.fromEntries  [method]  ConsentProvenanceJournal fromEntries(AdPreferences prefs, List<ConsentProvenanceEntry> entries)
 ConsentProvenanceJournal.load  [method]  Future<ConsentProvenanceJournal> load(AdPreferences prefs)
 ConsentProvenanceJournal.verifyChain  [method]  Future<bool> verifyChain()
 ConsentSettings  [class]  class ConsentSettings

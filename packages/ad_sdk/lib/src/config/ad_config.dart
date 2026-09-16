@@ -414,6 +414,7 @@ class AdConfig {
     this.umpDebugGeography,
     this.umpTestIdentifiers = const [],
     this.disableAppLovinCmpFlow = true,
+    this.enableConsentProvenanceJournal = false,
     this.enableCrashGuard = true,
     this.appOpenTrigger = AppOpenTrigger.both,
   }) : assert(
@@ -658,6 +659,20 @@ class AdConfig {
   /// AppLovin via `setHasUserConsent`. Set `false` only if you deliberately use
   /// AppLovin's CMP instead of UMP.
   final bool disableAppLovinCmpFlow;
+
+  /// T202 — when `true`, [AdManager.initialize] wires up a
+  /// `ConsentProvenanceJournal` (reachable as
+  /// `AdManager().consentProvenanceJournal`), and every consent change
+  /// (`ConsentManager.set`/`.reset`/`.showDialog`) appends a tamper-evident
+  /// entry to it. Default `false` — this does REAL SHA-256 hashing
+  /// (`package:cryptography`) on every consent change, adding latency an
+  /// app that doesn't need a legal consent audit trail shouldn't pay for by
+  /// default, and that hashing has a known bad interaction with
+  /// `flutter_test`'s fake-async pump loop when triggered from a
+  /// `testWidgets()` test (see `consent_manager_provenance_dialog_test.dart`'s
+  /// class doc comment) — opt-in keeps every other test in this suite that
+  /// never asked for this feature unaffected by that.
+  final bool enableConsentProvenanceJournal;
 
   // ─── Crash guard ──────────────────────────────────────────────────────────
 
