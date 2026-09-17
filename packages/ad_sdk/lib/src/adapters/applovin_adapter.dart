@@ -173,22 +173,16 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   int _requestSeq = 0;
   String _nextRequestId() => '$tag-req${_requestSeq++}';
 
-  /// T185 — maps a specific loaded [MaxAd] INSTANCE to the `requestId`
-  /// stamped for it at load time. Unlike `AdMobAdapter` (where a fresh
-  /// paid-event closure is created per load, capturing its own id — see
-  /// `AdMobAdapter._wirePaidEvent`), AppLovin's `onAdRevenuePaidCallback`
-  /// is wired ONCE per format and reused across every load cycle for
-  /// that format's lifetime (`_wireAppOpenListener`/
-  /// `_wireInterstitialListener`/`_wireRewardedListener`, each called
-  /// once from `initialize()`). Keying by the exact `ad` object this
-  /// callback receives — rather than reading the slot's current
-  /// (mutable) `requestId` — means a late/stale callback for an ad this
-  /// adapter has already moved on from (the same class of staleness the
-  /// `identical(ad, _interstitialAd)` guards elsewhere in this file exist
-  /// for) still resolves to ITS OWN correct id, or to nothing, instead of
-  /// ever being misattributed to whichever ad is current when the late
-  /// callback happens to arrive.
-  final Expando<String> _requestIds = Expando<String>();
+  /// T185 — was an `Expando<String>` keyed by the loaded [MaxAd] INSTANCE
+  /// (see the smoke-test audit fix note above `_interstitialCreativeId`'s
+  /// declaration for why that never worked against the real plugin: a
+  /// fresh `MaxAd` is deserialized per callback, so the revenue callback's
+  /// `ad` was NEVER a key already in the Expando — every real AppLovin
+  /// fullscreen [AdRevenueEvent.requestId] was silently `null`). Each
+  /// `onAdRevenuePaidCallback` below now passes the SLOT's current
+  /// `requestId` directly when [_isStaleAd] says the paid event is for the
+  /// currently-tracked ad, or `null` when it isn't — same creativeId-based
+  /// check as the stale-callback guards, applied to revenue correlation.
 
   /// Round-31 audit fix — doc was stale/misleading: this is called from
   /// `onAdRevenuePaidCallback` (display/impression time, correct ILRD
@@ -199,9 +193,10 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// (applovin_ad_revenue.dart), shared with the widget-level
   /// banner/mrec/native `onAdRevenuePaidCallback`s, which don't have an
   /// `AppLovinAdapter` instance to call this method on.
-  void _emitRevenueIfPresent(MaxAd ad, AdSlotType type, AdPlacement placement) {
+  void _emitRevenueIfPresent(
+      MaxAd ad, AdSlotType type, AdPlacement placement, String? requestId) {
     final event = appLovinRevenueEvent(ad,
-        type: type, placement: placement, requestId: _requestIds[ad]);
+        type: type, placement: placement, requestId: requestId);
     if (event != null) _emit(event);
   }
 
@@ -584,13 +579,44 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// closure per `show*()` call), so its `onAdHidden`/`onAdDisplayFailed`
   /// callbacks have no closure-local way to know whether they belong to the
   /// cycle currently being shown or a stale one from a prior cycle whose
-  /// watchdog already resolved it. These track "the ad object most recently
-  /// loaded" per type so those callbacks can `identical()`-check the `MaxAd`
-  /// they were handed against it — a late/stale event for an ad AppLovin has
-  /// already moved on from is discarded instead of resolving (or worse,
-  /// stealing) whatever cycle is current.
-  MaxAd? _interstitialAd;
-  MaxAd? _rewardedAd;
+  /// watchdog already resolved it.
+  ///
+  /// Smoke-test audit fix (2026-09-17, real device) — this used to be an
+  /// `identical(ad, _interstitialAd)` check against the `MaxAd` object
+  /// tracked here. **That never worked against the real `applovin_max`
+  /// plugin**: its Dart bridge (`AppLovinMAX.createMaxAd`) deserializes a
+  /// BRAND NEW `MaxAd` instance from the platform-channel arguments on
+  /// EVERY single callback (load, displayed, clicked, revenue, hidden — see
+  /// `applovin_max`'s `applovin_max.dart`), so the object handed to
+  /// `onAdDisplayedCallback` is never `identical()` to the one stored here
+  /// from `onAdLoadedCallback`, even for the exact same real, currently-
+  /// displaying ad. On a real device this discarded EVERY legitimate
+  /// `displayed`/`hidden`/earned-reward callback as "stale", 100% of the
+  /// time — the 10s show-confirmation watchdog then always fired and
+  /// reported the ad as "swallowed" even though it was genuinely on screen
+  /// (rewarded ads: the user's earned reward was silently dropped). The
+  /// existing unit tests never caught this because they thread ONE shared
+  /// `MaxAd` instance through load→show→hide (see `applovin_adapter_test.
+  /// dart`'s own comments) — an assumption about the real plugin that was
+  /// never actually verified against it.
+  ///
+  /// A same-adapter monotonic counter (tried first, reverted) can't replace
+  /// this either: nothing in ANY `MaxAd` callback round-trips a token this
+  /// adapter itself minted, so there is no way to tell "a late event for an
+  /// ad we've moved on from" apart from "a genuine event for the ad we just
+  /// loaded" from timing/sequencing alone — by the time a stale event
+  /// arrives, a purely adapter-side counter has already moved on too,
+  /// making every check trivially "not stale". `_XCreativeId` below tracks
+  /// [MaxAd.creativeId] instead — the one field the real network/mediation
+  /// stack actually varies between genuinely different ad instances (real,
+  /// revenue-generating loads get a fresh creative ID each time; AppLovin's
+  /// OWN test-mode creative can repeat or come back empty, in which case
+  /// [_isStaleAd] deliberately trusts the callback rather than guessing —
+  /// a wrongly-accepted stale test-mode event costs nothing (0 revenue,
+  /// $0 test ad), while wrongly-REJECTING every real one is the bug this
+  /// fixes).
+  String? _interstitialCreativeId;
+  String? _rewardedCreativeId;
 
   /// Round-31 audit fix (MAJOR) — App Open never got this tracking when
   /// round-29 added it for interstitial/rewarded above. `showAppOpen`'s own
@@ -598,8 +624,21 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// fires LATE (10-30s)"; without this, a late callback from a cycle the
   /// watchdog already force-resolved could set `_displayConfirmed`/mark
   /// dismissed/reload for whatever NEWER cycle is now current instead of
-  /// being discarded as stale.
-  MaxAd? _appOpenAd;
+  /// being discarded as stale. See the smoke-test audit fix note above
+  /// `_interstitialCreativeId` — same bug, same creativeId-based fix.
+  String? _appOpenCreativeId;
+
+  /// See `_interstitialCreativeId`'s doc comment. `null`/empty on either
+  /// side means "no reliable signal" — trust the callback rather than
+  /// discard it; AppLovin's own test-mode creatives commonly report an
+  /// empty or repeated creative ID, and a real, wrongly-discarded callback
+  /// (lost impression, lost reward) is far more costly than a wrongly-
+  /// accepted stale test one (zero revenue either way).
+  static bool _isStaleAd(String? trackedCreativeId, String incomingCreativeId) =>
+      trackedCreativeId != null &&
+      trackedCreativeId.isNotEmpty &&
+      incomingCreativeId.isNotEmpty &&
+      trackedCreativeId != incomingCreativeId;
 
   /// Set true in [showRewarded] when the caller supplied SSV identifying
   /// data for the in-flight show — read once by the reward callback to stamp
@@ -1064,9 +1103,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
         if (_discardIfConsentStale(appOpenSlot, 'appOpen')) return;
-        _appOpenAd = ad;
+        _appOpenCreativeId = ad.creativeId;
         final requestId = _nextRequestId();
-        _requestIds[ad] = requestId;
         appOpenSlot.requestId = requestId;
         appOpenSlot.markReady();
         _emit(AdLoadEvent(
@@ -1100,8 +1138,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         // same applies to this callback. Without this, a late display
         // callback from a cycle the watchdog already force-resolved could
         // mark a NEWER cycle's slot displayed before its own ad actually
-        // showed — see `_appOpenAd`'s declaration.
-        if (!identical(ad, _appOpenAd)) {
+        // showed — see `_appOpenCreativeId`'s declaration.
+        if (_isStaleAd(_appOpenCreativeId, ad.creativeId)) {
           SafeLogger.w(_logTag,
               'appOpen $tag ⚠️ displayed callback for a stale ad (late — a newer cycle is already current) — discarding');
           return;
@@ -1110,7 +1148,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         SafeLogger.d(_logTag, 'appOpen $tag ✅ displayed');
       },
       onAdRevenuePaidCallback: (ad) {
-        _emitRevenueIfPresent(ad, AdSlotType.appOpen, AdPlacement.splash);
+        _emitRevenueIfPresent(
+            ad,
+            AdSlotType.appOpen,
+            AdPlacement.splash,
+            _isStaleAd(_appOpenCreativeId, ad.creativeId)
+                ? null
+                : appOpenSlot.requestId);
       },
       onAdDisplayFailedCallback: (ad, err) {
         _appOpenShowTimeout?.cancel();
@@ -1120,11 +1164,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         // NEWER cycle calls showAppOpen() again, `_appOpenDismiss` is a
         // fresh non-null closure again, so this check would pass and a
         // late callback carrying the OLD cycle's stale `ad` would resolve
-        // the NEW cycle instead. Ad-identity (see `_appOpenAd`'s
+        // the NEW cycle instead. Ad-identity (see `_appOpenCreativeId`'s
         // declaration) catches this cross-cycle case; a same-cycle late
-        // arrival always fails it too since `_appOpenAd` only changes on a
+        // arrival always fails it too since `_appOpenCreativeId` only changes on a
         // fresh load.
-        if (!identical(ad, _appOpenAd)) {
+        if (_isStaleAd(_appOpenCreativeId, ad.creativeId)) {
           SafeLogger.w(_logTag,
               'appOpen $tag ❌ display failed (late — a newer cycle is already current): ${err.message}');
           return;
@@ -1174,12 +1218,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         // showAppOpen() again, `_appOpenDismiss` is a fresh non-null
         // closure, so this check would pass and a late callback carrying
         // the OLD cycle's stale `ad` would resolve/reload the NEW cycle
-        // instead — see `_appOpenAd`'s declaration and the "unreliable,
+        // instead — see `_appOpenCreativeId`'s declaration and the "unreliable,
         // sometimes fires LATE" comment in [showAppOpen]. Acting on a stale
         // callback here would clobber whatever state the current cycle has
         // already moved to and fire a SECOND raw `_bridge.loadAppOpenAd`
         // call that bypasses AdManager's VIP/consent/daily-cap gates.
-        if (!identical(ad, _appOpenAd)) {
+        if (_isStaleAd(_appOpenCreativeId, ad.creativeId)) {
           SafeLogger.d(_logTag,
               'appOpen $tag 👋 hidden (late — a newer cycle is already current)');
           return;
@@ -1421,9 +1465,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
         if (_discardIfConsentStale(interstitialSlot, 'inter')) return;
-        _interstitialAd = ad;
+        _interstitialCreativeId = ad.creativeId;
         final requestId = _nextRequestId();
-        _requestIds[ad] = requestId;
         interstitialSlot.requestId = requestId;
         interstitialSlot.markReady();
         _emit(AdLoadEvent(
@@ -1453,8 +1496,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       onAdDisplayedCallback: (ad) {
         // Round-29 audit follow-up (MAJOR) — a stale `displayed` for an ad
         // this adapter has already moved on from must not disarm the
-        // CURRENT cycle's watchdog. See `_interstitialAd`'s declaration.
-        if (!identical(ad, _interstitialAd)) {
+        // CURRENT cycle's watchdog. See `_interstitialCreativeId`'s declaration.
+        if (_isStaleAd(_interstitialCreativeId, ad.creativeId)) {
           SafeLogger.d(_logTag, 'inter $tag ⛔ stale displayed — discarding');
           return;
         }
@@ -1472,13 +1515,18 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
             () => 'inter $tag 💰 revenue=\$${ad.revenue} '
                 'precision=${ad.revenuePrecision} network=${ad.networkName}');
         _emitRevenueIfPresent(
-            ad, AdSlotType.interstitial, AdPlacement.unspecified);
+            ad,
+            AdSlotType.interstitial,
+            AdPlacement.unspecified,
+            _isStaleAd(_interstitialCreativeId, ad.creativeId)
+                ? null
+                : interstitialSlot.requestId);
       },
       onAdDisplayFailedCallback: (ad, err) {
-        // Round-29 audit follow-up (MAJOR) — see `_interstitialAd`'s
+        // Round-29 audit follow-up (MAJOR) — see `_interstitialCreativeId`'s
         // declaration. A stale failure must not touch the current cycle's
         // slot/callback nor trigger a redundant reload.
-        if (!identical(ad, _interstitialAd)) {
+        if (_isStaleAd(_interstitialCreativeId, ad.creativeId)) {
           SafeLogger.w(
               _logTag, 'inter $tag ⛔ stale display-failed — discarding');
           return;
@@ -1521,9 +1569,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdHiddenCallback: (ad) {
-        // Round-29 audit follow-up (MAJOR) — see `_interstitialAd`'s
+        // Round-29 audit follow-up (MAJOR) — see `_interstitialCreativeId`'s
         // declaration.
-        if (!identical(ad, _interstitialAd)) {
+        if (_isStaleAd(_interstitialCreativeId, ad.creativeId)) {
           SafeLogger.d(_logTag, 'inter $tag ⛔ stale hidden — discarding');
           return;
         }
@@ -1666,9 +1714,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
         if (_discardIfConsentStale(rewardedSlot, 'rewarded')) return;
-        _rewardedAd = ad;
+        _rewardedCreativeId = ad.creativeId;
         final requestId = _nextRequestId();
-        _requestIds[ad] = requestId;
         rewardedSlot.requestId = requestId;
         rewardedSlot.markReady();
         _emit(AdLoadEvent(
@@ -1696,8 +1743,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdDisplayedCallback: (ad) {
-        // Round-29 audit follow-up (MAJOR) — see `_rewardedAd`'s declaration.
-        if (!identical(ad, _rewardedAd)) {
+        // Round-29 audit follow-up (MAJOR) — see `_rewardedCreativeId`'s declaration.
+        if (_isStaleAd(_rewardedCreativeId, ad.creativeId)) {
           SafeLogger.d(_logTag, 'rewarded $tag ⛔ stale displayed — discarding');
           return;
         }
@@ -1705,10 +1752,16 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         SafeLogger.d(_logTag, 'rewarded $tag ✅ displayed');
       },
       onAdRevenuePaidCallback: (ad) {
-        _emitRevenueIfPresent(ad, AdSlotType.rewarded, AdPlacement.unspecified);
+        _emitRevenueIfPresent(
+            ad,
+            AdSlotType.rewarded,
+            AdPlacement.unspecified,
+            _isStaleAd(_rewardedCreativeId, ad.creativeId)
+                ? null
+                : rewardedSlot.requestId);
       },
       onAdDisplayFailedCallback: (ad, err) {
-        if (!identical(ad, _rewardedAd)) {
+        if (_isStaleAd(_rewardedCreativeId, ad.creativeId)) {
           SafeLogger.w(
               _logTag, 'rewarded $tag ⛔ stale display-failed — discarding');
           return;
@@ -1748,13 +1801,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdHiddenCallback: (ad) {
-        // Round-29 audit follow-up (MAJOR) — see `_rewardedAd`'s declaration.
+        // Round-29 audit follow-up (MAJOR) — see `_rewardedCreativeId`'s declaration.
         // Using ad identity (not `_rewardedDone`, which the earned-reward
         // path below may have already nulled for this SAME, still-current
         // cycle) correctly tells apart "this cycle already earned, now
         // legitimately dismissing" from "a truly stale cycle's hidden event
         // arriving after a newer cycle took over."
-        if (!identical(ad, _rewardedAd)) {
+        if (_isStaleAd(_rewardedCreativeId, ad.creativeId)) {
           SafeLogger.d(_logTag, 'rewarded $tag ⛔ stale hidden — discarding');
           return;
         }
@@ -1789,10 +1842,10 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         }
       },
       onAdReceivedRewardCallback: (ad, reward) {
-        // Round-29 audit follow-up (MAJOR) — see `_rewardedAd`'s declaration.
+        // Round-29 audit follow-up (MAJOR) — see `_rewardedCreativeId`'s declaration.
         // Without this, a stale cycle's late earned-reward event could
         // steal a newer cycle's reward callback.
-        if (!identical(ad, _rewardedAd)) {
+        if (_isStaleAd(_rewardedCreativeId, ad.creativeId)) {
           SafeLogger.w(
               _logTag, 'rewarded $tag ⛔ stale earned-reward — discarding');
           return;

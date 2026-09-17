@@ -175,8 +175,18 @@ class _DeferredFailingDestroyBridge extends FakeAppLovinBridge {
   }
 }
 
-MaxAd _fakeAd() => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0, 'exact',
-    'cid', 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
+// Smoke-test audit fix — [creativeId] is now the adapter's ONLY stale-vs-
+// current signal (see applovin_adapter.dart's `_isStaleAd`), replacing
+// object identity. Every call in this file returns a BRAND NEW `MaxAd`
+// instance (matching the real `applovin_max` plugin, which deserializes a
+// fresh one per callback) — the default `creativeId` ('cid') is shared so
+// existing load→show→hide tests correctly simulate "the SAME real ad,
+// separately deserialized per callback" (must NOT be treated as stale).
+// Tests that need to simulate a GENUINELY different ad (a real cross-cycle
+// race) pass distinct `creativeId`s explicitly.
+MaxAd _fakeAd({String creativeId = 'cid', double revenue = 0.0}) => MaxAd(
+    'unit', 'APPOPEN', null, 'net', '', revenue, 'exact', creativeId, 'dsp',
+    '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
 
 MaxError _fakeError() => MaxError(ErrorCode.values.first, 'fail', null, null);
 
@@ -2103,12 +2113,22 @@ void main() {
     });
   });
 
-  // Round-29 audit follow-up (MAJOR) — AppLovin wires ONE persistent
-  // listener per ad type at initialize() time, so unlike AdMob (fresh
-  // closure per show() call) it had no way to tell a stale cycle's late
-  // native event apart from the current one. Fixed via `_interstitialAd`/
-  // `_rewardedAd` ad-identity tracking (`identical()`-checked in every
-  // show-lifecycle callback) — see applovin_adapter.dart.
+  // Round-29 audit follow-up (MAJOR), revised by the smoke-test audit fix
+  // (2026-09-17) — AppLovin wires ONE persistent listener per ad type at
+  // initialize() time, so unlike AdMob (fresh closure per show() call) it
+  // had no way to tell a stale cycle's late native event apart from the
+  // current one. Originally "fixed" via `identical()`-checked ad-object
+  // tracking — proven on a REAL device to never actually work (the real
+  // `applovin_max` plugin deserializes a fresh `MaxAd` per callback, so
+  // `identical()` was always false, discarding every LEGITIMATE callback
+  // too — see applovin_adapter.dart's `_isStaleAd` doc comment). Now
+  // creativeId-based: these two tests give `ad1`/`ad2` DIFFERENT
+  // creativeIds to simulate what a genuine cross-cycle race looks like
+  // against the real plugin (two distinct real ad instances) — the
+  // load→show→hide tests elsewhere in this file reuse `_fakeAd()`'s
+  // default creativeId across separately-constructed `MaxAd`s, simulating
+  // the SAME real ad's own callbacks arriving as separate objects (must
+  // NOT be treated as stale — that was the actual bug).
   group('round-29 audit follow-up (MAJOR): cross-cycle late callback must '
       'not hijack a newer show cycle', () {
     test(
@@ -2119,7 +2139,7 @@ void main() {
       expect(await a.initialize(_config), isTrue);
       addTearDown(a.dispose);
 
-      final ad1 = _fakeAd();
+      final ad1 = _fakeAd(creativeId: 'creative-1');
       await a.loadInterstitial();
       b.inter!.onAdLoadedCallback(ad1);
       bool? result1;
@@ -2127,7 +2147,7 @@ void main() {
       b.inter!.onAdHiddenCallback(ad1); // cycle 1 resolves normally
       expect(result1, isTrue);
 
-      final ad2 = _fakeAd();
+      final ad2 = _fakeAd(creativeId: 'creative-2');
       await a.loadInterstitial();
       b.inter!.onAdLoadedCallback(ad2);
       bool? result2;
@@ -2153,7 +2173,7 @@ void main() {
       expect(await a.initialize(_config), isTrue);
       addTearDown(a.dispose);
 
-      final ad1 = _fakeAd();
+      final ad1 = _fakeAd(creativeId: 'creative-1');
       await a.loadRewarded();
       b.rewarded!.onAdLoadedCallback(ad1);
       RewardResult? result1;
@@ -2161,7 +2181,7 @@ void main() {
       b.rewarded!.onAdHiddenCallback(ad1); // cycle 1 resolves (no reward)
       expect(result1?.earned, isFalse);
 
-      final ad2 = _fakeAd();
+      final ad2 = _fakeAd(creativeId: 'creative-2');
       await a.loadRewarded();
       b.rewarded!.onAdLoadedCallback(ad2);
       RewardResult? result2;
@@ -2179,11 +2199,27 @@ void main() {
     });
   });
 
-  group('T185: requestId stamped on load, tied to the ad instance via '
-      'Expando (not the slot\'s current, mutable value)', () {
-    MaxAd fakeAdWithRevenue(double revenue) => MaxAd('unit', 'APPOPEN', null,
-        'net', '', revenue, 'exact', 'cid', 'dsp', '', 0,
-        MaxAdWaterfallInfo('', '', const [], 0), null, null);
+  // T185, revised by the smoke-test audit fix (2026-09-17) — requestId
+  // correlation used to be an `Expando<String>` keyed by the loaded `MaxAd`
+  // INSTANCE. That never worked against the real `applovin_max` plugin
+  // either (same root cause as the cross-cycle group above: a fresh `MaxAd`
+  // per callback means the revenue callback's `ad` was never already a key
+  // in the Expando), so every real AppLovin fullscreen `AdRevenueEvent.
+  // requestId` was silently `null` in production. Now creativeId-based,
+  // same mechanism as the stale-callback guards: a paid event whose
+  // `creativeId` matches the currently-tracked one gets the SLOT's current
+  // requestId (they're the same ad); a genuinely stale one (a different,
+  // real creativeId — see `_fakeAd`'s doc comment on why these two tests
+  // give ad1/ad2 different ids) gets `null` rather than a fabricated
+  // attribution — this adapter doesn't keep a history of past requestIds
+  // per creative to recover, and a missing id costs nothing a stale event
+  // wasn't already going to cost (see `_isStaleAd`'s doc comment).
+  group('T185: requestId stamped on load correlates a paid-event callback '
+      'via creativeId (not the slot\'s current, mutable value alone)', () {
+    MaxAd fakeAdWithRevenue(double revenue, {String creativeId = 'cid'}) =>
+        MaxAd('unit', 'APPOPEN', null, 'net', '', revenue, 'exact',
+            creativeId, 'dsp', '', 0,
+            MaxAdWaterfallInfo('', '', const [], 0), null, null);
 
     test('interstitial: a paid-event callback for the CURRENT ad gets its '
         'own requestId, matching what was stamped on the slot at load',
@@ -2196,28 +2232,27 @@ void main() {
 
       final events = <AdEvent>[];
       adapter.eventSink = events.add;
-      bridge.inter!.onAdRevenuePaidCallback!(ad1);
+      // A separately-deserialized MaxAd for the SAME real ad (same
+      // creativeId) — exactly what the real plugin hands every callback.
+      bridge.inter!.onAdRevenuePaidCallback!(fakeAdWithRevenue(1.0));
 
       expect(events.whereType<AdRevenueEvent>().single.requestId, id1);
     });
 
     test('a stale/late paid-event callback for an ad this adapter has '
-        'already moved on from resolves to THAT ad\'s OWN id — never to '
-        'whichever id is currently on the slot', () async {
-      final ad1 = fakeAdWithRevenue(1.0);
+        'already moved on from (different creativeId) gets no requestId, '
+        'never the current slot\'s', () async {
+      final ad1 = fakeAdWithRevenue(1.0, creativeId: 'creative-1');
       await adapter.loadInterstitial();
       bridge.inter!.onAdLoadedCallback(ad1);
-      final id1 = adapter.interstitialSlot.requestId;
 
       await adapter.showInterstitial(onDone: (_) {});
       bridge.inter!.onAdHiddenCallback(ad1); // cycle 1 dismissed
 
-      final ad2 = fakeAdWithRevenue(2.0);
+      final ad2 = fakeAdWithRevenue(2.0, creativeId: 'creative-2');
       await adapter.loadInterstitial();
       bridge.inter!.onAdLoadedCallback(ad2);
       final id2 = adapter.interstitialSlot.requestId;
-      expect(id2, isNot(id1),
-          reason: 'two different loads must get two different ids');
 
       final events = <AdEvent>[];
       adapter.eventSink = events.add;
@@ -2225,10 +2260,118 @@ void main() {
       bridge.inter!.onAdRevenuePaidCallback!(ad1);
 
       final revenue = events.whereType<AdRevenueEvent>().single;
-      expect(revenue.requestId, id1,
-          reason: 'this is ad1\'s OWN revenue — must carry ad1\'s id even '
-              'though the slot itself has already moved on to ad2');
+      expect(revenue.requestId, isNull,
+          reason: 'a genuinely stale cross-cycle event must not be '
+              'attributed to whichever id the slot has moved on to');
       expect(revenue.requestId, isNot(id2));
+    });
+  });
+
+  // Smoke-test audit fix (2026-09-17, real device: Samsung/TECNO Android) —
+  // regression coverage for the actual production bug. Every OTHER test in
+  // this file that threads `final ad = _fakeAd();` through load→show→hide
+  // reuses ONE Dart object across all those calls — which is exactly the
+  // assumption about the real `applovin_max` plugin this fix disproved (see
+  // `_isStaleAd`'s doc comment in applovin_adapter.dart). These three tests
+  // instead call `_fakeAd()` SEPARATELY for load/displayed/hidden/reward,
+  // matching what `AppLovinMAX.createMaxAd` actually does on every real
+  // callback — a genuinely different Dart object each time, same
+  // creativeId (the same real ad, deserialized independently per event).
+  // Before this fix, every one of these was discarded as "stale" 100% of
+  // the time; the 10s show-confirmation watchdog then reported the ad as
+  // swallowed even though it was genuinely on screen (rewarded: the user's
+  // earned reward was silently dropped).
+  group('smoke-test audit fix: a fresh MaxAd object per callback (matching '
+      'the real plugin) must not be treated as stale', () {
+    test('interstitial: displayed + hidden with fresh objects both '
+        'resolve normally', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(_fakeAd());
+      bool? result;
+      await a.showInterstitial(onDone: (s) => result = s);
+
+      b.inter!.onAdDisplayedCallback(_fakeAd());
+      expect(a.interstitialSlot.displayConfirmed, isTrue,
+          reason: 'a fresh MaxAd object for the same real ad must still '
+              'disarm the show-confirmation watchdog');
+
+      b.inter!.onAdHiddenCallback(_fakeAd());
+      expect(result, isTrue,
+          reason: 'a fresh MaxAd object at hidden-time must still resolve '
+              'the caller — this is the exact real-device bug: every '
+              'legitimate hidden event was discarded, so the caller never '
+              'learned the ad had actually shown and closed');
+    });
+
+    test('rewarded: earning a reward with a fresh MaxAd object still '
+        'reports earned=true', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.loadRewarded();
+      b.rewarded!.onAdLoadedCallback(_fakeAd());
+      RewardResult? result;
+      await a.showRewarded(onDone: (r) => result = r);
+
+      b.rewarded!.onAdDisplayedCallback(_fakeAd());
+      b.rewarded!.onAdReceivedRewardCallback(_fakeAd(), MaxReward(10, 'c'));
+
+      expect(result?.earned, isTrue,
+          reason: 'the real-device bug: a user who watched the whole ad '
+              'still lost their reward because the earned-reward callback '
+              'always arrived as a "different" object and was discarded');
+      expect(result?.shown, isTrue);
+    });
+
+    test('app open: displayed + hidden with fresh objects both resolve '
+        'normally', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.loadAppOpen();
+      b.appOpen!.onAdLoadedCallback(_fakeAd());
+      bool? dismissed;
+      await a.showAppOpen(onDismiss: (d) => dismissed = d);
+
+      b.appOpen!.onAdDisplayedCallback(_fakeAd());
+      expect(a.appOpenSlot.displayConfirmed, isTrue);
+
+      b.appOpen!.onAdHiddenCallback(_fakeAd());
+      expect(dismissed, isTrue,
+          reason: 'a fresh MaxAd object at hidden-time must still resolve '
+              'the caller, same as interstitial/rewarded above');
+    });
+
+    test('revenue correlation still finds the requestId with a fresh '
+        'MaxAd object', () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      expect(await a.initialize(_config), isTrue);
+      addTearDown(a.dispose);
+
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(_fakeAd(revenue: 1.0));
+      final id = a.interstitialSlot.requestId;
+      expect(id, isNotNull);
+
+      final events = <AdEvent>[];
+      a.eventSink = events.add;
+      b.inter!.onAdRevenuePaidCallback!(_fakeAd(revenue: 1.0));
+
+      expect(events.whereType<AdRevenueEvent>().single.requestId, id,
+          reason: 'T185: a fresh MaxAd object for the same real ad must '
+              'still correlate to the id stamped at load — the real-device '
+              'bug silently dropped this to null for every AppLovin '
+              'fullscreen ad');
     });
   });
 }

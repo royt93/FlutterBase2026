@@ -6,6 +6,34 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (BLOCKER, real-device smoke test):** every AppLovin fullscreen ad
+  (Interstitial, Rewarded, App Open) had its `displayed`/`hidden`/earned-
+  reward native callback silently discarded as "stale" — **100% of the
+  time, on real devices** — even though the ad genuinely showed. Root
+  cause: the stale-cycle guard compared `identical(ad, _interstitialAd)`
+  (the loaded `MaxAd` Dart object), an assumption (never verified against
+  the real plugin) that `applovin_max` reuses the same object across a
+  show cycle. It doesn't — `AppLovinMAX.createMaxAd` deserializes a BRAND
+  NEW `MaxAd` from the platform channel on every single callback, so the
+  identity check was always false. Consequence in production: the 10s
+  show-confirmation watchdog always fired, reporting a genuinely-displayed
+  ad as "swallowed" — and for Rewarded specifically, **a user who watched
+  the entire ad had their earned reward silently dropped**. Revenue
+  correlation (T185, `AdRevenueEvent.requestId`) was broken by the same
+  root cause (an `Expando<String>` also keyed by ad-object identity) and
+  was always `null` for AppLovin fullscreen ads. Fixed by replacing both
+  mechanisms with `MaxAd.creativeId` comparison, which the real
+  network/mediation stack does vary between genuinely different ad
+  instances (trusting the callback when creativeId is empty/unavailable,
+  e.g. AppLovin's own test-mode creatives, rather than guessing). Found
+  during a real-device AdMob/AppLovin smoke test (Galaxy A50s, TECNO KJ7)
+  requested after publishing T202 — no code change had touched this path;
+  it had been silently broken since AppLovin support first shipped. 4 new
+  regression tests simulate the real plugin's actual per-callback object
+  semantics (existing tests never caught this because they reused one
+  `MaxAd` instance across a whole load→show→hide cycle); 3 existing
+  cross-cycle tests updated for the same reason.
+
 - **New (T202):** `ConsentProvenanceJournal` — append-only, tamper-evident
   (SHA-256 hash chain) history of consent changes, exported from the
   package barrel alongside `ConsentProvenanceEntry`. **Opt-in** —
