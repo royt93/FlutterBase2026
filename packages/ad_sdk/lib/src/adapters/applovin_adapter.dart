@@ -640,6 +640,38 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       incomingCreativeId.isNotEmpty &&
       trackedCreativeId != incomingCreativeId;
 
+  /// Audit round 42, MAJOR — [_isStaleAd] cannot tell apart a genuinely
+  /// stale cross-cycle event from a genuinely current one when creativeId
+  /// is empty/ambiguous on either side (deliberately, per its own doc
+  /// comment above — trusting an ambiguous event is right in isolation).
+  /// The gap: if cycle A's show-confirmation watchdog ([AdSlot.
+  /// showConfirmTimeout], 10s) abandons it and cycle B starts showing
+  /// before A's real native callback finally arrives (AppLovin's own docs:
+  /// callbacks can be "late by 10-30s"), that late A event — ambiguous,
+  /// so trusted — gets attributed to whichever caller B currently occupies
+  /// [_rewardedDone]/[_interstitialDone], not to "no one". A user watching
+  /// B could be told their (unfinished) ad was shown/earned based on A's
+  /// completion, not B's.
+  ///
+  /// There is no native round-tripped identifier to distinguish the two
+  /// events after the fact (the same limitation [_isStaleAd] itself is
+  /// built around), so this closes the window from the OTHER end instead:
+  /// refuse to START a new show cycle for this long after an abandonment.
+  /// By the time a new show genuinely begins, the old cycle's straggler
+  /// window has already closed, so any ambiguous event arriving during an
+  /// ACTIVE show can be safely trusted as that show's own — exactly
+  /// [_isStaleAd]'s original, correct assumption, restored to being true.
+  /// Cost: for this long after a (rare — AppLovin fullscreen callbacks are
+  /// otherwise reliable) swallowed show, a new show attempt is refused
+  /// rather than started; that is a strictly safer failure than misrouting
+  /// a reward.
+  static const Duration _staleCallbackQuarantine = Duration(seconds: 35);
+
+  bool _interstitialQuarantined = false;
+  Timer? _interstitialQuarantineTimer;
+  bool _rewardedQuarantined = false;
+  Timer? _rewardedQuarantineTimer;
+
   /// Set true in [showRewarded] when the caller supplied SSV identifying
   /// data for the in-flight show — read once by the reward callback to stamp
   /// [RewardResult.pendingServerConfirmation].
@@ -895,6 +927,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     _nativeDisposed = true;
     _appOpenShowTimeout?.cancel();
     _appOpenShowTimeout = null;
+    // Audit round 42 — the stale-callback quarantine timers (see
+    // `_staleCallbackQuarantine`'s doc comment) must not fire after
+    // teardown and touch a disposed adapter's state.
+    _interstitialQuarantineTimer?.cancel();
+    _interstitialQuarantineTimer = null;
+    _rewardedQuarantineTimer?.cancel();
+    _rewardedQuarantineTimer = null;
     // m22 — drop any pending destroyWidgetAdView retry: the bridge is about
     // to lose its listeners below, and a retry landing after that talks to a
     // torn-down bridge for an AdView nobody owns any more.
@@ -1629,6 +1668,16 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       onDone(false);
       return;
     }
+    // Audit round 42, MAJOR — see `_staleCallbackQuarantine`'s doc comment.
+    if (_interstitialQuarantined) {
+      SafeLogger.w(
+          _logTag,
+          'showInterstitial $tag ⏳ quarantined — a prior cycle\'s '
+          'show was never confirmed and its native callback may still be '
+          'in flight; refusing a new show until the window clears');
+      onDone(false);
+      return;
+    }
     // Round-7 audit, MAJOR — see [AdSlot.beginShow]. `_bridge.showInterstitial`
     // is fire-and-forget: AppLovin's `showAd()` on an ad its own cache has
     // since dropped logs an error natively and fires NO callback, so without
@@ -1637,6 +1686,14 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     if (!interstitialSlot.beginShow(onShowNeverConfirmed: () {
       final cb = _interstitialDone;
       _interstitialDone = null;
+      // Audit round 42, MAJOR — see `_staleCallbackQuarantine`'s doc
+      // comment. This cycle's real native callback can still arrive late;
+      // block a NEW show from starting until that straggler window closes.
+      _interstitialQuarantined = true;
+      _interstitialQuarantineTimer?.cancel();
+      _interstitialQuarantineTimer = Timer(_staleCallbackQuarantine, () {
+        _interstitialQuarantined = false;
+      });
       cb?.call(false);
     })) {
       SafeLogger.w(_logTag, 'showInterstitial $tag ⚠️ already showing');
@@ -1915,11 +1972,30 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       onDone(RewardResult.skipped);
       return;
     }
+    // Audit round 42, MAJOR — see `_staleCallbackQuarantine`'s doc comment.
+    // Reward integrity is the highest-stakes case this quarantine protects.
+    if (_rewardedQuarantined) {
+      SafeLogger.w(
+          _logTag,
+          'showRewarded $tag ⏳ quarantined — a prior cycle\'s show was '
+          'never confirmed and its native callback may still be in '
+          'flight; refusing a new show until the window clears');
+      onDone(RewardResult.skipped);
+      return;
+    }
     // Round-7 audit, MAJOR — see [AdSlot.beginShow] and the note on
     // showInterstitial above.
     if (!rewardedSlot.beginShow(onShowNeverConfirmed: () {
       final cb = _rewardedDone;
       _rewardedDone = null;
+      // Audit round 42, MAJOR — see `_staleCallbackQuarantine`'s doc
+      // comment. This cycle's real native callback can still arrive late;
+      // block a NEW show from starting until that straggler window closes.
+      _rewardedQuarantined = true;
+      _rewardedQuarantineTimer?.cancel();
+      _rewardedQuarantineTimer = Timer(_staleCallbackQuarantine, () {
+        _rewardedQuarantined = false;
+      });
       cb?.call(RewardResult.skipped);
     })) {
       SafeLogger.w(_logTag, 'showRewarded $tag ⚠️ already showing');

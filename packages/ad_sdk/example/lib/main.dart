@@ -247,6 +247,9 @@ class DemoConfig {
       provider: kProvider,
       enableConsentProvenanceJournal: true,
       admob: const AdMobConfig(
+        // Fallback values below are Google's ANDROID test ad unit ids and
+        // stay correct on Android because the iOS overrides added below
+        // (T15's androidXId/iosXId mechanism) take precedence on iOS.
         bannerId: 'ca-app-pub-3940256099942544/6300978111',
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
@@ -262,10 +265,19 @@ class DemoConfig {
         // (added specifically to close this coverage gap) could never
         // show an ad on the one provider that supports the format at all.
         rewardedInterstitialId: 'ca-app-pub-3940256099942544/5354046379',
-        // Optional per-platform overrides (T15) — omit to use the same id
-        // on both platforms, as above:
-        // androidBannerId: 'ca-app-pub-.../android-banner',
-        // iosBannerId: 'ca-app-pub-.../ios-banner',
+        // Audit round 42, MAJOR — every id above is Google's ANDROID test
+        // unit. Without these iOS overrides, an iOS run of this example
+        // silently requested Android test units for every AdMob format,
+        // so the example never actually validated AdMob on iOS at all.
+        // Values are Google's published iOS test ad unit ids
+        // (developers.google.com/admob/flutter/test-ads).
+        iosBannerId: 'ca-app-pub-3940256099942544/2934735716',
+        iosInterstitialId: 'ca-app-pub-3940256099942544/4411468910',
+        iosAppOpenId: 'ca-app-pub-3940256099942544/5662855259',
+        iosRewardedId: 'ca-app-pub-3940256099942544/1712485313',
+        iosMrecId: 'ca-app-pub-3940256099942544/2934735716',
+        iosNativeId: 'ca-app-pub-3940256099942544/3986624511',
+        iosRewardedInterstitialId: 'ca-app-pub-3940256099942544/6978759866',
       ),
       appLovin: AppLovinConfig(
         sdkKey: _kAppLovinSdkKey,
@@ -2998,21 +3010,37 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
               ),
             ),
             const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () {
-                final ssvUserId = _ssvCtrl.text.isEmpty ? null : _ssvCtrl.text;
-                showRewardedAd(
-                  vipAutoGrant: _vipAutoGrant.value,
-                  ssvUserId: ssvUserId,
-                  onEarnedReward: (earned) {
-                    _last.value = earned
-                        ? 'earned 🏆${ssvUserId != null ? ' (pending SSV confirmation)' : ''}'
-                        : 'skipped/blocked ❌';
-                    if (earned) _coins.value = _coins.value + 10;
+            // Audit round 42, MAJOR (codex) — this button used to say "Watch
+            // ad for +10 coins" unconditionally, including for a VIP member
+            // with the switch above on, where NO ad is ever requested
+            // (vipAutoGrant short-circuits before the provider is called).
+            // The label now discloses that case truthfully instead of
+            // implying an ad always plays.
+            ValueListenableBuilder<bool>(
+              valueListenable: _vipAutoGrant,
+              builder: (_, autoGrant, __) {
+                final isNoAdVipPerk =
+                    autoGrant && (AdManager().vip?.isActive ?? false);
+                return FilledButton(
+                  onPressed: () {
+                    final ssvUserId =
+                        _ssvCtrl.text.isEmpty ? null : _ssvCtrl.text;
+                    showRewardedAd(
+                      vipAutoGrant: _vipAutoGrant.value,
+                      ssvUserId: ssvUserId,
+                      onEarnedReward: (earned) {
+                        _last.value = earned
+                            ? 'earned 🏆${ssvUserId != null ? ' (pending SSV confirmation)' : ''}'
+                            : 'skipped/blocked ❌';
+                        if (earned) _coins.value = _coins.value + 10;
+                      },
+                    );
                   },
+                  child: Text(isNoAdVipPerk
+                      ? 'Claim +10 coins (VIP perk, no ad shown)'
+                      : 'Watch ad for +10 coins'),
                 );
               },
-              child: const Text('Watch ad for +10 coins'),
             ),
           ],
         ),
@@ -4363,6 +4391,32 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
   // after everything finishes. Guards every button below.
   bool _busy = false;
   String _status = 'Not wired yet — tap "Apply provider" below first.';
+
+  // Audit round 42, MINOR — this page had no dispose() at all despite
+  // owning [_provider]'s ValueNotifier AND having globally rewired the
+  // live AdManager's safety config via
+  // `initialize(remoteSafetyProvider: _provider, ...)`. Leaving the page
+  // without tapping "Restore demo defaults" used to leave that rewiring in
+  // place for the rest of the session — the page's own in-UI warning card
+  // already said this was the only way back. Best-effort cleanup:
+  // fire-and-forget the same destroy()/initialize() restore-defaults would
+  // do, if the provider is still attached. dispose() cannot await and
+  // there is no state left to update once torn down, so this deliberately
+  // does not call setState or reuse `_restoreDefaults()` (which does).
+  @override
+  void dispose() {
+    if (_wired) {
+      RemoteSafetyDemoPage.debugRestoreCallCount++;
+      final forced = RemoteSafetyDemoPage.debugForceRestoreResult;
+      if (forced == null) {
+        unawaited(AdManager().destroy().then((_) => AdManager().initialize(
+              config: DemoConfig.instance.build(),
+              onComplete: (_, __) {},
+            )));
+      }
+    }
+    super.dispose();
+  }
 
   Future<void> _applyProvider() async {
     if (_busy) return;

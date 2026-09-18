@@ -487,8 +487,15 @@ class AdConfig {
   // ─── VIP ──────────────────────────────────────────────────────────────────
 
   /// Validator your app provides for VIP-key redemption. Receives the user's
-  /// input, returns `true` if valid. If `null`, redeem treats every key as
-  /// valid (intended for demo/test only).
+  /// input, returns `true` if valid.
+  ///
+  /// Audit round 42, NIT — this used to say "if null, redeem treats every
+  /// key as valid," without qualification, which is only true in
+  /// debug/profile builds. **In a release build, `null` rejects every
+  /// key** (see [VipManager]'s `_runValidator`) — accepting arbitrary
+  /// input in production would mean free VIP for any string. If you need
+  /// backend-free production redemption, use [VipManager.redeemSignedKey]
+  /// instead of this generic validator.
   final Future<bool> Function(String key)? vipKeyValidator;
 
   /// Strings used by the Cupertino VIP dialog. Override to localise.

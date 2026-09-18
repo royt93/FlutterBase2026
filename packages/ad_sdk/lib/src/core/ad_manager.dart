@@ -290,11 +290,18 @@ class AdManager with WidgetsBindingObserver {
     if (config.provider == AdProvider.admob) {
       const googleTestPrefix = 'ca-app-pub-3940256099942544';
       final m = config.admob;
+      // Audit round 42, MINOR (codex) — rewardedInterstitial/mrec/native
+      // were never checked here, so a release build shipping a leftover
+      // Google test id on one of these three specific slots got no
+      // warning, unlike the identical mistake on the four formats below.
       final usesTestId = m != null &&
           (m.bannerId.contains(googleTestPrefix) ||
               m.interstitialId.contains(googleTestPrefix) ||
               m.appOpenId.contains(googleTestPrefix) ||
-              m.rewardedId.contains(googleTestPrefix));
+              m.rewardedId.contains(googleTestPrefix) ||
+              m.rewardedInterstitialId.contains(googleTestPrefix) ||
+              m.mrecId.contains(googleTestPrefix) ||
+              m.nativeId.contains(googleTestPrefix));
       if (usesTestId) {
         warnings.add('🚨 AdMob provider is active in RELEASE with Google TEST '
             'ad unit IDs (ca-app-pub-3940256099942544/…). Serving test ads in '
@@ -351,6 +358,22 @@ class AdManager with WidgetsBindingObserver {
       {required bool umpRequested, bool consentExplicitlySet = false}) {
     final appLovinCmpCovers = config.provider == AdProvider.appLovin &&
         !config.disableAppLovinCmpFlow;
+    // Audit round 42, MAJOR — `disableAppLovinCmpFlow: false`'s own doc
+    // comment tells a host to flip only that one flag to use AppLovin's own
+    // CMP "instead of" UMP, but nothing here checked whether
+    // `autoRequestUmpConsent` (true by default) was ALSO turned off. Both
+    // flows then run concurrently on the same EEA user; whichever result
+    // lands last silently overwrites the other's answer on AppLovin. Must
+    // fire before the generic "either one is fine" check below, since that
+    // check treats this exact combination as fully covered.
+    if (appLovinCmpCovers && config.autoRequestUmpConsent) {
+      return '🚨 Two consent flows will run concurrently: AppLovin\'s own '
+          'CMP (disableAppLovinCmpFlow is false) AND UMP '
+          '(autoRequestUmpConsent is true). Whichever result lands last '
+          'silently overwrites the other\'s answer on AppLovin. Set '
+          'autoRequestUmpConsent: false when deliberately using AppLovin\'s '
+          'own CMP flow.';
+    }
     if (appLovinCmpCovers ||
         config.autoRequestUmpConsent ||
         umpRequested ||
@@ -451,8 +474,13 @@ class AdManager with WidgetsBindingObserver {
     // ca-app-pub-<16 digits>/<ad-unit number>, e.g. ca-app-pub-1234567890123456/1234567890.
     final admobIdPattern = RegExp(r'^ca-app-pub-\d{16}/\d+$');
 
-    void checkId(String label, String id) {
+    void checkId(String label, String id, {bool optional = false}) {
       if (id.isEmpty) {
+        // Audit round 42 — mrec/native/rewardedInterstitial are genuinely
+        // optional slots (empty-by-default in their own constructors,
+        // unlike banner/interstitial/appOpen/rewarded); an app that never
+        // configures one must not be flagged for it.
+        if (optional) return;
         warnings.add(
             '🚨 $label ad-unit id is empty in a RELEASE build — ad requests '
             'for this slot will fail with a confusing native error. Set a '
@@ -477,6 +505,13 @@ class AdManager with WidgetsBindingObserver {
         checkId('interstitial', m.interstitialId);
         checkId('appOpen', m.appOpenId);
         checkId('rewarded', m.rewardedId);
+        // Audit round 42, MINOR (codex) — these three were never checked at
+        // all, so a leftover test id here got no warning, unlike the
+        // identical mistake on the four formats above.
+        checkId('rewardedInterstitial', m.rewardedInterstitialId,
+            optional: true);
+        checkId('mrec', m.mrecId, optional: true);
+        checkId('native', m.nativeId, optional: true);
       }
     } else {
       final a = config.appLovin;
@@ -485,6 +520,9 @@ class AdManager with WidgetsBindingObserver {
         checkId('interstitial', a.interstitialId);
         checkId('appOpen', a.appOpenId);
         checkId('rewarded', a.rewardedId);
+        // Audit round 42, MINOR — same gap as above, AppLovin side.
+        checkId('mrec', a.mrecId, optional: true);
+        checkId('native', a.nativeId, optional: true);
       }
     }
     return warnings;
@@ -7721,6 +7759,20 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// VIP behaviour (Q12B — caller-confirmed): the SDK does **NOT**
   /// auto-grant the reward. Caller decides via [vipAutoGrant].
+  ///
+  /// ⚠️ Audit round 42 — [vipAutoGrant] reuses [onEarnedReward]'s boolean to
+  /// mean "grant the VIP perk" as well as "the provider confirmed a genuine
+  /// completed ad view." Those are NOT the same claim: when [vipAutoGrant]
+  /// resolves `true`, **no ad was requested from either provider at all**
+  /// (VIP suppression short-circuits before any provider call), so this is
+  /// not an ad-network reward-policy question — no ad-serving policy is in
+  /// play — but it IS a UI-honesty one for the caller. If your UI copy says
+  /// anything like "watch an ad for X", it must not say that for the
+  /// no-ad VIP-perk path — disclose that no ad played (see the example
+  /// app's `RewardedDemoPage` for a "Claim X (VIP perk, no ad shown)"
+  /// pattern). Do not treat this boolean as proof of genuine ad completion
+  /// for your own analytics/entitlement bookkeeping without checking
+  /// whether it came from this shortcut.
   ///
   /// ⚠️ [bypassVipGuard] is **not** a policy bypass — read it as "skip the
   /// VIP-suppression *guard*", not "skip ad policy". A **real** rewarded ad

@@ -61,8 +61,11 @@ import 'shimmer_view.dart';
 /// const NativeAdWidget()
 /// // in-feed / ListView (T73) — small template, no explicit height needed:
 /// const NativeAdWidget(templateType: TemplateType.small)
-/// // or fully custom height on either provider:
-/// const NativeAdWidget(height: 120)
+/// // custom height MUST match templateType — AdMob's own template guide
+/// // recommends a minimum of 90 for small / 320 for medium (audit round
+/// // 42); pairing a short custom height with the medium template (this
+/// // widget's default) clips or overflows provider-rendered content:
+/// const NativeAdWidget(templateType: TemplateType.small, height: 120)
 /// ```
 class NativeAdWidget extends StatefulWidget {
   const NativeAdWidget({
@@ -681,6 +684,14 @@ class _AppLovinMaxNativeView extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: 4),
+              // Audit round 42, BLOCKER — AppLovin's own native-ad guide
+              // requires this view (the privacy-info/AdChoices-equivalent
+              // icon) in every custom native layout; omitting it is a
+              // policy violation, not a placement preference. Position
+              // matches AppLovin's own reference example (top-right,
+              // alongside title/rating).
+              const MaxNativeAdOptionsView(width: 20, height: 20),
             ],
           ),
           const SizedBox(height: 8),

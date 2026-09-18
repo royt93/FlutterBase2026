@@ -33,6 +33,18 @@ class CompatibilityMatrix {
         platform: CompatibilityPlatform.ios,
         provider: CompatibilityProvider.admob,
         apiLevel: 26),
+    // Audit round 42, MINOR — was missing entirely, so `isSupported`
+    // reported (ios, appLovin) as unsupported even though the adapter code
+    // handles it fine (no iOS-gated restriction on AppLovin anywhere in
+    // applovin_adapter.dart). Self-inflicted doc/CI gap, currently inert
+    // since the `compatibility-matrix` CI job only runs
+    // `platform: [android]` today — but would hard-fail CI the moment
+    // anyone widens that matrix to iOS without this entry.
+    CompatibilityTarget(
+        flutter: '3.35.1',
+        platform: CompatibilityPlatform.ios,
+        provider: CompatibilityProvider.appLovin,
+        apiLevel: 26),
   ];
 
   /// Audit fix (post-T215) — this used to be a floor check against a

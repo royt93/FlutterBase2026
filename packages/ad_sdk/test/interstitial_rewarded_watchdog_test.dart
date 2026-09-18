@@ -1,25 +1,33 @@
 // Unit-test coverage for the Interstitial/Rewarded show/dismiss state
-// machine — the automated equivalent of `applovin_watchdog_test.dart` for
-// App Open, adjusted for reality: unlike App Open, AppLovin/GMA's fullscreen
-// interstitial and rewarded callbacks are treated as reliable, so there is
-// NO watchdog/timer for these two slots (see `_wireInterstitialListener`,
-// `_wireRewardedListener` in applovin_adapter.dart and the plain
-// `ad.show(GmaShowCallbacks(...))` path in admob_adapter.dart — read in full
-// before touching this file). The state machine under test here is just:
+// machine via the `debugSimulate*ShowAndDismiss` test seams, which drive
+// `AdSlot.beginShow()` WITHOUT a `onShowNeverConfirmed` watchdog (see each
+// seam's own doc comment) — deliberately, to isolate the plain
+// `beginShow() → [native callback] → markDismissed()/markShowFailed()`
+// transition from watchdog timing. The state machine under test here is:
 //
 //   beginShow() → [native callback] → markDismissed() / markShowFailed()
 //
 // with a one-shot done-callback (`_interstitialDone` / `_rewardedDone`) that
 // must never leave the slot stuck in `AdSlotState.showing` (a "zombie"
-// state) — the same bug class that was fixed for App Open. Since there is no
-// timer to race against a late callback, the regression this file guards is
-// simpler: two back-to-back show/dismiss cycles must both complete cleanly
-// and leave the slot idle/cooldown, never stuck in `showing`.
+// state) — the same bug class that was fixed for App Open.
 //
-// No synthetic "late-callback race" test is included: without a watchdog
-// timer competing with the native callback, there is no second writer that
-// could race the slot transition — inventing one would test a scenario that
-// cannot occur in the real code path.
+// Audit round 42 correction — this file used to claim, incorrectly, that
+// there is "NO watchdog/timer for these two slots" at all in production and
+// that a late-callback race here "cannot occur in the real code path." That
+// was wrong: `AppLovinAdapter.showInterstitial`/`showRewarded` DO call
+// `AdSlot.beginShow(onShowNeverConfirmed: ...)` (Round-7 audit fix — see
+// `AdSlot.beginShow`'s doc comment), arming the same 10s
+// `AdSlot.showConfirmTimeout` watchdog App Open's own mechanism is built
+// around. The confusion was between two DIFFERENT claims: (a) there is no
+// App-Open-style LOAD watchdog for these two formats (still true, and still
+// a deliberate choice — see `debugSimulateInterstitialShowAndDismiss`'s own
+// "R10-E" doc comment, about load hangs, not show confirmation) versus (b)
+// there is no SHOW-confirmation watchdog at all (false). A real late-
+// callback race through that show-confirmation watchdog is exactly what let
+// a stale cycle's ambiguous-creativeId reward event misattribute to a newer
+// cycle's caller — see `applovin_adapter_test.dart`'s
+// "audit round 42: stale-callback quarantine" group for the coverage this
+// file's old comment incorrectly said could not exist.
 
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';

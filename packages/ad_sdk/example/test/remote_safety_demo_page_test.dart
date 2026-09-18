@@ -72,4 +72,47 @@ void main() {
         reason: 'a failed restore must not silently detach the provider '
             'in the UI\'s eyes');
   });
+
+  // Audit round 42, MINOR — this page had no dispose() at all despite
+  // owning a ValueNotifier AND having globally rewired the live AdManager's
+  // safety config via initialize(remoteSafetyProvider: _provider, ...).
+  // Leaving without tapping "Restore demo defaults" used to leave that
+  // rewiring in place for the rest of the session.
+  testWidgets(
+      'round 42: leaving the page while still wired triggers the same '
+      'restore-defaults cleanup as tapping the button would',
+      (tester) async {
+    RemoteSafetyDemoPage.debugRestoreCallCount = 0;
+    RemoteSafetyDemoPage.debugForceApplyResult = true;
+    RemoteSafetyDemoPage.debugForceRestoreResult = true;
+    await pumpPage(tester);
+    await tester
+        .tap(find.text('Apply provider (destroy + re-initialize)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Provider already wired'), findsOneWidget,
+        reason: 'sanity: must be wired before exercising the dispose path');
+
+    // Leave the page WITHOUT tapping "Restore demo defaults".
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(RemoteSafetyDemoPage.debugRestoreCallCount, 1,
+        reason: 'dispose() must run the same restore-defaults cleanup a '
+            'tap on the button would, when the provider is still wired');
+  });
+
+  testWidgets(
+      'round 42: leaving the page while NOT wired triggers no cleanup',
+      (tester) async {
+    RemoteSafetyDemoPage.debugRestoreCallCount = 0;
+    await pumpPage(tester);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(RemoteSafetyDemoPage.debugRestoreCallCount, 0,
+        reason: 'nothing to clean up when the provider was never applied');
+  });
 }

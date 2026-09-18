@@ -4,6 +4,73 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Fixes for the round-42 audit findings (see `doc/audit/audit_round42_consolidated.md`
+and its per-reviewer reports for the full findings and severity reasoning).
+
+- **Fixed (BLOCKER, policy):** `NativeAdWidget`'s AppLovin branch never
+  included `MaxNativeAdOptionsView`, the mandatory privacy-information/
+  AdChoices-equivalent icon AppLovin's own native-ad integration guide
+  requires. Every AppLovin native ad impression from this SDK was
+  policy-non-compliant, unconditionally, on both platforms. Fixed by adding
+  it to the existing layout, positioned per AppLovin's own reference
+  example.
+- **Fixed (MAJOR, reward integrity):** the AppLovin stale-callback fix
+  shipped in 2.9.21 (commit `8d8d990`) had a narrow residual gap: when a
+  show-confirmation watchdog abandoned a cycle and a new cycle started
+  showing before the old cycle's real native callback finally arrived with
+  an empty/ambiguous `creativeId`, that late event could be misattributed
+  to the NEW cycle's caller instead of being discarded. Fixed by refusing
+  to start a new Interstitial/Rewarded show for 35s after a watchdog
+  abandonment (matching AppLovin's own documented "late by 10-30s"
+  callback ceiling), so by the time a new show genuinely begins, the old
+  cycle's straggler window has already closed.
+- **Fixed (MAJOR, API honesty):** `showRewardedAd`'s `vipAutoGrant` path
+  reused the `onEarnedReward` boolean to mean "VIP gets the perk, no ad
+  shown" as well as "the provider confirmed a genuine completed ad view."
+  The bundled example's "Watch ad for +10 coins" button fired this path
+  for VIP users with no ad ever requested. Doc comment now states this
+  explicitly; the example's button now discloses the no-ad case
+  ("Claim +10 coins (VIP perk, no ad shown)").
+- **Fixed (MAJOR, consent):** `disableAppLovinCmpFlow: false`'s own doc
+  comment told a host to flip only that one flag to use AppLovin's own CMP
+  "instead of" UMP, but nothing checked whether `autoRequestUmpConsent`
+  (`true` by default) was also turned off — following that doc comment
+  literally ran BOTH consent flows concurrently on the same EEA user, each
+  able to silently overwrite the other's answer on AppLovin.
+  `consentFootgunWarning` now warns on this exact combination.
+- **Fixed (MAJOR, example quality):** the example app's `DemoConfig` set
+  only Android-valued AdMob test ad-unit ids with no iOS overrides for any
+  format — an iOS run of the example silently requested Android test units
+  for every AdMob surface and never actually validated AdMob on iOS. Added
+  Google's published iOS test ad-unit ids for every format.
+- **Fixed (MINOR):** `CompatibilityMatrix.minimum` had no (iOS, AppLovin)
+  entry even though the adapter code handles it fine — self-inflicted
+  doc/CI gap, now closed.
+- **Fixed (MINOR):** the release-build test-ad-id footgun checks
+  (`_adUnitIdFootgunWarnings` and the Google-test-id detector) only
+  covered banner/interstitial/appOpen/rewarded; `rewardedInterstitialId`,
+  `mrecId`, and `nativeId` now get the same coverage (only when
+  configured — these three are genuinely optional formats).
+- **Fixed (MINOR, example):** `RemoteSafetyDemoPage` had no `dispose()`
+  despite globally rewiring the live `AdManager`'s safety config; leaving
+  the page without tapping "Restore demo defaults" left that config
+  altered for the rest of the session. `dispose()` now runs the same
+  restore as a best-effort, fire-and-forget cleanup.
+- **Docs:** corrected a stale `NativeAdWidget` doc example pairing a
+  120px custom height with the (higher-minimum) medium template; corrected
+  `vipKeyValidator`'s doc comment, which implied `null` accepts every key
+  in all build modes (it only does in debug/profile — release rejects
+  every key); corrected a stale integration-test file count in `CLAUDE.md`;
+  corrected `test/interstitial_rewarded_watchdog_test.dart`'s file-level
+  comment, which incorrectly claimed Interstitial/Rewarded have no
+  show-confirmation watchdog at all (they do — Round-7's `AdSlot.beginShow`
+  watchdog — the file's own test seams just don't arm it); documented
+  (not changed — reconfirmed as the existing, deliberate round-32 product
+  decision) the AVP2 bundle-binding fail-open on a `PackageInfo` read
+  failure.
+
 ## [2.9.21] - 2026-09-17
 
 - **Fixed (BLOCKER, real-device smoke test):** every AppLovin fullscreen ad

@@ -457,6 +457,67 @@ void main() {
       expect(w, isEmpty);
     });
 
+    // Audit round 42, MINOR (codex) — rewardedInterstitialId/mrecId/nativeId
+    // were never checked at all, so a release build shipping a leftover
+    // Google test id on one of these three specific slots got NO warning,
+    // unlike the identical mistake on banner/interstitial/appOpen/rewarded.
+    test('release + AdMob Google test ID on native → warns (round 42 gap)',
+        () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'ca-app-pub-9999999999999999/1111111111',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+            nativeId: 'ca-app-pub-3940256099942544/2247696110',
+          ),
+          safety: AdSafetyParams(dryRun: false),
+        ),
+        isDebug: false,
+      );
+      expect(w, hasLength(1));
+      expect(w.single, contains('TEST'));
+    });
+
+    test(
+        'release + AdMob Google test ID on mrec/rewardedInterstitial → '
+        'warns (round 42 gap)', () {
+      final w = AdManager.releaseFootgunWarnings(
+        const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'ca-app-pub-9999999999999999/1111111111',
+            interstitialId: 'ca-app-pub-9999999999999999/2222222222',
+            appOpenId: 'ca-app-pub-9999999999999999/3333333333',
+            rewardedId: 'ca-app-pub-9999999999999999/4444444444',
+            mrecId: 'ca-app-pub-3940256099942544/6300978111',
+            rewardedInterstitialId: 'ca-app-pub-3940256099942544/5354046379',
+          ),
+          safety: AdSafetyParams(dryRun: false),
+        ),
+        isDebug: false,
+      );
+      // One combined warning covers all 7 formats (same convention as the
+      // existing 4-format check above), not one per field.
+      expect(w, hasLength(1));
+      expect(w.single, contains('TEST'));
+    });
+
+    test(
+        'a genuinely unused optional slot (mrec/native/rewardedInterstitial '
+        'left at its empty default) does NOT warn — only a configured but '
+        'wrong id should', () {
+      final w = AdManager.releaseFootgunWarnings(
+        _admobConfig(dryRun: false, testIds: false),
+        isDebug: false,
+      );
+      expect(w, isEmpty,
+          reason: 'these three formats are optional — an app that never '
+              'configures them must not be flagged for it');
+    });
+
     test('AppLovin provider is exempt from the AdMob test-ID guard', () {
       final w = AdManager.releaseFootgunWarnings(
         const AdConfig(
@@ -587,6 +648,30 @@ void main() {
           reason: 'an AppLovin-only flag cannot cover consent on AdMob — '
               'this is the fail-open the guard exists to catch');
       expect(w, contains('admob'));
+    });
+
+    // Audit round 42, MAJOR — disableAppLovinCmpFlow:false's own doc comment
+    // tells a host to flip only that one flag to use AppLovin's own CMP
+    // "instead of" UMP. Nothing checked whether autoRequestUmpConsent (true
+    // by default) was ALSO turned off, so following that doc comment
+    // literally ran BOTH consent flows concurrently on the same EEA user
+    // with zero warning.
+    test(
+        'dual-CMP: disableAppLovinCmpFlow:false + autoRequestUmpConsent:true '
+        '→ warns (both flows would run concurrently)', () {
+      final w = AdManager.consentFootgunWarning(
+        _consentConfig(
+          disableAppLovinCmpFlow: false,
+          provider: AdProvider.appLovin,
+          autoRequestUmpConsent: true,
+        ),
+        umpRequested: false,
+      );
+      expect(w, isNotNull,
+          reason: 'AppLovin CMP and UMP both running concurrently can each '
+              'overwrite the other\'s consent answer on AppLovin — this '
+              'must be surfaced, not silently accepted');
+      expect(w, contains('concurrently'));
     });
 
     test('N2: consentExplicitlySet:true → no warning (custom consent UI)', () {

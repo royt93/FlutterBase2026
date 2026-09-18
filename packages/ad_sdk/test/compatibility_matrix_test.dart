@@ -84,19 +84,40 @@ void main() {
       );
     });
 
-    test('a platform/provider combination with no declared minimum is '
-        'NOT supported by default (fail-safe, not fail-open)', () {
+    // Audit round 42, MINOR — (ios, appLovin) used to have no declared
+    // minimum at all, even though the adapter code handles it fine; this
+    // test used to demonstrate that gap. It's fixed below by declaring the
+    // missing entry, which also makes the "undeclared combination" scenario
+    // this test used to demonstrate impossible to construct within today's
+    // 2×2 (platform × provider) enum space — every combination now has a
+    // declared minimum, so the fail-safe `match.isEmpty → false` branch in
+    // [CompatibilityMatrix.isSupported] has no real-world example left to
+    // demonstrate it with until a 3rd platform or provider is ever added.
+    test('every platform × provider combination has a declared minimum '
+        '(no more silent gaps for isSupported\'s fail-safe branch to hide '
+        'behind)', () {
+      for (final platform in CompatibilityPlatform.values) {
+        for (final provider in CompatibilityProvider.values) {
+          expect(
+            CompatibilityMatrix.minimum.any(
+                (m) => m.platform == platform && m.provider == provider),
+            isTrue,
+            reason: '($platform, $provider) has no declared minimum',
+          );
+        }
+      }
+    });
+
+    test('(ios, appLovin) is now supported at its declared minimum', () {
       expect(
         CompatibilityMatrix.isSupported(const CompatibilityTarget(
-            flutter: '99.99.99', // absurdly high — proves this isn't an
-            // apiLevel/version problem, there is just no (ios, appLovin)
-            // entry in CompatibilityMatrix.minimum at all today
+            flutter: '3.35.1',
             platform: CompatibilityPlatform.ios,
             provider: CompatibilityProvider.appLovin,
-            apiLevel: 999)),
-        isFalse,
-        reason: 'T215 — no minimum is declared for (ios, appLovin) today; '
-            'an undeclared combination must not silently pass',
+            apiLevel: 26)),
+        isTrue,
+        reason: 'the newly-declared (ios, appLovin) minimum must actually '
+            'be honoured by isSupported, not just present in the list',
       );
     });
 

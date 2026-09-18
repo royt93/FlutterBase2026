@@ -301,6 +301,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // Audit round 42, BLOCKER (codex, independently verified) — AppLovin's
+  // native-ad integration guide requires MaxNativeAdOptionsView (the
+  // privacy-information/AdChoices-equivalent icon) somewhere in the custom
+  // layout the package owns. Without it, every AppLovin native ad impression
+  // is policy-non-compliant, unconditionally, on both platforms.
+  testWidgets('AppLovin native ad layout includes the mandatory privacy '
+      'information view (MaxNativeAdOptionsView)', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(MaxNativeAdOptionsView), findsOneWidget,
+        reason: 'AppLovin policy requires the privacy-information view to '
+            'be present in every native ad layout the package renders');
+  });
+
   // T62 — MaxNativeAdView "loads on mount" (its own dartdoc, and the
   // comment above) only works if it actually GETS mounted. _NativeContainer
   // gated `child()` behind `isLoaded`, but `isLoaded` is only ever flipped

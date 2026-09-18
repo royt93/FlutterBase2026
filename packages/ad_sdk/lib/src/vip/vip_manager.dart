@@ -212,6 +212,16 @@ class VipManager {
   /// contributed is deliberately kept — a CRL can only ever narrow what a grant
   /// is worth, so honouring a forged one costs its author their own
   /// entitlement, and round-7's offline startup clamp keeps working unchanged.
+  ///
+  /// Audit round 42 (independently re-derived by 3 separate reviewers,
+  /// 2026-09-17) re-confirmed this exact gap and explicitly decided: accepted
+  /// risk, not a defect to close now. Scope is a device the ATTACKER has
+  /// already rooted for their own benefit — it only defeats future
+  /// revocation efficacy on that one device, it does not let anyone forge a
+  /// key or affect any other user's device. Closing it fully would need a
+  /// pinned/bundled trusted first-CRL distribution mechanism, which is a
+  /// bigger design than the narrow, single-device, no-cross-user-impact risk
+  /// currently warrants.
   String? _revocationVerifiedUnder;
 
   /// Key ids currently mid-redeem in [redeemSignedKey]. The check + insert is
@@ -1348,6 +1358,13 @@ class VipManager {
       // fix means rejecting the redemption outright on this catch (return an
       // error instead of falling through to `verifySignedVipKey`), which is
       // a product call given the tradeoff above, not a bug fix.
+      //
+      // Audit round 42 — independently re-raised (codex), independently
+      // re-confirmed as the same round-32 product decision, not a new
+      // finding: kept as-is. The alternative (fail closed here) trades a
+      // rare, narrow forgery window for a worse failure mode — a real
+      // paying user's own valid AVP2 code being rejected outright by the
+      // exact same rare platform-channel glitch this catch exists for.
       // Only AVP2 carries an app binding, so only AVP2 needs the platform
       // call. Skipping it for AVP1 keeps the old path free of an extra async
       // hop — which is not just a micro-optimisation: adding that hop

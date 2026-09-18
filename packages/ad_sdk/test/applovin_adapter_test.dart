@@ -2199,6 +2199,134 @@ void main() {
     });
   });
 
+  // Audit round 42, MAJOR (codex, independently re-derived and confirmed) —
+  // the round-29 group above proves `_isStaleAd` correctly rejects a stale
+  // event when creativeId genuinely differs. It does NOT cover the actual
+  // gap: when a stale cycle's late event has an EMPTY/ambiguous creativeId
+  // (AppLovin's own test-mode creatives, and per AppLovin's docs some real
+  // mediated networks too), `_isStaleAd` correctly trusts it in isolation —
+  // but if a newer cycle has since started showing, that trust attributes
+  // the stale event to the NEW cycle's caller instead of discarding it.
+  // Fixed by refusing to START a new show cycle for `_staleCallbackQuarantine`
+  // after a show-confirmation-watchdog abandonment, so by the time a new
+  // cycle's show genuinely begins, the old cycle's straggler window has
+  // already closed.
+  group('audit round 42: stale-callback quarantine after a show-confirmation '
+      'watchdog abandonment', () {
+    test(
+        'rewarded: a new show is refused while quarantined, and a stale '
+        'cycle\'s late ambiguous reward cannot reach it', () {
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(bridge: b);
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        final ad1 = _fakeAd(); // default, ambiguous/shared creativeId
+        a.loadRewarded();
+        b.rewarded!.onAdLoadedCallback(ad1);
+        RewardResult? result1;
+        a.showRewarded(onDone: (r) => result1 = r);
+        async.flushMicrotasks();
+        expect(b.showRewardedCalls, ['rewarded-id']);
+
+        // Cycle 1's show-confirmation watchdog abandons it — never
+        // displayed, never confirmed.
+        async.elapse(const Duration(seconds: 10));
+        expect(result1?.earned, isFalse,
+            reason: 'the watchdog resolves the abandoned caller as skipped');
+        expect(a.rewardedSlot.value, AdSlotState.cooldown);
+
+        // A caller immediately tries to show again (e.g. AdManager's own
+        // reload/retry). Must be refused — NOT sent to the bridge — while
+        // quarantined, even though the slot itself may already look
+        // otherwise available.
+        a.rewardedSlot.markReady(); // simulate a fast reload completing
+        RewardResult? result2;
+        a.showRewarded(onDone: (r) => result2 = r);
+        async.flushMicrotasks();
+        expect(result2?.earned, isFalse,
+            reason: 'refused while quarantined — reported as skipped, not '
+                'sent to the bridge');
+        expect(b.showRewardedCalls, ['rewarded-id'],
+            reason: 'no second call reached the bridge during quarantine');
+
+        // Cycle 1's real native reward callback finally arrives late, with
+        // an ambiguous (shared/empty) creativeId — exactly the event that
+        // used to get misattributed to whoever called showRewarded() next.
+        b.rewarded!.onAdReceivedRewardCallback(ad1, MaxReward(10, 'c'));
+        expect(result2?.earned, isFalse,
+            reason: 'cycle 2 never started (refused above) — cycle 1\'s '
+                'late event must not retroactively resolve it as earned');
+
+        // Once the quarantine window fully elapses, a new show is allowed
+        // again and proceeds normally.
+        async.elapse(const Duration(seconds: 35));
+        final ad2 = _fakeAd();
+        a.loadRewarded();
+        b.rewarded!.onAdLoadedCallback(ad2);
+        RewardResult? result3;
+        a.showRewarded(onDone: (r) => result3 = r);
+        async.flushMicrotasks();
+        expect(b.showRewardedCalls, ['rewarded-id', 'rewarded-id'],
+            reason: 'quarantine has cleared — a new show is allowed through '
+                'to the bridge again');
+        b.rewarded!.onAdReceivedRewardCallback(ad2, MaxReward(10, 'c'));
+        expect(result3?.earned, isTrue,
+            reason: 'a genuinely new cycle\'s own reward, after the '
+                'quarantine window, must resolve normally');
+      });
+    });
+
+    test(
+        'interstitial: a new show is refused while quarantined, and a '
+        'stale cycle\'s late ambiguous dismiss cannot reach it', () {
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(bridge: b);
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        final ad1 = _fakeAd();
+        a.loadInterstitial();
+        b.inter!.onAdLoadedCallback(ad1);
+        bool? result1;
+        a.showInterstitial(onDone: (s) => result1 = s);
+        async.flushMicrotasks();
+        expect(b.showInterCalls, ['inter-id']);
+
+        async.elapse(const Duration(seconds: 10));
+        expect(result1, isFalse);
+        expect(a.interstitialSlot.value, AdSlotState.cooldown);
+
+        a.interstitialSlot.markReady();
+        bool? result2;
+        a.showInterstitial(onDone: (s) => result2 = s);
+        async.flushMicrotasks();
+        expect(result2, isFalse,
+            reason: 'refused while quarantined');
+        expect(b.showInterCalls, ['inter-id'],
+            reason: 'no second call reached the bridge during quarantine');
+
+        b.inter!.onAdHiddenCallback(ad1);
+        expect(result2, isFalse,
+            reason: 'cycle 2 never started — cycle 1\'s late event must '
+                'not retroactively resolve it');
+
+        async.elapse(const Duration(seconds: 35));
+        final ad2 = _fakeAd();
+        a.loadInterstitial();
+        b.inter!.onAdLoadedCallback(ad2);
+        bool? result3;
+        a.showInterstitial(onDone: (s) => result3 = s);
+        async.flushMicrotasks();
+        expect(b.showInterCalls, ['inter-id', 'inter-id']);
+        b.inter!.onAdHiddenCallback(ad2);
+        expect(result3, isTrue);
+      });
+    });
+  });
+
   // T185, revised by the smoke-test audit fix (2026-09-17) — requestId
   // correlation used to be an `Expando<String>` keyed by the loaded `MaxAd`
   // INSTANCE. That never worked against the real `applovin_max` plugin
