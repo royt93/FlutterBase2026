@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 44 audit, MAJOR):** `setDoNotSell(true)` (CCPA/CPRA "Do Not
+  Sell" opt-out) called before `initialize()` was silently discarded —
+  logged "ignored" and returned — contradicting its own docstring's "safe
+  to call before initialize()" claim. Now routes through the same pre-init
+  buffer `setConsent()` already uses, so the choice survives and reaches
+  both providers once `initialize()` runs. `doNotSell`'s getter now falls
+  back to the buffered value while there is no `ConsentManager` yet.
 - **Fixed (round 44 audit, MINOR):** native ads were the one inline surface
   never blanked while a fullscreen ad (App Open) was on screen — a live
   native ad could stay visible underneath it, the ad-over-ad placement

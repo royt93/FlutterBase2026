@@ -5030,17 +5030,33 @@ class AdManager with WidgetsBindingObserver {
   Future<void> setDoNotSell(bool value) async {
     final mgr = _consentManager;
     if (mgr == null) {
-      SafeLogger.w(_tag,
-          'setDoNotSell($value) called before initialize() — ConsentManager not ready, ignored');
+      // Round-44 audit fix — this used to log "ignored" and return here,
+      // silently discarding the value and contradicting this method's own
+      // docstring above (and CLAUDE.md's documented behavior). Route
+      // through setConsent()'s existing pre-init buffer
+      // (`_pendingConsentSettings`, replayed by initialize()) instead — the
+      // same mechanism this docstring's promise was actually describing.
+      // `_consent` mirrors `mgr.current` before ConsentManager exists (see
+      // [consent]'s own doc), so this preserves any sibling field a prior
+      // pre-init [setConsent] call already set, same as `mgr.current
+      // .copyWith(...)` does below for the post-init case.
+      await setConsent(AdConsent(
+        hasUserConsent: _consent.hasUserConsent,
+        isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+        doNotSell: value,
+      ));
       return;
     }
     await mgr.set(mgr.current.copyWith(doNotSell: value));
   }
 
   /// Current CCPA "Do Not Sell" choice — `false` (default/unset) until the
-  /// host reads it from [ConsentManager]/[setDoNotSell]. `false` before
-  /// [initialize] too, same as [consent]'s own default.
-  bool get doNotSell => _consentManager?.current.doNotSell ?? false;
+  /// host reads it from [ConsentManager]/[setDoNotSell]. Prefers the live
+  /// [ConsentManager] value when one exists (same as before this fix);
+  /// falls back to [_consent] — kept in sync by [setDoNotSell]'s pre-init
+  /// branch above — only while there is no manager yet, so a value set
+  /// before [initialize] now reads back correctly instead of always `false`.
+  bool get doNotSell => _consentManager?.current.doNotSell ?? _consent.doNotSell;
 
   /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
   /// into the provider adapter so AdMob's per-request `npa` flag tracks every
