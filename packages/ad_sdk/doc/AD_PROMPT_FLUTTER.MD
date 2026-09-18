@@ -114,7 +114,7 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
   - Diagnostics/self-check → `DiagnosticsDemoPage` · Event log viewer → `LogViewerDemoPage` · Events feed → `EventsDemoPage`
   - Revenue dashboard → `RevenueDemoPage` · Internal state panel → `StatePanelDemoPage` · Test-device hash → `TestDeviceHashDemoPage`
 
-**Required output**: a summary of ≤ 10 lines covering the library's API surface and everything the SDK manages automatically (App Open auto-show via `WidgetsBindingObserver`, banner auto pause/resume via `adRouteObserver` + RouteAware, frequency caps via the multi-layer safety gate, VIP auto-expire via `Timer`, consent dialog auto-show ~1s post-splash, first-install grace, anti-bypass guard if that version has it).
+**Required output**: a summary of ≤ 10 lines covering the library's API surface and everything the SDK manages automatically (App Open auto-show via `WidgetsBindingObserver`, banner auto pause/resume via `adRouteObserver` + RouteAware, frequency caps via the multi-layer safety gate, VIP auto-expire via `Timer`, UMP consent flow before adapter init, first-install grace, anti-bypass guard if that version has it).
 
 ## Step 2 — Audit the current state of the project
 
@@ -192,7 +192,7 @@ Future<void> main() async {
 }
 ```
 
-If `setNavigatorKey` is missing, the auto-show consent dialog and the app-open-on-resume buffer will silently fail.
+If `setNavigatorKey` is missing, App Open on resume and `AdLoadingDialog`'s buffer will silently fail.
 
 ### 4.2 — Splash flow (hard rule, hot-restart guard is mandatory)
 
@@ -623,11 +623,11 @@ unavailable for that session. This is the SDK's intentional, stricter-by-design 
 do not treat it as a bug to "fix" by trying to force AppLovin to serve child-safe ads some other way.
 
 **Known gap that needs an explicit decision from the user, not a default assumption:** on a brand-new install
-with no persisted consent yet, an app that is *always* child-directed (no consent dialog needed at all,
+with no persisted consent yet, an app that is *always* child-directed (no consent flow needed at all,
 because the whole app is COPPA-scoped) will still see AppLovin attempt to initialize once on that very first
 launch — there is nothing yet to gate on. If the project is *always* child-directed, ask the user whether they
 want an explicit "child app" config checked ahead of the very first `initialize()` call (e.g. a build-time
-flag, not something derived from the consent dialog) so AppLovin never initializes even on install #1. Do not
+flag, not something derived from consent state) so AppLovin never initializes even on install #1. Do not
 silently ship the one-time gap without asking.
 
 ## Step 9 — First-install VIP grace + anti-uninstall-bypass guard

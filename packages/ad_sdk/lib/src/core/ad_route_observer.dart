@@ -83,8 +83,8 @@ final RouteObserver<ModalRoute<void>> adRouteObserver =
 /// Besides logging, it tracks how many [PopupRoute]s (dialogs, bottom sheets,
 /// Cupertino popups) are currently on the navigation stack. The ad SDK uses
 /// [isDialogOnTop] to avoid showing a fullscreen App Open ad on top of a
-/// modal — e.g. the consent dialog, a VIP redeem confirmation, or the SDK's
-/// own loading buffer — which is both bad UX and an AdMob policy risk.
+/// modal — e.g. a VIP redeem confirmation or the SDK's own loading buffer —
+/// which is both bad UX and an AdMob policy risk.
 class AdScreenRouteLogger extends NavigatorObserver {
   static const _tag = 'AdScreen~Router';
 

@@ -27,9 +27,9 @@ class ConsentSettings {
   /// True if user opted out of "sale" of personal data (CCPA).
   final bool doNotSell;
 
-  /// True after the consent dialog has been presented (user picked Accept,
-  /// Reject, or dismissed it). Used to suppress auto-show on subsequent
-  /// launches — caller can still call `showDialog()` from a settings page.
+  /// True after a consent decision has actually been recorded — via UMP,
+  /// [ConsentManager.set], or [ConsentManager.reset] — as opposed to just
+  /// the conservative default nothing has touched yet.
   final bool hasBeenAsked;
 
   /// When [hasBeenAsked] flipped true. Useful for analytics + GDPR audit

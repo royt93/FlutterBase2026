@@ -254,7 +254,7 @@ Backwards-compatible with 1.0.1x. Recent additions:
   counts `PopupRoute`s (dialogs, bottom sheets, Cupertino popups) and exposes
   `isDialogOnTop`; `showAppOpenAdOnResume` consults it plus
   `AdLoadingDialog.isShowing` and **skips the App Open ad while any dialog is
-  presented** (e.g. the consent dialog or a VIP redeem confirmation). The
+  presented** (e.g. a VIP redeem confirmation). The
   `_retryRefillAds` periodic scan also returns early for VIP members.
   - **Nested-Navigator gap (round-28 audit, 2.9.7):** `AdScreenRouteLogger`
     only sees routes pushed on the `Navigator` it's registered on. If your app
@@ -454,8 +454,8 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 
 import 'splash_screen.dart';
 
-/// Global navigator key — required so the SDK can show consent dialogs and
-/// loading buffers from a context-less callback path (e.g., from the lifecycle
+/// Global navigator key — required so the SDK can show loading buffers and
+/// VIP UI from a context-less callback path (e.g., from the lifecycle
 /// observer when an ad dismisses).
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -2417,7 +2417,7 @@ next restart.
 - [ ] `app-ads.txt` placed at the root of your app's domain
 - [ ] Privacy Policy URL declared in App Store / Play Store listing
 - [ ] iOS App Tracking Transparency prompt shown via `AdManager().requestAtt()` in the splash, **before** `requestUmpConsent` / `AdManager().initialize` (see Option 0)
-- [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA). AdMob honours this per-request via `tagForChildDirectedTreatment`. AppLovin MAX 4.x has no runtime child-directed API, so (T40, 2026-07-13) `AppLovinAdapter` refuses to initialize at all when `true` is known **at init time** (persisted from a prior session) — every AppLovin ad surface then stays unavailable for the session (exposed via `AppLovinAdapter.disabledForChildUser`). **Known gap**: on a brand-new install with no persisted consent yet, an app that is *always* child-directed (no consent dialog at all) will still see AppLovin initialize once, since there's nothing yet to gate on — don't rely on this SDK for an always-child-directed app without adding your own explicit "child app" config ahead of `initialize()`.
+- [ ] If app targets children, `isAgeRestrictedUser: true` (COPPA). AdMob honours this per-request via `tagForChildDirectedTreatment`. AppLovin MAX 4.x has no runtime child-directed API, so (T40, 2026-07-13) `AppLovinAdapter` refuses to initialize at all when `true` is known **at init time** (persisted from a prior session) — every AppLovin ad surface then stays unavailable for the session (exposed via `AppLovinAdapter.disabledForChildUser`). **Known gap**: on a brand-new install with no persisted consent yet, an app that is *always* child-directed (no consent flow has run yet) will still see AppLovin initialize once, since there's nothing yet to gate on — don't rely on this SDK for an always-child-directed app without adding your own explicit "child app" config ahead of `initialize()`.
   - **This AdMob-vs-AppLovin handling asymmetry (per-request tag vs. full init abort) is intentional**, driven purely by what each provider's native SDK exposes — AdMob has a per-request COPPA flag, AppLovin MAX 4.x does not. It is not an inconsistency to "fix"; treat AppLovin's behavior (no ads at all for a known child-directed session) as the stricter, safer default for that provider.
 - [ ] If targeting EEA users, integrate UMP via Option 2 above
 - [ ] UMP consent message **published** (not just saved as draft) for *this app's* specific AdMob app ID — required again for every new app ID, see "Per-app-id setup" above
@@ -2510,7 +2510,7 @@ Unlike AdMob, AppLovin requires a real account and real ad unit IDs. To avoid be
 
 ### 4. `setNavigatorKey` must be called before `runApp`
 
-If you forget, the auto-show consent dialog has no `BuildContext` to use and silently skips. The dialog will eventually surface on a future launch, but better to wire it correctly the first time.
+If you forget, App Open on resume and `AdLoadingDialog`'s buffer screen have no `BuildContext` to use and silently skip.
 
 ### 5. Initialize the SDK in `SplashScreen`, not `main`
 

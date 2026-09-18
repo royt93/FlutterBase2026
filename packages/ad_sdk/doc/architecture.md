@@ -154,18 +154,14 @@ SplashScreen.initState                        │                │
     │                        │◄───────────────┤                │
     │ ◄────────────────────┤                │                │
     │ markSplashInactive()                                     │
-    │   → schedule consent dialog (+1s)                        │
     │ Navigator.pushReplacement(HomeScreen)                    │
-    │ ... ~1s later ...                                        │
-    │ ◄── consent dialog auto-shows on home if !VIP ──         │
 ```
 
 Key invariants of this flow:
 
-1. **`setNavigatorKey` before `runApp`** — required for the SDK to surface dialogs from non-context callers (the lifecycle observer and the consent scheduler).
+1. **`setNavigatorKey` before `runApp`** — required for the SDK to surface dialogs from non-context callers (the lifecycle observer's App Open resume and the UMP consent flow).
 2. **`EventBus.listen` before `initialize`** — `SimpleEventBus` only delivers fire events to listeners that registered before the fire. Late subscribers miss the init-complete signal.
 3. **Splash app open uses `bypassSafety: true`** — the only sanctioned bypass. Prevents the safety gate from blocking the splash flow due to a cold-start `minSessionDurationBeforeAd`.
-4. **`markSplashInactive` schedules the consent dialog** — the dialog lands on whatever route the host navigates to next (typically home), avoiding contention with the splash app-open ad.
 
 ---
 
@@ -299,9 +295,9 @@ own certified CMP (or a manual `ConsentManager.set`/`AdManager.setConsent`
 flow) before ads are requested — see README's "Consent & compliance"
 section.
 
-Skipping for VIP is intentional. The first-install grace and any redeemed VIP keys give the user an ad-free session, so prompting for ad consent during that window adds friction without compliance benefit. The dialog will surface naturally once VIP expires.
-
-The consent dialog is a custom `Material` `Dialog` (not stock `CupertinoAlertDialog`) wrapped in a transparent `Material` widget so the `Text` widgets inherit the host app's `DefaultTextStyle` instead of falling back to Flutter's debug raw-renderer font (the "yellow text on red underline" debug appearance).
+UMP consent collection runs regardless of VIP status — GDPR requires
+collecting consent independent of whether ads are actually shown to that
+session.
 
 ---
 

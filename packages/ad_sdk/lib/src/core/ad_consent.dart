@@ -235,7 +235,7 @@ Future<void> applyConsentToProviders(
   // applied" has to compare against this, or it mistakes a decision that was
   // merely recorded for one that landed. Round 18 tracked this in `AdManager`
   // instead and so missed every caller that is not `AdManager.setConsent` —
-  // `initialize()`'s own apply, and the built-in consent dialog.
+  // `initialize()`'s own apply, among others.
   //
   // Round-32 audit, BLOCKER — only record it as applied if BOTH provider
   // writes actually completed. Recording it unconditionally (as before) made

@@ -1290,7 +1290,7 @@ class AdManager with WidgetsBindingObserver {
             : SelfCheckStatus.skipped,
         (consent?.hasBeenAsked ?? false)
             ? null
-            : 'consent dialog has not been shown yet this session',
+            : 'consent flow has not run yet this session',
       ),
       await _selfCheckLoad('Interstitial load', AdSlotType.interstitial,
           loadInterstitial, loadTimeout, _adapter!.interstitialSlot),
@@ -1511,8 +1511,8 @@ class AdManager with WidgetsBindingObserver {
       e is MissingPluginException &&
       !(kReleaseMode || debugSimulateReleaseModeForUmpGate);
 
-  /// Consent manager — `null` until [initialize] completes. Owns the
-  /// Cupertino consent dialog, persistence, and provider apply pipeline.
+  /// Consent manager — `null` until [initialize] completes. Owns consent
+  /// persistence and the provider apply pipeline.
   /// Also accessible via static [ConsentManager.instance] once initialised.
   ConsentManager? get consentManager => _consentManager;
 
@@ -3816,10 +3816,7 @@ class AdManager with WidgetsBindingObserver {
       initRevision.value = initRevision.value + 1;
 
       // consentMgr was already bootstrapped above (before adapter init, so
-      // T40's isAgeRestrictedUser gate could see persisted consent). If
-      // config asks for auto-show AND user hasn't been asked yet, present
-      // the Cupertino dialog before the first ad request. The dialog result
-      // auto-applies to providers via ConsentManager.set.
+      // T40's isAgeRestrictedUser gate could see persisted consent).
 
       // Re-sync the adapter's per-request personalization (AdMob npa) on ANY
       // later consent change — ConsentManager.set/.reset, or a host privacy
@@ -7203,8 +7200,8 @@ class AdManager with WidgetsBindingObserver {
     // C3 — same shared mutex the other two show paths now use. This path
     // already had the full condition inline; it is the one the helper was
     // extracted from. Covers stacking on another fullscreen ad AND on a modal
-    // (consent dialog, VIP confirmation, the SDK's own loading buffer) — an ad
-    // over a dialog is bad UX and an AdMob policy risk.
+    // (the UMP consent form, VIP confirmation, the SDK's own loading buffer)
+    // — an ad over a dialog is bad UX and an AdMob policy risk.
     final busyAO = _fullscreenBusyReason;
     if (busyAO != null) {
       SafeLogger.d(_tag, '⏭️ app-open on resume skipped — $busyAO');

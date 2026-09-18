@@ -742,7 +742,7 @@ class HomePage extends StatelessWidget {
           DemoTile(
             icon: Icons.translate,
             title: 'i18n string presets (T219)',
-            subtitle: 'Switch .vi/.en preset — consent dialog, CCPA, VIP',
+            subtitle: 'Switch .vi/.en preset — CCPA, VIP',
             color: Colors.indigo,
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const I18nPresetDemoPage())),
@@ -1736,11 +1736,11 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
             ),
           ),
           const Divider(height: 32),
-          // ─── ConsentManager (Cupertino dialog) ──────────────────────────
+          // ─── ConsentManager state ────────────────────────────────────────
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
-              'ConsentManager — built-in Cupertino dialog (auto-shown post-splash on first launch)',
+              'ConsentManager — current persisted state (set via Google UMP or setConsent/setDoNotSell above)',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
