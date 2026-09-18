@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.23] - 2026-09-18
 
 - **Fixed (example app only, no SDK behavior change):** a focused re-audit
   of the 2.9.22 fixes found two narrow residual gaps in
@@ -19,6 +19,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   Both fixed: the restore chain now swallows a failed retry, and the
   in-flight apply call itself detects `!mounted` and performs the
   restore if it succeeds after the page is already gone.
+- **Docs (round 43, AdMob-only focused compliance re-audit — see
+  `doc/audit/audit_round43_admob_compliance.md`):** corrected
+  `ump_consent.dart`'s doc comments, which overstated the durable "Privacy
+  Options" entry-point requirement as EEA/UK-only — it also applies to the
+  US-states/GPP consent message type; the code itself was already
+  region-agnostic, so this is a doc-only fix. Ad placement/density/
+  reward-granting and the rest of consent/privacy handling were
+  independently re-verified against Google's live (2026-09-18) policy
+  docs and found compliant, with one non-urgent note folded into
+  `CLAUDE.md`'s existing pinning-wall section (`tagForChildDirectedTreatment`/
+  `tagForUnderAgeOfConsent` are now deprecated in favor of a unified
+  `ageRestrictedTreatment` API, only reachable once this package can adopt
+  `google_mobile_ads` 9.1.0+ — already blocked by the documented
+  Flutter/Dart floor, and non-urgent since Google keeps the legacy pair
+  working through 2026).
 
 ## [2.9.22] - 2026-09-18
 
