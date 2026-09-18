@@ -72,12 +72,23 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         _holdAppLovinInline(_mrecRegistry.listenablesByKey(key)!,
             _mrecAdViewIdByKey[key]?.value, InlineHideReason.fullscreen);
       }
+      // Round-44 audit fix — native was never included in this pass (its own
+      // doc comment admitted it: "never hides them the way banner/mrec are
+      // hidden"), so a live MAX native ad stayed visible underneath an App
+      // Open ad. Unlike banner/mrec, native has no auto-refresh ticker to
+      // pause (MaxNativeAdView loads once, on mount) — only `visible` needs
+      // to move, so this uses `_inlineVisibility` directly instead of
+      // `_holdAppLovinInline` (which also takes the refresh hold).
+      for (final l in _nativeRegistry.listenablesList) {
+        _inlineVisibility.hide(l, InlineHideReason.fullscreen);
+      }
       return;
     }
     _fullscreenOverInline = false;
     for (final l in [
       ..._bannerRegistry.listenablesList,
       ..._mrecRegistry.listenablesList,
+      ..._nativeRegistry.listenablesList,
     ]) {
       _inlineVisibility.show(l, InlineHideReason.fullscreen);
       // Round-30 QC (reviewer A, MAJOR) — the refresh flag is released BY NAME
@@ -502,7 +513,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         visible: ValueNotifier<bool>(true),
       )..dispose());
     }
-    return _nativeRegistry.listenablesFor(key);
+    // Round-44 audit fix — native now inherits the fullscreen hold on
+    // creation, same as banner/mrec, so one that mounts while an App Open is
+    // already up starts hidden instead of drawing on top of it.
+    return _nativeRegistry.listenablesFor(key,
+        onCreated: (l) {
+      if (_fullscreenOverInline) {
+        _inlineVisibility.hide(l, InlineHideReason.fullscreen);
+      }
+    });
   }
 
   @override
@@ -522,7 +541,11 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     while (_disposedNativeKeys.length > _maxDisposedNativeKeys) {
       _disposedNativeKeys.remove(_disposedNativeKeys.first);
     }
-    _nativeRegistry.removeKey(key)?.dispose();
+    final gone = _nativeRegistry.removeKey(key);
+    if (gone != null) {
+      _inlineVisibility.forget(gone);
+      gone.dispose();
+    }
   }
 
   /// Lift [key]'s [disposeNativeInstance] tombstone because a live widget is

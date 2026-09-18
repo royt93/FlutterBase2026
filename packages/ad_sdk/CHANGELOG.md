@@ -4,6 +4,17 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fixed (round 44 audit, MINOR):** native ads were the one inline surface
+  never blanked while a fullscreen ad (App Open) was on screen — a live
+  native ad could stay visible underneath it, the ad-over-ad placement
+  Google/AppLovin policy prohibits. `native()`'s listenables now inherit and
+  release the fullscreen hold the same way `banner()`/`mrec()` already do,
+  on both providers; a new `AdManager.nativeVisible(key)` drives
+  `NativeAdWidget` the same way `bannerVisible` already drives
+  `BannerAdWidget`. See `doc/audit/audit_round44_consolidated.md` finding 4.
+
 ## [2.9.23] - 2026-09-18
 
 - **Fixed (example app only, no SDK behavior change):** a focused re-audit

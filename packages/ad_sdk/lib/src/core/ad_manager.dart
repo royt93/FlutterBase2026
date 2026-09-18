@@ -2937,6 +2937,12 @@ class AdManager with WidgetsBindingObserver {
   ValueListenable<bool> nativeHasError(Object key) =>
       _adapter?.native(key).hasError ?? _stubBoolFalse;
 
+  /// Round-44 audit fix — drives [NativeAdWidget] the same way
+  /// [bannerVisible]/[mrecVisible] drive their widgets: false while a
+  /// fullscreen ad is on screen (see [InlineAdVisibility.setInlineAdsHidden]).
+  ValueListenable<bool> nativeVisible(Object key) =>
+      _adapter?.native(key).visible ?? _stubBoolTrue;
+
   String get appLovinNativeId => _adapter?.appLovinNativeId ?? '';
 
   Widget? admobNativeView(Object key) => _adapter?.buildAdmobNativeView(key);

@@ -213,12 +213,13 @@ abstract class AdProviderAdapter {
   BannerListenables mrec(Object key);
 
   /// Native reactive listenables for the [NativeAdWidget] tree, keyed by
-  /// widget instance (see [nativeSlot]). Only [BannerListenables.isLoaded]/
-  /// [BannerListenables.hasError] are meaningful here — native ads have no
-  /// adaptive size, no auto-refresh ticker, and are always visible once
-  /// loaded, so [BannerListenables.adSize]/[BannerListenables.autoRefreshEnabled]/
-  /// [BannerListenables.visible] are unused stub notifiers kept only for type
-  /// parity with [banner]/[mrec].
+  /// widget instance (see [nativeSlot]). Native ads have no adaptive size
+  /// and no auto-refresh ticker, so [BannerListenables.adSize]/
+  /// [BannerListenables.autoRefreshEnabled] stay unused stub notifiers kept
+  /// only for type parity with [banner]/[mrec] — but [BannerListenables.
+  /// visible] IS wired (round-44 audit fix): it is included in
+  /// [InlineAdVisibility.setInlineAdsHidden] the same as banner/mrec, so a
+  /// live native ad no longer stays drawn underneath an App Open ad.
   BannerListenables native(Object key);
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────

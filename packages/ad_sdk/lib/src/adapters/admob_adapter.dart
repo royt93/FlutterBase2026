@@ -39,6 +39,11 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     final surfaces = [
       ..._bannerRegistry.listenablesList,
       ..._mrecRegistry.listenablesList,
+      // Round-44 audit fix — native ads used to be excluded from this pass
+      // (see `native()`'s doc comment, removed alongside this), so a live
+      // native ad stayed visible underneath an App Open ad. Native has no
+      // auto-refresh ticker to pause, so `visible` alone is enough here.
+      ..._nativeRegistry.listenablesList,
     ];
     if (hidden) {
       _fullscreenOverInline = true;
@@ -308,11 +313,11 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   // instance, instead of one shared across every mounted widget.
   // T114 (phase 3) — map bookkeeping + disposed-sentinel pattern extracted
   // into the same shared InlineAdInstanceRegistry banner/mrec already use.
-  // Native does NOT inherit the fullscreen/background hold (no `onCreated`
-  // callback needed here) and is never registered with `_inlineVisibility`
-  // — see `AdProviderAdapter.native`'s own doc for why: native ads have no
-  // adaptive size or auto-refresh ticker, and this adapter never hides them
-  // the way banner/mrec are hidden.
+  // Round-44 audit fix — native now DOES inherit the fullscreen hold, same
+  // as banner/mrec (`onCreated: _inheritFullscreenHold` below) and IS
+  // registered with `_inlineVisibility` (`setInlineAdsHidden` above). Native
+  // still has no adaptive size or auto-refresh ticker, so only `visible` is
+  // wired for it — `adSize`/`autoRefreshEnabled` stay unused stubs.
   final InlineAdInstanceRegistry _nativeRegistry =
       InlineAdInstanceRegistry(AdSlotType.native);
 
@@ -326,12 +331,17 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   AdSlot nativeSlot(Object key) => _nativeRegistry.slotFor(key);
 
   @override
-  BannerListenables native(Object key) => _nativeRegistry.listenablesFor(key);
+  BannerListenables native(Object key) => _nativeRegistry.listenablesFor(key,
+      onCreated: _inheritFullscreenHold);
 
   @override
   void disposeNativeInstance(Object key) {
     _nativeAdsByKey.remove(key)?.dispose();
-    _nativeRegistry.removeKey(key)?.dispose();
+    final gone = _nativeRegistry.removeKey(key);
+    if (gone != null) {
+      _inlineVisibility.forget(gone);
+      gone.dispose();
+    }
     _nativeTemplateTypeByKey.remove(key);
   }
 

@@ -70,9 +70,10 @@ class _NativeCountingAdapter implements AdProviderAdapter {
     lastRequestedTemplateType = templateType;
     loadNativeCalls++;
   }
+  // Round 44 — settable so tests can tell "hidden" apart from "no view yet".
+  Widget? nativeViewToReturn;
   @override
-  Widget? buildAdmobNativeView(Object key) =>
-      null; // placeholder path, no native view
+  Widget? buildAdmobNativeView(Object key) => nativeViewToReturn;
   @override
   String? get appLovinNativeId => 'native-id';
   @override
@@ -324,6 +325,81 @@ void main() {
     expect(find.byType(MaxNativeAdOptionsView), findsOneWidget,
         reason: 'AppLovin policy requires the privacy-information view to '
             'be present in every native ad layout the package renders');
+  });
+
+  // Round-44 audit fix — a live native ad used to stay mounted and visible
+  // underneath an App Open ad (its own adapter doc comment admitted native
+  // was "never hidden the way banner/mrec are hidden"). `AdManager
+  // .nativeVisible(key)` now drives the widget the same way `bannerVisible`
+  // already does for BannerAdWidget.
+  group('Round 44 — App Open hides native ad', () {
+    testWidgets('AppLovin native view collapses while nativeVisible is false',
+        (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byType(MaxNativeAdView), findsOneWidget,
+          reason: 'sanity — mounted normally with no fullscreen ad up');
+
+      final l = adapter.nativeListenablesByKey.values.first;
+      l.visible.value = false; // what setInlineAdsHidden(true) now does
+      await tester.pump();
+
+      expect(find.byType(MaxNativeAdView), findsNothing,
+          reason: 'THE finding — a native ad drawn on top of an App Open ad '
+              'is the placement round 23 already fixed for banner/MREC');
+
+      l.visible.value = true; // App Open dismissed
+      await tester.pump();
+
+      expect(find.byType(MaxNativeAdView), findsOneWidget,
+          reason: 'and it must come back once the fullscreen ad is gone');
+    });
+
+    testWidgets('AdMob native view collapses while nativeVisible is false',
+        (tester) async {
+      final adapter = _NativeCountingAdapter()
+        ..nativeViewToReturn = Container(key: const Key('admob-native-view'));
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      adapter.nativeListenablesByKey.values.first.isLoaded.value = true;
+      await tester.pump();
+
+      expect(find.byKey(const Key('admob-native-view')), findsOneWidget,
+          reason: 'sanity — mounted normally with no fullscreen ad up');
+
+      final l = adapter.nativeListenablesByKey.values.first;
+      l.visible.value = false;
+      await tester.pump();
+
+      expect(find.byKey(const Key('admob-native-view')), findsNothing,
+          reason: 'THE finding — same placement violation as the AppLovin '
+              'branch, for the AdMob provider');
+
+      l.visible.value = true;
+      await tester.pump();
+
+      expect(find.byKey(const Key('admob-native-view')), findsOneWidget);
+    });
   });
 
   // T62 — MaxNativeAdView "loads on mount" (its own dartdoc, and the

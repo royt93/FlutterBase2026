@@ -209,6 +209,7 @@ AdManager.mrecRoutePaused  [method]  bool mrecRoutePaused(Object key)
 AdManager.mrecVisible  [method]  ValueListenable<bool> mrecVisible(Object key)
 AdManager.nativeHasError  [method]  ValueListenable<bool> nativeHasError(Object key)
 AdManager.nativeIsLoaded  [method]  ValueListenable<bool> nativeIsLoaded(Object key)
+AdManager.nativeVisible  [method]  ValueListenable<bool> nativeVisible(Object key)
 AdManager.navigatorKey  [getter]  GlobalKey<NavigatorState>? get navigatorKey
 AdManager.new  [constructor]  AdManager AdManager()
 AdManager.personalisationRevision  [field]  ValueNotifier<int> personalisationRevision

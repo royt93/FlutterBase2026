@@ -419,7 +419,21 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
                 if (!allowed) return const SizedBox.shrink();
                 final mgr = AdManager();
                 if (!mgr.isInitialised) return const SizedBox.shrink();
-                return mgr.isAdMobProvider ? _buildAdmob() : _buildAppLovin();
+                // Round-44 audit fix — a live native ad used to stay
+                // mounted and visible under an App Open ad; `nativeVisible`
+                // now drives this the same way `bannerVisible` already
+                // gates BannerAdWidget's render.
+                return ValueListenableBuilder<bool>(
+                  valueListenable: mgr.nativeVisible(this),
+                  builder: (context, visible, _) {
+                    if (!visible) {
+                      return SizedBox(height: _height, width: double.infinity);
+                    }
+                    return mgr.isAdMobProvider
+                        ? _buildAdmob()
+                        : _buildAppLovin();
+                  },
+                );
               },
             );
           },
