@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.9.22] - 2026-09-18
 
 Fixes for the round-42 audit findings (see `doc/audit/audit_round42_consolidated.md`
 and its per-reviewer reports for the full findings and severity reasoning).
