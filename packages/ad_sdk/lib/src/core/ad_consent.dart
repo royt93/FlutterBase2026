@@ -3,6 +3,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../config/ad_config.dart';
 import '../utils/safe_logger.dart';
+import 'iab_storage.dart';
 
 /// Privacy / consent flags forwarded to both providers.
 ///
@@ -149,7 +150,22 @@ Future<void> applyConsentToProviders(
   var adMobApplied = false;
   // ─── AppLovin (4.6+ uses static methods on AppLovinMAX) ──────────────────
   try {
-    AppLovinMAX.setHasUserConsent(outcome.appLovinHasUserConsent);
+    // Round-44 audit fix — AppLovin's own docs (terms-and-privacy-policy
+    // flow guide) say MAX auto-reads a real IAB TCF string from platform
+    // storage the moment a certified CMP (UMP) writes one, and the
+    // explicit setHasUserConsent() call is documented as the path for apps
+    // that do NOT use a CMP at all ("If you do not use a CMP ... you must
+    // continue to set AppLovin's SDK's binary consent flags"). This used
+    // to call it unconditionally with a purpose-only boolean computed for
+    // AdMob's npa flag — no equivalent vendor-consent basis for AppLovin
+    // (round-44 finding 3). Skipping it whenever a real TC string already
+    // exists on the device lets MAX evaluate its own vendor consent
+    // correctly instead of being overridden by ours.
+    final hasIabTcfString =
+        (await IabStorage.read(IabStorage.keyTcfString))?.isNotEmpty == true;
+    if (!hasIabTcfString) {
+      AppLovinMAX.setHasUserConsent(outcome.appLovinHasUserConsent);
+    }
     AppLovinMAX.setDoNotSell(outcome.appLovinDoNotSell);
     // AppLovin 4.x removed `setIsAgeRestrictedUser` — there is no API to
     // forward COPPA's child-directed signal to AppLovin. This path only

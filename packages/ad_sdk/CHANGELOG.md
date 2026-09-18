@@ -6,6 +6,17 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 44 audit, MAJOR):** `applyConsentToProviders` used to call
+  `AppLovinMAX.setHasUserConsent(bool)` unconditionally with a purpose-only
+  boolean computed for AdMob's `npa` flag — a value with no vendor-consent
+  basis for AppLovin. Per AppLovin's own MAX integration docs, the SDK
+  auto-reads a real IAB TCF string from platform storage the moment a
+  certified CMP (UMP) writes one, and the explicit `setHasUserConsent` call
+  is documented as the path for apps with no CMP at all. The explicit call
+  is now skipped whenever a real TC string already exists on the device,
+  letting MAX evaluate its own vendor consent instead of being overridden.
+  `setDoNotSell` (CCPA, an unrelated axis) is unaffected — still always
+  called.
 - **Fixed (round 44 audit, MAJOR):** `setDoNotSell(true)` (CCPA/CPRA "Do Not
   Sell" opt-out) called before `initialize()` was silently discarded —
   logged "ignored" and returned — contradicting its own docstring's "safe
