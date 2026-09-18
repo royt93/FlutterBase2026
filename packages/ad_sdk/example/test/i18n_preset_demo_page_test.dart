@@ -1,6 +1,6 @@
 // T219 — I18nPresetDemoPage: switching the segmented control must actually
-// re-render the consent dialog, CCPA toggle, and VIP dialog strings preview
-// with the newly-selected preset's real text — not just flip a label.
+// re-render the CCPA toggle and VIP dialog strings preview with the
+// newly-selected preset's real text — not just flip a label.
 
 import 'package:ad_sdk_example/main.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
@@ -35,19 +35,6 @@ void main() {
         findsOneWidget);
     expect(find.text('Do Not Sell or Share My Personal Information'),
         findsNothing);
-  });
-
-  testWidgets('opening the consent dialog shows the currently-selected '
-      'preset\'s text', (tester) async {
-    await tester.pumpWidget(host());
-    await tester.tap(find.text('Tiếng Việt'));
-    await tester.pump();
-
-    await tester.tap(find.text('Open consent dialog'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Quảng cáo cá nhân hoá'), findsOneWidget);
-    expect(find.text('Đồng ý'), findsOneWidget);
   });
 
   testWidgets('opening the VIP redeem screen shows the currently-selected '

@@ -40,17 +40,13 @@ Future<void> _waitForInit(WidgetTester tester) async {
 /// fresh install's first-install VIP grace silently no-ops every load/show
 /// call, which would make this test trivially pass without exercising
 /// anything real.
-Future<void> _revokeVipGraceAndClearConsentDialog(WidgetTester tester) async {
+///
+/// Round 44 — used to also dismiss the SDK's built-in post-splash consent
+/// dialog if `revokeAll()` unmasked it mid-test; that dialog was removed
+/// (round-44 audit finding 1), so this is just the VIP-grace revoke now.
+Future<void> _revokeVipGrace(WidgetTester tester) async {
   await AdManager().vip!.revokeAll();
-  for (var i = 0; i < 6; i++) {
-    await tester.pump(const Duration(milliseconds: 300));
-    final allow = find.text('Allow personalized ads');
-    if (allow.evaluate().isNotEmpty) {
-      await tester.tap(allow);
-      await tester.pump(const Duration(milliseconds: 300));
-      break;
-    }
-  }
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 void main() {
@@ -63,7 +59,7 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
-    await _revokeVipGraceAndClearConsentDialog(tester);
+    await _revokeVipGrace(tester);
 
     // Wait for the Splash → Home navigation to actually land before touching
     // any HomePage finder — scrollUntilVisible needs a real Scrollable to

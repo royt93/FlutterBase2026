@@ -46,23 +46,12 @@ Future<void> _waitForInit(WidgetTester tester) async {
   fail('SDK must finish initialising on device');
 }
 
-/// Revoking the first-install VIP grace mid-test can unmask the SDK's
-/// already-scheduled post-splash consent dialog (AdManager._maybeScheduleConsentDialog
-/// re-checks VIP at its ~1s-delayed fire time, per ad_manager.dart) — it was
-/// scheduled while VIP was still inactive-pending, then fires after our
-/// revokeAll() call. Wait out that window and dismiss it if it shows, so it
-/// doesn't swallow the tap meant for the demo tile underneath.
-Future<void> _revokeVipGraceAndClearConsentDialog(WidgetTester tester) async {
+/// Round 44 — used to also dismiss the SDK's built-in post-splash consent
+/// dialog if `revokeAll()` unmasked it mid-test; that dialog was removed
+/// (round-44 audit finding 1), so this is just the VIP-grace revoke now.
+Future<void> _revokeVipGrace(WidgetTester tester) async {
   await AdManager().vip!.revokeAll();
-  for (var i = 0; i < 6; i++) {
-    await tester.pump(const Duration(milliseconds: 300));
-    final allow = find.text('Allow personalized ads');
-    if (allow.evaluate().isNotEmpty) {
-      await tester.tap(allow);
-      await tester.pump(const Duration(milliseconds: 300));
-      break;
-    }
-  }
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 /// Polls until the rewarded slot has actually finished loading (or gone to
@@ -109,7 +98,7 @@ void main() {
     // (DemoConfig.firstInstallVipGrace) during which AdManager silently
     // no-ops every load/show call. Revoke it so this test actually exercises
     // the real ad show/dismiss lifecycle instead of trivially passing.
-    await _revokeVipGraceAndClearConsentDialog(tester);
+    await _revokeVipGrace(tester);
 
     final tile = find.text('Rewarded ad');
     var foundTile = false;

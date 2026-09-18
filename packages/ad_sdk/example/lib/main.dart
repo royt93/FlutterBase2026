@@ -192,10 +192,6 @@ const bool kQaAdStress = bool.fromEnvironment('QA_AD_STRESS');
 const bool kUmpEeaDebug = bool.fromEnvironment('UMP_EEA_DEBUG');
 const String kUmpTestId = String.fromEnvironment('UMP_TEST_ID');
 
-/// Placeholder privacy-policy link shown by the consent dialog demo.
-/// Real apps should point this at their own published policy.
-const String kDemoPrivacyPolicyUrl = 'https://example.com/privacy';
-
 /// VIP demo keys (Q28 — user-supplied).
 const Map<String, Duration> kDemoVipKeys = {
   'TEST_VIP_7': Duration(days: 7),
@@ -327,20 +323,6 @@ class DemoConfig {
       //   FirstInstallVipGrace.day                         → force 24 h both modes
       //   FirstInstallVipGrace(Duration(hours: 12))        → custom
       firstInstallVipGrace: FirstInstallVipGrace.auto,
-      // Auto-show Cupertino consent dialog ~1 s after splash → home (skipped
-      // for VIP users — first 30 s of debug install stays silent because
-      // grace is active). Strings default to English; consumers override
-      // via consentDialogStrings: ConsentDialogStrings.vi etc.
-      autoShowConsentDialog: true,
-      consentDialogPostSplashDelay: const Duration(seconds: 1),
-      // Demo wires a real privacy-policy URL so the dialog's link isn't
-      // silently hidden — a bare `debugPrint` handler is enough here since
-      // this is a demo harness, not a shipping app (a real app would
-      // `launchUrl(Uri.parse(url))`, e.g. via package:url_launcher).
-      consentDialogStrings:
-          const ConsentDialogStrings(privacyPolicyUrl: kDemoPrivacyPolicyUrl),
-      onPrivacyPolicyTap: (url) =>
-          debugPrint('[example] privacy policy tapped: $url'),
     );
   }
 }
@@ -1845,18 +1827,6 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton.tonalIcon(
-                  icon: const Icon(Icons.help_outline),
-                  label: const Text('Show consent dialog'),
-                  onPressed: () async {
-                    await ConsentManager.instance.showDialog(
-                      context,
-                      config: AdManager().config,
-                      onPrivacyPolicyTap:
-                          AdManager().config?.onPrivacyPolicyTap,
-                    );
-                  },
-                ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.refresh),
                   label: const Text('Reset (re-prompt next launch)'),
@@ -1976,9 +1946,10 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
           const Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'Note: the SDK auto-shows the binary dialog ~1s AFTER markSplashInactive '
-              'on first launch (default behaviour, controlled by AdConfig.autoShowConsentDialog). '
-              'iOS ATT prompt is still caller responsibility — see README.',
+              'Note: consent is collected via a certified CMP (Google UMP, '
+              'autoRequestUmpConsent: true by default) — the SDK has no '
+              'built-in non-CMP dialog. iOS ATT prompt is still caller '
+              'responsibility — see README.',
               style: TextStyle(color: Colors.grey),
             ),
           ),
@@ -3706,9 +3677,9 @@ class CcpaToggleDemoPage extends StatelessWidget {
 }
 
 // T219 — i18n preset demo: switching the toggle re-resolves
-// ConsentDialogStrings/CcpaOptOutStrings/VipDialogStrings via their
-// resolve(locale) helper and re-renders — real UI, real preset switching,
-// for a device smoke test to confirm each language's actual text shows up.
+// CcpaOptOutStrings/VipDialogStrings via their resolve(locale) helper and
+// re-renders — real UI, real preset switching, for a device smoke test to
+// confirm each language's actual text shows up.
 class I18nPresetDemoPage extends StatefulWidget {
   const I18nPresetDemoPage({super.key});
 
@@ -3721,7 +3692,6 @@ class _I18nPresetDemoPageState extends State<I18nPresetDemoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final consentStrings = ConsentDialogStrings.resolve(_locale);
     final ccpaStrings = CcpaOptOutStrings.resolve(_locale);
     final vipStrings = VipDialogStrings.resolve(_locale);
 
@@ -3740,17 +3710,6 @@ class _I18nPresetDemoPageState extends State<I18nPresetDemoPage> {
                 setState(() => _locale = selected.first),
           ),
           const SizedBox(height: 16),
-          Text('Consent dialog (${_locale.languageCode})',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          ElevatedButton(
-            onPressed: () => showConsentDialog(
-              context,
-              strings: consentStrings,
-              current: ConsentSettings.unset,
-            ),
-            child: const Text('Open consent dialog'),
-          ),
-          const Divider(height: 32),
           Text('CCPA toggle (${_locale.languageCode})',
               style: const TextStyle(fontWeight: FontWeight.bold)),
           CcpaOptOutToggle(strings: ccpaStrings),

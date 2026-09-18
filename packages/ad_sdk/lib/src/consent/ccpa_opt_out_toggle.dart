@@ -12,9 +12,9 @@ import 'consent_settings.dart';
 /// through [ConsentManager] to both ad providers and to persistence — this
 /// widget is the missing piece that lets an end user actually flip that
 /// choice, instead of it only ever being a developer-set constant. Drop it
-/// into a Settings/Privacy screen; it is intentionally NOT part of
-/// [showConsentDialog]'s binary GDPR prompt (see that dialog's own doc
-/// comment for why).
+/// into a Settings/Privacy screen — CCPA/CPRA is a separate axis from the
+/// GDPR personalized-ads consent your CMP (e.g. Google UMP) collects, so it
+/// is intentionally its own toggle rather than folded into that flow.
 ///
 /// ```dart
 /// // Anywhere after AdManager().initialize() has completed:
@@ -75,8 +75,8 @@ class _CcpaOptOutToggleState extends State<CcpaOptOutToggle> {
     // is the only thing that should trigger further rebuilds; a LATER
     // destroy()/re-init cycle deliberately isn't chased here as it would
     // need this widget to also handle consentManager going back to null
-    // mid-session, a state showConsentDialog-adjacent surfaces don't
-    // attempt either.
+    // mid-session, a state other consent-adjacent surfaces in this package
+    // don't attempt either.
     if (_listenable != null) return;
     _attachListenable();
     if (_listenable != null) setState(() {});

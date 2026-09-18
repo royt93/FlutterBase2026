@@ -55,16 +55,11 @@ void main() {
         reason: 'sanity — this test is only meaningful on the AppLovin path; '
             'run it WITHOUT --dart-define=AD_PROVIDER_ADMOB=true');
 
+    // Round 44 — used to also dismiss the SDK's built-in post-splash consent
+    // dialog if this unmasked it; that dialog was removed (round-44 audit
+    // finding 1), so this is just the VIP-grace revoke now.
     await AdManager().vip!.revokeAll();
-    for (var i = 0; i < 6; i++) {
-      await tester.pump(const Duration(milliseconds: 300));
-      final allow = find.text('Allow personalized ads');
-      if (allow.evaluate().isNotEmpty) {
-        await tester.tap(allow);
-        await tester.pump(const Duration(milliseconds: 300));
-        break;
-      }
-    }
+    await tester.pump(const Duration(milliseconds: 300));
 
     // Get to the real Banner demo page — mounts a real BannerAdWidget over
     // the real AppLovinAdapter, exactly the round-27..35 widget path.

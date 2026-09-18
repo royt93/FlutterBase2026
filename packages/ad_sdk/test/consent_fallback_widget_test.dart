@@ -45,8 +45,7 @@ void main() {
       'a host status widget built on fallbackListenable reacts to '
       'recordFallback() and clearFallback()', (tester) async {
     final prefs = await AdPreferences.getInstance();
-    final cm = await ConsentManager.bootstrap(
-        prefs: prefs, strings: ConsentDialogStrings.vi);
+    final cm = await ConsentManager.bootstrap(prefs: prefs);
 
     await tester
         .pumpWidget(MaterialApp(home: _FallbackStatusBanner(manager: cm)));

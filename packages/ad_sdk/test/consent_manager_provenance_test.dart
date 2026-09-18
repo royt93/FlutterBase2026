@@ -3,7 +3,6 @@
 // omitting it is a no-op (no behavior change for existing callers).
 
 import 'package:applovin_admob_sdk/src/compliance/consent_provenance_journal.dart';
-import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_fallback.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
@@ -41,8 +40,7 @@ void main() {
 
   test('set() with no journal wired is a no-op (backward compatible)',
       () async {
-    final m = await ConsentManager.bootstrap(
-        prefs: prefs, strings: ConsentDialogStrings.vi);
+    final m = await ConsentManager.bootstrap(prefs: prefs);
     await m.set(ConsentSettings.accepted);
     expect(journal.entries, isEmpty); // never wired, never touched
   });
@@ -51,7 +49,6 @@ void main() {
       () async {
     final m = await ConsentManager.bootstrap(
       prefs: prefs,
-      strings: ConsentDialogStrings.vi,
       provenanceJournal: journal,
     );
     await m.set(ConsentSettings.accepted);
@@ -65,7 +62,6 @@ void main() {
   test('set() with an explicit source records that source', () async {
     final m = await ConsentManager.bootstrap(
       prefs: prefs,
-      strings: ConsentDialogStrings.vi,
       provenanceJournal: journal,
     );
     await m.set(ConsentSettings.rejected, source: 'ump');
@@ -76,7 +72,6 @@ void main() {
   test('reset() also records an entry', () async {
     final m = await ConsentManager.bootstrap(
       prefs: prefs,
-      strings: ConsentDialogStrings.vi,
       provenanceJournal: journal,
     );
     await m.set(ConsentSettings.accepted);
@@ -88,7 +83,6 @@ void main() {
   test('multiple set() calls chain in order', () async {
     final m = await ConsentManager.bootstrap(
       prefs: prefs,
-      strings: ConsentDialogStrings.vi,
       provenanceJournal: journal,
     );
     await m.set(ConsentSettings.accepted);

@@ -39,8 +39,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 |---|---|
 | Switch between AdMob and AppLovin without rewriting code | One `AdConfig.provider` flag |
 | First-session ad-free experience for new installs (boost D1 retention) | `firstInstallVipGrace` — auto-grants VIP for 24 hours on first install |
-| GDPR-compliant consent UI without integrating a third-party CMP | Built-in Cupertino consent dialog, auto-shown post-splash |
-| Google UMP form for EEA users | `AdManager().requestUmpConsent()` — wraps `google_mobile_ads`'s built-in `ConsentInformation` API |
+| GDPR-compliant consent for EEA/UK/Switzerland users | Google UMP, wired by default (`autoRequestUmpConsent: true`) — `AdManager().requestUmpConsent()` wraps `google_mobile_ads`'s built-in `ConsentInformation` API, a certified CMP |
 | Anti-fraud protection so AdMob doesn't suspend your account | Multi-layer safety gate: per-session/hour/day caps, throttle, CTR threshold, click-spam detection, progressive cooldown |
 | Banner that pauses on navigation and resumes on return | `buildBanner()` — hooks into the navigator and adapter lifecycle automatically |
 | Fixed 300×250 MREC ad with the same route-aware lifecycle | `buildMrec()` — same navigator/adapter hooks as `buildBanner()`, fixed size instead of adaptive |
@@ -308,7 +307,11 @@ Backwards-compatible with 1.0.1x. Recent additions:
 
 Earlier, the 1.0.15 release added:
 
-- **Cupertino consent dialog** — opt-in via `AdConfig.autoShowConsentDialog: true` (the default). Auto-shows on the home screen ~1 second after the splash flow completes, never during splash. Skipped automatically for VIP users. Persists the user's choice; surfaces the choice via `ConsentManager.instance` for re-show from a Privacy settings page. Its "Ad partners: …" caption (`ConsentDialogStrings.adPartnersLabel`) automatically names only the network your `AdConfig.provider` is actually set to (AdMob or AppLovin — this SDK runs exactly one at a time) — override the string yourself if you need different wording, or keep the `{providers}` token (`ConsentDialogStrings.autoProvidersToken`) in your own custom template to keep the auto-substitution.
+- **Cupertino consent dialog** (added 1.0.15, **removed in a later breaking
+  release** — round 44 audit finding 1: it was not a Google-certified CMP
+  and produced no valid TCF consent string, so a "yes" it collected was not
+  a valid legal basis for personalized ads in the EEA/UK/Switzerland. Use
+  Google UMP below instead, or another certified CMP.)
 - **Google UMP wrapper** — `AdManager().requestUmpConsent(...)` calls into `google_mobile_ads`'s built-in UMP API (no extra dependency needed since `google_mobile_ads` 6.x, and still true at the `^7.0.0` this package pins today). Returns a structured `UmpConsentResult { canRequestAds, status, formShown, error }`.
 - **First-install VIP grace** — `AdConfig.firstInstallVipGrace: FirstInstallVipGrace.auto` (default). Auto-grants a one-time VIP entry on the very first SDK init for this install. Default: 30 seconds in debug builds, 24 hours in release. Tracked via `SharedPreferences` so the grant fires exactly once per install.
 - **Smart App-Open timeout** — replaces a fixed 10-second timeout that produced false-positive force-dismisses when users clicked an ad and were sent to a browser for 20+ seconds. The timeout polls the app lifecycle every 5 seconds (re-arms while paused), with a 90-second hard cap. On **Android** it force-dismisses when the app is foreground for two consecutive ticks without `onAdHiddenCallback` (= hung overlay). On **iOS** the ad shows while the app stays `resumed`, so foreground is ignored and only the native callbacks + 90 s hard cap apply (fixed in 1.0.19).
@@ -604,10 +607,6 @@ class _SplashScreenState extends State<SplashScreen> {
             rewardedId:     'ca-app-pub-3940256099942544/5224354917',
           ),
 
-          // Optional: localise the auto-show consent dialog.
-          // ConsentDialogStrings.vi for Vietnamese, or pass your own.
-          // consentDialogStrings: ConsentDialogStrings.vi,
-
           // Optional: validate redeemed VIP keys against your server.
           // vipKeyValidator: (key) => myServer.verifyVipKey(key),
         ),
@@ -822,13 +821,13 @@ That's the entire integration. Run:
 flutter run
 ```
 
-You should see the splash screen, then a splash app-open ad (if available), then the home screen. After ~1 second on the home screen, the consent dialog appears (skipped on subsequent launches once the user has answered). The default behaviour you get out-of-the-box:
+You should see the splash screen, then a splash app-open ad (if available), then the home screen. If the device is in an EEA/UK/Switzerland test geography, Google UMP's own consent form appears during splash (see `requestUmpConsent`/UMP setup below) — skipped on subsequent launches once the user has answered. The default behaviour you get out-of-the-box:
 
 - ✅ **First-install VIP grace 24h** — the user does not see ads during their first 24 hours after install. Tunable via `AdConfig.firstInstallVipGrace`.
-- ✅ **Cupertino consent dialog** auto-shown ~1 second after splash on the home screen (skipped if VIP). Tunable via `AdConfig.autoShowConsentDialog`, `consentDialogStrings`, `consentDialogPostSplashDelay`.
+- ✅ **Google UMP consent** wired by default (`autoRequestUmpConsent: true`) — a certified CMP, not a built-in dialog this SDK draws itself.
 - ✅ **Splash app-open ad** with an 8-second hard cap so the user is never stuck.
 - ✅ **Banner pause/resume** automatically when the user navigates between screens.
-- ✅ **App Open ad auto-skips while a dialog/modal is on top** (1.0.23) — it never stacks over the consent dialog, a VIP redeem confirmation, or any bottom sheet.
+- ✅ **App Open ad auto-skips while a dialog/modal is on top** (1.0.23) — it never stacks over the UMP form, a VIP redeem confirmation, or any bottom sheet.
 - ✅ **Anti-fraud** multi-layer safety gate protects your AdMob/AppLovin account.
 
 ### Imperative inline ad control (T201)
@@ -904,13 +903,6 @@ AdConfig({
   String firstInstallVipKey = '__FIRST_INSTALL__',
 
   // ─── Consent flow ───────────────────────────────────────────────
-  bool autoShowConsentDialog = true,
-  ConsentDialogStrings consentDialogStrings = const ConsentDialogStrings(),
-  // Called when the user taps the privacy-policy link in the built-in
-  // consent dialog — open your policy URL here (nothing happens if null).
-  void Function()? onPrivacyPolicyTap,
-  bool consentBarrierDismissible = false,
-  Duration consentDialogPostSplashDelay = const Duration(seconds: 1),
   bool autoRequestUmpConsent = true,
   bool umpTagForUnderAgeOfConsent = false,
   DebugGeography? umpDebugGeography,
@@ -2109,48 +2101,33 @@ work for you, fork the package and empty `kQaTestDeviceHashes`.
 
 ## Consent & compliance
 
-The SDK supports three patterns. Pick whichever matches your release strategy.
+The SDK supports two patterns for GDPR/personalization consent, plus a
+separate CCPA toggle. Pick whichever matches your release strategy.
 
-### Option 1 — Built-in Cupertino dialog (simplest, default)
+**There is no built-in consent dialog** — a prior version shipped one (a
+plain Allow/Reject sheet), but it was not a Google-certified CMP and
+produced no valid IAB TCF consent string, so a "yes" it collected was not a
+valid legal basis for personalized ads in the EEA/UK/Switzerland. It was
+removed (round 44 audit finding 1). Use Google UMP below, or another
+certified CMP wired through `ConsentManager.set`/`setConsent`.
 
-The SDK auto-shows a clean Cupertino dialog ~1 second after `markSplashInactive`, so it lands on the home screen rather than competing with the splash app-open ad. Persists the user's choice to SharedPreferences. Skipped automatically for VIP users.
-
-No code required — this is the default. To re-show from a Privacy settings screen:
+**CCPA "Do Not Sell" toggle**: legally required to be an end-user choice
+(Cal. Civ. Code §1798.135) — `CcpaOptOutToggle` (a `SwitchListTile` wired to
+`AdManager().doNotSell` / `setDoNotSell(bool)`) is a ready-made widget for
+it. Drop it into a Settings/Privacy screen for a California-facing app:
 
 ```dart
-await ConsentManager.instance.showDialog(context);
-```
-
-To localize (T219 — built-in `.en`/`.vi` presets, or `resolve()` to pick
-automatically from a locale):
-
-```dart
-AdConfig(
-  consentDialogStrings: ConsentDialogStrings.vi,  // Vietnamese pre-canned
-  // or explicitly English (identical to the plain default, just named):
-  consentDialogStrings: ConsentDialogStrings.en,
-  // or pick automatically — .vi for a Vietnamese device, .en otherwise:
-  consentDialogStrings: ConsentDialogStrings.resolve(),
-  // or resolve against the app's own configured locale instead of the
-  // device's (respects MaterialApp.locale/supportedLocales):
-  consentDialogStrings:
-      ConsentDialogStrings.resolve(Localizations.localeOf(context)),
-  // or supply your own, in any language:
-  consentDialogStrings: const ConsentDialogStrings(
-    title: 'Privacy Preferences',
-    message: 'This app shows ads to keep it free. ...',
-    allowButton: 'Allow personalized ads',
-    rejectButton: 'No thanks',
-    privacyPolicyLabel: 'Privacy Policy',
-    privacyPolicyUrl: 'https://yourapp.com/privacy',
-  ),
-)
+// After AdManager().initialize() has completed — e.g. your app's Settings
+// or Privacy screen:
+const CcpaOptOutToggle()
+// Or with localised copy:
+const CcpaOptOutToggle(strings: CcpaOptOutStrings.vi)
 ```
 
 `CcpaOptOutStrings`, `VipDialogStrings` (`AdConfig.vipDialogStrings`, the
 small redeem-confirmation dialog), and `VipRedeemStrings`
 (`VipRedeemScreen.strings`, the full redeem screen — buttons, labels, and
-snackbar messages) all follow the exact same pattern — `.en`, `.vi`, and
+snackbar messages) all follow the same pattern — `.en`, `.vi`, and
 `.resolve([locale])`:
 
 ```dart
@@ -2160,38 +2137,11 @@ VipRedeemScreen(
 )
 ```
 
-These four are every widget/dialog this SDK shows a real end user. `DebugAdOverlay`
+These three are every widget/dialog this SDK shows a real end user. `DebugAdOverlay`
 and `RevenuePanel` are the only other SDK widgets that render text at all,
 and both are `kDebugMode`-gated (render nothing, subscribe to nothing, in a
 release build) — a developer debugging the SDK, not an end user, so they
 stay English-only on purpose, the same way Flutter's own DevTools do.
-
-To disable auto-show entirely (e.g., if you have your own consent UI):
-
-```dart
-AdConfig(
-  autoShowConsentDialog: false,
-)
-```
-
-**F9 — no CCPA "Do Not Sell" toggle in this dialog, on purpose**: the
-built-in dialog (`showConsentDialog` in `consent_dialog.dart`) is
-intentionally binary (Allow/Reject) — COPPA (`isAgeRestrictedUser`) really is
-an app-level property set via [`ConsentManager.set`], not a per-user toggle
-this generic dialog should expose. CCPA's "Do Not Sell" is different: it is
-legally required to be an end-user choice (Cal. Civ. Code §1798.135), so
-round-31 added a dedicated, separately-shown widget for it —
-`CcpaOptOutToggle` (a `SwitchListTile` wired to `AdManager().doNotSell` /
-`setDoNotSell(bool)`). Drop it into a Settings/Privacy screen for a
-California-facing app:
-
-```dart
-// After AdManager().initialize() has completed — e.g. your app's Settings
-// or Privacy screen:
-const CcpaOptOutToggle()
-// Or with localised copy:
-const CcpaOptOutToggle(strings: CcpaOptOutStrings.vi)
-```
 
 ### Option 0 — iOS App Tracking Transparency (call FIRST on iOS)
 
@@ -2218,7 +2168,7 @@ final att = await AdManager().requestAtt();
   SDKs read the ATT status directly when deciding IDFA usage, so `requestAtt()`
   does not call `setConsent`.
 
-### Option 2 — Google UMP form (required for EEA users on AdMob)
+### Option 1 — Google UMP form (default, required for EEA/UK/Switzerland users)
 
 Wrap Google's UMP API. Call this in your splash **after** `requestAtt()` and
 before `AdManager().initialize`:
@@ -2286,7 +2236,7 @@ privacy-options form isn't required for the current user. Call it any time
 after `AdManager().initialize()`, from user interaction only — never as part
 of app-startup gating.
 
-### Option 3 — Manual flag set (you have your own UI)
+### Option 2 — Manual flag set (you have your own UI or CMP)
 
 If you already integrate a third-party CMP and just want the SDK to forward the flags to the providers:
 
@@ -2417,7 +2367,7 @@ for (final entry in journal?.entries ?? const []) {
 await journal?.verifyChain(); // false ⇒ persisted history was tampered with
 ```
 
-When enabled, every `ConsentManager.set`/`.reset`/`.showDialog` call records
+When enabled, every `ConsentManager.set`/`.reset` call records
 an entry automatically. Pass `source`/`policyRevision` to tag where a
 consent change came from (free text, e.g. `'ump'`, `'host'`, `'manual'` —
 same convention as `IncidentEntry.label`); both default to values that make
@@ -2678,7 +2628,6 @@ mgr.listenable                       // ValueListenable<ConsentSettings>
 mgr.hasBeenAsked                     // bool
 mgr.adConsent                        // AdConsent — runtime flag projection
 
-mgr.showDialog(context)              // re-show binary dialog
 mgr.set(settings)                    // programmatic update + persist
 mgr.applyToProviders()               // re-apply current to providers
 mgr.reset()                          // wipe state — next init re-prompts

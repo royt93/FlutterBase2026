@@ -14,7 +14,7 @@ import 'vip_manager.dart';
 
 /// All user-facing strings for [VipRedeemScreen]. Defaults are English; pass a
 /// localized instance (e.g. built from your app's i18n) to translate. Mirrors
-/// the `ConsentDialogStrings` pattern so the screen carries no i18n dependency.
+/// the `CcpaOptOutStrings` pattern so the screen carries no i18n dependency.
 class VipRedeemStrings {
   const VipRedeemStrings({
     this.sdkNotReady = 'VIP is not ready yet. Please try again in a moment.',
@@ -190,7 +190,7 @@ class VipRedeemStrings {
   static String _viRemainingExtraHours(int hours) => '$hours giờ';
   static String _viActiveEntries(int count) => 'VIP đang hoạt động ($count)';
 
-  /// T219 — see `ConsentDialogStrings.resolve`'s matching doc comment.
+  /// T219 — picks [vi] for a Vietnamese device locale, [en] otherwise.
   static VipRedeemStrings resolve([Locale? locale]) {
     final languageCode =
         (locale ?? PlatformDispatcher.instance.locale).languageCode;

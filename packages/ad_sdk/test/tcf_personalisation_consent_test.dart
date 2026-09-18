@@ -2378,8 +2378,7 @@ void main() {
         'IABTCF_PurposeConsents': _purposesAllow,
       });
       final consentMgr = await ConsentManager.bootstrap(
-          prefs: await AdPreferences.getInstance(),
-          strings: ConsentDialogStrings.vi);
+          prefs: await AdPreferences.getInstance());
       final adapter = _StubAdapter();
       AdManager()
         ..debugConsentManager = consentMgr
@@ -2421,8 +2420,7 @@ void main() {
         'IABTCF_PurposeConsents': _purposesAllow,
       });
       final consentMgr = await ConsentManager.bootstrap(
-          prefs: await AdPreferences.getInstance(),
-          strings: ConsentDialogStrings.vi);
+          prefs: await AdPreferences.getInstance());
       final adapter = _StubAdapter();
       AdManager()
         ..debugConsentManager = consentMgr
@@ -2484,8 +2482,7 @@ void main() {
         'IABTCF_PurposeConsents': _purposesRefuse,
       });
       final consentMgr = await ConsentManager.bootstrap(
-          prefs: await AdPreferences.getInstance(),
-          strings: ConsentDialogStrings.vi);
+          prefs: await AdPreferences.getInstance());
       final adapter = _StubAdapter();
       AdManager()
         ..debugConsentManager = consentMgr

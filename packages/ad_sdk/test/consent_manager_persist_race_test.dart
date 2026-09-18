@@ -14,7 +14,6 @@
 // `ad_event_log.dart`'s `_persistChain` chains every persist after the
 // previous one so concurrent writes can't race and finish out of order.
 
-import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
@@ -50,8 +49,7 @@ void main() {
   test(
       'an older set() call whose real persist write is slower must never '
       'land on disk after a newer overlapping call\'s faster one', () async {
-    final m = await ConsentManager.bootstrap(
-        prefs: prefs, strings: ConsentDialogStrings.vi);
+    final m = await ConsentManager.bootstrap(prefs: prefs);
 
     // Older call: slow native write (simulates a real platform-channel gap).
     ConsentManager.debugPersistDelay = const Duration(milliseconds: 50);

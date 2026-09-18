@@ -35,10 +35,9 @@ class VipDialogStrings {
   final String networkErrorMessage;
   final String confirmButton;
 
-  /// T219 — see `ConsentDialogStrings.en`'s matching doc comment. This
-  /// class previously had NO named presets at all — a host wanting English
-  /// (the plain defaults) had no discoverable name for it, only "pass
-  /// nothing".
+  /// T219 — same reasoning as `CcpaOptOutStrings.en`: this class previously
+  /// had NO named presets at all — a host wanting English (the plain
+  /// defaults) had no discoverable name for it, only "pass nothing".
   static const VipDialogStrings en = VipDialogStrings();
 
   /// T219 — Vietnamese-localised strings. Previously only demonstrated in
@@ -55,7 +54,7 @@ class VipDialogStrings {
     confirmButton: 'OK',
   );
 
-  /// T219 — see `ConsentDialogStrings.resolve`'s matching doc comment.
+  /// T219 — picks [vi] for a Vietnamese device locale, [en] otherwise.
   static VipDialogStrings resolve([Locale? locale]) {
     final languageCode =
         (locale ?? PlatformDispatcher.instance.locale).languageCode;

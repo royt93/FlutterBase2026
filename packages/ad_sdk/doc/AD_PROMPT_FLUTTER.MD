@@ -57,7 +57,7 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
 | AdMob interstitial ID | `<ask the user — stop if missing>` |
 | AdMob app open ID | `<ask the user — stop if missing>` |
 | AdMob rewarded ID | `<ask the user — stop if missing>` |
-| Privacy Policy URL | `<ask the user — stop if missing>` (gets embedded into `ConsentDialogStrings.privacyPolicyUrl` + the VIP screen footer) |
+| Privacy Policy URL | `<ask the user — stop if missing>` (gets embedded into the VIP screen footer + your own UMP/CMP privacy-policy link) |
 | Splash hard cap (seconds) | `<ask the user, default 8>` (must match `AdConfig.splashMaxDuration`) |
 | VIP key whitelist (plaintext) | `<ask the user — list in the form "KEY: <duration>", e.g. "PROMO30: 30 days, PROMO3: 3 days">` |
 | VIP key obfuscation level | Plaintext `Map<String, Duration>` in `vip_keys.dart` (simple, good enough for a new project). A stronger mechanism — Ed25519-signed keys, not a Base64 map — is also available if the user wants a higher anti-forgery bar; see `packages/ad_sdk/README.md` → "Signed VIP keys" (if you have the SDK source) or the hosted package's README on pub.dev. |
@@ -100,7 +100,7 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
   - Per-screen: `class XxxScreen extends AdScreen` → `class _XxxState extends AdScreenState<XxxScreen>` gives you `buildBanner()`, `showInterstitialAd(onDone:)`, `showRewardedAd(onEarnedReward:)`.
   - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` and `redeemVip` take a `stack: bool` (default `false`)** — `stack: true` means **global stacking**: `+duration` is added on top of the highest current expiry across ALL active entries (every source shares one timeline; e.g. 6 days left + a 30-day code ⇒ 36 days). `stack: false` keeps "latest-expiry-wins" semantics. Optional cap: **`AdConfig.maxVipStackDuration`** (default `null` = no cap) clamps the total to `≤ now + cap`. (Available in current SDK releases — check `CHANGELOG.md` if you need the exact version it landed in.)
   - Rewarded while already VIP: `showRewardedAd(bypassVipGuard: true, ...)` lets a VIP user **voluntarily** watch a real rewarded ad to extend their window (the SDK loads the ad on-demand and shows a loading dialog; default `false` keeps the surface suppressed). Configurable `onDemandLoadTimeout` (default 15s). `showRewardedAd` is already **re-entrancy-safe** (blocks double-tap while loading/showing). (Available in current SDK releases — check `CHANGELOG.md` for the exact version.)
-  - Consent: `AdManager().requestUmpConsent(testMode:, debugGeography:, testIdentifiers:)` + `ConsentManager.instance.showDialog(context)` + `AdConfig.autoShowConsentDialog` + `consentDialogStrings`.
+  - Consent: `AdManager().requestUmpConsent(testMode:, debugGeography:, testIdentifiers:)` (Google UMP, a certified CMP, wired by default via `AdConfig.autoRequestUmpConsent: true`) + `CcpaOptOutToggle` for the separate CCPA "Do Not Sell" axis. No built-in GDPR consent dialog — removed round 44 (was not a certified CMP).
   - Safety: `AdSafetyParams.auto` (default, do NOT override).
   - Logger pipe: `AdConfig.onLog: (level, tag, msg) { ... }`.
 - Read `packages/ad_sdk/CHANGELOG.md` — the "What's new" section for the version you're using, to learn about newer features (UMP wrapper, smart App-Open timeout, slot-state dismiss watcher, first-install grace, the anti-bypass guard if present in that version, the taskAffinity pitfall).
@@ -167,7 +167,7 @@ Future<void> main() async {
 
   // 2. ATT: do NOT call it here. Apple will reject a prompt shown on a blank screen.
   //    Call `AdManager().requestAtt()` inside SplashScreen (postFrame, before
-  //    requestUmpConsent) — see Step 4.2.4 and Step 8.3.
+  //    requestUmpConsent) — see Step 4.2.4 and Step 8.2.
 
   // 3. Project bootstrap (wakelock, edge-to-edge, refresh rate)
   WakelockPlus.enable();
@@ -249,15 +249,7 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
           appLovin: AdKey.appLovin,                       // RULE #16 AdKey class
           admob: AdKey.adMob,
           // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override
-          // autoShowConsentDialog: true,                       // default
-          consentDialogStrings: ConsentDialogStrings(
-            title: 'consent_title'.tr,
-            message: 'consent_message'.tr,
-            allowButton: 'consent_allow'.tr,
-            rejectButton: 'consent_reject'.tr,
-            privacyPolicyLabel: 'consent_privacy_label'.tr,
-            privacyPolicyUrl: AdKey.privacyPolicyUrl,
-          ),
+          // autoRequestUmpConsent: true,                       // default — Google UMP handles GDPR consent
           vipKeyValidator: vipKeyValidator,
           vipDialogStrings: VipDialogStrings(
             verifyingTitle: 'vip_verifying_title'.tr,
@@ -583,22 +575,19 @@ Output: a table of "review item / conclusion / `file:line` evidence".
 
 Report: PASS/FAIL for each rule + `file:line` evidence.
 
-## Step 8 — Consent (UMP + auto-show dialog + iOS ATT)
+## Step 8 — Consent (UMP + iOS ATT)
 
-Wire up **all 3**:
+No built-in GDPR consent dialog — removed round 44 audit (was not a
+Google-certified CMP, produced no valid IAB TCF string). Wire up **both**:
 
-### 8.1 — Cupertino auto-show dialog (default ON)
-
-Strings go through i18n `.tr` (already wired in Step 4.2). Auto-shows ~1s after `markSplashInactive`. Skip conditions (automatic): VIP active, `hasBeenAsked == true`, no `navigatorKey`. Re-show from Privacy settings via `await ConsentManager.instance.showDialog(context)`.
-
-### 8.2 — Google UMP form (mandatory)
+### 8.1 — Google UMP form (mandatory)
 
 Already called in splash before `initialize()` (Step 4.2.4). Minimum test scenarios to record in the report (no need to actually run them):
 - Non-EEA: dialog skipped, ads load normally.
 - EEA, first launch: Google's UMP form shows → user chooses → cached in `SharedPreferences`.
 - EEA, no internet: `requestConsentInfoUpdate` fails → caught → init continues anyway.
 
-### 8.3 — iOS ATT (mandatory, Q14A)
+### 8.2 — iOS ATT (mandatory, Q14A)
 
 ATT is already built into the SDK — do NOT call
 `app_tracking_transparency` directly yourself. Use `AdManager().requestAtt()`.
@@ -623,7 +612,7 @@ ATT is already built into the SDK — do NOT call
 - ATT does NOT touch the GDPR consent flag — native AppLovin/AdMob read ATT for IDFA on their own.
 - If an iOS user picks "Ask App Not to Track", it falls back to non-personalized ads / SKAdNetwork.
 
-### 8.4 — COPPA (`isAgeRestrictedUser`) — AppLovin/AdMob asymmetry (audit round 27 addition)
+### 8.3 — COPPA (`isAgeRestrictedUser`) — AppLovin/AdMob asymmetry (audit round 27 addition)
 
 **If the project targets children (any part of the audience under the applicable age of consent), read this
 before calling `setConsent`.** AdMob has a per-request COPPA flag (`tagForChildDirectedTreatment`) — setting
@@ -1466,24 +1455,15 @@ The app should return to your screen, not the launcher. If it drops you to the l
 
 The following are opt-in and disabled by default for backwards compatibility, except where noted:
 
-*Cupertino consent dialog (default ON).* Enabled by default. The SDK auto-shows a clean Cupertino dialog ~1 second after `markSplashInactive`, persists the user's choice, and skips for VIP users. **No code change required.**
-
-To localize:
-
-```dart
-AdConfig(
-  consentDialogStrings: ConsentDialogStrings.vi,  // Vietnamese pre-canned
-  // or supply your own strings struct
-)
-```
-
-To disable (e.g., if you have your own consent UI):
-
-```dart
-AdConfig(
-  autoShowConsentDialog: false,
-)
-```
+*Built-in consent dialog — removed (round 44 audit).* If you're upgrading
+from a version that had `AdConfig.autoShowConsentDialog`/`consentDialogStrings`
+/`consentBarrierDismissible`/`consentDialogPostSplashDelay` or called
+`ConsentManager.instance.showDialog(...)`: it was a plain Allow/Reject
+sheet, not a Google-certified CMP, and produced no valid IAB TCF consent
+string — a "yes" it collected was not a valid legal basis for personalized
+ads in the EEA/UK/Switzerland. Remove those config fields and switch to
+Google UMP (`autoRequestUmpConsent: true`, the default) or your own
+certified CMP. See README's "Consent & compliance" section.
 
 *First-install VIP grace (default ON).* Enabled by default. New installs see no ads for 30 seconds in debug builds and 24 hours in release builds. **No code change required.**
 

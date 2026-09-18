@@ -271,41 +271,33 @@ Conflict policy: by default, when adding a key that already exists, the entry wh
 
 ## Consent flow
 
+There is no built-in consent dialog (removed round 44 audit finding 1 — it
+was not a Google-certified CMP and produced no valid IAB TCF consent
+string, so a "yes" it collected was not a valid legal basis for
+personalized ads in the EEA/UK/Switzerland).
+
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ AdConfig.autoShowConsentDialog: true (default)                 │
+│ AdConfig.autoRequestUmpConsent: true (default)                 │
 └────────────────────────────────────────────────────────────────┘
                   │
                   ▼
 ┌────────────────────────────────────────────────────────────────┐
 │ AdManager.initialize()                                         │
-│  → ConsentManager.bootstrap(prefs, strings)                    │
+│  → ConsentManager.bootstrap(prefs)                             │
 │     → load persisted ConsentSettings from SharedPreferences    │
+│  → runs Google UMP (certified CMP) BEFORE adapter.initialize() │
+│     → ConsentInformation.requestConsentInfoUpdate/loadAndShow  │
+│     → UMP itself writes the IAB TCF strings AppLovin MAX reads │
+│     → result folded into ConsentSettings, persisted            │
 │     → applyConsentToProviders(current.toAdConsent())           │
 └────────────────────────────────────────────────────────────────┘
-                  │
-                  ▼
-┌────────────────────────────────────────────────────────────────┐
-│ AdManager.markSplashInactive()                                 │
-│  → _maybeScheduleConsentDialog()                               │
-│     → if VIP active                                  → skip    │
-│     → if hasBeenAsked == true                        → skip    │
-│     → else: Timer(consentDialogPostSplashDelay)                │
-└────────────────────────────────────────────────────────────────┘
-                  │ ~1s later
-                  ▼
-┌────────────────────────────────────────────────────────────────┐
-│ Timer fires                                                    │
-│  → re-check: VIP became active during the 1s window? → skip    │
-│  → re-check: navigator.currentContext null? → skip + log warn  │
-│  → ConsentManager.showDialog(ctx)                              │
-│     → showGeneralDialog + custom Material dialog (Allow/Reject)│
-│     → user picks                                               │
-│     → ConsentSettings.copyWith(hasBeenAsked: true, askedAt: …) │
-│     → persist to SharedPreferences                             │
-│     → applyConsentToProviders                                  │
-└────────────────────────────────────────────────────────────────┘
 ```
+
+A host with `autoRequestUmpConsent: false` is responsible for running its
+own certified CMP (or a manual `ConsentManager.set`/`AdManager.setConsent`
+flow) before ads are requested — see README's "Consent & compliance"
+section.
 
 Skipping for VIP is intentional. The first-install grace and any redeemed VIP keys give the user an ad-free session, so prompting for ad consent during that window adds friction without compliance benefit. The dialog will surface naturally once VIP expires.
 

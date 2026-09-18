@@ -37,10 +37,7 @@ void main() {
     );
     await prefs.setConsentFallbackRaw(old.encode());
 
-    final cm = await ConsentManager.bootstrap(
-      prefs: prefs,
-      strings: ConsentDialogStrings.vi,
-    );
+    final cm = await ConsentManager.bootstrap(prefs: prefs);
 
     expect(cm.fallback?.reason, ConsentFallbackReason.staleRevision,
         reason: 'ump-v0 no longer matches kUmpPolicyRevision — this must '

@@ -48,8 +48,7 @@ void main() {
     ConsentManager.resetForTest();
     SharedPreferences.setMockInitialValues({});
     final prefs = await AdPreferences.getInstance();
-    cm = await ConsentManager.bootstrap(
-        prefs: prefs, strings: ConsentDialogStrings.vi);
+    cm = await ConsentManager.bootstrap(prefs: prefs);
     AdManager().debugConsentManager = cm;
     AdManager().debugReconnectDebounce = Duration.zero;
   });

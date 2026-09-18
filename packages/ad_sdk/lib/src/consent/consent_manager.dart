@@ -1,22 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
 
 import '../compliance/consent_provenance_journal.dart';
 import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
-import 'consent_dialog.dart';
-import 'consent_dialog_strings.dart';
 import 'consent_fallback.dart';
 import 'consent_settings.dart';
 
-/// Standalone consent helper — owns the dialog UI, persistence, and
-/// provider-apply pipeline. Available independently of [AdManager.initialize]
-/// so a host app can:
-///   - Re-show the consent dialog from a "Privacy" settings page.
+/// Standalone consent helper — owns persistence and the provider-apply
+/// pipeline. Available independently of [AdManager.initialize] so a host
+/// app can:
 ///   - Read current settings (e.g., to display "Personalized: Yes/No").
 ///   - Programmatically set settings (e.g., "Reject all" button).
 ///   - Re-apply current settings to providers after a config change.
@@ -27,10 +23,8 @@ import 'consent_settings.dart';
 class ConsentManager {
   ConsentManager._({
     required AdPreferences prefs,
-    required ConsentDialogStrings strings,
     ConsentProvenanceJournal? provenanceJournal,
   })  : _prefs = prefs,
-        _strings = strings,
         _journal = provenanceJournal;
 
   static const String _tag = 'ConsentManager';
@@ -60,11 +54,10 @@ class ConsentManager {
   /// in use, so passing a fresh `AdPreferences` the second time around
   /// doesn't fail silently.
   /// [provenanceJournal] (T202) is optional — when set, every [set] /
-  /// [showDialog] / [reset] call appends a [ConsentProvenanceEntry] to it.
-  /// Omitting it is a no-op: no behavior change for a caller that doesn't
-  /// need this. Unlike [prefs] (frozen after the first call), a non-null
-  /// [provenanceJournal] is adopted on EVERY `bootstrap()` call — same
-  /// unconditional-update treatment as [strings]. Audit finding B: freezing
+  /// [reset] call appends a [ConsentProvenanceEntry] to it. Omitting it is a
+  /// no-op: no behavior change for a caller that doesn't need this. Unlike
+  /// [prefs] (frozen after the first call), a non-null [provenanceJournal]
+  /// is adopted on EVERY `bootstrap()` call. Audit finding B: freezing
   /// it like [prefs] left `AdManager` (which loads a fresh
   /// `ConsentProvenanceJournal` from disk on every `initialize()`) and this
   /// singleton (which survives `destroy()`, per its own doc comment above)
@@ -76,7 +69,6 @@ class ConsentManager {
   /// latest one loses no data — it just keeps the two objects in sync.
   static Future<ConsentManager> bootstrap({
     required AdPreferences prefs,
-    required ConsentDialogStrings strings,
     ConsentProvenanceJournal? provenanceJournal,
   }) async {
     final existing = _instance;
@@ -90,10 +82,8 @@ class ConsentManager {
     final m = existing ??
         ConsentManager._(
           prefs: prefs,
-          strings: strings,
           provenanceJournal: provenanceJournal,
         );
-    m._strings = strings;
     if (provenanceJournal != null) {
       m._journal = provenanceJournal;
     }
@@ -119,27 +109,7 @@ class ConsentManager {
   }
 
   final AdPreferences _prefs;
-  ConsentDialogStrings _strings;
   ConsentProvenanceJournal? _journal;
-
-  /// T167 — remembers the app's configured provider so a LATER [showDialog]
-  /// call with no [AdConfig] at all — documented as legal, e.g. a re-show
-  /// from a host's own Privacy settings page — still names the real
-  /// configured network instead of falling back to naming both.
-  ///
-  /// Populated by [AdManager.initialize] via [noteProvider] on EVERY
-  /// successful init (see that call site), not only when [showDialog]
-  /// itself happens to be given one: the auto-show flow skips calling
-  /// [showDialog] entirely once the user has already been asked in a
-  /// PRIOR session (`hasBeenAsked`), so a returning user's fresh session
-  /// could otherwise reach a settings-page re-show having never once
-  /// called this with a config at all.
-  AdProvider? _lastKnownProvider;
-
-  /// See [_lastKnownProvider]. Public so [AdManager] (which owns the
-  /// current session's [AdConfig]) can call it unconditionally right after
-  /// bootstrapping this instance.
-  void noteProvider(AdProvider provider) => _lastKnownProvider = provider;
 
   /// Round-39 audit fix (MAJOR) — serializes every [_persist] call after
   /// whatever previous one is still in flight, same intent as
@@ -182,7 +152,7 @@ class ConsentManager {
   // between. `AdManager.setConsent()` was fixed to guard its OWN direct
   // `applyConsentToProviders` call with an epoch, but that call is a
   // redundant SECOND apply — `_setInternal` here is the FIRST, and every
-  // caller of `set()`/`showDialog()`/`reset()` (not just AdManager) goes
+  // caller of `set()`/`reset()` (not just AdManager) goes
   // through it. It had no ordering protection of its own at all, so an
   // older, already-superseded call whose `_persist()` await resolves after a
   // newer overlapping call still silently re-applied its stale value here —
@@ -232,11 +202,6 @@ class ConsentManager {
 
   /// Project to the runtime [AdConsent] used by `applyConsentToProviders`.
   AdConsent get adConsent => _current.toAdConsent();
-
-  /// Update the strings used by the dialog (e.g., on locale change).
-  /// Cheaper than calling [bootstrap] again — does not re-load from prefs.
-  void updateStrings(ConsentDialogStrings v) => _strings = v;
-  ConsentDialogStrings get strings => _strings;
 
   Future<void> _load() async {
     _current = ConsentSettings.decode(_prefs.getConsentSettingsRaw());
@@ -323,80 +288,6 @@ class ConsentManager {
 
   // ─── Public API ───────────────────────────────────────────────────────────
 
-  /// Show the simple binary dialog (Allow / Reject). Persists user's choice
-  /// and re-applies to providers. Returns the new settings.
-  ///
-  /// Returns [current] unchanged if the dialog was dismissed without choice.
-  /// [source] / [policyRevision] (T202, audit finding E) — same meaning as
-  /// on [set]; previously hardcoded to `_setInternal`'s defaults with no way
-  /// for a caller to override, making the SDK's own dialog indistinguishable
-  /// in the provenance journal from a scripted [set] call.
-  Future<ConsentSettings> showDialog(
-    BuildContext context, {
-    AdConfig? config,
-    bool barrierDismissible = false,
-    void Function(String url)? onPrivacyPolicyTap,
-    String source = 'host',
-    String policyRevision = kUmpPolicyRevision,
-  }) async {
-    // Round-39 audit (MINOR) — a host wiring neither privacy-policy signal
-    // ships this dialog with no way for the user to actually reach the
-    // policy it references. Every other release footgun in this package
-    // warns loudly (see AdManager.releaseFootgunWarnings); this one had no
-    // signal at all, debug or release.
-    if (_strings.privacyPolicyUrl == null && onPrivacyPolicyTap == null) {
-      SafeLogger.w(
-          _tag,
-          '🚨 showDialog: neither ConsentDialogStrings.privacyPolicyUrl nor '
-          'onPrivacyPolicyTap is set — this consent dialog has no way for '
-          'the user to reach your privacy policy. Set one of them.');
-    }
-    // Defensive extra layer alongside AdManager.initialize's own
-    // unconditional noteProvider() call — see _lastKnownProvider's doc
-    // comment for why relying on THAT call alone was not enough.
-    if (config != null) noteProvider(config.provider);
-    final result = await showConsentDialog(
-      context,
-      strings: _strings,
-      current: _current,
-      barrierDismissible: barrierDismissible,
-      onPrivacyPolicyTap: onPrivacyPolicyTap,
-      // T167 — the ad partners caption must name the network(s) this app
-      // is ACTUALLY configured for, not unconditionally both (this SDK
-      // supports exactly one active provider per app at a time).
-      autoProviderNames: switch (_lastKnownProvider) {
-        AdProvider.admob => 'Google AdMob',
-        AdProvider.appLovin => 'AppLovin',
-        null => null,
-      },
-    );
-    if (result == null) {
-      SafeLogger.d(_tag, 'dialog dismissed without choice');
-      return _current;
-    }
-    await _setInternal(result,
-        config: config, source: source, policyRevision: policyRevision);
-    return _current;
-  }
-
-  /// Show only if user has not been asked yet. Used by [AdManager.initialize]
-  /// for first-launch auto-show. Idempotent across calls.
-  Future<ConsentSettings> showDialogIfNeeded(
-    BuildContext context, {
-    AdConfig? config,
-    bool barrierDismissible = false,
-  }) async {
-    if (_current.hasBeenAsked) {
-      SafeLogger.d(_tag, 'showDialogIfNeeded ⏭️ already asked');
-      return _current;
-    }
-    return showDialog(
-      context,
-      config: config,
-      barrierDismissible: barrierDismissible,
-    );
-  }
-
   /// Programmatic setter — no UI. Use for "Accept all" / "Reject all"
   /// shortcuts or restoring persisted state from server.
   ///
@@ -450,9 +341,9 @@ class ConsentManager {
   }
 
   /// Wipe the user's per-install consent answer (`hasUserConsent`,
-  /// `hasBeenAsked`, `askedAt`, `country`) so [showDialogIfNeeded] re-prompts
-  /// on the next qualifying trigger, and immediately re-applies the result
-  /// to both providers.
+  /// `hasBeenAsked`, `askedAt`, `country`) so the host's own consent flow
+  /// (e.g. a certified CMP) re-prompts on its next qualifying trigger, and
+  /// immediately re-applies the result to both providers.
   ///
   /// Round-29 audit (MAJOR) — this used to reset to [ConsentSettings.unset],
   /// which also zeroes `isAgeRestrictedUser` (COPPA) and `doNotSell` (CCPA).

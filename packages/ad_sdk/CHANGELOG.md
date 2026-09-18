@@ -32,6 +32,20 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   on both providers; a new `AdManager.nativeVisible(key)` drives
   `NativeAdWidget` the same way `bannerVisible` already drives
   `BannerAdWidget`. See `doc/audit/audit_round44_consolidated.md` finding 4.
+- **BREAKING (round 44 audit, finding 1):** Removed the built-in non-CMP
+  consent dialog (`showConsentDialog`, `ConsentDialogStrings`,
+  `ConsentManager.showDialog`/`showDialogIfNeeded`/`updateStrings`/`strings`,
+  `AdConfig.autoShowConsentDialog`/`consentDialogStrings`/
+  `consentBarrierDismissible`/`consentDialogPostSplashDelay`). It was a plain
+  Allow/Reject sheet, not a Google-certified CMP — it produced no valid TCF
+  consent string, so a "yes" it collected was not a valid legal basis for
+  personalized ads in the EEA/UK/Switzerland, yet was written straight
+  through to AppLovin's `setHasUserConsent`. **Migration:** use Google UMP
+  (`autoRequestUmpConsent: true`, the default) or another certified CMP
+  instead — see README's "Consent & compliance" section. Apps that never set
+  `autoShowConsentDialog`/never called `ConsentManager.instance.showDialog`
+  directly are unaffected — this was already an opt-in-by-config path, off
+  whenever `autoRequestUmpConsent: true` (the default) since round 5.
 
 ## [2.9.23] - 2026-09-18
 

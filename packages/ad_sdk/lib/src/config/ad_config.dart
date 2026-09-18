@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' show DebugGeography;
 
-import '../consent/consent_dialog_strings.dart';
 import '../core/ad_safety_config.dart';
 import '../utils/safe_logger.dart';
 import '../vip/vip_dialog_strings.dart';
@@ -404,11 +403,6 @@ class AdConfig {
     this.splashMaxDuration = const Duration(seconds: 8),
     this.firstInstallVipGrace = FirstInstallVipGrace.auto,
     this.firstInstallVipKey = '__FIRST_INSTALL__',
-    this.autoShowConsentDialog = true,
-    this.consentDialogStrings = const ConsentDialogStrings(),
-    this.onPrivacyPolicyTap,
-    this.consentBarrierDismissible = false,
-    this.consentDialogPostSplashDelay = const Duration(seconds: 1),
     this.autoRequestUmpConsent = true,
     this.umpTagForUnderAgeOfConsent = false,
     this.umpDebugGeography,
@@ -556,83 +550,15 @@ class AdConfig {
   /// analytics. Default `__FIRST_INSTALL__`.
   final String firstInstallVipKey;
 
-  // ─── Consent dialog ───────────────────────────────────────────────────────
-
-  /// ⚠️ **With the default `autoRequestUmpConsent: true` this flag has NO
-  /// effect at all** — the dialog is skipped whenever UMP owns consent, which
-  /// with both defaults on means always. It only does something for a host
-  /// that sets `autoRequestUmpConsent: false` and does not call
-  /// `requestUmpConsent()` itself.
-  ///
-  /// That is deliberate (m9, round-5 audit): this dialog is a plain two-button
-  /// sheet, not a Google-certified CMP, and it produces no IAB TCF string — so
-  /// a "yes" collected here is not a valid legal basis in the EEA, yet it used
-  /// to be written straight through to AppLovin's `setHasUserConsent`. Running
-  /// it alongside UMP meant two consent flows disagreeing about the same user.
-  ///
-  /// If true, the SDK auto-presents the Cupertino consent dialog **after the
-  /// splash flow finishes** (triggered by [AdManager.markSplashInactive] +
-  /// [consentDialogPostSplashDelay]). The dialog therefore lands on whatever
-  /// screen the host navigates to (typically home), NOT during splash —
-  /// so it doesn't compete with the splash app-open ad for user attention.
-  ///
-  /// Subsequent launches skip — `hasBeenAsked` is persisted. Caller can
-  /// re-show anytime via `ConsentManager.instance.showDialog(...)` from a
-  /// Privacy settings page.
-  ///
-  /// **Skipped for VIP users**: VIPs won't see ads regardless of consent
-  /// flags, so prompting adds friction without benefit. Practical effect:
-  /// during the 24 h first-install grace ([firstInstallVipGrace]), the
-  /// dialog stays silent — it'll surface on Day 2 once VIP expires and
-  /// real ads start serving. Re-checked at schedule AND fire time, so
-  /// redeeming a VIP key during the 1 s post-splash delay also suppresses.
-  ///
-  /// Requires [AdManager.setNavigatorKey]. If no navigator context is
-  /// available when the timer fires, the show is silently skipped (logged).
-  ///
-  /// Default `true`. Set false if you handle consent yourself or rely on
-  /// Google's UMP form via [AdManager.requestUmpConsent].
-  final bool autoShowConsentDialog;
-
-  /// Strings used by the Cupertino consent dialog. Override to localise.
-  /// Vietnamese pre-canned at [ConsentDialogStrings.vi].
-  final ConsentDialogStrings consentDialogStrings;
-
-  /// Handler for the "Privacy Policy" link inside the **auto-shown**
-  /// consent dialog (hidden unless [ConsentDialogStrings.privacyPolicyUrl]
-  /// is also set). Typically `(url) => launchUrl(Uri.parse(url))`.
-  ///
-  /// Only wires the automatic post-splash dialog — hosts calling
-  /// [AdManager.consentManager]'s `showDialog` manually pass their own
-  /// `onPrivacyPolicyTap` to that call instead.
-  final void Function(String url)? onPrivacyPolicyTap;
-
-  /// Whether tapping outside the auto-shown consent dialog dismisses it.
-  /// Default `false` — force user to make an explicit choice. Set `true`
-  /// to allow casual dismissal (treated as "Reject" — non-personalized,
-  /// hasBeenAsked stays false so it'll re-prompt next launch).
-  final bool consentBarrierDismissible;
-
-  /// Delay between [AdManager.markSplashInactive] and the auto-shown
-  /// consent dialog. The pause lets the splash → home transition animate
-  /// out before the dialog blooms in, avoiding the visual jank of two
-  /// route changes in the same frame.
-  ///
-  /// Default 1 s. Bump higher if your home screen has heavy initial layout
-  /// (e.g., GetX controllers fetching data) and you want the dialog to wait
-  /// for the first frame to settle.
-  final Duration consentDialogPostSplashDelay;
-
   /// When `true`, [AdManager.initialize] runs Google UMP
   /// ([AdManager.requestUmpConsent]) **before** the first ad request and gates
   /// loading on `canRequestAds` — the SDK owns the whole consent flow (T01).
   ///
   /// **Defaults to `true` since 2.0.0.** It used to default to `false`, which
-  /// combined with the other defaults (`disableAppLovinCmpFlow: true`,
-  /// `autoShowConsentDialog: true`) meant a host that changed nothing tripped
-  /// the consent-coverage footgun: in a release build that hard-blocks every
-  /// ad request, and the built-in dialog could not clear the block because it
-  /// never routed through `setConsent`. The result was a release with zero ad
+  /// combined with `disableAppLovinCmpFlow: true` meant a host that changed
+  /// nothing tripped the consent-coverage footgun: in a release build that
+  /// hard-blocks every ad request, with nothing else in the default config
+  /// that could clear the block. The result was a release with zero ad
   /// requests and no signal — the assert next to it is stripped in release.
   ///
   /// Double-running is handled rather than avoided by staying off: hosts that
@@ -670,7 +596,7 @@ class AdConfig {
   /// T202 — when `true`, [AdManager.initialize] wires up a
   /// `ConsentProvenanceJournal` (reachable as
   /// `AdManager().consentProvenanceJournal`), and every consent change
-  /// (`ConsentManager.set`/`.reset`/`.showDialog`) appends a tamper-evident
+  /// (`ConsentManager.set`/`.reset`) appends a tamper-evident
   /// entry to it. Default `false` — this does REAL SHA-256 hashing
   /// (`package:cryptography`) on every consent change, adding latency an
   /// app that doesn't need a legal consent audit trail shouldn't pay for by

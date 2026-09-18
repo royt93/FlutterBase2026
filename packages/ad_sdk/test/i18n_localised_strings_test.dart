@@ -1,19 +1,15 @@
-// T219 — i18n presets for ConsentDialogStrings/CcpaOptOutStrings/
-// VipDialogStrings: a named `.en` preset (previously only reachable as an
-// implicit, unnamed default), a `.vi` preset for all three (VipDialogStrings
-// previously had none at all — its Vietnamese text lived only as a
-// copy-paste example in a doc comment), and a `resolve(locale)` helper on
-// each that picks between the two. Does not change any existing default —
-// a host that passes nothing still gets exactly the same (English) strings
-// as before.
+// T219 — i18n presets for CcpaOptOutStrings/VipDialogStrings: a named `.en`
+// preset (previously only reachable as an implicit, unnamed default), a
+// `.vi` preset for both (VipDialogStrings previously had none at all — its
+// Vietnamese text lived only as a copy-paste example in a doc comment), and
+// a `resolve(locale)` helper on each that picks between the two. Does not
+// change any existing default — a host that passes nothing still gets
+// exactly the same (English) strings as before.
 
 import 'dart:convert';
 
 import 'package:applovin_admob_sdk/src/consent/ccpa_opt_out_strings.dart';
 import 'package:applovin_admob_sdk/src/consent/ccpa_opt_out_toggle.dart';
-import 'package:applovin_admob_sdk/src/consent/consent_dialog.dart';
-import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
-import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
 import 'package:applovin_admob_sdk/src/core/ad_manager.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
@@ -40,43 +36,6 @@ class _FakeVipEntriesStore extends VipEntriesStore {
 }
 
 void main() {
-  group('ConsentDialogStrings', () {
-    test('.en is identical to the plain, no-argument default — not '
-        'breaking any existing caller relying on the implicit default', () {
-      expect(ConsentDialogStrings.en.title, const ConsentDialogStrings().title);
-      expect(ConsentDialogStrings.en.message,
-          const ConsentDialogStrings().message);
-      expect(ConsentDialogStrings.en.allowButton,
-          const ConsentDialogStrings().allowButton);
-    });
-
-    test('.vi is unchanged from before this task', () {
-      expect(ConsentDialogStrings.vi.title, 'Quảng cáo cá nhân hoá');
-      expect(ConsentDialogStrings.vi.allowButton, 'Đồng ý');
-    });
-
-    test('resolve() picks .vi for a Vietnamese locale', () {
-      expect(ConsentDialogStrings.resolve(const Locale('vi')),
-          same(ConsentDialogStrings.vi));
-      expect(ConsentDialogStrings.resolve(const Locale('vi', 'VN')),
-          same(ConsentDialogStrings.vi));
-    });
-
-    test('resolve() picks .en for any non-Vietnamese locale', () {
-      expect(ConsentDialogStrings.resolve(const Locale('en')),
-          same(ConsentDialogStrings.en));
-      expect(ConsentDialogStrings.resolve(const Locale('fr')),
-          same(ConsentDialogStrings.en));
-      expect(ConsentDialogStrings.resolve(const Locale('ja')),
-          same(ConsentDialogStrings.en));
-    });
-
-    test('resolve() with no argument falls back to the platform locale '
-        'without throwing', () {
-      expect(() => ConsentDialogStrings.resolve(), returnsNormally);
-    });
-  });
-
   group('CcpaOptOutStrings', () {
     test('.en is identical to the plain default', () {
       expect(CcpaOptOutStrings.en.title, const CcpaOptOutStrings().title);
@@ -186,51 +145,6 @@ void main() {
 
   group('widget rendering — the resolved preset actually reaches the UI',
       () {
-    testWidgets('showConsentDialog renders VipDialogStrings-independent '
-        'ConsentDialogStrings.vi text when passed explicitly',
-        (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(
-          builder: (context) => ElevatedButton(
-            onPressed: () => showConsentDialog(
-              context,
-              strings: ConsentDialogStrings.resolve(const Locale('vi')),
-              current: ConsentSettings.unset,
-            ),
-            child: const Text('open'),
-          ),
-        ),
-      ));
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-
-      expect(find.text(ConsentDialogStrings.vi.title), findsOneWidget);
-      expect(find.text(ConsentDialogStrings.vi.allowButton), findsOneWidget);
-      expect(find.text(ConsentDialogStrings.en.title), findsNothing);
-    });
-
-    testWidgets(
-        'showConsentDialog renders ConsentDialogStrings.en text when '
-        'resolve() picks English', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(
-          builder: (context) => ElevatedButton(
-            onPressed: () => showConsentDialog(
-              context,
-              strings: ConsentDialogStrings.resolve(const Locale('fr')),
-              current: ConsentSettings.unset,
-            ),
-            child: const Text('open'),
-          ),
-        ),
-      ));
-      await tester.tap(find.text('open'));
-      await tester.pumpAndSettle();
-
-      expect(find.text(ConsentDialogStrings.en.title), findsOneWidget);
-      expect(find.text(ConsentDialogStrings.vi.title), findsNothing);
-    });
-
     testWidgets('CcpaOptOutToggle renders CcpaOptOutStrings.vi text when '
         'passed the Vietnamese preset', (tester) async {
       await tester.pumpWidget(const MaterialApp(

@@ -5,7 +5,6 @@
 // A cleared field must actually come back null on reload, not silently
 // reappear because some layer in between re-derived it from the old value.
 
-import 'package:applovin_admob_sdk/src/consent/consent_dialog_strings.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_settings.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
@@ -41,8 +40,7 @@ void main() {
       'ConsentManager from the same prefs, simulating the next app '
       'launch) reads back null — not the old value quietly surviving '
       'the round trip', () async {
-    final m = await ConsentManager.bootstrap(
-        prefs: prefs, strings: ConsentDialogStrings.vi);
+    final m = await ConsentManager.bootstrap(prefs: prefs);
 
     await m.set(ConsentSettings(
       hasUserConsent: true,
@@ -60,8 +58,7 @@ void main() {
     // Simulate the next app launch: a brand-new ConsentManager reading the
     // same underlying persisted state from scratch.
     ConsentManager.resetForTest();
-    final reloaded = await ConsentManager.bootstrap(
-        prefs: prefs, strings: ConsentDialogStrings.vi);
+    final reloaded = await ConsentManager.bootstrap(prefs: prefs);
 
     expect(reloaded.current.askedAt, isNull,
         reason: 'askedAt must not silently reappear on reload after '

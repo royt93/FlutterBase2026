@@ -37,17 +37,12 @@ Future<void> _waitForInit(WidgetTester tester) async {
   fail('SDK must finish initialising on device');
 }
 
-Future<void> _revokeVipGraceAndClearConsentDialog(WidgetTester tester) async {
+/// Round 44 — used to also dismiss the SDK's built-in post-splash consent
+/// dialog if `revokeAll()` unmasked it mid-test; that dialog was removed
+/// (round-44 audit finding 1), so this is just the VIP-grace revoke now.
+Future<void> _revokeVipGrace(WidgetTester tester) async {
   await AdManager().vip!.revokeAll();
-  for (var i = 0; i < 6; i++) {
-    await tester.pump(const Duration(milliseconds: 300));
-    final allow = find.text('Allow personalized ads');
-    if (allow.evaluate().isNotEmpty) {
-      await tester.tap(allow);
-      await tester.pump(const Duration(milliseconds: 300));
-      break;
-    }
-  }
+  await tester.pump(const Duration(milliseconds: 300));
 }
 
 Future<bool> _waitForInterstitialLoaded(WidgetTester tester) async {
@@ -70,7 +65,7 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
-    await _revokeVipGraceAndClearConsentDialog(tester);
+    await _revokeVipGrace(tester);
 
     final tile = find.text('Interstitial ad');
     for (var i = 0; i < 40; i++) {

@@ -1455,8 +1455,8 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   set debugVipManager(VipManager? m) => _vipManager = m;
 
-  /// Inject a (real, bootstrapped) ConsentManager so [_maybeScheduleConsentDialog]
-  /// can be exercised without running native [initialize].
+  /// Inject a (real, bootstrapped) ConsentManager for tests, without running
+  /// native [initialize].
   @visibleForTesting
   set debugConsentManager(ConsentManager? m) => _consentManager = m;
 
@@ -2641,103 +2641,6 @@ class AdManager with WidgetsBindingObserver {
     _splashBudgetTimer?.cancel();
     _splashBudgetTimer = null;
     SafeLogger.d(_tag, 'markSplashInactive');
-    // Splash is done — schedule the deferred consent dialog so it lands on
-    // whatever screen the host navigates to next (typically home), without
-    // fighting the splash flow.
-    _maybeScheduleConsentDialog();
-  }
-
-  bool _consentDialogScheduled = false;
-
-  /// Round-26 audit (MAJOR, claude) — the scheduled show below used to be a
-  /// bare `Future.delayed` with nothing keeping a handle on it. If
-  /// `destroy()` ran and a fresh `initialize()` (a different `AdConfig`, e.g.
-  /// a QA build vs. production) happened inside that delay window, the old
-  /// closure — capturing the OLD `cfg`/`mgr` — still fired and applied the
-  /// stale config (including `testDeviceIds`) on top of the new session.
-  /// Holding the `Timer` here lets `destroy()` cancel it outright instead of
-  /// just resetting the flag that guards re-scheduling.
-  Timer? _consentDialogTimer;
-
-  /// Schedule the auto-show consent dialog for the post-splash window.
-  /// Idempotent — first scheduling wins per init cycle. Caller can defeat
-  /// this by manually calling `consentManager.showDialog` earlier (which
-  /// flips `hasBeenAsked` true and the scheduled show becomes a noop).
-  ///
-  /// VIP users are skipped: they won't see any ads regardless of consent
-  /// flags, so prompting them adds friction without compliance benefit.
-  /// (E.g., the first-install 24h VIP grace makes the very first session
-  /// ad-free — no need to ask consent before the user has even seen an ad.)
-  void _maybeScheduleConsentDialog() {
-    final cfg = _config;
-    final mgr = _consentManager;
-    if (cfg == null || mgr == null) return;
-    if (!cfg.autoShowConsentDialog) return;
-    if (mgr.hasBeenAsked) return;
-    if (_consentDialogScheduled) return;
-    // m9 (round 5 audit) — never run two consent flows at once. This built-in
-    // dialog is a plain two-button sheet: it is NOT a Google-certified CMP and
-    // produces no TCF consent string, so a "yes" collected here is not a valid
-    // legal basis in the EEA — yet it was written straight through to
-    // AppLovin's setHasUserConsent. The path in was easy to hit: when UMP came
-    // back inconclusive (no network) requestUmpConsent deliberately leaves the
-    // persisted value alone, so `hasBeenAsked` stayed false and this dialog
-    // then asked an EEA user itself. If UMP owns consent, it owns it in every
-    // outcome — including the ones where it could not decide.
-    if (cfg.autoRequestUmpConsent || _umpRequested || _umpFlowStarted) {
-      SafeLogger.d(
-          _tag,
-          '⏭️ consent dialog skipped — UMP is the consent source '
-          '(the built-in dialog is not a TCF CMP)');
-      return;
-    }
-    if (_isVipMember) {
-      SafeLogger.d(
-          _tag, '⏭️ consent dialog skipped — VIP member (no ads anyway)');
-      return;
-    }
-    _consentDialogScheduled = true;
-
-    final delay = cfg.consentDialogPostSplashDelay;
-    SafeLogger.d(_tag,
-        () => '🕒 consent dialog scheduled (delay=${delay.inMilliseconds}ms)');
-    _consentDialogTimer?.cancel();
-    _consentDialogTimer = Timer(delay, () async {
-      _consentDialogTimer = null;
-      if (mgr.hasBeenAsked) {
-        SafeLogger.d(
-            _tag, '⏭️ scheduled consent dialog skipped — already asked');
-        return;
-      }
-      // Re-check VIP at fire time — user may have redeemed a VIP key during
-      // the 1 s window between schedule and fire.
-      if (_isVipMember) {
-        SafeLogger.d(_tag, '⏭️ scheduled consent dialog skipped — became VIP');
-        return;
-      }
-      final ctx = _navigatorKey?.currentContext;
-      if (ctx == null) {
-        SafeLogger.w(
-            _tag, 'scheduled consent dialog: no navigator context — skipping');
-        return;
-      }
-      SafeLogger.d(_tag, '🪟 showing scheduled consent dialog');
-      await mgr.showDialog(
-        ctx, // ignore: use_build_context_synchronously
-        config: cfg,
-        barrierDismissible: cfg.consentBarrierDismissible,
-        onPrivacyPolicyTap: cfg.onPrivacyPolicyTap,
-      );
-      _consent = mgr.adConsent;
-      // T60 — the built-in dialog is itself a resolved consent flow, same
-      // as an explicit setConsent() call (see its N2 comment above): a host
-      // with `autoRequestUmpConsent: false` that relies on this dialog
-      // instead of calling requestUmpConsent()/setConsent() manually would
-      // otherwise stay footgun-blocked for the rest of the release session
-      // even after the user answered.
-      _consentExplicitlySet = true;
-      _footgunBlocked = false;
-    });
   }
 
   bool get isSplashActive => _isSplashActive;
@@ -3508,7 +3411,6 @@ class AdManager with WidgetsBindingObserver {
       // no runtime child-directed API — see AppLovinAdapter.initialize).
       final consentMgr = await ConsentManager.bootstrap(
         prefs: prefs,
-        strings: config.consentDialogStrings,
         provenanceJournal: provenanceJournal,
       );
       // Same round-6 MAJOR, next await: `ConsentManager.bootstrap` reads
@@ -3529,12 +3431,6 @@ class AdManager with WidgetsBindingObserver {
       _consentManager = consentMgr;
       _provenanceJournal = provenanceJournal;
       _consent = consentMgr.adConsent;
-      // T167 — unconditionally, on EVERY successful init, not only when
-      // the auto-show consent dialog actually fires (it skips entirely
-      // once a PRIOR session already recorded an answer — hasBeenAsked —
-      // so a returning user's session could otherwise never populate
-      // this at all before a later settings-page re-show).
-      consentMgr.noteProvider(config.provider);
 
       // B2 fix (audit_claude.md) — a caller (e.g. requestUmpConsent(), or a
       // host's own setConsent(isAgeRestrictedUser: true) for COPPA) may have
@@ -3926,16 +3822,10 @@ class AdManager with WidgetsBindingObserver {
       // auto-applies to providers via ConsentManager.set.
 
       // Re-sync the adapter's per-request personalization (AdMob npa) on ANY
-      // later consent change — the auto-shown consent dialog, ConsentManager
-      // .set/.reset, or a host privacy screen — none of which route through
-      // [setConsent]. Idempotent with the explicit applyConsent calls.
+      // later consent change — ConsentManager.set/.reset, or a host privacy
+      // screen — none of which route through [setConsent]. Idempotent with
+      // the explicit applyConsent calls.
       consentMgr.listenable.addListener(_syncConsentToAdapter);
-
-      // Auto-show is DEFERRED: showing the dialog mid-`initialize()` would
-      // block the splash flow and steal user attention from the splash app
-      // open ad. Instead we schedule it for `markSplashInactive` + delay,
-      // which fires after the splash → home navigation has settled. See
-      // [_maybeScheduleConsentDialog].
 
       // Apply consent flags BEFORE the first ad request so AdMob's
       // RequestConfiguration (COPPA tag, test devices) and AppLovin's
@@ -6758,19 +6648,6 @@ class AdManager with WidgetsBindingObserver {
     _consentGateRecoveryRetry?.cancel();
     _consentGateRecoveryRetry = null;
     _consentGateRecoveryAttempts = 0;
-    // Round-27 backlog B7 — same rule again: round-26 only cancelled these
-    // two inside destroy()'s own inline block, so a reinit-without-destroy()
-    // (initialize() called again while already initialised — the
-    // "auto-disposing previous" branch, which only calls this function) left
-    // a scheduled consent-dialog Timer capturing the OLD AdConfig/
-    // ConsentManager alive into the new session, or `_consentDialogScheduled`
-    // stuck `true` forever if the dialog had already been skipped once.
-    // Moved here so BOTH entry points clean up through the one function this
-    // class's own comment above already calls "single source of truth" for
-    // exactly this class of bug.
-    _consentDialogScheduled = false;
-    _consentDialogTimer?.cancel();
-    _consentDialogTimer = null;
     // T137 — same rule as every Timer field above: a reinit-without-
     // destroy() (this function's other caller) must not leave the PREVIOUS
     // session's periodic refresh still ticking against whatever provider/
@@ -6814,10 +6691,6 @@ class AdManager with WidgetsBindingObserver {
   /// adapter).
   @visibleForTesting
   void debugResetGuardState() => _resetGuardState();
-
-  /// Test seam — round-27 backlog B7 regression proof.
-  @visibleForTesting
-  bool get debugConsentDialogTimerActive => _consentDialogTimer != null;
 
   /// Round-26 audit (MAJOR, claude, borders BLOCKER) — `_disposeAdapter()`
   /// used to null the adapter's native listeners with no regard for a

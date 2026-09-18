@@ -140,7 +140,6 @@ void main() {
         ),
         safety: const AdSafetyParams(dryRun: true),
         autoRequestUmpConsent: false,
-        autoShowConsentDialog: false,
       ),
       onComplete: (_, __) {},
     );

@@ -30,10 +30,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     ConsentManager.resetForTest();
     final prefs = await AdPreferences.getInstance();
-    final mgr = await ConsentManager.bootstrap(
-      prefs: prefs,
-      strings: const ConsentDialogStrings(),
-    );
+    final mgr = await ConsentManager.bootstrap(prefs: prefs);
     AdManager().debugConsentManager = mgr;
   });
 

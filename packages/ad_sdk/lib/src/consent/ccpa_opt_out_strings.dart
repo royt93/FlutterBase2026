@@ -24,10 +24,12 @@ class CcpaOptOutStrings {
         'độ không cá nhân hoá.',
   );
 
-  /// T219 — see `ConsentDialogStrings.en`'s matching doc comment.
+  /// T219 — this class previously had NO named presets at all — a host
+  /// wanting English (the plain defaults) had no discoverable name for it,
+  /// only "pass nothing".
   static const CcpaOptOutStrings en = CcpaOptOutStrings();
 
-  /// T219 — see `ConsentDialogStrings.resolve`'s matching doc comment.
+  /// T219 — picks [vi] for a Vietnamese device locale, [en] otherwise.
   static CcpaOptOutStrings resolve([Locale? locale]) {
     final languageCode =
         (locale ?? PlatformDispatcher.instance.locale).languageCode;
