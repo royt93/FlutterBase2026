@@ -383,8 +383,14 @@ class PrivacyOptionsResult {
 }
 
 /// Whether Google requires this app to expose a durable "Privacy Options"
-/// entry point (e.g. a settings button) to the current user — true for
-/// EEA/UK users under UMP once initial consent has been gathered.
+/// entry point (e.g. a settings button) to the current user, once initial
+/// consent has been gathered.
+///
+/// Audit round 43 — this used to say "true for EEA/UK users" specifically;
+/// UMP's Privacy Options requirement also applies to the US-states/GPP
+/// consent message type, not just the EEA/UK GDPR one, and this function
+/// just proxies whatever the native SDK returns without branching on
+/// region — no functional change, the old comment was just imprecise.
 ///
 /// Host apps should call this after [requestUmpConsentFlow] to decide
 /// whether to render a persistent "Privacy Settings" control, per Google's
@@ -397,7 +403,7 @@ Future<bool> isPrivacyOptionsRequired() async {
 
 /// Opens Google's native UMP "Privacy Options" form — the durable
 /// re-consent entry point Google requires apps to expose once initial
-/// consent has been gathered (EEA/UK users).
+/// consent has been gathered (not EEA/UK-only — see [isPrivacyOptionsRequired]).
 ///
 /// **Where to call**: from a host-provided "Privacy Settings" button, at
 /// any point after [AdManager.initialize] — never during app startup, since
