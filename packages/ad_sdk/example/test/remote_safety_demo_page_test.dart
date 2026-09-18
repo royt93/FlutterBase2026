@@ -7,6 +7,8 @@
 // example/integration_test/round40_remote_safety_demo_test.dart and
 // round40_remote_safety_demo_restore_test.dart.
 
+import 'dart:async';
+
 import 'package:ad_sdk_example/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +17,7 @@ void main() {
   tearDown(() {
     RemoteSafetyDemoPage.debugForceApplyResult = null;
     RemoteSafetyDemoPage.debugForceRestoreResult = null;
+    RemoteSafetyDemoPage.debugApplyGate = null;
   });
 
   Future<void> pumpPage(WidgetTester tester) async {
@@ -114,5 +117,46 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(RemoteSafetyDemoPage.debugRestoreCallCount, 0,
         reason: 'nothing to clean up when the provider was never applied');
+  });
+
+  // Re-audit follow-up (post round-42) — dispose() only cleans up when
+  // `_wired` is already true, but `_wired` only flips true AFTER
+  // `_applyProvider()`'s own await resolves. If the page is navigated away
+  // from WHILE an Apply is still in flight, dispose() runs first, sees
+  // `_wired == false`, and skips cleanup — yet the in-flight call can still
+  // go on to successfully attach `_provider` to the live AdManager
+  // singleton, leaving it wired with nobody left to restore it.
+  testWidgets(
+      're-audit: navigating away WHILE Apply is still in flight still '
+      'restores defaults once that in-flight call resolves',
+      (tester) async {
+    RemoteSafetyDemoPage.debugRestoreCallCount = 0;
+    RemoteSafetyDemoPage.debugForceApplyResult = true;
+    RemoteSafetyDemoPage.debugForceRestoreResult = true;
+    final gate = Completer<void>();
+    RemoteSafetyDemoPage.debugApplyGate = gate;
+    await pumpPage(tester);
+
+    // Tap, then pump — this starts `_applyProvider()`, which immediately
+    // parks on `gate.future`, exactly where the real destroy()/initialize()
+    // await sits. The apply is now genuinely, deterministically in flight.
+    await tester
+        .tap(find.text('Apply provider (destroy + re-initialize)'));
+    await tester.pump();
+
+    // Navigate away WHILE the apply is still parked on the gate — the
+    // exact interleaving that used to leave the SDK wired with no cleanup.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    // Only now let the in-flight apply resolve, after the page is gone.
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(RemoteSafetyDemoPage.debugRestoreCallCount, 1,
+        reason: 'the in-flight apply call must notice it is unmounted once '
+            'it resolves and restore defaults itself, since dispose() ran '
+            'too early to know the apply would succeed');
   });
 }

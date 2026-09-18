@@ -4370,6 +4370,14 @@ class RemoteSafetyDemoPage extends StatefulWidget {
   @visibleForTesting
   static bool? debugForceRestoreResult;
 
+  // Re-audit follow-up (post round-42) — lets a test deterministically pause
+  // `_applyProvider()` at the exact point the real destroy()/initialize()
+  // await sits, then resume it AFTER unmounting the page, to reproduce the
+  // "navigated away while Apply was still in flight" race. Test-only; reset
+  // to `null` in `tearDown`.
+  @visibleForTesting
+  static Completer<void>? debugApplyGate;
+
   @override
   State<RemoteSafetyDemoPage> createState() => _RemoteSafetyDemoPageState();
 }
@@ -4405,17 +4413,32 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
   // does not call setState or reuse `_restoreDefaults()` (which does).
   @override
   void dispose() {
-    if (_wired) {
-      RemoteSafetyDemoPage.debugRestoreCallCount++;
-      final forced = RemoteSafetyDemoPage.debugForceRestoreResult;
-      if (forced == null) {
-        unawaited(AdManager().destroy().then((_) => AdManager().initialize(
-              config: DemoConfig.instance.build(),
-              onComplete: (_, __) {},
-            )));
-      }
-    }
+    if (_wired) _fireAndForgetRestore();
     super.dispose();
+  }
+
+  // Shared by dispose() (the normal "already wired, now leaving" case) and
+  // _applyProvider()'s own `!mounted` branch below (the race where the page
+  // is left WHILE Apply is still in flight — dispose() runs before `_wired`
+  // ever flips true, so it cannot know cleanup is needed; the in-flight
+  // call is then the only one left who can restore it once it resolves).
+  // Neither caller can await this or call setState — no state is left to
+  // update once torn down — so this is deliberately fire-and-forget.
+  // `.catchError` (re-audit follow-up) — unlike `_restoreDefaults()`, there
+  // is nobody left to show a failure message to; swallow rather than
+  // surface as an unhandled Future error.
+  void _fireAndForgetRestore() {
+    RemoteSafetyDemoPage.debugRestoreCallCount++;
+    final forced = RemoteSafetyDemoPage.debugForceRestoreResult;
+    if (forced == null) {
+      unawaited(AdManager()
+          .destroy()
+          .then((_) => AdManager().initialize(
+                config: DemoConfig.instance.build(),
+                onComplete: (_, __) {},
+              ))
+          .catchError((_) {}));
+    }
   }
 
   Future<void> _applyProvider() async {
@@ -4434,6 +4457,8 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
     try {
       final forced = RemoteSafetyDemoPage.debugForceApplyResult;
       if (forced != null) {
+        final gate = RemoteSafetyDemoPage.debugApplyGate;
+        if (gate != null) await gate.future;
         success = forced;
       } else {
         await AdManager().destroy();
@@ -4443,7 +4468,15 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
           onComplete: (ok, _) => success = ok,
         );
       }
-      if (!mounted) return;
+      if (!mounted) {
+        // Re-audit follow-up (post round-42) — the page was navigated away
+        // from WHILE this was still in flight. dispose() already ran and
+        // saw `_wired == false` (it only flips true below, which we can no
+        // longer reach), so it skipped cleanup. If we actually succeeded,
+        // we are the only one left who can restore the SDK's live config.
+        if (success) _fireAndForgetRestore();
+        return;
+      }
       if (!success) {
         setState(() =>
             _status = 'Failed to apply provider — the SDK did not initialize.');

@@ -4,6 +4,22 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fixed (example app only, no SDK behavior change):** a focused re-audit
+  of the 2.9.22 fixes found two narrow residual gaps in
+  `RemoteSafetyDemoPage`'s cleanup:
+  1. its fire-and-forget `destroy()`/`initialize()` restore chain had no
+     `.catchError`, so a rejected Future there would surface as an
+     unhandled Zone error;
+  2. navigating away from the page WHILE "Apply provider" was still in
+     flight ran `dispose()` before `_wired` ever flipped true, so
+     cleanup was skipped even though the in-flight call could still go on
+     to successfully rewire the live `AdManager` singleton.
+  Both fixed: the restore chain now swallows a failed retry, and the
+  in-flight apply call itself detects `!mounted` and performs the
+  restore if it succeeds after the page is already gone.
+
 ## [2.9.22] - 2026-09-18
 
 Fixes for the round-42 audit findings (see `doc/audit/audit_round42_consolidated.md`
