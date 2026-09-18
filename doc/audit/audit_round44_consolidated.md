@@ -103,7 +103,7 @@ before calling App Open suppression complete.
 
 ## New MINOR finding (Claude fork, round 44)
 
-**R44-A** — `packages/ad_sdk/pubspec.yaml`'s `homepage`/`repository`/`issue_tracker` point at `github.com/royt93/FlutterBase2026`, which returns HTTP 404 (confirmed live). Not previously flagged. Zero functional impact; costs nothing on pub.dev scoring today but should be fixed to a real URL before it becomes one.
+**R44-A** — `packages/ad_sdk/pubspec.yaml`'s `homepage`/`repository`/`issue_tracker` all correctly point at this repo (`github.com/royt93/FlutterBase2026`), but the repo is **private** — confirmed the URL 404s to an unauthenticated fetch, matching this same URL being pushable/clonable with credentials. This is exactly the pub.dev pana scan's own "Homepage URL doesn't exist / unreachable" note (see the pub.dev score check above) — not a wrong/dead URL, a private-repo visibility gap. Currently just a warning note on pub.dev's own score page (still 10/10 on "valid pubspec.yaml" today), not a point deduction yet — but the kind of thing that turns into one if pana's checker gets stricter. No fix available without either making the repo public (see `CLAUDE.md`'s "Known pending security debt" note on why that isn't happening yet) or pointing these fields elsewhere; not previously flagged as its own line item in 43 prior rounds.
 
 ## Untouched from round 43 / CLAUDE.md — still standing, not re-litigated here
 

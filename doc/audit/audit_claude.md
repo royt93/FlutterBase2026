@@ -33,7 +33,7 @@ confirmation that nothing already-accepted has quietly regressed.
 
 ## Findings
 
-### R44-A (MINOR, new, not previously flagged) — pubspec `homepage`/`repository`/`issue_tracker` point at a dead GitHub URL
+### R44-A (MINOR, new, not previously flagged) — pubspec `homepage`/`repository`/`issue_tracker` point at the private repo, 404 to anyone without access
 
 `packages/ad_sdk/pubspec.yaml:11-13`:
 
