@@ -1,231 +1,159 @@
-# Audit round 40 — Codex (`codex exec --dangerously-bypass-approvals-and-sandbox`)
+# Independent audit report: `applovin_admob_sdk` round 44
 
-**Run against:** an isolated `rsync` copy of the repo at `/tmp/audit_r40_copy`
-(read-only instructions given; verified afterward the isolated copy's own
-throwaway git history shows only the two generated report files touched —
-no source file was modified, no commit/push happened).
-**Model/tool:** OpenAI Codex CLI, `exec` mode, no test/build run (static
-read only, by its own account).
+Audit date: 2026-09-18  
+Checkout package version: `2.9.23` (`packages/ad_sdk/pubspec.yaml:6`)  
+Latest pub.dev version: `2.9.23`, published 2026-09-18 ([pub.dev API](https://pub.dev/api/packages/applovin_admob_sdk)). The checkout therefore matches the current published version.
 
-Codex was given the same 7-criteria brief as the in-session Claude audit
-(`audit_claude.md`) and asked to write its own independent verdict to
-`AUDIT_OUTPUT.md`, without seeing this session's context or the other two
-reviewers' output.
+## Executive result
 
----
+**Verdict: no — do not use version 2.9.23 in a real production app as-is.**
 
-## Kết luận
+I found four MAJOR issues in consent/policy behavior and four MINOR hardening or sample-integration issues. The most consequential defects are: a non-certified local dialog can authorize personalized advertising, a documented pre-initialization US privacy opt-out is discarded, the TCF-to-AppLovin mapping ignores vendor consent, and App Open suppression omits native ads. I found no path that grants a network-ad reward without the provider's genuine reward callback, and the normal offline load paths are bounded and recover on reconnect.
 
-**Chưa nên coi bản hiện tại là hoàn tất về consent đa bang Hoa Kỳ.** Audit
-đọc tĩnh tìm được **1 MAJOR mới**: bộ tổng hợp GPP ưu tiên tín hiệu "không
-opt-out" của một section và bỏ qua opt-out ở section khác. Ngoài ra có **1
-MINOR** về thời gian tự hồi phục sau một nhánh re-init hiếm. Không thấy
-BLOCKER mới.
+Before production use, findings 1–4 must be fixed and covered by regression tests. Findings 5–8 should also be resolved or converted into explicit, enforceable integration constraints. Production adoption must additionally accept that a fully offline one-day trial is not attacker-resistant and that offline VIP codes cannot be globally single-use.
 
-Phạm vi đã đọc gồm adapter, bridge, manager, widget lifecycle, UMP/IAB
-storage, consent manager và toàn bộ cơ chế trial/VIP. Không chạy build/test
-và không thay đổi source. "False-positive" dưới đây nghĩa là claim ban đầu
-đã được lần theo tới consumer/native-facing call và bác bỏ; giới hạn kiến
-trúc thật nhưng đã biết vẫn được ghi riêng, không giả làm finding mới.
+Severity definitions used here: **BLOCKER** means an unconditional or default-path release stopper; **MAJOR** means a realistic compliance, privacy, or material correctness failure that must be fixed before production; **MINOR** means a narrower integration-dependent defect or policy footgun; **NIT** means documentation/test quality only. No BLOCKER was found.
 
-## 1. Provider adapter AdMob/AppLovin trên Android và iOS
+## Findings
 
-### Không có lỗi adapter đa nền tảng mới — false-positive: **Có** đối với nghi vấn `AdViewId` sai kiểu
+### 1. MAJOR — The non-certified built-in dialog can clear the compliance block and authorize personalized ads
 
-- `AdViewId` được giữ nguyên dưới dạng `num` xuyên qua bridge và widget,
-  không ép `int`/`String`: `lib/src/adapters/applovin_bridge.dart:44-45,111-113`,
-  `lib/src/adapters/applovin_adapter.dart:203-205`,
-  `lib/src/widget/banner_ad_widget.dart:724-744`. Điều này phù hợp với
-  plugin AppLovin 4.6.4: Android trả integer và iOS trả `NSNumber`; không có
-  channel type mismatch.
-- Consent/test-device được đặt trước `AppLovinMAX.initialize`, đúng thời
-  điểm native SDK đọc cấu hình: `lib/src/adapters/applovin_adapter.dart:709-758`.
-  AdMob chuyển COPPA/UAC qua `RequestConfiguration` và NPA/RDP theo từng
-  request: `lib/src/adapters/gma_bridge.dart:57-105,108-115,121-220`.
-- Callback load muộn và tài nguyên fullscreen/inline đều có dispose/identity
-  guard; không tìm được đường callback mới nào hồi sinh adapter đã teardown.
+**Evidence.** The source itself says the Cupertino dialog is not a Google-certified CMP, produces no TCF string, and cannot establish a valid EEA legal basis (`packages/ad_sdk/lib/src/config/ad_config.dart:561-571`; `packages/ad_sdk/lib/src/core/ad_manager.dart:2678-2692`). Nevertheless, when UMP is disabled, the dialog's Allow action writes `hasUserConsent: true` (`packages/ad_sdk/lib/src/consent/consent_dialog.dart:282-293`), `ConsentManager.showDialog` persists and applies that result to the provider (`packages/ad_sdk/lib/src/consent/consent_manager.dart:358-379`), and the auto-show path then clears `_footgunBlocked` (`packages/ad_sdk/lib/src/core/ad_manager.dart:2724-2739`). The published README contradicts the implementation's own assessment by advertising “GDPR-compliant consent UI without integrating a third-party CMP” (`packages/ad_sdk/README.md:36-43`).
 
-**Mức độ:** không có finding mới.
+**Concrete failure scenario.** An EEA/UK/Swiss app sets `autoRequestUmpConsent: false`, leaves `autoShowConsentDialog: true`, and relies on the advertised built-in dialog. The initial release guard closes ad requests, but after the user taps Allow, this non-TCF choice is forwarded as consent and the guard is cleared. Subsequent loads can be personalized even though no certified CMP collected the required purpose/vendor choices.
 
-## 2. Online/offline resilience
+Google currently requires a Google-certified, TCF-integrated CMP for personalized ads in the EEA, UK, and Switzerland ([AdMob CMP requirement](https://support.google.com/admob/answer/13554116), [Flutter GDPR guidance](https://developers.google.com/admob/flutter/privacy/gdpr)).
 
-### R40-01 — Re-init có thể mất fast-refill khi connectivity watch mới thất bại
+**Required fix.** The built-in dialog must never set provider personalization consent or clear the release gate in regulated regions. Prefer removing it as an advertising-consent source entirely and using it only for non-ad preferences. Remove the README claim. Require UMP or another certified CMP, and consume its complete TCF state.
 
-**Mức độ: MINOR — False-positive: Không.**
-*(Xem xác minh chéo trong `audit_round40_consolidated.md` — cơ chế đúng,
-nhưng đã được ghi chú và chấp nhận CHỦ Ý ngay trong code, không phải finding
-mới của round 40.)*
+### 2. MAJOR — `setDoNotSell` claims to work before initialization but silently discards the opt-out
 
-`_connectivityReady` là cờ cấp process và không reset khi teardown, trong
-khi `_stopConnectivityWatch()` hủy subscription
-(`lib/src/core/ad_manager.dart:1279-1289,7658-7662`). Mỗi init có gọi lại
-`_startConnectivityWatch()` (`lib/src/core/ad_manager.dart:3292-3294`), nhưng
-nếu lần gọi sau lỗi/timeout thì cờ vẫn là `true`, subscription vẫn `null`;
-nhánh tự sửa định kỳ lại chỉ gọi `_startConnectivityWatch()` khi
-`!_connectivityReady` (`lib/src/core/ad_manager.dart:7594-7607`). Vì vậy
-chuỗi thật là: init #1 thành công → destroy hủy listener → init #2 không
-dựng được listener → reconnect không phát `_onConnectivityChanged` cho
-manager. Quảng cáo không kẹt vĩnh viễn vì poll vẫn chạy mỗi 5 phút
-(`lib/src/core/ad_manager.dart:112,7525-7573`) và getter còn đọc trạng thái
-global (`lib/src/core/ad_manager.dart:5891-5915`), nhưng refill tức thời bị
-mất tới tối đa một chu kỳ poll.
+**Evidence.** The public API documents that it is safe before `initialize` and will persist the choice (`packages/ad_sdk/lib/src/core/ad_manager.dart:5021-5023`). Its implementation does the opposite: when `_consentManager` is null it logs “ignored” and returns (`packages/ad_sdk/lib/src/core/ad_manager.dart:5024-5029`). This differs from the general `setConsent` path, which buffers pre-init settings (`packages/ad_sdk/lib/src/core/ad_manager.dart:4841-4867`). The only pre-init regression test asserts that the call completes, not that the value survives (`packages/ad_sdk/test/ccpa_opt_out_toggle_test.dart:69-73`).
 
-Khuyến nghị: trạng thái "backend notifier đã init" và "manager hiện có
-subscription" phải là hai cờ riêng; retry watch dựa trên
-`_connectivitySub == null`, với seam test để không chạm detector thật.
+**Concrete failure scenario.** A US privacy/region gate calls `await AdManager().setDoNotSell(true)` before SDK initialization, as the API explicitly permits. The value is dropped. Initialization then starts with `doNotSell == false`; AppLovin receives a false flag and AdMob requests lack the intended restricted-data-processing signal until the user happens to toggle it again.
 
-Các nhánh offline thông thường đã đúng: load bị chặn khi offline, failure đi
-vào per-slot backoff, reconnect debounce rồi refill, và cache fullscreen
-không bị show khi stale.
+Google's current US-state guidance requires publishers to implement the appropriate restricted-data-processing/privacy-message flow ([US states privacy guidance](https://developers.google.com/admob/flutter/privacy/us-states)).
 
-## 3. Từng ad type, policy placement và lifecycle
+**Required fix.** Buffer this call through the same pre-init mechanism as `setConsent`, or bootstrap/persist the consent store before returning. Add a test that calls it pre-init, initializes, and verifies both persisted state and both provider writes.
 
-### Không có leak/lifecycle finding mới — false-positive: **Có** đối với hai nghi vấn đã kiểm chứng
+### 3. MAJOR — TCF personalization is inferred from purposes alone; vendor consent is knowingly ignored
 
-- Banner/MREC hủy listener, RouteAware subscription, native object/ad-view
-  và notifier trong `dispose`; timer/visibility được quản lý theo instance:
-  `lib/src/widget/banner_ad_widget.dart:396-418`,
-  `lib/src/widget/mrec_ad_widget.dart:275-324`. Cả `active:false` lúc mount
-  lẫn thay đổi visibility đều chặn load/reload.
-- Native không có RouteAware là chủ ý hợp lý, không phải leak: format này
-  không auto-refresh; item rời cây gọi `disposeNativeInstance`, listener lỗi
-  và timer retry đều được tháo/hủy:
-  `lib/src/widget/native_ad_widget.dart:18-38,94-113,239-253`.
-- App-open/interstitial/rewarded/rewarded-interstitial có single-show guard,
-  show watchdog, callback identity và refill sau terminal callback; AdMob
-  cache có freshness gate trước show.
-- **Rewarded-interstitial trên AppLovin không phải implementation thiếu:**
-  MAX không có format tương đương; slot cố ý idle/no-op
-  (`lib/src/adapters/applovin_adapter.dart:191-197`,
-  `lib/src/core/ad_manager.dart:6965-6973`). API trả `shown:false`, không
-  giả lập bằng rewarded thường nên tránh sai disclosure/placement policy.
-  Đây là giới hạn capability đã document, không phải bug runtime.
+**Evidence.** `tcfAllowsPersonalisedAds` reads only GDPR applicability and purpose-consent bits 1, 3, and 4 (`packages/ad_sdk/lib/src/core/iab_storage.dart:580-606`). Its documentation explicitly says it does not parse `IABTCF_VendorConsents` (`packages/ad_sdk/lib/src/core/iab_storage.dart:529-539`). The UMP mapping then treats those purpose bits as sufficient (`packages/ad_sdk/lib/src/core/ad_manager.dart:5379-5387`) and forwards the resulting single boolean to provider consent (`packages/ad_sdk/lib/src/core/ad_consent.dart:121-129`, `packages/ad_sdk/lib/src/core/ad_consent.dart:142-153`). Tests cover purpose combinations but no vendor-denial case (`packages/ad_sdk/test/tcf_personalisation_consent_test.dart:163-228`).
 
-**Mức độ:** không có finding mới.
+**Concrete failure scenario.** An EEA user consents to purposes 1/3/4 but denies AppLovin as a vendor, or the publisher omitted AppLovin from its configured ad-partner list. The package computes `hasUserConsent == true` and explicitly calls MAX's user-consent API with true. That is not the user's vendor-level choice. GMA may still independently honor the raw TCF string, but the package's claimed one-consent-to-both-provider abstraction is incorrect for MAX.
 
-## 4. Trial mode 1 ngày
+Google's current ad-serving matrix says vendor consent is material in addition to purpose consent ([ad serving modes](https://developers.google.com/admob/flutter/privacy/ad-serving-modes)). AppLovin says publishers are responsible for collecting and transmitting applicable consent flags and that MAX can consume TCF/Additional Consent strings from a CMP ([MAX Flutter privacy](https://support.applovin.com/en/max/flutter/overview/privacy)).
 
-### Giới hạn đã biết: farm trial trên Android khi không có Auto Backup
+**Required fix.** Do not synthesize an affirmative MAX consent bit from purpose consent alone. Either let MAX's documented TCF/AC integration consume the CMP strings without overriding it, or correctly evaluate the relevant vendor consent/legal-basis data. Add tests for purpose-allowed/vendor-denied, missing vendor, Additional Consent, and provider-list misconfiguration.
 
-**Mức độ: MAJOR (kiến trúc) — False-positive: Không; nhưng không mới.**
+### 4. MAJOR — App Open “hide every inline surface” protection excludes native ads on both providers
 
-Android luôn trả `false` từ guard
-(`lib/src/vip/_first_install_guard.dart:137-158`) và chỉ dựa vào restore của
-`FlutterSharedPreferences.xml` (`lib/src/vip/_first_install_guard.dart:27-47`).
-Uninstall/reinstall khi backup tắt, chưa sync, đổi Google account, hoặc xóa
-dữ liệu sẽ nhận lại trial. iOS dùng Keychain `first_unlock` và ghi marker
-trước prefs (`lib/src/vip/_first_install_guard.dart:93-105,177-203`), nên
-chặn reinstall thường; erase-device vẫn bypass và restore sang thiết bị mới
-có thể false-positive block (`lib/src/vip/_first_install_guard.dart:49-68`).
-Đây đúng là trade-off đã ghi từ round 39, không có bypass mới phát hiện
-trong round 40. Muốn chống farm chắc chắn cần identity/claim phía server;
-local-only không thể chứng minh "đã từng cài" sau khi toàn bộ local state bị
-xóa.
+**Evidence.** Immediately before an App Open show, the manager invokes only the adapter's `InlineAdVisibility.setInlineAdsHidden(true)` capability (`packages/ad_sdk/lib/src/core/ad_manager.dart:7211-7233`). AdMob's implementation enumerates only banner and MREC registries (`packages/ad_sdk/lib/src/adapters/admob_adapter.dart:38-55`) and expressly says native instances are never registered or hidden (`packages/ad_sdk/lib/src/adapters/admob_adapter.dart:307-315`). AppLovin likewise enumerates only banner and MREC registries (`packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:53-90`). The README overstates the behavior as blanking “every inline surface” (`packages/ad_sdk/README.md:244-251`).
 
-## 5. Kích hoạt VIP bằng code, Ed25519 offline
+**Concrete failure scenario.** A screen contains a live AdMob or MAX native ad. The user backgrounds and resumes the app. The manager presents App Open while the native ad remains mounted beneath it. This is exactly the ad-over-another-ad conflict that the banner/MREC suppression was introduced to prevent, but the native format is omitted on both providers.
 
-### Giới hạn đã biết: cross-device replay và tamper trên thiết bị đã compromise
+Google says not to display App Open ads on top of other ads, giving banner content as an example rather than an exhaustive exception ([App Open guidance](https://support.google.com/admob/answer/9341964)).
 
-**Mức độ: MAJOR (kiến trúc) — False-positive: Không; nhưng không mới.**
+**Required fix.** Include every mounted native instance in the same ownership-based fullscreen hide mechanism, and test native visibility during App Open for both adapters, including instances created while App Open is already showing.
 
-- Chữ ký Ed25519 được verify bằng public key 32 byte; private key không nằm
-  trong runtime. AVP2 ký duration/kid/expiry/bundle binding, CRL có domain
-  separation `CRL1|`: `lib/src/vip/signed_vip_key.dart:109-191,193-249,268-344`.
-- Một code hợp lệ vẫn redeem được trên nhiều thiết bị vì ledger chỉ
-  per-device; source tự document giới hạn này
-  (`lib/src/vip/vip_manager.dart:1238-1249`). Android ledger nằm ở
-  SharedPreferences và mất khi uninstall/restore không hoạt động
-  (`lib/src/utils/ad_preferences.dart:361-381`); iOS có Keychain mirror
-  (`lib/src/vip/_redeemed_key_ledger.dart:79-125`).
-- Root/jailbreak, runtime hooking hoặc sửa binary/public key có thể vô hiệu
-  hóa ledger/verification. Secure storage bảo vệ at-rest với thiết bị bình
-  thường, không tạo trust boundary trước chủ thiết bị có đặc quyền. Đây
-  không thể sửa triệt để trong mô hình "offline, không backend".
+### 5. MINOR — Standard rewarded disclosure is optional without an explicit host-compliance contract
 
-Không thấy lỗi mới về signature confusion, CRL rollback, double-tap race hay
-save ordering. AVP1 vẫn không có expiry/bundle binding nhưng là
-compatibility surface đã biết
-(`lib/src/vip/signed_vip_key.dart:86-105,210-212`).
+**Evidence.** `AdScreenState.showRewardedAd` makes `disclosureTitle` nullable and documents that omission goes straight to the ad (`packages/ad_sdk/lib/src/core/ad_screen.dart:177-180`, `packages/ad_sdk/lib/src/core/ad_screen.dart:198-214`, `packages/ad_sdk/lib/src/core/ad_screen.dart:262-279`). The raw manager API has no disclosure concept. The README's main example is safe because its CTA says “Watch ad for +10 coins” (`packages/ad_sdk/README.md:802-812`), but the API does not state that an equivalent disclosure and opt-in are mandatory when the dialog is omitted.
 
-## 6. Consent mọi quốc gia
+**Concrete failure scenario.** A host calls the helper from an unlabeled Continue button or automatically after a game event, omits the optional disclosure fields, and the SDK proceeds directly to the rewarded ad. The user was not told what action is required and what reward will be delivered.
 
-### R40-02 — GPP "first non-null wins" có thể bỏ qua opt-out của bang áp dụng
+Google requires clear, accurate reward disclosure before each rewarded ad and affirmative opt-in ([rewarded-ad policy](https://support.google.com/admob/answer/7313578)).
 
-**Mức độ: MAJOR — False-positive: Không.** *(Xác nhận độc lập — xem
-`audit_claude.md` mục R40-A và `audit_round40_consolidated.md`: đây là
-finding thật, mới, chưa từng có test hay doc comment nào bàn tới trước round
-40.)*
+**Required fix.** Either require the disclosure by default or require an explicit `hostProvidedDisclosure: true` acknowledgment. Document the obligation at both helper and raw-manager entry points. This finding is about the pre-show contract; the actual reward callback logic is correct and does not fabricate completion.
 
-`usPrivacyOptedOut()` trả ngay khi legacy US Privacy, US National hoặc
-California cho một giá trị, rồi chỉ đọc các section sau nếu giá trị trước
-là `null` (`lib/src/core/iab_storage.dart:220-240`). `_gppUsStatesOptedOut()`
-cũng trả section bang đầu tiên có giá trị, kể cả `false`, và không xem các
-section còn lại (`lib/src/core/iab_storage.dart:385-405`). Đây không phải
-pattern-match: consumer `_reconcileDeviceUsPrivacy()` chỉ nâng `doNotSell`
-khi kết quả cuối là `true` (`lib/src/core/ad_manager.dart:5192-5227`), rồi
-mới truyền RDP cho mọi request AdMob và `setDoNotSell(true)` cho AppLovin.
-Do đó một store hợp lệ có US National=`Did Not Opt Out` nhưng California
-(hoặc bang áp dụng khác)=`Opted Out` bị tổng hợp thành `false`; tín hiệu hạn
-chế không tới cả hai provider.
+### 6. MINOR — Public `bypassSafety` can turn App Open frequency controls off outside splash
 
-Việc probe mọi isolated section nhưng không decode GPP header/applicable
-section làm "priority theo ID" không có cơ sở pháp lý. Nếu tiếp tục không
-xác định jurisdiction/section đang áp dụng, phép gộp an toàn phải là:
-**bất kỳ tín hiệu `true` nào thắng; chỉ trả `false` khi đã đọc toàn bộ tín
-hiệu hiện diện và không có `true`**. Tốt hơn là decode header và chọn đúng
-section áp dụng. Cần regression test tối thiểu cho USNat=false + USCA=true
-và state-9=false + state-10=true.
+**Evidence.** The method's own comment admits that `bypassSafety` is public, is not technically restricted to splash, bypasses daily/hourly/session caps and the throttle, and can cause a provider-policy violation (`packages/ad_sdk/lib/src/core/ad_manager.dart:7074-7095`). With the flag true, the ordinary safety and placement-cap checks are skipped (`packages/ad_sdk/lib/src/core/ad_manager.dart:7173-7196`). The invalid-traffic pause remains enforced, which is good. The example uses the flag only at splash (`packages/ad_sdk/example/lib/main.dart:946-952`), but `callSiteTag` is descriptive and unverified.
 
-Các phần còn lại đã được nối đúng: UMP chặn request trước consent, TCF
-Purpose 1/3/4 quyết định personalization
-(`lib/src/core/iab_storage.dart:422-515`), privacy-options late-dismiss được
-re-read (`lib/src/core/ump_consent.dart:411-421,491-513`), và consent cuối
-cùng được áp cho cả provider.
+**Concrete failure scenario.** An integrator copy-pastes `showAppOpenAd(bypassSafety: true)` to a resume handler or several routes. Every trigger can show an App Open ad without the SDK's normal pacing limits; the in-memory audit trail neither prevents it nor survives restart.
 
-## 7. Tuân thủ policy AdMob/AppLovin nói chung
+Both Google and AppLovin recommend App Open only at open/foreground loading transitions with controlled frequency ([Google App Open guidance](https://support.google.com/admob/answer/9341964), [MAX App Open guidance](https://support.applovin.com/en/max/flutter/ad-formats/app-open-ads)).
 
-### Không có finding policy độc lập mới — false-positive: **Có** đối với "SDK tự bảo đảm test ads/COPPA cho mọi cấu hình"
+**Required fix.** Make the bypass private to the splash controller, or enforce a manager-owned active-splash token rather than trusting a public boolean/placement label.
 
-- Consent-before-request có hard gate ở manager và gate lặp lại tại
-  adapter/widget; rút consent loại cache/instance cũ trước khi refill.
-- AppLovin MAX 4.x không có child-directed API, nên SDK fail-closed và
-  không initialize provider khi COPPA=true
-  (`lib/src/adapters/applovin_adapter.dart:672-697`). Đây là hành vi
-  compliance đúng, dù đồng nghĩa không có ads AppLovin cho child audience.
-- ATT được tách thành explicit bootstrap step và không dùng GAID trước khi
-  trạng thái ATT phù hợp; app host vẫn phải có
-  `NSUserTrackingUsageDescription` và gọi bootstrap đúng thứ tự.
-- Test-device registration không thể tự biến mọi ad unit thành test
-  inventory: AppLovin chỉ đăng ký GAID trong debug khi lấy được ID
-  (`lib/src/adapters/applovin_adapter.dart:740-755`), còn AdMob nhận danh
-  sách test IDs qua request configuration. Host vẫn chịu trách nhiệm dùng
-  test unit/test mode khi QA. Đây là integration obligation, không phải một
-  đường policy bypass tự phát trong SDK.
-- Disclosure của rewarded-interstitial được đặt trước show ở lớp
-  `AdScreen`; fullscreen mutex, dialog/UMP-on-screen gate và banner/MREC
-  hiding ngăn ad stacking.
+### 7. MINOR — Late MAX native callbacks can mutate a replacement provider/session
 
-**Mức độ:** ngoài R40-02 (đã tính ở tiêu chí 6), không có finding mới.
+**Evidence.** MAX native load/failure callbacks look up `AdManager().adapter` at callback time and only check that the current adapter is initialized before mutating `adapter.native(instanceKey)` (`packages/ad_sdk/lib/src/widget/native_ad_widget.dart:583-610`). Click and revenue callbacks do the same (`packages/ad_sdk/lib/src/widget/native_ad_widget.dart:613-658`). The disposed-instance tombstone is consulted only if the current adapter is an `AppLovinAdapter` (`packages/ad_sdk/lib/src/widget/native_ad_widget.dart:639-647`). Nothing captures the originating adapter or initialization generation.
 
-## Tổng hợp finding hành động
+**Concrete failure scenario.** A MAX native platform view has an in-flight callback while the app destroys and reinitializes the SDK with AdMob and keeps/rebuilds the widget tree. The old MAX failure can mark the new AdMob instance key as errored; a late click/revenue callback can write an AppLovin-tagged event into the replacement adapter's sink and increment safety metrics for the wrong session.
 
-| ID | Severity | Tiêu chí | False-positive | Hành động |
-|---|---|---:|---|---|
-| R40-01 | MINOR | 2 | Đã biết, không mới (xem ghi chú xác minh chéo ở trên) | Retry connectivity watch khi subscription null, không dựa duy nhất vào cờ init cấp process. |
-| R40-02 | MAJOR | 6, 7 | Không, mới | Gộp mọi section GPP theo "true wins" hoặc decode header/applicable section; thêm test xung đột section. |
+**Required fix.** Capture the originating adapter/session generation when building the MAX view and reject callbacks unless both still match. Apply the tombstone check to the captured MAX adapter, not whichever global adapter happens to be current.
 
-Hai MAJOR trial/VIP nêu ở tiêu chí 4–5 là giới hạn local-only đã biết và
-được chấp nhận từ round trước, không phải regression round 40. Không phát
-hiện BLOCKER, memory leak mới, channel argument mismatch, hay race
-show/load mới trong bảy vùng audit.
+### 8. MINOR — The AppLovin-default example splash omits MAX's requested app-open call-out
 
----
+**Evidence.** The example can show a splash App Open ad (`packages/ad_sdk/example/lib/main.dart:946-952`), but the visible splash contains only an icon, package name, and spinner (`packages/ad_sdk/example/lib/main.dart:987-1005`). Its default provider configuration is AppLovin (`packages/ad_sdk/example/lib/main.dart:165-179`).
 
-*Cross-check note added by orchestrating Claude session: R40-01 was
-independently re-read against the doc comment sitting directly above the
-cited code in `ad_manager.dart` and found to already be documented there as
-a conscious, accepted trade-off (not new); R40-02 was independently re-read
-and confirmed genuinely new — no existing test or comment addresses the
-"definitive false in a higher-priority section shadows a real true in a
-lower-priority one" case. See `audit_claude.md` and
-`audit_round40_consolidated.md`.*
+**Concrete failure scenario.** A developer uses the demo as the integration pattern with MAX. A cold-start ad appears after a generic loading screen that never tells the user an ad is about to appear.
+
+AppLovin's current App Open guidance asks for a splash/loading call-out informing the user that an ad will be shown ([MAX Flutter App Open guidance](https://support.applovin.com/en/max/flutter/ad-formats/app-open-ads)).
+
+**Required fix.** Add a visible, localizable “an ad may appear while the app loads” message to the example and splash-controller documentation.
+
+## Subsystem conclusions
+
+### Cross-platform provider abstraction
+
+The basic abstraction is real rather than nominal. Both provider configs resolve Android/iOS overrides for banner, interstitial, App Open, rewarded, MREC, and native IDs (`packages/ad_sdk/lib/src/config/ad_config.dart:71-86`, `packages/ad_sdk/lib/src/config/ad_config.dart:104-209`, `packages/ad_sdk/lib/src/config/ad_config.dart:245-378`). AdMob native objects are explicitly disposed; MAX listener/timer teardown is substantial; fullscreen slots use provider bridges rather than hand-rolled platform-channel argument types. I did not find an Android-only ad-show path masquerading as cross-platform.
+
+The material cross-provider gaps are findings 3, 4, and 7. One further release risk remains unverified rather than proven defective: the IAB store explicitly says its iOS branch has never been exercised on hardware (`packages/ad_sdk/lib/src/core/iab_storage.dart:39-41`), while consent correctness depends on that store. The existing tests emulate the preference implementation rather than a physical iOS UMP write/read cycle (`packages/ad_sdk/test/tcf_personalisation_consent_test.dart:230-238`). A real-device iOS consent matrix is required before claiming parity.
+
+### Offline and no-network behavior
+
+Normal offline behavior is fail-closed and bounded:
+
+- SDK-owned UMP closes the ad gate before starting and keeps it closed on real consent-fetch failure (`packages/ad_sdk/lib/src/core/ad_manager.dart:3597-3609`, `packages/ad_sdk/lib/src/core/ad_manager.dart:3660-3689`). An inconclusive offline UMP result does not overwrite a previously persisted choice (`packages/ad_sdk/lib/src/core/ad_manager.dart:5388-5424`).
+- Native adapter initialization has a 20-second bound (`packages/ad_sdk/lib/src/core/ad_manager.dart:3710-3739`). Load requests check connectivity and arm 30-second slot watchdogs; connectivity restoration refills eligible slots. A show request not confirmed by the provider is released after 10 seconds (`packages/ad_sdk/lib/src/state/ad_slot.dart:327-375`).
+- Reward callbacks remain false/skipped on load/show failure; neither provider invents a reward when connectivity disappears.
+
+The deliberate residual is that interstitial/rewarded have no timeout after the provider confirms display, because force-releasing a genuinely visible ad could stack another fullscreen (`packages/ad_sdk/lib/src/state/ad_slot.dart:354-363`). If a native SDK loses its dismiss callback after a mid-show failure, that slot and the caller's completion callback can remain unresolved for the session. This is a defensible safety trade-off, but hosts must not block critical navigation solely on the callback.
+
+### Ad lifecycle correctness
+
+Apart from findings 4 and 7, the lifecycle implementation is strong. Loads and shows have generation/identity guards, stale ads are discarded, teardown disposes AdMob objects and MAX listeners/timers, and banners/MRECs have route/background/fullscreen visibility ownership. Reward correctness is specifically sound: AdMob grants only from `onUserEarnedReward` (`packages/ad_sdk/lib/src/adapters/admob_adapter.dart:1622-1639`), while MAX grants only from `onAdReceivedRewardCallback` (`packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:1901-1939`). Dismiss/failure paths return `earned: false`. SSV is available for hosts that require server-confirmed economic rewards.
+
+`vipAutoGrant` is an explicit host-selected entitlement benefit, not a claim that an ad completed; it should remain clearly separated from network-reward accounting.
+
+### One-day trial trust model
+
+Release builds grant 24 hours by default (`packages/ad_sdk/lib/src/config/ad_config.dart:47-54`, `packages/ad_sdk/lib/src/config/ad_config.dart:532-552`). Expiry uses device wall time, a persisted high-water mark, and an in-process monotonic stopwatch (`packages/ad_sdk/lib/src/vip/vip_manager.dart:310-390`, `packages/ad_sdk/lib/src/vip/vip_manager.dart:830-873`). This blocks simple rollback after the SDK has already observed a later time, but it is not a trustworthy clock: an attacker can keep resetting the clock before the process observes expiry, and local/rooted storage can be edited or removed.
+
+Reinstall/storage bypass is consciously accepted and documented. iOS uses a Keychain flag, with device erase still bypassing it; Android relies only on best-effort Auto Backup and intentionally returns “not previously granted” when local data is absent (`packages/ad_sdk/lib/src/vip/_first_install_guard.dart:27-88`, `packages/ad_sdk/lib/src/vip/_first_install_guard.dart:137-155`). Thus “one day” is a retention feature, not an enforceable trial license. This is an accepted no-backend product risk, not a newly hidden flaw. A product whose economics depend on strict one-time trial duration needs a server/account entitlement clock.
+
+### Offline VIP-code authenticity and replay
+
+The signed-code design is not trivially forgeable merely because the package is decompiled. AVP1/AVP2 payloads are Ed25519-verified with a public key; the private signing key does not ship (`packages/ad_sdk/lib/src/vip/signed_vip_key.dart:109-120`, `packages/ad_sdk/lib/src/vip/signed_vip_key.dart:149-191`). AVP2 additionally signs expiry and bundle binding (`packages/ad_sdk/lib/src/vip/signed_vip_key.dart:214-249`). Hosts must use this signed path; a custom local `vipKeyValidator` is only as strong as host-supplied logic.
+
+Replay cannot be globally prevented without a backend. The implementation explicitly accepts that a leaked code is redeemable once per device (`packages/ad_sdk/lib/src/vip/vip_manager.dart:1246-1265`). iOS has a Keychain redeemed-ID ledger; Android depends on uninstallable preferences/optional backup (`packages/ad_sdk/lib/src/vip/_redeemed_key_ledger.dart:9-25`, `packages/ad_sdk/lib/src/vip/_redeemed_key_ledger.dart:79-99`). AVP1 remains unexpiring and unbound for compatibility (`packages/ad_sdk/lib/src/vip/signed_vip_key.dart:86-100`, `packages/ad_sdk/lib/src/vip/signed_vip_key.dart:210-212`). AVP2 bundle validation also deliberately fails open if package-info lookup fails (`packages/ad_sdk/lib/src/vip/vip_manager.dart:1341-1381`). These risks are documented and consciously accepted, but a monetized, single-use-code product requires server-side claiming; no client-only implementation can supply it.
+
+### Consent coverage beyond GDPR
+
+The package reads UMP/TCF, legacy US Privacy, and GPP US sections and forwards COPPA/CCPA-style flags. However, “all countries” cannot be guaranteed by a library-level boolean abstraction: dashboard message publication, correct ad-partner/vendor lists, age gating, privacy-policy content, and country-specific disclosures remain publisher responsibilities. Findings 1–3 currently prevent the stronger claim that one collection flow is correctly applied to both providers.
+
+COPPA handling is conservative once known: AdMob gets per-request child-directed tags, and MAX initialization aborts for a known child user (`packages/ad_sdk/lib/src/adapters/applovin_adapter.dart:718-743`). The initial value must be supplied before initialization through `setConsent`; the package documentation itself warns that a brand-new always-child-directed app can otherwise initialize MAX once (`packages/ad_sdk/README.md:2465-2471`). AppLovin's current terms prohibit initializing/using its services in connection with a child ([MAX privacy](https://support.applovin.com/en/max/flutter/overview/privacy)). Therefore an always-child-directed app must not use the default MAX startup sequence.
+
+### Provider policy posture
+
+The SDK contains good defenses: global fullscreen exclusion, ad freshness checks, invalid-traffic cooldown, visibility/refresh ownership, frequency caps, rewarded-interstitial disclosure, and genuine provider reward callbacks. Those controls do not cure findings 4–6, and they cannot make arbitrary host placement compliant. Hosts remain responsible for natural transition points, non-deceptive placement, ad density, app-ads.txt, store disclosures, and provider-console consent configuration. Relevant current sources checked were [AdMob behavioral policies](https://support.google.com/admob/answer/2753860), [AdMob interstitial guidance](https://support.google.com/admob/answer/6201362), [AdMob App Open guidance](https://support.google.com/admob/answer/9341964), [AdMob rewarded policy](https://support.google.com/admob/answer/7313578), [MAX publisher best practices](https://support.applovin.com/en/max/max-dashboard/best-practices), and [MAX interstitial best practices](https://support.applovin.com/en/max/best-practices/when-is-it-best-to-display-interstitial-ads).
+
+## Test assessment
+
+The checkout has broad unit/widget coverage of slot races, watchdogs, consent, connectivity, and adapter lifecycle. I did not execute `flutter test` or `flutter analyze`, because the requested audit is read-only and running Flutter tooling could update dependency metadata/cache state. This report is therefore a source and policy audit, not a claim that the current suite passes.
+
+Missing regression coverage directly associated with the findings:
+
+1. Pre-init `setDoNotSell(true)` surviving initialization and reaching both providers.
+2. TCF purposes allowed while AppLovin/vendor consent is denied or absent.
+3. The local dialog being unable to authorize regulated personalized ads.
+4. Native-ad suppression for both providers during App Open, including late-created instances.
+5. Late MAX native callbacks after destroy/provider swap.
+6. A policy-safe standard rewarded call contract.
+7. Physical iOS verification of UMP-written TCF/GPP preference reads.
+
+## Final production decision
+
+**No, version 2.9.23 should not be shipped as-is.** Fix findings 1–4 first, add the listed consent/native regression tests, and validate the IAB read path on physical iOS hardware. Resolve or explicitly constrain findings 5–8 before presenting the package as policy-safe by default. After those changes, use is still conditional: the publisher must configure a certified CMP and all mediation partners correctly, supply child status before MAX initialization, and accept—or replace with a backend—the documented trial-clock and cross-device VIP replay limitations.

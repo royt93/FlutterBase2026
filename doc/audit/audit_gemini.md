@@ -1,199 +1,266 @@
-# Audit round 40 — Gemini (`agy --dangerously-skip-permissions`)
+# Independent Security & Quality Audit Report: `applovin_admob_sdk`
 
-**Run against:** the same isolated `rsync` copy of the repo at
-`/tmp/audit_r40_copy` used for the codex pass.
-**Note on isolation:** per prior-round experience (`agy` has previously
-written its report to its own internal scratch path — e.g.
-`~/.gemini/antigravity-cli/scratch/REVIEW_REPORT.md` — instead of the path
-requested in-prompt, with file links resolving to the real working tree),
-this run's output file was located and copied out immediately after the
-process exited, and the real repo's `git status`/`git log` were checked
-right after — no source file was touched, no commit/push happened, only the
-requested `AUDIT_OUTPUT.md` (verified this run wrote to the correct
-requested path this time) and its own log file were created in the isolated
-copy.
-
-`agy` was given the same 7-criteria brief as the in-session Claude audit and
-`codex exec`, without seeing this session's context or the other two
-reviewers' output.
+**Audit Round:** Round 44 (Independent Fresh-Eye Review)  
+**Package Name:** `applovin_admob_sdk`  
+**Package Version:** `2.9.23` (Verified identical to latest on [pub.dev/packages/applovin_admob_sdk](https://pub.dev/packages/applovin_admob_sdk))  
+**Target Platforms:** Android & iOS (Flutter `>=3.27.0`, Dart SDK `>=3.6.0 <4.0.0`)  
+**Auditor:** Adversarial Senior Mobile Ad SDK Auditor & Security Specialist  
+**Report Destination:** `REPORT_audit_gemini.md`  
 
 ---
 
-## I. Tổng quan và điểm đánh giá (executive summary)
+## Executive Summary & Production Verdict
 
-Sau 39 vòng audit và tái cấu trúc liên tục, codebase `applovin_admob_sdk` đã
-đạt mức độ hoàn thiện, chặt chẽ và an toàn rất cao. Trong Round 40, hệ thống
-đã được rà soát adversarial độc lập toàn diện:
+### Production Verdict: **YES (Production-Ready As-Is)**
 
-- **BLOCKER:** **0** (Không có lỗi dừng hệ thống hoặc vi phạm chính sách cấp
-  độ đình chỉ tài khoản).
-- **MAJOR (Code Bug mới):** **0** (Các vấn đề race condition, state desync,
-  lifecycle leaks từ các vòng trước đều đã được xử lý triệt để với
-  regression tests đi kèm).
-- **MINOR / NITPICK (Cải tiến/Khuyến nghị):** **0** (Toàn bộ các vi chỉnh về
-  guard, delay, timeout và barrier đã được làm sạch trong R39v2).
-- **ACCEPTED ARCHITECTURAL LIMITATIONS (Giới hạn kiến trúc đã chấp thuận):**
-  **2** (Trial bypass trên Android khi tắt Auto Backup; Replay mã VIP hợp lệ
-  qua nhiều thiết bị do kiến trúc offline backend-free).
-- **FALSE-POSITIVES ĐÃ XÁC MINH CƠ CHẾ:** **6** (Xem chi tiết từng mục bên
-  dưới).
+The `applovin_admob_sdk` package is **approved for production use**. It exhibits an exceptionally high caliber of defensive software engineering, architectural discipline, lifecycle robustness, and regulatory compliance. Across all seven audited subsystems, edge cases—including race conditions, stale callbacks, clock tampering, network degradation, and cross-provider privacy propagation—are thoroughly guarded and hardened.
 
-### **ĐIỂM ĐÁNH GIÁ TỔNG THỂ: 9.8 / 10**
-**Khuyến nghị đưa vào Production:** **SẴN SÀNG (PRODUCTION READY)**.
-
-> **Ghi chú xác minh chéo của phiên Claude điều phối:** `codex exec`'s độc
-> lập chạy song song trên cùng bản copy đã tìm ra 1 MAJOR mà `agy` bỏ lỡ ở
-> đây — GPP multi-section priority-order có thể bỏ sót tín hiệu opt-out thật
-> (xem `audit_codex.md` mục R40-02, và `audit_round40_consolidated.md`).
-> `agy`'s "0 MAJOR mới" claim ở tiêu chí 6 dưới đây, vì vậy, **không được
-> chấp nhận nguyên văn** — giữ lại báo cáo gốc của `agy` không sửa, nhưng
-> điểm tổng kết ở file consolidated phản ánh finding thật đó. Đây đúng bài
-> học "self/single-review điểm cao vẫn có thể miss cái reviewer khác bắt
-> được" đã ghi trong project memory.
+The few observed limitations (e.g., Android first-install grace reset upon manual local app storage deletion, and multi-device sharing of offline VIP keys) are inherent trade-offs of an **offline-first, zero-backend architecture** rather than software bugs. These constraints are transparently documented and mitigated with multi-layered client-side controls.
 
 ---
 
-## II. Đánh giá chi tiết theo 7 tiêu chí bắt buộc
+## High-Level Subsystem Scorecard
 
-### Tiêu chí 1: Provider adapter (AdMob / AppLovin) trên Android và iOS
-
-**Phạm vi mã nguồn:** `lib/src/adapters/admob_adapter.dart`,
-`lib/src/adapters/applovin_adapter.dart`, `lib/src/adapters/gma_bridge.dart`,
-`lib/src/adapters/applovin_bridge.dart`, `lib/src/adapters/_inline_visibility.dart`.
-
-**Cơ chế hoạt động và xác minh thực tế:**
-- **AdMob Adapter:** Sử dụng GMA Bridge pattern giúp phân tách hoàn toàn
-  giữa logic quản lý vị trí quảng cáo và plugin `google_mobile_ads`
-  (`gma_bridge.dart:18-80`). Toàn bộ tham số cấu hình request (NPA, RDP,
-  Content Rating Max, COPPA/TFUA) được truyền qua per-request extras và
-  RequestConfiguration (`admob_adapter.dart:80-95, 780-840`). Quản lý vòng
-  đời hiển thị Fullscreen độc quyền qua `_inheritFullscreenHold` và
-  `InlineVisibilityOwners` (`admob_adapter.dart:28-56`).
-- **AppLovin MAX Adapter:** Kiểm tra danh tính đối tượng quảng cáo
-  `identical(ad, _appOpenAd/_interstitialAd/_rewardedAd)` tại callbacks
-  (`applovin_adapter.dart:450-520, 890-950, 1420-1490`), triệt tiêu race
-  condition khi nhiều chu kỳ load/show diễn ra gần nhau. Ẩn quảng cáo nội
-  dòng qua native API `autoRefreshEnabled` (`applovin_adapter.dart:31-90`).
-  `_destroyWidgetAdViewWhenDetached` retry có trễ tránh crash platform
-  channel (`applovin_adapter.dart:1120-1180`).
-
-**Findings:**
-- Finding 1.1 (nghi vấn static listener nhầm lẫn sự kiện): **FALSE-POSITIVE**
-  — verify tại `applovin_adapter.dart:495, 912, 1445`, mọi callback đối
-  chiếu qua `identical` + generation/slot state.
-- Finding 1.2 (nghi vấn platform channel type mismatch cho
-  `adaptiveBannerWidth`/`templateType`): **FALSE-POSITIVE** — AdMob chuẩn
-  hoá qua `AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(width.truncate())`
-  (`admob_adapter.dart:620-650`).
-
-### Tiêu chí 2: Khả năng chịu lỗi offline & kết nối mạng
-
-**Phạm vi mã nguồn:** `ad_manager.dart`, `state/ad_retry_policy.dart`,
-`state/backoff.dart`, `vip/vip_manager.dart`.
-
-- Connectivity awareness qua `ConnectionNotifierTools`
-  (`ad_manager.dart:5891-5915`); `VipManager._waitForConnectivity`
-  (`vip_manager.dart:1277-1295`) poll 2 giây (chu kỳ 100ms) trước khi kết
-  luận offline, tránh false-negative lúc khởi động.
-- Reconnect kích hoạt debounce 500ms rồi refill (`_onConnectivityChanged`,
-  `ad_manager.dart:7668-7710`).
-- `AdRetryPolicy` backoff luỹ thừa + jitter, floor tối thiểu 10% base
-  (`ad_retry_policy.dart:45-75`).
-- Watchdog chống treo slot Fullscreen (App Open 90s, Interstitial/Rewarded
-  30-45s); `VipManager.load()` multi-tier retry (2s/10s/45s) khi Keystore
-  tạm khoá (`vip_manager.dart:210-270`).
-
-- Finding 2.1 (nghi vấn request khi offline gây crash/spam log):
-  **FALSE-POSITIVE** — mọi entry point có guard `if (!isConnected) return;`
-  (`ad_manager.dart:5973, 6394, 6610, 7008`), chặn ngay tại Dart layer.
-
-### Tiêu chí 3: Vòng đời và bảo mật bộ nhớ từng ad type
-
-| Loại Ad | Lifecycle | Chống rò rỉ / Policy guard |
-| :--- | :--- | :--- |
-| Banner | RouteAware, TickerMode, VisibilityDetector (`banner_ad_widget.dart:78-146`); tham số `active` cho `IndexedStack`. | Hủy sạch listener + unsubscribe trong `dispose()` (`:443-455`); `_bannerInitCalled` phân biệt "chưa init" vs "đã pause". |
-| MREC | RouteAware + VisibilityDetector (`mrec_ad_widget.dart:49-98`). | Hủy toàn bộ listener/instance trong `dispose()` (`:340-360`). |
-| Native | Mount-driven; AdMob Template / AppLovin `MaxNativeAdView` (`native_ad_widget.dart:18-49`). | `_retryTimer?.cancel()` trong `dispose()` (`:240-254`). |
-| App Open | Auto trigger on resume, debounce+throttle (`ad_manager.dart:2100-2250`). | `umpFormOnScreen` mutex + `AdScreenRouteLogger.isDialogOnTop` (`:2180-2210`). |
-| Interstitial/Rewarded | Quản lý tập trung, cooldown + cap (`ad_manager.dart:6000-6500`). | Callback giải phóng đúng state machine. |
-
-- Finding 3.1 (nghi vấn `IndexedStack` để lộ banner ngầm): **FALSE-POSITIVE**
-  (đã xử lý R39/R39v2) — `active == false` chặn `_initBanner`/`_initMrec`
-  tuyệt đối (`banner_ad_widget.dart:301-310`, `mrec_ad_widget.dart:100-120`).
-
-### Tiêu chí 4: Trial mode 1 ngày
-
-- iOS: cờ Keychain `ad_sdk_first_install_granted_v1` với
-  `KeychainAccessibility.first_unlock` (`_first_install_guard.dart:98-106,
-  198-204`) — sống sót qua reinstall, chặn farm.
-- Android: dựa Android Auto Backup phục hồi `isFirstInstallGraceApplied`.
-- Write-order: Keychain ghi trước SharedPreferences
-  (`_first_install_guard.dart:177-186`) để an toàn khi force-kill giữa
-  chừng.
-- **Finding 4.1 (Accepted Architectural Limitation):** tắt Auto Backup +
-  gỡ cài Android → nhận lại trial. Đã xác nhận R31/R39, chấp nhận vì SDK
-  không backend.
-
-### Tiêu chí 5: Kích hoạt VIP bằng mã (Ed25519 offline)
-
-- `AVP1`/`AVP2` wire format, Ed25519, domain separation CRL1 cho revocation
-  (`signed_vip_key.dart:86-125`).
-- `RedeemedKeyLedger._writeChain` static, tuần tự hoá qua mọi instance
-  `VipManager` (`_redeemed_key_ledger.dart:69-116`).
-- `VipEntriesStore` mã hoá Keystore/Keychain; fallback plaintext bị đánh dấu
-  `lastReadWasUntrustedFallback` và kẹp trần 24h
-  (`_vip_entries_store.dart:80-100`, `vip_manager.dart:820-850`).
-- Anti-rollback: `_effectiveNow()` kết hợp `DateTime.now()` +
-  monotonic `Stopwatch` + high-water mark (`vip_manager.dart:365-381`).
-- **Finding 5.1 (Accepted Architectural Limitation):** một mã hợp lệ có thể
-  dùng trên nhiều thiết bị (không server trung tâm). Đã document, chấp
-  nhận.
-
-### Tiêu chí 6: Consent toàn cầu (GDPR/UMP, GPP, US Privacy, TCF)
-
-- iOS/Android đọc đúng store UMP ghi (`iab_storage.dart:19-30`, tránh lỗi
-  prefix `flutter.` và file sai).
-- TCF Purpose 1/3/4 quyết định personalization; GPP US National + California
-  + 19 bang được decode bit-packed (`iab_storage.dart:48-83, 200-380`).
-- `ConsentManager._persist()` serialize qua `Completer`-based lock (R39 fix,
-  `consent_manager.dart:95-120`).
-- `umpFormOnScreen` reference-counted mutex + backstop 15 phút
-  (`ump_consent.dart:38-55`), timeout điền form nới lên 180s.
-- Finding 6.1 (nghi vấn COPPA re-init race làm mất đồng bộ AdMob/AppLovin):
-  **FALSE-POSITIVE** (đã xử lý R39/R39v2) — toàn bộ khối COPPA re-init nằm
-  trong epoch check (`ad_manager.dart:3960-3990`).
-
-*(Xem ghi chú xác minh chéo ở đầu file — tiêu chí này có 1 MAJOR thật mà báo
-cáo gốc của `agy` không phát hiện: GPP "first-non-null-wins" priority order
-bỏ sót opt-out thật ở section ưu tiên thấp hơn. Xem `audit_codex.md` R40-02.)*
-
-### Tiêu chí 7: Tuân thủ chính sách chung
-
-- COPPA: AdMob dùng
-  `RequestConfigurationTagForChildDirectedTreatment.yes`/`TagForUnderAgeOfConsent.yes`
-  (`admob_adapter.dart:800-830`); AppLovin MAX 4.x hardstop khi
-  `isAgeRestrictedUser: true` (thiếu runtime child-directed API).
-- Gating trước request nghiêm ngặt: `isInitialised && !isVIPMember &&
-  consentGranted && isConnected` (`ad_manager.dart:5880-5920`).
-- ATT phối hợp với `markUmpFormOnScreen()` tránh chồng dialog
-  (`att_consent.dart:20-60`).
-- CTR counter tách Fullscreen khỏi Banner/MREC (`ad_manager.dart:4500-4580`).
+| # | Subsystem | Status | Risk Level | Key Strengths / Observations |
+|---|---|---|---|---|
+| 1 | **Cross-Platform Abstraction** | PASS | Low | Clean unified adapter contract behind `AdProviderAdapter`. Fully abstracts AdMob (GMA) and AppLovin MAX across iOS and Android with zero platform channel leaks. |
+| 2 | **Offline / No-Network Behavior** | PASS | Low | Bounded async timeouts (20s UMP update, 20s init, 30s load watchdogs). Safe fail-closed / fail-soft behaviors. Automatic reconnection recovery via `ConnectionNotifierTools`. |
+| 3 | **Ad Type Lifecycle & Memory** | PASS | Low | Strict state machine (`AdSlot`) transitions. Dedicated watchdogs for unconfirmed shows. Inline ads blanked/paused during fullscreen shows. Zero BuildContext leaks in `AdLoadingDialog`. |
+| 4 | **Trial Mode (1-Day Grace)** | PASS | Low / Accepted Trade-off | Dual-clock verification (`_isLive` checks high-water mark for expiry and raw clock for start). iOS Keychain anti-reinstall persistence. Android uses SharedPreferences + Auto Backup. |
+| 5 | **VIP Activation (Serverless)** | PASS | Low / Accepted Trade-off | Ed25519 asymmetric cryptography. AVP2 format enforces app bundle ID binding and absolute expiration timestamps. Durable per-device replay prevention via Keychain ledger. |
+| 6 | **Consent & Privacy (GDPR/CCPA/COPPA)** | PASS | Low | Reads TCF v2.2, CCPA (US Privacy), and GPP (MSPA Section 7) strings directly from platform default storage via `SharedPreferencesAsync`. Correctly maps flags to AdMob (RDP, NPA, COPPA, TFUA) and AppLovin MAX. |
+| 7 | **AdMob / AppLovin Policy Compliance** | PASS | Low | Enforces strict reward completion semantics (`RewardResult.earned`), mandatory Rewarded Interstitial announcements, fullscreen mutex blocking overlays on CMPs, and ad density caps. |
 
 ---
 
-## III. Kết luận và hướng dẫn dành cho nhà phát triển
+## In-Depth Subsystem Audits
 
-1. Chất lượng mã nguồn `v2.9.19` đạt tiêu chuẩn cao về quản lý tài nguyên,
-   an toàn đa luồng/bất đồng bộ và tuân thủ chính sách quảng cáo trên cả
-   Android và iOS.
-2. Đối với `IndexedStack` Bottom Navigation: bọc tab bằng
-   `Visibility(maintainState: true)` hoặc truyền `active: currentIndex ==
-   tabIndex` vào `BannerAdWidget`/`MrecAdWidget`.
-3. Đối với VIP Code không server: nếu thương mại hoá với giá trị quy đổi
-   cao, cân nhắc bổ sung server xác thực trung tâm chống chia sẻ mã; cho
-   mục đích khuyến mãi nội bộ, Ed25519 hiện tại đủ an toàn trước giả mạo.
+### 1. Cross-Platform Provider Abstraction (AdMob + AppLovin on Android & iOS)
 
-**ĐÁNH GIÁ CUỐI CÙNG CỦA `agy`: CODE SẴN SÀNG CHO PRODUCTION 100% (APPROVED
-FOR PRODUCTION).** — *lưu ý: điểm số và verdict "0 MAJOR mới" ở trên là kết
-luận riêng của `agy`, không phải kết luận cuối của phiên audit round 40; xem
-`audit_round40_consolidated.md` cho verdict đã hợp nhất cả 3 nguồn.*
+#### Architectural Design
+The SDK achieves full provider independence through the [`AdProviderAdapter`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/ad_provider_adapter.dart#L149-L432) interface. The orchestrator [`AdManager`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/ad_manager.dart) holds no direct references to Google Mobile Ads or AppLovin MAX plugins; all operations are routed through either [`AdMobAdapter`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/adapters/admob_adapter.dart) or [`AppLovinAdapter`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/adapters/applovin_adapter.dart).
+
+```
+                      ┌────────────────────────┐
+                      │       AdManager        │
+                      └───────────┬────────────┘
+                                  │
+                                  ▼
+                      ┌────────────────────────┐
+                      │   AdProviderAdapter    │
+                      └─────┬────────────┬─────┘
+                            │            │
+             ┌──────────────┘            └──────────────┐
+             ▼                                          ▼
+   ┌───────────────────┐                      ┌───────────────────┐
+   │   AdMobAdapter    │                      │  AppLovinAdapter  │
+   │   (GmaBridge)     │                      │ (AppLovinBridge)  │
+   └─────────┬─────────┘                      └─────────┬─────────┘
+             │                                          │
+    ┌────────┴────────┐                        ┌────────┴────────┐
+    ▼                 ▼                        ▼                 ▼
+ Android             iOS                    Android             iOS
+```
+
+#### Verification Highlights:
+- **Platform-Specific Ad Unit IDs**: Both [`AdMobConfig`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/config/ad_config.dart#L154-L215) and [`AppLovinConfig`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/config/ad_config.dart#L312-L379) cleanly resolve Android vs. iOS IDs dynamically using `Platform.isIOS` without leaking OS-specific logic to the caller.
+- **Provider Parity**:
+  - **App Open**: Uses `AppOpenAd` (AdMob) vs. `AppLovinMAX.loadAppOpenAd` / `showAppOpenAd`.
+  - **Interstitial**: Uses `InterstitialAd` (AdMob) vs. `AppLovinMAX.loadInterstitial` / `showInterstitial`.
+  - **Rewarded**: Uses `RewardedAd` (AdMob) vs. `AppLovinMAX.loadRewardedAd` / `showRewardedAd` with Server-Side Verification (SSV) passthrough (`ServerSideVerificationOptions` for AdMob, `customData` for AppLovin).
+  - **Rewarded Interstitial**: Native to Google Mobile Ads. Handled as a documented no-op in `AppLovinAdapter` without throwing or stalling callers.
+  - **Banner & MREC**: AdMob mounts native platform views via `AdWidget`; AppLovin utilizes `MaxAdView` initialized via `preloadWidgetAdView(adUnitId, adFormat)` with individual instance tracking.
+  - **Native Ads**: AdMob uses `NativeAd` with standard `NativeTemplateStyle` (`TemplateType.medium` / `TemplateType.small`); AppLovin uses `MaxNativeAdView`.
+- **Test Devices**: AdMob registers hashed device IDs with `updateRequestConfiguration(testDeviceIds)`. AppLovin registers GAID/IDFA via `setTestDeviceAdvertisingIds` strictly **before** `_bridge.initialize()` (satisfying the native AppLovin MAX SDK init-time configuration requirement).
+
+---
+
+### 2. Offline / No-Network Behavior
+
+#### Resilience & Failure Modes:
+- **Init Time Offline**:
+  - `AdBootstrap.bootstrap()` wraps the initial setup with an `initTimeout` (default 20s).
+  - `requestUmpConsentFlow()` wraps `ConsentInformation.instance.requestConsentInfoUpdate()` with a 20s timeout. If no network is available, it completes immediately or on timeout, setting `canRequestAds = false` (or returning cached status) without crashing.
+  - If UMP fails due to no network, `_umpAttemptFailed` is flagged.
+- **Reconnection Self-Healing**:
+  - `AdManager` subscribes to `ConnectionNotifierTools.onStatusChange` via `_connectivitySub`.
+  - When transitioning from offline to online (`_onConnectivityChanged`), a debounced timer (`_reconnectDebounce`) re-triggers UMP consent if previous attempts failed, and automatically refills all empty ad slots (`loadAppOpenAd`, `loadInterstitial`, `loadRewardedAd`, and refreshes mounted `BannerAdWidget`/`MrecAdWidget`/`NativeAdWidget`).
+- **Mid-Load Disconnection**:
+  - AdMob and AppLovin failure callbacks (`onAdFailedToLoad`, `onAdLoadFailedCallback`) trigger `slot.markFailed()` which engages exponential backoff (`AdRetryPolicy`).
+  - To protect against hanging native platform channels, every load is guarded by `armLoadWatchdog(duration: 30s)` which forces the slot out of `loading` state if the platform bridge drops the callback.
+- **Mid-Show Disconnection**:
+  - If a cached video ad fails to stream/display when presented, native callbacks `onFailedToShow` (AdMob) or `onAdDisplayFailedCallback` (AppLovin) immediately trigger `slot.markShowFailed()`, unlock `_fullscreenBusyReason` and `_rewardedInFlight`, and safely call `onDone(RewardResult.skipped)` / `onDone(false)`.
+  - Both adapters wrap `ad.show()` in `try / catch` blocks to ensure unhandled platform exceptions never wedge the SDK mutex.
+
+---
+
+### 3. Ad Type Lifecycle Correctness & Memory Integrity
+
+#### State Machine & Mutex Architecture
+All ad formats utilize the reactive [`AdSlot`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/state/ad_slot.dart) state machine:
+
+```
+                  ┌──────────────┐
+                  │     Idle     │
+                  └──────┬───────┘
+                         │ beginLoad()
+                         ▼
+                  ┌──────────────┐   markFailed()    ┌──────────────┐
+                  │   Loading    ├──────────────────►│   Cooldown   │
+                  └──────┬───────┘                   └──────┬───────┘
+                         │ markReady()                      │ (retry timer)
+                         ▼                                  │
+                  ┌──────────────┐                          │
+                  │    Ready     │                          │
+                  └──────┬───────┘                          │
+                         │ beginShow()                      │
+                         ▼                                  │
+                  ┌──────────────┐                          │
+                  │   Showing    │                          │
+                  └──────┬───────┘                          │
+                         │ markDismissed() / markShowFailed()
+                         ▼                                  │
+                  ┌──────────────┐                          │
+                  │  Dismissed   │◄─────────────────────────┘
+                  └──────────────┘
+```
+
+#### Lifecycle & Resource Verification:
+1. **Multi-Instance Inline Tracking**:
+   - Both `BannerAdWidget`, `MrecAdWidget`, and `NativeAdWidget` register independent slot states keyed by widget instance (`_bannerRegistry`, `_mrecRegistry`, `_nativeRegistry`).
+   - When a widget unmounts (e.g., scrolled out of a `ListView`), its `State.dispose()` invokes `disposeBannerInstance(this)`, `disposeMrecInstance(this)`, or `disposeNativeInstance(this)`, cleanly destroying native `BannerAd` / `NativeAd` objects and freeing `AdViewId`s on AppLovin MAX.
+2. **Rewarded Ads Completion Integrity**:
+   - In [`AdMobAdapter.showRewarded`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/adapters/admob_adapter.dart#L1460-L1650), `earned` is set to `true` **only** upon execution of the native `onUserEarnedReward` callback. Early closure via `onDismissed` yields `earned: false`.
+   - In [`AppLovinAdapter.showRewarded`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/adapters/applovin_adapter.dart#L1960-L2025), `earned` is set to `true` **only** upon `onAdReceivedRewardCallback`. Early dismissal via `onAdHiddenCallback` reports `earned: false`.
+   - The impression signal (`shown: true`) is strictly decoupled from `earned: true` through `AdSlot.displayConfirmed`.
+3. **UI & BuildContext Safety**:
+   - [`AdLoadingDialog`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/widget/ad_loading_dialog.dart) pushes a custom `DialogRoute` and dismisses it strictly by route instance identity (`nav.removeRoute(route)`), preventing popping arbitrary user routes if a route change occurs while an ad buffer is active.
+   - An invalidation epoch (`AsyncEpoch`) cancels pending delay timers upon reset.
+
+---
+
+### 4. Trial Mode (1-Day First-Install VIP Grace)
+
+#### Security & Clock Tampering Analysis
+The 1-day grace period is implemented in [`AdConfig.firstInstallVipGrace`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/config/ad_config.dart#L405) and managed by [`VipManager`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/vip/vip_manager.dart).
+
+1. **Clock Rollback Defenses**:
+   - `VipManager._effectiveNow()` maintains a persistent high-water mark timestamp on disk (`_prefs.getVipMaxObservedClockMs()`). If the system clock is set back, `_effectiveNow()` returns the highest observed timestamp, preventing expired trials from returning to active status.
+   - Forward clock jumping is guarded by in-session monotonic anchoring (`_sessionClockStopwatch`).
+   - `_isLive(e, now)` requires that an entry is valid against **both** the high-water mark (expiry check) and the real raw device clock (start check: `!DateTime.now().add(futureGrantSlack).isBefore(e.grantedAt)`). This defeats the "set clock 5 years ahead -> claim -> set clock back" exploit.
+2. **Reinstallation & Storage Clearing**:
+   - **iOS**: Uses `FlutterSecureStorage` with `KeychainAccessibility.first_unlock` (`_first_install_guard.dart`). Keychain items persist across app uninstallation and reinstallation, preventing repeated trial claiming.
+   - **Android**: As documented in `_first_install_guard.dart:27-88`, client-only Android apps cannot persist identifiers across app uninstalls without root or backend device attestation. The SDK leverages Android Auto Backup (`FlutterSharedPreferences.xml`). A manual storage wipe in Android Settings resets the grace period. This is an **explicit, documented product trade-off**.
+
+---
+
+### 5. VIP Activation by Offline Code (No Backend / Server)
+
+#### Cryptographic Architecture
+VIP code redemption is implemented in [`SignedVipKey`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/vip/signed_vip_key.dart).
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │                        AVP2 Code                            │
+   │  "AVP2.<base64url(payload)>.<base64url(ed25519_signature)>"  │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │                      Signed Payload                         │
+   │    "<seconds>|<keyId>|<expiresAtEpochSeconds>|<bundleId>"    │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+         ┌────────────────────────┴────────────────────────┐
+         ▼                                                 ▼
+   1. Ed25519 Verify                              2. Context Checks
+   (via Developer Public Key)                     - currentBundleId match
+                                                  - now <= expiresAtEpochSeconds
+                                                  - keyId not in RedeemedKeyLedger
+```
+
+#### Verification & Threat Assessment:
+- **Forgery Resistance**: Uses Ed25519 asymmetric cryptography. The private minting key is never packaged in the mobile app (minted offline via `tool/vip_mint.dart`). Decompiling the APK/IPA reveals only the verification public key (`AdConfig.vipPublicKey`), which mathematically cannot be used to generate valid signatures.
+- **Replay & Sharing Protections**:
+  - **Local Device Replay**: Blocked by [`RedeemedKeyLedger`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/vip/_redeemed_key_ledger.dart) (persisted to iOS Keychain / Android SharedPreferences).
+  - **Cross-App Replay**: AVP2 embeds `bundleId` inside the signed payload; mismatched bundle IDs are rejected.
+  - **Time-Bounded Validity**: AVP2 embeds `expiresAtEpochSeconds`, limiting the window in which a leaked code can be activated.
+  - **Revocation Support**: Supports signed Certificate Revocation Lists ([`VipRevocationProvider`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/vip/vip_revocation_provider.dart) / `verifySignedCrl`).
+  - **Cross-Device Sharing**: Because there is no backend server, an unexpired code can be redeemed on multiple physical devices. This is an accepted constraint of zero-server architecture.
+
+---
+
+### 6. Consent Management & Privacy Compliance (GDPR, CCPA, GPP, COPPA, ATT)
+
+#### Implementation Review
+Consent is managed across [`IabStorage`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/iab_storage.dart), [`UmpConsent`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/ump_consent.dart), [`AdConsent`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/ad_consent.dart), and [`AttConsent`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/att_consent.dart).
+
+1. **Storage Extraction**:
+   - `IabStorage` accurately resolves platform-native preference storage: on Android, it reads the default `<packageName>_preferences` file via `SharedPreferencesAsyncAndroidOptions`; on iOS, it reads `UserDefaults` without prefixes.
+   - Extracts `IABTCF_TCString`, `IABTCF_gdprApplies`, `IABTCF_PurposeConsents`, `IABUSPrivacy_String` (CCPA), `IABGPP_HDR_GppString`, and `IABGPP_7_String` (GPP Section 7 US National).
+2. **Provider Propagation**:
+   - **GDPR / EEA**: AdMob receives per-request `nonPersonalizedAds: !hasUserConsent` (`npa=1`). AppLovin MAX receives `AppLovinMAX.setHasUserConsent(bool)` and automatically reads TCF strings natively from platform storage.
+   - **CCPA / US Privacy**: AdMob receives `AdRequest.extras: {'rdp': '1'}` (Restricted Data Processing). AppLovin MAX receives `AppLovinMAX.setDoNotSell(bool)`.
+   - **COPPA / TFUA**: AdMob sets `tagForChildDirectedTreatment: yes/no` and `tagForUnderAgeOfConsent: yes/unspecified`. AppLovin MAX 4.x has no COPPA runtime API; `AppLovinAdapter.initialize` aborts and hard-disables all AppLovin ads if `isAgeRestrictedUser` is true (fails closed safely).
+   - **Consent Withdrawal**: Mid-session consent withdrawal triggers `discardCachedFullscreenAds()` in AdMob and `_discardIfConsentStale()` in AppLovin, preventing ads loaded under previous broader consent from being displayed.
+   - **Apple ATT**: `requestAttIfNeeded()` is sequenced before UMP consent during bootstrap, complying with Apple App Store Review Guidelines.
+
+---
+
+### 7. AdMob & AppLovin Policy Compliance & Anti-Fraud
+
+#### Policy Adherence Checklist
+- **Accidental Click & Overlay Protection**:
+  - `InlineAdVisibility`: When any fullscreen ad (App Open, Interstitial, Rewarded) is shown, inline banner and MREC ads are hidden (AdMob) and their auto-refresh is paused (AppLovin MAX), preventing ads displaying under fullscreen dialogs or registering background impressions.
+  - `umpFormOnScreen`, `AdLoadingDialog.isShowing`, `AdScreenRouteLogger.isDialogOnTop`, and `customOverlayOnScreen` all feed `AdManager._fullscreenBusyReason`, preventing App Open ads from firing on top of CMP consent forms, alert dialogs, or onboarding flows.
+- **Rewarded Interstitial Mandate**:
+  - Google AdMob policy strictly mandates an introductory announcement screen with an opt-out choice before showing a Rewarded Interstitial.
+  - `AdScreenState.showRewardedInterstitialAd` includes a built-in Cupertino disclosure dialog enabled by default (`showDisclosure: true`).
+- **Fraud Prevention & Frequency Capping**:
+  - [`AdSafetyConfig`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/ad_safety_config.dart) enforces:
+    - Minimum intervals between fullscreen ads (default 60s).
+    - Session caps (default 6), hourly caps (default 3), daily caps (default 5).
+    - Per-placement daily caps (`PlacementRegistry`).
+    - High CTR fraud threshold detection (`suspiciousCtrThreshold`, default 30% fullscreen CTR) and click-per-minute limits (default 3 clicks/min).
+
+---
+
+## Example App & Test Suite Review
+
+- **Example App (`packages/ad_sdk/example/lib/main.dart`)**:
+  - 4,986 lines providing comprehensive interactive test harnesses for Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial, App Open, VIP code redemption, Consent simulation, Compliance reports, and Diagnostics.
+  - Accurately demonstrates the recommended bootstrap sequence: `requestAtt()` -> `requestUmpConsent()` -> `AdManager().initialize()`.
+- **Test Suite (`packages/ad_sdk/test/`)**:
+  - Over 130 comprehensive unit and integration test files covering adapter contracts, race conditions, stale callback quarantine, crash guard recovery, and edge-case clock tampering.
+
+---
+
+## Detailed Findings Table
+
+| ID | Severity | Category | File & Line Citation | Description & Failure Scenario | Recommendation / Mitigation |
+|---|---|---|---|---|---|
+| **F-01** | **MINOR** | Functional / Mixed Audience | [`applovin_adapter.dart:733-743`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/adapters/applovin_adapter.dart#L733-L743) | **AppLovin complete session disable for COPPA child users.** When `isAgeRestrictedUser == true`, AppLovin MAX 4.x has no COPPA tagging API. The adapter aborts initialization and hard-disables all AppLovin ad surfaces for the entire session. In a mixed-audience app configured with `AdProvider.appLovin`, child users receive 0% ad fill. | Document that mixed-audience apps requiring COPPA compliance should select `AdProvider.admob`. |
+| **F-02** | **MINOR** | VIP / Security | [`_first_install_guard.dart:149-156`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/vip/_first_install_guard.dart#L149-L156) | **Android First-Install Grace Reset on App Storage Clearing.** Android anti-reinstall relies on Auto Backup restoring `FlutterSharedPreferences.xml`. If a user manually clears app data in Android OS Settings or reinstalls without cloud sync, the 24h grace resets. | Accepted client-side trade-off. Host apps requiring server-level trial locking should implement backend authentication. |
+| **F-03** | **MINOR** | VIP / Cryptography | [`signed_vip_key.dart:118-121`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/vip/signed_vip_key.dart#L118-L121) | **Cross-Device VIP Code Replay.** Offline Ed25519 verification prevents single-device reuse via local ledger, but cannot prevent sharing a valid unexpired code across multiple physical devices without a central database. | Use AVP2 codes with short `expiresAtEpochSeconds` and distribute signed CRLs via `VipRevocationProvider` if code leaking is detected. |
+| **F-04** | **NIT** | Compliance / Operational | [`ad_consent.dart:162-170`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/core/ad_consent.dart#L162-L170) | **Mid-Session COPPA Update on AppLovin.** If consent changes to `isAgeRestrictedUser: true` mid-session after AppLovin initialized, AppLovin cannot apply child-directed flags dynamically. | Host apps updating child status mid-session should call `AdManager.destroy()` followed by re-initialization. |
+| **F-05** | **NIT** | UX / Buffer Dialog | [`ad_loading_dialog.dart:82-93`](file:///Users/LoiTP/.claude/jobs/a04f6215/tmp/audit44_gemini/packages/ad_sdk/lib/src/widget/ad_loading_dialog.dart#L82-L93) | **Modal Buffer Blocking UI.** `AdLoadingDialog.showAdBuffer` renders a modal DialogRoute during `loadingBufferMs` (default 1000ms). | Ensure `loadingBufferMs` is kept reasonable (500–1000ms) to avoid perceived UI freezes. |
+
+---
+
+## Final Recommendation & Integration Checklist for Host Apps
+
+To adopt `applovin_admob_sdk` (v2.9.23) into a production app, verify the following configuration:
+
+1. **Android Manifest (`AndroidManifest.xml`)**:
+   - Ensure Google AdMob Application ID metadata is registered:
+     ```xml
+     <meta-data
+         android:name="com.google.android.gms.ads.APPLICATION_ID"
+         android:value="ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"/>
+     ```
+   - If using AppLovin MAX, configure AppLovin SDK key and ensure `android:allowBackup="true"` is set.
+2. **iOS Info.plist (`ios/Runner/Info.plist`)**:
+   - Configure `GADApplicationIdentifier` and SKAdNetwork identifier list (`SKAdNetworkItems`).
+   - Configure `NSUserTrackingUsageDescription` for Apple ATT prompt.
+3. **App Bootstrap**:
+   - Utilize `bootstrap(AdBootstrapOptions(...))` or `AdReadinessSplashController` in your splash screen for optimal ATT -> UMP -> AdManager sequencing.
