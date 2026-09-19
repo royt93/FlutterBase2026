@@ -4758,6 +4758,21 @@ class AdManager with WidgetsBindingObserver {
     // toggle, CCPA switch) is newer than any consent apply still in flight, so
     // it invalidates it. `_inConsentApply` keeps an apply from invalidating
     // itself through its own write.
+    //
+    // Round-48 audit (NIT, latent, not currently exploitable) — this block
+    // runs regardless of [qualifiesAsConsentFlow], unlike
+    // `_consentExplicitlySet`/`_footgunBlocked` below. Today the only
+    // `qualifiesAsConsentFlow: false` caller (`setDoNotSell`'s pre-init
+    // routing) only ever runs before `_consentManager` exists, and this
+    // epoch/`_pendingConsentApply` machinery only ever matters once a real
+    // post-init UMP apply is in flight — so the two structurally never
+    // overlap today, verified by reading every call site. If that ever
+    // changes (a future non-qualifying caller reachable post-init, or
+    // `setDoNotSell`'s pre-init-only guard loosened), this would silently
+    // invalidate a genuine in-flight consent apply on the strength of a
+    // call that isn't itself a full consent decision — the same shape of
+    // bug as R46-01/R46-02. Re-check this comment's premise before adding
+    // any new `qualifiesAsConsentFlow: false` call site.
     if (Zone.current[_consentApplyZoneKey] != true) {
       _consentIntentEpoch++;
       _pendingConsentApply = null;
