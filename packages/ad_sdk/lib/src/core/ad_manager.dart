@@ -281,33 +281,41 @@ class AdManager with WidgetsBindingObserver {
   /// before this. Calling this method standalone — without having run
   /// `AdSafetyConfig.init()` first — will NOT warn about a release build with
   /// `dryRun: true`; it only covers the checks below (Google test ad unit IDs).
+  /// Round-45 audit fix (R45-04) — extracted so the release-only hard
+  /// block below ([_applyTestIdFootgunGuard]) can check the exact same
+  /// condition [releaseFootgunWarnings] warns about, without duplicating
+  /// the id list. Pure + static, same testability reasoning as
+  /// [releaseFootgunWarnings] itself.
+  @visibleForTesting
+  static bool usesGoogleTestAdUnitIds(AdConfig config) {
+    if (config.provider != AdProvider.admob) return false;
+    const googleTestPrefix = 'ca-app-pub-3940256099942544';
+    final m = config.admob;
+    // Audit round 42, MINOR (codex) — rewardedInterstitial/mrec/native
+    // were never checked here, so a release build shipping a leftover
+    // Google test id on one of these three specific slots got no
+    // warning, unlike the identical mistake on the four formats below.
+    return m != null &&
+        (m.bannerId.contains(googleTestPrefix) ||
+            m.interstitialId.contains(googleTestPrefix) ||
+            m.appOpenId.contains(googleTestPrefix) ||
+            m.rewardedId.contains(googleTestPrefix) ||
+            m.rewardedInterstitialId.contains(googleTestPrefix) ||
+            m.mrecId.contains(googleTestPrefix) ||
+            m.nativeId.contains(googleTestPrefix));
+  }
+
   @visibleForTesting
   static List<String> releaseFootgunWarnings(AdConfig config,
       {required bool isDebug}) {
     if (isDebug) return const [];
     final warnings = <String>[];
     // Google public TEST unit IDs must never serve in production AdMob.
-    if (config.provider == AdProvider.admob) {
-      const googleTestPrefix = 'ca-app-pub-3940256099942544';
-      final m = config.admob;
-      // Audit round 42, MINOR (codex) — rewardedInterstitial/mrec/native
-      // were never checked here, so a release build shipping a leftover
-      // Google test id on one of these three specific slots got no
-      // warning, unlike the identical mistake on the four formats below.
-      final usesTestId = m != null &&
-          (m.bannerId.contains(googleTestPrefix) ||
-              m.interstitialId.contains(googleTestPrefix) ||
-              m.appOpenId.contains(googleTestPrefix) ||
-              m.rewardedId.contains(googleTestPrefix) ||
-              m.rewardedInterstitialId.contains(googleTestPrefix) ||
-              m.mrecId.contains(googleTestPrefix) ||
-              m.nativeId.contains(googleTestPrefix));
-      if (usesTestId) {
-        warnings.add('🚨 AdMob provider is active in RELEASE with Google TEST '
-            'ad unit IDs (ca-app-pub-3940256099942544/…). Serving test ads in '
-            'production violates AdMob policy and earns \$0. Replace with '
-            'production unit IDs before shipping.');
-      }
+    if (usesGoogleTestAdUnitIds(config)) {
+      warnings.add('🚨 AdMob provider is active in RELEASE with Google TEST '
+          'ad unit IDs (ca-app-pub-3940256099942544/…). Serving test ads in '
+          'production violates AdMob policy and earns \$0. Replace with '
+          'production unit IDs before shipping.');
     }
     // T17: a disabled first-install grace is a silent trial removal — warn
     // loudly so a partner doesn't accidentally ship with no ad-free trial.
@@ -853,8 +861,8 @@ class AdManager with WidgetsBindingObserver {
   /// Opt in to the revenue integrity ledger: starts watching [events] for
   /// successful shows without a timely matching revenue event.
   void enableRevenueIntegrityLedger(RevenueIntegrityLedger ledger) {
-    _revenueIntegrityLedger = _swapDisposable(
-        _revenueIntegrityLedger, ledger, (l) => l.dispose());
+    _revenueIntegrityLedger =
+        _swapDisposable(_revenueIntegrityLedger, ledger, (l) => l.dispose());
   }
 
   /// Test/host seam: clear a previously-registered revenue integrity ledger.
@@ -907,8 +915,8 @@ class AdManager with WidgetsBindingObserver {
   /// for why this is a purely CURRENT-provider reliability signal, not
   /// [WaterfallTuner]'s cross-provider quality comparison.
   void enableProviderFailoverAdvisor(ProviderFailoverAdvisor advisor) {
-    _providerFailoverAdvisor = _swapDisposable(
-        _providerFailoverAdvisor, advisor, (a) => a.dispose());
+    _providerFailoverAdvisor =
+        _swapDisposable(_providerFailoverAdvisor, advisor, (a) => a.dispose());
   }
 
   /// Test/host seam: clear a previously-registered failover advisor.
@@ -1294,8 +1302,8 @@ class AdManager with WidgetsBindingObserver {
       ),
       await _selfCheckLoad('Interstitial load', AdSlotType.interstitial,
           loadInterstitial, loadTimeout, _adapter!.interstitialSlot),
-      await _selfCheckLoad('Rewarded load', AdSlotType.rewarded,
-          loadRewardedAd, loadTimeout, _adapter!.rewardedSlot),
+      await _selfCheckLoad('Rewarded load', AdSlotType.rewarded, loadRewardedAd,
+          loadTimeout, _adapter!.rewardedSlot),
       await _selfCheckLoad('App Open load', AdSlotType.appOpen,
           () => loadAppOpenAd(), loadTimeout, _adapter!.appOpenSlot),
       SelfCheckItem('VIP manager wired',
@@ -2358,6 +2366,29 @@ class AdManager with WidgetsBindingObserver {
   void debugApplyConsentFootgunGuard(bool isRelease) =>
       _applyConsentFootgunGuard(isRelease);
 
+  /// Round-45 audit fix (R45-04) — same reasoning and same mechanism as
+  /// [_applyConsentFootgunGuard], for a different footgun: shipping Google's
+  /// public TEST ad unit IDs in a real release build used to only log a
+  /// warning and `assert(false, …)`, which is stripped out of release
+  /// builds entirely — so the one build that actually needs blocking was
+  /// exactly the one where nothing happened. This makes it release-blocking
+  /// like every other footgun guard: `canRequestAds` stays false for the
+  /// rest of the process, so the app still runs, it just never serves the
+  /// $0-earning, policy-violating test inventory.
+  void _applyTestIdFootgunGuard(bool isRelease, AdConfig config) {
+    if (isActuallyRelease(isRelease) && usesGoogleTestAdUnitIds(config)) {
+      _footgunBlocked = true;
+    }
+  }
+
+  /// Test seam for [_applyTestIdFootgunGuard] — see its doc comment; a real
+  /// [initialize] call never completes under `flutter test` (no native
+  /// adapter), so this branch is otherwise unreachable by any test despite
+  /// `isRelease` being threaded to it.
+  @visibleForTesting
+  void debugApplyTestIdFootgunGuard(bool isRelease, AdConfig config) =>
+      _applyTestIdFootgunGuard(isRelease, config);
+
   /// Whether [requestUmpConsent] has ever run this process — used to detect the
   /// "no consent form anywhere" footgun at [initialize] time (AppLovin CMP off +
   /// UMP never run). Runtime state, so it doesn't false-alarm hosts that gather
@@ -3195,6 +3226,12 @@ class AdManager with WidgetsBindingObserver {
         SafeLogger.e(_tag, w);
         assert(false, w);
       }
+      // Round-45 audit fix (R45-04) — the loop above is warning-only (its
+      // `assert` is stripped from release builds, the one build this
+      // actually needs to stop). Google's public TEST ad unit IDs earn $0
+      // and violate AdMob policy, so unlike the other release footguns this
+      // one gets a real release-blocking guard, not just a louder log line.
+      _applyTestIdFootgunGuard(isRelease, config);
 
       // Resolve device GAID FIRST — VIP migration + first-init both need it
       // to preserve 1.x's per-device matching semantic (a `vipDeviceGaids`
@@ -4943,7 +4980,8 @@ class AdManager with WidgetsBindingObserver {
   /// falls back to [_consent] — kept in sync by [setDoNotSell]'s pre-init
   /// branch above — only while there is no manager yet, so a value set
   /// before [initialize] now reads back correctly instead of always `false`.
-  bool get doNotSell => _consentManager?.current.doNotSell ?? _consent.doNotSell;
+  bool get doNotSell =>
+      _consentManager?.current.doNotSell ?? _consent.doNotSell;
 
   /// Listener bound to [ConsentManager.listenable]; pushes the latest consent
   /// into the provider adapter so AdMob's per-request `npa` flag tracks every
@@ -7239,8 +7277,8 @@ class AdManager with WidgetsBindingObserver {
     // own default placement, which is what the subsequent successful-resume
     // show call below actually uses.
     final safetyResume = AdSafetyConfig.canShowAppOpenOnResume(
-        minIntervalOverrideMs:
-            _placementMinIntervalOverride(AdPlacement.splash, AdSlotType.appOpen));
+        minIntervalOverrideMs: _placementMinIntervalOverride(
+            AdPlacement.splash, AdSlotType.appOpen));
     if (!safetyResume.canShow) {
       SafeLogger.d(
           _tag,
@@ -7544,8 +7582,8 @@ class AdManager with WidgetsBindingObserver {
     // suspicious-pause window forever on every poll (2026-08-16 audit).
     final s = AdSafetyConfig.canShowFullscreenAdPeek(
         forType: AdSlotType.interstitial,
-        minIntervalOverrideMs: _placementMinIntervalOverride(
-            placement, AdSlotType.interstitial));
+        minIntervalOverrideMs:
+            _placementMinIntervalOverride(placement, AdSlotType.interstitial));
     if (!s.canShow) return false;
     // m18 — `ready` alone is not showable: a cached AdMob ad expires after 1h
     // and showInterstitial() discards it instead of showing it. Reporting
@@ -7988,6 +8026,20 @@ class AdManager with WidgetsBindingObserver {
       _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'adapter_null');
       return;
     }
+    // Round-45 audit fix (R45-03) — AppLovin MAX has no "Rewarded
+    // Interstitial" ad unit type at all (see AppLovinAdapter's documented
+    // no-op above this class). Without this, the slot just silently never
+    // becomes ready — indistinguishable from "not filled yet" to a host
+    // listening for skip events. Emit an explicit, distinguishable reason
+    // instead so a host can disable the placement deterministically rather
+    // than guessing why it never loads on this provider.
+    if (ad is AppLovinAdapter) {
+      SafeLogger.w(_tag,
+          '⏭️ loadRewardedInterstitial skipped — unsupported on AppLovin MAX (no equivalent ad unit type)');
+      _emitSkip(
+          AdSlotType.rewardedInterstitial, 'load', 'unsupported_provider');
+      return;
+    }
     if (_isVipMember) {
       SafeLogger.d(_tag, '⏭️ loadRewardedInterstitial skipped — VIP member');
       _emitSkip(AdSlotType.rewardedInterstitial, 'load', 'vip');
@@ -8034,6 +8086,20 @@ class AdManager with WidgetsBindingObserver {
     if (ad == null) {
       SafeLogger.d(_tag, '⏭️ showRewardedInterstitial skipped — adapter null');
       _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'adapter_null',
+          placement: placement);
+      onDone(false, false);
+      return;
+    }
+    // Round-45 audit fix (R45-03) — see loadRewardedInterstitialAd's
+    // matching guard: AppLovin MAX has no equivalent ad unit type, so a
+    // direct show() call (without going through the load path, or after a
+    // remote kill switch toggle) must also surface an explicit reason
+    // rather than resolving `shown:false, earned:false` indistinguishably
+    // from "loaded but the user dismissed it".
+    if (ad is AppLovinAdapter) {
+      SafeLogger.w(_tag,
+          '⏭️ showRewardedInterstitial skipped — unsupported on AppLovin MAX (no equivalent ad unit type)');
+      _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'unsupported_provider',
           placement: placement);
       onDone(false, false);
       return;

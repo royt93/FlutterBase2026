@@ -38,8 +38,7 @@ class _FakeRemoteSafetyProvider implements RemoteAdSafetyProvider {
   _FakeRemoteSafetyProvider(this._overrides);
   final Map<String, dynamic> _overrides;
   @override
-  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async =>
-      _overrides;
+  Future<Map<String, dynamic>?> fetchSafetyParamOverrides() async => _overrides;
 }
 
 class _ThrowingRemoteSafetyProvider implements RemoteAdSafetyProvider {
@@ -201,7 +200,8 @@ class _FakeAdapter implements AdProviderAdapter {
     rewardedSlot.beginShow();
     rewardedSlot.markDismissed();
     onDone(nextRewardEarned
-        ? const RewardResult(earned: true, shown: true, label: 'coins', amount: 1)
+        ? const RewardResult(
+            earned: true, shown: true, label: 'coins', amount: 1)
         : RewardResult(earned: false, shown: nextRewardDisplayed));
   }
 
@@ -236,7 +236,8 @@ class _FakeAdapter implements AdProviderAdapter {
     rewardedInterstitialSlot.beginShow();
     rewardedInterstitialSlot.markDismissed();
     onDone(nextRewardedInterstitialEarned
-        ? const RewardResult(earned: true, shown: true, label: 'coins', amount: 1)
+        ? const RewardResult(
+            earned: true, shown: true, label: 'coins', amount: 1)
         : RewardResult.skipped);
   }
 
@@ -461,8 +462,7 @@ void main() {
     // were never checked at all, so a release build shipping a leftover
     // Google test id on one of these three specific slots got NO warning,
     // unlike the identical mistake on banner/interstitial/appOpen/rewarded.
-    test('release + AdMob Google test ID on native → warns (round 42 gap)',
-        () {
+    test('release + AdMob Google test ID on native → warns (round 42 gap)', () {
       final w = AdManager.releaseFootgunWarnings(
         const AdConfig(
           provider: AdProvider.admob,
@@ -717,7 +717,8 @@ void main() {
       expect(w, isNull);
     });
 
-    test('age-restricted but no UMP flow will run → no warning (nothing to '
+    test(
+        'age-restricted but no UMP flow will run → no warning (nothing to '
         'mis-tag)', () {
       final w = AdManager.coppaUmpMismatchWarning(
         _admobConfig(dryRun: true, testIds: true),
@@ -733,18 +734,21 @@ void main() {
   // and not release-gated the way this SDK's other real footguns are.
   group('attOrderFootgunWarning (2026-08-19 audit, Finding 7)', () {
     test('iOS + requestAtt() never called → warns', () {
-      final w = AdManager.attOrderFootgunWarning(attRequested: false, isIos: true);
+      final w =
+          AdManager.attOrderFootgunWarning(attRequested: false, isIos: true);
       expect(w, isNotNull);
       expect(w, contains('requestAtt()'));
     });
 
     test('iOS + requestAtt() already called → no warning', () {
-      final w = AdManager.attOrderFootgunWarning(attRequested: true, isIos: true);
+      final w =
+          AdManager.attOrderFootgunWarning(attRequested: true, isIos: true);
       expect(w, isNull);
     });
 
     test('Android → no warning regardless (ATT is iOS-only)', () {
-      final w = AdManager.attOrderFootgunWarning(attRequested: false, isIos: false);
+      final w =
+          AdManager.attOrderFootgunWarning(attRequested: false, isIos: false);
       expect(w, isNull);
     });
   });
@@ -782,7 +786,9 @@ void main() {
 
     test('iOS + ATT already decided (authorized) → do not defer', () {
       final defer = AdManager.shouldDeferGaidFetch(
-          isIos: true, attRequested: false, attStatus: TrackingStatus.authorized);
+          isIos: true,
+          attRequested: false,
+          attStatus: TrackingStatus.authorized);
       expect(defer, isFalse);
     });
 
@@ -1054,6 +1060,71 @@ void main() {
       );
       expect(w, isEmpty);
     });
+
+    // Round-45 audit fix (R45-04) — codex found that the loop above only
+    // logs + `assert(false, w)`, which is stripped from release builds, so
+    // the one build that most needs blocking (a real release shipping
+    // Google's public test ad unit IDs) got no enforcement at all. Verifies
+    // the extracted [AdManager.usesGoogleTestAdUnitIds] pure check, plus
+    // the new release-blocking guard via its `debugApplyTestIdFootgunGuard`
+    // test seam (see [_applyConsentFootgunGuard]'s doc comment for why a
+    // seam is needed: a real `initialize()` never completes under
+    // `flutter test`, so this branch is otherwise unreachable).
+    test(
+        'usesGoogleTestAdUnitIds is true for a release config still on a '
+        'Google test unit id', () {
+      expect(
+        AdManager.usesGoogleTestAdUnitIds(
+            _admobConfig(dryRun: false, testIds: true)),
+        isTrue,
+      );
+    });
+
+    test('usesGoogleTestAdUnitIds is false for well-formed production ids', () {
+      expect(
+        AdManager.usesGoogleTestAdUnitIds(
+            _admobConfig(dryRun: false, testIds: false)),
+        isFalse,
+      );
+    });
+
+    test('usesGoogleTestAdUnitIds is false for a non-AdMob provider', () {
+      expect(
+        AdManager.usesGoogleTestAdUnitIds(const AdConfig(
+          provider: AdProvider.appLovin,
+          appLovin: AppLovinConfig(
+              sdkKey: 'k',
+              bannerId: 'b',
+              interstitialId: 'i',
+              appOpenId: 'a',
+              rewardedId: 'r'),
+        )),
+        isFalse,
+      );
+    });
+
+    test(
+        'R45-04: a release build still on Google test ad unit IDs gets '
+        'canRequestAds hard-blocked, not just a stripped assert', () {
+      AdManager().debugApplyTestIdFootgunGuard(
+          true, _admobConfig(dryRun: false, testIds: true));
+      expect(AdManager().canRequestAds, isFalse);
+    });
+
+    test('R45-04: a release build on production ad unit IDs is not blocked',
+        () {
+      AdManager().debugApplyTestIdFootgunGuard(
+          true, _admobConfig(dryRun: false, testIds: false));
+      expect(AdManager().canRequestAds, isTrue);
+    });
+
+    test(
+        'R45-04: a debug build on test ad unit IDs is not blocked (test '
+        'IDs are expected/normal in debug)', () {
+      AdManager().debugApplyTestIdFootgunGuard(
+          false, _admobConfig(dryRun: false, testIds: true));
+      expect(AdManager().canRequestAds, isTrue);
+    });
   });
 
   group('VIP gating (via injected adapter + VipManager)', () {
@@ -1278,7 +1349,8 @@ void main() {
     // peek used for the *second* tap's pre-check saw `true` and let a second
     // disclosure dialog stack on top of the first — one of the two flows
     // then failed silently later at the real `_fullscreenBusyReason` gate.
-    group('round-37 audit (MAJOR): canShow* peeks also respect '
+    group(
+        'round-37 audit (MAJOR): canShow* peeks also respect '
         'isDialogOnTop, not just AdLoadingDialog', () {
       setUp(() async {
         SharedPreferences.setMockInitialValues({});
@@ -1290,8 +1362,7 @@ void main() {
 
       tearDown(AdScreenRouteLogger.resetState);
 
-      test('canShowInterstitial() is false while a dialog/popup is on top',
-          () {
+      test('canShowInterstitial() is false while a dialog/popup is on top', () {
         adapter.interstitialSlot.beginLoad();
         adapter.interstitialSlot.markReady();
         expect(AdManager().canShowInterstitial(), isTrue,
@@ -1359,7 +1430,8 @@ void main() {
     // Overlay.of(context).insert(...), which AdScreenRouteLogger.
     // isDialogOnTop cannot see) must fold into the exact same fullscreen
     // mutex the round-37 group above already proves for a real PopupRoute.
-    group('T168: canShow* peeks also respect customOverlayOnScreen '
+    group(
+        'T168: canShow* peeks also respect customOverlayOnScreen '
         '(host-declared custom overlay)', () {
       setUp(() async {
         SharedPreferences.setMockInitialValues({});
@@ -1371,7 +1443,8 @@ void main() {
 
       tearDown(() => markCustomOverlayOnScreen(false));
 
-      test('canShowInterstitial() is false while a custom overlay is on '
+      test(
+          'canShowInterstitial() is false while a custom overlay is on '
           'screen', () {
         adapter.interstitialSlot.beginLoad();
         adapter.interstitialSlot.markReady();
@@ -1390,7 +1463,8 @@ void main() {
                 'back up again, not stay stuck closed');
       });
 
-      test('canShowRewardedAd() is false while a custom overlay is on '
+      test(
+          'canShowRewardedAd() is false while a custom overlay is on '
           'screen', () {
         adapter.rewardedSlot.beginLoad();
         adapter.rewardedSlot.markReady();
@@ -1403,7 +1477,8 @@ void main() {
         expect(AdManager().canShowRewardedAd(), isTrue);
       });
 
-      test('canShowRewardedInterstitialAd() is false while a custom '
+      test(
+          'canShowRewardedInterstitialAd() is false while a custom '
           'overlay is on screen', () {
         adapter.rewardedInterstitialSlot.beginLoad();
         adapter.rewardedInterstitialSlot.markReady();
@@ -1416,8 +1491,7 @@ void main() {
         expect(AdManager().canShowRewardedInterstitialAd(), isTrue);
       });
 
-      test('customOverlayOnScreen defaults to false — no accidental block',
-          () {
+      test('customOverlayOnScreen defaults to false — no accidental block', () {
         expect(customOverlayOnScreen.value, isFalse);
       });
     });
@@ -1617,8 +1691,7 @@ void main() {
 
   group(
       'round-37 audit (MAJOR): an adapter throw during show*() must still '
-      'resolve the host callback, matching showRewardedAd\'s round-29 fix',
-      () {
+      'resolve the host callback, matching showRewardedAd\'s round-29 fix', () {
     late _FakeAdapter adapter;
 
     setUp(() async {
@@ -1642,8 +1715,7 @@ void main() {
       AdManager().debugVipManager = null;
     });
 
-    test('showInterstitial() throwing still calls onDoneFlow(false)',
-        () async {
+    test('showInterstitial() throwing still calls onDoneFlow(false)', () async {
       adapter.interstitialSlot.beginLoad();
       adapter.interstitialSlot.markReady();
       adapter.throwOnShowInterstitial = true;
@@ -1994,8 +2066,7 @@ void main() {
   // to be notified once AdManager().vip becomes non-null, other than
   // polling initRevision and re-checking vip != null itself.
   group('vipReady listenable (T72)', () {
-    test('fires false → true exactly once when vip becomes ready',
-        () async {
+    test('fires false → true exactly once when vip becomes ready', () async {
       SharedPreferences.setMockInitialValues({});
       await AdManager().destroy(); // guaranteed clean slate for this test
       addTearDown(() => AdManager().destroy());
@@ -2004,7 +2075,9 @@ void main() {
       expect(AdManager().vipReady.value, isFalse);
 
       final seen = <bool>[];
-      AdManager().vipReady.addListener(() => seen.add(AdManager().vipReady.value));
+      AdManager()
+          .vipReady
+          .addListener(() => seen.add(AdManager().vipReady.value));
 
       // Phase 4 (VipManager swap) runs unconditionally, before the real
       // adapter's native initialize() call — no platform-channel mocking
@@ -2198,11 +2271,11 @@ void main() {
       expect(skip.reason, 'vip');
     });
 
-    test('load: daily cap reached emits a rewarded load skip with '
+    test(
+        'load: daily cap reached emits a rewarded load skip with '
         'reason=daily_cap', () async {
       await AdSafetyConfig.init(prefs,
-          params: AdSafetyParams.debug
-              .copyWith(maxFullscreenAdsPerDay: 0));
+          params: AdSafetyParams.debug.copyWith(maxFullscreenAdsPerDay: 0));
       AdSafetyConfig.resetForReinit();
 
       await AdManager().loadRewardedAd();
@@ -2251,16 +2324,15 @@ void main() {
     // T92 — per-placement daily cap, on top of the global one.
     test(
         'show: reaching the per-placement daily cap emits a show skip '
-        'with reason=placement_cap, without touching the global cap',
-        () async {
+        'with reason=placement_cap, without touching the global cap', () async {
       await AdSafetyConfig.init(prefs,
-          params: AdSafetyParams.debug.copyWith(
-              maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}));
+          params: AdSafetyParams.debug
+              .copyWith(maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}));
       AdSafetyConfig.resetForReinit();
       AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
 
-      await AdManager().showInterstitial(
-          onDoneFlow: (_) {}, placement: AdPlacement.splash);
+      await AdManager()
+          .showInterstitial(onDoneFlow: (_) {}, placement: AdPlacement.splash);
       await Future<void>.delayed(Duration.zero);
 
       final skip = lastSkip();
@@ -2272,10 +2344,13 @@ void main() {
       // normally — the global daily cap alone (5, from AdSafetyParams.debug's
       // override above) is nowhere near reached.
       events.clear();
-      await AdManager().showInterstitial(
-          onDoneFlow: (_) {}, placement: AdPlacement.home);
+      await AdManager()
+          .showInterstitial(onDoneFlow: (_) {}, placement: AdPlacement.home);
       await Future<void>.delayed(Duration.zero);
-      expect(events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap'),
+      expect(
+          events
+              .whereType<AdSkipEvent>()
+              .where((e) => e.reason == 'placement_cap'),
           isEmpty);
     });
 
@@ -2286,8 +2361,7 @@ void main() {
 
       test(
           'a registered placement with frequencyCapOverride blocks even '
-          'though AdSafetyParams itself configures NO cap for it',
-          () async {
+          'though AdSafetyParams itself configures NO cap for it', () async {
         await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
         AdSafetyConfig.resetForReinit();
         AdManager().debugConfig = const AdConfig(
@@ -2345,8 +2419,8 @@ void main() {
         AdSafetyConfig.recordPlacementAdShown(AdPlacement.home);
 
         events.clear();
-        await AdManager().showInterstitial(
-            onDoneFlow: (_) {}, placement: AdPlacement.home);
+        await AdManager()
+            .showInterstitial(onDoneFlow: (_) {}, placement: AdPlacement.home);
         await Future<void>.delayed(Duration.zero);
 
         expect(
@@ -2359,7 +2433,8 @@ void main() {
                 'into it');
       });
 
-      test('no registry configured at all (AdConfig.placements: null, the '
+      test(
+          'no registry configured at all (AdConfig.placements: null, the '
           'default) behaves identically to every release before T140',
           () async {
         await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
@@ -2402,8 +2477,7 @@ void main() {
       // AdPlacement itself carries no format).
       test(
           'a spec registered for a DIFFERENT format than the actual show '
-          'call is NOT applied — format is checked, not just the id',
-          () async {
+          'call is NOT applied — format is checked, not just the id', () async {
         await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
         AdSafetyConfig.resetForReinit();
         AdManager().debugConfig = const AdConfig(
@@ -2442,8 +2516,7 @@ void main() {
                 'rewarded show call just because the placement id matches');
       });
 
-      test(
-          'showRewardedAd() also honors a registered frequencyCapOverride',
+      test('showRewardedAd() also honors a registered frequencyCapOverride',
           () async {
         await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
         AdSafetyConfig.resetForReinit();
@@ -2472,8 +2545,9 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        final skip =
-            events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap');
+        final skip = events
+            .whereType<AdSkipEvent>()
+            .where((e) => e.reason == 'placement_cap');
         expect(skip, isNotEmpty);
       });
 
@@ -2507,8 +2581,9 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        final skip =
-            events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap');
+        final skip = events
+            .whereType<AdSkipEvent>()
+            .where((e) => e.reason == 'placement_cap');
         expect(skip, isNotEmpty);
       });
 
@@ -2542,8 +2617,9 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        final skip =
-            events.whereType<AdSkipEvent>().where((e) => e.reason == 'placement_cap');
+        final skip = events
+            .whereType<AdSkipEvent>()
+            .where((e) => e.reason == 'placement_cap');
         expect(skip, isNotEmpty);
       });
 
@@ -2702,8 +2778,8 @@ void main() {
         AdSafetyConfig.recordFullscreenAdShown();
 
         events.clear();
-        await AdManager().showInterstitial(
-            onDoneFlow: (_) {}, placement: AdPlacement.home);
+        await AdManager()
+            .showInterstitial(onDoneFlow: (_) {}, placement: AdPlacement.home);
         await Future<void>.delayed(Duration.zero);
 
         expect(
@@ -2751,8 +2827,8 @@ void main() {
         AdSafetyConfig.recordFullscreenAdShown();
 
         expect(
-            AdManager()
-                .canShowInterstitial(placement: const AdPlacement.custom('level_complete')),
+            AdManager().canShowInterstitial(
+                placement: const AdPlacement.custom('level_complete')),
             isTrue,
             reason: 'this placement has a 0ms override — it must read as '
                 'showable even though the app-wide throttle alone (set to '
@@ -2814,7 +2890,8 @@ void main() {
               'the value AdSafetyConfig actually initialised with');
     });
 
-    test('a throwing provider falls back to local AdSafetyParams, does not '
+    test(
+        'a throwing provider falls back to local AdSafetyParams, does not '
         'block init', () async {
       var callCount = 0;
       await AdManager().initialize(
@@ -2978,11 +3055,10 @@ void main() {
     test('show: VIP member skips, never reaches the adapter', () async {
       AdManager().debugVipManager = _FakeVip(true);
       var shown = true, earned = true;
-      await AdManager().showRewardedInterstitialAd(
-          onDone: (s, e) {
-            shown = s;
-            earned = e;
-          });
+      await AdManager().showRewardedInterstitialAd(onDone: (s, e) {
+        shown = s;
+        earned = e;
+      });
 
       expect(adapter.showRewardedInterstitialCalls, 0);
       expect(shown, isFalse);
@@ -3005,11 +3081,10 @@ void main() {
         'shown=true, earned=true and reloads', () async {
       adapter.nextRewardedInterstitialEarned = true;
       bool? shown, earned;
-      await AdManager().showRewardedInterstitialAd(
-          onDone: (s, e) {
-            shown = s;
-            earned = e;
-          });
+      await AdManager().showRewardedInterstitialAd(onDone: (s, e) {
+        shown = s;
+        earned = e;
+      });
 
       expect(adapter.showRewardedInterstitialCalls, 1);
       expect(shown, isTrue);
@@ -3028,6 +3103,56 @@ void main() {
       expect(earned, isFalse,
           reason: 'AppLovin MAX has no Rewarded Interstitial ad unit type — '
               'this must always be a no-op, never actually show anything');
+    });
+
+    // Round-45 audit fix (R45-03, codex) — the no-ops above were silent:
+    // AdManager's `loadRewardedInterstitialAd`/`showRewardedInterstitialAd`
+    // used to fall straight through to them, indistinguishable from "not
+    // filled yet" to a host listening for skip events. Verifies the new
+    // explicit reason='unsupported_provider' skip through AdManager itself
+    // (not the bare adapter, which the test above already covers), with a
+    // real AppLovinAdapter swapped in.
+    test(
+        'load: AppLovin adapter emits an explicit reason=unsupported_provider '
+        'skip instead of silently never becoming ready', () async {
+      final applovin = AppLovinAdapter();
+      AdManager().debugSetAdapter(applovin);
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+
+      await AdManager().loadRewardedInterstitialAd();
+      await Future<void>.delayed(Duration.zero);
+
+      final skip =
+          events.whereType<AdSkipEvent>().where((e) => e.action == 'load');
+      expect(skip, isNotEmpty);
+      expect(skip.last.type, AdSlotType.rewardedInterstitial);
+      expect(skip.last.reason, 'unsupported_provider');
+      await sub.cancel();
+    });
+
+    test(
+        'show: AppLovin adapter emits reason=unsupported_provider and '
+        'resolves shown=false, earned=false immediately', () async {
+      final applovin = AppLovinAdapter();
+      AdManager().debugSetAdapter(applovin);
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+
+      bool? shown, earned;
+      await AdManager().showRewardedInterstitialAd(onDone: (s, e) {
+        shown = s;
+        earned = e;
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(shown, isFalse);
+      expect(earned, isFalse);
+      final skip =
+          events.whereType<AdSkipEvent>().where((e) => e.action == 'show');
+      expect(skip, isNotEmpty);
+      expect(skip.last.reason, 'unsupported_provider');
+      await sub.cancel();
     });
   });
 
@@ -3050,7 +3175,8 @@ void main() {
     });
 
     test('prefers a real GAID when available', () {
-      AdManager().debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+      AdManager().debugCurrentDeviceGAID =
+          'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
       final viaGaid = AdManager().experimentBucket('exp', buckets: 5);
 
       AdManager().debugCurrentDeviceGAID =
@@ -3087,8 +3213,7 @@ void main() {
       expect(resultA, isA<int>());
     });
 
-    test('all-zeros GAID is treated the same as empty (Limit Ad Tracking)',
-        () {
+    test('all-zeros GAID is treated the same as empty (Limit Ad Tracking)', () {
       AdManager().debugCurrentDeviceGAID =
           '00000000-0000-0000-0000-000000000000';
       // Must not throw, and must use the install-id fallback path rather
@@ -3165,7 +3290,8 @@ void main() {
       expect(seen, {AdProvider.admob, AdProvider.appLovin});
     });
 
-    test('distributes across many distinct installs, not stuck on one '
+    test(
+        'distributes across many distinct installs, not stuck on one '
         'provider', () async {
       final seen = <AdProvider>{};
       for (var i = 0; i < 30; i++) {
@@ -3189,7 +3315,8 @@ void main() {
       await AdManager().debugReconcileProviderExplorationSlot(vipActive: false);
     });
 
-    test('explorationRate 0 (the default) always returns the install '
+    test(
+        'explorationRate 0 (the default) always returns the install '
         'cohort provider, regardless of the random roll', () async {
       final result = await AdManager().pickSessionProvider(
         installCohortProvider: AdProvider.admob,
@@ -3199,7 +3326,8 @@ void main() {
       expect(AdManager().debugHasPendingExplorationCommit, isFalse);
     });
 
-    test('a roll below explorationRate returns the OTHER provider and '
+    test(
+        'a roll below explorationRate returns the OTHER provider and '
         'marks a pending commit', () async {
       final result = await AdManager().pickSessionProvider(
         installCohortProvider: AdProvider.admob,
@@ -3210,7 +3338,8 @@ void main() {
       expect(AdManager().debugHasPendingExplorationCommit, isTrue);
     });
 
-    test('a roll at or above explorationRate keeps the install cohort '
+    test(
+        'a roll at or above explorationRate keeps the install cohort '
         'provider', () async {
       final result = await AdManager().pickSessionProvider(
         installCohortProvider: AdProvider.appLovin,
@@ -3238,15 +3367,15 @@ void main() {
           reason: 'must be clamped to 1.0, not accepted as-is (1.5)');
     });
 
-    test('a negative minIntervalBetweenExplorations is clamped to zero, '
+    test(
+        'a negative minIntervalBetweenExplorations is clamped to zero, '
         'not treated as "rate limit disabled forever"', () async {
       await AdManager().pickSessionProvider(
         installCohortProvider: AdProvider.admob,
         explorationRate: 1,
         debugRandom: _FixedRandom(0),
       );
-      await AdManager()
-          .debugReconcileProviderExplorationSlot(vipActive: false);
+      await AdManager().debugReconcileProviderExplorationSlot(vipActive: false);
 
       final second = await AdManager().pickSessionProvider(
         installCohortProvider: AdProvider.admob,
@@ -3302,8 +3431,7 @@ void main() {
       expect(AdManager().debugHasPendingExplorationCommit, isTrue,
           reason: 'sanity: exploration was decided');
 
-      await AdManager()
-          .debugReconcileProviderExplorationSlot(vipActive: true);
+      await AdManager().debugReconcileProviderExplorationSlot(vipActive: true);
 
       expect(AdManager().debugHasPendingExplorationCommit, isFalse);
       final prefs = await AdPreferences.getInstance();
@@ -3325,8 +3453,7 @@ void main() {
         debugRandom: _FixedRandom(0),
       );
       expect(first, AdProvider.appLovin, reason: 'sanity: first one explored');
-      await AdManager()
-          .debugReconcileProviderExplorationSlot(vipActive: false);
+      await AdManager().debugReconcileProviderExplorationSlot(vipActive: false);
 
       final prefs = await AdPreferences.getInstance();
       expect(prefs.getLastProviderExplorationAtMs(), isNotNull,
@@ -3334,7 +3461,8 @@ void main() {
 
       final second = await AdManager().pickSessionProvider(
         installCohortProvider: AdProvider.admob,
-        explorationRate: 1, // would explore every single time if not rate-limited
+        explorationRate:
+            1, // would explore every single time if not rate-limited
         debugRandom: _FixedRandom(0),
       );
 
@@ -3394,8 +3522,7 @@ void main() {
     // _isInitializing early-return guard instead of before it.
     test(
         'an internal retry racing an in-progress initialize() call must '
-        'not leak _isInternalInitRetryCall into the next real call',
-        () async {
+        'not leak _isInternalInitRetryCall into the next real call', () async {
       AdManager().debugSimulateInternalRetryRaceWithBusyGuard();
       expect(AdManager().debugIsInternalInitRetryCall, isTrue,
           reason: 'sanity: the race is set up');
@@ -3726,8 +3853,7 @@ void main() {
               'should be re-evaluated at is a privacy leak');
     });
 
-    test('a real destroy() (not just the debug seam) clears it too',
-        () async {
+    test('a real destroy() (not just the debug seam) clears it too', () async {
       final mgr = AdManager();
       mgr.debugCurrentDeviceGAID = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
 
@@ -3922,7 +4048,8 @@ void main() {
     // overlay (invisible to AdScreenRouteLogger.isDialogOnTop above) must
     // block App Open on resume too, via the fullscreen mutex
     // (_fullscreenBusyReason) markCustomOverlayOnScreen feeds into.
-    test('host-declared custom overlay on screen → skipped, no reload '
+    test(
+        'host-declared custom overlay on screen → skipped, no reload '
         'triggered', () {
       markCustomOverlayOnScreen(true);
       addTearDown(() => markCustomOverlayOnScreen(false));
@@ -3931,7 +4058,8 @@ void main() {
       expect(adapter.showAppOpenCalls, 0);
     });
 
-    test('clearing the custom-overlay flag lets a resume reach the refill '
+    test(
+        'clearing the custom-overlay flag lets a resume reach the refill '
         'again', () {
       markCustomOverlayOnScreen(true);
       AdManager().showAppOpenAdOnResume();
@@ -4110,8 +4238,8 @@ void main() {
           type: AdSlotType.appOpen);
 
       expect(
-          () => AdManager()
-              .didChangeAppLifecycleState(AppLifecycleState.paused),
+          () =>
+              AdManager().didChangeAppLifecycleState(AppLifecycleState.paused),
           returnsNormally);
       // The flush is unawaited (fire-and-forget) — give it a couple of
       // microtask turns to actually run.
@@ -4318,7 +4446,8 @@ void main() {
         AdManager().debugUmpAttemptFailed = false;
       });
 
-      test('retries requestUmpConsent on the periodic poll when a prior '
+      test(
+          'retries requestUmpConsent on the periodic poll when a prior '
           'attempt failed', () {
         fakeAsync((async) {
           AdManager().debugUmpAttemptFailed = true;
@@ -4609,8 +4738,7 @@ void main() {
     test('usPrivacyOptedOut: malformed string → null rather than a guess',
         () async {
       SharedPreferencesAsyncPlatform.instance =
-          InMemorySharedPreferencesAsync.withData(
-              {'IABUSPrivacy_String': '1'});
+          InMemorySharedPreferencesAsync.withData({'IABUSPrivacy_String': '1'});
       expect(await AdManager().usPrivacyOptedOut, isNull);
     });
 
@@ -4663,8 +4791,7 @@ void main() {
 
     test(
         'usPrivacyOptedOut: R40-A round 2 (R2-01) — a real GPP opt-out is '
-        'not shadowed by a legacy string saying "did not opt out"',
-        () async {
+        'not shadowed by a legacy string saying "did not opt out"', () async {
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.withData({
         'IABUSPrivacy_String': '1YNN', // legacy says NOT opted out
@@ -4850,8 +4977,7 @@ void main() {
         'usPrivacyOptedOut: GPP Maryland (skip=16) TargetedAdvertisingOptOut '
         '=Opted-Out ONLY → opted out', () async {
       SharedPreferencesAsyncPlatform.instance =
-          InMemorySharedPreferencesAsync.withData(
-              {'IABGPP_24_String': 'BQAQ'});
+          InMemorySharedPreferencesAsync.withData({'IABGPP_24_String': 'BQAQ'});
       expect(await AdManager().usPrivacyOptedOut, isTrue);
     });
 
@@ -4859,8 +4985,7 @@ void main() {
         'usPrivacyOptedOut: GPP Maryland both Did-Not-Opt-Out → false, not '
         'null', () async {
       SharedPreferencesAsyncPlatform.instance =
-          InMemorySharedPreferencesAsync.withData(
-              {'IABGPP_24_String': 'BQCg'});
+          InMemorySharedPreferencesAsync.withData({'IABGPP_24_String': 'BQCg'});
       expect(await AdManager().usPrivacyOptedOut, isFalse);
     });
 
@@ -4880,8 +5005,7 @@ void main() {
     // test isolates only the cross-tier combination behavior.
     test(
         'usPrivacyOptedOut: R40-A regression — GPP USNAT explicit '
-        'Did-Not-Opt-Out must not shadow a real California opt-out',
-        () async {
+        'Did-Not-Opt-Out must not shadow a real California opt-out', () async {
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.withData({
         'IABGPP_7_String': 'CAACAAAAAABA', // USNAT: Did-Not-Opt-Out (false)
@@ -4897,8 +5021,7 @@ void main() {
     // first won, even with an explicit `false`.
     test(
         'usPrivacyOptedOut: R40-A regression — GPP Virginia explicit '
-        'Did-Not-Opt-Out must not shadow a real Colorado opt-out',
-        () async {
+        'Did-Not-Opt-Out must not shadow a real Colorado opt-out', () async {
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.withData({
         'IABGPP_9_String': 'BAoAABA', // Virginia: Did-Not-Opt-Out (false)
@@ -4927,8 +5050,7 @@ void main() {
 
     test(
         'usPrivacyOptedOut: R40-A — a truncated/malformed GPP section '
-        '(→ null) does not block a real opt-out in another section',
-        () async {
+        '(→ null) does not block a real opt-out in another section', () async {
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.withData({
         'IABGPP_7_String': 'AA', // USNAT: truncated/malformed → null

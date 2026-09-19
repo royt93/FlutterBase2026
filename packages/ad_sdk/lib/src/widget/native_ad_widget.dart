@@ -119,8 +119,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
   static const String _tag = 'NativeAdWidget';
 
   double get _height =>
-      widget.height ??
-      (widget.templateType == TemplateType.small ? 90 : 320);
+      widget.height ?? (widget.templateType == TemplateType.small ? 90 : 320);
 
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
   bool _initScheduled = false;
@@ -485,11 +484,10 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
         return _NativeContainer(
           isLoaded: AdManager().nativeIsLoaded(this),
           height: _height,
-          child: () =>
-              _AppLovinMaxNativeView(
-                  nativeId: AdManager().appLovinNativeId,
-                  instanceKey: this,
-                  placement: widget.placement),
+          child: () => _AppLovinMaxNativeView(
+              nativeId: AdManager().appLovinNativeId,
+              instanceKey: this,
+              placement: widget.placement),
         );
       },
     );
@@ -626,10 +624,24 @@ class _AppLovinMaxNativeView extends StatelessWidget {
         },
         onAdClickedCallback: (ad) {
           try {
-            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 🎯 click');
-            AdSafetyConfig.recordAdClick();
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
+            // Round-45 audit fix (R45-02) — same reasoning as
+            // onAdRevenuePaidCallback below: this writes into shared state
+            // (AdSafetyConfig's global click/invalid-traffic counters, plus
+            // the shared eventSink) rather than a per-instanceKey notifier,
+            // so a click delivered after this instance was disposed (user
+            // navigated away between tap and the native callback arriving)
+            // wouldn't throw and get caught below — it would silently count
+            // against global click/safety state for an instance that no
+            // longer exists, and could land against a different session's
+            // adapter if one was reinitialised in between.
+            if (adapter is AppLovinAdapter &&
+                adapter.isNativeInstanceDisposed(instanceKey)) {
+              return;
+            }
+            SafeLogger.d('NativeAdWidget', 'MaxNativeAdView 🎯 click');
+            AdSafetyConfig.recordAdClick();
             adapter.eventSink?.call(AdClickEvent(
               providerTag: '[AppLovin]',
               type: AdSlotType.native,

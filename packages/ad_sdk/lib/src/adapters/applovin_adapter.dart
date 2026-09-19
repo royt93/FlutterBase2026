@@ -9,6 +9,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
 import '../config/ad_config.dart';
 import '../core/ad_consent.dart';
 import '../core/ad_provider_adapter.dart';
+import '../core/iab_storage.dart';
 import '_inline_visibility.dart';
 import 'inline_ad_instance_registry.dart';
 import '../core/ad_safety_config.dart';
@@ -516,8 +517,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // Round-44 audit fix — native now inherits the fullscreen hold on
     // creation, same as banner/mrec, so one that mounts while an App Open is
     // already up starts hidden instead of drawing on top of it.
-    return _nativeRegistry.listenablesFor(key,
-        onCreated: (l) {
+    return _nativeRegistry.listenablesFor(key, onCreated: (l) {
       if (_fullscreenOverInline) {
         _inlineVisibility.hide(l, InlineHideReason.fullscreen);
       }
@@ -657,7 +657,8 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// empty or repeated creative ID, and a real, wrongly-discarded callback
   /// (lost impression, lost reward) is far more costly than a wrongly-
   /// accepted stale test one (zero revenue either way).
-  static bool _isStaleAd(String? trackedCreativeId, String incomingCreativeId) =>
+  static bool _isStaleAd(
+          String? trackedCreativeId, String incomingCreativeId) =>
       trackedCreativeId != null &&
       trackedCreativeId.isNotEmpty &&
       incomingCreativeId.isNotEmpty &&
@@ -812,16 +813,39 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     // buffered) that post-init call was the FIRST time AppLovin heard about
     // consent, i.e. `_bridge.initialize` below had already run and made its
     // first request to MAX without it. AppLovin documents these as init-time
-    // settings. Still idempotent with the later call.
+    // settings.
+    //
+    // Round-45 audit fix (R45-01, MAJOR) — this used to call
+    // `setHasUserConsent` unconditionally, which defeated round-44's fix
+    // (`applyConsentToProviders` in ad_consent.dart) in the exact scenario
+    // that fix targeted: on an ordinary cold start this pre-init call runs
+    // and reaches AppLovin *before* the guarded post-init call ever gets a
+    // chance to (that one only fires once already initialised — see
+    // `AdManager.setConsent`'s "SDK not initialised — buffering" early
+    // return). So a returning EEA user who denied AppLovin as a vendor but
+    // has `hasUserConsent=true` from purposes 1/3/4 would have that coarse
+    // boolean pushed to MAX on every launch, silently overriding whatever
+    // vendor-specific consent MAX would otherwise read from the real
+    // `IABTCF_TCString` UMP already wrote to device storage. Mirror the
+    // same guard here: skip the explicit call whenever a real TC string
+    // already exists so MAX evaluates its own vendor consent instead of
+    // being told a stale/coarse value. `setDoNotSell` has no TCF-vendor
+    // equivalent for CCPA, so it stays unconditional.
     if (consent != null) {
       try {
-        _bridge.setHasUserConsent(consent.hasUserConsent);
+        final hasIabTcfString =
+            (await IabStorage.read(IabStorage.keyTcfString))?.isNotEmpty ==
+                true;
+        if (!hasIabTcfString) {
+          _bridge.setHasUserConsent(consent.hasUserConsent);
+        }
         _bridge.setDoNotSell(consent.doNotSell);
         SafeLogger.d(
             _logTag,
             () => 'privacy flags applied pre-init '
                 '(consent=${consent.hasUserConsent}, '
-                'doNotSell=${consent.doNotSell})');
+                'doNotSell=${consent.doNotSell}, '
+                'hasIabTcfString=$hasIabTcfString)');
       } catch (e) {
         // Never block init on this — the post-init apply still runs.
         SafeLogger.w(_logTag, 'pre-init privacy flags failed: $e');

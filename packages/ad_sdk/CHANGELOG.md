@@ -4,6 +4,39 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fixed (round 45 audit, MAJOR):** round 44's TCF-vendor-consent fix
+  (`applyConsentToProviders` skipping `AppLovinMAX.setHasUserConsent` when a
+  real IAB TC string already exists) only guarded the *post-init* code path,
+  which never actually runs on an ordinary cold start — `setConsent()`
+  buffers instead of applying until the SDK is already initialised. The
+  *pre-init* call in `AppLovinAdapter.initialize()` (the one that actually
+  reaches AppLovin first on every launch) still called
+  `setHasUserConsent` unconditionally, silently overriding a returning EEA
+  user's real vendor-specific TCF consent with a coarse, AdMob-shaped
+  boolean. Now guarded the same way. See
+  `doc/audit/audit_round45_consolidated.md` (R45-01).
+- **Fixed (round 45 audit, MINOR):** AppLovin native ad clicks delivered
+  after the widget (and its native instance) was already disposed were
+  still recorded against the global click/invalid-traffic counters and
+  emitted through `eventSink` — unlike the revenue callback, which already
+  guarded against this. Now checks `isNativeInstanceDisposed` the same way.
+  (R45-02)
+- **Fixed (round 45 audit, MINOR):** `loadRewardedInterstitialAd`/
+  `showRewardedInterstitialAd` silently never became ready on AppLovin (MAX
+  has no equivalent ad unit type), indistinguishable from "not filled yet."
+  Now emits an explicit `AdSkipEvent(reason: 'unsupported_provider')` so a
+  host can tell the two cases apart and disable the placement
+  deterministically. (R45-03)
+- **Fixed (round 45 audit, MINOR):** shipping Google's public TEST AdMob ad
+  unit IDs in a real release build only logged a warning and
+  `assert(false, ...)` — an assertion stripped out of release builds
+  entirely, so the one build that needed blocking got no enforcement. Now
+  release-blocking like every other footgun guard: `canRequestAds` stays
+  false for the process if a release build is still on a Google test ad
+  unit ID. (R45-04)
+
 ## [3.0.0] - 2026-09-18
 
 - **Fixed (round 44 audit, MAJOR):** `applyConsentToProviders` used to call

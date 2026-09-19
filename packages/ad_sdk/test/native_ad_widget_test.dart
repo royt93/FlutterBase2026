@@ -3,10 +3,13 @@
 // no adaptive width, and AppLovin's MaxNativeAdView is self-contained).
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'applovin_adapter_test.dart' show FakeAppLovinBridge;
 
 class _NativeCountingAdapter implements AdProviderAdapter {
   @override
@@ -663,6 +666,84 @@ void main() {
       expect(find.text('Ad'), findsNothing,
           reason:
               'AdMob native template already draws its own "Ad"/AdChoices label');
+    });
+  });
+
+  group('R45-02 — AppLovin native click after widget disposal (audit round '
+      '45)', () {
+    // codex exec (round-45 independent audit) found this: unlike
+    // onAdRevenuePaidCallback (round-33 fix, R33-03), onAdClickedCallback
+    // had no `isNativeInstanceDisposed` check, so a click callback that
+    // arrives after the user has already navigated away (widget disposed,
+    // instanceKey tombstoned) was still recorded against the shared
+    // click/invalid-traffic counters and emitted through eventSink — and,
+    // if the adapter had since been reinitialised, could be misattributed
+    // to a brand-new session. Needs a *real* AppLovinAdapter, not the
+    // lightweight `_NativeCountingAdapter` fake used elsewhere in this
+    // file, because the guard is specifically `adapter is AppLovinAdapter
+    // && adapter.isNativeInstanceDisposed(instanceKey)`.
+    testWidgets(
+        'a click callback delivered after the widget (and its native '
+        'instance) is disposed is neither recorded nor emitted',
+        (tester) async {
+      final bridge = FakeAppLovinBridge();
+      final adapter = AppLovinAdapter(bridge: bridge);
+      expect(
+        await adapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        adapter.dispose();
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listener = tester
+          .widget<MaxNativeAdView>(find.byType(MaxNativeAdView))
+          .listener;
+      expect(listener, isNotNull);
+
+      // Unmount — same as navigating away from the screen. This tombstones
+      // the widget's instanceKey on the real adapter.
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump();
+      expect(find.byType(NativeAdWidget), findsNothing);
+
+      final events = <Object>[];
+      adapter.eventSink = events.add;
+
+      // The platform side queued this click before dispose and delivers it
+      // late — the exact race R45-02 fixed.
+      listener!.onAdClickedCallback(MaxAd(
+          'native-id',
+          'NATIVE',
+          null,
+          'net',
+          '',
+          0.0,
+          'exact',
+          'cid',
+          'dsp',
+          '',
+          0,
+          MaxAdWaterfallInfo('', '', const [], 0),
+          null,
+          null));
+
+      expect(events, isEmpty,
+          reason: 'a click for an already-disposed native instance must '
+              'not be recorded or emitted — the instance no longer exists '
+              'and, if the adapter has since been reinitialised, must not '
+              'be misattributed to a new session');
+      expect(tester.takeException(), isNull);
     });
   });
 

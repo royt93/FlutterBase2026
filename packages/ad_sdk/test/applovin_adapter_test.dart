@@ -9,11 +9,14 @@ import 'dart:async';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_bridge.dart';
+import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 /// Captures listeners + records every native call.
 class FakeAppLovinBridge implements AppLovinBridge {
@@ -207,6 +210,18 @@ void main() {
   late FakeAppLovinBridge bridge;
   late AppLovinAdapter adapter;
 
+  // Round-45 audit fix (R45-01) — deterministic, empty-by-default IAB
+  // storage for every test in this file, so `AppLovinAdapter.initialize()`'s
+  // new pre-init `IabStorage.read(keyTcfString)` call never depends on
+  // whatever the shared_preferences plugin's default test-channel mock
+  // happens to return. Tests that specifically need a real TC string on
+  // device override this per-test before calling `initialize`.
+  setUp(() {
+    IabStorage.debugResetForTest();
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
+  });
+
   setUp(() async {
     bridge = FakeAppLovinBridge();
     adapter = AppLovinAdapter(bridge: bridge);
@@ -250,6 +265,60 @@ void main() {
               'without them');
       expect(dnsAt, lessThan(initAt));
       addTearDown(() => a.dispose());
+    });
+
+    // Round-45 audit fix (R45-01, MAJOR) — this pre-init call used to fire
+    // `setHasUserConsent` unconditionally, defeating round-44's TCF-string
+    // guard (`applyConsentToProviders` in ad_consent.dart) in the exact
+    // scenario that fix targeted: on an ordinary cold start THIS call is
+    // what actually reaches AppLovin, since the guarded post-init function
+    // never runs before the SDK is already initialised. See
+    // doc/audit/audit_round45_consolidated.md.
+    test(
+        'R45-01: a real TC string already on device → setHasUserConsent is '
+        'NOT called pre-init, MAX reads it itself (THE finding)', () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABTCF_TCString': 'CPxxRealConsentString'});
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      addTearDown(() => a.dispose());
+
+      expect(
+        await a.initialize(_config,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+
+      expect(b.initOrder, isNot(contains('setHasUserConsent(true)')),
+          reason: 'a real TC string means MAX must derive vendor-specific '
+              'consent itself — an explicit call here would override that '
+              'with a purpose-only boolean that has no vendor-consent basis '
+              'for AppLovin');
+      expect(b.initOrder, contains('setDoNotSell(false)'),
+          reason: 'CCPA has no TCF-vendor concept, must stay unconditional');
+    });
+
+    test(
+        'R45-01: no TC string on device (no CMP at all) → setHasUserConsent '
+        'IS still called pre-init, matching the documented no-CMP path',
+        () async {
+      // setUp already gives an empty in-memory store — no TCF session has
+      // ever run on this device.
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(bridge: b);
+      addTearDown(() => a.dispose());
+
+      expect(
+        await a.initialize(_config,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+
+      expect(b.initOrder, contains('setHasUserConsent(true)'),
+          reason: 'an app with no CMP at all must still be able to set the '
+              'binary consent flag AppLovin\'s docs describe for that case '
+              '— this path must not regress');
     });
 
     // Round-30 audit (MAJOR) — verified against the real applovin_max 4.6.4
