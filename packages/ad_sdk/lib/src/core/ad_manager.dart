@@ -8858,7 +8858,20 @@ class AdManager with WidgetsBindingObserver {
     final was = _lastConnected;
     _lastConnected = connected;
     _offlineNotifier.value = !connected;
-    if (!connected || was) return; // only act on false→true
+    if (!connected) {
+      // Round-48 audit fix (MINOR) — a pending debounce timer from an
+      // earlier, now-stale offline→online transition must not survive a
+      // subsequent online→offline flap: its callback only checks
+      // isInitialised/_isVipMember, not current connectivity, so left
+      // running it would fire "network back online" work (UMP retry, ad
+      // refill, banner/mrec preload) while the device is actually offline.
+      // Wasted, not harmful (every call already fails safely offline — see
+      // round 45's offline audit), but pointless.
+      _reconnectDebounceTimer?.cancel();
+      _reconnectDebounceTimer = null;
+      return;
+    }
+    if (was) return; // already online, nothing changed
     _reconnectDebounceTimer?.cancel();
     _reconnectDebounceTimer = Timer(_reconnectDebounce, () {
       if (!isInitialised || _isVipMember) return;

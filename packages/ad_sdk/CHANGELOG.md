@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 48 audit, MINOR):** a rapid online→offline flap while a
+  reconnect-debounce timer was pending left that timer running; since its
+  callback only checked `isInitialised`/VIP status, not current
+  connectivity, it fired the full "network back online" refill (UMP retry,
+  ad refill, banner/MREC preload) while the device was actually offline
+  again. Wasted work, not harmful (every call already fails safely
+  offline), but now cancelled correctly on the offline transition.
+
 - **Fixed (round 46 audit, MAJOR):** round 44's fix routing pre-init
   `setDoNotSell()` through `setConsent()` (so it wasn't silently dropped)
   had a side effect nobody intended — it also satisfied

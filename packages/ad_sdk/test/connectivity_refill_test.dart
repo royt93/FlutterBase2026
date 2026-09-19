@@ -155,6 +155,31 @@ void main() {
       expect(adapter.loadInterstitialCalls, 1);
     });
 
+    // Round-48 audit fix (MINOR) — going offline used to return before
+    // cancelling a pending reconnect-debounce timer from an earlier
+    // false→true edge. That timer's callback only checks
+    // isInitialised/VIP, not current connectivity, so it fired the whole
+    // "network back online" refill while the device was actually offline
+    // again. Wasted (every call already fails safely offline), not
+    // harmful, but pointless — and worth its own test since the existing
+    // "flapping" test above always ends on `true`, which happened to mask
+    // this: the next false→true edge's unconditional cancel-before-restart
+    // cleaned up the stale timer anyway.
+    test(
+        'going offline again cancels a pending reconnect timer instead of '
+        'letting it fire while actually offline', () async {
+      AdManager().debugReconnectDebounce = const Duration(milliseconds: 40);
+      AdManager().debugConnectivityChanged(false); // baseline
+      AdManager().debugConnectivityChanged(true); // schedules the timer
+      AdManager().debugConnectivityChanged(false); // flaps back before it fires
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(adapter.loadInterstitialCalls, 0,
+          reason: 'the reconnect timer scheduled by the transient "true" '
+              'must have been cancelled by the following "false", not left '
+              'to fire a refill while genuinely offline');
+    });
+
     test('VIP active → reconnect does NOT refill', () async {
       AdManager().debugVipManager = _FakeVip(true);
       final rev0 = AdManager().initRevision.value;
@@ -342,8 +367,7 @@ void main() {
   // own overlapping _startConnectivityWatch() invocation. Whichever resolved
   // LAST used to silently overwrite _connectivitySub, leaking the other's
   // subscription forever.
-  group('_startConnectivityWatch overlapping-call race (2026-08-16 audit)',
-      () {
+  group('_startConnectivityWatch overlapping-call race (2026-08-16 audit)', () {
     tearDown(() {
       AdManager().debugConnectivityInit = ConnectionNotifierTools.initialize;
       AdManager().debugConnectivityReady = false;
@@ -390,8 +414,7 @@ void main() {
         expect(AdManager().debugConnectivityReady, isTrue,
             reason: 'a stale call resolving after the winner must never '
                 'undo what the winner already set');
-        expect(
-            logs.any((m) => m.contains('a newer call already won')), isTrue,
+        expect(logs.any((m) => m.contains('a newer call already won')), isTrue,
             reason: 'the stale call must actually take the discard branch, '
                 'not silently fall through to the normal path');
       });
