@@ -1,8 +1,13 @@
 // Mint a signed offline VIP key (T18). Requires the Ed25519 PRIVATE key from
 // tool/vip_keygen.dart.
 //
-//   dart run tool/vip_mint.dart --priv-file .vip-private-key --days 30 [--kid abc123]
-//   cat .vip-private-key | dart run tool/vip_mint.dart --priv-stdin --seconds 3600 --kid demo1
+//   dart tool/vip_mint.dart --priv-file .vip-private-key --days 30 [--kid abc123]
+//   cat .vip-private-key | dart tool/vip_mint.dart --priv-stdin --seconds 3600 --kid demo1
+//
+// Use bare `dart tool/vip_mint.dart`, NOT `dart run tool/vip_mint.dart` — on
+// Dart 3.10+ toolchains `dart run` prints "Running build hooks..." to
+// STDOUT before the script runs, silently corrupting a captured
+// `KEY=$(dart run tool/vip_mint.dart ...)` into an unredeemable string.
 //
 // Mints AVP2 by default:  AVP2.<b64url(payload)>.<b64url(signature)>
 // payload = UTF-8 of "<seconds>|<kid>|<expiresAtEpochSeconds>|<bundleId>"

@@ -140,6 +140,17 @@ class ProviderFailoverAdvisor {
 
   void _onEvent(AdEvent event) {
     if (event is! AdLoadEvent) return;
+    // Round-49 audit fix (MINOR) — a load that fails purely because the
+    // device is offline says nothing about THIS provider's quality (the
+    // other provider would fail identically), so it must not count toward
+    // a "switch providers" recommendation. The offline pre-check already
+    // emits `AdSkipEvent` instead of this, but a load that starts while
+    // connected and loses the network mid-flight still surfaces here as
+    // `AdLoadEvent(success:false)` with nothing else distinguishing it
+    // from a real provider failure — e.g. a flappy connection during a
+    // reconnect-debounce refill could otherwise run 5 such loads back to
+    // back and trip a false failover recommendation.
+    if (!event.success && !AdManager().isConnected) return;
     if (_lastProviderTag != event.providerTag) {
       _lastProviderTag = event.providerTag;
       _consecutiveFailures = 0;

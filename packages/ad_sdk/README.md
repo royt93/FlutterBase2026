@@ -1148,15 +1148,20 @@ global one-time-use needs a backend), but per-device reuse is blocked.
 
 ```bash
 cd packages/ad_sdk
-dart run tool/vip_keygen.dart
+dart tool/vip_keygen.dart
 # PUBLIC  (embed in app): <base64url>
 # PRIVATE (keep secret!): <base64url>   ← store in a secret manager, never commit
 ```
 
+Use bare `dart tool/vip_keygen.dart`, NOT `dart run tool/vip_keygen.dart` — on
+Dart 3.10+ toolchains, `dart run` prints `Running build hooks...` to stdout
+before the script's own output, silently corrupting anything you capture
+with `$(...)`.
+
 **2. Mint keys offline with the private key:**
 
 ```bash
-dart run tool/vip_mint.dart --priv <b64priv> --days 30 --kid promo30_001
+dart tool/vip_mint.dart --priv <b64priv> --days 30 --kid promo30_001
 # → AVP1.<payload>.<signature>
 ```
 
@@ -1598,9 +1603,12 @@ material, same private key that mints VIP keys mints the CRL too.
 1. **Mint the CRL offline** whenever you learn a `kid` leaked (same private
    key as `tool/vip_mint.dart`, never commit it):
    ```bash
-   dart run tool/vip_crl_mint.dart --priv <b64privkey> --kids leaked-kid-1,leaked-kid-2
+   dart tool/vip_crl_mint.dart --priv <b64privkey> --kids leaked-kid-1,leaked-kid-2
    # → CRL1.<payload>.<signature>
    ```
+   (bare `dart tool/...`, not `dart run tool/...` — see the vip_keygen note
+   above; "Host the raw output" below means this exact string, so build-hook
+   noise prepended to it would break every consumer that fetches it.)
 2. **Host the raw output** anywhere you like (a static JSON/text endpoint,
    Firebase Remote Config, ...) — implement `VipRevocationProvider` to fetch
    it:

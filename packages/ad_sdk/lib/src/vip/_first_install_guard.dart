@@ -204,14 +204,20 @@ class FirstInstallGuard {
   }
 
   /// Wipes the persisted flag so `hasAlreadyGranted` reports `false`
-  /// again. T200 — was test-only (`clearForTest`, "production callers
-  /// should never invoke this"); now also the real production entry
-  /// point `AdManager().clearSdkData(scope:
-  /// SdkDataErasureScope.allIncludingEntitlements, ...)` uses. The
-  /// operation itself was already exactly this simple; only its
-  /// intended callers changed — a confirmed VIP-entitlement erasure
-  /// request is exactly the "no, really, wipe this" case the old
-  /// warning was guarding against accidental use, not a categorical ban.
+  /// again. Test-only — production callers should never invoke this.
+  ///
+  /// T200 briefly also wired this into the real production
+  /// `AdManager().clearSdkData(scope:
+  /// SdkDataErasureScope.allIncludingEntitlements, ...)` path, reasoning a
+  /// confirmed entitlement-erasure request should wipe this flag too. Round
+  /// 49's audit reverted that: this flag's whole purpose is to survive a
+  /// local-data wipe (see the class doc comment above), so wiring it into
+  /// the very button meant to do that let a user re-grant themselves the
+  /// first-install trial on every kill+reopen, no reinstall needed —
+  /// [VipManager]'s `RedeemedKeyLedger`/`ConsentProvenanceJournal` already
+  /// carve themselves out of entitlement erasure for the same
+  /// anti-abuse-data-survives-erasure reasoning; this flag now follows that
+  /// same precedent.
   Future<void> erase() async {
     try {
       await _secure.delete(key: _grantedFlagKey);

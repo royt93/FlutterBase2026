@@ -97,10 +97,72 @@ class _ReadyAdapter implements AdProviderAdapter {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Like [_ReadyAdapter], but holds the adapter-level `onDone` callback
+/// instead of invoking it inline — lets a test simulate the real-world gap
+/// a native ad SDK's "ad closed" callback is asynchronous and can fire
+/// well after `AdManager().showInterstitial()`/`showRewardedAd()` returns,
+/// including after the calling screen has already navigated away and
+/// disposed (round 49 audit finding).
+class _DeferredReadyAdapter extends _ReadyAdapter {
+  int showRewardedInterstitialCalls = 0;
+
+  void Function(bool shown)? _pendingInterstitialDone;
+  void Function(RewardResult result)? _pendingRewardedDone;
+  void Function(RewardResult result)? _pendingRewardedInterstitialDone;
+
+  @override
+  Future<void> showInterstitial(
+      {required void Function(bool shown) onDone}) async {
+    showInterstitialCalls++;
+    _pendingInterstitialDone = onDone;
+  }
+
+  @override
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
+    showRewardedCalls++;
+    lastSsvUserId = ssvUserId;
+    lastSsvCustomData = ssvCustomData;
+    _pendingRewardedDone = onDone;
+  }
+
+  @override
+  Future<void> loadRewardedInterstitial() async {}
+
+  @override
+  Future<void> showRewardedInterstitial(
+      {required void Function(RewardResult result) onDone}) async {
+    showRewardedInterstitialCalls++;
+    _pendingRewardedInterstitialDone = onDone;
+  }
+
+  void fireInterstitialDone(bool shown) {
+    final cb = _pendingInterstitialDone;
+    _pendingInterstitialDone = null;
+    cb?.call(shown);
+  }
+
+  void fireRewardedDone(RewardResult result) {
+    final cb = _pendingRewardedDone;
+    _pendingRewardedDone = null;
+    cb?.call(result);
+  }
+
+  void fireRewardedInterstitialDone(RewardResult result) {
+    final cb = _pendingRewardedInterstitialDone;
+    _pendingRewardedInterstitialDone = null;
+    cb?.call(result);
+  }
+}
+
 class _DemoAdScreen extends AdScreen {
   const _DemoAdScreen({
     required this.onInter,
     required this.onReward,
+    this.onRewardedInterstitial,
     this.disclosureTitle,
     this.disclosureSubtitle,
     this.disclosureButtonLabel,
@@ -112,6 +174,7 @@ class _DemoAdScreen extends AdScreen {
   });
   final void Function(bool) onInter;
   final void Function(bool) onReward;
+  final void Function(bool shown, bool earned)? onRewardedInterstitial;
   final String? disclosureTitle;
   final String? disclosureSubtitle;
   final String? disclosureButtonLabel;
@@ -154,6 +217,15 @@ class _DemoAdScreenState extends AdScreenState<_DemoAdScreen> {
               callSiteTag: widget.callSiteTag,
             ),
             child: const Text('reward'),
+          ),
+          ElevatedButton(
+            key: const Key('rewardedInterstitial'),
+            onPressed: () => showRewardedInterstitialAd(
+              showDisclosure: false,
+              onDone: (shown, earned) =>
+                  widget.onRewardedInterstitial?.call(shown, earned),
+            ),
+            child: const Text('rewardedInterstitial'),
           ),
         ],
       ),
@@ -401,6 +473,121 @@ void main() {
       expect(adapter.showRewardedCalls, 0,
           reason: 'disposed screen must never reach AdManager.showRewardedAd');
       expect(reward, isFalse);
+    });
+  });
+
+  // Round 49 audit fix (MAJOR) — the group above covers dispose BEFORE the
+  // real adapter call is even made (still in the showAdBuffer delay). This
+  // group covers the later, previously-unguarded gap: dispose AFTER
+  // AdManager.showInterstitial/showRewardedAd has already reached the
+  // adapter and the ad is genuinely on screen, so the native SDK's
+  // "ad closed" callback is inherently asynchronous and can fire once the
+  // screen is already gone.
+  group('completion callback fires after screen already disposed', () {
+    late _DeferredReadyAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _DeferredReadyAdapter();
+      adapter.interstitialSlot.beginReload();
+      adapter.interstitialSlot.markReady();
+      adapter.rewardedSlot.beginReload();
+      adapter.rewardedSlot.markReady();
+      adapter.rewardedInterstitialSlot.beginReload();
+      adapter.rewardedInterstitialSlot.markReady();
+      AdManager().debugSetAdapter(adapter);
+    });
+
+    tearDown(() => AdManager().debugSetAdapter(null));
+
+    testWidgets('interstitial: onDoneFlow never reaches a disposed screen',
+        (tester) async {
+      bool? result;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(onInter: (v) => result = v, onReward: (_) {}),
+      ));
+      await tester.tap(find.byKey(const Key('inter')));
+      await tester.pump(const Duration(seconds: 2)); // past showAdBuffer
+
+      expect(adapter.showInterstitialCalls, 1,
+          reason: 'must reach the real adapter call before disposing');
+
+      // Host navigates away WHILE the ad is genuinely still on screen.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+      // Native SDK's ad-closed callback fires late, after disposal.
+      expect(() => adapter.fireInterstitialDone(true), returnsNormally);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(result, isNull,
+          reason: 'a disposed screen\'s onDone must never be invoked');
+    });
+
+    testWidgets('rewarded: onEarnedReward never reaches a disposed screen',
+        (tester) async {
+      bool? reward;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(onInter: (_) {}, onReward: (v) => reward = v),
+      ));
+      await tester.tap(find.byKey(const Key('reward')));
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(adapter.showRewardedCalls, 1,
+          reason: 'must reach the real adapter call before disposing');
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+      expect(
+          () => adapter.fireRewardedDone(const RewardResult(
+              earned: true, shown: true, label: 'coins', amount: 1)),
+          returnsNormally);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(reward, isNull,
+          reason: 'a disposed screen\'s onEarnedReward must never be invoked');
+    });
+
+    testWidgets(
+        'rewardedInterstitial: onDone never reaches a disposed screen',
+        (tester) async {
+      bool? shown;
+      bool? earned;
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _DemoAdScreen(
+          onInter: (_) {},
+          onReward: (_) {},
+          onRewardedInterstitial: (s, e) {
+            shown = s;
+            earned = e;
+          },
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('rewardedInterstitial')));
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(adapter.showRewardedInterstitialCalls, 1,
+          reason: 'must reach the real adapter call before disposing');
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+      expect(
+          () => adapter.fireRewardedInterstitialDone(const RewardResult(
+              earned: true, shown: true, label: 'coins', amount: 1)),
+          returnsNormally);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(shown, isNull,
+          reason: 'a disposed screen\'s onDone must never be invoked');
+      expect(earned, isNull);
     });
   });
 

@@ -1,6 +1,10 @@
 // Generate an Ed25519 key pair for signing offline VIP keys (T18).
 //
-//   dart run tool/vip_keygen.dart
+//   dart tool/vip_keygen.dart
+//
+// Use bare `dart tool/vip_keygen.dart`, NOT `dart run tool/vip_keygen.dart`
+// — see tool/vip_mint.dart's header for why (`dart run`'s build-hooks stdout
+// noise corrupts captured output on Dart 3.10+ toolchains).
 //
 // • Embed the PUBLIC key in your app (AdConfig.vipPublicKeyBase64 / host
 //   vip_keys.dart). It is safe to ship and commit.

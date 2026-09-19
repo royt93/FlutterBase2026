@@ -1,11 +1,16 @@
 // T200 — AdManager().clearSdkData() orchestration: AdPreferences (scoped
 // SharedPreferences sweep) + VIP secure storage (live vs not-live
-// VipManager) + FirstInstallGuard, all wired together.
+// VipManager), wired together. Deliberately does NOT touch
+// FirstInstallGuard's Keychain flag — see round 49's fix in
+// ad_manager.dart's clearSdkData for why.
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/vip/_first_install_guard.dart';
 import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeVipEntriesStore extends VipEntriesStore {
@@ -16,6 +21,8 @@ class _FakeVipEntriesStore extends VipEntriesStore {
   @override
   Future<void> setRaw(String json) async => raw = json;
 }
+
+class _MockSecureStorage extends Mock implements FlutterSecureStorage {}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +37,7 @@ void main() {
 
   tearDown(() {
     AdManager().debugVipManager = null;
+    AdManager.debugFirstInstallGuardFactory = null;
   });
 
   test('everythingExceptEntitlements (default) clears a non-entitlement '
@@ -87,5 +95,42 @@ void main() {
         reason: 'the LIVE manager\'s reactive state must reflect the '
             'erasure immediately — this is the whole point of routing '
             'through the live instance instead of the static fallback');
+  });
+
+  test(
+      'allIncludingEntitlements does NOT erase the iOS FirstInstallGuard '
+      'Keychain flag — round 49 regression: that flag exists to survive '
+      'exactly this kind of local-data wipe', () async {
+    final secureStorage = _MockSecureStorage();
+    when(() => secureStorage.write(
+          key: any(named: 'key'),
+          value: any(named: 'value'),
+        )).thenAnswer((_) async {});
+    when(() => secureStorage.read(key: any(named: 'key')))
+        .thenAnswer((_) async => 'true');
+    when(() => secureStorage.delete(key: any(named: 'key')))
+        .thenAnswer((_) async {});
+
+    final guard = FirstInstallGuard(
+      secureStorage: secureStorage,
+      debugOverride: false,
+      platformIsIos: () => true,
+      platformIsAndroid: () => false,
+    );
+    AdManager.debugFirstInstallGuardFactory = () => guard;
+
+    expect(await guard.hasAlreadyGranted(), isTrue,
+        reason: 'sanity check: guard reports a prior grant before erasure');
+
+    await AdManager().clearSdkData(
+      scope: SdkDataErasureScope.allIncludingEntitlements,
+      confirmedEntitlementErasure: true,
+    );
+
+    verifyNever(() => secureStorage.delete(key: any(named: 'key')));
+    expect(await guard.hasAlreadyGranted(), isTrue,
+        reason: 'the Keychain anti-farming flag must survive a '
+            '"clear my data" request — only a real uninstall should be '
+            'able to clear it, per the class doc comment');
   });
 }

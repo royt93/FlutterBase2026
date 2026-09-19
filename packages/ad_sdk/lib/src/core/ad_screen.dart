@@ -151,6 +151,16 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
         placement: placement,
         onDoneFlow: (result) {
           SafeLogger.d(_tag, 'showInterstitialAd onDoneFlow: result=$result');
+          // Round-49 audit fix (MAJOR) — the ad itself can take arbitrarily
+          // long to close (user backgrounds the app, taps through slowly),
+          // so the screen may have navigated away and disposed by the time
+          // this fires. Calling `onDone` against a disposed screen crashes
+          // (setState after dispose / deactivated-widget context lookup).
+          if (!mounted || _isDisposed) {
+            SafeLogger.d(
+                _tag, 'showInterstitialAd ⏭️ widget gone before onDoneFlow');
+            return;
+          }
           onDone(result);
         },
       );
@@ -297,6 +307,14 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
         callSiteTag: callSiteTag,
         onEarnedReward: (result) {
           SafeLogger.d(_tag, 'showRewardedAd onEarnedReward: result=$result');
+          // Round-49 audit fix (MAJOR) — see showInterstitialAd's identical
+          // guard above for why: the screen may have disposed while the ad
+          // was still on screen.
+          if (!mounted || _isDisposed) {
+            SafeLogger.d(
+                _tag, 'showRewardedAd ⏭️ widget gone before onEarnedReward');
+            return;
+          }
           onEarnedReward(result);
         },
       );
@@ -388,7 +406,20 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       }
       AdManager().showRewardedInterstitialAd(
         placement: placement,
-        onDone: onDone,
+        onDone: (shown, earned) {
+          SafeLogger.d(_tag,
+              'showRewardedInterstitialAd onDone: shown=$shown earned=$earned');
+          // Round-49 audit fix (MAJOR) — see showInterstitialAd's identical
+          // guard for why: the screen may have disposed while the ad was
+          // still on screen. Unlike the checks above, this one used to pass
+          // `onDone` straight through with no guard at all.
+          if (!mounted || _isDisposed) {
+            SafeLogger.d(
+                _tag, 'showRewardedInterstitialAd ⏭️ widget gone before onDone');
+            return;
+          }
+          onDone(shown, earned);
+        },
       );
     });
   }

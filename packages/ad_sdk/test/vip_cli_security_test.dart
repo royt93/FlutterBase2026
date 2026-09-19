@@ -52,8 +52,12 @@ Future<ProcessResult> _runDart(
   List<String> args, {
   String? stdinInput,
 }) async {
+  // Bare `dart <file>` (not `dart run <file>`) — `dart run` triggers Dart's
+  // native-assets build-hooks step on Dart 3.10+ toolchains, which prints
+  // "Running build hooks..." to STDOUT ahead of the script's own output and
+  // corrupts every assertion below that parses stdout as the minted key/CRL.
   final process = await Process.start(
-      'dart', ['run', _join('tool', script), ...args],
+      'dart', [_join('tool', script), ...args],
       workingDirectory: root.path);
   if (stdinInput != null) {
     process.stdin.write(stdinInput);

@@ -206,9 +206,11 @@ const Map<String, Duration> kDemoVipKeys = {
 /// public key grants VIP to anyone who pastes one of the demo codes.
 ///
 /// Before releasing an app, generate your own keypair with
-/// `dart run tool/vip_keygen.dart`, keep the PRIVATE key off the repo, and
-/// mint real codes with `dart run tool/vip_mint.dart`. Only the public key
-/// belongs in your binary.
+/// `dart tool/vip_keygen.dart`, keep the PRIVATE key off the repo, and
+/// mint real codes with `dart tool/vip_mint.dart` (bare `dart`, not
+/// `dart run` — the latter's build-hooks stdout noise on Dart 3.10+
+/// toolchains corrupts a captured key). Only the public key belongs in your
+/// binary.
 ///
 /// T18 — offline SIGNED VIP keys. The public key below verifies the keys; the
 /// matching private key (never shipped) minted them via tool/vip_mint.dart.

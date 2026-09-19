@@ -1255,8 +1255,22 @@ class AdManager with WidgetsBindingObserver {
       } else {
         await VipManager.eraseSecureEntitlementStorage(prefs);
       }
-      await (debugFirstInstallGuardFactory?.call() ?? FirstInstallGuard())
-          .erase();
+      // Round-49 audit fix (MAJOR) — this used to also call
+      // `FirstInstallGuard().erase()`, wiping the iOS Keychain anti-farming
+      // flag alongside the SharedPreferences one `prefs.clearSdkData` above
+      // already removes. That flag's entire purpose (see its class doc
+      // comment) is to survive exactly this kind of local-data wipe so a
+      // user can't re-grant themselves the first-install VIP trial without
+      // a real uninstall+reinstall; erasing it here let the SDK's own
+      // documented "erase my data" button (`example`'s
+      // ClearSdkDataDemoPage, required by Apple 5.1.1(v)/GDPR/CCPA) hand
+      // out the 24h trial again on every kill+reopen, no reinstall needed —
+      // same class of gap as `RedeemedKeyLedger` and
+      // `ConsentProvenanceJournal` already carve themselves out of erasure
+      // for (anti-abuse data survives an entitlement-erasure request; a
+      // real paid VIP grant above is still erased, since that's the actual
+      // "entitlement" the user has a right to remove). Deliberately NOT
+      // erasing the Keychain flag here now.
     }
   }
 

@@ -83,6 +83,12 @@ class FillRateMonitor {
 
   void _onEvent(AdEvent event) {
     if (event is! AdLoadEvent) return;
+    // Round-49 audit fix (MINOR) — same reasoning as
+    // ProviderFailoverAdvisor's identical guard: a load that fails purely
+    // because the device is offline says nothing about this provider's
+    // fill rate, and would otherwise drag the trailing rate down (and
+    // could trigger a false alert) during a network flap.
+    if (!event.success && !AdManager().isConnected) return;
     final list = _loadResults.putIfAbsent(event.type, () => []);
     list.add(event.success);
     // ponytail: simple List truncation, no ring buffer — 20 bools is nothing.

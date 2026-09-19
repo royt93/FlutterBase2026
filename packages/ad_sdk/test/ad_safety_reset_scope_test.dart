@@ -57,6 +57,50 @@ void main() {
             'is labelled — it has to actually do it');
   });
 
+  // Round 49 audit fix (MAJOR) — `resetSessionCounters()`'s own doc comment
+  // and log line already promised "fraud history preserved", but it was
+  // zeroing `_fullscreenImpressions`/`_fullscreenClicks` too, which is
+  // exactly the state the CTR-anomaly gate below needs 5 cumulative
+  // impressions to ever evaluate. A host calling this reset before 5
+  // impressions land between calls could permanently prevent the gate from
+  // firing, no matter how bad the real CTR was.
+  test(
+      'resetSessionCounters does NOT reset the CTR-anomaly fullscreen '
+      'impression/click counters', () {
+    // 4 fullscreen impressions + fullscreen clicks pre-reset — not yet
+    // enough for the gate to evaluate (it requires >= 5 cumulative
+    // impressions before it looks at the ratio at all).
+    for (var i = 0; i < 4; i++) {
+      AdSafetyConfig.recordFullscreenAdShown();
+      AdSafetyConfig.recordAdClick(fullscreen: true);
+    }
+
+    AdSafetyConfig.resetSessionCounters();
+
+    // One more impression brings the cumulative fullscreen count to 5. If
+    // the reset above had wiped `_fullscreenImpressions`, the gate would
+    // only see this 1 impression and could never evaluate the CTR. Two
+    // clicks on it makes 6 clicks / 5 impressions = 120%, strictly over
+    // the debug threshold (100% — `ctr > threshold`, not `>=`).
+    AdSafetyConfig.recordFullscreenAdShown();
+    AdSafetyConfig.recordAdClick(fullscreen: true);
+    AdSafetyConfig.recordAdClick(fullscreen: true);
+
+    // minIntervalOverrideMs: 0 is the documented, intentional "no throttle
+    // for this placement" bypass — isolates the CTR-anomaly gate from the
+    // unrelated (and, in a real app, entirely legitimate) fullscreen
+    // throttle so this test only proves what it claims to.
+    final result =
+        AdSafetyConfig.canShowFullscreenAd(minIntervalOverrideMs: 0);
+
+    expect(result.canShow, isFalse);
+    expect(result.reason, contains('CTR too high'),
+        reason: 'CTR is 6 clicks / 5 impressions = 120%, over the debug '
+            'threshold (100%) — resetSessionCounters must not let a host '
+            'dodge this gate by resetting the impression count back to '
+            'near zero');
+  });
+
   test('the internal full reset still clears everything (T24 behaviour kept)',
       () {
     tripInvalidTrafficPause();

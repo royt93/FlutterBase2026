@@ -1,7 +1,11 @@
 // Mint a signed VIP-key revocation list (CRL, T95). Same private key as
 // tool/vip_mint.dart (from tool/vip_keygen.dart) — no new key material.
 //
-//   dart run tool/vip_crl_mint.dart --priv-file .vip-private-key --kids kid1,kid2,kid3
+//   dart tool/vip_crl_mint.dart --priv-file .vip-private-key --kids kid1,kid2,kid3
+//
+// Use bare `dart tool/vip_crl_mint.dart`, NOT `dart run tool/vip_crl_mint.dart`
+// — see tool/vip_mint.dart's header for why (`dart run`'s build-hooks stdout
+// noise corrupts a captured CRL string on Dart 3.10+ toolchains).
 //
 // Mints CRL1.<b64url(payload)>.<b64url(signature)>
 // payload = UTF-8 of "<issuedAtEpochSeconds>|<comma-separated kids>"

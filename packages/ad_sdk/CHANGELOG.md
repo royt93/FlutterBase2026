@@ -4,6 +4,50 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fixed (round 49 audit, MAJOR):** `AdManager().clearSdkData(scope:
+  SdkDataErasureScope.allIncludingEntitlements)` — the SDK's own documented
+  "erase my data" flow (Apple 5.1.1(v)/GDPR/CCPA) — also erased the iOS
+  Keychain flag `FirstInstallGuard` uses to stop the first-install 24h VIP
+  trial from being re-granted without a real uninstall. A user tapping that
+  button and reopening the app got a fresh trial every time, no reinstall
+  needed. The Keychain flag is no longer touched by this scope, matching
+  how `RedeemedKeyLedger`/`ConsentProvenanceJournal` already carve
+  themselves out of entitlement erasure for the same anti-abuse reasoning.
+- **Fixed (round 49 audit, MAJOR):** `AdScreenState`'s three full-screen ad
+  completion callbacks (`showInterstitialAd`'s `onDoneFlow`,
+  `showRewardedAd`'s `onEarnedReward`, `showRewardedInterstitialAd`'s
+  `onDone`) checked `mounted`/disposed state before starting the ad, but
+  not when the ad actually finished — if the host navigated away while the
+  ad was still on screen, the late native "ad closed" callback ran the
+  host's `onDone` against an already-disposed screen (`setState` after
+  dispose / deactivated-widget context lookup crash). All three now guard
+  the completion callback too.
+- **Fixed (round 49 audit, MAJOR):** `AdSafetyConfig.resetSessionCounters()`
+  documented itself as preserving fraud history, but was zeroing
+  `_fullscreenImpressions`/`_fullscreenClicks` — exactly the state its own
+  CTR-anomaly gate needs 5 cumulative impressions to ever evaluate. Calling
+  this reset repeatedly (e.g. wired to a common action, as the M2/round-6
+  incident already warned against for a different counter) could
+  permanently prevent the click-fraud gate from ever tripping, no matter
+  how bad the real click-through rate was.
+- **Fixed (round 49 audit, MINOR):** `ProviderFailoverAdvisor` and
+  `FillRateMonitor` counted a load failure toward their thresholds even
+  when the device was offline at the time, so a network flap during a
+  reconnect-debounce refill could run several loads that fail purely from
+  lost connectivity and trip a false "switch providers" recommendation or
+  fill-rate alert. Both now ignore a load failure while
+  `AdManager().isConnected` is `false`.
+- **Tooling:** `dart run tool/vip_mint.dart`/`vip_keygen.dart`/
+  `vip_crl_mint.dart` on a Dart 3.10+ toolchain prints
+  `Running build hooks...` to stdout ahead of the script's own output,
+  silently corrupting a captured `$(dart run tool/vip_mint.dart ...)` key
+  or CRL string. Docs and the CLI security test now use bare
+  `dart tool/vip_mint.dart` (no `run` subcommand), which doesn't trigger
+  the build-hooks step. (Round 49 audit, found independently by an
+  external `agy` pass.)
+
 ## [3.0.1] - 2026-09-19
 
 - **Fixed (round 48 audit, MINOR):** a rapid online→offline flap while a

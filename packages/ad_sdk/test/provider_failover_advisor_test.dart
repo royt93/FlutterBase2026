@@ -136,6 +136,37 @@ void main() {
     });
   });
 
+  group('offline mid-flight failures do not count (round 49 audit fix)', () {
+    tearDown(() => AdManager().debugConnectivityChanged(true));
+
+    test(
+        'a load failure while offline is ignored — does not build a false '
+        'failover streak during a network flap', () async {
+      final advisor = ProviderFailoverAdvisor(
+          consecutiveFailureThreshold: 3, persist: false);
+      await advisor.ready;
+
+      AdManager().debugConnectivityChanged(false);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_load(false));
+      }
+      await _flush();
+      expect(advisor.shouldFailoverNextSession, isFalse,
+          reason: 'all 5 failures happened while offline — none of them '
+              'should count toward the consecutive-failure streak');
+
+      AdManager().debugConnectivityChanged(true);
+      for (var i = 0; i < 3; i++) {
+        AdManager().debugEmit(_load(false));
+      }
+      await _flush();
+      expect(advisor.shouldFailoverNextSession, isTrue,
+          reason: 'once actually online again, real failures must still '
+              'count normally');
+      await advisor.dispose();
+    });
+  });
+
   group('persistence across restarts', () {
     test('a streak survives dispose() + reconstruction', () async {
       final advisor1 = ProviderFailoverAdvisor(consecutiveFailureThreshold: 3);

@@ -1050,6 +1050,19 @@ class AdSafetyConfig {
   /// button wired to it labelled "Reset session counters", which is exactly
   /// what a host would assume it did. That cooldown protects the publisher's
   /// AdMob account rather than pacing the user, so it is not a host's to clear.
+  ///
+  /// Round-49 audit fix (MAJOR) — this method's own doc comment and log line
+  /// already promised "fraud history preserved", but it was zeroing
+  /// [_fullscreenImpressions]/[_fullscreenClicks]/
+  /// [_ctrPauseTriggeredAtImpressionCount] anyway: exactly the state
+  /// [canShowFullscreenAd]'s CTR-anomaly gate requires 5 NEW impressions
+  /// (see its own doc comment) before it can ever trip. A host calling this
+  /// repeatedly before 5 fullscreen impressions land between calls — e.g.
+  /// wiring it to a common action like app-foreground, same as the M2
+  /// incident above — permanently prevented the gate from ever evaluating a
+  /// CTR, exactly the account-suspension risk this method was split out to
+  /// avoid in the first place. These three now follow [_suspiciousViolationCount]
+  /// and the others below in surviving this reset, matching the doc comment.
   static void resetSessionCounters() {
     _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
     _fullscreenAdsShownInSession = 0;
@@ -1057,9 +1070,6 @@ class AdSafetyConfig {
     _resumeTimestamps.clear();
     _totalImpressions = 0;
     _totalClicks = 0;
-    _fullscreenImpressions = 0;
-    _fullscreenClicks = 0;
-    _ctrPauseTriggeredAtImpressionCount = -5;
     _clickTimestamps.clear();
     _networkShowTimestamps.clear();
     _lastAdClickAt = 0;
