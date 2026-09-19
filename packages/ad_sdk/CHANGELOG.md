@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.1] - 2026-09-19
 
 - **Fixed (round 48 audit, MINOR):** a rapid online→offline flap while a
   reconnect-debounce timer was pending left that timer running; since its
