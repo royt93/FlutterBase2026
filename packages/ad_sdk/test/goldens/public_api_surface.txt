@@ -226,7 +226,7 @@ AdManager.revenueIntegrityLedger  [getter]  RevenueIntegrityLedger? get revenueI
 AdManager.runIntegrationSelfCheck  [method]  Future<SelfCheckResult> runIntegrationSelfCheck({Duration loadTimeout = const Duration(seconds: 15)})
 AdManager.selfHealingObserver  [getter]  SelfHealingObserver? get selfHealingObserver
 AdManager.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, bool paused)
-AdManager.setConsent  [method]  Future<void> setConsent(AdConsent consent)
+AdManager.setConsent  [method]  Future<void> setConsent(AdConsent consent, {bool qualifiesAsConsentFlow = true})
 AdManager.setDoNotSell  [method]  Future<void> setDoNotSell(bool value)
 AdManager.setMrecRoutePaused  [method]  void setMrecRoutePaused(Object key, bool paused)
 AdManager.setNavigatorKey  [method]  void setNavigatorKey(GlobalKey<NavigatorState> key)
