@@ -175,8 +175,8 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
   void _onPersonalisationWithdrawn() {
     if (!mounted) return;
     final mgr = AdManager();
-    SafeLogger.w(_tag,
-        '🔒 personalisation withdrawn — replacing mounted MREC instance');
+    SafeLogger.w(
+        _tag, '🔒 personalisation withdrawn — replacing mounted MREC instance');
     mgr.disposeMrecInstance(this);
     _allowed.value = false;
     if (!mgr.canRequestAds || !mgr.isInitialised || mgr.isVIPMember()) return;
@@ -649,6 +649,13 @@ class _AppLovinMaxMrecView extends StatelessWidget {
             onAdLoadFailedCallback: (id, err) =>
                 SafeLogger.d('MrecAdWidget', 'MaxAdView ❌ ${err.code}'),
             onAdClickedCallback: (ad) {
+              // Round-46 audit fix (R46-03) — see banner_ad_widget.dart's
+              // identical guard: drop a late callback for an adViewId this
+              // widget has since moved on from.
+              if (isStaleAppLovinCallback(
+                  AdManager().mrecAdViewId(ownerKey).value, adViewId)) {
+                return;
+              }
               SafeLogger.d('MrecAdWidget', 'MaxAdView 🎯 click');
               AdSafetyConfig.recordAdClick();
               AdManager().adapter?.eventSink?.call(AdClickEvent(

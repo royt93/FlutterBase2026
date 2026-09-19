@@ -201,8 +201,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       return;
     }
     _widthCorrectionDebounce?.cancel();
-    _widthCorrectionDebounce =
-        Timer(_widthCorrectionDebounceDuration, () {
+    _widthCorrectionDebounce = Timer(_widthCorrectionDebounceDuration, () {
       if (!mounted) return;
       final mgr = AdManager();
       if (!_allowed.value || !mgr.isAdMobProvider) return;
@@ -440,7 +439,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
           mgr.isInitialised &&
           !mgr.isVIPMember() &&
           widget.active != false &&
-            !_pausedByController) {
+          !_pausedByController) {
         _initScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _initScheduled = false;
@@ -456,8 +455,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       return;
     }
     if (_allowed.value) {
-      SafeLogger.w(_tag,
-          '🔒 consent gate closed — disposing mounted banner instance');
+      SafeLogger.w(
+          _tag, '🔒 consent gate closed — disposing mounted banner instance');
       mgr.disposeBannerInstance(this);
       _allowed.value = false;
     }
@@ -985,6 +984,18 @@ class _AppLovinMaxAdView extends StatelessWidget {
             onAdLoadFailedCallback: (id, err) =>
                 SafeLogger.d('BannerAdWidget', 'MaxAdView ❌ ${err.code}'),
             onAdClickedCallback: (ad) {
+              // Round-46 audit fix (R46-03) — same reasoning as the
+              // onAdRevenuePaidCallback guard below (added round 33 for
+              // revenue, missed for click until this round): a click
+              // delivered for an adViewId this widget has since moved on
+              // from — a reload, a dispose, or even a destroy()+re-init
+              // that replaced the whole adapter (bannerAdViewId then
+              // resolves against a fresh, unrelated registry and won't
+              // match the captured id either) — must not be recorded.
+              if (isStaleAppLovinCallback(
+                  AdManager().bannerAdViewId(ownerKey).value, adViewId)) {
+                return;
+              }
               SafeLogger.d('BannerAdWidget', 'MaxAdView 🎯 click');
               AdSafetyConfig.recordAdClick();
               // Forward to the SDK event stream via the active adapter's sink.

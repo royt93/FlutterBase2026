@@ -73,6 +73,7 @@ class _NativeCountingAdapter implements AdProviderAdapter {
     lastRequestedTemplateType = templateType;
     loadNativeCalls++;
   }
+
   // Round 44 — settable so tests can tell "hidden" apart from "no view yet".
   Widget? nativeViewToReturn;
   @override
@@ -231,8 +232,8 @@ void main() {
 
     testWidgets('explicit height overrides the templateType default',
         (tester) async {
-      await tester.pumpWidget(host(const NativeAdWidget(
-          templateType: TemplateType.small, height: 120)));
+      await tester.pumpWidget(host(
+          const NativeAdWidget(templateType: TemplateType.small, height: 120)));
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(tester.getSize(find.byType(NativeAdWidget)).height, 120,
@@ -310,7 +311,8 @@ void main() {
   // privacy-information/AdChoices-equivalent icon) somewhere in the custom
   // layout the package owns. Without it, every AppLovin native ad impression
   // is policy-non-compliant, unconditionally, on both platforms.
-  testWidgets('AppLovin native ad layout includes the mandatory privacy '
+  testWidgets(
+      'AppLovin native ad layout includes the mandatory privacy '
       'information view (MaxNativeAdOptionsView)', (tester) async {
     final adapter = _NativeCountingAdapter();
     AdManager().debugSetAdapter(adapter);
@@ -669,7 +671,8 @@ void main() {
     });
   });
 
-  group('R45-02 — AppLovin native click after widget disposal (audit round '
+  group(
+      'R45-02 — AppLovin native click after widget disposal (audit round '
       '45)', () {
     // codex exec (round-45 independent audit) found this: unlike
     // onAdRevenuePaidCallback (round-33 fix, R33-03), onAdClickedCallback
@@ -706,9 +709,8 @@ void main() {
       await tester.pumpWidget(host(const NativeAdWidget()));
       await tester.pump(const Duration(milliseconds: 50));
 
-      final listener = tester
-          .widget<MaxNativeAdView>(find.byType(MaxNativeAdView))
-          .listener;
+      final listener =
+          tester.widget<MaxNativeAdView>(find.byType(MaxNativeAdView)).listener;
       expect(listener, isNotNull);
 
       // Unmount — same as navigating away from the screen. This tombstones
@@ -743,6 +745,90 @@ void main() {
               'not be recorded or emitted — the instance no longer exists '
               'and, if the adapter has since been reinitialised, must not '
               'be misattributed to a new session');
+      expect(tester.takeException(), isNull);
+    });
+
+    // Round-46 audit fix (R46-03, codex) — R45-02's `isNativeInstanceDisposed`
+    // guard is a per-`AppLovinAdapter`-instance tombstone set: after
+    // `AdManager.destroy()` + a fresh `initialize()`, a late callback still
+    // carrying the OLD widget's instanceKey finds an EMPTY tombstone set on
+    // the NEW adapter and would pass that check — landing on, and
+    // contaminating, a brand-new SDK session. Simulates that swap directly
+    // (without a full destroy()/re-init cycle) by installing a second real
+    // adapter after capturing the listener, the same way a real
+    // destroy()+initialize() would replace `AdManager().adapter`.
+    testWidgets(
+        'a click callback whose adapter has since been replaced (destroy + '
+        're-init) is neither recorded nor emitted on the new adapter',
+        (tester) async {
+      final oldBridge = FakeAppLovinBridge();
+      final oldAdapter = AppLovinAdapter(bridge: oldBridge);
+      expect(
+        await oldAdapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(oldAdapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+
+      final newBridge = FakeAppLovinBridge();
+      final newAdapter = AppLovinAdapter(bridge: newBridge);
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        oldAdapter.dispose();
+        newAdapter.dispose();
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listener =
+          tester.widget<MaxNativeAdView>(find.byType(MaxNativeAdView)).listener;
+      expect(listener, isNotNull);
+
+      // Simulates AdManager.destroy() + a fresh initialize(): the global
+      // adapter is now a DIFFERENT AppLovinAdapter instance that never knew
+      // about this widget's instanceKey — its tombstone set is empty.
+      expect(
+        await newAdapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(newAdapter);
+
+      final oldEvents = <Object>[];
+      oldAdapter.eventSink = oldEvents.add;
+      final newEvents = <Object>[];
+      newAdapter.eventSink = newEvents.add;
+
+      // A click the OLD adapter's platform side queued before the swap,
+      // delivered late.
+      listener!.onAdClickedCallback(MaxAd(
+          'native-id',
+          'NATIVE',
+          null,
+          'net',
+          '',
+          0.0,
+          'exact',
+          'cid',
+          'dsp',
+          '',
+          0,
+          MaxAdWaterfallInfo('', '', const [], 0),
+          null,
+          null));
+
+      expect(newEvents, isEmpty,
+          reason: 'the new adapter never registered this instanceKey, so '
+              'its own isNativeInstanceDisposed check alone would wrongly '
+              'pass this late callback through — it must be rejected '
+              'because AdManager().adapter is no longer the adapter this '
+              'listener was built for');
+      expect(oldEvents, isEmpty);
       expect(tester.takeException(), isNull);
     });
   });

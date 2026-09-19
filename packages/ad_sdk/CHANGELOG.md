@@ -6,6 +6,33 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 46 audit, MAJOR):** round 44's fix routing pre-init
+  `setDoNotSell()` through `setConsent()` (so it wasn't silently dropped)
+  had a side effect nobody intended — it also satisfied
+  `consentFootgunWarning`'s "a consent flow ran" check, even though
+  `setDoNotSell` only supplies the CCPA axis, not a GDPR/UK consent
+  decision. A release build with `autoRequestUmpConsent: false` and no
+  AppLovin CMP could call `setDoNotSell(true)` pre-init and silently
+  bypass the guard meant to catch exactly that configuration.
+  `setConsent()` now takes a `qualifiesAsConsentFlow` parameter
+  (default `true` for every genuine external caller); the internal
+  `setDoNotSell` routing passes `false`. (R46-01)
+- **Fixed (round 46 audit, MINOR — a regression in round 45's own R45-04
+  fix):** the release-blocking test-ad-ID guard and the consent-flow
+  guard shared one mutable flag, so `setConsent()` resolving normally
+  (as it does moments after init in any real app) silently cleared the
+  test-ID block too. Now its own dedicated flag, untouched by
+  `setConsent()`. (R46-02)
+- **Fixed (round 46 audit, MINOR):** `BannerAdWidget`/`MrecAdWidget`
+  click callbacks lacked the stale-view check their revenue callbacks
+  already had (round 33), so a click for an adViewId the widget had
+  since moved on from was still recorded. Also, `NativeAdWidget`'s
+  round-45 disposed-instance guard was per-adapter-instance, so a late
+  callback surviving a `destroy()` + re-`initialize()` could land on,
+  and contaminate, the new SDK session; native click/revenue callbacks
+  now also require the callback's adapter to still be `identical` to
+  the one current when the listener was built. (R46-03)
+
 - **Fixed (round 45 audit, MAJOR):** round 44's TCF-vendor-consent fix
   (`applyConsentToProviders` skipping `AppLovinMAX.setHasUserConsent` when a
   real IAB TC string already exists) only guarded the *post-init* code path,

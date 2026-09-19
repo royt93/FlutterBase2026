@@ -871,6 +871,8 @@ void main() {
     });
     tearDown(() {
       AdManager().debugFootgunBlocked = false;
+      AdManager().debugTestIdFootgunBlocked = false;
+      AdManager().debugConsentExplicitlySet = false;
       AdManager().debugCanRequestAds = true;
     });
 
@@ -1124,6 +1126,63 @@ void main() {
       AdManager().debugApplyTestIdFootgunGuard(
           false, _admobConfig(dryRun: false, testIds: true));
       expect(AdManager().canRequestAds, isTrue);
+    });
+
+    // Round-46 audit fix (R46-01, MAJOR) — codex found that round-44's fix
+    // (route pre-init setDoNotSell() through setConsent() so it isn't
+    // silently dropped) had a side effect nobody intended: setConsent()
+    // unconditionally marked "a consent flow ran", which is exactly what
+    // consentFootgunWarning treats as proof the release-consent-flow-missing
+    // footgun doesn't apply. So a release build with no UMP and no AppLovin
+    // CMP could call setDoNotSell(true) (a CCPA-only signal) pre-init and
+    // silently defeat the guard meant to catch exactly that configuration.
+    test(
+        'R46-01: pre-init setDoNotSell (CCPA only) must NOT satisfy the '
+        'consent-footgun guard meant to catch a missing GDPR/UMP flow',
+        () async {
+      AdManager().debugApplyConsentFootgunGuard(true);
+      expect(AdManager().canRequestAds, isFalse);
+
+      await AdManager().setDoNotSell(true);
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'setDoNotSell only supplies the CCPA/US-Privacy axis, '
+              'not evidence that a GDPR/UMP consent flow ran');
+    });
+
+    test(
+        'R46-01 control: a genuine setConsent() call still resolves the '
+        'consent-footgun guard exactly as before', () async {
+      AdManager().debugApplyConsentFootgunGuard(true);
+      expect(AdManager().canRequestAds, isFalse);
+
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      expect(AdManager().canRequestAds, isTrue,
+          reason: 'a real setConsent() call (host UI or requestUmpConsent '
+              'applying its result) must still unblock, unchanged');
+    });
+
+    // Round-46 audit fix (R46-02, MINOR — a regression in round-45's OWN
+    // R45-04 fix) — _applyTestIdFootgunGuard used to set the SAME
+    // _footgunBlocked flag setConsent() unconditionally clears every time a
+    // consent flow resolves, which happens moments after init in any real
+    // app (the UMP flow finishing). So R45-04's release-blocking guard was
+    // cleared almost immediately in the realistic sequence. Now its own
+    // dedicated flag, untouched by setConsent().
+    test(
+        'R46-02: a resolved consent flow does not clear the separate '
+        'test-ID release block', () async {
+      AdManager().debugApplyTestIdFootgunGuard(
+          true, _admobConfig(dryRun: false, testIds: true));
+      expect(AdManager().canRequestAds, isFalse);
+
+      await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+
+      expect(AdManager().canRequestAds, isFalse,
+          reason: 'a release build still on Google test ad unit IDs must '
+              'stay blocked no matter what consent resolves to — these are '
+              'two independent footguns');
     });
   });
 

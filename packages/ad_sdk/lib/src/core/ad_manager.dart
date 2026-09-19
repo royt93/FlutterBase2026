@@ -2032,6 +2032,26 @@ class AdManager with WidgetsBindingObserver {
   /// logic in [setConsent] stomp on a real "EEA user hasn't granted" `false`.
   bool _footgunBlocked = false;
 
+  /// Round-46 audit fix (R46-02) — [_applyTestIdFootgunGuard] used to set
+  /// [_footgunBlocked], the SAME flag [setConsent] unconditionally clears
+  /// every time a consent flow resolves (a few lines below, "an explicit
+  /// setConsent() call IS a resolved consent flow"). Since a real app's UMP
+  /// flow finishes moments after init in the ordinary case, that clear
+  /// erased the release-blocking test-ad-ID guard almost immediately after
+  /// it was set — R45-04's fix barely helped in the realistic sequence.
+  /// Kept as its own flag, cleared only at [destroy] (a fresh [initialize]
+  /// re-evaluates it from the current config), specifically so no consent
+  /// event can ever unblock a release build still on Google's test ad unit
+  /// IDs.
+  bool _testIdFootgunBlocked = false;
+
+  /// Test seam for [_testIdFootgunBlocked] — see its doc comment.
+  @visibleForTesting
+  set debugTestIdFootgunBlocked(bool v) => _testIdFootgunBlocked = v;
+
+  @visibleForTesting
+  bool get debugTestIdFootgunBlocked => _testIdFootgunBlocked;
+
   /// Round-26 audit (MAJOR, claude), fix attempt 3 — narrow, self-contained,
   /// and deliberately NOT the same mechanism as [_pessimisticGateClose].
   /// That flag means something specific (round 11): "a QUEUED apply result
@@ -2049,9 +2069,13 @@ class AdManager with WidgetsBindingObserver {
   /// nothing persists it past that single call frame.
   bool _consentProviderApplyInFlight = false;
 
-  /// See [_canRequestAds] / [_footgunBlocked] / [_consentProviderApplyInFlight].
+  /// See [_canRequestAds] / [_footgunBlocked] / [_testIdFootgunBlocked] /
+  /// [_consentProviderApplyInFlight].
   bool get canRequestAds =>
-      _canRequestAds && !_footgunBlocked && !_consentProviderApplyInFlight;
+      _canRequestAds &&
+      !_footgunBlocked &&
+      !_testIdFootgunBlocked &&
+      !_consentProviderApplyInFlight;
 
   /// True when ANY fullscreen surface already owns the screen — an App Open,
   /// interstitial or rewarded ad, the SDK's own loading buffer, or a host
@@ -2366,7 +2390,7 @@ class AdManager with WidgetsBindingObserver {
   void debugApplyConsentFootgunGuard(bool isRelease) =>
       _applyConsentFootgunGuard(isRelease);
 
-  /// Round-45 audit fix (R45-04) — same reasoning and same mechanism as
+  /// Round-45 audit fix (R45-04) — same reasoning as
   /// [_applyConsentFootgunGuard], for a different footgun: shipping Google's
   /// public TEST ad unit IDs in a real release build used to only log a
   /// warning and `assert(false, …)`, which is stripped out of release
@@ -2375,9 +2399,14 @@ class AdManager with WidgetsBindingObserver {
   /// like every other footgun guard: `canRequestAds` stays false for the
   /// rest of the process, so the app still runs, it just never serves the
   /// $0-earning, policy-violating test inventory.
+  ///
+  /// Round-46 audit fix (R46-02) — sets [_testIdFootgunBlocked], its own
+  /// dedicated flag, NOT the shared [_footgunBlocked] this originally used.
+  /// See [_testIdFootgunBlocked]'s doc comment for why sharing it with the
+  /// consent footgun made this guard nearly a no-op in practice.
   void _applyTestIdFootgunGuard(bool isRelease, AdConfig config) {
     if (isActuallyRelease(isRelease) && usesGoogleTestAdUnitIds(config)) {
-      _footgunBlocked = true;
+      _testIdFootgunBlocked = true;
     }
   }
 
@@ -4712,7 +4741,19 @@ class AdManager with WidgetsBindingObserver {
   /// Call this after running your consent UI (e.g. UMP form for AdMob).
   /// Default value before the first call is [AdConsent.conservative]
   /// (non-personalized ads everywhere).
-  Future<void> setConsent(AdConsent consent) async {
+  ///
+  /// [qualifiesAsConsentFlow] (round-46 audit fix, R46-01): whether this
+  /// call counts as evidence that *some* consent flow — UMP, a host's own
+  /// GDPR-covering UI, or an explicit "no CMP at all" acknowledgement —
+  /// actually ran, for [consentFootgunWarning]'s release-time check.
+  /// Defaults to `true` for every genuine external caller (a host's own
+  /// call, or [requestUmpConsent]'s result application). Internal call
+  /// sites that only update a single privacy axis unrelated to that
+  /// question (see [setDoNotSell]'s pre-init routing) must pass `false` —
+  /// otherwise that axis being set looks indistinguishable from a real
+  /// consent flow having run.
+  Future<void> setConsent(AdConsent consent,
+      {bool qualifiesAsConsentFlow = true}) async {
     // Round-13 QC (round 2), MAJOR — a host's own consent decision (parental
     // toggle, CCPA switch) is newer than any consent apply still in flight, so
     // it invalidates it. `_inConsentApply` keeps an apply from invalidating
@@ -4758,9 +4799,15 @@ class AdManager with WidgetsBindingObserver {
     // isn't stuck locked out in release. Deliberately does NOT touch
     // `_canRequestAds` — that field's true/false is owned by the actual UMP
     // result and must not be stomped by this generic reopen.
+    //
+    // Round-46 audit fix (R46-01) — gated on [qualifiesAsConsentFlow]: see
+    // this method's doc comment for why an internal call that only updates
+    // one unrelated privacy axis must not count as "a consent flow ran".
     final wasFootgunBlocked = _footgunBlocked;
-    _consentExplicitlySet = true;
-    _footgunBlocked = false;
+    if (qualifiesAsConsentFlow) {
+      _consentExplicitlySet = true;
+      _footgunBlocked = false;
+    }
     SafeLogger.d(_tag, () => 'setConsent: $consent');
     final settings = ConsentSettings(
       hasUserConsent: consent.hasUserConsent,
@@ -4964,11 +5011,24 @@ class AdManager with WidgetsBindingObserver {
       // [consent]'s own doc), so this preserves any sibling field a prior
       // pre-init [setConsent] call already set, same as `mgr.current
       // .copyWith(...)` does below for the post-init case.
-      await setConsent(AdConsent(
-        hasUserConsent: _consent.hasUserConsent,
-        isAgeRestrictedUser: _consent.isAgeRestrictedUser,
-        doNotSell: value,
-      ));
+      // Round-46 audit fix (R46-01) — `qualifiesAsConsentFlow: false`: this
+      // call only supplies the CCPA/US-Privacy "do not sell" axis, not a
+      // GDPR/UK consent decision. Before this fix, this internal routing
+      // (added for a different reason — see the round-44 comment above)
+      // had the side effect of setting `_consentExplicitlySet = true`,
+      // which `consentFootgunWarning` below treats as proof "a consent
+      // flow ran" — so a release build with `autoRequestUmpConsent: false`
+      // and no AppLovin CMP could call `setDoNotSell(true)` pre-init and
+      // silently satisfy the guard meant to catch exactly that
+      // configuration, serving EEA/UK users with no consent flow at all.
+      await setConsent(
+        AdConsent(
+          hasUserConsent: _consent.hasUserConsent,
+          isAgeRestrictedUser: _consent.isAgeRestrictedUser,
+          doNotSell: value,
+        ),
+        qualifiesAsConsentFlow: false,
+      );
       return;
     }
     await mgr.set(mgr.current.copyWith(doNotSell: value));
@@ -6647,6 +6707,11 @@ class AdManager with WidgetsBindingObserver {
   void _resetGuardState() {
     _invalidateCoalescedLoads();
     _footgunBlocked = false;
+    // Round-46 audit fix (R46-02) — a fresh initialize() re-evaluates this
+    // from the current config anyway (_applyTestIdFootgunGuard runs on
+    // every init), so resetting it here just avoids a stale true surviving
+    // into a re-init that changed to a valid production config.
+    _testIdFootgunBlocked = false;
     _umpRequested = false;
     _umpFlowStarted = false;
     _umpFormAbandoned = false;

@@ -592,6 +592,16 @@ class _AppLovinMaxNativeView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Round-46 audit fix (R46-03) — captured once per build, at the same
+    // moment `instanceKey` is bound into these closures. `isNativeInstanceDisposed`
+    // is a per-`AppLovinAdapter`-instance tombstone set, so after
+    // `AdManager.destroy()` + a fresh `initialize()`, a late callback still
+    // carrying the OLD adapter's `instanceKey` finds an empty tombstone set
+    // on the NEW adapter and would otherwise pass the disposed check —
+    // landing on, and contaminating, a brand-new session. Requiring the
+    // callback's adapter to still be `identical` to the one that was
+    // current when this listener was built closes that gap.
+    final capturedAdapter = AdManager().adapter;
     return MaxNativeAdView(
       adUnitId: nativeId,
       listener: NativeAdListener(
@@ -626,6 +636,12 @@ class _AppLovinMaxNativeView extends StatelessWidget {
           try {
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
+            // Round-46 audit fix (R46-03) — see this build()'s
+            // `capturedAdapter` doc comment: a late callback whose adapter
+            // has since been replaced (destroy() + re-initialize()) must
+            // not land on the new session at all, regardless of the new
+            // adapter's own tombstone state.
+            if (!identical(adapter, capturedAdapter)) return;
             // Round-45 audit fix (R45-02) — same reasoning as
             // onAdRevenuePaidCallback below: this writes into shared state
             // (AdSafetyConfig's global click/invalid-traffic counters, plus
@@ -634,8 +650,7 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             // navigated away between tap and the native callback arriving)
             // wouldn't throw and get caught below — it would silently count
             // against global click/safety state for an instance that no
-            // longer exists, and could land against a different session's
-            // adapter if one was reinitialised in between.
+            // longer exists.
             if (adapter is AppLovinAdapter &&
                 adapter.isNativeInstanceDisposed(instanceKey)) {
               return;
@@ -662,6 +677,9 @@ class _AppLovinMaxNativeView extends StatelessWidget {
           try {
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
+            // Round-46 audit fix (R46-03) — see build()'s `capturedAdapter`
+            // doc comment.
+            if (!identical(adapter, capturedAdapter)) return;
             // Round-33 (R33-03) — unlike onAdLoaded/onAdFailedToLoad above,
             // this callback writes into shared state (AdSafetyConfig,
             // eventSink) rather than a per-instanceKey notifier, so a late
