@@ -53,11 +53,11 @@ class ConsentManager {
   /// when that actually discards a different instance than the one already
   /// in use, so passing a fresh `AdPreferences` the second time around
   /// doesn't fail silently.
-  /// [provenanceJournal] (T202) is optional — when set, every [set] /
+  /// [provenanceJournal] (T202) is optional — when non-null, every [set] /
   /// [reset] call appends a [ConsentProvenanceEntry] to it. Omitting it is a
   /// no-op: no behavior change for a caller that doesn't need this. Unlike
-  /// [prefs] (frozen after the first call), a non-null [provenanceJournal]
-  /// is adopted on EVERY `bootstrap()` call. Audit finding B: freezing
+  /// [prefs] (frozen after the first call), [provenanceJournal] — including
+  /// `null` — is adopted on EVERY `bootstrap()` call. Audit finding B: freezing
   /// it like [prefs] left `AdManager` (which loads a fresh
   /// `ConsentProvenanceJournal` from disk on every `initialize()`) and this
   /// singleton (which survives `destroy()`, per its own doc comment above)
@@ -67,6 +67,14 @@ class ConsentManager {
   /// silently-stale one. Both instances read/write the same persisted
   /// SharedPreferences key regardless of identity, so always adopting the
   /// latest one loses no data — it just keeps the two objects in sync.
+  /// Round 63 audit fix: this used to only reassign on a non-null
+  /// [provenanceJournal], so a host that disabled
+  /// `AdConfig.enableConsentProvenanceJournal` on a later `bootstrap()`
+  /// (a reinit without `destroy()` — this singleton survives that) still
+  /// had this instance silently appending to the OLD journal, even though
+  /// `AdManager().consentProvenanceJournal` correctly reported `null` and
+  /// the host had no way left to read or clear what kept being written.
+  /// `null` now clears it too, symmetric with every other value.
   static Future<ConsentManager> bootstrap({
     required AdPreferences prefs,
     ConsentProvenanceJournal? provenanceJournal,
@@ -84,9 +92,9 @@ class ConsentManager {
           prefs: prefs,
           provenanceJournal: provenanceJournal,
         );
-    if (provenanceJournal != null) {
-      m._journal = provenanceJournal;
-    }
+    // Round 63 audit fix: unconditional, including null — see this
+    // method's own doc comment above.
+    m._journal = provenanceJournal;
     await m._load();
     _instance = m;
     return m;

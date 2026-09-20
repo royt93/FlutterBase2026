@@ -3516,9 +3516,11 @@ class AdManager with WidgetsBindingObserver {
 
       // T202 — opt-in only (AdConfig.enableConsentProvenanceJournal,
       // default false — see its own doc comment for why not on by
-      // default). Loaded once BEFORE ConsentManager.bootstrap so the very
-      // first bootstrap() call (the only one that honors this param, same
-      // rule as `prefs`) can wire it in.
+      // default). Loaded once BEFORE ConsentManager.bootstrap so EVERY
+      // bootstrap() call (not just the first — round 63 audit fix; unlike
+      // `prefs`, this param, including `null` to disable it, is honored
+      // on every call, see ConsentManager.bootstrap's own doc comment) can
+      // wire it in.
       final provenanceJournal = config.enableConsentProvenanceJournal
           ? await ConsentProvenanceJournal.load(
               prefs,

@@ -90,4 +90,52 @@ void main() {
     expect(journal.entries, hasLength(2));
     expect(await journal.verifyChain(), isTrue);
   });
+
+  group('round 63 audit fix — disabling the journal on a later bootstrap()',
+      () {
+    test(
+        'a second bootstrap() with provenanceJournal: null stops recording '
+        'to the journal wired by the first call — this singleton survives '
+        'without destroy(), so a host disabling '
+        'enableConsentProvenanceJournal on reinit must not keep writing to '
+        'the old journal it can no longer read', () async {
+      final first = await ConsentManager.bootstrap(
+        prefs: prefs,
+        provenanceJournal: journal,
+      );
+      await first.set(ConsentSettings.accepted);
+      expect(journal.entries, hasLength(1));
+
+      // Reinit without destroy() — same singleton, host now passes null
+      // (AdConfig.enableConsentProvenanceJournal: false).
+      final second = await ConsentManager.bootstrap(prefs: prefs);
+      expect(identical(first, second), isTrue,
+          reason: 'sanity: this singleton really does survive a reinit '
+              'without destroy(), which is the whole reason this bug '
+              'could happen');
+
+      await second.set(ConsentSettings.rejected);
+      expect(journal.entries, hasLength(1),
+          reason: 'the old journal must not receive any more entries once '
+              'a later bootstrap() explicitly passed provenanceJournal: '
+              'null — AdManager().consentProvenanceJournal reports null '
+              'at this point, so a write here would be silently '
+              'unreachable by any public API');
+    });
+
+    test('re-enabling on a third bootstrap() resumes recording', () async {
+      final m1 = await ConsentManager.bootstrap(
+        prefs: prefs,
+        provenanceJournal: journal,
+      );
+      await m1.set(ConsentSettings.accepted);
+      await ConsentManager.bootstrap(prefs: prefs); // disable
+      final m3 = await ConsentManager.bootstrap(
+        prefs: prefs,
+        provenanceJournal: journal,
+      );
+      await m3.set(ConsentSettings.rejected);
+      expect(journal.entries, hasLength(2));
+    });
+  });
 }

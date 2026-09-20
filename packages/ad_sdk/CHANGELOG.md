@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 63 audit, MAJOR):** `ConsentManager.bootstrap()` only
+  ever reassigned its journal field when a caller's `provenanceJournal`
+  argument was non-null, so a host that disabled
+  `AdConfig.enableConsentProvenanceJournal` on a later `initialize()`
+  (a reinit without `destroy()` — this singleton survives that, by its
+  own documented design) kept silently appending consent-change entries
+  to the OLD journal, even though `AdManager().consentProvenanceJournal`
+  correctly reported `null` and the host had no public API left to read
+  or clear what kept being written. Fixed by making the reassignment
+  unconditional, including `null` — symmetric with every other value.
+  Also corrected a stale doc comment above the call site in
+  `ad_manager.dart` that claimed only the first `bootstrap()` call honors
+  this parameter, which directly contradicted `ConsentManager.bootstrap`'s
+  own (correct) doc comment. 2 new regression tests in
+  `test/consent_manager_provenance_test.dart`.
 - **Fixed (round 62 audit, MAJOR):** `AdManager.applySignedFeatureFlags()`'s
   rollback guard (`SignedFeatureFlags.verify(previousRevision: ...)`)
   tracked the last-applied revision in an **in-memory-only** field, which
