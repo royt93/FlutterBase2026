@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.3] - 2026-09-20
 
 - **Fixed (round 67 audit, MAJOR):** `ConsentManager._load()` read disk
   immediately on every `bootstrap()` call, including a reinit-without-
