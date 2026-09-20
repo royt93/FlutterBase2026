@@ -220,106 +220,32 @@ three independent agents, with every finding verified against source.
 
 See `CHANGELOG.md` `[2.0.0]` for the full list.
 
-### What's new in 1.1.1 (historical)
+### Notable history (see `CHANGELOG.md` for the complete version-by-version list)
 
-- **1.1.1** — dependency freshness: `confetti` `^0.7.0` → `^0.8.0`,
-  `connection_notifier` `^2.0.1` → `^4.1.0`. No public API changes.
-- **1.1.0** — first **public** pub.dev release, plus: Native Ad format v1
-  (`buildNative()`), MREC (`buildMrec()`), Smart Monetization Arbitrator +
-  fill-rate monitor, mediation waterfall reporting, consent-country
-  analytics, and a config-validation preflight check. See the dedicated
-  sections below and `CHANGELOG.md` `[1.1.0]` for the full list.
+Two gotchas from this history aren't repeated anywhere else in this README,
+so they're kept here even compressed:
 
-### What's new in 1.0.23 (historical)
+- **Nested-Navigator gap:** `AdScreenRouteLogger` only sees routes pushed on
+  the `Navigator` it's registered on. A bottom sheet opened with plain
+  `showModalBottomSheet` (defaults to `useRootNavigator: false`) on a nested
+  Navigator (bottom-nav tabs, a `go_router` `ShellRoute` branch) goes
+  untracked, so a resumed App Open ad can show on top of it. Fix: use the
+  SDK's `showAdSafeModalBottomSheet` (same params, always
+  `useRootNavigator: true`) for any bottom sheet in a multi-Navigator app.
+- **Overlay-based popups are invisible to the same guard:** a popup built via
+  a raw `OverlayEntry` (third-party loading/toast/coach-mark packages,
+  `SnackBar`) isn't a `Route` and can't be polled automatically. Call
+  `markCustomOverlayOnScreen(true)` before inserting your own overlay and
+  `markCustomOverlayOnScreen(false)` after removing it — opt-in; if you never
+  call it, nothing changes from before.
 
-> **1.0.20** demoed the recommended `requestAtt() → requestUmpConsent() →
-> initialize()` ordering in the example splash (no library change). **1.0.21**,
-> **1.0.22** and **1.0.23** are the additions below. (Note: 1.0.21/1.0.22 are in
-> the changelog but were never published to pub.dev — the public line jumped
-> 1.0.20 → 1.0.23.)
-
-Backwards-compatible with 1.0.1x. Recent additions:
-
-- **App Open never draws over a banner or MREC (2.4.0)** — Google's App Open
-  guidance says not to present an App Open ad on top of another ad, and names
-  banner content explicitly. The resume path used to do exactly that: it
-  restores banner visibility on resume, then shows the App Open over it. The
-  SDK now blanks every inline surface for the duration of the App Open and
-  restores the ones it blanked when the ad dismisses (a surface already hidden
-  for another reason — backgrounded app, paused route — stays hidden). Nothing
-  to call: this is automatic for both bundled adapters. A custom adapter that
-  does not implement the internal `InlineAdVisibility` capability simply keeps
-  the old behaviour.
-- **App Open never stacks on a modal (1.0.23)** — `AdScreenRouteLogger` now
-  counts `PopupRoute`s (dialogs, bottom sheets, Cupertino popups) and exposes
-  `isDialogOnTop`; `showAppOpenAdOnResume` consults it plus
-  `AdLoadingDialog.isShowing` and **skips the App Open ad while any dialog is
-  presented** (e.g. a VIP redeem confirmation). The
-  `_retryRefillAds` periodic scan also returns early for VIP members.
-  - **Nested-Navigator gap (round-28 audit, 2.9.7):** `AdScreenRouteLogger`
-    only sees routes pushed on the `Navigator` it's registered on. If your app
-    has nested Navigators — bottom-nav tabs, a `go_router` `ShellRoute` branch
-    — a bottom sheet opened with plain `showModalBottomSheet` (which defaults
-    to `useRootNavigator: false`, unlike `showDialog`'s `true`) pushes onto the
-    *nested* Navigator and goes untracked, so a resumed App Open ad can show on
-    top of it. Fix: use the SDK's `showAdSafeModalBottomSheet` (same
-    parameters, always `useRootNavigator: true`) instead of the raw Flutter
-    API for any bottom sheet in a multi-Navigator app.
-  - **Overlay-based popups are invisible to this guard too (round-32 audit)
-    — opt-in fix added in T168:** `isDialogOnTop` only counts `PopupRoute`s
-    pushed through a `Navigator`. A popup built by inserting an
-    `OverlayEntry` directly (common in third-party loading/toast/coach-mark
-    packages, and `SnackBar`, which goes through `ScaffoldMessenger` rather
-    than a route) is not a `Route` at all and the SDK cannot poll every
-    overlay in the tree automatically (the framework does not expose that
-    safely). Call `markCustomOverlayOnScreen(true)` right before inserting
-    your own overlay and `markCustomOverlayOnScreen(false)` right after
-    removing it — the SDK cannot detect this on its own, but once declared
-    it's folded into the exact same fullscreen mutex `isDialogOnTop` already
-    feeds, blocking App Open on resume and every other fullscreen ad show.
-    If you never call it, nothing changes from before — this is opt-in.
-- **VIP time stacking (1.0.22)** — `VipManager.addVip` / `redeemVip` gained an
-  opt-in `stack` flag (default `false`). With `stack: true` the grant
-  **accumulates onto the latest expiry across ALL active entries** (global
-  stacking), so VIP time from every source adds to one growing window. Optional
-  `AdConfig.maxVipStackDuration` clamps the total stacked window. See VIP system.
-- **Rewarded-while-VIP (1.0.22)** — `AdManager().showRewardedAd` gained a
-  `bypassVipGuard` flag (default `false`): a VIP member can voluntarily watch a
-  **real** rewarded ad (e.g. to extend their own window). The slot isn't
-  preloaded while VIP, so the SDK loads it on demand (tunable
-  `onDemandLoadTimeout`, default 15 s) behind a blocking `AdLoadingDialog`.
-- **Dependency refresh (1.0.21)** — `google_mobile_ads` → `^7.0.0`,
-  `flutter_secure_storage` → `^10.0.0`, `applovin_max` → `^4.6.4`; dropped the
-  deprecated `encryptedSharedPreferences` AndroidOptions flag. No public-API
-  change; added tests.
-- **iOS App Tracking Transparency (1.0.19)** — `AdManager().requestAtt()` /
-  `requestAttIfNeeded()` show the ATT prompt when needed and return a structured
-  `AttResult { status, idfa, allowsTracking }` (`AttStatus` enum). No-op on
-  Android; never throws. Call it in the splash before UMP. See Consent → Option 0.
-- **iOS App-Open watchdog fix (1.0.19)** — the lifecycle-aware show timeout no
-  longer force-dismisses on iOS. On iOS the ad shows while the app stays
-  `resumed`, so the Android-only "foreground = hung" heuristic was force-closing
-  every iOS App Open at ~10 s; iOS now relies on the native hidden/displayFailed
-  callbacks plus the 90 s hard cap.
-- **First-install anti-bypass guard (1.0.17)** — the first-install VIP grace is
-  protected against uninstall/reinstall bypass (iOS Keychain flag; Android Auto
-  Backup of `SharedPreferences`).
-
-Earlier, the 1.0.15 release added:
-
-- **Cupertino consent dialog** (added 1.0.15, **removed in a later breaking
-  release** — round 44 audit finding 1: it was not a Google-certified CMP
-  and produced no valid TCF consent string, so a "yes" it collected was not
-  a valid legal basis for personalized ads in the EEA/UK/Switzerland. Use
-  Google UMP below instead, or another certified CMP.)
-- **Google UMP wrapper** — `AdManager().requestUmpConsent(...)` calls into `google_mobile_ads`'s built-in UMP API (no extra dependency needed since `google_mobile_ads` 6.x, and still true at the `^7.0.0` this package pins today). Returns a structured `UmpConsentResult { canRequestAds, status, formShown, error }`.
-- **First-install VIP grace** — `AdConfig.firstInstallVipGrace: FirstInstallVipGrace.auto` (default). Auto-grants a one-time VIP entry on the very first SDK init for this install. Default: 30 seconds in debug builds, 24 hours in release. Tracked via `SharedPreferences` so the grant fires exactly once per install.
-- **Smart App-Open timeout** — replaces a fixed 10-second timeout that produced false-positive force-dismisses when users clicked an ad and were sent to a browser for 20+ seconds. The timeout polls the app lifecycle every 5 seconds (re-arms while paused), with a 90-second hard cap. On **Android** it force-dismisses when the app is foreground for two consecutive ticks without `onAdHiddenCallback` (= hung overlay). On **iOS** the ad shows while the app stays `resumed`, so foreground is ignored and only the native callbacks + 90 s hard cap apply (fixed in 1.0.19).
-- **Slot-state dismiss watcher** — replaces the brittle adapter-callback timestamp writes that used to fire at the wrong moment for rewarded ads (rewarded `onDone` fires when the reward is earned, not when the user actually dismisses). The watcher hooks every fullscreen slot's `state.value` and records the dismiss instant on `showing → !showing`. Source of truth for the resume guard.
-- **VIP auto-expire timer** — `VipManager` now schedules a `Timer` for the soonest `expiresAt`. When it fires, the manager purges the expired entry, refreshes the active flag, and `AdManager` (listening to `vip.activeListenable`) preloads all four ad slots so the next user-triggered show finds an ad ready.
-- **Granular diagnostic logging** — every gate (`adapter null`, `VIP`, `no network`, `slot showing`, safety reason, recent dismiss) emits an explicit `⏭️ skipped — <reason>` log instead of returning silently. Process-restart marker `🚀 AdManager singleton CREATED` fires once per process so two markers in the same logcat session indicate Android killed and restarted the app. Lifecycle observer logs full state (`prev → current`, slot states, VIP, splash flag, backgrounded duration).
-
-See `CHANGELOG.md` for the full list, including all bug fixes.
+Everything else — first public release (1.1.0: Native Ad v1, MREC,
+Monetization Arbitrator, fill-rate monitor), VIP time stacking and
+rewarded-while-VIP (1.0.22), iOS ATT support (1.0.19), the App-Open
+watchdog/timeout rework, the first-install anti-bypass guard (1.0.17), and
+the non-certified Cupertino consent dialog that was removed in favor of
+Google UMP — is covered in its own dedicated section below (VIP system,
+Consent & compliance) or in `CHANGELOG.md`, not repeated here.
 
 ---
 
@@ -583,6 +509,12 @@ class _SplashScreenState extends State<SplashScreen> {
       // consent-regulated market (UMP). This is not optional polish: shipping
       // without it is an AdMob/AppLovin policy AND a GDPR problem. Order
       // matters — see "Compliance checklist" below and `example/lib/main.dart`.
+      //
+      // Note: there's no separate requestUmpConsent() call below — you don't
+      // need one. AdConfig.autoRequestUmpConsent defaults to true, so
+      // initialize() runs the UMP flow itself, before touching either ad
+      // provider. Set it to false only if you want to call
+      // AdManager().requestUmpConsent() yourself at a different point.
       await AdManager().requestAtt();          // iOS only, no-op on Android
       await AdManager().initialize(
         config: AdConfig(
@@ -965,7 +897,11 @@ AdConfig({
 - `AppLovinConfig.sdkKey` empty while `provider: AdProvider.appLovin` — the native AppLovin MAX SDK fails to initialise.
 - Empty/malformed ad-unit IDs for the active provider.
 
-These checks are skipped entirely in debug builds (`kDebugMode == true`) — they only run once your build is compiled as profile/release — and each warning is logged via `SafeLogger.e` (so it shows up in whatever crash/log pipeline you've wired production builds into) plus an `assert()` as a redundant catch for anyone running a profile build with `--enable-asserts`. They never block `initialize()`, but each one is exactly the kind of copy-paste-from-a-test-config mistake that silently tanks revenue or earns a policy strike — watch your release logs for the `🚨` prefix after shipping.
+Each warning goes through `SafeLogger.e` plus a redundant `assert()` for
+profile builds run with `--enable-asserts`. They never block `initialize()`,
+but each is exactly the kind of copy-paste-from-a-test-config mistake that
+silently tanks revenue or earns a policy strike — watch release logs for the
+`🚨` prefix after shipping.
 
 ### `AppOpenTrigger`
 
@@ -1050,15 +986,11 @@ per-placement behavior knobs for that one placement:
 
 - `frequencyCapOverride` — wins over `maxPerPlacementAdsPerDay`/
   `maxPerPlacementAdsPerDayById` above.
-- `minIntervalOverrideMs` — wins over `AdSafetyParams.minTimeBetweenFullscreenAds`
-  (the app-wide "minimum time between two fullscreen ads" throttle) for
-  THIS placement's show calls. A smaller value loosens the throttle for
-  this placement relative to the rest of the app; a larger value tightens
-  it. Applies to every fullscreen format's real show call
-  (`showInterstitial`/`showRewardedAd`/`showRewardedInterstitialAd`/
-  `showAppOpenAd`) and to the matching `canShowInterstitial`/
-  `canShowRewardedAd`/`canShowRewardedInterstitialAd` pre-check helpers
-  when you pass the same `placement` to them.
+- `minIntervalOverrideMs` — wins over the app-wide
+  `AdSafetyParams.minTimeBetweenFullscreenAds` throttle for THIS placement's
+  show calls (smaller = looser, larger = tighter). Applies to every
+  fullscreen show call and the matching `canShow*` pre-check helpers when
+  you pass the same `placement`.
 
 `null` (the default, for either field) disables that override entirely —
 every show call behaves exactly as it did before this feature existed.
@@ -1116,33 +1048,21 @@ decompiler cannot forge new valid keys. There is **no server and no shared
 secret** — a leaked *legitimate* key can still be reused on other devices (true
 global one-time-use needs a backend), but per-device reuse is blocked.
 
-> **Known limitation — redeem attempt requires connectivity.** The Ed25519
-> signature check itself needs no network, but `redeemSignedKey` rejects the
-> attempt outright while the device is offline (deliberate anti-abuse gate
-> added in 2.0.1, see CHANGELOG). A user holding a valid code in airplane mode
-> or with a weak signal cannot redeem until they reconnect — "offline" above
-> describes the verification, not the redemption flow end to end.
+> **Known limitation — redeem needs connectivity.** Verification is offline,
+> but `redeemSignedKey` still rejects the attempt while the device itself is
+> offline (deliberate anti-abuse gate, 2.0.1+). A user in airplane mode can't
+> redeem until they reconnect.
 
-> **Known limitation — Android reinstall / clear-data replay.** Per-device one-time-use is
-> enforced by two layers: `AdPreferences` (`SharedPreferences`, wiped on
-> uninstall) plus a durable secondary ledger (`RedeemedKeyLedger`) that on
-> **iOS** survives uninstall via Keychain. On **Android there is no durable
-> ledger** — `RedeemedKeyLedger.isRedeemed`/`markRedeemed` are no-ops there, by
-> the same rationale as `FirstInstallGuard` (no local-only primitive survives
-> uninstall without an install-referrer plugin, for a narrow benefit). So a
-> leaked signed key **can be replayed an unlimited number of times on Android**
-> via uninstall + reinstall — or, faster and without reinstalling anything, via
-> Settings → Apps → Storage → **Clear data**, which wipes `SharedPreferences`
-> and the Keystore-held material with it. The 1-day first-install trial
-> (`firstInstallVipGrace`) can be re-granted the same way, once per clear.
-> Each replay only grants the key's own encoded `duration`, not permanent VIP,
-> but it is not capped in count. Treat signed keys like a coupon code that a
-> screenshot can eventually leak, not like an unforgeable one-time ticket, on
-> Android — and mint them with a short `--valid-days`, which is the one
-> mitigation that a data wipe cannot undo. This is an accepted product
-> tradeoff (no backend = no reliable cross-reinstall Android signal), not a
-> bug: every store an app can write to on Android is inside the data a user is
-> entitled to clear.
+> **Known limitation — Android reinstall / clear-data replay.** One-time-use
+> is enforced by `AdPreferences` (wiped on uninstall) plus a durable ledger
+> (`RedeemedKeyLedger`) that only survives uninstall on **iOS** (Keychain) —
+> on **Android it's a no-op**, so a leaked key can be replayed unlimited times
+> via reinstall or Settings → Storage → **Clear data** (same reset also
+> re-grants the 1-day first-install trial). Each replay only grants that
+> key's own `duration`, uncapped in count. Mitigate with a short
+> `--valid-days` when minting — a data wipe can't undo an expiry. Accepted
+> tradeoff (no backend ⇒ no reliable cross-reinstall Android signal), not a
+> bug: everything writable on Android is user-clearable by definition.
 
 **1. Generate a key pair once (keep the private key secret):**
 
@@ -1187,11 +1107,10 @@ inspect a key without redeeming.
 
 ### Pre-built redeem screen (`VipRedeemScreen`)
 
-Round-37 audit MAJOR (doc drift) — the raw `redeemSignedKey`/`redeemVip` calls
-above are the low-level API. Don't hand-roll a redeem UI around them: the SDK
-ships a complete, ready-to-use screen (status, redeem field, watch-ad-to-extend,
-revoke, Do Not Sell toggle) that the example app itself uses as-is — "the
-experience is identical everywhere" is the whole point of sharing it:
+The raw `redeemSignedKey`/`redeemVip` calls above are the low-level API. Don't
+hand-roll a redeem UI around them: the SDK ships a complete, ready-to-use
+screen (status, redeem field, watch-ad-to-extend, revoke, Do Not Sell toggle)
+that the example app itself uses as-is:
 
 ```dart
 Navigator.push(
@@ -1246,35 +1165,21 @@ await AdManager().vip!.addVip(
 
 ### Moving a VIP grant to a new device
 
-There is no dedicated "transfer" API, and deliberately so — the two features
-already in this SDK cover the real need without a new signing scheme:
+No dedicated "transfer" API, deliberately — existing features already cover it:
 
-- **A signed key (`redeemSignedKey`) is scoped per device, not globally
-  single-use.** The one-time-use ledger (`RedeemedKeyLedger` on iOS,
-  `AdPreferences` on Android) only stops the *same device* redeeming the
-  *same* key twice. If a user still has the original key string and it
-  hasn't expired, entering it on a **new** device redeems it there too — no
-  code change needed on your side. (A signed key's expiry is wall-clock,
-  anchored to `expiresAt` in the payload — moving devices doesn't reset or
-  extend it.)
-- **The SDK never stores the raw key string after redemption** — only the
-  parsed `keyId`/duration survive in `VipManager` state. If you want a "view
-  my code again" screen so a user can copy it to a new device, that's on
-  your app: keep a copy of the string the user typed (e.g. in your own local
-  storage) when they first redeemed it. There is nothing here for the SDK to
-  expose, by design — it shouldn't be holding onto a plaintext credential
-  longer than the moment it verifies it.
-- **User genuinely lost the key** (never saved it): revoke it in the CRL
-  (`VipRevocationProvider`, see "Revoking a leaked key (CRL)" below) through
-  your own support channel, then mint a fresh one with `tool/vip_mint.dart`
-  and have the user redeem that on the new device. This already works
-  today — it's a support-process question, not a missing feature.
-
-A device-bound *transfer token* signed on-device was considered and
-rejected: an on-device private key is generated fresh per install with no
-shared root of trust between two installs, so a device could mint and
-verify its own arbitrarily-long-lived token — that would weaken, not
-preserve, the anti-abuse guarantee the signed-key scheme exists for.
+- **A signed key is scoped per device, not globally single-use.** The
+  one-time-use ledger only stops the *same device* redeeming the *same* key
+  twice. If the user still has the original string and it hasn't expired,
+  entering it on a **new** device redeems it there too, no code change
+  needed. (Expiry is wall-clock `expiresAt` in the payload — moving devices
+  doesn't reset or extend it.)
+- **The SDK never stores the raw key string after redemption** — only
+  `keyId`/duration survive. A "view my code again" screen is on your app:
+  keep your own copy of what the user typed when they first redeemed it.
+- **User genuinely lost the key**: revoke it in the CRL (see "Revoking a
+  leaked key (CRL)" below), mint a fresh one with `tool/vip_mint.dart`, have
+  them redeem it on the new device. A support-process question, not a
+  missing feature.
 
 ### Cupertino dialog redeem (user inputs a key)
 
@@ -1341,35 +1246,26 @@ await AdManager().initialize(
 );
 ```
 
-**Read this before enabling:** an explored session is a REAL session on
-the alternate provider — real ad requests, real fills, real revenue for
-THAT session's users, not a shadow request. That is the actual cost of an
-on-device A/B comparison: some sessions may perform worse than the
-install's normal provider, on purpose, so the SDK can learn whether the
-alternate would have done better overall. `explorationRate` defaults to 0
-(never explores) — anything above 0 is an explicit tradeoff you are
-opting into, and it should stay low (the 5% above is a starting point, not
-a recommendation for every app). Exploration is also rate-limited to at
-most once per day per device regardless of `explorationRate`, and never
-counts against a VIP session (VIP suppresses every ad surface, so there
-would be nothing to observe anyway).
+**Read this before enabling:** an explored session is a REAL session on the
+alternate provider — real requests, real fills, real revenue for that
+session's users, not a shadow request. `explorationRate` defaults to 0
+(never explores); anything above 0 is an explicit tradeoff, and should stay
+low (5% above is a starting point, not a universal recommendation).
+Rate-limited to once/day/device regardless of `explorationRate`, and never
+fires during a VIP session.
 
 ### Cross-provider revenue integrity (`RevenueIntegrityLedger`)
 
 **Exact match when available, time-window heuristic otherwise.** Both
-`AdShowEvent` and `AdRevenueEvent` carry an optional `requestId` — a
-per-load correlation ID both adapters stamp once and carry through for
-that same ad instance. Whenever a revenue event's `requestId` matches a
-pending show's, that show is resolved EXACTLY — no guessing. `requestId`
-is `null` for banner/mrec/native (no matching `AdShowEvent` exists for
-those to correlate against) and for any adapter version that predates
-this, so the ORIGINAL heuristic below is unchanged and still runs
-whenever `requestId` is missing on either side: `RevenueIntegrityLedger`
-expects a same-`(providerTag, type, placement)` `AdRevenueEvent` within
-`matchWindow` after every successful show; one with none is flagged via
-`AdManager().incidentRecorder` as a **possible** gap — most often just a
-revenue callback arriving later than `matchWindow`, not proof of fraud
-or a lost impression.
+`AdShowEvent` and `AdRevenueEvent` carry an optional `requestId`, a per-load
+correlation ID both adapters stamp — when a revenue event's `requestId`
+matches a pending show's, that show resolves EXACTLY, no guessing.
+`requestId` is `null` for banner/mrec/native and older adapter versions, so
+the original heuristic still runs whenever it's missing on either side:
+expect a same-`(providerTag, type, placement)` `AdRevenueEvent` within
+`matchWindow` after every show; a miss is flagged via
+`AdManager().incidentRecorder` as a **possible** gap — usually just a late
+callback, not proof of fraud or a lost impression.
 
 ```dart
 final ledger = RevenueIntegrityLedger(matchWindow: const Duration(seconds: 60));
@@ -1394,16 +1290,14 @@ completely quiet right after the show in question.
 
 ### Zero-shadow dual-provider failover (`ProviderFailoverAdvisor`)
 
-The SDK still serves exactly one provider per session by design (see
-above) — a live concurrent dual-adapter runtime is a much bigger
-architectural change this package does not make. `ProviderFailoverAdvisor`
-covers a narrower, much cheaper win: recommend switching to the OTHER
-provider for your app's NEXT `initialize()` call once the CURRENT one has
-failed to load `consecutiveFailureThreshold` times in a row (any format,
-no successful load in between — a genuinely intermittent failure pattern
-never trips this). Unlike `WaterfallTuner.recommendation()`, this needs no
-accumulated data for the provider it recommends switching TO — "zero
-shadow requests".
+Still exactly one provider per session by design — a live concurrent
+dual-adapter runtime is a bigger change this package doesn't make.
+`ProviderFailoverAdvisor` is narrower and cheaper: recommend switching to
+the OTHER provider for the NEXT `initialize()` once the current one has
+failed to load `consecutiveFailureThreshold` times in a row (no successful
+load in between — a merely intermittent pattern never trips this). Unlike
+`WaterfallTuner.recommendation()`, needs no accumulated data for the
+provider it recommends switching TO — "zero shadow requests".
 
 ```dart
 final advisor = ProviderFailoverAdvisor(consecutiveFailureThreshold: 5);
@@ -1488,17 +1382,14 @@ showRewardedInterstitialAd(
 if (AdManager().canShowRewardedInterstitialAd()) { /* e.g. enable a CTA */ }
 ```
 
-`shown` is `true` whenever the ad was **displayed**, whether or not the user
-stayed to the reward point — it consumed a billed impression either way and
-costs the same ad budget. Declining the intro screen reports `(false, false)`
-and costs nothing.
+`shown` is `true` whenever the ad was **displayed**, regardless of whether
+the user stayed to the reward point — billed either way. Declining the intro
+screen reports `(false, false)` and costs nothing.
 
-**AppLovin MAX has no equivalent ad unit type** — on that provider this is a
-documented no-op: `loadRewardedInterstitialAd()` never has anything to load,
-and `showRewardedInterstitialAd()` always calls back `(false, false)`. Unlike
-`showRewardedAd`, there's no VIP-bypass-to-extend-VIP flow and no SSV
-params for this ad type — see `AdProviderAdapter.showRewardedInterstitial`'s
-doc comment for why.
+**AppLovin MAX has no equivalent ad unit type** — documented no-op there:
+`loadRewardedInterstitialAd()` never has anything to load,
+`showRewardedInterstitialAd()` always calls back `(false, false)`. No
+VIP-bypass-to-extend or SSV params for this ad type either.
 
 ### Watch a rewarded ad to EXTEND VIP (even while already VIP)
 
@@ -1591,14 +1482,11 @@ await AdManager().vip!.revokeAll();
 
 ### Revoking a leaked key (CRL) — T95
 
-`redeemSignedKey`'s Ed25519 signature check is fully offline (see the
-"deliberate anti-abuse gate" note above — the method still refuses to redeem
-while the device itself is offline), which is great for forge-proofing, but it
-means a leaked key normally stays redeemable forever (or until its AVP2
+Signature verification is fully offline, which is great for forge-proofing,
+but means a leaked key normally stays redeemable forever (or until its AVP2
 `--valid-days` expiry). `VipManager.refreshRevocationList` closes that gap
-with a small,
-**also offline-signed** revocation list (CRL) — no server, no new key
-material, same private key that mints VIP keys mints the CRL too.
+with a small, **also offline-signed** revocation list (CRL) — no server, no
+new key material, same private key that mints VIP keys mints the CRL too.
 
 1. **Mint the CRL offline** whenever you learn a `kid` leaked (same private
    key as `tool/vip_mint.dart`, never commit it):
@@ -1718,36 +1606,24 @@ The guard never denies grace on storage errors — it fails open so a transient 
 ## Server-Side Verification (SSV) for rewarded ads
 
 **This SDK does not run a server and does not verify anything itself.** Real
-SSV verification happens entirely outside this SDK:
+SSV happens entirely outside it: you configure a callback URL for the
+rewarded ad unit in the **AppLovin**/**AdMob** dashboard; on reward,
+AppLovin's/AdMob's servers POST a signed postback directly to **your own
+backend**, which verifies it and grants the reward server-side — resistant
+to the client-side tampering a bare `onEarnedReward` callback isn't.
 
-1. You configure an SSV callback URL for your rewarded ad unit in the
-   **AppLovin dashboard** or the **AdMob dashboard**.
-2. When a user earns a reward, AppLovin's/AdMob's servers make an HTTP
-   request (a "postback") directly to **your own backend** at that URL —
-   this SDK is not involved in that request at all.
-3. Your backend verifies the postback's signature and identifying data
-   (whatever you passed in step 1 below) before granting the reward
-   server-side, which is what makes SSV resistant to client-side tampering
-   that a purely `onEarnedReward` client callback is not.
+What this SDK does — pure plumbing:
 
-What this SDK actually does — pure plumbing, nothing more:
-
-- `AdManager().showRewardedAd(...)` takes two optional parameters,
-  `ssvCustomData` and `ssvUserId`, so you can attach an identifier (e.g. your
-  own user ID, or `"userId:orderId"`) to the specific ad show. Omit both for
-  today's fully client-side behavior — nothing changes.
-- That data is forwarded verbatim to the native SDK's real SSV field:
-  AppLovin's `AppLovinMAX.showRewardedAd(adUnitId, customData: ...)` (AppLovin
-  has one combined `custom_data` string field — pass `ssvUserId` if you don't
-  need a separate custom payload), or AdMob's
-  `RewardedAd.setServerSideOptions(ServerSideVerificationOptions(userId: ..., customData: ...))`.
-- The reward result exposes `pendingServerConfirmation` (on `RewardResult`
-  and on the `AdRewardEvent` from `AdManager().events`) — `true` only when you
-  supplied `ssvCustomData`/`ssvUserId` for that show call, `false` otherwise.
-  It's an informational flag meaning "your own backend's postback is the
-  authoritative signal for this grant, not just this client-side callback" —
-  the SDK does not poll for or otherwise track your backend's verification
-  outcome.
+- `showRewardedAd(...)` takes optional `ssvCustomData`/`ssvUserId` to attach
+  an identifier to the show. Omit both for today's fully client-side
+  behavior.
+- Forwarded verbatim to the native field: AppLovin's `customData:` (one
+  combined string — use `ssvUserId` if you don't need a separate payload) or
+  AdMob's `ServerSideVerificationOptions(userId:, customData:)`.
+- `pendingServerConfirmation` (on `RewardResult` and `AdRewardEvent`) is
+  `true` only when you supplied one of those two params — an informational
+  flag ("your backend's postback is authoritative here"), not something the
+  SDK polls or tracks itself.
 
 ```dart
 AdManager().showRewardedAd(
@@ -1763,19 +1639,15 @@ AdManager().showRewardedAd(
 
 ## Monetization Arbitrator (opt-in)
 
-**Default OFF, production-safe.** Unlike the debug-only `RevenuePanel`
-overlay (gated on `kDebugMode`), the arbitrator has no debug/release
-distinction at all — it stays off purely because `enableArbitrator` was never
-called, and once called it runs identically in a release build. There is no
-separate "enable in production" step. An opt-in "Smart Monetization
-Arbitrator" that, at each
-fullscreen ad-show attempt (after every existing gate — including the safety
-layer — already passes), gets one more veto: show the ad, or nudge the host
-app to upsell VIP instead. It is a simple configurable eCPM-threshold rule,
-**not machine learning**: it compares a trailing eCPM estimate (built from the
-`AdRevenueEvent`s the SDK already emits) against an optional VIP-conversion-
-likelihood signal your app supplies — the SDK has no visibility into your
-purchase funnel, so it can't compute that signal itself.
+**Default OFF, production-safe** — no `kDebugMode` gating like the debug-only
+`RevenuePanel` overlay; it stays off purely because `enableArbitrator` was
+never called, and runs identically in release once it is. An opt-in veto that
+runs after every existing gate (including safety) on each fullscreen show
+attempt: show the ad, or nudge the host to upsell VIP instead. A simple
+configurable eCPM-threshold rule, **not machine learning** — compares a
+trailing eCPM estimate against an optional VIP-conversion-likelihood signal
+your app supplies (the SDK can't compute that itself — no purchase-funnel
+visibility).
 
 ```dart
 AdManager().enableArbitrator(MonetizationArbitrator()); // ~$5 eCPM default threshold
@@ -1847,16 +1719,14 @@ decision history (used by the `maxVetoRate` guardrail above), the same way
 
 ## Fill-rate monitor (opt-in)
 
-**Default OFF, production-safe** — same as the arbitrator above: no
-`kDebugMode` gating, it's off only until `enableFillRateMonitor` is called,
-and then it runs the same way in debug and release. A `FillRateMonitor`
-watches the trailing load success rate
-per `AdSlotType` for whichever provider is currently active, and alerts when
-it drops abnormally low — useful for catching a mediation/network outage or a
-misconfigured ad unit without waiting on a dashboard. It does **not** load a
-second provider in parallel to compare against ("shadow eCPM"): that would add
-real ad requests (extra policy risk, wasted quota) just to produce a number.
-Instead it only observes the `AdLoadEvent`s the SDK already emits.
+**Default OFF, production-safe** — same as the arbitrator above, off until
+`enableFillRateMonitor` is called, then identical in debug and release. A
+`FillRateMonitor` watches the trailing load success rate per `AdSlotType`
+and alerts when it drops abnormally low — useful for catching a
+mediation/network outage without waiting on a dashboard. It does **not**
+load a second provider to compare against ("shadow eCPM", extra policy risk
+and wasted quota for a number) — only observes the `AdLoadEvent`s the SDK
+already emits.
 
 ```dart
 final monitor = FillRateMonitor(); // 30% threshold, 20-event rolling window
@@ -1941,22 +1811,18 @@ app can reach for:
 - **`MonetizationDigitalTwin`** — deterministic, read-only replay over
   `AdEventLog` history for analytics; never issues an ad request or
   touches `AdSafetyConfig`'s live state.
-- **`JourneyPrefetcher`** — opt-in, engagement-signal-driven prefetching
-  via `AdManager().enableJourneyPrefetcher(...)`; nothing is tracked or
-  preloaded unless the host app calls `notifySignal`, or opts into
-  `autoRouteSignalType` (below) so a route push does it automatically.
-  T183 — its rolling time-to-show averages persist across app restarts by
-  default (`persist: true`), so it doesn't re-learn timing from zero every
-  cold start; this only ever stores durations between a signal string and
-  an ad type locally on-device, never the signal's own content. Pass
-  `persist: false` to opt out entirely, or `await prefetcher.ready` if a
-  caller needs last session's data guaranteed loaded before its first
-  `notifySignal`/`averageTimeToShow` call (neither waits for it on its
-  own — same as every other on-device signal in this SDK).
+- **`JourneyPrefetcher`** — opt-in, engagement-signal-driven prefetching via
+  `AdManager().enableJourneyPrefetcher(...)`; nothing is tracked/preloaded
+  unless the host calls `notifySignal`, or opts into `autoRouteSignalType` so
+  a route push does it automatically. Rolling time-to-show averages persist
+  across restarts by default (`persist: true`, stores only durations
+  between a signal string and an ad type, never the signal's content) — pass
+  `persist: false` to opt out, or `await prefetcher.ready` to guarantee last
+  session's data before the first call.
 
   ```dart
   final prefetcher = JourneyPrefetcher(
-    autoRouteSignalType: AdSlotType.interstitial, // opt-in, T139
+    autoRouteSignalType: AdSlotType.interstitial, // opt-in
   );
   AdManager().enableJourneyPrefetcher(prefetcher);
   // ...
@@ -1969,17 +1835,12 @@ app can reach for:
   );
   ```
 
-  This fires `notifySignal(routeName, autoRouteSignalType)` for every
-  NAMED route push, using `ModalRoute.settings.name` as the signal — a
-  convenience for apps whose route names are already meaningful as
-  journey signals (e.g. `'level_complete'`). An unnamed route is silently
-  skipped. Only ONE format is auto-signaled per `JourneyPrefetcher`
-  instance — a route push alone doesn't say which ad format it precedes,
-  so a journey involving more than one fullscreen format should keep
-  calling `notifySignal` by hand for the others. Manual calls and
-  auto-mode are not mutually exclusive and are never deduplicated against
-  each other — firing the same signal twice (once auto, once manual) is
-  accepted as two independent signals by design.
+  Auto-mode fires `notifySignal(routeName, autoRouteSignalType)` for every
+  NAMED route push (`ModalRoute.settings.name`); an unnamed route is
+  skipped. Only ONE format is auto-signaled per instance — a journey with
+  more than one fullscreen format should still call `notifySignal` by hand
+  for the others; manual and auto calls are never deduplicated against each
+  other (two calls = two signals, by design).
 - **`WaterfallTuner`** — per-provider eCPM score tracking meant for
   *cross-install* mediation experiments (e.g. deciding a new install's
   `AdConfig.provider` from server-side analytics) — not a within-install
@@ -2010,15 +1871,11 @@ diag.toJson();                       // hand to a partner/reviewer
 
 `AdManager.runIntegrationSelfCheck()` is a **debug-only** "integration
 doctor" checklist (init → consent → per-ad-type load → VIP wiring →
-navigator key → route observer → ATT plugin) so a partner integrating the SDK
-doesn't have to manually click through every demo page to confirm their
-`AdConfig` and app-level wiring both work on their device. It's a no-op
-returning a single `skipped` item outside debug builds, and deliberately
-never calls `destroy()` or grants/revokes VIP — those mutate live
-session/entitlement state, which would be a destructive side effect of
-what's meant to be a mostly-read-only sanity check (the per-ad-type load
-checks are the one exception — they DO attempt real ad loads, same as
-clicking through the demo pages would).
+navigator key → route observer → ATT plugin) so a partner doesn't have to
+manually click through every demo page to confirm their `AdConfig` and
+app-level wiring work. No-op outside debug builds. Never calls `destroy()`
+or grants/revokes VIP (would mutate live state) — the one exception is the
+per-ad-type checks, which DO attempt real ad loads, same as the demo pages.
 
 ```dart
 final result = await AdManager().runIntegrationSelfCheck(
@@ -2062,32 +1919,26 @@ per-ad-type checks attempt real loads). See also the example app's
 
 ## Native Ad (v1)
 
-`buildNative()` (or `NativeAdWidget` directly, outside `AdScreen`) renders a native ad —
-same route-aware/VIP/offline gating as `buildMrec()`, but **the two providers render
-through fundamentally different mechanisms** because AdMob's and AppLovin's native APIs
-don't share a common Dart-side shape:
+`buildNative()` (or `NativeAdWidget` directly, outside `AdScreen`) renders a
+native ad — same route-aware/VIP/offline gating as `buildMrec()`, but the two
+providers use fundamentally different mechanisms (no shared Dart-side shape):
 
-- **AdMob**: `NativeAd extends AdWithView`, same base class as `BannerAd`/MREC. It's
-  preloaded off-screen with `NativeTemplateStyle(templateType: TemplateType.medium)` —
-  Google's built-in template — then shown via `AdWidget`. The template **draws its own
-  "Ad"/AdChoices attribution**; the package adds nothing on top of it.
-- **AppLovin**: `MaxNativeAdView` is a self-contained widget that loads on mount from
-  `adUnitId` + a custom Dart layout (`MaxNativeAdIconView`/`MaxNativeAdTitleView`/
-  `MaxNativeAdMediaView`/`MaxNativeAdBodyView`/`MaxNativeAdCallToActionView`, etc.) — it
-  does **not** go through the `preloadWidgetAdView` bridge banner/MREC use. Because the
-  layout is genuine custom Dart, the package **draws its own "Ad" badge** on this branch
-  (mirrors the MREC badge) to stay compliant.
+- **AdMob**: `NativeAd extends AdWithView` (same base as `BannerAd`/MREC),
+  preloaded with `NativeTemplateStyle(templateType: TemplateType.medium)` and
+  shown via `AdWidget`. The template draws its own "Ad"/AdChoices
+  attribution.
+- **AppLovin**: `MaxNativeAdView` is self-contained, loading on mount from
+  `adUnitId` + a custom Dart layout (`MaxNativeAdIconView`/`TitleView`/
+  `MediaView`/`BodyView`/`CallToActionView`) — doesn't go through the bridge
+  banner/MREC use, so the package draws its own "Ad" badge (mirrors MREC) to
+  stay compliant.
 
-**v1 is a fixed layout, not a customizable editor** — both branches render at a fixed
-320px height (Google's recommended size for `TemplateType.medium`), and the AppLovin
-branch's asset arrangement (icon + title + rating row, media, body, CTA) is not
-configurable from host code. If you need a different arrangement, pull the raw ad
-object yourself (`AdManager().adapter?.buildAdmobNativeView(key)` — `key` is any stable
-object identifying this ad slot, so the same native view survives a rebuild — for AdMob template
-swaps, or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative()`.
-
-There is also no route-pause/auto-refresh concept for native ads (unlike banner/MREC) —
-`buildNative()` loads once per mount and doesn't react to navigation.
+**v1 is a fixed layout, not a customizable editor** — both render at a fixed
+320px height, and AppLovin's asset arrangement isn't configurable from host
+code. Need a different arrangement? Pull the raw ad object yourself
+(`AdManager().adapter?.buildAdmobNativeView(key)` for AdMob template swaps,
+or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative()`.
+No route-pause/auto-refresh either — it loads once per mount.
 
 ## Built-in QA test devices (read this before measuring revenue)
 
@@ -2452,18 +2303,17 @@ runApp(MaterialApp(
 ));
 ```
 
-A `🐛 Ad` pill appears in the bottom-left corner. Tap to expand into a panel showing realtime SDK state: slot states (idle/loading/ready/showing/cooldown), VIP status, init flag, splash flag, safety status. Auto-hidden in release builds.
+A `🐛 Ad` pill appears bottom-left; tap to expand a panel of realtime SDK
+state (slot states, VIP status, init/splash flags, safety status).
+Auto-hidden in release builds.
 
 ### Verbose logs
 
 Every SDK log is prefixed with `roy93~ [Tag]` for easy `grep`. Examples:
 
 ```
-roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-04-26T13:06:09.808
-roy93~ [AdManager] initialize start, provider=appLovin
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start
 roy93~ [AppLovinAdapter] inter [AppLovin] ✅ displayed | network=AppLovin creativeId=1540789 latency=792ms
-roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
-roy93~ [AdManager] 🛡️ interstitial dismissed — app-open suppression armed
 roy93~ [AdManager] ⏭️ app-open on resume skipped — interstitial/rewarded currently showing
 ```
 
@@ -2504,7 +2354,11 @@ Flutter's `flutter create` template adds `android:taskAffinity=""` to `MainActiv
       ...>
 ```
 
-**Why**: AppLovin's full-screen ad activity (`AppLovinFullscreenActivity`) inherits the application's default task affinity, which is the package name. With `android:taskAffinity=""` on `MainActivity`, the two activities end up in different Android tasks. After the user presses HOME and reopens the app, the activity stack management breaks; when the user dismisses the ad, no activity is available to return to and Android drops the user to the launcher. The user perceives this as a crash.
+**Why**: AppLovin's full-screen ad activity inherits the app's default task
+affinity (the package name). With `taskAffinity=""` on `MainActivity`, the
+two activities land in different Android tasks — after HOME + reopen, the
+stack breaks, and dismissing the ad drops the user to the launcher. Feels
+like a crash to the user.
 
 ### 2. iOS requires `SKAdNetworkItems`
 
@@ -2514,7 +2368,12 @@ Without `SKAdNetworkItems` in `Info.plist`, AdMob and AppLovin will not serve ad
 
 Unlike AdMob, AppLovin requires a real account and real ad unit IDs. To avoid being charged for development impressions, register your test device in `dash.applovin.com → MAX → Test Mode`. The SDK auto-registers the current device's GAID in debug builds via `AppLovinMAX.setTestDeviceAdvertisingIds(...)` so this is mostly handled for you.
 
-**AdMob's own test-device allowlist (`RequestConfiguration.setTestDeviceIds()`) needs a different, unrelated ID — not the GAID above.** Google has no public formula for it; the only way to get it is to trigger one ad request on the physical device and read the hex hash the native SDK itself prints to logcat (tag `Ads`), in both debug and release builds. `AdManager().adMobTestDeviceHashHint()` returns that instruction plus the device's current GAID (clearly labeled — mixing the two up sends a QA device live production ads instead of test ads) — call it from your own debug UI when you need to walk through this. `AdManager().currentDeviceGaid` exposes the raw GAID alone.
+**AdMob's own test-device allowlist (`RequestConfiguration.setTestDeviceIds()`) needs a different, unrelated ID — not the GAID above.** No public formula for
+it; trigger one ad request on the physical device and read the hex hash the
+native SDK prints to logcat (tag `Ads`), debug and release both.
+`AdManager().adMobTestDeviceHashHint()` returns that instruction plus the
+device's current GAID (labeled — mixing the two up sends a QA device live
+production ads). `AdManager().currentDeviceGaid` exposes the raw GAID alone.
 
 ### 4. `setNavigatorKey` must be called before `runApp`
 
@@ -2536,11 +2395,25 @@ The SDK's `_lastFullscreenDismissAt` is recorded by a slot-state watcher on the 
 
 ### 7. AppLovin banner width — `loadBannerIfNeeded(widthPx)` is a no-op by design
 
-`AdProviderAdapter.loadBannerIfNeeded(widthPx)` is only meaningful for AdMob (`AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(widthPx)` picks the pixel-perfect adaptive size at load time). AppLovin's implementation discards `widthPx` — this is not a gap, it's already handled at a different layer: the banner is rendered via `MaxAdView` with `isAdaptiveBannerEnabled: true` (the plugin's default) and no explicit `width`, so `applovin_max` reads the live `MediaQuery` screen width itself at build time (`max_ad_view.dart`'s `_getWidth()`), including on rotation. The one AppLovin API that *does* take an explicit width, `AppLovinMAX.setBannerWidth(adUnitId, width)`, only applies to the native overlay banner created via `createBanner`/`showBanner` — a separate code path this SDK does not use (it exclusively uses the embedded `MaxAdView` widget path), so wiring it in would touch dead API surface for no rendering change. Net effect: AppLovin banners here are adaptive-width in practice, just via automatic `MediaQuery` sizing at display time rather than an explicit width passed at load time like AdMob.
+`AdProviderAdapter.loadBannerIfNeeded(widthPx)` is only meaningful for AdMob
+(`AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(widthPx)` picks
+the size at load time). AppLovin discards `widthPx` — not a gap, it's
+handled elsewhere: `MaxAdView` with `isAdaptiveBannerEnabled: true` (the
+plugin's default) reads the live `MediaQuery` width itself at build time,
+including on rotation. `AppLovinMAX.setBannerWidth()` only applies to the
+native overlay banner (`createBanner`/`showBanner`), a path this SDK doesn't
+use. Net effect: AppLovin banners are adaptive in practice too, just sized
+at display time instead of load time.
 
 ### 8. Don't configure the same AppLovin ad-unit id for `bannerId` and `mrecId`
 
-AppLovin's native load-failure callback reports back the ad-unit id, not which widget (banner vs MREC) requested it — this SDK tells them apart by comparing that id against your configured `bannerId`/`mrecId`. If you configure the exact same ad-unit id for both (a plausible copy-paste mistake — nothing stops you, and some setups may even intend a shared unit), a failure can't always be attributed to the right one with certainty; the SDK logs a warning at `initialize()` if it detects this, and falls back to whichever of banner/MREC actually has a load in flight to disambiguate, but a failure while BOTH are loading at once still can't be told apart. Use two distinct ad-unit ids for banner and MREC.
+AppLovin's load-failure callback reports the ad-unit id, not which widget
+(banner vs MREC) requested it — this SDK tells them apart by comparing that
+id against your configured `bannerId`/`mrecId`. Same id for both (a
+plausible copy-paste mistake) means a failure can't always be attributed
+with certainty; the SDK warns at `initialize()` and falls back to whichever
+has a load in flight, but a failure while both are loading can't be told
+apart. Use two distinct ad-unit ids.
 
 ---
 
@@ -2662,21 +2535,17 @@ AdManager().events.listen((event) {
 
 Event types: `AdLoadEvent`, `AdShowEvent`, `AdClickEvent`, `AdRewardEvent`, `AdRevenueEvent`.
 
-`AdRevenueEvent.placement` (2.4.0) reports the placement the ad was **shown**
-from — the value you passed to `showInterstitial`/`showRewardedAd`/
-`showRewardedInterstitialAd`/`showAppOpenAd`. Before 2.4.0 every revenue event
-carried `AdPlacement.unspecified` (App Open: always `AdPlacement.splash`,
-including on resume), because the providers wire their paid-event listener at
-**load** time, when no placement exists yet. Inline formats (banner, MREC,
-native) still report `AdPlacement.unspecified`: nothing "shows" them, so there
-is no placement to attribute.
+`AdRevenueEvent.placement` reports the placement the ad was **shown** from —
+the value passed to `showInterstitial`/`showRewardedAd`/
+`showRewardedInterstitialAd`/`showAppOpenAd` (App Open: always
+`AdPlacement.splash`). Inline formats (banner, MREC, native) always report
+`AdPlacement.unspecified` — nothing "shows" them, so there's no placement to
+attribute.
 
 `AdRevenueEvent.mediationWaterfall` (`List<String>?`) reports the adapter
-class names the mediation SDK tried for that impression, winner last. On
-AdMob this is the full ordered waterfall from `ResponseInfo.adapterResponses`.
-**AppLovin MAX only reports the winning network per impression** — no
-step-by-step waterfall — so on AppLovin this is always a single-element list
-containing just `networkName`. Null if the underlying SDK call returned no
+class names tried for that impression, winner last. Full ordered waterfall on
+AdMob (`ResponseInfo.adapterResponses`); **AppLovin MAX only reports the
+winner** — always a single-element list. Null if the SDK returned no
 response info.
 
 ---

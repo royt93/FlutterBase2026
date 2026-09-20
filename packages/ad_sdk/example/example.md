@@ -1,5 +1,15 @@
 # applovin_admob_sdk example
 
+<!--
+pub.dev's Example tab picks the first file it finds in this priority order:
+example/example.md > example/lib/main.dart > ... > example/README.md.
+This file exists ONLY so pub.dev shows a readable walkthrough here instead of
+main.dart's raw source (which is ~5000 lines, one page per feature, and full
+of internal shorthand that means nothing outside this repo). If you're
+reading this in the repo itself, `example/README.md` has the same content —
+edit both together.
+-->
+
 One page per SDK feature, launched from the home list. Run with:
 
 ```bash
@@ -30,8 +40,8 @@ buildBanner();
 ```
 
 See the "Banner ad" and "Consent / GDPR" demo pages for the full working
-version of this, and the package [`README.md`](../README.md) for `myConfig`
-and the rest of the integration contract.
+version of this, and the package [`README.md`](https://pub.dev/packages/applovin_admob_sdk)
+for `myConfig` and the rest of the integration contract.
 
 | Page | Demonstrates |
 |---|---|
@@ -50,9 +60,10 @@ and the rest of the integration contract.
 | Revenue dashboard | Running total from the `onPaidEvent` stream |
 | Slot state panel | Live `AdSlot` state per surface, manual destroy/reinit |
 | AdEvent stream | Every load/show/click/reward/revenue event, live |
-| Compliance report | Export event log + safety + consent snapshot (T23) |
+| Compliance report | Export of the event log + safety + consent snapshot, for handing to a partner or reviewer |
 | Diagnostics & self-check | Built-in integration self-check report |
 
-Each page is self-contained — read the one for the feature you're integrating, not the whole file. Automated coverage for each page lives in `integration_test/` (one file per page, run on a real device/emulator/simulator — see the repo root `README.md`'s CI section).
-
-For API details and setup steps, see the package [`README.md`](../README.md).
+Each page is self-contained — clone this repo and open the one for the
+feature you're integrating (`example/lib/main.dart`), not the whole file.
+For API details and setup steps, see the
+[package README](https://pub.dev/packages/applovin_admob_sdk).

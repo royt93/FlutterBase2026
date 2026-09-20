@@ -4,6 +4,37 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.5] - 2026-09-20
+
+Docs-only release, no code changes.
+
+- **Fixed:** `README.md` was 142,860 bytes — over pub.dev's ~131,072 byte
+  (128 KB) render limit — so the live pub.dev page silently cut off content
+  mid-sentence past roughly the "Other advanced opt-in modules" section,
+  hiding "Consent & compliance", "Public API", "FAQ", "Migration",
+  "Support" and "License" from every visitor. Condensed verbose prose
+  (mainly in "VIP system" and "What's new in 2.0.0") down to 128,203 bytes
+  — under the limit — without touching "Quick start", "Consent &
+  compliance", "Known limitations", or any code sample.
+- **Fixed:** the Quick Start splash-screen sample said UMP consent was
+  required but showed no call for it. It was never missing — `initialize()`
+  requests it automatically via `AdConfig.autoRequestUmpConsent` (default
+  `true`) — the sample just didn't say so. Added a comment explaining it.
+- **Fixed:** pub.dev's Example tab was showing `example/lib/main.dart`'s
+  raw ~5,000-line source (its own internal round/task-number comments and
+  all) instead of a readable walkthrough, because pub.dev's file-priority
+  order for that tab (`example/example.md` > `example/lib/main.dart` > ...
+  > `example/README.md`) put the actual entry-point file ahead of the
+  README — `example/README.md` was never going to be shown while
+  `main.dart` exists, regardless of its content. Added `example/example.md`
+  (highest priority in that order) with the walkthrough + demo-page table,
+  and added the previously-missing iOS ATT call to both example docs'
+  quickstart snippet.
+- **Fixed:** `doc/AD_PROMPT_FLUTTER.MD` had ~25 scattered `Q10`/`Q14A`/`Q27`
+  -style references to a numbered question list that isn't included
+  anywhere in this repo and no longer exists — removed them; they added no
+  resolvable information for either a human reader or an AI agent.
+
 ## [3.0.4] - 2026-09-20
 
 - **Fixed (round 68 audit, MAJOR, `agy`/Gemini):** `tool/vip_keygen.dart`

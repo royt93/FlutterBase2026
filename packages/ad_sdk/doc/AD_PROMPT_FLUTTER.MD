@@ -125,7 +125,7 @@ Answer 8 questions (yes/no + evidence as `file:line`):
 3. Does the splash screen call `AdManager().initialize` (NOT `main`)? Is `SimpleEventBus().listen` registered **before** `initialize`? Is there a hard-cap timer + hot-restart guard (`countInitSplashScreen > 1`)?
 4. Which screens currently load banner / interstitial / rewarded, and with which API? Have they already been converted to extend `AdScreen`?
 5. **Is there a VIP screen already?** If yes → the AI will **upgrade it in place** in Step 10. If not → create a new one. Describe the current UI if one exists.
-6. State management: is the project using GetX / Provider / Riverpod / Bloc / setState? Verify whether GetX is already present (`pubspec.yaml`) — if not → the AI will add it per Q37.
+6. State management: is the project using GetX / Provider / Riverpod / Bloc / setState? Verify whether GetX is already present (`pubspec.yaml`) — if not → the AI will add it.
 7. Does the project have a `BaseStatefulState` (or `BaseStatefulWidget`, `BaseScreen` equivalent)? Where is it? What helpers does it already provide (alert dialogs, lifecycle logging)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/core/base_stateful_state.dart`.
 8. Does the project have a `SafeLogger` (or `Logger`, `Talker`, `LogUtils` equivalent)? Where is it? Which methods (`d`/`i`/`w`/`e`)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/util/safe_logger.dart`.
 
@@ -319,7 +319,7 @@ can take. Use it only if you'd rather not hand-write the three `try/catch`
 blocks in 4.2.4 — the manual pattern above remains correct and is what most
 of this document assumes.
 
-### 4.3 — Splash UI (disclaimer is mandatory — Q27)
+### 4.3 — Splash UI (disclaimer is mandatory)
 
 The splash screen must show a disclaimer before the App Open Ad appears:
 
@@ -359,7 +359,7 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
     ),
   );
 
-  // Detect edge-to-edge (Q23D): if the app uses UIUtils.initEdgeToEdge() →
+  // Detect edge-to-edge: if the app uses UIUtils.initEdgeToEdge() →
   // wrap with SafeArea(top: false, bottom: true) so the banner sits above the gesture nav bar.
   // If the app is NOT edge-to-edge → buildBanner() bare is fine.
   Widget _buildBannerEdgeToEdge() {
@@ -534,7 +534,7 @@ around them, instead of rediscovering each one the hard way:
   `AdProvider.appLovin`, do not treat the AppLovin branch of consent as a hard guarantee; see
   `doc/audit/audit_round33_consolidated.md` for the full trace.
 
-## Step 5 — Scope of replacement (mandate replace-all — Q11)
+## Step 5 — Scope of replacement (mandate replace-all)
 
 If the project has an old ad SDK, it **must be fully replaced** with `applovin_admob_sdk`. No coexistence.
 
@@ -549,7 +549,7 @@ Before deleting any old SDK file/class, **grep-verify** nothing else still uses 
 
 ### 6.1 — Build
 
-- `flutter analyze --fatal-infos` → 0 issues (mandate Q10)
+- `flutter analyze --fatal-infos` → 0 issues (mandate)
 - `flutter build apk --debug` → green
 - `flutter build apk --release --analyze-size` → green, size delta < 5MB
 - (If targeting iOS) `flutter build ios --debug --no-codesign` → green
@@ -587,7 +587,7 @@ Already called in splash before `initialize()` (Step 4.2.4). Minimum test scenar
 - EEA, first launch: Google's UMP form shows → user chooses → cached in `SharedPreferences`.
 - EEA, no internet: `requestConsentInfoUpdate` fails → caught → init continues anyway.
 
-### 8.2 — iOS ATT (mandatory, Q14A)
+### 8.2 — iOS ATT (mandatory)
 
 ATT is already built into the SDK — do NOT call
 `app_tracking_transparency` directly yourself. Use `AdManager().requestAtt()`.
@@ -638,7 +638,7 @@ silently ship the one-time gap without asking.
 
 ```dart
 AdConfig(
-  // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override (Q34)
+  // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override
   // firstInstallVipKey: '__FIRST_INSTALL__',          // default
 )
 ```
@@ -771,12 +771,12 @@ adb shell bmgr backupnow <package_name>
 ```
 lib/<DART_PACKAGE_NAME>/
 ├── common/const/
-│   ├── ad_keys.dart              ← Q21A + Q29c — class AdKey
+│   ├── ad_keys.dart              ← class AdKey
 │   └── color_constants.dart      ← (already in the project)
 ├── core/
-│   └── base_stateful_state.dart  ← Q36 — detect existing or create
+│   └── base_stateful_state.dart  ← detect existing or create
 ├── util/
-│   └── safe_logger.dart          ← Q9 — detect existing or create
+│   └── safe_logger.dart          ← detect existing or create
 └── widget/
     ├── splash/splash_screen.dart
     └── vip/
@@ -784,7 +784,7 @@ lib/<DART_PACKAGE_NAME>/
         └── vip_keys.dart         ← validator + key map
 ```
 
-### 10.2 — `AdKey` class (Q16A + Q21A + Q29c)
+### 10.2 — `AdKey` class
 
 `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart`:
 
@@ -852,7 +852,7 @@ project needs a bespoke design `VipRedeemScreen`'s stock layout can't match, or 
 screen per Step 2. See `packages/ad_sdk/README.md`'s "Pre-built redeem screen (`VipRedeemScreen`)" section and
 `example/lib/main.dart`'s `VipDemoPage` for the full reference usage.
 
-### 10.3 — UI structure (13 components required — Q19A + Q33A, only if not using `VipRedeemScreen` above)
+### 10.3 — UI structure (13 components required, only if not using `VipRedeemScreen` above)
 
 | # | Component | Detail (Flutter idiom, no `setState`/`!`/`late`) |
 |---|---|---|
@@ -868,13 +868,13 @@ screen per Step 2. See `packages/ad_sdk/README.md`'s "Pre-built redeem screen (`
 | 10 | Buy 1-year VIP (disabled) | Same as #8 |
 | 11 | Buy lifetime VIP (disabled) | Same as #8 |
 | 12 | List of active entries | `ValueListenableBuilder<List<VipEntry>>` (subscribed via `vip.activeStream` + a local notifier). Each entry is a card with its own icon (10.6), days/hours remaining, expiry date, and a revoke button |
-| 13 | "Restore Purchase" (disabled) | `OutlinedButton.icon(icon: Icon(Icons.restore))` disabled, label `'vip_restore_locked'.tr` ('Restore purchase — coming soon'). Placeholder for future IAP (Q33A) |
+| 13 | "Restore Purchase" (disabled) | `OutlinedButton.icon(icon: Icon(Icons.restore))` disabled, label `'vip_restore_locked'.tr` ('Restore purchase — coming soon'). Placeholder for future IAP |
 | — | "Revoke all VIP" button | Material 3 `AlertDialog` confirm → `await vip.revokeAll()`. Disabled for free users |
 | — | "VIP" toolbar badge on the main screen | `ValueListenableBuilder<bool>(valueListenable: vip.activeListenable, ...)` — active: gold chip `0xFFFFD60A`, inactive: white outline |
 | — | Privacy Policy footer | `InkWell` → `url_launcher.launchUrl(Uri.parse(AdKey.privacyPolicyUrl), mode: LaunchMode.externalApplication)` |
 
 - The text field and dialogs must use Material 3 (`useMaterial3: true` in `ThemeData`).
-- After a successful VIP activation, the UI must update immediately via the reactive `activeListenable` — never `setState`. Pair it with a confetti animation (Q18A) + `HapticFeedback.heavyImpact()`.
+- After a successful VIP activation, the UI must update immediately via the reactive `activeListenable` — never `setState`. Pair it with a confetti animation + `HapticFeedback.heavyImpact()`.
 
 #### Reference implementation for row #4 (progress bar — elapsed semantics)
 
@@ -930,7 +930,7 @@ T+30d    [███████████████████████�
 | 2 | Slide-in from below when opening the screen | `AnimationController? _entryController;` init `duration: 1100ms` `..forward()`. 3 sections share one controller, each with its own `Interval(0.0, 0.4)`, `Interval(0.3, 0.7)`, `Interval(0.6, 1.0)` — fade-slide in sequentially | `initState` |
 | 3 | Crown icon shimmer | `AnimationController? _shimmerController;` init `duration: 3000ms` `..repeat()`. Either `RotationTransition` ±5° OR a `ShaderMask` with a shimmer `LinearGradient` | `initState` repeats it, `dispose` cancels it |
 | 4 | Number count-up for the countdown | `TweenAnimationBuilder<double>` runs only when the value changes meaningfully (once per minute) — NOT every second, to avoid a build hot loop | Whenever `Timer.periodic` crosses a new minute |
-| 5 | Confetti on successful activation | `package:confetti` (Q18A): `ConfettiController? _confettiController;` init `duration: 1000ms`. In `dispose`: `_confettiController?.dispose()`. On successful `redeemVip` or `onEarnedReward == true` → `_confettiController?.play()` + `HapticFeedback.heavyImpact()` (Flutter built-in, no need for the `vibration` package) | After success |
+| 5 | Confetti on successful activation | `package:confetti`: `ConfettiController? _confettiController;` init `duration: 1000ms`. In `dispose`: `_confettiController?.dispose()`. On successful `redeemVip` or `onEarnedReward == true` → `_confettiController?.play()` + `HapticFeedback.heavyImpact()` (Flutter built-in, no need for the `vibration` package) | After success |
 
 Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (comes with Material 3), an animated gradient background for the status header.
 
@@ -1034,7 +1034,7 @@ Duration? lookupVipKeyDuration(String normalisedKey) =>
 | `REWARDED_VIP` (prefix `REWARDED_`) | Watch-ad reward (fixed key + `stack: true`) | `'vip_reward_entry'.tr` ('Ad-watch reward') |
 | Anything else | User redeem or programmatic `addVip` | `entry.key` raw (mask the first 3 characters) |
 
-### 10.7 — Translations (mandatory: local + English — Q26)
+### 10.7 — Translations (mandatory: local + English)
 
 Add to `lib/translations/vi_vn.dart` and `en_us.dart` (snake_case keys):
 
@@ -1086,12 +1086,12 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + the required packages (Q37 → C):
+- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + the required packages:
   - `get`, `intl`, `url_launcher`, `confetti`, `shared_preferences` (already present if using GetX), the SDK
   - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level
   - For VIP confetti/success feedback: **skip** adding a separate `vibration` package, use Flutter's built-in `HapticFeedback.heavyImpact()` instead. Note: some projects legitimately keep `vibration` as a real dependency in `pubspec.yaml` for an unrelated long-press haptic feature elsewhere in the app — that's fine and unrelated to VIP/ads; this rule only applies to the VIP UI itself.
-- [ ] `AndroidManifest.xml` permission whitelist (Q12B): `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Any ad-related permission beyond these 3 needs a clear justification. Any non-ad permission → ask the user first.
-- [ ] `AndroidManifest.xml` has the AdMob `APPLICATION_ID` meta-data (production or test ID + warning per Q6C)
+- [ ] `AndroidManifest.xml` permission whitelist: `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Any ad-related permission beyond these 3 needs a clear justification. Any non-ad permission → ask the user first.
+- [ ] `AndroidManifest.xml` has the AdMob `APPLICATION_ID` meta-data (production or test ID + warning)
 - [ ] `MainActivity` does **NOT** have `android:taskAffinity=""` (pitfall #1)
 - [ ] (If iOS) `ios/Runner/Info.plist` has `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (count them for real with `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, do NOT hardcode a number — the mediation partner list changes over time; currently 152 entries as of 2026-08-19)
 - [ ] (If iOS) Podfile targets ≥ 13.0
@@ -1100,14 +1100,14 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 
 - [ ] `main.dart`: `AdManager().setNavigatorKey` before `runApp`, navigator observers complete (`adRouteObserver` + `AdScreenRouteLogger()`)
 - [ ] (If iOS) `AdManager().requestAtt()` is called in **splash postFrame, before `requestUmpConsent`** (NOT called in `main()` before `runApp`)
-- [ ] Splash: `SimpleEventBus().listen` registered BEFORE `initialize`, hard-cap (default 8s — Q24D), `markSplashActive/Inactive` paired correctly, **hot-restart guard `countInitSplashScreen > 1`** (mandatory — Q35A), the App Open flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` in the right order
-- [ ] Splash UI has the `'splash_ads_notice'.tr` disclaimer (Q27A)
-- [ ] `AdConfig.onLog` is wired to the project's logger (Q9)
+- [ ] Splash: `SimpleEventBus().listen` registered BEFORE `initialize`, hard-cap (default 8s), `markSplashActive/Inactive` paired correctly, **hot-restart guard `countInitSplashScreen > 1`** (mandatory), the App Open flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` in the right order
+- [ ] Splash UI has the `'splash_ads_notice'.tr` disclaimer
+- [ ] `AdConfig.onLog` is wired to the project's logger
 
 ### 11.3 — Slot integration
 
 - [ ] Every screen with an ad extends `AdScreen` + `AdScreenState`
-- [ ] Banner is wrapped edge-to-edge if the app uses `UIUtils.initEdgeToEdge()` (Q23D)
+- [ ] Banner is wrapped edge-to-edge if the app uses `UIUtils.initEdgeToEdge()`
 - [ ] Every ad slot has been replaced (grepping the old SDK's name no longer matches anything)
 - [ ] Old SDK deps removed from `pubspec.yaml` (except `gma_mediation_applovin`)
 - [ ] Both build targets from Section 0 are green (debug + release)
@@ -1115,21 +1115,21 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 
 ### 11.4 — VIP + Consent
 
-- [ ] First-install VIP grace uses the SDK's `auto`, not overridden (Q34A)
-- [ ] `AdKey` class at `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` contains `appLovinAndroid`, `appLovinIos`, a platform-selecting `appLovin` getter, `adMob: AdMobConfig(...)`, `privacyPolicyUrl` (Q21A + Q29c)
+- [ ] First-install VIP grace uses the SDK's `auto`, not overridden
+- [ ] `AdKey` class at `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` contains `appLovinAndroid`, `appLovinIos`, a platform-selecting `appLovin` getter, `adMob: AdMobConfig(...)`, `privacyPolicyUrl`
 - [ ] The VIP screen has **all 13 UI components** (10.3) + **all 5 animations** (10.4) + **0 violations of the memory leak rules** (10.5)
-- [ ] Translations for both locales added (10.7), 0 hardcoded user-facing strings (Q26)
+- [ ] Translations for both locales added (10.7), 0 hardcoded user-facing strings
 - [ ] The AppBar VIP icon is reactive via `vip?.activeListenable` (10.8)
 - [ ] Consent: all 3 pieces wired (auto-show + UMP + iOS ATT)
 
-### 11.5 — Code style enforcement (core rule — Q3A + Q4D + Q28B)
+### 11.5 — Code style enforcement (core rule)
 
 - [ ] `grep -rn 'setState' lib/` → 0 matches (except `super.setState` inside `BaseStatefulState` framework code, if any)
 - [ ] `grep -rn '\!' lib/` manually reviewed → 0 user-introduced bang operators (Dart's `!=` "not equal" syntax is allowed; every other `expr!` pattern is forbidden)
 - [ ] `grep -rn 'late ' lib/` → 0 matches
 - [ ] `grep -rn 'late final' lib/` → 0 matches
 
-### 11.6 — 5-step smoke test (mandatory Q31)
+### 11.6 — 5-step smoke test (mandatory)
 
 Run it once on an emulator or a real device (debug build), recording the result of each step:
 
