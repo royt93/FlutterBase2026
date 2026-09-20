@@ -111,6 +111,42 @@ void main() {
             'decoder must round-trip through the real platform store too');
   });
 
+  // Round 56 audit fix — real CMPs default to including the optional GPC
+  // sub-segment, making the real platform-stored string
+  // `CoreSegment.GpcSegment`, not the single-segment fixtures above. Proves
+  // the fix (splitting on `.` before bit-decoding) holds through the real
+  // platform preference store, not just the mocked unit test.
+  testWidgets(
+      'GPP US National: a real two-segment string (CoreSegment.GpcSegment) '
+      'still decodes the opt-out signal off the real platform store',
+      (tester) async {
+    // Fixture: `node -e "const {UsNat}=require('@iabgpp/cmpapi');
+    //   const u=new UsNat();
+    //   u.setFieldValue('Version',1);
+    //   u.setFieldValue('SharingNotice',1);
+    //   u.setFieldValue('SaleOptOutNotice',1);
+    //   u.setFieldValue('SharingOptOutNotice',1);
+    //   u.setFieldValue('TargetedAdvertisingOptOutNotice',1);
+    //   u.setFieldValue('SensitiveDataProcessingOptOutNotice',0);
+    //   u.setFieldValue('SensitiveDataLimitUseNotice',0);
+    //   u.setFieldValue('SaleOptOut',2);
+    //   u.setFieldValue('SharingOptOut',2);
+    //   u.setFieldValue('TargetedAdvertisingOptOut',1);
+    //   u.setFieldValue('SensitiveDataProcessing',new Array(12).fill(0));
+    //   u.setFieldValue('KnownChildSensitiveDataConsents',[0,0]);
+    //   u.setFieldValue('PersonalDataConsents',0);
+    //   u.setFieldValue('MspaCoveredTransaction',1);
+    //   u.setFieldValue('MspaOptOutOptionMode',1);
+    //   u.setFieldValue('MspaServiceProviderMode',0);
+    //   u.setFieldValue('Gpc',true);
+    //   console.log(u.encode());"` → 'BVQpAAAAAUA.YA'
+    await _writeGpp(usNationalKey, 'BVQpAAAAAUA.YA');
+    expect(await AdManager().usPrivacyOptedOut, isTrue,
+        reason: 'a real two-segment GPP string on the real platform store '
+            'must not be silently discarded as "no signal" — this is the '
+            'common case from a standards-compliant CMP, not an edge case');
+  });
+
   // CONTROL — the failure mode of an over-eager fix here is a revenue loss
   // for every US user in that state, so the negative direction is pinned on
   // the device too.
