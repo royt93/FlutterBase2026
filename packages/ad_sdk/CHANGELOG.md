@@ -7,17 +7,33 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ## [Unreleased]
 
 - **Added:** `AdConfig.onConsentProvenanceEntryAppended` — opt-in hook,
-  ignored unless `enableConsentProvenanceJournal` is `true`. Called
-  synchronously right after each `ConsentProvenanceEntry` is persisted to
-  the local, on-device hash-chain journal. `verifyChain()`'s own doc
-  comment already documented that a local-only hash chain cannot detect a
-  fully forged chain — an attacker with full control of the device's own
-  storage can rewrite it self-consistently from scratch. This hook lets a
-  host app mirror each entry to its own server as it happens, giving it an
-  external anchor outside device storage for entries recorded before any
-  later on-device tampering. The SDK makes no network call itself here —
-  the callback isn't awaited, any I/O is the host's own to start, and a
-  throwing callback never fails the underlying consent change.
+  ignored unless `enableConsentProvenanceJournal` is `true`. Called right
+  after each `ConsentProvenanceEntry` is persisted to the local, on-device
+  hash-chain journal. `verifyChain()`'s own doc comment already documented
+  that a local-only hash chain cannot detect a fully forged chain — an
+  attacker with full control of the device's own storage can rewrite it
+  self-consistently from scratch. This hook lets a host app mirror each
+  entry to its own server as it happens, giving it an external anchor
+  outside device storage for entries recorded before any later on-device
+  tampering. The SDK makes no network call itself here — the callback may
+  be sync or `async` (e.g. to `await` an HTTP call), is never awaited by
+  the SDK either way (fire-and-forget, never delays a real consent
+  change), and any error it raises, sync or async, is swallowed.
+- **Fixed (round 57 audit, MAJOR, same day):** the round-57 external
+  review of the hook above (codex hit its usage limit; an internal
+  fork ran the same adversarial brief as a substitute) found that the
+  `try`/`catch` swallowing callback errors only caught a *synchronous*
+  throw. An `async` callback — the natural way to write "await an HTTP
+  call", i.e. exactly what this hook exists for — never throws
+  synchronously; it returns a `Future` that rejects instead, which the
+  SDK wasn't awaiting or attaching an error handler to, so the rejection
+  escaped as an **unhandled zone error** (fatal in many Crashlytics/
+  Sentry setups) despite the doc comment's explicit promise that a
+  throwing callback "never fails the underlying consent change." Fixed
+  by widening the field to `FutureOr<void> Function(...)` and attaching a
+  no-op `catchError` to the returned Future without awaiting it (stays
+  fire-and-forget). New regression test covers the async-throw case the
+  original 3 tests missed.
 
 ## [3.0.2] - 2026-09-20
 

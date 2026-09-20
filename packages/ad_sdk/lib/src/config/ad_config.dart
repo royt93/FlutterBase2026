@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -610,16 +611,17 @@ class AdConfig {
   final bool enableConsentProvenanceJournal;
 
   /// Opt-in, ignored unless [enableConsentProvenanceJournal] is `true`.
-  /// Called synchronously right after each entry is persisted to the local
-  /// journal, with the entry that was just appended. `ConsentProvenanceJournal
+  /// Called right after each entry is persisted to the local journal, with
+  /// the entry that was just appended. `ConsentProvenanceJournal
   /// .verifyChain()`'s doc comment explains why the on-device hash chain
   /// alone cannot detect a fully forged chain — this hook lets a host app
   /// mirror each entry to its own server as it happens, which is an external
   /// anchor outside device storage. The SDK does no network call itself
-  /// here; any I/O is the host's own to start (fire-and-forget — this
-  /// callback isn't awaited) and a throwing callback never fails the
-  /// underlying consent change.
-  final void Function(ConsentProvenanceEntry entry)?
+  /// here; any I/O is the host's own to start. May be sync or `async` (e.g.
+  /// `async { await http.post(...); }`) — either way it is never awaited
+  /// (fire-and-forget, never delays a real consent change) and any error it
+  /// raises, sync or async, is swallowed.
+  final FutureOr<void> Function(ConsentProvenanceEntry entry)?
       onConsentProvenanceEntryAppended;
 
   // ─── Crash guard ──────────────────────────────────────────────────────────

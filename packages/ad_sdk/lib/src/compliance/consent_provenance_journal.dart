@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
@@ -112,10 +113,13 @@ class ConsentProvenanceJournal {
   /// (no secret, no external anchor): a host that mirrors entries here as
   /// they happen gets a copy outside device storage before any later
   /// on-device tampering could occur. The SDK stays backend-free itself —
-  /// it only calls this synchronously with the entry; any network call is
-  /// the host's own to make and await. Errors thrown here are swallowed so
-  /// a broken host callback can never fail a real consent change.
-  final void Function(ConsentProvenanceEntry entry)? _onEntryAppended;
+  /// it never awaits this, so a slow host callback (e.g. one that starts an
+  /// HTTP call) never delays a real consent change. May be sync or `async`;
+  /// either way, an exception (sync throw, or the Future an `async`
+  /// callback returns rejecting) is swallowed — same guarantee either way,
+  /// so a broken host callback can never fail a real consent change.
+  final FutureOr<void> Function(ConsentProvenanceEntry entry)?
+      _onEntryAppended;
 
   /// Serializes [append] calls (audit finding A) — `ConsentManager.set()`/
   /// `.reset()` don't serialize their own calls against each other, so two
@@ -131,7 +135,7 @@ class ConsentProvenanceJournal {
 
   static Future<ConsentProvenanceJournal> load(
     AdPreferences prefs, {
-    void Function(ConsentProvenanceEntry entry)? onEntryAppended,
+    FutureOr<void> Function(ConsentProvenanceEntry entry)? onEntryAppended,
   }) async {
     final raw = prefs.getConsentProvenanceJournalRaw();
     final entries = _decode(raw);
@@ -233,7 +237,14 @@ class ConsentProvenanceJournal {
     _entries.add(entry);
     await _persist();
     try {
-      _onEntryAppended?.call(entry);
+      final result = _onEntryAppended?.call(entry);
+      // An `async` callback never throws synchronously — it returns a
+      // Future that rejects instead. Not awaiting that Future would leak
+      // its error as an unhandled zone error, so attach a no-op error
+      // handler without awaiting (stays fire-and-forget, never blocks).
+      if (result is Future) {
+        unawaited(result.catchError((_) {}));
+      }
     } catch (_) {
       // Swallowed by design — see the field's own doc comment.
     }

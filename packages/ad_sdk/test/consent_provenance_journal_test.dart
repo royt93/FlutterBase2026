@@ -324,6 +324,31 @@ void main() {
       expect(journal.entries, [entry]);
     });
 
+    test('an async-throwing callback does not escape as an unhandled error',
+        () async {
+      final journal = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: (_) async {
+          await Future<void>.delayed(Duration.zero);
+          throw StateError('async host callback exploded');
+        },
+      );
+
+      final entry = await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+
+      // Give the callback's Future a chance to reject. If it escapes as an
+      // unhandled zone error, flutter_test's own zone fails this test even
+      // though every assertion below passes.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(journal.entries, [entry]);
+    });
+
     test('omitting it is a no-op, same as before this hook existed', () async {
       final journal = await ConsentProvenanceJournal.load(prefs);
       final entry = await journal.append(
