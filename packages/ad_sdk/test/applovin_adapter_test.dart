@@ -125,6 +125,15 @@ class _DeferredPreloadBridge extends FakeAppLovinBridge {
 
 /// m22 — the native side rejects destroyWidgetAdView while the AdView is
 /// still attached, which is what arms the retry chain in the first place.
+/// Round 53 audit — verifies a codex claim that a synchronous throw from
+/// `loadAppOpenAd` leaves the coalescer stuck forever (see the temp
+/// verification test using this class).
+class _ThrowingLoadAppOpenBridge extends FakeAppLovinBridge {
+  @override
+  void loadAppOpenAd(String adUnitId) =>
+      throw StateError('MissingPluginException (simulated)');
+}
+
 class _FailingDestroyBridge extends FakeAppLovinBridge {
   @override
   Future<void> destroyWidgetAdView(AdViewId id) async {
@@ -393,6 +402,36 @@ void main() {
       bridge.appOpen!.onAdLoadedCallback(_fakeAd());
       expect(adapter.appOpenSlot.isReady, isTrue);
       expect(loaded, isTrue);
+    });
+
+    // Round 53 audit — codex claimed this catch block leaves the
+    // AdManager-level App Open load coalescer stuck forever (adapter Future
+    // resolves but onAdLoaded is never called, since only `markFailed()` is
+    // called here, not `onAdLoaded?.call(false)` directly). Investigated and
+    // does NOT hold up: `appOpenSlot.pendingCallback` (armed just above, at
+    // `_appOpenLoadCb = onAdLoaded;` + the wrapper below it) is fired
+    // synchronously by `AdSlot.markFailed()` via `_firePending()` — so
+    // `onAdLoaded(false)` still runs before this async function returns.
+    // Kept as a permanent regression test rather than discarded, so a
+    // future refactor that breaks this chain (e.g. moving markFailed()
+    // before pendingCallback is armed) gets caught immediately.
+    test(
+        'a synchronous throw from the bridge still fires onAdLoaded(false), '
+        'not stuck forever (round 53 audit — investigated false positive)',
+        () async {
+      final throwingBridge = _ThrowingLoadAppOpenBridge();
+      final a2 = AppLovinAdapter(bridge: throwingBridge);
+      final ok = await a2.initialize(_config);
+      expect(ok, isTrue);
+
+      bool? loaded;
+      await a2.loadAppOpen(onAdLoaded: (v) => loaded = v);
+
+      expect(loaded, isFalse,
+          reason: 'AdSlot.markFailed() fires pendingCallback synchronously, '
+              'which the adapter wires to onAdLoaded — codex\'s round-53 '
+              'claim that this never fires does not hold up');
+      await a2.dispose();
     });
   });
 
