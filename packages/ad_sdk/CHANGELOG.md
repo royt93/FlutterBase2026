@@ -4,6 +4,22 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.7] - 2026-09-20
+
+Docs-only release, no code changes.
+
+- **Fixed:** the existing "don't copy `example/` wholesale into a real
+  app" warning only lived deep in README's Pitfalls checklist — exactly
+  where someone who opens pub.dev's Example tab and copies the whole
+  `main.dart` file first, before reading anything else, would never see
+  it. That's the single most predictable way to conclude "the SDK doesn't
+  work": the copied file replaces the host app's own UI with a 48-page
+  demo menu, keeps Google's placeholder test ad-unit IDs, and skips the
+  native Android/iOS setup (AppLovin SDK key, AdMob App ID) that no
+  example file can supply for you. Added a bold warning as the literal
+  first lines of `example/lib/main.dart`, pointing to the README Quick
+  start instead.
+
 ## [3.0.6] - 2026-09-20
 
 Docs-only release, no code changes. Reverts part of 3.0.5.

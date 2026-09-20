@@ -1,4 +1,20 @@
 // ═══════════════════════════════════════════════════════════════════════════
+// ⚠️  DO NOT copy this whole file into your app.
+//
+// This is a 48-page DEMO app (one page per SDK feature, launched from a
+// menu) — dropping it into a real project replaces your app's UI with this
+// menu, keeps Google's placeholder test ad-unit IDs (no real ads will
+// serve), and skips the native Android/iOS setup (AppLovin SDK key, AdMob
+// App ID) that only you can supply from your own AppLovin/AdMob accounts —
+// no example file can do that step for you. If ads aren't showing after
+// copying this file, that's almost always why, not an SDK bug.
+//
+// To integrate for real: pub.dev → applovin_admob_sdk → Quick start
+// (6 copy-paste steps), or this repo's README.md if you have the source.
+// Come back to individual pages below only to see how one specific
+// feature (banner, VIP, consent, ...) is used.
+// ═══════════════════════════════════════════════════════════════════════════
+//
 // applovin_admob_sdk — example app, single file by design.
 //
 // Every demo page lives in this one file on purpose: pub.dev's "Example"
