@@ -4,6 +4,21 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Added:** `AdConfig.onConsentProvenanceEntryAppended` — opt-in hook,
+  ignored unless `enableConsentProvenanceJournal` is `true`. Called
+  synchronously right after each `ConsentProvenanceEntry` is persisted to
+  the local, on-device hash-chain journal. `verifyChain()`'s own doc
+  comment already documented that a local-only hash chain cannot detect a
+  fully forged chain — an attacker with full control of the device's own
+  storage can rewrite it self-consistently from scratch. This hook lets a
+  host app mirror each entry to its own server as it happens, giving it an
+  external anchor outside device storage for entries recorded before any
+  later on-device tampering. The SDK makes no network call itself here —
+  the callback isn't awaited, any I/O is the host's own to start, and a
+  throwing callback never fails the underlying consent change.
+
 ## [3.0.2] - 2026-09-20
 
 - **Fixed (round 49 audit, MAJOR):** `AdManager().clearSdkData(scope:

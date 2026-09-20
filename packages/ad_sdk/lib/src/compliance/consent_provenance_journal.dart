@@ -101,10 +101,21 @@ class ConsentProvenanceEntry {
 /// `SdkDataErasureScope.allIncludingEntitlements` (that scope is
 /// specifically about VIP/paid entitlements, an unrelated concern).
 class ConsentProvenanceJournal {
-  ConsentProvenanceJournal._(this._prefs, this._entries);
+  ConsentProvenanceJournal._(this._prefs, this._entries, this._onEntryAppended);
 
   final AdPreferences _prefs;
   final List<ConsentProvenanceEntry> _entries;
+
+  /// Opt-in, fire-after-persist hook — lets a host app forward each entry to
+  /// its own server as an external anchor. [verifyChain]'s doc comment
+  /// explains why this journal alone cannot detect a fully forged chain
+  /// (no secret, no external anchor): a host that mirrors entries here as
+  /// they happen gets a copy outside device storage before any later
+  /// on-device tampering could occur. The SDK stays backend-free itself —
+  /// it only calls this synchronously with the entry; any network call is
+  /// the host's own to make and await. Errors thrown here are swallowed so
+  /// a broken host callback can never fail a real consent change.
+  final void Function(ConsentProvenanceEntry entry)? _onEntryAppended;
 
   /// Serializes [append] calls (audit finding A) — `ConsentManager.set()`/
   /// `.reset()` don't serialize their own calls against each other, so two
@@ -118,10 +129,13 @@ class ConsentProvenanceJournal {
   /// Read-only view, oldest first.
   List<ConsentProvenanceEntry> get entries => List.unmodifiable(_entries);
 
-  static Future<ConsentProvenanceJournal> load(AdPreferences prefs) async {
+  static Future<ConsentProvenanceJournal> load(
+    AdPreferences prefs, {
+    void Function(ConsentProvenanceEntry entry)? onEntryAppended,
+  }) async {
     final raw = prefs.getConsentProvenanceJournalRaw();
     final entries = _decode(raw);
-    return ConsentProvenanceJournal._(prefs, entries);
+    return ConsentProvenanceJournal._(prefs, entries, onEntryAppended);
   }
 
   /// Test-only: build a journal from entries not necessarily produced by
@@ -131,7 +145,7 @@ class ConsentProvenanceJournal {
     AdPreferences prefs,
     List<ConsentProvenanceEntry> entries,
   ) =>
-      ConsentProvenanceJournal._(prefs, List.of(entries));
+      ConsentProvenanceJournal._(prefs, List.of(entries), null);
 
   static List<ConsentProvenanceEntry> _decode(String? raw) {
     if (raw == null || raw.isEmpty) return [];
@@ -218,6 +232,11 @@ class ConsentProvenanceJournal {
     );
     _entries.add(entry);
     await _persist();
+    try {
+      _onEntryAppended?.call(entry);
+    } catch (_) {
+      // Swallowed by design — see the field's own doc comment.
+    }
     return entry;
   }
 

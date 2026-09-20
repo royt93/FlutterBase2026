@@ -279,4 +279,61 @@ void main() {
       expect(await verifySignedJsonPayload(tampered.toJsonString()), isFalse);
     });
   });
+
+  group('onEntryAppended hook (external-anchor opt-in)', () {
+    test('fires with the appended entry after each append', () async {
+      final seen = <ConsentProvenanceEntry>[];
+      final journal = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: seen.add,
+      );
+
+      final first = await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      final second = await journal.append(
+        source: 'host',
+        policyRevision: 'ump-v1',
+        hasUserConsent: false,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+
+      expect(seen, [first, second]);
+    });
+
+    test('a throwing callback does not fail the append', () async {
+      final journal = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: (_) => throw StateError('host callback exploded'),
+      );
+
+      final entry = await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+
+      expect(entry.source, 'ump');
+      expect(journal.entries, [entry]);
+    });
+
+    test('omitting it is a no-op, same as before this hook existed', () async {
+      final journal = await ConsentProvenanceJournal.load(prefs);
+      final entry = await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      expect(journal.entries, [entry]);
+    });
+  });
 }

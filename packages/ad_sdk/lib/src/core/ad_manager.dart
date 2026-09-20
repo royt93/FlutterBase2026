@@ -3504,7 +3504,10 @@ class AdManager with WidgetsBindingObserver {
       // first bootstrap() call (the only one that honors this param, same
       // rule as `prefs`) can wire it in.
       final provenanceJournal = config.enableConsentProvenanceJournal
-          ? await ConsentProvenanceJournal.load(prefs)
+          ? await ConsentProvenanceJournal.load(
+              prefs,
+              onEntryAppended: config.onConsentProvenanceEntryAppended,
+            )
           : null;
       // T40 — bootstrap ConsentManager (loads persisted user choice from
       // prefs) BEFORE picking/initialising the adapter, so a previously

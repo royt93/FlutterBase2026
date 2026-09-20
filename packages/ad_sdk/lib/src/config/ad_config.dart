@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' show DebugGeography;
 
+import '../compliance/consent_provenance_journal.dart';
 import '../core/ad_safety_config.dart';
 import '../utils/safe_logger.dart';
 import '../vip/vip_dialog_strings.dart';
@@ -409,6 +410,7 @@ class AdConfig {
     this.umpTestIdentifiers = const [],
     this.disableAppLovinCmpFlow = true,
     this.enableConsentProvenanceJournal = false,
+    this.onConsentProvenanceEntryAppended,
     this.enableCrashGuard = true,
     this.appOpenTrigger = AppOpenTrigger.both,
   }) : assert(
@@ -606,6 +608,19 @@ class AdConfig {
   /// class doc comment) — opt-in keeps every other test in this suite that
   /// never asked for this feature unaffected by that.
   final bool enableConsentProvenanceJournal;
+
+  /// Opt-in, ignored unless [enableConsentProvenanceJournal] is `true`.
+  /// Called synchronously right after each entry is persisted to the local
+  /// journal, with the entry that was just appended. `ConsentProvenanceJournal
+  /// .verifyChain()`'s doc comment explains why the on-device hash chain
+  /// alone cannot detect a fully forged chain — this hook lets a host app
+  /// mirror each entry to its own server as it happens, which is an external
+  /// anchor outside device storage. The SDK does no network call itself
+  /// here; any I/O is the host's own to start (fire-and-forget — this
+  /// callback isn't awaited) and a throwing callback never fails the
+  /// underlying consent change.
+  final void Function(ConsentProvenanceEntry entry)?
+      onConsentProvenanceEntryAppended;
 
   // ─── Crash guard ──────────────────────────────────────────────────────────
 
