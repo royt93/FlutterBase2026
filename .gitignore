@@ -82,3 +82,7 @@ android/app/build/
 # These were committed into lib/ once (round-6 QC caught 124KB of them) and
 # would have shipped to pub.dev, since lib/ is always included in the archive.
 *.bak
+
+# Round 68 audit — tool/vip_keygen.dart's Ed25519 private key, wherever run from.
+.vip-private-key
+*.vip-private-key

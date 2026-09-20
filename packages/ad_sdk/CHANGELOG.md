@@ -4,6 +4,37 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fixed (round 68 audit, MAJOR, `agy`/Gemini):** `tool/vip_keygen.dart`
+  writes the Ed25519 VIP-signing private key to `.vip-private-key` (or a
+  custom `--private-out` path) with no `.gitignore` entry anywhere in the
+  repo covering it — a `git add .` after generating a key would have
+  committed it, letting anyone with repo access mint unlimited valid VIP
+  codes offline. Added `.vip-private-key`/`*.vip-private-key` to both the
+  root and `packages/ad_sdk/.gitignore`. No key was ever committed.
+- **Fixed (round 68 audit, MAJOR, external `claude` reviewer):**
+  `AdManager.debugSetAdapter`/`debugAdapterFactory`/`debugVipManager`/
+  `debugConsentManager`/`debugConfig` were only `@visibleForTesting` — an
+  analyzer lint, not a runtime guard (`kReleaseMode` never gated them,
+  unlike this file's other test-seam footguns). Any code running in the
+  same isolate as a shipped release build — including a compromised
+  transitive dependency — could call one of these to silently swap out
+  the real ad adapter, VIP state or consent state, zeroing ad revenue or
+  faking VIP/consent-active with no crash and no signal. Now a no-op
+  (logged) once `kReleaseMode` is true, following the same
+  `isActuallyRelease`-style pattern already used for the consent/test-ad-ID
+  footgun guards. New `AdManager.debugSimulateReleaseModeForTestSeams`
+  test seam and regression tests in
+  `test/ad_manager_debug_seam_release_guard_test.dart`.
+- **Fixed (round 68 audit, MINOR):** `IabStorage`'s class-level doc comment
+  in `lib/src/core/iab_storage.dart` had no code between it and the
+  private `_GppBitReader` class declared right above `IabStorage` —
+  adjacent `///` blocks with nothing in between attach to whichever
+  declaration follows immediately, so the doc merged onto the private
+  class instead and never reached the generated docs for the public
+  `IabStorage` API.
+
 ## [3.0.3] - 2026-09-20
 
 - **Fixed (round 67 audit, MAJOR):** `ConsentManager._load()` read disk

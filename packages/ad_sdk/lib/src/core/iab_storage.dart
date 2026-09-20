@@ -10,35 +10,6 @@ import 'package:shared_preferences_android/shared_preferences_android.dart';
 
 import '../utils/safe_logger.dart';
 
-/// Reads the IAB consent strings that Google UMP (and other CMPs) write to the
-/// platform's own default preference store.
-///
-/// MJ2 + m10 (round 5 audit). This exists because reading those keys through
-/// the ordinary `SharedPreferences` API silently cannot work, and did not:
-///
-///  * **iOS** — the legacy `SharedPreferences` implementation prefixes every
-///    key with `flutter.` (`shared_preferences_foundation`'s
-///    `_defaultPrefix`), so it looked for `flutter.IABTCF_TCString` while UMP
-///    writes `IABTCF_TCString`. `SharedPreferencesAsync` has no prefix, which
-///    is why this class uses it.
-///  * **Android** — the legacy implementation reads its own private
-///    `FlutterSharedPreferences` file, while UMP writes to the app's *default*
-///    store (`PreferenceManager.getDefaultSharedPreferences`, i.e. the file
-///    `<packageName>_preferences`). `SharedPreferencesAsync` defaults to
-///    DataStore, a third location again — so the backend and file name both
-///    have to be stated explicitly.
-///
-/// The old code did neither, so `AdManager.tcfConsentString` returned `null`
-/// on every real device while its unit test passed against
-/// `setMockInitialValues` — a compliance API that looked wired and was not.
-///
-/// Every method fails soft (returns `null`): these values are informational
-/// passthrough for host apps and third-party SDKs, and both native ad SDKs
-/// read the real strings themselves regardless of what this reports.
-///
-/// ⚠️ Verified on Android hardware. The iOS branch follows the plugin's
-/// documented behaviour but has NOT been exercised on a device — CI has been
-/// down since 2026-08-09, see doc/audit/audit_claude.md (MJ29).
 /// Reads GPP section strings' custom bit-packed encoding — MSB-first bits
 /// grouped into 6-bit chunks, each chunk mapped through a base64url alphabet
 /// (`A-Z a-z 0-9 - _`). Per the IAB Global Privacy Platform Core Consent
@@ -98,6 +69,35 @@ class _GppBitReader {
   }
 }
 
+/// Reads the IAB consent strings that Google UMP (and other CMPs) write to the
+/// platform's own default preference store.
+///
+/// MJ2 + m10 (round 5 audit). This exists because reading those keys through
+/// the ordinary `SharedPreferences` API silently cannot work, and did not:
+///
+///  * **iOS** — the legacy `SharedPreferences` implementation prefixes every
+///    key with `flutter.` (`shared_preferences_foundation`'s
+///    `_defaultPrefix`), so it looked for `flutter.IABTCF_TCString` while UMP
+///    writes `IABTCF_TCString`. `SharedPreferencesAsync` has no prefix, which
+///    is why this class uses it.
+///  * **Android** — the legacy implementation reads its own private
+///    `FlutterSharedPreferences` file, while UMP writes to the app's *default*
+///    store (`PreferenceManager.getDefaultSharedPreferences`, i.e. the file
+///    `<packageName>_preferences`). `SharedPreferencesAsync` defaults to
+///    DataStore, a third location again — so the backend and file name both
+///    have to be stated explicitly.
+///
+/// The old code did neither, so `AdManager.tcfConsentString` returned `null`
+/// on every real device while its unit test passed against
+/// `setMockInitialValues` — a compliance API that looked wired and was not.
+///
+/// Every method fails soft (returns `null`): these values are informational
+/// passthrough for host apps and third-party SDKs, and both native ad SDKs
+/// read the real strings themselves regardless of what this reports.
+///
+/// ⚠️ Verified on Android hardware. The iOS branch follows the plugin's
+/// documented behaviour but has NOT been exercised on a device — CI has been
+/// down since 2026-08-09, see doc/audit/audit_claude.md (MJ29).
 class IabStorage {
   IabStorage._();
 

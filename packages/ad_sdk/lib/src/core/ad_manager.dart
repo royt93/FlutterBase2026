@@ -1484,6 +1484,28 @@ class AdManager with WidgetsBindingObserver {
   }
 
   // ─── Test seams ────────────────────────────────────────────────────────────
+  /// Round-68 audit fix (MAJOR, claude external) — `@visibleForTesting` is an
+  /// analyzer lint only: it does not stop a compiled release build from
+  /// calling these seams (same reasoning as `isActuallyRelease` elsewhere in
+  /// this file / `VipManager` / `AdSafetyConfig` — "safety comes from the
+  /// runtime check, not the annotation"). Before this fix, any code running
+  /// in the same isolate as a shipped app — the app's own careless call, or a
+  /// compromised transitive dependency — could call [debugSetAdapter],
+  /// [debugVipManager], [debugConsentManager] or [debugConfig] to silently
+  /// swap out the real adapter/VIP/consent state with no crash and no signal,
+  /// zeroing ad revenue or faking consent/VIP-active state. `kReleaseMode` is
+  /// always false under `flutter test`, so this guard is invisible to the
+  /// 200+ existing call sites; [debugSimulateReleaseModeForTestSeams] lets a
+  /// test exercise the blocked branch itself without a real release build.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
+  static bool get _testSeamsBlocked =>
+      kReleaseMode || debugSimulateReleaseModeForTestSeams;
+
+  static void _warnSeamBlocked(String name) => SafeLogger.e(_tag,
+      '$name ignored in a release build — test-only seam (round-68 audit)');
+
   /// Push an event onto [events] (lets a test drive consumers like RevenuePanel
   /// without a live native adapter).
   @visibleForTesting
@@ -1492,7 +1514,10 @@ class AdManager with WidgetsBindingObserver {
   /// Inject a (fake) adapter so the gating logic in `loadX`/`showX`/`canShowX`
   /// can be unit-tested without the native plugins.
   @visibleForTesting
-  void debugSetAdapter(AdProviderAdapter? adapter) => _adapter = adapter;
+  void debugSetAdapter(AdProviderAdapter? adapter) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugSetAdapter');
+    _adapter = adapter;
+  }
 
   /// Override the [FirstInstallGuard] `initialize()` builds, so a test can
   /// drive the anti-bypass read — including the case where it never answers.
@@ -1507,23 +1532,37 @@ class AdManager with WidgetsBindingObserver {
   /// Override which adapter instance `initialize()` builds, so a test can
   /// observe what happens to it (e.g. that a failed init disposes it) without
   /// a live native plugin. Defaults to the real selection below.
+  ///
+  /// Round-68 audit fix — the *write* to this static field can't be gated (it
+  /// isn't a setter), so [_testSeamsBlocked] is checked at the *read* site in
+  /// `initialize()` instead: an override left set (or maliciously set) is
+  /// simply ignored once the app is actually running in release.
   @visibleForTesting
   static AdProviderAdapter Function(AdConfig config)? debugAdapterFactory;
 
   /// Inject a VipManager so the VIP-suppression branches are unit-testable.
   @visibleForTesting
-  set debugVipManager(VipManager? m) => _vipManager = m;
+  set debugVipManager(VipManager? m) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugVipManager');
+    _vipManager = m;
+  }
 
   /// Inject a (real, bootstrapped) ConsentManager for tests, without running
   /// native [initialize].
   @visibleForTesting
-  set debugConsentManager(ConsentManager? m) => _consentManager = m;
+  set debugConsentManager(ConsentManager? m) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugConsentManager');
+    _consentManager = m;
+  }
 
   /// Inject a config so [isInitialised] (`_config != null && _adapter != null`)
   /// can be flipped true in tests without running the native init — used to
   /// exercise the consent → adapter (`applyConsent`) wiring.
   @visibleForTesting
-  set debugConfig(AdConfig? c) => _config = c;
+  set debugConfig(AdConfig? c) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugConfig');
+    _config = c;
+  }
 
   /// Populated right before [initialize]'s `autoRequestUmpConsent` branch
   /// calls [requestUmpConsent] internally — lets tests assert the config's
@@ -3718,9 +3757,10 @@ class AdManager with WidgetsBindingObserver {
       // Pick adapter, wire its event sink, then initialise. The resolved
       // GAID is forwarded so the AppLovin adapter can register this device
       // as a test device in debug builds (preserves 1.x policy compliance).
-      final AdProviderAdapter adapter = debugAdapterFactory != null
-          ? debugAdapterFactory!(config)
-          : (config.isAdMob ? AdMobAdapter() : AppLovinAdapter());
+      final AdProviderAdapter adapter =
+          (debugAdapterFactory != null && !_testSeamsBlocked)
+              ? debugAdapterFactory!(config)
+              : (config.isAdMob ? AdMobAdapter() : AppLovinAdapter());
       adapter.eventSink = _emit;
       // Same gate loadAppOpenAd()/loadInterstitial()/loadRewardedAd() consult
       // below — adapters that auto-reload from an internal dismiss/fail
