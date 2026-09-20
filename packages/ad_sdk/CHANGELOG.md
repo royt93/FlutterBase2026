@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 65 audit, MAJOR):** `NativeAdWidget`'s
+  `onAdLoadedCallback`/`onAdLoadFailedCallback` never got round 46's
+  (R46-03) `capturedAdapter` identity guard — only
+  `onAdClickedCallback`/`onAdRevenuePaidCallback` had it. That guard
+  exists because `AdManager.destroy()` + re-`initialize()` swaps in a
+  brand-new `AppLovinAdapter` instance whose native registry has never
+  heard of an already-built widget's `instanceKey`; a late platform-view
+  callback still closing over the OLD adapter falls through to
+  `AdManager().adapter` (the NEW one) and silently plants a fresh, live
+  registry entry keyed by an instance that no longer belongs to it. The
+  old doc comment on these two callbacks assumed a same-adapter
+  already-disposed-key throw would catch this, which only holds for a
+  same-adapter dispose, not a cross-adapter swap. Fixed by adding the
+  same `identical(adapter, capturedAdapter)` guard used by the other two
+  callbacks. 2 new regression tests in `test/native_ad_widget_test.dart`.
 - **Fixed (round 63 audit, MAJOR):** `ConsentManager.bootstrap()` only
   ever reassigned its journal field when a caller's `provenanceJournal`
   argument was non-null, so a host that disabled

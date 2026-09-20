@@ -831,6 +831,143 @@ void main() {
       expect(oldEvents, isEmpty);
       expect(tester.takeException(), isNull);
     });
+
+    // Round-65 audit fix — R46-03's `capturedAdapter` identity check was
+    // only ever applied to onAdClickedCallback/onAdRevenuePaidCallback.
+    // onAdLoadedCallback/onAdLoadFailedCallback still went straight to
+    // `AdManager().adapter` — after a destroy()+re-init swap, that's a
+    // DIFFERENT AppLovinAdapter instance whose native registry has never
+    // heard of this widget's instanceKey, so `adapter.native(instanceKey)`
+    // doesn't hit the disposed-sentinel throw the old comment relied on —
+    // it silently creates a brand-new live entry in the NEW adapter's
+    // registry, keyed by an instance that no longer belongs to it.
+    testWidgets(
+        'a load callback whose adapter has since been replaced (destroy + '
+        're-init) does not contaminate the new adapter with a stray entry',
+        (tester) async {
+      final oldBridge = FakeAppLovinBridge();
+      final oldAdapter = AppLovinAdapter(bridge: oldBridge);
+      expect(
+        await oldAdapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(oldAdapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+
+      final newBridge = FakeAppLovinBridge();
+      final newAdapter = AppLovinAdapter(bridge: newBridge);
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        oldAdapter.dispose();
+        newAdapter.dispose();
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listener =
+          tester.widget<MaxNativeAdView>(find.byType(MaxNativeAdView)).listener;
+      expect(listener, isNotNull);
+      final instanceKey =
+          tester.state<State<NativeAdWidget>>(find.byType(NativeAdWidget));
+
+      expect(
+        await newAdapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(newAdapter);
+
+      // A load result the OLD adapter's platform side queued before the
+      // swap, delivered late.
+      listener!.onAdLoadedCallback(MaxAd(
+          'native-id',
+          'NATIVE',
+          null,
+          'net',
+          '',
+          0.0,
+          'exact',
+          'cid',
+          'dsp',
+          '',
+          0,
+          MaxAdWaterfallInfo('', '', const [], 0),
+          null,
+          null));
+
+      // `native(key)` creates-on-demand: if the callback above already
+      // planted a live, isLoaded=true entry for this instanceKey in the
+      // NEW adapter's registry, this fetch returns that SAME contaminated
+      // entry. If the callback was correctly rejected, this creates a
+      // fresh, untouched one instead.
+      expect(newAdapter.native(instanceKey).isLoaded.value, isFalse,
+          reason: 'a late onAdLoadedCallback for an instanceKey the new '
+              'adapter never registered must not create a live, '
+              'isLoaded=true entry for it — that entry would never be '
+              'cleaned up (this widget will call disposeNativeInstance on '
+              'whatever adapter is current when IT disposes, but this '
+              'stray entry belongs to a session it was never part of)');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'a load-failed callback whose adapter has since been replaced '
+        '(destroy + re-init) does not contaminate the new adapter with a '
+        'stray entry', (tester) async {
+      final oldBridge = FakeAppLovinBridge();
+      final oldAdapter = AppLovinAdapter(bridge: oldBridge);
+      expect(
+        await oldAdapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(oldAdapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+
+      final newBridge = FakeAppLovinBridge();
+      final newAdapter = AppLovinAdapter(bridge: newBridge);
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        oldAdapter.dispose();
+        newAdapter.dispose();
+      });
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listener =
+          tester.widget<MaxNativeAdView>(find.byType(MaxNativeAdView)).listener;
+      expect(listener, isNotNull);
+      final instanceKey =
+          tester.state<State<NativeAdWidget>>(find.byType(NativeAdWidget));
+
+      expect(
+        await newAdapter.initialize(_appLovinConfig,
+            consent: const AdConsent(hasUserConsent: true)),
+        isTrue,
+      );
+      AdManager().debugSetAdapter(newAdapter);
+
+      // A load failure the OLD adapter's platform side queued before the
+      // swap, delivered late.
+      listener!.onAdLoadFailedCallback(
+          'native-id', MaxError(ErrorCode.values.first, 'no fill', null, null));
+
+      expect(newAdapter.native(instanceKey).hasError.value, isFalse,
+          reason: 'a late onAdLoadFailedCallback for an instanceKey the '
+              'new adapter never registered must not create a live, '
+              'hasError=true entry for it — same contamination risk as '
+              'onAdLoadedCallback above');
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('T100 — gate re-check when state changes mid-flight', () {

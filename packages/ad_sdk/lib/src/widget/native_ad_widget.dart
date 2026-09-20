@@ -614,6 +614,13 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             // and this platform-view callback can fire after that.
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
+            // Round-65 audit fix (R65-01) — see build()'s `capturedAdapter`
+            // doc comment: unlike a same-adapter per-key dispose (caught by
+            // the disposed-sentinel throw below), a destroy()+re-init swap
+            // hands us a DIFFERENT adapter whose registry never heard of
+            // `instanceKey` — it would silently create a fresh, live entry
+            // for it instead of throwing, contaminating the new session.
+            if (!identical(adapter, capturedAdapter)) return;
             adapter.native(instanceKey).isLoaded.value = true;
             adapter.native(instanceKey).clearError();
           } catch (e) {
@@ -626,6 +633,9 @@ class _AppLovinMaxNativeView extends StatelessWidget {
             SafeLogger.d('NativeAdWidget', 'MaxNativeAdView ❌ ${err.code}');
             final adapter = AdManager().adapter;
             if (adapter == null || !adapter.isInitialised) return;
+            // Round-65 audit fix (R65-01) — see onAdLoadedCallback's
+            // matching guard above.
+            if (!identical(adapter, capturedAdapter)) return;
             adapter.native(instanceKey).markError();
           } catch (e) {
             SafeLogger.e('NativeAdWidget',
