@@ -6,7 +6,7 @@
 // the example app's entry-point .dart file, not files it imports/exports —
 // so a visitor evaluating the package before installing it only ever sees
 // whatever main.dart itself contains. Splitting demos into separate files
-// (T117) is a good repo-hygiene move for day-to-day editing but makes the
+// is a good repo-hygiene move for day-to-day editing but makes the
 // package look unfinished on pub.dev, since the tab then shows a ~90-line
 // stub of import/export statements instead of any working demo code.
 // Kept as one file after that tradeoff was made explicit — length is an
@@ -34,14 +34,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-// T146 demo only — IabStorage is an internal implementation detail, not part
+// IabStorage is an internal implementation detail, not part
 // of the package's public API (a real consuming app has no access to it
 // either). Imported here solely so ConsentDemoPage's "Simulate broken
 // privacy store" button can prove the fail-closed fix against the real
 // class, not a re-implementation of it.
 // ignore: implementation_imports
 import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
-// T151 demo only — AdPreferences is an internal implementation detail, not
+// AdPreferences is an internal implementation detail, not
 // part of the public API. Imported solely so DiagnosticsDemoPage's
 // "Simulate corrupted log entry" button can construct a real AdEventLog
 // (which requires it) when AdManager().debugEventLog is still null.
@@ -68,8 +68,8 @@ void main() {
   // ⚠️ Required: register navigator key BEFORE runApp so the SDK can show
   // loading dialogs from lifecycle observer (App Open on resume).
   AdManager().setNavigatorKey(_navigatorKey);
-  // Round-27 backlog B5 — destroy() closes AdManager().events and opens a
-  // FRESH stream on the next initialize() (T31). A subscription taken out
+  // destroy() closes AdManager().events and opens a
+  // FRESH stream on the next initialize(). A subscription taken out
   // once here, at startup, receives `done` on that first destroy() and
   // never follows the new stream — the "Slot state panel" demo's own
   // Destroy/Re-initialize buttons silently killed the Event stream/Revenue
@@ -114,14 +114,14 @@ void main() {
 // config/demo_config.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — DemoConfig + example-only constants (AppLovin placeholder ad-unit
+// DemoConfig + example-only constants (AppLovin placeholder ad-unit
 // IDs, VIP demo keys, safety preset). Split out of main.dart.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // §1  Constants + DemoConfig + VIP validator
 // ═══════════════════════════════════════════════════════════════════════════
 
-// T41 — no real AppLovin credentials are committed to source. Placeholders
+// No real AppLovin credentials are committed to source. Placeholders
 // below make the demo build/run out of the box (native init simply fails to
 // load real creative — safe default, not a crash). Anyone who needs to
 // exercise real ads locally passes their own IDs via --dart-define, e.g.:
@@ -178,7 +178,7 @@ const AdProvider kProvider = bool.fromEnvironment('AD_PROVIDER_ADMOB')
     ? AdProvider.admob
     : AdProvider.appLovin;
 
-/// T41 — the loose QA safety preset ([kDemoSafetyParams]) is opt-in only, so
+/// The loose QA safety preset ([kDemoSafetyParams]) is opt-in only, so
 /// a release build of this example never ships with fraud/frequency caps
 /// disabled. Pass `--dart-define=QA_AD_STRESS=true` to enable it locally.
 const bool kQaAdStress = bool.fromEnvironment('QA_AD_STRESS');
@@ -212,7 +212,7 @@ const Map<String, Duration> kDemoVipKeys = {
 /// toolchains corrupts a captured key). Only the public key belongs in your
 /// binary.
 ///
-/// T18 — offline SIGNED VIP keys. The public key below verifies the keys; the
+/// Offline SIGNED VIP keys. The public key below verifies the keys; the
 /// matching private key (never shipped) minted them via tool/vip_mint.dart.
 const String kDemoVipPublicKey = 'nqmoUYYjAH_dVDcO5fZk8EagjLIq688hPbAzIYD0DWY=';
 const Map<String, String> kDemoSignedVipKeys = {
@@ -247,18 +247,18 @@ class DemoConfig {
       admob: const AdMobConfig(
         // Fallback values below are Google's ANDROID test ad unit ids and
         // stay correct on Android because the iOS overrides added below
-        // (T15's androidXId/iosXId mechanism) take precedence on iOS.
+        // (androidXId/iosXId mechanism) take precedence on iOS.
         bannerId: 'ca-app-pub-3940256099942544/6300978111',
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
-        // Round-31 audit fix (MAJOR) — MREC is a banner at a different
+        // MREC is a banner at a different
         // size (see mrec_ad_widget.dart), not a distinct AdMob ad format,
         // so it must use the BANNER test id, not the Native Advanced one
         // this line and `nativeId` below were both wrongly sharing.
         mrecId: 'ca-app-pub-3940256099942544/6300978111',
         nativeId: 'ca-app-pub-3940256099942544/2247696110',
-        // Round-31 audit fix (MAJOR) — Rewarded Interstitial is AdMob-only
+        // Rewarded Interstitial is AdMob-only
         // (see README); without this the dedicated demo page for it
         // (added specifically to close this coverage gap) could never
         // show an ad on the one provider that supports the format at all.
@@ -298,14 +298,14 @@ class DemoConfig {
       splashMaxDuration: const Duration(seconds: 8),
       umpDebugGeography: kUmpEeaDebug ? DebugGeography.debugGeographyEea : null,
       umpTestIdentifiers: kUmpTestId.isEmpty ? const [] : const [kUmpTestId],
-      // T41 — the loose preset (999 caps, 2 s throttle, 0 s warm-up) only
+      // The loose preset (999 caps, 2 s throttle, 0 s warm-up) only
       // applies with --dart-define=QA_AD_STRESS=true, so QA can pound the
       // buttons on demand without every debug/release build shipping with
       // fraud/frequency caps effectively disabled.
       // ⚠️ DO NOT copy kDemoSafetyParams into a production app — use
       // AdSafetyParams.auto (default) or AdSafetyParams.production there.
       safety: kQaAdStress ? kDemoSafetyParams : AdSafetyParams.auto,
-      // T181 — demo-only placement: PlacementThrottleDemoPage shows this
+      // Demo-only placement: PlacementThrottleDemoPage shows this
       // placement can bypass the app-wide fullscreen throttle above with
       // its own, looser 500ms minimum interval — looser than
       // AdSafetyParams.debug's own 2s (kQaAdStress off, the normal debug
@@ -348,7 +348,7 @@ const AdSafetyParams kDemoSafetyParams = AdSafetyParams(
 // shared/log_buffer.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — in-memory ring buffer of SDK logs, feeding LogViewerDemoPage.
+// In-memory ring buffer of SDK logs, feeding LogViewerDemoPage.
 // Split out of main.dart.
 
 class LogBuffer {
@@ -402,7 +402,7 @@ class LogEntry {
 // shared/event_buffer.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — in-memory ring buffer of AdEvent stream entries, feeding
+// In-memory ring buffer of AdEvent stream entries, feeding
 // EventsDemoPage. Split out of main.dart. EventRow lives here (not in
 // demos/events_demo_page.dart) since EventBuffer constructs it directly.
 
@@ -440,7 +440,7 @@ class EventRow {
 // shared/layout_helpers.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — edge-to-edge layout helper shared by every demo page. Split out of
+// Edge-to-edge layout helper shared by every demo page.
 // main.dart (used to be private to that one file; now needs to be public
 // since it's called from many files).
 
@@ -457,7 +457,7 @@ EdgeInsets bottomSafe(BuildContext context, EdgeInsets base) {
 // shared/demo_tile.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — HomePage's list-tile widget. Split out of main.dart.
+// HomePage's list-tile widget.
 
 class DemoTile extends StatelessWidget {
   const DemoTile({
@@ -497,7 +497,7 @@ class DemoTile extends StatelessWidget {
 // shared/home_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — top-level list of all demos. Split out of main.dart.
+// Top-level list of all demos.
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -779,7 +779,7 @@ class HomePage extends StatelessWidget {
 // bootstrap/splash_screen.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — SDK init splash screen (ATT/UMP-aware). Split out of main.dart.
+// SDK init splash screen (ATT/UMP-aware).
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -821,7 +821,7 @@ class _SplashScreenState extends State<SplashScreen> {
   // only suppresses this call site, not any native prompt triggered from
   // elsewhere.
   static const _skipUmp = bool.fromEnvironment('SKIP_UMP');
-  // T103 — plain bool, not ValueNotifier: nothing ever listens to this, it's
+  // Plain bool, not ValueNotifier: nothing ever listens to this, it's
   // used purely as a guard flag. A ValueNotifier read/written after its own
   // dispose() throws ("A ValueNotifier was used after being disposed"); a
   // native ad-load callback arriving late (after the splash widget itself
@@ -878,8 +878,8 @@ class _SplashScreenState extends State<SplashScreen> {
               'status=${ump.status} formShown=${ump.formShown} '
               'error=${ump.error}');
           // The IAB strings a CMP leaves behind. Worth printing in the sample:
-          // these are what a third-party SDK asks the host for, and until the
-          // round-5 audit the getters silently returned null on every device.
+          // these are what a third-party SDK asks the host for. Until
+          // recently, the getters silently returned null on every device.
           debugPrint('IAB: tcf=${await AdManager().tcfConsentString} '
               'usPrivacyOptedOut=${await AdManager().usPrivacyOptedOut} '
               'gpp=${await AdManager().gppConsentString}');
@@ -916,7 +916,7 @@ class _SplashScreenState extends State<SplashScreen> {
         return;
       }
       AdLoadingDialog.showAdBuffer(context, onComplete: () {
-        // Round-32 audit fix (MAJOR) — `_hardCap` is only cancelled a few
+        // `_hardCap` is only cancelled a few
         // lines below (AFTER this buffer wait), so it can still fire and
         // call `_goHome()` (`_navigated = true`, pushReplacement to
         // HomePage) WHILE this buffer is running. `mounted` alone doesn't
@@ -955,7 +955,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   void dispose() {
-    // T103 — set BEFORE anything else: a native ad-load callback already
+    // Set BEFORE anything else: a native ad-load callback already
     // handed to the platform SDK before this dispose() can still arrive
     // after it. That callback calls _goHome(), which must see _navigated
     // already true and bail out immediately instead of touching
@@ -994,7 +994,7 @@ class _SplashScreenState extends State<SplashScreen> {
 // demos/adaptive_surface_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T124 — AdaptiveAdSurface demo. Drag the slider to change the surface's
+// AdaptiveAdSurface demo. Drag the slider to change the surface's
 // own width and watch it flip between banner and MREC at the 600pt
 // breakpoint (after the resize debounce settles).
 
@@ -1046,7 +1046,7 @@ class _AdaptiveSurfaceDemoPageState extends State<AdaptiveSurfaceDemoPage> {
 // demos/app_open_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — app open demo page. Split out of main.dart.
+// App open demo page.
 
 class AppOpenDemoPage extends StatelessWidget {
   const AppOpenDemoPage({super.key});
@@ -1077,7 +1077,7 @@ class AppOpenDemoPage extends StatelessWidget {
             FilledButton(
               onPressed: () {
                 AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-                  // Round-31 audit fix (MAJOR) — loadAppOpenAd() is async
+                  // loadAppOpenAd() is async
                   // (a real network load); every other async-then-context
                   // use in this file guards with `context.mounted` — this
                   // one didn't, so backing out before the load finishes
@@ -1104,7 +1104,7 @@ class AppOpenDemoPage extends StatelessWidget {
 // demos/banner_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — banner demo page. Split out of main.dart.
+// Banner demo page.
 
 class BannerDemoPage extends AdScreen {
   const BannerDemoPage({super.key});
@@ -1114,7 +1114,7 @@ class BannerDemoPage extends AdScreen {
 }
 
 class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
-  // T153 — which IndexedStack tab is selected below. Built through
+  // Which IndexedStack tab is selected below. Built through
   // buildBanner(active: ...) — the documented AdScreenState helper — not by
   // constructing BannerAdWidget directly, since that helper forwarding
   // `active` at all is exactly what this task fixed.
@@ -1234,7 +1234,7 @@ class _BannerDemoPageState extends AdScreenState<BannerDemoPage> {
   }
 }
 
-/// T157 — adaptive AdMob banner width now tracks its own container instead
+/// Adaptive AdMob banner width now tracks its own container instead
 /// of the full screen. Deliberately its own isolated screen (not bundled
 /// into [BannerDemoPage], which already has 3 other banner instances that
 /// would all react to this dialog push too, muddying the comparison): one
@@ -1328,7 +1328,7 @@ class _BannerSecondScreenState extends AdScreenState<_BannerSecondScreen> {
 // demos/compliance_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — compliance demo page. Split out of main.dart.
+// Compliance demo page.
 
 class ComplianceDemoPage extends StatefulWidget {
   const ComplianceDemoPage({super.key});
@@ -1341,7 +1341,7 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
   String? _reportJson;
   String _summary = '';
 
-  // T155 — bypass audit trail entries, shown across app restarts to prove
+  // Bypass audit trail entries, shown across app restarts to prove
   // it survives a real process kill (not just backgrounding), unlike
   // before this fix (RAM-only ring buffer, wiped on every cold start).
   List<BypassAuditEntry> _bypassEntries = const [];
@@ -1364,7 +1364,7 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
     setState(() => _bypassEntries = AdManager().bypassAuditTrail.entries);
   }
 
-  // T144 — the 3 signed exports AdManager already had, bundled into one
+  // The 3 signed exports AdManager already had, bundled into one
   // artifact for a dispute/appeal, instead of a host calling 3 methods and
   // gluing the JSON together itself.
   Future<void> _generateDisputeKit() async {
@@ -1526,7 +1526,7 @@ class _ComplianceDemoPageState extends State<ComplianceDemoPage> {
 // demos/consent_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — consent demo page. Split out of main.dart.
+// Consent demo page.
 
 class ConsentDemoPage extends StatefulWidget {
   const ConsentDemoPage({super.key});
@@ -1545,7 +1545,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
   /// reflects the just-applied AdManager().consent state.
   final ValueNotifier<int> _appliedRev = ValueNotifier<int>(0);
 
-  // T146 demo state — see [_simulateBrokenPrivacyStore] below.
+  // Demo state — see [_simulateBrokenPrivacyStore] below.
   String? _t146Result;
   bool _t146Busy = false;
 
@@ -1585,7 +1585,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
     _doNotSell.value = AdManager().consent.doNotSell;
   }
 
-  /// T146 — proves `IabStorage.usPrivacyOptedOut()` fails CLOSED (returns
+  /// Proves `IabStorage.usPrivacyOptedOut()` fails CLOSED (returns
   /// `true`) when the platform preference store cannot be read, instead of
   /// silently returning `null` (which every real caller treats as "no
   /// signal", i.e. NOT an opt-out).
@@ -1652,7 +1652,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
           _row('Do-not-sell (CCPA)', _doNotSell,
               'California users opt-out of personal-data sale.'),
           const SizedBox(height: 24),
-          // T120 — pure preview of what applying the toggles above would send
+          // Pure preview of what applying the toggles above would send
           // to each provider, with zero platform-channel calls (no
           // AdManager().setConsent() yet). Useful for a QA compliance check
           // to walk every GDPR/COPPA/CCPA combination without a device.
@@ -1709,7 +1709,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
             ),
           ),
           const SizedBox(height: 12),
-          // Effective per-request personalization (T02): AdMob attaches npa=1 to
+          // Effective per-request personalization: AdMob attaches npa=1 to
           // every AdRequest when the applied consent has hasUserConsent=false.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1787,7 +1787,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
             ),
           ),
           const SizedBox(height: 12),
-          // Consent country analytics (T27) — SDK never infers this itself
+          // Consent country analytics — SDK never infers this itself
           // (UMP only exposes EEA/non-EEA); host app must supply it.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1901,7 +1901,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
             ),
           ),
           const Divider(height: 32),
-          // ─── T146: privacy-store fail-closed proof ────────────────────
+          // ─── Privacy-store fail-closed proof ────────────────────
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
@@ -1965,7 +1965,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
 // demos/diagnostics_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — diagnostics demo page. Split out of main.dart.
+// Diagnostics demo page.
 
 class DiagnosticsDemoPage extends StatefulWidget {
   const DiagnosticsDemoPage({super.key});
@@ -1986,7 +1986,7 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
     setState(() => _diagnosticsJson = _encoder.convert(diag.toJson()));
   }
 
-  // T151 — proves the REAL AdManager().diagnostics() call (not just its
+  // Proves the REAL AdManager().diagnostics() call (not just its
   // lastWaterfallBySlotFrom() helper in isolation) survives a corrupted/
   // outdated compliance-log entry, by injecting one into the actual event
   // log this app uses and then calling diagnostics() for real — the exact
@@ -2138,7 +2138,7 @@ class _DiagnosticsDemoPageState extends State<DiagnosticsDemoPage> {
 // demos/events_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — AdEvent stream live viewer. Split out of main.dart. EventRow
+// AdEvent stream live viewer. EventRow
 // itself lives in shared/event_buffer.dart.
 
 class EventsDemoPage extends StatelessWidget {
@@ -2292,7 +2292,7 @@ class _EventTile extends StatelessWidget {
 // demos/interstitial_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — interstitial demo page. Split out of main.dart.
+// Interstitial demo page.
 
 class InterstitialDemoPage extends AdScreen {
   const InterstitialDemoPage({super.key});
@@ -2367,7 +2367,7 @@ class _InterstitialDemoPageState extends AdScreenState<InterstitialDemoPage> {
 // demos/log_viewer_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — log viewer demo page. Split out of main.dart.
+// Log viewer demo page.
 
 class LogViewerDemoPage extends StatelessWidget {
   const LogViewerDemoPage({super.key});
@@ -2453,7 +2453,7 @@ class LogViewerDemoPage extends StatelessWidget {
 // demos/mrec_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — mrec demo page. Split out of main.dart.
+// Mrec demo page.
 
 class MrecDemoPage extends AdScreen {
   const MrecDemoPage({super.key});
@@ -2537,7 +2537,7 @@ class _MrecSecondScreenState extends AdScreenState<_MrecSecondScreen> {
 // demos/native_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — native demo page. Split out of main.dart.
+// Native demo page.
 
 class NativeDemoPage extends AdScreen {
   const NativeDemoPage({super.key});
@@ -2547,7 +2547,7 @@ class NativeDemoPage extends AdScreen {
 }
 
 class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
-  // T152 — a native ad unit that genuinely never calls back can't be
+  // A native ad unit that genuinely never calls back can't be
   // reproduced on demand through the widget/UI layer (a deliberately-bad
   // ad unit ID still gets a fast, real no-fill error, not silence), so
   // this drives the same adapter+key any real NativeAdWidget uses, but
@@ -2556,7 +2556,7 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
   static const _demoKey = 'T152_watchdog_demo';
   String _watchdogStatus = 'Tap "Simulate watchdog timeout" to start.';
 
-  // T154 — which IndexedStack tab is currently selected. Tab 1 has no ad;
+  // Which IndexedStack tab is currently selected. Tab 1 has no ad;
   // tab 2 hosts a NativeAdWidget wired with active: selectedIndex == 1. Both
   // tabs stay mounted the whole time (that's the point of IndexedStack) —
   // before this fix, tab 2's ad requested (and counted an impression for)
@@ -2586,7 +2586,7 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
   void _simulateResume() {
     final adapter = AdManager().adapter;
     if (adapter == null) return;
-    // T152 (codex re-review) — without this, onAppResumed() calls
+    // Without this, onAppResumed() calls
     // preloadNative() while the slot is still inside markFailed()'s own
     // failure backoff, which refuses the request — hasError clears
     // (display-only) but NO new request actually goes out, so the
@@ -2743,7 +2743,7 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
 // demos/revenue_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — revenue demo page. Split out of main.dart.
+// Revenue demo page.
 
 class RevenueDemoPage extends StatefulWidget {
   const RevenueDemoPage({super.key});
@@ -2753,7 +2753,7 @@ class RevenueDemoPage extends StatefulWidget {
 }
 
 class _RevenueDemoPageState extends State<RevenueDemoPage> {
-  // T150 — RevenueIntegrityLedger (T145) was never demoed in the example
+  // RevenueIntegrityLedger was never demoed in the example
   // app before this. Own instance here rather than one wired into
   // AdManager globally, so tapping these buttons doesn't affect real ad
   // events elsewhere in the app.
@@ -2780,7 +2780,7 @@ class _RevenueDemoPageState extends State<RevenueDemoPage> {
   }
 
   Future<void> _simulateTwoShows() async {
-    // T150 (codex re-review) — without this, tapping this button more
+    // Without this, tapping this button more
     // than once kept appending to the SAME ledger's pending list (2, then
     // 4, then 6...), silently invalidating the "(expect 2)" this demo
     // advertises. Dispose + recreate so every tap starts a clean sequence.
@@ -2825,7 +2825,7 @@ class _RevenueDemoPageState extends State<RevenueDemoPage> {
         'still be waiting on its own revenue event, T150).');
   }
 
-  /// T186 — a second ad TYPE's revenue, so the RevenuePanel above visibly
+  /// A second ad TYPE's revenue, so the RevenuePanel above visibly
   /// shows a separate breakdown row for `rewarded` alongside whatever
   /// `interstitial`/`banner` totals the other two buttons already
   /// produced — not tied to the ledger demo below (that's `_status`'s
@@ -2921,7 +2921,7 @@ class _RevenueDemoPageState extends State<RevenueDemoPage> {
 // demos/rewarded_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — rewarded demo page. Split out of main.dart.
+// Rewarded demo page.
 
 class RewardedDemoPage extends AdScreen {
   const RewardedDemoPage({super.key});
@@ -3029,7 +3029,7 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
 // demos/rewarded_interstitial_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// Round-27 audit — showRewardedInterstitialAd() had zero demo coverage
+// showRewardedInterstitialAd() had zero demo coverage
 // anywhere in the example app despite being a fully-supported ad surface
 // (README's "Rewarded interstitial" section). Unlike rewarded, this format
 // shows a built-in disclosure/intro screen before the ad by default
@@ -3116,7 +3116,7 @@ class _RewardedInterstitialDemoPageState
 // demos/safety_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — safety demo page. Split out of main.dart.
+// Safety demo page.
 
 class SafetyDemoPage extends StatefulWidget {
   const SafetyDemoPage({super.key});
@@ -3360,7 +3360,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
 // demos/state_panel_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — state panel demo page. Split out of main.dart.
+// State panel demo page.
 
 class StatePanelDemoPage extends StatelessWidget {
   const StatePanelDemoPage({super.key});
@@ -3380,7 +3380,7 @@ class StatePanelDemoPage extends StatelessWidget {
       body: ListView(
         padding: bottomSafe(context, const EdgeInsets.all(16)),
         children: [
-          // T109 — one ValueListenable instead of gluing 5 separate ones.
+          // One ValueListenable instead of gluing 5 separate ones.
           const Text('AdSdkStateSnapshot',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           const SizedBox(height: 8),
@@ -3411,7 +3411,7 @@ class StatePanelDemoPage extends StatelessWidget {
             _slotCard('App Open', adapter.appOpenSlot),
             _slotCard('Interstitial', adapter.interstitialSlot),
             _slotCard('Rewarded', adapter.rewardedSlot),
-            // T65 (phase 2): banner is now keyed per BannerAdWidget instance
+            // Banner is now keyed per BannerAdWidget instance
             // — no single slot to show here, same as mrec/native already.
           ] else
             const Padding(
@@ -3526,7 +3526,7 @@ class StatePanelDemoPage extends StatelessWidget {
 // demos/test_device_hash_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T168 — custom-overlay-blocks-App-Open demo. Deliberately NOT a
+// Custom-overlay-blocks-App-Open demo. Deliberately NOT a
 // PopupRoute/showDialog (that path is already covered by
 // AdScreenRouteLogger.isDialogOnTop) — a raw Overlay.insert() is exactly
 // the case that guard cannot see on its own, and markCustomOverlayOnScreen
@@ -3597,7 +3597,7 @@ class _CustomOverlayDemoPageState extends State<CustomOverlayDemoPage> {
     // otherwise every fullscreen ad stays blocked for the rest of the
     // session. Demo hygiene, not part of the SDK contract itself.
     //
-    // codex review (T168, round 1) — the entry itself also has to come
+    // The entry itself also has to come
     // down here, not just the flag: `Overlay.of(context).insert(entry)`
     // put it on the enclosing Navigator's Overlay, which outlives this
     // page's route, so popping this page without closing the popup first
@@ -3648,7 +3648,7 @@ class _CustomOverlayDemoPageState extends State<CustomOverlayDemoPage> {
   }
 }
 
-// T166 — CCPA opt-out toggle demo. Deliberately a StatelessWidget with the
+// CCPA opt-out toggle demo. Deliberately a StatelessWidget with the
 // toggle mounted directly in build(): pushed as the FIRST route (before
 // splash even has a chance to replace it, in the device smoke test) is
 // exactly the "mounted before AdManager().initialize() finished" scenario
@@ -3681,7 +3681,7 @@ class CcpaToggleDemoPage extends StatelessWidget {
   }
 }
 
-// T219 — i18n preset demo: switching the toggle re-resolves
+// I18n preset demo: switching the toggle re-resolves
 // CcpaOptOutStrings/VipDialogStrings via their resolve(locale) helper and
 // re-renders — real UI, real preset switching, for a device smoke test to
 // confirm each language's actual text shows up.
@@ -3749,7 +3749,7 @@ class _I18nPresetDemoPageState extends State<I18nPresetDemoPage> {
   }
 }
 
-// T117 — test device hash demo page. Split out of main.dart.
+// Test device hash demo page.
 
 class TestDeviceHashDemoPage extends StatelessWidget {
   const TestDeviceHashDemoPage({super.key});
@@ -3803,7 +3803,7 @@ class TestDeviceHashDemoPage extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// T181 — per-placement min-interval throttle override demo.
+// Per-placement min-interval throttle override demo.
 // ─────────────────────────────────────────────────────────────────────────
 
 class PlacementThrottleDemoPage extends StatefulWidget {
@@ -3920,7 +3920,7 @@ class _PlacementThrottleDemoPageState
 // demos/vip_demo_page.dart
 // ─────────────────────────────────────────────────────────────────────────
 
-// T117 — vip demo page. Split out of main.dart.
+// Vip demo page.
 
 class VipDemoPage extends AdScreen {
   const VipDemoPage({super.key});
@@ -3956,7 +3956,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
     if (mounted) setState(() {});
   }
 
-  /// T18 — redeem an offline SIGNED VIP key (Ed25519, verified against the
+  /// Redeem an offline SIGNED VIP key (Ed25519, verified against the
   /// embedded public key; no network; per-device one-time-use).
   Future<void> _redeemSigned(String code) async {
     final vip = AdManager().vip;
@@ -3977,7 +3977,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
   /// (`bypassVipGuard: true` plays a real ad; the SDK loads it on demand). The
   /// reward is granted into a fixed key with `stack: true` so repeats add up.
   ///
-  /// T156 — goes through `showRewardedAd()` (the documented AdScreenState
+  /// Goes through `showRewardedAd()` (the documented AdScreenState
   /// helper), not `AdManager().showRewardedAd()` directly: that helper used
   /// to have no way to reach `bypassVipGuard` at all, so this exact
   /// voluntary-watch-to-extend flow was unreachable through the
@@ -4116,7 +4116,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
             ),
           const SizedBox(height: 16),
 
-          // T148 — fast-refill proof: ending VIP reloads App Open,
+          // Fast-refill proof: ending VIP reloads App Open,
           // Interstitial, Rewarded AND Rewarded Interstitial right away
           // instead of waiting out the 5-minute retry timer. Watch the
           // floating debug overlay (bottom of every screen, kDebugMode only)
@@ -4175,7 +4175,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
           ),
           const SizedBox(height: 24),
 
-          // T18 — signed offline keys (Ed25519). Redeeming twice shows the
+          // Signed offline keys (Ed25519). Redeeming twice shows the
           // per-device one-time-use guard ("already used").
           const Text('Signed keys (T18 — offline, forge-proof)',
               style: TextStyle(fontWeight: FontWeight.bold)),
@@ -4240,7 +4240,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
           ),
           const SizedBox(height: 24),
 
-          // Round-39 audit (MINOR): this demo previously never showed how to
+          // This demo previously never showed how to
           // wire VipRevocationProvider/refreshRevocationList — a partner
           // copying this example verbatim could ship VIP-code revocation
           // completely inert without realising it, since the SDK has no way
@@ -4284,7 +4284,7 @@ class _DemoCrlProvider implements VipRevocationProvider {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// RemoteAdSafetyProvider demo (T88) — README "Remote-controlled AdSafetyParams"
+// RemoteAdSafetyProvider demo — README "Remote-controlled AdSafetyParams"
 // ─────────────────────────────────────────────────────────────────────────
 
 /// Demo-only stand-in for a real backend (Firebase Remote Config, a
@@ -4306,7 +4306,7 @@ class DemoRemoteAdSafetyProvider implements RemoteAdSafetyProvider {
 class RemoteSafetyDemoPage extends StatefulWidget {
   const RemoteSafetyDemoPage({super.key});
 
-  // Round-40 audit round 2 (independent re-review, R2-02) — the double-tap
+  // The double-tap
   // regression tests could only assert on converged end-state ("wired" /
   // "one demo page"), which two racing operations could equally reach.
   // These count actual invocations past the `_busy` guard so a test can
@@ -4320,10 +4320,10 @@ class RemoteSafetyDemoPage extends StatefulWidget {
   @visibleForTesting
   static int debugRestoreCallCount = 0;
 
-  // Round-40 audit round 4 (follow-up to R3-01) — a real
+  // A real
   // `AdManager().initialize()` failure is network-dependent and not
   // reliably forceable from a test, so `onComplete(false, ...)`'s branch
-  // (see R3-01) had no deterministic regression coverage. When set, this
+  // had no deterministic regression coverage. When set, this
   // skips the real destroy()/initialize() call entirely and uses the given
   // value as `success` directly — the real call itself is already proven
   // on-device by the other round40 integration tests; this isolates just
@@ -4351,12 +4351,12 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
   double _maxPerDay = 20;
   bool _dryRun = false;
   bool _wired = false;
-  // T147 — remote per-format kill switch (T137). Lets this page prove
+  // Remote per-format kill switch. Lets this page prove
   // canShowRewardedAd()/canShowRewardedInterstitialAd() each gate on their
   // OWN format only, not the wrong sibling's.
   bool _rewardedDisabled = false;
   bool _rewardedInterstitialDisabled = false;
-  // Round-40 audit (independent review, IMPORTANT) — without this, a fast
+  // Without this, a fast
   // double-tap on "Apply provider" (or "Push update") started a second
   // destroy()/initialize() (or refresh) before the first one's await
   // resolved, since only `_wired` gated the button and it only flips
@@ -4412,7 +4412,7 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
       _status = 'Destroying + re-initializing with provider...';
     });
     RemoteSafetyDemoPage.debugApplyCallCount++;
-    // Round-40 audit round 3 (independent re-review, R3-01) — `onComplete`
+    // `onComplete`
     // was ignored, so a legitimate `onComplete(false, ...)` (SDK init
     // failing without throwing) still fell through to the success branch
     // below, claiming "Provider wired" while the SDK was actually left
@@ -4483,7 +4483,7 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
     }
   }
 
-  // Round-40 audit (independent review, MINOR) — "Apply provider" mutates
+  // "Apply provider" mutates
   // the whole app's live AdSafetyConfig, not just this page; it used to
   // stay mutated with no way back short of restarting the app, which could
   // make every other demo screen visited afterward confusing (dry-run ads,
@@ -4496,7 +4496,7 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
       _status = 'Restoring demo defaults...';
     });
     RemoteSafetyDemoPage.debugRestoreCallCount++;
-    // R3-01 (see _applyProvider) — same capture-and-branch fix.
+    // Same capture-and-branch fix as in _applyProvider.
     var success = false;
     try {
       final forced = RemoteSafetyDemoPage.debugForceRestoreResult;
@@ -4640,13 +4640,13 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// AdReadinessSplashController demo (T94) — README's splash-wrapper shortcut
+// AdReadinessSplashController demo — README's splash-wrapper shortcut
 // ─────────────────────────────────────────────────────────────────────────
 
 class ReadinessControllerDemoPage extends StatefulWidget {
   const ReadinessControllerDemoPage({super.key});
 
-  // Round-40 audit round 2 (independent re-review, R2-02) — test-only
+  // Test-only
   // counter so a double-tap test can assert exactly one real replay ran
   // past the `_busy` guard, not just that the end state looks converged.
   @visibleForTesting
@@ -4659,7 +4659,7 @@ class ReadinessControllerDemoPage extends StatefulWidget {
 
 class _ReadinessControllerDemoPageState
     extends State<ReadinessControllerDemoPage> {
-  // Round-40 audit (independent review, IMPORTANT) — without this, a fast
+  // Without this, a fast
   // double-tap could push two `_ReadinessControllerSplash` routes on top of
   // a single `destroy()`, racing two controllers against one SDK instance
   // (the second short-circuits via `countInitSplashScreen > 1`, but which
@@ -4769,7 +4769,7 @@ class _ReadinessControllerSplashState
       );
 }
 
-/// T200 — scoped SDK data-erasure demo. Shows the "safe" default scope
+/// Scoped SDK data-erasure demo. Shows the "safe" default scope
 /// (never touches VIP entitlements) alongside the dangerous scope, which
 /// requires an explicit host-app confirmation dialog before it's ever
 /// invoked with `confirmedEntitlementErasure: true` — this page IS that
@@ -4864,7 +4864,7 @@ class _ClearSdkDataDemoPageState extends State<ClearSdkDataDemoPage> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// T201 — InlineAdController demo
+// InlineAdController demo
 // ─────────────────────────────────────────────────────────────────────────
 
 class InlineAdControllerDemoPage extends StatefulWidget {

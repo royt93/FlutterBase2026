@@ -4,6 +4,30 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.6] - 2026-09-20
+
+Docs-only release, no code changes. Reverts part of 3.0.5.
+
+- **Reverted:** 3.0.5 added `example/example.md` so pub.dev's Example tab
+  would show a short walkthrough instead of `example/lib/main.dart`'s raw
+  source. On review this traded away something deliberate: with
+  `example.md` present, a visitor never sees a single line of real,
+  working code on the package page — only prose describing it — which is
+  exactly the outcome `main.dart`'s own top-of-file comment says was
+  already considered and rejected (splitting the example up "makes the
+  package look unfinished on pub.dev"). Removed `example/example.md`; the
+  Example tab shows `main.dart` again.
+- **Fixed:** `example/lib/main.dart` had ~124 lines of internal
+  task-tracking shorthand in comments (`T117`, `T94`, `Round-27 audit
+  fix`, `R2-02`, ...) meaningless to anyone outside this repo, right in
+  the one file pub.dev shows to every visitor evaluating the package.
+  Stripped the shorthand from comments, kept every explanation, changed
+  no code — same 4949 lines, same 48 demo pages, `flutter analyze` clean.
+  (A handful of matching UI-visible string literals, e.g. a demo page
+  title like `'Banner adaptive sizing (T157)'`, were left alone — those
+  are code values, not comments, and touching them risks breaking a
+  widget key or golden test elsewhere.)
+
 ## [3.0.5] - 2026-09-20
 
 Docs-only release, no code changes.
