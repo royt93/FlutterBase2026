@@ -212,6 +212,23 @@ class ConsentManager {
   AdConsent get adConsent => _current.toAdConsent();
 
   Future<void> _load() async {
+    // Round 67 audit fix (MAJOR) — a `bootstrap()` reinit (this singleton
+    // survives an initialize()-without-destroy() cycle, per its own doc
+    // comment above) used to read disk immediately, with no regard for a
+    // `set()`/`reset()` call already in flight on this very instance. A
+    // real platform-channel write has a real async gap (see `_persistLock`'s
+    // own doc comment) — reading disk inside that gap returns the PRE-write
+    // value, and this method then overwrote `_current`/`_settingsListenable`
+    // with it. The in-flight call's own epoch guard doesn't catch this: it
+    // only detects a newer `set()`/`reset()` call, not a `_load()` racing
+    // in from outside that machinery entirely. Net effect verified
+    // empirically: an app's own `set(hasUserConsent: true)` landed on disk
+    // correctly, but the in-memory `current` and the value actually applied
+    // to AppLovin/AdMob both silently reverted to the stale `false` for the
+    // rest of the running session. Waiting for any in-flight persist to land
+    // first — reusing `_persistLock`, not a new mechanism — means disk is
+    // always read post-write, so this can't happen.
+    await _persistLock?.future;
     _current = ConsentSettings.decode(_prefs.getConsentSettingsRaw());
     final rawFallback = _prefs.getConsentFallbackRaw();
     var fallback = rawFallback == null

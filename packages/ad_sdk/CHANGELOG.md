@@ -6,6 +6,20 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 67 audit, MAJOR):** `ConsentManager._load()` read disk
+  immediately on every `bootstrap()` call, including a reinit-without-
+  `destroy()` on the same singleton (this file's own documented design).
+  It did not wait for an in-flight `set()`/`reset()` write on that same
+  instance, and a real platform-channel persist has a real async gap —
+  reading disk inside that gap returned the pre-write value and silently
+  overwrote `_current`/`_settingsListenable` with it. A host's own
+  `set(hasUserConsent: true)` landed on disk correctly, but the in-memory
+  `current` and the value actually applied to AppLovin/AdMob both
+  reverted to the stale prior value for the rest of the running session
+  — a compliance-relevant regression, not just a display glitch. Fixed
+  by having `_load()` await the existing `_persistLock` (round 39) before
+  reading disk, so a read always happens after any in-flight write lands.
+  New regression test in `test/consent_manager_reload_race_test.dart`.
 - **Fixed (round 65 audit, MAJOR):** `NativeAdWidget`'s
   `onAdLoadedCallback`/`onAdLoadFailedCallback` never got round 46's
   (R46-03) `capturedAdapter` identity guard — only
