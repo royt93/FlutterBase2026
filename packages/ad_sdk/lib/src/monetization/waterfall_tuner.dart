@@ -242,15 +242,22 @@ class WaterfallTuner {
   /// better than one that rarely fills at all.
   double _score(_Key key) => _fillRate(key) * _avgEcpmMicros(key);
 
-  /// Minimum trailing load attempts (summed across BOTH providers for this
-  /// [type]/[placement]) before [recommendation] will suggest anything —
-  /// below this there isn't enough history to trust the comparison.
+  /// Minimum sample count [recommendation] requires before suggesting
+  /// anything — applied twice: to the trailing load attempts (summed
+  /// across BOTH providers for this [type]/[placement]), AND, since round
+  /// 61's audit fix, to the *recommended* provider's trailing revenue
+  /// samples specifically (a load succeeding doesn't mean that impression
+  /// ever showed and paid out, so revenue history can be far thinner than
+  /// load history — and it's the recommended side's score, not the
+  /// current side's, that a switch decision actually trusts). Below
+  /// either bar, there isn't enough history to trust the comparison.
   static const int minSampleSize = 6;
 
   /// A recommendation to prefer a different provider for [type]/[placement]
   /// next session, or `null` if there isn't enough trailing data yet, the
-  /// current provider is already the better (or tied) one, or fewer than
-  /// [minSampleSize] attempts have been observed.
+  /// current provider is already the better (or tied) one, or the
+  /// recommended provider has fewer than [minSampleSize] load attempts or
+  /// revenue samples.
   WaterfallRecommendation? recommendation({
     required AdSlotType type,
     required AdPlacement placement,
@@ -263,6 +270,20 @@ class WaterfallTuner {
     final currentAttempts = _loadResults[currentKey]?.length ?? 0;
     final otherAttempts = _loadResults[otherKey]?.length ?? 0;
     if (currentAttempts + otherAttempts < minSampleSize) return null;
+
+    // Round 61 audit fix: `_score` is `fillRate * avgEcpmMicros`, and
+    // `avgEcpmMicros` is computed from `_revenueMicros` — a separate,
+    // independently-sized list from `_loadResults` (a load succeeding
+    // doesn't mean that impression ever showed and paid out). The gate
+    // above only checks load-attempt count, so 6 loads could coexist with
+    // a single revenue sample driving `otherScore` — the value that
+    // decides whether a switch gets recommended. Gated on `otherKey`
+    // only, not `currentKey`: a current provider that's genuinely
+    // failing (e.g. 0% fill rate) legitimately has zero revenue samples
+    // too, and that's a confident, well-sampled-by-fillRate-alone signal
+    // that its score is low — not a case this gate should block.
+    final otherRevenueSamples = _revenueMicros[otherKey]?.length ?? 0;
+    if (otherRevenueSamples < minSampleSize) return null;
 
     final currentScore = _score(currentKey);
     final otherScore = _score(otherKey);

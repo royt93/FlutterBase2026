@@ -73,17 +73,19 @@ void main() {
   test(
       'recommends switching when the OTHER provider clearly out-fills and '
       'out-earns the current one', () async {
-    // AdMob (current): fills half the time, low eCPM.
+    // AdMob (current): fills half the time, low eCPM. Round 61 audit fix
+    // requires minSampleSize (6) revenue samples per provider too, not
+    // just load attempts, so emit one revenue event per load here.
     for (var i = 0; i < 6; i++) {
       emitLoad('[AdMob]', success: i.isEven);
+      emitRevenue('[AdMob]', 1000); // $0.001
     }
-    emitRevenue('[AdMob]', 1000); // $0.001
 
     // AppLovin: fills every time, much higher eCPM.
     for (var i = 0; i < 6; i++) {
       emitLoad('[AppLovin]', success: true);
+      emitRevenue('[AppLovin]', 50000); // $0.05
     }
-    emitRevenue('[AppLovin]', 50000); // $0.05
     await Future<void>.delayed(Duration.zero);
 
     final rec = tuner.recommendation(
@@ -154,14 +156,22 @@ void main() {
     // WaterfallTuner.minSampleSize is 6, summed ACROSS both providers — 2
     // attempts each (sum 4) stays below it on its own; only combined with
     // session B's own 2+2 (sum 8 total) does it cross the threshold.
+    // Round 61 audit fix also requires minSampleSize (6) revenue samples
+    // per provider — 3 here, 3 more in session B below, so the "only
+    // crosses the threshold once combined" narrative holds for revenue
+    // samples too, not just load attempts.
     for (var i = 0; i < 2; i++) {
       emitLoad('[AdMob]', success: i.isEven);
     }
-    emitRevenue('[AdMob]', 1000);
+    for (var i = 0; i < 3; i++) {
+      emitRevenue('[AdMob]', 1000);
+    }
     for (var i = 0; i < 2; i++) {
       emitLoad('[AppLovin]', success: true);
     }
-    emitRevenue('[AppLovin]', 50000);
+    for (var i = 0; i < 3; i++) {
+      emitRevenue('[AppLovin]', 50000);
+    }
     await pumpEventQueue(times: 20);
 
     expect(
@@ -184,11 +194,15 @@ void main() {
     for (var i = 0; i < 2; i++) {
       emitLoad('[AdMob]', success: i.isEven);
     }
-    emitRevenue('[AdMob]', 1000);
+    for (var i = 0; i < 3; i++) {
+      emitRevenue('[AdMob]', 1000);
+    }
     for (var i = 0; i < 2; i++) {
       emitLoad('[AppLovin]', success: true);
     }
-    emitRevenue('[AppLovin]', 50000);
+    for (var i = 0; i < 3; i++) {
+      emitRevenue('[AppLovin]', 50000);
+    }
     await pumpEventQueue(times: 20);
 
     final rec = sessionB.recommendation(
@@ -227,21 +241,25 @@ void main() {
       'revenueMicros': <String, dynamic>{},
     }));
 
-    final small = WaterfallTuner(rollingWindowSize: 3);
+    // Round 61 audit fix: rollingWindowSize must be at least minSampleSize
+    // (6) — a smaller window (the original 3 here) can never accumulate
+    // enough revenue samples to clear the new per-provider revenue gate,
+    // since every event trims the list back down to the window size.
+    final small = WaterfallTuner(rollingWindowSize: WaterfallTuner.minSampleSize);
     await small.ready;
 
-    // 3 more failures for AdMob — if hydrate correctly trimmed to 3 (this
-    // instance's configured window) before these land, the true rate
+    // 6 more failures for AdMob — if hydrate correctly trimmed to this
+    // instance's configured window before these land, the true rate
     // should already reflect mostly failures; if it wrongly kept all 20
-    // successes, 3 failures barely move a 20+3-sample average.
-    for (var i = 0; i < 3; i++) {
+    // successes, 6 failures barely move a 20+6-sample average.
+    for (var i = 0; i < 6; i++) {
       emitLoad('[AdMob]', success: false);
+      emitRevenue('[AdMob]', 1000);
     }
-    emitRevenue('[AdMob]', 1000);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 6; i++) {
       emitLoad('[AppLovin]', success: true);
+      emitRevenue('[AppLovin]', 50000);
     }
-    emitRevenue('[AppLovin]', 50000);
     await pumpEventQueue(times: 20);
 
     final rec = small.recommendation(
@@ -251,7 +269,7 @@ void main() {
     );
 
     expect(rec, isNotNull,
-        reason: 'AdMob\'s fill rate should now be dominated by the 3 '
+        reason: 'AdMob\'s fill rate should now be dominated by the 6 '
             'recent failures, not diluted by 20 stale successes hydrate '
             'should have trimmed away');
     expect(rec!.recommendedProvider, '[AppLovin]');
@@ -300,12 +318,12 @@ void main() {
       await t.ready;
       for (var i = 0; i < 6; i++) {
         emitLoad('[AdMob]', success: i.isEven);
+        emitRevenue('[AdMob]', 1000);
       }
-      emitRevenue('[AdMob]', 1000);
       for (var i = 0; i < 6; i++) {
         emitLoad('[AppLovin]', success: true);
+        emitRevenue('[AppLovin]', 50000);
       }
-      emitRevenue('[AppLovin]', 50000);
       await Future<void>.delayed(Duration.zero);
 
       final rec = t.recommendation(
@@ -333,6 +351,89 @@ void main() {
       emitLoad('[AdMob]', success: true);
       await Future<void>.delayed(Duration.zero);
       await t.dispose();
+    });
+  });
+
+  group('round 61 audit fix — revenue sample size', () {
+    // minSampleSize gates on trailing LOAD attempts, but the score that
+    // actually decides a recommendation (_score = fillRate * avgEcpm)
+    // depends on _revenueMicros, a separate, independently-sized list — a
+    // load succeeding doesn't mean that impression ever showed and paid
+    // out. Six loads can coexist with just one revenue sample.
+    test('no recommendation when the recommended provider has enough load '
+        'attempts but only 1 revenue sample (an outlier, not a trend)',
+        () async {
+      // Current provider: 6 loads, 6 revenue samples averaging $0.10 —
+      // a reliable, well-sampled baseline.
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AdMob]', success: true);
+        emitRevenue('[AdMob]', 100000); // $0.10
+      }
+      // Other provider: 6 loads (clears the old load-only gate) but only
+      // ONE revenue sample, a $0.50 outlier.
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AppLovin]', success: true);
+      }
+      emitRevenue('[AppLovin]', 500000); // $0.50, single sample
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        tuner.recommendation(
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.home,
+          currentProvider: '[AdMob]',
+        ),
+        isNull,
+        reason: 'a single revenue sample is not enough history to trust a '
+            'switch recommendation, even with 6 load attempts',
+      );
+    });
+
+    test('a current provider with 0% fill rate (and so 0 revenue samples) '
+        'still gets a recommendation away from it — not blocked by the '
+        'revenue-sample gate, which only applies to the RECOMMENDED side',
+        () async {
+      // Current provider fails every load — it never shows an ad, so it
+      // never gets a revenue event either. That's a confident, well-
+      // sampled-by-fillRate-alone signal that its score is 0, not a case
+      // the new gate should hold back on.
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AdMob]', success: false);
+      }
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AppLovin]', success: true);
+        emitRevenue('[AppLovin]', 50000);
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final rec = tuner.recommendation(
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.home,
+        currentProvider: '[AdMob]',
+      );
+      expect(rec, isNotNull);
+      expect(rec!.recommendedProvider, '[AppLovin]');
+    });
+
+    test('recommendation still fires once both providers have '
+        'minSampleSize revenue samples too', () async {
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AdMob]', success: true);
+        emitRevenue('[AdMob]', 100000); // $0.10
+      }
+      for (var i = 0; i < 6; i++) {
+        emitLoad('[AppLovin]', success: true);
+        emitRevenue('[AppLovin]', 500000); // $0.50
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final rec = tuner.recommendation(
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.home,
+        currentProvider: '[AdMob]',
+      );
+      expect(rec, isNotNull);
+      expect(rec!.recommendedProvider, '[AppLovin]');
     });
   });
 }

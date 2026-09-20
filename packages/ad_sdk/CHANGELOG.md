@@ -6,6 +6,25 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 61 audit, MAJOR):** `WaterfallTuner.recommendation()`
+  gated on trailing *load* attempts (`minSampleSize`, 6) before trusting
+  a comparison, but the score that actually decides a recommendation
+  (`fillRate * avgEcpmMicros`) depends on `_revenueMicros`, a separate,
+  independently-sized list — a load succeeding doesn't mean that
+  impression ever showed and paid out. 6 load attempts could coexist with
+  a single revenue sample: a real reproduction (6 loads + 6 revenue
+  events averaging $0.10 for the current provider vs. 6 loads but only 1
+  revenue event at $0.50 for the other) produced a switch recommendation
+  driven entirely by one outlier. Fixed by additionally requiring the
+  *recommended* provider's revenue-sample count to clear the same bar
+  (deliberately not the current provider's — a current provider that's
+  genuinely failing, e.g. 0% fill rate, has 0 revenue samples too, and
+  that's a confident signal from a well-sampled fill rate, not a case
+  this gate should block). 3 new regression tests in
+  `test/waterfall_tuner_test.dart`; 4 pre-existing tests whose fixtures
+  emitted too few revenue events to exercise the code path they were
+  actually testing were updated to emit enough. 2197/2197 suite green,
+  `flutter analyze` clean.
 - **Fixed (round 60 audit, MAJOR):** `MonetizationDigitalTwin._groupByDay()`
   counted revenue from **every** `AdRevenueEvent` — including banner/mrec/
   native — into a day's `revenueMicros`, but only counted fullscreen
