@@ -103,7 +103,16 @@ class MonetizationDigitalTwin {
         case 'AdSkipEvent':
           if (e['reason'] == 'daily_cap') acc.blockedByDailyCap++;
         case 'AdRevenueEvent':
-          acc.revenueMicros += (e['valueMicros'] as num?)?.toInt() ?? 0;
+          // Round 60 audit fix: only fullscreen-format revenue counts here
+          // — `shown` above only ever counts fullscreen `AdShowEvent`s
+          // (banner/mrec/native never emit one, see `AdShowEvent`'s own
+          // doc comment), so mixing in banner/mrec/native revenue would
+          // dilute `avgRevenuePerShow` in `forecastDailyCap` below with
+          // impressions that were never eligible for the cap being
+          // forecast.
+          if (_fullscreenSlotTypes.contains(e['slotType'])) {
+            acc.revenueMicros += (e['valueMicros'] as num?)?.toInt() ?? 0;
+          }
       }
     }
     return byDay;
@@ -208,6 +217,17 @@ class _DayAccumulator {
   int blockedByDailyCap = 0;
   int revenueMicros = 0;
 }
+
+/// `AdSlotType.name` values that emit `AdShowEvent` — see that class's own
+/// doc comment ("banner/mrec/native never emit `AdShowEvent` at all").
+/// Round 60 audit fix: keeps `_groupByDay`'s revenue filter and `shown`
+/// count scoped to the same set of formats.
+const _fullscreenSlotTypes = {
+  'appOpen',
+  'interstitial',
+  'rewarded',
+  'rewardedInterstitial',
+};
 
 int _min(int a, int b) => a < b ? a : b;
 int _max(int a, int b) => a > b ? a : b;

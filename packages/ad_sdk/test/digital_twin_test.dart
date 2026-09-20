@@ -22,6 +22,16 @@ Map<String, dynamic> _revenue(int timestampMs, int valueMicros) => {
       'valueMicros': valueMicros,
     };
 
+Map<String, dynamic> _revenueForSlot(
+        int timestampMs, int valueMicros, String slotType) =>
+    {
+      'kind': 'ad_event',
+      'timestampMs': timestampMs,
+      'eventType': 'AdRevenueEvent',
+      'slotType': slotType,
+      'valueMicros': valueMicros,
+    };
+
 Map<String, dynamic> _dailyCapSkip(int timestampMs) => {
       'kind': 'ad_event',
       'timestampMs': timestampMs,
@@ -141,5 +151,43 @@ void main() {
       'event log exists, non-null once one does', () {
     AdManager().debugEventLog = null;
     expect(AdManager().buildMonetizationDigitalTwin(), isNull);
+  });
+
+  group('round 60 audit fix — non-fullscreen revenue excluded', () {
+    // This twin exists only to forecast the ONE fullscreen daily-cap axis
+    // (see the class doc comment) — `avgRevenuePerShow` divides revenue by
+    // `shown`, which only ever counts fullscreen `AdShowEvent`s (banner/
+    // mrec/native never emit one). Revenue from those formats must be
+    // excluded too, or the average is diluted by impressions that were
+    // never eligible for the cap being forecast.
+    test('banner/mrec/native AdRevenueEvent is not counted toward the day\'s '
+        'revenue used by forecastDailyCap', () {
+      final twin = MonetizationDigitalTwin([
+        _show(day1, revenueMicros: 1000000),
+        _revenueForSlot(day1, 2000000, 'interstitial'),
+        _revenueForSlot(day1, 50000000, 'banner'),
+        _revenueForSlot(day1, 50000000, 'mrec'),
+        _revenueForSlot(day1, 50000000, 'native'),
+      ]);
+
+      final forecast = twin.forecastDailyCap(1);
+      expect(forecast.meanDailyRevenueMicros, 2000000,
+          reason: 'only the interstitial revenue paired with the one '
+              'fullscreen impression should count — banner/mrec/native '
+              'revenue must not dilute avgRevenuePerShow');
+    });
+
+    test('appOpen/rewarded/rewardedInterstitial revenue IS counted (all '
+        'fullscreen formats, not just interstitial)', () {
+      final twin = MonetizationDigitalTwin([
+        _show(day1, revenueMicros: 1000000),
+        _revenueForSlot(day1, 1000000, 'appOpen'),
+        _revenueForSlot(day1, 1000000, 'rewarded'),
+        _revenueForSlot(day1, 1000000, 'rewardedInterstitial'),
+      ]);
+
+      final forecast = twin.forecastDailyCap(1);
+      expect(forecast.meanDailyRevenueMicros, 3000000);
+    });
   });
 }

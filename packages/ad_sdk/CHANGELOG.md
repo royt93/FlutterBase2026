@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 60 audit, MAJOR):** `MonetizationDigitalTwin._groupByDay()`
+  counted revenue from **every** `AdRevenueEvent` — including banner/mrec/
+  native — into a day's `revenueMicros`, but only counted fullscreen
+  `AdShowEvent`s into `shown` (banner/mrec/native never emit one).
+  `forecastDailyCap()` divides `revenueMicros / shown` to get
+  `avgRevenuePerShow`, so any app running both banner and fullscreen ads
+  (this SDK's normal dual-format case) got a severely inflated forecast —
+  e.g. $50/day banner + 5 real $2 interstitials produced an
+  avgRevenuePerShow of $12 instead of $2, a ~6x overstatement that could
+  lead a host to raise its fullscreen daily cap on a false revenue signal.
+  Fixed by scoping the revenue sum to the same fullscreen slot types
+  `AdShowEvent` covers (`appOpen`/`interstitial`/`rewarded`/
+  `rewardedInterstitial`). 2 new regression tests in
+  `test/digital_twin_test.dart` cover both the exclusion and that all 4
+  fullscreen formats (not just interstitial) still count.
 - **Fixed (round 59 audit, MAJOR):** `AdEventLog._eventExtra()` never
   persisted `AdRevenueEvent.requestId` (or `AdShowEvent.requestId`) into
   the compliance log, even though both classes have carried the field
