@@ -76,9 +76,10 @@ instruction):**
   attempt hung for this exact reason, matching this repo's own documented
   `testWidgets` fake-async pitfall.)
 - On-device integration: `example/integration_test/t200_clear_sdk_data_test.dart`
-  — same scenario against real `SharedPreferences` on a physical
-  device/simulator (not run this round — needs an emulator, source-level
-  addition only, per this repo's standing convention for audit rounds).
+  — same scenario against real `SharedPreferences` on a physical device.
+  **Update (post-publish, same day):** run against a real Pixel 7 Pro
+  (`2B051FDH3006MU`) — passed (2/2 tests), closing the gap this doc
+  originally left open ("not run this round — needs an emulator").
 
 Confirmed red without the fix (all 3 runnable tiers), green with it.
 
