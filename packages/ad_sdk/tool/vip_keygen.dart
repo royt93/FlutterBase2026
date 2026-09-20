@@ -29,11 +29,26 @@ Future<void> main([List<String> args = const []]) async {
   if (await privateFile.exists() && !opts.containsKey('force')) {
     _fail('refusing to overwrite existing private-key file; use --force');
   }
-  await privateFile.writeAsString(base64Url.encode(priv), flush: true);
-  if (!Platform.isWindows) {
-    final chmod = await Process.run('chmod', ['600', privateFile.path]);
-    if (chmod.exitCode != 0) {
-      _fail('could not set private-key file permissions to 0600');
+  final privateKeyBase64 = base64Url.encode(priv);
+  if (Platform.isWindows) {
+    await privateFile.writeAsString(privateKeyBase64, flush: true);
+  } else {
+    // Round 55 audit fix (MINOR) — writeAsString() then chmod 600
+    // afterward left a real TOCTOU window: the file briefly existed at
+    // whatever permissions the process umask gives a new file (often
+    // world/group-readable) before chmod ran, during which a co-resident
+    // local process could read the private key. dart:io has no API to
+    // set permissions at creation time, so this shells out to a
+    // subprocess whose OWN umask (074000/077, i.e. owner-only) applies
+    // from the moment the file is created — no window ever exists where
+    // it's readable by anyone else.
+    final proc = await Process.start(
+        'sh', ['-c', 'umask 077 && cat > "\$0"', privateFile.path]);
+    proc.stdin.write(privateKeyBase64);
+    await proc.stdin.close();
+    final exitCode = await proc.exitCode;
+    if (exitCode != 0) {
+      _fail('could not write private-key file with restrictive permissions');
     }
   }
   // ignore: avoid_print

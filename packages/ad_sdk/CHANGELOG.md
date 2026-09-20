@@ -107,6 +107,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `NativeDemoPage._simulateWatchdogTimeout()` was missing the `mounted`
   guard after its `await`, unlike every other async handler in that class —
   navigating away mid-call could call `setState()` on a disposed widget.
+- **Fixed (round 55 audit, MINOR, tooling):** `tool/vip_keygen.dart` wrote
+  the private-key file with default permissions, then `chmod 600`'d it
+  afterward — a real (if narrow, local-attacker-only) TOCTOU window where
+  the file was briefly readable by anyone else on the same machine. Now
+  shells out to a subprocess with `umask 077` set before the file is ever
+  created, so no such window exists.
 
 ## [3.0.1] - 2026-09-19
 
