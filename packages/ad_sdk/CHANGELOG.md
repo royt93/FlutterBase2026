@@ -113,6 +113,18 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   the file was briefly readable by anyone else on the same machine. Now
   shells out to a subprocess with `umask 077` set before the file is ever
   created, so no such window exists.
+- **Fixed (round 56 audit, MAJOR):** GPP US-state/national/California
+  section strings from a standards-compliant CMP are commonly two-segment
+  (`CoreSegment.GpcSegment` — every reference CMP implementation defaults
+  to including the optional GPC sub-segment). `IabStorage`'s bit-packing
+  decoder didn't strip the segment separator before decoding, so `.`
+  (not in the base64url alphabet) threw a `FormatException` that every
+  caller's `catch` silently treated as "no usable signal" — a real
+  US-privacy opt-out expressed only in a two-segment section (the common
+  case, not an edge case) was invisible, closing a compliance gap that had
+  been an open, unresolved question since round 43. Fixed once in the
+  shared `_GppBitReader` constructor (`section.split('.').first`), so all
+  21 US-state/national/California parsers get it uniformly.
 
 ## [3.0.1] - 2026-09-19
 

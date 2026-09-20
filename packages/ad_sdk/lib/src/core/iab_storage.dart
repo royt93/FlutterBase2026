@@ -46,7 +46,23 @@ import '../utils/safe_logger.dart';
 /// alignment, no `=` padding) — it treats the whole field-concatenated
 /// bitstream as one number and chops it into 6-bit digits.
 class _GppBitReader {
-  _GppBitReader(String section) : _bits = _decode(section);
+  // Round 56 audit fix (MAJOR) — a GPP section string can itself be
+  // multi-segment: `CoreSegment` optionally followed by `.GPCSegment` (the
+  // Global Privacy Control sub-section), per the IAB Global Privacy
+  // Platform's encoding spec. Every reference CMP implementation (verified
+  // against the IAB Tech Lab's own `@iabgpp/cmpapi` library) defaults to
+  // INCLUDING the GPC segment — so most real section strings from a
+  // standards-compliant CMP are two-segment, not one. `.` isn't in the
+  // base64url alphabet below, so decoding the raw, un-split string threw
+  // FormatException on every one of them, silently discarded by every
+  // caller's `catch` as "no usable signal" — a real opt-out expressed only
+  // in a two-segment section (which is the COMMON case, not an edge case)
+  // was invisible. All 3 callers (`_parseGppUsNational`,
+  // `_parseGppCalifornia`, `_parseGppUsState`) go through this one
+  // constructor, so the fix applies uniformly — this class never reads
+  // GPC-segment bits, only the Core Segment fields each parser already
+  // targets.
+  _GppBitReader(String section) : _bits = _decode(section.split('.').first);
 
   static const _alphabet =
       'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';

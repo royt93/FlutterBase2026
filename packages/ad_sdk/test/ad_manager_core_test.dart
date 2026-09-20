@@ -4924,6 +4924,52 @@ void main() {
       expect(await AdManager().usPrivacyOptedOut, isTrue);
     });
 
+    // Round 56 audit fix (MAJOR) — every reference CMP implementation
+    // (verified against the IAB Tech Lab's own `@iabgpp/cmpapi` library)
+    // defaults to including the OPTIONAL GPC sub-segment, making a real
+    // section string `CoreSegment.GpcSegment` — two segments joined by a
+    // dot, not the single-segment strings every fixture above uses. `.`
+    // isn't valid in the bit-packing alphabet, so parsing the raw string
+    // used to throw and get silently swallowed as "no signal" — a real
+    // opt-out expressed only in a two-segment section (the COMMON case
+    // from a standards-compliant CMP, not an edge case) was invisible.
+    // Fixture via the same official reference encoder:
+    //   node -e "const {UsNat}=require('@iabgpp/cmpapi');
+    //     const u=new UsNat();
+    //     u.setFieldValue('Version',1);
+    //     u.setFieldValue('SharingNotice',1);
+    //     u.setFieldValue('SaleOptOutNotice',1);
+    //     u.setFieldValue('SharingOptOutNotice',1);
+    //     u.setFieldValue('TargetedAdvertisingOptOutNotice',1);
+    //     u.setFieldValue('SensitiveDataProcessingOptOutNotice',0);
+    //     u.setFieldValue('SensitiveDataLimitUseNotice',0);
+    //     u.setFieldValue('SaleOptOut',2);
+    //     u.setFieldValue('SharingOptOut',2);
+    //     u.setFieldValue('TargetedAdvertisingOptOut',1);
+    //     u.setFieldValue('SensitiveDataProcessing',new Array(12).fill(0));
+    //     u.setFieldValue('KnownChildSensitiveDataConsents',[0,0]);
+    //     u.setFieldValue('PersonalDataConsents',0);
+    //     u.setFieldValue('MspaCoveredTransaction',1);
+    //     u.setFieldValue('MspaOptOutOptionMode',1);
+    //     u.setFieldValue('MspaServiceProviderMode',0);
+    //     u.setFieldValue('Gpc',true);
+    //     console.log(u.encode());"
+    // → 'BVQpAAAAAUA.YA' (Core Segment 'BVQpAAAAAUA' encodes
+    // TargetedAdvertisingOptOut=1/Opted-Out; '.YA' is the GPC segment).
+    test(
+        'usPrivacyOptedOut: a real two-segment GPP USNAT string '
+        '(CoreSegment.GpcSegment, the common case from a standards-'
+        'compliant CMP) still decodes the Core Segment opt-out signal',
+        () async {
+      SharedPreferencesAsyncPlatform.instance =
+          InMemorySharedPreferencesAsync.withData(
+              {'IABGPP_7_String': 'BVQpAAAAAUA.YA'});
+      expect(await AdManager().usPrivacyOptedOut, isTrue,
+          reason: 'the GPC segment must be stripped before bit-decoding, '
+              'not cause the whole section to be silently discarded as '
+              '"no signal"');
+    });
+
     test(
         'usPrivacyOptedOut: GPP California SharingOptOut=Opted-Out, '
         'SaleOptOut=Did-Not → opted out', () async {
