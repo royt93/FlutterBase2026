@@ -79,6 +79,24 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   missing the same `.catchError` this file's `flush()`/`_schedulePersist()`
   already carry (T155) — a transient persist failure inside `clear()` threw
   uncaught out to its caller instead of being logged and absorbed.
+- **Fixed (round 52 audit, MAJOR):** `requestAttIfNeeded()` held the
+  fullscreen-ad mutex indefinitely (until the 15-minute backstop) if the ATT
+  plugin call threw synchronously instead of failing asynchronously — the
+  same bug class `requestPrivacyOptionsFlow()`'s UMP path was already fixed
+  for (round-8 QC), just not applied to the ATT path too.
+- **Fixed (round 52 audit, MAJOR):** `installAdCrashGuard()` treated
+  `FlutterError.onError`/`PlatformDispatcher.onError` as one all-or-nothing
+  unit — if a host replaced only one of the two since the last install, the
+  other (still this guard's own untouched wrapper) got silently re-captured
+  as "the previous handler" and wrapped again, permanently losing the real
+  original underneath it. A later `destroy()` then restored the guard's own
+  stale wrapper instead of the host's true original handler. Each handler
+  is now checked and (re)installed independently.
+- **Fixed (round 52 audit, MINOR):** `AdBootstrapResult.toString()` printed
+  the raw device GAID — a public return value a host may log or pass to a
+  crash reporter directly, outside this SDK's own log redaction. Now prints
+  `hasGaid: bool`, matching `AttResult.toString()`'s existing convention for
+  the IDFA.
 
 ## [3.0.1] - 2026-09-19
 

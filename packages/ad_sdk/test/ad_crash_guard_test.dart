@@ -365,6 +365,43 @@ void main() {
           reason: 'must actually (re)install — the previous guard layer is '
               'gone, so silently no-op-ing here would leave no guard at all');
     });
+
+    test(
+        'round 52 audit fix (MAJOR): a host replacing ONLY FlutterError.'
+        'onError does not corrupt PlatformDispatcher.onError\'s saved '
+        'previous handler', () {
+      var hostPlatformCalls = 0;
+      bool hostPlatformHandler(Object error, StackTrace stack) {
+        hostPlatformCalls++;
+        return false;
+      }
+
+      PlatformDispatcher.instance.onError = hostPlatformHandler;
+      installAdCrashGuard();
+      final platformWrapperAfterFirst = PlatformDispatcher.instance.onError;
+
+      // Host replaces ONLY FlutterError.onError since the last install —
+      // PlatformDispatcher.onError is untouched, still this guard's own
+      // wrapper from the call above.
+      FlutterError.onError = FlutterError.presentError;
+      installAdCrashGuard();
+
+      expect(identical(PlatformDispatcher.instance.onError, platformWrapperAfterFirst),
+          isTrue,
+          reason: 'PlatformDispatcher.onError was never replaced by anyone '
+              'else, so re-wrapping it here would bury the real host '
+              'handler under a second layer of this guard');
+
+      uninstallAdCrashGuard();
+      // A non-SDK platform error must reach the ORIGINAL host handler, not
+      // a stale copy of this guard's own first-install wrapper.
+      PlatformDispatcher.instance.onError!(StateError('host bug'), StackTrace.empty);
+      expect(hostPlatformCalls, 1,
+          reason: 'uninstall must restore the true original host handler, '
+              'not this guard\'s own previous wrapper — otherwise an '
+              'SDK-attributed error keeps being intercepted forever after '
+              'destroy()');
+    });
   });
 
   testWidgets(

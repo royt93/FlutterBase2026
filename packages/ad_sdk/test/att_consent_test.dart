@@ -257,6 +257,31 @@ void main() {
           reason: 'must release once the alert genuinely resolves');
     });
 
+    // Round 52 audit fix (MAJOR) — same bug class ump_consent.dart's
+    // requestPrivacyOptionsFlow() already had to fix (round-8 QC): a
+    // SYNCHRONOUS throw out of the request call, before it even returns a
+    // Future, used to skip every release path tied to `.whenComplete()` on
+    // that Future, leaving the mutex held until the 15-minute backstop.
+    test(
+        'a SYNCHRONOUS throw from requestAuthorization still releases the '
+        'mutex, not just an async failure', () async {
+      expect(umpFormOnScreen.value, isFalse, reason: 'sanity: starts clear');
+
+      final result = await requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () =>
+            throw StateError('plugin not registered'),
+      );
+
+      expect(result.status, AttStatus.denied,
+          reason: 'degrades to denied rather than crashing the caller');
+      expect(umpFormOnScreen.value, isFalse,
+          reason: 'must not leave the fullscreen-ad mutex held for the '
+              '15-minute backstop when the request never even reached a '
+              'Future to attach a release callback to');
+    });
+
     test(
         'a 20s Dart-side timeout does NOT release the mutex — the native '
         'alert can still be up (same bug class as a UMP form timeout)',

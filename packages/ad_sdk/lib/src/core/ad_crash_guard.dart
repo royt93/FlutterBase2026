@@ -85,45 +85,60 @@ bool Function(Object, StackTrace)? _previousOnPlatformError;
 /// `FlutterError.onError`/`PlatformDispatcher.onError` on top of the last
 /// one, each holding the previous layer alive forever.
 void installAdCrashGuard() {
-  if (identical(FlutterError.onError, _installedOnError) &&
-      identical(
+  // Round 52 audit fix (MAJOR) — each handler is now checked and
+  // (re)installed independently. The old code treated both handlers as one
+  // all-or-nothing unit: if a host replaced ONLY `FlutterError.onError`
+  // since the last install, the combined `&&` check failed, so BOTH
+  // handlers were reinstalled — including `PlatformDispatcher.onError`,
+  // which the host never touched and still held this guard's OWN previous
+  // wrapper. That wrapper got re-captured as "the previous handler" and
+  // wrapped again, permanently losing the real original underneath it: a
+  // later `uninstallAdCrashGuard()` restored the guard's own stale wrapper
+  // instead of the host's true original, so an SDK-attributed platform
+  // error kept being intercepted (and slot-recovery kept firing) forever
+  // after `destroy()`.
+  if (_installedOnError == null ||
+      !identical(FlutterError.onError, _installedOnError)) {
+    final previousOnError = FlutterError.onError;
+    _previousOnError = previousOnError;
+    void onError(FlutterErrorDetails details) {
+      if (isSdkAttributable(details.stack ?? StackTrace.empty)) {
+        SafeLogger.e(_tag,
+            'caught SDK-attributable FlutterError: ${details.exception}');
+        _recoverSlots();
+        return;
+      }
+      if (previousOnError != null) {
+        previousOnError(details);
+      } else {
+        FlutterError.presentError(details);
+      }
+    }
+
+    FlutterError.onError = onError;
+    _installedOnError = onError;
+  }
+
+  if (_installedOnPlatformError == null ||
+      !identical(
           PlatformDispatcher.instance.onError, _installedOnPlatformError)) {
-    return;
-  }
-  final previousOnError = FlutterError.onError;
-  _previousOnError = previousOnError;
-  void onError(FlutterErrorDetails details) {
-    if (isSdkAttributable(details.stack ?? StackTrace.empty)) {
-      SafeLogger.e(
-          _tag, 'caught SDK-attributable FlutterError: ${details.exception}');
-      _recoverSlots();
-      return;
+    final previousOnPlatformError = PlatformDispatcher.instance.onError;
+    _previousOnPlatformError = previousOnPlatformError;
+    bool onPlatformError(Object error, StackTrace stack) {
+      if (isSdkAttributable(stack)) {
+        SafeLogger.e(_tag, 'caught SDK-attributable platform error: $error');
+        _recoverSlots();
+        return true; // handled — per PlatformDispatcher.onError convention.
+      }
+      // Not ours — chain to whatever was previously registered, per
+      // Flutter's convention for this callback (false/previous result =
+      // not handled).
+      return previousOnPlatformError?.call(error, stack) ?? false;
     }
-    if (previousOnError != null) {
-      previousOnError(details);
-    } else {
-      FlutterError.presentError(details);
-    }
+
+    PlatformDispatcher.instance.onError = onPlatformError;
+    _installedOnPlatformError = onPlatformError;
   }
-
-  FlutterError.onError = onError;
-  _installedOnError = onError;
-
-  final previousOnPlatformError = PlatformDispatcher.instance.onError;
-  _previousOnPlatformError = previousOnPlatformError;
-  bool onPlatformError(Object error, StackTrace stack) {
-    if (isSdkAttributable(stack)) {
-      SafeLogger.e(_tag, 'caught SDK-attributable platform error: $error');
-      _recoverSlots();
-      return true; // handled — per PlatformDispatcher.onError convention.
-    }
-    // Not ours — chain to whatever was previously registered, per Flutter's
-    // convention for this callback (false / previous result = not handled).
-    return previousOnPlatformError?.call(error, stack) ?? false;
-  }
-
-  PlatformDispatcher.instance.onError = onPlatformError;
-  _installedOnPlatformError = onPlatformError;
 }
 
 /// Removes the guard only when it still owns each global handler. A host

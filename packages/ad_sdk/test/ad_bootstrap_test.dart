@@ -189,6 +189,25 @@ void main() {
       });
     });
   });
+
+  // Round 52 audit fix (MINOR) — same reasoning as AttResult.toString()
+  // never printing the raw idfa: AdBootstrapResult is a public return value
+  // a host may log/print directly, entirely outside this SDK's own
+  // SafeLogger redaction.
+  test('toString() never prints the raw GAID', () {
+    const result = AdBootstrapResult(
+      att: null,
+      ump: UmpConsentResult(canRequestAds: true, status: ConsentStatus.obtained),
+      initSuccess: true,
+      gaid: '38400000-8cf0-11bd-b23e-10b96e40000d',
+    );
+
+    expect(result.toString(), isNot(contains('38400000-8cf0-11bd-b23e')),
+        reason: 'the raw device advertising ID must never appear in a '
+            'toString() a host might pass straight to a logger or crash '
+            'reporter');
+    expect(result.toString(), contains('hasGaid=true'));
+  });
 }
 
 /// `initialize()` never resolves — the worst case this timeout guards

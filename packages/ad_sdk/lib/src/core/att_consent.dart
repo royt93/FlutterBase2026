@@ -246,7 +246,21 @@ Future<AttResult> _requestAttIfNeededImpl({
       // closes, however much later than the synthetic 20s timeout that
       // only unblocks this function's own caller.
       final releaseAttForm = markUmpFormOnScreen();
-      final rawAuthorization = requestAuthorization();
+      // Round 52 audit fix (MAJOR) — same class of gap ump_consent.dart's
+      // requestPrivacyOptionsFlow() already fixed for the UMP form (round-8
+      // QC): the `.whenComplete()` below only releases the guard on an
+      // ASYNC failure of the returned Future. A SYNCHRONOUS throw out of
+      // requestAuthorization() itself (missing plugin registration, a
+      // platform quirk) skipped straight to the outer `catch`, never
+      // reaching `.whenComplete()`, leaving the fullscreen-ad mutex held
+      // until the 15-minute backstop with no ATT prompt ever on screen.
+      Future<TrackingStatus> rawAuthorization;
+      try {
+        rawAuthorization = requestAuthorization();
+      } catch (_) {
+        releaseAttForm();
+        rethrow;
+      }
       settledByPrompt = true;
       unawaited(rawAuthorization.then((_) {}, onError: (_) {}).whenComplete(() {
         releaseAttForm();

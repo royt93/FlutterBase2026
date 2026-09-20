@@ -73,8 +73,14 @@ class AdBootstrapResult {
   final String gaid;
 
   @override
+  // Round 52 audit fix (MINOR) — same reasoning as AttResult.toString()
+  // never printing the raw idfa: this result is a public return value the
+  // host may log/print/pass to a crash reporter directly, entirely outside
+  // this SDK's own SafeLogger redaction. Printing the raw GAID here would
+  // leak a stable per-device advertising identifier into any of those
+  // paths.
   String toString() => 'AdBootstrapResult(att=$att, ump=$ump, '
-      'initSuccess=$initSuccess, gaid=$gaid)';
+      'initSuccess=$initSuccess, hasGaid=${gaid.isNotEmpty})';
 }
 
 /// T106 — sequences ATT → UMP → [AdManager.initialize] in the one order the
