@@ -169,6 +169,7 @@ AdManager.exportDisputeKit  [method]  Future<DisputeKit> exportDisputeKit({DateT
 AdManager.exportSafeDiagnostics  [method]  Future<String> exportSafeDiagnostics({int maxBytes = 65536})
 AdManager.exportSignedBypassAuditTrail  [method]  Future<SignedPayload> exportSignedBypassAuditTrail()
 AdManager.exportSignedComplianceReport  [method]  Future<SignedComplianceReport> exportSignedComplianceReport({DateTime? from, DateTime? to})
+AdManager.exportSignedConsentProvenanceJournal  [method]  Future<SignedPayload?> exportSignedConsentProvenanceJournal()
 AdManager.exportSignedIncidentBundle  [method]  Future<SignedPayload> exportSignedIncidentBundle()
 AdManager.fillRateBaselineMonitor  [getter]  FillRateBaselineMonitor? get fillRateBaselineMonitor
 AdManager.fillRateMonitor  [getter]  FillRateMonitor? get fillRateMonitor
@@ -737,6 +738,7 @@ ConsentProvenanceJournal.append  [method]  Future<ConsentProvenanceEntry> append
 ConsentProvenanceJournal.clear  [method]  Future<void> clear()
 ConsentProvenanceJournal.entries  [getter]  List<ConsentProvenanceEntry> get entries
 ConsentProvenanceJournal.load  [method]  Future<ConsentProvenanceJournal> load(AdPreferences prefs)
+ConsentProvenanceJournal.toPayloadJson  [method]  String toPayloadJson()
 ConsentProvenanceJournal.verifyChain  [method]  Future<bool> verifyChain()
 ConsentSettings  [class]  class ConsentSettings
 ConsentSettings.accepted  [getter]  ConsentSettings get accepted
@@ -1315,6 +1317,7 @@ resolvePlatformAdUnitId  [function]  String resolvePlatformAdUnitId({required St
 showAdSafeModalBottomSheet  [function]  Future<T?> showAdSafeModalBottomSheet<T>({required BuildContext context, required Widget Function(BuildContext) builder, Color? backgroundColor, ShapeBorder? shape, bool isScrollControlled = false, bool isDismissible = true, bool enableDrag = true, bool useSafeArea = false, BoxConstraints? constraints, RouteSettings? routeSettings})
 signBypassAuditTrail  [function]  Future<SignedPayload> signBypassAuditTrail(BypassAuditTrail trail)
 signComplianceReport  [function]  Future<SignedComplianceReport> signComplianceReport(ComplianceReport report, {FlutterSecureStorage? secureStorage})
+signConsentProvenanceJournal  [function]  Future<SignedPayload> signConsentProvenanceJournal(ConsentProvenanceJournal journal)
 signIncidentBundle  [function]  Future<SignedPayload> signIncidentBundle(IncidentBundle bundle)
 signJsonPayload  [function]  Future<SignedPayload> signJsonPayload(String payloadJson, {FlutterSecureStorage? secureStorage})
 simulateConsentOutcome  [function]  ConsentSimulationResult simulateConsentOutcome(AdConsent consent, {AdConfig? config})

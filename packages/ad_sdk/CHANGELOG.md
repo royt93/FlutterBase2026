@@ -47,6 +47,38 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `dart tool/vip_mint.dart` (no `run` subcommand), which doesn't trigger
   the build-hooks step. (Round 49 audit, found independently by an
   external `agy` pass.)
+- **Fixed (round 51 audit, MAJOR):** `ProviderFailoverAdvisor`'s open-circuit
+  state (`_openedAt`) only ever lived in memory — a restart right after the
+  circuit tripped (consecutive failures reaching the threshold) rehydrated
+  the failure count but not the open state, so `shouldFailoverNextSession`
+  silently read `false` again until one more real failure landed. The open
+  timestamp is now persisted and restored alongside the failure count.
+- **Fixed (round 51 audit, MAJOR):** `ConsentProvenanceJournal.verifyChain()`
+  only ever re-derived its hash chain from its own currently-stored entries,
+  so truncating the tail or forging an entirely new chain both still
+  verified as valid — despite the method's own doc comment claiming it
+  detects an entry "removed after being recorded". Added
+  `signConsentProvenanceJournal()` (same on-device Ed25519 signed-export
+  this package's other compliance records already have via
+  `signBypassAuditTrail`/`signComplianceReport`) so an exported journal can
+  at least be checked for post-export tampering, and corrected
+  `verifyChain()`'s doc comment to state its real, narrower guarantee.
+- **Fixed (round 51 audit, MINOR):** `FillRateBaselineMonitor` counted a load
+  failure into its session tally and 7-day persisted history even when the
+  device was offline at the time — the same class of false signal
+  `ProviderFailoverAdvisor`/`FillRateMonitor` were already fixed for in
+  round 49, just not applied here too.
+- **Fixed (round 51 audit, MINOR):** `FillRateBaselineMonitor`'s revenue
+  regression check gated only on load-attempt sample size
+  (`session.attempts`/`baseline.attempts` `>= minSamples`), not on how many
+  actual paid events fed the averages being compared — a single paid event
+  on each side could swing the average by ~100% and fire a regression alert
+  off pure n=1 noise. Now also requires `revenueCount >= minSamples` on
+  both sides before considering a revenue regression.
+- **Fixed (round 51 audit, MINOR, tooling):** `BypassAuditTrail.clear()` was
+  missing the same `.catchError` this file's `flush()`/`_schedulePersist()`
+  already carry (T155) — a transient persist failure inside `clear()` threw
+  uncaught out to its caller instead of being logged and absorbed.
 
 ## [3.0.1] - 2026-09-19
 

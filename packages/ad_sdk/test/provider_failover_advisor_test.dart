@@ -187,6 +187,29 @@ void main() {
       await advisor2.dispose();
     });
 
+    test(
+        'a circuit already OPEN before restart stays open after '
+        'reconstruction, with no new failure needed', () async {
+      final advisor1 = ProviderFailoverAdvisor(consecutiveFailureThreshold: 2);
+      await advisor1.ready;
+      AdManager().debugEmit(_load(false));
+      AdManager().debugEmit(_load(false));
+      await _flush();
+      expect(advisor1.shouldFailoverNextSession, isTrue,
+          reason: 'sanity: circuit tripped before restart');
+      await advisor1.dispose();
+
+      final advisor2 = ProviderFailoverAdvisor(consecutiveFailureThreshold: 2);
+      await advisor2.ready;
+      expect(advisor2.shouldFailoverNextSession, isTrue,
+          reason: 'round 51 audit fix (MAJOR) — an already-tripped circuit '
+              'must survive a restart; only consecutiveFailures/'
+              'lastProviderTag were persisted, not _openedAt, so a restart '
+              'right after tripping used to silently close the circuit '
+              'again until one more real failure landed');
+      await advisor2.dispose();
+    });
+
     test('persist: false never touches SharedPreferences', () async {
       final advisor1 = ProviderFailoverAdvisor(
           consecutiveFailureThreshold: 2, persist: false);

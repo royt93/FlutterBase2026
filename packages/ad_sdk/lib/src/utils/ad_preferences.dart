@@ -623,6 +623,15 @@ class AdPreferences {
       'ad_sdk_provider_failover_consecutive_failures';
   static const String _keyProviderFailoverLastProviderTag =
       'ad_sdk_provider_failover_last_provider_tag';
+  // Round 51 audit fix (MAJOR) — the circuit's `open` state itself
+  // (ProviderFailoverAdvisor's `_openedAt`) used to live only in RAM.
+  // consecutiveFailures/lastProviderTag alone hydrate back to the
+  // pre-trip streak, but with `_openedAt == null` the circuit read as
+  // `closed` right after a restart, silently discarding an
+  // already-tripped failover recommendation until one more real failure
+  // landed. Stored as epoch millis; absent key means "never opened".
+  static const String _keyProviderFailoverOpenedAtMs =
+      'ad_sdk_provider_failover_opened_at_ms';
 
   int getProviderFailoverConsecutiveFailures() =>
       _prefs?.getInt(_keyProviderFailoverConsecutiveFailures) ?? 0;
@@ -639,6 +648,20 @@ class AdPreferences {
       await _prefs?.remove(_keyProviderFailoverLastProviderTag);
     } else {
       await _prefs?.setString(_keyProviderFailoverLastProviderTag, tag);
+    }
+  }
+
+  DateTime? getProviderFailoverOpenedAt() {
+    final ms = _prefs?.getInt(_keyProviderFailoverOpenedAtMs);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  Future<void> setProviderFailoverOpenedAt(DateTime? openedAt) async {
+    if (openedAt == null) {
+      await _prefs?.remove(_keyProviderFailoverOpenedAtMs);
+    } else {
+      await _prefs?.setInt(
+          _keyProviderFailoverOpenedAtMs, openedAt.millisecondsSinceEpoch);
     }
   }
 

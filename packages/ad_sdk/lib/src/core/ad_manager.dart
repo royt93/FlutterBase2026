@@ -543,6 +543,19 @@ class AdManager with WidgetsBindingObserver {
   /// until [initialize] completes, same nullability contract as [vip].
   ConsentProvenanceJournal? get consentProvenanceJournal => _provenanceJournal;
 
+  /// Signs [consentProvenanceJournal]'s current contents the same way
+  /// [exportSignedBypassAuditTrail] does (round 51 audit fix — this journal
+  /// previously had no signed-export path at all, only the in-memory
+  /// [ConsentProvenanceJournal.verifyChain] self-check, which cannot detect
+  /// truncation or a fully forged chain — see that method's doc comment).
+  /// Returns `null` if [initialize] hasn't completed yet, or
+  /// [AdConfig.enableConsentProvenanceJournal] is off.
+  Future<SignedPayload?> exportSignedConsentProvenanceJournal() async {
+    final journal = _provenanceJournal;
+    if (journal == null) return null;
+    return signConsentProvenanceJournal(journal);
+  }
+
   /// T72 — fires exactly once `false → true` when [vip] transitions from
   /// `null` to ready, so a screen that renders before SDK init completes
   /// has a clear DX for "wait for VIP state" instead of polling

@@ -4,6 +4,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../utils/ad_preferences.dart';
+import 'compliance_signing.dart';
 
 /// T202 — one append-only, tamper-evident record of a consent change.
 ///
@@ -221,10 +222,24 @@ class ConsentProvenanceJournal {
   }
 
   /// Recomputes every entry's hash from its fields and the previous entry's
-  /// (persisted) hash, and compares against what's stored. `false` means at
-  /// least one entry was modified, reordered, or removed after being
-  /// recorded (or the chain was built directly from untrusted JSON, e.g.
-  /// [fromEntries]).
+  /// (persisted) hash, and compares against what's stored.
+  ///
+  /// **Round 51 audit fix (doc correction, MAJOR finding)**: this only
+  /// catches an entry whose stored `entryHash` no longer matches its own
+  /// fields plus the chain up to it — e.g. accidental corruption, or a bug
+  /// that edited an entry in place without recomputing downstream hashes.
+  /// It does **not** detect truncation (dropping the tail of the chain and
+  /// re-deriving from what remains still verifies as `true`) or a fully
+  /// forged chain (an attacker who can write this journal's storage can
+  /// recompute a self-consistent hash chain from scratch). There is no
+  /// secret or external anchor here, only a local recomputation — same
+  /// "tamper-evidence, not non-repudiation" threat model documented on
+  /// [SignedComplianceReport] and [SignedPayload], which this class did
+  /// not previously have any signed-export path to actually benefit from.
+  /// For evidence handed to a third party, export via
+  /// [signConsentProvenanceJournal] and have the recipient verify the
+  /// signature — that at least proves the exported bytes weren't edited
+  /// after the SDK produced them, which `verifyChain()` alone cannot.
   Future<bool> verifyChain() async {
     var prevHash = '';
     for (final entry in _entries) {
@@ -235,6 +250,11 @@ class ConsentProvenanceJournal {
     return true;
   }
 
+  /// The exact compact JSON this journal persists — the payload
+  /// [signConsentProvenanceJournal] signs.
+  String toPayloadJson() =>
+      jsonEncode(_entries.map((e) => e.toJson()).toList());
+
   /// Explicit purge — see class doc comment for why this is never called
   /// implicitly by a routine `clearSdkData()` erasure.
   Future<void> clear() async {
@@ -242,3 +262,12 @@ class ConsentProvenanceJournal {
     await _prefs.clearConsentProvenanceJournal();
   }
 }
+
+/// Signs a [ConsentProvenanceJournal] snapshot the same way
+/// [signComplianceReport]/[signBypassAuditTrail]/[signIncidentBundle] do —
+/// every export on one install verifies against the same public key. See
+/// [SignedPayload] and [ConsentProvenanceJournal.verifyChain]'s doc comment
+/// for what this does and doesn't prove.
+Future<SignedPayload> signConsentProvenanceJournal(
+        ConsentProvenanceJournal journal) =>
+    signJsonPayload(journal.toPayloadJson());

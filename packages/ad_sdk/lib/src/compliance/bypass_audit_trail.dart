@@ -236,7 +236,14 @@ class BypassAuditTrail {
     _debounceTimer?.cancel();
     _debounceTimer = null;
     if (_prefs != null) {
-      _persistChain = _persistChain.then((_) => _persist());
+      // Round 51 audit fix (MINOR) — same T155 catchError this file already
+      // applies in _schedulePersist() and flush(): without it, a persist
+      // failure here left _persistChain rejected and threw uncaught out of
+      // clear() to its caller (e.g. the SDK's own clearSdkData() erasure
+      // flow), the one call site in this file that had been missed.
+      _persistChain = _persistChain.then((_) => _persist()).catchError((e) {
+        SafeLogger.w(_tag, 'bypass audit trail clear failed: $e');
+      });
     }
     await _persistChain;
   }

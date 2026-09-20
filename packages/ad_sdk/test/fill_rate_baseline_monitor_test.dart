@@ -313,4 +313,50 @@ void main() {
     expect(todayHistory?[AdSlotType.rewarded.name]?['attempts'], 1,
         reason: 'the second sample must not be discarded either');
   });
+
+  group('offline mid-flight failures do not count (round 51 audit fix)', () {
+    tearDown(() => AdManager().debugConnectivityChanged(true));
+
+    test(
+        'a load failure while offline is not tallied into the session or '
+        'persisted baseline history', () async {
+      monitor = FillRateBaselineMonitor(prefs, minSamples: 5);
+
+      AdManager().debugConnectivityChanged(false);
+      for (var i = 0; i < 5; i++) {
+        AdManager().debugEmit(_load(AdSlotType.interstitial, false));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
+      final todayHistory = prefs.getFillRateBaselineHistory()[today];
+      expect(todayHistory?[AdSlotType.interstitial.name], isNull,
+          reason: 'all 5 failures happened while offline — none should '
+              'have been recorded into the session tally or persisted');
+    });
+  });
+
+  test(
+      'a revenue regression does NOT fire off a single paid event on each '
+      'side, even with plenty of load attempts (round 51 audit fix)',
+      () async {
+    await seedPastDay(AdSlotType.rewarded,
+        daysAgo: 1,
+        attempts: 20,
+        successes: 20,
+        revenueMicros: 1000000, // ONE paid event worth 1,000,000 micros
+        revenueCount: 1);
+    monitor = FillRateBaselineMonitor(prefs, minSamples: 5);
+
+    for (var i = 0; i < 5; i++) {
+      AdManager().debugEmit(_load(AdSlotType.rewarded, true)); // 100% fill
+    }
+    AdManager().debugEmit(_revenue(AdSlotType.rewarded, 1)); // ONE paid event
+
+    await Future<void>.delayed(Duration.zero);
+    expect(monitor.activeAlerts.containsKey(AdSlotType.rewarded), isFalse,
+        reason: 'attempts >= minSamples on both sides, but revenueCount is '
+            '1 vs 1 — a near-100% swing off n=1 is noise, not a real '
+            'regression, and must not gate solely on load-attempt count');
+  });
 }

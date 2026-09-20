@@ -132,6 +132,12 @@ class FillRateBaselineMonitor {
 
   void _onEvent(AdEvent event) {
     if (event is AdLoadEvent) {
+      // Round 51 audit fix (MINOR) — same reasoning as FillRateMonitor's
+      // and ProviderFailoverAdvisor's identical guard (round 49): a load
+      // that fails purely because the device is offline says nothing
+      // about this provider's fill rate and would otherwise pollute both
+      // the session tally and the persisted 7-day baseline history.
+      if (!event.success && !AdManager().isConnected) return;
       final tally = _session.putIfAbsent(event.type, () => _Tally());
       tally.attempts++;
       if (event.success) tally.successes++;
@@ -207,8 +213,15 @@ class FillRateBaselineMonitor {
     final baselineAvgRevenue = baseline.revenueCount == 0
         ? null
         : baseline.revenueMicros ~/ baseline.revenueCount;
+    // Round 51 audit fix (MINOR) — attempts >= minSamples (checked above)
+    // only bounds *load* sample size, not *paid-event* sample size. Without
+    // gating revenueCount too, a single paid event on each side (e.g.
+    // baseline avg 1,000,000 micros vs session avg 1 micro, both n=1) could
+    // fire a ~100% revenue-regression alert off pure noise.
     final revenueRegressed = sessionAvgRevenue != null &&
         baselineAvgRevenue != null &&
+        session.revenueCount >= minSamples &&
+        baseline.revenueCount >= minSamples &&
         baselineAvgRevenue > 0 &&
         (baselineAvgRevenue - sessionAvgRevenue) / baselineAvgRevenue >=
             regressionThreshold;

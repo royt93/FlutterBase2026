@@ -125,6 +125,12 @@ class ProviderFailoverAdvisor {
     final prefs = await AdPreferences.getInstance();
     _consecutiveFailures = prefs.getProviderFailoverConsecutiveFailures();
     _lastProviderTag = prefs.getProviderFailoverLastProviderTag();
+    // Round 51 audit fix (MAJOR) — without this, an already-tripped
+    // circuit (consecutiveFailures >= threshold) hydrated as `closed`
+    // after a restart, since circuitState is derived from _openedAt
+    // alone. See ad_preferences.dart's key doc comment for the failure
+    // this caused.
+    _openedAt = prefs.getProviderFailoverOpenedAt();
   }
 
   /// Completes once the persisted streak has been hydrated AND this
@@ -175,6 +181,7 @@ class ProviderFailoverAdvisor {
       final prefs = await AdPreferences.getInstance();
       await prefs.setProviderFailoverConsecutiveFailures(_consecutiveFailures);
       await prefs.setProviderFailoverLastProviderTag(_lastProviderTag);
+      await prefs.setProviderFailoverOpenedAt(_openedAt);
     });
   }
 

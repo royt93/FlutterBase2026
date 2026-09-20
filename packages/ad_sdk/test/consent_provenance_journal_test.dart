@@ -3,6 +3,7 @@
 // `ComplianceReport` (point-in-time snapshot). Covers: append/chain,
 // verifyChain() detecting tampering, persistence round-trip, clear().
 
+import 'package:applovin_admob_sdk/src/compliance/compliance_signing.dart';
 import 'package:applovin_admob_sdk/src/compliance/consent_provenance_journal.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -205,5 +206,77 @@ void main() {
       doNotSell: false,
     );
     expect(journal.entries, hasLength(1));
+  });
+
+  // Round 51 audit fix (MAJOR, doc correction) — verifyChain()'s own doc
+  // comment used to claim it detects an entry "removed after being
+  // recorded". It doesn't: dropping the tail and recomputing from what
+  // remains is still a self-consistent chain. This test documents the
+  // real, narrower guarantee instead of asserting a false one.
+  test(
+      'verifyChain() does NOT detect truncation — dropping the tail still '
+      'verifies true (known limitation, not a false-positive to "fix")',
+      () async {
+    final journal = await ConsentProvenanceJournal.load(prefs);
+    await journal.append(
+      source: 'ump',
+      policyRevision: 'ump-v1',
+      hasUserConsent: true,
+      isAgeRestrictedUser: false,
+      doNotSell: false,
+    );
+    await journal.append(
+      source: 'ump',
+      policyRevision: 'ump-v1',
+      hasUserConsent: false,
+      isAgeRestrictedUser: false,
+      doNotSell: true,
+    );
+    expect(journal.entries, hasLength(2));
+
+    final truncated = ConsentProvenanceJournal.fromEntries(
+        prefs, [journal.entries.first]);
+    expect(await truncated.verifyChain(), isTrue,
+        reason: 'documents the known gap — see verifyChain()\'s doc '
+            'comment for the actual guarantee (local self-consistency, '
+            'not tamper-proof against whoever controls this storage)');
+  });
+
+  group('signConsentProvenanceJournal (round 51 audit fix — MAJOR)', () {
+    test('a signed export verifies via verifySignedJsonPayload', () async {
+      final journal = await ConsentProvenanceJournal.load(prefs);
+      await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+        regionSignal: 'DE',
+      );
+      final signed = await signConsentProvenanceJournal(journal);
+
+      expect(await verifySignedJsonPayload(signed.toJsonString()), isTrue);
+    });
+
+    test('a tampered exported payload fails verification', () async {
+      final journal = await ConsentProvenanceJournal.load(prefs);
+      await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+        regionSignal: 'DE',
+      );
+      final signed = await signConsentProvenanceJournal(journal);
+
+      final tampered = SignedPayload(
+        payloadJson: signed.payloadJson.replaceFirst('"DE"', '"forged"'),
+        publicKeyBase64: signed.publicKeyBase64,
+        signatureBase64: signed.signatureBase64,
+      );
+
+      expect(await verifySignedJsonPayload(tampered.toJsonString()), isFalse);
+    });
   });
 }
