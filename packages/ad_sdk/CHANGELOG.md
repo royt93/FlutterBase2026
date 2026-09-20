@@ -4,6 +4,22 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.8] - 2026-09-20
+
+- **Bumped:** `connection_notifier` `^4.1.0` → `^4.1.1` (patch only) — the
+  one direct dependency that was behind latest with no version-floor
+  tradeoff attached. No behavior change expected.
+- **Added:** 4 more device hashes to the built-in QA test-device fleet
+  (`kQaTestDeviceHashes` in `lib/src/config/ad_config.dart`, now 17 total).
+  A live incident on 2026-09-10/09-20 established that an AdMob test-device
+  hash depends on the APK's *signing certificate*, not just device
+  identity — a debug build and a release-signed build on the same physical
+  phone report different hashes, and the hash can change again between
+  release-signing keys. Two devices (TECNO BG6, TECNO KJ7) needed their
+  debug/release-variant hashes added alongside the ones already present;
+  none were removed, matching the "only add, never remove" policy a stale
+  hash is harmless under.
+
 ## [3.0.7] - 2026-09-20
 
 Docs-only release, no code changes.

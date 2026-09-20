@@ -237,10 +237,21 @@ const List<String> kQaTestDeviceHashes = [
   'EB7B6504801B5E518C4CE6D519ED325C', // Samsung SM-A115F
   'FED3CA82141FF6113F2D069F8395B966', // Samsung SM-A507FN (unit 2)
   '96E61CBFCE6BC0BDCA1612F1BACB56BE', // OPPO CPH1989 (unit 2)
-  '5B409111AF01C6BB9F9FF77AEEB44275', // TECNO BG6
+  '5B409111AF01C6BB9F9FF77AEEB44275', // TECNO BG6 (debug/earlier build)
+  '3C3569AE4DF760B9CCD4C4B057E79A8B', // TECNO BG6 (production-signed build)
   'D1B50484E250B064A9BF6F7CAE29A941', // Samsung SM-S928B
   '322285166ACB542864828826D2D92491', // Google Pixel 7 Pro
-  'E422A3A7DF4E2B2C686ACF87E0BD87CC', // TECNO TECNO KJ7
+  // TECNO KJ7 — 2026-09-10/09-20 incidents established the AdMob test-device
+  // hash depends on the APK's signing certificate, not just device identity
+  // (ANDROID_ID): debug and release builds on the SAME physical device
+  // report DIFFERENT hashes, and the value can differ again between
+  // release-signing keys. Registered per (device, build variant) pair going
+  // forward, never removing an older one — see the myKeyStore README's
+  // "only add, never remove" policy this list otherwise mirrors.
+  'E422A3A7DF4E2B2C686ACF87E0BD87CC', // TECNO KJ7 (2026-08-31 build)
+  '7FA023DF89A8F446A4D9C665CEBF0B92', // TECNO KJ7 (debug build)
+  'B1EF014DD6D4DC54A4D160ECAA04C9A9', // TECNO KJ7 (earlier production-signed build)
+  '770E31DBA367EAAD9A6FEAE125CD0FFA', // TECNO KJ7 (current production-signed build)
 ];
 
 /// AdMob ad-unit IDs.
