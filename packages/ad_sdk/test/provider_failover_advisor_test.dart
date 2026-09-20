@@ -396,4 +396,29 @@ void main() {
       await advisor.dispose();
     });
   });
+
+  group('resetInMemoryState (round 54 audit fix)', () {
+    test(
+        'clears the tripped circuit, the streak, and the provider tag — '
+        'without touching persistence', () async {
+      final advisor = ProviderFailoverAdvisor(
+          consecutiveFailureThreshold: 2, persist: false);
+      await advisor.ready;
+      AdManager().debugEmit(_load(false));
+      AdManager().debugEmit(_load(false));
+      await _flush();
+      expect(advisor.shouldFailoverNextSession, isTrue,
+          reason: 'sanity: tripped before reset');
+
+      advisor.resetInMemoryState();
+
+      expect(advisor.shouldFailoverNextSession, isFalse);
+      // A single fresh failure afterwards must not immediately re-trip —
+      // proves the streak count itself was cleared, not just _openedAt.
+      AdManager().debugEmit(_load(false));
+      await _flush();
+      expect(advisor.shouldFailoverNextSession, isFalse);
+      await advisor.dispose();
+    });
+  });
 }

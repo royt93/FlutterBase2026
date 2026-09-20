@@ -2571,6 +2571,9 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
       return;
     }
     await adapter.preloadNative(_demoKey);
+    // Round 54 audit fix (MINOR) — every other async handler in this class
+    // guards against navigating away during the await; this one didn't.
+    if (!mounted) return;
     // ignore: invalid_use_of_visible_for_testing_member
     adapter.nativeSlot(_demoKey).debugFireLoadWatchdogNow();
     setState(() => _watchdogStatus =

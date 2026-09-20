@@ -1248,6 +1248,14 @@ class AdManager with WidgetsBindingObserver {
       scope: scope,
       confirmedEntitlementErasure: confirmedEntitlementErasure,
     );
+    // Round 54 audit fix (MINOR) — ProviderFailoverAdvisor's persisted
+    // streak/circuit keys aren't entitlement keys, so the sweep above
+    // already erased them at either scope. A live advisor instance's own
+    // in-memory copy survives that untouched, so without this its next
+    // AdEvent write-chain would silently re-persist the just-erased
+    // values right back — same "reset the live instance too" reasoning
+    // as the VIP/consent-provenance-journal branches below.
+    _providerFailoverAdvisor?.resetInMemoryState();
     if (purgeConsentProvenanceJournal) {
       final journal = _provenanceJournal;
       if (journal != null) {

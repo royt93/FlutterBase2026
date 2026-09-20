@@ -38,6 +38,7 @@ void main() {
   tearDown(() {
     AdManager().debugVipManager = null;
     AdManager.debugFirstInstallGuardFactory = null;
+    AdManager().disableProviderFailoverAdvisor();
   });
 
   test('everythingExceptEntitlements (default) clears a non-entitlement '
@@ -132,5 +133,53 @@ void main() {
         reason: 'the Keychain anti-farming flag must survive a '
             '"clear my data" request — only a real uninstall should be '
             'able to clear it, per the class doc comment');
+  });
+
+  // Round 54 audit fix (MINOR) — a live ProviderFailoverAdvisor's persisted
+  // keys aren't entitlement keys, so the generic sweep above already
+  // erases them at either scope. Without resetting the live instance's
+  // in-memory copy too, its next AdEvent write-chain silently re-persists
+  // the just-erased streak/circuit state right back.
+  test(
+      'clearSdkData() resets a live, tripped ProviderFailoverAdvisor '
+      'in-memory too — an erasure request must not be silently undone by '
+      'the advisor\'s next persist', () async {
+    final advisor = ProviderFailoverAdvisor(consecutiveFailureThreshold: 2);
+    AdManager().enableProviderFailoverAdvisor(advisor);
+    await advisor.ready;
+
+    AdManager().debugEmit(AdLoadEvent(
+      providerTag: '[AppLovin]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: false,
+    ));
+    AdManager().debugEmit(AdLoadEvent(
+      providerTag: '[AppLovin]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: false,
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(advisor.shouldFailoverNextSession, isTrue,
+        reason: 'sanity: circuit tripped before erasure');
+
+    await AdManager().clearSdkData();
+
+    expect(advisor.shouldFailoverNextSession, isFalse,
+        reason: 'clearSdkData() must reset the live instance, not just the '
+            'persisted keys — otherwise the next real ad-load event '
+            'silently re-persists the pre-erasure streak');
+
+    // The instance also must not resurrect the erased data on its own via
+    // its next write.
+    AdManager().debugEmit(AdLoadEvent(
+      providerTag: '[AppLovin]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: true,
+    ));
+    await Future<void>.delayed(Duration.zero);
+    expect(advisor.shouldFailoverNextSession, isFalse);
   });
 }

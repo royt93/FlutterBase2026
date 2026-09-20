@@ -63,4 +63,41 @@ void main() {
     await secure.delete(key: vipSecureKey);
     await rawPrefs.remove('host_apps_own_key');
   });
+
+  // Round 54 audit fix (MINOR) — same call, this time proving a LIVE
+  // ProviderFailoverAdvisor's in-memory streak/circuit state is reset too,
+  // against REAL SharedPreferences on-device — not just that the
+  // underlying persisted keys are gone.
+  testWidgets(
+      'clearSdkData() resets a live, tripped ProviderFailoverAdvisor too, '
+      'on a real device', (tester) async {
+    final advisor = ProviderFailoverAdvisor(consecutiveFailureThreshold: 2);
+    AdManager().enableProviderFailoverAdvisor(advisor);
+    await advisor.ready;
+
+    AdManager().debugEmit(AdLoadEvent(
+      providerTag: '[AppLovin]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: false,
+    ));
+    AdManager().debugEmit(AdLoadEvent(
+      providerTag: '[AppLovin]',
+      type: AdSlotType.interstitial,
+      placement: AdPlacement.unspecified,
+      success: false,
+    ));
+    await tester.pump();
+    expect(advisor.shouldFailoverNextSession, isTrue,
+        reason: 'sanity: tripped before erasure, on a real device');
+
+    await AdManager().clearSdkData();
+    await tester.pump();
+
+    expect(advisor.shouldFailoverNextSession, isFalse,
+        reason: 'a real erasure call must reset the live instance, not '
+            'just the SharedPreferences keys underneath it');
+
+    AdManager().disableProviderFailoverAdvisor();
+  });
 }

@@ -97,6 +97,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   crash reporter directly, outside this SDK's own log redaction. Now prints
   `hasGaid: bool`, matching `AttResult.toString()`'s existing convention for
   the IDFA.
+- **Fixed (round 54 audit, MINOR):** `AdManager().clearSdkData()` erased
+  `ProviderFailoverAdvisor`'s persisted streak/circuit keys but never reset
+  a live advisor instance's in-memory copy — its next ad-load event would
+  silently re-persist the pre-erasure state right back. Added
+  `ProviderFailoverAdvisor.resetInMemoryState()`, now called from
+  `clearSdkData()` when a live advisor is enabled.
+- **Fixed (round 54 audit, MINOR, example app only):**
+  `NativeDemoPage._simulateWatchdogTimeout()` was missing the `mounted`
+  guard after its `await`, unlike every other async handler in that class —
+  navigating away mid-call could call `setState()` on a disposed widget.
 
 ## [3.0.1] - 2026-09-19
 

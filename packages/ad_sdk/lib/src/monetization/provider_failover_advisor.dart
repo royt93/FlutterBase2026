@@ -193,6 +193,23 @@ class ProviderFailoverAdvisor {
   bool get shouldFailoverNextSession =>
       circuitState == ProviderCircuitState.open;
 
+  /// Round 54 audit fix (MINOR) — clears in-memory streak/circuit state
+  /// only, deliberately not touching persistence itself
+  /// (`AdManager().clearSdkData(...)` already wipes this class's
+  /// persisted keys via its generic `ad_sdk_`-prefix sweep, since they
+  /// aren't VIP/entitlement keys). Without this, a live instance's
+  /// unchanged RAM state would silently re-persist on the very next
+  /// [AdEvent] its write chain reacts to, resurrecting data an erasure
+  /// request just removed — same class of gap `clearSdkData()` already
+  /// handles explicitly for a live `VipManager`/`ConsentProvenanceJournal`
+  /// instance.
+  void resetInMemoryState() {
+    _consecutiveFailures = 0;
+    _lastProviderTag = null;
+    _openedAt = null;
+    _probeClaimed = false;
+  }
+
   ProviderCircuitState get circuitState {
     final opened = _openedAt;
     if (opened == null) return ProviderCircuitState.closed;

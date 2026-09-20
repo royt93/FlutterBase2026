@@ -996,6 +996,7 @@ ProviderFailoverAdvisor.dispose  [method]  Future<void> dispose({Duration timeou
 ProviderFailoverAdvisor.failingProvider  [getter]  AdProvider? get failingProvider
 ProviderFailoverAdvisor.new  [constructor]  ProviderFailoverAdvisor ProviderFailoverAdvisor({int consecutiveFailureThreshold = _defaultConsecutiveFailureThreshold, bool persist = true, Duration cooldown = const Duration(minutes: 5), DateTime Function()? now})
 ProviderFailoverAdvisor.ready  [getter]  Future<void> get ready
+ProviderFailoverAdvisor.resetInMemoryState  [method]  void resetInMemoryState()
 ProviderFailoverAdvisor.shouldFailoverNextSession  [getter]  bool get shouldFailoverNextSession
 RemoteAdSafetyProvider  [class]  abstract class RemoteAdSafetyProvider
 RemoteAdSafetyProvider.fetchSafetyParamOverrides  [method]  Future<Map<String, dynamic>?> fetchSafetyParamOverrides()
