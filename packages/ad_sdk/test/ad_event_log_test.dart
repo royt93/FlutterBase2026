@@ -122,6 +122,33 @@ void main() {
       expect(log.entries.single['mediationWaterfall'], isNull);
     });
 
+    test('AdRevenueEvent.requestId is captured when supplied', () {
+      final log = AdEventLog(prefs);
+      log.recordEvent(AdRevenueEvent(
+        providerTag: '[AdMob]',
+        type: AdSlotType.interstitial,
+        placement: AdPlacement.unspecified,
+        valueMicros: 5000,
+        currencyCode: 'USD',
+        requestId: 'req-abc-123',
+      ));
+
+      expect(log.entries.single['requestId'], 'req-abc-123');
+    });
+
+    test('AdShowEvent.requestId is captured when supplied', () {
+      final log = AdEventLog(prefs);
+      log.recordEvent(AdShowEvent(
+        providerTag: '[AppLovin]',
+        type: AdSlotType.rewarded,
+        placement: AdPlacement.shop,
+        success: true,
+        requestId: 'req-xyz-789',
+      ));
+
+      expect(log.entries.single['requestId'], 'req-xyz-789');
+    });
+
     test('recordEvent captures consentCountry when supplied', () {
       final log = AdEventLog(prefs);
       log.recordEvent(loadEvent(), consentCountry: 'DE');

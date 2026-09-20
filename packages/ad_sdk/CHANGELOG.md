@@ -6,6 +6,22 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 59 audit, MAJOR):** `AdEventLog._eventExtra()` never
+  persisted `AdRevenueEvent.requestId` (or `AdShowEvent.requestId`) into
+  the compliance log, even though both classes have carried the field
+  since T185. Because `RevenueAnomalyDetector.analyze()` reads
+  `requestId` from that same persisted log to power two of its five
+  anomaly kinds, `RevenueAnomalyKind.duplicateImpression` and
+  `.requestIdCollision` could structurally never fire on real,
+  production-sourced data — silently, with no error or log line
+  indicating the feature was inert. The existing unit test for this
+  detector hand-built its fixture maps with `'requestId'` set directly,
+  so it kept passing throughout and never exercised the real
+  `AdEventLog.recordEvent()` serialization path that was actually
+  dropping the field. Fixed by adding `requestId` to both event types'
+  serialized fields; added a pipeline-level regression test that goes
+  through the real `AdEventLog` → `RevenueAnomalyDetector` path instead
+  of a hand-built map.
 - **Added:** `AdConfig.onConsentProvenanceEntryAppended` — opt-in hook,
   ignored unless `enableConsentProvenanceJournal` is `true`. Called right
   after each `ConsentProvenanceEntry` is persisted to the local, on-device

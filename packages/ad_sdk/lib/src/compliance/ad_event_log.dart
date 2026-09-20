@@ -170,7 +170,7 @@ class AdEventLog {
 
 Map<String, dynamic> _eventExtra(AdEvent event) => switch (event) {
       AdLoadEvent e => {'success': e.success, 'errorCode': e.errorCode},
-      AdShowEvent e => {'success': e.success},
+      AdShowEvent e => {'success': e.success, 'requestId': e.requestId},
       AdClickEvent _ => const {},
       AdImpressionEvent _ => const {},
       AdSkipEvent e => {'action': e.action, 'reason': e.reason},
@@ -181,6 +181,7 @@ Map<String, dynamic> _eventExtra(AdEvent event) => switch (event) {
           'networkName': e.networkName,
           'precision': e.precision,
           'mediationWaterfall': e.mediationWaterfall,
+          'requestId': e.requestId,
         },
       AdAnomalyEvent e => {
           'reason': e.reason,
