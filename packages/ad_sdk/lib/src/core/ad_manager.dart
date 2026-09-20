@@ -1060,7 +1060,19 @@ class AdManager with WidgetsBindingObserver {
         _journeyPrefetcher, null, (p) => p.dispose());
   }
 
+  /// Round 62 audit fix: was in-memory-only, so it reset to `null` on
+  /// every app restart and [applySignedFeatureFlags]'s rollback check
+  /// below never actually rejected a stale-but-still-validly-signed,
+  /// still-unexpired payload after a cold start. Seeded from
+  /// [AdPreferences.getFeatureFlagsRevision] on first use, same shape as
+  /// [_lastAppliedRemoteSafetyRevision]/`_keyRemoteSafetyRevision` above.
   int? _featureFlagsRevision;
+
+  /// Test-only reset for [_featureFlagsRevision] — same rationale as
+  /// [debugLastAppliedRemoteSafetyRevision] (simulates the in-memory loss
+  /// a real restart causes, without requiring a full `destroy()` cycle).
+  @visibleForTesting
+  set debugFeatureFlagsRevision(int? v) => _featureFlagsRevision = v;
 
   /// Applies a verified feature-flag payload. Invalid, expired, or stale
   /// payloads are rejected and leave the current configuration untouched.
@@ -1069,13 +1081,17 @@ class AdManager with WidgetsBindingObserver {
     required String publicKeyBase64,
     DateTime? now,
   }) async {
+    final prefs = await AdPreferences.getInstance();
+    final previousRevision =
+        _featureFlagsRevision ?? prefs.getFeatureFlagsRevision();
     if (!await payload.verify(
         publicKeyBase64: publicKeyBase64,
-        previousRevision: _featureFlagsRevision,
+        previousRevision: previousRevision,
         now: now)) {
       return false;
     }
     _featureFlagsRevision = payload.revision;
+    unawaited(prefs.setFeatureFlagsRevision(payload.revision));
     if (payload.flags['arbitrator'] == false) {
       disableArbitrator();
     }
@@ -6817,6 +6833,13 @@ class AdManager with WidgetsBindingObserver {
     // whatever session used it last (a fresh `AdManager()` test double, or
     // this same singleton reinitialised without destroy()).
     _lastAppliedRemoteSafetyRevision = null;
+    // Round 62 audit fix — same rule as the field above:
+    // `applySignedFeatureFlags`'s `?? prefs.getFeatureFlagsRevision()`
+    // fallback re-seeds this lazily from persisted storage, so clearing
+    // the in-memory value here does not reopen the rollback-replay gap
+    // the fix closed — it only forgets a value a new session has no
+    // business inheriting from whatever session used it last.
+    _featureFlagsRevision = null;
     // Audit fix: a stale GAID from the previous session used to survive
     // destroy()/re-init, so currentDeviceGaid (and adMobTestDeviceHashHint())
     // could report a device's ad ID after the SDK claimed to be torn down —

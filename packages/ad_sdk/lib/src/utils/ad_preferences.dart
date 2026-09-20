@@ -530,6 +530,20 @@ class AdPreferences {
     await _prefs?.setInt(_keyRemoteSafetyRevision, revision);
   }
 
+  // Round 62 audit fix — same rollback-guard shape as
+  // [_keyRemoteSafetyRevision] above, for `SignedFeatureFlags`. Without
+  // this, `AdManager._featureFlagsRevision`'s in-memory-only tracking
+  // reset to null on every app restart, so a stale-but-still-validly-
+  // signed, still-unexpired payload could replay indefinitely.
+  static const String _keyFeatureFlagsRevision =
+      'ad_sdk_feature_flags_revision';
+
+  int? getFeatureFlagsRevision() => _prefs?.getInt(_keyFeatureFlagsRevision);
+
+  Future<void> setFeatureFlagsRevision(int revision) async {
+    await _prefs?.setInt(_keyFeatureFlagsRevision, revision);
+  }
+
   // T136 — last time `pickSessionProvider()` actually committed a
   // session-alternate exploration (epoch ms), so the rate limit
   // (`minIntervalBetweenExplorations`) survives across app restarts, not

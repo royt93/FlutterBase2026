@@ -108,6 +108,22 @@ void main() {
     expect(captured.single, contains('VIP_KEY=<redacted>'));
   });
 
+  test('round 62 audit fix — redacts JSON-quoted keys too, not just '
+      'handwritten key: value / key=value shapes', () {
+    final captured = <String>[];
+    SafeLogger.configure(
+      onLog: (level, tag, message) => captured.add(message),
+    );
+    SafeLogger.d(
+      'Security',
+      '{"gaid": "abc-123-def", "vip_key":"topsecret", '
+          '\'test_device_id\': \'dev-42\'}',
+    );
+    expect(captured.single, isNot(contains('abc-123-def')));
+    expect(captured.single, isNot(contains('topsecret')));
+    expect(captured.single, isNot(contains('dev-42')));
+  });
+
   test(
       'critical() is a safe no-op (current documented behavior) when no host '
       'ever configured an onLog sink', () {

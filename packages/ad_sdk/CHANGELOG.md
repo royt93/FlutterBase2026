@@ -6,6 +6,30 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (round 62 audit, MAJOR):** `AdManager.applySignedFeatureFlags()`'s
+  rollback guard (`SignedFeatureFlags.verify(previousRevision: ...)`)
+  tracked the last-applied revision in an **in-memory-only** field, which
+  reset to `null` on every app restart. A stale-but-still-validly-signed,
+  still-unexpired feature-flags payload could therefore replay after any
+  cold start and re-disable a feature the app had already moved past in a
+  previous session (this mechanism is disable-only — `arbitrator`/
+  `waterfallTuner`/`journeyPrefetcher`/`selfHealingObserver` — so the
+  impact is an availability/degradation risk, not an entitlement bypass).
+  `remote_ad_safety_provider`'s equivalent revision guard already persists
+  correctly via `AdPreferences.getRemoteSafetyRevision()`/
+  `setRemoteSafetyRevision()`; feature flags now follow the same pattern
+  (`getFeatureFlagsRevision()`/`setFeatureFlagsRevision()`). New
+  `AdManager.applySignedFeatureFlags` regression tests in
+  `test/feature_flags_test.dart` simulate a restart via a new
+  `debugFeatureFlagsRevision` test seam.
+- **Fixed (round 62 audit, MINOR):** `redactSensitiveData()`'s 3 patterns
+  only matched handwritten `key: value`/`key=value` shapes — a
+  JSON-quoted key (`"gaid": "abc-123-def"`) has a `"` immediately after
+  the key name instead of whitespace/`:`/`=`, so the whole match failed
+  to start and the value passed through unredacted. This is a dormant gap
+  (no current call site logs a JSON-quoted-key string through this
+  defense-in-depth redactor), fixed before anything relies on it. New
+  regression test in `test/safe_logger_test.dart`.
 - **Fixed (round 61 audit, MAJOR):** `WaterfallTuner.recommendation()`
   gated on trailing *load* attempts (`minSampleSize`, 6) before trusting
   a comparison, but the score that actually decides a recommendation
