@@ -29,6 +29,12 @@ class ConsentManager {
 
   static const String _tag = 'ConsentManager';
 
+  /// Test-only: forces the `debug*` seam release-mode guards to behave as
+  /// if `kReleaseMode` were true, since `kReleaseMode` itself is always
+  /// false under `flutter test`. See `ad_manager.dart`'s identical pattern.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
   static ConsentManager? _instance;
 
   /// Process-wide singleton (after [bootstrap]). Throws if called before
@@ -109,6 +115,11 @@ class ConsentManager {
   /// process.
   @visibleForTesting
   static void resetForTest() {
+    if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+      SafeLogger.e(_tag,
+          'resetForTest ignored in a release build — test-only seam (round-71 audit)');
+      return;
+    }
     _instance?._settingsListenable.dispose();
     _instance?._fallbackListenable.dispose();
     _instance = null;

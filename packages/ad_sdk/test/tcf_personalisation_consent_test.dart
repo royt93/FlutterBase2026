@@ -2529,5 +2529,72 @@ void main() {
 
       expect(AdManager().consent.hasUserConsent, isTrue);
     });
+
+    // Round-71 audit fix (MINOR, gemini reviewer) — `debugConsentApplyBarrier`
+    // / `debugConsentWriteBarrier` / `debugSetConsentTailWriteBarrier` are
+    // read+awaited without a `_testSeamsBlocked` check elsewhere in
+    // `AdManager` (fixed here). Proof it matters: a barrier left set to a
+    // Completer that never completes (a stray test fixture, or the same
+    // memory-corruption class of bug as a reused static across two rounds —
+    // see `audit-round46`) would otherwise hang a real release build's
+    // consent flow forever. All 3 must be ignored once release mode is
+    // (simulated) on.
+    test(
+        'debugConsentApplyBarrier and debugConsentWriteBarrier do not hang '
+        'showPrivacyOptions() while release mode is simulated', () async {
+      privacyOptionsRequirement = _privacyOptionsRequired;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+
+      final neverCompletes = Completer<void>().future;
+      AdManager.debugConsentApplyBarrier = neverCompletes;
+      AdManager.debugConsentWriteBarrier = neverCompletes;
+      AdManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() {
+        AdManager.debugConsentApplyBarrier = null;
+        AdManager.debugConsentWriteBarrier = null;
+        AdManager.debugSimulateReleaseModeForTestSeams = false;
+      });
+
+      await AdManager()
+          .showPrivacyOptions()
+          .timeout(const Duration(seconds: 5));
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'the flow must complete normally, not hang on a stray '
+              'never-completing barrier, in a (simulated) release build');
+    });
+
+    test(
+        'debugSetConsentTailWriteBarrier does not hang setConsent() while '
+        'release mode is simulated', () async {
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+      ConsentManager.resetForTest();
+      addTearDown(ConsentManager.resetForTest);
+      final consentMgr = await ConsentManager.bootstrap(
+          prefs: await AdPreferences.getInstance());
+      AdManager()
+        ..debugConsentManager = consentMgr
+        ..debugSetAdapter(_StubAdapter())
+        ..debugConfig = _config;
+
+      AdManager.debugSetConsentTailWriteBarrier = Completer<void>().future;
+      AdManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() {
+        AdManager.debugSetConsentTailWriteBarrier = null;
+        AdManager.debugSimulateReleaseModeForTestSeams = false;
+      });
+
+      await AdManager()
+          .setConsent(const AdConsent(hasUserConsent: true))
+          .timeout(const Duration(seconds: 5));
+
+      expect(AdManager().consent.hasUserConsent, isTrue,
+          reason: 'setConsent() must not hang on a stray never-completing '
+              'barrier in a (simulated) release build');
+    });
   });
 }

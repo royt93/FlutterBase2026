@@ -263,4 +263,24 @@ void main() {
       expect(m.fallback?.policyRevision, 'att-v1');
     });
   });
+
+  group('round-71 audit fix (MAJOR, gemini reviewer)', () {
+    // `resetForTest` was `@visibleForTesting` only (an analyzer lint, not a
+    // runtime guard), same gap rounds 68-70 fixed on `AdManager`/adapters —
+    // any code in a shipped release app could tear down the live consent
+    // singleton.
+    test('resetForTest is ignored while release mode is simulated',
+        () async {
+      final m = await ConsentManager.bootstrap(prefs: prefs);
+
+      ConsentManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() =>
+          ConsentManager.debugSimulateReleaseModeForTestSeams = false);
+      ConsentManager.resetForTest();
+
+      expect(ConsentManager.instance, same(m),
+          reason: 'resetForTest must not tear down the live singleton in a '
+              '(simulated) release build');
+    });
+  });
 }

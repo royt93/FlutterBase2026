@@ -202,4 +202,37 @@ void main() {
         reason: 'debugResetGuardState must not wipe every footgun guard at '
             'once in a (simulated) release build');
   });
+
+  // Round-71 audit fix (MAJOR) — `debugApplyConfigVipGaidWhitelist` was
+  // added after round 69's sweep and never got the guard: it let any code
+  // in the same isolate as a shipped release app set `_currentDeviceGAID`
+  // to an arbitrary value and self-grant a 50-year VIP entry against the
+  // host's own `AdConfig.vipDeviceGaids` whitelist, with no signature
+  // check — a bypass of the "VIP is Ed25519-signed, no backend" security
+  // model this SDK otherwise guarantees.
+  test(
+      'debugApplyConfigVipGaidWhitelist is ignored while release mode is '
+      'simulated', () async {
+    await AdManager().destroy();
+    final prefs = await AdPreferences.getInstance();
+    final vip = VipManager(prefs);
+    await vip.load();
+    addTearDown(vip.dispose);
+
+    const whitelistedGaid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const config = AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(
+          bannerId: 'b', interstitialId: 'i', appOpenId: 'ao', rewardedId: 'r'),
+      vipDeviceGaids: ['aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'],
+    );
+
+    AdManager.debugSimulateReleaseModeForTestSeams = true;
+    await AdManager().debugApplyConfigVipGaidWhitelist(config, vip, prefs,
+        deviceGaid: whitelistedGaid);
+
+    expect(vip.isActive, isFalse,
+        reason: 'debugApplyConfigVipGaidWhitelist must not self-grant VIP '
+            'in a (simulated) release build');
+  });
 }

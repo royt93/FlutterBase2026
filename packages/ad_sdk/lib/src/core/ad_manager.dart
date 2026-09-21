@@ -3190,6 +3190,10 @@ class AdManager with WidgetsBindingObserver {
     AdPreferences prefs, {
     required String deviceGaid,
   }) {
+    if (_testSeamsBlocked) {
+      _warnSeamBlocked('debugApplyConfigVipGaidWhitelist');
+      return Future<void>.value();
+    }
     _currentDeviceGAID = deviceGaid;
     return _applyConfigVipGaidWhitelist(config, vip, prefs, isDebug: false);
   }
@@ -5166,7 +5170,7 @@ class AdManager with WidgetsBindingObserver {
     // (e.g. the `_consentManager!.set()` persist-await above) would, while a
     // newer overlapping call races ahead and completes its own write first.
     final tailWriteBarrier = debugSetConsentTailWriteBarrier;
-    if (tailWriteBarrier != null) await tailWriteBarrier;
+    if (tailWriteBarrier != null && !_testSeamsBlocked) await tailWriteBarrier;
     if (consentEpoch == _consentIntentEpoch) {
       if (tighteningPersonalisation) _consentProviderApplyInFlight = true;
       try {
@@ -6199,7 +6203,7 @@ class AdManager with WidgetsBindingObserver {
   Future<void> _applyConsentResultOnce(PrivacyOptionsResult result) async {
     final epoch = _consentIntentEpoch;
     final barrier = debugConsentApplyBarrier;
-    if (barrier != null) await barrier;
+    if (barrier != null && !_testSeamsBlocked) await barrier;
     final wasBlocked = !_canRequestAds;
 
     // Round-6 audit, BLOCKER — same `obtained` != "consented" trap as
@@ -6281,7 +6285,7 @@ class AdManager with WidgetsBindingObserver {
     // than rebuilding them from a possibly-stale `_consent`.
     final current = _consentManager?.adConsent ?? _consent;
     final writeBarrier = debugConsentWriteBarrier;
-    if (writeBarrier != null) await writeBarrier;
+    if (writeBarrier != null && !_testSeamsBlocked) await writeBarrier;
     await _writeConsentFromApply(AdConsent(
       hasUserConsent: hasConsent,
       isAgeRestrictedUser: current.isAgeRestrictedUser,

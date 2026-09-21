@@ -1789,7 +1789,16 @@ class VipManager {
   /// entries, not the anti-reuse ledger (which must survive revoke/reinstall
   /// in production). Production callers never call this.
   @visibleForTesting
-  Future<void> clearRedeemedKeyLedgerForTest() => _redeemedKeyLedger.erase();
+  Future<void> clearRedeemedKeyLedgerForTest() async {
+    if (isActuallyRelease(_isRelease)) {
+      SafeLogger.e(
+          _tag,
+          'clearRedeemedKeyLedgerForTest ignored in a release build — '
+          'test-only seam (round-71 audit)');
+      return;
+    }
+    await _redeemedKeyLedger.erase();
+  }
 
   /// T200 — erases ALL entitlement data for a confirmed
   /// `AdManager().clearSdkData(scope:

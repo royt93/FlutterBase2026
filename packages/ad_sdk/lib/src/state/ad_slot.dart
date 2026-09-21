@@ -50,6 +50,12 @@ enum AdSlotState {
 class AdSlot {
   AdSlot({required this.type});
 
+  /// Test-only: forces the `debug*` seam release-mode guards to behave as
+  /// if `kReleaseMode` were true, since `kReleaseMode` itself is always
+  /// false under `flutter test`. See `ad_manager.dart`'s identical pattern.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
   /// Logical type of this slot.
   final AdSlotType type;
 
@@ -282,6 +288,11 @@ class AdSlot {
   void Function()? _debugFireWatchdogNow;
   @visibleForTesting
   void debugFireLoadWatchdogNow() {
+    if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+      SafeLogger.e('AdSlot',
+          'debugFireLoadWatchdogNow ignored in a release build — test-only seam (round-71 audit)');
+      return;
+    }
     _watchdogTimer?.cancel();
     _debugFireWatchdogNow?.call();
   }

@@ -42,6 +42,7 @@ void main() {
     messenger.setMockMethodCallHandler(umpChannel, null);
     debugUmpFormBackstopOverride = null;
     debugFormDismissTimeoutOverride = null;
+    debugSimulateReleaseModeForFormDismissTimeout = false;
     // The counter is module-level, and after round-7's final QC a form that
     // times out DELIBERATELY keeps its ad block — so a timeout test would
     // otherwise hand its block to the next test.
@@ -205,6 +206,48 @@ void main() {
     formCall.complete(null);
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(umpFormOnScreen.value, isFalse);
+  });
+
+  // Round-71 audit fix (MAJOR, gemini reviewer) — `debugFormDismissTimeoutOverride`
+  // was read with no release-mode guard at all: any code in a shipped
+  // release app could shrink the dismiss-backstop timeout (real default
+  // 180s) down to e.g. 0, reopening the ad gate while an EEA/UK consent
+  // form is still genuinely on screen. Proof the guard works: with the
+  // override set to 100ms AND release mode simulated, the call must NOT
+  // free its caller within a few hundred ms — it must fall back to the
+  // real (~180s) default instead.
+  test(
+      'debugFormDismissTimeoutOverride is ignored while release mode is '
+      'simulated', () async {
+    debugFormDismissTimeoutOverride = const Duration(milliseconds: 100);
+    debugSimulateReleaseModeForFormDismissTimeout = true;
+    final formCall = Completer<dynamic>();
+    messenger.setMockMethodCallHandler(umpChannel, (call) async {
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return null;
+        case 'ConsentInformation#getConsentStatus':
+          return 2; // required (Android mapping)
+        case 'UserMessagingPlatform#loadAndShowConsentFormIfRequired':
+          return formCall.future;
+        case 'ConsentInformation#canRequestAds':
+          return true;
+        default:
+          return null;
+      }
+    });
+
+    var completed = false;
+    final future = requestUmpConsentFlow()..then((_) => completed = true);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    expect(completed, isFalse,
+        reason: 'the 100ms override must not apply in a (simulated) '
+            'release build — the real ~180s default must still be in '
+            'effect');
+
+    formCall.complete(null);
+    await future;
   });
 
   test('two overlapping forms each hold the block until both are dismissed',

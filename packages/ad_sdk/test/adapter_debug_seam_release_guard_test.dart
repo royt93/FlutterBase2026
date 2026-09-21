@@ -22,7 +22,44 @@ void main() {
     AdMobAdapter.debugSimulateReleaseModeForTestSeams = false;
     AdSafetyConfig.debugSimulateReleaseModeForTestSeams = false;
     IabStorage.debugSimulateReleaseModeForTestSeams = false;
+    AdSlot.debugSimulateReleaseModeForTestSeams = false;
   });
+
+  // Round-71 audit fix (MAJOR, gemini reviewer) — same lint-only gap on
+  // `AdSlot.debugFireLoadWatchdogNow`: could force a real in-flight ad load
+  // to fail early in a shipped release app.
+  test(
+      'AdSlot.debugFireLoadWatchdogNow is ignored while release mode is '
+      'simulated', () {
+    final slot = AdSlot(type: AdSlotType.interstitial)..beginLoad();
+    addTearDown(slot.dispose);
+    slot.armLoadWatchdog('interstitial', const Duration(seconds: 10));
+
+    AdSlot.debugSimulateReleaseModeForTestSeams = true;
+    slot.debugFireLoadWatchdogNow();
+
+    expect(slot.isLoading, isTrue,
+        reason: 'debugFireLoadWatchdogNow must not force markFailed() in a '
+            '(simulated) release build');
+  });
+
+  // Control for the test above — proves the seam still works normally (not
+  // release-simulated), so the guard is proven to gate something real.
+  test('AdSlot.debugFireLoadWatchdogNow still fires when not released', () {
+    final slot = AdSlot(type: AdSlotType.interstitial)..beginLoad();
+    addTearDown(slot.dispose);
+    slot.armLoadWatchdog('interstitial', const Duration(seconds: 10));
+
+    slot.debugFireLoadWatchdogNow();
+
+    expect(slot.isLoading, isFalse,
+        reason: 'debugFireLoadWatchdogNow must force markFailed() when not '
+            '(simulated) released, or the guard above proves nothing');
+  });
+
+  // ConsentManager's own release-guard regression test lives in
+  // consent_manager_test.dart — it needs the file's bootstrap/channel-mock
+  // setup, which this file doesn't have.
 
   test(
       'AdMobAdapter.debugSimulateRewardedShowAndDismiss is ignored while '

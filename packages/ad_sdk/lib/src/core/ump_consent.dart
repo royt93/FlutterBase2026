@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show ValueNotifier, kReleaseMode, visibleForTesting;
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../utils/safe_logger.dart';
@@ -18,8 +19,17 @@ const Duration kFormDismissTimeout = Duration(seconds: 180);
 @visibleForTesting
 Duration? debugFormDismissTimeoutOverride;
 
+/// Test-only: forces [_formDismissTimeout]'s release-mode guard to behave as
+/// if `kReleaseMode` were true, since `kReleaseMode` itself is always false
+/// under `flutter test`. See `ad_manager.dart`'s identical pattern.
+@visibleForTesting
+bool debugSimulateReleaseModeForFormDismissTimeout = false;
+
 Duration get _formDismissTimeout =>
-    debugFormDismissTimeoutOverride ?? kFormDismissTimeout;
+    ((kReleaseMode || debugSimulateReleaseModeForFormDismissTimeout)
+        ? null
+        : debugFormDismissTimeoutOverride) ??
+    kFormDismissTimeout;
 
 /// True while one of Google's native UMP forms — the consent form or the
 /// Privacy Options form — is actually on screen.
