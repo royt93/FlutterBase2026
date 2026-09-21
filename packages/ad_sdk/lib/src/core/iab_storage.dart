@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // of a platform package is not a native dependency.
 import 'package:shared_preferences_android/shared_preferences_android.dart';
 
+import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 
 /// Reads GPP section strings' custom bit-packed encoding — MSB-first bits
@@ -128,10 +129,23 @@ class IabStorage {
   static SharedPreferencesAsync? _store;
   static String? _androidFileName;
 
+  // Round-70 audit fix — same class of gap as AdManager's
+  // `_testSeamsBlocked`: `@visibleForTesting` is a lint only.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
+  static bool get _testSeamsBlocked =>
+      isActuallyRelease(debugSimulateReleaseModeForTestSeams);
+
   /// Drops the cached store so a test can swap the platform implementation
   /// underneath it.
   @visibleForTesting
   static void debugResetForTest() {
+    if (_testSeamsBlocked) {
+      SafeLogger.e('IabStorage',
+          'debugResetForTest ignored in a release build — test-only seam (round-70 audit)');
+      return;
+    }
     _store = null;
     _androidFileName = null;
   }

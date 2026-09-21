@@ -16,12 +16,27 @@ import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
+import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 import 'applovin_ad_revenue.dart';
 import 'applovin_bridge.dart';
 
 /// AppLovin MAX implementation of [AdProviderAdapter].
 class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
+  // Round-70 audit fix (MAJOR) — mirrors AdManager's `_testSeamsBlocked`
+  // (see its doc comment): `@visibleForTesting` is a lint only. Any code
+  // reachable via `AdManager().adapter as AppLovinAdapter` in a shipped
+  // release build — including a compromised transitive dependency — could
+  // otherwise call these seams to desync the ad-slot state machine or fire
+  // an arbitrary show/reward callback with no real ad ever shown.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
+  static bool get _testSeamsBlocked =>
+      isActuallyRelease(debugSimulateReleaseModeForTestSeams);
+
+  static void _warnSeamBlocked(String name) => SafeLogger.e('[AppLovin]',
+      '$name ignored in a release build — test-only seam (round-70 audit)');
   // Round-23 QC (reviewer B, MAJOR) — inline surfaces are blanked while a
   // fullscreen ad is on screen. Round-26 QC (reviewer A, MINOR) — ownership is
   // counted, not snapshotted; see [InlineVisibilityOwners]. AppLovin has only
@@ -125,8 +140,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// Pretend a MAX ad view exists for [key], so a test can exercise the
   /// "there is something live to pause" branch without a real bridge.
   @visibleForTesting
-  void debugSetBannerAdViewIdForTest(Object key, AdViewId? id) =>
-      _bannerAdViewIdFor(key).value = id;
+  void debugSetBannerAdViewIdForTest(Object key, AdViewId? id) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSetBannerAdViewIdForTest');
+    }
+    _bannerAdViewIdFor(key).value = id;
+  }
 
   /// Takes [reason]'s hold on both flags for one inline surface.
   ///
@@ -1436,6 +1455,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// branches of [_scheduleAppOpenTimeoutCheck] can be driven under `FakeAsync`.
   @visibleForTesting
   void debugStartAppOpenWatchdog(void Function(bool) captured) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugStartAppOpenWatchdog');
+    }
     appOpenSlot.beginLoad();
     appOpenSlot.markReady();
     appOpenSlot.beginShow();
@@ -1789,6 +1811,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     void Function(bool) onDone, {
     bool dismissed = true,
   }) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSimulateInterstitialShowAndDismiss');
+    }
     interstitialSlot.beginLoad();
     interstitialSlot.markReady();
     interstitialSlot.beginShow();
@@ -2097,6 +2122,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     void Function(RewardResult) onDone, {
     bool dismissed = true,
   }) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSimulateRewardedShowAndDismiss');
+    }
     rewardedSlot.beginLoad();
     rewardedSlot.markReady();
     rewardedSlot.beginShow();

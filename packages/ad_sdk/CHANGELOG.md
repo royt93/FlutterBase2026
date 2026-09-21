@@ -4,6 +4,19 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.10] - 2026-09-21
+
+- **Fixed (round 70 audit, MAJOR):** the debug-seam-guard gap rounds 68/69
+  fixed on `AdManager` (`@visibleForTesting` is a lint, not a runtime
+  check) also existed on `AppLovinAdapter`, `AdMobAdapter`,
+  `AdSafetyConfig` and `IabStorage` — 11 seams across the 4 files. Most
+  severe: `debugSimulateRewardedShowAndDismiss` on both ad adapters fires
+  the reward-granting callback directly with no real ad shown, reachable
+  in a shipped app via `AdManager().adapter as AdMobAdapter`;
+  `AdSafetyConfig.debugExpireSuspiciousPause` defeats the invalid-traffic
+  throttle outright. All 11 now share the same `kReleaseMode`-gated no-op
+  guard as `AdManager`'s. See `doc/audit/audit_round70_consolidated.md`.
+
 ## [3.0.9] - 2026-09-21
 
 - **Fixed (round 69 audit, MAJOR):** round 68 guarded 5 `AdManager`

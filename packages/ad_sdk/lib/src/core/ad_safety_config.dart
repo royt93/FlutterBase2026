@@ -315,6 +315,19 @@ class AdSafetyParams {
 class AdSafetyConfig {
   static const String _tag = 'AdSafety';
 
+  // Round-70 audit fix (MAJOR) — same class of gap as AdManager's
+  // `_testSeamsBlocked`: `@visibleForTesting` is a lint only, and
+  // `debugExpireSuspiciousPause`/`debugSetLastViolationTimestamp` directly
+  // defeat the invalid-traffic throttling this file exists to enforce.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
+  static bool get _testSeamsBlocked =>
+      isActuallyRelease(debugSimulateReleaseModeForTestSeams);
+
+  static void _warnSeamBlocked(String name) => SafeLogger.e(
+      _tag, '$name ignored in a release build — test-only seam (round-70 audit)');
+
   static AdSafetyParams _params = const AdSafetyParams();
 
   // ════════════════ CONSTANTS ════════════════
@@ -1207,6 +1220,9 @@ class AdSafetyConfig {
   /// be exercised deterministically.
   @visibleForTesting
   static void debugSetLastViolationTimestamp(int epochMs) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSetLastViolationTimestamp');
+    }
     _lastViolationTimestamp = epochMs;
   }
 
@@ -1216,6 +1232,7 @@ class AdSafetyConfig {
   /// elapsed time at all, only [_suspiciousPauseUntil] does).
   @visibleForTesting
   static void debugExpireSuspiciousPause() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugExpireSuspiciousPause');
     _suspiciousPauseUntil = 0;
   }
 

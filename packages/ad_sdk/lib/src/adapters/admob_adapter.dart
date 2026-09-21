@@ -13,6 +13,7 @@ import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
+import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 import 'gma_bridge.dart';
 
@@ -24,6 +25,21 @@ import 'gma_bridge.dart';
 /// through an injectable [GmaBridge]; the banner stays on the native GMA API
 /// (it is `AdWidget`-coupled and not behaviourally testable in isolation).
 class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
+  // Round-70 audit fix (MAJOR) — mirrors AdManager's `_testSeamsBlocked` /
+  // AppLovinAdapter's copy of the same pattern: `@visibleForTesting` is a
+  // lint only. Any code reachable via `AdManager().adapter as AdMobAdapter`
+  // in a shipped release build could otherwise call these seams to desync
+  // the ad-slot state machine or fire an arbitrary show/reward callback
+  // with no real ad ever shown.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
+  static bool get _testSeamsBlocked =>
+      isActuallyRelease(debugSimulateReleaseModeForTestSeams);
+
+  static void _warnSeamBlocked(String name) => SafeLogger.e('[AdMob]',
+      '$name ignored in a release build — test-only seam (round-70 audit)');
+
   // Round-23 QC (reviewer B, MAJOR) — inline surfaces are blanked while a
   // fullscreen ad is on screen. Round-26 QC (reviewer A, MINOR) — and who wants
   // them blanked is counted, not snapshotted; see [InlineVisibilityOwners].
@@ -1127,6 +1143,9 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   @visibleForTesting
   void debugSimulateAppOpenShowAndArmWatchdog(
       void Function(bool) onDismiss, Duration cap) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSimulateAppOpenShowAndArmWatchdog');
+    }
     appOpenSlot.beginLoad();
     appOpenSlot.markReady();
     appOpenSlot.beginShow();
@@ -1143,7 +1162,12 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// `_armAppOpenWatchdog`'s doc comment). Exists purely so the identity
   /// guard itself is exercised, as a regression backstop.
   @visibleForTesting
-  void debugReplaceAppOpenAdUnsafe(GmaFullscreenAd ad) => _appOpenAd = ad;
+  void debugReplaceAppOpenAdUnsafe(GmaFullscreenAd ad) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugReplaceAppOpenAdUnsafe');
+    }
+    _appOpenAd = ad;
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
   //  INTERSTITIAL
@@ -1376,6 +1400,9 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     void Function(bool) onDone, {
     bool dismissed = true,
   }) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSimulateInterstitialShowAndDismiss');
+    }
     interstitialSlot.beginLoad();
     interstitialSlot.markReady();
     interstitialSlot.beginShow();
@@ -1927,6 +1954,9 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     void Function(RewardResult) onDone, {
     bool dismissed = true,
   }) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSimulateRewardedShowAndDismiss');
+    }
     rewardedSlot.beginLoad();
     rewardedSlot.markReady();
     rewardedSlot.beginShow();
