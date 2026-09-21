@@ -4,6 +4,22 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.9] - 2026-09-21
+
+- **Fixed (round 69 audit, MAJOR):** round 68 guarded 5 `AdManager`
+  `@visibleForTesting` seams (`debugSetAdapter`/`debugAdapterFactory`/
+  `debugVipManager`/`debugConsentManager`/`debugConfig`) against being
+  called from a shipped release build. A full adversarial pass of the rest
+  of `ad_manager.dart` (9195 lines — never fully audited before this round)
+  found **28 more seams sharing the identical gap**, including
+  `debugApplyUmpConsentResult` (forges GDPR consent state directly),
+  `debugResetGuardState` (wipes every footgun guard at once), and
+  `debugResetBannerCooldown`/`debugResetMrecCooldown`/
+  `debugResetNativeCooldown` (clear the ad-request-spam cooldowns the
+  safety layer depends on). All 33 now share the same `kReleaseMode`-gated
+  no-op guard. See `doc/audit/audit_round69_consolidated.md` for the full
+  list and the (verified-safe) members deliberately left unguarded.
+
 ## [3.0.8] - 2026-09-20
 
 - **Bumped:** `connection_notifier` `^4.1.0` → `^4.1.1` (patch only) — the

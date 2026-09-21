@@ -215,8 +215,10 @@ class AdManager with WidgetsBindingObserver {
   int? _lastAppliedRemoteSafetyRevision;
 
   @visibleForTesting
-  set debugRemoteSafetyProvider(RemoteAdSafetyProvider? p) =>
-      _remoteSafetyProvider = p;
+  set debugRemoteSafetyProvider(RemoteAdSafetyProvider? p) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugRemoteSafetyProvider');
+    _remoteSafetyProvider = p;
+  }
 
   /// T137 — test-only reset for [_lastAppliedRemoteSafetyRevision]. A test
   /// file whose `tearDown` clears the other `debugRemoteSafetyProvider`-
@@ -224,8 +226,12 @@ class AdManager with WidgetsBindingObserver {
   /// which reaches [_resetGuardState] on its own) needs this one too, or
   /// a revision one test applies leaks into the next test's guard check.
   @visibleForTesting
-  set debugLastAppliedRemoteSafetyRevision(int? v) =>
-      _lastAppliedRemoteSafetyRevision = v;
+  set debugLastAppliedRemoteSafetyRevision(int? v) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugLastAppliedRemoteSafetyRevision');
+    }
+    _lastAppliedRemoteSafetyRevision = v;
+  }
 
   @visibleForTesting
   bool get debugRemoteSafetyRefreshTimerActive =>
@@ -1072,7 +1078,10 @@ class AdManager with WidgetsBindingObserver {
   /// [debugLastAppliedRemoteSafetyRevision] (simulates the in-memory loss
   /// a real restart causes, without requiring a full `destroy()` cycle).
   @visibleForTesting
-  set debugFeatureFlagsRevision(int? v) => _featureFlagsRevision = v;
+  set debugFeatureFlagsRevision(int? v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugFeatureFlagsRevision');
+    _featureFlagsRevision = v;
+  }
 
   /// Applies a verified feature-flag payload. Invalid, expired, or stale
   /// payloads are rejected and leave the current configuration untouched.
@@ -1509,7 +1518,10 @@ class AdManager with WidgetsBindingObserver {
   /// Push an event onto [events] (lets a test drive consumers like RevenuePanel
   /// without a live native adapter).
   @visibleForTesting
-  void debugEmit(AdEvent event) => _emit(event);
+  void debugEmit(AdEvent event) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugEmit');
+    _emit(event);
+  }
 
   /// Inject a (fake) adapter so the gating logic in `loadX`/`showX`/`canShowX`
   /// can be unit-tested without the native plugins.
@@ -1666,7 +1678,10 @@ class AdManager with WidgetsBindingObserver {
   /// T70 — test seam so didChangeAppLifecycleState's flush-on-pause wiring
   /// can be verified without needing a full SDK init.
   @visibleForTesting
-  set debugEventLog(AdEventLog? log) => _eventLog = log;
+  set debugEventLog(AdEventLog? log) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugEventLog');
+    _eventLog = log;
+  }
 
   /// T151 — lets a demo/test reach the real, currently-active event log
   /// (or discover there isn't one yet) to inject a raw entry via
@@ -1798,7 +1813,10 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam for [_currentDeviceGAID] — real init fetches it via a
   /// platform channel unavailable under `flutter test`.
   @visibleForTesting
-  set debugCurrentDeviceGAID(String value) => _currentDeviceGAID = value;
+  set debugCurrentDeviceGAID(String value) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugCurrentDeviceGAID');
+    _currentDeviceGAID = value;
+  }
 
   /// Placeholder GAID Android/iOS return in place of a real one once Limit
   /// Ad Tracking (or ATT-denied) suppresses it — never a real device's GAID,
@@ -1973,6 +1991,9 @@ class AdManager with WidgetsBindingObserver {
   /// AFTER the early-return guard instead of before it.
   @visibleForTesting
   void debugSimulateInternalRetryRaceWithBusyGuard() {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSimulateInternalRetryRaceWithBusyGuard');
+    }
     _isInitializing = true;
     _isInternalInitRetryCall = true;
   }
@@ -2032,34 +2053,50 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam: start the periodic retry timer without going through a full
   /// [initialize] (which requires a real platform-channel adapter init).
   @visibleForTesting
-  void debugStartAdRetryTimer() => _startAdRetryTimer();
+  void debugStartAdRetryTimer() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugStartAdRetryTimer');
+    _startAdRetryTimer();
+  }
 
   /// Test seam: stop the periodic retry timer (mirrors what [destroy] and the
   /// [initialize] re-init guard already do) without tearing down the rest of
   /// the adapter/config state.
   @visibleForTesting
-  void debugStopAdRetryTimer() => _stopAdRetryTimer();
+  void debugStopAdRetryTimer() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugStopAdRetryTimer');
+    _stopAdRetryTimer();
+  }
 
   /// Test seam: drive the connectivity handler without the native plugin.
   @visibleForTesting
-  void debugConnectivityChanged(bool connected) =>
-      _onConnectivityChanged(connected);
+  void debugConnectivityChanged(bool connected) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugConnectivityChanged');
+    _onConnectivityChanged(connected);
+  }
 
   /// Test seam: force the pre-ready gate on [isConnected] so tests can
   /// exercise its early-return branch without waiting on the real
   /// `ConnectionNotifierTools.initialize()` future.
   @visibleForTesting
-  set debugConnectivityReady(bool ready) => _connectivityReady = ready;
+  set debugConnectivityReady(bool ready) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugConnectivityReady');
+    _connectivityReady = ready;
+  }
 
   @visibleForTesting
-  void debugRetryRefillAds() => _retryRefillAds();
+  void debugRetryRefillAds() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugRetryRefillAds');
+    _retryRefillAds();
+  }
 
   /// Test seam: inject a fake `ConnectionNotifierTools.initialize()` so tests
   /// can simulate a hung native init call (R10-D) without a real platform
   /// channel.
   @visibleForTesting
-  set debugConnectivityInit(Future<void> Function() fn) =>
-      _connectivityInit = fn;
+  set debugConnectivityInit(Future<void> Function() fn) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugConnectivityInit');
+    _connectivityInit = fn;
+  }
 
   /// Test seam: read whether `_startConnectivityWatch` has completed.
   @visibleForTesting
@@ -2071,11 +2108,20 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam: drive `_startConnectivityWatch` directly without a full
   /// [initialize].
   @visibleForTesting
-  Future<void> debugStartConnectivityWatch() => _startConnectivityWatch();
+  Future<void> debugStartConnectivityWatch() {
+    if (_testSeamsBlocked) {
+      _warnSeamBlocked('debugStartConnectivityWatch');
+      return Future<void>.value();
+    }
+    return _startConnectivityWatch();
+  }
 
   /// Test seam: drive `_stopConnectivityWatch` directly.
   @visibleForTesting
-  void debugStopConnectivityWatch() => _stopConnectivityWatch();
+  void debugStopConnectivityWatch() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugStopConnectivityWatch');
+    _stopConnectivityWatch();
+  }
 
   /// Test seam: whether a live connectivity subscription is currently held
   /// (2026-08-16 audit — proves an overlapping `_startConnectivityWatch`
@@ -2137,7 +2183,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam for [_testIdFootgunBlocked] — see its doc comment.
   @visibleForTesting
-  set debugTestIdFootgunBlocked(bool v) => _testIdFootgunBlocked = v;
+  set debugTestIdFootgunBlocked(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugTestIdFootgunBlocked');
+    _testIdFootgunBlocked = v;
+  }
 
   @visibleForTesting
   bool get debugTestIdFootgunBlocked => _testIdFootgunBlocked;
@@ -2438,7 +2487,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam for the consent gate.
   @visibleForTesting
-  set debugCanRequestAds(bool v) => _updateCanRequestAds(v);
+  set debugCanRequestAds(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugCanRequestAds');
+    _updateCanRequestAds(v);
+  }
 
   /// Test seam — the result the running drain is handing out, or `null` when
   /// no drain is running. See [_drainingInitResult].
@@ -2454,13 +2506,21 @@ class AdManager with WidgetsBindingObserver {
   /// without a UMP channel. [session] is what binds it to a session.
   @visibleForTesting
   Future<void> debugApplyUmpConsentResult(UmpConsentResult result,
-          {int? session}) =>
-      _applyUmpConsentResult(result, session: session);
+      {int? session}) {
+    if (_testSeamsBlocked) {
+      _warnSeamBlocked('debugApplyUmpConsentResult');
+      return Future<void>.value();
+    }
+    return _applyUmpConsentResult(result, session: session);
+  }
 
   /// N2 test seam — forces the release-only footgun block without needing a
   /// `kReleaseMode` build.
   @visibleForTesting
-  set debugFootgunBlocked(bool v) => _footgunBlocked = v;
+  set debugFootgunBlocked(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugFootgunBlocked');
+    _footgunBlocked = v;
+  }
 
   @visibleForTesting
   bool get debugFootgunBlocked => _footgunBlocked;
@@ -2639,7 +2699,10 @@ class AdManager with WidgetsBindingObserver {
   /// a real unanswered EEA session, so the reconnect/backstop UMP-retry
   /// branches (gated on `!_umpAnswered`) can be reached deterministically.
   @visibleForTesting
-  set debugLastUmpResult(UmpConsentResult? r) => _lastUmpResult = r;
+  set debugLastUmpResult(UmpConsentResult? r) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugLastUmpResult');
+    _lastUmpResult = r;
+  }
 
   /// True when the last [requestUmpConsent] attempt failed (network error or
   /// the 20s timeout) — retried by [_onConnectivityChanged] on the next
@@ -2654,7 +2717,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam for [_umpAttemptFailed] — see [debugResetGuardState].
   @visibleForTesting
-  set debugUmpAttemptFailed(bool v) => _umpAttemptFailed = v;
+  set debugUmpAttemptFailed(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugUmpAttemptFailed');
+    _umpAttemptFailed = v;
+  }
 
   @visibleForTesting
   bool get debugUmpFormAbandoned => _umpFormAbandoned;
@@ -2663,14 +2729,23 @@ class AdManager with WidgetsBindingObserver {
   /// `if (_umpFormAbandoned)` branch (their `runZonedGuarded` crash guard)
   /// without first having to reproduce a real abandoned-form sequence.
   @visibleForTesting
-  set debugUmpFormAbandoned(bool v) => _umpFormAbandoned = v;
+  set debugUmpFormAbandoned(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugUmpFormAbandoned');
+    _umpFormAbandoned = v;
+  }
 
   /// Test seam for [_recheckAbandonedUmpForm] (M-3) — the periodic backstop
   /// and reconnect call sites are themselves timer/plugin-driven and out of
   /// proportion to drive in a test just to reach this; this calls the real
   /// method directly.
   @visibleForTesting
-  Future<void> debugRecheckAbandonedUmpForm() => _recheckAbandonedUmpForm();
+  Future<void> debugRecheckAbandonedUmpForm() {
+    if (_testSeamsBlocked) {
+      _warnSeamBlocked('debugRecheckAbandonedUmpForm');
+      return Future<void>.value();
+    }
+    return _recheckAbandonedUmpForm();
+  }
 
   /// Counts [_scheduleNextRetry]'s periodic UMP backstop firing — driving the
   /// real [requestUmpConsent] round trip in a test needs a full UMP channel
@@ -2717,7 +2792,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam for [_umpRequested] — see [debugResetGuardState].
   @visibleForTesting
-  set debugUmpRequested(bool v) => _umpRequested = v;
+  set debugUmpRequested(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugUmpRequested');
+    _umpRequested = v;
+  }
 
   @visibleForTesting
   bool get debugUmpRequested => _umpRequested;
@@ -2729,7 +2807,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam for [_consentExplicitlySet] — see [debugResetGuardState].
   @visibleForTesting
-  set debugConsentExplicitlySet(bool v) => _consentExplicitlySet = v;
+  set debugConsentExplicitlySet(bool v) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugConsentExplicitlySet');
+    _consentExplicitlySet = v;
+  }
 
   @visibleForTesting
   bool get debugConsentExplicitlySet => _consentExplicitlySet;
@@ -2749,15 +2830,24 @@ class AdManager with WidgetsBindingObserver {
   /// Test seam: clear the banner load cooldown so tests sharing the singleton
   /// don't leak `_lastBannerLoadAt` into each other.
   @visibleForTesting
-  void debugResetBannerCooldown() => _lastBannerLoadAtByKey.clear();
+  void debugResetBannerCooldown() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugResetBannerCooldown');
+    _lastBannerLoadAtByKey.clear();
+  }
 
   /// Test seam: same as [debugResetBannerCooldown] but for MREC.
   @visibleForTesting
-  void debugResetMrecCooldown() => _lastMrecLoadAtByKey.clear();
+  void debugResetMrecCooldown() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugResetMrecCooldown');
+    _lastMrecLoadAtByKey.clear();
+  }
 
   /// Test seam: same as [debugResetBannerCooldown] but for Native.
   @visibleForTesting
-  void debugResetNativeCooldown() => _lastNativeLoadAtByKey.clear();
+  void debugResetNativeCooldown() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugResetNativeCooldown');
+    _lastNativeLoadAtByKey.clear();
+  }
 
   bool _isObserverAdded = false;
 
@@ -2854,7 +2944,10 @@ class AdManager with WidgetsBindingObserver {
   /// `runIntegrationSelfCheck`'s "Navigator key wired" check (T98) can be
   /// exercised as never-set, independent of test execution order.
   @visibleForTesting
-  void debugClearNavigatorKey() => _navigatorKey = null;
+  void debugClearNavigatorKey() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugClearNavigatorKey');
+    _navigatorKey = null;
+  }
 
   // ─── Banner accessors used by BannerAdWidget ─────────────────────────────
 
@@ -4618,12 +4711,20 @@ class AdManager with WidgetsBindingObserver {
   }
 
   @visibleForTesting
-  void debugAttachFullscreenDismissWatchers() =>
-      _attachFullscreenDismissWatchers();
+  void debugAttachFullscreenDismissWatchers() {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugAttachFullscreenDismissWatchers');
+    }
+    _attachFullscreenDismissWatchers();
+  }
 
   @visibleForTesting
-  void debugDetachFullscreenDismissWatchers() =>
-      _detachFullscreenDismissWatchers();
+  void debugDetachFullscreenDismissWatchers() {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugDetachFullscreenDismissWatchers');
+    }
+    _detachFullscreenDismissWatchers();
+  }
 
   bool _isFirstAdLoadTriggered = false;
 
@@ -6908,7 +7009,10 @@ class AdManager with WidgetsBindingObserver {
   /// be driven through `initialize()` under `flutter test` (no native
   /// adapter).
   @visibleForTesting
-  void debugResetGuardState() => _resetGuardState();
+  void debugResetGuardState() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugResetGuardState');
+    _resetGuardState();
+  }
 
   /// Round-26 audit (MAJOR, claude, borders BLOCKER) — `_disposeAdapter()`
   /// used to null the adapter's native listeners with no regard for a
@@ -9149,8 +9253,12 @@ class AdManager with WidgetsBindingObserver {
   /// state directly for tests that only care about the attribution/reset
   /// behavior around it (T160).
   @visibleForTesting
-  void debugSetLastShownPlacement(AdSlotType type, AdPlacement placement) =>
-      _lastShownPlacement[type] = placement;
+  void debugSetLastShownPlacement(AdSlotType type, AdPlacement placement) {
+    if (_testSeamsBlocked) {
+      return _warnSeamBlocked('debugSetLastShownPlacement');
+    }
+    _lastShownPlacement[type] = placement;
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
   //  EVENT EMIT — single `_emit()` chokepoint: records to the compliance
