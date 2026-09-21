@@ -67,19 +67,24 @@ The full contract lives in `packages/ad_sdk/README.md` — summary:
 - Keys are **Ed25519-signed and verified offline** — only the public key ships in a consuming app, so decompiling the binary doesn't let anyone forge new valid keys. Mint new keys with the matching private key via `packages/ad_sdk/tool/vip_mint.dart` (never commit the private key). Redemption goes through `VipManager.redeemSignedKey(...)`, not a lookup table.
 - `packages/ad_sdk/example` ships a reference `VipRedeemScreen` consuming apps can wrap with their own localized strings, signing public key, and privacy-policy launcher.
 
-## Known pending security debt — repo git history
+## Resolved security debt — repo git history (was: pending)
 
-**`android/app/private_key.pepk` (a Play App Signing key export, leftover from
-when the host app lived in this repo) was committed at `60a1f3d` (2024-12-20)
-and removed from HEAD since, but is still retrievable from anyone who can
-clone this repo via `git cat-file -p 60a1f3d:android/app/private_key.pepk`.**
-Decided 2026-09-03 (audit round 34, see `doc/audit/audit_round34_consolidated.md`
-finding F3): **not acting on this now** — repo is currently private, risk is
-low today. Before this repo's access ever widens (goes public, gains an
-untrusted collaborator, moves CI to a third-party service), do first:
-1. Check Google Play Console whether this key was ever used to sign an
-   actual published app.
-2. If yes, rotate the app signing key via Play Console's key-upload-key
-   rotation before doing anything else.
-3. Only then purge the blob from git history (`git filter-repo` or BFG) —
-   purging without rotating first is false safety if the key was ever live.
+**`android/app/private_key.pepk`** (a Play App Signing key export, leftover
+from when the host app lived in this repo) was committed at `60a1f3d`
+(2024-12-20). Resolved 2026-09-21: Play Console confirmed this key was
+**never used to sign a published app** (no rotation needed), so the 4 remote
+branches that still had it reachable in their history
+(`audit-round9-n1-n6-f7`, `release20260322`, `release20260616`,
+`release20260814` — `main` itself never had it as an ancestor) were deleted
+from `origin` outright rather than rewritten with `git filter-repo`/BFG —
+simpler and sufficient once rotation wasn't a prerequisite. Verified after
+deletion: `git branch -r --contains 60a1f3d` returns nothing across every
+remaining branch. (`keystore.jks`, the separate Android signing-key leak
+purged 2026-09-20, was independently re-verified clean across all branches
+in the same pass.)
+
+Residual, accepted: GitHub may keep the now-unreachable commit objects
+reachable by exact SHA for a while until internal GC runs; low risk given
+the key was confirmed never live. If this ever needs to be fully scrubbed
+from GitHub's side too, that requires a GitHub support request, not
+anything doable from this repo alone.
