@@ -20,6 +20,8 @@
 // reachable, which is required to exercise the fix (it runs AFTER adapter
 // init succeeds).
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
@@ -109,25 +111,41 @@ void main() {
   // call it BEFORE initialize(). autoRequestUmpConsent:true used to run the
   // UMP flow AFTER adapter.initialize() had already fired the first
   // AppLovin/AdMob native init call, so that native init went out before EEA
-  // consent was known. This proves the UMP channel call now happens first.
+  // consent was known.
   //
-  // Must run FIRST in this file: package:applovin_max memoizes its
+  // Round-71 audit fix (MAJOR, codex + gemini reviewers, both independent) —
+  // an earlier version of this test only proved the UMP *call* fires first;
+  // it never held the flow open, so it couldn't tell an awaited flow from a
+  // fire-and-forget one that merely starts first by coincidence of
+  // scheduling. `getConsentStatus` — the step that decides whether a form is
+  // even needed — is parked here, and adapter.initialize() is asserted to
+  // NOT have fired while consent is still undetermined, before being
+  // released to prove init still proceeds normally afterward.
+  // `requestUmpConsent()` already carries its own 240s hard cap (see
+  // ad_manager.dart's M6 fix), so awaiting it in production cannot hang
+  // forever the way the original fire-and-forget design once feared.
+  //
+  // Asserts on `AdManager().isInitialised` rather than a raw
+  // `al:initialize` channel call — package:applovin_max memoizes its
   // initialize() call behind a static `_hasInitializeInvoked` flag with no
-  // test reset hook, so once any earlier test in this isolate has called
-  // AppLovinMAX.initialize(), later calls short-circuit without touching the
-  // method channel — this test would never observe 'al:initialize' again.
-  test('autoRequestUmpConsent:true runs UMP flow before adapter.initialize()',
-      () async {
+  // test reset hook, so once any earlier test in this *process* (not just
+  // this file — flutter test can share a worker isolate across files) has
+  // called AppLovinMAX.initialize(), later calls short-circuit without
+  // touching the method channel at all, even though they still resolve
+  // successfully. `isInitialised` reflects this SDK's own per-session state
+  // (`_config != null && _adapter != null`), which resets every `destroy()`
+  // regardless of the native plugin's one-time memoization — immune to test
+  // run order.
+  test('autoRequestUmpConsent:true — adapter.initialize() waits for the UMP '
+      'flow to actually resolve', () async {
     SharedPreferences.setMockInitialValues({});
     final callOrder = <String>[];
+    final consentStatusGate = Completer<int>();
 
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(_alChannel, (call) async {
-      if (call.method == 'initialize') {
-        callOrder.add('al:${call.method}');
-        return <String, dynamic>{};
-      }
+      if (call.method == 'initialize') return <String, dynamic>{};
       return null;
     });
     messenger.setMockMethodCallHandler(_umpChannel, (call) {
@@ -138,7 +156,9 @@ void main() {
         case 'ConsentInformation#canRequestAds':
           return Future.value(true);
         case 'ConsentInformation#getConsentStatus':
-          return Future.value(0); // unknown
+          // Held open deliberately — native SDK init must not fire while
+          // this is still pending.
+          return consentStatusGate.future;
         case 'ConsentInformation#isConsentFormAvailable':
           return Future.value(false);
         default:
@@ -146,6 +166,7 @@ void main() {
       }
     });
     addTearDown(() {
+      if (!consentStatusGate.isCompleted) consentStatusGate.complete(0);
       messenger.setMockMethodCallHandler(_alChannel, (call) async {
         if (call.method == 'initialize') return <String, dynamic>{};
         return null;
@@ -166,7 +187,7 @@ void main() {
       });
     });
 
-    await AdManager().initialize(
+    final pending = AdManager().initialize(
       config: const AdConfig(
         provider: AdProvider.appLovin,
         appLovin: AppLovinConfig(
@@ -182,14 +203,32 @@ void main() {
       onComplete: (_, __) {},
     );
 
-    expect(AdManager().isInitialised, isTrue);
+    // A fixed `pumpEventQueue(times: N)` only flushes microtasks — under
+    // real parallel CPU load from other test workers, that can occasionally
+    // not be enough wall-clock-independent turns to reach the mocked
+    // `getConsentStatus` gate, making this flaky depending on what else the
+    // suite happens to schedule alongside it. Poll for the actual condition
+    // instead (same pattern as `r23_coppa_midinit_flip_test.dart`'s
+    // `_pumpUntil`), which is robust regardless of scheduling variance.
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (callOrder.isEmpty && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+
     expect(
-      callOrder,
-      ['ump:ConsentInformation#requestConsentInfoUpdate', 'al:initialize'],
-      reason: 'UMP consent flow must resolve before the AppLovin/AdMob '
-          'adapter fires its first native init call, so that init already '
-          'reflects the user\'s EEA consent choice',
-    );
+        callOrder, contains('ump:ConsentInformation#requestConsentInfoUpdate'));
+    expect(AdManager().isInitialised, isFalse,
+        reason: 'the SDK must not consider itself initialised while UMP '
+            'consent status is still being determined — the native SDK '
+            'must not start before EEA/UK consent is known');
+
+    consentStatusGate.complete(0); // unknown status, no form required
+    await pending;
+
+    expect(AdManager().isInitialised, isTrue,
+        reason: 'UMP consent flow must resolve before the AppLovin/AdMob '
+            'adapter fires its first native init call, so that init already '
+            'reflects the user\'s EEA consent choice');
   });
 
   test(

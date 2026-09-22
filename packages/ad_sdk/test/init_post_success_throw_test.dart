@@ -30,6 +30,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Polls a condition instead of sleeping a fixed span. The retry backoff is
@@ -501,6 +502,21 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   const alChannel = MethodChannel('applovin_max');
   const gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
+  // Round-71 audit fix — `initialize()` now actually awaits the auto-UMP
+  // flow (see ad_manager.dart's round-71 fix comment) instead of firing it
+  // in the background. Before that, this file never needed to mock the UMP
+  // channel: the flow ran and failed silently after initialize() had
+  // already returned. Now, an unmocked channel means every call falls
+  // through to requestConsentInfoUpdate's internal 20s network timeout
+  // (ump_consent.dart:237) rather than an instant MissingPluginException —
+  // and depending on scheduling, that can stack across this file's many
+  // nested/retried initialize() calls and blow past the 30s test timeout.
+  // Mocked here exactly like consent_persistence_on_init_test.dart so every
+  // call resolves near-instantly and deterministically instead.
+  final umpChannel = MethodChannel(
+    'plugins.flutter.io/google_mobile_ads/ump',
+    StandardMethodCodec(UserMessagingCodec()),
+  );
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -511,6 +527,20 @@ void main() {
     AdManager.debugInitRetryDelays = const [Duration(milliseconds: 300)];
     messenger.setMockMethodCallHandler(alChannel, (call) async => null);
     messenger.setMockMethodCallHandler(gmaChannel, (call) async => null);
+    messenger.setMockMethodCallHandler(umpChannel, (call) {
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return Future.value(null);
+        case 'ConsentInformation#canRequestAds':
+          return Future.value(true);
+        case 'ConsentInformation#getConsentStatus':
+          return Future.value(0); // unknown — no form required
+        case 'ConsentInformation#isConsentFormAvailable':
+          return Future.value(false);
+        default:
+          return Future.value(null);
+      }
+    });
   });
 
   tearDown(() async {
@@ -520,6 +550,7 @@ void main() {
     await AdManager().destroy();
     messenger.setMockMethodCallHandler(alChannel, null);
     messenger.setMockMethodCallHandler(gmaChannel, null);
+    messenger.setMockMethodCallHandler(umpChannel, null);
   });
 
   test(
@@ -757,26 +788,28 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     // Banner + MREC only. The App Open request goes through
-    // `loadAppOpenAd()`, which has its own consent gate and skips while UMP is
-    // unresolved (`⏭️ loadAppOpen skipped — consent not granted (UMP)`) — in a
-    // unit test the UMP channel does not exist, so asserting it would be
-    // asserting the gate, not the preload block.
+    // `loadAppOpenAd()`, which has its own consent gate — round-71 audit fix
+    // means UMP has already resolved (mocked in this file's setUp) by the
+    // time `initialize()` returns, so that gate is open here and the request
+    // proceeds to the next gate instead: connectivity, which this file does
+    // not mock, so it reports "no network".
     expect(adapter.banners, 1);
     expect(adapter.mrecs, 1);
     // The App Open request cannot be asserted on the adapter (see above), but
     // it can be asserted on the orchestrator: `loadAppOpenAd()` publishes an
-    // `AdSkipEvent(action: 'load', reason: 'consent')` when its own gate turns
-    // it away. That event only exists if the preload block really called it, so
-    // deleting the App Open preload — a mutation the two adapter counters above
-    // survive, per `agy`'s round-3 review — turns this red.
+    // `AdSkipEvent(action: 'load', reason: 'no_network')` when its own gate
+    // turns it away. That event only exists if the preload block really
+    // called it, so deleting the App Open preload — a mutation the two
+    // adapter counters above survive, per `agy`'s round-3 review — turns this
+    // red.
     expect(
         skips.where((e) =>
             e.type == AdSlotType.appOpen &&
             e.action == 'load' &&
-            e.reason == 'consent'),
+            e.reason == 'no_network'),
         isNotEmpty,
         reason: 'the initial preload round has to at least ATTEMPT the App '
-            'Open load, even when its consent gate then declines it');
+            'Open load, even when a later gate then declines it');
     await sub.cancel();
   });
 

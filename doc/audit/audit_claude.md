@@ -153,7 +153,43 @@ clean, `test/api_golden_test.dart` (public API surface diff) unaffected —
 confirms every fix is either a private read-site check or a new
 `@visibleForTesting` field, never a public surface change.
 
-### The one finding neither of us fixed, and shouldn't fix unilaterally
+### The one finding neither of us fixed initially — now resolved (2026-09-22)
+
+User reviewed this exact tradeoff (with real-world consequence explained
+plainly, not in jargon) and chose to await UMP fully, reusing
+`requestUmpConsent()`'s own existing 240s hard cap rather than inventing a
+new one. Fixed: the auto-UMP block in `ad_manager.dart` now `await`s a
+`Completer` that the existing `runZonedGuarded` wrapper completes (on
+success, on a normal exception, or on the callback-API zone-escape bug it
+already existed to catch) before falling through to `adapter.initialize()`.
+Native AppLovin/AdMob SDK init can no longer start before UMP consent has
+actually resolved.
+
+Proven with a real RED→GREEN test in `consent_persistence_on_init_test.dart`
+that parks `getConsentStatus` mid-flow and asserts `AdManager().isInitialised`
+stays `false` until it's released. Verified with a real Pixel 7 Pro install
+(no regression, normal graceful degradation with no real ad units
+configured).
+
+**Side effect discovered and fixed separately:** making `initialize()`
+actually await this flow exposed a previously-invisible 20s internal
+timeout (`requestConsentInfoUpdate`'s own network-timeout fallback,
+`ump_consent.dart`) in every test that doesn't mock the UMP channel — full
+suite went from ~2 min to 83 min. Fixed with a test-only override
+(`debugRequestConsentInfoUpdateTimeoutOverride`) set once in
+`test/flutter_test_config.dart` (suite-wide, not per-file), restoring
+~1.5 min full-suite runs.
+
+**Pre-existing test flakiness found (out of scope, flagged not fixed):**
+`r23_coppa_midinit_flip_test.dart` occasionally fails (~20% of the time) only
+when run *concurrently* with other timing-sensitive tests under `flutter
+test`'s default parallel worker scheduling — confirmed via
+`flutter test --concurrency=1` (10/10 clean) vs default concurrency (visibly
+flaky) that this is CPU-contention-driven test-runner behavior, not a logic
+bug in this SDK or in this round's fix. `consent_persistence_on_init_test.dart`'s
+own new test was made more robust to the same class of issue (polling instead
+of a fixed `pumpEventQueue` count), but `r23`'s pre-existing timing
+sensitivity is unrelated and left as-is.
 
 Both `audit_codex.md` and `audit_gemini_round71.md` independently flag the
 same architectural point (codex: MAJOR "EEA/UK user may be initialized
@@ -173,24 +209,22 @@ not a coding bug — the existing code is doing exactly what its own comments
 say it deliberately does. Fixing it means picking a real tradeoff (delay
 native init behind UMP vs. accept this gap vs. change the documented
 contract to require hosts `await` UMP before `initialize()` themselves) and
-isn't a one-line guard like the debug seams above. Left as the **one open
-item** for the production verdict below rather than patched under audit
-time pressure.
+isn't a one-line guard like the debug seams above.
+
+**RESOLVED 2026-09-22** — see "now resolved" note above. User chose (via
+plain-language tradeoff explanation, not jargon) to await the full flow,
+reusing the existing 240s cap. Fixed, tested, device-verified.
 
 ## Verdict: Production-ready?
 
-**CONDITIONAL — down from BLOCKER to one open architectural item.** All 5
-debug-seam gaps found across the 3 independent round-71 passes (1 BLOCKER +
-4 MAJOR/MINOR) are fixed, tested, and verified against real source — this
-class of bug (the one rounds 68-70 already spent 3 rounds on) is very likely
-now actually closed. What's left, for an app with real EEA/UK traffic:
+**YES**, for the code itself. All 5 debug-seam gaps found across the 3
+independent round-71 passes (1 BLOCKER + 4 MAJOR/MINOR) are fixed, tested,
+and verified — this class of bug (the one rounds 68-70 already spent 3
+rounds on) is very likely now actually closed. The UMP-vs-native-init
+ordering gap — the one open architectural item — is also now fixed and
+tested. What's left is not code:
 
-1. **Must resolve before shipping to EEA/UK users:** the UMP-vs-native-init
-   ordering gap above. Either the host must itself gate its splash-screen
-   `initialize()` call behind its own consent check for EEA users, or this
-   SDK's contract needs a deliberate design change — this is a product/legal
-   call, not something to silently patch.
-2. **Already known, already documented, not bugs:** Android trial
+1. **Already known, already documented, not bugs:** Android trial
    reinstall bypass (no server, no biometric anchor possible — README says
    so) and VIP cross-device replay (same "100% offline, no backend" tradeoff
    the user explicitly required) — both flagged again by codex this round,

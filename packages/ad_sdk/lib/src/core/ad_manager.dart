@@ -3747,59 +3747,69 @@ class AdManager with WidgetsBindingObserver {
         // UserMessagingChannel.requestConsentInfoUpdate reached via
         // ump_consent.dart. runZonedGuarded is what actually contains it, and
         // it is scoped to this one call rather than to init as a whole.
-        // Do NOT await this. UMP can put a consent form on screen, and the
-        // user may take as long as they like — or never respond. Awaiting it
-        // stalled initialize() behind that form: CI run 30749745112 showed
-        // "consent form dismiss timed out after 20s" with adapter init only
-        // starting afterwards, which is a 20-second startup freeze for any
-        // real user who leaves the form sitting there.
         //
-        // Running it concurrently is only safe because the gate is closed
-        // first: with the SDK owning the consent flow, canRequestAds starts
-        // false and no load*()/show*() can fire until UMP reports back. The
-        // UMP handler then opens the gate and refills the slots that were
-        // held. So the SDK becomes ready immediately and ads simply arrive a
-        // little later, instead of the whole app waiting.
+        // Round-71 audit fix (MAJOR, codex + gemini reviewers, independent) —
+        // this used to be fire-and-forget: adapter.initialize() (which starts
+        // the *real* AppLovin/AdMob native SDK) ran immediately afterward,
+        // while this flow was still resolving in the background.
+        // `canRequestAds` being closed first meant no *ad request* could go
+        // out before consent, but the native SDK's own init-time behavior was
+        // never gated on consent at all — a real EEA/UK compliance gap. Now
+        // awaited via `consentSettled` below, so adapter.initialize() cannot
+        // fire until this has actually resolved (or genuinely errored).
         //
-        // Only when the SDK owns consent. A host that sets
-        // autoRequestUmpConsent: false keeps the historical default of true —
-        // its own consent flow (or the release footgun guard) governs.
+        // Awaiting it is safe: `requestUmpConsent()` already carries its own
+        // 240s hard cap (see its own "M6" doc comment) — the original fear
+        // behind not awaiting (CI run 30749745112, a 20s startup freeze) predates
+        // that cap and assumed an unbounded wait. The consuming app's splash
+        // screen already has its own hard-cap timer per the integration
+        // contract, so a slow consent decision now degrades to "splash waits
+        // a bit longer," not "native SDK starts before consent is known."
         _updateCanRequestAds(false);
         SafeLogger.d(
             _tag, '🔐 gate closed until UMP resolves (SDK-owned consent flow)');
         // m6 — record that a flow has *started* here, not when it finishes.
-        // The auto flow below is deliberately not awaited, so
-        // consentFootgunWarning() (which runs a few lines further down) could
-        // otherwise fire while UMP was still in flight and warn that no
-        // consent flow exists when one was already underway. Deliberately a
-        // separate flag from `_umpRequested`: that one gates the
-        // skipIfAlreadyRequested early-return, so setting it here would make
-        // the call below skip itself and no consent flow would run at all.
+        // consentFootgunWarning() (which runs a few lines further down, once
+        // this await releases it) could otherwise warn that no consent flow
+        // exists while one was already underway. Deliberately a separate flag
+        // from `_umpRequested`: that one gates the skipIfAlreadyRequested
+        // early-return, so setting it here would make the call below skip
+        // itself and no consent flow would run at all.
         _umpFlowStarted = true;
-        // Round-25 QC round 7 (`codex`, BLOCKER) — this flow is deliberately
-        // NOT awaited, so its outcome can land long after a `destroy()`. The
-        // error handler below reopens the gate directly, and
-        // `_applyUmpConsentResult` writes it too, neither of which may write
-        // into whatever session is live by then. Same session epoch the
-        // privacy-options form is bound to (see `_applyPrivacyOptionsResult`).
+        // Round-25 QC round 7 (`codex`, BLOCKER) — the error handler below
+        // reopens the gate directly, and `_applyUmpConsentResult` writes it
+        // too, neither of which may write into whatever session is live by
+        // then (a concurrent `destroy()` can still race ahead of this await).
+        // Same session epoch the privacy-options form is bound to (see
+        // `_applyPrivacyOptionsResult`).
         final umpSession = _consentSessionEpoch;
+        // Gates the await below — completed by the zone body on normal
+        // completion, or by the zone error handler on any failure (including
+        // the callback-API errors that bypass the zone body's own Future
+        // entirely). Guards against completing it twice.
+        final consentSettled = Completer<void>();
         runZonedGuarded(() async {
-          if (debugForceAutoUmpError != null) {
-            throw debugForceAutoUmpError!;
+          try {
+            if (debugForceAutoUmpError != null) {
+              throw debugForceAutoUmpError!;
+            }
+            await requestUmpConsent(
+              skipIfAlreadyRequested: true,
+              testMode: kDebugMode,
+              tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
+              debugGeography: config.umpDebugGeography,
+              testIdentifiers: config.umpTestIdentifiers,
+            );
+          } finally {
+            if (!consentSettled.isCompleted) consentSettled.complete();
           }
-          await requestUmpConsent(
-            skipIfAlreadyRequested: true,
-            testMode: kDebugMode,
-            tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent,
-            debugGeography: config.umpDebugGeography,
-            testIdentifiers: config.umpTestIdentifiers,
-          );
         }, (e, _) {
           // requestConsentInfoUpdate is a callback API returning void: with no
           // UMP channel registered it throws from a future nobody awaits, so
           // the error arrives as an unhandled ZONE error that a try/catch
           // around the call cannot see. Verified against the real stack in
           // google_mobile_ads' UserMessagingChannel.
+          if (!consentSettled.isCompleted) consentSettled.complete();
           if (umpSession != _consentSessionEpoch) {
             SafeLogger.w(
                 _tag,
@@ -3849,6 +3859,7 @@ class AdManager with WidgetsBindingObserver {
                 'succeeds');
           }
         });
+        await consentSettled.future;
       }
 
       // Pick adapter, wire its event sink, then initialise. The resolved

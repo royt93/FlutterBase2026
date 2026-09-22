@@ -31,6 +31,24 @@ Duration get _formDismissTimeout =>
         : debugFormDismissTimeoutOverride) ??
     kFormDismissTimeout;
 
+/// How long [requestUmpConsentFlow] waits for `requestConsentInfoUpdate`'s
+/// network round-trip before giving up. See the call site for why.
+const Duration kRequestConsentInfoUpdateTimeout = Duration(seconds: 20);
+
+/// Overrides [kRequestConsentInfoUpdateTimeout]. Exists for the test suite —
+/// round-71 audit fix made `AdManager.initialize()` actually await this flow
+/// instead of firing it in the background, so any unit test that doesn't
+/// mock the UMP method channel now pays this real 20s network timeout once
+/// per `initialize()` call (previously invisible: nothing awaited it). Set in
+/// `test/flutter_test_config.dart` for the whole suite. Never set this in
+/// production — the real deadline is what protects a genuinely slow network.
+@visibleForTesting
+Duration? debugRequestConsentInfoUpdateTimeoutOverride;
+
+Duration get _requestConsentInfoUpdateTimeout =>
+    (kReleaseMode ? null : debugRequestConsentInfoUpdateTimeoutOverride) ??
+    kRequestConsentInfoUpdateTimeout;
+
 /// True while one of Google's native UMP forms — the consent form or the
 /// Privacy Options form — is actually on screen.
 ///
@@ -234,8 +252,9 @@ Future<UmpConsentResult> requestUmpConsentFlow({
   // has no built-in deadline — a slow/dead network would otherwise hang the
   // whole UMP flow (and, transitively, splash init) forever.
   final updateError = await updateCompleter.future.timeout(
-    const Duration(seconds: 20),
-    onTimeout: () => 'requestConsentInfoUpdate timed out after 20s',
+    _requestConsentInfoUpdateTimeout,
+    onTimeout: () =>
+        'requestConsentInfoUpdate timed out after ${_requestConsentInfoUpdateTimeout.inSeconds}s',
   );
   if (updateError != null) {
     SafeLogger.w(tag, 'requestConsentInfoUpdate failed: $updateError');
