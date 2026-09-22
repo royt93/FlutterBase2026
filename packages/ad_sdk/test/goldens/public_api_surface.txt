@@ -1310,6 +1310,7 @@ bootstrap  [function]  Future<AdBootstrapResult> bootstrap(AdBootstrapOptions op
 customOverlayOnScreen  [getter]  ValueNotifier<bool> get customOverlayOnScreen
 debugFormDismissTimeoutOverride  [getter]  Duration? get debugFormDismissTimeoutOverride
 debugFormDismissTimeoutOverride=  [setter]  set debugFormDismissTimeoutOverride(Duration? _debugFormDismissTimeoutOverride)
+kAdapterInitTimeout  [getter]  Duration get kAdapterInitTimeout
 kQaTestDeviceHashes  [getter]  List<String> get kQaTestDeviceHashes
 kUmpPolicyRevision  [getter]  String get kUmpPolicyRevision
 markCustomOverlayOnScreen  [function]  void markCustomOverlayOnScreen(bool value)

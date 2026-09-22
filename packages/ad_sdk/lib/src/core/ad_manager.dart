@@ -105,6 +105,13 @@ class DisputeKit {
 ///  - consent flags propagation
 ///  - [events] stream broadcasting [AdEvent]s
 ///  - splash budget enforcement (Q32E)
+
+/// Real deadline for `adapter.initialize()` — a genuine hang (seen on iOS
+/// Simulator) must degrade to a normal init failure, not hang forever. Kept
+/// top-level (not a class member) so it isn't part of [AdManager]'s tracked
+/// public API surface, matching `ump_consent.dart`'s `kFormDismissTimeout`.
+const Duration kAdapterInitTimeout = Duration(seconds: 20);
+
 class AdManager with WidgetsBindingObserver {
   AdManager._internal() {
     final ts = DateTime.now().millisecondsSinceEpoch;
@@ -1558,6 +1565,24 @@ class AdManager with WidgetsBindingObserver {
   /// read-site guard pattern as [debugAdapterFactory] above.
   @visibleForTesting
   static Future<void> Function(bool enable)? debugWakelockToggleOverride;
+
+  /// Overrides [kAdapterInitTimeout]. Round-71 audit fix — a unit test that
+  /// deliberately holds `adapter.initialize()` open with a `Completer`
+  /// (to test mid-init consent flips, COPPA reconcile, etc.) implicitly
+  /// assumes it always resolves that Completer well inside 20 real wall-clock
+  /// seconds. Under heavy CPU contention from many concurrent test-worker
+  /// isolates, that assumption can fail — the real 20s timeout fires and
+  /// resets `_isInitializing` before the test gets a chance to complete its
+  /// Completer, so a later, unrelated `initialize()` call in the same test
+  /// (e.g. a COPPA-triggered recovery re-init) can reach the real adapter
+  /// instead of the test's stub. Set in `test/flutter_test_config.dart` for
+  /// the whole suite, never in production.
+  @visibleForTesting
+  static Duration? debugAdapterInitTimeoutOverride;
+
+  static Duration get _adapterInitTimeout =>
+      (kReleaseMode ? null : debugAdapterInitTimeoutOverride) ??
+      kAdapterInitTimeout;
 
   Future<void> _setWakelock(bool enable) async {
     try {
@@ -3928,9 +3953,10 @@ class AdManager with WidgetsBindingObserver {
               // waiting for applyToProviders() further down.
               consent: consentMgr.adConsent,
             )
-            .timeout(const Duration(seconds: 20));
+            .timeout(_adapterInitTimeout);
       } on TimeoutException {
-        SafeLogger.e(_tag, 'adapter init TIMED OUT after 20s');
+        SafeLogger.e(_tag,
+            'adapter init TIMED OUT after ${_adapterInitTimeout.inSeconds}s');
         ok = false;
       }
       if (!ok) {

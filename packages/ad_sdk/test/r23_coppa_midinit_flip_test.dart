@@ -149,6 +149,21 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     messenger.setMockMethodCallHandler(alChannel, (call) async => null);
     messenger.setMockMethodCallHandler(gmaChannel, (call) async => null);
+    // Round-71 flakiness fix — several tests here hold `adapter.initialize()`
+    // open with a real `Completer` (`_SlowInitAdapter.gate`) across multiple
+    // real `await`s (a `_pumpUntil` poll, an `unawaited` setConsent's own
+    // internal work) to exercise mid-init consent flips. That implicitly
+    // assumes the whole sequence resolves well inside the real 20s adapter
+    // init timeout. Under CPU contention from concurrent test-worker
+    // isolates, wall-clock time can stretch enough that the real timeout
+    // fires first, resetting `_isInitializing` before the test completes its
+    // own gate — a later `initialize()` call in the same test (e.g. the
+    // COPPA-triggered recovery re-init) then reaches the real
+    // AppLovinAdapter instead of this file's stub. A generous override
+    // removes the race; it does not affect `ad_bootstrap_test.dart`'s own
+    // `fakeAsync`-driven check of the real 20s default, which runs on
+    // simulated time and never touches a real clock at all.
+    AdManager.debugAdapterInitTimeoutOverride = const Duration(minutes: 2);
     // `AdManager` is a singleton and `destroy()` deliberately does not reset
     // the consent record (it is a user decision, not session state), so every
     // test here has to start from a known child-directed=false. Safe at this
@@ -176,6 +191,7 @@ void main() {
     // can read it anymore.
     await AdManager().destroy();
     AdManager.debugAdapterFactory = null;
+    AdManager.debugAdapterInitTimeoutOverride = null;
     messenger.setMockMethodCallHandler(alChannel, null);
     messenger.setMockMethodCallHandler(gmaChannel, null);
   });
