@@ -425,6 +425,7 @@ class AdConfig {
     this.onConsentProvenanceEntryAppended,
     this.enableCrashGuard = true,
     this.appOpenTrigger = AppOpenTrigger.both,
+    this.keepScreenOnDuringSession = true,
   }) : assert(
           provider == AdProvider.appLovin ? appLovin != null : admob != null,
           'AppLovinConfig required when provider==appLovin; AdMobConfig required when provider==admob',
@@ -656,6 +657,20 @@ class AdConfig {
   /// `showAppOpenAd(bypassSafety: true)` and background→foreground resume via
   /// `showAppOpenAdOnResume()` both fire normally).
   final AppOpenTrigger appOpenTrigger;
+
+  // ─── Wake lock ─────────────────────────────────────────────────────────────
+
+  /// When `true` (default), [AdManager.initialize] keeps the device screen
+  /// on for the whole SDK session (`WakelockPlus.enable()`), released on
+  /// [AdManager.destroy]. Prevents the device auto-locking mid-session (e.g.
+  /// during a rewarded video, or an idle splash waiting on an App Open ad),
+  /// which would otherwise interrupt playback or dismiss the ad.
+  ///
+  /// Can also be flipped at runtime via [AdManager.setKeepScreenOn], which
+  /// overrides this value until the next `initialize()`/`destroy()` cycle.
+  /// Set `false` if the host app manages its own wake lock, or doesn't want
+  /// this SDK to affect screen timeout at all.
+  final bool keepScreenOnDuringSession;
 
   /// Convenience getter.
   bool get isAdMob => provider == AdProvider.admob;

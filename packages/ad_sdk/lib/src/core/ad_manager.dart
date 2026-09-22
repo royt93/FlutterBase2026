@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
     show ConsentStatus, DebugGeography, TemplateType;
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../adapters/admob_adapter.dart';
 import '../adapters/applovin_adapter.dart';
@@ -1551,6 +1552,29 @@ class AdManager with WidgetsBindingObserver {
   /// simply ignored once the app is actually running in release.
   @visibleForTesting
   static AdProviderAdapter Function(AdConfig config)? debugAdapterFactory;
+
+  /// Override the real `WakelockPlus.toggle()` call so tests can observe
+  /// keep-screen-on state changes without a real platform channel. Same
+  /// read-site guard pattern as [debugAdapterFactory] above.
+  @visibleForTesting
+  static Future<void> Function(bool enable)? debugWakelockToggleOverride;
+
+  Future<void> _setWakelock(bool enable) async {
+    try {
+      final override = debugWakelockToggleOverride;
+      if (override != null && !_testSeamsBlocked) {
+        await override(enable);
+      } else {
+        await WakelockPlus.toggle(enable: enable);
+      }
+    } catch (e) {
+      // Never let a missing/misbehaving platform channel (unregistered
+      // plugin, unsupported platform) become an unhandled error — every
+      // call site here is `unawaited`, same defensive posture as GAID/VIP
+      // secure-storage reads elsewhere in this class.
+      SafeLogger.w(_tag, 'wakelock toggle(enable: $enable) failed: $e');
+    }
+  }
 
   /// Inject a VipManager so the VIP-suppression branches are unit-testable.
   @visibleForTesting
@@ -4199,6 +4223,9 @@ class AdManager with WidgetsBindingObserver {
       }
       SimpleEventBus().fire(const BoolEvent(true));
       _drainQueuedInitCallbacks(true);
+      if (config.keepScreenOnDuringSession) {
+        unawaited(_setWakelock(true));
+      }
       // Round-25 (iOS device run) — success is reported BEFORE the two footgun
       // asserts below, and that ordering is the fix, not a style choice. Both
       // asserts throw in debug/profile builds, the `catch` at the bottom of
@@ -4946,6 +4973,16 @@ class AdManager with WidgetsBindingObserver {
   //  CONSENT (Phase 5) — setConsent/UMP/privacy-options/ATT: the pipeline
   //  that keeps `_canRequestAds`, both ad providers, and the persisted
   //  ConsentManager state in sync with each other.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// Enables or disables the keep-screen-on wake lock at runtime, overriding
+  /// [AdConfig.keepScreenOnDuringSession] until the next
+  /// `initialize()`/[destroy] cycle (which resets it back to the config
+  /// value, then always releases it on teardown). Safe to call whether or
+  /// not the SDK has finished initialising — it does not touch any ad or
+  /// consent state, just the device's screen timeout.
+  Future<void> setKeepScreenOn(bool enable) => _setWakelock(enable);
+
   // ──────────────────────────────────────────────────────────────────────────
 
   /// Update privacy / consent flags. Forwards to both providers.
@@ -6615,6 +6652,10 @@ class AdManager with WidgetsBindingObserver {
 
   Future<void> _destroy() async {
     SafeLogger.d(_tag, 'destroy() called');
+    // Always released, whether or not this session ever actually enabled it
+    // (keepScreenOnDuringSession: false, or a runtime setKeepScreenOn(false))
+    // — WakelockPlus.disable() is a documented no-op if it's already off.
+    unawaited(_setWakelock(false));
     // Round-25 QC round 5 (`codex`, BLOCKER) — invalidate any attempt still
     // running. Without the bump, an `initialize()` parked on native init
     // resumed after this teardown and installed an adapter, timers and a

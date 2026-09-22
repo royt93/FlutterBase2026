@@ -121,6 +121,27 @@ dependencies:
   # of its own.
   visibility_detector: ^0.4.0+2
 
+  # Keeps the screen awake for the SDK-owned session (AdConfig.
+  # keepScreenOnDuringSession, default true) so a video ad or an idle splash
+  # doesn't get interrupted by the device auto-locking. Pinned below the
+  # latest (1.8.0, needs Flutter >=3.44.0/Dart >=3.12.0) on purpose: 1.4.0 is
+  # the newest version still satisfying this package's own `>=3.27.0` floor
+  # and the CI-pinned Flutter 3.35.1 — same class of wall as
+  # google_mobile_ads 8/9 (see CLAUDE.md).
+  # Exact pin, not `^1.4.0` — a caret range resolves against whatever Dart
+  # SDK is active on the machine running `pub get`; 1.5.0+ needs Dart
+  # >=3.10.0, which is newer than this package's own declared floor
+  # (>=3.6.0) and than CI's pinned Flutter 3.35.1, but a newer local Flutter
+  # would silently resolve past it anyway. Bump only alongside a deliberate
+  # floor bump.
+  wakelock_plus: 1.4.0
+  # Transitive dep of wakelock_plus, pinned for the same reason: its own
+  # `^1.3.0` constraint would otherwise resolve to whatever's newest on the
+  # active machine's Dart SDK (1.6.0+ needs Dart >=3.11.0), silently
+  # breaking the floor this package declares. 1.3.0 is the version actually
+  # current when wakelock_plus 1.4.0 was released, and satisfies both floors.
+  wakelock_plus_platform_interface: 1.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
