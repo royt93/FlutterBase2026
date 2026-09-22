@@ -38,7 +38,7 @@ pod install --repo-update
 # does not prove that — CocoaPods is happy the moment it finds *any* solution,
 # including one reached by silently moving a pod we meant to hold. So assert
 # the resolved version rather than trusting the exit code.
-expected_applovin_sdk="13.5.0"
+expected_applovin_sdk="13.6.3"
 resolved_applovin_sdk="$(awk '/^  - AppLovinSDK \(/{gsub(/[()]/,"");print $3; exit}' Podfile.lock)"
 echo "AppLovinSDK resolved to: ${resolved_applovin_sdk:-<none>}"
 if [[ "$resolved_applovin_sdk" != "$expected_applovin_sdk" ]]; then

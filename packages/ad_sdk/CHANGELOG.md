@@ -6,6 +6,25 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Changed (BREAKING):** bumped `google_mobile_ads` from `^7.0.0` to
+  `'>=9.0.0 <9.1.0'`, and this package's own environment floor from Flutter
+  `>=3.27.0`/Dart `>=3.6.0` to Flutter `>=3.38.1`/Dart `>=3.10.0`. This
+  resolves the CocoaPods pinning wall documented in CLAUDE.md — a
+  consuming app can now pair `applovin_max ^4.6.4` with
+  `gma_mediation_applovin 2.6.2` (or `2.6.3`) directly, no
+  `dependency_overrides` hold-back needed. `google_mobile_ads` is pinned
+  below `9.1.0` on purpose: that version ships a confirmed upstream iOS
+  build regression (non-modular-header Xcode failure from its new Ad
+  Preloading API) — verified locally (`flutter build ios --simulator`
+  fails on `9.1.0`, succeeds on `9.0.0`). Consuming apps on Flutter
+  `<3.38.1` must upgrade Flutter before taking this release. On Android,
+  `google_mobile_ads 9.0.0`'s native `play-services-ads 25.3.0` ships
+  Kotlin metadata compiled with Kotlin 2.3.0 — a consuming app's own
+  Kotlin Gradle plugin must be `>= 2.3.0` (was `2.1.0` in this SDK's
+  example app) or `compileDebugKotlin` fails with "Module was compiled
+  with an incompatible version of Kotlin"; Kotlin 2.3.0 also removed the
+  old `android.kotlinOptions { jvmTarget = ... }` DSL in favor of a
+  top-level `kotlin { compilerOptions { ... } }` block.
 - **Changed (round 72 audit, MINOR, breaking):** `verifySignedVipKey` and
   `VipManager.redeemSignedKey` now reject the legacy `AVP1` key format
   (no expiry, no app binding) by default. Pass `allowLegacyV1: true` if

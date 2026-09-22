@@ -42,10 +42,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
-    }
-
     defaultConfig {
         // Must match the package the AppLovin ad units are registered against
         // (re-uses the host app's applicationId + 4 MAX ad unit IDs).
@@ -90,6 +86,15 @@ android {
                 "proguard-rules.pro",
             )
         }
+    }
+}
+
+// Kotlin 2.3.0 (bumped for google_mobile_ads 9.0.0's Kotlin-metadata
+// requirement, see settings.gradle.kts) removed the old
+// `android.kotlinOptions { jvmTarget = ... }` DSL in favor of this.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 

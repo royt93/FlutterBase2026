@@ -52,16 +52,28 @@ screenshots:
     path: doc/screenshots/03_safety_status.png
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
-  # 3.27.0+ is required because the SDK uses `Color.withValues(alpha:)`
-  # introduced in that release. Pinning lower would compile-fail on older
-  # Flutter versions.
-  flutter: '>=3.27.0'
+  sdk: '>=3.10.0 <4.0.0'
+  # 3.38.1+ required by google_mobile_ads 8.0.0+ (see below) — same wall
+  # already documented at package_info_plus/wakelock_plus/flutter_secure_storage
+  # in this file and in CLAUDE.md. Raising this is a breaking change for
+  # consuming apps still on an older Flutter.
+  flutter: '>=3.38.1'
 
 dependencies:
   flutter:
     sdk: flutter
-  google_mobile_ads: ^7.0.0
+  # BREAKING (migration in progress): bumped 7.0.0 -> 9.0.0 to let a
+  # consuming app pair this with gma_mediation_applovin 2.6.2/2.6.3, whose
+  # AppLovin iOS adapter pin (13.6.3.0) matches applovin_max's own
+  # AppLovinSDK (= 13.6.3) requirement — resolving the CocoaPods pinning
+  # wall documented in CLAUDE.md without holding applovin_max back to 4.6.0.
+  # Pinned below 9.1.0 on purpose: 9.1.0 ships a confirmed upstream iOS build
+  # regression (non-modular-header Xcode failure from its new Ad Preloading
+  # API, google_mobile_ads.FLTAd_Internal / GoogleMobileAds_Beta.h) — verified
+  # locally (flutter build ios --simulator fails on 9.1.0, succeeds on 9.0.0),
+  # also 2.6.2's own changelog says it was "built and tested" against 9.0.0
+  # specifically. Revisit once Google ships a fixed 9.1.x/9.2.0.
+  google_mobile_ads: '>=9.0.0 <9.1.0'
   applovin_max: ^4.6.4
   app_tracking_transparency: ^2.0.7
   shared_preferences: ^2.5.0
