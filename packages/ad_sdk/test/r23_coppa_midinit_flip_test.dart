@@ -88,8 +88,18 @@ class _SlowInitAdapter implements AdProviderAdapter {
   @override
   void applyConsent(AdConsent consent) {}
 
+  // Round-71 flakiness fix — this stub was only ever built to test the COPPA
+  // reconcile logic; nothing here exercised the ad-loading surface, so
+  // anything past `initialize()` (preload calls, banner/mrec plumbing, etc.)
+  // fell through to the default `noSuchMethod`, which throws. That was
+  // "safe" only because those calls never fired in practice — under CPU
+  // contention from concurrent test workers, a slower reconcile can let a
+  // preload slip through before the abort path cancels it, turning a latent
+  // gap into a real crash. Same defensive pattern as `_StubAdapter` in
+  // `tcf_personalisation_consent_test.dart`: every Future-returning member
+  // becomes a safe no-op instead.
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => Future<void>.value();
 }
 
 const _appLovinConfig = AdConfig(
@@ -151,8 +161,21 @@ void main() {
   });
 
   tearDown(() async {
-    AdManager.debugAdapterFactory = null;
+    // Round-71 flakiness fix — `destroy()` cancels any pending init-retry
+    // Timer this test armed (several here deliberately leave one scheduled,
+    // e.g. "an age gate that answers ADULT mid-init schedules a retry"), but
+    // only once its own await chain reaches that point. Nulling the factory
+    // FIRST left a real window: under CPU contention from concurrent test
+    // workers, a short-delay retry (`debugInitRetryDelays` in some tests
+    // here is 20ms) can fire and call `initialize()` again while
+    // `debugAdapterFactory` is already null, reaching the REAL
+    // AppLovinAdapter/AppLovinMAX plugin instead of this file's stub —
+    // MissingPluginException, sometimes reported against a later test
+    // ("this test failed after it had already completed"). `destroy()`
+    // first closes that window; the factory is only cleared once nothing
+    // can read it anymore.
     await AdManager().destroy();
+    AdManager.debugAdapterFactory = null;
     messenger.setMockMethodCallHandler(alChannel, null);
     messenger.setMockMethodCallHandler(gmaChannel, null);
   });
