@@ -313,7 +313,9 @@ class ConsentManager {
 
   Future<void> _persist() async {
     final encoded = ConsentSettings.encode(_current);
-    final delay = debugPersistDelay;
+    // Round-72 audit fix: read-site guard, same reason as resetForTest above.
+    final delay =
+        (kReleaseMode || debugSimulateReleaseModeForTestSeams) ? null : debugPersistDelay;
     if (delay != null) await Future<void>.delayed(delay);
     await _prefs.setConsentSettingsRaw(encoded);
   }
@@ -369,7 +371,10 @@ class ConsentManager {
   Future<void> applyToProviders({AdConfig? config}) async {
     final epoch = ++_applyEpoch;
     SafeLogger.d(_tag, () => 'applyToProviders ($_current)');
-    final barrier = debugApplyBarrier;
+    // Round-72 audit fix: read-site guard, same reason as resetForTest above.
+    final barrier = (kReleaseMode || debugSimulateReleaseModeForTestSeams)
+        ? null
+        : debugApplyBarrier;
     if (barrier != null) await barrier;
     if (epoch == _applyEpoch) {
       await _applyToProviders(config);
@@ -406,7 +411,10 @@ class ConsentManager {
     await _recordProvenance(source: source, policyRevision: policyRevision);
     await _schedulePersist();
     SafeLogger.d(_tag, 'reset → unset (COPPA/CCPA flags preserved)');
-    final barrier = debugApplyBarrier;
+    // Round-72 audit fix: read-site guard, same reason as resetForTest above.
+    final barrier = (kReleaseMode || debugSimulateReleaseModeForTestSeams)
+        ? null
+        : debugApplyBarrier;
     if (barrier != null) await barrier;
     if (epoch == _applyEpoch) {
       await _applyToProviders(config);
@@ -433,7 +441,10 @@ class ConsentManager {
     // An overlapping, newer call may have already bumped `_applyEpoch` and
     // applied its own (correct) value while this call was awaiting persist
     // above — an older call landing here after that must not stomp it back.
-    final barrier = debugApplyBarrier;
+    // Round-72 audit fix: read-site guard, same reason as resetForTest above.
+    final barrier = (kReleaseMode || debugSimulateReleaseModeForTestSeams)
+        ? null
+        : debugApplyBarrier;
     if (barrier != null) await barrier;
     if (epoch == _applyEpoch) {
       await _applyToProviders(config);

@@ -254,4 +254,72 @@ void main() {
         reason: 'the whole reason for not burning the flag');
     expect(prefs.isFirstInstallGraceApplied(), isTrue);
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // Round-72 audit fix (MAJOR, gemini external) — `debugFirstInstallGuardFactory`
+  // is a plain static field, so it cannot be gated at assignment the way a
+  // setter can; the guard lives at the READ site instead (see the
+  // `_testSeamsBlocked ? null : ...` in ad_manager.dart's grace-check block).
+  // A factory left un-guarded here is the exact anti-uninstall bypass the
+  // guard exists to prevent: any code in the same isolate as a shipped
+  // release app could swap in a guard that always answers "not granted yet",
+  // handing out unlimited fresh 24h trials on every launch.
+  //
+  // Uses its own AppLovin config rather than `initOnce()`/`_config` (AdMob):
+  // `debugSimulateReleaseModeForTestSeams` blocks EVERY seam at once,
+  // including `debugAdapterFactory` (this file's `_OkAdapter` stand-in), so
+  // the REAL adapter runs underneath. The real `AdMobAdapter` needs a fuller
+  // native mock than this file's generic channel handlers provide and fails
+  // outright in a plain `flutter test`; the real `AppLovinAdapter` only
+  // awaits `AppLovinMAX.initialize(sdkKey)`, which the existing generic
+  // `alChannel` handler (returning null) already satisfies — same reasoning
+  // as `ump_auto_fail_open_closed_test.dart`'s header comment.
+  test(
+      'debugFirstInstallGuardFactory is ignored while release mode is '
+      'simulated', () async {
+    const appLovinConfig = AdConfig(
+      provider: AdProvider.appLovin,
+      appLovin: AppLovinConfig(
+        sdkKey: 'test-sdk-key',
+        bannerId: 'banner-id',
+        interstitialId: 'interstitial-id',
+        appOpenId: 'appopen-id',
+        rewardedId: 'rewarded-id',
+      ),
+      safety: AdSafetyParams(dryRun: true),
+      firstInstallVipGrace: FirstInstallVipGrace.day,
+    );
+
+    // Claims "already granted" — if the override took effect, grace would
+    // be SKIPPED. `kDebugMode` is true under `flutter test`, so the real
+    // (un-overridden) `FirstInstallGuard()` answers `false` instead (its
+    // own debug-build bypass), and grace is granted as normal.
+    final guard = _ScriptedGuard(true);
+    AdManager.debugFirstInstallGuardFactory = () => guard;
+    AdManager.debugSimulateReleaseModeForTestSeams = true;
+    addTearDown(() => AdManager.debugSimulateReleaseModeForTestSeams = false);
+
+    // debugSimulateReleaseModeForTestSeams also blocks debugAdapterFactory
+    // (see comment above), so the REAL AppLovinAdapter runs underneath —
+    // its AppLovinMAX.initialize() needs the 'initialize' method call
+    // specifically answered with a map, unlike this file's other tests
+    // (which stay on the debugAdapterFactory-stubbed adapter and never
+    // reach it).
+    messenger.setMockMethodCallHandler(alChannel, (call) async {
+      if (call.method == 'initialize') return <String, dynamic>{};
+      return null;
+    });
+
+    await AdManager()
+        .initialize(config: appLovinConfig, onComplete: (_, __) {});
+
+    expect(AdManager().vip?.isActive, isTrue,
+        reason: 'debugFirstInstallGuardFactory must not apply in a '
+            '(simulated) release build — the real FirstInstallGuard must '
+            'decide instead of a scripted override');
+    expect(prefs.isFirstInstallGraceApplied(), isTrue);
+    expect(guard.markGrantedCalls, 0,
+        reason: 'the scripted guard must never be touched at all while the '
+            'seam is blocked — proves the override was ignored outright, '
+            'not merely out-voted');
+  });
 }

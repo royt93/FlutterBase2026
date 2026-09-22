@@ -53,7 +53,18 @@ class AdEventLog {
   /// like [AdDiagnostics.lastWaterfallBySlotFrom] with a hand-built list
   /// that bypasses this log entirely.
   @visibleForTesting
-  void debugInjectRawEntry(Map<String, dynamic> entry) => _entries.add(entry);
+  void debugInjectRawEntry(Map<String, dynamic> entry) {
+    // Round-72 audit follow-up (4th independent review) — read-site guard,
+    // same reason as debugPersistDelay below: this mutates the exact
+    // in-memory buffer _persist() writes to the real compliance/fraud log
+    // on the next event, so a release build must never honor it.
+    if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+      SafeLogger.e(_tag,
+          'debugInjectRawEntry ignored in a release build — test-only seam (round-72 audit)');
+      return;
+    }
+    _entries.add(entry);
+  }
 
   void _load() {
     final raw = _prefs.getComplianceLogRaw();
@@ -126,8 +137,20 @@ class AdEventLog {
   @visibleForTesting
   static Duration? debugPersistDelay;
 
+  /// Round-72 audit fix: lets a test simulate release mode (`kReleaseMode`
+  /// is a compile-time constant and can't be flipped at test time) to prove
+  /// [debugPersistDelay] is actually inert in a release build. Same pattern
+  /// as `AdManager.debugSimulateReleaseModeForTestSeams`.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
   Future<void> _persist() async {
-    final delay = debugPersistDelay;
+    // Round-72 audit fix: read-site guard — @visibleForTesting is an
+    // analyzer-only annotation, it doesn't stop a release build from
+    // reading this field, so the guard has to live here.
+    final delay = (kReleaseMode || debugSimulateReleaseModeForTestSeams)
+        ? null
+        : debugPersistDelay;
     if (delay != null) await Future<void>.delayed(delay);
     await _prefs.setComplianceLogRaw(jsonEncode(_entries));
   }

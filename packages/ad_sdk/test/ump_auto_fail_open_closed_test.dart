@@ -138,4 +138,39 @@ void main() {
         AdManager.umpFailureMayReopenGate(MissingPluginException('x')), isFalse,
         reason: 'release build: not even a missing plugin reopens the gate');
   });
+
+  // Round-72 audit fix (MAJOR, gemini external) — debugForceAutoUmpError
+  // itself (distinct from the umpFailureMayReopenGate predicate above) was
+  // never gated by AdManager.debugSimulateReleaseModeForTestSeams: any code
+  // in the same isolate as a shipped release app could force the auto-UMP
+  // path to throw, breaking consent flows in production. Uses
+  // debugSimulateReleaseModeForTestSeams (the seam-wide guard), not
+  // debugSimulateReleaseModeForUmpGate used by the tests above — a
+  // different flag for a different guard.
+  //
+  // Can't assert "the flow succeeded" directly — this suite has no mocked
+  // UMP channel, so the real auto-UMP call always throws
+  // MissingPluginException regardless. Instead this proves the forced
+  // *generic* Exception (which the 'fails CLOSED' test above shows keeps
+  // the gate shut) has zero effect once seam-blocked: the real channel's
+  // own MissingPluginException takes over and fails OPEN instead, per the
+  // 'fails OPEN' test above — a real, observable behavioral difference.
+  test('debugForceAutoUmpError is ignored while (seam) release mode is '
+      'simulated — real channel failure fails OPEN instead', () async {
+    SharedPreferences.setMockInitialValues({});
+    AdManager.debugSimulateReleaseModeForTestSeams = true;
+    addTearDown(() => AdManager.debugSimulateReleaseModeForTestSeams = false);
+    AdManager().debugForceAutoUmpError = Exception('forced network failure');
+
+    await AdManager().initialize(
+      config: _appLovinConfig(),
+      onComplete: (_, __) {},
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(AdManager().canRequestAds, isTrue,
+        reason: 'the forced (fails-CLOSED) generic Exception must not apply '
+            'in a (simulated) release build — the real channel\'s own '
+            'MissingPluginException should have run instead and failed OPEN');
+  });
 }

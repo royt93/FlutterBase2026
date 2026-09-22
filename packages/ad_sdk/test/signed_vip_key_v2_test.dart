@@ -171,10 +171,15 @@ void main() {
   });
 
   group('AVP1 compatibility', () {
-    test('an old AVP1 key still verifies, with no expiry or binding', () async {
+    test(
+        'an old AVP1 key still verifies with allowLegacyV1: true, with no '
+        'expiry or binding', () async {
       final code = await _mint(kp, seconds: 120, kid: 'old1', v1: true);
       final parsed = await verifySignedVipKey(code,
-          publicKeyBase64: pub, now: now, currentBundleId: 'com.roy.app');
+          publicKeyBase64: pub,
+          now: now,
+          currentBundleId: 'com.roy.app',
+          allowLegacyV1: true);
       expect(parsed.duration, const Duration(seconds: 120));
       expect(parsed.expiresAt, isNull);
       expect(parsed.bundleId, isNull);

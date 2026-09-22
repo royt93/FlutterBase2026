@@ -69,9 +69,22 @@ class RedeemedKeyLedger {
   static Future<void> _writeChain = Future<void>.value();
   static int _writesInFlight = 0;
 
-  /// Drops the process-wide write ordering. Tests only.
+  /// Round-72 audit follow-up (3rd independent review) — same idiom as
+  /// `AdManager.debugSimulateReleaseModeForTestSeams`; this file had no
+  /// release-mode infrastructure at all before this fix.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
+  /// Drops the process-wide write ordering. Tests only — guarded: without
+  /// it, calling this in a release build reopens the exact
+  /// dropped-redemption race documented above.
   @visibleForTesting
   static void resetWriteChainForTest() {
+    if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+      SafeLogger.e(_tag,
+          'resetWriteChainForTest ignored in a release build — test-only seam (round-72 audit)');
+      return;
+    }
     _writeChain = Future<void>.value();
     _writesInFlight = 0;
   }

@@ -129,6 +129,13 @@ Future<SignedVipKey> verifySignedVipKey(
 
   /// Injectable clock so expiry can be tested without waiting.
   DateTime? now,
+
+  /// AVP1 has no expiry and no app binding — a leaked AVP1 key is valid
+  /// forever, on any app, until manually revoked via CRL. Defaults to
+  /// `false` (round 72 audit, MINOR, 2-of-3 independent auditors): reject
+  /// AVP1 unless a caller that has already distributed real AVP1 codes
+  /// explicitly opts back in.
+  bool allowLegacyV1 = false,
 }) async {
   final parts = code.trim().split('.');
   final version = parts.isEmpty ? '' : parts[0];
@@ -208,6 +215,11 @@ Future<SignedVipKey> verifySignedVipKey(
   }
 
   if (version == _prefixV1) {
+    if (!allowLegacyV1) {
+      throw const VipKeyException(
+          'AVP1 legacy key format rejected — pass allowLegacyV1: true to '
+          'accept keys already distributed in that format');
+    }
     return SignedVipKey(duration: Duration(seconds: seconds), keyId: kid);
   }
 

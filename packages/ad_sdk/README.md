@@ -1063,6 +1063,13 @@ global one-time-use needs a backend), but per-device reuse is blocked.
 > `--valid-days` when minting — a data wipe can't undo an expiry. Accepted
 > tradeoff (no backend ⇒ no reliable cross-reinstall Android signal), not a
 > bug: everything writable on Android is user-clearable by definition.
+>
+> Re-confirmed in the round-72 audit (3 independent AI reviewers,
+> `doc/audit/audit_round72_consolidated.md`): both limitations above stand as
+> deliberate zero-backend tradeoffs. The owner explicitly declined a
+> device-fingerprint or server-backed fix for either — treat VIP codes as a
+> transferable promotion, never as a single-use paid license, unless a real
+> backend is added.
 
 **1. Generate a key pair once (keep the private key secret):**
 
@@ -1082,7 +1089,7 @@ with `$(...)`.
 
 ```bash
 dart tool/vip_mint.dart --priv <b64priv> --days 30 --kid promo30_001
-# → AVP1.<payload>.<signature>
+# → AVP2.<payload>.<signature>
 ```
 
 **3. Embed the public key + redeem in-app:**
@@ -1100,10 +1107,17 @@ switch (result.status) {
 }
 ```
 
-Key format: `AVP1.<b64url(payload)>.<b64url(sig)>`, `payload = "<seconds>|<keyId>"`.
-The VIP duration is read from the key; `keyId` drives per-device one-time-use.
-Use `verifySignedVipKey(code, publicKeyBase64: ...)` directly if you only need to
+Key format: `AVP2.<b64url(payload)>.<b64url(sig)>`, `payload =
+"<seconds>|<keyId>|<expEpochSeconds>|<bundleId>"`. The VIP duration is read
+from the key; `keyId` drives per-device one-time-use. Use
+`verifySignedVipKey(code, publicKeyBase64: ...)` directly if you only need to
 inspect a key without redeeming.
+
+> **Round-72 audit fix.** The legacy `AVP1` format (no expiry, no app
+> binding — `tool/vip_mint.dart --v1`) used to verify unconditionally. Both
+> `verifySignedVipKey` and `VipManager.redeemSignedKey` now reject it by
+> default; pass `allowLegacyV1: true` only if your app has already
+> distributed real AVP1 codes and needs them to keep working.
 
 ### Pre-built redeem screen (`VipRedeemScreen`)
 

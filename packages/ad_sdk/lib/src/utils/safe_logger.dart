@@ -163,9 +163,21 @@ class SafeLogger {
   /// Current effective level (read-only).
   static AdLogLevel get level => _level;
 
+  /// Round-72 audit follow-up (3rd independent review) — this file had no
+  /// release-mode infrastructure at all before this fix. Low severity (log
+  /// level/sink only, no safety implication) but guarded for consistency
+  /// with every other test-only reset seam in this codebase.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
   /// Reset to defaults (used by test setUp).
   @visibleForTesting
   static void resetForTest() {
+    if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+      e('SafeLogger',
+          'resetForTest ignored in a release build — test-only seam (round-72 audit)');
+      return;
+    }
     _level = AdLogLevel.verbose;
     _tagFilter = null;
     _sink = null;

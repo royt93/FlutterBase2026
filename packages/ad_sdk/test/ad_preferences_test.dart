@@ -357,4 +357,25 @@ void main() {
       await expectLater(prefs.clearSdkData(), completes);
     });
   });
+
+  test(
+      'Round-72 audit follow-up (3rd independent review): resetForTest is a '
+      'no-op once release mode is simulated', () async {
+    final a = await AdPreferences.getInstance();
+
+    AdPreferences.debugSimulateReleaseModeForTestSeams = true;
+    AdPreferences.resetForTest(); // must be a no-op
+    // Reset explicitly here (not only via addTearDown) — this file's own
+    // `setUp` calls the real `resetForTest()` before every test, and a
+    // leaked `true` would silently break every later test's isolation.
+    addTearDown(
+        () => AdPreferences.debugSimulateReleaseModeForTestSeams = false);
+
+    final b = await AdPreferences.getInstance();
+    expect(identical(a, b), isTrue,
+        reason: 'if the reset above silently took effect, getInstance() '
+            'would have rebuilt a brand-new singleton instead of returning '
+            'the cached one');
+    AdPreferences.debugSimulateReleaseModeForTestSeams = false;
+  });
 }

@@ -23,7 +23,25 @@ final _ed = Ed25519();
 Future<String> _pubB64(SimpleKeyPair kp) async =>
     base64Url.encode((await kp.extractPublicKey()).bytes);
 
+// Round-72 audit fix — VipRedeemScreen (the real widget this test drives)
+// now defaults to `allowLegacyV1: false`, so an AVP1 key is rejected by the
+// screen it used to be accepted by. Mint AVP2 instead — same format
+// test/signed_vip_key_v2_test.dart's `_mint` uses — to keep testing the
+// real, current redeem path rather than a format the screen no longer
+// accepts by default.
 Future<String> _mint(SimpleKeyPair kp,
+    {required int seconds, required String kid}) async {
+  final expiresAt = DateTime.now().toUtc().add(const Duration(days: 1));
+  final payload = utf8.encode('$seconds|$kid|'
+      '${expiresAt.millisecondsSinceEpoch ~/ 1000}|');
+  final sig = await _ed.sign(payload, keyPair: kp);
+  return 'AVP2.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
+}
+
+// Round-72 audit fix — legacy AVP1 format, kept only to prove the real
+// on-device VipRedeemScreen actually rejects it by default now (see the
+// `allowLegacyV1: false` default in signed_vip_key.dart).
+Future<String> _mintV1(SimpleKeyPair kp,
     {required int seconds, required String kid}) async {
   final payload = utf8.encode('$seconds|$kid');
   final sig = await _ed.sign(payload, keyPair: kp);
@@ -153,6 +171,87 @@ void main() {
     expect(find.text('VIP ACTIVE'), findsOneWidget);
     expect(AdManager().isVIPMember(), isTrue);
     expect(AdManager().canShowInterstitial(), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  // Round-72 audit fix (MINOR) — legacy AVP1 keys are rejected by default
+  // (`allowLegacyV1: false`); VipRedeemScreen deliberately does not expose a
+  // way to opt back in, so a publisher who wants legacy support has to build
+  // their own screen. Proves the real, on-device redeem path — not just the
+  // unit-tested `verifySignedVipKey` function — actually rejects it, with a
+  // clear message rather than a silent failure or a crash.
+  testWidgets(
+      'redeeming a legacy AVP1 key via the real screen is rejected, not '
+      'silently accepted', (tester) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+      if (find.text('VIP / redeem').evaluate().isNotEmpty) break;
+    }
+    expect(find.text('VIP / redeem'), findsOneWidget);
+
+    await AdManager().vip!.revokeAll();
+    await AdManager().vip!.clearRedeemedKeyLedgerForTest();
+    await tester.pump();
+    expect(AdManager().isVIPMember(), isFalse);
+
+    // Let the first-install-grant SnackBar (see the test above) clear
+    // before it can swallow the drag gesture below.
+    await tester.pump(const Duration(milliseconds: 4600));
+
+    final keyPair = await _ed.newKeyPair();
+    final pub = await _pubB64(keyPair);
+    final code =
+        await _mintV1(keyPair, seconds: 120, kid: 'integration_kid_v1');
+
+    final navigator =
+        tester.state<NavigatorState>(find.byType(Navigator).first);
+    navigator.push(MaterialPageRoute(
+      builder: (_) => VipRedeemScreen(publicKeyBase64: pub),
+    ));
+    await tester.pump(const Duration(milliseconds: 1200));
+
+    await tester.scrollUntilVisibleAndSettle(
+      find.byType(TextField),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), code);
+    await tester.pump();
+
+    await Scrollable.ensureVisible(
+      tester.element(find.text('ACTIVATE')),
+      alignment: 0.5,
+    );
+    await tester.pump();
+    await tester.tap(find.text('ACTIVATE'));
+
+    // Same reasoning as the valid-key test's redeem poll: rejection is also
+    // async (Ed25519 verify first), and the SnackBar that reports it is
+    // itself transient (see the 4600ms clear-wait above) — a fixed pump can
+    // land before it appears or after it has already dismissed. Poll for it
+    // directly instead of guessing a window.
+    var rejected = false;
+    const failedMessage = 'The VIP key you entered is invalid or expired.';
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (find.text(failedMessage).evaluate().isNotEmpty) {
+        rejected = true;
+        break;
+      }
+    }
+    expect(rejected, isTrue,
+        reason: 'the rejection must be visible to the user, not a silent '
+            'failure');
+
+    expect(AdManager().isVIPMember(), isFalse,
+        reason: 'a legacy AVP1 key must not redeem while allowLegacyV1 '
+            'defaults to false — accepting it would silently reinstate the '
+            'no-expiry, no-bundle-binding weakness AVP2 replaced');
     expect(tester.takeException(), isNull);
   });
 }

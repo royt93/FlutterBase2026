@@ -250,6 +250,34 @@ void main() {
     await future;
   });
 
+  // Round-72 audit follow-up (3rd independent review) — its sibling override
+  // above (debugFormDismissTimeoutOverride) already had this guard;
+  // debugUmpFormBackstopOverride did not. Same proof shape: with a short
+  // override AND release mode simulated, the 15-minute REAL backstop must
+  // still be the one in effect.
+  test(
+      'debugUmpFormBackstopOverride is ignored while release mode is '
+      'simulated', () {
+    debugUmpFormBackstopOverride = const Duration(milliseconds: 100);
+    debugSimulateReleaseModeForUmpFormBackstop = true;
+    addTearDown(
+        () => debugSimulateReleaseModeForUmpFormBackstop = false);
+    fakeAsync((async) {
+      markUmpFormOnScreen();
+
+      async.elapse(const Duration(milliseconds: 200));
+      expect(umpFormOnScreen.value, isTrue,
+          reason: 'the 100ms override must not apply in a (simulated) '
+              'release build — if this is already false, the override is '
+              'still live in a release build');
+
+      async.elapse(const Duration(minutes: 15));
+      expect(umpFormOnScreen.value, isFalse,
+          reason: 'the real ~15m default backstop must still fire on its '
+              'own bound');
+    });
+  });
+
   test('two overlapping forms each hold the block until both are dismissed',
       () {
     final releaseA = markUmpFormOnScreen();

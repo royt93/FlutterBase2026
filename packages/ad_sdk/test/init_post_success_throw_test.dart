@@ -2502,4 +2502,25 @@ void main() {
             'silently pretending they happened');
   });
 
+  // Round-72 audit fix (MAJOR, gemini external) — debugInitRetryDelays is
+  // read at the retry-scheduling site rather than gated at assignment (a
+  // `List<Duration>?` static field has no setter to gate). Un-guarded, any
+  // code in the same isolate as a shipped release app could shorten the
+  // production 5s/15s/30s backoff to near-zero, turning a bounded retry
+  // budget into a tight loop against a real (possibly rate-limiting) ad
+  // network endpoint.
+  test('debugInitRetryDelays is ignored while release mode is simulated',
+      () async {
+    AdManager.debugAdapterFactory = (_) => _FailingAdapter();
+    AdManager.debugInitRetryDelays = const [Duration(milliseconds: 1)];
+    AdManager.debugSimulateReleaseModeForTestSeams = true;
+    addTearDown(() => AdManager.debugSimulateReleaseModeForTestSeams = false);
+
+    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+
+    expect(AdManager.debugLastInitRetryDelay, const Duration(seconds: 5),
+        reason: 'debugInitRetryDelays must not apply in a (simulated) '
+            'release build — the real 5s production backoff must be used '
+            'instead of the 1ms test override');
+  });
 }

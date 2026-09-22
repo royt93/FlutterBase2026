@@ -5,6 +5,8 @@
 // platform APIs unreachable from the test environment, so its constructor
 // exposes `*Override` params purely for tests.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/src/vip/_redeemed_key_ledger.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -202,6 +204,58 @@ void main() {
           reason: 'the old instance\'s in-flight write must not be '
               'silently overwritten by the new instance\'s write');
       expect(persisted, contains('kidFromNewInstance'));
+    });
+
+    test(
+        'Round-72 audit follow-up (3rd independent review): '
+        'resetWriteChainForTest is a no-op once release mode is simulated — '
+        'the exact dropped-redemption race the write chain exists to '
+        'prevent must still be prevented', () async {
+      final storage = _MockSecureStorage();
+      String? persisted;
+      var writeCalls = 0;
+      final parkedWrite = Completer<void>();
+      when(() => storage.read(key: any(named: 'key')))
+          .thenAnswer((_) async => persisted);
+      when(() => storage.write(
+            key: any(named: 'key'),
+            value: any(named: 'value'),
+          )).thenAnswer((invocation) async {
+        writeCalls++;
+        if (writeCalls == 1) await parkedWrite.future; // never lands on its own
+        persisted = invocation.namedArguments[#value] as String;
+      });
+      addTearDown(() {
+        if (!parkedWrite.isCompleted) parkedWrite.complete();
+      });
+
+      final ledger = buildLedger(secureStorage: storage, isIos: true);
+      final firstRedeem = ledger.markRedeemed('kidA');
+      await Future<void>.delayed(Duration.zero); // reach the parked write()
+
+      RedeemedKeyLedger.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() =>
+          RedeemedKeyLedger.debugSimulateReleaseModeForTestSeams = false);
+      RedeemedKeyLedger.resetWriteChainForTest();
+
+      var secondCompleted = false;
+      final secondRedeem =
+          ledger.markRedeemed('kidB').then((r) => secondCompleted = true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(secondCompleted, isFalse,
+          reason: 'the second redemption must still be chained behind the '
+              'first, still-parked write — if this is already true, the '
+              'reset above silently took effect even though release mode '
+              'was simulated, reopening the dropped-redemption race');
+
+      parkedWrite.complete();
+      await firstRedeem;
+      await secondRedeem;
+      expect(persisted, contains('kidA'),
+          reason: 'the parked first write must still have landed — proof '
+              'the chain, not just timing, is what serialised these two');
+      expect(persisted, contains('kidB'));
     });
 
     test('swallows write errors (fail-open)', () async {

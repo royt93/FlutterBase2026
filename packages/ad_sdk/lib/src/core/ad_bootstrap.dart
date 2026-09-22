@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
 import 'package:google_mobile_ads/google_mobile_ads.dart' show DebugGeography;
 
 import '../config/ad_config.dart';
@@ -111,12 +111,19 @@ Future<AdBootstrapResult> bootstrap(
   @visibleForTesting Future<AttResult> Function()? debugRequestAtt,
   @visibleForTesting Future<UmpConsentResult> Function()? debugRequestUmp,
 }) async {
+  // Round-72 audit follow-up (4th independent review) — read-site guard.
+  // `kReleaseMode` is a compile-time constant, so unlike the class-scoped
+  // seams elsewhere in this SDK this doesn't need a simulate-release flag
+  // to be testable: it's already unconditionally inert in a real release
+  // build, with no way for app code sharing the isolate to re-enable it.
   AttResult? att;
   if (options.requestAtt) {
-    att = await (debugRequestAtt ?? AdManager().requestAtt)();
+    final requestAtt =
+        (kReleaseMode ? null : debugRequestAtt) ?? AdManager().requestAtt;
+    att = await requestAtt();
   }
 
-  final requestUmp = debugRequestUmp ??
+  final requestUmp = (kReleaseMode ? null : debugRequestUmp) ??
       () => AdManager().requestUmpConsent(
             testMode: options.umpTestMode,
             debugGeography: options.umpDebugGeography,

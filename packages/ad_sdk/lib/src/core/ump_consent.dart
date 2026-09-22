@@ -92,6 +92,20 @@ const Duration kUmpFormOnScreenBackstop = Duration(minutes: 15);
 @visibleForTesting
 Duration? debugUmpFormBackstopOverride;
 
+/// Round-72 audit follow-up (3rd independent review) — this override had no
+/// release-mode guard at all (its siblings [debugFormDismissTimeoutOverride]
+/// and [debugRequestConsentInfoUpdateTimeoutOverride] above already did).
+/// Same reason as those: never set this in production — collapsing the
+/// 15-minute backstop could let an ad show over a live UMP consent form.
+@visibleForTesting
+bool debugSimulateReleaseModeForUmpFormBackstop = false;
+
+Duration get _umpFormBackstop =>
+    ((kReleaseMode || debugSimulateReleaseModeForUmpFormBackstop)
+        ? null
+        : debugUmpFormBackstopOverride) ??
+    kUmpFormOnScreenBackstop;
+
 /// Live release closures, so [resetUmpFormOnScreen] can cancel their backstop
 /// timers instead of leaving them to fire against a later form.
 final Set<void Function()> _activeUmpReleases = <void Function()>{};
@@ -116,12 +130,11 @@ void Function() markUmpFormOnScreen() {
   };
   _activeUmpReleases.add(release);
 
-  backstop =
-      Timer(debugUmpFormBackstopOverride ?? kUmpFormOnScreenBackstop, () {
+  backstop = Timer(_umpFormBackstop, () {
     SafeLogger.w(
         'UmpConsent',
         'a UMP form never reported being dismissed — releasing the ad block '
-            'after ${(debugUmpFormBackstopOverride ?? kUmpFormOnScreenBackstop).inMinutes}m '
+            'after ${_umpFormBackstop.inMinutes}m '
             'rather than blocking ads for the whole process');
     release();
   });

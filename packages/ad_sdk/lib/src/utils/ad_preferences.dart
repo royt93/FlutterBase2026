@@ -82,8 +82,15 @@ class AdPreferences {
 
   /// Reset the cached singleton (used by test setUp so each test gets a
   /// fresh instance bound to a fresh `SharedPreferences.setMockInitialValues`).
+  /// Round-72 audit follow-up (3rd independent review) — guarded, reusing
+  /// [debugSimulateReleaseModeForTestSeams] below.
   @visibleForTesting
   static void resetForTest() {
+    if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+      SafeLogger.e(_tag,
+          'resetForTest ignored in a release build — test-only seam (round-72 audit)');
+      return;
+    }
     _instance = null;
     _initCompleter = null;
   }
@@ -889,6 +896,14 @@ class AdPreferences {
   @visibleForTesting
   static Duration? debugFillRateWriteDelay;
 
+  /// Round-72 audit follow-up (2nd independent review) — lets a test
+  /// simulate release mode (`kReleaseMode` is a compile-time constant and
+  /// can't be flipped at test time) to prove [debugFillRateWriteDelay] is
+  /// actually inert in a release build. Same pattern as
+  /// `AdManager.debugSimulateReleaseModeForTestSeams`.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
   /// T101 — chains every [recordFillRateBaselineSample] write so the next
   /// call's read-modify-write only starts after the previous one's write has
   /// landed. Without this, two samples fired close together (e.g. a load
@@ -951,7 +966,11 @@ class AdPreferences {
     existing['revenueCount'] = (existing['revenueCount'] ?? 0) + revenueCount;
     todayMap[slotTypeName] = existing;
     history[today] = todayMap;
-    final delay = debugFillRateWriteDelay;
+    // Round-72 audit follow-up: read-site guard — @visibleForTesting alone
+    // doesn't stop a release build from reading this override.
+    final delay = (kReleaseMode || debugSimulateReleaseModeForTestSeams)
+        ? null
+        : debugFillRateWriteDelay;
     if (delay != null) await Future<void>.delayed(delay);
     await _prefs?.setString(_keyFillRateBaselineHistory, jsonEncode(history));
   }

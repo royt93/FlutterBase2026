@@ -46,7 +46,23 @@ final _ed = Ed25519();
 Future<String> _pubB64(SimpleKeyPair kp) async =>
     base64Url.encode((await kp.extractPublicKey()).bytes);
 
+// AVP2, not AVP1 — round 72 gated AVP1 behind `allowLegacyV1` (default
+// false). Every test in this file that just needs "a genuine signed key"
+// (not testing legacy-format acceptance specifically, which has its own
+// dedicated tests below) mints AVP2 so it keeps working under the new
+// default.
 Future<String> _mint(SimpleKeyPair kp,
+    {required int seconds, required String kid}) async {
+  final farFuture = DateTime.now().add(const Duration(days: 3650));
+  final payload = utf8
+      .encode('$seconds|$kid|${farFuture.millisecondsSinceEpoch ~/ 1000}|');
+  final sig = await _ed.sign(payload, keyPair: kp);
+  return 'AVP2.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
+}
+
+/// The real, now-legacy AVP1 wire format — only for the dedicated
+/// `allowLegacyV1` tests below.
+Future<String> _mintLegacyV1(SimpleKeyPair kp,
     {required int seconds, required String kid}) async {
   final payload = utf8.encode('$seconds|$kid');
   final sig = await _ed.sign(payload, keyPair: kp);
@@ -171,6 +187,24 @@ void main() {
     });
   });
 
+  group('legacy AVP1 gating (round 72 — allowLegacyV1)', () {
+    test('AVP1 key is rejected by default', () async {
+      final code = await _mintLegacyV1(keyPair, seconds: 3600, kid: 'legacy1');
+      expect(
+        () => verifySignedVipKey(code, publicKeyBase64: pub),
+        throwsA(isA<VipKeyException>()),
+      );
+    });
+
+    test('AVP1 key is accepted when allowLegacyV1: true is passed', () async {
+      final code = await _mintLegacyV1(keyPair, seconds: 3600, kid: 'legacy2');
+      final r = await verifySignedVipKey(code,
+          publicKeyBase64: pub, allowLegacyV1: true);
+      expect(r.duration, const Duration(seconds: 3600));
+      expect(r.keyId, 'legacy2');
+    });
+  });
+
   group('VipManager.redeemSignedKey', () {
     late AdPreferences prefs;
     late _FakeVipEntriesStore store;
@@ -189,6 +223,41 @@ void main() {
 
       final code = await _mint(keyPair, seconds: 7200, kid: 'grant1');
       final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.ok, isTrue);
+      expect(r.status, VipRedeemStatus.success);
+      expect(mgr.isActive, isTrue);
+      expect(r.entry, isNotNull);
+    });
+
+    // Round-72 audit follow-up — the two tests above the `VipManager.
+    // redeemSignedKey` group only exercised `allowLegacyV1` through the
+    // low-level `verifySignedVipKey`. This proves the flag also works
+    // end-to-end through the manager (the path a real host actually calls),
+    // both ways: rejected by manager default, granted when the caller opts
+    // in.
+    test('AVP1 key is rejected by the manager under the default (false)',
+        () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mintLegacyV1(keyPair, seconds: 7200, kid: 'v1mgr1');
+      final r = await mgr.redeemSignedKey(code, publicKeyBase64: pub);
+
+      expect(r.ok, isFalse);
+      expect(mgr.isActive, isFalse);
+    });
+
+    test('AVP1 key grants VIP through the manager when allowLegacyV1: true',
+        () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final code = await _mintLegacyV1(keyPair, seconds: 7200, kid: 'v1mgr2');
+      final r = await mgr.redeemSignedKey(code,
+          publicKeyBase64: pub, allowLegacyV1: true);
 
       expect(r.ok, isTrue);
       expect(r.status, VipRedeemStatus.success);
@@ -487,6 +556,12 @@ void main() {
       );
 
       await tester.tap(find.text('Redeem'));
+      // AVP2's real Ed25519 verify + a PackageInfo platform-channel read (for
+      // the app-binding check) don't reliably complete under pumpAndSettle()
+      // alone inside a testWidgets fake-async zone — same escape hatch as
+      // vip_redeem_screen_test.dart uses for the same reason.
+      await tester
+          .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
       await tester.pumpAndSettle();
 
       expect(find.text('status:success'), findsOneWidget);

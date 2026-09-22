@@ -619,6 +619,52 @@ void main() {
               'banners, so it counts too: ${adapter.calls}');
     });
 
+    test(
+        'Round-72 audit follow-up (2nd independent review): '
+        'debugResumeConsentRecheckTimeout is inert once release mode is '
+        'simulated — @visibleForTesting alone does not stop a release build '
+        'from reading it, so _resumeAdWorkAfterConsent() must guard the read '
+        'site itself',
+        () async {
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesAllow,
+      });
+      await AdManager().requestUmpConsent();
+
+      final adapter = _StubAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      seedTcf({
+        'IABTCF_gdprApplies': 1,
+        'IABTCF_PurposeConsents': _purposesRefuse,
+      });
+      final wedge = Completer<void>();
+      addTearDown(() {
+        if (!wedge.isCompleted) wedge.complete();
+        AdManager.debugSimulateReleaseModeForTestSeams = false;
+        AdManager.debugLastResumeConsentRecheckTimeoutUsed = null;
+      });
+      statusGate = wedge;
+      // A tiny override AND simulated release mode at once: if the guard is
+      // broken, the timeout used would be 20ms; if it works, it must be the
+      // real 5s production value regardless of the override.
+      AdManager.debugResumeConsentRecheckTimeout =
+          const Duration(milliseconds: 20);
+      AdManager.debugSimulateReleaseModeForTestSeams = true;
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await pumpEventQueue(times: 50);
+
+      expect(AdManager.debugLastResumeConsentRecheckTimeoutUsed,
+          const Duration(seconds: 5),
+          reason: 'in simulated release mode the 20ms debug override must '
+              'be ignored entirely — the real 5s production timeout must be '
+              'the one actually used. If this is 20ms instead, '
+              'debugResumeConsentRecheckTimeout is still live in a release '
+              'build.');
+    });
+
     // Round-13 QC (round 2), MAJOR — the at-timeout snapshot is inconclusive
     // by construction (the form is still on screen), so it must not be
     // applied at all: applying it would grant personalisation back while the

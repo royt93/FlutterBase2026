@@ -2919,6 +2919,44 @@ void main() {
       // A slot that never had a load/show attempt at all stays null.
       expect(AdManager().explainLastSkip(AdSlotType.rewarded), isNull);
     });
+
+    // Round-72 audit follow-up (3rd independent review) — these 3 seams are
+    // scoped to A/B provider-cohort assignment/diagnostics, not
+    // safety/consent/VIP gating, so unlike the seams elsewhere in this diff
+    // a single shared log-capture test is proportionate: it proves each
+    // guard's early-return actually fires (not just that the annotation
+    // exists), via the same `_warnSeamBlocked` log line every other guarded
+    // seam in this file already emits.
+    test(
+        'debugResetPreInitExperimentId / debugReconcileProviderExplorationSlot '
+        '/ debugResetLastSkip are all no-ops once release mode is simulated',
+        () async {
+      SafeLogger.resetForTest();
+      final logs = <String>[];
+      SafeLogger.configure(onLog: (level, tag, message) => logs.add(message));
+      addTearDown(SafeLogger.resetForTest);
+
+      AdManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(
+          () => AdManager.debugSimulateReleaseModeForTestSeams = false);
+
+      AdManager().debugResetPreInitExperimentId();
+      await AdManager().debugReconcileProviderExplorationSlot(vipActive: false);
+      AdManager().debugResetLastSkip();
+
+      for (final name in [
+        'debugResetPreInitExperimentId',
+        'debugReconcileProviderExplorationSlot',
+        'debugResetLastSkip',
+      ]) {
+        expect(
+            logs.any((m) =>
+                m.contains(name) && m.contains('ignored in a release build')),
+            isTrue,
+            reason: '$name must log that it was blocked — if it silently '
+                'ran instead, the guard above is not actually in effect');
+      }
+    });
   });
 
   // T88 — remoteSafetyProvider lets a host plug in Firebase Remote

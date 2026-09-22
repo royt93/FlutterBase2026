@@ -4,6 +4,49 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Changed (round 72 audit, MINOR, breaking):** `verifySignedVipKey` and
+  `VipManager.redeemSignedKey` now reject the legacy `AVP1` key format
+  (no expiry, no app binding) by default. Pass `allowLegacyV1: true` if
+  your app has already distributed real AVP1 codes and needs them to keep
+  redeeming — `tool/vip_mint.dart` has minted `AVP2` by default since
+  2.0.0, so this only affects codes minted with `--v1`.
+- **Fixed (round 72 audit, MAJOR):** a 4-pass independent-review sweep
+  (3 separate reviewer passes, each re-scanning all of `lib/` from
+  scratch — the annotation alone doesn't block a release build, so every
+  one of these needed a runtime `kReleaseMode`/`_testSeamsBlocked`/
+  `debugSimulateReleaseModeForTestSeams` guard at its actual read/call
+  site) found 18 more `@visibleForTesting` debug seams left ungated after
+  round 69's original sweep — same class of gap as rounds 68-71, just
+  missed the first four times because each seam has a different name, in
+  a different file:
+  - `AdManager`: `debugFirstInstallGuardFactory`, `debugForceAutoUmpError`,
+    `debugInitRetryDelays`, `debugConsentGateRecoveryRetryDelay`,
+    `debugBumpInitGen`, `debugReconnectDebounce`,
+    `debugResumeConsentRecheckTimeout`, `debugResetPreInitExperimentId`,
+    `debugReconcileProviderExplorationSlot`, `debugResetLastSkip`
+  - `ConsentManager`: `debugPersistDelay`, `debugApplyBarrier`
+  - `AdEventLog`: `debugPersistDelay` (a same-named-but-different-class
+    sibling of `ConsentManager`'s, missed by grep for exactly that reason),
+    `debugInjectRawEntry`
+  - `IabStorage.debugOpenOverride` — could have hijacked every
+    TCF/GPP/US-Privacy read
+  - `AdPreferences.debugFillRateWriteDelay`, `AdPreferences.resetForTest`
+  - `VipManager.resetSaveQueueForTest`, `RedeemedKeyLedger.resetWriteChainForTest`
+    — both sit directly in the VIP anti-replay/anti-resurrection write
+    serialization this SDK's whole VIP security model depends on
+  - `UmpConsentManager.debugUmpFormBackstopOverride` — could have let ads
+    show over a live UMP consent form
+  - `AttConsentManager.resetPendingAttRequest`
+  - `SafeLogger.resetForTest`
+  - `bootstrap()`'s `debugRequestAtt`/`debugRequestUmp` parameters — could
+    have skipped the real ATT/UMP prompts entirely in a release build
+  - `RevenuePanel.debugModeOverride` — could have shown a real live-revenue
+    number to the end user (this one guarded with `kReleaseMode` directly,
+    not a simulate-flag, same as `bootstrap()`'s two above — a compile-time
+    constant needs no runtime flag to already be unconditionally safe)
+
 ## [3.1.0] - 2026-09-22
 
 - **Added:** wake lock — `AdConfig.keepScreenOnDuringSession` (default

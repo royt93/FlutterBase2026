@@ -3977,8 +3977,16 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
   Future<void> _redeemSigned(String code) async {
     final vip = AdManager().vip;
     if (vip == null) return;
-    final r = await vip.redeemSignedKey(code,
-        publicKeyBase64: kDemoVipPublicKey, stack: true);
+    final r = await vip.redeemSignedKey(
+      code,
+      publicKeyBase64: kDemoVipPublicKey,
+      stack: true,
+      // The 3 pre-signed kDemoSignedVipKeys above are real AVP1 codes from
+      // before round 72 gated that format off by default; they can't be
+      // re-minted without the (never-shipped) demo private key, so this demo
+      // screen opts back in explicitly.
+      allowLegacyV1: true,
+    );
     if (!mounted) return;
     setState(() {});
     final msg = switch (r.status) {

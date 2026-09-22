@@ -314,6 +314,36 @@ void main() {
         reason: 'the second sample must not be discarded either');
   });
 
+  test(
+      'Round-72 audit follow-up: debugFillRateWriteDelay is inert once '
+      'release mode is simulated — @visibleForTesting alone does not stop a '
+      'release build from reading it, so the write site must guard it',
+      () async {
+    monitor = FillRateBaselineMonitor(prefs, minSamples: 1);
+    AdPreferences.debugFillRateWriteDelay = const Duration(seconds: 3);
+    AdPreferences.debugSimulateReleaseModeForTestSeams = true;
+    addTearDown(() {
+      AdPreferences.debugFillRateWriteDelay = null;
+      AdPreferences.debugSimulateReleaseModeForTestSeams = false;
+    });
+
+    final stopwatch = Stopwatch()..start();
+    await prefs.recordFillRateBaselineSample(
+        slotTypeName: AdSlotType.interstitial.name, attempts: 1);
+    stopwatch.stop();
+
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)),
+        reason: 'in simulated release mode the 3s debug delay must be '
+            'skipped entirely. If this fails (takes ~3s), '
+            'debugFillRateWriteDelay is still live in a release build.');
+
+    final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
+    expect(
+        prefs.getFillRateBaselineHistory()[today]
+            ?[AdSlotType.interstitial.name]?['attempts'],
+        1);
+  });
+
   group('offline mid-flight failures do not count (round 51 audit fix)', () {
     tearDown(() => AdManager().debugConnectivityChanged(true));
 

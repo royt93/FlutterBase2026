@@ -178,7 +178,12 @@ class IabStorage {
   static Future<SharedPreferencesAsync?> Function()? debugOpenOverride;
 
   static Future<SharedPreferencesAsync?> _open() async {
-    final override = debugOpenOverride;
+    // Round-72 audit follow-up (2nd independent review) — read-site guard.
+    // This class already has `_testSeamsBlocked` (used by debugResetForTest
+    // above); this override was the one seam in the file that never used it
+    // — in a release build it could hijack every read/write of the
+    // TCF/GPP/US-Privacy IAB strings.
+    final override = _testSeamsBlocked ? null : debugOpenOverride;
     if (override != null) return override();
     final existing = _store;
     if (existing != null) return existing;

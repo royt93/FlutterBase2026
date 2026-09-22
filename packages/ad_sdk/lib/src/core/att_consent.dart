@@ -2,7 +2,7 @@ import 'dart:async' show Completer, unawaited;
 import 'dart:io';
 
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
 
 import '../utils/safe_logger.dart';
 import 'ump_consent.dart' show markUmpFormOnScreen;
@@ -104,12 +104,26 @@ AttStatus _map(TrackingStatus s) {
 /// whatever the OS happens to do.
 Completer<AttResult>? _pendingAttRequest;
 
+/// Round-72 audit follow-up (3rd independent review) — this file had no
+/// release-mode infrastructure at all before this fix.
+@visibleForTesting
+bool debugSimulateReleaseModeForTestSeams = false;
+
 /// Test seam: clears the in-flight-request guard. Every real call path
 /// clears it automatically once it resolves — this exists only for a test
 /// that intentionally leaves a request unresolved (e.g. to assert the
 /// guard's join behavior) and needs to isolate that from later tests.
+/// Guarded: in a release build this could reopen the double-ATT-prompt race
+/// [_pendingAttRequest] exists to prevent (T161).
 @visibleForTesting
-void resetPendingAttRequest() => _pendingAttRequest = null;
+void resetPendingAttRequest() {
+  if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
+    SafeLogger.e('AttConsent',
+        'resetPendingAttRequest ignored in a release build — test-only seam (round-72 audit)');
+    return;
+  }
+  _pendingAttRequest = null;
+}
 
 Future<AttResult> requestAttIfNeeded({
   bool Function()? platformIsIosOverride,

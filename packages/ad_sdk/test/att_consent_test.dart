@@ -361,6 +361,51 @@ void main() {
           reason: 'still exactly one native call after both resolve');
     });
 
+    test(
+        'Round-72 audit follow-up (3rd independent review): '
+        'resetPendingAttRequest is a no-op once release mode is simulated — '
+        'the double-prompt race (T161) it exists to prevent must still be '
+        'prevented', () async {
+      var requestAuthorizationCalls = 0;
+      final promptCompleter = Completer<TrackingStatus>();
+
+      final first = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () {
+          requestAuthorizationCalls++;
+          return promptCompleter.future;
+        },
+      );
+      await Future<void>.delayed(Duration.zero); // reach the in-flight state
+
+      debugSimulateReleaseModeForTestSeams = true;
+      resetPendingAttRequest(); // must be a no-op
+
+      final second = requestAttIfNeeded(
+        platformIsIosOverride: () => true,
+        readStatusOverride: () async => TrackingStatus.notDetermined,
+        requestAuthorizationOverride: () {
+          requestAuthorizationCalls++;
+          return promptCompleter.future;
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      // Reset explicitly (not via addTearDown) so this file's own
+      // `tearDown(resetPendingAttRequest)` isn't itself the thing under
+      // test for a LATER test.
+      debugSimulateReleaseModeForTestSeams = false;
+
+      expect(requestAuthorizationCalls, 1,
+          reason: 'if the reset above silently took effect, the second '
+              'call would have started a brand-new native prompt instead '
+              'of joining the first — exactly the T161 double-prompt race');
+
+      promptCompleter.complete(TrackingStatus.authorized);
+      await Future.wait([first, second]);
+    });
+
     test('three overlapping calls all join the same single native call',
         () async {
       var requestAuthorizationCalls = 0;

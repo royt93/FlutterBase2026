@@ -3,6 +3,8 @@
 // Covers: bootstrap/idempotency, programmatic set/reset, persistence
 // round-trip, and the reactive listenable.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/src/config/ad_config.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_fallback.dart';
 import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
@@ -281,6 +283,58 @@ void main() {
       expect(ConsentManager.instance, same(m),
           reason: 'resetForTest must not tear down the live singleton in a '
               '(simulated) release build');
+    });
+  });
+
+  group('round-72 audit fix (MAJOR, gemini external) — read-site seams', () {
+    // `debugPersistDelay`/`debugApplyBarrier` are read at 4 call sites
+    // (`_persist`, `applyToProviders`, `reset`, `_setInternal`'s own apply)
+    // rather than gated at assignment — same reason as `resetForTest` above,
+    // proven here through the one public entry point (`set`) every one of
+    // those sites is reachable from.
+    test('debugPersistDelay is ignored while release mode is simulated',
+        () async {
+      final m = await ConsentManager.bootstrap(prefs: prefs);
+
+      ConsentManager.debugPersistDelay = const Duration(milliseconds: 300);
+      ConsentManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() {
+        ConsentManager.debugSimulateReleaseModeForTestSeams = false;
+        ConsentManager.debugPersistDelay = null;
+      });
+
+      final sw = Stopwatch()..start();
+      await m.set(const ConsentSettings(
+          hasUserConsent: true, hasBeenAsked: true));
+      sw.stop();
+
+      expect(sw.elapsedMilliseconds, lessThan(150),
+          reason: 'debugPersistDelay must not apply in a (simulated) '
+              'release build — a debug-only seam must not be able to '
+              'throttle production consent persistence');
+    });
+
+    test('debugApplyBarrier is ignored while release mode is simulated',
+        () async {
+      final m = await ConsentManager.bootstrap(prefs: prefs);
+      final neverCompletes = Completer<void>();
+
+      ConsentManager.debugApplyBarrier = neverCompletes.future;
+      ConsentManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() {
+        ConsentManager.debugSimulateReleaseModeForTestSeams = false;
+        ConsentManager.debugApplyBarrier = null;
+      });
+
+      await m
+          .set(const ConsentSettings(
+              hasUserConsent: true, hasBeenAsked: true))
+          .timeout(const Duration(seconds: 2),
+              onTimeout: () => fail(
+                  'debugApplyBarrier must not apply in a (simulated) '
+                  'release build — it hung waiting on a barrier that '
+                  'never completes, exactly what a shipped app must never '
+                  'do while applying a real consent decision'));
     });
   });
 }

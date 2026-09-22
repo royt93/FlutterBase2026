@@ -135,4 +135,27 @@ void main() {
     expect(() => SafeLogger.critical('Tag', 'no sink configured'),
         returnsNormally);
   });
+
+  test(
+      'Round-72 audit follow-up (3rd independent review): resetForTest is a '
+      'no-op once release mode is simulated', () {
+    final captured = <String>[];
+    SafeLogger.configure(
+      level: AdLogLevel.none,
+      onLog: (level, tag, message) => captured.add(message),
+    );
+
+    SafeLogger.debugSimulateReleaseModeForTestSeams = true;
+    SafeLogger.resetForTest(); // must be a no-op — level must stay `none`
+
+    SafeLogger.e('Tag', 'should stay suppressed');
+    expect(captured, isEmpty,
+        reason: 'if the reset above silently took effect, level would be '
+            'back to verbose and this e() call would have gone through');
+
+    // Reset explicitly (not only via the file-level tearDown, which itself
+    // calls resetForTest() — that call must not ALSO be a no-op for the
+    // next test in this file).
+    SafeLogger.debugSimulateReleaseModeForTestSeams = false;
+  });
 }

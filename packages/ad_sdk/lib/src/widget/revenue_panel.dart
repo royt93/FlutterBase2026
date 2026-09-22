@@ -63,7 +63,12 @@ class _RevenuePanelState extends State<RevenuePanel> {
 
   StreamSubscription<AdEvent>? _sub;
 
-  bool get _isDebug => widget.debugModeOverride ?? kDebugMode;
+  // Round-72 audit follow-up (4th independent review) — `kReleaseMode` is a
+  // compile-time constant, so this can't be bypassed by leaving
+  // `debugModeOverride: true` in release: a real live-revenue number would
+  // otherwise be shown to the end user instead of staying hidden.
+  bool get _isDebug =>
+      kReleaseMode ? false : (widget.debugModeOverride ?? kDebugMode);
 
   @override
   void initState() {

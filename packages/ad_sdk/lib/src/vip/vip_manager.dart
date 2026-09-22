@@ -151,10 +151,25 @@ class VipManager {
   /// stale tail is simply not waited on.
   static int _savesInFlight = 0;
 
+  /// Round-72 audit follow-up (3rd independent review) — this method is
+  /// `static`, so it can't reuse the instance-level [_isRelease] guard
+  /// [_runValidator]/[clearRedeemedKeyLedgerForTest] use below; same idiom
+  /// as `AdManager.debugSimulateReleaseModeForTestSeams`, just static-scoped
+  /// to this class instead.
+  @visibleForTesting
+  static bool debugSimulateReleaseModeForTestSeams = false;
+
   /// Drops the process-wide save ordering. Tests only — a test that parks a
   /// write and never releases it would otherwise wedge every later test.
+  /// Guarded: without it, calling this in a release build reopens the exact
+  /// resurrected-revocation race the queue above exists to prevent.
   @visibleForTesting
   static void resetSaveQueueForTest() {
+    if (isActuallyRelease(debugSimulateReleaseModeForTestSeams)) {
+      SafeLogger.e(_tag,
+          'resetSaveQueueForTest ignored in a release build — test-only seam (round-72 audit)');
+      return;
+    }
     _saveQueue = Future<void>.value();
     _savesInFlight = 0;
   }
@@ -1307,6 +1322,10 @@ class VipManager {
     String code, {
     required String publicKeyBase64,
     bool stack = true,
+
+    /// See [verifySignedVipKey]'s `allowLegacyV1` — defaults to `false`,
+    /// pass `true` only if this app has already distributed real AVP1 codes.
+    bool allowLegacyV1 = false,
   }) async {
     // Round-9 follow-up — refuse outright on a disposed manager, BEFORE the
     // one-time-use ledger is touched. `_save()` now drops writes from a
@@ -1388,6 +1407,7 @@ class VipManager {
         // the raw device clock, bypassing _effectiveNow()'s anti-rollback
         // clamp: winding the clock back could redeem an already-expired key.
         now: _effectiveNow(),
+        allowLegacyV1: allowLegacyV1,
       );
     } on VipKeyException catch (e) {
       SafeLogger.w(_tag, 'redeemSignedKey invalid: ${e.message}');

@@ -86,10 +86,15 @@ void main() {
     return 'CRL1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
   }
 
+  // AVP2, not AVP1 — round 72 gated AVP1 behind `allowLegacyV1` (default
+  // false); this file tests CRL/dispose rollback ordering, not key-format
+  // legacy support, so it mints the currently-accepted-by-default format.
   Future<String> key(String kid) async {
-    final payload = utf8.encode('3600|$kid');
+    final farFuture = DateTime.now().add(const Duration(days: 3650));
+    final payload = utf8
+        .encode('3600|$kid|${farFuture.millisecondsSinceEpoch ~/ 1000}|');
     final sig = await _ed.sign(payload, keyPair: keyPair);
-    return 'AVP1.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
+    return 'AVP2.${base64Url.encode(payload)}.${base64Url.encode(sig.bytes)}';
   }
 
   /// What the app does on the launch after the race: fresh manager, reads the

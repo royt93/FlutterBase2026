@@ -624,7 +624,10 @@ class AdManager with WidgetsBindingObserver {
   /// fresh, never-bootstrapped install instead of inheriting whatever a
   /// prior test in the same run already minted.
   @visibleForTesting
-  void debugResetPreInitExperimentId() => _cachedPreInitExperimentId = null;
+  void debugResetPreInitExperimentId() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugResetPreInitExperimentId');
+    _cachedPreInitExperimentId = null;
+  }
 
   String _preInitExperimentId() {
     final cached = _cachedPreInitExperimentId;
@@ -792,6 +795,10 @@ class AdManager with WidgetsBindingObserver {
   Future<void> debugReconcileProviderExplorationSlot({
     required bool vipActive,
   }) {
+    if (_testSeamsBlocked) {
+      _warnSeamBlocked('debugReconcileProviderExplorationSlot');
+      return Future<void>.value();
+    }
     final pendingMs = _pendingExplorationCommitAtMs;
     _pendingExplorationCommitAtMs = null;
     return _reconcileProviderExplorationSlot(
@@ -2031,7 +2038,10 @@ class AdManager with WidgetsBindingObserver {
   /// earlier generation and is still in flight, without the weight of a
   /// real adapter init.
   @visibleForTesting
-  void debugBumpInitGen() => _initGen++;
+  void debugBumpInitGen() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugBumpInitGen');
+    _initGen++;
+  }
 
   /// T80 — regression seam for the 2.0.1 fix: simulates an internal retry
   /// timer firing while another `initialize()` call already holds the busy
@@ -2089,7 +2099,10 @@ class AdManager with WidgetsBindingObserver {
 
   /// Test seam: shorten the reconnect debounce so tests need not wait 800 ms.
   @visibleForTesting
-  set debugReconnectDebounce(Duration d) => _reconnectDebounce = d;
+  set debugReconnectDebounce(Duration d) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugReconnectDebounce');
+    _reconnectDebounce = d;
+  }
 
   /// Test seam: observe the retry-timer generation counter. [_stopAdRetryTimer]
   /// unconditionally bumps this — including from the re-init guard in
@@ -2510,7 +2523,10 @@ class AdManager with WidgetsBindingObserver {
   /// against the same singleton. Tests that care about a slot's *initial*
   /// (never-skipped) state should call this first.
   @visibleForTesting
-  void debugResetLastSkip() => _lastSkipByType.clear();
+  void debugResetLastSkip() {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugResetLastSkip');
+    _lastSkipByType.clear();
+  }
 
   /// T119 — human-readable answer to the single most common ad-SDK support
   /// question: "why isn't this ad showing?" Reflects the most recent
@@ -3591,8 +3607,11 @@ class AdManager with WidgetsBindingObserver {
           // rationale). Falls through to allow grace if no bypass signal
           // is found, so legitimate first-time users still get their
           // grace window.
-          final guard =
-              debugFirstInstallGuardFactory?.call() ?? FirstInstallGuard();
+          // Round-72 audit fix: read-site guard — a static field can't be
+          // gated at assignment the way a setter can, so block it here.
+          final guard = (_testSeamsBlocked ? null : debugFirstInstallGuardFactory)
+                  ?.call() ??
+              FirstInstallGuard();
           // m13 — bounded: this reads the iOS Keychain through
           // flutter_secure_storage, and a Keychain read can genuinely block
           // (notably before first unlock after a reboot). `true` on timeout is
@@ -3839,7 +3858,7 @@ class AdManager with WidgetsBindingObserver {
         final consentSettled = Completer<void>();
         runZonedGuarded(() async {
           try {
-            if (debugForceAutoUmpError != null) {
+            if (!_testSeamsBlocked && debugForceAutoUmpError != null) {
               throw debugForceAutoUmpError!;
             }
             await requestUmpConsent(
@@ -4652,7 +4671,8 @@ class AdManager with WidgetsBindingObserver {
     // clamp below threw `Invalid argument(s): 0`, the outer catch re-entered
     // this same function, the second throw escaped `initialize()` and the
     // host's `onComplete` was never called at all.
-    final override = debugInitRetryDelays;
+    // Round-72 audit fix: read-site guard, same reason as above.
+    final override = _testSeamsBlocked ? null : debugInitRetryDelays;
     final schedule = (override != null && override.isNotEmpty)
         ? override
         : _kInitRetryDelays;
@@ -5505,7 +5525,7 @@ class AdManager with WidgetsBindingObserver {
   /// the init-time auto-UMP flow, so both retry call sites' `runZonedGuarded`
   /// wrapping can be exercised without a real UMP channel.
   Future<UmpConsentResult> _retryUmpConsent() {
-    if (debugForceAutoUmpError != null) {
+    if (!_testSeamsBlocked && debugForceAutoUmpError != null) {
       throw debugForceAutoUmpError!;
     }
     final p = _lastUmpParams;
@@ -5780,7 +5800,7 @@ class AdManager with WidgetsBindingObserver {
   /// [_retryUmpConsent], so both retry call sites' `runZonedGuarded`
   /// wrapping can be exercised without a real UMP channel.
   Future<void> _recheckAbandonedUmpForm() async {
-    if (debugForceAutoUmpError != null) {
+    if (!_testSeamsBlocked && debugForceAutoUmpError != null) {
       throw debugForceAutoUmpError!;
     }
     final result = await recheckUmpConsentStatus();
@@ -6242,9 +6262,10 @@ class AdManager with WidgetsBindingObserver {
     }
     _consentGateRecoveryAttempts++;
     _consentGateRecoveryRetry?.cancel();
+    // Round-72 audit fix: read-site guard, same reason as the other seams.
     _consentGateRecoveryRetry = Timer(
-        debugConsentGateRecoveryRetryDelay ?? _consentGateRecoveryRetryDelay,
-        () {
+        (_testSeamsBlocked ? null : debugConsentGateRecoveryRetryDelay) ??
+            _consentGateRecoveryRetryDelay, () {
       unawaited(_recoverConsentGate(knownTcfRefusal: knownTcfRefusal)
           .catchError((Object e) {
         SafeLogger.w(_tag, '_recoverConsentGate retry threw: $e');
@@ -8884,6 +8905,14 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   static Duration? debugResumeConsentRecheckTimeout;
 
+  /// Round-72 audit follow-up: test-only observability for the timeout
+  /// [_resumeAdWorkAfterConsent] actually used, same idiom as
+  /// [debugLastInitRetryDelay] — lets a test prove the release-mode guard
+  /// above discards [debugResumeConsentRecheckTimeout] without needing to
+  /// wait out a real 5s timeout.
+  @visibleForTesting
+  static Duration? debugLastResumeConsentRecheckTimeoutUsed;
+
   /// Round-13 QC (round 2), BLOCKER — the resume ad work, gated on consent.
   ///
   /// Fail-closed on purpose: if the re-check cannot settle (a wedged platform
@@ -8892,8 +8921,13 @@ class AdManager with WidgetsBindingObserver {
   /// withdrawn is a compliance violation, while a skipped banner refresh and
   /// App Open costs one resume and is retried on the next one.
   Future<void> _resumeAdWorkAfterConsent(AdProviderAdapter ad) async {
-    final timeout =
-        debugResumeConsentRecheckTimeout ?? _resumeConsentRecheckTimeout;
+    // Round-72 audit follow-up (2nd independent review) — read-site guard,
+    // same reason as debugConsentGateRecoveryRetryDelay above: annotation
+    // alone doesn't stop a release build from reading this override.
+    final timeout = _testSeamsBlocked
+        ? _resumeConsentRecheckTimeout
+        : debugResumeConsentRecheckTimeout ?? _resumeConsentRecheckTimeout;
+    debugLastResumeConsentRecheckTimeoutUsed = timeout;
     try {
       await _recheckConsentOnResume().timeout(timeout);
     } on TimeoutException {

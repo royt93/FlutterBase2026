@@ -155,5 +155,42 @@ void main() {
             reason: 'same fail-closed contract as an unreadable store above');
       });
     });
+
+    test(
+        'Round-72 audit follow-up (2nd independent review): debugOpenOverride '
+        'is inert once release mode is simulated — @visibleForTesting alone '
+        'does not stop a release build from reading it, so _open() must '
+        'guard the read site itself',
+        () {
+      fakeAsync((async) {
+        seed({});
+        IabStorage.debugOpenOverride =
+            () => Completer<SharedPreferencesAsync?>().future;
+        IabStorage.debugSimulateReleaseModeForTestSeams = true;
+        addTearDown(() {
+          IabStorage.debugOpenOverride = null;
+          IabStorage.debugSimulateReleaseModeForTestSeams = false;
+        });
+
+        var completed = false;
+        bool? result;
+        IabStorage.usPrivacyOptedOut().then((r) {
+          completed = true;
+          result = r;
+        });
+        async.elapse(const Duration(milliseconds: 1));
+
+        expect(completed, isTrue,
+            reason: 'in simulated release mode the never-completing debug '
+                'override must be skipped entirely — the real in-memory '
+                'store (seeded empty) must answer within 1ms instead of '
+                'hanging forever on the override\'s Completer. If this is '
+                'still false, debugOpenOverride is still live in a release '
+                'build and could hijack every TCF/GPP/US-Privacy read.');
+        expect(result, isNull,
+            reason: 'seeded empty — the normal "no signal" answer, once the '
+                'override is correctly bypassed');
+      });
+    });
   });
 }

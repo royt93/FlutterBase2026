@@ -538,6 +538,54 @@ void main() {
     });
   });
 
+  // Round-72 audit follow-up (3rd independent review) — `resetSaveQueueForTest`
+  // is `static`, so it can't reuse the instance-level `_isRelease` guard the
+  // rest of `VipManager`'s test seams use. It now guards itself with its own
+  // static `debugSimulateReleaseModeForTestSeams` flag; this proves the
+  // guard, not just the annotation, is what stops it in a release build.
+  test(
+      'resetSaveQueueForTest is a no-op once release mode is simulated — '
+      'the exact resurrected-revocation race the queue exists to prevent '
+      'must still be prevented', () {
+    final secure = _FlakySecureStorage();
+    final store = VipEntriesStore(prefs, secureStorage: secure);
+
+    fakeAsync((async) {
+      VipManager.resetSaveQueueForTest(); // real reset, INSIDE the fake zone
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      unawaited(mgr.load());
+      async.flushMicrotasks();
+
+      // A write that never answers, exactly like the sibling test above.
+      secure.writeGate = Completer<void>();
+      unawaited(mgr.addVip(key: 'WEDGED', duration: const Duration(days: 7)));
+      async.flushMicrotasks();
+
+      // If this reset actually took effect, the load() below would see
+      // `_savesInFlight == 0` and skip the drain wait entirely.
+      VipManager.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(
+          () => VipManager.debugSimulateReleaseModeForTestSeams = false);
+      VipManager.resetSaveQueueForTest();
+
+      var loadReturned = false;
+      unawaited(mgr.load().then((_) => loadReturned = true));
+      async.flushMicrotasks();
+      expect(loadReturned, isFalse,
+          reason: 'sanity: load() must still be draining the wedged write — '
+              'if this is already true, the reset above silently took '
+              'effect even though release mode was simulated');
+
+      async.elapse(VipManager.kSaveDrainTimeout + const Duration(seconds: 1));
+      async.flushMicrotasks();
+
+      expect(loadReturned, isTrue,
+          reason: 'the drain must still time out on its own bound rather '
+              'than hang forever');
+      mgr.dispose();
+    });
+  });
+
   // Round-10 QC, MINOR — the one-shot 1.x GAID migration must not be marked
   // done when the write that carries it may have been dropped: the flag makes
   // every later launch skip migration, losing the legacy entitlement for good.

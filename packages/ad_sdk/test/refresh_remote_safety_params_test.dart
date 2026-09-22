@@ -279,6 +279,44 @@ void main() {
             'merged onto the live AdSafetyConfig the NEW session is using');
   });
 
+  // Round-72 audit fix (MAJOR, gemini external) — debugBumpInitGen() is a
+  // plain method, not a setter, so it cannot be gated the way
+  // debugSetAdapter/debugConfig etc. are; the guard lives inside the method
+  // body instead. Proven here through the exact same stale-fetch scenario
+  // above, inverted: with the seam blocked the bump must be a true no-op, so
+  // the "new session" guard never trips and the stale fetch's override lands
+  // unmodified — the same bug the test above exists to catch, reintroduced
+  // deliberately to prove the seam-block itself, not the guard it wraps.
+  test(
+      'debugBumpInitGen is ignored while release mode is simulated — a '
+      'stale fetch is no longer detected', () async {
+    await wireUp(_FakeRemoteSafetyProvider({}));
+
+    final fetchStarted = Completer<void>();
+    final releaseFetch = Completer<Map<String, dynamic>?>();
+    AdManager().debugRemoteSafetyProvider = _DelayedRemoteSafetyProvider(
+      fetchStarted: fetchStarted,
+      releaseWith: releaseFetch.future,
+    );
+
+    final refreshFuture = AdManager().refreshRemoteSafetyParams();
+    await fetchStarted.future;
+
+    AdManager.debugSimulateReleaseModeForTestSeams = true;
+    addTearDown(() => AdManager.debugSimulateReleaseModeForTestSeams = false);
+    AdManager().debugBumpInitGen(); // must be a no-op while blocked
+
+    releaseFetch.complete({'maxFullscreenAdsPerDay': 1});
+    await refreshFuture;
+
+    expect(AdSafetyConfig.getStatusSnapshot().maxFullscreenAdsPerDay, 1,
+        reason: 'debugBumpInitGen must not apply in a (simulated) release '
+            'build — proven by the generation guard NOT tripping, so the '
+            'stale override lands same as it would with no bump call at '
+            'all (the exact regression the un-blocked seam exists to '
+            'catch, seen here through the seam-block\'s own absence)');
+  });
+
   // ─────────────────────────────────────────────────
   // T137 — revision-guard (rollback protection)
   // ─────────────────────────────────────────────────

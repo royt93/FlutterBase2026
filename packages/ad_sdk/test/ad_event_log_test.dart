@@ -411,5 +411,51 @@ void main() {
               "log's write lands — this is the exact bug T102 fixes in "
               'AdManager._destroy()');
     });
+
+    test(
+        'Round-72 audit fix: debugPersistDelay is inert once release mode is '
+        'simulated — @visibleForTesting alone does not stop a release build '
+        'from reading it, so _persist() must guard the read site itself',
+        () {
+      fakeAsync((async) {
+        final log = AdEventLog(prefs);
+        AdEventLog.debugPersistDelay = const Duration(seconds: 10);
+        AdEventLog.debugSimulateReleaseModeForTestSeams = true;
+        addTearDown(() {
+          AdEventLog.debugPersistDelay = null;
+          AdEventLog.debugSimulateReleaseModeForTestSeams = false;
+        });
+
+        log.recordEvent(loadEvent(), timestampMs: 1);
+        // ignore: unawaited_futures
+        log.flush();
+        async.flushMicrotasks();
+
+        expect(prefs.getComplianceLogRaw(), isNotNull,
+            reason: 'in simulated release mode the 10s debug delay must be '
+                'skipped entirely — the write lands without elapsing any '
+                'fake time. If this fails, debugPersistDelay is still live '
+                'in a release build and a compromised co-isolate could use '
+                'it to indefinitely stall compliance/fraud-log writes.');
+      });
+    });
+
+    test(
+        'Round-72 audit follow-up (4th independent review): '
+        'debugInjectRawEntry is inert once release mode is simulated — it '
+        'mutates the exact in-memory buffer _persist() writes to the real '
+        'compliance/fraud log on the next event, so it must guard itself',
+        () {
+      final log = AdEventLog(prefs);
+      AdEventLog.debugSimulateReleaseModeForTestSeams = true;
+      addTearDown(() => AdEventLog.debugSimulateReleaseModeForTestSeams = false);
+
+      log.debugInjectRawEntry({'kind': 'forged'});
+
+      expect(log.entries, isEmpty,
+          reason: 'in simulated release mode the injected entry must be '
+              'dropped entirely — a real compliance log must never contain '
+              'an entry that never came from recordEvent()/recordSafetyBlock()');
+    });
   });
 }
