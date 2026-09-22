@@ -4,6 +4,20 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Added:** wake lock — `AdConfig.keepScreenOnDuringSession` (default
+  `true`) keeps the device screen on for the whole SDK session, so a
+  rewarded video or an idle splash waiting on an App Open ad isn't
+  interrupted by the device auto-locking. Enabled on a successful
+  `AdManager.initialize()`, always released on `AdManager.destroy()`.
+  `AdManager.setKeepScreenOn(bool)` overrides it at runtime independent of
+  init state, for a host that wants to flip it mid-session. Backed by
+  `wakelock_plus`, pinned to exactly `1.4.0` (not `^1.4.0`) — the newest
+  version still satisfying this package's own Dart/Flutter floor; 1.5.0+
+  needs Dart >=3.10.0, same class of wall as `google_mobile_ads` 8/9 (see
+  this file's own pinning-wall notes and `CLAUDE.md`).
+
 ## [3.0.10] - 2026-09-21
 
 - **Fixed (round 70 audit, MAJOR):** the debug-seam-guard gap rounds 68/69
