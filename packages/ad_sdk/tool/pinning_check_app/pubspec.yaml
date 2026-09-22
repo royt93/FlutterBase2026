@@ -1,18 +1,17 @@
 name: pinning_check_app
 description: >
-  T85 — not a real app. A minimal consuming-app fixture that reproduces the
-  documented CocoaPods pinning wall (see CLAUDE.md): applovin_max (declared
-  ^4.6.4 by applovin_admob_sdk) requires AppLovinSDK (= 13.6.3), but
-  gma_mediation_applovin -> GoogleMobileAdsMediationAppLovin -> AppLovinSDK
-  (= 13.5.0). Both pin exact versions, so `pod install` can't resolve them
-  together unless applovin_max is held back — see the dependency_overrides
-  below. Run `tool/check_pinning_wall.sh` from the ad_sdk package root to
-  verify this combo still resolves; that script is what CI runs.
+  T85 — not a real app. A minimal consuming-app fixture. MIGRATION IN
+  PROGRESS (google_mobile_ads 7->9.1.0): testing whether gma_mediation_applovin
+  2.6.2 (AppLovin iOS adapter 13.6.3.0) resolves the CocoaPods wall against
+  applovin_max ^4.6.4 (AppLovinSDK = 13.6.3) WITHOUT the dependency_overrides
+  hold-back the old 2.5.2 combo needed. Run `tool/check_pinning_wall.sh` from
+  the ad_sdk package root to verify this combo still resolves; that script is
+  what CI runs.
 publish_to: 'none'
 version: 0.0.1
 
 environment:
-  sdk: ^3.9.0
+  sdk: '>=3.10.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -22,14 +21,11 @@ dependencies:
   # Pin to a specific version, not a range — this fixture exists to prove
   # ONE known combination resolves; letting it float would silently drift
   # to whatever's newest and stop testing the documented combo.
-  gma_mediation_applovin: 2.5.2
+  gma_mediation_applovin: 2.6.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-dependency_overrides:
-  applovin_max: 4.6.0
 
 flutter:
   uses-material-design: true

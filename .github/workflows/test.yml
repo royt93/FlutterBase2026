@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.38.1'
           channel: stable
       - run: flutter pub get
       - name: Validate matrix target
@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.38.1'
           channel: 'stable'
       - name: Install dependencies
         run: flutter pub get
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.38.1'
           channel: 'stable'
       - name: Install dependencies
         run: flutter pub get
@@ -122,7 +122,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.38.1'
           channel: 'stable'
       - name: Check pinning wall (pub get + pod install)
         run: packages/ad_sdk/tool/check_pinning_wall.sh
@@ -140,7 +140,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.38.1'
           channel: 'stable'
       - name: Install dependencies
         working-directory: packages/ad_sdk/example
@@ -241,7 +241,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.1'
+          flutter-version: '3.38.1'
           channel: 'stable'
           cache: true
       # connectivity_plus 7.3.0 (transitive via internet_connection_checker_plus)

@@ -28,7 +28,7 @@ flutter pub get
 flutter test integration_test/
 ```
 
-**CI** (`.github/workflows/test.yml`) pins **Flutter 3.35.1 stable**, four jobs:
+**CI** (`.github/workflows/test.yml`) pins **Flutter 3.38.1 stable** (bumped from 3.35.1 — see the pinning-wall notes below for why), four jobs:
 
 - `sdk` — `flutter analyze` + `flutter test` in `packages/ad_sdk`. Primary gate.
 - `pinning-wall` — runs `packages/ad_sdk/tool/check_pinning_wall.sh` (`pub get` + `pod install`) against `tool/pinning_check_app/`, a minimal consuming-app fixture reproducing the documented known-good AppLovin/GMA version combo, so an incompatible pin bump fails CI instead of surfacing at release time.
@@ -41,11 +41,20 @@ flutter test integration_test/
 
 **Two traps `--dry-run` does not catch** (it reported "0 warnings" right before both failures): the upload API rejects any `screenshots:` description over **200** characters, and pana/pub.dev scoring separately wants the package `description` **and** every screenshot description under **160** characters or it silently drops 10 points each from "valid pubspec.yaml" and "example and screenshots". Also expect `flutter pub get` (in a consuming app) to keep reporting `doesn't match any versions` for a minute or two after a successful upload — the pub.dev API already serves the new version while the CDN edge still caches the old listing. Just retry; `pub cache clean` is unrelated.
 
-`gma_mediation_applovin` is a native mediation plugin and cannot be declared inside this package — it must stay at the **consuming app's** level, pinned in that app's `dependency_overrides` alongside `applovin_max`. Two separate walls, easy to confuse, and relevant here because they constrain which SDK versions a consuming app can actually adopt:
+`gma_mediation_applovin` is a native mediation plugin and cannot be declared inside this package — it must stay at the **consuming app's** level, pinned in that app's dependencies alongside `applovin_max`.
 
-- **Dart level:** `gma_mediation_applovin >=2.6.0` needs `meta ^1.17.0` while `flutter_test` from the CI-pinned Flutter 3.35.1 forces `meta 1.16.0`. And `google_mobile_ads` **8 and 9** need Dart `>=3.10.0` + Flutter `>=3.38.1`, which 3.35.1 (Dart 3.9.x) cannot satisfy — so the last 10 pub.dev points are gated on a Flutter upgrade, which would also raise this package's own `environment` floor and so be breaking for consumers. Audit round 43 (2026-09-18): `google_mobile_ads` 9.1.0 also ships the `RequestConfiguration.ageRestrictedTreatment` (TFAT) API replacing the legacy `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent` this SDK still uses — Google says the legacy pair keeps working through 2026 (no removal before a major release expected H1 2027), so this isn't independently urgent, but it's another reason this same floor bump will eventually be needed, not just the pana-score gap above.
-- **CocoaPods level:** `applovin_max 4.6.4` requires `AppLovinSDK (= 13.6.3)`, but `gma_mediation_applovin 2.5.2` → `GoogleMobileAdsMediationAppLovin (~> 13.5.0.0)` → `AppLovinSDK (= 13.5.0)`. Both pin exact versions, so `pod install` cannot resolve them together in a consuming app pinned to `gma_mediation_applovin 2.5.2` unless it also holds `applovin_max` back to `4.6.0` even though this package declares `^4.6.4`.
-- Verify any change here against a real consuming app with `flutter pub get` **and** `cd ios && pod install` **and** a real `flutter build apk` / `flutter build ios --simulator`: `pub get` succeeding proves nothing about the pod graph.
+**RESOLVED (2026-09-22):** both the Dart-level and CocoaPods-level pinning walls below are fixed as of this package's `google_mobile_ads: '>=9.0.0 <9.1.0'` + Flutter `>=3.38.1` / Dart `>=3.10.0` floor bump (breaking; was `google_mobile_ads ^7.0.0` / Flutter `>=3.27.0`). A consuming app can now use `gma_mediation_applovin 2.6.2` or `2.6.3` (NOT `2.6.4` — its AppLovin iOS adapter moved to 13.6.4.0, diverging again) with a **plain** `applovin_max ^4.6.4`, no `dependency_overrides` needed. Verified for real: `flutter analyze` clean, 2255/2255 tests, `pod install` resolves `AppLovinSDK (13.6.3)` on both sides, `flutter build ios --simulator` succeeds. Pinned `google_mobile_ads` below `9.1.0` on purpose — that version ships a confirmed upstream iOS build regression (`Include of non-modular header inside framework module 'google_mobile_ads.FLTAd_Internal'` / `GoogleMobileAds_Beta.h`, from its new Ad Preloading API); `9.0.0` is also what `gma_mediation_applovin 2.6.2`'s own changelog says it was built and tested against. Revisit the `9.1.x` pin once Google ships a fix. One new requirement this
+floor bump adds: on Android, `google_mobile_ads 9.0.0`'s native
+`play-services-ads 25.3.0` ships Kotlin metadata compiled with Kotlin
+2.3.0, so a consuming app's own Kotlin Gradle plugin must be `>= 2.3.0` or
+`compileDebugKotlin` fails — see this SDK's own `example/android` for the
+`settings.gradle.kts` version bump and the `build.gradle.kts` migration
+off the old `kotlinOptions { jvmTarget = ... }` DSL (removed in 2.3.0).
+Old history, kept for context:
+
+- **Dart level (was):** `gma_mediation_applovin >=2.6.0` needed `meta ^1.17.0` while `flutter_test` from the old CI-pinned Flutter 3.35.1 forced `meta 1.16.0`. And `google_mobile_ads` **8 and 9** need Dart `>=3.10.0` + Flutter `>=3.38.1`, which 3.35.1 (Dart 3.9.x) could not satisfy. Audit round 43 (2026-09-18): `google_mobile_ads` 9.x also ships the `RequestConfiguration.ageRestrictedTreatment` (TFAT) API replacing the legacy `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent` this SDK still uses in `admob_adapter.dart`/`gma_bridge.dart`/`ad_consent.dart` — Google says the legacy pair keeps working through 2026 (no removal before a major release expected H1 2027), so migrating off it is still a follow-up, not blocking.
+- **CocoaPods level (was):** `applovin_max 4.6.4` requires `AppLovinSDK (= 13.6.3)`, but `gma_mediation_applovin 2.5.2` → `GoogleMobileAdsMediationAppLovin (~> 13.5.0.0)` → `AppLovinSDK (= 13.5.0)`. Both pinned exact versions, so `pod install` could not resolve them together in a consuming app pinned to `gma_mediation_applovin 2.5.2` unless it also held `applovin_max` back to `4.6.0`.
+- Verify any change here against a real consuming app with `flutter pub get` **and** `cd ios && pod install` **and** a real `flutter build apk` / `flutter build ios --simulator`: `pub get` succeeding proves nothing about the pod graph, and `pod install` succeeding proves nothing about whether it actually compiles (see the `9.1.0` regression above — the pod graph resolved fine, the Xcode build didn't).
 
 ## Integration contract
 
