@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-09-22
 
 - **Added:** wake lock — `AdConfig.keepScreenOnDuringSession` (default
   `true`) keeps the device screen on for the whole SDK session, so a
@@ -17,6 +17,22 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   version still satisfying this package's own Dart/Flutter floor; 1.5.0+
   needs Dart >=3.10.0, same class of wall as `google_mobile_ads` 8/9 (see
   this file's own pinning-wall notes and `CLAUDE.md`).
+- **Fixed (round 71 audit, BLOCKER):** `AdManager.autoRequestUmpConsent`'s
+  UMP flow ran fire-and-forget, so `adapter.initialize()` (the real
+  AppLovin/AdMob native SDK) started immediately after, while EEA/UK
+  consent was still resolving. `canRequestAds` being closed first meant no
+  *ad request* went out before consent, but the native SDK's own init-time
+  behavior was never gated on it. Native init now waits for the UMP flow
+  to actually resolve (bounded by its existing 240s hard cap, so this
+  cannot hang forever) before proceeding.
+- **Fixed (round 71 audit, BLOCKER):** the debug-seam-guard gap rounds
+  68-70 fixed elsewhere (`@visibleForTesting` is a lint, not a runtime
+  check) also existed on 4 seams added since: most severe,
+  `AdManager.debugApplyConfigVipGaidWhitelist` could self-grant a 50-year
+  VIP entry with no signature check in a release build. Also fixed:
+  `VipManager.clearRedeemedKeyLedgerForTest` (could wipe the anti-replay
+  ledger for signed VIP keys), `debugFormDismissTimeoutOverride` in the
+  UMP consent flow, and 3 static consent barriers in `AdManager`.
 
 ## [3.0.10] - 2026-09-21
 
