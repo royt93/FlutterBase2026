@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.2.0] - 2026-09-22
 
 - **Changed (BREAKING):** bumped `google_mobile_ads` from `^7.0.0` to
   `'>=9.0.0 <9.1.0'`, and this package's own environment floor from Flutter
