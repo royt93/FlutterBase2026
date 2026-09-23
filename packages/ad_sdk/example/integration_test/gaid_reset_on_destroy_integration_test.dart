@@ -126,12 +126,29 @@ void main() {
 
     tester.view.physicalSize = const Size(1080, 4000);
     tester.view.devicePixelRatio = 1;
-    await tester.pump();
-    // .first (2026-09-23): the just-popped detail page's AppBar title and
-    // HomePage's tile share this exact string — MaterialPageRoute keeps the
-    // old page mounted mid-transition, so this can briefly match 2 (same
-    // root cause already documented in revenue_dashboard_test.dart).
-    await tester.tap(find.text('AdMob test-device hash').first);
+    // A single bare pump() after a view-size change doesn't reliably
+    // guarantee a full relayout completes before the next frame on a real
+    // device (2026-09-23) — `getCenter()` for the tap below can then compute
+    // a coordinate against the stale pre-resize layout, silently tapping
+    // empty space (or nothing) instead of throwing, which is exactly what a
+    // real-device run's diagnostic dump showed: never left HomePage at all,
+    // not even one frame later. A few duration-pumps let layout settle.
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    // Target the HomePage tile specifically via its DemoTile ancestor
+    // (2026-09-23) — the just-popped detail page's AppBar title shares this
+    // exact string and MaterialPageRoute keeps that old page mounted
+    // mid-transition (same root cause already documented in
+    // revenue_dashboard_test.dart), so a bare `.first` is Element-tree-order
+    // dependent and can silently pick the dying AppBar title instead of the
+    // real HomePage tile, leaving the test stuck on HomePage (caught via a
+    // real-device run dumping the full on-screen text list on failure).
+    final homeTile = find.descendant(
+      of: find.byType(app.DemoTile),
+      matching: find.text('AdMob test-device hash'),
+    );
+    await tester.tap(homeTile);
     // 80 * 250ms = 20s — widened from 5s (2026-09-23): measured 2/5
     // consecutive real-device runs still missing a 5s window; the fresh
     // page's route-push animation + rebuild isn't always done that fast
@@ -148,6 +165,25 @@ void main() {
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
     await tester.pump();
+
+    if (find
+        .text('(empty — init not done yet, or LAT on)')
+        .evaluate()
+        .isEmpty) {
+      // Diagnostic on failure only (2026-09-23) — dumps what's actually on
+      // screen instead of just "not found", since this text missing has two
+      // very different causes: still on the detail page but not yet
+      // rebuilt, or silently stuck back on HomePage (the `.first`-tap bug
+      // this file used to have, see above).
+      final allText = find
+          .byType(Text)
+          .evaluate()
+          .map((e) => (e.widget as Text).data)
+          .where((t) => t != null && t.isNotEmpty)
+          .toList();
+      // ignore: avoid_print
+      print('gaid_reset_on_destroy: on-screen text at failure: $allText');
+    }
 
     expect(find.text('(empty — init not done yet, or LAT on)'),
         findsOneWidget,

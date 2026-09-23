@@ -50,10 +50,27 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   (`r173_debug_overlay_banner_row_test.dart`,
   `gaid_reset_on_destroy_integration_test.dart`,
   `revenue_dashboard_test.dart`, `rewarded_interstitial_ad_test.dart`) —
-  widened them, and fixed an ambiguous two-widget `tap()` in
-  `gaid_reset_on_destroy_integration_test.dart` (a popped route's AppBar
-  title and HomePage's tile briefly share the same text mid-transition,
-  same root cause already documented in `revenue_dashboard_test.dart`).
+  widened them. `gaid_reset_on_destroy_integration_test.dart` also had two
+  real bugs found via a real-device diagnostic dump of on-screen text: an
+  ambiguous two-widget `tap()` (a popped route's AppBar title and
+  HomePage's tile briefly share the same exact text mid-transition, same
+  root cause already documented in `revenue_dashboard_test.dart` — fixed
+  by targeting the tile through its `DemoTile` ancestor instead of a bare
+  `.first`), and — the real root cause of the residual ~10-20% flake —
+  changing `tester.view.physicalSize` immediately before a `tap()` with
+  only one bare `pump()` in between: `getCenter()` can compute the tap
+  coordinate against the stale pre-resize layout on a real device, silently
+  landing on empty space instead of throwing. Fixed with a few
+  duration-pumps to let the relayout settle first. Verified with 20
+  consecutive clean real-device runs after the fix (was intermittently
+  stuck on HomePage before, confirmed via the diagnostic, not a network
+  race as initially suspected).
+- **Fixed (2026-09-23):** `diagnostics_demo_test.dart` — a single
+  zero-duration `pump()` right after tapping "Run runIntegrationSelfCheck()"
+  sometimes missed the frame where the button's spinner
+  (`CircularProgressIndicator`) is shown, on a real device. Poll a few short
+  pumps instead, falling through immediately if the check already finished
+  (a legitimately fast real per-slot result shouldn't fail the test either).
   Found via a full 127-file real-device run (Pixel 7 Pro, then Tecno KJ7);
   bisected against the pre-migration commit first to confirm these
   predated the `google_mobile_ads` bump above, not caused by it.

@@ -118,12 +118,35 @@ void main() {
     await tester.scrollUntilVisibleAndSettle(selfCheckButton, 200,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(selfCheckButton);
-    await tester.pump();
 
     // Button shows a spinner while running (icon swapped for
     // CircularProgressIndicator) — assert it appears, confirming the async
     // call actually started rather than completing synchronously/no-op.
-    expect(find.byType(CircularProgressIndicator), findsWidgets);
+    // Poll a few short pumps (2026-09-23: a single zero-duration pump()
+    // sometimes missed this window on a real device) instead of one bare
+    // pump() — but stop the instant the result card shows up too, since a
+    // very fast real per-slot check can legitimately finish before we'd
+    // ever observe the spinner frame.
+    var sawSpinner = false;
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.byType(CircularProgressIndicator).evaluate().isNotEmpty) {
+        sawSpinner = true;
+        break;
+      }
+      if (find.textContaining('All checks passed').evaluate().isNotEmpty ||
+          find.text('FAILED').evaluate().isNotEmpty) {
+        break;
+      }
+    }
+    if (!sawSpinner) {
+      expect(
+          find.textContaining('All checks passed').evaluate().isNotEmpty ||
+              find.text('FAILED').evaluate().isNotEmpty,
+          isTrue,
+          reason: 'never saw the spinner AND the check has not finished '
+              'either — the async call did not start');
+    }
 
     final resultCard = find.textContaining('All checks passed');
     final failedCard = find.text('FAILED');
