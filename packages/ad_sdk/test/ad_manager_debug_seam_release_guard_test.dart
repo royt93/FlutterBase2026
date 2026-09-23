@@ -98,6 +98,32 @@ void main() {
     expect(AdManager().adapter, same(stub));
   });
 
+  test(
+      'debugShouldSkipRealAppLovinNativeView is false while release mode is '
+      'simulated, even with debugForceSkipRealAppLovinNativeView set',
+      () async {
+    addTearDown(() =>
+        AdManager.debugForceSkipRealAppLovinNativeView = false);
+    AdManager.debugForceSkipRealAppLovinNativeView = true;
+    expect(AdManager().debugShouldSkipRealAppLovinNativeView, isTrue,
+        reason: 'sanity: true outside release once explicitly opted in — '
+            'NativeAdWidget needs this to skip the real platform view');
+
+    AdManager.debugSimulateReleaseModeForTestSeams = true;
+    expect(AdManager().debugShouldSkipRealAppLovinNativeView, isFalse,
+        reason: 'must never report true in a (simulated) release build, '
+            'regardless of what the flag is already set to');
+  });
+
+  test(
+      'debugShouldSkipRealAppLovinNativeView defaults to false',
+      () {
+    expect(AdManager().debugShouldSkipRealAppLovinNativeView, isFalse,
+        reason: 'must default off so ordinary widget tests (e.g. '
+            'test/native_ad_widget_test.dart, which also uses a fake, '
+            'non-AppLovinAdapter adapter) still get the real native view');
+  });
+
   test('debugConfig is ignored while release mode is simulated', () async {
     await AdManager().destroy();
     expect(AdManager().config, isNull);

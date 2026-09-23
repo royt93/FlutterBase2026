@@ -484,10 +484,19 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
         return _NativeContainer(
           isLoaded: AdManager().nativeIsLoaded(this),
           height: _height,
-          child: () => _AppLovinMaxNativeView(
-              nativeId: AdManager().appLovinNativeId,
-              instanceKey: this,
-              placement: widget.placement),
+          child: () {
+            if (AdManager().debugShouldSkipRealAppLovinNativeView) {
+              // Debug-only, explicit opt-in (see
+              // debugForceSkipRealAppLovinNativeView doc) — everything
+              // above (error-collapse, shimmer) is real widget behavior
+              // the caller must still exercise.
+              return const SizedBox.shrink();
+            }
+            return _AppLovinMaxNativeView(
+                nativeId: AdManager().appLovinNativeId,
+                instanceKey: this,
+                placement: widget.placement);
+          },
         );
       },
     );

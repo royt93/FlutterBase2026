@@ -25,6 +25,38 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   with an incompatible version of Kotlin"; Kotlin 2.3.0 also removed the
   old `android.kotlinOptions { jvmTarget = ... }` DSL in favor of a
   top-level `kotlin { compilerOptions { ... } }` block.
+- **Fixed (2026-09-23):** a real 30s AppLovin native-ad retry timer
+  (`NativeAdWidget._onNativeErrorChanged`, round-38 audit fix) could crash
+  when an on-device integration test used a fake `debugAdapterFactory`
+  under an AppLovin config — the fake adapter never runs real native
+  `AppLovinSdk` init, so the retry's real `MaxNativeAdView` platform view
+  NPEs deep inside AppLovin's own native SDK. Added
+  `AdManager.debugForceSkipRealAppLovinNativeView` (explicit opt-in,
+  guarded like every other `debug*` seam — always off in release) so a
+  test can request the real platform view be skipped without inferring it
+  from the adapter's type, which would have also affected
+  `test/native_ad_widget_test.dart`'s unrelated widget tests. Not reachable
+  in production (`debugAdapterFactory` itself is release-blocked).
+- **Fixed (2026-09-23):** `.github/scripts/integration-retry.sh`'s
+  AppLovin-only-test exclusion regex didn't match
+  `r36_real_applovin_appopen_over_banner_test.dart` (a different naming
+  shape than the `*_ad_test.dart` files it already excluded), so a full
+  local run forcing `AD_PROVIDER_ADMOB=true` would run it by mistake and
+  fail on its own self-guard assertion. Also excluded
+  `round37_coppa_hardstop_test.dart`, same class of AppLovin-only test.
+- **Fixed (2026-09-23):** several `example/integration_test/` files had
+  fixed, too-short polling windows (originally sized for CI's emulator)
+  for real-device navigation/tile-render timing
+  (`r173_debug_overlay_banner_row_test.dart`,
+  `gaid_reset_on_destroy_integration_test.dart`,
+  `revenue_dashboard_test.dart`, `rewarded_interstitial_ad_test.dart`) —
+  widened them, and fixed an ambiguous two-widget `tap()` in
+  `gaid_reset_on_destroy_integration_test.dart` (a popped route's AppBar
+  title and HomePage's tile briefly share the same text mid-transition,
+  same root cause already documented in `revenue_dashboard_test.dart`).
+  Found via a full 127-file real-device run (Pixel 7 Pro, then Tecno KJ7);
+  bisected against the pre-migration commit first to confirm these
+  predated the `google_mobile_ads` bump above, not caused by it.
 - **Changed (round 72 audit, MINOR, breaking):** `verifySignedVipKey` and
   `VipManager.redeemSignedKey` now reject the legacy `AVP1` key format
   (no expiry, no app binding) by default. Pass `allowLegacyV1: true` if

@@ -1567,6 +1567,29 @@ class AdManager with WidgetsBindingObserver {
   @visibleForTesting
   static AdProviderAdapter Function(AdConfig config)? debugAdapterFactory;
 
+  /// Explicit opt-in for an on-device integration test that installs a fake
+  /// [debugAdapterFactory] under AppLovin and needs `NativeAdWidget` to skip
+  /// mounting the real `MaxNativeAdView` platform view — the fake adapter
+  /// never runs real native `AppLovinSdk` init, so the real view's
+  /// `loadAd()` call NPEs deep inside AppLovin's own native SDK (found
+  /// on-device by round38_native_ad_error_retry_test.dart).
+  ///
+  /// Deliberately a separate, explicitly-set flag rather than inferring
+  /// "fake adapter" from `adapter is! AppLovinAdapter`: plain `flutter test`
+  /// widget tests (test/native_ad_widget_test.dart) use that exact same
+  /// fake-adapter shape but run with no real platform channel at all, so
+  /// mounting the real view there is harmless and those tests assert on its
+  /// actual structure — inferring from adapter type broke them.
+  @visibleForTesting
+  static bool debugForceSkipRealAppLovinNativeView = false;
+
+  /// Read-site guard for [debugForceSkipRealAppLovinNativeView] — same
+  /// pattern as [debugAdapterFactory]: the flag can be left set, but only
+  /// takes effect while not `_testSeamsBlocked`.
+  @visibleForTesting
+  bool get debugShouldSkipRealAppLovinNativeView =>
+      !_testSeamsBlocked && debugForceSkipRealAppLovinNativeView;
+
   /// Override the real `WakelockPlus.toggle()` call so tests can observe
   /// keep-screen-on state changes without a real platform channel. Same
   /// read-site guard pattern as [debugAdapterFactory] above.

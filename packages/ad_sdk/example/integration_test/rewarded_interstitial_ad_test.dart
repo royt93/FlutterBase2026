@@ -67,7 +67,11 @@ void main() {
     // "Banner ad" is the first tile in the list, so it's always built
     // regardless of scroll position — a reliable "we're on Home" signal.
     var onHome = false;
-    for (var i = 0; i < 40; i++) {
+    // 120 * 500ms = 60s — widened from 20s (2026-09-23): real-device Splash
+    // → Home navigation can outlast a fixed 20s window under load (found
+    // failing intermittently in a full-suite run, same class as the
+    // HomePage-tile flakes in r173/gaid_reset/revenue_dashboard).
+    for (var i = 0; i < 120; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (find.text('Banner ad').evaluate().isNotEmpty) {
         onHome = true;

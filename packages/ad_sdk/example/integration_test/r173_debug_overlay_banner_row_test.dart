@@ -46,13 +46,25 @@ void main() {
   testWidgets(
       'debug overlay Banner row count increases by exactly one once a '
       'real BannerAdWidget mounts, on a real device', (tester) async {
+    // Tall synthetic viewport so every HomePage tile is within the
+    // build/cache extent instead of requiring a real scroll gesture — same
+    // fix as revenue_dashboard_test.dart / gaid_reset_on_destroy_integration_test.dart
+    // (2026-09-23: this file was missing it, unlike its siblings).
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
 
     final tile = find.text('Banner ad');
     var foundTile = false;
-    for (var i = 0; i < 40; i++) {
+    // 120 * 500ms = 60s — widened from 20s (2026-09-23): real-device cold
+    // start + HomePage navigation can outlast a fixed 20s window under load,
+    // same class of flake as revenue_dashboard_test.dart.
+    for (var i = 0; i < 120; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (tile.evaluate().isNotEmpty) {
         foundTile = true;
@@ -91,8 +103,16 @@ void main() {
     expect(find.text('Banner demo'), findsOneWidget);
 
     await tester.tap(find.text('🐛 Ad'));
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 200));
+    // 40 * 250ms = 10s — widened from 1s (2026-09-23): a real BannerAdWidget
+    // needs a real ad-load round trip before it registers with the debug
+    // panel; 1s isn't always enough on a real device under load.
+    var rowUpdated = false;
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (_bannerCount(tester) > before) {
+        rowUpdated = true;
+        break;
+      }
     }
 
     // BannerDemoPage mounts more than one BannerAdWidget at once (e.g.
@@ -100,6 +120,7 @@ void main() {
     // own implementation detail, not part of this SDK's contract. The
     // invariant T173 actually cares about is simply "the row reflects real,
     // currently-mounted instances", i.e. it went up at all.
+    expect(rowUpdated, isTrue);
     expect(_bannerCount(tester), greaterThan(before),
         reason: 'T173 — real, currently-mounted BannerAdWidget instance(s) '
             'must show up in the debug panel\'s Banner row on a real '

@@ -158,10 +158,17 @@ void main() {
   setUp(() {
     adapter = _FakeAppLovinAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
+    // Explicit opt-in (2026-09-23) — this fake adapter never runs real
+    // native AppLovinSdk init, so the real MaxNativeAdView would NPE deep
+    // inside AppLovin's own native SDK once the 30s retry timer below fires.
+    // See AdManager.debugForceSkipRealAppLovinNativeView's doc for why this
+    // isn't inferred from the adapter's type instead.
+    AdManager.debugForceSkipRealAppLovinNativeView = true;
   });
 
   tearDown(() async {
     AdManager.debugAdapterFactory = null;
+    AdManager.debugForceSkipRealAppLovinNativeView = false;
     await AdManager().destroy();
   });
 
@@ -202,28 +209,31 @@ void main() {
     expect(tester.getSize(find.byType(NativeAdWidget)).height, 0,
         reason: 'collapses while hasError is true, same as pre-fix');
 
-    // NOT automated past this point. Real wall-clock wait for the real 30s
-    // retry timer would come next — but once it fires and disposes the
-    // stale bundle, `hasError` flips false and the widget attempts to mount
-    // the REAL AppLovin native platform view. Without a real AppLovin SDK
-    // key (never committed to this repo — see file header), that attempt
-    // crashes the Android platform-view creation channel with a raw,
-    // uncaught async exception deep in Flutter's own rendering pipeline —
-    // confirmed on this real Samsung device, and NOT recoverable from
-    // within the test body: it corrupts `LiveTestWidgetsFlutterBinding`'s
-    // own internal frame-scheduling state (`_pendingFrame == null` assertion
-    // in its `postTest()`), which fails the test in its OWN teardown
-    // regardless of any try/catch here.
-    //
-    // The retry mechanism itself WAS verified for real, on this device, in
-    // this session, by direct log inspection (not an automated assertion):
-    //   [NativeAdWidget] retrying after load failure
-    //   [NativeAdWidget] _initNative [AppLovin] MaxNativeAdView loads on mount
-    // — the second "loads on mount" line only happens if
-    // `disposeNativeInstance()` actually dropped the stale bundle first
-    // (confirmed separately at the unit/widget level in
-    // test/native_ad_widget_test.dart, where the fresh bundle's identity
-    // and `hasError` value ARE assertable, since that suite fakes the whole
-    // provider and never touches a real platform view).
+    // 2026-09-23 — now automated past this point. Previously the real 30s
+    // retry firing led to the real AppLovin native platform view mounting
+    // (no real SDK key committed here) and crashing the Android platform-
+    // view channel, corrupting LiveTestWidgetsFlutterBinding's own frame
+    // state. Fixed at the SDK level: setUp() above opts into
+    // `AdManager.debugForceSkipRealAppLovinNativeView` (guarded the same way
+    // as `debugAdapterFactory` — always false outside debug/test), which
+    // lets `NativeAdWidget._buildAppLovin()` skip the real
+    // `_AppLovinMaxNativeView` and render an empty box instead. Real
+    // wall-clock wait — this genuinely takes >30s.
+    bool freshBundle() =>
+        adapter.nativeListenablesByKey.isNotEmpty &&
+        !identical(adapter.nativeListenablesByKey.values.first, firstBundle);
+    for (var i = 0; i < 130 && !freshBundle(); i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(freshBundle(), isTrue,
+        reason: 'the real 30s retry timer must dispose the stale bundle and '
+            'request a fresh one, not stay permanently blank (round-38 '
+            'MAJOR-1)');
+    expect(adapter.nativeListenablesByKey.values.first.hasError.value, isFalse,
+        reason: 'the fresh bundle must start clean, not still carrying the '
+            'old error');
+    expect(tester.takeException(), isNull,
+        reason: 'the retry must not crash mounting the (fake-adapter-'
+            'skipped) native view');
   });
 }

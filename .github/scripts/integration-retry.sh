@@ -84,7 +84,13 @@ run_bounded() {
   return $_status
 }
 
-files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$')
+# r36_real_applovin_appopen_over_banner_test.dart self-guards with "run it
+# WITHOUT --dart-define=AD_PROVIDER_ADMOB=true" — it asserts real-AppLovin-
+# path behavior that can never hold true under the AdMob-forced flag every
+# caller of this script passes, so it must be excluded the same as the
+# _ad_test.dart files above (2026-09-23 fork-review: found failing on both
+# attempts in a full local run before this exclusion existed).
+files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$|/r36_real_applovin_appopen_over_banner_test\.dart$')
 
 # Optional sharding: SHARD_TOTAL=3 SHARD_INDEX=0|1|2 runs a third of the files.
 #

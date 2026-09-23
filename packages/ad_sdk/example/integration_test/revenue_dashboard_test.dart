@@ -55,7 +55,11 @@ void main() {
 
     final tile = find.text('Revenue dashboard');
     var foundTile = false;
-    for (var i = 0; i < 40; i++) {
+    // 120 * 500ms = 60s — widened from 20s (2026-09-23): found flaky (pass
+    // once, fail once) across two runs despite the tall viewport above;
+    // real-device cold start/navigation can outlast a fixed 20s window
+    // under load.
+    for (var i = 0; i < 120; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (tile.evaluate().isNotEmpty) {
         foundTile = true;

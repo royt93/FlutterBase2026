@@ -81,7 +81,11 @@ void main() {
 
     final tile = find.text('AdMob test-device hash');
     var foundTile = false;
-    for (var i = 0; i < 40; i++) {
+    // 120 * 500ms = 60s — widened from 20s (2026-09-23): found failing
+    // intermittently in a full-suite real-device run despite the tall
+    // viewport above; real-device cold start/navigation can outlast a fixed
+    // 20s window under load.
+    for (var i = 0; i < 120; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (tile.evaluate().isNotEmpty) {
         foundTile = true;
@@ -123,8 +127,24 @@ void main() {
     tester.view.physicalSize = const Size(1080, 4000);
     tester.view.devicePixelRatio = 1;
     await tester.pump();
-    await tester.tap(find.text('AdMob test-device hash'));
-    await tester.pump(const Duration(milliseconds: 300));
+    // .first (2026-09-23): the just-popped detail page's AppBar title and
+    // HomePage's tile share this exact string — MaterialPageRoute keeps the
+    // old page mounted mid-transition, so this can briefly match 2 (same
+    // root cause already documented in revenue_dashboard_test.dart).
+    await tester.tap(find.text('AdMob test-device hash').first);
+    // 80 * 250ms = 20s — widened from 5s (2026-09-23): measured 2/5
+    // consecutive real-device runs still missing a 5s window; the fresh
+    // page's route-push animation + rebuild isn't always done that fast
+    // under load.
+    for (var i = 0; i < 80; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+      if (find
+          .text('(empty — init not done yet, or LAT on)')
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
     await tester.pump();
