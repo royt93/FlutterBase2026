@@ -78,8 +78,16 @@ void main() {
 
     // onReady pops back once init completes (or the 8s hard-cap fires) —
     // wait it out for real rather than asserting on a fixed short delay.
+    // 280 * 500ms = 140s — widened from 30s (2026-09-24): this demo's own
+    // splash re-arms for another +30s if a real App Open ad is still in
+    // flight when its own hard-cap would otherwise fire (same behavior
+    // AdManager's own splash logic has, see "splash budget elapsed but
+    // app-open in flight — re-arming +30s" in the logs), which a 30s
+    // window doesn't cover on a real device that gets real fill. Measured
+    // 4/4 clean real-device runs at ~100-102s with a 100s window (i.e.
+    // right at the edge) — 140s leaves real margin instead of a tight race.
     var poppedBack = false;
-    for (var i = 0; i < 60; i++) {
+    for (var i = 0; i < 280; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (find
           .text('AdReadinessSplashController running...')

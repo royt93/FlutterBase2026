@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [3.2.0] - 2026-09-22
 
+- **Fixed (2026-09-24):** `round40_readiness_controller_demo_test.dart` —
+  `AdReadinessSplashController`'s own splash re-arms for another +30s if a
+  real App Open ad is still in flight when its hard-cap would otherwise
+  fire (same behavior `AdManager`'s own splash logic has), which this
+  test's original 30s wait window didn't cover. Widened to 140s (measured
+  4/4 clean real-device runs using ~100-102s with a 100s window — right at
+  the edge — before settling on 140s for real margin).
 - **Fixed (2026-09-24):** `vip_watch_ad_to_extend_test.dart` and
   `vip_fast_refill_demo_test.dart` both navigated via the "VIP / redeem"
   HomePage tile, which opens `VipRedeemScreen` — a different page entirely.
