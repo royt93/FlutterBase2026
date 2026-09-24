@@ -84,13 +84,22 @@ run_bounded() {
   return $_status
 }
 
-# r36_real_applovin_appopen_over_banner_test.dart self-guards with "run it
-# WITHOUT --dart-define=AD_PROVIDER_ADMOB=true" — it asserts real-AppLovin-
-# path behavior that can never hold true under the AdMob-forced flag every
-# caller of this script passes, so it must be excluded the same as the
+# r36_real_applovin_appopen_over_banner_test.dart and
+# round37_coppa_hardstop_test.dart self-guard with "run it WITHOUT
+# --dart-define=AD_PROVIDER_ADMOB=true" — they assert real-AppLovin-path
+# behavior that can never hold true under the AdMob-forced flag every
+# caller of this script passes, so they must be excluded the same as the
 # _ad_test.dart files above (2026-09-23 fork-review: found failing on both
-# attempts in a full local run before this exclusion existed).
-files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$|/r36_real_applovin_appopen_over_banner_test\.dart$')
+# attempts in a full local run before this exclusion existed; note
+# round37_coppa_hardstop_test.dart was claimed excluded in an earlier
+# CHANGELOG entry but the actual regex edit was missed until now — always
+# verify a fix landed, don't trust the commit message alone).
+#
+# round37_reload_while_showing_test.dart is a different case: its own file
+# header says a HUMAN must manually tap a real interstitial's close button
+# when it appears, same requirement as app_open/interstitial/rewarded_ad_test.dart
+# above — it can't run unattended either.
+files=$(ls integration_test/*_test.dart | grep -Ev '/(app_open|interstitial|rewarded)_ad_test\.dart$|/r36_real_applovin_appopen_over_banner_test\.dart$|/round37_coppa_hardstop_test\.dart$|/round37_reload_while_showing_test\.dart$')
 
 # Optional sharding: SHARD_TOTAL=3 SHARD_INDEX=0|1|2 runs a third of the files.
 #

@@ -42,10 +42,21 @@ void main() {
       'a brand-new instance, against the REAL platform SharedPreferences',
       (tester) async {
     final sessionA = WaterfallTuner();
-    await tester.pump(const Duration(milliseconds: 200));
+    // Await the documented `ready` future instead of guessing a pump
+    // duration — hydration does real disk I/O (SharedPreferences), and the
+    // subscription to live events isn't attached until it completes either
+    // (see WaterfallTuner._init's own doc comment).
+    await sessionA.ready;
 
-    // minSampleSize is 6, summed across both providers — 2 each (sum 4)
-    // stays below it alone.
+    // minSampleSize is 6. Load-attempt count is summed across both
+    // providers (2 each here, sum 4, stays below it alone) — but revenue
+    // samples are gated separately, per-provider, on the OTHER (candidate)
+    // provider's own count (see recommendation()'s round-61-audit-fix
+    // comment) — 1 revenue emit per provider wouldn't ever reach 6 no
+    // matter how well persistence works (2026-09-24: this test's original
+    // single-emitRevenue-per-session pattern could never pass; found via
+    // a real-device diagnostic dump proving the write side was already
+    // correct, which narrowed it down to this, not a timing bug).
     for (var i = 0; i < 2; i++) {
       emitLoad('[AdMob]', success: i.isEven);
     }
@@ -53,7 +64,9 @@ void main() {
     for (var i = 0; i < 2; i++) {
       emitLoad('[AppLovin]', success: true);
     }
-    emitRevenue('[AppLovin]', 50000);
+    for (var i = 0; i < 3; i++) {
+      emitRevenue('[AppLovin]', 50000);
+    }
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(
@@ -63,15 +76,25 @@ void main() {
           currentProvider: '[AdMob]',
         ),
         isNull,
-        reason: 'sanity: 2+2=4 attempts alone is below minSampleSize (6)');
+        reason: 'sanity: 3 AppLovin revenue samples alone is below '
+            'minSampleSize (6)');
 
-    sessionA.dispose();
+    // dispose() is async and awaits its own pending SharedPreferences write
+    // chain (with a 2s timeout) specifically so a teardown right after the
+    // last event doesn't lose it — must be awaited here, not fire-and-forget
+    // (2026-09-24).
+    await sessionA.dispose();
 
     // A brand-new instance — real app restart would look exactly like
     // this: same real on-device SharedPreferences file, different Dart
     // object.
     final sessionB = WaterfallTuner();
-    await tester.pump(const Duration(milliseconds: 300)); // let its async load finish
+    // await ready (2026-09-24), not a guessed pump duration — this is the
+    // actual root cause of this test returning null on a real device: the
+    // write side was already confirmed correct (see the raw-pref dump
+    // above), so the only remaining gap was sessionB reading before its own
+    // hydration (real disk I/O) actually finished.
+    await sessionB.ready;
 
     for (var i = 0; i < 2; i++) {
       emitLoad('[AdMob]', success: i.isEven);
@@ -80,7 +103,11 @@ void main() {
     for (var i = 0; i < 2; i++) {
       emitLoad('[AppLovin]', success: true);
     }
-    emitRevenue('[AppLovin]', 50000);
+    // 3 (session A, already persisted and reloaded above) + 3 here = 6,
+    // meeting recommendation()'s per-provider otherRevenueSamples gate.
+    for (var i = 0; i < 3; i++) {
+      emitRevenue('[AppLovin]', 50000);
+    }
     await tester.pump(const Duration(milliseconds: 300));
 
     final rec = sessionB.recommendation(

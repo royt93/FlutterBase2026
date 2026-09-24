@@ -6,6 +6,22 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [3.2.0] - 2026-09-22
 
+- **Fixed (2026-09-24):** `t136_waterfall_tuner_persistence_test.dart` was
+  never actually reachable — its single `emitRevenue()` call per session
+  could never satisfy `recommendation()`'s per-provider
+  `otherRevenueSamples >= minSampleSize` gate (a `round-61 audit fix`,
+  gated separately from the summed-across-both-providers load-attempt
+  check the test's own comment described), so it returned `null`
+  regardless of whether persistence worked. Found by first ruling out
+  timing (confirmed via a raw-SharedPreferences dump that session A's
+  write landed correctly) and a missing `await` on `WaterfallTuner`'s
+  documented `ready` future (real fixes, kept, but not the actual cause).
+  Also excluded `round37_reload_while_showing_test.dart` from
+  `integration-retry.sh`'s full-suite run — its own header says a HUMAN
+  must manually tap a real interstitial's close button, same requirement
+  as `app_open`/`interstitial`/`rewarded_ad_test.dart`, and actually landed
+  the `round37_coppa_hardstop_test.dart` exclusion a prior CHANGELOG entry
+  had already claimed but the code edit was missed.
 - **Changed (BREAKING):** bumped `google_mobile_ads` from `^7.0.0` to
   `'>=9.0.0 <9.1.0'`, and this package's own environment floor from Flutter
   `>=3.27.0`/Dart `>=3.6.0` to Flutter `>=3.38.1`/Dart `>=3.10.0`. This
