@@ -50,7 +50,11 @@ void main() {
     await vip!.addVip(key: 'T148_DEMO', duration: const Duration(hours: 1));
     expect(vip.isActive, isTrue, reason: 'sanity: the grant must be active');
 
-    final tile = find.text('VIP / redeem');
+    // "VIP / redeem" navigates to VipRedeemScreen instead — a different
+    // page entirely. "End VIP now" lives on VipDemoPage, reached via the
+    // "VIP API playground" tile (2026-09-24: found via a real-device run —
+    // this test was on the wrong page the whole time, not a timing issue).
+    final tile = find.text('VIP API playground');
     var foundTile = false;
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 500));

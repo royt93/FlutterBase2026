@@ -44,7 +44,12 @@ void main() {
     await vip!.addVip(key: 'T156_DEMO', duration: const Duration(hours: 1));
     expect(vip.isActive, isTrue, reason: 'sanity: the grant must be active');
 
-    final tile = find.text('VIP / redeem');
+    // "VIP / redeem" navigates to VipRedeemScreen instead — a different
+    // page entirely. "Watch ad → +3 days VIP (stack)" lives on VipDemoPage,
+    // reached via the "VIP API playground" tile (2026-09-24: found via a
+    // real-device run — the button genuinely never rendered because this
+    // test was on the wrong page the whole time, not a timing issue).
+    final tile = find.text('VIP API playground');
     var foundTile = false;
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 500));
@@ -76,6 +81,25 @@ void main() {
     }
     expect(foundScrollable, isTrue,
         reason: 'VipDemoPage must have mounted its body by now');
+    // Confirm the button itself is actually in the tree (even off-screen)
+    // before asking scrollUntilVisible to find it — that call's internal
+    // dragUntilVisible throws a raw "Bad state: No element" instead of a
+    // clear assertion failure if the target never existed at all, which is
+    // a much harder failure to diagnose than this explicit check
+    // (2026-09-24: found via a real-device run, foundScrollable alone
+    // doesn't prove VipDemoPage's full body — not just *a* Scrollable —
+    // finished building).
+    var foundButton = false;
+    for (var i = 0; i < 20; i++) {
+      if (button.evaluate().isNotEmpty) {
+        foundButton = true;
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(foundButton, isTrue,
+        reason: 'VipDemoPage must render the "Watch ad → +3 days VIP '
+            '(stack)" button somewhere in its body');
     await tester.scrollUntilVisible(button, 300,
         scrollable: find.byType(Scrollable).first);
     for (var i = 0; i < 4; i++) {

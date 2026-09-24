@@ -6,6 +6,22 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [3.2.0] - 2026-09-22
 
+- **Fixed (2026-09-24):** `vip_watch_ad_to_extend_test.dart` and
+  `vip_fast_refill_demo_test.dart` both navigated via the "VIP / redeem"
+  HomePage tile, which opens `VipRedeemScreen` — a different page entirely.
+  The buttons these tests actually need ("Watch ad → +3 days VIP (stack)"
+  and "End VIP now") live on `VipDemoPage`, reached via the "VIP API
+  playground" tile instead. Neither test had ever been on the right page;
+  not a timing issue.
+- **Fixed (2026-09-24):** `multi_instance_ad_test.dart` — `BannerDemoPage`
+  and `NativeDemoPage` each embed a third, unrelated Banner/NativeAdWidget
+  (the "IndexedStack via buildBanner()/... (T153/T154)" examples
+  demonstrating the IndexedStack + `active` pattern), so the T65
+  multi-instance assertion found 3 instead of 2 — not a leaked
+  previous-route instance as first assumed. Now excludes that widget
+  (Native's T154 has a `ValueKey`; Banner's T153 doesn't, so it's excluded
+  by `IndexedStack` ancestry instead — both need `skipOffstage: false`
+  since the non-selected `IndexedStack` branch is offstage).
 - **Fixed (2026-09-24):** `t136_waterfall_tuner_persistence_test.dart` was
   never actually reachable — its single `emitRevenue()` call per session
   could never satisfy `recommendation()`'s per-provider
