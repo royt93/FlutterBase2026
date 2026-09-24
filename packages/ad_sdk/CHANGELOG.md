@@ -25,6 +25,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   with an incompatible version of Kotlin"; Kotlin 2.3.0 also removed the
   old `android.kotlinOptions { jvmTarget = ... }` DSL in favor of a
   top-level `kotlin { compilerOptions { ... } }` block.
+- **Fixed (2026-09-23):** `multi_instance_ad_test.dart` — `BannerDemoPage`
+  and `NativeDemoPage` each embed a third, unrelated Banner/NativeAdWidget
+  (the "IndexedStack via buildBanner()/... (T153/T154)" examples
+  demonstrating the IndexedStack + `active` pattern), so the T65
+  multi-instance assertion found 3 instead of 2 — not a leaked
+  previous-route instance as first assumed. Now excludes that widget
+  (Native's T154 has a `ValueKey`; Banner's T153 doesn't, so it's excluded
+  by `IndexedStack` ancestry instead — both need `skipOffstage: false`
+  since the non-selected `IndexedStack` branch is offstage).
 - **Fixed (2026-09-23):** a real 30s AppLovin native-ad retry timer
   (`NativeAdWidget._onNativeErrorChanged`, round-38 audit fix) could crash
   when an on-device integration test used a fake `debugAdapterFactory`
