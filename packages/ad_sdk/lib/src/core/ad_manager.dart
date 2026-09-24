@@ -1585,8 +1585,13 @@ class AdManager with WidgetsBindingObserver {
 
   /// Read-site guard for [debugForceSkipRealAppLovinNativeView] — same
   /// pattern as [debugAdapterFactory]: the flag can be left set, but only
-  /// takes effect while not `_testSeamsBlocked`.
-  @visibleForTesting
+  /// takes effect while not `_testSeamsBlocked`. `@internal`, not
+  /// `@visibleForTesting`: unlike every other seam in this file, this one
+  /// is genuinely read from production code in a different library
+  /// (`NativeAdWidget`), not just tests — `@visibleForTesting` would (and
+  /// did, caught by `dart pub publish --dry-run`) warn on that legitimate
+  /// cross-file call.
+  @internal
   bool get debugShouldSkipRealAppLovinNativeView =>
       !_testSeamsBlocked && debugForceSkipRealAppLovinNativeView;
 

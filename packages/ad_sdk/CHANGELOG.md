@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [3.2.0] - 2026-09-22
 
+- **Fixed (2026-09-24):** `AdManager.debugShouldSkipRealAppLovinNativeView`
+  was marked `@visibleForTesting`, but unlike every other `debug*` seam in
+  this file it's genuinely called from production code in a different
+  library (`NativeAdWidget`), not just tests — caught by
+  `dart pub publish --dry-run`'s `invalid_use_of_visible_for_testing_member`
+  warning. Changed to `@internal`, which the existing `test/api_golden_test.dart`
+  tooling already treats the same as `@visibleForTesting` for public-API
+  purposes.
 - **Fixed (2026-09-24):** `round40_readiness_controller_demo_test.dart` —
   `AdReadinessSplashController`'s own splash re-arms for another +30s if a
   real App Open ad is still in flight when its hard-cap would otherwise
