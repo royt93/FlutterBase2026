@@ -17,6 +17,7 @@
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/widgets.dart' show IndexedStack, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -66,7 +67,27 @@ void main() {
     }
 
     expect(find.text('Banner demo'), findsOneWidget);
-    expect(find.byType(BannerAdWidget, skipOffstage: false), findsNWidgets(2),
+    // BannerDemoPage also embeds a third, unrelated BannerAdWidget further
+    // down the page (the "IndexedStack via buildBanner() (T153)" example)
+    // purely to demonstrate the IndexedStack/`active` pattern — exclude
+    // anything inside that IndexedStack so this assertion stays about the
+    // actual T65 multi-instance feature, not that demo (2026-09-23: found
+    // failing 3 vs 2 on a real device; this widget was always there, not a
+    // leaked previous-route instance as first assumed — same root cause as
+    // the Native test's T154 case just below, but T153 has no distinguishing
+    // key to filter on directly).
+    final t153Banners = find
+        .descendant(
+          of: find.byType(IndexedStack, skipOffstage: false),
+          matching: find.byType(BannerAdWidget, skipOffstage: false),
+          skipOffstage: false,
+        )
+        .evaluate()
+        .length;
+    final t65BannerWidgets =
+        find.byType(BannerAdWidget, skipOffstage: false).evaluate().length -
+            t153Banners;
+    expect(t65BannerWidgets, 2,
         reason: 'demo page must mount two independent BannerAdWidget '
             'instances (T65) — skipOffstage:false because an unfilled/VIP-'
             'suppressed instance collapses to a zero-height SizedBox.shrink(), '
@@ -105,7 +126,18 @@ void main() {
     }
 
     expect(find.text('Native demo'), findsOneWidget);
-    expect(find.byType(NativeAdWidget, skipOffstage: false), findsNWidgets(2),
+    // NativeDemoPage also embeds a third, unrelated NativeAdWidget further
+    // down the page (key 'T154_indexedstack_demo') purely to demonstrate the
+    // IndexedStack/`active` pattern — exclude it by key so this assertion
+    // stays about the actual T65 multi-instance feature, not that demo
+    // (2026-09-23: found failing 3 vs 2 on a real device; this widget was
+    // always there, not a leaked previous-route instance as first assumed).
+    final t65NativeWidgets = find
+        .byType(NativeAdWidget, skipOffstage: false)
+        .evaluate()
+        .where((e) => e.widget.key != const ValueKey('T154_indexedstack_demo'))
+        .length;
+    expect(t65NativeWidgets, 2,
         reason: 'demo page must mount two independent NativeAdWidget instances '
             '(T65) — skipOffstage:false, see the Banner test above');
     expect(tester.takeException(), isNull);
