@@ -132,5 +132,35 @@ void main() {
       AdSafetyConfig.resetForReinit();
       expect(AdaptiveFrequencySignals.entries, isEmpty);
     });
+
+    // B: coverage — AdaptiveFrequencySignals.record() overflow trim and sink.
+    test('overflow: entries capped at 500 when record() exceeds maxEntries',
+        () async {
+      await initSafety();
+      // Drive record() directly to trigger the removeRange trim path.
+      for (var i = 0; i < 502; i++) {
+        AdaptiveFrequencySignals.record('ad_to_background', i, 0);
+      }
+      expect(AdaptiveFrequencySignals.entries.length, 500);
+    });
+
+    test('setSink: sink receives signal forwarded by record()', () async {
+      await initSafety();
+      final received = <AdaptiveFrequencySignal>[];
+      AdaptiveFrequencySignals.setSink(received.add);
+      AdaptiveFrequencySignals.record('background_to_resume', 1000, 5000);
+      expect(received, hasLength(1));
+      expect(received.first.kind, 'background_to_resume');
+      expect(received.first.gapMs, 5000);
+    });
+
+    test('AdaptiveFrequencySignal.toJson contains all fields', () {
+      final s =
+          AdaptiveFrequencySignal(kind: 'ad_to_background', timestampMs: 42, gapMs: 7);
+      final j = s.toJson();
+      expect(j['kind'], 'ad_to_background');
+      expect(j['timestampMs'], 42);
+      expect(j['gapMs'], 7);
+    });
   });
 }

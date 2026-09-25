@@ -412,5 +412,37 @@ void main() {
           .firstWhere((i) => i.name == 'ATT status readable (iOS)');
       expect(item.status, SelfCheckStatus.skipped);
     });
+
+    // B: coverage — SelfCheckItem.toJson and SelfCheckResult.toJson (lines 15,16,34,35).
+    test('SelfCheckItem.toJson serialises name/status/detail correctly',
+        () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      for (final item in result.items) {
+        final j = item.toJson();
+        expect(j['name'], item.name);
+        expect(j['status'], item.status.name);
+        expect(j.containsKey('detail'), isTrue);
+      }
+    });
+
+    test('SelfCheckResult.toJson contains allPassed and items list', () async {
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config();
+      AdManager().debugVipManager = _FakeVip();
+
+      final result = await AdManager()
+          .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+
+      final j = result.toJson();
+      expect(j['allPassed'], isA<bool>());
+      expect(j['items'], isA<List>());
+      expect((j['items'] as List).length, result.items.length);
+    });
   });
 }

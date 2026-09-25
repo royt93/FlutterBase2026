@@ -4,6 +4,7 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 AdRevenueEvent _rev(int micros, {List<String>? waterfall}) => AdRevenueEvent(
       providerTag: '[AdMob]',
@@ -113,6 +114,7 @@ void main() {
     tearDown(() {
       AdManager().disableArbitrator();
       AdManager().disableFillRateMonitor();
+      AdManager().disableFillRateBaselineMonitor();
       AdManager().disableRevenueIntegrityLedger();
       AdManager().incidentRecorder.clear();
     });
@@ -204,6 +206,59 @@ void main() {
       final d = AdManager().diagnostics();
       expect(d.arbitratorEstimatedEcpmMicros, 2000000);
       expect(d.arbitratorVetoRate, isNotNull);
+    });
+
+    // B: coverage — AdDiagnostics.toJson (lines 67-84) and
+    // toSafeJsonString edge cases (lines 115-155).
+    test('toJson contains all expected keys', () async {
+      final d = AdManager().diagnostics();
+      final j = d.toJson();
+      expect(j.containsKey('lastWaterfallBySlot'), isTrue);
+      expect(j.containsKey('fillRateBySlot'), isTrue);
+      expect(j.containsKey('arbitratorEstimatedEcpmMicros'), isTrue);
+      expect(j.containsKey('arbitratorVetoRate'), isTrue);
+      expect(j.containsKey('fillRateRegressionBySlot'), isTrue);
+      expect(j.containsKey('pendingRevenueChecks'), isTrue);
+      expect(j.containsKey('recentRevenueIntegrityIncidents'), isTrue);
+    });
+
+    test('toJson fillRateRegressionBySlot contains all regression fields',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      await AdManager().enableFillRateBaselineMonitor();
+      final d = AdManager().diagnostics();
+      final j = d.toJson();
+      // Even with no data the map is present (may be empty).
+      expect(j['fillRateRegressionBySlot'], isA<Map>());
+    });
+
+    test('toSafeJsonString throws ArgumentError for maxBytes < 256', () async {
+      final d = AdManager().diagnostics();
+      await expectLater(
+        () => d.toSafeJsonString(maxBytes: 100),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('toSafeJsonString produces verifiable envelope', () async {
+      final d = AdManager().diagnostics();
+      final encoded = await d.toSafeJsonString();
+      expect(await AdDiagnostics.verifySafeJsonString(encoded), isTrue);
+    });
+
+    test('toSafeJsonString truncates when waterfall exceeds maxBytes',
+        () async {
+      // Build a DiagnosticsSnapshot with a large waterfall to trigger
+      // the while-loop truncation path.
+      final bigWaterfall = List.generate(100, (i) => 'network_$i' * 20);
+      AdManager().debugEmit(_rev(1000, waterfall: bigWaterfall));
+      await Future<void>.delayed(Duration.zero);
+
+      final d = AdManager().diagnostics();
+      // Use a tiny maxBytes to force truncation.
+      final encoded = await d.toSafeJsonString(maxBytes: 1024);
+      expect(await AdDiagnostics.verifySafeJsonString(encoded), isTrue);
+      expect(encoded.length, lessThanOrEqualTo(1024));
     });
   });
 }

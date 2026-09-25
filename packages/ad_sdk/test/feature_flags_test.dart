@@ -110,4 +110,69 @@ void main() {
       );
     });
   });
+
+  // B: coverage — SignedFeatureFlags.fromJson malformed-input fall-safe paths
+  // (lines 28-37: non-int revision → -1, bad expiresAt → epoch, non-Map flags → {}).
+  group('SignedFeatureFlags.fromJson — malformed-input fail-safe', () {
+    test('non-int revision falls back to -1', () {
+      final f = SignedFeatureFlags.fromJson({
+        'revision': 'bad',
+        'expiresAt': '2030-01-01T00:00:00.000Z',
+        'flags': <String, dynamic>{'x': true},
+        'signatureBase64': '',
+      });
+      expect(f.revision, -1);
+    });
+
+    test('unparseable expiresAt falls back to epoch', () {
+      final f = SignedFeatureFlags.fromJson({
+        'revision': 1,
+        'expiresAt': 'not-a-date',
+        'flags': <String, dynamic>{'x': true},
+        'signatureBase64': '',
+      });
+      expect(f.expiresAt.millisecondsSinceEpoch, 0);
+    });
+
+    test('null expiresAt falls back to epoch', () {
+      final f = SignedFeatureFlags.fromJson({
+        'revision': 1,
+        'expiresAt': null,
+        'flags': <String, dynamic>{'x': true},
+        'signatureBase64': '',
+      });
+      expect(f.expiresAt.millisecondsSinceEpoch, 0);
+    });
+
+    test('non-Map flags falls back to empty map', () {
+      final f = SignedFeatureFlags.fromJson({
+        'revision': 1,
+        'expiresAt': '2030-01-01T00:00:00.000Z',
+        'flags': 'bad',
+        'signatureBase64': 'abc',
+      });
+      expect(f.flags, isEmpty);
+    });
+
+    test('missing signatureBase64 falls back to empty string', () {
+      final f = SignedFeatureFlags.fromJson({
+        'revision': 1,
+        'expiresAt': '2030-01-01T00:00:00.000Z',
+        'flags': <String, dynamic>{},
+      });
+      expect(f.signatureBase64, '');
+    });
+
+    test('canonicalPayload round-trips through jsonDecode', () {
+      final f = SignedFeatureFlags.fromJson({
+        'revision': 5,
+        'expiresAt': '2030-06-01T00:00:00.000Z',
+        'flags': <String, dynamic>{'kill_banner': false},
+        'signatureBase64': 'sig==',
+      });
+      final decoded = jsonDecode(f.canonicalPayload()) as Map<String, dynamic>;
+      expect(decoded['revision'], 5);
+      expect((decoded['flags'] as Map)['kill_banner'], false);
+    });
+  });
 }
