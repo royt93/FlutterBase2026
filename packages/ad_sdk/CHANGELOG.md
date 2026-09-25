@@ -4,6 +4,28 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-09-25
+
+- **Fixed (T173):** `BannerAdWidget._onVisibilityChanged` distinguished internal
+  error self-collapse (`AnimatedSize` height = 0 on `onAdFailedToLoad`) from
+  external scroll/navigation invisibility. Keeps errored AdMob banner instances
+  registered in `InlineAdInstanceRegistry` so the Debug Overlay retains the
+  failed slot count and `needsRecovery` debt is preserved for the resume retry
+  scanner. External route push, `TickerMode`, `dispose()`, and manual
+  `active: false` remain immediate and continue to dispose cleanly.
+- **Fixed (T193):** `AdManager._selfCheckLoad` now checks `slot.isReady` BEFORE
+  invoking `load()`. AdMobAdapter validates freshness against its private cached
+  native ad object reference rather than the logical slot alone; calling `load()`
+  on an already-ready slot could replace a healthy preloaded ad with a network
+  request leading to cooldown/no-fill. A health diagnostic must never destroy
+  existing ready inventory.
+- **Fixed (Integration Tests):** Eliminated first-install 30s VIP grace window
+  race conditions in `r173_debug_overlay_banner_row_test.dart` by explicitly
+  revoking VIP before testing banner mount, and added preload settling buffer
+  in `t193_self_check_already_ready_test.dart` to prevent secondary preload
+  completion races during slot state seeding. Verified 100% pass on real device
+  (`TECNO BG6`) and iOS Simulator under AdMob.
+
 ## [3.2.0] - 2026-09-22
 
 - **Fixed (2026-09-24):** `AdManager.debugShouldSkipRealAppLovinNativeView`
