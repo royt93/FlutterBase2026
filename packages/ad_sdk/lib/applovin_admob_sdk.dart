@@ -37,7 +37,11 @@ export 'src/core/ad_consent.dart'
 export 'src/core/ad_bootstrap.dart';
 export 'src/core/ad_manager.dart';
 export 'src/core/ad_provider_adapter.dart'
-    show AdProviderAdapter, BannerListenables, RewardResult;
+    show
+        AdProviderAdapter,
+        BannerErrorSelfCollapse,
+        BannerListenables,
+        RewardResult;
 export 'src/core/ad_route_observer.dart';
 export 'src/core/ad_safety_config.dart'
     show AdSafetyConfig, AdSafetyParams, AdSafetyResult, AdSafetySnapshot;

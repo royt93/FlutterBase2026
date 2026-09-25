@@ -146,6 +146,18 @@ abstract class InlineAdVisibility {
   void setInlineAdsHidden(bool hidden);
 }
 
+/// Optional adapter capability for banner implementations that collapse their
+/// host widget to zero height when an ad fails to load.
+///
+/// Not part of [AdProviderAdapter]: that interface is exported and many host
+/// tests implement it directly. AdManager checks this capability with `is`, so
+/// custom adapters that do not implement it keep the safe default (`false`).
+abstract class BannerErrorSelfCollapse {
+  /// True when an active banner error can internally produce a zero-size
+  /// [BannerAdWidget] without meaning the host scrolled/navigated it away.
+  bool get collapsesBannerOnError;
+}
+
 abstract class AdProviderAdapter {
   /// Set by [AdManager] before [initialize] so the adapter can emit
   /// [AdEvent]s back to the host. `null` = events dropped.

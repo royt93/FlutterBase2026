@@ -2,13 +2,10 @@
 // google_mobile_ads plugin and had never been exercised beyond adapter-level
 // fakes (see admob_behavioral_test.dart's FakeGmaBridge).
 //
-// Scope: verifies initialize/updateRequestConfiguration/load* forward the
-// correct channel method + request shape (nonPersonalizedAds, RDP extras).
-// Does NOT simulate the platform->Dart onAdLoaded/onAdFailedToLoad callback
-// (that requires hand-crafting a platform-to-Dart method call through the
-// channel's custom AdMessageCodec — out of proportion to the payoff here);
-// the _AppOpenWrap/_InterstitialWrap/_RewardedWrap show/dispose paths stay
-// covered only via admob_behavioral_test.dart's FakeGmaBridge substitute.
+// Scope: verifies initialize/updateRequestConfiguration/load* forwarding,
+// platform->Dart load success/failure callbacks, and the production
+// _AppOpenWrap/_InterstitialWrap/_RewardedWrap show/dispose paths through the
+// plugin's own channel codec.
 
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:flutter/services.dart';
@@ -225,5 +222,228 @@ void main() {
     expect(impression, isTrue);
     expect(rewardAmount, 5);
     expect(rewardType, 'coins');
+  });
+
+  group('GmaFullscreenAd show and content callbacks', () {
+    test('app open shows and dispatches content callbacks', () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadAppOpen(
+        'unit-open',
+        nonPersonalizedAds: false,
+        onLoaded: (a) => wrap = a,
+        onFailed: (_, _) {},
+      );
+
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as AppOpenAd;
+
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId,
+            'eventName': 'onAdLoaded',
+            'responseInfo': null,
+          }),
+        ),
+        (_) {},
+      );
+
+      var showed = false;
+      var dismissed = false;
+      var clicked = false;
+      var impression = false;
+      String? failedMsg;
+
+      await wrap!.show(GmaShowCallbacks(
+        onShowed: () => showed = true,
+        onDismissed: () => dismissed = true,
+        onClicked: () => clicked = true,
+        onImpression: () => impression = true,
+        onFailedToShow: (msg) => failedMsg = msg,
+      ));
+
+      expect(calls.any((c) => c.method == 'showAdWithoutView'), isTrue);
+
+      ad.fullScreenContentCallback?.onAdShowedFullScreenContent?.call(ad);
+      ad.fullScreenContentCallback?.onAdClicked?.call(ad);
+      ad.fullScreenContentCallback?.onAdImpression?.call(ad);
+      ad.fullScreenContentCallback?.onAdFailedToShowFullScreenContent
+          ?.call(ad, AdError(1, 'domain', 'failed msg'));
+      ad.fullScreenContentCallback?.onAdDismissedFullScreenContent?.call(ad);
+
+      expect(showed, isTrue);
+      expect(clicked, isTrue);
+      expect(impression, isTrue);
+      expect(failedMsg, 'failed msg');
+      expect(dismissed, isTrue);
+      expect(wrap!.mediationWaterfall, isNull);
+    });
+
+    test('interstitial shows and dispatches content callbacks', () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadInterstitial(
+        'unit-inter',
+        nonPersonalizedAds: false,
+        onLoaded: (a) => wrap = a,
+        onFailed: (_, _) {},
+      );
+
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as InterstitialAd;
+
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId,
+            'eventName': 'onAdLoaded',
+            'responseInfo': null,
+          }),
+        ),
+        (_) {},
+      );
+
+      var showed = false;
+      await wrap!.show(GmaShowCallbacks(onShowed: () => showed = true));
+      expect(calls.any((c) => c.method == 'showAdWithoutView'), isTrue);
+
+      ad.fullScreenContentCallback?.onAdShowedFullScreenContent?.call(ad);
+      expect(showed, isTrue);
+    });
+
+    test('rewarded shows with SSV and dispatches reward callback', () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadRewarded(
+        'unit-rew',
+        nonPersonalizedAds: false,
+        onLoaded: (a) => wrap = a,
+        onFailed: (_, _) {},
+      );
+
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as RewardedAd;
+
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId,
+            'eventName': 'onAdLoaded',
+            'responseInfo': null,
+          }),
+        ),
+        (_) {},
+      );
+
+      num? earnedAmount;
+      String? earnedType;
+
+      await wrap!.show(
+        GmaShowCallbacks(
+          onUserEarnedReward: (amt, type) {
+            earnedAmount = amt;
+            earnedType = type;
+          },
+        ),
+        ssvCustomData: 'custom_123',
+        ssvUserId: 'user_456',
+      );
+
+      expect(
+        calls.any((c) => c.method == 'setServerSideVerificationOptions'),
+        isTrue,
+      );
+
+      ad.onUserEarnedRewardCallback?.call(ad, RewardItem(10, 'diamonds'));
+      expect(earnedAmount, 10);
+      expect(earnedType, 'diamonds');
+    });
+
+    test('rewarded interstitial shows and dispatches reward callback', () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadRewardedInterstitial(
+        'unit-rew-inter',
+        nonPersonalizedAds: false,
+        onLoaded: (a) => wrap = a,
+        onFailed: (_, _) {},
+      );
+
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as RewardedInterstitialAd;
+
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId,
+            'eventName': 'onAdLoaded',
+            'responseInfo': null,
+          }),
+        ),
+        (_) {},
+      );
+
+      num? earnedAmount;
+      String? earnedType;
+
+      await wrap!.show(GmaShowCallbacks(
+        onUserEarnedReward: (amt, type) {
+          earnedAmount = amt;
+          earnedType = type;
+        },
+      ));
+
+      ad.onUserEarnedRewardCallback?.call(ad, RewardItem(25, 'tokens'));
+      expect(earnedAmount, 25);
+      expect(earnedType, 'tokens');
+    });
+
+    test('onAdFailedToLoad propagates code and message across all 4 formats',
+        () async {
+      final formats = <String,
+          Future<void> Function(
+              void Function(int code, String message) onFailed)>{
+        'appOpen': (onFailed) => bridge.loadAppOpen('u-open',
+            nonPersonalizedAds: false, onLoaded: (_) {}, onFailed: onFailed),
+        'interstitial': (onFailed) => bridge.loadInterstitial('u-inter',
+            nonPersonalizedAds: false, onLoaded: (_) {}, onFailed: onFailed),
+        'rewarded': (onFailed) => bridge.loadRewarded('u-rew',
+            nonPersonalizedAds: false, onLoaded: (_) {}, onFailed: onFailed),
+        'rewardedInterstitial': (onFailed) =>
+            bridge.loadRewardedInterstitial('u-ri',
+                nonPersonalizedAds: false,
+                onLoaded: (_) {},
+                onFailed: onFailed),
+      };
+
+      for (final entry in formats.entries) {
+        int? receivedCode;
+        String? receivedMsg;
+
+        await entry.value((code, msg) {
+          receivedCode = code;
+          receivedMsg = msg;
+        });
+
+        final adId = calls.last.arguments['adId'] as int;
+        await messenger.handlePlatformMessage(
+          channel.name,
+          channel.codec.encodeMethodCall(
+            MethodCall('onAdEvent', <dynamic, dynamic>{
+              'adId': adId,
+              'eventName': 'onAdFailedToLoad',
+              'loadAdError':
+                  LoadAdError(3, 'google', 'No ad config for ${entry.key}', null),
+            }),
+          ),
+          (_) {},
+        );
+
+        expect(receivedCode, 3, reason: '${entry.key}: code propagated');
+        expect(receivedMsg, 'No ad config for ${entry.key}',
+            reason: '${entry.key}: message propagated');
+      }
+    });
   });
 }

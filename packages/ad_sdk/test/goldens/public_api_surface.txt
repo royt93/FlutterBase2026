@@ -139,6 +139,7 @@ AdManager.canShowInterstitial  [method]  bool canShowInterstitial({AdPlacement p
 AdManager.canShowRewardedAd  [method]  bool canShowRewardedAd({AdPlacement placement = AdPlacement.unspecified})
 AdManager.canShowRewardedInterstitialAd  [method]  bool canShowRewardedInterstitialAd({AdPlacement placement = AdPlacement.unspecified})
 AdManager.clearSdkData  [method]  Future<void> clearSdkData({SdkDataErasureScope scope = SdkDataErasureScope.everythingExceptEntitlements, bool confirmedEntitlementErasure = false, bool purgeConsentProvenanceJournal = false})
+AdManager.collapsesBannerOnError  [getter]  bool get collapsesBannerOnError
 AdManager.config  [getter]  AdConfig? get config
 AdManager.consent  [getter]  AdConsent get consent
 AdManager.consentManager  [getter]  ConsentManager? get consentManager
@@ -610,6 +611,9 @@ BannerAdWidget.controller  [field]  InlineAdController? controller
 BannerAdWidget.createState  [method]  State<BannerAdWidget> createState()
 BannerAdWidget.new  [constructor]  BannerAdWidget BannerAdWidget({Key? key, Duration collapseAnimationDuration = const Duration(milliseconds: 250), AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller})
 BannerAdWidget.placement  [field]  AdPlacement placement
+BannerErrorSelfCollapse  [class]  abstract class BannerErrorSelfCollapse
+BannerErrorSelfCollapse.collapsesBannerOnError  [getter]  bool get collapsesBannerOnError
+BannerErrorSelfCollapse.new  [constructor]  BannerErrorSelfCollapse BannerErrorSelfCollapse()
 BannerListenables  [class]  class BannerListenables
 BannerListenables.adSize  [field]  ValueNotifier<Size?> adSize
 BannerListenables.autoRefreshEnabled  [field]  ValueNotifier<bool> autoRefreshEnabled

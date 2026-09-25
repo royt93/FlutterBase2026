@@ -13,7 +13,10 @@
 //   • Survives a route push/pop on top of it (didPushNext/didPopNext).
 //   • Does not paint an AppLovin/AdMob platform view when uninitialised.
 
-import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart'
+    hide BannerErrorSelfCollapse;
+import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart'
+    show BannerErrorSelfCollapse;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,6 +91,12 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   void applyConsent(AdConsent consent) {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _CollapsingBannerCountingAdapter extends _BannerCountingAdapter
+    implements BannerErrorSelfCollapse {
+  @override
+  bool get collapsesBannerOnError => true;
 }
 
 const _admobConfig = AdConfig(
@@ -519,7 +528,7 @@ void main() {
   testWidgets(
       'collapsing on a load error animates the height down instead of '
       'jumping straight to zero', (tester) async {
-    final adapter = _BannerCountingAdapter();
+    final adapter = _CollapsingBannerCountingAdapter();
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _admobConfig;
     AdManager().debugCanRequestAds = true;
@@ -566,7 +575,7 @@ void main() {
 
   testWidgets('collapseAnimationDuration: zero disables the animation '
       '(instant jump, old behavior)', (tester) async {
-    final adapter = _BannerCountingAdapter();
+    final adapter = _CollapsingBannerCountingAdapter();
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _admobConfig;
     AdManager().debugCanRequestAds = true;
@@ -723,7 +732,7 @@ void main() {
     late GlobalKey<NavigatorState> navKey;
 
     setUp(() {
-      adapter = _BannerCountingAdapter();
+      adapter = _CollapsingBannerCountingAdapter();
       AdManager().debugSetAdapter(adapter);
       AdManager().debugConfig = _admobConfig;
       AdManager().debugCanRequestAds = true;

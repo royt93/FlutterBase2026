@@ -4,6 +4,18 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- **Changed (T173 hardening):** `BannerAdWidget` now checks the adapter capability
+  `BannerErrorSelfCollapse`/`AdManager.collapsesBannerOnError` instead of
+  hardcoding the AdMob provider when distinguishing internal banner error
+  self-collapse from real external invisibility. AdMob opts in; AppLovin and
+  custom adapters keep the safe default (`false`).
+- **Tests:** Added unit/widget coverage for the banner self-collapse capability
+  and expanded `gma_bridge_test.dart` to cover production fullscreen wrapper
+  show callbacks, rewarded SSV, reward callbacks, and all 4 fullscreen load
+  failure callbacks; `gma_bridge.dart` line coverage is now >90%.
+
 ## [3.2.1] - 2026-09-25
 
 - **Fixed (T173):** `BannerAdWidget._onVisibilityChanged` distinguished internal

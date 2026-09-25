@@ -3073,6 +3073,12 @@ class AdManager with WidgetsBindingObserver {
   ValueListenable<bool> bannerHasError(Object key) =>
       _adapter?.banner(key).hasError ?? _stubBoolFalse;
 
+  /// T173 / Round-45 — whether the active adapter self-collapses banner widgets
+  /// on error (delegated to [AdProviderAdapter.collapsesBannerOnError]).
+  bool get collapsesBannerOnError =>
+      _adapter is BannerErrorSelfCollapse &&
+      (_adapter! as BannerErrorSelfCollapse).collapsesBannerOnError;
+
   ValueListenable<Size?> bannerAdSize(Object key) =>
       _adapter?.banner(key).adSize ?? _stubSize;
 

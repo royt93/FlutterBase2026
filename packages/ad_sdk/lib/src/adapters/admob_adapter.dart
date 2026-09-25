@@ -24,7 +24,8 @@ import 'gma_bridge.dart';
 /// transitions instead of hand-managed bool flags. The fullscreen ads load
 /// through an injectable [GmaBridge]; the banner stays on the native GMA API
 /// (it is `AdWidget`-coupled and not behaviourally testable in isolation).
-class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
+class AdMobAdapter
+    implements AdProviderAdapter, InlineAdVisibility, BannerErrorSelfCollapse {
   // Round-70 audit fix (MAJOR) — mirrors AdManager's `_testSeamsBlocked` /
   // AppLovinAdapter's copy of the same pattern: `@visibleForTesting` is a
   // lint only. Any code reachable via `AdManager().adapter as AdMobAdapter`
@@ -235,6 +236,9 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   @override
   Iterable<AdSlot> get bannerSlots => _bannerRegistry.slots;
+
+  @override
+  bool get collapsesBannerOnError => true;
 
   @override
   BannerListenables banner(Object key) => _bannerRegistry.listenablesFor(

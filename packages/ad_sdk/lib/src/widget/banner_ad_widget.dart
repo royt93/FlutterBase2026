@@ -281,22 +281,23 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     if (widget.active != null || widget.controller != null) return;
     final visible = info.visibleFraction > 0;
     final mgr = AdManager();
-    // T173 real-device root cause — an AdMob no-fill sets hasError=true, which
-    // deliberately collapses this widget's own AnimatedSize to zero. That
-    // self-collapse then produces a VisibilityDetector fraction of zero, but it
-    // does NOT mean the still-mounted host scrolled or navigated away. Routing
-    // that callback through didPushNext() removed the key from the adapter's
-    // registry, so the debug overlay lost the failed slot and `needsRecovery`
-    // was discarded before the resume scanner could retry it.
+    // T173 real-device root cause — an adapter (such as AdMob) no-fill sets
+    // hasError=true, which deliberately collapses this widget's own AnimatedSize
+    // to zero. That self-collapse then produces a VisibilityDetector fraction
+    // of zero, but it does NOT mean the still-mounted host scrolled or navigated
+    // away. Routing that callback through didPushNext() removed the key from
+    // the adapter's registry, so the debug overlay lost the failed slot and
+    // `needsRecovery` was discarded before the resume scanner could retry it.
     //
-    // Keep only this internally-collapsed AdMob error registered. There is no
-    // live native BannerAd after onAdFailedToLoad, so retaining the bookkeeping
-    // cannot refresh invisible inventory. Real route/TickerMode/manual pauses
-    // bypass this callback and remain immediate; a genuinely off-screen widget
-    // is detected again as soon as recovery clears the error and it expands.
+    // Keep only this internally-collapsed error registered when the active
+    // adapter signals collapsesBannerOnError. There is no live native BannerAd
+    // after onAdFailedToLoad, so retaining the bookkeeping cannot refresh
+    // invisible inventory. Real route/TickerMode/manual pauses bypass this
+    // callback and remain immediate; a genuinely off-screen widget is detected
+    // again as soon as recovery clears the error and it expands.
     if (!visible &&
         _allowed.value &&
-        mgr.isAdMobProvider &&
+        mgr.collapsesBannerOnError &&
         mgr.bannerHasError(this).value) {
       return;
     }
