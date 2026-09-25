@@ -104,7 +104,7 @@ void main() {
       var completed = false;
       await AdManager().initialize(
         config: _config,
-        onComplete: (_, __) => completed = true,
+        onComplete: (_, _) => completed = true,
       );
       expect(completed, isTrue);
       await AdManager().destroy();

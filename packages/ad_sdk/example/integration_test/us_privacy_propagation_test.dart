@@ -107,7 +107,7 @@ void main() {
   Future<void> initWithBaseline({required bool doNotSell}) async {
     await AdManager()
         .setConsent(AdConsent(hasUserConsent: true, doNotSell: doNotSell));
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
   }
 
   tearDown(() async {

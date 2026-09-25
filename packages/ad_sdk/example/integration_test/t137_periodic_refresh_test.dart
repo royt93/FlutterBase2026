@@ -48,7 +48,7 @@ void main() {
       config: _config(),
       remoteSafetyProvider: provider,
       remoteSafetyAutoRefreshInterval: const Duration(seconds: 2),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await tester.pump(const Duration(milliseconds: 300));
 

@@ -8,7 +8,7 @@ void main() {
   testWidgets('a widget-triggered log never exposes a device identifier',
       (tester) async {
     final messages = <String>[];
-    SafeLogger.configure(onLog: (_, __, message) => messages.add(message));
+    SafeLogger.configure(onLog: (_, _, message) => messages.add(message));
     await tester.pumpWidget(MaterialApp(
       home: ElevatedButton(
         onPressed: () => SafeLogger.d('Widget', 'idfa=widget-secret'),

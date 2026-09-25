@@ -44,7 +44,7 @@ class _Storm extends StatelessWidget {
           12,
           (_) => FutureBuilder<void>(
             future: AdManager().loadRewardedAd(),
-            builder: (_, __) => const SizedBox.shrink(),
+            builder: (_, _) => const SizedBox.shrink(),
           ),
         ),
       );

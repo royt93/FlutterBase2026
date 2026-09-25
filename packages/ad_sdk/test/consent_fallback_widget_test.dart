@@ -24,7 +24,7 @@ class _FallbackStatusBanner extends StatelessWidget {
   Widget build(BuildContext context) =>
       ValueListenableBuilder<ConsentFallbackState?>(
         valueListenable: manager.fallbackListenable,
-        builder: (_, fallback, __) => Text(fallback == null
+        builder: (_, fallback, _) => Text(fallback == null
             ? 'Consent fallback: none'
             : 'Consent fallback: ${fallback.reason.name} · conservative'),
       );

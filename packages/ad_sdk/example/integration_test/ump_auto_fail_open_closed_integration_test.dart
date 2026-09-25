@@ -53,7 +53,7 @@ void main() {
 
     await AdManager().initialize(
       config: _admobConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     var opened = false;
@@ -79,7 +79,7 @@ void main() {
 
     await AdManager().initialize(
       config: _admobConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     for (var i = 0; i < 40; i++) {

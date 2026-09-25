@@ -177,7 +177,7 @@ void main() {
       'retry timer instead of staying blank forever (round-38 MAJOR-1)',
       (tester) async {
     await AdManager()
-        .initialize(config: _appLovinConfig(), onComplete: (_, __) {});
+        .initialize(config: _appLovinConfig(), onComplete: (_, _) {});
     await AdManager().vip?.revokeAll();
 
     // Real connectivity plugin can take a beat to resolve its first read on

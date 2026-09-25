@@ -89,7 +89,7 @@ void main() {
     await AdManager().initialize(
       config: _config(maxFullscreenAdsPerDay: 999),
       remoteSafetyProvider: provider,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await tester.pump(const Duration(milliseconds: 300));
     expect(provider.callCount, 1,
@@ -111,7 +111,7 @@ void main() {
     await AdManager().destroy();
     await AdManager().initialize(
       config: _config(maxFullscreenAdsPerDay: 5),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await tester.pump(const Duration(milliseconds: 300));
 

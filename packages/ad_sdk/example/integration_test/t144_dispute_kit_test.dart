@@ -33,7 +33,7 @@ void main() {
   testWidgets(
       'exportDisputeKit() bundles all 3 real signed exports, each '
       'independently verifiable, on a real device', (tester) async {
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await tester.pump(const Duration(milliseconds: 300));
     expect(AdManager().isInitialised, isTrue);
 

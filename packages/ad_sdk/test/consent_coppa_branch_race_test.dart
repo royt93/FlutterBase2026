@@ -122,7 +122,7 @@ void main() {
       'COPPA re-init branch: an older setConsent() flip whose ConsentManager '
       'apply is delayed must never overwrite a newer overlapping flip', () async {
     await AdManager()
-        .initialize(config: _appLovinConfig, onComplete: (_, __) {});
+        .initialize(config: _appLovinConfig, onComplete: (_, _) {});
     // Prime a baseline (isAgeRestrictedUser: false) via the normal, already
     // guarded tail path — establishes `previousAgeRestricted` for the race
     // below without exercising the COPPA branch yet.

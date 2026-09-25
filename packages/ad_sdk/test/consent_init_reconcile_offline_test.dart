@@ -125,7 +125,7 @@ void main() {
     statusGate = wedge;
 
     await AdManager().initialize(
-        config: _appLovinConfig(), onComplete: (_, __) {});
+        config: _appLovinConfig(), onComplete: (_, _) {});
     await pumpEventQueue(times: 20);
 
     expect(AdManager().canRequestAds, isFalse,

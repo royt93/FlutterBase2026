@@ -32,7 +32,7 @@ void main() {
       'pushing a named route on a real device auto-fires notifySignal and '
       'triggers a real preload, through a real AdManager() session',
       (tester) async {
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await tester.pump(const Duration(milliseconds: 300));
     expect(AdManager().isInitialised, isTrue);
 

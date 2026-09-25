@@ -364,7 +364,7 @@ void main() {
     setUp(() async {
       AdManager.debugAdapterFactory = (config) => _InstantAdapter();
       await AdManager()
-          .initialize(config: _appLovinConfig, onComplete: (_, __) {});
+          .initialize(config: _appLovinConfig, onComplete: (_, _) {});
       expect(AdManager().isInitialised, isTrue);
       umpCalls.clear();
     });

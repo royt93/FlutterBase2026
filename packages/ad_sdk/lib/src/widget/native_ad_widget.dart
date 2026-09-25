@@ -394,7 +394,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         if (!_allowed.value &&
             !_initScheduled &&
             AdManager().isInitialised &&

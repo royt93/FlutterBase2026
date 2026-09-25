@@ -256,7 +256,7 @@ void main() {
 
     final init = AdManager().initialize(
       config: _appLovinConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await adapter.entered.future;
 
@@ -288,7 +288,7 @@ void main() {
 
     final init = AdManager().initialize(
       config: _appLovinConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await adapter.entered.future;
 
@@ -346,7 +346,7 @@ void main() {
 
     final init = AdManager().initialize(
       config: _appLovinConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await adapter.entered.future;
     expect(adapter.ageRestrictedPerCall.single, isTrue,
@@ -393,7 +393,7 @@ void main() {
 
     final init = AdManager().initialize(
       config: _appLovinConfig,
-      onComplete: (_, __) => calls++,
+      onComplete: (_, _) => calls++,
     );
     await adapter.entered.future;
 
@@ -428,7 +428,7 @@ void main() {
     AdManager.debugAdapterFactory = (config) => first;
 
     final init = AdManager()
-        .initialize(config: _appLovinConfig, onComplete: (_, __) {});
+        .initialize(config: _appLovinConfig, onComplete: (_, _) {});
     await first.entered.future;
     unawaited(AdManager().setConsent(const AdConsent(
       hasUserConsent: true,

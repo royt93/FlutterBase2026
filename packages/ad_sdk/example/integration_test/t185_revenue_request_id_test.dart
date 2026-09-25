@@ -52,7 +52,7 @@ void main() {
       'a real interstitial\'s AdRevenueEvent carries the SAME requestId '
       'that was stamped on the slot at load time, on a real device with '
       'a real loaded+shown AdMob test ad', (tester) async {
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await _waitForInterstitialReady(tester);
     expect(AdManager().isInitialised, isTrue);
 

@@ -78,7 +78,7 @@ void main() {
     AdManager.debugAdapterFactory = (_) => _LifecycleCountingAdapter();
     addTearDown(() => AdManager.debugAdapterFactory = null);
 
-    await manager.initialize(config: _config, onComplete: (_, __) {});
+    await manager.initialize(config: _config, onComplete: (_, _) {});
     expect(manager.isInitialised, isTrue);
     final firstAdapter = manager.adapter;
     expect(firstAdapter, isNotNull);
@@ -111,7 +111,7 @@ void main() {
     expect(manager.isInitialised, isFalse);
     expect(manager.adapter, isNull);
 
-    await manager.initialize(config: _config, onComplete: (_, __) {});
+    await manager.initialize(config: _config, onComplete: (_, _) {});
     expect(manager.isInitialised, isTrue);
     final secondAdapter = manager.adapter;
     expect(secondAdapter, isNot(same(firstAdapter)));

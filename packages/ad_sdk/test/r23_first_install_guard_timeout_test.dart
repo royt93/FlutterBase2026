@@ -148,7 +148,7 @@ void main() {
 
   Future<void> initOnce() => AdManager().initialize(
         config: _config,
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
       );
 
   test(
@@ -208,7 +208,7 @@ void main() {
     final guard = _ControllableGuard(gate);
     AdManager.debugFirstInstallGuardFactory = () => guard;
 
-    final init = AdManager().initialize(config: _config, onComplete: (_, __) {});
+    final init = AdManager().initialize(config: _config, onComplete: (_, _) {});
     await guard.entered.future; // the Keychain read is genuinely in flight
 
     await AdManager().destroy();
@@ -225,7 +225,7 @@ void main() {
     final gate = Completer<bool>();
     final guard = _ControllableGuard(gate);
     AdManager.debugFirstInstallGuardFactory = () => guard;
-    final init = AdManager().initialize(config: _config, onComplete: (_, __) {});
+    final init = AdManager().initialize(config: _config, onComplete: (_, _) {});
     await guard.entered.future;
     await AdManager().destroy();
     gate.complete(false);
@@ -310,7 +310,7 @@ void main() {
     });
 
     await AdManager()
-        .initialize(config: appLovinConfig, onComplete: (_, __) {});
+        .initialize(config: appLovinConfig, onComplete: (_, _) {});
 
     expect(AdManager().vip?.isActive, isTrue,
         reason: 'debugFirstInstallGuardFactory must not apply in a '

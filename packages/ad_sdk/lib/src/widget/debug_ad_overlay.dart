@@ -255,7 +255,7 @@ class _SlotRows extends StatelessWidget {
     // otherwise. See _DeferredValueListenableBuilder's doc comment.
     return _DeferredValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         final ad = AdManager().adapter;
         if (ad == null) return const Text('(no adapter)');
         return Column(
@@ -417,7 +417,7 @@ class _FillRateRegressionRowsState extends State<_FillRateRegressionRows> {
     // change synchronously from a host's own initState().
     return _DeferredValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         _trySubscribe();
         final alerts =
             AdManager().fillRateBaselineMonitor?.activeAlerts ?? const {};

@@ -80,7 +80,7 @@ void main() {
       () async {
     expect(AdManager().consentProvenanceJournal, isNull);
     await AdManager()
-        .initialize(config: _admobConfig, onComplete: (_, __) {});
+        .initialize(config: _admobConfig, onComplete: (_, _) {});
     expect(AdManager().consentProvenanceJournal, isNotNull);
     await AdManager().destroy();
     expect(AdManager().consentProvenanceJournal, isNull);
@@ -90,13 +90,13 @@ void main() {
       'audit finding B: a destroy()+reinitialize() cycle must not orphan '
       'the journal a set() call actually writes to', () async {
     await AdManager()
-        .initialize(config: _admobConfig, onComplete: (_, __) {});
+        .initialize(config: _admobConfig, onComplete: (_, _) {});
     await AdManager().consentManager!.set(ConsentSettings.accepted);
     expect(AdManager().consentProvenanceJournal!.entries, hasLength(1));
 
     await AdManager().destroy();
     await AdManager()
-        .initialize(config: _admobConfig, onComplete: (_, __) {});
+        .initialize(config: _admobConfig, onComplete: (_, _) {});
 
     final journalAfterReinit = AdManager().consentProvenanceJournal!;
     expect(journalAfterReinit.entries, hasLength(1),
@@ -114,7 +114,7 @@ void main() {
       'audit finding C: AdManager().clearSdkData(purgeConsentProvenanceJournal: true) '
       'actually purges the live journal', () async {
     await AdManager()
-        .initialize(config: _admobConfig, onComplete: (_, __) {});
+        .initialize(config: _admobConfig, onComplete: (_, _) {});
     await AdManager().consentManager!.set(ConsentSettings.accepted);
     final journal = AdManager().consentProvenanceJournal!;
     expect(journal.entries, isNotEmpty);

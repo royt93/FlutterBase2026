@@ -517,7 +517,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
         builder: (context, active, _) {
           return ValueListenableBuilder<List<VipEntry>>(
             valueListenable: _entriesNotifier,
-            builder: (context, entries, __) {
+            builder: (context, entries, _) {
               final topInset = MediaQuery.of(context).padding.top;
               final primaryEntry = _pickPrimaryActiveEntry(entries);
               return Stack(
@@ -946,7 +946,7 @@ class _VipRedeemScreenState extends State<VipRedeemScreen>
             builder: (context, processing, _) =>
                 ValueListenableBuilder<TextEditingValue>(
               valueListenable: _keyController,
-              builder: (context, value, __) => _buildActivateButton(
+              builder: (context, value, _) => _buildActivateButton(
                 enabled: !processing && value.text.trim().isNotEmpty,
                 processing: processing,
               ),

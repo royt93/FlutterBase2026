@@ -9,7 +9,7 @@ void main() {
 
   testWidgets('T206 device smoke: guard restores host platform handler',
       (tester) async {
-    bool hostHandler(Object _, StackTrace __) => true;
+    bool hostHandler(Object _, StackTrace _) => true;
     ui.PlatformDispatcher.instance.onError = hostHandler;
     installAdCrashGuard();
     uninstallAdCrashGuard();

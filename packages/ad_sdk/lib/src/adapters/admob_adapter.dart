@@ -2047,6 +2047,7 @@ class AdMobAdapter implements AdProviderAdapter, InlineAdVisibility {
     SafeLogger.d(_logTag, 'loadBanner $tag 🔄 width=$widthPx');
     try {
       final adaptive =
+          // ignore: deprecated_member_use
           await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
               widthPx.truncate());
       // MJ21 — the adaptive-size lookup above is a real suspension point, and

@@ -75,7 +75,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -93,7 +93,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -119,7 +119,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -164,7 +164,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 

@@ -62,7 +62,7 @@ void main() {
   testWidgets('a queued apply superseded by the host still leaves the ad gate '
       'open', (tester) async {
     await AdManager()
-        .initialize(config: _admobConfig(), onComplete: (_, __) {});
+        .initialize(config: _admobConfig(), onComplete: (_, _) {});
     await AdManager().requestUmpConsent();
 
     // One apply parks at its write — a slow provider call is all it takes.
@@ -100,7 +100,7 @@ void main() {
   testWidgets('a recovered gate has its fullscreen slots refilled behind it',
       (tester) async {
     await AdManager()
-        .initialize(config: _admobConfig(), onComplete: (_, __) {});
+        .initialize(config: _admobConfig(), onComplete: (_, _) {});
     await AdManager().requestUmpConsent();
     // A VIP loads no ads at all — by design — and this fleet's devices carry
     // VIP entries from the other suites. Same setup the ad-loading integration
@@ -140,7 +140,7 @@ void main() {
   testWidgets('an apply whose write fails does not take the queued intent '
       'down with it', (tester) async {
     await AdManager()
-        .initialize(config: _admobConfig(), onComplete: (_, __) {});
+        .initialize(config: _admobConfig(), onComplete: (_, _) {});
     await AdManager().requestUmpConsent();
 
     final failing = Completer<void>();

@@ -158,7 +158,7 @@ void main() {
   group('1. losing VIP asks the mounted widgets to retry', () {
     Future<VipManager> initWithVip() async {
       AdManager.debugAdapterFactory = (_) => _BannerCountingAdapter();
-      await AdManager().initialize(config: _config, onComplete: (_, __) {});
+      await AdManager().initialize(config: _config, onComplete: (_, _) {});
       final vip = AdManager().vip!;
       await vip.revokeAll();
       await vip.addVip(key: 'PAID', duration: const Duration(hours: 1));
@@ -180,7 +180,7 @@ void main() {
 
     test('CONTROL — gaining VIP does not bump it', () async {
       AdManager.debugAdapterFactory = (_) => _BannerCountingAdapter();
-      await AdManager().initialize(config: _config, onComplete: (_, __) {});
+      await AdManager().initialize(config: _config, onComplete: (_, _) {});
       final vip = AdManager().vip!;
       await vip.revokeAll();
       final before = AdManager().initRevision.value;

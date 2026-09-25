@@ -579,7 +579,7 @@ void main() {
     AdManager.debugAdapterFactory = (_) => _OkAdapter();
     await AdManager().initialize(
       config: _footgunConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().debugInitRetryScheduled, isFalse,
@@ -600,7 +600,7 @@ void main() {
     addTearDown(() => SimpleEventBus().remove(onEvent));
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {
+      onComplete: (_, _) {
         calls++;
         throw StateError('host callback blew up');
       },
@@ -701,7 +701,7 @@ void main() {
         if (!success && second == null) {
           second = AdManager().initialize(
             config: _okConfig,
-            onComplete: (_, __) => secondReported = true,
+            onComplete: (_, _) => secondReported = true,
           );
         }
       },
@@ -712,7 +712,7 @@ void main() {
     // timer, a second splash) slips past the duplicate guard and the SDK ends
     // up building two adapters at once.
     final third = AdManager().initialize(
-        config: _okConfig, onComplete: (_, __) => thirdReported = true);
+        config: _okConfig, onComplete: (_, _) => thirdReported = true);
 
     await second;
     await third;
@@ -754,7 +754,7 @@ void main() {
 
     await AdManager().initialize(
       config: _footgunConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().debugRetryGen, greaterThan(retryGenBefore),
@@ -783,7 +783,7 @@ void main() {
 
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -824,7 +824,7 @@ void main() {
     AdManager.debugAdapterFactory = (_) => adapter;
     await AdManager().initialize(
       config: _footgunConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -864,7 +864,7 @@ void main() {
     AdManager.debugAdapterFactory = (_) => failing;
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(failing.initializeCalls, 1);
@@ -939,7 +939,7 @@ void main() {
           if (level == AdLogLevel.error) errors.add(msg);
         },
       ),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(errors.where((m) => m.contains('consent')), isNotEmpty,
@@ -1049,7 +1049,7 @@ void main() {
     bool? parkedResult;
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
     await AdManager().initialize(
@@ -1095,7 +1095,7 @@ void main() {
           if (level == AdLogLevel.error) criticals.add(msg);
         },
       ),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(criticals.where((m) => m.contains('requestAtt')), isNotEmpty,
@@ -1123,7 +1123,7 @@ void main() {
 
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
     expect(AdManager().isInitialised, isTrue);
@@ -1242,12 +1242,12 @@ void main() {
     bool? reentrantResult;
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {
+      onComplete: (_, _) {
         // Fired from inside `_drainQueuedInitCallbacks`.
         unawaited(AdManager().initialize(
           config: _okConfig,
@@ -1285,7 +1285,7 @@ void main() {
     String? parkedGaid;
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
     await AdManager().initialize(
@@ -1370,16 +1370,16 @@ void main() {
     var secondParkedRan = false;
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) => throw StateError('host splash blew up'),
+      onComplete: (_, _) => throw StateError('host splash blew up'),
     );
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) => secondParkedRan = true,
+      onComplete: (_, _) => secondParkedRan = true,
     );
 
     slow.gate.complete();
@@ -1432,7 +1432,7 @@ void main() {
 
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
 
@@ -1471,16 +1471,16 @@ void main() {
     var answeredWithoutYielding = false;
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await Future<void>.delayed(Duration.zero);
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {
+      onComplete: (_, _) {
         var inner = false;
         unawaited(AdManager().initialize(
           config: _okConfig,
-          onComplete: (_, __) => inner = true,
+          onComplete: (_, _) => inner = true,
         ));
         // No await in between: with the round-5 design `inner` is still false
         // here, and the caller waits for the next drain pass to hear anything.
@@ -1627,7 +1627,7 @@ void main() {
 
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     final deadline = DateTime.now().add(const Duration(seconds: 8));
     while (built == 0 && DateTime.now().isBefore(deadline)) {
@@ -1690,7 +1690,7 @@ void main() {
     AdManager.debugAdapterFactory = (_) => _OkAdapter();
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     // A UMP round trip captured this session's epoch.
     final staleSession = AdManager().debugConsentSessionEpoch;
@@ -1698,7 +1698,7 @@ void main() {
     await AdManager().destroy();
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     AdManager().debugCanRequestAds = false;
 
@@ -1749,14 +1749,14 @@ void main() {
 
     final first = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     // Parked caller #1 parks another caller (so the nested drain below has
     // something to drain) and then tears the SDK down from inside the drain.
     AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {
-        AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+      onComplete: (_, _) {
+        AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
         unawaited(AdManager().destroy());
       },
     );
@@ -1764,7 +1764,7 @@ void main() {
     bool? drainingSeenByTheNextCallback = false;
     AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) =>
+      onComplete: (_, _) =>
           drainingSeenByTheNextCallback = AdManager().debugDrainingInitResult,
     );
 
@@ -1800,7 +1800,7 @@ void main() {
 
     final stale = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     final deadline = DateTime.now().add(const Duration(seconds: 8));
     while (built == 0 && DateTime.now().isBefore(deadline)) {
@@ -1867,7 +1867,7 @@ void main() {
 
     final stale = AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     final deadline = DateTime.now().add(const Duration(seconds: 8));
     while (built == 0 && DateTime.now().isBefore(deadline)) {
@@ -1876,7 +1876,7 @@ void main() {
     await AdManager().destroy();
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     // The loser's native init only now comes back, throwing.
@@ -1906,7 +1906,7 @@ void main() {
     // a session the host had started in the meantime.
     final adapter = _SlowDisposeAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
 
     final revisionBefore = AdManager().initRevision.value;
     final first = AdManager().destroy();
@@ -1952,7 +1952,7 @@ void main() {
     bool? firstReported;
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (success, __) {
+      onComplete: (success, _) {
         firstCalls++;
         firstReported = success;
       },
@@ -1967,7 +1967,7 @@ void main() {
     // The user taps "Retry" before the 5s timer fires.
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().debugInitRetryScheduled, isFalse,
@@ -1990,7 +1990,7 @@ void main() {
     bool? reported;
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (success, __) {
+      onComplete: (success, _) {
         calls++;
         reported = success;
       },
@@ -2031,7 +2031,7 @@ void main() {
     var calls = 0;
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (success, __) {
+      onComplete: (success, _) {
         calls++;
         result = success;
       },
@@ -2136,7 +2136,7 @@ void main() {
   // one paused listener, and the SDK is bricked for the rest of the process.
   test('a paused events subscriber cannot hang destroy() forever', () async {
     AdManager.debugAdapterFactory = (_) => _OkAdapter();
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     expect(AdManager().isInitialised, isTrue);
 
     final sub = AdManager().events.listen((_) {});
@@ -2159,7 +2159,7 @@ void main() {
     // the hang actually cost the host.
     var reinit = false;
     await AdManager()
-        .initialize(config: _okConfig, onComplete: (ok, __) => reinit = ok);
+        .initialize(config: _okConfig, onComplete: (ok, _) => reinit = ok);
     expect(reinit, isTrue);
     expect(AdManager().isInitialised, isTrue);
 
@@ -2179,7 +2179,7 @@ void main() {
       () async {
     final adapter = _SlowDisposeAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     expect(AdManager().debugLifecycleObserverAttached, isTrue,
         reason: 'a live SDK listens for app resume');
 
@@ -2210,7 +2210,7 @@ void main() {
   test('no fullscreen ad can start while a teardown is in flight', () async {
     final adapter = _ShowCountingAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     // Ready, so a show would really reach the native layer — the whole point:
     // with the guard mutated away, `showAppOpenCalls` becomes 1.
     adapter.appOpenSlot.markReady();
@@ -2284,7 +2284,7 @@ void main() {
     bool? result;
     await AdManager().initialize(
       config: _okConfig,
-      onComplete: (ok, __) {
+      onComplete: (ok, _) {
         calls++;
         result = ok;
       },
@@ -2313,7 +2313,7 @@ void main() {
   test('the on-demand VIP rewarded path does reach the adapter', () async {
     final adapter = _OnDemandRewardedAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     AdManager().debugCanRequestAds = true;
 
     var earned = false;
@@ -2342,7 +2342,7 @@ void main() {
       () async {
     final adapter = _OnDemandRewardedAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     AdManager().debugCanRequestAds = true;
 
     var earned = true;
@@ -2387,7 +2387,7 @@ void main() {
       () async {
     final adapter = _OnDemandRewardedAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     expect(AdManager().adapter, same(adapter));
 
     final sub = AdManager().events.listen((_) {});
@@ -2420,7 +2420,7 @@ void main() {
 
     var calls = 0;
     await AdManager()
-        .initialize(config: _okConfig, onComplete: (_, __) => calls++);
+        .initialize(config: _okConfig, onComplete: (_, _) => calls++);
 
     expect(AdManager().debugInitRetryScheduled, isTrue);
     expect(calls, 0, reason: 'a retry is armed, so the host waits (round 8)');
@@ -2439,7 +2439,7 @@ void main() {
   test('no ad load can start while a teardown is in flight', () async {
     final adapter = _OnDemandRewardedAdapter();
     AdManager.debugAdapterFactory = (_) => adapter;
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
     AdManager().debugCanRequestAds = true;
     // A real connectivity watch answers `false` in a unit-test process, and
     // "skipped — no network" would let a mutated guard pass this test. Seed
@@ -2516,7 +2516,7 @@ void main() {
     AdManager.debugSimulateReleaseModeForTestSeams = true;
     addTearDown(() => AdManager.debugSimulateReleaseModeForTestSeams = false);
 
-    await AdManager().initialize(config: _okConfig, onComplete: (_, __) {});
+    await AdManager().initialize(config: _okConfig, onComplete: (_, _) {});
 
     expect(AdManager.debugLastInitRetryDelay, const Duration(seconds: 5),
         reason: 'debugInitRetryDelays must not apply in a (simulated) '

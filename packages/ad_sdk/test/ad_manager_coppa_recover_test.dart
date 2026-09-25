@@ -118,7 +118,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig,
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     expect(AdManager().isInitialised, isTrue);
     expect(adapter.initializeCalls, 1);

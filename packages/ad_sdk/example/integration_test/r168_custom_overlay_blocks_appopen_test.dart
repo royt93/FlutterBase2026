@@ -51,7 +51,7 @@ void main() {
     var completed = false;
     await AdManager().initialize(
       config: _admobConfig(),
-      onComplete: (_, __) => completed = true,
+      onComplete: (_, _) => completed = true,
     );
     expect(completed, isTrue,
         reason: 'sanity: this test needs a real, initialised AdManager so '

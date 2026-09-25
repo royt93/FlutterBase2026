@@ -5249,7 +5249,7 @@ class AdManager with WidgetsBindingObserver {
               'AppLovin re-init cannot run now. Call initialize() again once it '
               'completes, or set the flag before initialize().');
         } else {
-          unawaited(initialize(config: cfg, onComplete: (_, __) {}));
+          unawaited(initialize(config: cfg, onComplete: (_, _) {}));
         }
       }
       return;

@@ -200,7 +200,7 @@ void main() {
         safety: AdSafetyParams(dryRun: true),
         autoRequestUmpConsent: true,
       ),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     // A fixed `pumpEventQueue(times: N)` only flushes microtasks — under
@@ -248,7 +248,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().isInitialised, isTrue,
@@ -276,7 +276,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().isInitialised, isTrue);
@@ -307,7 +307,7 @@ void main() {
         umpDebugGeography: DebugGeography.debugGeographyEea,
         umpTestIdentifiers: ['TEST-ID'],
       ),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().isInitialised, isTrue);

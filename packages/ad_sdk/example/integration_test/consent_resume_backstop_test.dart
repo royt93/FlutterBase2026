@@ -107,7 +107,7 @@ void main() {
     await _writeTcf(_purposesAllow);
     await AdManager().initialize(
       config: _admobConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await AdManager().requestUmpConsent();
     expect(await IabStorage.tcfAllowsPersonalisedAds(), isTrue,
@@ -158,7 +158,7 @@ void main() {
     await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await tester.pump(const Duration(milliseconds: 500));
     expect(AdManager().consent.hasUserConsent, isTrue,
@@ -172,7 +172,7 @@ void main() {
     // only thing that can notice.
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     var withdrawn = false;
@@ -211,7 +211,7 @@ void main() {
     await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 250));
@@ -239,7 +239,7 @@ void main() {
     await AdManager().setConsent(const AdConsent(hasUserConsent: false));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await tester.pump(const Duration(milliseconds: 500));
     await AdManager().destroy();
@@ -249,7 +249,7 @@ void main() {
     await AdManager().setConsent(const AdConsent(hasUserConsent: false));
     await AdManager().initialize(
       config: _hostOwnedConsentConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 250));
@@ -273,7 +273,7 @@ void main() {
     await _writeTcf(_purposesAllow);
     await AdManager().initialize(
       config: _admobConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await AdManager().requestUmpConsent();
     expect(AdManager().consent.hasUserConsent, isTrue);

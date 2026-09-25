@@ -196,7 +196,7 @@ void main() {
 
   test('rewarded interstitial revenue too', () async {
     await AdManager().showRewardedInterstitialAd(
-        onDone: (_, __) {}, placement: AdPlacement.levelComplete);
+        onDone: (_, _) {}, placement: AdPlacement.levelComplete);
     await settle();
 
     expect(revenue.single.placement, AdPlacement.levelComplete);

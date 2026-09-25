@@ -279,9 +279,9 @@ void main() {
       bool? firstResult;
       bool? secondResult;
       final first = manager.initialize(
-          config: config, onComplete: (success, __) => firstResult = success);
+          config: config, onComplete: (success, _) => firstResult = success);
       final second = manager.initialize(
-          config: config, onComplete: (success, __) => secondResult = success);
+          config: config, onComplete: (success, _) => secondResult = success);
       await Future.wait([first, second]);
       expect(manager.isInitialised, isTrue);
       // codex round-2 fix — Future.wait alone only proves both futures
@@ -303,7 +303,7 @@ void main() {
       AdManager.debugAdapterFactory = (_) => holdable;
 
       final initFuture =
-          manager.initialize(config: config, onComplete: (_, __) {});
+          manager.initialize(config: config, onComplete: (_, _) {});
       // codex round-2 fix — wait for the adapter's own initialize() override
       // to actually be ENTERED before calling destroy(). Without this,
       // destroy() could easily race ahead of the several async steps
@@ -335,7 +335,7 @@ void main() {
       // `holdable` is single-use (its `entered`/`initGate` completers are
       // already spent) — a fresh adapter for this second, real init.
       AdManager.debugAdapterFactory = (_) => FakeAdProviderAdapter();
-      await manager.initialize(config: config, onComplete: (_, __) {});
+      await manager.initialize(config: config, onComplete: (_, _) {});
       expect(manager.isInitialised, isTrue);
       manager.debugConnectivityReady = false;
       manager.debugConnectivityChanged(true);

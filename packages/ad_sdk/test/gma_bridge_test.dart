@@ -73,7 +73,7 @@ void main() {
       'unit-open',
       nonPersonalizedAds: true,
       onLoaded: (_) {},
-      onFailed: (_, __) {},
+      onFailed: (_, _) {},
     );
     expect(calls.single.method, 'loadAppOpenAd');
     expect(calls.single.arguments['adUnitId'], 'unit-open');
@@ -89,7 +89,7 @@ void main() {
       nonPersonalizedAds: false,
       restrictedDataProcessing: true,
       onLoaded: (_) {},
-      onFailed: (_, __) {},
+      onFailed: (_, _) {},
     );
     expect(calls.single.method, 'loadInterstitialAd');
     expect(calls.single.arguments['adUnitId'], 'unit-inter');
@@ -103,7 +103,7 @@ void main() {
       'unit-rewarded',
       nonPersonalizedAds: true,
       onLoaded: (_) {},
-      onFailed: (_, __) {},
+      onFailed: (_, _) {},
     );
     expect(calls.single.method, 'loadRewardedAd');
     expect(calls.single.arguments['adUnitId'], 'unit-rewarded');
@@ -148,7 +148,7 @@ void main() {
           reason: '$label: onAdLoaded must hand back the production wrap');
 
       var paidEvents = 0;
-      wrap!.setPaidEventListener((_, __, ___) => paidEvents++);
+      wrap!.setPaidEventListener((_, _, _) => paidEvents++);
       expect(ad.onPaidEvent, isNotNull, reason: '$label: listener wired');
 
       wrap!.dispose();
@@ -164,7 +164,7 @@ void main() {
       await checkDisposeUnwiresPaidEvent(
         'appOpen',
         (onLoaded) => bridge.loadAppOpen('unit-open',
-            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, _) {}),
       );
     });
 
@@ -172,7 +172,7 @@ void main() {
       await checkDisposeUnwiresPaidEvent(
         'interstitial',
         (onLoaded) => bridge.loadInterstitial('unit-inter',
-            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, _) {}),
       );
     });
 
@@ -180,7 +180,7 @@ void main() {
       await checkDisposeUnwiresPaidEvent(
         'rewarded',
         (onLoaded) => bridge.loadRewarded('unit-rewarded',
-            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, _) {}),
       );
     });
 
@@ -188,7 +188,7 @@ void main() {
       await checkDisposeUnwiresPaidEvent(
         'rewardedInterstitial',
         (onLoaded) => bridge.loadRewardedInterstitial('unit-ri',
-            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, __) {}),
+            nonPersonalizedAds: false, onLoaded: onLoaded, onFailed: (_, _) {}),
       );
     });
   });

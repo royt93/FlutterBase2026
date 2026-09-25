@@ -2084,7 +2084,7 @@ void main() {
 
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
       );
 
       // The re-init guard (`if (isInitialised) { ...; _stopAdRetryTimer(); }`)
@@ -2109,7 +2109,7 @@ void main() {
 
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
       );
 
       expect(oldVip.disposed, isTrue,
@@ -2143,7 +2143,7 @@ void main() {
       // needed to reach it (mirrors the re-init test above).
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
       );
 
       expect(AdManager().vip, isNotNull);
@@ -2635,7 +2635,7 @@ void main() {
 
         events.clear();
         await AdManager().showRewardedInterstitialAd(
-          onDone: (_, __) {},
+          onDone: (_, _) {},
           placement: const AdPlacement.custom('ri_placement'),
         );
         await Future<void>.delayed(Duration.zero);
@@ -2976,7 +2976,7 @@ void main() {
         () async {
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
         remoteSafetyProvider:
             _FakeRemoteSafetyProvider({'maxFullscreenAdsPerDay': 1}),
       );
@@ -2993,7 +2993,7 @@ void main() {
       var callCount = 0;
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) => callCount++,
+        onComplete: (_, _) => callCount++,
         remoteSafetyProvider: _ThrowingRemoteSafetyProvider(),
       );
 
@@ -3023,7 +3023,7 @@ void main() {
       // nothing is left running past the end of this test.
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
         remoteSafetyProvider: _HangingRemoteSafetyProvider(),
       );
 
@@ -3105,7 +3105,7 @@ void main() {
       adapter.nextRewardedInterstitialEarned = false;
       bool? shown;
       await AdManager()
-          .showRewardedInterstitialAd(onDone: (s, __) => shown = s);
+          .showRewardedInterstitialAd(onDone: (s, _) => shown = s);
 
       expect(shown, isFalse,
           reason: 'RewardResult.skipped used to say shown:true, so a host '
@@ -3167,7 +3167,7 @@ void main() {
       AdManager().debugCanRequestAds = false;
       var shown = true;
       await AdManager()
-          .showRewardedInterstitialAd(onDone: (s, __) => shown = s);
+          .showRewardedInterstitialAd(onDone: (s, _) => shown = s);
 
       expect(adapter.showRewardedInterstitialCalls, 0);
       expect(shown, isFalse);
@@ -3599,7 +3599,7 @@ void main() {
         // native platform channel) — that failure path is exactly what
         // schedules the auto-retry this test is pinning.
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) => callCount++,
+        onComplete: (_, _) => callCount++,
       );
 
       expect(callCount, 0,
@@ -3627,7 +3627,7 @@ void main() {
       var callCount = 0;
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) => callCount++,
+        onComplete: (_, _) => callCount++,
       );
 
       expect(AdManager().debugIsInternalInitRetryCall, isFalse,
@@ -3667,7 +3667,7 @@ void main() {
           testIds: true,
           firstInstallVipGrace: FirstInstallVipGrace.day,
         ),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
       );
 
       final vip = AdManager().vip;
@@ -3701,7 +3701,7 @@ void main() {
         'is in ad_safety_config_test.dart)', () async {
       await AdManager().initialize(
         config: _admobConfig(dryRun: true, testIds: true),
-        onComplete: (_, __) {},
+        onComplete: (_, _) {},
         isRelease: true,
       );
 

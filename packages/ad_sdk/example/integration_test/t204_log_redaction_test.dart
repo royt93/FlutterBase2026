@@ -8,7 +8,7 @@ void main() {
   testWidgets('T204 device smoke: sensitive log fields are redacted',
       (tester) async {
     final messages = <String>[];
-    SafeLogger.configure(onLog: (_, __, message) => messages.add(message));
+    SafeLogger.configure(onLog: (_, _, message) => messages.add(message));
     SafeLogger.d('Smoke', 'GAID=device-secret VIP_CODE=vip-secret');
     await tester.pump();
     expect(messages.single, contains('GAID=<redacted>'));

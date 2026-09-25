@@ -105,7 +105,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().isInitialised, isTrue,
@@ -142,7 +142,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().consent.hasUserConsent, isTrue);
@@ -156,7 +156,7 @@ void main() {
 
     await AdManager().initialize(
       config: _appLovinConfig(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     expect(AdManager().isInitialised, isTrue);
 

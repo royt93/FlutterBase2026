@@ -90,7 +90,7 @@ void main() {
       'call has already applied its own value (round-38 MAJOR-2)',
       (tester) async {
     await AdManager()
-        .initialize(config: _admobConfig, onComplete: (_, __) {});
+        .initialize(config: _admobConfig, onComplete: (_, _) {});
     await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     appLovinConsentCalls.clear();
 

@@ -1258,7 +1258,7 @@ void main() {
         // `didUpdateWidget` entirely — this test needs a genuinely new
         // instance each rebuild, exactly like the real IndexedStack demo's
         // `NativeAdWidget(active: _tabIndex == 1)` is.
-        builder: (context, tick, __) => NativeAdWidget(active: tick >= 0),
+        builder: (context, tick, _) => NativeAdWidget(active: tick >= 0),
       )));
       await tester.pump(const Duration(milliseconds: 50));
       expect(adapter.loadNativeCalls, 1);

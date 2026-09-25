@@ -160,7 +160,7 @@ void main() {
       (tester) async {
     bool? shown;
     await tester.pumpWidget(host(
-        _DemoScreen(onDone: (s, __) => shown = s, showDisclosure: false)));
+        _DemoScreen(onDone: (s, _) => shown = s, showDisclosure: false)));
 
     await tester.tap(find.byKey(const Key('ri')));
     await tester.pumpAndSettle();
@@ -176,7 +176,7 @@ void main() {
       (tester) async {
     AdManager().debugSetAdapter(null);
     bool? shown;
-    await tester.pumpWidget(host(_DemoScreen(onDone: (s, __) => shown = s)));
+    await tester.pumpWidget(host(_DemoScreen(onDone: (s, _) => shown = s)));
 
     await tester.tap(find.byKey(const Key('ri')));
     await tester.pump();
@@ -189,7 +189,7 @@ void main() {
   });
   testWidgets('the intro screen appears before the ad, not after',
       (tester) async {
-    await tester.pumpWidget(host(_DemoScreen(onDone: (_, __) {})));
+    await tester.pumpWidget(host(_DemoScreen(onDone: (_, _) {})));
     await tester.tap(find.byKey(const Key('ri')));
     await tester.pump();
 
@@ -228,7 +228,7 @@ void main() {
   testWidgets('the disclosure is on by DEFAULT, with no parameter passed',
       (tester) async {
     bool? shown;
-    await tester.pumpWidget(host(_DefaultScreen(onDone: (s, __) => shown = s)));
+    await tester.pumpWidget(host(_DefaultScreen(onDone: (s, _) => shown = s)));
 
     await tester.tap(find.byKey(const Key('ri')));
     await tester.pump();

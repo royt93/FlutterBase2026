@@ -746,7 +746,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   Widget _buildBanner(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         // Round-39 audit re-review (MAJOR) — this destroy→reinit retry path
         // is independent of the active-param gate above and knew nothing
         // about it: mounting with active: false still hit this on every

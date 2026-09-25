@@ -73,7 +73,7 @@ void main() {
 
     await AdManager().initialize(
       config: _config(provider: sessionProvider),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     await tester.pump(const Duration(milliseconds: 300));
 

@@ -66,7 +66,7 @@ void main() {
       'the app-wide throttle alone would block canShowInterstitial() for '
       'the default placement, on a real device with a real loaded ad',
       (tester) async {
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await _waitForInterstitialReady(tester);
     expect(AdManager().isInitialised, isTrue);
 

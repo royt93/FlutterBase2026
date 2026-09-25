@@ -63,7 +63,7 @@ void main() {
   testWidgets(
       'a consent form on screen keeps fullscreen ads blocked across '
       'destroy() and the next session', (tester) async {
-    await AdManager().initialize(config: _admobConfig(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
 
     // A form is presented and its dismiss callback has not arrived yet.
     final release = markUmpFormOnScreen();
@@ -76,7 +76,7 @@ void main() {
             'earned must survive the teardown');
 
     // The host re-initialises — a fresh adapter, with the same form still up.
-    await AdManager().initialize(config: _admobConfig(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
     expect(AdManager().fullscreenBusy.value, isTrue,
         reason: 'now there IS an ad that could be drawn over the form: an App '
             'Open ad here would steal the tap the consent choice needs');
@@ -93,12 +93,12 @@ void main() {
     // to block fullscreen ads forever: every presentation owns a backstop
     // (15 minutes in production), and that is what bounds a leak now.
     debugUmpFormBackstopOverride = const Duration(seconds: 2);
-    await AdManager().initialize(config: _admobConfig(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
     markUmpFormOnScreen();
     await AdManager().destroy();
     expect(AdManager().fullscreenBusy.value, isTrue);
 
-    await AdManager().initialize(config: _admobConfig(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
     var released = false;
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 250));

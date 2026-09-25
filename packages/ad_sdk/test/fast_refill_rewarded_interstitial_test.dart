@@ -106,7 +106,7 @@ void main() {
       'three fast-refill surfaces', () async {
     late _CountingAdapter adapter;
     AdManager.debugAdapterFactory = (_) => adapter = _CountingAdapter();
-    await AdManager().initialize(config: _config, onComplete: (_, __) {});
+    await AdManager().initialize(config: _config, onComplete: (_, _) {});
     final vip = AdManager().vip!;
     await vip.revokeAll();
     await vip.addVip(key: 'PAID', duration: const Duration(hours: 1));
@@ -136,7 +136,7 @@ void main() {
       'not just Interstitial and Rewarded', () async {
     late _CountingAdapter adapter;
     AdManager.debugAdapterFactory = (_) => adapter = _CountingAdapter();
-    await AdManager().initialize(config: _config, onComplete: (_, __) {});
+    await AdManager().initialize(config: _config, onComplete: (_, _) {});
     // initialize()'s own auto-UMP flow overwrites canRequestAds during its
     // async gate resolution — re-assert AFTER it settles, not before.
     AdManager().debugCanRequestAds = true;

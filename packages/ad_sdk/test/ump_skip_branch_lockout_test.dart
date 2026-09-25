@@ -112,7 +112,7 @@ void main() {
         ),
         safety: AdSafetyParams(dryRun: true),
       ),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     expect(AdManager().isInitialised, isTrue,

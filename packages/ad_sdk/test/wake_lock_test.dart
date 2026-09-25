@@ -81,7 +81,7 @@ void main() {
     final calls = <bool>[];
     AdManager.debugWakelockToggleOverride = (enable) async => calls.add(enable);
 
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await pumpEventQueue();
 
     expect(calls, [true]);
@@ -94,7 +94,7 @@ void main() {
 
     await AdManager().initialize(
         config: _config(keepScreenOnDuringSession: false),
-        onComplete: (_, __) {});
+        onComplete: (_, _) {});
     await pumpEventQueue();
 
     expect(calls, isEmpty,
@@ -108,7 +108,7 @@ void main() {
 
     await AdManager().initialize(
         config: _config(keepScreenOnDuringSession: false),
-        onComplete: (_, __) {});
+        onComplete: (_, _) {});
     await pumpEventQueue();
     await AdManager().destroy();
 
@@ -121,7 +121,7 @@ void main() {
     final calls = <bool>[];
     AdManager.debugWakelockToggleOverride = (enable) async => calls.add(enable);
 
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await pumpEventQueue();
     await AdManager().destroy();
 

@@ -232,7 +232,7 @@ class AdStressHarness {
       var completed = false;
       await AdManager().initialize(
         config: _config,
-        onComplete: (_, __) => completed = true,
+        onComplete: (_, _) => completed = true,
       );
       assert(completed, 'the fake adapter always reports success');
       await AdManager().destroy();

@@ -107,7 +107,7 @@ void main() {
     // only buffers and never reaches `ConsentManager.set()` at all, which is
     // exactly the blind spot every prior unit test for this bug had.
     await AdManager()
-        .initialize(config: _admobConfig, onComplete: (_, __) {});
+        .initialize(config: _admobConfig, onComplete: (_, _) {});
     await AdManager().setConsent(const AdConsent(hasUserConsent: true));
     appLovinConsentCalls.clear();
 

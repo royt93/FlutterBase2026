@@ -59,7 +59,7 @@ void main() {
     AdPreferences.resetForTest();
     SharedPreferences.setMockInitialValues({});
     await AdManager()
-        .initialize(config: _config(), onComplete: (_, __) {});
+        .initialize(config: _config(), onComplete: (_, _) {});
     AdSafetyConfig.recordFullscreenAdShown();
     // config.safety's maxFullscreenAdsPerDay is 5 — 1 show must not cap.
     expect(AdSafetyConfig.dailyCapReached(), isFalse);
@@ -78,7 +78,7 @@ void main() {
         Duration.zero: const AdSafetyParams(maxFullscreenAdsPerDay: 1),
         const Duration(days: 3): const AdSafetyParams(maxFullscreenAdsPerDay: 999),
       }),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     // _config()'s own base `safety` already allows 5/day — show 6 to exceed
@@ -104,7 +104,7 @@ void main() {
         Duration.zero: const AdSafetyParams(maxFullscreenAdsPerDay: 1),
         const Duration(days: 3): const AdSafetyParams(maxFullscreenAdsPerDay: 999),
       }),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     AdSafetyConfig.recordFullscreenAdShown();

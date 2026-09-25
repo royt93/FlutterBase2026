@@ -402,7 +402,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
   Widget _buildContent(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         // Round-39 audit re-review (MAJOR) — see BannerAdWidget's matching
         // comment: this destroy→reinit retry path is independent of the
         // active-param gate and must respect it too.

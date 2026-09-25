@@ -59,7 +59,7 @@ void main() {
         safety: AdSafetyParams(dryRun: true),
         autoRequestUmpConsent: false,
       ),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
     expect(AdManager().isInitialised, isTrue);
   }

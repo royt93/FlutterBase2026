@@ -76,7 +76,7 @@ void main() {
 
     await tester.runAsync(() => AdManager().initialize(
           config: _appLovinConfig(),
-          onComplete: (_, __) {},
+          onComplete: (_, _) {},
         ));
     await tester.pump();
 
@@ -95,7 +95,7 @@ void main() {
 
     await tester.runAsync(() => AdManager().initialize(
           config: _appLovinConfig(),
-          onComplete: (_, __) {},
+          onComplete: (_, _) {},
         ));
     await tester.pump();
 

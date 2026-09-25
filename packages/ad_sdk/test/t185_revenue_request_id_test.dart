@@ -150,7 +150,7 @@ void main() {
       'stamped on rewardedInterstitialSlot at show time', () async {
     adapter.rewardedInterstitialSlot.requestId = 'req-ri-1';
 
-    await AdManager().showRewardedInterstitialAd(onDone: (_, __) {});
+    await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
     await settle();
 
     expect(shows.single.requestId, 'req-ri-1');

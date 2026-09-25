@@ -128,7 +128,7 @@ void main() {
 
     final events = <AdEvent>[];
     final sub = AdManager().events.listen(events.add);
-    await AdManager().showRewardedInterstitialAd(onDone: (_, __) {});
+    await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
     await Future<void>.delayed(Duration.zero);
 
     final show = events
@@ -169,7 +169,7 @@ void main() {
 
     bool? shown;
     await AdManager()
-        .showRewardedInterstitialAd(onDone: (s, __) => shown = s);
+        .showRewardedInterstitialAd(onDone: (s, _) => shown = s);
 
     expect(shown, isFalse);
     expect(AdSafetyConfig.getSessionAdCount(), before,

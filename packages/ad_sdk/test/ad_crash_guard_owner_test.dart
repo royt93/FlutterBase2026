@@ -11,7 +11,7 @@ void main() {
     final oldFlutter = FlutterError.onError;
     final oldPlatform = ui.PlatformDispatcher.instance.onError;
     void priorFlutter(FlutterErrorDetails _) {}
-    bool priorPlatform(Object _, StackTrace __) => true;
+    bool priorPlatform(Object _, StackTrace _) => true;
     FlutterError.onError = priorFlutter;
     ui.PlatformDispatcher.instance.onError = priorPlatform;
 
@@ -28,7 +28,7 @@ void main() {
 
   test('uninstall preserves a host handler that replaced the guard', () {
     void hostFlutter(FlutterErrorDetails _) {}
-    bool hostPlatform(Object _, StackTrace __) => false;
+    bool hostPlatform(Object _, StackTrace _) => false;
     installAdCrashGuard();
     FlutterError.onError = hostFlutter;
     ui.PlatformDispatcher.instance.onError = hostPlatform;

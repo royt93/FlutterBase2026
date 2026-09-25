@@ -1586,7 +1586,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
   Widget _row(String label, ValueNotifier<bool> n, String help) {
     return ValueListenableBuilder<bool>(
       valueListenable: n,
-      builder: (_, on, __) => SwitchListTile(
+      builder: (_, on, _) => SwitchListTile(
         value: on,
         onChanged: (v) => n.value = v,
         title: Text(label),
@@ -1645,7 +1645,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
     // Rebuild + resync local toggles whenever SDK destroy/reinit fires.
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           _syncFromSdk();
@@ -1731,7 +1731,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: ValueListenableBuilder<int>(
               valueListenable: _appliedRev,
-              builder: (context, _, __) {
+              builder: (context, _, _) {
                 final npa = !AdManager().consent.hasUserConsent;
                 return Container(
                   width: double.infinity,
@@ -1764,7 +1764,7 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
           ),
           ValueListenableBuilder<ConsentSettings>(
             valueListenable: ConsentManager.instance.listenable,
-            builder: (_, s, __) => Padding(
+            builder: (_, s, _) => Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Card(
                 color: s.hasBeenAsked
@@ -2188,7 +2188,7 @@ class EventsDemoPage extends StatelessWidget {
           Expanded(
             child: ValueListenableBuilder<int>(
               valueListenable: EventBuffer.instance.revision,
-              builder: (_, __, ___) {
+              builder: (_, _, _) {
                 final rows = EventBuffer.instance.snapshot();
                 if (rows.isEmpty) {
                   return const Center(
@@ -2199,7 +2199,7 @@ class EventsDemoPage extends StatelessWidget {
                 return ListView.separated(
                   padding: bottomSafe(context, EdgeInsets.zero),
                   itemCount: rows.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final row = rows[i];
                     return _EventTile(row: row);
@@ -2339,14 +2339,14 @@ class _InterstitialDemoPageState extends AdScreenState<InterstitialDemoPage> {
           children: [
             ValueListenableBuilder<int>(
               valueListenable: _shownCount,
-              builder: (_, c, __) => Text('Shown: $c times',
+              builder: (_, c, _) => Text('Shown: $c times',
                   style: const TextStyle(
                       fontSize: 22, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String>(
               valueListenable: _lastResult,
-              builder: (_, r, __) =>
+              builder: (_, r, _) =>
                   Text('Last: $r', style: const TextStyle(color: Colors.grey)),
             ),
             const SizedBox(height: 24),
@@ -2410,7 +2410,7 @@ class LogViewerDemoPage extends StatelessWidget {
       ),
       body: ValueListenableBuilder<int>(
         valueListenable: LogBuffer.instance.revision,
-        builder: (_, __, ___) {
+        builder: (_, _, _) {
           final entries = LogBuffer.instance.snapshot();
           if (entries.isEmpty) {
             return const Center(child: Text('(no logs yet)'));
@@ -2972,20 +2972,20 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
           children: [
             ValueListenableBuilder<int>(
               valueListenable: _coins,
-              builder: (_, c, __) => Text('Coins: $c',
+              builder: (_, c, _) => Text('Coins: $c',
                   style: const TextStyle(
                       fontSize: 28, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String>(
               valueListenable: _last,
-              builder: (_, r, __) =>
+              builder: (_, r, _) =>
                   Text('Last: $r', style: const TextStyle(color: Colors.grey)),
             ),
             const SizedBox(height: 24),
             ValueListenableBuilder<bool>(
               valueListenable: _vipAutoGrant,
-              builder: (_, on, __) => SwitchListTile(
+              builder: (_, on, _) => SwitchListTile(
                 value: on,
                 onChanged: (v) => _vipAutoGrant.value = v,
                 title: const Text('VIP auto-grant'),
@@ -3010,7 +3010,7 @@ class _RewardedDemoPageState extends AdScreenState<RewardedDemoPage> {
             // implying an ad always plays.
             ValueListenableBuilder<bool>(
               valueListenable: _vipAutoGrant,
-              builder: (_, autoGrant, __) {
+              builder: (_, autoGrant, _) {
                 final isNoAdVipPerk =
                     autoGrant && (AdManager().vip?.isActive ?? false);
                 return FilledButton(
@@ -3091,14 +3091,14 @@ class _RewardedInterstitialDemoPageState
           children: [
             ValueListenableBuilder<int>(
               valueListenable: _coins,
-              builder: (_, c, __) => Text('Coins: $c',
+              builder: (_, c, _) => Text('Coins: $c',
                   style: const TextStyle(
                       fontSize: 28, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String>(
               valueListenable: _last,
-              builder: (_, r, __) =>
+              builder: (_, r, _) =>
                   Text('Last: $r', style: const TextStyle(color: Colors.grey)),
             ),
             const SizedBox(height: 24),
@@ -3190,7 +3190,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
     // Wrap with initRevision so destroy/reinit refreshes _activeParams display.
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) => _build(context),
+      builder: (context, _, _) => _build(context),
     );
   }
 
@@ -3199,7 +3199,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
       appBar: AppBar(title: const Text('Safety demo')),
       body: ValueListenableBuilder<int>(
         valueListenable: _refresh,
-        builder: (_, __, ___) => ListView(
+        builder: (_, _, _) => ListView(
           padding: bottomSafe(context, const EdgeInsets.all(16)),
           children: [
             _paramsCard(
@@ -3246,7 +3246,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
             const SizedBox(height: 4),
             ValueListenableBuilder<int>(
               valueListenable: AdManager().policyRiskScore,
-              builder: (_, score, __) {
+              builder: (_, score, _) {
                 final color = score < 30
                     ? Colors.green
                     : (score < 70 ? Colors.orange : Colors.red);
@@ -3277,7 +3277,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
             const SizedBox(height: 4),
             ValueListenableBuilder<bool>(
               valueListenable: _arbitratorEnabled,
-              builder: (_, enabled, __) {
+              builder: (_, enabled, _) {
                 final arbitrator = AdManager().arbitrator;
                 if (!enabled || arbitrator == null) {
                   return const Text('disabled (default)',
@@ -3319,7 +3319,7 @@ class _SafetyDemoPageState extends State<SafetyDemoPage> {
             const SizedBox(height: 4),
             ValueListenableBuilder<bool>(
               valueListenable: _fillRateMonitorEnabled,
-              builder: (_, enabled, __) {
+              builder: (_, enabled, _) {
                 final monitor = AdManager().fillRateMonitor;
                 if (!enabled || monitor == null) {
                   return const Text('fill-rate monitor disabled (default)',
@@ -3385,7 +3385,7 @@ class StatePanelDemoPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) => _build(context),
+      builder: (context, _, _) => _build(context),
     );
   }
 
@@ -3402,7 +3402,7 @@ class StatePanelDemoPage extends StatelessWidget {
           const SizedBox(height: 8),
           ValueListenableBuilder<AdSdkStateSnapshot>(
             valueListenable: AdManager().stateSnapshot,
-            builder: (context, snapshot, __) => Card(
+            builder: (context, snapshot, _) => Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
@@ -3459,7 +3459,7 @@ class StatePanelDemoPage extends StatelessWidget {
             onPressed: () async {
               await AdManager().initialize(
                 config: DemoConfig.instance.build(),
-                onComplete: (_, __) {},
+                onComplete: (_, _) {},
               );
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -3503,7 +3503,7 @@ class StatePanelDemoPage extends StatelessWidget {
   Widget _slotCard(String label, AdSlot slot) {
     return ValueListenableBuilder<AdSlotState>(
       valueListenable: slot.state,
-      builder: (_, state, __) => Card(
+      builder: (_, state, _) => Card(
         child: ListTile(
           title: Text(label),
           subtitle: Text(
@@ -4028,7 +4028,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
-      builder: (context, _, __) => _build(context),
+      builder: (context, _, _) => _build(context),
     );
   }
 
@@ -4079,7 +4079,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
           if (vip != null)
             ValueListenableBuilder<bool>(
               valueListenable: vip.activeListenable,
-              builder: (_, active, __) {
+              builder: (_, active, _) {
                 final exp = vip.expiresAt;
                 return Card(
                   color: active ? Colors.purple.shade50 : Colors.grey.shade100,
@@ -4101,7 +4101,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
                           ),
                         ValueListenableBuilder<bool>(
                           valueListenable: vip.graceNudgeDueListenable,
-                          builder: (_, due, __) {
+                          builder: (_, due, _) {
                             if (!due) return const SizedBox.shrink();
                             return Padding(
                               padding: const EdgeInsets.only(top: 8),
@@ -4423,7 +4423,7 @@ class _RemoteSafetyDemoPageState extends State<RemoteSafetyDemoPage> {
           .destroy()
           .then((_) => AdManager().initialize(
                 config: DemoConfig.instance.build(),
-                onComplete: (_, __) {},
+                onComplete: (_, _) {},
               ))
           .catchError((_) {}));
     }

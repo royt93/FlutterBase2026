@@ -50,7 +50,7 @@ void main() {
   testWidgets(
       'a real showInterstitial() call is skipped for placement_cap once '
       'the registry\'s frequencyCapOverride is reached', (tester) async {
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await tester.pump(const Duration(milliseconds: 300));
     expect(AdManager().isInitialised, isTrue);
 
@@ -83,7 +83,7 @@ void main() {
   testWidgets(
       'a real showRewardedAd() call is also skipped for placement_cap '
       'once its registered frequencyCapOverride is reached', (tester) async {
-    await AdManager().initialize(config: _config(), onComplete: (_, __) {});
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await tester.pump(const Duration(milliseconds: 300));
     expect(AdManager().isInitialised, isTrue);
 
