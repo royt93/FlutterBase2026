@@ -1477,10 +1477,19 @@ class AdManager with WidgetsBindingObserver {
   /// the listener once it resolves.
   Future<SelfCheckItem> _selfCheckLoad(String name, AdSlotType type,
       Future<void> Function() load, Duration timeout, AdSlot slot) async {
-    await load();
+    // T193 real-device follow-up — the readiness check must precede load(),
+    // not merely precede the wait below. AdMob validates freshness against its
+    // private cached ad object, not this logical slot alone; invoking it first
+    // can therefore replace a slot the self-check already knows is ready with a
+    // real network request and turn a healthy preload into no-fill/cooldown. A
+    // diagnostic must never destroy the evidence that proves this item healthy.
     if (slot.isReady) {
       return SelfCheckItem(
           name, SelfCheckStatus.pass, 'already ready (preloaded)');
+    }
+    await load();
+    if (slot.isReady) {
+      return SelfCheckItem(name, SelfCheckStatus.pass);
     }
     if (slot.isCooldown) {
       return SelfCheckItem(name, SelfCheckStatus.fail,

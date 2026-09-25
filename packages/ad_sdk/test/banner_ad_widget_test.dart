@@ -556,6 +556,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getSize(find.byType(BannerAdWidget)).height, 0,
         reason: 'settles at zero once the collapse animation finishes');
+    expect(adapter.disposeCalls, 0,
+        reason: 'a no-fill/error makes the banner collapse itself; that is not '
+            'evidence that its still-mounted host scrolled or navigated away');
+    expect(adapter.bannerListenablesByKey.values, contains(listenables),
+        reason: 'the mounted error state must remain registered so the debug '
+            'overlay can report it and the adapter can retry its recovery debt');
   });
 
   testWidgets('collapseAnimationDuration: zero disables the animation '
@@ -583,6 +589,19 @@ void main() {
     expect(tester.getSize(find.byType(BannerAdWidget)).height, greaterThan(0),
         reason: 'Duration.zero must still reach the final height '
             'immediately, no animation frames needed');
+
+    // T173 must not depend on AnimatedSize: a host can explicitly request the
+    // old zero-duration behavior, but its internal AdMob error collapse is
+    // still not an external scroll/navigation visibility transition.
+    listenables.hasError.value = true;
+    listenables.isLoaded.value = false;
+    await tester.pump();
+
+    expect(tester.getSize(find.byType(BannerAdWidget)).height, 0);
+    expect(adapter.disposeCalls, 0);
+    expect(adapter.bannerListenablesByKey.values, contains(listenables),
+        reason: 'even an instantaneous internal error collapse retains the '
+            'registry key for debug reporting and recovery');
   });
 
   // Audit fix — consent revoke mid-session used to leave an already-loaded
@@ -957,6 +976,100 @@ void main() {
       expect(adapter.disposeCalls, 1,
           reason: 'scrolled back out of the viewport — the automatic '
               'VisibilityDetector must catch this with zero host wiring');
+    });
+
+    group('T173 — internal error self-collapse vs real external lifecycle', () {
+      testWidgets('a route push on top while errored still disposes the slot',
+          (tester) async {
+        await tester.pumpWidget(MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [adRouteObserver],
+          home: const Scaffold(body: BannerAdWidget()),
+        ));
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(adapter.loadBannerCalls, 1);
+        expect(adapter.disposeCalls, 0);
+
+        final listenables = adapter.bannerListenablesByKey.values.single;
+        listenables.hasError.value = true;
+        listenables.isLoaded.value = false;
+        await tester.pumpAndSettle();
+
+        // Error self-collapse alone does NOT dispose.
+        expect(adapter.disposeCalls, 0);
+        expect(adapter.bannerListenablesByKey.values, contains(listenables));
+
+        // But an actual route push on top MUST still dispose via didPushNext.
+        navKey.currentState!.push(
+          MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('top'))),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(adapter.disposeCalls, 1,
+            reason: 'a real route push must still run didPushNext even if the '
+                'banner was currently collapsed in error');
+      });
+
+      testWidgets('manual active: false while errored still pauses/disposes',
+          (tester) async {
+        final active = ValueNotifier<bool>(true);
+        await tester.pumpWidget(MaterialApp(
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(
+            body: ValueListenableBuilder<bool>(
+              valueListenable: active,
+              builder: (context, isActive, _) =>
+                  BannerAdWidget(active: isActive),
+            ),
+          ),
+        ));
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(adapter.loadBannerCalls, 1);
+        expect(adapter.disposeCalls, 0);
+
+        final listenables = adapter.bannerListenablesByKey.values.single;
+        listenables.hasError.value = true;
+        listenables.isLoaded.value = false;
+        await tester.pumpAndSettle();
+
+        expect(adapter.disposeCalls, 0);
+
+        active.value = false;
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(adapter.disposeCalls, 1,
+            reason: 'explicit active:false must always take precedence');
+      });
+
+      testWidgets(
+          'unmounting an errored banner still cleans up registry completely',
+          (tester) async {
+        await tester.pumpWidget(MaterialApp(
+          navigatorObservers: [adRouteObserver],
+          home: const Scaffold(body: BannerAdWidget()),
+        ));
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(adapter.bannerListenablesByKey.length, 1);
+
+        final listenables = adapter.bannerListenablesByKey.values.single;
+        listenables.hasError.value = true;
+        listenables.isLoaded.value = false;
+        await tester.pumpAndSettle();
+
+        expect(adapter.bannerListenablesByKey.length, 1);
+
+        // Replace widget tree entirely -> unmount
+        await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(body: SizedBox()),
+        ));
+        await tester.pumpAndSettle();
+
+        expect(adapter.disposeCalls, 1);
+        expect(adapter.bannerListenablesByKey, isEmpty,
+            reason: 'unmounting must permanently remove the slot from the registry');
+      });
     });
   });
 

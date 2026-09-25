@@ -13,7 +13,8 @@
 // unreliable real network fill.
 //
 // Run with:
-//   flutter test integration_test/t193_self_check_already_ready_test.dart -d <device-or-sim-id>
+//   flutter test integration_test/t193_self_check_already_ready_test.dart \
+//     -d <device-or-sim-id> --dart-define=AD_PROVIDER_ADMOB=true
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
@@ -40,15 +41,27 @@ void main() {
     await _waitForInit(tester);
 
     // runIntegrationSelfCheck() checks interstitial/rewarded/appOpen in
-    // sequence and returns one combined result. AppLovinAdapter's
-    // loadInterstitial/loadRewarded/loadAppOpen each check `slotX.isReady`
-    // directly and return immediately when true (unlike AdMobAdapter,
-    // which instead checks its own cached native-ad-object reference) —
-    // so marking all three real slots ready here makes every item
-    // resolve instantly without ANY real network attempt, avoiding the
-    // demo app's placeholder (never-filling) ad units paying their own
-    // real ~30s adapter-level watchdog each.
+    // sequence and returns one combined result. AdMobAdapter checks its own
+    // cached native-ad-object references before short-circuiting load methods,
+    // not these public logical slots. Marking all three logical slots ready
+    // therefore proves the manager-level readiness check runs BEFORE invoking
+    // any adapter load; otherwise these seeded states can be replaced by real
+    // network requests and turn into no-fill/cooldown.
     final adapter = AdManager().adapter!;
+    for (final slot in [
+      adapter.interstitialSlot,
+      adapter.rewardedSlot,
+      adapter.appOpenSlot,
+    ]) {
+      slot.beginLoad();
+      slot.markReady();
+      expect(slot.isReady, isTrue);
+    }
+
+    // Let any splash/VIP-expiry preload attempt settle before invoking the
+    // diagnostic. The slots are re-seeded afterwards so this cannot turn the
+    // assertion into a network-fill test.
+    await tester.pump(const Duration(seconds: 2));
     for (final slot in [
       adapter.interstitialSlot,
       adapter.rewardedSlot,
@@ -64,12 +77,17 @@ void main() {
         loadTimeout: const Duration(seconds: 15));
     stopwatch.stop();
 
-    final interstitial =
-        result.items.firstWhere((i) => i.name == 'Interstitial load');
-    expect(interstitial.status, SelfCheckStatus.pass,
-        reason: 'a genuinely ready slot must report pass, not a false '
-            'timeout fail');
-    expect(interstitial.detail, contains('already ready'));
+    for (final name in [
+      'Interstitial load',
+      'Rewarded load',
+      'App Open load',
+    ]) {
+      final item = result.items.firstWhere((i) => i.name == name);
+      expect(item.status, SelfCheckStatus.pass,
+          reason: 'a genuinely ready $name slot must report pass, not a '
+              'false timeout fail');
+      expect(item.detail, contains('already ready'));
+    }
     expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)),
         reason: 'all three slots were pre-marked ready, so the whole '
             'self-check must resolve immediately — a value close to the '

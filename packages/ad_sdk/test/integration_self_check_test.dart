@@ -72,19 +72,30 @@ class _FakeAdapter implements AdProviderAdapter {
   /// `AdLoadEvent`. The slot must already be `ready` (set directly by the
   /// test) for this to model a real "already preloaded" scenario.
   bool interstitialAlreadyReadyNoOp = false;
+  int loadInterstitialCalls = 0;
 
   @override
   Future<void> loadInterstitial() async {
+    loadInterstitialCalls++;
     if (interstitialAlreadyReadyNoOp) return;
     _reportLoad(AdSlotType.interstitial);
   }
 
-  @override
-  Future<void> loadRewarded() async => _reportLoad(AdSlotType.rewarded);
+  int loadRewardedCalls = 0;
 
   @override
-  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async =>
-      _reportLoad(AdSlotType.appOpen);
+  Future<void> loadRewarded() async {
+    loadRewardedCalls++;
+    _reportLoad(AdSlotType.rewarded);
+  }
+
+  int loadAppOpenCalls = 0;
+
+  @override
+  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
+    loadAppOpenCalls++;
+    _reportLoad(AdSlotType.appOpen);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -233,10 +244,88 @@ void main() {
             'a usable ad, silently reusing it is correct behavior, not a '
             'failure');
     expect(interstitial.detail, contains('already ready'));
+    expect(adapter.loadInterstitialCalls, 0,
+        reason: 'readiness-first means checking the slot before invoking the '
+            'adapter: a logical ready slot must not be replaced by a real '
+            'network request that can turn it into no-fill/cooldown');
     expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)),
         reason: 'must resolve immediately via the readiness check, not by '
             'waiting out (a fraction of) the 10s timeout for an event '
             'that a real adapter would never emit in this scenario');
+  });
+
+  test('rewarded and app open already-ready slots also bypass load invocation',
+      () async {
+    adapter.succeeds = {AdSlotType.interstitial};
+    adapter.rewardedSlot.beginLoad();
+    adapter.rewardedSlot.markReady();
+    adapter.appOpenSlot.beginLoad();
+    adapter.appOpenSlot.markReady();
+
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _config();
+    AdManager().debugVipManager = _FakeVip();
+
+    final result = await AdManager()
+        .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 5));
+
+    final rewarded = result.items.firstWhere((i) => i.name == 'Rewarded load');
+    expect(rewarded.status, SelfCheckStatus.pass);
+    expect(rewarded.detail, contains('already ready'));
+    expect(adapter.loadRewardedCalls, 0,
+        reason: 'rewarded readiness check must precede loadRewarded()');
+
+    final appOpen = result.items.firstWhere((i) => i.name == 'App Open load');
+    expect(appOpen.status, SelfCheckStatus.pass);
+    expect(appOpen.detail, contains('already ready'));
+    expect(adapter.loadAppOpenCalls, 0,
+        reason: 'appOpen readiness check must precede loadAppOpen()');
+
+    // Interstitial was not pre-marked ready, so it should have been loaded.
+    expect(adapter.loadInterstitialCalls, 1);
+  });
+
+  test('all three fullscreen slots already ready resolves the entire check '
+      'with zero adapter load invocations', () async {
+    for (final slot in [
+      adapter.interstitialSlot,
+      adapter.rewardedSlot,
+      adapter.appOpenSlot,
+    ]) {
+      slot.beginLoad();
+      slot.markReady();
+    }
+
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _config();
+    AdManager().debugVipManager = _FakeVip();
+
+    final stopwatch = Stopwatch()..start();
+    final result = await AdManager()
+        .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 10));
+    stopwatch.stop();
+
+    expect(
+        result.items
+            .where((i) => i.name.endsWith(' load'))
+            .every((i) => i.status == SelfCheckStatus.pass),
+        isTrue,
+        reason: 'all ad-load checks must pass; unrelated doctor wiring items '
+            'are intentionally allowed to fail/skip in this isolated test');
+    expect(adapter.loadInterstitialCalls, 0);
+    expect(adapter.loadRewardedCalls, 0);
+    expect(adapter.loadAppOpenCalls, 0);
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 2)));
+
+    for (final name in [
+      'Interstitial load',
+      'Rewarded load',
+      'App Open load',
+    ]) {
+      final item = result.items.firstWhere((i) => i.name == name);
+      expect(item.status, SelfCheckStatus.pass);
+      expect(item.detail, contains('already ready'));
+    }
   });
 
   group('T98 — "doctor" checks', () {

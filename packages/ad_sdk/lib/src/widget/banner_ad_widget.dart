@@ -279,7 +279,28 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     // T201 — a controller owns pause/resume exactly like active would;
     // see this class's constructor assert (the two are mutually exclusive).
     if (widget.active != null || widget.controller != null) return;
-    _applyVisibility(info.visibleFraction > 0);
+    final visible = info.visibleFraction > 0;
+    final mgr = AdManager();
+    // T173 real-device root cause — an AdMob no-fill sets hasError=true, which
+    // deliberately collapses this widget's own AnimatedSize to zero. That
+    // self-collapse then produces a VisibilityDetector fraction of zero, but it
+    // does NOT mean the still-mounted host scrolled or navigated away. Routing
+    // that callback through didPushNext() removed the key from the adapter's
+    // registry, so the debug overlay lost the failed slot and `needsRecovery`
+    // was discarded before the resume scanner could retry it.
+    //
+    // Keep only this internally-collapsed AdMob error registered. There is no
+    // live native BannerAd after onAdFailedToLoad, so retaining the bookkeeping
+    // cannot refresh invisible inventory. Real route/TickerMode/manual pauses
+    // bypass this callback and remain immediate; a genuinely off-screen widget
+    // is detected again as soon as recovery clears the error and it expands.
+    if (!visible &&
+        _allowed.value &&
+        mgr.isAdMobProvider &&
+        mgr.bannerHasError(this).value) {
+      return;
+    }
+    _applyVisibility(visible);
   }
 
   // ─── InlineAdControllerTarget (T201) ────────────────────────────────────

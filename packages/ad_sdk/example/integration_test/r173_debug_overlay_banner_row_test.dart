@@ -7,7 +7,7 @@
 //
 // Run with:
 //   flutter test integration_test/r173_debug_overlay_banner_row_test.dart \
-//     -d <device-or-sim-id>
+//     -d <device-or-sim-id> --dart-define=AD_PROVIDER_ADMOB=true
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
@@ -58,6 +58,13 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
+
+    // Fresh installs auto-grant a first-install VIP grace window (see
+    // DemoConfig.firstInstallVipGrace) during which AdManager suppresses all
+    // banner loads. Revoke it so this test actually exercises real banner
+    // mounting and registration instead of silently skipping.
+    await AdManager().vip?.revokeAll();
+    await tester.pump(const Duration(milliseconds: 300));
 
     final tile = find.text('Banner ad');
     var foundTile = false;
