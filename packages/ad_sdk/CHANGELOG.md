@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Tests:** Added 3 `admob_adapter_test.dart` cases covering compatibility
+  stubs (view IDs, route-paused flags) and early-return initialization;
+  `admob_adapter.dart` line coverage is now >77%.
+- **Chores:** Fixed the Android NDK 28.2.13676358 version mismatch in the
+  `example` app that caused Gradle warnings during integration-test builds.
+
 - **Changed (T173 hardening):** `BannerAdWidget` now checks the adapter capability
   `BannerErrorSelfCollapse`/`AdManager.collapsesBannerOnError` instead of
   hardcoding the AdMob provider when distinguishing internal banner error

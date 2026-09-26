@@ -362,6 +362,51 @@ void main() {
     });
   });
 
+  group('AdMobAdapter compatibility stubs and route flags', () {
+    test('AppLovin view/id APIs stay inert under AdMob', () {
+      final adapter = AdMobAdapter();
+
+      expect(adapter.appLovinBannerId, isNull);
+      expect(adapter.appLovinMrecId, isNull);
+      expect(adapter.appLovinNativeId, isNull);
+      expect(adapter.appLovinBannerAdViewId('banner').value, isNull);
+      expect(adapter.appLovinMrecAdViewId('mrec').value, isNull);
+    });
+
+    test('banner and mrec route-paused flags default false and round-trip', () {
+      final adapter = AdMobAdapter();
+
+      expect(adapter.bannerRoutePaused('b'), isFalse);
+      adapter.setBannerRoutePaused('b', true);
+      expect(adapter.bannerRoutePaused('b'), isTrue);
+
+      expect(adapter.mrecRoutePaused('m'), isFalse);
+      adapter.setMrecRoutePaused('m', true);
+      expect(adapter.mrecRoutePaused('m'), isTrue);
+    });
+
+    test('initialize returns false when AdMobConfig is missing', () async {
+      final adapter = AdMobAdapter();
+
+      expect(
+        await adapter.initialize(
+          const AdConfig(
+            provider: AdProvider.appLovin,
+            appLovin: AppLovinConfig(
+              sdkKey: 'sdk',
+              bannerId: 'b',
+              interstitialId: 'i',
+              appOpenId: 'ao',
+              rewardedId: 'r',
+            ),
+          ),
+        ),
+        isFalse,
+      );
+      expect(adapter.isInitialised, isFalse);
+    });
+  });
+
   group('AdMobAdapter banner slot', () {
     // T65 (phase 2) — same guarantee as native (phase 1): two different
     // BannerAdWidget keys must not share AdSlot/BannerListenables state.
