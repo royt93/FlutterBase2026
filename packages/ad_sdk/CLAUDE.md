@@ -49,6 +49,14 @@ Persistent SDK state goes through `AdPreferences` (`lib/src/utils/ad_preferences
 
 `example/` is both demo app and integration-test host, not a production template. Real ad IDs and AppLovin SDK key are supplied via `--dart-define`; placeholders in source are deliberate.
 
+## Owner-approved product decisions — do not reopen as audit findings
+
+- VIP promotion-code activation **must require network**. Ed25519 verification is local, but online redemption permits signed-CRL refresh and reduces leaked-code abuse. VIP works offline after activation. Do not add offline redemption or grace without explicit owner approval.
+- AppLovin MAX COPPA status is fixed at SDK initialization. The product does not support a mid-session age-status switch. If a host flips it later, warning-only behavior is intentional; do not add forced teardown, app restart, or a repeat finding without explicit owner approval. `AppLovinAdapter.initialize()` remains fail-closed when the status is already child-directed.
+- Offline VIP codes are promotions, never globally single-use paid licenses. Android trial anti-reinstall protection is best-effort through OS backup; no backend/device-fingerprint workaround is wanted.
+- The built-in `kQaTestDeviceHashes` fleet stays active in release builds with no opt-out. This is owner-approved: protecting the AdMob account from QA invalid traffic outweighs revenue from those few devices. Do not propose debug-only or per-app test-device handling without explicit owner approval.
+- AVP1 and AVP2 VIP codes intentionally coexist. New integrations use AVP2; hosts that issued AVP1 codes can opt in with `allowLegacyV1: true`. Do not propose removing AVP1 support or treat its coexistence as an audit finding without explicit owner approval.
+
 ## Dependency and release constraints
 
 Dependency versions are deliberately constrained around Flutter/Dart and CocoaPods pinning walls. Do not loosen or bump `google_mobile_ads`, `applovin_max`, `gma_mediation_applovin`, `wakelock_plus`, `package_info_plus`, or `flutter_secure_storage` casually. Re-read `pubspec.yaml` comments and run `tool/check_pinning_wall.sh --with-builds` for release-shaped dependency changes.
@@ -64,3 +72,7 @@ Backlog files live in `doc/task/`:
 - `doc/task/done/` — completed
 
 When taking a task, move its file with `git mv`, update `Status:`, satisfy acceptance criteria, then move it to `done/`. Do not create broad architecture abstractions unless the task explicitly needs them.
+
+## Test requirement
+
+Every behavior change needs tests for every meaningful branch: success, failure, offline, invalid input, lifecycle teardown, and relevant provider/platform divergence. Use unit tests for pure/state logic, widget tests for UI/lifecycle, and Android/iOS integration tests for platform/plugin behavior. Comments, documentation, and wording-only changes need no duplicate tests; rerun closest existing coverage instead. Do not close behavior work on static analysis alone.
