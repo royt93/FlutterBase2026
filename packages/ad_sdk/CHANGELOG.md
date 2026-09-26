@@ -6,12 +6,18 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+## [3.3.0] - 2026-09-26
+
 - **Added (T146):** `CohortOptimizer` for privacy-safe local historical provider recommendation
   with on-device Ed25519 signature verification.
 - **Added (T142):** `ScenarioRunner` for offline deterministic QA and test execution
   with `FakeAdProviderAdapter`, `AdEventLog`, and `MonetizationDigitalTwin` replay.
 - **Added (T141):** `InFeedAdListView.builder` widget for interleaving `NativeAdWidget`
   into scrollable feeds with exact index mapping via `InFeedIndexCalculator`.
+- **Added (T131):** Mainland China setup guide for AppLovin MAX-only deployments,
+  CSJ mediation, and GMS-free ROM requirements.
+- **Tests:** Added physical-device integration tests for T141, T142, and T146 on
+  TECNO KJ7 (`115333744A005844`).
 - **Tests:** Added 3 `admob_adapter_test.dart` cases covering compatibility
   stubs (view IDs, route-paused flags) and early-return initialization;
   `admob_adapter.dart` line coverage is now >77%.
