@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P3
-- **Status:** 🔲 todo
+- **Status:** ✅ done
 - **Effort:** XL
 - **Files (dự kiến):** `lib/src/compliance/compliance_signing.dart`
   (`signJsonPayload`/`verifySignedJsonPayload` đã có, dòng ~166-185 — TÁI
@@ -31,22 +31,22 @@ mở app/session của riêng nó.
 
 ## Việc cần làm
 
-- [ ] Thiết kế `CohortOptimizer` — ghi nhận mỗi session: provider đã dùng +
+- [x] Thiết kế `CohortOptimizer` — ghi nhận mỗi session: provider đã dùng +
       metric quan sát được (fill rate/eCPM tổng hợp từ `AdEventLog`/
       `AdRevenueEvent` đã có).
-- [ ] Ký bản ghi bằng `signJsonPayload()` đã có sẵn
+- [x] Ký bản ghi bằng `signJsonPayload()` đã có sẵn
       (`compliance_signing.dart:166`), lưu local (SharedPreferences hoặc
       file, tương tự pattern VIP đã lưu key). Verify lại bằng
       `verifySignedJsonPayload()` khi đọc lại (chống app khác/tiến trình
       khác chỉnh sửa file ngoài ý muốn).
-- [ ] API `CohortOptimizer.recommendedProviderForNextInit()` — trả về
+- [x] API `CohortOptimizer.recommendedProviderForNextInit()` — trả về
       `AdProvider?` gợi ý (null = chưa đủ dữ liệu, giữ nguyên lựa chọn host
       đã cấu hình). Host tự đọc giá trị này TRƯỚC khi build `AdConfig`,
       không bắt buộc nghe theo.
-- [ ] Document rõ trong doc-comment: đây KHÔNG phải cross-install
+- [x] Document rõ trong doc-comment: đây KHÔNG phải cross-install
       optimization thật (không có server), chỉ là gợi ý dựa lịch sử của
       CHÍNH thiết bị đó.
-- [ ] Unit test: đủ dữ liệu → có gợi ý đúng hướng; chưa đủ dữ liệu → trả
+- [x] Unit test: đủ dữ liệu → có gợi ý đúng hướng; chưa đủ dữ liệu → trả
       `null`; dữ liệu bị tamper (verify signature fail) → bỏ qua, coi như
       chưa có dữ liệu (fail-safe).
 

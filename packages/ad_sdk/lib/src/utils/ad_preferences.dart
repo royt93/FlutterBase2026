@@ -654,6 +654,17 @@ class AdPreferences {
   static const String _keyProviderFailoverOpenedAtMs =
       'ad_sdk_provider_failover_opened_at_ms';
 
+  // T146 — Privacy-safe cohort optimizer signed records
+  static const String _keyCohortOptimizerRecords =
+      'ad_sdk_cohort_optimizer_records_v1';
+
+  String? getCohortOptimizerRecordsRaw() =>
+      _prefs?.getString(_keyCohortOptimizerRecords);
+
+  Future<void> setCohortOptimizerRecordsRaw(String raw) async {
+    await _prefs?.setString(_keyCohortOptimizerRecords, raw);
+  }
+
   int getProviderFailoverConsecutiveFailures() =>
       _prefs?.getInt(_keyProviderFailoverConsecutiveFailures) ?? 0;
 

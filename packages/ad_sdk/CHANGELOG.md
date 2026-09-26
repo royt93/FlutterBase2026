@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Added (T146):** `CohortOptimizer` for privacy-safe local historical provider recommendation
+  with on-device Ed25519 signature verification.
 - **Added (T142):** `ScenarioRunner` for offline deterministic QA and test execution
   with `FakeAdProviderAdapter`, `AdEventLog`, and `MonetizationDigitalTwin` replay.
 - **Added (T141):** `InFeedAdListView.builder` widget for interleaving `NativeAdWidget`

@@ -656,6 +656,13 @@ CcpaOptOutToggle  [class]  class CcpaOptOutToggle extends StatefulWidget
 CcpaOptOutToggle.createState  [method]  State<CcpaOptOutToggle> createState()
 CcpaOptOutToggle.new  [constructor]  CcpaOptOutToggle CcpaOptOutToggle({Key? key, CcpaOptOutStrings strings = const CcpaOptOutStrings()})
 CcpaOptOutToggle.strings  [field]  CcpaOptOutStrings strings
+CohortOptimizer  [class]  class CohortOptimizer
+CohortOptimizer.loadVerifiedRecords  [method]  Future<List<SessionCohortRecord>> loadVerifiedRecords()
+CohortOptimizer.minSessionsPerProvider  [field]  int minSessionsPerProvider
+CohortOptimizer.new  [constructor]  CohortOptimizer CohortOptimizer(AdPreferences _prefs, {FlutterSecureStorage storage = const FlutterSecureStorage(), int minSessionsPerProvider = 3})
+CohortOptimizer.recommendedProviderForNextInit  [method]  Future<AdProvider?> recommendedProviderForNextInit()
+CohortOptimizer.recordSession  [method]  Future<void> recordSession({required AdProvider provider, required int impressions, required int revenueMicros})
+CohortOptimizer.storage  [field]  FlutterSecureStorage storage
 CompatibilityMatrix  [class]  class CompatibilityMatrix
 CompatibilityMatrix.isSupported  [method]  bool isSupported(CompatibilityTarget target)
 CompatibilityMatrix.minimum  [field]  List<CompatibilityTarget> minimum
@@ -1157,6 +1164,14 @@ SelfHealingObserver.dispose  [method]  Future<void> dispose({Duration timeout = 
 SelfHealingObserver.new  [constructor]  SelfHealingObserver SelfHealingObserver({int rollingWindowSize = 20, bool persist = true, Duration reobserveAfter = const Duration(days: 7), DateTime Function() debugClock = DateTime.now})
 SelfHealingObserver.ready  [getter]  Future<void> get ready
 SelfHealingObserver.reobserveAfter  [field]  Duration reobserveAfter
+SessionCohortRecord  [class]  class SessionCohortRecord
+SessionCohortRecord.fromJson  [method]  SessionCohortRecord fromJson(Map<String, dynamic> json)
+SessionCohortRecord.impressions  [field]  int impressions
+SessionCohortRecord.new  [constructor]  SessionCohortRecord SessionCohortRecord({required AdProvider provider, required int impressions, required int revenueMicros, required int timestampMs})
+SessionCohortRecord.provider  [field]  AdProvider provider
+SessionCohortRecord.revenueMicros  [field]  int revenueMicros
+SessionCohortRecord.timestampMs  [field]  int timestampMs
+SessionCohortRecord.toJson  [method]  Map<String, dynamic> toJson()
 SignedComplianceReport  [class]  class SignedComplianceReport
 SignedComplianceReport.new  [constructor]  SignedComplianceReport SignedComplianceReport({required String reportJson, required String publicKeyBase64, required String signatureBase64})
 SignedComplianceReport.publicKeyBase64  [field]  String publicKeyBase64
