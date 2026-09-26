@@ -4,102 +4,10 @@
 // ad_manager_core_test.dart.
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart'
-    show AdEventSink;
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-/// Minimal fake adapter — mutates the real slot (beginLoad() +
-/// markReady()/markFailed()), mirroring what a real adapter does, since
-/// runIntegrationSelfCheck() (T193) watches slot state directly rather
-/// than the event stream. Also still emits the matching AdLoadEvent, same
-/// as a real adapter, for any other test/listener that cares about it.
-class _FakeAdapter implements AdProviderAdapter {
-  @override
-  AdEventSink? eventSink;
-
-  // T75 — AdManager's _adapter setter now reads these on every
-  // debugSetAdapter() call to wire fullscreenBusy's slot listeners.
-  @override
-  final AdSlot appOpenSlot = AdSlot(type: AdSlotType.appOpen);
-  @override
-  final AdSlot interstitialSlot = AdSlot(type: AdSlotType.interstitial);
-  @override
-  final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
-  @override
-  final AdSlot rewardedInterstitialSlot =
-      AdSlot(type: AdSlotType.rewardedInterstitial);
-
-  /// Slots this fake reports a successful load for; anything else never
-  /// fires an AdLoadEvent, so the self-check's wait times out (mirrors a
-  /// real ad network failing to fill).
-  Set<AdSlotType> succeeds = {
-    AdSlotType.interstitial,
-    AdSlotType.rewarded,
-    AdSlotType.appOpen,
-  };
-
-  AdSlot _slotFor(AdSlotType type) => switch (type) {
-        AdSlotType.appOpen => appOpenSlot,
-        AdSlotType.interstitial => interstitialSlot,
-        AdSlotType.rewarded => rewardedSlot,
-        AdSlotType.rewardedInterstitial => rewardedInterstitialSlot,
-        _ => throw ArgumentError('no fullscreen slot for $type'),
-      };
-
-  void _reportLoad(AdSlotType type) {
-    final slot = _slotFor(type);
-    final success = succeeds.contains(type);
-    slot.beginLoad();
-    if (success) {
-      slot.markReady();
-    } else {
-      slot.markFailed();
-    }
-    eventSink?.call(AdLoadEvent(
-      providerTag: '[Fake]',
-      type: type,
-      placement: AdPlacement.unspecified,
-      success: success,
-    ));
-  }
-
-  /// T193 — mirrors a real adapter's "fresh ad already cached — keep it"
-  /// early return (e.g. `AdMobAdapter.loadInterstitial`): when true,
-  /// `loadInterstitial()` does nothing at all — no `beginLoad()`, no new
-  /// `AdLoadEvent`. The slot must already be `ready` (set directly by the
-  /// test) for this to model a real "already preloaded" scenario.
-  bool interstitialAlreadyReadyNoOp = false;
-  int loadInterstitialCalls = 0;
-
-  @override
-  Future<void> loadInterstitial() async {
-    loadInterstitialCalls++;
-    if (interstitialAlreadyReadyNoOp) return;
-    _reportLoad(AdSlotType.interstitial);
-  }
-
-  int loadRewardedCalls = 0;
-
-  @override
-  Future<void> loadRewarded() async {
-    loadRewardedCalls++;
-    _reportLoad(AdSlotType.rewarded);
-  }
-
-  int loadAppOpenCalls = 0;
-
-  @override
-  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
-    loadAppOpenCalls++;
-    _reportLoad(AdSlotType.appOpen);
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
 
 class _FakeVip implements VipManager {
   @override
@@ -122,14 +30,14 @@ AdConfig _config() => const AdConfig(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  late _FakeAdapter adapter;
+  late FakeAdProviderAdapter adapter;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await AdPreferences.getInstance();
     await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
     AdSafetyConfig.resetForReinit();
-    adapter = _FakeAdapter();
+    adapter = FakeAdProviderAdapter();
     adapter.eventSink = AdManager().debugEmit;
     // T98: isolate the "Route observer wired" check's static counter from
     // whatever an earlier test in this file (or a widget it pumped) left
@@ -193,7 +101,7 @@ void main() {
   });
 
   test('a slot that never loads reports a failing item on timeout', () async {
-    adapter.succeeds = {AdSlotType.rewarded, AdSlotType.appOpen};
+    adapter.successfulLoadTypes = {AdSlotType.rewarded, AdSlotType.appOpen};
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _config();
     AdManager().debugVipManager = _FakeVip();
@@ -216,7 +124,7 @@ void main() {
   // it" early return.
   test('an already-ready (preloaded) slot passes immediately, without '
       'waiting for a new AdLoadEvent', () async {
-    adapter.succeeds = {AdSlotType.rewarded, AdSlotType.appOpen};
+    adapter.successfulLoadTypes = {AdSlotType.rewarded, AdSlotType.appOpen};
     // Simulates a slot that was ALREADY loaded successfully before this
     // self-check ever ran.
     adapter.interstitialSlot.beginLoad();
@@ -256,7 +164,7 @@ void main() {
 
   test('rewarded and app open already-ready slots also bypass load invocation',
       () async {
-    adapter.succeeds = {AdSlotType.interstitial};
+    adapter.successfulLoadTypes = {AdSlotType.interstitial};
     adapter.rewardedSlot.beginLoad();
     adapter.rewardedSlot.markReady();
     adapter.appOpenSlot.beginLoad();

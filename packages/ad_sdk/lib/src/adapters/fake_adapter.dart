@@ -43,10 +43,28 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
   /// scenario in a test.
   bool shouldSucceed;
 
+  /// Optional per-slot load outcome override. When null, [shouldSucceed] is
+  /// used for every slot.
+  Set<AdSlotType>? successfulLoadTypes;
+
   /// Artificial delay before a load resolves — `Duration.zero` (the
   /// default) resolves on the next microtask, same shape as a real adapter
   /// without actually waiting on anything.
   Duration loadDelay;
+
+  /// Test/QA counters and knobs for deterministic assertions.
+  int loadAppOpenCalls = 0;
+  int loadInterstitialCalls = 0;
+  int loadRewardedCalls = 0;
+  int loadRewardedInterstitialCalls = 0;
+  int showAppOpenCalls = 0;
+  int showInterstitialCalls = 0;
+  int showRewardedCalls = 0;
+  int showRewardedInterstitialCalls = 0;
+  bool appOpenAlreadyReadyNoOp = false;
+  bool interstitialAlreadyReadyNoOp = false;
+  bool rewardedAlreadyReadyNoOp = false;
+  bool rewardedInterstitialAlreadyReadyNoOp = false;
 
   @override
   AdEventSink? eventSink;
@@ -175,7 +193,7 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
       {void Function(bool loaded)? onAdLoaded}) async {
     if (!slot.beginLoad()) return;
     if (loadDelay > Duration.zero) await Future<void>.delayed(loadDelay);
-    final succeeded = shouldSucceed;
+    final succeeded = successfulLoadTypes?.contains(type) ?? shouldSucceed;
     if (succeeded) {
       slot.markReady();
     } else {
@@ -194,12 +212,16 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
   // ─── App Open ──────────────────────────────────────────────────────────────
 
   @override
-  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) =>
-      _load(appOpenSlot, AdSlotType.appOpen, onAdLoaded: onAdLoaded);
+  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) {
+    loadAppOpenCalls++;
+    if (appOpenAlreadyReadyNoOp) return Future<void>.value();
+    return _load(appOpenSlot, AdSlotType.appOpen, onAdLoaded: onAdLoaded);
+  }
 
   @override
   Future<void> showAppOpen(
       {required void Function(bool dismissed) onDismiss}) async {
+    showAppOpenCalls++;
     if (!appOpenSlot.beginShow()) {
       onDismiss(false);
       return;
@@ -212,12 +234,16 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
   // ─── Interstitial ──────────────────────────────────────────────────────────
 
   @override
-  Future<void> loadInterstitial() =>
-      _load(interstitialSlot, AdSlotType.interstitial);
+  Future<void> loadInterstitial() {
+    loadInterstitialCalls++;
+    if (interstitialAlreadyReadyNoOp) return Future<void>.value();
+    return _load(interstitialSlot, AdSlotType.interstitial);
+  }
 
   @override
   Future<void> showInterstitial(
       {required void Function(bool shown) onDone}) async {
+    showInterstitialCalls++;
     if (!interstitialSlot.beginShow()) {
       onDone(false);
       return;
@@ -230,7 +256,11 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
   // ─── Rewarded ──────────────────────────────────────────────────────────────
 
   @override
-  Future<void> loadRewarded() => _load(rewardedSlot, AdSlotType.rewarded);
+  Future<void> loadRewarded() {
+    loadRewardedCalls++;
+    if (rewardedAlreadyReadyNoOp) return Future<void>.value();
+    return _load(rewardedSlot, AdSlotType.rewarded);
+  }
 
   @override
   Future<void> showRewarded({
@@ -238,6 +268,7 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
     String? ssvCustomData,
     String? ssvUserId,
   }) async {
+    showRewardedCalls++;
     if (!rewardedSlot.beginShow()) {
       onDone(RewardResult.skipped);
       return;
@@ -250,13 +281,17 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
   // ─── Rewarded Interstitial ─────────────────────────────────────────────────
 
   @override
-  Future<void> loadRewardedInterstitial() =>
-      _load(rewardedInterstitialSlot, AdSlotType.rewardedInterstitial);
+  Future<void> loadRewardedInterstitial() {
+    loadRewardedInterstitialCalls++;
+    if (rewardedInterstitialAlreadyReadyNoOp) return Future<void>.value();
+    return _load(rewardedInterstitialSlot, AdSlotType.rewardedInterstitial);
+  }
 
   @override
   Future<void> showRewardedInterstitial({
     required void Function(RewardResult result) onDone,
   }) async {
+    showRewardedInterstitialCalls++;
     if (!rewardedInterstitialSlot.beginShow()) {
       onDone(RewardResult.skipped);
       return;

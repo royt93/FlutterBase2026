@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P3
-- **Status:** 🔲 todo
+- **Status:** ✅ done
 - **Effort:** L
 - **Files (dự kiến):** file mới `lib/src/testing/scenario_runner.dart` (hoặc
   `test/test_helpers/` nếu quyết định đây là dev-only, không ship trong
@@ -31,19 +31,19 @@ chạy kịch bản qua fake adapter đó + ghi log qua `AdEventLog` + replay qu
 
 ## Việc cần làm
 
-- [ ] Đọc kỹ 3 bản `_FakeAdapter` hiện có, hợp nhất thành 1 class dùng
+- [x] Đọc kỹ 3 bản `_FakeAdapter` hiện có, hợp nhất thành 1 class dùng
       chung (quyết định: export trong `lib/` cho host QA dùng được, hay chỉ
       là dev-dependency nội bộ test/ — quyết định này ảnh hưởng tới có nên
       thêm dependency mới vào `pubspec.yaml`'s `dev_dependencies` hay
       `dependencies` không, cân nhắc kỹ trước khi code).
-- [ ] Cập nhật 3 file test hiện có dùng bản chung mới thay vì bản riêng
+- [x] Cập nhật 3 file test hiện có dùng bản chung mới thay vì bản riêng
       (tránh double-maintain 3 bản gần giống nhau — đây chính là root cause
       nên fix, không chỉ thêm 1 bản thứ 4).
-- [ ] Thiết kế `ScenarioRunner` — nhận danh sách bước kịch bản (kiểu enum/
+- [x] Thiết kế `ScenarioRunner` — nhận danh sách bước kịch bản (kiểu enum/
       class: init, loadFail, retry, show, reward, ...), chạy qua fake
       adapter chung, output structured result (list `AdEvent` đã phát sinh)
       để so sánh (assert) được trong test.
-- [ ] Unit test cho `ScenarioRunner` tự nó (không chỉ dùng nó để test cái
+- [x] Unit test cho `ScenarioRunner` tự nó (không chỉ dùng nó để test cái
       khác).
 
 ## Ghi chú

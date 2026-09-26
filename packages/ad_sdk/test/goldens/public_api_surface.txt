@@ -819,6 +819,7 @@ FakeAdProviderAdapter.appLovinBannerId  [getter]  String? get appLovinBannerId
 FakeAdProviderAdapter.appLovinMrecAdViewId  [method]  ValueListenable<Object?> appLovinMrecAdViewId(Object key)
 FakeAdProviderAdapter.appLovinMrecId  [getter]  String? get appLovinMrecId
 FakeAdProviderAdapter.appLovinNativeId  [getter]  String? get appLovinNativeId
+FakeAdProviderAdapter.appOpenAlreadyReadyNoOp  [field]  bool appOpenAlreadyReadyNoOp
 FakeAdProviderAdapter.appOpenSlot  [field]  AdSlot appOpenSlot
 FakeAdProviderAdapter.applyConsent  [method]  void applyConsent(AdConsent consent)
 FakeAdProviderAdapter.banner  [method]  BannerListenables banner(Object key)
@@ -836,15 +837,20 @@ FakeAdProviderAdapter.disposeMrecInstance  [method]  void disposeMrecInstance(Ob
 FakeAdProviderAdapter.disposeNativeInstance  [method]  void disposeNativeInstance(Object key)
 FakeAdProviderAdapter.eventSink  [field]  void Function(AdEvent)? eventSink
 FakeAdProviderAdapter.initialize  [method]  Future<bool> initialize(AdConfig config, {String deviceGaid = '', bool isAgeRestrictedUser = false, AdConsent? consent})
+FakeAdProviderAdapter.interstitialAlreadyReadyNoOp  [field]  bool interstitialAlreadyReadyNoOp
 FakeAdProviderAdapter.interstitialSlot  [field]  AdSlot interstitialSlot
 FakeAdProviderAdapter.isInitialised  [getter]  bool get isInitialised
 FakeAdProviderAdapter.loadAppOpen  [method]  Future<void> loadAppOpen({void Function(bool)? onAdLoaded})
+FakeAdProviderAdapter.loadAppOpenCalls  [field]  int loadAppOpenCalls
 FakeAdProviderAdapter.loadBannerIfNeeded  [method]  Future<void> loadBannerIfNeeded(Object key, double widthPx)
 FakeAdProviderAdapter.loadDelay  [field]  Duration loadDelay
 FakeAdProviderAdapter.loadInterstitial  [method]  Future<void> loadInterstitial()
+FakeAdProviderAdapter.loadInterstitialCalls  [field]  int loadInterstitialCalls
 FakeAdProviderAdapter.loadMrecIfNeeded  [method]  Future<void> loadMrecIfNeeded(Object key, double widthPx)
 FakeAdProviderAdapter.loadRewarded  [method]  Future<void> loadRewarded()
+FakeAdProviderAdapter.loadRewardedCalls  [field]  int loadRewardedCalls
 FakeAdProviderAdapter.loadRewardedInterstitial  [method]  Future<void> loadRewardedInterstitial()
+FakeAdProviderAdapter.loadRewardedInterstitialCalls  [field]  int loadRewardedInterstitialCalls
 FakeAdProviderAdapter.mrec  [method]  BannerListenables mrec(Object key)
 FakeAdProviderAdapter.mrecRoutePaused  [method]  bool mrecRoutePaused(Object key)
 FakeAdProviderAdapter.mrecSlot  [method]  AdSlot mrecSlot(Object key)
@@ -858,15 +864,22 @@ FakeAdProviderAdapter.onAppResumed  [method]  void onAppResumed()
 FakeAdProviderAdapter.preloadBanner  [method]  Future<void> preloadBanner(Object key)
 FakeAdProviderAdapter.preloadMrec  [method]  Future<void> preloadMrec(Object key)
 FakeAdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium})
+FakeAdProviderAdapter.rewardedAlreadyReadyNoOp  [field]  bool rewardedAlreadyReadyNoOp
+FakeAdProviderAdapter.rewardedInterstitialAlreadyReadyNoOp  [field]  bool rewardedInterstitialAlreadyReadyNoOp
 FakeAdProviderAdapter.rewardedInterstitialSlot  [field]  AdSlot rewardedInterstitialSlot
 FakeAdProviderAdapter.rewardedSlot  [field]  AdSlot rewardedSlot
 FakeAdProviderAdapter.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, bool paused)
 FakeAdProviderAdapter.setMrecRoutePaused  [method]  void setMrecRoutePaused(Object key, bool paused)
 FakeAdProviderAdapter.shouldSucceed  [field]  bool shouldSucceed
 FakeAdProviderAdapter.showAppOpen  [method]  Future<void> showAppOpen({required void Function(bool) onDismiss})
+FakeAdProviderAdapter.showAppOpenCalls  [field]  int showAppOpenCalls
 FakeAdProviderAdapter.showInterstitial  [method]  Future<void> showInterstitial({required void Function(bool) onDone})
+FakeAdProviderAdapter.showInterstitialCalls  [field]  int showInterstitialCalls
 FakeAdProviderAdapter.showRewarded  [method]  Future<void> showRewarded({required void Function(RewardResult) onDone, String? ssvCustomData, String? ssvUserId})
+FakeAdProviderAdapter.showRewardedCalls  [field]  int showRewardedCalls
 FakeAdProviderAdapter.showRewardedInterstitial  [method]  Future<void> showRewardedInterstitial({required void Function(RewardResult) onDone})
+FakeAdProviderAdapter.showRewardedInterstitialCalls  [field]  int showRewardedInterstitialCalls
+FakeAdProviderAdapter.successfulLoadTypes  [field]  Set<AdSlotType>? successfulLoadTypes
 FakeAdProviderAdapter.tag  [getter]  String get tag
 FillRateAlert  [class]  class FillRateAlert
 FillRateAlert.fillRate  [field]  double fillRate
@@ -1088,6 +1101,37 @@ SafeLogger.level  [getter]  AdLogLevel get level
 SafeLogger.setEnabled  [method]  void setEnabled(bool enabled)
 SafeLogger.setVerbose  [method]  void setVerbose(bool v)
 SafeLogger.w  [method]  void w(String tag, Object msg)
+ScenarioResult  [class]  class ScenarioResult
+ScenarioResult.digitalTwin  [field]  MonetizationDigitalTwin? digitalTwin
+ScenarioResult.error  [field]  Object? error
+ScenarioResult.events  [field]  List<AdEvent> events
+ScenarioResult.new  [constructor]  ScenarioResult ScenarioResult({required List<AdEvent> events, required bool success, Object? error, MonetizationDigitalTwin? digitalTwin})
+ScenarioResult.success  [field]  bool success
+ScenarioRunner  [class]  class ScenarioRunner
+ScenarioRunner.adapter  [field]  FakeAdProviderAdapter adapter
+ScenarioRunner.config  [field]  AdConfig config
+ScenarioRunner.eventLog  [field]  AdEventLog? eventLog
+ScenarioRunner.new  [constructor]  ScenarioRunner ScenarioRunner({FakeAdProviderAdapter? adapter, AdEventLog? eventLog, AdConfig? config})
+ScenarioRunner.run  [method]  Future<ScenarioResult> run(List<ScenarioStep> steps)
+ScenarioStep  [class]  class ScenarioStep
+ScenarioStep.action  [field]  ScenarioStepAction action
+ScenarioStep.loadDelay  [field]  Duration loadDelay
+ScenarioStep.new  [constructor]  ScenarioStep ScenarioStep({required ScenarioStepAction action, AdPlacement placement = AdPlacement.unspecified, bool shouldSucceed = true, Duration loadDelay = Duration.zero, String? ssvUserId, String? ssvCustomData})
+ScenarioStep.placement  [field]  AdPlacement placement
+ScenarioStep.shouldSucceed  [field]  bool shouldSucceed
+ScenarioStep.ssvCustomData  [field]  String? ssvCustomData
+ScenarioStep.ssvUserId  [field]  String? ssvUserId
+ScenarioStepAction  [enum]  enum ScenarioStepAction
+ScenarioStepAction.initialize  [field]  ScenarioStepAction initialize
+ScenarioStepAction.loadAppOpen  [field]  ScenarioStepAction loadAppOpen
+ScenarioStepAction.loadInterstitial  [field]  ScenarioStepAction loadInterstitial
+ScenarioStepAction.loadRewarded  [field]  ScenarioStepAction loadRewarded
+ScenarioStepAction.loadRewardedInterstitial  [field]  ScenarioStepAction loadRewardedInterstitial
+ScenarioStepAction.new  [constructor]  ScenarioStepAction ScenarioStepAction()
+ScenarioStepAction.showAppOpen  [field]  ScenarioStepAction showAppOpen
+ScenarioStepAction.showInterstitial  [field]  ScenarioStepAction showInterstitial
+ScenarioStepAction.showRewarded  [field]  ScenarioStepAction showRewarded
+ScenarioStepAction.showRewardedInterstitial  [field]  ScenarioStepAction showRewardedInterstitial
 SdkDataErasureScope  [enum]  enum SdkDataErasureScope
 SdkDataErasureScope.allIncludingEntitlements  [field]  SdkDataErasureScope allIncludingEntitlements
 SdkDataErasureScope.everythingExceptEntitlements  [field]  SdkDataErasureScope everythingExceptEntitlements

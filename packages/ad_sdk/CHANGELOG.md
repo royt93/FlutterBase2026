@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Added (T142):** `ScenarioRunner` for offline deterministic QA and test execution
+  with `FakeAdProviderAdapter`, `AdEventLog`, and `MonetizationDigitalTwin` replay.
 - **Added (T141):** `InFeedAdListView.builder` widget for interleaving `NativeAdWidget`
   into scrollable feeds with exact index mapping via `InFeedIndexCalculator`.
 - **Tests:** Added 3 `admob_adapter_test.dart` cases covering compatibility

@@ -88,6 +88,9 @@ export 'src/state/ad_sdk_state_snapshot.dart';
 export 'src/state/ad_slot.dart';
 export 'src/state/backoff.dart';
 
+// Testing / QA
+export 'src/testing/scenario_runner.dart';
+
 // Utilities
 export 'src/utils/safe_logger.dart' show SafeLogger, AdLogSink;
 
