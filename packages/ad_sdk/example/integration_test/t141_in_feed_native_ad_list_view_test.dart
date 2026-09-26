@@ -1,4 +1,3 @@
-import 'package:ad_sdk_example/main.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
