@@ -904,6 +904,33 @@ FirstInstallVipGrace.duration  [field]  Duration? duration
 FirstInstallVipGrace.isEnabled  [getter]  bool get isEnabled
 FirstInstallVipGrace.new  [constructor]  FirstInstallVipGrace FirstInstallVipGrace(Duration? duration)
 FirstInstallVipGrace.toString  [method]  String toString()
+InFeedAdListView  [class]  class InFeedAdListView extends StatelessWidget
+InFeedAdListView.adBuilder  [field]  Widget Function(BuildContext, int)? adBuilder
+InFeedAdListView.adInterval  [field]  int adInterval
+InFeedAdListView.addAutomaticKeepAlives  [field]  bool addAutomaticKeepAlives
+InFeedAdListView.addRepaintBoundaries  [field]  bool addRepaintBoundaries
+InFeedAdListView.addSemanticIndexes  [field]  bool addSemanticIndexes
+InFeedAdListView.build  [method]  Widget build(BuildContext context)
+InFeedAdListView.builder  [constructor]  InFeedAdListView InFeedAdListView.builder({Key? key, required int itemCount, required Widget? Function(BuildContext, int) itemBuilder, int adInterval = 10, Widget Function(BuildContext, int)? adBuilder, Axis scrollDirection = Axis.vertical, bool reverse = false, ScrollController? controller, bool? primary, ScrollPhysics? physics, bool shrinkWrap = false, EdgeInsetsGeometry? padding, bool addAutomaticKeepAlives = false, bool addRepaintBoundaries = true, bool addSemanticIndexes = true, double? cacheExtent, DragStartBehavior dragStartBehavior = DragStartBehavior.start, ScrollViewKeyboardDismissBehavior keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual, String? restorationId, Clip clipBehavior = Clip.hardEdge})
+InFeedAdListView.cacheExtent  [field]  double? cacheExtent
+InFeedAdListView.clipBehavior  [field]  Clip clipBehavior
+InFeedAdListView.controller  [field]  ScrollController? controller
+InFeedAdListView.dragStartBehavior  [field]  DragStartBehavior dragStartBehavior
+InFeedAdListView.itemBuilder  [field]  Widget? Function(BuildContext, int) itemBuilder
+InFeedAdListView.itemCount  [field]  int itemCount
+InFeedAdListView.keyboardDismissBehavior  [field]  ScrollViewKeyboardDismissBehavior keyboardDismissBehavior
+InFeedAdListView.padding  [field]  EdgeInsetsGeometry? padding
+InFeedAdListView.physics  [field]  ScrollPhysics? physics
+InFeedAdListView.primary  [field]  bool? primary
+InFeedAdListView.restorationId  [field]  String? restorationId
+InFeedAdListView.reverse  [field]  bool reverse
+InFeedAdListView.scrollDirection  [field]  Axis scrollDirection
+InFeedAdListView.shrinkWrap  [field]  bool shrinkWrap
+InFeedIndexCalculator  [class]  class InFeedIndexCalculator
+InFeedIndexCalculator.isAdPosition  [method]  bool isAdPosition(int rawIndex, {required int adInterval})
+InFeedIndexCalculator.toAdIndex  [method]  int toAdIndex(int rawIndex, {required int adInterval})
+InFeedIndexCalculator.toOriginalItemIndex  [method]  int toOriginalItemIndex(int rawIndex, {required int adInterval})
+InFeedIndexCalculator.totalCount  [method]  int totalCount({required int itemCount, required int adInterval})
 IncidentBundle  [class]  class IncidentBundle
 IncidentBundle.capture  [constructor]  IncidentBundle IncidentBundle.capture(IncidentRecorder recorder, AdConfig config, {DateTime? now})
 IncidentBundle.configFingerprint  [field]  Map<String, dynamic> configFingerprint

@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P3
-- **Status:** 🔲 todo
+- **Status:** ✅ done
 - **Effort:** L
 - **Files (dự kiến):** `lib/src/widget/native_ad_widget.dart` (dispose/
   lifecycle pattern tái dùng), file mới
@@ -21,17 +21,17 @@ phổ biến này.
 
 ## Việc cần làm
 
-- [ ] Đọc kỹ lifecycle/dispose hiện tại của `NativeAdWidget` (đặc biệt cách
+- [x] Đọc kỹ lifecycle/dispose hiện tại của `NativeAdWidget` (đặc biệt cách
       nó tự dispose khi unmount) trước khi thiết kế wrapper.
-- [ ] Tạo `InFeedAdListView` — nhận `itemCount`, `itemBuilder` (như
+- [x] Tạo `InFeedAdListView` — nhận `itemCount`, `itemBuilder` (như
       `ListView.builder` chuẩn) + `adInterval` (chèn ad mỗi N item, mặc
       định vd 10) + factory tạo `NativeAdWidget` mới cho mỗi vị trí ad.
-- [ ] Đảm bảo index thật của `itemBuilder` KHÔNG bị lệch khi tính cả vị trí
+- [x] Đảm bảo index thật của `itemBuilder` KHÔNG bị lệch khi tính cả vị trí
       ad chen vào (offset tính đúng).
-- [ ] Native ad ở vị trí đã cuộn khỏi viewport xa phải tự dispose đúng theo
+- [x] Native ad ở vị trí đã cuộn khỏi viewport xa phải tự dispose đúng theo
       cơ chế `NativeAdWidget` sẵn có — không tự viết lifecycle riêng, tái
       dùng.
-- [ ] Widget test: `itemBuilder` nhận đúng index cho item thường, ad xuất
+- [x] Widget test: `itemBuilder` nhận đúng index cho item thường, ad xuất
       hiện đúng vị trí `adInterval`, dispose đúng khi scroll xa.
 
 ## Ghi chú
