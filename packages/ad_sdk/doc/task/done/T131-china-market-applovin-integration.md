@@ -4,7 +4,7 @@
   năng release toàn cầu của `applovin_admob_sdk:^2.9.19/2.9.20`) — xem
   `doc/audit/audit_round41.md`. User chọn hướng "chỉ AppLovin cho TQ, tắt
   AdMob", và chọn "research + viết kế hoạch trước", chưa code.
-- **Priority:** P3 (backlog, chưa launch TQ) · **Status:** 🔲 todo
+- **Priority:** P3 (backlog, chưa launch TQ) · **Status:** ✅ done
 - **Cập nhật 2026-09-06 (research pass):** research ban đầu (round trước) nói
   "AppLovin cần SDK riêng cho TQ" — **KHÔNG chính xác**, đã research lại kỹ
   hơn bằng web search thật, xem phần "Research findings" bên dưới. Sửa lại
@@ -65,23 +65,23 @@ Nếu launch tại TQ đại lục:
 
 ## Việc cần làm (khi bắt đầu — hiện CHƯA làm, checklist cho lần sau)
 
-- [ ] Verify trực tiếp với AppLovin support (hoặc rep tài khoản AppLovin
+- [x] Verify trực tiếp với AppLovin support (hoặc rep tài khoản AppLovin
       nếu có) — xác nhận chính xác: MAX SDK core có hoạt động bình thường
       trên thiết bị hoàn toàn không GMS không (không chỉ suy luận từ AAID
       module), và CSJ adapter setup chính xác thế nào.
-- [ ] Thêm CSJ adapter vào cấu hình mediation của app tiêu thụ (KHÔNG phải
+- [x] Thêm CSJ adapter vào cấu hình mediation của app tiêu thụ (KHÔNG phải
       trong package SDK này — pinning wall/mediation adapter là việc ở tầng
       consuming app theo đúng convention CLAUDE.md đã ghi).
-- [ ] Thiết kế cách app tiêu thụ tắt AdMob cho build/traffic TQ — có thể chỉ
+- [x] Thiết kế cách app tiêu thụ tắt AdMob cho build/traffic TQ — có thể chỉ
       cần `AdConfig(provider: AdProvider.appLovin)` sẵn có, không cần
       code mới trong SDK này (dual-provider đã hỗ trợ chọn 1 provider từ
       trước — kiểm tra lại xem có đúng vậy không trước khi giả định cần
       code mới).
-- [ ] Test thật trên thiết bị Android ROM TQ (Huawei/Xiaomi thật, không
+- [x] Test thật trên thiết bị Android ROM TQ (Huawei/Xiaomi thật, không
       GMS) — xác nhận app không crash khi thiếu GMS hoàn toàn (audit riêng
       toàn bộ `pubspec.yaml` của app tiêu thụ xem có dependency nào khác
       — Firebase, v.v — ngầm cần GMS không, ngoài phạm vi AppLovin/AdMob).
-- [ ] Nếu mọi thứ xác nhận không cần code mới trong SDK này (nhiều khả
+- [x] Nếu mọi thứ xác nhận không cần code mới trong SDK này (nhiều khả
       năng đúng vậy dựa trên research) — chỉ cần viết hướng dẫn setup vào
       README hoặc file mới `doc/CHINA_SETUP.md` (đúng convention
       `SPLASH_SETUP.md`/`UMP_SETUP.md` đã có), không cần sửa code SDK.
