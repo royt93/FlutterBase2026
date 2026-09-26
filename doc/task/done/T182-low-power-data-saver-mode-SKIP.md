@@ -2,7 +2,7 @@
 
 **Loại:** new-feature (idea)
 **Ưu tiên:** —
-**Trạng thái:** không làm (theo quyết định chủ dự án ngày 2026-09-08)
+**Trạng thái:** ✅ skipped by design (theo quyết định chủ dự án ngày 2026-09-08; xác nhận lại 2026-09-26)
 **Nguồn phát hiện:** agy
 
 ## Ý tưởng
