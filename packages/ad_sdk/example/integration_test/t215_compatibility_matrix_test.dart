@@ -36,13 +36,28 @@ void main() {
 
     expect(
       CompatibilityMatrix.isSupported(const CompatibilityTarget(
-          flutter: '3.34.0', // below the declared 3.35.1 minimum
+          flutter: '3.37.9', // below the declared 3.38.1 minimum
           platform: CompatibilityPlatform.android,
           provider: CompatibilityProvider.admob,
           apiLevel: 34)),
       isFalse,
-      reason: 'T215 — the old floor-only check would have accepted this; '
+      reason: 'T215/T221 — the old floor-only check would have accepted this; '
           'confirming the real comparison still rejects it on-device',
     );
+
+    // T221 — floor synced to pubspec/CI 3.38.1; exact-match policy kept.
+    const at = CompatibilityTarget(
+        flutter: '3.38.1',
+        platform: CompatibilityPlatform.android,
+        provider: CompatibilityProvider.admob,
+        apiLevel: 34);
+    expect(CompatibilityMatrix.isSupported(at), isTrue);
+    expect(
+        CompatibilityMatrix.isSupported(const CompatibilityTarget(
+            flutter: '3.38.2',
+            platform: CompatibilityPlatform.android,
+            provider: CompatibilityProvider.admob,
+            apiLevel: 34)),
+        isFalse);
   });
 }

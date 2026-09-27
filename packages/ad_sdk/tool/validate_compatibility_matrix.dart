@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:applovin_admob_sdk/src/config/compatibility_matrix.dart';
 
 /// Audit fix (post-T215) — this used to hardcode `flutter: '3.35.1'`
-/// (duplicating, not reading, the version CI's own `flutter-version:
-/// '3.35.1'` step config pins) and a hardcoded `apiLevel`. Combined with
+/// (duplicating, not reading, the version CI's own pinned flutter-version
+/// step config — now 3.38.1) and a hardcoded `apiLevel`. Combined with
 /// [CompatibilityMatrix.isSupported]'s own old floor-only check, the whole
 /// gate validated a constant against itself and could never fail — if CI's
 /// pinned Flutter version were ever bumped to something genuinely

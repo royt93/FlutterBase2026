@@ -16,7 +16,7 @@ void main() {
     expect(
         () => CompatibilityMatrix.validate([
               const CompatibilityTarget(
-                  flutter: '3.35.1',
+                  flutter: '3.38.1',
                   platform: CompatibilityPlatform.android,
                   provider: CompatibilityProvider.admob,
                   apiLevel: 1),
@@ -30,7 +30,7 @@ void main() {
     test('a Flutter version BELOW the declared minimum is rejected', () {
       expect(
         CompatibilityMatrix.isSupported(const CompatibilityTarget(
-            flutter: '3.34.0', // below the declared 3.35.1 minimum
+            flutter: '3.34.0', // below the declared 3.38.1 minimum
             platform: CompatibilityPlatform.android,
             provider: CompatibilityProvider.admob,
             apiLevel: 34)),
@@ -44,7 +44,7 @@ void main() {
     test('a Flutter version AT the declared minimum is accepted', () {
       expect(
         CompatibilityMatrix.isSupported(const CompatibilityTarget(
-            flutter: '3.35.1',
+            flutter: '3.38.1',
             platform: CompatibilityPlatform.android,
             provider: CompatibilityProvider.admob,
             apiLevel: 34)),
@@ -76,7 +76,7 @@ void main() {
         () {
       expect(
         CompatibilityMatrix.isSupported(const CompatibilityTarget(
-            flutter: '3.35.1',
+            flutter: '3.38.1',
             platform: CompatibilityPlatform.android,
             provider: CompatibilityProvider.admob,
             apiLevel: 99)),
@@ -111,7 +111,7 @@ void main() {
     test('(ios, appLovin) is now supported at its declared minimum', () {
       expect(
         CompatibilityMatrix.isSupported(const CompatibilityTarget(
-            flutter: '3.35.1',
+            flutter: '3.38.1',
             platform: CompatibilityPlatform.ios,
             provider: CompatibilityProvider.appLovin,
             apiLevel: 26)),
@@ -131,6 +131,62 @@ void main() {
             apiLevel: 1)),
         isFalse,
       );
+    });
+  });
+
+  // T221 — the matrix used to declare 3.35.1 while pubspec required
+  // >=3.38.1 and CI pinned 3.38.1, so the real CI Flutter was rejected.
+  group('T221 — Flutter floor matches pubspec + CI (3.38.1)', () {
+    CompatibilityTarget at(String flutter) => CompatibilityTarget(
+        flutter: flutter,
+        platform: CompatibilityPlatform.android,
+        provider: CompatibilityProvider.admob,
+        apiLevel: 34);
+
+    test('every declared minimum uses the 3.38.1 floor', () {
+      expect(CompatibilityMatrix.minimum.map((t) => t.flutter).toSet(),
+          {'3.38.1'});
+    });
+
+    test('the old stale 3.35.1 floor is now rejected', () {
+      expect(CompatibilityMatrix.isSupported(at('3.35.1')), isFalse);
+    });
+
+    test('3.37.x (just below the floor) is rejected', () {
+      expect(CompatibilityMatrix.isSupported(at('3.37.9')), isFalse);
+    });
+
+    test('3.38.0 (patch below the floor) is rejected', () {
+      expect(CompatibilityMatrix.isSupported(at('3.38.0')), isFalse);
+    });
+
+    test('3.38.1 (exactly the floor) is accepted', () {
+      expect(CompatibilityMatrix.isSupported(at('3.38.1')), isTrue);
+    });
+
+    test('3.38.2 (above floor) is still rejected — exact-match policy kept',
+        () {
+      expect(CompatibilityMatrix.isSupported(at('3.38.2')), isFalse);
+    });
+
+    test('empty / malformed version strings are rejected', () {
+      expect(CompatibilityMatrix.isSupported(at('')), isFalse);
+      expect(CompatibilityMatrix.isSupported(at('3.38.1 ')), isFalse);
+      expect(CompatibilityMatrix.isSupported(at('v3.38.1')), isFalse);
+    });
+
+    test('validate throws on an empty target list', () {
+      expect(() => CompatibilityMatrix.validate(const []), throwsArgumentError);
+    });
+
+    test('validate rejection names expected vs actual flutter', () {
+      expect(
+          () => CompatibilityMatrix.validate([at('3.35.1')]),
+          throwsA(isA<ArgumentError>().having(
+              (e) => e.message.toString(),
+              'message',
+              allOf(contains('flutter=3.35.1'),
+                  contains('declared minimum flutter=3.38.1')))));
     });
   });
 }

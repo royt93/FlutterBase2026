@@ -1,7 +1,7 @@
 # applovin_admob_sdk
 
 [![pub.dev](https://img.shields.io/pub/v/applovin_admob_sdk?label=pub.dev)](https://pub.dev/packages/applovin_admob_sdk)
-[![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.27.0-blue)](https://flutter.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.38.1-blue)](https://flutter.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 **A production-grade dual-provider ad SDK for Flutter — AdMob and AppLovin MAX behind a single, opinionated API.**
@@ -255,7 +255,7 @@ Consent & compliance) or in `CHANGELOG.md`, not repeated here.
 
 ### Prerequisites
 
-- Flutter 3.27.0 or newer
+- Flutter 3.38.1 or newer
 - Android `minSdkVersion` 24 or newer (AppLovin MAX 13.x + AdMob requirement)
 - iOS deployment target 13.0 or newer (required by AppLovin MAX 13.x and `app_tracking_transparency`)
 - An [AdMob account](https://admob.google.com) (for AdMob ad units), an [AppLovin account](https://dash.applovin.com) (for AppLovin), or both. The SDK ships Google's public test ad unit IDs so you can verify integration before creating real units.

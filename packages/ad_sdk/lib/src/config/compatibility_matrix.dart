@@ -17,19 +17,23 @@ class CompatibilityTarget {
 /// Minimum PR matrix plus a larger nightly matrix. Kept as data so CI and
 /// consuming tooling can enumerate the same supported combinations.
 class CompatibilityMatrix {
+  /// T221: single floor for the reviewed Flutter pin, matching pubspec
+  /// (`flutter: '>=3.38.1'`) and CI's pinned flutter-version.
+  static const _flutterFloor = '3.38.1';
+
   static const minimum = <CompatibilityTarget>[
     CompatibilityTarget(
-        flutter: '3.35.1',
+        flutter: _flutterFloor,
         platform: CompatibilityPlatform.android,
         provider: CompatibilityProvider.admob,
         apiLevel: 34),
     CompatibilityTarget(
-        flutter: '3.35.1',
+        flutter: _flutterFloor,
         platform: CompatibilityPlatform.android,
         provider: CompatibilityProvider.appLovin,
         apiLevel: 34),
     CompatibilityTarget(
-        flutter: '3.35.1',
+        flutter: _flutterFloor,
         platform: CompatibilityPlatform.ios,
         provider: CompatibilityProvider.admob,
         apiLevel: 26),
@@ -41,7 +45,7 @@ class CompatibilityMatrix {
     // `platform: [android]` today — but would hard-fail CI the moment
     // anyone widens that matrix to iOS without this entry.
     CompatibilityTarget(
-        flutter: '3.35.1',
+        flutter: _flutterFloor,
         platform: CompatibilityPlatform.ios,
         provider: CompatibilityProvider.appLovin,
         apiLevel: 26),
@@ -76,8 +80,24 @@ class CompatibilityMatrix {
   }
 
   static void validate(Iterable<CompatibilityTarget> targets) {
-    if (targets.isEmpty || targets.any((t) => !isSupported(t))) {
+    if (targets.isEmpty) {
       throw ArgumentError('compatibility matrix contains unsupported targets');
+    }
+    for (final t in targets) {
+      if (isSupported(t)) continue;
+      final match = minimum.where(
+          (m) => m.platform == t.platform && m.provider == t.provider);
+      // T221: name expected vs actual so a CI floor mismatch is diagnosable.
+      // Kept in the error (not SafeLogger): SafeLogger pulls in
+      // package:flutter, which breaks the pure-Dart CLI validator.
+      final expected = match.isEmpty
+          ? 'none for this platform/provider'
+          : 'flutter=${match.first.flutter} apiLevel>=${match.first.apiLevel}';
+      throw ArgumentError(
+          'compatibility matrix contains unsupported targets: '
+          'flutter=${t.flutter} platform=${t.platform.name} '
+          'provider=${t.provider.name} apiLevel=${t.apiLevel}; '
+          'declared minimum $expected');
     }
   }
 }
