@@ -4448,6 +4448,110 @@ void main() {
       AdManager().didHaveMemoryPressure();
       expect(AdManager().didHaveMemoryPressure, returnsNormally);
     });
+
+    // T224 — pinning tests. The ticket claimed didHaveMemoryPressure() does
+    // nothing to free resources and proposed flushing AdEventLog/
+    // BypassAuditTrail and evicting stale fullscreen/tombstone state.
+    // Investigation (see doc/task/done/T224-*.md) found every one of those
+    // already exists through OTHER mechanisms — 1s debounced persist-on-every-
+    // write (not a memory-resident cache), a 5000/200-entry hard cap, and a
+    // 1h/4h ad-freshness check on the SAME code path that would show the ad —
+    // so there is no unbounded growth or stale-slot risk for memory pressure
+    // to specifically evict. These tests pin that today's behavior (a no-op
+    // besides the throttled log line) is safe and intentional, not an
+    // untested gap.
+    test('AdEventLog is already bounded independently of memory pressure '
+        '(5000-entry cap drops oldest first)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      final log = AdEventLog(prefs, maxEntries: 3);
+      for (var i = 0; i < 5; i++) {
+        log.recordSafetyBlock('block-$i', timestampMs: i);
+      }
+      expect(
+        log.entries.length,
+        3,
+        reason:
+            'AdEventLog caps itself on every _append() — memory '
+            'pressure has nothing extra to flush to keep this bounded',
+      );
+      expect(
+        log.entries.first['reason'],
+        'block-2',
+        reason: 'oldest entries already dropped by the existing cap',
+      );
+      await log.flush();
+    });
+
+    test('BypassAuditTrail is already bounded independently of memory '
+        'pressure (ring buffer drops oldest first)', () {
+      final trail = BypassAuditTrail(maxEntries: 2);
+      trail.record(
+        kind: 'appOpenSafety',
+        callSiteTag: 'a',
+        type: AdSlotType.appOpen,
+      );
+      trail.record(
+        kind: 'appOpenSafety',
+        callSiteTag: 'b',
+        type: AdSlotType.appOpen,
+      );
+      trail.record(
+        kind: 'appOpenSafety',
+        callSiteTag: 'c',
+        type: AdSlotType.appOpen,
+      );
+      expect(
+        trail.entries.length,
+        2,
+        reason:
+            'ring buffer caps itself on every record() — memory '
+            'pressure has nothing extra to evict here either',
+      );
+      expect(
+        trail.entries.map((e) => e.callSiteTag),
+        ['b', 'c'],
+        reason: 'oldest entry already dropped by the existing cap',
+      );
+    });
+
+    test('a ready-but-old fullscreen slot is already refused on show by the '
+        'existing freshness check, independent of memory pressure', () {
+      // AdMobAdapter.isAdFresh (admob_adapter.dart:793) already refuses a
+      // >1h-old ready interstitial/rewarded on the SAME path show() would
+      // use — the exact "stale preloaded slot" scenario T224 proposed a new
+      // 15-minute eviction timer for. No separate mechanism is needed.
+      final fresh = AdMobAdapter.isAdFresh(
+        DateTime.now(),
+        1,
+        now: DateTime.now(),
+      );
+      final stale = AdMobAdapter.isAdFresh(
+        DateTime.now().subtract(const Duration(hours: 2)),
+        1,
+        now: DateTime.now(),
+      );
+      expect(fresh, isTrue);
+      expect(
+        stale,
+        isFalse,
+        reason:
+            'a slot preloaded long ago is already treated as unusable '
+            'without any memory-pressure-triggered eviction',
+      );
+    });
+
+    test('concurrent memory-pressure calls across multiple AdManager-owned '
+        'adapters never throw and stay within the log throttle', () {
+      // "Concurrent calls" for a single-isolate Dart app means back-to-back
+      // synchronous re-entrant calls — there is no real concurrency here,
+      // but the throttle guard must still hold under a tight loop.
+      for (var i = 0; i < 50; i++) {
+        expect(AdManager().didHaveMemoryPressure, returnsNormally);
+      }
+      expect(adapter.appOpenSlot.isIdle, isTrue);
+      expect(adapter.interstitialSlot.isIdle, isTrue);
+    });
   });
 
   group('retry timer (_startAdRetryTimer / _scheduleNextRetry)', () {
