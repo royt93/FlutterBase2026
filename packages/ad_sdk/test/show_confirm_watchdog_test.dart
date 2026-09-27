@@ -50,8 +50,22 @@ const _admobConfig = AdConfig(
   ),
 );
 
-MaxAd _fakeAd() => MaxAd('unit', 'INTER', null, 'net', '', 0.0, 'exact', 'cid',
-    'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
+MaxAd _fakeAd() => MaxAd(
+  'unit',
+  'INTER',
+  null,
+  'net',
+  '',
+  0.0,
+  'exact',
+  'cid',
+  'dsp',
+  '',
+  0,
+  MaxAdWaterfallInfo('', '', const [], 0),
+  null,
+  null,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -71,12 +85,21 @@ void main() {
         expect(released, 0);
 
         async.elapse(const Duration(seconds: 2));
-        expect(released, 1, reason: 'the adapter must get to release its ad '
-            'object and resolve the awaiting caller');
+        expect(
+          released,
+          1,
+          reason:
+              'the adapter must get to release its ad '
+              'object and resolve the awaiting caller',
+        );
         expect(slot.isShowing, isFalse);
-        expect(slot.beginLoad(backoff: const Backoff(baseMs: 0)), isTrue,
-            reason: 'THE POINT: the format can load again. While the slot was '
-                'stuck `showing`, every later beginLoad/beginReload refused');
+        expect(
+          slot.beginLoad(backoff: const Backoff(baseMs: 0)),
+          isTrue,
+          reason:
+              'THE POINT: the format can load again. While the slot was '
+              'stuck `showing`, every later beginLoad/beginReload refused',
+        );
       });
     });
 
@@ -94,9 +117,13 @@ void main() {
         // the app sits in the background after a click-out to the App Store.
         async.elapse(const Duration(minutes: 30));
         expect(released, 0);
-        expect(slot.isShowing, isTrue,
-            reason: 'the ad is on screen — releasing the slot here would let a '
-                'second full-screen stack on top of it');
+        expect(
+          slot.isShowing,
+          isTrue,
+          reason:
+              'the ad is on screen — releasing the slot here would let a '
+              'second full-screen stack on top of it',
+        );
       });
     });
 
@@ -123,10 +150,14 @@ void main() {
         // A fresh load window the stale watchdog must not poison.
         slot.beginLoad();
         async.elapse(const Duration(seconds: 31));
-        expect(slot.isLoading, isTrue,
-            reason: 'the cancelled watchdog belonged to the previous load; '
-                'firing markFailed() here would stamp lastErrorAt and arm a '
-                'backoff against a load that never failed');
+        expect(
+          slot.isLoading,
+          isTrue,
+          reason:
+              'the cancelled watchdog belonged to the previous load; '
+              'firing markFailed() here would stamp lastErrorAt and arm a '
+              'backoff against a load that never failed',
+        );
       });
     });
   });
@@ -158,9 +189,13 @@ void main() {
         // AppLovin logs an error natively and fires nothing at all.
         async.elapse(const Duration(seconds: 11));
 
-        expect(done, isFalse,
-            reason: 'the awaiting caller (a level-complete transition) would '
-                'otherwise hang forever');
+        expect(
+          done,
+          isFalse,
+          reason:
+              'the awaiting caller (a level-complete transition) would '
+              'otherwise hang forever',
+        );
         expect(adapter.interstitialSlot.isShowing, isFalse);
       });
     });
@@ -178,8 +213,13 @@ void main() {
         bridge.inter!.onAdDisplayedCallback(ad);
         async.elapse(const Duration(minutes: 5));
 
-        expect(done, isNull, reason: 'the ad is on screen — the caller must '
-            'still be waiting for a real dismiss');
+        expect(
+          done,
+          isNull,
+          reason:
+              'the ad is on screen — the caller must '
+              'still be waiting for a real dismiss',
+        );
         expect(adapter.interstitialSlot.isShowing, isTrue);
       });
     });
@@ -197,9 +237,13 @@ void main() {
 
         async.elapse(const Duration(seconds: 11));
 
-        expect(result?.earned, isFalse,
-            reason: 'a reward request that never resolves leaves the host UI '
-                'spinning on its "watch ad" button forever');
+        expect(
+          result?.earned,
+          isFalse,
+          reason:
+              'a reward request that never resolves leaves the host UI '
+              'spinning on its "watch ad" button forever',
+        );
         expect(adapter.rewardedSlot.isShowing, isFalse);
       });
     });
@@ -252,9 +296,13 @@ void main() {
 
         expect(done, isFalse);
         expect(adapter.interstitialSlot.isShowing, isFalse);
-        expect(ad.disposeCount, 1,
-            reason: 'the abandoned native ad would otherwise leak for the '
-                'rest of the session');
+        expect(
+          ad.disposeCount,
+          1,
+          reason:
+              'the abandoned native ad would otherwise leak for the '
+              'rest of the session',
+        );
       });
     });
 
@@ -311,5 +359,47 @@ void main() {
         expect(ad.disposeCount, 1);
       });
     });
+
+    // T223 — pins the cross-cycle guard (`cycleEnded`/`fire`) for this
+    // format: native callbacks landing after the watchdog already resolved
+    // the show must not re-resolve the caller or grant a reward.
+    test(
+      'rewarded interstitial: late callbacks after the watchdog are ignored',
+      () {
+        fakeAsync((async) {
+          unawaited(adapter.loadRewardedInterstitial());
+          async.flushMicrotasks();
+          final ad = bridge.lastRewardedInterstitial!..hangOnShow = true;
+
+          final results = <RewardResult>[];
+          unawaited(adapter.showRewardedInterstitial(onDone: results.add));
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 11));
+          expect(results, hasLength(1));
+          expect(results.single.shown, isFalse);
+          expect(results.single.earned, isFalse);
+
+          ad.shown!.onUserEarnedReward!(10, 'coins');
+          ad.shown!.onDismissed!();
+          ad.shown!.onFailedToShow!('late');
+
+          expect(
+            results,
+            hasLength(1),
+            reason:
+                'onDone must fire exactly once — a late reward here is a '
+                'double resolution with a contradictory result',
+          );
+          expect(adapter.rewardedInterstitialSlot.isShowing, isFalse);
+          expect(
+            adapter.rewardedInterstitialSlot.isCooldown,
+            isTrue,
+            reason:
+                'the late dismiss must not overwrite the watchdog\'s '
+                'markShowFailed() with markDismissed()',
+          );
+        });
+      },
+    );
   });
 }
