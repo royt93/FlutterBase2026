@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Changed (T225):** `InFeedAdListView` now defers default `NativeAdWidget`
+  slot loads while its own list is scrolling (settle signal from
+  `ScrollStart`/`ScrollEndNotification`, no new dependency), passing
+  `active: false` so newly mounted slots hold a fixed-height placeholder
+  instead of firing network loads mid-fling. Same constructor, same usage —
+  `StatelessWidget` → `StatefulWidget` base-class change only. Custom
+  `adBuilder` content is untouched. Redundant by design with the adapter
+  layer's existing per-key dedup (`AdSlot.beginLoad`,
+  `canLoadNative`/`recordNativeLoad`, per-key `InlineAdInstanceRegistry`
+  tombstones) — the list gate cuts mount spam before it reaches them.
+- **Fixed (T225):** `InFeedAdListView` placeholder shell now collapses immediately
+  without applying the 320px minimum height constraint when ad slots are inactive
+  or suppressed by an active VIP entitlement (`AdManager.vip.isActive`), eliminating
+  blank gaps in VIP user feeds.
+
 ## [3.3.0] - 2026-09-26
 
 - **Added (T146):** `CohortOptimizer` for privacy-safe local historical provider recommendation
