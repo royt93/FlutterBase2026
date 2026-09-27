@@ -16,6 +16,10 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   layer's existing per-key dedup (`AdSlot.beginLoad`,
   `canLoadNative`/`recordNativeLoad`, per-key `InlineAdInstanceRegistry`
   tombstones) — the list gate cuts mount spam before it reaches them.
+- **Fixed (T225):** `InFeedAdListView` placeholder shell now collapses immediately
+  without applying the 320px minimum height constraint when ad slots are inactive
+  or suppressed by an active VIP entitlement (`AdManager.vip.isActive`), eliminating
+  blank gaps in VIP user feeds.
 
 ## [3.3.0] - 2026-09-26
 

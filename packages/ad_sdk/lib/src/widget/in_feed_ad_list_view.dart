@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/widgets.dart';
 
+import '../core/ad_manager.dart';
 import '../utils/safe_logger.dart';
 import 'native_ad_widget.dart';
 
@@ -210,7 +211,9 @@ class _InFeedAdListViewState extends State<InFeedAdListView> {
 /// T225 — fixed placeholder shell for deferred slots.
 ///
 /// `NativeAdWidget` itself renders a zero-height `SizedBox.shrink()` while
-/// inactive, so this outer box holds the slot open. The real widget is not
+/// inactive or VIP-suppressed, so this outer box holds the slot open during
+/// scroll deferral ONLY when ads are actually eligible. Inactive/VIP slots
+/// collapse immediately without leaving blank gaps. The real widget is not
 /// constrained: `ConstrainedBox(minHeight: 320)` lets AppLovin's compliance
 /// chrome grow beyond the medium-template minimum while AdMob remains 320,
 /// avoiding the clipping a tight `SizedBox(height: 320)` caused.
@@ -219,11 +222,24 @@ class _NativePlaceholder extends StatelessWidget {
 
   final bool active;
 
+  static final ValueNotifier<bool> _kAlwaysFalse = ValueNotifier<bool>(false);
+
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 320),
-      child: NativeAdWidget(active: active),
+    final vip = AdManager().vip;
+    final vipListenable = vip?.activeListenable ?? _kAlwaysFalse;
+    return ValueListenableBuilder<bool>(
+      valueListenable: vipListenable,
+      builder: (context, isVip, _) {
+        final eligible = !isVip && AdManager().canRequestAds;
+        if (!eligible) {
+          return NativeAdWidget(active: active);
+        }
+        return ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 320),
+          child: NativeAdWidget(active: active),
+        );
+      },
     );
   }
 }

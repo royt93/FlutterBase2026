@@ -1,6 +1,8 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   test('InFeedIndexCalculator converts indices correctly', () {
@@ -148,6 +150,44 @@ void main() {
 
     expect(_mountedNativeAds(tester), isNotEmpty);
     expect(_mountedNativeAds(tester), everyElement(isTrue));
+  });
+
+  testWidgets('inactive native slots collapse without a 320px VIP gap', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    AdPreferences.resetForTest();
+    final prefs = await AdPreferences.getInstance();
+    await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+    AdSafetyConfig.resetForReinit();
+
+    // Enable VIP so ads are suppressed.
+    AdManager().debugVipManager = _FakeVip(true);
+    addTearDown(() => AdManager().debugVipManager = null);
+
+    await tester.pumpWidget(_defaultNativeFeed());
+
+    final metrics = FixedScrollMetrics(
+      minScrollExtent: 0,
+      maxScrollExtent: 1000,
+      pixels: 0,
+      viewportDimension: 600,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: 1,
+    );
+    final listContext = tester.element(find.byType(ListView));
+    ScrollStartNotification(
+      metrics: metrics,
+      context: listContext,
+    ).dispatch(listContext);
+    await tester.pump();
+
+    expect(_mountedNativeAds(tester), everyElement(isFalse));
+    expect(
+      tester.getSize(find.byType(NativeAdWidget).first).height,
+      0,
+      reason: 'inactive/VIP-suppressed slots must not leave a blank 320px row',
+    );
   });
 
   testWidgets('handles a feed with no ad positions', (tester) async {
@@ -392,6 +432,23 @@ void main() {
       expect(disposedCount, greaterThan(0));
     },
   );
+}
+
+class _FakeVip implements VipManager {
+  _FakeVip(this._active);
+  final bool _active;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  ValueNotifier<bool> get activeListenable => ValueNotifier<bool>(_active);
+
+  @override
+  void resyncSessionClock() {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Widget _defaultNativeFeed({int adInterval = 2}) {
