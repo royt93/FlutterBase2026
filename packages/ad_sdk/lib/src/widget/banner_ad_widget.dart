@@ -69,6 +69,8 @@ class BannerAdWidget extends StatefulWidget {
     this.placement = AdPlacement.unspecified,
     this.active,
     this.controller,
+    this.houseAd,
+    this.houseAdDelay = const Duration(seconds: 10),
   }) : assert(
           active == null || controller == null,
           'Pass either active or controller, not both — controller owns '
@@ -96,8 +98,47 @@ class BannerAdWidget extends StatefulWidget {
   /// same as [active] would, but callable without a rebuild.
   final InlineAdController? controller;
 
+  /// T229 — host-configured local fallback shown instead of leaving this
+  /// banner blank once it has been no-fill or offline for [houseAdDelay].
+  /// `null` (the default) is a zero-behavior-change no-op — the banner
+  /// collapses exactly as it always has.
+  ///
+  /// Not a real ad: never emits an [AdEvent] and is not counted by
+  /// [AdSafetyConfig] or any revenue/safety path. It only renders local,
+  /// host-supplied content and forwards taps to [HouseAdItem.onTap].
+  final HouseAdItem? houseAd;
+
+  /// T229 — how long the banner must stay in a blank (offline/no-fill/
+  /// cooldown/pre-consent) state before [houseAd] renders. Ignored when
+  /// [houseAd] is null.
+  final Duration houseAdDelay;
+
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
+}
+
+/// T229 — local, host-configured fallback content for [BannerAdWidget.houseAd].
+/// Purely client-side: a local asset image, a title/subtitle, and a tap
+/// handler for internal navigation (e.g. opening a VIP screen). Not a real
+/// ad — rendering it never emits an [AdEvent].
+@immutable
+class HouseAdItem {
+  const HouseAdItem({
+    required this.assetPath,
+    required this.title,
+    this.subtitle,
+    this.onTap,
+  });
+
+  /// Local asset image path, resolved against the HOST app's own
+  /// `AssetBundle` (declared in the host's `pubspec.yaml`, not this SDK's).
+  final String assetPath;
+
+  final String title;
+  final String? subtitle;
+
+  /// Invoked on tap — e.g. `Navigator.pushNamed(context, '/vip')`.
+  final VoidCallback? onTap;
 }
 
 class _BannerAdWidgetState extends State<BannerAdWidget>
@@ -778,7 +819,14 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
             return ValueListenableBuilder<bool>(
               valueListenable: _allowed,
               builder: (context, allowed, _) {
-                if (!allowed) return const SizedBox.shrink();
+                if (!allowed) {
+                  final houseAd = widget.houseAd;
+                  if (houseAd != null) {
+                    return _HouseAdSlot(
+                        item: houseAd, delay: widget.houseAdDelay);
+                  }
+                  return const SizedBox.shrink();
+                }
                 final mgr = AdManager();
                 if (!mgr.isInitialised) return const SizedBox.shrink();
                 return mgr.isAdMobProvider ? _buildAdmob() : _buildAppLovin();
@@ -810,7 +858,13 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
         return ValueListenableBuilder<bool>(
           valueListenable: AdManager().bannerHasError(this),
           builder: (context, hasError, _) {
-            if (hasError) return const SizedBox.shrink();
+            if (hasError) {
+              final houseAd = widget.houseAd;
+              if (houseAd != null) {
+                return _HouseAdSlot(item: houseAd, delay: widget.houseAdDelay);
+              }
+              return const SizedBox.shrink();
+            }
             return ValueListenableBuilder<bool>(
               valueListenable: AdManager().bannerVisible(this),
               builder: (context, visible, _) {
@@ -843,7 +897,13 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     return ValueListenableBuilder<bool>(
       valueListenable: AdManager().bannerHasError(this),
       builder: (context, hasError, _) {
-        if (hasError) return const SizedBox.shrink();
+        if (hasError) {
+          final houseAd = widget.houseAd;
+          if (houseAd != null) {
+            return _HouseAdSlot(item: houseAd, delay: widget.houseAdDelay);
+          }
+          return const SizedBox.shrink();
+        }
         return ValueListenableBuilder<Object?>(
           valueListenable: AdManager().bannerAdViewId(this),
           builder: (context, adViewId, _) {
@@ -959,6 +1019,92 @@ class _ShimmerOnlyContainer extends StatelessWidget {
           ),
           ShimmerView(cornerRadius: 0, width: double.infinity, height: 50),
         ],
+      ),
+    );
+  }
+}
+
+/// T229 — renders [BannerAdWidget.houseAd] after [delay], as long as this
+/// widget stays mounted that whole time. Deliberately self-contained: it is
+/// only ever inserted at a spot that already renders `SizedBox.shrink()`
+/// (offline/no-fill), so the real ad recovering unmounts it (cancelling the
+/// pending [Timer] in [dispose]) before it ever gets to show anything —
+/// "ad recovers before the delay" and "dispose while pending" both fall out
+/// of ordinary widget lifecycle, no extra bookkeeping needed.
+class _HouseAdSlot extends StatefulWidget {
+  const _HouseAdSlot({required this.item, required this.delay});
+
+  final HouseAdItem item;
+  final Duration delay;
+
+  @override
+  State<_HouseAdSlot> createState() => _HouseAdSlotState();
+}
+
+class _HouseAdSlotState extends State<_HouseAdSlot> {
+  static const String _tag = 'BannerAdWidget';
+
+  Timer? _timer;
+  bool _show = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(widget.delay, () {
+      if (!mounted) return;
+      SafeLogger.d(_tag,
+          '🏠 house ad shown (blank > ${widget.delay.inSeconds}s)');
+      setState(() => _show = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    if (_show) {
+      SafeLogger.d(_tag, '🏠 house ad reverted (real ad available again)');
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_show) return const SizedBox.shrink();
+    final item = widget.item;
+    return GestureDetector(
+      onTap: item.onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Image.asset(
+              item.assetPath,
+              width: 48,
+              height: 48,
+              fit: BoxFit.cover,
+              // A missing/invalid host asset must never crash the banner —
+              // this is best-effort local content, not a real ad.
+              errorBuilder: (context, error, stackTrace) =>
+                  const SizedBox(width: 48, height: 48),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(item.title,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (item.subtitle != null)
+                    Text(item.subtitle!,
+                        style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

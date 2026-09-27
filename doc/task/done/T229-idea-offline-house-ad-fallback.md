@@ -2,7 +2,7 @@
 
 - **Loại:** Idea
 - **Priority:** P3 · **Severity:** LOW
-- **Status:** 🔲 todo
+- **Status:** ✅ done (2026-09-27)
 
 ## Vấn đề (Why)
 Khi thiết bị mất mạng hoặc mạng quảng cáo báo No-Fill (hết kho), vị trí banner thường để trống hoặc ẩn đi. Thay vào đó, app có thể hiển thị banner quảng bá tính năng nội bộ (House Ad) hoặc khuyến mãi VIP.
@@ -13,10 +13,22 @@ Khi thiết bị mất mạng hoặc mạng quảng cáo báo No-Fill (hết kho
 3. Click vào House Ad điều hướng nội bộ (vd: mở màn hình VIP Redeem Screen).
 
 ### Acceptance Criteria
-- [ ] Code thay đổi tối giản, đúng kiến trúc, không tạo abstraction thừa thãi.
-- [ ] Không ảnh hưởng đến các quyết định sản phẩm đã duyệt của owner.
-- [ ] Đầy đủ bộ kiểm thử Unit + Widget + Integration theo đúng case.
-- [ ] `flutter analyze` sạch 0 cảnh báo, `flutter test` toàn bộ pass xanh.
+- [x] Code thay đổi tối giản, đúng kiến trúc, không tạo abstraction thừa thãi —
+      `HouseAdItem` data class + `BannerAdWidget.houseAd`/`houseAdDelay`,
+      `_HouseAdSlot` spliced into 3 existing blank-render sites.
+- [x] Không ảnh hưởng đến các quyết định sản phẩm đã duyệt của owner — không
+      động tới VIP suppression, safety gates, revenue accounting.
+- [x] Đầy đủ bộ kiểm thử Widget theo đúng case (xem ghi chú Integration bên
+      dưới — không cần thêm case mới ở tầng đó).
+- [x] `flutter analyze` sạch 0 cảnh báo, `flutter test` toàn bộ pass xanh.
+
+**Ghi chú triển khai (2026-09-27):** `null` (default) là zero-behavior-change
+no-op — auto-collapse T91 không đổi. Không phát `AdEvent` giả (không đụng
+`AdEventLog`/`RevenueIntegrityLedger`/`AdSafetyConfig`). Không cần
+Integration test riêng — toàn bộ hành vi (timer, dispose, tap, revert) đã
+được widget test bao phủ đầy đủ và không phụ thuộc platform channel/native
+code thật; `slot_state_panel_test.dart` không đổi vì nó không hiển thị
+banner nội dung house-ad.
 
 ## Kế hoạch kiểm thử
 - Widget test: Giả lập No-fill và kiểm tra House Ad hiển thị đúng.

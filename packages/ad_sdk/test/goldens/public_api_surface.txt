@@ -609,7 +609,9 @@ BannerAdWidget.active  [field]  bool? active
 BannerAdWidget.collapseAnimationDuration  [field]  Duration collapseAnimationDuration
 BannerAdWidget.controller  [field]  InlineAdController? controller
 BannerAdWidget.createState  [method]  State<BannerAdWidget> createState()
-BannerAdWidget.new  [constructor]  BannerAdWidget BannerAdWidget({Key? key, Duration collapseAnimationDuration = const Duration(milliseconds: 250), AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller})
+BannerAdWidget.houseAd  [field]  HouseAdItem? houseAd
+BannerAdWidget.houseAdDelay  [field]  Duration houseAdDelay
+BannerAdWidget.new  [constructor]  BannerAdWidget BannerAdWidget({Key? key, Duration collapseAnimationDuration = const Duration(milliseconds: 250), AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller, HouseAdItem? houseAd, Duration houseAdDelay = const Duration(seconds: 10)})
 BannerAdWidget.placement  [field]  AdPlacement placement
 BannerErrorSelfCollapse  [class]  abstract class BannerErrorSelfCollapse
 BannerErrorSelfCollapse.collapsesBannerOnError  [getter]  bool get collapsesBannerOnError
@@ -926,6 +928,12 @@ FirstInstallVipGrace.duration  [field]  Duration? duration
 FirstInstallVipGrace.isEnabled  [getter]  bool get isEnabled
 FirstInstallVipGrace.new  [constructor]  FirstInstallVipGrace FirstInstallVipGrace(Duration? duration)
 FirstInstallVipGrace.toString  [method]  String toString()
+HouseAdItem  [class]  class HouseAdItem
+HouseAdItem.assetPath  [field]  String assetPath
+HouseAdItem.new  [constructor]  HouseAdItem HouseAdItem({required String assetPath, required String title, String? subtitle, void Function()? onTap})
+HouseAdItem.onTap  [field]  void Function()? onTap
+HouseAdItem.subtitle  [field]  String? subtitle
+HouseAdItem.title  [field]  String title
 InFeedAdListView  [class]  class InFeedAdListView extends StatefulWidget
 InFeedAdListView.adBuilder  [field]  Widget Function(BuildContext, int)? adBuilder
 InFeedAdListView.adInterval  [field]  int adInterval

@@ -6,6 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Added (T229):** `BannerAdWidget.houseAd`/`houseAdDelay` — an optional
+  host-configured `HouseAdItem` (local asset image, title, optional
+  subtitle, `onTap`) rendered instead of a blank banner once it has been
+  offline/no-fill/cooldown for longer than `houseAdDelay` (default 10s).
+  Purely local/client-side content — never emits an `AdEvent` and is not
+  counted by `AdEventLog`/`RevenueIntegrityLedger`/`AdSafetyConfig`. `null`
+  (the default) is a zero-behavior-change no-op; existing T91 animated
+  auto-collapse is unaffected.
 - **Added (T228):** `NativeAdWidget.factoryId` (AdMob) and
   `NativeAdWidget.customNativeAdBuilder` (AppLovin) for host-customized native
   ad layouts. AdMob's opt-in routes to a platform-side `NativeAdFactory`

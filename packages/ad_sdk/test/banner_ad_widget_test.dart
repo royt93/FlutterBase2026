@@ -1396,6 +1396,182 @@ void main() {
       expect(adapter.disposeCalls, 0);
     });
   });
+
+  group('T229 — house ad fallback on no-fill/offline', () {
+    late _BannerCountingAdapter adapter;
+
+    setUp(() {
+      // Collapsing adapter — see T173: a plain adapter makes the internal
+      // zero-height error collapse look like "scrolled away" to
+      // VisibilityDetector, which disposes the whole banner instance. Real
+      // AdMob/AppLovin adapters implement BannerErrorSelfCollapse.
+      adapter = _CollapsingBannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    var tapped = false;
+    HouseAdItem item() {
+      tapped = false;
+      return HouseAdItem(
+        assetPath: 'assets/house_ad.png',
+        title: 'Go VIP — remove ads',
+        subtitle: 'No ads, ever',
+        onTap: () => tapped = true,
+      );
+    }
+
+    test('houseAdDelay defaults to 10 seconds', () {
+      const widget = BannerAdWidget();
+      expect(widget.houseAdDelay, const Duration(seconds: 10));
+      expect(widget.houseAd, isNull);
+    });
+
+    testWidgets(
+        'no houseAd configured: no-fill stays blank forever — zero '
+        'behavior change from T91', (tester) async {
+      await tester.pumpWidget(host(const BannerAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump(const Duration(seconds: 15));
+
+      expect(find.text('Go VIP — remove ads'), findsNothing);
+      expect(tester.getSize(find.byType(BannerAdWidget)).height, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'houseAd configured: no-fill past the delay renders it; tap fires '
+        'the callback; no AdEvent is emitted', (tester) async {
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+      addTearDown(sub.cancel);
+
+      await tester.pumpWidget(host(BannerAdWidget(
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Go VIP — remove ads'), findsNothing,
+          reason: 'must not show before the delay elapses');
+
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Go VIP — remove ads'), findsOneWidget,
+          reason: 'no-fill outlasted the delay — house ad must render');
+      expect(tester.getSize(find.byType(BannerAdWidget)).height, greaterThan(0));
+
+      await tester.tap(find.text('Go VIP — remove ads'));
+      expect(tapped, isTrue, reason: 'tap must reach HouseAdItem.onTap');
+      expect(events, isEmpty,
+          reason: 'a house ad is not a real ad — no AdEvent may be emitted');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'houseAd configured but the ad recovers before the delay — house '
+        'ad is never shown', (tester) async {
+      await tester.pumpWidget(host(BannerAdWidget(
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump(const Duration(seconds: 1));
+
+      // Real ad recovers before the 2s delay elapses.
+      listenables.hasError.value = false;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(320, 50);
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.text('Go VIP — remove ads'), findsNothing,
+          reason: 'the pending house-ad timer must be cancelled once the '
+              'real ad fills — it must never appear');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'reconnect/fill after the house ad is shown reverts to the real ad',
+        (tester) async {
+      await tester.pumpWidget(host(BannerAdWidget(
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump(); // inserts _HouseAdSlot and starts its timer
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.text('Go VIP — remove ads'), findsOneWidget);
+
+      listenables.hasError.value = false;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(320, 50);
+      await tester.pump();
+
+      expect(find.text('Go VIP — remove ads'), findsNothing,
+          reason: 'a real ad becoming available must replace the house ad');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('offline for longer than the delay also renders the house ad',
+        (tester) async {
+      AdManager().debugConnectivityChanged(false);
+      addTearDown(() => AdManager().debugConnectivityChanged(true));
+
+      await tester.pumpWidget(host(BannerAdWidget(
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(seconds: 3));
+
+      expect(find.text('Go VIP — remove ads'), findsOneWidget);
+      expect(adapter.loadBannerCalls, 0,
+          reason: 'still offline — no real ad load must have happened');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('disposing while the house-ad timer is pending is safe — '
+        'no leak or crash', (tester) async {
+      await tester.pumpWidget(host(BannerAdWidget(
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 5),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump(const Duration(seconds: 1)); // timer still pending
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(seconds: 6)); // past the delay
+
+      expect(find.byType(BannerAdWidget), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager
