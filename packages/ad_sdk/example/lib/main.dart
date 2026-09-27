@@ -2638,6 +2638,62 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
               style: TextStyle(color: Colors.grey),
             ),
           ),
+          const Divider(height: 32),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('T228 — custom native layout',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(
+                      kProvider == AdProvider.admob
+                          ? 'AdMob path: factoryId="t228CustomNativeAd" '
+                              'routes to T228CustomNativeAdFactory.kt/.swift '
+                              '(registered in MainActivity.kt/AppDelegate.swift) '
+                              'instead of the built-in template above.'
+                          : 'AppLovin path: customNativeAdBuilder arranges '
+                              "MaxNativeAdView's own asset widgets — pure "
+                              'Dart, no native platform code. The SDK still '
+                              'overlays the mandatory attribution badge.',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    if (kProvider == AdProvider.admob)
+                      const NativeAdWidget(
+                        key: ValueKey('T228_admob_custom_factory_demo'),
+                        factoryId: 't228CustomNativeAd',
+                      )
+                    else
+                      NativeAdWidget(
+                        key: const ValueKey('T228_applovin_custom_demo'),
+                        customNativeAdBuilder: (context) => const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              MaxNativeAdTitleView(
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.bold)),
+                              SizedBox(height: 4),
+                              MaxNativeAdBodyView(),
+                              SizedBox(height: 8),
+                              MaxNativeAdCallToActionView(),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(

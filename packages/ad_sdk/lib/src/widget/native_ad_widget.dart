@@ -67,6 +67,34 @@ import 'shimmer_view.dart';
 /// // widget's default) clips or overflows provider-rendered content:
 /// const NativeAdWidget(templateType: TemplateType.small, height: 120)
 /// ```
+///
+/// ## T228 — custom native layout
+///
+/// **AdMob:** pass [factoryId] to opt into a host-registered platform-side
+/// `NativeAdFactory` (Kotlin/Swift) instead of [templateType]'s built-in
+/// Google template. This is NOT a pure-Dart custom layout — Google's own
+/// `google_mobile_ads` plugin does not support building native ad UI out of
+/// Flutter widgets at all (its `NativeAd` doc says so explicitly); the
+/// actual view is drawn by native platform code the HOST app registers in
+/// its own `MainActivity`/`AppDelegate`. See `example/android` and
+/// `example/ios` for a working reference `NativeAdFactory`, and
+/// `README.md`'s "Custom native ad layout (AdMob)" section for the
+/// registration steps. Leaving [factoryId] null (the default) is a
+/// zero-behavior-change no-op — existing hosts keep getting
+/// [templateType]'s Google-drawn template exactly as before.
+///
+/// **AppLovin:** pass [customNativeAdBuilder] for a genuine pure-Dart
+/// custom layout — `MaxNativeAdView`'s asset views
+/// (`MaxNativeAdTitleView`/`MaxNativeAdBodyView`/etc.) are ordinary Flutter
+/// widgets already; this just lets the host arrange them instead of using
+/// this widget's built-in arrangement. The mandatory `MaxNativeAdOptionsView`
+/// attribution badge is always overlaid by the SDK itself — the host
+/// builder never places it and cannot omit it; host content is inset by the
+/// same 24px from top/right so it cannot cover that square in normal layout.
+/// If [height] leaves less than [kMinNativeAdAttributionSize] logical pixels
+/// for the overlay, the SDK
+/// fails safe and ignores the custom builder, falling back to this widget's
+/// standard AppLovin layout instead (still fully compliant).
 class NativeAdWidget extends StatefulWidget {
   const NativeAdWidget({
     super.key,
@@ -75,11 +103,18 @@ class NativeAdWidget extends StatefulWidget {
     this.placement = AdPlacement.unspecified,
     this.active = true,
     this.controller,
-  }) : assert(
+    this.factoryId,
+    this.customNativeAdBuilder,
+  })  : assert(
           active || controller == null,
           'Pass either active: false or a controller, not both — attach a '
           'controller and call pause() instead of also passing active: '
           'false.',
+        ),
+        assert(
+          factoryId == null || factoryId != '',
+          'factoryId must not be blank — pass null to use the built-in '
+          'AdMob template instead.',
         );
 
   /// T107 — tags this instance for analytics/per-placement caps, same as
@@ -110,9 +145,37 @@ class NativeAdWidget extends StatefulWidget {
   /// both providers' layout, since AppLovin has no template concept at all.
   final double? height;
 
+  /// T228 — AdMob only. Opts into a host-registered platform-side
+  /// `NativeAdFactory`/`FLTNativeAdFactory` instead of [templateType]'s
+  /// built-in Google template. Ignored by AppLovin. See the class doc
+  /// comment's "T228 — custom native layout" section.
+  final String? factoryId;
+
+  /// T228 — AppLovin only. Host-supplied layout replacing this widget's
+  /// standard AppLovin arrangement; the SDK still always overlays the
+  /// mandatory `MaxNativeAdOptionsView` attribution badge on top, and falls
+  /// back to the standard layout if [height] leaves no room for it. Ignored
+  /// by AdMob (see [factoryId] for AdMob's own, differently-shaped opt-in).
+  final CustomNativeAdBuilder? customNativeAdBuilder;
+
   @override
   State<NativeAdWidget> createState() => _NativeAdWidgetState();
 }
+
+/// T228 — host-supplied layout for [NativeAdWidget.customNativeAdBuilder]
+/// (AppLovin only). Build with `MaxNativeAdView`'s asset-view widgets
+/// (`MaxNativeAdTitleView`, `MaxNativeAdBodyView`, `MaxNativeAdIconView`,
+/// `MaxNativeAdMediaView`, `MaxNativeAdCallToActionView`,
+/// `MaxNativeAdStarRatingView`, `MaxNativeAdAdvertiserView`) in any
+/// arrangement — do NOT include `MaxNativeAdOptionsView` yourself, the SDK
+/// always overlays it.
+typedef CustomNativeAdBuilder = Widget Function(BuildContext context);
+
+/// T228 — minimum square size (logical px) the SDK reserves in a corner for
+/// the mandatory `MaxNativeAdOptionsView` attribution badge. Below this, a
+/// [CustomNativeAdBuilder] is rejected (fail-safe fallback to the standard
+/// layout) rather than risk the badge being clipped or overlapping content.
+const double kMinNativeAdAttributionSize = 24;
 
 class _NativeAdWidgetState extends State<NativeAdWidget>
     implements InlineAdControllerTarget {
@@ -123,6 +186,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
 
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
   bool _initScheduled = false;
+  bool _didLogCustomLayoutFallback = false;
 
   /// Round-29 audit (MINOR) — unlike Banner/Mrec (which get a fresh shot
   /// whenever consent/personalisation/initRevision changes reset `_allowed`),
@@ -324,7 +388,8 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     _subscribeNativeError();
 
     if (mgr.isAdMobProvider) {
-      mgr.loadAdmobNativeIfNeeded(this, templateType: widget.templateType);
+      mgr.loadAdmobNativeIfNeeded(this,
+          templateType: widget.templateType, factoryId: widget.factoryId);
     } else {
       SafeLogger.d(
           _tag, '_initNative [AppLovin] MaxNativeAdView loads on mount');
@@ -481,23 +546,51 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
       valueListenable: AdManager().nativeHasError(this),
       builder: (context, hasError, _) {
         if (hasError) return const SizedBox.shrink();
-        return _NativeContainer(
-          isLoaded: AdManager().nativeIsLoaded(this),
-          height: _height,
-          child: () {
-            if (AdManager().debugShouldSkipRealAppLovinNativeView) {
-              // Debug-only, explicit opt-in (see
-              // debugForceSkipRealAppLovinNativeView doc) — everything
-              // above (error-collapse, shimmer) is real widget behavior
-              // the caller must still exercise.
-              return const SizedBox.shrink();
+        return LayoutBuilder(builder: (context, constraints) {
+          final customBuilder = widget.customNativeAdBuilder;
+          final hasAttributionRoom = _height >= kMinNativeAdAttributionSize &&
+              (!constraints.hasBoundedWidth ||
+                  constraints.maxWidth >= kMinNativeAdAttributionSize);
+          final useCustom = customBuilder != null && hasAttributionRoom;
+          if (customBuilder != null && !hasAttributionRoom) {
+            if (!_didLogCustomLayoutFallback) {
+              _didLogCustomLayoutFallback = true;
+              SafeLogger.w(_tag,
+                  'custom AppLovin native layout fallback — less than '
+                  '${kMinNativeAdAttributionSize.toInt()}x'
+                  '${kMinNativeAdAttributionSize.toInt()} logical pixels '
+                  'available for mandatory AdOptions attribution');
             }
-            return _AppLovinMaxNativeView(
+          } else {
+            _didLogCustomLayoutFallback = false;
+          }
+          // A custom layout that was rejected for compliance still needs a
+          // usable standard surface. Clamp only that opt-in failure path to
+          // the standard AppLovin layout's existing default height;
+          // default/no-builder behavior remains byte-for-byte unchanged.
+          final effectiveHeight = customBuilder != null && !hasAttributionRoom
+              ? _height.clamp(320, double.infinity).toDouble()
+              : _height;
+          return _NativeContainer(
+            isLoaded: AdManager().nativeIsLoaded(this),
+            height: effectiveHeight,
+            child: () {
+              if (AdManager().debugShouldSkipRealAppLovinNativeView) {
+                // Debug-only, explicit opt-in (see
+                // debugForceSkipRealAppLovinNativeView doc) — everything
+                // above (error-collapse, shimmer) is real widget behavior
+                // the caller must still exercise.
+                return const SizedBox.shrink();
+              }
+              return _AppLovinMaxNativeView(
                 nativeId: AdManager().appLovinNativeId,
                 instanceKey: this,
-                placement: widget.placement);
-          },
-        );
+                placement: widget.placement,
+                customBuilder: useCustom ? customBuilder : null,
+              );
+            },
+          );
+        });
       },
     );
   }
@@ -588,10 +681,12 @@ class _AppLovinMaxNativeView extends StatelessWidget {
     required this.nativeId,
     required this.instanceKey,
     required this.placement,
+    this.customBuilder,
   });
 
   final String nativeId;
   final AdPlacement placement;
+  final CustomNativeAdBuilder? customBuilder;
 
   /// T65 (phase 1) — identifies which mounted [NativeAdWidget] this view
   /// belongs to, so its load/error callbacks update only ITS OWN
@@ -725,50 +820,85 @@ class _AppLovinMaxNativeView extends StatelessWidget {
           }
         },
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const MaxNativeAdIconView(width: 40, height: 40),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    MaxNativeAdTitleView(
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.bold),
+      child: customBuilder == null
+          ? _standardLayout()
+          // T228 — the host's builder never sees/places the attribution
+          // badge; the SDK overlays it on top unconditionally so a custom
+          // layout can never accidentally omit it (fail-safe already ruled
+          // out the "too small" case one level up in NativeAdWidget).
+          : Stack(
+              children: [
+                // Reserve the badge's top-right square ourselves instead of
+                // trusting every host builder to remember it. In ordinary
+                // layouts the host content therefore cannot cover/clip the
+                // SDK-owned attribution overlay; the size guard one level up
+                // falls back before this padding can consume the whole view.
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.only(
+                      top: kMinNativeAdAttributionSize,
+                      right: kMinNativeAdAttributionSize,
                     ),
-                    MaxNativeAdStarRatingView(),
-                  ],
+                    child: customBuilder!(context),
+                  ),
                 ),
+                const Positioned(
+                  top: 0,
+                  right: 0,
+                  child: MaxNativeAdOptionsView(
+                    width: kMinNativeAdAttributionSize,
+                    height: kMinNativeAdAttributionSize,
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _standardLayout() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const MaxNativeAdIconView(width: 40, height: 40),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  MaxNativeAdTitleView(
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  MaxNativeAdStarRatingView(),
+                ],
               ),
-              const SizedBox(width: 4),
-              // Audit round 42, BLOCKER — AppLovin's own native-ad guide
-              // requires this view (the privacy-info/AdChoices-equivalent
-              // icon) in every custom native layout; omitting it is a
-              // policy violation, not a placement preference. Position
-              // matches AppLovin's own reference example (top-right,
-              // alongside title/rating).
-              const MaxNativeAdOptionsView(width: 20, height: 20),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Expanded(child: MaxNativeAdMediaView(width: double.infinity)),
-          const SizedBox(height: 8),
-          const MaxNativeAdBodyView(
-              maxLines: 2, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: MaxNativeAdCallToActionView(),
-          ),
-        ],
-      ),
+            ),
+            const SizedBox(width: 4),
+            // Audit round 42, BLOCKER — AppLovin's own native-ad guide
+            // requires this view (the privacy-info/AdChoices-equivalent
+            // icon) in every custom native layout; omitting it is a
+            // policy violation, not a placement preference. Position
+            // matches AppLovin's own reference example (top-right,
+            // alongside title/rating).
+            const MaxNativeAdOptionsView(width: 20, height: 20),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Expanded(child: MaxNativeAdMediaView(width: double.infinity)),
+        const SizedBox(height: 8),
+        const MaxNativeAdBodyView(
+            maxLines: 2, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: MaxNativeAdCallToActionView(),
+        ),
+      ],
     );
   }
 }

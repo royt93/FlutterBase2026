@@ -413,8 +413,20 @@ abstract class AdProviderAdapter {
   /// Google's built-in native template layout/size — ignored by AppLovin.
   /// AppLovin: no-op — `MaxNativeAdView` is a self-contained widget that
   /// loads on mount, unlike AppLovin's banner/mrec `MaxAdView` bridge.
+  ///
+  /// T228 — [factoryId] opts into a host-registered platform-side
+  /// `NativeAdFactory`/`FLTNativeAdFactory` (Kotlin/Swift, registered in the
+  /// CONSUMING app's own `MainActivity`/`AppDelegate` — see
+  /// `example/android`/`example/ios` for a reference implementation and
+  /// README.md for the registration steps) instead of [templateType]'s
+  /// built-in Google template. `null` (the default) is ZERO behavior change
+  /// — `templateType` is used exactly as before. Ignored by AppLovin (no
+  /// such concept). If the host passes a [factoryId] that was never
+  /// registered natively, Google's own SDK reports a normal load failure
+  /// (routed through the usual `onAdFailedToLoad`/`hasError` path) — this
+  /// is not a crash.
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium});
+      {TemplateType templateType = TemplateType.medium, String? factoryId});
 
   /// AdMob: returns the live native-ad widget for this [key] (built from the
   /// preloaded `NativeAd` + `NativeTemplateStyle`), or null if none.

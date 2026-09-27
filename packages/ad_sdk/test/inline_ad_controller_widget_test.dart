@@ -188,7 +188,8 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   String get tag => 'counting';
   @override
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
     loadNativeCalls++;
   }
   @override

@@ -8779,11 +8779,12 @@ class AdManager with WidgetsBindingObserver {
   }
 
   Future<void> loadAdmobNativeIfNeeded(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
     final ad = _adapter;
     if (ad == null) return;
     if (_isVipMember || !isConnected) return;
-    await ad.preloadNative(key, templateType: templateType);
+    await ad.preloadNative(key, templateType: templateType, factoryId: factoryId);
   }
 
   // ──────────────────────────────────────────────────────────────────────────

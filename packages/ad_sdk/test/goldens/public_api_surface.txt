@@ -192,7 +192,7 @@ AdManager.isVIPMember  [method]  bool isVIPMember()
 AdManager.journeyPrefetcher  [getter]  JourneyPrefetcher? get journeyPrefetcher
 AdManager.loadAdmobBannerIfNeeded  [method]  Future<void> loadAdmobBannerIfNeeded(Object key, double widthPx)
 AdManager.loadAdmobMrecIfNeeded  [method]  Future<void> loadAdmobMrecIfNeeded(Object key, double widthPx)
-AdManager.loadAdmobNativeIfNeeded  [method]  Future<void> loadAdmobNativeIfNeeded(Object key, {TemplateType templateType = TemplateType.medium})
+AdManager.loadAdmobNativeIfNeeded  [method]  Future<void> loadAdmobNativeIfNeeded(Object key, {TemplateType templateType = TemplateType.medium, String? factoryId})
 AdManager.loadAppOpenAd  [method]  Future<void> loadAppOpenAd({void Function(bool)? onAdLoaded, Duration watchdog = const Duration(seconds: 30)})
 AdManager.loadInterstitial  [method]  Future<void> loadInterstitial({Duration watchdog = const Duration(seconds: 30)})
 AdManager.loadRewardedAd  [method]  Future<void> loadRewardedAd({Duration watchdog = const Duration(seconds: 30)})
@@ -334,7 +334,7 @@ AdProviderAdapter.onAppPaused  [method]  void onAppPaused()
 AdProviderAdapter.onAppResumed  [method]  void onAppResumed()
 AdProviderAdapter.preloadBanner  [method]  Future<void> preloadBanner(Object key)
 AdProviderAdapter.preloadMrec  [method]  Future<void> preloadMrec(Object key)
-AdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium})
+AdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium, String? factoryId})
 AdProviderAdapter.rewardedInterstitialSlot  [getter]  AdSlot get rewardedInterstitialSlot
 AdProviderAdapter.rewardedSlot  [getter]  AdSlot get rewardedSlot
 AdProviderAdapter.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, bool paused)
@@ -785,6 +785,7 @@ ConsentStatus.notRequired  [field]  ConsentStatus notRequired
 ConsentStatus.obtained  [field]  ConsentStatus obtained
 ConsentStatus.required  [field]  ConsentStatus required
 ConsentStatus.unknown  [field]  ConsentStatus unknown
+CustomNativeAdBuilder  [type alias]  typedef CustomNativeAdBuilder = Widget Function(BuildContext context)
 DailyAdOutcome  [class]  class DailyAdOutcome
 DailyAdOutcome.blockedByDailyCap  [field]  int blockedByDailyCap
 DailyAdOutcome.dayKey  [field]  String dayKey
@@ -847,6 +848,7 @@ FakeAdProviderAdapter.initialize  [method]  Future<bool> initialize(AdConfig con
 FakeAdProviderAdapter.interstitialAlreadyReadyNoOp  [field]  bool interstitialAlreadyReadyNoOp
 FakeAdProviderAdapter.interstitialSlot  [field]  AdSlot interstitialSlot
 FakeAdProviderAdapter.isInitialised  [getter]  bool get isInitialised
+FakeAdProviderAdapter.lastFactoryId  [field]  String? lastFactoryId
 FakeAdProviderAdapter.loadAppOpen  [method]  Future<void> loadAppOpen({void Function(bool)? onAdLoaded})
 FakeAdProviderAdapter.loadAppOpenCalls  [field]  int loadAppOpenCalls
 FakeAdProviderAdapter.loadBannerIfNeeded  [method]  Future<void> loadBannerIfNeeded(Object key, double widthPx)
@@ -870,7 +872,7 @@ FakeAdProviderAdapter.onAppPaused  [method]  void onAppPaused()
 FakeAdProviderAdapter.onAppResumed  [method]  void onAppResumed()
 FakeAdProviderAdapter.preloadBanner  [method]  Future<void> preloadBanner(Object key)
 FakeAdProviderAdapter.preloadMrec  [method]  Future<void> preloadMrec(Object key)
-FakeAdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium})
+FakeAdProviderAdapter.preloadNative  [method]  Future<void> preloadNative(Object key, {TemplateType templateType = TemplateType.medium, String? factoryId})
 FakeAdProviderAdapter.rewardedAlreadyReadyNoOp  [field]  bool rewardedAlreadyReadyNoOp
 FakeAdProviderAdapter.rewardedInterstitialAlreadyReadyNoOp  [field]  bool rewardedInterstitialAlreadyReadyNoOp
 FakeAdProviderAdapter.rewardedInterstitialSlot  [field]  AdSlot rewardedInterstitialSlot
@@ -1023,8 +1025,10 @@ NativeAdWidget  [class]  class NativeAdWidget extends StatefulWidget
 NativeAdWidget.active  [field]  bool active
 NativeAdWidget.controller  [field]  InlineAdController? controller
 NativeAdWidget.createState  [method]  State<NativeAdWidget> createState()
+NativeAdWidget.customNativeAdBuilder  [field]  Widget Function(BuildContext)? customNativeAdBuilder
+NativeAdWidget.factoryId  [field]  String? factoryId
 NativeAdWidget.height  [field]  double? height
-NativeAdWidget.new  [constructor]  NativeAdWidget NativeAdWidget({Key? key, TemplateType templateType = TemplateType.medium, double? height, AdPlacement placement = AdPlacement.unspecified, bool active = true, InlineAdController? controller})
+NativeAdWidget.new  [constructor]  NativeAdWidget NativeAdWidget({Key? key, TemplateType templateType = TemplateType.medium, double? height, AdPlacement placement = AdPlacement.unspecified, bool active = true, InlineAdController? controller, String? factoryId, Widget Function(BuildContext)? customNativeAdBuilder})
 NativeAdWidget.placement  [field]  AdPlacement placement
 NativeAdWidget.templateType  [field]  TemplateType templateType
 PlacementRegistry  [class]  class PlacementRegistry
@@ -1401,6 +1405,7 @@ customOverlayOnScreen  [getter]  ValueNotifier<bool> get customOverlayOnScreen
 debugFormDismissTimeoutOverride  [getter]  Duration? get debugFormDismissTimeoutOverride
 debugFormDismissTimeoutOverride=  [setter]  set debugFormDismissTimeoutOverride(Duration? _debugFormDismissTimeoutOverride)
 kAdapterInitTimeout  [getter]  Duration get kAdapterInitTimeout
+kMinNativeAdAttributionSize  [getter]  double get kMinNativeAdAttributionSize
 kQaTestDeviceHashes  [getter]  List<String> get kQaTestDeviceHashes
 kUmpPolicyRevision  [getter]  String get kUmpPolicyRevision
 markCustomOverlayOnScreen  [function]  void markCustomOverlayOnScreen(bool value)

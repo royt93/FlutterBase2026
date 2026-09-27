@@ -391,9 +391,16 @@ class FakeAdProviderAdapter implements AdProviderAdapter {
 
   // ─── Native ────────────────────────────────────────────────────────────────
 
+  /// T228 — records the last `factoryId` passed to [preloadNative], so
+  /// tests can assert the opt-in/opt-out branch without a real AdMob
+  /// platform channel.
+  String? lastFactoryId;
+
   @override
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
+    lastFactoryId = factoryId;
     final slot = nativeSlot(key);
     final l = native(key);
     await _load(slot, AdSlotType.native);

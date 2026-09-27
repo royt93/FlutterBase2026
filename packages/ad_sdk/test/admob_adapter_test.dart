@@ -496,6 +496,74 @@ void main() {
     });
   });
 
+  group('T228 native factoryId opt-in branch selection', () {
+    test('no factoryId keeps the existing built-in template path unchanged',
+        () {
+      final style = debugNativeTemplateStyleFor(null, TemplateType.small);
+      expect(style, isNotNull);
+      expect(style!.templateType, TemplateType.small,
+          reason: 'null factoryId is the default — it must preserve the '
+              'pre-T228 NativeTemplateStyle path exactly');
+    });
+
+    test(
+        'factoryId opts out of the template path so the native factory is '
+        'not silently ignored', () {
+      expect(
+        debugNativeTemplateStyleFor(
+            't228CustomNativeAd', TemplateType.medium),
+        isNull,
+        reason: 'google_mobile_ads native code prefers nativeTemplateStyle '
+            'whenever both are set — custom factory requires it to be null',
+      );
+    });
+
+    test(
+        'unregistered factoryId is a graceful load failure, not an '
+        'unhandled PlatformException', () async {
+      const config = AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+          bannerId: 'b',
+          interstitialId: 'i',
+          appOpenId: 'ao',
+          rewardedId: 'r',
+          nativeId: 'n',
+        ),
+      );
+      final channel = MethodChannel(
+        'plugins.flutter.io/google_mobile_ads',
+        StandardMethodCodec(AdMessageCodec()),
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'loadNativeAd') {
+          throw PlatformException(
+            code: 'NativeAdError',
+            message: 'No NativeAdFactory with id: missingFactoryId or '
+                'nativeTemplateStyle',
+          );
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      final adapter = AdMobAdapter(bridge: FakeGmaBridge());
+      expect(await adapter.initialize(config), isTrue);
+      addTearDown(adapter.dispose);
+
+      await expectLater(
+        adapter.preloadNative('k', factoryId: 'missingFactoryId'),
+        completes,
+        reason: 'the plugin reports this as a rejected Future; the adapter '
+            'must await/catch it instead of leaking an unhandled exception',
+      );
+      expect(adapter.native('k').hasError.value, isTrue);
+      expect(adapter.nativeSlot('k').value, AdSlotState.cooldown);
+    });
+  });
+
   // Regression for the "visible stuck false" bug: onAppPaused() blanks
   // `visible` for every key with a live listener; onAppResumed()'s
   // error-reload branch never set it back (only its "ad already alive"

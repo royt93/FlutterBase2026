@@ -6,6 +6,24 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Added (T228):** `NativeAdWidget.factoryId` (AdMob) and
+  `NativeAdWidget.customNativeAdBuilder` (AppLovin) for host-customized native
+  ad layouts. AdMob's opt-in routes to a platform-side `NativeAdFactory`
+  (Kotlin/Swift) the HOST app registers in its own `MainActivity`/
+  `AppDelegate` — this is not a pure-Dart layout (Google's `google_mobile_ads`
+  plugin does not support building native ad UI out of Flutter widgets at
+  all); see `example/android`/`example/ios` for a reference implementation
+  and README.md's "Custom native ad layout (AdMob)" section. AppLovin's
+  opt-in is genuinely pure-Dart — `MaxNativeAdView`'s existing asset-view
+  widgets in host-chosen arrangement, with the SDK always overlaying the
+  mandatory `MaxNativeAdOptionsView` attribution badge on top and insets the
+  host's content by that same 24px from top/right — the host builder cannot
+  omit or normally cover the badge — falling back to the standard built-in
+  layout if the declared height leaves no room for it at all. Both are
+  opt-in; leaving either null is a zero-behavior-change no-op. An
+  unregistered AdMob `factoryId` is now awaited and caught as a graceful
+  load failure (logged, `hasError` flips) instead of an unhandled
+  `PlatformException`.
 - **Changed (T225):** `InFeedAdListView` now defers default `NativeAdWidget`
   slot loads while its own list is scrolling (settle signal from
   `ScrollStart`/`ScrollEndNotification`, no new dependency), passing

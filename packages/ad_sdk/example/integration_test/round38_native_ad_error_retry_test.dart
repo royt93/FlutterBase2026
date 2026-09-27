@@ -129,7 +129,8 @@ class _FakeAppLovinAdapter implements AdProviderAdapter {
   String get tag => 'fake-round38';
   @override
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
     loadNativeCalls++;
   }
 

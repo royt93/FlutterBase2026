@@ -2637,10 +2637,15 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   @override
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
     // T73 — templateType is a Google/AdMob native-template concept; AppLovin
     // has no equivalent (MaxNativeAdView is a self-contained custom-drawn
     // layout), so it's accepted for interface compatibility and ignored.
+    // T228 — factoryId (AdMob's platform-side NativeAdFactory opt-in) is
+    // likewise an AdMob-only concept; AppLovin's own custom-layout opt-in is
+    // NativeAdWidget.customNativeAdBuilder, handled entirely by the widget
+    // (MaxNativeAdView loads on mount, same as templateType above).
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked

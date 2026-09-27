@@ -67,10 +67,13 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   @override
   String get tag => 'counting';
   TemplateType? lastRequestedTemplateType;
+  String? lastRequestedFactoryId;
   @override
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
     lastRequestedTemplateType = templateType;
+    lastRequestedFactoryId = factoryId;
     loadNativeCalls++;
   }
 
@@ -257,6 +260,99 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(adapter.lastRequestedTemplateType, TemplateType.small);
+    });
+  });
+
+  group('T228 — custom native layout', () {
+    setUp(() {
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets(
+        'AdMob factoryId opt-in is forwarded; default remains null for zero '
+        'behavior change', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.lastRequestedFactoryId, isNull,
+          reason: 'without opt-in, the existing NativeTemplateStyle path '
+              'must remain byte-for-byte behaviorally unchanged');
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump();
+      AdManager().debugResetNativeCooldown();
+      await tester.pumpWidget(
+          host(const NativeAdWidget(factoryId: 'customNativeAd')));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.lastRequestedFactoryId, 'customNativeAd');
+    });
+
+    test('rejects an empty AdMob factoryId at the public boundary', () {
+      expect(() => NativeAdWidget(factoryId: ''), throwsAssertionError);
+    });
+
+    testWidgets(
+        'AppLovin custom builder renders host content plus the SDK-owned '
+        'AdOptions attribution overlay — host cannot omit it', (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _appLovinConfig;
+
+      await tester.pumpWidget(host(NativeAdWidget(
+        customNativeAdBuilder: (context) => const Center(
+          key: Key('host-custom-native-layout'),
+          child: MaxNativeAdTitleView(),
+        ),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+          find.byKey(const Key('host-custom-native-layout')), findsOneWidget,
+          reason: 'the host-supplied builder must actually be used');
+      expect(find.byType(MaxNativeAdOptionsView), findsOneWidget,
+          reason: 'the SDK overlays attribution itself — the host builder '
+              'above never referenced MaxNativeAdOptionsView at all');
+      final hostRect = tester
+          .getRect(find.byKey(const Key('host-custom-native-layout')));
+      final badgeRect = tester.getRect(find.byType(MaxNativeAdOptionsView));
+      expect(hostRect.overlaps(badgeRect), isFalse,
+          reason: 'the SDK must reserve the badge square itself, not trust '
+              'the host layout to leave top-right space voluntarily');
+    });
+
+    testWidgets(
+        'AppLovin falls back to the standard compliant layout when the '
+        'declared height leaves no room for the attribution overlay',
+        (tester) async {
+      final adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _appLovinConfig;
+
+      await tester.pumpWidget(host(NativeAdWidget(
+        height: 16, // below kMinNativeAdAttributionSize
+        customNativeAdBuilder: (context) => const SizedBox(
+          key: Key('should-not-render-custom-layout'),
+        ),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+          find.byKey(const Key('should-not-render-custom-layout')),
+          findsNothing,
+          reason: 'too small for the badge — custom builder must be ignored');
+      expect(find.byType(MaxNativeAdTitleView), findsOneWidget,
+          reason: 'standard AppLovin layout is the fail-safe fallback');
+      expect(find.byType(MaxNativeAdOptionsView), findsOneWidget,
+          reason: 'fallback must still carry mandatory attribution');
     });
   });
 

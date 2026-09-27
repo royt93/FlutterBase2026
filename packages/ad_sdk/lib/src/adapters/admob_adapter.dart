@@ -17,6 +17,22 @@ import '../utils/release_mode.dart';
 import '../utils/safe_logger.dart';
 import 'gma_bridge.dart';
 
+/// T228 — pure branch-selection logic for [AdMobAdapter.preloadNative]'s
+/// opt-in/opt-out `factoryId` decision, extracted so it's unit-testable
+/// without a real platform channel. `null` `factoryId` (the default) must
+/// return the exact same [NativeTemplateStyle] as before this feature
+/// existed — zero behavior change for hosts who never opt in. A non-null
+/// `factoryId` must return `null` here: the native plugin (`FlutterNativeAd
+/// .onNativeAdLoaded`) prefers `nativeTemplateStyle` whenever it's non-null,
+/// so passing both would silently ignore the host's registered factory.
+@visibleForTesting
+NativeTemplateStyle? debugNativeTemplateStyleFor(
+    String? factoryId, TemplateType templateType) {
+  return factoryId == null
+      ? NativeTemplateStyle(templateType: templateType)
+      : null;
+}
+
 /// AdMob (Google Mobile Ads) implementation of [AdProviderAdapter].
 ///
 /// Owns the 4 ad-unit objects (`AppOpenAd`, `InterstitialAd`, `RewardedAd`,
@@ -347,6 +363,12 @@ class AdMobAdapter
   // asked for, instead of silently falling back to the medium default.
   final Map<Object, TemplateType> _nativeTemplateTypeByKey = {};
 
+  // T228 — same reasoning as _nativeTemplateTypeByKey above, for the
+  // opt-in platform-side NativeAdFactory id: the resume/reconnect retry
+  // path must reload with the SAME factoryId, not silently drop back to
+  // templateType.
+  final Map<Object, String?> _nativeFactoryIdByKey = {};
+
   @override
   AdSlot nativeSlot(Object key) => _nativeRegistry.slotFor(key);
 
@@ -363,6 +385,7 @@ class AdMobAdapter
       gone.dispose();
     }
     _nativeTemplateTypeByKey.remove(key);
+    _nativeFactoryIdByKey.remove(key);
   }
 
   // ─── Native ad objects ────────────────────────────────────────────────────
@@ -2381,8 +2404,10 @@ class AdMobAdapter
 
   @override
   Future<void> preloadNative(Object key,
-      {TemplateType templateType = TemplateType.medium}) async {
+      {TemplateType templateType = TemplateType.medium,
+      String? factoryId}) async {
     _nativeTemplateTypeByKey[key] = templateType;
+    _nativeFactoryIdByKey[key] = factoryId;
     // C4 — same gate the fullscreen load paths and the auto-reload callbacks
     // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
     // wired in AdManager). None of the banner/MREC/native entry points checked
@@ -2425,14 +2450,15 @@ class AdMobAdapter
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'preloadNative $tag 🔄');
     try {
-      _nativeAdsByKey[key] = NativeAd(
+      final nativeAd = NativeAd(
         adUnitId: cfg.nativeId,
         request: AdRequest(
           nonPersonalizedAds: _nonPersonalizedAds,
           extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
         ),
+        factoryId: factoryId,
         nativeTemplateStyle:
-            NativeTemplateStyle(templateType: templateType),
+            debugNativeTemplateStyleFor(factoryId, templateType),
         listener: NativeAdListener(
           onPaidEvent: _paidEventForNative(AdPlacement.unspecified),
           onAdLoaded: (ad) {
@@ -2443,6 +2469,10 @@ class AdMobAdapter
             // only covered the pre-creation await window.
             if (!_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'preloadNative $tag ✅');
+            if (factoryId != null) {
+              SafeLogger.d(
+                  _logTag, 'preloadNative $tag factoryId="$factoryId" ✅');
+            }
             listenables.isLoaded.value = true;
             listenables.clearError();
             slot.markReady();
@@ -2461,6 +2491,20 @@ class AdMobAdapter
             // only covered the pre-creation await window.
             if (!_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.w(_logTag, 'preloadNative $tag ❌ ${err.code}');
+            // T228 — factoryId opt-in with no matching native-side
+            // NativeAdFactory registration surfaces here as a normal load
+            // failure (native plugin's own "No NativeAdFactory with id: ..."
+            // error) — not a crash. Call this out distinctly so a host
+            // debugging a blank custom native ad finds the real cause
+            // instead of a generic error code.
+            if (factoryId != null && err.message.contains('NativeAdFactory')) {
+              SafeLogger.w(
+                  _logTag,
+                  'preloadNative $tag ❌ factoryId "$factoryId" has no '
+                  'matching native NativeAdFactory registered on this '
+                  'platform — see README.md "Custom native ad layout '
+                  '(AdMob)" for how to register one in the host app.');
+            }
             try {
               ad.dispose();
             } catch (_) {}
@@ -2503,9 +2547,17 @@ class AdMobAdapter
           },
           onAdClosed: (ad) => SafeLogger.d(_logTag, 'native $tag closed'),
         ),
-      )..load();
+      );
+      _nativeAdsByKey[key] = nativeAd;
+      // T228 — `NativeAd.load()` returns a Future that rejects immediately
+      // when a non-null factoryId has no matching native registration. Await
+      // it so that configuration error lands in the graceful error path below
+      // instead of escaping as an unhandled async PlatformException/crash.
+      await nativeAd.load();
     } catch (e, st) {
       SafeLogger.e(_logTag, 'preloadNative $tag THREW: $e\n$st');
+      _nativeAdsByKey.remove(key)?.dispose();
+      listenables.isLoaded.value = false;
       listenables.markError();
       slot.markFailed();
     }
@@ -2648,7 +2700,8 @@ class AdMobAdapter
         listenables.hasError.value = false;
         preloadNative(key,
             templateType:
-                _nativeTemplateTypeByKey[key] ?? TemplateType.medium);
+                _nativeTemplateTypeByKey[key] ?? TemplateType.medium,
+            factoryId: _nativeFactoryIdByKey[key]);
       }
     }
   }

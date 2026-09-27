@@ -1954,6 +1954,83 @@ code. Need a different arrangement? Pull the raw ad object yourself
 or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative()`.
 No route-pause/auto-refresh either — it loads once per mount.
 
+### Custom native ad layout (T228)
+
+`NativeAdWidget` (not `buildNative()`, which stays fixed-layout v1) accepts
+two opt-in, per-provider customization params. Leaving both `null` (the
+default) is a zero-behavior-change no-op for existing integrations — you get
+exactly the v1 layout above.
+
+**AdMob — `factoryId` (needs native Kotlin/Swift code, not pure Dart).**
+Google's `google_mobile_ads` plugin does not support building native ad UI
+out of Flutter widgets at all (its `NativeAd` class doc says so explicitly)
+— the only way to fully customize the rendered view is a platform-side
+`NativeAdFactory` your **host app** registers, outside this package (this
+SDK is pure Dart and has no `android/`/`ios/` directories of its own to ship
+one from). Copy the reference implementation from this package's own
+example app:
+
+- Android: `example/android/app/src/main/kotlin/.../T228CustomNativeAdFactory.kt`
+  + `example/android/app/src/main/res/layout/t228_custom_native_ad.xml`,
+  registered in `example/android/app/.../MainActivity.kt`'s
+  `configureFlutterEngine`.
+- iOS: `example/ios/Runner/T228CustomNativeAdFactory.swift` (built entirely
+  in code, no `.xib`), registered in `example/ios/Runner/AppDelegate.swift`'s
+  `didInitializeImplicitFlutterEngine`.
+
+Then, in Dart:
+
+```dart
+const NativeAdWidget(factoryId: 't228CustomNativeAd') // must match the registered factoryId
+```
+
+If the host forgets to register a matching factory, the native SDK reports a
+normal load failure (`hasError` flips, same as any no-fill) — logged clearly
+by this package; it does not crash. The mandatory AdChoices attribution icon
+is drawn by Google's own `NativeAdView`/`GADNativeAdView` container
+automatically once you call `setNativeAd`/assign `.nativeAd` — you do not
+need to add it yourself, but omitting the container class entirely (i.e. not
+using `NativeAdView`) would be a policy violation. This SDK's own
+`admob_adapter.dart` only builds `NativeAd(factoryId: ...)` instead of
+`NativeAd(nativeTemplateStyle: ...)` when you opt in — nothing else changes.
+
+**AppLovin — `customNativeAdBuilder` (pure Dart, no native code).**
+`MaxNativeAdView`'s asset views (`MaxNativeAdTitleView`, `MaxNativeAdBodyView`,
+`MaxNativeAdIconView`, `MaxNativeAdMediaView`, `MaxNativeAdCallToActionView`,
+`MaxNativeAdStarRatingView`, `MaxNativeAdAdvertiserView`) are already plain
+Flutter widgets — this just lets you arrange them yourself instead of using
+this widget's built-in Row/Column:
+
+```dart
+NativeAdWidget(
+  customNativeAdBuilder: (context) => const Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      MaxNativeAdTitleView(style: TextStyle(fontWeight: FontWeight.bold)),
+      MaxNativeAdBodyView(),
+      MaxNativeAdCallToActionView(),
+      // Do NOT add MaxNativeAdOptionsView yourself — see below.
+    ],
+  ),
+)
+```
+
+The SDK always overlays the mandatory `MaxNativeAdOptionsView` attribution
+badge on top of whatever this builder returns — your builder cannot omit it,
+by construction, not by convention — and automatically insets the host child
+by that same 24px from top/right so ordinary host content cannot cover the
+badge. **Fail-safe fallback**: if `height` leaves less than
+`kMinNativeAdAttributionSize` (24 logical px) of room for
+that badge, the SDK ignores your builder for that build and falls back to
+the standard v1 layout instead (still fully compliant) — logged via
+`SafeLogger` so you can tell it happened.
+
+Both providers' custom-layout paths are covered end-to-end in
+`test/native_ad_widget_test.dart` (attribution-always-present, fallback
+trigger, zero-behavior-change default) plus a real on-device integration
+test (`example/integration_test/t228_custom_native_ad_test.dart`) exercising
+the actual registered Android/iOS factory.
+
 ## Built-in QA test devices (read this before measuring revenue)
 
 This package **always** merges a fixed list of AdMob test-device hashes into
