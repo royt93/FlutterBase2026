@@ -36,6 +36,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   final Map<Object, AdSlot> bannerSlotsByKey = {};
   final Map<Object, BannerListenables> bannerListenablesByKey = {};
   int loadBannerCalls = 0;
+  int preloadBannerCalls = 0;
   int disposeCalls = 0;
 
   @override
@@ -72,7 +73,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
     lastWidthPx = widthPx;
   }
   @override
-  Future<void> preloadBanner(Object key) async {}
+  Future<void> preloadBanner(Object key) async => preloadBannerCalls++;
   @override
   Future<void> preloadMrec(Object key) async {}
   // No-ops so _retryRefillAds (fired on reconnect) doesn't hit noSuchMethod.
@@ -88,9 +89,29 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   Widget? buildAdmobBannerView(Object key) =>
       null; // placeholder path, no native view
   @override
+  ValueListenable<Object?> appLovinBannerAdViewId(Object key) =>
+      const _NullObjectListenable();
+  @override
   void applyConsent(AdConsent consent) {}
+  // AppLovin (non-AdMob) branch of didPush/didPushNext/didPopNext calls this
+  // unconditionally instead of dispose/reload — needed for the T226 AppLovin
+  // group below.
+  @override
+  void setBannerRoutePaused(Object key, bool paused) {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Constant-null listenable for `appLovinBannerAdViewId` — the test only
+/// asserts on preload/dispose counts, never renders a real `MaxAdView`.
+class _NullObjectListenable extends ValueListenable<Object?> {
+  const _NullObjectListenable();
+  @override
+  Object? get value => null;
+  @override
+  void addListener(VoidCallback listener) {}
+  @override
+  void removeListener(VoidCallback listener) {}
 }
 
 class _CollapsingBannerCountingAdapter extends _BannerCountingAdapter
@@ -106,6 +127,20 @@ const _admobConfig = AdConfig(
     interstitialId: 'ca-app-pub-3940256099942544/1033173712',
     appOpenId: 'ca-app-pub-3940256099942544/9257395921',
     rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+  ),
+);
+
+/// T226 — same shape as `_admobConfig` but driving the AppLovin branch of
+/// `_initBanner` (which calls `preloadBanner` and deliberately skips the
+/// width-observer reload — `MaxAdView` resizes natively).
+final _appLovinConfig = AdConfig(
+  provider: AdProvider.appLovin,
+  appLovin: AppLovinConfig(
+    sdkKey: 'test-sdk-key',
+    bannerId: 'test-banner-id',
+    interstitialId: 'test-interstitial-id',
+    rewardedId: 'test-rewarded-id',
+    appOpenId: 'test-appopen-id',
   ),
 );
 
@@ -1255,6 +1290,110 @@ void main() {
       expect(adapter.loadBannerCalls, 2);
       expect(adapter.lastWidthPx, 350,
           reason: 'T157 — must end up at the animation\'s FINAL width');
+    });
+
+    testWidgets(
+        'rapid surface-width changes settle on one final AdMob reload',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 800);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(host(const SizedBox.expand(
+        child: BannerAdWidget(),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      expect(adapter.lastWidthPx, 400);
+
+      // Fold/unfold and split-view deliver several window metrics/layout
+      // widths before settling. Every intermediate width must only reset the
+      // existing debounce; none may spend another network request.
+      for (final width in <double>[460, 540, 620, 700]) {
+        tester.view.physicalSize = Size(width, 800);
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(tester.takeException(), isNull);
+      }
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'no intermediate fold width may reload before settling');
+
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(adapter.disposeCalls, 1);
+      expect(adapter.loadBannerCalls, 2,
+          reason: 'one reload only, after the final width settles');
+      expect(adapter.lastWidthPx, 700);
+    });
+
+    testWidgets('unmounting during a pending width correction is safe',
+        (tester) async {
+      final width = ValueNotifier<double>(320);
+      await tester.pumpWidget(host(ValueListenableBuilder<double>(
+        valueListenable: width,
+        builder: (context, w, _) => SizedBox(
+          width: w,
+          child: const BannerAdWidget(),
+        ),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+
+      width.value = 700;
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpWidget(host(const SizedBox.shrink()));
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(tester.takeException(), isNull);
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'dispose cancels the pending resize reload');
+      expect(adapter.disposeCalls, 1,
+          reason: 'only normal unmount cleanup disposes the instance');
+      expect(adapter.bannerSlotsByKey, isEmpty);
+      expect(adapter.bannerListenablesByKey, isEmpty);
+      width.dispose();
+    });
+  });
+
+  group('T226 — AppLovin native adaptive banner resize path', () {
+    late _BannerCountingAdapter adapter;
+
+    setUp(() {
+      adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    testWidgets(
+        'rapid width changes keep the same preloaded AppLovin native view',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 800);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(host(const SizedBox.expand(
+        child: BannerAdWidget(),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.preloadBannerCalls, 1);
+
+      for (final width in <double>[460, 540, 620, 700]) {
+        tester.view.physicalSize = Size(width, 800);
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(adapter.preloadBannerCalls, 1,
+          reason: 'MaxAdView has native adaptive resizing; Dart must not '
+              'tear down and preload another native view');
+      expect(adapter.disposeCalls, 0);
     });
   });
 }
