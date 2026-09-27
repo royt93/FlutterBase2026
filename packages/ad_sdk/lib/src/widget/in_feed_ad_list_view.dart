@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/widgets.dart';
 
+import '../utils/safe_logger.dart';
 import 'native_ad_widget.dart';
 
 /// Helper to calculate indices when inserting ads into a list at fixed intervals.
@@ -41,7 +42,7 @@ class InFeedIndexCalculator {
 
 /// A ListView wrapper that automatically interleaves [NativeAdWidget] (or a custom ad widget)
 /// into a feed at a specified interval.
-class InFeedAdListView extends StatelessWidget {
+class InFeedAdListView extends StatefulWidget {
   const InFeedAdListView.builder({
     super.key,
     required this.itemCount,
@@ -95,40 +96,134 @@ class InFeedAdListView extends StatelessWidget {
   final Clip clipBehavior;
 
   @override
+  State<InFeedAdListView> createState() => _InFeedAdListViewState();
+}
+
+/// T225 — scroll-settle gate for in-feed native ads.
+///
+/// While the list is scrolling, newly mounted `NativeAdWidget` slots are
+/// built with `active: false` so they hold a fixed-height placeholder
+/// (no network load, no layout shift). On settle they flip back to
+/// `active: true` and load normally through `NativeAdWidget`'s own
+/// dedup/throttle gates (`canLoadNative`, `AdSlot.beginLoad`).
+///
+/// Custom `adBuilder`s are passed through untouched — the SDK cannot know
+/// whether they load ads, and gating arbitrary caller widgets behind a
+/// settles-flag would silently swallow their content.
+class _InFeedAdListViewState extends State<InFeedAdListView> {
+  static const String _tag = 'InFeedAdListView';
+
+  /// True between ScrollStartNotification and the matching
+  /// ScrollEndNotification. Only these two are authoritative: update and
+  /// overscroll notifications can arrive after the end (edge bounce,
+  /// ballistic tail) with no further end following, so letting them set
+  /// this flag leaves it stuck true and defers loads forever.
+  final ValueNotifier<bool> _scrolling = ValueNotifier<bool>(false);
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    // Ignore carousels/PageViews nested inside feed rows. Their notifications
+    // bubble through this listener with depth > 0, but the feed itself is not
+    // moving and must not suppress its native loads.
+    if (notification.depth != 0) return false;
+    if (notification is ScrollEndNotification) {
+      if (_scrolling.value) {
+        SafeLogger.d(_tag, 'scroll settled — releasing deferred native loads');
+        _scrolling.value = false;
+      }
+    } else if (notification is ScrollStartNotification) {
+      if (!_scrolling.value) {
+        SafeLogger.d(_tag, 'in-feed load deferred — scroll in flight');
+        _scrolling.value = true;
+      }
+    }
+    return false;
+  }
+
+  @override
+  void dispose() {
+    _scrolling.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final total = InFeedIndexCalculator.totalCount(
-      itemCount: itemCount,
-      adInterval: adInterval,
+      itemCount: widget.itemCount,
+      adInterval: widget.adInterval,
     );
 
-    return ListView.builder(
-      key: key,
-      scrollDirection: scrollDirection,
-      reverse: reverse,
-      controller: controller,
-      primary: primary,
-      physics: physics,
-      shrinkWrap: shrinkWrap,
-      padding: padding,
-      itemCount: total,
-      addAutomaticKeepAlives: addAutomaticKeepAlives,
-      addRepaintBoundaries: addRepaintBoundaries,
-      addSemanticIndexes: addSemanticIndexes,
-      cacheExtent: cacheExtent,
-      restorationId: restorationId,
-      clipBehavior: clipBehavior,
-      itemBuilder: (context, rawIndex) {
-        if (InFeedIndexCalculator.isAdPosition(rawIndex, adInterval: adInterval)) {
-          final adIndex = InFeedIndexCalculator.toAdIndex(rawIndex, adInterval: adInterval);
-          if (adBuilder != null) {
-            return adBuilder!(context, adIndex);
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
+      child: ListView.builder(
+        scrollDirection: widget.scrollDirection,
+        reverse: widget.reverse,
+        controller: widget.controller,
+        primary: widget.primary,
+        physics: widget.physics,
+        shrinkWrap: widget.shrinkWrap,
+        padding: widget.padding,
+        itemCount: total,
+        addAutomaticKeepAlives: widget.addAutomaticKeepAlives,
+        addRepaintBoundaries: widget.addRepaintBoundaries,
+        addSemanticIndexes: widget.addSemanticIndexes,
+        cacheExtent: widget.cacheExtent,
+        restorationId: widget.restorationId,
+        clipBehavior: widget.clipBehavior,
+        itemBuilder: (context, rawIndex) {
+          if (InFeedIndexCalculator.isAdPosition(
+            rawIndex,
+            adInterval: widget.adInterval,
+          )) {
+            final adIndex = InFeedIndexCalculator.toAdIndex(
+              rawIndex,
+              adInterval: widget.adInterval,
+            );
+            if (widget.adBuilder != null) {
+              return widget.adBuilder!(context, adIndex);
+            }
+            // T225 — deferred slots keep their own height across the active
+            // flip via `_NativePlaceholder`: `NativeAdWidget` itself renders
+            // a zero-height `SizedBox.shrink()` while inactive, so this
+            // fixed-height shell is what holds the slot open. Fixed
+            // provider heights would be wrong here: the AppLovin branch
+            // renders compliance chrome (badge row + vertical padding) on
+            // top of the 320 medium template, so `NativeAdWidget` has no
+            // single intrinsic height.
+            return ValueListenableBuilder<bool>(
+              valueListenable: _scrolling,
+              builder: (context, scrolling, _) =>
+                  _NativePlaceholder(active: !scrolling),
+            );
           }
-          return const NativeAdWidget();
-        }
 
-        final originalIndex = InFeedIndexCalculator.toOriginalItemIndex(rawIndex, adInterval: adInterval);
-        return itemBuilder(context, originalIndex);
-      },
+          final originalIndex = InFeedIndexCalculator.toOriginalItemIndex(
+            rawIndex,
+            adInterval: widget.adInterval,
+          );
+          return widget.itemBuilder(context, originalIndex);
+        },
+      ),
+    );
+  }
+}
+
+/// T225 — fixed placeholder shell for deferred slots.
+///
+/// `NativeAdWidget` itself renders a zero-height `SizedBox.shrink()` while
+/// inactive, so this outer box holds the slot open. The real widget is not
+/// constrained: `ConstrainedBox(minHeight: 320)` lets AppLovin's compliance
+/// chrome grow beyond the medium-template minimum while AdMob remains 320,
+/// avoiding the clipping a tight `SizedBox(height: 320)` caused.
+class _NativePlaceholder extends StatelessWidget {
+  const _NativePlaceholder({required this.active});
+
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 320),
+      child: NativeAdWidget(active: active),
     );
   }
 }
