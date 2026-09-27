@@ -24,15 +24,12 @@
 // etc. would otherwise flood this with framework noise this package does
 // not own and cannot break.
 //
-// Known gap (audit finding, self-review, no codex available this
-// session): only walks members on `InterfaceElement2` (classes/enums/
-// mixins/extension types) — a plain `extension Foo on Bar { ... }` is an
-// `ExtensionElement2`, not an `InterfaceElement2`, so only its top-level
-// declaration line would be recorded here, never its methods. Adding or
-// removing a method inside an already-exported extension would silently
-// NOT show up as an API diff. Currently moot — this package exports no
-// `extension` today (confirmed via grep) — but re-check this if one is
-// ever added.
+// T222 — also walks `ExtensionElement2` (plain `extension Foo on Bar { ... }`)
+// members, not just `InterfaceElement2` (classes/enums/mixins/extension
+// types) — both share the `InstanceElement2` supertype that declares
+// fields2/getters2/methods2/setters2, so `_describeMembers` walks either.
+// Only `InterfaceElement2` has `constructors2` (extensions aren't
+// instantiable), so that loop stays gated on the narrower type.
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
@@ -79,7 +76,7 @@ Future<String> computePublicApiSurface({
     for (final name in exported.keys.toList()..sort()) {
       final element = exported[name]!;
       lines.add(_describeTopLevel(name, element));
-      if (element is InterfaceElement2) {
+      if (element is InstanceElement2) {
         lines.addAll(_describeMembers(name, element));
       }
     }
@@ -102,13 +99,18 @@ String _describeTopLevel(String name, Element2 element) {
 bool _isExcludedFromApiSurface(Annotatable a) =>
     a.metadata2.hasInternal || a.metadata2.hasVisibleForTesting;
 
-List<String> _describeMembers(String ownerName, InterfaceElement2 element) {
+List<String> _describeMembers(String ownerName, InstanceElement2 element) {
   final lines = <String>[];
 
-  for (final c in element.constructors2) {
-    if (c.isPrivate || _isExcludedFromApiSurface(c)) continue;
-    lines.add('$ownerName.${c.name3 ?? "new"}  [constructor]  '
-        '${c.displayString2()}');
+  // Extensions aren't instantiable — constructors only exist on
+  // InterfaceElement2 (ExtensionTypeElement2 *is* one, so its primary
+  // constructor still shows up).
+  if (element is InterfaceElement2) {
+    for (final c in element.constructors2) {
+      if (c.isPrivate || _isExcludedFromApiSurface(c)) continue;
+      lines.add('$ownerName.${c.name3 ?? "new"}  [constructor]  '
+          '${c.displayString2()}');
+    }
   }
   for (final f in element.fields2) {
     if (f.isPrivate || f.isSynthetic || _isExcludedFromApiSurface(f)) {
