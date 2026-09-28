@@ -524,6 +524,17 @@ class AdPreferences {
     await _prefs?.setString(_keyBypassAuditTrail, json);
   }
 
+  // T231 — Flight Recorder evidence bundle, persisted the same way as the
+  // bypass audit trail above so it survives a cold start.
+
+  static const String _keyFlightRecorder = 'ad_sdk_flight_recorder_v1';
+
+  String? getFlightRecorderRaw() => _prefs?.getString(_keyFlightRecorder);
+
+  Future<void> setFlightRecorderRaw(String json) async {
+    await _prefs?.setString(_keyFlightRecorder, json);
+  }
+
   // T137 — last `revision` a remote safety-params payload actually applied
   // successfully. Lets `AdManager` reject a stale/rolled-back payload (an
   // older revision than this) without needing to track it in memory only —

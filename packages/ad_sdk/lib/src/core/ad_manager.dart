@@ -17,6 +17,7 @@ import '../adapters/admob_adapter.dart';
 import '../adapters/applovin_adapter.dart';
 import '../adaptive/adaptive_frequency.dart';
 import '../compliance/ad_event_log.dart';
+import '../compliance/ad_flight_recorder.dart';
 import '../compliance/compliance_report.dart';
 import '../compliance/bypass_audit_trail.dart';
 import '../compliance/compliance_signing.dart';
@@ -72,16 +73,26 @@ class DisputeKit {
     required this.compliance,
     required this.bypassAuditTrail,
     required this.incidentBundle,
+    this.flightRecorderBundle,
   });
 
   final SignedComplianceReport compliance;
   final SignedPayload bypassAuditTrail;
   final SignedPayload incidentBundle;
 
+  /// T231 — the opt-in Flight Recorder's signed evidence bundle. `null`
+  /// unless the host called `AdManager().enableFlightRecorder(...)` before
+  /// this export — an existing dispute-kit consumer that never opted in
+  /// sees byte-for-byte the same 3-key JSON shape as before this field
+  /// existed (see [toJson], which omits the key entirely when `null`).
+  final SignedPayload? flightRecorderBundle;
+
   Map<String, dynamic> toJson() => {
         'compliance': compliance.toJson(),
         'bypassAuditTrail': bypassAuditTrail.toJson(),
         'incidentBundle': incidentBundle.toJson(),
+        if (flightRecorderBundle != null)
+          'flightRecorderBundle': flightRecorderBundle!.toJson(),
       };
 
   String toJsonString({bool pretty = false}) {
@@ -937,6 +948,84 @@ class AdManager with WidgetsBindingObserver {
         _waterfallTuner, null, (t) => t.dispose());
   }
 
+  /// T231 — opt-in "Flight Recorder" (default OFF) — `null` unless the host
+  /// calls [enableFlightRecorder]. See [AdFlightRecorder]'s own doc comment
+  /// for the full design: a hash-chained, Ed25519-signable log of ad-display
+  /// evidence (pixel position, viewability %, active TCF consent string,
+  /// click occurrence) for disputing an ad-network penalty. Same opt-in
+  /// shape as every other monetization/compliance observer in this
+  /// package — disabled, [BannerAdWidget]/[MrecAdWidget] and every other
+  /// call site checking this getter skip recording entirely (zero
+  /// overhead, zero entries).
+  AdFlightRecorder? _flightRecorder;
+
+  /// `null` by default — see [enableFlightRecorder].
+  AdFlightRecorder? get flightRecorder => _flightRecorder;
+
+  /// Opt in to the flight recorder: starts hash-chaining ad-display
+  /// evidence entries recorded by instrumented widgets/call sites.
+  void enableFlightRecorder(AdFlightRecorder recorder) {
+    _flightRecorder = recorder;
+    // Covers the "enabled after initialize() already ran" ordering too —
+    // the `initialize()` call site above only covers "enabled before init".
+    final prefs = AdPreferences.instanceOrNull;
+    if (prefs != null) recorder.attach(prefs);
+  }
+
+  /// Test/host seam: clear a previously-registered flight recorder.
+  @visibleForTesting
+  void disableFlightRecorder() {
+    _flightRecorder = null;
+  }
+
+  /// Signs the current [flightRecorder] buffer as an exportable `.adproof`
+  /// evidence bundle (this SDK's own signed JSON format — not an external
+  /// standard). Returns `null` when the flight recorder was never enabled;
+  /// an enabled recorder with zero entries still signs an empty bundle.
+  Future<SignedPayload?> exportSignedFlightRecorderBundle() async {
+    final recorder = _flightRecorder;
+    if (recorder == null) return null;
+    final bundle = FlightRecorderBundle(
+      entries: recorder.entries,
+      generatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    return signFlightRecorderBundle(bundle);
+  }
+
+  /// T231 — the one place every flight-recorder call site (widgets, [_emit])
+  /// goes through: resolves [providerTag]/the active TCF string and appends
+  /// one hash-chained entry. No-ops instantly (before touching
+  /// [IabStorage]) when [flightRecorder] is `null` — the "zero overhead when
+  /// disabled" contract lives here, not in each caller.
+  Future<void> recordFlightRecorderEvent({
+    required String label,
+    AdSlotType? type,
+    AdPlacement? placement,
+    double viewabilityFraction = 0,
+    double screenX = 0,
+    double screenY = 0,
+    double widthPx = 0,
+    double heightPx = 0,
+    bool touchActive = false,
+  }) async {
+    final recorder = _flightRecorder;
+    if (recorder == null) return;
+    final tcf = await IabStorage.read(IabStorage.keyTcfString);
+    await recorder.record(
+      label: label,
+      slotType: type?.name ?? 'global',
+      placement: placement?.id ?? '-',
+      providerTag: _adapter?.tag ?? '[SDK]',
+      viewabilityFraction: viewabilityFraction,
+      screenX: screenX,
+      screenY: screenY,
+      widthPx: widthPx,
+      heightPx: heightPx,
+      tcfConsentString: tcf,
+      touchActive: touchActive,
+    );
+  }
+
   ProviderFailoverAdvisor? _providerFailoverAdvisor;
 
   /// `null` by default — see [enableProviderFailoverAdvisor].
@@ -1296,6 +1385,12 @@ class AdManager with WidgetsBindingObserver {
     // values right back — same "reset the live instance too" reasoning
     // as the VIP/consent-provenance-journal branches below.
     _providerFailoverAdvisor?.resetInMemoryState();
+    // T231 — same "reset the live instance too" reasoning as
+    // ProviderFailoverAdvisor above: the on-disk key is swept by the
+    // ad_sdk_-prefix loop in prefs.clearSdkData, but a live recorder's
+    // in-memory buffer would otherwise survive untouched and silently
+    // re-persist itself on the very next record() call.
+    _flightRecorder?.clear();
     if (purgeConsentProvenanceJournal) {
       final journal = _provenanceJournal;
       if (journal != null) {
@@ -1827,15 +1922,17 @@ class AdManager with WidgetsBindingObserver {
     return signIncidentBundle(bundle);
   }
 
-  /// T144 — all 3 signed exports above, bundled into one artifact so a host
+  /// T144 — all signed exports above, bundled into one artifact so a host
   /// can hand a partner/reviewer a single file during a dispute/appeal
-  /// instead of calling 3 methods and gluing the JSON together itself. Pure
-  /// aggregation — no new signing/redaction logic of its own.
+  /// instead of calling methods and gluing JSON together itself. T231 adds
+  /// the opt-in [DisputeKit.flightRecorderBundle] when enabled; absent by
+  /// default so existing hosts retain the original 3-key JSON shape.
   Future<DisputeKit> exportDisputeKit({DateTime? from, DateTime? to}) async {
     return DisputeKit(
       compliance: await exportSignedComplianceReport(from: from, to: to),
       bypassAuditTrail: await exportSignedBypassAuditTrail(),
       incidentBundle: await exportSignedIncidentBundle(),
+      flightRecorderBundle: await exportSignedFlightRecorderBundle(),
     );
   }
 
@@ -3501,6 +3598,7 @@ class AdManager with WidgetsBindingObserver {
       AdaptiveFrequencySignals.setSink(
           _eventLog!.recordAdaptiveSignal); // T26: adaptive-frequency signals
       bypassAuditTrail.attach(prefs);
+      _flightRecorder?.attach(prefs);
 
       // Phase 3: pipe safety params from config.
       // T88 — a remote provider gets a bounded window to answer; a slow or
@@ -8883,6 +8981,7 @@ class AdManager with WidgetsBindingObserver {
     // needs to wait for those.
     if (state == AppLifecycleState.paused) {
       unawaited(bypassAuditTrail.flush());
+      unawaited(_flightRecorder?.flush() ?? Future<void>.value());
     }
     if (!isInitialised) {
       // Defensive: any field access inside the closure can throw if the
@@ -9486,6 +9585,19 @@ class AdManager with WidgetsBindingObserver {
     }
     _eventLog?.recordEvent(event,
         consentCountry: _consentManager?.current.country);
+    // T231 — click is the one interaction signal available across EVERY
+    // format (fullscreen and inline alike) via the native SDK's own click
+    // callback; wiring it here instead of per-widget covers all of them for
+    // free. No-ops instantly when the flight recorder is disabled (see
+    // [recordFlightRecorderEvent]).
+    if (event is AdClickEvent && _flightRecorder != null) {
+      unawaited(recordFlightRecorderEvent(
+        label: 'clicked',
+        type: event.type,
+        placement: event.placement,
+        touchActive: true,
+      ));
+    }
     if (_eventStream.isClosed) return;
     _eventStream.add(event);
   }

@@ -310,6 +310,38 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   /// [didPopNext] as before.
   bool _bannerInitCalled = false;
 
+  /// T231 — mirrors [_lastEffectiveVisible] but tracks the flight recorder's
+  /// own dedup independently: evidence must reflect the widget's REAL
+  /// on-screen state regardless of any manual `active`/[controller]
+  /// override, so this is updated unconditionally in [_onVisibilityChanged],
+  /// before the early-return those gates trigger below.
+  bool? _lastFlightRecorderVisible;
+
+  /// T231 — no-ops in one line when the flight recorder is disabled (the
+  /// common case), so this never touches [AdManager.flightRecorder]'s
+  /// `IabStorage` read or does any work unless a host opted in.
+  void _recordFlightRecorderVisibility(VisibilityInfo info) {
+    if (AdManager().flightRecorder == null) return;
+    final visible = info.visibleFraction > 0;
+    if (_lastFlightRecorderVisible == visible) return;
+    _lastFlightRecorderVisible = visible;
+    final box = context.findRenderObject();
+    final origin = (box is RenderBox && box.attached)
+        ? box.localToGlobal(Offset.zero)
+        : Offset.zero;
+    final size = (box is RenderBox) ? box.size : Size.zero;
+    unawaited(AdManager().recordFlightRecorderEvent(
+      label: visible ? 'bannerVisible' : 'bannerHidden',
+      type: AdSlotType.banner,
+      placement: widget.placement,
+      viewabilityFraction: info.visibleFraction,
+      screenX: origin.dx,
+      screenY: origin.dy,
+      widthPx: size.width,
+      heightPx: size.height,
+    ));
+  }
+
   void _onVisibilityChanged(VisibilityInfo info) {
     // VisibilityDetector's composition callback can fire on a post-frame
     // schedule that outlives this State's own dispose() (unlike RouteAware,
@@ -317,6 +349,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     // checked here explicitly, or this reaches into an already-disposed
     // `_allowed` ValueNotifier via didPushNext/didPopNext.
     if (!mounted) return;
+    _recordFlightRecorderVisibility(info);
     // T201 — a controller owns pause/resume exactly like active would;
     // see this class's constructor assert (the two are mutually exclusive).
     if (widget.active != null || widget.controller != null) return;

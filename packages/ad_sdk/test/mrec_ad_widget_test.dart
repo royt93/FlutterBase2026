@@ -435,6 +435,61 @@ void main() {
       expect(widget.placement, AdPlacement.shop);
     });
   });
+
+  group('T231 Flight Recorder visibility evidence', () {
+    testWidgets(
+        'visible transition records viewability and pixel bounds when '
+        'enabled', (tester) async {
+      final adapter = _MrecCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const MrecAdWidget(placement: AdPlacement.home)));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries, isNotEmpty);
+      final visible =
+          recorder.entries.firstWhere((e) => e.label == 'mrecVisible');
+      expect(visible.slotType, 'mrec');
+      expect(visible.placement, 'home');
+      expect(visible.viewabilityFraction, greaterThan(0));
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+    });
+
+    testWidgets(
+        'disabled mode records nothing and leaves existing behavior '
+        'unchanged', (tester) async {
+      final adapter = _MrecCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().disableFlightRecorder();
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const MrecAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadMrecCalls, 1,
+          reason: 'default-off recorder must not change mrec loading');
+      expect(AdManager().flightRecorder, isNull);
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager

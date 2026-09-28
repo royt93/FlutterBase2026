@@ -1572,6 +1572,133 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('T231 Flight Recorder visibility evidence', () {
+    testWidgets(
+        'visible transition records viewability and global pixel bounds when '
+        'enabled', (tester) async {
+      final adapter = _BannerCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      final controller = ScrollController();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: controller,
+            child: const Column(children: [
+              SizedBox(height: 100, child: Text('spacer')),
+              SizedBox(
+                width: 320,
+                child: BannerAdWidget(collapseAnimationDuration: Duration.zero),
+              ),
+              SizedBox(height: 1000),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries, isNotEmpty);
+      final visible = recorder.entries.firstWhere(
+          (entry) => entry.label == 'bannerVisible');
+      expect(visible.viewabilityFraction, greaterThan(0));
+      expect(visible.screenX, greaterThanOrEqualTo(0));
+      expect(visible.screenY, greaterThanOrEqualTo(0));
+      expect(visible.widthPx, greaterThan(0));
+      // Fake adapter hasn't supplied a loaded native ad height, so height can
+      // legitimately be 0 here; the coordinate path still exercised the real
+      // RenderBox.localToGlobal/size read from the widget tree.
+      expect(visible.heightPx, greaterThanOrEqualTo(0));
+
+      // Move the banner fully outside the viewport — meaningful transition,
+      // one new hash-chained evidence entry (not per-frame spam).
+      controller.jumpTo(1000);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries.any((e) => e.label == 'bannerHidden'), isTrue);
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+    });
+
+    testWidgets('disabled mode records nothing and leaves existing load/pause '
+        'behavior unchanged', (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().disableFlightRecorder();
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      final controller = ScrollController();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: controller,
+            child: const Column(children: [
+              SizedBox(height: 2000, child: Text('spacer')),
+              BannerAdWidget(),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'default-off recorder must not change banner loading');
+
+      controller.jumpTo(2000); // scroll it fully into view
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      controller.jumpTo(0); // scroll back away
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.disposeCalls, 1,
+          reason: 'existing visibility pause behavior remains intact');
+      expect(AdManager().flightRecorder, isNull,
+          reason: 'no recorder was created implicitly');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('disposing before a queued visibility callback cannot write '
+        'a late entry or throw', (tester) async {
+      final recorder = AdFlightRecorder();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(AdManager().disableFlightRecorder);
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BannerAdWidget()),
+      ));
+      // Unmount immediately without pumping the visibility callback first.
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: SizedBox()),
+      ));
+      final countAfterDispose = recorder.entries.length;
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(recorder.entries, hasLength(countAfterDispose),
+          reason: 'the mounted guard rejects any post-dispose callback');
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
 
 /// Fake VipManager whose `isActive` is fixed — the only member AdManager

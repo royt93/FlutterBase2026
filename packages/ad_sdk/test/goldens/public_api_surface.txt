@@ -87,6 +87,14 @@ AdEventLog.new  [constructor]  AdEventLog AdEventLog(AdPreferences _prefs, {int 
 AdEventLog.recordAdaptiveSignal  [method]  void recordAdaptiveSignal(AdaptiveFrequencySignal signal)
 AdEventLog.recordEvent  [method]  void recordEvent(AdEvent event, {int? timestampMs, String? consentCountry})
 AdEventLog.recordSafetyBlock  [method]  void recordSafetyBlock(String reason, {int? timestampMs})
+AdFlightRecorder  [class]  class AdFlightRecorder
+AdFlightRecorder.attach  [method]  void attach(AdPreferences prefs)
+AdFlightRecorder.capacity  [field]  int capacity
+AdFlightRecorder.clear  [method]  void clear()
+AdFlightRecorder.entries  [getter]  List<FlightRecorderEntry> get entries
+AdFlightRecorder.flush  [method]  Future<void> flush()
+AdFlightRecorder.new  [constructor]  AdFlightRecorder AdFlightRecorder({int capacity = 2000})
+AdFlightRecorder.record  [method]  Future<void> record({required String label, required String slotType, required String placement, required String providerTag, double viewabilityFraction = 0, double screenX = 0, double screenY = 0, double widthPx = 0, double heightPx = 0, String? tcfConsentString, bool touchActive = false, int? timestampMs})
 AdImpressionEvent  [class]  class AdImpressionEvent extends AdEvent
 AdImpressionEvent.new  [constructor]  AdImpressionEvent AdImpressionEvent({required String providerTag, required AdSlotType type, required AdPlacement placement})
 AdLoadEvent  [class]  class AdLoadEvent extends AdEvent
@@ -159,6 +167,7 @@ AdManager.emitSelfHealingObservation  [method]  void emitSelfHealingObservation(
 AdManager.enableArbitrator  [method]  void enableArbitrator(MonetizationArbitrator arbitrator)
 AdManager.enableFillRateBaselineMonitor  [method]  Future<void> enableFillRateBaselineMonitor({double regressionThreshold = 0.2, int minSamples = 5})
 AdManager.enableFillRateMonitor  [method]  void enableFillRateMonitor(FillRateMonitor monitor)
+AdManager.enableFlightRecorder  [method]  void enableFlightRecorder(AdFlightRecorder recorder)
 AdManager.enableJourneyPrefetcher  [method]  void enableJourneyPrefetcher(JourneyPrefetcher prefetcher)
 AdManager.enableProviderFailoverAdvisor  [method]  void enableProviderFailoverAdvisor(ProviderFailoverAdvisor advisor)
 AdManager.enableRevenueIntegrityLedger  [method]  void enableRevenueIntegrityLedger(RevenueIntegrityLedger ledger)
@@ -173,9 +182,11 @@ AdManager.exportSafeDiagnostics  [method]  Future<String> exportSafeDiagnostics(
 AdManager.exportSignedBypassAuditTrail  [method]  Future<SignedPayload> exportSignedBypassAuditTrail()
 AdManager.exportSignedComplianceReport  [method]  Future<SignedComplianceReport> exportSignedComplianceReport({DateTime? from, DateTime? to})
 AdManager.exportSignedConsentProvenanceJournal  [method]  Future<SignedPayload?> exportSignedConsentProvenanceJournal()
+AdManager.exportSignedFlightRecorderBundle  [method]  Future<SignedPayload?> exportSignedFlightRecorderBundle()
 AdManager.exportSignedIncidentBundle  [method]  Future<SignedPayload> exportSignedIncidentBundle()
 AdManager.fillRateBaselineMonitor  [getter]  FillRateBaselineMonitor? get fillRateBaselineMonitor
 AdManager.fillRateMonitor  [getter]  FillRateMonitor? get fillRateMonitor
+AdManager.flightRecorder  [getter]  AdFlightRecorder? get flightRecorder
 AdManager.fullscreenBusy  [field]  ValueNotifier<bool> fullscreenBusy
 AdManager.gppConsentString  [getter]  Future<String?> get gppConsentString
 AdManager.incidentRecorder  [field]  IncidentRecorder incidentRecorder
@@ -220,6 +231,7 @@ AdManager.preloadMrec  [method]  Future<void> preloadMrec(Object key)
 AdManager.processStartedAtMs  [getter]  int get processStartedAtMs
 AdManager.providerFailoverAdvisor  [getter]  ProviderFailoverAdvisor? get providerFailoverAdvisor
 AdManager.recordBannerLoad  [method]  void recordBannerLoad(Object key)
+AdManager.recordFlightRecorderEvent  [method]  Future<void> recordFlightRecorderEvent({required String label, AdSlotType? type, AdPlacement? placement, double viewabilityFraction = 0, double screenX = 0, double screenY = 0, double widthPx = 0, double heightPx = 0, bool touchActive = false})
 AdManager.recordMrecLoad  [method]  void recordMrecLoad(Object key)
 AdManager.recordNativeLoad  [method]  void recordNativeLoad(Object key)
 AdManager.refreshRemoteSafetyParams  [method]  Future<void> refreshRemoteSafetyParams()
@@ -819,8 +831,9 @@ DigitalTwinForecast.new  [constructor]  DigitalTwinForecast DigitalTwinForecast(
 DisputeKit  [class]  class DisputeKit
 DisputeKit.bypassAuditTrail  [field]  SignedPayload bypassAuditTrail
 DisputeKit.compliance  [field]  SignedComplianceReport compliance
+DisputeKit.flightRecorderBundle  [field]  SignedPayload? flightRecorderBundle
 DisputeKit.incidentBundle  [field]  SignedPayload incidentBundle
-DisputeKit.new  [constructor]  DisputeKit DisputeKit({required SignedComplianceReport compliance, required SignedPayload bypassAuditTrail, required SignedPayload incidentBundle})
+DisputeKit.new  [constructor]  DisputeKit DisputeKit({required SignedComplianceReport compliance, required SignedPayload bypassAuditTrail, required SignedPayload incidentBundle, SignedPayload? flightRecorderBundle})
 DisputeKit.toJson  [method]  Map<String, dynamic> toJson()
 DisputeKit.toJsonString  [method]  String toJsonString({bool pretty = false})
 FakeAdProviderAdapter  [class]  class FakeAdProviderAdapter implements AdProviderAdapter
@@ -928,6 +941,32 @@ FirstInstallVipGrace.duration  [field]  Duration? duration
 FirstInstallVipGrace.isEnabled  [getter]  bool get isEnabled
 FirstInstallVipGrace.new  [constructor]  FirstInstallVipGrace FirstInstallVipGrace(Duration? duration)
 FirstInstallVipGrace.toString  [method]  String toString()
+FlightRecorderBundle  [class]  class FlightRecorderBundle
+FlightRecorderBundle.entries  [field]  List<FlightRecorderEntry> entries
+FlightRecorderBundle.fromJsonString  [constructor]  FlightRecorderBundle FlightRecorderBundle.fromJsonString(String json)
+FlightRecorderBundle.generatedAtMs  [field]  int generatedAtMs
+FlightRecorderBundle.new  [constructor]  FlightRecorderBundle FlightRecorderBundle({required List<FlightRecorderEntry> entries, required int generatedAtMs})
+FlightRecorderBundle.toJson  [method]  Map<String, dynamic> toJson()
+FlightRecorderBundle.toJsonString  [method]  String toJsonString()
+FlightRecorderEntry  [class]  class FlightRecorderEntry
+FlightRecorderEntry.fromJson  [constructor]  FlightRecorderEntry FlightRecorderEntry.fromJson(Map<String, dynamic> json)
+FlightRecorderEntry.hash  [field]  String hash
+FlightRecorderEntry.heightPx  [field]  double heightPx
+FlightRecorderEntry.interactionDurationMs  [field]  int interactionDurationMs
+FlightRecorderEntry.label  [field]  String label
+FlightRecorderEntry.new  [constructor]  FlightRecorderEntry FlightRecorderEntry({required int timestampMs, required String label, required String slotType, required String placement, required String providerTag, required double viewabilityFraction, required double screenX, required double screenY, required double widthPx, required double heightPx, required String? tcfConsentString, required bool touchActive, required int interactionDurationMs, required String previousHash, required String hash})
+FlightRecorderEntry.placement  [field]  String placement
+FlightRecorderEntry.previousHash  [field]  String previousHash
+FlightRecorderEntry.providerTag  [field]  String providerTag
+FlightRecorderEntry.screenX  [field]  double screenX
+FlightRecorderEntry.screenY  [field]  double screenY
+FlightRecorderEntry.slotType  [field]  String slotType
+FlightRecorderEntry.tcfConsentString  [field]  String? tcfConsentString
+FlightRecorderEntry.timestampMs  [field]  int timestampMs
+FlightRecorderEntry.toJson  [method]  Map<String, dynamic> toJson()
+FlightRecorderEntry.touchActive  [field]  bool touchActive
+FlightRecorderEntry.viewabilityFraction  [field]  double viewabilityFraction
+FlightRecorderEntry.widthPx  [field]  double widthPx
 HouseAdItem  [class]  class HouseAdItem
 HouseAdItem.assetPath  [field]  String assetPath
 HouseAdItem.new  [constructor]  HouseAdItem HouseAdItem({required String assetPath, required String title, String? subtitle, void Function()? onTap})
@@ -1426,10 +1465,13 @@ showAdSafeModalBottomSheet  [function]  Future<T?> showAdSafeModalBottomSheet<T>
 signBypassAuditTrail  [function]  Future<SignedPayload> signBypassAuditTrail(BypassAuditTrail trail)
 signComplianceReport  [function]  Future<SignedComplianceReport> signComplianceReport(ComplianceReport report, {FlutterSecureStorage? secureStorage})
 signConsentProvenanceJournal  [function]  Future<SignedPayload> signConsentProvenanceJournal(ConsentProvenanceJournal journal)
+signFlightRecorderBundle  [function]  Future<SignedPayload> signFlightRecorderBundle(FlightRecorderBundle bundle)
 signIncidentBundle  [function]  Future<SignedPayload> signIncidentBundle(IncidentBundle bundle)
 signJsonPayload  [function]  Future<SignedPayload> signJsonPayload(String payloadJson, {FlutterSecureStorage? secureStorage})
 simulateConsentOutcome  [function]  ConsentSimulationResult simulateConsentOutcome(AdConsent consent, {AdConfig? config})
+verifyFlightRecorderChain  [function]  Future<bool> verifyFlightRecorderChain(List<FlightRecorderEntry> entries)
 verifySignedComplianceReportJson  [function]  Future<bool> verifySignedComplianceReportJson(String bundleJson)
 verifySignedCrl  [function]  Future<VipRevocationList> verifySignedCrl(String code, {required String publicKeyBase64})
+verifySignedFlightRecorderBundle  [function]  Future<bool> verifySignedFlightRecorderBundle(String bundleJson)
 verifySignedJsonPayload  [function]  Future<bool> verifySignedJsonPayload(String bundleJson)
 verifySignedVipKey  [function]  Future<SignedVipKey> verifySignedVipKey(String code, {required String publicKeyBase64, String? currentBundleId, DateTime? now, bool allowLegacyV1 = false})

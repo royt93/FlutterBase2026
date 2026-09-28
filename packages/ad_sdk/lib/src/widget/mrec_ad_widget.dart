@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -86,10 +88,39 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
   /// this widget follows the identical pattern.
   bool _mrecInitCalled = false;
 
+  /// T231 — recorder-only transition dedup, independent of
+  /// [_lastEffectiveVisible] for the same reason as BannerAdWidget's matching
+  /// field: manual `active`/controller overrides still need REAL on-screen
+  /// evidence from [VisibilityDetector].
+  bool? _lastFlightRecorderVisible;
+
+  void _recordFlightRecorderVisibility(VisibilityInfo info) {
+    if (AdManager().flightRecorder == null) return;
+    final visible = info.visibleFraction > 0;
+    if (_lastFlightRecorderVisible == visible) return;
+    _lastFlightRecorderVisible = visible;
+    final box = context.findRenderObject();
+    final origin = (box is RenderBox && box.attached)
+        ? box.localToGlobal(Offset.zero)
+        : Offset.zero;
+    final size = (box is RenderBox) ? box.size : Size.zero;
+    unawaited(AdManager().recordFlightRecorderEvent(
+      label: visible ? 'mrecVisible' : 'mrecHidden',
+      type: AdSlotType.mrec,
+      placement: widget.placement,
+      viewabilityFraction: info.visibleFraction,
+      screenX: origin.dx,
+      screenY: origin.dy,
+      widthPx: size.width,
+      heightPx: size.height,
+    ));
+  }
+
   void _onVisibilityChanged(VisibilityInfo info) {
     // See `BannerAdWidget._onVisibilityChanged`'s doc comment for why this
     // must be checked explicitly here.
     if (!mounted) return;
+    _recordFlightRecorderVisibility(info);
     if (widget.active != null || widget.controller != null) return;
     _applyVisibility(info.visibleFraction > 0);
   }

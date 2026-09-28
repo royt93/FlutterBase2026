@@ -6,6 +6,7 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## Unreleased
 
+- **Added (T231):** `AdFlightRecorder` — opt-in, default-OFF "Flight Recorder": a hash-chained (Merkle-style) log of ad-display evidence for disputing an ad-network penalty/account suspension. Each entry records a meaningful STATE TRANSITION (banner becomes visible/hidden, a click lands) — not per-frame polling — with on-screen pixel position (`RenderBox.localToGlobal`), viewability % (from the existing `VisibilityDetector`/`VisibilityInfo.visibleFraction` already used by `BannerAdWidget`), the active IAB TCF consent string (from the existing `IabStorage`), and touch state; entries are bounded (2000 cap, drop-oldest) and each entry's hash covers the previous entry's hash so any tamper/reorder/drop is detectable via `verifyFlightRecorderChain`. Export as an Ed25519-signed bundle (reusing the existing `compliance_signing.dart` scheme — this SDK's own signed JSON evidence format, not an external standard) via `AdManager().exportSignedFlightRecorderBundle()`, or as part of `AdManager().exportDisputeKit()`'s new optional `DisputeKit.flightRecorderBundle` field. Enable with `AdManager().enableFlightRecorder(AdFlightRecorder())`; disabled (the default), zero entries are recorded and existing `BannerAdWidget`/`DisputeKit` behavior is unchanged.
 - **Added (T229):** `BannerAdWidget.houseAd`/`houseAdDelay` — an optional
   host-configured `HouseAdItem` (local asset image, title, optional
   subtitle, `onTap`) rendered instead of a blank banner once it has been
