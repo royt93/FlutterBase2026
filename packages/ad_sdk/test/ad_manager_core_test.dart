@@ -161,6 +161,10 @@ class _FakeAdapter implements AdProviderAdapter {
   /// [showRewarded]).
   bool throwOnShowInterstitial = false;
 
+  /// T230 — real delay before the fake dismiss callback, used only by the
+  /// wiring test that proves a healthy-length show decays fast-close fatigue.
+  Duration showInterstitialDelay = Duration.zero;
+
   @override
   Future<void> showInterstitial({
     required void Function(bool shown) onDone,
@@ -168,6 +172,9 @@ class _FakeAdapter implements AdProviderAdapter {
     showInterstitialCalls++;
     if (throwOnShowInterstitial) {
       throw StateError('fake native platform-channel throw');
+    }
+    if (showInterstitialDelay > Duration.zero) {
+      await Future<void>.delayed(showInterstitialDelay);
     }
     onDone(true);
   }
@@ -2112,6 +2119,188 @@ void main() {
             'the 3 new call sites',
       );
     });
+  });
+
+  // T230 — wiring proof that AdSafetyConfig.recordFullscreenAdShown's
+  // showDurationMs actually reaches AdSafetyConfig FROM the 4 real
+  // AdManager.show*() methods (not just from a direct unit-level call, as
+  // ad_safety_config_test.dart already covers), and that it is NEVER
+  // recorded when the ad wasn't truly shown+dismissed — an adapter throw,
+  // a shown:false result, or any skip that never reaches the adapter at
+  // all (VIP/consent/cooldown) must leave the fast-close streak untouched.
+  // Each of the 4 formats duplicates this forwarding independently (no
+  // shared helper) — every one gets its own "two real dismisses → fatigue"
+  // assertion below, so a regression at ANY single call site turns only
+  // that format's test red.
+  group('T230: fast-close ad-fatigue wiring (real AdManager.show* calls, '
+      'not a direct AdSafetyConfig call)', () {
+    late AdPreferences prefs;
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      AdPreferences.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      prefs = await AdPreferences.getInstance();
+      // minTimeBetweenFullscreenAds: 0 — two back-to-back real shows in the
+      // same test must not be blocked by the ORDINARY throttle; whether
+      // isAdFatigued ends up true is the only thing under test here.
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(minTimeBetweenFullscreenAds: 0),
+      );
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugCanRequestAds = true;
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugVipManager = null;
+      AdManager().debugCanRequestAds = true;
+      // Successful T230 wiring tests persist fullscreen counts. Drop this
+      // group's singleton before later tests bind their own mock preferences.
+      AdPreferences.resetForTest();
+    });
+
+    test('interstitial: two real shown+dismissed calls (near-instant, under '
+        'the 1s fast-close threshold) mark ad fatigue', () async {
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      expect(
+        AdSafetyConfig.debugIsAdFatigued,
+        isTrue,
+        reason: '_FakeAdapter.showInterstitial resolves onDone(true) '
+            'near-instantly — this only goes true if the real elapsed '
+            'duration is actually threaded through to '
+            'AdSafetyConfig.recordFullscreenAdShown',
+      );
+    });
+
+    test('interstitial: an adapter throw never records a duration — no '
+        'streak, even after two throws in a row', () async {
+      adapter.throwOnShowInterstitial = true;
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('interstitial: VIP-blocked (skipped before the adapter is ever '
+        'called) does not create a streak', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      expect(adapter.showInterstitialCalls, 0,
+          reason: 'sanity: the adapter must never have been reached');
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('interstitial: consent-blocked (skipped before the adapter is '
+        'ever called) does not create a streak', () async {
+      AdManager().debugCanRequestAds = false;
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      expect(adapter.showInterstitialCalls, 0);
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('rewarded: shown:false (closed before display — not earned, not '
+        'shown) does not create a streak', () async {
+      adapter.nextRewardEarned = false;
+      adapter.nextRewardDisplayed = false; // RewardResult(shown: false)
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('rewarded: adapter throw never records a duration — no streak',
+        () async {
+      adapter.throwOnShow = true;
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('rewarded: two real shown+dismissed calls mark ad fatigue',
+        () async {
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      await AdManager().showRewardedAd(onEarnedReward: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+    });
+
+    test('rewardedInterstitial: shown:false (RewardResult.skipped) does '
+        'not create a streak', () async {
+      adapter.nextRewardedInterstitialEarned = false; // → skipped, shown:false
+      await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
+      await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('rewardedInterstitial: adapter throw never records a duration — '
+        'no streak', () async {
+      adapter.throwOnShowRewardedInterstitial = true;
+      await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
+      await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('rewardedInterstitial: two real shown+dismissed calls mark ad '
+        'fatigue', () async {
+      await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
+      await AdManager().showRewardedInterstitialAd(onDone: (_, _) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+    });
+
+    test('appOpen: adapter throw never records a duration — no streak',
+        () async {
+      adapter.throwOnShowAppOpen = true;
+      await AdManager()
+          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager()
+          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('appOpen: VIP-blocked (skipped before the adapter is ever called) '
+        'does not create a streak', () async {
+      AdManager().debugVipManager = _FakeVip(true);
+      await AdManager()
+          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager()
+          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      expect(adapter.showAppOpenCalls, 0);
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('appOpen (bypassSafety: true): two real shown+dismissed calls '
+        'mark ad fatigue', () async {
+      await AdManager()
+          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager()
+          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+    });
+
+    // Real (not simulated) elapsed time — this is the one test in this
+    // group that cannot use the adapter's near-instant resolution, since it
+    // specifically proves the OTHER side of the same wiring: a real,
+    // healthy-length show must decay the streak back down, exactly as
+    // ad_safety_config_test.dart's pure-unit "healthy dismiss decays" test
+    // already proves at the AdSafetyConfig level alone.
+    test('interstitial: a real ~1.1s show (over the 1s threshold) decays '
+        'an existing fatigue streak', () async {
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue,
+          reason: 'sanity: fatigue must be active before decay is proven');
+
+      adapter.showInterstitialDelay = const Duration(milliseconds: 1100);
+      await AdManager().showInterstitial(onDoneFlow: (_) {});
+
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    }, timeout: const Timeout(Duration(seconds: 10)));
   });
 
   group('rewarded VIP-bypass (watch-ad to EXTEND VIP)', () {

@@ -392,7 +392,7 @@ AdSafetyConfig.policyRiskScore  [field]  ValueNotifier<int> policyRiskScore
 AdSafetyConfig.recordAdClick  [method]  void recordAdClick({bool fullscreen = false})
 AdSafetyConfig.recordAppWentBackground  [method]  void recordAppWentBackground()
 AdSafetyConfig.recordBannerImpression  [method]  void recordBannerImpression()
-AdSafetyConfig.recordFullscreenAdShown  [method]  void recordFullscreenAdShown()
+AdSafetyConfig.recordFullscreenAdShown  [method]  void recordFullscreenAdShown({int? showDurationMs})
 AdSafetyConfig.recordNetworkShown  [method]  void recordNetworkShown(AdSlotType type, String? network)
 AdSafetyConfig.recordPlacementAdShown  [method]  void recordPlacementAdShown(AdPlacement placement)
 AdSafetyConfig.resetForReinit  [method]  void resetForReinit()

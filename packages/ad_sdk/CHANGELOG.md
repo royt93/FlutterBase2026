@@ -14,6 +14,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   counted by `AdEventLog`/`RevenueIntegrityLedger`/`AdSafetyConfig`. `null`
   (the default) is a zero-behavior-change no-op; existing T91 animated
   auto-collapse is unaffected.
+- **Added (T230):** internal fast-close ad-fatigue pacing in
+  `AdSafetyConfig` — two consecutive fullscreen dismisses under 1s ("fast
+  close", an ad-fatigue signal) double the fullscreen cooldown
+  (`AdSafetyParams.minTimeBetweenFullscreenAds`) until a single
+  healthy-length dismiss decays it back to normal. Public API surface
+  change: `AdSafetyConfig.recordFullscreenAdShown` gained an optional
+  `showDurationMs` parameter (default `null`, fully backward-compatible)
+  that `AdManager`'s four fullscreen show paths (interstitial, rewarded,
+  rewarded-interstitial, app-open) now pass, measured via a monotonic
+  `Stopwatch` (not wall-clock) so a clock rollback between show and dismiss
+  can't fake a fast close. Separate from, and never feeds, the existing
+  CTR/click-spam suspicious-pause mechanism — a UX pacing signal, not an
+  invalid-traffic one.
 - **Added (T228):** `NativeAdWidget.factoryId` (AdMob) and
   `NativeAdWidget.customNativeAdBuilder` (AppLovin) for host-customized native
   ad layouts. AdMob's opt-in routes to a platform-side `NativeAdFactory`

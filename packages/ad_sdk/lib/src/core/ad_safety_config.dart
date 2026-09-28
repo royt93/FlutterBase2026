@@ -334,6 +334,16 @@ class AdSafetyConfig {
   static const int _baseSuspiciousPause = 30 * 60 * 1000; // 30 min
   static const int _maxSuspiciousPause = 24 * 60 * 60 * 1000; // 24 h
 
+  // T230 — a fullscreen dismiss under this long counts as a "fast close"
+  // (ad-fatigue signal): the ticket's own example ("< 1s"). Two IN A ROW
+  // double the fullscreen throttle (same doubling pattern as the
+  // progressive-cooldown multiplier below) until a single healthy-length
+  // dismiss resets the streak. Deliberately global across every fullscreen
+  // format, not per-[AdSlotType] — [minTimeBetweenFullscreenAds]/
+  // [_lastFullscreenAdTime] this extends are already global, not per-format.
+  static const int _fastCloseThresholdMs = 1000;
+  static const int _fastCloseStreakForFatigue = 2;
+
   // ════════════════ STATE ════════════════
   static int _lastFullscreenAdTime = 0;
   static int _fullscreenAdsShownInSession = 0;
@@ -356,6 +366,24 @@ class AdSafetyConfig {
   static bool _isColdStart = true;
   static final List<int> _clickTimestamps = [];
   static int _suspiciousPauseUntil = 0;
+
+  // T230 — consecutive fast-close streak; see [_fastCloseThresholdMs].
+  static int _consecutiveFastCloses = 0;
+
+  /// T230 — true once [_fastCloseStreakForFatigue] consecutive fullscreen
+  /// dismisses landed under [_fastCloseThresholdMs] (ad-fatigue signal).
+  /// While true, [canShowFullscreenAd]'s throttle uses double the normal
+  /// interval. Resets the moment a single healthy-length dismiss is
+  /// recorded — see [recordFullscreenAdShown]. Separate from, and never
+  /// feeds, [_suspiciousViolationCount]/[policyRiskScore] — this is a UX
+  /// pacing signal, not an invalid-traffic one, so it must not double-count
+  /// against the CTR/click-spam gates those drive.
+  static bool get _isAdFatigued =>
+      _consecutiveFastCloses >= _fastCloseStreakForFatigue;
+
+  /// Read-only T230 test seam. Not part of the host API contract.
+  @visibleForTesting
+  static bool get debugIsAdFatigued => _isAdFatigued;
 
   // T126 — rolling exposure per (AdSlotType, network), keyed
   // "${type.name}|$network". Only ever holds entries for a network that was
@@ -704,10 +732,14 @@ class AdSafetyConfig {
       // placement") — a NEGATIVE value is not a deliberate choice of
       // anything, so it is rejected outright and falls back to the
       // app-wide value, exactly as if no override had been passed at all.
-      final minInterval = (minIntervalOverrideMs != null &&
+      final configuredInterval = (minIntervalOverrideMs != null &&
               minIntervalOverrideMs >= 0)
           ? minIntervalOverrideMs
           : _params.minTimeBetweenFullscreenAds;
+      // T230 — ad fatigue doubles the throttle until a healthy dismiss
+      // decays it back; see [_isAdFatigued].
+      final minInterval =
+          _isAdFatigued ? configuredInterval * 2 : configuredInterval;
       final elapsed = now - _lastFullscreenAdTime;
       if (elapsed < minInterval) {
         final waitMs = minInterval - elapsed;
@@ -829,10 +861,12 @@ class AdSafetyConfig {
       // codex round-6 fix (T181) — see canShowFullscreenAd's matching
       // comment: a negative override is rejected outright (falls back to
       // the app-wide value) rather than silently disabling this throttle.
-      final minInterval = (minIntervalOverrideMs != null &&
+      final configuredInterval = (minIntervalOverrideMs != null &&
               minIntervalOverrideMs >= 0)
           ? minIntervalOverrideMs
           : _params.minTimeBetweenFullscreenAds;
+      final minInterval =
+          _isAdFatigued ? configuredInterval * 2 : configuredInterval;
       final elapsed = now - _lastFullscreenAdTime;
       if (elapsed < minInterval) {
         final waitMs = minInterval - elapsed;
@@ -918,7 +952,15 @@ class AdSafetyConfig {
   }
 
   /// Record that a fullscreen ad was shown.
-  static void recordFullscreenAdShown() {
+  ///
+  /// [showDurationMs] (T230) — wall-clock time from show start to dismiss,
+  /// when the caller has it. `null` (default; every pre-T230 call site)
+  /// leaves the ad-fatigue streak untouched — only a caller that actually
+  /// measured a dismiss can arm or decay it. Two consecutive dismisses
+  /// under [_fastCloseThresholdMs] mark [_isAdFatigued] true (doubling the
+  /// fullscreen throttle); a single dismiss at or above the threshold
+  /// resets the streak, decaying back to the normal cooldown.
+  static void recordFullscreenAdShown({int? showDurationMs}) {
     final now = DateTime.now().millisecondsSinceEpoch;
     _lastFullscreenAdTime = now;
     _fullscreenAdsShownInSession++;
@@ -926,6 +968,31 @@ class AdSafetyConfig {
     _fullscreenImpressions++;
     _hourlyAdTimestamps.add(now);
     _prefs?.incrementDailyAdCount();
+
+    // Public input: a negative duration is impossible for AdManager's
+    // monotonic Stopwatch and can only come from a bad external caller.
+    // Ignore it instead of misclassifying clock rollback as a fast close.
+    if (showDurationMs != null && showDurationMs >= 0) {
+      final wasFatigued = _isAdFatigued;
+      if (showDurationMs < _fastCloseThresholdMs) {
+        _consecutiveFastCloses++;
+        if (_isAdFatigued && !wasFatigued) {
+          SafeLogger.w(
+              _tag,
+              '⚠️ Ad fatigue: $_consecutiveFastCloses consecutive fast '
+              'closes (<${_fastCloseThresholdMs}ms) — doubling fullscreen '
+              'cooldown');
+        }
+      } else if (wasFatigued) {
+        SafeLogger.d(
+            _tag,
+            '✅ Ad fatigue cooldown decayed — healthy dismiss '
+            '(${showDurationMs}ms)');
+        _consecutiveFastCloses = 0;
+      } else {
+        _consecutiveFastCloses = 0;
+      }
+    }
 
     final daily = _prefs?.getDailyAdCount() ?? _fullscreenAdsShownInSession;
     SafeLogger.d(
@@ -1087,6 +1154,10 @@ class AdSafetyConfig {
     _networkShowTimestamps.clear();
     _lastAdClickAt = 0;
     _backgroundedFromAdClick = false;
+    // T230 — pacing state (not fraud history): clear it here same as the
+    // click-spam window above, or a fatigue streak from before this call
+    // would keep doubling the throttle after a host-triggered reset.
+    _consecutiveFastCloses = 0;
     SafeLogger.d(_tag, '🔄 Session counters reset (fraud history preserved)');
     _refreshRiskScore();
   }
@@ -1121,6 +1192,11 @@ class AdSafetyConfig {
     // for a click that belonged to the previous session.
     _lastAdClickAt = 0;
     _backgroundedFromAdClick = false;
+    // T230 — same reasoning as resetSessionCounters(): a fatigue streak
+    // from the previous session must not survive a full session reset
+    // either (T24 postscript: this file's history of forgetting exactly
+    // this kind of new state in reset).
+    _consecutiveFastCloses = 0;
     // T24 re-audit fix: violation history is per-session, not a lifetime
     // ban — leaving it set here meant only the rarely-triggered
     // resetForReinit() ever cleared it, so a session reset (Reset button /

@@ -7589,12 +7589,20 @@ class AdManager with WidgetsBindingObserver {
     final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
     inline?.setInlineAdsHidden(true);
     _lastShownPlacement[AdSlotType.appOpen] = placement;
+    // T230 — show-to-dismiss duration, for the ad-fatigue (fast-close)
+    // signal. A Stopwatch (monotonic, `CLOCK_MONOTONIC`/uptime-backed —
+    // same idiom VipManager's own _sessionClockStopwatch uses) rather than
+    // two DateTime.now() reads: a wall-clock rollback/NTP sync between show
+    // and dismiss would otherwise produce a negative delta that reads as an
+    // (incorrect) fast close.
+    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showAppOpen(onDismiss: (dismissed) {
         delivered = true;
         inline?.setInlineAdsHidden(false);
         if (dismissed) {
-          AdSafetyConfig.recordFullscreenAdShown();
+          AdSafetyConfig.recordFullscreenAdShown(
+              showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
         }
@@ -7938,11 +7946,14 @@ class AdManager with WidgetsBindingObserver {
     // without this, a throwing host callback was invoked twice with
     // contradictory results.
     var delivered = false;
+    // T230 — monotonic; see showAppOpenAd's matching comment.
+    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showInterstitial(onDone: (shown) {
         delivered = true;
         if (shown) {
-          AdSafetyConfig.recordFullscreenAdShown();
+          AdSafetyConfig.recordFullscreenAdShown(
+              showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
         }
@@ -8392,6 +8403,8 @@ class AdManager with WidgetsBindingObserver {
     // reasoning); `delivered` is set before `onEarnedReward` runs so the
     // catch never re-fires it once the real callback was entered.
     var delivered = false;
+    // T230 — monotonic; see showAppOpenAd's matching comment.
+    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showRewarded(
           ssvCustomData: ssvCustomData,
@@ -8400,7 +8413,8 @@ class AdManager with WidgetsBindingObserver {
             delivered = true;
             _rewardedInFlight = false;
             if (result.shown) {
-              AdSafetyConfig.recordFullscreenAdShown();
+              AdSafetyConfig.recordFullscreenAdShown(
+                  showDurationMs: showStopwatch.elapsedMilliseconds);
               AdSafetyConfig.recordPlacementAdShown(placement); // T92
             }
             if (result.earned) {
@@ -8620,6 +8634,8 @@ class AdManager with WidgetsBindingObserver {
     // identical `delivered` guard above for why this must be set before
     // `onDone` runs, not after.
     var delivered = false;
+    // T230 — monotonic; see showAppOpenAd's matching comment.
+    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showRewardedInterstitial(onDone: (result) {
         delivered = true;
@@ -8637,7 +8653,8 @@ class AdManager with WidgetsBindingObserver {
         // too. Both were wrong, and a comment that misdescribes its own
         // diff is worse than no comment, because the next reader trusts it.
         if (result.shown) {
-          AdSafetyConfig.recordFullscreenAdShown();
+          AdSafetyConfig.recordFullscreenAdShown(
+              showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
         }
         if (result.earned) {

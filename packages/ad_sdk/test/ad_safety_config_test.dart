@@ -133,6 +133,110 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────
+  // T230 — fast-close ad-fatigue pacing
+  // ─────────────────────────────────────────────────
+  group('fast-close ad fatigue (T230)', () {
+    setUp(() async {
+      await AdSafetyConfig.init(
+        prefs,
+        params: AdSafetyParams.debug.copyWith(
+          minTimeBetweenFullscreenAds: 100,
+        ),
+      );
+      AdSafetyConfig.resetForReinit();
+    });
+
+    test('two consecutive fast closes double the fullscreen cooldown', () async {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+
+      await Future<void>.delayed(const Duration(milliseconds: 130));
+
+      final result = AdSafetyConfig.canShowFullscreenAd();
+      expect(result.canShow, isFalse,
+          reason: 'normal 100ms throttle has elapsed, but fatigue must keep '
+              'the doubled 200ms throttle active');
+      expect(result.reason, startsWith('Throttle:'));
+    });
+
+    test('one fast close is a one-off and does not extend cooldown', () async {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+
+      await Future<void>.delayed(const Duration(milliseconds: 130));
+
+      expect(AdSafetyConfig.canShowFullscreenAd().canShow, isTrue);
+    });
+
+    test('healthy dismiss decays extended cooldown back to normal', () async {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 1000);
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+
+      await Future<void>.delayed(const Duration(milliseconds: 130));
+
+      expect(AdSafetyConfig.canShowFullscreenAd().canShow, isTrue);
+    });
+
+    test('fatigue does not count as suspicious traffic or inflate risk score',
+        () {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+
+      final snapshot = AdSafetyConfig.getStatusSnapshot();
+      expect(snapshot.suspiciousViolationCount, 0);
+      expect(snapshot.isSuspended, isFalse);
+      expect(AdSafetyConfig.getPolicyRiskScore(), 0);
+    });
+
+    test('resetSession clears fatigue state', () {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+
+      AdSafetyConfig.resetSession();
+
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('resetForReinit clears fatigue state', () {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+
+      AdSafetyConfig.resetForReinit();
+
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('resetSessionCounters (host-callable reset) also clears it', () {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+
+      AdSafetyConfig.resetSessionCounters();
+
+      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+    });
+
+    test('null showDurationMs (no measurement) leaves fatigue untouched — '
+        'backward compatible with pre-T230 callers', () {
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      AdSafetyConfig.recordFullscreenAdShown(showDurationMs: 999);
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
+
+      AdSafetyConfig.recordFullscreenAdShown(); // no duration passed
+      expect(AdSafetyConfig.debugIsAdFatigued, isTrue,
+          reason: 'a caller with no duration signal must not accidentally '
+              'decay a real fatigue streak');
+    });
+  });
+
+  // ─────────────────────────────────────────────────
   // fullscreenClickThroughRate (T187)
   // ─────────────────────────────────────────────────
   group('fullscreenClickThroughRate (T187)', () {
