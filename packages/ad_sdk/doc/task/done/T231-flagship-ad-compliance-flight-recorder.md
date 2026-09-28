@@ -23,6 +23,11 @@ Khi nhà mạng (AdMob/AppLovin) phạt trừ tiền hoặc khóa tài khoản v
 - Integration test: `example/integration_test/t144_dispute_kit_test.dart`.
 - On-device test: Xuất file bằng chứng thực tế và verify qua tool CLI.
 
+### Bằng chứng bổ sung trên thiết bị (2026-09-28)
+
+- Google Pixel 7 Pro (`2B051FDH3006MU`): `flutter test integration_test/t231_flight_recorder_test.dart -d 2B051FDH3006MU` pass `1/1` trên thiết bị thật.
+- Logcat không có `FATAL EXCEPTION`; recorder ghi `bannerVisible` với pixel bounds/viewability thật, hash chain và signed bundle đều được test xác minh. Kết quả này đóng khoảng trống bằng chứng thiết bị được ghi nhận trong final integration audit.
+
 ## Prompt vòng lặp (Loop Prompt)
 Triển khai task T231 theo quy trình TDD chuẩn:
 1. Đọc kỹ file mô tả `doc/task/todo/T231-flagship-ad-compliance-flight-recorder.md` và acceptance criteria.
