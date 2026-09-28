@@ -7557,6 +7557,16 @@ class AdManager with WidgetsBindingObserver {
         return;
       }
     }
+    // T230 — show-to-dismiss duration, for the ad-fatigue (fast-close)
+    // signal. A Stopwatch (monotonic, `CLOCK_MONOTONIC`/uptime-backed —
+    // same idiom VipManager's own _sessionClockStopwatch uses) rather than
+    // two DateTime.now() reads: a wall-clock rollback/NTP sync between show
+    // and dismiss would otherwise produce a negative delta that reads as an
+    // (incorrect) fast close. Started ahead of the guard on purpose — a
+    // blocked/skipped path returns before ever reading it, so starting it a
+    // few instructions early changes nothing observable, and it keeps the
+    // guard the last check immediately before the act (see show_paths_guard_test.dart).
+    final showStopwatch = Stopwatch()..start();
     // Sweep invariant — asked immediately before presenting, never at the door.
     // See [_presentBlockedReason]. No `await` sits above this today; the guard
     // is here so that the day one does, the hole does not reopen.
@@ -7589,13 +7599,6 @@ class AdManager with WidgetsBindingObserver {
     final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
     inline?.setInlineAdsHidden(true);
     _lastShownPlacement[AdSlotType.appOpen] = placement;
-    // T230 — show-to-dismiss duration, for the ad-fatigue (fast-close)
-    // signal. A Stopwatch (monotonic, `CLOCK_MONOTONIC`/uptime-backed —
-    // same idiom VipManager's own _sessionClockStopwatch uses) rather than
-    // two DateTime.now() reads: a wall-clock rollback/NTP sync between show
-    // and dismiss would otherwise produce a negative delta that reads as an
-    // (incorrect) fast close.
-    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showAppOpen(onDismiss: (dismissed) {
         delivered = true;
@@ -7923,6 +7926,11 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
+    // T230 — monotonic; see showAppOpenAd's matching comment. Started ahead
+    // of the guard so the guard stays the last check immediately before the
+    // act (see show_paths_guard_test.dart); a blocked/skipped path below
+    // returns before ever reading it.
+    final showStopwatch = Stopwatch()..start();
     // Sweep invariant — asked immediately before presenting, never at the door.
     // See [_presentBlockedReason]. No `await` sits above this today; the guard
     // is here so that the day one does, the hole does not reopen.
@@ -7946,8 +7954,6 @@ class AdManager with WidgetsBindingObserver {
     // without this, a throwing host callback was invoked twice with
     // contradictory results.
     var delivered = false;
-    // T230 — monotonic; see showAppOpenAd's matching comment.
-    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showInterstitial(onDone: (shown) {
         delivered = true;
@@ -8368,6 +8374,11 @@ class AdManager with WidgetsBindingObserver {
         return;
       }
     }
+    // T230 — monotonic; see showAppOpenAd's matching comment. Started ahead
+    // of the guard so the guard stays the last check immediately before the
+    // act (see show_paths_guard_test.dart); a blocked/skipped path below
+    // returns before ever reading it.
+    final showStopwatch = Stopwatch()..start();
     // Round-25 QC round 22 (`codex`, BLOCKER) — the consent gate at the top of
     // this method is read BEFORE a load that can take `onDemandLoadTimeout`
     // (15s by default). A withdrawal that lands inside that window — the user
@@ -8403,8 +8414,6 @@ class AdManager with WidgetsBindingObserver {
     // reasoning); `delivered` is set before `onEarnedReward` runs so the
     // catch never re-fires it once the real callback was entered.
     var delivered = false;
-    // T230 — monotonic; see showAppOpenAd's matching comment.
-    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showRewarded(
           ssvCustomData: ssvCustomData,
@@ -8618,6 +8627,11 @@ class AdManager with WidgetsBindingObserver {
       onDone(false, false);
       return;
     }
+    // T230 — monotonic; see showAppOpenAd's matching comment. Started ahead
+    // of the guard so the guard stays the last check immediately before the
+    // act (see show_paths_guard_test.dart); a blocked/skipped path below
+    // returns before ever reading it.
+    final showStopwatch = Stopwatch()..start();
     // Sweep invariant — asked immediately before presenting, never at the door.
     // See [_presentBlockedReason]. No `await` sits above this today; the guard
     // is here so that the day one does, the hole does not reopen.
@@ -8634,8 +8648,6 @@ class AdManager with WidgetsBindingObserver {
     // identical `delivered` guard above for why this must be set before
     // `onDone` runs, not after.
     var delivered = false;
-    // T230 — monotonic; see showAppOpenAd's matching comment.
-    final showStopwatch = Stopwatch()..start();
     try {
       await ad.showRewardedInterstitial(onDone: (result) {
         delivered = true;
