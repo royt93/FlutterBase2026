@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (Bug / Lifecycle)
 - **Priority:** P1 · **Severity:** HIGH
-- **Status:** 🔲 todo
+- **Status:** ✅ done (2026-09-29)
 
 ## Vấn đề (Why)
 
