@@ -55,6 +55,8 @@ Cách tối giản nhất: gate `_recordFlightRecorderVisibility`/`_onVisibility
 - Không cần integration/device test: fix chỉ gate callback Dart bằng cùng state `_allowed`/`hasError` đã quyết định render branch; widget test chạy `VisibilityDetector` thật qua scroll transition.
 - Không đổi public API/golden. `MrecAdWidget` không hỗ trợ House Ad nên ngoài phạm vi.
 
+**Audit tích hợp độc lập (2026-09-29):** verify lại từ đầu trên bản sao /tmp — trace điều kiện guard khớp chính xác nhánh render (`_allowed`/`bannerHasError`), reproduce độc lập bằng kịch bản riêng (AppLovin, không phải AdMob như test gốc) cộng chuyển tiếp real-ad→house-ad trên cùng widget instance: RED trước fix, GREEN sau fix, real-provider evidence không bị mất. Cherry-pick `9be835e` (thiếu `Co-Authored-By`) + `993853c` (có) vào main sạch, không conflict. Ghi chú này bù cho commit `9be835e` thiếu attribution — cùng changeset T237.
+
 ## Prompt vòng lặp (Loop Prompt)
 
 Triển khai task T237 theo quy trình TDD chuẩn:
