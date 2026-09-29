@@ -4,62 +4,34 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [3.4.0] - 2026-09-29
 
-- **Added (T231):** `AdFlightRecorder` — opt-in, default-OFF "Flight Recorder": a hash-chained (Merkle-style) log of ad-display evidence for disputing an ad-network penalty/account suspension. Each entry records a meaningful STATE TRANSITION (banner becomes visible/hidden, a click lands) — not per-frame polling — with on-screen pixel position (`RenderBox.localToGlobal`), viewability % (from the existing `VisibilityDetector`/`VisibilityInfo.visibleFraction` already used by `BannerAdWidget`), the active IAB TCF consent string (from the existing `IabStorage`), and touch state; entries are bounded (2000 cap, drop-oldest) and each entry's hash covers the previous entry's hash so any tamper/reorder/drop is detectable via `verifyFlightRecorderChain`. Export as an Ed25519-signed bundle (reusing the existing `compliance_signing.dart` scheme — this SDK's own signed JSON evidence format, not an external standard) via `AdManager().exportSignedFlightRecorderBundle()`, or as part of `AdManager().exportDisputeKit()`'s new optional `DisputeKit.flightRecorderBundle` field. Enable with `AdManager().enableFlightRecorder(AdFlightRecorder())`; disabled (the default), zero entries are recorded and existing `BannerAdWidget`/`DisputeKit` behavior is unchanged.
-- **Added (T229):** `BannerAdWidget.houseAd`/`houseAdDelay` — an optional
-  host-configured `HouseAdItem` (local asset image, title, optional
-  subtitle, `onTap`) rendered instead of a blank banner once it has been
-  offline/no-fill/cooldown for longer than `houseAdDelay` (default 10s).
-  Purely local/client-side content — never emits an `AdEvent` and is not
-  counted by `AdEventLog`/`RevenueIntegrityLedger`/`AdSafetyConfig`. `null`
-  (the default) is a zero-behavior-change no-op; existing T91 animated
-  auto-collapse is unaffected.
-- **Added (T230):** internal fast-close ad-fatigue pacing in
-  `AdSafetyConfig` — two consecutive fullscreen dismisses under 1s ("fast
-  close", an ad-fatigue signal) double the fullscreen cooldown
-  (`AdSafetyParams.minTimeBetweenFullscreenAds`) until a single
-  healthy-length dismiss decays it back to normal. Public API surface
-  change: `AdSafetyConfig.recordFullscreenAdShown` gained an optional
-  `showDurationMs` parameter (default `null`, fully backward-compatible)
-  that `AdManager`'s four fullscreen show paths (interstitial, rewarded,
-  rewarded-interstitial, app-open) now pass, measured via a monotonic
-  `Stopwatch` (not wall-clock) so a clock rollback between show and dismiss
-  can't fake a fast close. Separate from, and never feeds, the existing
-  CTR/click-spam suspicious-pause mechanism — a UX pacing signal, not an
-  invalid-traffic one.
-- **Added (T228):** `NativeAdWidget.factoryId` (AdMob) and
-  `NativeAdWidget.customNativeAdBuilder` (AppLovin) for host-customized native
-  ad layouts. AdMob's opt-in routes to a platform-side `NativeAdFactory`
-  (Kotlin/Swift) the HOST app registers in its own `MainActivity`/
-  `AppDelegate` — this is not a pure-Dart layout (Google's `google_mobile_ads`
-  plugin does not support building native ad UI out of Flutter widgets at
-  all); see `example/android`/`example/ios` for a reference implementation
-  and README.md's "Custom native ad layout (AdMob)" section. AppLovin's
-  opt-in is genuinely pure-Dart — `MaxNativeAdView`'s existing asset-view
-  widgets in host-chosen arrangement, with the SDK always overlaying the
-  mandatory `MaxNativeAdOptionsView` attribution badge on top and insets the
-  host's content by that same 24px from top/right — the host builder cannot
-  omit or normally cover the badge — falling back to the standard built-in
-  layout if the declared height leaves no room for it at all. Both are
-  opt-in; leaving either null is a zero-behavior-change no-op. An
-  unregistered AdMob `factoryId` is now awaited and caught as a graceful
-  load failure (logged, `hasError` flips) instead of an unhandled
-  `PlatformException`.
-- **Changed (T225):** `InFeedAdListView` now defers default `NativeAdWidget`
-  slot loads while its own list is scrolling (settle signal from
-  `ScrollStart`/`ScrollEndNotification`, no new dependency), passing
-  `active: false` so newly mounted slots hold a fixed-height placeholder
-  instead of firing network loads mid-fling. Same constructor, same usage —
-  `StatelessWidget` → `StatefulWidget` base-class change only. Custom
-  `adBuilder` content is untouched. Redundant by design with the adapter
-  layer's existing per-key dedup (`AdSlot.beginLoad`,
-  `canLoadNative`/`recordNativeLoad`, per-key `InlineAdInstanceRegistry`
-  tombstones) — the list gate cuts mount spam before it reaches them.
-- **Fixed (T225):** `InFeedAdListView` placeholder shell now collapses immediately
-  without applying the 320px minimum height constraint when ad slots are inactive
-  or suppressed by an active VIP entitlement (`AdManager.vip.isActive`), eliminating
-  blank gaps in VIP user feeds.
+- **Added:** Optional custom native-ad layouts through a host-registered AdMob
+  `NativeAdFactory` (`NativeAdWidget.factoryId`) or an AppLovin MAX Dart builder
+  (`NativeAdWidget.customNativeAdBuilder`). Missing AdMob factory registrations
+  now fail gracefully instead of throwing an unhandled platform exception.
+- **Added:** Optional `BannerAdWidget.houseAd` fallback for prolonged offline,
+  no-fill, or cooldown states, with a configurable delay and local
+  `HouseAdItem` content. House ads remain separate from network ad events,
+  revenue, and safety accounting.
+- **Added:** Ad-fatigue detection for rapid fullscreen-ad dismissals. Two
+  consecutive closes under one second temporarily double fullscreen cooldown;
+  a healthy-length view restores normal pacing. `recordFullscreenAdShown`
+  gained the backward-compatible optional `showDurationMs` parameter.
+- **Added:** Opt-in `AdFlightRecorder` for tamper-evident ad-display compliance
+  evidence. It records bounded, hash-chained banner visibility and interaction
+  state, supports chain verification and Ed25519-signed export, and can be
+  included in `AdManager().exportDisputeKit()`.
+- **Changed:** `InFeedAdListView` now defers default native-ad loads while the
+  list is scrolling and collapses inactive or VIP-suppressed placeholders,
+  reducing network churn and blank feed gaps.
+- **Fixed:** `CompatibilityMatrix` now reports and validates the real Flutter
+  3.38.1 minimum supported version declared by the package and CI.
+- **Fixed:** Public API golden generation now includes extension members under
+  current analyzer APIs, preventing API changes from escaping the release gate.
+- **Hardened:** Added missing release guards to internal debug seams. Reviewed
+  memory-pressure, rewarded-interstitial watchdog, adaptive resize, smart
+  preload, and yield-arbitration proposals required no new runtime behavior.
 
 ## [3.3.0] - 2026-09-26
 
