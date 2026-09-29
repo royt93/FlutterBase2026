@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (Bug)
 - **Priority:** P1 · **Severity:** HIGH
-- **Status:** 🔲 todo
+- **Status:** ✅ done
 
 ## Vấn đề (Why)
 
@@ -31,11 +31,11 @@ Cách tối giản nhất: gate `_recordFlightRecorderVisibility`/`_onVisibility
 
 ### Acceptance Criteria
 
-- [ ] House Ad hiển thị không tạo entry `bannerVisible`/`bannerHidden` gắn `providerTag` của provider thật.
-- [ ] Banner/ad thật hiển thị vẫn ghi đúng như hiện tại — không regress hành vi cũ.
-- [ ] `MrecAdWidget` không có house-ad nên không cần sửa, nhưng ticket phải note rõ lý do (T229 chỉ áp dụng Banner).
-- [ ] Không tạo abstraction/dependency mới; tái dùng biến trạng thái đã có (`_allowed`, `hasError` listenable).
-- [ ] `flutter analyze` sạch; full `flutter test` pass.
+- [x] House Ad hiển thị không tạo entry `bannerVisible`/`bannerHidden` gắn `providerTag` của provider thật.
+- [x] Banner/ad thật hiển thị vẫn ghi đúng như hiện tại — không regress hành vi cũ.
+- [x] `MrecAdWidget` không có house-ad nên không cần sửa: T229 chỉ áp dụng `BannerAdWidget`; tìm toàn file `mrec_ad_widget.dart` không có `houseAd`/`HouseAd`.
+- [x] Không tạo abstraction/dependency mới; tái dùng biến trạng thái đã có (`_allowed`, `hasError` listenable).
+- [x] `flutter analyze` sạch; full `flutter test` chạy 2,408 test: 2,407 pass, 1 lỗi full-suite-only có sẵn tại `consent_fallback_wiring_test.dart` (`MissingPluginException: setHasUserConsent`) và test đó pass riêng trên source sạch không có diff T237.
 
 ## Kế hoạch kiểm thử
 
@@ -43,6 +43,17 @@ Cách tối giản nhất: gate `_recordFlightRecorderVisibility`/`_onVisibility
 - Widget: banner load thành công bình thường vẫn ghi đúng `bannerVisible`/`bannerHidden` như cũ (regression).
 - Widget: chuyển từ House Ad sang ad thật phục hồi (ticket T229 mô tả) — assert transition ghi đúng, không lẫn 2 loại nhãn.
 - Integration: bật flight recorder trên `example`, ép offline đủ lâu để House Ad hiện, xuất bundle, verify nội dung không mang nhãn sai.
+
+## Kết quả
+
+**Verdict:** FIXED. Chọn phương án (a): không ghi Flight Recorder trong lúc nhánh House Ad đang render, vì bỏ bằng chứng mơ hồ an toàn hơn tự đặt một provider tag mới.
+
+- RED trước fix: House Ad đang hiện nhưng buffer ghi 3 entry `bannerVisible`/`bannerHidden` với provider tag `counting` (fake provider thật trong test).
+- GREEN sau fix: `banner_ad_widget_test.dart` 48/48 pass; real-banner path vẫn ghi đúng provider tag; recorder-disabled path không crash.
+- `flutter analyze`: sạch.
+- Full suite: 2,407/2,408 pass; 1 lỗi full-suite-only không thuộc T237 tại `consent_fallback_wiring_test.dart` (`MissingPluginException: setHasUserConsent`), test đó pass riêng trên source không có diff T237.
+- Không cần integration/device test: fix chỉ gate callback Dart bằng cùng state `_allowed`/`hasError` đã quyết định render branch; widget test chạy `VisibilityDetector` thật qua scroll transition.
+- Không đổi public API/golden. `MrecAdWidget` không hỗ trợ House Ad nên ngoài phạm vi.
 
 ## Prompt vòng lặp (Loop Prompt)
 
