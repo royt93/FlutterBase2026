@@ -1,3 +1,33 @@
+## Tiến độ (cập nhật 2026-09-29 — audit hậu T221-T232, T233-T240 mới)
+
+- **8 ticket mới (5 Fix, 2 Enhancement, 1 New Feature; 0 Idea, 0
+  Flagship)** — audit fresh trên `main@31fbab5` sau T221-T232. `codex --yolo`
+  chạy thành công (research-only, 39 test Flight Recorder pass), tìm 6
+  candidate; tự đối chiếu source hiện tại xác nhận 5 và bổ sung 3 gap thật.
+  `agy --dangerously-skip-permissions` thất bại ngay vì quota 429
+  (`RESOURCE_EXHAUSTED`, reset ~71h), không retry-loop. Ticket:
+  **T233** P1/HIGH race ghi đồng thời làm gãy hash chain;
+  **T234** P2/MEDIUM `attach()` thiếu persist entry pre-init — tái diễn đúng
+  bug-class T155 đã fix ở BypassAuditTrail;
+  **T235** P1/HIGH recorder cũ còn debounce/in-flight write sau replace/disable;
+  **T236** P2/MEDIUM mở rộng evidence cho Native + 4 fullscreen format;
+  **T237** P1/HIGH House Ad bị ghi nhầm thành banner impression của provider;
+  **T238** P2/MEDIUM CLI verify `.adproof` độc lập;
+  **T239** P3/LOW đổi Native `factoryId`/`templateType` runtime không reload;
+  **T240** P3/LOW mở rộng House Ad fallback sang MREC.
+- **Cross-feature đáng chú ý:** (1) T229 House Ad nằm bên trong chính
+  `VisibilityDetector` T231 dùng nên fallback nội bộ bị gắn `bannerVisible` +
+  tag AdMob/AppLovin thật; (2) T231 gọi `record()` bằng `unawaited` từ
+  Banner/MREC/click trong khi `record()` snapshot `_lastHash` trước một
+  `await`, nên burst bình thường có thể tự làm `.adproof` invalid; (3) T230
+  ad-fatigue chỉ kéo giãn show trong session còn WaterfallTuner exploration
+  chọn provider ở session boundary — không có coupling/starvation trực tiếp,
+  nên không tạo ticket giả. VIP suppression của House Ad cũng đã đúng; không
+  reopen.
+- 8 ticket được mirror byte-identical ở `doc/task/todo/` (repo root) và
+  `packages/ad_sdk/doc/task/todo/`. Chưa triển khai source; chưa push — human
+  review backlog trước.
+
 ## Tiến độ (cập nhật 2026-09-07, phần 17 — T145 done)
 
 - **T145 done, 9.5/10** — RevenueIntegrityLedger: heuristic khớp thời
