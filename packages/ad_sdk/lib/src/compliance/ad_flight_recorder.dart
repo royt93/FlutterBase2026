@@ -228,6 +228,18 @@ class AdFlightRecorder {
   final List<FlightRecorderEntry> _entries = [];
   String _lastHash = '';
 
+  // T233 — every real call site (Banner/MREC visibility, click) fires
+  // `record()` via `unawaited(...)`, so two calls can be in flight at once.
+  // `record()`'s body reads `_lastHash` then `await`s a real async hash
+  // computation before appending + updating `_lastHash` — without
+  // serializing that, two overlapping calls can both read the same
+  // `_lastHash` and fork the chain. `_writeChain` forces each call's
+  // read-hash-append sequence to run to completion before the next one
+  // starts, same pattern as `_persistChain` below for persistence writes.
+  // `_doRecord` never throws (it has its own try/catch), so chaining here
+  // cannot poison this future the way an unguarded `.then` would.
+  Future<void> _writeChain = Future.value();
+
   /// Read-only view, oldest first.
   List<FlightRecorderEntry> get entries => List.unmodifiable(_entries);
 
@@ -311,6 +323,10 @@ class AdFlightRecorder {
   /// is true: milliseconds since the most recent `'*Visible'` entry for the
   /// same `(slotType, placement)`, or `0` if there is none — see
   /// [FlightRecorderEntry.interactionDurationMs]'s doc comment.
+  // T233 — public entry point now only enqueues onto `_writeChain`, so
+  // concurrent unawaited callers still run their read-hash-append
+  // sequence one at a time, in call order, instead of interleaving across
+  // the `await _hashOf(...)` yield point below.
   Future<void> record({
     required String label,
     required String slotType,
@@ -324,6 +340,38 @@ class AdFlightRecorder {
     String? tcfConsentString,
     bool touchActive = false,
     int? timestampMs,
+  }) {
+    final result = _writeChain.then((_) => _doRecord(
+          label: label,
+          slotType: slotType,
+          placement: placement,
+          providerTag: providerTag,
+          viewabilityFraction: viewabilityFraction,
+          screenX: screenX,
+          screenY: screenY,
+          widthPx: widthPx,
+          heightPx: heightPx,
+          tcfConsentString: tcfConsentString,
+          touchActive: touchActive,
+          timestampMs: timestampMs,
+        ));
+    _writeChain = result;
+    return result;
+  }
+
+  Future<void> _doRecord({
+    required String label,
+    required String slotType,
+    required String placement,
+    required String providerTag,
+    required double viewabilityFraction,
+    required double screenX,
+    required double screenY,
+    required double widthPx,
+    required double heightPx,
+    required String? tcfConsentString,
+    required bool touchActive,
+    required int? timestampMs,
   }) async {
     try {
       final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;

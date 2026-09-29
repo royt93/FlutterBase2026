@@ -491,4 +491,83 @@ void main() {
       expect(recorder.entries, hasLength(1));
     });
   });
+
+  // T233 — real call sites (banner/MREC visibility, click) fire record()
+  // via `unawaited(...)`, never awaiting one call before starting the
+  // next. These mirror that fire-and-forget usage directly (no `await`
+  // between the two `record()` calls) instead of a single-future
+  // `Future.wait`, which would still run interleaved on the event loop
+  // but is less obviously "call site shaped".
+  group('concurrent unawaited record() calls (T233)', () {
+    test('two unawaited calls fired back-to-back still form one linear '
+        'chain', () async {
+      final recorder = AdFlightRecorder();
+      final f1 = recorder.record(
+          label: 'bannerVisible',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]');
+      final f2 = recorder.record(
+          label: 'bannerHidden',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]');
+      await Future.wait([f1, f2]);
+
+      expect(recorder.entries, hasLength(2));
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue,
+          reason: 'a fork (two entries sharing one previousHash) must '
+              'never happen for real unawaited call-site usage');
+      final previousHashes = recorder.entries.map((e) => e.previousHash);
+      expect(previousHashes.toSet(), hasLength(2),
+          reason: 'no two entries may share the same previousHash — that '
+              'is exactly what a fork looks like');
+    });
+
+    test('burst of 5 unawaited calls produces a valid linear chain, no '
+        'forking, no dropped entries', () async {
+      final recorder = AdFlightRecorder();
+      final futures = <Future<void>>[];
+      for (var i = 0; i < 5; i++) {
+        futures.add(recorder.record(
+            label: 'e$i',
+            slotType: 'banner',
+            placement: 'home',
+            providerTag: '[AdMob]'));
+      }
+      await Future.wait(futures);
+
+      expect(recorder.entries, hasLength(5));
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+      final previousHashes = recorder.entries.map((e) => e.previousHash);
+      expect(previousHashes.toSet(), hasLength(5));
+      final hashes = recorder.entries.map((e) => e.hash);
+      expect(hashes.toSet(), hasLength(5), reason: 'no duplicate hashes');
+    });
+
+    test('mixed burst: unawaited record() calls racing a clear() in '
+        'between never leaves the chain forked or corrupt', () async {
+      // Not T235's territory (disable/re-enable) — this only checks that
+      // an in-flight record() racing a synchronous clear() doesn't leave
+      // a stale entry chained onto a hash that clear() already reset.
+      final recorder = AdFlightRecorder();
+      final f1 = recorder.record(
+          label: 'before-clear',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]');
+      recorder.clear();
+      final f2 = recorder.record(
+          label: 'after-clear',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]');
+      await Future.wait([f1, f2]);
+
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+      final previousHashes = recorder.entries.map((e) => e.previousHash);
+      expect(previousHashes.toSet().length, recorder.entries.length,
+          reason: 'still no two entries sharing one previousHash');
+    });
+  });
 }

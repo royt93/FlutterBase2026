@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (Bug)
 - **Priority:** P1 · **Severity:** HIGH
-- **Status:** 🔲 todo
+- **Status:** ✅ done (2026-09-29)
 
 ## Vấn đề (Why)
 
@@ -40,3 +40,9 @@ Triển khai task T233 theo quy trình TDD chuẩn:
    - Audit toàn bộ diff và chấm điểm /10 bằng reviewer độc lập.
    - Bổ sung đủ test pyramid, smoke test device thật.
    - Chỉ commit và push khi mọi gate xanh và điểm >9/10.
+
+## Kết quả
+
+- Repro RED: 2-call, 5-call và clear-race burst đều làm `verifyFlightRecorderChain` trả `false` trước fix.
+- Fix: tuần tự hóa `record()` qua `_writeChain`; `_doRecord` giữ nguyên hash/append/persist và tự nuốt lỗi nên queue không bị poison.
+- Test GREEN: 28 test Flight Recorder, 77 test liên quan + API golden, full `flutter test` pass. Pure Dart/event-loop logic nên không cần device/integration test.
