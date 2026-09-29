@@ -4,8 +4,17 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0] - 2026-09-29
 
+- **Fixed (T233):** `AdFlightRecorder.record()` could fork its own
+  tamper-evident hash chain when two ad-visibility/click events landed in
+  quick succession (e.g. banner or MREC visibility firing back-to-back),
+  because concurrent calls could each capture the same previous hash and
+  append in parallel. `verifyFlightRecorderChain()` then failed on a
+  perfectly genuine evidence log with nothing actually tampered.
+  `record()` calls are now serialized through an internal write queue, so
+  concurrent events always append in the order they were received and one
+  failed record no longer blocks the ones after it.
 - **Fixed (T235):** `AdManager.enableFlightRecorder`/`disableFlightRecorder`
   now dispose the previous `AdFlightRecorder` instance before dropping the
   reference. Without this, a replaced/disabled recorder's already-scheduled
@@ -13,9 +22,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   overwrite the new instance's evidence on disk. `AdFlightRecorder` gained a
   `dispose()` method (mirrors `MonetizationArbitrator`/`WaterfallTuner`)
   that cancels its debounce timer and permanently blocks further writes.
-
-## [3.4.0] - 2026-09-29
-
+- **Fixed (T237):** `AdFlightRecorder` evidence for a banner showing the
+  local House Ad fallback (T229) was indistinguishable from a real AdMob/
+  AppLovin impression — `BannerAdWidget`'s visibility callback recorded
+  `bannerVisible`/`bannerHidden` with the live provider's tag regardless of
+  whether a real network ad or the offline House Ad content was actually
+  on screen. A host disputing an "ad over UI"/invalid-traffic claim with a
+  network using this evidence could have it show a real impression at a
+  moment no ad request was ever sent. The recorder now skips these events
+  entirely while the House Ad fallback is showing; real ad impressions are
+  recorded exactly as before.
 - **Added:** Optional custom native-ad layouts through a host-registered AdMob
   `NativeAdFactory` (`NativeAdWidget.factoryId`) or an AppLovin MAX Dart builder
   (`NativeAdWidget.customNativeAdBuilder`). Missing AdMob factory registrations
