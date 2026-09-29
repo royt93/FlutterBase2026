@@ -4,6 +4,16 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Fixed (T235):** `AdManager.enableFlightRecorder`/`disableFlightRecorder`
+  now dispose the previous `AdFlightRecorder` instance before dropping the
+  reference. Without this, a replaced/disabled recorder's already-scheduled
+  debounced persistence write could still fire afterward and silently
+  overwrite the new instance's evidence on disk. `AdFlightRecorder` gained a
+  `dispose()` method (mirrors `MonetizationArbitrator`/`WaterfallTuner`)
+  that cancels its debounce timer and permanently blocks further writes.
+
 ## [3.4.0] - 2026-09-29
 
 - **Added:** Optional custom native-ad layouts through a host-registered AdMob

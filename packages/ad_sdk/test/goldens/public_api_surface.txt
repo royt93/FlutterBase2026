@@ -91,6 +91,7 @@ AdFlightRecorder  [class]  class AdFlightRecorder
 AdFlightRecorder.attach  [method]  void attach(AdPreferences prefs)
 AdFlightRecorder.capacity  [field]  int capacity
 AdFlightRecorder.clear  [method]  void clear()
+AdFlightRecorder.dispose  [method]  void dispose()
 AdFlightRecorder.entries  [getter]  List<FlightRecorderEntry> get entries
 AdFlightRecorder.flush  [method]  Future<void> flush()
 AdFlightRecorder.new  [constructor]  AdFlightRecorder AdFlightRecorder({int capacity = 2000})

@@ -253,6 +253,16 @@ class AdFlightRecorder {
   static const Duration _debounceWindow = Duration(seconds: 1);
   Timer? _debounceTimer;
 
+  /// T235 — set by [dispose]. Every instance shares the same
+  /// [AdPreferences] key, so once `AdManager` has replaced/disabled this
+  /// instance, it must never write to disk again: a debounce timer that
+  /// outlived the swap (or a straggling `record()` call from a caller that
+  /// captured this instance before the swap — see
+  /// `AdManager.recordFlightRecorderEvent`'s in-flight-await race) would
+  /// otherwise silently clobber the active instance's newer evidence with
+  /// this one's stale snapshot.
+  bool _disposed = false;
+
   /// Wires persistence once [AdPreferences] becomes available: loads
   /// whatever a PRIOR process already persisted (restoring [_lastHash] from
   /// the newest loaded entry so the chain continues rather than silently
@@ -288,10 +298,11 @@ class AdFlightRecorder {
   }
 
   void _schedulePersist() {
-    if (_prefs == null) return;
+    if (_prefs == null || _disposed) return;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(_debounceWindow, () {
       _debounceTimer = null;
+      if (_disposed) return; // T235 — disposed while the timer was pending.
       _persistChain = _persistChain.then((_) => _persistNow()).catchError((e) {
         SafeLogger.w(_tag, 'flight-recorder persist failed: $e');
       });
@@ -299,6 +310,7 @@ class AdFlightRecorder {
   }
 
   Future<void> _persistNow() async {
+    if (_disposed) return; // T235 — see dispose()'s doc comment.
     final bundle = FlightRecorderBundle(
       entries: entries,
       generatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -307,12 +319,29 @@ class AdFlightRecorder {
   }
 
   /// Forces an immediate write, skipping any pending debounce window — same
-  /// contract as `AdEventLog.flush`.
+  /// contract as `AdEventLog.flush`. No-ops once [dispose]d.
   Future<void> flush() async {
+    if (_disposed) return;
     _debounceTimer?.cancel();
     _debounceTimer = null;
     _persistChain = _persistChain.then((_) => _persistNow());
     await _persistChain;
+  }
+
+  /// T235 — `AdManager` calls this from `disableFlightRecorder()` /
+  /// `enableFlightRecorder()` (replacing the previous instance) BEFORE
+  /// dropping its own reference. Cancels any pending debounce timer and
+  /// permanently blocks this instance from writing to disk again, so a
+  /// timer that was already queued (or a `record()` call already in flight
+  /// via a captured reference — see `AdManager.recordFlightRecorderEvent`)
+  /// cannot land after a replacement instance has started persisting and
+  /// silently overwrite its newer evidence with this instance's stale
+  /// snapshot. Mirrors `BypassAuditTrail`'s own debounce-cancel-on-teardown
+  /// shape; safe to call more than once.
+  void dispose() {
+    _disposed = true;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
   }
 
   /// Appends one hash-chained entry. Never throws — a hashing failure

@@ -964,8 +964,16 @@ class AdManager with WidgetsBindingObserver {
 
   /// Opt in to the flight recorder: starts hash-chaining ad-display
   /// evidence entries recorded by instrumented widgets/call sites.
+  ///
+  /// T235 — replacing an already-enabled recorder disposes the OLD one
+  /// first (same [_swapDisposable] shape as [enableArbitrator]/
+  /// [enableWaterfallTuner]): without this, the old instance's pending
+  /// debounced write could still land after the new instance starts
+  /// persisting and silently overwrite its evidence — see
+  /// [AdFlightRecorder.dispose]'s doc comment.
   void enableFlightRecorder(AdFlightRecorder recorder) {
-    _flightRecorder = recorder;
+    _flightRecorder =
+        _swapDisposable(_flightRecorder, recorder, (r) => r.dispose());
     // Covers the "enabled after initialize() already ran" ordering too —
     // the `initialize()` call site above only covers "enabled before init".
     final prefs = AdPreferences.instanceOrNull;
@@ -975,7 +983,8 @@ class AdManager with WidgetsBindingObserver {
   /// Test/host seam: clear a previously-registered flight recorder.
   @visibleForTesting
   void disableFlightRecorder() {
-    _flightRecorder = null;
+    _flightRecorder = _swapDisposable<AdFlightRecorder>(
+        _flightRecorder, null, (r) => r.dispose());
   }
 
   /// Signs the current [flightRecorder] buffer as an exportable `.adproof`

@@ -67,6 +67,92 @@ void main() {
     });
   });
 
+  group('replace / disable lifecycle (T235)', () {
+    late AdPreferences prefs;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      prefs = await AdPreferences.getInstance();
+      await prefs.clearAllData();
+    });
+
+    // These tests persist real data onto the shared `AdPreferences`
+    // singleton (needed to exercise the actual debounce/disk-write race) —
+    // without cleaning it back up, later tests in this file that enable a
+    // fresh `AdFlightRecorder` auto-`attach()` (via `AdManager
+    // .enableFlightRecorder`'s `AdPreferences.instanceOrNull` check) and
+    // silently reload this leftover persisted entry.
+    tearDown(() async {
+      await prefs.clearAllData();
+    });
+
+    test('old debounce cannot overwrite a replacement recorder', () async {
+      final old = AdFlightRecorder()..attach(prefs);
+      AdManager().enableFlightRecorder(old);
+      await old.record(
+        label: 'old',
+        slotType: 'banner',
+        placement: 'home',
+        providerTag: '[AdMob]',
+      );
+
+      final replacement = AdFlightRecorder();
+      AdManager().enableFlightRecorder(replacement);
+      await replacement.record(
+        label: 'new',
+        slotType: 'banner',
+        placement: 'home',
+        providerTag: '[AdMob]',
+      );
+      await replacement.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+      final persisted = FlightRecorderBundle.fromJsonString(
+        prefs.getFlightRecorderRaw()!,
+      );
+      expect(persisted.entries.map((entry) => entry.label), ['new']);
+    });
+
+    test('disable with no pending write is safe and idempotent', () {
+      AdManager().enableFlightRecorder(AdFlightRecorder()..attach(prefs));
+
+      AdManager().disableFlightRecorder();
+      AdManager().disableFlightRecorder();
+
+      expect(AdManager().flightRecorder, isNull);
+    });
+
+    test('rapid enable-disable-enable cycles cancel every old timer', () async {
+      final active = AdFlightRecorder();
+      for (var i = 0; i < 3; i++) {
+        final stale = AdFlightRecorder()..attach(prefs);
+        AdManager().enableFlightRecorder(stale);
+        await stale.record(
+          label: 'stale-$i',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]',
+        );
+        AdManager().disableFlightRecorder();
+      }
+
+      AdManager().enableFlightRecorder(active);
+      await active.record(
+        label: 'active',
+        slotType: 'banner',
+        placement: 'home',
+        providerTag: '[AdMob]',
+      );
+      await active.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+      final persisted = FlightRecorderBundle.fromJsonString(
+        prefs.getFlightRecorderRaw()!,
+      );
+      expect(persisted.entries.map((entry) => entry.label), ['active']);
+    });
+  });
+
   group('exportSignedFlightRecorderBundle', () {
     test('returns null when the recorder was never enabled', () async {
       expect(await AdManager().exportSignedFlightRecorderBundle(), isNull);
