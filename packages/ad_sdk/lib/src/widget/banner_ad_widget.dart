@@ -322,6 +322,18 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   /// `IabStorage` read or does any work unless a host opted in.
   void _recordFlightRecorderVisibility(VisibilityInfo info) {
     if (AdManager().flightRecorder == null) return;
+    // T237 — a HouseAdItem fallback (T229) is local, non-provider content:
+    // recording its visibility under the active adapter's `providerTag`
+    // would let a fill-rate gap masquerade as a real AdMob/AppLovin
+    // impression in the T231 compliance evidence chain. Skip recording
+    // entirely whenever `_buildBanner` would actually render the house-ad
+    // branch instead of a real ad — same `_allowed`/`bannerHasError` state
+    // the render tree itself branches on, so this can never drift from
+    // what's actually on screen.
+    if (widget.houseAd != null &&
+        (!_allowed.value || AdManager().bannerHasError(this).value)) {
+      return;
+    }
     final visible = info.visibleFraction > 0;
     if (_lastFlightRecorderVisible == visible) return;
     _lastFlightRecorderVisible = visible;

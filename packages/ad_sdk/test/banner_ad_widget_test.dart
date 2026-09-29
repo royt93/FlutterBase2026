@@ -1613,6 +1613,8 @@ void main() {
       expect(recorder.entries, isNotEmpty);
       final visible = recorder.entries.firstWhere(
           (entry) => entry.label == 'bannerVisible');
+      expect(visible.providerTag, adapter.tag,
+          reason: 'real banner evidence keeps the active provider tag');
       expect(visible.viewabilityFraction, greaterThan(0));
       expect(visible.screenX, greaterThanOrEqualTo(0));
       expect(visible.screenY, greaterThanOrEqualTo(0));
@@ -1696,6 +1698,111 @@ void main() {
 
       expect(recorder.entries, hasLength(countAfterDispose),
           reason: 'the mounted guard rejects any post-dispose callback');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'house ad visible with recorder enabled emits no provider banner evidence',
+        (tester) async {
+      final adapter = _CollapsingBannerCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      final controller = ScrollController();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: controller,
+            child: const Column(children: [
+              BannerAdWidget(
+                collapseAnimationDuration: Duration.zero,
+                houseAd: HouseAdItem(
+                  assetPath: 'assets/house_ad.png',
+                  title: 'House fallback',
+                ),
+                houseAdDelay: Duration.zero,
+              ),
+              SizedBox(height: 1000),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('House fallback'), findsOneWidget,
+          reason: 'precondition: only the local house fallback is rendered');
+      recorder.clear();
+
+      // Drive real VisibilityDetector transitions while the fallback remains
+      // the only painted content. Before T237 both were falsely attributed to
+      // the active provider.
+      controller.jumpTo(500);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      controller.jumpTo(0);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('House fallback'), findsOneWidget);
+      expect(
+        recorder.entries.where((entry) =>
+            entry.providerTag == adapter.tag &&
+            (entry.label == 'bannerVisible' ||
+                entry.label == 'bannerHidden')),
+        isEmpty,
+        reason: 'house fallback must never become provider impression evidence',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('house ad visible with recorder disabled is unchanged and safe',
+        (tester) async {
+      final adapter = _CollapsingBannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().disableFlightRecorder();
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const BannerAdWidget(
+        collapseAnimationDuration: Duration.zero,
+        houseAd: HouseAdItem(
+          assetPath: 'assets/house_ad.png',
+          title: 'House fallback',
+        ),
+        houseAdDelay: Duration.zero,
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('House fallback'), findsOneWidget);
+      expect(AdManager().flightRecorder, isNull);
       expect(tester.takeException(), isNull);
     });
   });
