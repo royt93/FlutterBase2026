@@ -85,4 +85,67 @@ void main() {
     expect(find.text('MREC demo'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'T240 — house ad fallback renders after forced offline and tap works',
+      (tester) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+
+    final tile = find.text('MREC ad');
+    var foundTile = false;
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+      if (tile.evaluate().isNotEmpty) {
+        foundTile = true;
+        break;
+      }
+    }
+    expect(foundTile, isTrue, reason: 'HomePage must list the MREC ad tile');
+    await tester.tap(tile);
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(find.text('MREC demo'), findsOneWidget);
+
+    // Scroll the dedicated house-ad demo instance into view and force the
+    // SDK offline — this reliably reproduces the T240 fallback on demand,
+    // without depending on the real ad network happening to no-fill.
+    final forceOfflineButton = find.byKey(const ValueKey(
+      'T240_force_offline_button',
+    ));
+    await tester.dragUntilVisible(
+      forceOfflineButton,
+      find.byType(Scrollable).first,
+      const Offset(0, -300),
+    );
+    await tester.pump();
+    expect(forceOfflineButton, findsOneWidget,
+        reason: 'MrecDemoPage must ship the T240 house-ad demo section');
+
+    await tester.tap(forceOfflineButton);
+    await tester.pump();
+
+    // houseAdDelay is 2s in the demo widget — poll past it.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    final fallbackText = find.text('Go VIP — remove ads');
+    expect(fallbackText, findsOneWidget,
+        reason: 'house ad must render once offline outlasts houseAdDelay');
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(fallbackText);
+    await tester.pump();
+    expect(find.text('House ad tapped'), findsOneWidget,
+        reason: 'tap must reach HouseAdItem.onTap and show the snackbar');
+    expect(tester.takeException(), isNull);
+
+    // Restore connectivity so leaving this test doesn't affect later tests
+    // sharing the same app process.
+    await tester.tap(find.byKey(const ValueKey('T240_force_offline_button')));
+    await tester.pump();
+  });
 }

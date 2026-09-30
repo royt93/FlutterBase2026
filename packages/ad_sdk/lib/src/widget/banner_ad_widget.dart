@@ -867,7 +867,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
                 if (!allowed) {
                   final houseAd = widget.houseAd;
                   if (houseAd != null) {
-                    return _HouseAdSlot(
+                    return HouseAdSlot(
                         item: houseAd, delay: widget.houseAdDelay);
                   }
                   return const SizedBox.shrink();
@@ -906,7 +906,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
             if (hasError) {
               final houseAd = widget.houseAd;
               if (houseAd != null) {
-                return _HouseAdSlot(item: houseAd, delay: widget.houseAdDelay);
+                return HouseAdSlot(item: houseAd, delay: widget.houseAdDelay);
               }
               return const SizedBox.shrink();
             }
@@ -945,7 +945,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
         if (hasError) {
           final houseAd = widget.houseAd;
           if (houseAd != null) {
-            return _HouseAdSlot(item: houseAd, delay: widget.houseAdDelay);
+            return HouseAdSlot(item: houseAd, delay: widget.houseAdDelay);
           }
           return const SizedBox.shrink();
         }
@@ -1076,19 +1076,27 @@ class _ShimmerOnlyContainer extends StatelessWidget {
 /// pending [Timer] in [dispose]) before it ever gets to show anything —
 /// "ad recovers before the delay" and "dispose while pending" both fall out
 /// of ordinary widget lifecycle, no extra bookkeeping needed.
-class _HouseAdSlot extends StatefulWidget {
-  const _HouseAdSlot({required this.item, required this.delay});
+class HouseAdSlot extends StatefulWidget {
+  const HouseAdSlot({
+    super.key,
+    required this.item,
+    required this.delay,
+    this.logTag = 'BannerAdWidget',
+  });
 
   final HouseAdItem item;
   final Duration delay;
 
+  /// T240 — [MrecAdWidget] reuses this widget verbatim and only overrides
+  /// this for its own debug-log lines; everything else (timer, tap, teardown)
+  /// is identical between the two hosts.
+  final String logTag;
+
   @override
-  State<_HouseAdSlot> createState() => _HouseAdSlotState();
+  State<HouseAdSlot> createState() => HouseAdSlotState();
 }
 
-class _HouseAdSlotState extends State<_HouseAdSlot> {
-  static const String _tag = 'BannerAdWidget';
-
+class HouseAdSlotState extends State<HouseAdSlot> {
   Timer? _timer;
   bool _show = false;
 
@@ -1097,7 +1105,7 @@ class _HouseAdSlotState extends State<_HouseAdSlot> {
     super.initState();
     _timer = Timer(widget.delay, () {
       if (!mounted) return;
-      SafeLogger.d(_tag,
+      SafeLogger.d(widget.logTag,
           '🏠 house ad shown (blank > ${widget.delay.inSeconds}s)');
       setState(() => _show = true);
     });
@@ -1107,7 +1115,8 @@ class _HouseAdSlotState extends State<_HouseAdSlot> {
   void dispose() {
     _timer?.cancel();
     if (_show) {
-      SafeLogger.d(_tag, '🏠 house ad reverted (real ad available again)');
+      SafeLogger.d(
+          widget.logTag, '🏠 house ad reverted (real ad available again)');
     }
     super.dispose();
   }

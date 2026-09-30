@@ -2,7 +2,7 @@
 
 - **Loại:** Enhancement
 - **Priority:** P3 · **Severity:** LOW
-- **Status:** 🔲 todo
+- **Status:** ✅ done (2026-09-30)
 
 ## Vấn đề (Why)
 
@@ -22,6 +22,48 @@ MREC là khối diện tích lớn hơn banner nhiều (300x250 vs ~320x50) — 
 - [ ] Không ảnh hưởng quyết định sản phẩm đã duyệt của owner.
 - [ ] Widget test đủ case y hệt Banner: no-fill hiện house ad sau delay, dispose hủy timer, ad phục hồi trước delay không hiện house ad, tap gọi đúng `onTap`.
 - [ ] `flutter analyze` sạch 0 cảnh báo; `flutter test` toàn bộ pass xanh; golden API cập nhật nếu constructor đổi signature công khai.
+
+## Kết quả (2026-09-30)
+
+**Verdict: DONE.** Xác minh claim trước khi sửa: `mrec_ad_widget.dart` đúng có 3
+điểm `SizedBox.shrink()` ở dòng 461/492/525 (nay đã dịch dòng sau khi thêm
+param), khớp mô tả ticket.
+
+Triển khai: tái dùng `HouseAdItem` (import từ `banner_ad_widget.dart`, không
+đổi vị trí khai báo). `_HouseAdSlot` (private, không thể import cross-file
+trong Dart) được đổi tên public `HouseAdSlot`/`HouseAdSlotState` để
+`MrecAdWidget` tái dùng trực tiếp — không tạo class/abstraction mới, chỉ mở
+đủ để share. Để không rò rỉ 2 class này vào public API surface, barrel
+(`lib/applovin_admob_sdk.dart`) export `banner_ad_widget.dart` với
+`hide HouseAdSlot, HouseAdSlotState`. `MrecAdWidget.houseAd`/`houseAdDelay`
+(cùng default `Duration(seconds: 10)`) là thay đổi API công khai duy nhất —
+đã cập nhật `test/goldens/public_api_surface.txt` + CHANGELOG 3.4.0.
+
+`_recordFlightRecorderVisibility` của MREC được gate y hệt T237's fix cho
+Banner (`widget.houseAd != null && (!_allowed.value || mrecHasError)`) —
+house-ad hiển thị không tạo entry `mrecVisible`/`mrecHidden` gắn provider tag
+thật; ad thật vẫn ghi đúng tag (có test riêng cho cả 2 nhánh + trạng thái
+recorder bật/tắt).
+
+TDD: RED trước (test mới fail vì thiếu param/logic) → GREEN sau khi sửa.
+`test/mrec_ad_widget_test.dart` thêm 2 group mới (~15 test case): no-fill/
+offline quá delay hiện fallback, tap gọi đúng `onTap`, ad thật trước delay
+hủy timer, ad thật phục hồi sau fallback gỡ fallback, dispose khi timer đang
+chờ an toàn, pause/resume qua `active` không tạo timer trùng, VIP/consent-
+blocked bán nhất quán với Banner, và cặp test Flight Recorder enabled/
+disabled. `test/banner_ad_widget_test.dart` (48 test) chạy lại xanh toàn bộ
+— không regress từ việc đổi `_HouseAdSlot` thành shared `HouseAdSlot`.
+
+Integration: thêm demo section "T240 — House Ad fallback demo" vào
+`example/lib/main.dart`'s `MrecDemoPage` (nút force-offline debug-seam,
+`MrecAdWidget` cấu hình `houseAd`/`houseAdDelay: 2s`) và test mới trong
+`example/integration_test/mrec_ad_test.dart` ép offline qua
+`AdManager().debugConnectivityChanged` để buộc fallback hiện ra không cần ad
+thật, verify render + tap + không crash.
+
+`flutter analyze` sạch (root + example). Full `flutter test` (root package):
+xem log chạy đầy đủ trong báo cáo cuối; không regress nào phát hiện ngoài
+phạm vi T240.
 
 ## Kế hoạch kiểm thử
 

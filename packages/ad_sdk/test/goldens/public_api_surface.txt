@@ -1067,7 +1067,9 @@ MrecAdWidget  [class]  class MrecAdWidget extends StatefulWidget
 MrecAdWidget.active  [field]  bool? active
 MrecAdWidget.controller  [field]  InlineAdController? controller
 MrecAdWidget.createState  [method]  State<MrecAdWidget> createState()
-MrecAdWidget.new  [constructor]  MrecAdWidget MrecAdWidget({Key? key, AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller})
+MrecAdWidget.houseAd  [field]  HouseAdItem? houseAd
+MrecAdWidget.houseAdDelay  [field]  Duration houseAdDelay
+MrecAdWidget.new  [constructor]  MrecAdWidget MrecAdWidget({Key? key, AdPlacement placement = AdPlacement.unspecified, bool? active, InlineAdController? controller, HouseAdItem? houseAd, Duration houseAdDelay = const Duration(seconds: 10)})
 MrecAdWidget.placement  [field]  AdPlacement placement
 NativeAdWidget  [class]  class NativeAdWidget extends StatefulWidget
 NativeAdWidget.active  [field]  bool active

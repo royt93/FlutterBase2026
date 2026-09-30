@@ -116,7 +116,11 @@ export 'src/vip/vip_revocation_provider.dart';
 export 'src/widget/ad_loading_dialog.dart';
 export 'src/widget/ad_readiness_splash_controller.dart';
 export 'src/widget/adaptive_ad_surface.dart';
-export 'src/widget/banner_ad_widget.dart';
+// T240 — HouseAdSlot/HouseAdSlotState are shared internal implementation
+// (BannerAdWidget's own house-ad rendering, reused verbatim by
+// MrecAdWidget); they must stay public Dart syntax for cross-file reuse
+// within lib/src/widget/ but are not part of this package's API promise.
+export 'src/widget/banner_ad_widget.dart' hide HouseAdSlot, HouseAdSlotState;
 export 'src/widget/debug_ad_overlay.dart';
 export 'src/widget/in_feed_ad_list_view.dart'
     show InFeedAdListView, InFeedIndexCalculator;

@@ -59,6 +59,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   no-fill, or cooldown states, with a configurable delay and local
   `HouseAdItem` content. House ads remain separate from network ad events,
   revenue, and safety accounting.
+- **Added (T240):** `MrecAdWidget` gains the same `houseAd`/`houseAdDelay`
+  fallback as `BannerAdWidget` (T229), reusing the identical `HouseAdItem`
+  content type and rendering widget — no new abstraction. MREC is a much
+  larger blank area than banner (300x250 vs ~320x50), so a sustained no-fill
+  or offline gap there is a bigger UX gap to leave unfilled. Same T237
+  invariant applies: `AdFlightRecorder` never attributes the local fallback
+  to the active provider.
 - **Added:** Ad-fatigue detection for rapid fullscreen-ad dismissals. Two
   consecutive closes under one second temporarily double fullscreen cooldown;
   a healthy-length view restores normal pacing. `recordFullscreenAdShown`

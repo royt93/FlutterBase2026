@@ -13,6 +13,7 @@ import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
 import '../state/ad_slot.dart';
 import '../utils/safe_logger.dart';
+import 'banner_ad_widget.dart' show HouseAdItem, HouseAdSlot;
 import 'inline_ad_controller.dart';
 import 'shimmer_view.dart';
 
@@ -36,6 +37,8 @@ class MrecAdWidget extends StatefulWidget {
     this.placement = AdPlacement.unspecified,
     this.active,
     this.controller,
+    this.houseAd,
+    this.houseAdDelay = const Duration(seconds: 10),
   }) : assert(
           active == null || controller == null,
           'Pass either active or controller, not both — controller owns '
@@ -54,6 +57,15 @@ class MrecAdWidget extends StatefulWidget {
   /// instance. Mutually exclusive with [active] (asserted in the
   /// constructor) — see `BannerAdWidget.controller`'s doc comment.
   final InlineAdController? controller;
+
+  /// T240 — local fallback shown after [houseAdDelay] of sustained no-fill,
+  /// offline, or gated state, same contract as `BannerAdWidget.houseAd`. MREC
+  /// is a much larger blank area than banner (300x250 vs ~320x50), so the
+  /// UX cost of leaving it empty is proportionally bigger.
+  final HouseAdItem? houseAd;
+
+  /// See `BannerAdWidget.houseAdDelay`'s doc comment — identical contract.
+  final Duration houseAdDelay;
 
   @override
   State<MrecAdWidget> createState() => _MrecAdWidgetState();
@@ -96,6 +108,13 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
 
   void _recordFlightRecorderVisibility(VisibilityInfo info) {
     if (AdManager().flightRecorder == null) return;
+    // T240 preserves T237's invariant for the new MREC fallback: local house
+    // content is not provider evidence. The same state that selects a fallback
+    // render branch gates recorder writes, so evidence cannot drift from UI.
+    if (widget.houseAd != null &&
+        (!_allowed.value || AdManager().mrecHasError(this).value)) {
+      return;
+    }
     final visible = info.visibleFraction > 0;
     if (_lastFlightRecorderVisible == visible) return;
     _lastFlightRecorderVisible = visible;
@@ -458,7 +477,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
             return ValueListenableBuilder<bool>(
               valueListenable: _allowed,
               builder: (context, allowed, _) {
-                if (!allowed) return const SizedBox.shrink();
+                if (!allowed) return _buildHouseAdOrEmpty();
                 final mgr = AdManager();
                 if (!mgr.isInitialised) return const SizedBox.shrink();
                 return mgr.isAdMobProvider ? _buildAdmob() : _buildAppLovin();
@@ -472,6 +491,19 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
 
   /// Stub used when VipManager isn't available yet (before initialize).
   static final ValueNotifier<bool> _kAlwaysFalse = ValueNotifier<bool>(false);
+
+  /// T240 — reuses `BannerAdWidget`'s [HouseAdSlot] verbatim (own timer/tap/
+  /// teardown); the three blank-render sites this replaces are identical to
+  /// BannerAdWidget's own (`!allowed`, AdMob `hasError`, AppLovin `hasError`).
+  Widget _buildHouseAdOrEmpty() {
+    final houseAd = widget.houseAd;
+    if (houseAd == null) return const SizedBox.shrink();
+    return HouseAdSlot(
+      item: houseAd,
+      delay: widget.houseAdDelay,
+      logTag: 'MrecAdWidget',
+    );
+  }
 
   // ─── AdMob ───────────────────────────────────────────────────────────────
 
@@ -489,7 +521,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
         return ValueListenableBuilder<bool>(
           valueListenable: AdManager().mrecHasError(this),
           builder: (context, hasError, _) {
-            if (hasError) return const SizedBox.shrink();
+            if (hasError) return _buildHouseAdOrEmpty();
             return ValueListenableBuilder<bool>(
               valueListenable: AdManager().mrecVisible(this),
               builder: (context, visible, _) {
@@ -522,7 +554,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
     return ValueListenableBuilder<bool>(
       valueListenable: AdManager().mrecHasError(this),
       builder: (context, hasError, _) {
-        if (hasError) return const SizedBox.shrink();
+        if (hasError) return _buildHouseAdOrEmpty();
         return ValueListenableBuilder<Object?>(
           valueListenable: AdManager().mrecAdViewId(this),
           builder: (context, adViewId, _) {

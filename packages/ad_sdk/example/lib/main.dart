@@ -2479,6 +2479,29 @@ class MrecDemoPage extends AdScreen {
 }
 
 class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
+  // T240 — forces the SDK offline (debug-only seam, same pattern as
+  // NativeDemoPage's watchdog demo above) so the dedicated house-ad MREC
+  // instance below reliably falls back to local content on demand — an
+  // on-device/integration test can exercise the fallback without depending
+  // on a real network no-fill, which isn't reproducible on request.
+  bool _forcedOffline = false;
+
+  void _toggleForceOffline() {
+    final next = !_forcedOffline;
+    // ignore: invalid_use_of_visible_for_testing_member
+    AdManager().debugConnectivityChanged(!next);
+    setState(() => _forcedOffline = next);
+  }
+
+  @override
+  void dispose() {
+    if (_forcedOffline) {
+      // ignore: invalid_use_of_visible_for_testing_member
+      AdManager().debugConnectivityChanged(true);
+    }
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2518,6 +2541,50 @@ class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
                   ),
                 ),
                 buildMrec(),
+                const Divider(height: 32),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('T240 — House Ad fallback demo',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Force offline below, then wait 2s — this '
+                            'instance shows local fallback content instead '
+                            'of staying blank. Tap it to fire onTap.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 8),
+                          MrecAdWidget(
+                            key: const ValueKey('T240_house_ad_demo'),
+                            houseAd: HouseAdItem(
+                              assetPath: 'assets/house_ad.png',
+                              title: 'Go VIP — remove ads',
+                              subtitle: 'Local fallback demo (T240)',
+                              onTap: () => ScaffoldMessenger.of(context)
+                                  .showSnackBar(const SnackBar(
+                                      content: Text('House ad tapped'))),
+                            ),
+                            houseAdDelay: const Duration(seconds: 2),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton(
+                            key: const ValueKey('T240_force_offline_button'),
+                            onPressed: _toggleForceOffline,
+                            child: Text(_forcedOffline
+                                ? 'Restore connectivity'
+                                : 'Force offline (show fallback)'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

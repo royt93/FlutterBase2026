@@ -436,6 +436,229 @@ void main() {
     });
   });
 
+  group('T240 — house ad fallback on no-fill/offline', () {
+    late _MrecCountingAdapter adapter;
+
+    setUp(() {
+      adapter = _MrecCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+    });
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugVipManager = null;
+      AdManager().debugConnectivityChanged(true);
+    });
+
+    var tapped = 0;
+    HouseAdItem item() {
+      tapped = 0;
+      return HouseAdItem(
+        assetPath: 'assets/house_ad.png',
+        title: 'MREC house fallback',
+        subtitle: 'Local content',
+        onTap: () => tapped++,
+      );
+    }
+
+    test('houseAdDelay defaults to 10 seconds', () {
+      const widget = MrecAdWidget();
+      expect(widget.houseAdDelay, const Duration(seconds: 10));
+      expect(widget.houseAd, isNull);
+    });
+
+    testWidgets(
+        'no houseAd configured: no-fill stays byte-compatible blank forever',
+        (tester) async {
+      await tester.pumpWidget(host(const MrecAdWidget(active: true)));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump(const Duration(seconds: 15));
+
+      expect(find.text('MREC house fallback'), findsNothing);
+      expect(tester.getSize(find.byType(MrecAdWidget)).height, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'configured no-fill past delay renders fallback, tap fires, and no '
+        'AdEvent is emitted', (tester) async {
+      final events = <AdEvent>[];
+      final sub = AdManager().events.listen(events.add);
+      addTearDown(sub.cancel);
+
+      await tester.pumpWidget(host(MrecAdWidget(
+        active: true,
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('MREC house fallback'), findsNothing);
+
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('MREC house fallback'), findsOneWidget);
+      expect(tester.getSize(find.byType(MrecAdWidget)).height, greaterThan(0));
+
+      await tester.tap(find.text('MREC house fallback'));
+      expect(tapped, 1);
+      expect(events, isEmpty,
+          reason: 'house content must not synthesize provider ad events');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('offline past delay renders fallback without requesting fill',
+        (tester) async {
+      AdManager().debugConnectivityChanged(false);
+
+      await tester.pumpWidget(host(MrecAdWidget(
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(seconds: 3));
+
+      expect(find.text('MREC house fallback'), findsOneWidget);
+      expect(adapter.loadMrecCalls, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('real MREC before delay cancels pending fallback', (tester) async {
+      await tester.pumpWidget(host(MrecAdWidget(
+        active: true,
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 2),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      listenables.hasError.value = false;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(300, 250);
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.text('MREC house fallback'), findsNothing);
+      expect(find.text('Ad'), findsOneWidget,
+          reason: 'successful provider content replaces the blank branch');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('real MREC returning after fallback removes it', (tester) async {
+      await tester.pumpWidget(host(MrecAdWidget(
+        active: true,
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 1),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('MREC house fallback'), findsOneWidget);
+
+      listenables.hasError.value = false;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(300, 250);
+      await tester.pump();
+
+      expect(find.text('MREC house fallback'), findsNothing);
+      expect(find.text('Ad'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('disposing while fallback timer is pending is safe',
+        (tester) async {
+      await tester.pumpWidget(host(MrecAdWidget(
+        active: true,
+        houseAd: item(),
+        houseAdDelay: const Duration(seconds: 5),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(seconds: 6));
+
+      expect(find.byType(MrecAdWidget), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'visibility pause/resume while offline preserves one fallback timer',
+        (tester) async {
+      AdManager().debugConnectivityChanged(false);
+      final active = ValueNotifier<bool>(true);
+      addTearDown(active.dispose);
+
+      await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+        valueListenable: active,
+        builder: (_, value, _) => MrecAdWidget(
+          active: value,
+          houseAd: item(),
+          houseAdDelay: const Duration(seconds: 2),
+        ),
+      )));
+      await tester.pump(const Duration(seconds: 1));
+      active.value = false;
+      await tester.pump();
+      active.value = true;
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.text('MREC house fallback'), findsOneWidget,
+          reason: 'pause/resume rebuilds must not duplicate or reset timer');
+      await tester.tap(find.text('MREC house fallback'));
+      expect(tapped, 1);
+      expect(adapter.loadMrecCalls, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('VIP suppresses fallback but consent-blocked state matches Banner',
+        (tester) async {
+      AdManager().debugCanRequestAds = false;
+      await tester.pumpWidget(host(MrecAdWidget(
+        houseAd: item(),
+        houseAdDelay: Duration.zero,
+      )));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('MREC house fallback'), findsOneWidget,
+          reason: 'Banner also permits local fallback before consent');
+      expect(adapter.loadMrecCalls, 0);
+
+      AdManager().debugVipManager = _FakeVip(true);
+      AdManager().initRevision.value++;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('MREC house fallback'), findsNothing,
+          reason: 'VIP suppression remains stronger than local fallback');
+      expect(tester.getSize(find.byType(MrecAdWidget)).height, 0);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('T231 Flight Recorder visibility evidence', () {
     testWidgets(
         'visible transition records viewability and pixel bounds when '
@@ -486,6 +709,150 @@ void main() {
 
       expect(adapter.loadMrecCalls, 1,
           reason: 'default-off recorder must not change mrec loading');
+      expect(AdManager().flightRecorder, isNull);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'T240/T237 — house ad visible with recorder enabled emits no '
+        'provider mrec evidence', (tester) async {
+      final adapter = _MrecCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      final controller = ScrollController();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: controller,
+            child: Column(children: [
+              MrecAdWidget(
+                active: true,
+                houseAd: HouseAdItem(
+                  assetPath: 'assets/house_ad.png',
+                  title: 'MREC fallback evidence',
+                ),
+                houseAdDelay: Duration.zero,
+              ),
+              const SizedBox(height: 1000),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('MREC fallback evidence'), findsOneWidget,
+          reason: 'precondition: only the local house fallback is rendered');
+      recorder.clear();
+
+      // Real VisibilityDetector transitions while the fallback remains the
+      // only painted content — must never become provider evidence.
+      controller.jumpTo(500);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      controller.jumpTo(0);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('MREC fallback evidence'), findsOneWidget);
+      expect(
+        recorder.entries.where((entry) =>
+            entry.providerTag == adapter.tag &&
+            (entry.label == 'mrecVisible' || entry.label == 'mrecHidden')),
+        isEmpty,
+        reason: 'house fallback must never become provider impression evidence',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'T240 — real mrec displayed still records correct provider tag',
+        (tester) async {
+      final adapter = _MrecCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(MrecAdWidget(
+        houseAd: HouseAdItem(
+          assetPath: 'assets/house_ad.png',
+          title: 'MREC fallback evidence',
+        ),
+        houseAdDelay: const Duration(seconds: 10),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.isLoaded.value = true;
+      listenables.visible.value = true;
+      listenables.adSize.value = const Size(300, 250);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('MREC fallback evidence'), findsNothing);
+      final visible =
+          recorder.entries.firstWhere((e) => e.label == 'mrecVisible');
+      expect(visible.providerTag, adapter.tag,
+          reason: 'real mrec evidence keeps the active provider tag');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'house ad visible with recorder disabled is unchanged and safe',
+        (tester) async {
+      final adapter = _MrecCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().disableFlightRecorder();
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(MrecAdWidget(
+        active: true,
+        houseAd: HouseAdItem(
+          assetPath: 'assets/house_ad.png',
+          title: 'MREC fallback evidence',
+        ),
+        houseAdDelay: Duration.zero,
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final listenables = adapter.mrecListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('MREC fallback evidence'), findsOneWidget);
       expect(AdManager().flightRecorder, isNull);
       expect(tester.takeException(), isNull);
     });
