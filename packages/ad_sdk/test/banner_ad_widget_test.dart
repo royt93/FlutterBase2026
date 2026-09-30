@@ -17,9 +17,11 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart'
     hide BannerErrorSelfCollapse;
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart'
     show BannerErrorSelfCollapse;
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// AdMob-provider fake that counts banner loads, for the T12 rebuild test.
 class _BannerCountingAdapter implements AdProviderAdapter {
@@ -1804,6 +1806,65 @@ void main() {
       expect(find.text('House fallback'), findsOneWidget);
       expect(AdManager().flightRecorder, isNull);
       expect(tester.takeException(), isNull);
+    });
+
+    // T234 — the framework does NOT guarantee attach() always precedes a
+    // widget's own visibility instrumentation: `enableFlightRecorder()`
+    // only auto-attaches when `AdPreferences.instanceOrNull` is already
+    // resolved (see `AdManager.enableFlightRecorder`'s own doc comment for
+    // the "enabled before init() ran" case it does NOT cover). A host that
+    // calls `enableFlightRecorder()` and mounts a banner before its own
+    // splash-screen `initialize()` awaits `AdPreferences.getInstance()`
+    // hits exactly this ordering for real — so this is the closest
+    // meaningful widget-lifecycle reproduction, not an invented scenario.
+    testWidgets(
+        'a visibility entry recorded before attach() is not lost once '
+        'attach() later runs', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      AdPreferences.resetForTest();
+      expect(AdPreferences.instanceOrNull, isNull,
+          reason: 'sanity: enableFlightRecorder below must NOT auto-attach — '
+              'no AdPreferences singleton resolved yet');
+
+      final adapter = _BannerCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() async {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+        final prefs = await AdPreferences.getInstance();
+        await prefs.clearAllData();
+        AdPreferences.resetForTest();
+      });
+
+      await tester.pumpWidget(host(const BannerAdWidget(
+        collapseAnimationDuration: Duration.zero,
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries, isNotEmpty,
+          reason: 'the mounted banner must have recorded its initial '
+              'visible transition purely in-memory — no AdPreferences '
+              'exists yet for it to persist to');
+      expect(recorder.entries.any((e) => e.label == 'bannerVisible'), isTrue);
+
+      // Splash-screen ordering: attach() finally runs once init resolves
+      // AdPreferences, strictly AFTER the widget already recorded above.
+      final prefs = await AdPreferences.getInstance();
+      recorder.attach(prefs);
+      await tester.pump(const Duration(milliseconds: 1100)); // debounce window
+
+      final raw = prefs.getFlightRecorderRaw();
+      expect(raw, isNotNull,
+          reason: 'T234: attach() must schedule the persist that the '
+              'pre-attach record() could not');
+      final persisted = FlightRecorderBundle.fromJsonString(raw!);
+      expect(persisted.entries.any((e) => e.label == 'bannerVisible'), isTrue);
     });
   });
 }

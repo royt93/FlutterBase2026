@@ -281,6 +281,13 @@ class AdFlightRecorder {
           'attach() reloaded $loaded persisted entr${loaded == 1 ? 'y' : 'ies'}');
       _lastHash = _entries.last.hash;
     }
+    // T234 (same bug-class as T155/BypassAuditTrail.attach) — an entry
+    // recorded BEFORE attach() ran (record()'s own _schedulePersist() is a
+    // no-op while _prefs is null) sits in _entries only in memory. Without
+    // this, attach() merges any prior-process disk snapshot INTO memory but
+    // never schedules a write back OUT, so that pre-attach entry is lost if
+    // the process dies before the next record()/flush().
+    if (before > 0) _schedulePersist();
   }
 
   void _load() {

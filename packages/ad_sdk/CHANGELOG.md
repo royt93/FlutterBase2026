@@ -6,6 +6,15 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [3.4.0] - 2026-09-29
 
+- **Fixed (T234):** `AdFlightRecorder.attach()` was missing the same T155 fix
+  already present in `BypassAuditTrail.attach()`: an entry recorded before
+  `attach(prefs)` ran (e.g. a host enabling the recorder before its own
+  splash-screen `initialize()` resolves `AdPreferences`) stayed in memory
+  only, since `record()`'s own persist is a no-op with no preferences
+  attached yet, and `attach()` merged disk history INTO memory but never
+  scheduled a write back OUT. That pre-attach entry silently vanished if the
+  process died before the next `record()`/`flush()`. `attach()` now schedules
+  a persist for any such entries, mirroring `BypassAuditTrail.attach()`.
 - **Fixed (T233):** `AdFlightRecorder.record()` could fork its own
   tamper-evident hash chain when two ad-visibility/click events landed in
   quick succession (e.g. banner or MREC visibility firing back-to-back),

@@ -490,6 +490,142 @@ void main() {
 
       expect(recorder.entries, hasLength(1));
     });
+
+    group('pre-attach persistence (T234)', () {
+      test(
+          'record before attach persists after attach without another record '
+          'or explicit flush', () async {
+        final recorder = AdFlightRecorder();
+        await recorder.record(
+          label: 'preAttach',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[SDK]',
+        );
+
+        recorder.attach(prefs);
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+        final raw = prefs.getFlightRecorderRaw();
+        expect(raw, isNotNull,
+            reason: 'attach() must schedule the write that record() could '
+                'not schedule while preferences were unavailable');
+        final persisted = FlightRecorderBundle.fromJsonString(raw!);
+        expect(persisted.entries.map((e) => e.label), ['preAttach']);
+      });
+
+      test('attach with no pre-attach entries remains a storage no-op',
+          () async {
+        final recorder = AdFlightRecorder();
+
+        recorder.attach(prefs);
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+        expect(prefs.getFlightRecorderRaw(), isNull);
+      });
+
+      test('stored history and pre-attach entry merge and both persist',
+          () async {
+        final stored = AdFlightRecorder()..attach(prefs);
+        await stored.record(
+          label: 'stored',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]',
+          timestampMs: 1000,
+        );
+        await stored.flush();
+
+        // This second recorder never saw the disk history above before
+        // recording — its own hash chain starts fresh from `_lastHash ==
+        // ''`, same as [stored]'s did. Unlike `BypassAuditTrail` (a plain
+        // list, no chain), a chain built before `attach()` runs can never
+        // be retroactively re-linked to history `attach()` loads afterward
+        // — that would require re-hashing every pre-attach entry against
+        // the loaded `_lastHash`, which is out of scope for T234's minimal
+        // fix (mirrors T155's one-line `_schedulePersist()` call; nothing
+        // more). T234's contract is narrower: no entry recorded before
+        // attach() is silently lost. It says nothing about the two
+        // sub-chains splicing into one continuously-verifiable chain.
+        final recorder = AdFlightRecorder();
+        await recorder.record(
+          label: 'preAttach',
+          slotType: 'mrec',
+          placement: 'shop',
+          providerTag: '[SDK]',
+          timestampMs: 2000,
+        );
+        recorder.attach(prefs);
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+        final persisted = FlightRecorderBundle.fromJsonString(
+            prefs.getFlightRecorderRaw()!);
+        expect(persisted.entries.map((e) => e.label), ['stored', 'preAttach'],
+            reason: 'T234: neither the disk history nor the pre-attach '
+                'entry may be dropped by the merge');
+        // Each entry's own hash is self-consistent in isolation (proving
+        // neither was corrupted by the merge)...
+        expect(
+            await verifyFlightRecorderChain([persisted.entries.first]), isTrue);
+        expect(
+            await verifyFlightRecorderChain([persisted.entries.last]), isTrue);
+        // ...but the two together do NOT form one continuous chain: the
+        // preAttach entry's previousHash is "" (its own chain start), not
+        // the stored entry's hash. This is the expected splice-boundary
+        // break documented above, not a sign the fix is wrong.
+        expect(persisted.entries.last.previousHash, isEmpty);
+        expect(persisted.entries.last.previousHash,
+            isNot(persisted.entries.first.hash));
+        expect(await verifyFlightRecorderChain(persisted.entries), isFalse,
+            reason: 'the full merged list does not chain continuously across '
+                'the pre-attach/stored-history splice boundary — a known, '
+                'documented limitation, not a regression T234 introduces');
+      });
+
+      test('record racing attach cannot drop or fork either entry', () async {
+        final recorder = AdFlightRecorder();
+        final first = recorder.record(
+          label: 'first',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[SDK]',
+          timestampMs: 1000,
+        );
+
+        recorder.attach(prefs);
+        final second = recorder.record(
+          label: 'second',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[SDK]',
+          timestampMs: 2000,
+        );
+        await Future.wait([first, second]);
+        await recorder.flush();
+
+        final persisted = FlightRecorderBundle.fromJsonString(
+            prefs.getFlightRecorderRaw()!);
+        expect(persisted.entries.map((e) => e.label), ['first', 'second']);
+        expect(await verifyFlightRecorderChain(persisted.entries), isTrue);
+      });
+
+      test('attach twice does not duplicate merged history', () async {
+        final recorder = AdFlightRecorder();
+        await recorder.record(
+          label: 'preAttach',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[SDK]',
+        );
+
+        recorder.attach(prefs);
+        await recorder.flush();
+        recorder.attach(prefs);
+
+        expect(recorder.entries.map((e) => e.label), ['preAttach']);
+        expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+      });
+    });
   });
 
   // T233 — real call sites (banner/MREC visibility, click) fire record()

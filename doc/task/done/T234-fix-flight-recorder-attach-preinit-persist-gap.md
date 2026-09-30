@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (Bug)
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Status:** 🔲 todo
+- **Status:** ✅ done
 
 ## Vấn đề (Why)
 
@@ -28,6 +28,19 @@ Thêm đúng 1 dòng tương tự T155: sau khi `_load()` xong trong `attach()`,
 - Unit: tạo `AdFlightRecorder`, gọi `record()` 1-2 lần TRƯỚC `attach(prefs)`, sau đó `attach()`, verify đĩa có đúng số entry trong debounce window (mirror test case đã có cho `BypassAuditTrail` T155).
 - Unit: kịch bản app-kill mô phỏng — `attach()` rồi kill (không gọi `flush()`), tạo instance mới `attach()` lại cùng prefs, xác nhận không mất entry ghi trước init đầu tiên.
 - Regression: xác nhận trường hợp `attach()` trước mọi `record()` (đường phổ biến — `initialize()` luôn attach trước khi widget nào emit event) không đổi hành vi.
+
+## Kết quả
+
+**Verdict:** FIXED. Claim xác nhận đúng: `AdFlightRecorder.attach()` copy gần y hệt `BypassAuditTrail.attach()` nhưng thiếu dòng `if (before > 0) _schedulePersist();`. Fix 1 dòng, thêm ngay sau khối `if (loaded > 0) { ... _lastHash = ...; }` trong `attach()` (`lib/src/compliance/ad_flight_recorder.dart`), kèm comment T234 giải thích lý do (mirror comment T155 của `BypassAuditTrail`).
+
+- RED trước fix (đã verify bằng cách comment tạm dòng fix rồi chạy lại): 3/5 unit test mới + widget test T234 fail đúng như dự kiến (`Expected: not null / Actual: <null>`, thiếu entry sau merge).
+- GREEN sau fix: unit `test/ad_flight_recorder_test.dart` 33/33 pass (5 test mới nhóm `pre-attach persistence (T234)`); widget `test/banner_ad_widget_test.dart` 49/49 pass (1 test mới); `test/mrec_ad_widget_test.dart` + `test/bypass_audit_trail_test.dart` + `test/ad_manager_flight_recorder_test.dart` không regress — cả 5 file targeted cộng lại 134/134 pass.
+- Phát hiện thật trong lúc viết test (không phải bug mới, là giới hạn kiến trúc có chủ đích của T234's phạm vi tối giản): `AdFlightRecorder` có hash-chain (`AdFlightRecorder` khác `BypassAuditTrail` — list phẳng, không chain). Một entry ghi TRƯỚC `attach()` đã tự chốt `previousHash` từ `_lastHash` rỗng của chính instance đó, nên khi `attach()` sau đó load thêm lịch sử cũ từ đĩa, 2 đoạn không thể nối liền chain lại được (fix 1 dòng T155-style không giải quyết việc này, và ticket cũng không yêu cầu). Test `stored history and pre-attach entry merge and both persist` assert đúng thực tế này: cả 2 entry đều được giữ + persist (đúng phạm vi T234), nhưng `verifyFlightRecorderChain` cho toàn bộ danh sách trả `false` ở điểm nối — ghi rõ trong comment test, không che giấu.
+- Full `flutter test` (2,420 test): pass. Lần chạy thứ 1 có 1 lỗi flake tại `consent_fallback_wiring_test.dart` (`MissingPluginException: setHasUserConsent`, "test failed after it had already completed") — pass riêng lẻ khi chạy 1 mình, và lần chạy full thứ 2 (không đổi gì) pass sạch 2,420/2,420. Cùng loại flake đã ghi nhận trong T237's "Kết quả" (không liên quan T234, pre-existing cross-test-file timing flake).
+- `flutter analyze` (package + `example/`): sạch, không lỗi.
+- Integration test mới `example/integration_test/t234_flight_recorder_preattach_persist_test.dart` (mirror `bypass_audit_trail_persistence_test.dart`): viết xong, `flutter analyze` riêng file sạch, nhưng **không chạy được trên thiết bị thật** — không có device/emulator/simulator nào sẵn sàng tại thời điểm chạy (`adb devices` rỗng, `xcrun simctl list devices booted` rỗng, không có `emulator` binary, mọi thiết bị LAN trong `flutter devices` đều lock/không kết nối). Đây là gap thật, báo cáo trung thực thay vì giả lập kết quả — cần người chạy `flutter test integration_test/t234_flight_recorder_preattach_persist_test.dart -d <device>` khi có Pixel/TECNO/S24 Ultra kết nối USB.
+- Không đổi public API — không cần regenerate golden.
+- CHANGELOG 3.4.0 (chưa publish) đã thêm bullet T234.
 
 ## Prompt vòng lặp (Loop Prompt)
 
