@@ -15,6 +15,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   scheduled a write back OUT. That pre-attach entry silently vanished if the
   process died before the next `record()`/`flush()`. `attach()` now schedules
   a persist for any such entries, mirroring `BypassAuditTrail.attach()`.
+- **Fixed (T239):** Changing `NativeAdWidget.factoryId`/`templateType` at
+  runtime on an already-mounted instance (e.g. an A/B test or theme change)
+  previously did nothing — the AdMob adapter's `preloadNative()` early-returns
+  once it already has a cached `NativeAd` for that key, so the widget kept
+  showing the OLD factory/template layout indefinitely.
+  `NativeAdWidget.didUpdateWidget` now detects a `factoryId`/`templateType`
+  change on AdMob (ignored on AppLovin — it has no equivalent concept; a
+  `customNativeAdBuilder` swap is pure Dart and rebuilds normally) and
+  disposes + reloads the native instance with the new configuration, reusing
+  the existing dispose/re-init and stale-callback identity-guard patterns.
 - **Fixed (T233):** `AdFlightRecorder.record()` could fork its own
   tamper-evident hash chain when two ad-visibility/click events landed in
   quick succession (e.g. banner or MREC visibility firing back-to-back),

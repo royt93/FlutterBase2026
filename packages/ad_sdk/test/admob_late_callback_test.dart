@@ -204,6 +204,33 @@ void main() {
 
       expect(events, isEmpty);
     });
+
+    // T239 — NativeAdWidget.didUpdateWidget's factoryId/templateType reload
+    // calls disposeNativeInstance(key) then preloadNative(key, ...B) for the
+    // SAME key. This reuses exactly the slot-identity guard above: config A's
+    // NativeAd is still in flight when the widget swaps to config B, so its
+    // late onAdLoaded must be dropped instead of marking config B "loaded".
+    test(
+        'a late onAdLoaded for the OLD config, arriving after a T239 '
+        'reload to a new config, is dropped — not mistaken for the new '
+        'config loading', () async {
+      final adapter = await newAdapter();
+      await adapter.preloadNative('k', factoryId: 'A');
+      final staleListener = adapter.debugNativeListenerFor('k');
+      expect(staleListener, isNotNull);
+
+      // Simulates NativeAdWidget.didUpdateWidget's reload path.
+      adapter.disposeNativeInstance('k');
+      await adapter.preloadNative('k', factoryId: 'B');
+      expect(adapter.native('k').isLoaded.value, isFalse,
+          reason: 'config B has not fired its own onAdLoaded yet');
+
+      // Config A's stale in-flight callback finally lands.
+      staleListener!.onAdLoaded!(dummyBanner());
+
+      expect(adapter.native('k').isLoaded.value, isFalse,
+          reason: 'a config-A fill must never mark config B as loaded');
+    });
   });
 
   // Round-31 audit (MAJOR) — banner/mrec/native used to count an impression

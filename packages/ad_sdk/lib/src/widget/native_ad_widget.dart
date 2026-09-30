@@ -158,6 +158,17 @@ class NativeAdWidget extends StatefulWidget {
   /// by AdMob (see [factoryId] for AdMob's own, differently-shaped opt-in).
   final CustomNativeAdBuilder? customNativeAdBuilder;
 
+  /// T239 — pure reload-decision key: whether the AdMob-relevant config
+  /// (`factoryId`/`templateType`) actually changed between two widget
+  /// configurations. Extracted so it's unit-testable without a
+  /// `WidgetTester`. Exposed for tests; [_NativeAdWidgetState.didUpdateWidget]
+  /// is the only production caller.
+  @visibleForTesting
+  static bool debugConfigChanged(
+      NativeAdWidget oldWidget, NativeAdWidget widget) =>
+      widget.factoryId != oldWidget.factoryId ||
+      widget.templateType != oldWidget.templateType;
+
   @override
   State<NativeAdWidget> createState() => _NativeAdWidgetState();
 }
@@ -228,6 +239,28 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller?.detach(this);
       widget.controller?.attach(this);
+    }
+    // T239 — AdMob's factoryId/templateType select which platform-side
+    // NativeAdFactory or built-in template the ad loads with. Changing
+    // either at runtime on an already-loaded/in-flight instance previously
+    // did nothing: `preloadNative()` early-returns once the adapter already
+    // has a cached NativeAd for this key, so the widget kept showing the
+    // OLD factory/template forever. Only relevant while `_allowed` is
+    // already true — while blocked (VIP/consent/offline/cooldown) this must
+    // NOT force a load; the existing gates above/in `_initNative()` already
+    // pick up the latest `widget.factoryId`/`widget.templateType` once the
+    // gate reopens. AppLovin has no equivalent concept for either field
+    // (ignored — see class doc "T228 — custom native layout"); a
+    // `customNativeAdBuilder` swap is pure Dart and just re-renders on the
+    // next build, no adapter-level reload needed.
+    if (_allowed.value &&
+        AdManager().isAdMobProvider &&
+        NativeAdWidget.debugConfigChanged(oldWidget, widget)) {
+      SafeLogger.d(_tag,
+          'didUpdateWidget factoryId/templateType changed — reloading native');
+      AdManager().disposeNativeInstance(this);
+      _allowed.value = false;
+      _initNative();
     }
   }
 

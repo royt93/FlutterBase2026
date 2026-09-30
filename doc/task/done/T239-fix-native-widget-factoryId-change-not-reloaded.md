@@ -2,7 +2,17 @@
 
 - **Loại:** Fix (Bug)
 - **Priority:** P3 · **Severity:** LOW
-- **Status:** 🔲 todo
+- **Status:** ✅ done (2026-09-30)
+
+## Kết quả (Done)
+
+Fix trong `NativeAdWidget.didUpdateWidget`: khi `_allowed.value == true` và provider là AdMob, so sánh `factoryId`/`templateType` qua helper thuần `NativeAdWidget.debugConfigChanged` (`@visibleForTesting`) — đổi thì `AdManager().disposeNativeInstance(this)` + reset `_allowed` + `_initNative()` lại, tái dùng đúng path `disposeNativeInstance`/stale-callback identity-guard (`_nativeRegistry.isCurrent`) sẵn có từ T65/T114/T228. AppLovin path không đổi (không có khái niệm factoryId/templateType; `customNativeAdBuilder` build lại thuần Dart mỗi build, không cần reload adapter).
+
+RED→GREEN: comment out điều kiện mới (`if (false && ...)`) → 3/10 test T239 fail đúng như dự đoán (factoryId A→B, templateType small→medium, rapid A→B→C) → uncomment → 10/10 pass. Widget test file: `packages/ad_sdk/test/native_ad_widget_test.dart` (group "T239 — runtime native configuration reload", 10 test cases: reload-decision helper, factoryId reload, templateType reload, no-op rebuild, rapid coalesce, dispose-during-reload safety, consent-gate-blocked, offline-gate-blocked, AppLovin divergence). Stale-callback guard test riêng trong `packages/ad_sdk/test/admob_late_callback_test.dart` (late onAdLoaded từ config A không đánh dấu config B loaded — tái dùng đúng slot-identity guard có sẵn).
+
+Integration: `packages/ad_sdk/example/integration_test/t228_custom_native_ad_test.dart` mở rộng — thêm nút `T239_toggle_factory_id` trên `NativeDemoPage` (`example/lib/main.dart`) đổi factoryId runtime trên CÙNG widget instance (cùng `State` identity, không remount), verify chạy qua path native factory thật (Android `T228CustomNativeAdFactory.kt` / iOS `.swift`).
+
+Real-device: không có Pixel/TECNO kết nối. Flutter phát hiện Samsung SM A507FN (`R58MA6WYRPE`), nên đã thử integration thật với hard cap 180s. Gradle build APK thành công 39.1s nhưng bước cài app đứng 141s, tổng 175s không có tiến triển tiếp nên process bị kill đúng timeout — chưa chạy tới test body/native-factory log, vì vậy **không có bằng chứng real-device T239 trong phiên này**. `flutter analyze` package + example sạch; T239 targeted 10/10 pass; public API golden 2/2 pass. Full `flutter test` chạy đúng một lần sau fix: 2423 pass, 1 fail ở `vip_manager_robustness_test.dart` timing test không liên quan T239 (tái hiện riêng 2/2 lần, không file VIP nào thay đổi). Example suite: 66 pass, 1 pre-existing fail `compliance_demo_page_test.dart` do secure-storage plugin mock, tái hiện riêng. Golden API không đổi (method helper gắn `@visibleForTesting` trên `NativeAdWidget` nên bị loại khỏi golden).
 
 ## Vấn đề (Why)
 

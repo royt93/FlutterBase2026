@@ -32,6 +32,9 @@ class _NativeCountingAdapter implements AdProviderAdapter {
   final Map<Object, AdSlot> nativeSlotsByKey = {};
   final Map<Object, BannerListenables> nativeListenablesByKey = {};
   int loadNativeCalls = 0;
+  int disposeNativeCalls = 0;
+  final List<TemplateType> requestedTemplateTypes = [];
+  final List<String?> requestedFactoryIds = [];
 
   final BannerListenables _mrec = BannerListenables(
     isLoaded: ValueNotifier<bool>(false),
@@ -60,6 +63,7 @@ class _NativeCountingAdapter implements AdProviderAdapter {
 
   @override
   void disposeNativeInstance(Object key) {
+    disposeNativeCalls++;
     nativeSlotsByKey.remove(key);
     nativeListenablesByKey.remove(key);
   }
@@ -74,6 +78,8 @@ class _NativeCountingAdapter implements AdProviderAdapter {
       String? factoryId}) async {
     lastRequestedTemplateType = templateType;
     lastRequestedFactoryId = factoryId;
+    requestedTemplateTypes.add(templateType);
+    requestedFactoryIds.add(factoryId);
     loadNativeCalls++;
   }
 
@@ -201,6 +207,241 @@ void main() {
     expect(loadedStates, containsAllInOrder([true, false]),
         reason: 'flipping one instance loaded must not flip the other');
     expect(tester.takeException(), isNull);
+  });
+
+  group('T239 — runtime native configuration reload', () {
+    late _NativeCountingAdapter adapter;
+
+    setUp(() {
+      adapter = _NativeCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugVipManager = null;
+      AdManager().debugConnectivityChanged(true);
+    });
+
+    test('reload-decision helper detects only factoryId/templateType changes',
+        () {
+      expect(
+        NativeAdWidget.debugConfigChanged(
+          const NativeAdWidget(factoryId: 'a'),
+          const NativeAdWidget(factoryId: 'b'),
+        ),
+        isTrue,
+      );
+      expect(
+        NativeAdWidget.debugConfigChanged(
+          const NativeAdWidget(templateType: TemplateType.small),
+          const NativeAdWidget(templateType: TemplateType.medium),
+        ),
+        isTrue,
+      );
+      expect(
+        NativeAdWidget.debugConfigChanged(
+          const NativeAdWidget(factoryId: 'a'),
+          const NativeAdWidget(factoryId: 'a', height: 420),
+        ),
+        isFalse,
+        reason: 'height is Flutter layout only; it must not replace the native ad',
+      );
+    });
+
+    testWidgets('AdMob factoryId A→B disposes and reloads exactly once using B',
+        (tester) async {
+      final factoryId = ValueNotifier<String>('a');
+      await tester.pumpWidget(host(ValueListenableBuilder<String>(
+        valueListenable: factoryId,
+        builder: (context, value, _) => NativeAdWidget(factoryId: value),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.requestedFactoryIds, ['a']);
+      final disposesAfterInitialMount = adapter.disposeNativeCalls;
+
+      factoryId.value = 'b';
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.requestedFactoryIds, ['a', 'b']);
+      expect(adapter.loadNativeCalls, 2,
+          reason: 'one initial load + exactly one replacement load');
+      expect(adapter.disposeNativeCalls, disposesAfterInitialMount + 1,
+          reason: 'old native instance must be disposed before replacement');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'AdMob templateType small→medium disposes and reloads exactly once',
+        (tester) async {
+      final template = ValueNotifier<TemplateType>(TemplateType.small);
+      await tester.pumpWidget(host(ValueListenableBuilder<TemplateType>(
+        valueListenable: template,
+        builder: (context, value, _) => NativeAdWidget(templateType: value),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.requestedTemplateTypes, [TemplateType.small]);
+      final disposesAfterInitialMount = adapter.disposeNativeCalls;
+
+      template.value = TemplateType.medium;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.requestedTemplateTypes,
+          [TemplateType.small, TemplateType.medium]);
+      expect(adapter.loadNativeCalls, 2);
+      expect(adapter.disposeNativeCalls, disposesAfterInitialMount + 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('unchanged AdMob config rebuilds without reload', (tester) async {
+      final tick = ValueNotifier<int>(0);
+      await tester.pumpWidget(host(ValueListenableBuilder<int>(
+        valueListenable: tick,
+        builder: (context, _, _) =>
+            const NativeAdWidget(factoryId: 'same'),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      final disposesAfterInitialMount = adapter.disposeNativeCalls;
+
+      tick.value++;
+      await tester.pump();
+      tick.value++;
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.requestedFactoryIds, ['same']);
+      expect(adapter.disposeNativeCalls, disposesAfterInitialMount);
+    });
+
+    testWidgets(
+        'rapid AdMob A→B→C rebuilds never replay stale config and end at C',
+        (tester) async {
+      final factoryId = ValueNotifier<String>('a');
+      await tester.pumpWidget(host(ValueListenableBuilder<String>(
+        valueListenable: factoryId,
+        builder: (context, value, _) => NativeAdWidget(factoryId: value),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Coalesced parent updates before one frame: Flutter delivers only the
+      // latest widget config to didUpdateWidget, so no stale B request exists.
+      factoryId.value = 'b';
+      factoryId.value = 'c';
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.requestedFactoryIds, ['a', 'c']);
+      expect(adapter.lastRequestedFactoryId, 'c');
+      expect(adapter.loadNativeCalls, 2);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('dispose during AdMob config reload is safe', (tester) async {
+      final factoryId = ValueNotifier<String>('a');
+      await tester.pumpWidget(host(ValueListenableBuilder<String>(
+        valueListenable: factoryId,
+        builder: (context, value, _) => NativeAdWidget(factoryId: value),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      factoryId.value = 'b';
+      await tester.pump();
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byType(NativeAdWidget), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'config change while consent blocked waits; reopening loads latest config',
+        (tester) async {
+      AdManager().debugCanRequestAds = false;
+      final factoryId = ValueNotifier<String>('a');
+      await tester.pumpWidget(host(ValueListenableBuilder<String>(
+        valueListenable: factoryId,
+        builder: (context, value, _) => NativeAdWidget(factoryId: value),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 0);
+
+      factoryId.value = 'b';
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 0,
+          reason: 'config change cannot bypass the consent gate');
+
+      AdManager().debugCanRequestAds = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.requestedFactoryIds, ['b'],
+          reason: 'gate reopen must load current config, never stale A');
+    });
+
+    testWidgets(
+        'config change while offline waits; reconnect loads latest config',
+        (tester) async {
+      AdManager().debugReconnectDebounce = Duration.zero;
+      AdManager().debugConnectivityChanged(false);
+      final factoryId = ValueNotifier<String>('a');
+      await tester.pumpWidget(host(ValueListenableBuilder<String>(
+        valueListenable: factoryId,
+        builder: (context, value, _) => NativeAdWidget(factoryId: value),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 0);
+
+      factoryId.value = 'b';
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadNativeCalls, 0,
+          reason: 'config change cannot bypass the offline gate');
+
+      AdManager().debugConnectivityChanged(true);
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.pump();
+      await tester.pump();
+
+      expect(adapter.requestedFactoryIds, ['b']);
+    });
+
+    testWidgets(
+        'AppLovin ignores factory/template changes but custom builder rebuilds',
+        (tester) async {
+      AdManager().debugConfig = _appLovinConfig;
+      final custom = ValueNotifier<bool>(false);
+      await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+        valueListenable: custom,
+        builder: (context, second, _) => NativeAdWidget(
+          factoryId: second ? 'b' : 'a',
+          templateType:
+              second ? TemplateType.medium : TemplateType.small,
+          customNativeAdBuilder: (context) => SizedBox(
+            key: Key(second ? 'applovin-layout-b' : 'applovin-layout-a'),
+            child: const MaxNativeAdTitleView(),
+          ),
+        ),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      final disposesAfterInitialMount = adapter.disposeNativeCalls;
+      expect(find.byKey(const Key('applovin-layout-a')), findsOneWidget);
+
+      custom.value = true;
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.byKey(const Key('applovin-layout-b')), findsOneWidget,
+          reason: 'pure-Dart builder update must rebuild Flutter layout');
+      expect(adapter.loadNativeCalls, 0,
+          reason: 'AppLovin native loads on mount, never preloadNative');
+      expect(adapter.disposeNativeCalls, disposesAfterInitialMount,
+          reason: 'AdMob-only config changes must not tear down AppLovin view');
+      expect(tester.takeException(), isNull);
+    });
   });
 
   // T73 — templateType/height configuration.

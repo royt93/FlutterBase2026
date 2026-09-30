@@ -2579,6 +2579,14 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
   // itself the moment the PAGE opened, even while tab 1 was showing.
   int _tabIndex = 0;
 
+  // T239 — toggles the SAME mounted NativeAdWidget between the built-in
+  // template (factoryId: null) and the REAL registered
+  // T228CustomNativeAdFactory (factoryId: 't228CustomNativeAd') without
+  // remounting the widget — the on-device proof that a runtime
+  // factoryId change on an already-loaded instance disposes and reloads
+  // through the real native factory registration, not just Dart state.
+  bool _t228UseCustomFactory = false;
+
   Future<void> _simulateWatchdogTimeout() async {
     final adapter = AdManager().adapter;
     if (adapter == null) {
@@ -2664,12 +2672,32 @@ class _NativeDemoPageState extends AdScreenState<NativeDemoPage> {
                           const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                     const SizedBox(height: 8),
-                    if (kProvider == AdProvider.admob)
-                      const NativeAdWidget(
-                        key: ValueKey('T228_admob_custom_factory_demo'),
-                        factoryId: 't228CustomNativeAd',
-                      )
-                    else
+                    if (kProvider == AdProvider.admob) ...[
+                      // T239 — same widget KEY across the toggle, so this
+                      // is the didUpdateWidget runtime-config-change path,
+                      // not a remount. "Built-in" -> factoryId: null routes
+                      // through NativeTemplateStyle; "Custom factory" ->
+                      // factoryId: 't228CustomNativeAd' routes through the
+                      // REAL registered T228CustomNativeAdFactory native
+                      // code — proof the reload actually reaches the new
+                      // native factory, not just a Dart-side flag flip.
+                      OutlinedButton(
+                        key: const ValueKey('T239_toggle_factory_id'),
+                        onPressed: () => setState(() =>
+                            _t228UseCustomFactory = !_t228UseCustomFactory),
+                        child: Text(_t228UseCustomFactory
+                            ? 'Switch to built-in template (factoryId: null)'
+                            : 'Switch to custom factory '
+                                '(factoryId: t228CustomNativeAd)'),
+                      ),
+                      const SizedBox(height: 8),
+                      NativeAdWidget(
+                        key: const ValueKey('T228_admob_custom_factory_demo'),
+                        factoryId: _t228UseCustomFactory
+                            ? 't228CustomNativeAd'
+                            : null,
+                      ),
+                    ] else
                       NativeAdWidget(
                         key: const ValueKey('T228_applovin_custom_demo'),
                         customNativeAdBuilder: (context) => const Padding(

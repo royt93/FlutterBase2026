@@ -11,6 +11,14 @@
 // covered thoroughly by widget tests already; this just confirms it also
 // mounts for real on-device alongside the rest of the demo page.
 //
+// T239 (AdMob only) — after the card above has a real fill, tapping the
+// "T239_toggle_factory_id" button flips the SAME mounted widget's
+// factoryId (null <-> 't228CustomNativeAd') without remounting it. This is
+// the on-device proof for T239's fix: the runtime config change must
+// dispose the stale native instance and reload through the REAL platform
+// factory registration, not just flip a Dart flag with a stale layout left
+// on screen.
+//
 // Run with:
 //   flutter test integration_test/t228_custom_native_ad_test.dart -d <device-or-sim-id>
 
@@ -98,8 +106,44 @@ void main() {
       findsOneWidget,
       reason: 'the provider-specific NativeAdWidget instance must mount',
     );
+
+    if (AdManager().isAdMobProvider) {
+      final toggle = find.byKey(const ValueKey('T239_toggle_factory_id'));
+      expect(toggle, findsOneWidget,
+          reason: 'T239 runtime factoryId toggle must be present on AdMob');
+      final beforeState = tester.state<State<NativeAdWidget>>(
+          find.byKey(const ValueKey('T228_admob_custom_factory_demo')));
+
+      // Start on the built-in template (factoryId null), then flip to the
+      // registered platform factory. The key and State identity must remain
+      // unchanged: otherwise this would prove only ordinary remount behavior,
+      // not NativeAdWidget.didUpdateWidget's T239 reload path.
+      expect(find.textContaining('factoryId: t228CustomNativeAd'),
+          findsOneWidget);
+      await tester.tap(toggle);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      final afterState = tester.state<State<NativeAdWidget>>(
+          find.byKey(const ValueKey('T228_admob_custom_factory_demo')));
+      expect(identical(afterState, beforeState), isTrue,
+          reason: 'same mounted State must handle the runtime config change');
+      expect(find.textContaining('factoryId: null'), findsOneWidget,
+          reason: 'button label confirms latest factoryId became custom');
+
+      // Give the real NativeAdFactory load bounded time to return or fail
+      // gracefully. Android logcat should contain
+      // `T228NativeFactory: createNativeAd: custom layout inflated` on fill;
+      // the test itself proves the same mounted widget survives the real
+      // registered factory path without a platform exception/crash.
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(find.byKey(const ValueKey('T228_admob_custom_factory_demo')),
+          findsOneWidget);
+    }
+
     expect(tester.takeException(), isNull,
-        reason: 'no crash — real factoryId + real native platform code, or '
-            'real customNativeAdBuilder, must not throw');
+        reason: 'no crash — real runtime factoryId reload + native platform '
+            'factory, or real customNativeAdBuilder, must not throw');
   });
 }
