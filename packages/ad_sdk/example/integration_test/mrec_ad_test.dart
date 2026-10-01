@@ -41,6 +41,8 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
+    await AdManager().vip?.revokeAll();
+    await tester.pump();
 
     final tile = find.text('MREC ad');
     var foundTile = false;
@@ -92,6 +94,8 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
+    await AdManager().vip?.revokeAll();
+    await tester.pump();
 
     final tile = find.text('MREC ad');
     var foundTile = false;

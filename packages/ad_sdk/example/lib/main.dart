@@ -2488,6 +2488,11 @@ class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
 
   void _toggleForceOffline() {
     final next = !_forcedOffline;
+    // A real device has already initialised ConnectionNotifierTools, so
+    // isConnected would otherwise keep reading the native plugin's live Wi-Fi
+    // state instead of the debug event's last-known value.
+    // ignore: invalid_use_of_visible_for_testing_member
+    AdManager().debugConnectivityReady = !next;
     // ignore: invalid_use_of_visible_for_testing_member
     AdManager().debugConnectivityChanged(!next);
     setState(() => _forcedOffline = next);
@@ -2498,6 +2503,8 @@ class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
     if (_forcedOffline) {
       // ignore: invalid_use_of_visible_for_testing_member
       AdManager().debugConnectivityChanged(true);
+      // ignore: invalid_use_of_visible_for_testing_member
+      AdManager().debugConnectivityReady = true;
     }
     super.dispose();
   }
@@ -2561,7 +2568,8 @@ class _MrecDemoPageState extends AdScreenState<MrecDemoPage> {
                           ),
                           const SizedBox(height: 8),
                           MrecAdWidget(
-                            key: const ValueKey('T240_house_ad_demo'),
+                            key: ValueKey(
+                                'T240_house_ad_demo_$_forcedOffline'),
                             houseAd: HouseAdItem(
                               assetPath: 'assets/house_ad.png',
                               title: 'Go VIP — remove ads',
