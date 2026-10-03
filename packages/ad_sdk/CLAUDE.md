@@ -25,7 +25,7 @@ Run commands from `packages/ad_sdk/` unless noted.
 - **Generate VIP keypair:** `dart tool/vip_keygen.dart`
 - **Mint VIP token:** `dart tool/vip_mint.dart --priv-file .vip-private-key --days 30 --valid-days 30 --bundle com.example.app --kid DEMO1` (use bare `dart`, not `dart run`; `--priv` is intentionally disabled)
 - **Mint VIP revocation list:** `dart tool/vip_crl_mint.dart --priv-file .vip-private-key --kids DEMO1 --revision 1`
-- **Verify signed exports:** `dart run tool/verify_compliance_report.dart <path>`, `dart run tool/bypass_audit_replay.dart <path>`, `dart run tool/incident_replay.dart <path>`
+- **Verify signed exports:** `dart run tool/verify_compliance_report.dart <path>`, `dart run tool/verify_adproof.dart <path-to-exported.adproof>`, `dart run tool/bypass_audit_replay.dart <path>`, `dart run tool/incident_replay.dart <path>`
 
 ## Big-picture architecture
 

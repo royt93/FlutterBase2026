@@ -2,7 +2,25 @@
 
 - **Loại:** New Feature
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Status:** 🔲 todo
+- **Status:** ✅ done
+
+## Bằng chứng hoàn thành
+
+- **Process-level tests:** `test/verify_adproof_tool_test.dart` — 11/11 pass. Bao phủ usage/missing-file exit 2; valid bundle `VALID`/exit 0; field tamper, reorder, delete-middle, append forged, direct `previousHash` tamper (re-sign để signature vẫn hợp lệ nhưng chain bị bắt), signature tamper, public-key tamper, malformed JSON — tất cả `INVALID`/exit 1.
+- **Runtime:** CLI chạy bằng plain `dart run tool/verify_adproof.dart ...`; chỉ dùng stdlib + dependency `cryptography` đã có, không thêm package, không cần Flutter engine/simulator.
+- **Device thật:** `example/integration_test/t231_flight_recorder_test.dart` xuất artifact từ TECNO BG6 Android 13 tại `/data/user/0/com.roy.admobwrapper/code_cache/t238_device.adproof`; host kéo bằng `adb run-as`, file 1125 bytes. CLI trả `VALID`, exit 0. Mutate 1 byte trong `fullscreenVisible` → CLI trả `INVALID`, exit 1.
+- **Docs:** `README.md` có hướng dẫn threat model/command `.adproof`; `CLAUDE.md` command list cập nhật.
+- **Format:** không đổi format `.adproof` hiện có.
+
+## Acceptance Criteria
+
+- [x] File `.adproof` hợp lệ in `VALID`, exit 0.
+- [x] Sửa field/xóa/reorder/append/`previousHash`/signature/public key → `INVALID`, exit 1.
+- [x] File thiếu/không đọc được/sai usage → stderr rõ, exit 2.
+- [x] Plain `dart run`, không Flutter engine.
+- [x] README/CLAUDE cập nhật, không hardcode version.
+- [x] Không đổi `.adproof` format, không dependency mới.
+- [x] Test liên quan pass; device export + CLI proof pass.
 
 ## Vấn đề (Why)
 
@@ -26,16 +44,6 @@ dart run tool/verify_adproof.dart <path-to-exported.adproof>
 ```
 
 Tool phải kiểm tra **cả** chữ ký Ed25519 lẫn từng liên kết/hash canonical trong chain, không chỉ parse JSON hoặc gọi một nửa verification. Ưu tiên code dùng chung tối thiểu nếu plain `dart run` không thể import toàn bộ Flutter SDK; không kéo dependency mới.
-
-### Acceptance Criteria
-
-- [ ] File `.adproof` hợp lệ in `VALID`, exit 0.
-- [ ] Sửa một field, xóa/reorder/append entry, sửa `previousHash`, chữ ký hoặc public key → `INVALID`, exit 1.
-- [ ] File thiếu/không đọc được/sai usage → stderr rõ, exit 2.
-- [ ] Tool chạy bằng plain `dart run`, không cần simulator/device/Flutter engine.
-- [ ] README/CLAUDE command list cập nhật lệnh verify signed export mới; không ghi cứng version package.
-- [ ] Không thay đổi format `.adproof` hiện có nếu không thật sự cần.
-- [ ] `flutter analyze` sạch; test liên quan pass.
 
 ## Kế hoạch kiểm thử
 

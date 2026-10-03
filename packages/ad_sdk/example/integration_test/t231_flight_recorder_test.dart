@@ -14,6 +14,7 @@
 //   flutter test integration_test/t231_flight_recorder_test.dart -d <device-or-sim-id>
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/material.dart';
@@ -148,5 +149,36 @@ void main() {
     expect(visible.widthPx, greaterThan(0));
     expect(visible.heightPx, greaterThan(0));
     expect(await verifyFlightRecorderChain(entries), isTrue);
+  });
+
+  testWidgets('T238: export a real on-device .adproof for standalone CLI',
+      (tester) async {
+    final adapter = FakeAdProviderAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugCanRequestAds = true;
+    AdManager().enableFlightRecorder(AdFlightRecorder());
+    await adapter.loadAppOpen();
+
+    await AdManager().showAppOpenAd(
+      bypassSafety: true,
+      onAdDismiss: (_) {},
+    );
+    final signed = await AdManager().exportSignedFlightRecorderBundle();
+    expect(signed, isNotNull);
+    expect(await verifySignedFlightRecorderBundle(signed!.toJsonString()),
+        isTrue);
+
+    final output = File('${Directory.systemTemp.path}/t238_device.adproof');
+    await output.writeAsString(signed.toJsonString());
+    expect(await output.exists(), isTrue);
+    // ignore: avoid_print
+    print('T238_ADPROOF_PATH=${output.path}');
+    // Test runner uninstalls the base APK immediately after completion, which
+    // removes its private cache before a host-side `adb run-as ... cat` can
+    // pull this artifact. Opt-in hold exists only for the manual T238 CLI
+    // verification workflow; normal CI/device runs pay no delay.
+    if (const bool.fromEnvironment('T238_HOLD_EXPORT')) {
+      await Future<void>.delayed(const Duration(seconds: 30));
+    }
   });
 }

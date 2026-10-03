@@ -2295,6 +2295,21 @@ the signing key, so this cannot prove the events themselves weren't
 fabricated by someone with that level of access. Treat it as "this file is
 unmodified since export", not "this device's history is definitely genuine".
 
+**Flight Recorder `.adproof` exports** (`AdManager().exportSignedFlightRecorderBundle()`)
+use the same signed-JSON threat model, plus a hash chain across entries. A
+support/legal/network reviewer can verify an exported `.adproof` file
+independently, without the app or Flutter installed, via the standalone CLI
+shipped in this package:
+
+```bash
+dart run tool/verify_adproof.dart path/to/exported.adproof
+# → VALID (exit 0) or INVALID (exit 1); usage/read errors exit 2
+```
+
+`VALID` means both the Ed25519 signature and every entry's hash-chain link
+verify — the exported file is byte-for-byte what the SDK produced and no
+entry was edited, reordered, deleted, or forged after export.
+
 ### Consent provenance journal (T202)
 
 Opt-in — pass `AdConfig(enableConsentProvenanceJournal: true, ...)`. Default

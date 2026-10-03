@@ -15,12 +15,20 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   never be violated by a click recorded mid-display); Native records
   `nativeVisible`/`nativeHidden` only once the ad has actually loaded (a
   loading `ShimmerView` placeholder is never mistaken for a real
-  impression). Zero overhead when the flight recorder is disabled
-  (default): `NativeAdWidget` mounts no `VisibilityDetector` at all in
-  that case. New public members: `AdFlightRecorder.isDisposed` and atomic
-  `AdFlightRecorder.recordPair(...)` (used internally to guarantee a
-  fullscreen visible/dismissed pair cannot split across a concurrent write
-  or recorder swap).
+  impression). Zero observation overhead when the flight recorder is disabled
+  (default): `NativeAdWidget` keeps a stable `VisibilityDetector` root but
+  passes a `null` callback, which the package treats as disabled (no
+  composition callback/timer); the stable root avoids remounting a native
+  platform-view subtree when recording is toggled later. New public members:
+  `AdFlightRecorder.isDisposed` and atomic `AdFlightRecorder.recordPair(...)`
+  (used internally to guarantee a fullscreen visible/dismissed pair cannot
+  split across a concurrent write or recorder swap).
+- **Added (T238):** standalone `dart run tool/verify_adproof.dart <file>` CLI
+  verifies both the embedded Ed25519 signature and every canonical SHA-256
+  hash-chain link in a Flight Recorder `.adproof` export. Returns `VALID`/0,
+  `INVALID`/1, and usage/read errors/2; needs no Flutter engine and adds no
+  dependency. Verified against an artifact exported on a real Android device;
+  the untouched file passed and a one-byte mutation failed.
 - **Known gap (tracked as T241, not fixed here):** if a Banner/MREC/Native
   widget using the flight recorder is unmounted while visible (route pop,
   list-row removal), no closing `*Hidden` entry is recorded — this is a
