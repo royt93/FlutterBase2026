@@ -4,6 +4,29 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Added (T236):** `AdFlightRecorder` evidence coverage extended to all 4
+  fullscreen formats (App Open, Interstitial, Rewarded, Rewarded
+  Interstitial) and to `NativeAdWidget`, mirroring the existing
+  Banner/MREC `'*Visible'`/`'*Hidden'` pattern. Fullscreen records a single
+  `fullscreenVisible`/`fullscreenDismissed` pair at the real dismiss event
+  (no backdated timestamp, so the hash chain's chronological order can
+  never be violated by a click recorded mid-display); Native records
+  `nativeVisible`/`nativeHidden` only once the ad has actually loaded (a
+  loading `ShimmerView` placeholder is never mistaken for a real
+  impression). Zero overhead when the flight recorder is disabled
+  (default): `NativeAdWidget` mounts no `VisibilityDetector` at all in
+  that case. New public members: `AdFlightRecorder.isDisposed` and atomic
+  `AdFlightRecorder.recordPair(...)` (used internally to guarantee a
+  fullscreen visible/dismissed pair cannot split across a concurrent write
+  or recorder swap).
+- **Known gap (tracked as T241, not fixed here):** if a Banner/MREC/Native
+  widget using the flight recorder is unmounted while visible (route pop,
+  list-row removal), no closing `*Hidden` entry is recorded — this is a
+  pre-existing gap from T231's Banner/MREC implementation, not new to this
+  change.
+
 ## [3.4.0] - 2026-09-29
 
 - **Fixed (T234):** `AdFlightRecorder.attach()` was missing the same T155 fix

@@ -4,6 +4,7 @@ import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' show TemplateType;
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
 import '../adapters/applovin_adapter.dart';
@@ -228,6 +229,21 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     _subscribedNativeErrorNotifier = notifier;
   }
 
+  /// T236 audit fix — mirrors [_subscribedNativeErrorNotifier]'s doc comment:
+  /// `nativeIsLoaded(this)`'s underlying bundle can also be replaced by
+  /// `disposeNativeInstance`, so re-subscription on every `_initNative()`
+  /// call (not just [initState]) is required for the same reason.
+  ValueListenable<bool>? _subscribedNativeIsLoadedNotifier;
+
+  void _subscribeNativeIsLoaded() {
+    final notifier = AdManager().nativeIsLoaded(this);
+    if (identical(notifier, _subscribedNativeIsLoadedNotifier)) return;
+    _subscribedNativeIsLoadedNotifier
+        ?.removeListener(_recheckFlightRecorderVisibilityAfterLoad);
+    notifier.addListener(_recheckFlightRecorderVisibilityAfterLoad);
+    _subscribedNativeIsLoadedNotifier = notifier;
+  }
+
   @override
   void didUpdateWidget(NativeAdWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -258,6 +274,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
         NativeAdWidget.debugConfigChanged(oldWidget, widget)) {
       SafeLogger.d(_tag,
           'didUpdateWidget factoryId/templateType changed — reloading native');
+      _closeFlightRecorderVisibilityForReload();
       AdManager().disposeNativeInstance(this);
       _allowed.value = false;
       _initNative();
@@ -281,6 +298,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
         .personalisationRevision
         .addListener(_onPersonalisationWithdrawn);
     _subscribeNativeError();
+    _subscribeNativeIsLoaded();
   }
 
   void _onNativeErrorChanged() {
@@ -297,6 +315,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
       // native ads stayed blank forever after a single load failure — this
       // timer kept firing but had no effect. Mirrors
       // _onPersonalisationWithdrawn/_onCanRequestAdsChanged just below.
+      _closeFlightRecorderVisibilityForReload();
       AdManager().disposeNativeInstance(this);
       _allowed.value = false;
       // T154 (codex re-review) — a hidden tab must still get this reset
@@ -318,6 +337,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     final mgr = AdManager();
     SafeLogger.w(_tag,
         '🔒 personalisation withdrawn — replacing mounted native instance');
+    _closeFlightRecorderVisibilityForReload();
     mgr.disposeNativeInstance(this);
     _allowed.value = false;
     if (!mgr.canRequestAds || !mgr.isInitialised || mgr.isVIPMember()) return;
@@ -357,6 +377,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     if (_allowed.value) {
       SafeLogger.w(
           _tag, '🔒 consent gate closed — disposing mounted native instance');
+      _closeFlightRecorderVisibilityForReload();
       mgr.disposeNativeInstance(this);
       _allowed.value = false;
     }
@@ -419,6 +440,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     // the bundle `nativeHasError(this)` reads from; re-subscribe to
     // whichever one is current. See `_subscribedNativeErrorNotifier`'s doc.
     _subscribeNativeError();
+    _subscribeNativeIsLoaded();
 
     if (mgr.isAdMobProvider) {
       mgr.loadAdmobNativeIfNeeded(this,
@@ -440,6 +462,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
       return;
     }
     SafeLogger.d(_tag, 'controllerRefresh — reloading');
+    _closeFlightRecorderVisibilityForReload();
     mgr.disposeNativeInstance(this);
     _allowed.value = false;
     _initNative();
@@ -457,6 +480,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     if (paused) {
       if (!_allowed.value) return;
       SafeLogger.d(_tag, 'controller paused — disposing native instance');
+      _closeFlightRecorderVisibilityForReload();
       AdManager().disposeNativeInstance(this);
       _allowed.value = false;
       return;
@@ -467,6 +491,94 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
   /// T201 — see `BannerAdWidget._pausedByController`'s doc comment.
   bool get _pausedByController =>
       widget.controller?.status == InlineAdControllerStatus.paused;
+
+  bool? _lastFlightRecorderVisible;
+  VisibilityInfo? _lastVisibilityInfo;
+
+  // T236 audit fix — `_buildAdmob`/`_buildAppLovin` paint a non-zero-size
+  // ShimmerView/placeholder while [AdManager.nativeIsLoaded] is still false
+  // (same pre-fill state Banner/MREC call "not a real ad" — see
+  // `BannerAdWidget._recordFlightRecorderVisibility`'s T237 comment). Without
+  // this check, `VisibilityDetector` reporting that placeholder as on-screen
+  // got recorded as a real `nativeVisible` impression; if the load then
+  // failed (no-fill/timeout), the compliance chain held a fabricated
+  // impression for an ad that was never actually shown.
+  void _recordFlightRecorderVisibility(VisibilityInfo info) {
+    if (AdManager().flightRecorder == null) return;
+    _lastVisibilityInfo = info;
+    final isLoaded = AdManager().nativeIsLoaded(this).value;
+    final visible = info.visibleFraction > 0 && isLoaded;
+    if (_lastFlightRecorderVisible == visible) return;
+    // Don't synthesize a 'hidden' entry for an ad that was never visible in
+    // the first place (e.g. mounted already off-screen while still loading).
+    if (_lastFlightRecorderVisible == null && !visible) {
+      _lastFlightRecorderVisible = false;
+      return;
+    }
+    _lastFlightRecorderVisible = visible;
+    final box = context.findRenderObject();
+    final origin = (box is RenderBox && box.attached)
+        ? box.localToGlobal(Offset.zero)
+        : Offset.zero;
+    final size = (box is RenderBox) ? box.size : Size.zero;
+    unawaited(AdManager().recordFlightRecorderEvent(
+      label: visible ? 'nativeVisible' : 'nativeHidden',
+      type: AdSlotType.native,
+      placement: widget.placement,
+      viewabilityFraction: visible ? info.visibleFraction : 0,
+      screenX: origin.dx,
+      screenY: origin.dy,
+      widthPx: size.width,
+      heightPx: size.height,
+    ));
+  }
+
+  /// Re-evaluates flight-recorder visibility against the last geometry
+  /// `VisibilityDetector` reported — needed because a load completing
+  /// (`nativeIsLoaded` flips true) changes whether the widget counts as "a
+  /// real ad on screen" without the detector itself firing a new visibility
+  /// callback (the on-screen fraction/bounds haven't changed, only what's
+  /// painted inside them has).
+  void _recheckFlightRecorderVisibilityAfterLoad() {
+    if (!mounted) return;
+    final info = _lastVisibilityInfo;
+    if (info == null) return;
+    _recordFlightRecorderVisibility(info);
+  }
+
+  /// T236 audit fix (Finding 4) — a live Native instance can be replaced
+  /// without this widget unmounting (controller refresh/pause, consent or
+  /// personalisation change, factory/template reload, retry-after-error).
+  /// Close the old creative's visible interval before its adapter bundle is
+  /// disposed and reset the dedup state, or the replacement's next
+  /// `nativeVisible` is incorrectly suppressed as a duplicate and the chain
+  /// describes two creatives plus the blank reload window as one continuous
+  /// impression.
+  ///
+  /// Final widget unmount intentionally remains T241's shared
+  /// Banner/MREC/Native follow-up — this helper is for mounted replacement
+  /// only, where the same State continues and stale dedup state is observable.
+  void _closeFlightRecorderVisibilityForReload() {
+    if (_lastFlightRecorderVisible != true) {
+      _lastFlightRecorderVisible = false;
+      return;
+    }
+    _lastFlightRecorderVisible = false;
+    final box = context.findRenderObject();
+    final origin = (box is RenderBox && box.attached)
+        ? box.localToGlobal(Offset.zero)
+        : Offset.zero;
+    final size = (box is RenderBox) ? box.size : Size.zero;
+    unawaited(AdManager().recordFlightRecorderEvent(
+      label: 'nativeHidden',
+      type: AdSlotType.native,
+      placement: widget.placement,
+      screenX: origin.dx,
+      screenY: origin.dy,
+      widthPx: size.width,
+      heightPx: size.height,
+    ));
+  }
 
   @override
   void dispose() {
@@ -480,6 +592,8 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     // `nativeHasError(this)` read here, which could be a bundle created
     // AFTER the last subscribe and therefore never actually listened to.
     _subscribedNativeErrorNotifier?.removeListener(_onNativeErrorChanged);
+    _subscribedNativeIsLoadedNotifier
+        ?.removeListener(_recheckFlightRecorderVisibilityAfterLoad);
     _retryTimer?.cancel();
     AdManager().disposeNativeInstance(this);
     _allowed.dispose();
@@ -490,6 +604,26 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
 
   @override
   Widget build(BuildContext context) {
+    // T236 audit fix (Finding 6) — returning a different widget type
+    // (VisibilityDetector vs direct content) depending on the recorder
+    // enabled state causes Flutter to tear down and replace the entire subtree
+    // when toggled, which kills the native platform view. The [VisibilityDetector]
+    // is always the root, but its callback is `null` when disabled — the
+    // visibility package documents `null` as explicitly disabling the detector,
+    // which clears any composition callback and removes its overhead without
+    // remounting the tree.
+    return VisibilityDetector(
+      key: ObjectKey(this),
+      onVisibilityChanged: AdManager().flightRecorder != null
+          ? (info) {
+              if (mounted) _recordFlightRecorderVisibility(info);
+            }
+          : null,
+      child: _buildContent(context),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, _) {

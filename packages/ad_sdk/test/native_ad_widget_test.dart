@@ -8,6 +8,7 @@ import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import 'applovin_adapter_test.dart' show FakeAppLovinBridge;
 
@@ -1650,6 +1651,234 @@ void main() {
     test('accepts a custom placement', () {
       const widget = NativeAdWidget(placement: AdPlacement.shop);
       expect(widget.placement, AdPlacement.shop);
+    });
+  });
+
+  group('T236 Flight Recorder visibility evidence', () {
+    late _NativeCountingAdapter adapter;
+    late AdFlightRecorder recorder;
+
+    setUp(() {
+      adapter = _NativeCountingAdapter();
+      recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _appLovinConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetNativeCooldown();
+      AdManager.debugForceSkipRealAppLovinNativeView = true;
+      AdManager().enableFlightRecorder(recorder);
+    });
+
+    tearDown(() {
+      AdManager().disableFlightRecorder();
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager.debugForceSkipRealAppLovinNativeView = false;
+    });
+
+    testWidgets('visible transition records native bounds and placement, '
+        'and scrolling away records nativeHidden', (tester) async {
+      final controller = ScrollController();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: controller,
+            child: const Column(children: [
+              SizedBox(height: 100, child: Text('spacer')),
+              SizedBox(
+                width: 320,
+                child: NativeAdWidget(placement: AdPlacement.home),
+              ),
+              SizedBox(height: 1000),
+            ]),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(recorder.entries, isEmpty,
+          reason: 'loading ShimmerView is not a real provider impression');
+
+      await tester.runAsync(() async {
+        adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
+        for (var i = 0; i < 100; i++) {
+          if (recorder.entries.any((e) => e.label == 'nativeVisible')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pump();
+
+      expect(recorder.entries, isNotEmpty);
+      final visible =
+          recorder.entries.firstWhere((e) => e.label == 'nativeVisible');
+      expect(visible.slotType, 'native');
+      expect(visible.placement, 'home');
+      expect(visible.viewabilityFraction, greaterThan(0));
+      expect(visible.widthPx, greaterThan(0));
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+
+      await tester.runAsync(() async {
+        controller.jumpTo(1000);
+        for (var i = 0; i < 100; i++) {
+          await tester.pump(const Duration(milliseconds: 10));
+          if (recorder.entries.any((e) => e.label == 'nativeHidden')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      expect(recorder.entries.any((e) => e.label == 'nativeHidden'), isTrue);
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+    });
+
+    testWidgets('same visible state dedups to one nativeVisible entry',
+        (tester) async {
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: NativeAdWidget(),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.runAsync(() async {
+        adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
+        for (var i = 0; i < 100; i++) {
+          if (recorder.entries.any((e) => e.label == 'nativeVisible')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pump();
+
+      expect(recorder.entries.where((e) => e.label == 'nativeVisible'),
+          hasLength(1));
+    });
+
+    testWidgets('mounted native reload closes old visible creative and records '
+        'the replacement as a new visible interval', (tester) async {
+      AdManager().debugConfig = _admobConfig;
+      adapter.nativeViewToReturn = const SizedBox(
+        key: Key('t236-loaded-native'),
+      );
+      final factoryId = ValueNotifier<String>('a');
+      addTearDown(factoryId.dispose);
+
+      await tester.pumpWidget(host(ValueListenableBuilder<String>(
+        valueListenable: factoryId,
+        builder: (context, id, _) => NativeAdWidget(factoryId: id),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.runAsync(() async {
+        adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
+        for (var i = 0; i < 100; i++) {
+          if (recorder.entries.any((e) => e.label == 'nativeVisible')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      await tester.runAsync(() async {
+        factoryId.value = 'b';
+        await tester.pump();
+        for (var i = 0; i < 100; i++) {
+          if (recorder.entries.any((e) => e.label == 'nativeHidden')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+
+      // didUpdateWidget disposed the old adapter bundle and created a fresh
+      // one for factoryId B; mark only that replacement loaded.
+      final replacement = adapter.nativeListenablesByKey.values.single;
+      await tester.runAsync(() async {
+        replacement.isLoaded.value = true;
+        for (var i = 0; i < 300; i++) {
+          if (recorder.entries
+                  .where((e) => e.label == 'nativeVisible')
+                  .length ==
+              2) {
+            return;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      });
+
+      expect(
+        recorder.entries
+            .where((e) => e.label.startsWith('native'))
+            .map((e) => e.label)
+            .toList(),
+        ['nativeVisible', 'nativeHidden', 'nativeVisible'],
+      );
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+    });
+
+    testWidgets('disabled recorder leaves native loading unchanged',
+        (tester) async {
+      AdManager().disableFlightRecorder();
+      AdManager().debugConfig = _admobConfig;
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(adapter.loadNativeCalls, 1);
+      final detector =
+          tester.widget<VisibilityDetector>(find.byType(VisibilityDetector));
+      expect(detector.onVisibilityChanged, isNull,
+          reason: 'zero overhead: VisibilityDetector is mounted but disabled '
+              '(null callback = no observation/timer overhead)');
+      expect(AdManager().flightRecorder, isNull);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('enabling recorder after mount updates detector callback '
+        'without remounting subtree', (tester) async {
+      AdManager().disableFlightRecorder();
+      AdManager().debugConfig = _admobConfig;
+      final rebuildTick = ValueNotifier<int>(0);
+      addTearDown(rebuildTick.dispose);
+
+      await tester.pumpWidget(host(ValueListenableBuilder<int>(
+        valueListenable: rebuildTick,
+        // Deliberately NOT const: a canonicalised const widget is identical
+        // across parent rebuilds, so Flutter skips updating this element and
+        // `_NativeAdWidgetState.build()` would never re-read flightRecorder.
+        builder: (context, _, _) => NativeAdWidget(),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final detectorBefore =
+          tester.widget<VisibilityDetector>(find.byType(VisibilityDetector));
+      expect(detectorBefore.onVisibilityChanged, isNull);
+      final elementBefore = tester.element(find.byType(NativeAdWidget));
+
+      final recorder = AdFlightRecorder();
+      AdManager().enableFlightRecorder(recorder);
+      // Trigger a host layout rebuild so build() picks up the newly-assigned
+      // flightRecorder wrapper properties (since the detector sits OUTSIDE
+      // the widget's internal initRevision builder).
+      rebuildTick.value++;
+      await tester.pump();
+
+      final detectorAfter =
+          tester.widget<VisibilityDetector>(find.byType(VisibilityDetector));
+      expect(detectorAfter.onVisibilityChanged, isNotNull,
+          reason: 'detector callback must now be active');
+      final elementAfter = tester.element(find.byType(NativeAdWidget));
+      expect(identical(elementBefore, elementAfter), isTrue,
+          reason: 'root type stays VisibilityDetector, so the platform view '
+              'subtree is never torn down and remounted');
+    });
+
+    // Lifecycle teardown branch — mirrors BannerAdWidget's existing T231
+    // dispose test. This deliberately verifies safety only; T241 tracks the
+    // pre-existing shared Banner/MREC/Native evidence gap where unmount while
+    // visible does not synthesize a closing `*Hidden` entry.
+    testWidgets('disposing before a queued visibility callback cannot write '
+        'a late entry or throw', (tester) async {
+      await tester.pumpWidget(host(const NativeAdWidget()));
+      await tester.pumpWidget(host(const SizedBox()));
+      final countAfterDispose = recorder.entries.length;
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(recorder.entries, hasLength(countAfterDispose),
+          reason: 'the mounted guard rejects any post-dispose callback');
+      expect(tester.takeException(), isNull);
     });
   });
 }

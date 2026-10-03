@@ -27,6 +27,7 @@ AdConfig _config() => const AdConfig(
         interstitialId: 'ca-app-pub-3940256099942544/1033173712',
         appOpenId: 'ca-app-pub-3940256099942544/9257395921',
         rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+        nativeId: 'ca-app-pub-3940256099942544/2247696110',
       ),
       safety: AdSafetyParams(dryRun: true),
     );
@@ -96,5 +97,56 @@ void main() {
     expect(kit.flightRecorderBundle, isNotNull);
     final decoded = jsonDecode(kit.toJsonString()) as Map<String, dynamic>;
     expect(decoded.containsKey('flightRecorderBundle'), isTrue);
+  });
+
+  testWidgets(
+      'T236: App Open records one valid fullscreen show/dismiss pair',
+      (tester) async {
+    final adapter = FakeAdProviderAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugCanRequestAds = true;
+    AdManager().enableFlightRecorder(AdFlightRecorder());
+    await adapter.loadAppOpen();
+
+    bool? dismissed;
+    await AdManager().showAppOpenAd(
+      bypassSafety: true,
+      onAdDismiss: (value) => dismissed = value,
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(dismissed, isTrue);
+    final entries = AdManager().flightRecorder!.entries;
+    expect(entries.where((e) => e.label == 'fullscreenVisible'), hasLength(1));
+    expect(entries.where((e) => e.label == 'fullscreenDismissed'), hasLength(1));
+    expect(await verifyFlightRecorderChain(entries), isTrue);
+  });
+
+  testWidgets('T236: mounted NativeAdWidget records real device pixel bounds',
+      (tester) async {
+    final adapter = FakeAdProviderAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _config();
+    AdManager().debugCanRequestAds = true;
+    AdManager().enableFlightRecorder(AdFlightRecorder());
+    expect(AdManager().isInitialised, isTrue);
+
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: NativeAdWidget(placement: AdPlacement.home)),
+    ));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    final entries = AdManager().flightRecorder!.entries;
+    final visible = entries.singleWhere(
+      (e) => e.label == 'nativeVisible' && e.placement == 'home',
+      orElse: () => throw StateError(
+          'no nativeVisible entry; recorded labels: '
+          '${entries.map((e) => e.label).toList()}'),
+    );
+    expect(visible.widthPx, greaterThan(0));
+    expect(visible.heightPx, greaterThan(0));
+    expect(await verifyFlightRecorderChain(entries), isTrue);
   });
 }

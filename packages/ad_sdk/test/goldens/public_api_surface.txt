@@ -94,8 +94,10 @@ AdFlightRecorder.clear  [method]  void clear()
 AdFlightRecorder.dispose  [method]  void dispose()
 AdFlightRecorder.entries  [getter]  List<FlightRecorderEntry> get entries
 AdFlightRecorder.flush  [method]  Future<void> flush()
+AdFlightRecorder.isDisposed  [getter]  bool get isDisposed
 AdFlightRecorder.new  [constructor]  AdFlightRecorder AdFlightRecorder({int capacity = 2000})
 AdFlightRecorder.record  [method]  Future<void> record({required String label, required String slotType, required String placement, required String providerTag, double viewabilityFraction = 0, double screenX = 0, double screenY = 0, double widthPx = 0, double heightPx = 0, String? tcfConsentString, bool touchActive = false, int? timestampMs})
+AdFlightRecorder.recordPair  [method]  Future<void> recordPair({required String label1, required String label2, required String slotType, required String placement, required String providerTag, String? tcfConsentString, int? timestampMs})
 AdImpressionEvent  [class]  class AdImpressionEvent extends AdEvent
 AdImpressionEvent.new  [constructor]  AdImpressionEvent AdImpressionEvent({required String providerTag, required AdSlotType type, required AdPlacement placement})
 AdLoadEvent  [class]  class AdLoadEvent extends AdEvent

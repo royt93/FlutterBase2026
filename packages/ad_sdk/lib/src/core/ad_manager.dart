@@ -991,7 +991,15 @@ class AdManager with WidgetsBindingObserver {
   /// evidence bundle (this SDK's own signed JSON format — not an external
   /// standard). Returns `null` when the flight recorder was never enabled;
   /// an enabled recorder with zero entries still signs an empty bundle.
+  ///
+  /// T236 audit fix — awaits [_pendingFlightRecorderWrite] first (if any
+  /// fullscreen dismiss evidence write is still in flight) so a host that
+  /// exports immediately after a show*() dismiss callback (T231's whole
+  /// documented use case) never gets a bundle missing that impression. See
+  /// [_recordFullscreenFlight]'s doc comment for why that write is
+  /// `unawaited` at its call site instead of blocking the callback itself.
   Future<SignedPayload?> exportSignedFlightRecorderBundle() async {
+    await _pendingFlightRecorderWrite;
     final recorder = _flightRecorder;
     if (recorder == null) return null;
     final bundle = FlightRecorderBundle(
@@ -1033,6 +1041,74 @@ class AdManager with WidgetsBindingObserver {
       tcfConsentString: tcf,
       touchActive: touchActive,
     );
+  }
+
+  // T236 audit fix (5 independent findings) — this used to backdate
+  // 'fullscreenShown' to `now - durationMs`. A real click mid-display appends
+  // a 'clicked' entry chained BEFORE this backdated entry resolves, so the
+  // exported chain held an entry whose timestamp precedes its own chain
+  // predecessor — an impossible timeline to any dispute reviewer validating
+  // chronology. The native show*() API only ever reports "it was shown and
+  // is now dismissed" as one event, so there is no real wall-clock moment to
+  // attribute to "shown" other than "dismissed minus an estimate" —
+  // estimating it at all risks exactly that ordering violation. Both entries
+  // are now timestamped at the one real event this SDK actually observes
+  // (dismiss).
+  //
+  // Label is 'fullscreenVisible' (not 'fullscreenShown') so it matches
+  // [AdFlightRecorder._msSinceLastVisible]'s `endsWith('visible')` lookup —
+  // 'fullscreenShown' silently zeroed `interactionDurationMs` for every
+  // fullscreen click evidence entry.
+  //
+  // Still called `unawaited` from each show*() dismiss callback — those
+  // callbacks are `void Function(...)` on the public [AdProviderAdapter]
+  // interface and some fake/real adapter implementations invoke them
+  // synchronously without awaiting the result, so making this `async` and
+  // `await`ing it from the callback does NOT make the enclosing
+  // `showRewardedAd()`/etc. actually wait for it — it only defers every
+  // statement after the first `await` inside the callback (including
+  // `_emit(AdRewardEvent(...))` and `onEarnedReward(...)`) to a later
+  // microtask, breaking same-tick event-delivery tests/hosts. Instead, the
+  // write is tracked in [_pendingFlightRecorderWrite] and
+  // [exportSignedFlightRecorderBundle] awaits it before reading entries —
+  // closing the T231 export race without changing show*()'s calling
+  // convention.
+  Future<void>? _pendingFlightRecorderWrite;
+
+  Future<void> _recordFullscreenFlight({
+    required AdSlotType type,
+    required AdPlacement placement,
+  }) {
+    final recorder = _flightRecorder;
+    if (recorder == null) return Future<void>.value();
+    final future = () async {
+      final providerTag = _adapter?.tag ?? '[SDK]';
+      final tcf = await IabStorage.read(IabStorage.keyTcfString);
+      // The recorder could have been disabled/replaced while the read above
+      // suspended — re-check identity (not just null) and disposal, or this
+      // would silently write into a disposed, orphaned recorder that
+      // `record()`'s own `_disposed` guard then drops for free.
+      if (!identical(_flightRecorder, recorder) || recorder.isDisposed) {
+        return;
+      }
+      // T236 audit fix (Finding 3) — write the pair atomically using the
+      // new [recordPair] helper so the two entries never split across a
+      // mid-flight recorder swap.
+      await recorder.recordPair(
+        label1: 'fullscreenVisible',
+        label2: 'fullscreenDismissed',
+        slotType: type.name,
+        placement: placement.id,
+        providerTag: providerTag,
+        tcfConsentString: tcf,
+      );
+    }();
+    // T236 audit fix (Finding 2) — chain pending writes, don't overwrite, so
+    // multiple concurrent dismissed events (e.g. bypassed App Open shows
+    // resolving rapidly) all finish before the export bundle is signed.
+    _pendingFlightRecorderWrite =
+        (_pendingFlightRecorderWrite ?? Future<void>.value()).then((_) => future);
+    return future;
   }
 
   ProviderFailoverAdvisor? _providerFailoverAdvisor;
@@ -7715,6 +7791,12 @@ class AdManager with WidgetsBindingObserver {
               showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+          // T236 audit fix — see _recordFullscreenFlight's doc comment for
+          // why this stays `unawaited` instead of making this callback async.
+          unawaited(_recordFullscreenFlight(
+            type: AdSlotType.appOpen,
+            placement: placement,
+          ));
         }
         _emit(AdShowEvent(
           providerTag: ad.tag,
@@ -8069,6 +8151,11 @@ class AdManager with WidgetsBindingObserver {
               showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+          // T236 audit fix — see _recordFullscreenFlight's doc comment.
+          unawaited(_recordFullscreenFlight(
+            type: AdSlotType.interstitial,
+            placement: placement,
+          ));
         }
         _emit(AdShowEvent(
           providerTag: ad.tag,
@@ -8532,6 +8619,11 @@ class AdManager with WidgetsBindingObserver {
               AdSafetyConfig.recordFullscreenAdShown(
                   showDurationMs: showStopwatch.elapsedMilliseconds);
               AdSafetyConfig.recordPlacementAdShown(placement); // T92
+              // T236 audit fix — see _recordFullscreenFlight's doc comment.
+              unawaited(_recordFullscreenFlight(
+                type: AdSlotType.rewarded,
+                placement: placement,
+              ));
             }
             if (result.earned) {
               _emit(AdRewardEvent(
@@ -8775,6 +8867,11 @@ class AdManager with WidgetsBindingObserver {
           AdSafetyConfig.recordFullscreenAdShown(
               showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
+          // T236 audit fix — see _recordFullscreenFlight's doc comment.
+          unawaited(_recordFullscreenFlight(
+            type: AdSlotType.rewardedInterstitial,
+            placement: placement,
+          ));
         }
         if (result.earned) {
           _emit(AdRewardEvent(

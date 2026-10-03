@@ -263,6 +263,69 @@ class AdFlightRecorder {
   /// this one's stale snapshot.
   bool _disposed = false;
 
+  /// Whether this instance has been disposed and will no longer accept records.
+  bool get isDisposed => _disposed;
+
+  /// Records a two-entry `visibleLabel`/`hiddenLabel` pair atomically
+  /// on the same serialised [_writeChain], so the two entries are always
+  /// adjacent in the hash chain regardless of concurrent callers.
+  ///
+  /// T236 audit fix (Finding 3) — a mid-pair recorder swap via
+  /// [AdManager.enableFlightRecorder] could previously catch the window
+  /// AFTER the first `record()` completed and BEFORE the second one
+  /// started, leaving the old recorder with an unclosed `*Visible` entry
+  /// and the new recorder with neither entry. Serialising both calls through
+  /// the same `_writeChain.then(...)` sequence means either both land on
+  /// the old recorder (swap arrives before the pair starts) or neither
+  /// does (swap arrives after both complete — normal case). Both writes
+  /// also use the same `timestampMs`, matching `_recordFullscreenFlight`'s
+  /// single-dismiss-event semantics.
+  Future<void> recordPair({
+    required String label1,
+    required String label2,
+    required String slotType,
+    required String placement,
+    required String providerTag,
+    String? tcfConsentString,
+    int? timestampMs,
+  }) {
+    // Enqueue BOTH records onto the existing chain in one call, so nothing
+    // can interleave between them.
+    final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    final result = _writeChain.then((_) async {
+      await _doRecord(
+        label: label1,
+        slotType: slotType,
+        placement: placement,
+        providerTag: providerTag,
+        viewabilityFraction: 0,
+        screenX: 0,
+        screenY: 0,
+        widthPx: 0,
+        heightPx: 0,
+        tcfConsentString: tcfConsentString,
+        touchActive: false,
+        timestampMs: ts,
+      );
+      await _doRecord(
+        label: label2,
+        slotType: slotType,
+        placement: placement,
+        providerTag: providerTag,
+        viewabilityFraction: 0,
+        screenX: 0,
+        screenY: 0,
+        widthPx: 0,
+        heightPx: 0,
+        tcfConsentString: tcfConsentString,
+        touchActive: false,
+        timestampMs: ts,
+      );
+    });
+    _writeChain = result;
+    return result;
+  }
+
   /// Wires persistence once [AdPreferences] becomes available: loads
   /// whatever a PRIOR process already persisted (restoring [_lastHash] from
   /// the newest loaded entry so the chain continues rather than silently
@@ -409,6 +472,7 @@ class AdFlightRecorder {
     required bool touchActive,
     required int? timestampMs,
   }) async {
+    if (_disposed) return;
     try {
       final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
       final previousHash = _lastHash;
@@ -432,6 +496,7 @@ class AdFlightRecorder {
         interactionDurationMs: interactionDurationMs,
       );
       final hash = await _hashOf(payload);
+      if (_disposed) return;
       _entries.add(FlightRecorderEntry(
         timestampMs: ts,
         label: label,
