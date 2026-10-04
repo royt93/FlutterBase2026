@@ -2541,6 +2541,66 @@ void main() {
             returnsNormally);
       });
     });
+
+    test('dispose() leaves no pending quarantine timer', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd());
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 10)); // watchdog arms quarantine
+
+        a.dispose();
+        async.flushMicrotasks();
+        expect(async.pendingTimers, isEmpty,
+            reason: 'the 35s quarantine timer must be cancelled by dispose()');
+      });
+    });
+
+    test('quarantine boundary: refused at 34s, allowed at 35s', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd());
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 10)); // abandons cycle 1
+
+        async.elapse(const Duration(seconds: 34));
+        a.appOpenSlot.markReady();
+        bool? early;
+        a.showAppOpen(onDismiss: (d) => early = d);
+        async.flushMicrotasks();
+        expect(early, isFalse, reason: 'still inside the 35s window');
+        expect(b.showAppOpenCalls, hasLength(1));
+
+        async.elapse(const Duration(seconds: 1));
+        a.appOpenSlot.markReady();
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+        expect(b.showAppOpenCalls, hasLength(2),
+            reason: 'window closed exactly at 35s');
+      });
+    });
   });
 
   // T185, revised by the smoke-test audit fix (2026-09-17) — requestId
