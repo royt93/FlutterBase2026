@@ -1,5 +1,6 @@
 // T231 — AdManager-level opt-in wiring for the Flight Recorder: default OFF,
 // zero overhead when disabled, DisputeKit extension, click-event hook.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
@@ -277,4 +278,129 @@ void main() {
       expect(AdManager().flightRecorder, isNull);
     });
   });
+
+  group('T241 audit follow-up — retire drains EVERY write, not a stale '
+      'snapshot', () {
+    // 2nd-round reviewer finding (HIGH): `_retireFlightRecorder` used to
+    // snapshot the recorder's in-flight write chain ONCE and dispose as
+    // soon as that single snapshot settled. If a second write landed on the
+    // same not-yet-disposed recorder before the first settled (e.g. a
+    // second widget instance sharing the recorder calling
+    // `closeFlightRecorderInterval` with its own captured reference), that
+    // second write's own chain replaced the map entry — and the stale
+    // snapshot-based dispose fired without ever waiting for it, silently
+    // dropping it at `AdFlightRecorder._doRecord`'s own `_disposed` guard.
+    //
+    // This drives that exact sequence with a recorder whose `record()` is
+    // gated by a `Completer`, so the test controls the interleaving
+    // precisely instead of hoping a race manifests.
+    test(
+        'disableFlightRecorder waits for a SECOND write chained on after '
+        'the first was already retiring', () async {
+      final recorder = _GatedFlightRecorder();
+      AdManager().enableFlightRecorder(recorder);
+
+      // First write: starts (enters record()) but is held open by the gate.
+      final firstDone = AdManager().recordFlightRecorderEvent(
+        label: 'bannerVisible',
+        type: AdSlotType.banner,
+        placement: AdPlacement.home,
+      );
+      await recorder.waitUntilGated();
+
+      // Retire the recorder WHILE the first write is still gated — this is
+      // the old code's single-snapshot moment.
+      AdManager().disableFlightRecorder();
+      expect(recorder.isDisposed, isFalse,
+          reason: 'must not dispose synchronously while a write is still '
+              'in flight against it');
+
+      // A SECOND write lands on the same (still undisposed) recorder
+      // before the first settles — mirrors a second widget instance's own
+      // captured reference, or simply this recorder's `closeFlightRecorderInterval`.
+      final secondDone = AdManager().closeFlightRecorderInterval(
+        recorder,
+        label: 'bannerHidden',
+        type: AdSlotType.banner,
+        placement: AdPlacement.home,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(recorder.isDisposed, isFalse,
+          reason: 'the second write chained itself onto this recorder '
+              'before it was disposed — it must be allowed to land');
+
+      // Release both gates and let everything settle.
+      recorder.release();
+      await firstDone;
+      await secondDone;
+      // Disposal happens asynchronously once the drain loop observes no
+      // further chain was appended — give it a beat.
+      for (var i = 0; i < 20 && !recorder.isDisposed; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(recorder.isDisposed, isTrue);
+      expect(recorder.entries.map((e) => e.label),
+          containsAll(['bannerVisible', 'bannerHidden']),
+          reason: 'a stale-snapshot retire would have disposed the '
+              'recorder before the second write\'s own record() call ran, '
+              'silently dropping it at the _disposed guard');
+    });
+  });
+}
+
+/// Lets a test deterministically pause [record] mid-flight (after
+/// `AdManager.recordFlightRecorderEvent`'s own `IabStorage.read` await has
+/// already resolved and the call has reached the recorder), so a retire can
+/// be driven into the exact "a write is in flight" window without relying on
+/// real scheduler timing.
+class _GatedFlightRecorder extends AdFlightRecorder {
+  Completer<void>? _gate;
+  final Completer<void> _entered = Completer<void>();
+
+  Future<void> waitUntilGated() => _entered.future;
+
+  void release() {
+    _gate?.complete();
+  }
+
+  @override
+  Future<void> record({
+    required String label,
+    required String slotType,
+    required String placement,
+    required String providerTag,
+    double viewabilityFraction = 0,
+    double screenX = 0,
+    double screenY = 0,
+    double widthPx = 0,
+    double heightPx = 0,
+    String? tcfConsentString,
+    bool touchActive = false,
+    int? timestampMs,
+  }) async {
+    // Only the FIRST call actually gates — the second write must be free
+    // to run immediately once it reaches the recorder, so the test can
+    // observe it landing before the first write's retire-triggering gate
+    // is released.
+    if (_gate == null) {
+      _gate = Completer<void>();
+      if (!_entered.isCompleted) _entered.complete();
+      await _gate!.future;
+    }
+    return super.record(
+      label: label,
+      slotType: slotType,
+      placement: placement,
+      providerTag: providerTag,
+      viewabilityFraction: viewabilityFraction,
+      screenX: screenX,
+      screenY: screenY,
+      widthPx: widthPx,
+      heightPx: heightPx,
+      tcfConsentString: tcfConsentString,
+      touchActive: touchActive,
+      timestampMs: timestampMs,
+    );
+  }
 }

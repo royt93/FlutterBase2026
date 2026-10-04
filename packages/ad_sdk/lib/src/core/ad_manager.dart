@@ -972,8 +972,10 @@ class AdManager with WidgetsBindingObserver {
   /// persisting and silently overwrite its evidence — see
   /// [AdFlightRecorder.dispose]'s doc comment.
   void enableFlightRecorder(AdFlightRecorder recorder) {
-    _flightRecorder =
-        _swapDisposable(_flightRecorder, recorder, (r) => r.dispose());
+    final previous = _flightRecorder;
+    if (identical(previous, recorder)) return;
+    _flightRecorder = recorder;
+    if (previous != null) _retireFlightRecorder(previous);
     // Covers the "enabled after initialize() already ran" ordering too —
     // the `initialize()` call site above only covers "enabled before init".
     final prefs = AdPreferences.instanceOrNull;
@@ -983,25 +985,96 @@ class AdManager with WidgetsBindingObserver {
   /// Test/host seam: clear a previously-registered flight recorder.
   @visibleForTesting
   void disableFlightRecorder() {
-    _flightRecorder = _swapDisposable<AdFlightRecorder>(
-        _flightRecorder, null, (r) => r.dispose());
+    final previous = _flightRecorder;
+    _flightRecorder = null;
+    if (previous != null) _retireFlightRecorder(previous);
   }
+
+  /// T241 audit follow-up — awaits ONLY the write chain belonging to
+  /// [recorder] itself (see [_flightRecorderWriteChains]), never a single
+  /// global future shared by every recorder instance ever created. An
+  /// earlier version of this fix chained every write — across every test's
+  /// disposable recorder, for the lifetime of the whole process — onto one
+  /// `Future` field: if any one write anywhere never settled (e.g. a widget
+  /// test's own `tester` was torn down before its in-flight
+  /// `IabStorage.read` mock resolved), every LATER `disableFlightRecorder`/
+  /// `exportSignedFlightRecorderBundle` call in the same process hung
+  /// forever waiting on that one stuck link, however unrelated. Scoping the
+  /// chain per-recorder means a stuck write in one (disposable, per-test or
+  /// per-host-session) recorder can never block a different, independent
+  /// recorder's retirement or export.
+  void _retireFlightRecorder(AdFlightRecorder recorder) {
+    final pending = _flightRecorderWriteChains[recorder];
+    if (pending == null) {
+      // Nothing currently enqueued against THIS recorder (the common case)
+      // — dispose synchronously, exactly like the pre-T241 behavior, and
+      // what tests calling `disableFlightRecorder()` synchronously rely on.
+      recorder.dispose();
+      return;
+    }
+    unawaited(_disposeAfterDraining(recorder, pending));
+  }
+
+  /// T241 audit follow-up (2nd-round reviewer finding, HIGH) — a single
+  /// `pending.then((_) => recorder.dispose())` snapshot was NOT enough:
+  /// between that snapshot and the moment it settles, ANOTHER call can still
+  /// land on the same not-yet-disposed [recorder] (e.g. a second
+  /// Banner/MREC/Native widget instance sharing this recorder, or a second
+  /// visibility transition on the same widget) and chain a NEWER future onto
+  /// [_flightRecorderWriteChains]`[recorder]`, replacing the one this method
+  /// already captured. Disposing as soon as the stale snapshot resolves would
+  /// then silently drop that newer write at [AdFlightRecorder._doRecord]'s
+  /// own `_disposed` guard — the exact bug class [recordFlightRecorderEvent]'s
+  /// doc comment describes, just reopened on the retire path instead of the
+  /// export path. Re-reading the map after each await and looping until it
+  /// genuinely stops changing closes that gap: `enableFlightRecorder`/
+  /// `disableFlightRecorder` keep `_flightRecorder` pointed at the NEW
+  /// recorder throughout, so new writes against the OLD one only ever
+  /// happen via a widget's own captured [AdFlightRecorder] reference
+  /// (`closeFlightRecorderInterval`), never via [recordFlightRecorderEvent]
+  /// (which always reads `_flightRecorder` fresh) — a narrow, already-rare
+  /// window, but one real callers can hit.
+  Future<void> _disposeAfterDraining(
+      AdFlightRecorder recorder, Future<void> firstPending) async {
+    var current = firstPending;
+    while (true) {
+      await current;
+      final latest = _flightRecorderWriteChains[recorder];
+      if (latest == null || identical(latest, current)) break;
+      current = latest;
+    }
+    recorder.dispose();
+    if (identical(_flightRecorderWriteChains[recorder], current)) {
+      _flightRecorderWriteChains.remove(recorder);
+    }
+  }
+
+  /// T241 audit follow-up — one write chain per recorder INSTANCE, not one
+  /// shared globally. Keyed by identity (default `Map` equality for a class
+  /// with no overridden `==`), so two different `AdFlightRecorder()`
+  /// instances — even if otherwise identical — never share an entry. See
+  /// [_retireFlightRecorder]'s doc comment for why a single global chain
+  /// was the actual bug.
+  final Map<AdFlightRecorder, Future<void>> _flightRecorderWriteChains = {};
 
   /// Signs the current [flightRecorder] buffer as an exportable `.adproof`
   /// evidence bundle (this SDK's own signed JSON format — not an external
   /// standard). Returns `null` when the flight recorder was never enabled;
   /// an enabled recorder with zero entries still signs an empty bundle.
   ///
-  /// T236 audit fix — awaits [_pendingFlightRecorderWrite] first (if any
-  /// fullscreen dismiss evidence write is still in flight) so a host that
-  /// exports immediately after a show*() dismiss callback (T231's whole
-  /// documented use case) never gets a bundle missing that impression. See
+  /// T236 audit fix — awaits this recorder's own write chain first (if any
+  /// write — fullscreen dismiss pair or widget visibility transition — is
+  /// still in flight) so a host that exports immediately after a show*()
+  /// dismiss callback or a route pop (T231/T241's own documented use cases)
+  /// never gets a bundle missing that entry. See
   /// [_recordFullscreenFlight]'s doc comment for why that write is
-  /// `unawaited` at its call site instead of blocking the callback itself.
+  /// `unawaited` at its call site instead of blocking the callback itself,
+  /// and [_retireFlightRecorder]'s doc comment for why this is scoped to
+  /// THIS recorder rather than a single global future.
   Future<SignedPayload?> exportSignedFlightRecorderBundle() async {
-    await _pendingFlightRecorderWrite;
     final recorder = _flightRecorder;
     if (recorder == null) return null;
+    await _flightRecorderWriteChains[recorder];
     final bundle = FlightRecorderBundle(
       entries: recorder.entries,
       generatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -1014,6 +1087,17 @@ class AdManager with WidgetsBindingObserver {
   /// one hash-chained entry. No-ops instantly (before touching
   /// [IabStorage]) when [flightRecorder] is `null` — the "zero overhead when
   /// disabled" contract lives here, not in each caller.
+  ///
+  /// T241 audit follow-up (reviewer finding, HIGH) — this used to run
+  /// un-chained: a caller's `unawaited(recordFlightRecorderEvent(...))`
+  /// (every widget visibility transition) was invisible to
+  /// [exportSignedFlightRecorderBundle], which only awaited
+  /// [_pendingFlightRecorderWrite] for fullscreen pairs. A host exporting
+  /// immediately after a route pop/list removal (T241's own documented
+  /// use case) could sign a bundle missing the just-enqueued closing
+  /// `*Hidden` entry. Routing through [_enqueueFlightRecorderWrite] below
+  /// chains every write — fullscreen and widget visibility alike — onto
+  /// the same future the export already awaits.
   Future<void> recordFlightRecorderEvent({
     required String label,
     AdSlotType? type,
@@ -1024,23 +1108,96 @@ class AdManager with WidgetsBindingObserver {
     double widthPx = 0,
     double heightPx = 0,
     bool touchActive = false,
-  }) async {
+  }) {
     final recorder = _flightRecorder;
-    if (recorder == null) return;
-    final tcf = await IabStorage.read(IabStorage.keyTcfString);
-    await recorder.record(
-      label: label,
-      slotType: type?.name ?? 'global',
-      placement: placement?.id ?? '-',
-      providerTag: _adapter?.tag ?? '[SDK]',
-      viewabilityFraction: viewabilityFraction,
-      screenX: screenX,
-      screenY: screenY,
-      widthPx: widthPx,
-      heightPx: heightPx,
-      tcfConsentString: tcf,
-      touchActive: touchActive,
-    );
+    if (recorder == null) return Future<void>.value();
+    return _enqueueFlightRecorderWrite(
+        recorder,
+        (tcf) => recorder.record(
+              label: label,
+              slotType: type?.name ?? 'global',
+              placement: placement?.id ?? '-',
+              providerTag: _adapter?.tag ?? '[SDK]',
+              viewabilityFraction: viewabilityFraction,
+              screenX: screenX,
+              screenY: screenY,
+              widthPx: widthPx,
+              heightPx: heightPx,
+              tcfConsentString: tcf,
+              touchActive: touchActive,
+            ));
+  }
+
+  /// T241 audit follow-up (reviewer finding, HIGH) — closes a flight-recorder
+  /// evidence interval against a SPECIFIC, previously-captured [recorder]
+  /// instance, never against whatever [flightRecorder] happens to be
+  /// *right now*. A widget's `dispose()` can run an arbitrary amount of time
+  /// after it recorded its `*Visible` entry, during which a host may have
+  /// called [disableFlightRecorder]/[enableFlightRecorder] — writing the
+  /// closing entry into TODAY's current recorder would fabricate an orphan
+  /// `*Hidden` with no matching `*Visible` predecessor in that recorder's
+  /// own chain (the actual `*Visible` sits in the OLD, now-replaced
+  /// recorder's chain instead). [AdFlightRecorder]'s own `isDisposed` guard
+  /// (checked by [_enqueueFlightRecorderWrite] both before and after the
+  /// `IabStorage` await) makes this a safe no-op once a host has disabled
+  /// that specific recorder — the closing entry is dropped, not
+  /// misattributed, which matches [AdFlightRecorder.dispose]'s documented
+  /// "frozen as of disable" contract.
+  @internal
+  Future<void> closeFlightRecorderInterval(
+    AdFlightRecorder recorder, {
+    required String label,
+    required AdSlotType type,
+    AdPlacement? placement,
+    double screenX = 0,
+    double screenY = 0,
+    double widthPx = 0,
+    double heightPx = 0,
+  }) {
+    return _enqueueFlightRecorderWrite(
+        recorder,
+        (tcf) => recorder.record(
+              label: label,
+              slotType: type.name,
+              placement: placement?.id ?? '-',
+              providerTag: _adapter?.tag ?? '[SDK]',
+              viewabilityFraction: 0,
+              screenX: screenX,
+              screenY: screenY,
+              widthPx: widthPx,
+              heightPx: heightPx,
+              tcfConsentString: tcf,
+              touchActive: false,
+            ));
+  }
+
+  /// T241 audit follow-up — shared by [recordFlightRecorderEvent] and
+  /// [closeFlightRecorderInterval]: resolves the TCF string, re-checks
+  /// [recorder] is still live after that `await` (a swap/disable can land
+  /// mid-flight), and chains the whole thing onto THIS recorder's entry in
+  /// [_flightRecorderWriteChains] so every write — not just fullscreen
+  /// pairs — is covered by [exportSignedFlightRecorderBundle]'s await,
+  /// without an unrelated recorder's stuck chain blocking it forever.
+  Future<void> _enqueueFlightRecorderWrite(
+    AdFlightRecorder recorder,
+    Future<void> Function(String? tcf) write,
+  ) {
+    if (recorder.isDisposed) return Future<void>.value();
+    final future = () async {
+      final tcf = await IabStorage.read(IabStorage.keyTcfString);
+      if (recorder.isDisposed) return;
+      await write(tcf);
+    }();
+    final previous =
+        _flightRecorderWriteChains[recorder] ?? Future<void>.value();
+    final chain = previous.then((_) => future);
+    _flightRecorderWriteChains[recorder] = chain;
+    unawaited(chain.whenComplete(() {
+      if (identical(_flightRecorderWriteChains[recorder], chain)) {
+        _flightRecorderWriteChains.remove(recorder);
+      }
+    }));
+    return future;
   }
 
   // T236 audit fix (5 independent findings) — this used to backdate
@@ -1073,8 +1230,6 @@ class AdManager with WidgetsBindingObserver {
   // [exportSignedFlightRecorderBundle] awaits it before reading entries —
   // closing the T231 export race without changing show*()'s calling
   // convention.
-  Future<void>? _pendingFlightRecorderWrite;
-
   Future<void> _recordFullscreenFlight({
     required AdSlotType type,
     required AdPlacement placement,
@@ -1106,8 +1261,22 @@ class AdManager with WidgetsBindingObserver {
     // T236 audit fix (Finding 2) — chain pending writes, don't overwrite, so
     // multiple concurrent dismissed events (e.g. bypassed App Open shows
     // resolving rapidly) all finish before the export bundle is signed.
-    _pendingFlightRecorderWrite =
-        (_pendingFlightRecorderWrite ?? Future<void>.value()).then((_) => future);
+    //
+    // T241 audit follow-up — chained onto THIS recorder's own entry in
+    // [_flightRecorderWriteChains], not a single global future shared by
+    // every recorder ever created. See [_retireFlightRecorder]'s doc
+    // comment for why a global chain was itself a bug (one stuck write in
+    // an unrelated, already-retired recorder could hang every later
+    // export/disable in the whole process).
+    final previous =
+        _flightRecorderWriteChains[recorder] ?? Future<void>.value();
+    final chain = previous.then((_) => future);
+    _flightRecorderWriteChains[recorder] = chain;
+    unawaited(chain.whenComplete(() {
+      if (identical(_flightRecorderWriteChains[recorder], chain)) {
+        _flightRecorderWriteChains.remove(recorder);
+      }
+    }));
     return future;
   }
 

@@ -33,6 +33,21 @@ AdConfig _config() => const AdConfig(
       safety: AdSafetyParams(dryRun: true),
     );
 
+/// Real on-device Wi-Fi can briefly flap between runs in this file: once
+/// `ConnectionNotifierTools` observes that as an offline→... transition,
+/// `AdManager._lastConnected` holds `false` until the device actually
+/// reconnects — which can outlast a single test's rapid
+/// `destroy()`/`initialize()` cycle. `BannerAdWidget`/`NativeAdWidget` both
+/// skip loading entirely while offline, so without this wait a transient
+/// flap in an earlier test makes an unrelated later test flaky for reasons
+/// that have nothing to do with the behavior under test (same reasoning as
+/// `round38_native_ad_error_retry_test.dart`'s own wait on `isConnected`).
+Future<void> _waitUntilConnected(WidgetTester tester) async {
+  for (var i = 0; i < 40 && !AdManager().isConnected; i++) {
+    await tester.pump(const Duration(milliseconds: 250));
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -52,6 +67,16 @@ void main() {
       if (AdManager().isInitialised) break;
     }
     expect(AdManager().isInitialised, isTrue);
+    // A real device grants a real first-install VIP trial during
+    // initialize(), independent of this test file's own state. A still-
+    // active VIP member skips banner loading entirely (`_isVipMember`),
+    // which would make this assertion flaky depending on this physical
+    // device's install history rather than the behavior under test.
+    await AdManager().clearSdkData(
+      scope: SdkDataErasureScope.allIncludingEntitlements,
+      confirmedEntitlementErasure: true,
+    );
+    await _waitUntilConnected(tester);
 
     await tester.pumpWidget(const MaterialApp(
       navigatorObservers: [],
@@ -131,6 +156,7 @@ void main() {
     AdManager().debugCanRequestAds = true;
     AdManager().enableFlightRecorder(AdFlightRecorder());
     expect(AdManager().isInitialised, isTrue);
+    await _waitUntilConnected(tester);
 
     await tester.pumpWidget(const MaterialApp(
       home: Scaffold(body: NativeAdWidget(placement: AdPlacement.home)),
@@ -149,6 +175,121 @@ void main() {
     expect(visible.widthPx, greaterThan(0));
     expect(visible.heightPx, greaterThan(0));
     expect(await verifyFlightRecorderChain(entries), isTrue);
+  });
+
+  testWidgets(
+      'T241: popping a screen while a real banner is visible closes '
+      'exactly one bannerHidden and the chain still verifies',
+      (tester) async {
+    AdManager().enableFlightRecorder(AdFlightRecorder());
+    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+      if (AdManager().isInitialised) break;
+    }
+    expect(AdManager().isInitialised, isTrue);
+    // Same real-device VIP-trial reasoning as the first test above.
+    await AdManager().clearSdkData(
+      scope: SdkDataErasureScope.allIncludingEntitlements,
+      confirmedEntitlementErasure: true,
+    );
+    await _waitUntilConnected(tester);
+
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navigatorKey,
+      navigatorObservers: [adRouteObserver],
+      home: const Scaffold(body: Center(child: Text('home'))),
+    ));
+
+    navigatorKey.currentState!.push(MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(
+        body: Align(
+          alignment: Alignment.bottomCenter,
+          child: BannerAdWidget(collapseAnimationDuration: Duration.zero),
+        ),
+      ),
+    ));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    final recorder = AdManager().flightRecorder!;
+    expect(recorder.entries.any((e) => e.label == 'bannerVisible'), isTrue,
+        reason: 'a real on-device VisibilityDetector callback must have '
+            'fired the initial "became visible" transition before the pop');
+
+    // Pop the screen while the banner is still on-screen and visible — this
+    // is the real-world case T241 fixes: BannerAdWidget.dispose() runs while
+    // _lastFlightRecorderVisible is still true.
+    navigatorKey.currentState!.pop();
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(tester.takeException(), isNull);
+
+    final hiddenEntries =
+        recorder.entries.where((e) => e.label == 'bannerHidden');
+    expect(hiddenEntries, hasLength(1),
+        reason: 'unmounting a visible banner via a real route pop must '
+            'close the evidence interval exactly once, not leave it open '
+            'and not double-close it');
+    expect(recorder.entries.last.label, 'bannerHidden');
+    expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+  });
+
+  testWidgets(
+      'T241: removing a visible native ad from a real ListView closes '
+      'exactly one nativeHidden and the chain still verifies',
+      (tester) async {
+    final adapter = FakeAdProviderAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _config();
+    AdManager().debugCanRequestAds = true;
+    AdManager().enableFlightRecorder(AdFlightRecorder());
+    await _waitUntilConnected(tester);
+
+    final items = ValueNotifier<List<int>>(const [0]);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ValueListenableBuilder<List<int>>(
+          valueListenable: items,
+          builder: (context, list, _) => ListView(
+            children: [
+              for (final _ in list)
+                const SizedBox(
+                  height: 300,
+                  child: NativeAdWidget(placement: AdPlacement.home),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    final recorder = AdManager().flightRecorder!;
+    expect(recorder.entries.any((e) => e.label == 'nativeVisible'), isTrue,
+        reason: 'a real on-device VisibilityDetector callback must have '
+            'fired the initial "became visible" transition before removal');
+
+    // Remove the item from the real ListView while still visible — mirrors
+    // a host app's "remove dismissed card" flow that T241 targets.
+    items.value = const [];
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(tester.takeException(), isNull);
+
+    final hiddenEntries =
+        recorder.entries.where((e) => e.label == 'nativeHidden');
+    expect(hiddenEntries, hasLength(1),
+        reason: 'removing a visible native ad from a real scrollable must '
+            'close the evidence interval exactly once');
+    expect(recorder.entries.last.label, 'nativeHidden');
+    expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
   });
 
   testWidgets('T238: export a real on-device .adproof for standalone CLI',

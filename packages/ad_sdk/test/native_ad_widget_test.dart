@@ -1865,12 +1865,8 @@ void main() {
               'subtree is never torn down and remounted');
     });
 
-    // Lifecycle teardown branch — mirrors BannerAdWidget's existing T231
-    // dispose test. This deliberately verifies safety only; T241 tracks the
-    // pre-existing shared Banner/MREC/Native evidence gap where unmount while
-    // visible does not synthesize a closing `*Hidden` entry.
     testWidgets('disposing before a queued visibility callback cannot write '
-        'a late entry or throw', (tester) async {
+        'an orphan nativeHidden or throw', (tester) async {
       await tester.pumpWidget(host(const NativeAdWidget()));
       await tester.pumpWidget(host(const SizedBox()));
       final countAfterDispose = recorder.entries.length;
@@ -1878,6 +1874,46 @@ void main() {
 
       expect(recorder.entries, hasLength(countAfterDispose),
           reason: 'the mounted guard rejects any post-dispose callback');
+      expect(recorder.entries.where((e) => e.label == 'nativeHidden'), isEmpty,
+          reason: 'never-visible unmount must not create an orphan close');
+      expect(tester.takeException(), isNull);
+    });
+
+    // T241 — mirrors BannerAdWidget/MrecAdWidget's own T241 test: unmounting
+    // a widget that was last known visible must close the evidence interval
+    // instead of leaving the chain's last entry dangling as "still visible".
+    testWidgets('T241: unmount while visible records exactly one nativeHidden',
+        (tester) async {
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: NativeAdWidget(placement: AdPlacement.home),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.runAsync(() async {
+        adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
+        for (var i = 0; i < 100; i++) {
+          if (recorder.entries.any((e) => e.label == 'nativeVisible')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pump();
+      expect(recorder.entries.where((e) => e.label == 'nativeVisible'),
+          hasLength(1));
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(host(const SizedBox()));
+        for (var i = 0; i < 100; i++) {
+          if (recorder.entries.any((e) => e.label == 'nativeHidden')) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries.where((e) => e.label == 'nativeHidden'),
+          hasLength(1),
+          reason: 'dispose closes the visible evidence interval exactly once');
+      expect(recorder.entries.last.label, 'nativeHidden');
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
       expect(tester.takeException(), isNull);
     });
   });

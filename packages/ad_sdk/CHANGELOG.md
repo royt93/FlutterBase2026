@@ -29,11 +29,34 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `INVALID`/1, and usage/read errors/2; needs no Flutter engine and adds no
   dependency. Verified against an artifact exported on a real Android device;
   the untouched file passed and a one-byte mutation failed.
-- **Known gap (tracked as T241, not fixed here):** if a Banner/MREC/Native
-  widget using the flight recorder is unmounted while visible (route pop,
-  list-row removal), no closing `*Hidden` entry is recorded — this is a
-  pre-existing gap from T231's Banner/MREC implementation, not new to this
-  change.
+- **Fixed (T241):** `BannerAdWidget`/`MrecAdWidget`/`NativeAdWidget` now close
+  the flight-recorder evidence interval on unmount. `VisibilityDetector` does
+  not synthesize a final `visibleFraction = 0` callback when a `RenderObject`
+  is detached, so a widget that was visible when its route was popped (or its
+  row removed from a `ListView`) used to leave the last `*Visible` entry
+  dangling forever in the exported `.adproof` chain. `dispose()` now writes
+  the closing `*Hidden` entry itself, using the last known on-screen
+  origin/size cached from the most recent real visibility transition (the
+  render object may already be gone by the time `dispose()` runs, so
+  `context.findRenderObject()` is not used). A widget that was never visible
+  still unmounts with no entry at all (no orphan close). Zero overhead when
+  the recorder is disabled, as before.
+
+  Independent post-fix audit (same release) caught 3 further bugs in the
+  above before it shipped: (1) the dispose-time close raced
+  `exportSignedFlightRecorderBundle()`/`disableFlightRecorder()` and could
+  silently drop the closing entry — `AdManager` now tracks one write chain
+  PER recorder instance instead of a single global one, so export/teardown
+  wait only for their own recorder's in-flight writes, never an unrelated
+  one's; (2) swapping the flight recorder while a widget stayed mounted
+  could write the closing entry into the NEW recorder with no matching
+  `*Visible` in its chain — each widget now closes against the exact
+  recorder instance it recorded `*Visible` into; (3) a real ad erroring into
+  the local House Ad fallback (T229/T237/T240) while still visible, then
+  unmounting, used to tag the closing entry with the real provider — the
+  close now defers to the same house-ad check `_recordFlightRecorderVisibility`
+  already used, so house-ad content is never misattributed as provider
+  evidence (it leaves the interval open instead, the safe failure mode).
 
 ## [3.4.0] - 2026-09-29
 

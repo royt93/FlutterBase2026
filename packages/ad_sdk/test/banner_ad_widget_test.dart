@@ -1700,6 +1700,243 @@ void main() {
 
       expect(recorder.entries, hasLength(countAfterDispose),
           reason: 'the mounted guard rejects any post-dispose callback');
+      expect(recorder.entries.where((e) => e.label == 'bannerHidden'),
+          isEmpty,
+          reason: 'never-visible unmount must not create an orphan close');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('T241: unmount while visible records exactly one bannerHidden',
+        (tester) async {
+      final adapter = _BannerCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: BannerAdWidget(collapseAnimationDuration: Duration.zero),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(recorder.entries.where((e) => e.label == 'bannerVisible'),
+          hasLength(1));
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries.where((e) => e.label == 'bannerHidden'),
+          hasLength(1),
+          reason: 'dispose closes the visible evidence interval exactly once');
+      expect(recorder.entries.last.label, 'bannerHidden');
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'T241: unmounting a disabled-recorder banner never visible does not '
+        'throw and creates no entries', (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().disableFlightRecorder();
+      addTearDown(() {
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: BannerAdWidget(collapseAnimationDuration: Duration.zero),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(AdManager().flightRecorder, isNull);
+      expect(tester.takeException(), isNull);
+    });
+
+    // T241 audit follow-up (reviewer finding, MAJOR) — a real ad can go
+    // `bannerVisible`, later no-fill into the house-ad fallback branch with
+    // NO further visibility callback (the widget's on-screen fraction never
+    // actually changes), then unmount while the house ad is still showing.
+    // Before this fix, `_closeFlightRecorderVisibilityForUnmount` had no
+    // house-ad awareness and fired a `bannerHidden` tagged with the real
+    // provider for content that was actually house-ad at teardown.
+    testWidgets(
+        'T241: unmount while a house ad is showing after a real-ad error '
+        'does not fabricate a provider bannerHidden', (tester) async {
+      final adapter = _CollapsingBannerCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: BannerAdWidget(
+          collapseAnimationDuration: Duration.zero,
+          houseAd: HouseAdItem(
+            assetPath: 'assets/house_ad.png',
+            title: 'House fallback',
+          ),
+          houseAdDelay: Duration.zero,
+        ),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(recorder.entries.any((e) => e.label == 'bannerVisible'), isTrue,
+          reason: 'precondition: the real ad was recorded visible first');
+
+      // No-fill into the house-ad branch — same state transition the T237
+      // guard checks, with NO further VisibilityDetector callback (the
+      // widget's on-screen geometry/fraction never changes).
+      final listenables = adapter.bannerListenablesByKey.values.single;
+      listenables.hasError.value = true;
+      listenables.isLoaded.value = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.text('House fallback'), findsOneWidget,
+          reason: 'precondition: the house fallback is now the only '
+              'content actually on screen');
+
+      // Unmount while the house ad is still showing.
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        recorder.entries.where((e) =>
+            e.providerTag == adapter.tag && e.label == 'bannerHidden'),
+        isEmpty,
+        reason: 'must never fabricate a provider-tagged close for content '
+            'that was actually house-ad at teardown',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    // T241 audit follow-up (reviewer finding, HIGH) — a widget's dispose()
+    // can run an arbitrary amount of time after it recorded its
+    // `bannerVisible` entry, during which a host may have disabled/replaced
+    // the flight recorder. Closing against whatever `AdManager().flightRecorder`
+    // is *at dispose time* would fabricate an orphan `bannerHidden` in the
+    // NEW recorder's chain, with no matching `bannerVisible` predecessor.
+    testWidgets(
+        'T241: unmount after the recorder was swapped does not orphan a '
+        'bannerHidden into the new recorder', (tester) async {
+      final adapter = _BannerCountingAdapter();
+      final oldRecorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(oldRecorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: BannerAdWidget(collapseAnimationDuration: Duration.zero),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(oldRecorder.entries.any((e) => e.label == 'bannerVisible'),
+          isTrue,
+          reason: 'precondition: the open interval lives in oldRecorder');
+
+      // Swap recorders WHILE the banner stays mounted and visible — no
+      // widget-side event triggers this; a host can call this any time.
+      final newRecorder = AdFlightRecorder();
+      AdManager().enableFlightRecorder(newRecorder);
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(newRecorder.entries.where((e) => e.label == 'bannerHidden'),
+          isEmpty,
+          reason: 'the close must never land in a recorder that never saw '
+              'the matching bannerVisible');
+      // T241 audit follow-up (reviewer finding, MINOR) — the first version
+      // of this test only checked newRecorder, which a build that silently
+      // swallows the close EVERYWHERE (not just "never into the new
+      // recorder") would also pass. oldRecorder was disposed synchronously
+      // by `enableFlightRecorder` (no write was in flight at swap time), so
+      // the close against it is correctly a no-op too — frozen with just
+      // its original bannerVisible, matching AdFlightRecorder.dispose's
+      // documented "frozen as of disable" contract.
+      expect(oldRecorder.isDisposed, isTrue);
+      expect(oldRecorder.entries.where((e) => e.label == 'bannerHidden'),
+          isEmpty,
+          reason: 'a recorder already disposed at swap time must not '
+              'accept a later write either — the interval stays open, '
+              'which is the documented safe failure mode');
+      expect(oldRecorder.entries, hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+
+    // T241 audit follow-up (reviewer finding, HIGH) — recordFlightRecorderEvent
+    // resolves the TCF string asynchronously before it enqueues onto the
+    // recorder's hash chain. Before this fix, that write was invisible to
+    // exportSignedFlightRecorderBundle(), so a host exporting immediately
+    // after a route pop (T241's own documented use case) could sign a
+    // bundle missing the just-enqueued closing bannerHidden entry.
+    testWidgets(
+        'T241: exporting immediately after unmount includes the closing '
+        'bannerHidden entry', (tester) async {
+      final adapter = _BannerCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(host(const SizedBox(
+        width: 320,
+        child: BannerAdWidget(collapseAnimationDuration: Duration.zero),
+      )));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(recorder.entries.any((e) => e.label == 'bannerVisible'), isTrue);
+
+      await tester.pumpWidget(host(const SizedBox()));
+      // Real Ed25519 signing runs real async crypto work that fake-async's
+      // zone never advances on its own (same lesson as every other signed-
+      // export test in this suite) — without `runAsync()` this hangs until
+      // the test framework's own timeout. No extra `pump` to drain the
+      // dispose-time write first — the export call itself must wait for it.
+      SignedPayload? signed;
+      await tester.runAsync(() async {
+        signed = await AdManager().exportSignedFlightRecorderBundle();
+      });
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(signed, isNotNull);
+      final bundle = FlightRecorderBundle.fromJsonString(signed!.payloadJson);
+      expect(bundle.entries.any((e) => e.label == 'bannerHidden'), isTrue,
+          reason: 'export must await the dispose-time close, not race it');
       expect(tester.takeException(), isNull);
     });
 
@@ -1865,6 +2102,13 @@ void main() {
               'pre-attach record() could not');
       final persisted = FlightRecorderBundle.fromJsonString(raw!);
       expect(persisted.entries.any((e) => e.label == 'bannerVisible'), isTrue);
+
+      // T241 — disable (and thus dispose) the recorder before this test's
+      // widget tree is auto-unmounted by the framework, or BannerAdWidget's
+      // own T241 unmount-close now schedules a fresh debounce persist timer
+      // that outlives the test (this is the LAST test in the file, so there
+      // is no later pumpWidget to drain it and tearDown runs too late).
+      AdManager().disableFlightRecorder();
     });
   });
 }

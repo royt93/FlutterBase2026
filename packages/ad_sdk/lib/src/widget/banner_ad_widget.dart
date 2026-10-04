@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
+import '../compliance/ad_flight_recorder.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_route_observer.dart';
 import '../core/ad_safety_config.dart';
@@ -316,12 +317,33 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
   /// override, so this is updated unconditionally in [_onVisibilityChanged],
   /// before the early-return those gates trigger below.
   bool? _lastFlightRecorderVisible;
+  Offset _lastFlightRecorderOrigin = Offset.zero;
+  Size _lastFlightRecorderSize = Size.zero;
+
+  /// T241 audit follow-up (reviewer finding, HIGH) — the recorder instance
+  /// that actually holds the open `bannerVisible` interval, captured at the
+  /// moment it was written. [dispose] must close the interval against THIS
+  /// instance, never against whatever `AdManager().flightRecorder` happens
+  /// to be when the widget is torn down — a host can call
+  /// `disableFlightRecorder()`/`enableFlightRecorder()` any time between the
+  /// two, and writing into a newer recorder would fabricate a `bannerHidden`
+  /// entry with no matching `bannerVisible` in ITS chain.
+  AdFlightRecorder? _lastFlightRecorderInstance;
+
+  /// Returns whether a house-ad fallback (T229/T237) is the content actually
+  /// on screen right now — shared by [_recordFlightRecorderVisibility] and
+  /// the dispose-time close below so both can never disagree about whether
+  /// real-provider evidence is appropriate.
+  bool get _isShowingHouseAdFallback =>
+      widget.houseAd != null &&
+      (!_allowed.value || AdManager().bannerHasError(this).value);
 
   /// T231 — no-ops in one line when the flight recorder is disabled (the
   /// common case), so this never touches [AdManager.flightRecorder]'s
   /// `IabStorage` read or does any work unless a host opted in.
   void _recordFlightRecorderVisibility(VisibilityInfo info) {
-    if (AdManager().flightRecorder == null) return;
+    final recorder = AdManager().flightRecorder;
+    if (recorder == null) return;
     // T237 — a HouseAdItem fallback (T229) is local, non-provider content:
     // recording its visibility under the active adapter's `providerTag`
     // would let a fill-rate gap masquerade as a real AdMob/AppLovin
@@ -330,8 +352,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     // branch instead of a real ad — same `_allowed`/`bannerHasError` state
     // the render tree itself branches on, so this can never drift from
     // what's actually on screen.
-    if (widget.houseAd != null &&
-        (!_allowed.value || AdManager().bannerHasError(this).value)) {
+    if (_isShowingHouseAdFallback) {
       return;
     }
     final visible = info.visibleFraction > 0;
@@ -342,6 +363,11 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
         ? box.localToGlobal(Offset.zero)
         : Offset.zero;
     final size = (box is RenderBox) ? box.size : Size.zero;
+    if (visible) {
+      _lastFlightRecorderOrigin = origin;
+      _lastFlightRecorderSize = size;
+      _lastFlightRecorderInstance = recorder;
+    }
     unawaited(AdManager().recordFlightRecorderEvent(
       label: visible ? 'bannerVisible' : 'bannerHidden',
       type: AdSlotType.banner,
@@ -766,8 +792,50 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     super.didPop();
   }
 
+  /// T241 — unmounting while visible leaves the flight recorder evidence
+  /// interval open indefinitely, since `VisibilityDetector` does not
+  /// synthesize a final `visibleFraction = 0` callback upon disposal. Force
+  /// the final `bannerHidden` entry before the widget is torn down, using the
+  /// last known on-screen bounds (the render tree is about to be destroyed).
+  ///
+  /// T241 audit follow-up (reviewer finding, MAJOR) — a real ad can go
+  /// `*Visible`, later no-fill into the [_isShowingHouseAdFallback] branch
+  /// (no further visibility CALLBACK fires since the widget never actually
+  /// changed on-screen state), and then unmount while the house ad is still
+  /// showing. Without this check the close below would still fire, tagging
+  /// a `bannerHidden` entry with the real provider's tag for content that
+  /// was actually house-ad at teardown — exactly what the house-ad guard in
+  /// [_recordFlightRecorderVisibility] exists to prevent. Skipping the close
+  /// entirely in that case leaves the interval open (same pre-existing gap
+  /// as house-ad content never being recorded at all), which is the safe
+  /// failure mode for compliance evidence: an omission, never a
+  /// misattribution.
+  ///
+  /// T241 audit follow-up (reviewer finding, HIGH) — closes against
+  /// [_lastFlightRecorderInstance], the recorder captured when the
+  /// `bannerVisible` entry was actually written, not whatever
+  /// `AdManager().flightRecorder` is right now. See that field's doc
+  /// comment.
+  void _closeFlightRecorderVisibilityForUnmount() {
+    if (_lastFlightRecorderVisible != true) return;
+    _lastFlightRecorderVisible = false;
+    final recorder = _lastFlightRecorderInstance;
+    if (recorder == null || _isShowingHouseAdFallback) return;
+    unawaited(AdManager().closeFlightRecorderInterval(
+      recorder,
+      label: 'bannerHidden',
+      type: AdSlotType.banner,
+      placement: widget.placement,
+      screenX: _lastFlightRecorderOrigin.dx,
+      screenY: _lastFlightRecorderOrigin.dy,
+      widthPx: _lastFlightRecorderSize.width,
+      heightPx: _lastFlightRecorderSize.height,
+    ));
+  }
+
   @override
   void dispose() {
+    _closeFlightRecorderVisibilityForUnmount();
     widget.controller?.detach(this);
     _widthCorrectionDebounce?.cancel();
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);

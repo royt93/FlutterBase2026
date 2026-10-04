@@ -8,6 +8,7 @@ import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
 import '../adapters/applovin_adapter.dart';
+import '../compliance/ad_flight_recorder.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_safety_config.dart';
 import '../state/ad_event.dart';
@@ -494,6 +495,14 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
 
   bool? _lastFlightRecorderVisible;
   VisibilityInfo? _lastVisibilityInfo;
+  Offset _lastFlightRecorderOrigin = Offset.zero;
+  Size _lastFlightRecorderSize = Size.zero;
+
+  /// T241 audit follow-up — see BannerAdWidget's matching field doc comment:
+  /// the recorder instance that actually holds the open `nativeVisible`
+  /// interval, so a close always targets the right chain even if a host
+  /// swaps/disables the recorder before this widget reloads/unmounts.
+  AdFlightRecorder? _lastFlightRecorderInstance;
 
   // T236 audit fix — `_buildAdmob`/`_buildAppLovin` paint a non-zero-size
   // ShimmerView/placeholder while [AdManager.nativeIsLoaded] is still false
@@ -504,7 +513,8 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
   // failed (no-fill/timeout), the compliance chain held a fabricated
   // impression for an ad that was never actually shown.
   void _recordFlightRecorderVisibility(VisibilityInfo info) {
-    if (AdManager().flightRecorder == null) return;
+    final recorder = AdManager().flightRecorder;
+    if (recorder == null) return;
     _lastVisibilityInfo = info;
     final isLoaded = AdManager().nativeIsLoaded(this).value;
     final visible = info.visibleFraction > 0 && isLoaded;
@@ -521,6 +531,11 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
         ? box.localToGlobal(Offset.zero)
         : Offset.zero;
     final size = (box is RenderBox) ? box.size : Size.zero;
+    if (visible) {
+      _lastFlightRecorderOrigin = origin;
+      _lastFlightRecorderSize = size;
+      _lastFlightRecorderInstance = recorder;
+    }
     unawaited(AdManager().recordFlightRecorderEvent(
       label: visible ? 'nativeVisible' : 'nativeHidden',
       type: AdSlotType.native,
@@ -555,33 +570,38 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
   /// describes two creatives plus the blank reload window as one continuous
   /// impression.
   ///
-  /// Final widget unmount intentionally remains T241's shared
-  /// Banner/MREC/Native follow-up — this helper is for mounted replacement
-  /// only, where the same State continues and stale dedup state is observable.
+  /// T241 — also called from [dispose] to close the interval on final
+  /// unmount. Uses the last known cached bounds (not
+  /// `context.findRenderObject()`) because by the time `dispose()` runs the
+  /// render object may already be detached/unavailable.
+  ///
+  /// T241 audit follow-up (reviewer finding, HIGH) — closes against
+  /// [_lastFlightRecorderInstance], not whatever `AdManager().flightRecorder`
+  /// is right now. See that field's doc comment (mirrors BannerAdWidget's
+  /// matching fix).
   void _closeFlightRecorderVisibilityForReload() {
     if (_lastFlightRecorderVisible != true) {
       _lastFlightRecorderVisible = false;
       return;
     }
     _lastFlightRecorderVisible = false;
-    final box = context.findRenderObject();
-    final origin = (box is RenderBox && box.attached)
-        ? box.localToGlobal(Offset.zero)
-        : Offset.zero;
-    final size = (box is RenderBox) ? box.size : Size.zero;
-    unawaited(AdManager().recordFlightRecorderEvent(
+    final recorder = _lastFlightRecorderInstance;
+    if (recorder == null) return;
+    unawaited(AdManager().closeFlightRecorderInterval(
+      recorder,
       label: 'nativeHidden',
       type: AdSlotType.native,
       placement: widget.placement,
-      screenX: origin.dx,
-      screenY: origin.dy,
-      widthPx: size.width,
-      heightPx: size.height,
+      screenX: _lastFlightRecorderOrigin.dx,
+      screenY: _lastFlightRecorderOrigin.dy,
+      widthPx: _lastFlightRecorderSize.width,
+      heightPx: _lastFlightRecorderSize.height,
     ));
   }
 
   @override
   void dispose() {
+    _closeFlightRecorderVisibilityForReload();
     widget.controller?.detach(this);
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     AdManager()

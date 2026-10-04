@@ -689,6 +689,67 @@ void main() {
       expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
     });
 
+    testWidgets('T241: unmount while visible records exactly one mrecHidden',
+        (tester) async {
+      final adapter = _MrecCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(
+          host(const MrecAdWidget(placement: AdPlacement.home)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(recorder.entries.where((e) => e.label == 'mrecVisible'),
+          hasLength(1));
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(recorder.entries.where((e) => e.label == 'mrecHidden'),
+          hasLength(1),
+          reason: 'dispose closes the visible evidence interval exactly once');
+      expect(recorder.entries.last.label, 'mrecHidden');
+      expect(await verifyFlightRecorderChain(recorder.entries), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'unmounting a never-visible mrec does not create an orphan hidden '
+        'entry or throw', (tester) async {
+      final adapter = _MrecCountingAdapter();
+      final recorder = AdFlightRecorder();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig;
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetMrecCooldown();
+      AdManager().enableFlightRecorder(recorder);
+      addTearDown(() {
+        AdManager().disableFlightRecorder();
+        AdManager().debugSetAdapter(null);
+        AdManager().debugConfig = null;
+      });
+
+      await tester.pumpWidget(
+          host(const MrecAdWidget(placement: AdPlacement.home)));
+      // Unmount immediately, before pumping the visibility callback.
+      await tester.pumpWidget(host(const SizedBox()));
+      final countAfterDispose = recorder.entries.length;
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(recorder.entries, hasLength(countAfterDispose));
+      expect(recorder.entries.where((e) => e.label == 'mrecHidden'), isEmpty,
+          reason: 'never-visible unmount must not create an orphan close');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets(
         'disabled mode records nothing and leaves existing behavior '
         'unchanged', (tester) async {

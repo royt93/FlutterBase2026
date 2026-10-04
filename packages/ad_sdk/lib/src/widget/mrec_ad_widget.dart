@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
 import '../adapters/applovin_ad_revenue.dart';
+import '../compliance/ad_flight_recorder.dart';
 import '../core/ad_manager.dart';
 import '../core/ad_route_observer.dart';
 import '../core/ad_safety_config.dart';
@@ -105,14 +106,29 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
   /// field: manual `active`/controller overrides still need REAL on-screen
   /// evidence from [VisibilityDetector].
   bool? _lastFlightRecorderVisible;
+  Offset _lastFlightRecorderOrigin = Offset.zero;
+  Size _lastFlightRecorderSize = Size.zero;
+
+  /// T241 audit follow-up — see BannerAdWidget's matching field doc comment:
+  /// the recorder instance that actually holds the open `mrecVisible`
+  /// interval, so [dispose] closes against the right chain even if a host
+  /// swaps/disables the recorder before this widget unmounts.
+  AdFlightRecorder? _lastFlightRecorderInstance;
+
+  /// Mirrors BannerAdWidget's matching getter — shared by
+  /// [_recordFlightRecorderVisibility] and the dispose-time close so both
+  /// agree on whether house-ad content is on screen right now.
+  bool get _isShowingHouseAdFallback =>
+      widget.houseAd != null &&
+      (!_allowed.value || AdManager().mrecHasError(this).value);
 
   void _recordFlightRecorderVisibility(VisibilityInfo info) {
-    if (AdManager().flightRecorder == null) return;
+    final recorder = AdManager().flightRecorder;
+    if (recorder == null) return;
     // T240 preserves T237's invariant for the new MREC fallback: local house
     // content is not provider evidence. The same state that selects a fallback
     // render branch gates recorder writes, so evidence cannot drift from UI.
-    if (widget.houseAd != null &&
-        (!_allowed.value || AdManager().mrecHasError(this).value)) {
+    if (_isShowingHouseAdFallback) {
       return;
     }
     final visible = info.visibleFraction > 0;
@@ -123,6 +139,11 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
         ? box.localToGlobal(Offset.zero)
         : Offset.zero;
     final size = (box is RenderBox) ? box.size : Size.zero;
+    if (visible) {
+      _lastFlightRecorderOrigin = origin;
+      _lastFlightRecorderSize = size;
+      _lastFlightRecorderInstance = recorder;
+    }
     unawaited(AdManager().recordFlightRecorderEvent(
       label: visible ? 'mrecVisible' : 'mrecHidden',
       type: AdSlotType.mrec,
@@ -420,8 +441,40 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
     super.didPop();
   }
 
+  /// T241 — unmounting while visible leaves the flight recorder evidence
+  /// interval open indefinitely, since `VisibilityDetector` does not
+  /// synthesize a final `visibleFraction = 0` callback upon disposal. Force
+  /// the final `mrecHidden` entry before the widget is torn down, using the
+  /// last known on-screen bounds (the render tree is about to be destroyed).
+  ///
+  /// T241 audit follow-up (reviewer finding, MAJOR) — mirrors
+  /// BannerAdWidget's matching fix: skip the close entirely while a house-ad
+  /// fallback is on screen, or this would tag a `mrecHidden` entry with the
+  /// real provider's tag for content that is actually house-ad at teardown.
+  ///
+  /// T241 audit follow-up (reviewer finding, HIGH) — closes against
+  /// [_lastFlightRecorderInstance], not whatever `AdManager().flightRecorder`
+  /// is right now. See that field's doc comment.
+  void _closeFlightRecorderVisibilityForUnmount() {
+    if (_lastFlightRecorderVisible != true) return;
+    _lastFlightRecorderVisible = false;
+    final recorder = _lastFlightRecorderInstance;
+    if (recorder == null || _isShowingHouseAdFallback) return;
+    unawaited(AdManager().closeFlightRecorderInterval(
+      recorder,
+      label: 'mrecHidden',
+      type: AdSlotType.mrec,
+      placement: widget.placement,
+      screenX: _lastFlightRecorderOrigin.dx,
+      screenY: _lastFlightRecorderOrigin.dy,
+      widthPx: _lastFlightRecorderSize.width,
+      heightPx: _lastFlightRecorderSize.height,
+    ));
+  }
+
   @override
   void dispose() {
+    _closeFlightRecorderVisibilityForUnmount();
     widget.controller?.detach(this);
     AdManager().canRequestAdsListenable.removeListener(_onCanRequestAdsChanged);
     AdManager()
