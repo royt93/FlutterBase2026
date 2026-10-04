@@ -2,7 +2,7 @@
 
 - **Loại:** Enhancement
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Status:** 🔲 todo
+- **Status:** ✅ done (commit 0ca4928)
 
 ## Vấn đề (Why)
 
@@ -25,11 +25,11 @@ Thêm `recordFlightRecorderEvent` tại đúng các điểm hiện có, tái dù
 
 ### Acceptance Criteria
 
-- [ ] Mỗi format fullscreen tạo đúng 1 cặp entry show/dismiss khi flight recorder bật; không entry nào khi tắt (giữ đúng "zero overhead when disabled").
-- [ ] Native tạo entry visible/hidden tương tự Banner/MREC khi flight recorder bật; không thêm auto-pause/refresh behavior mới cho Native (ngoài phạm vi, đã có quyết định riêng trong doc comment của widget).
-- [ ] Không đổi hành vi khi flight recorder tắt (default OFF).
-- [ ] Không tạo lớp trừu tượng mới; tái dùng đúng API `recordFlightRecorderEvent`/`AdFlightRecorder.record` hiện có.
-- [ ] `flutter analyze` sạch; full `flutter test` pass; `test/goldens/public_api_surface.txt` cập nhật nếu có thay đổi API công khai.
+- [x] Mỗi format fullscreen tạo đúng 1 cặp entry show/dismiss khi flight recorder bật; không entry nào khi tắt (giữ đúng "zero overhead when disabled").
+- [x] Native tạo entry visible/hidden tương tự Banner/MREC khi flight recorder bật; không thêm auto-pause/refresh behavior mới cho Native (ngoài phạm vi, đã có quyết định riêng trong doc comment của widget).
+- [x] Không đổi hành vi khi flight recorder tắt (default OFF).
+- [x] Không tạo lớp trừu tượng mới; tái dùng đúng API `recordFlightRecorderEvent`/`AdFlightRecorder.record` hiện có.
+- [x] `flutter analyze` sạch; full `flutter test` pass; `test/goldens/public_api_surface.txt` cập nhật nếu có thay đổi API công khai.
 
 ## Kế hoạch kiểm thử
 
