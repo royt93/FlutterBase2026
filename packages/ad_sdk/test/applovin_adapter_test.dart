@@ -2567,6 +2567,99 @@ void main() {
       });
     });
 
+    test('displayed=true lost callback resolves true and still quarantines',
+        () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        final ad = _fakeAd();
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(ad);
+        bool? result;
+        a.showAppOpen(onDismiss: (d) => result = d);
+        async.flushMicrotasks();
+        b.appOpen!.onAdDisplayedCallback(ad); // display confirmed, hidden lost
+        async.elapse(const Duration(seconds: 10));
+        expect(result, isTrue, reason: 'user saw the ad — not a failure');
+
+        a.appOpenSlot.markReady();
+        bool? second;
+        a.showAppOpen(onDismiss: (d) => second = d);
+        async.flushMicrotasks();
+        expect(second, isFalse);
+        expect(b.showAppOpenCalls, hasLength(1),
+            reason: 'quarantine applies after a displayed lost callback too');
+      });
+    });
+
+    test('iOS 90s hard cap arms quarantine', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd());
+        bool? result;
+        a.showAppOpen(onDismiss: (d) => result = d);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 85));
+        expect(result, isNull, reason: 'iOS foreground is not a hung signal');
+        async.elapse(const Duration(seconds: 10));
+        expect(result, isFalse);
+
+        a.appOpenSlot.markReady();
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+        expect(b.showAppOpenCalls, hasLength(1),
+            reason: 'hard-cap abandonment quarantines the next show');
+      });
+    });
+
+    test('normal onAdHidden dismiss does not arm quarantine', () {
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        final ad = _fakeAd();
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(ad);
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+        b.appOpen!.onAdDisplayedCallback(ad);
+        b.appOpen!.onAdHiddenCallback(ad);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd());
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+        expect(b.showAppOpenCalls, hasLength(2),
+            reason: 'a callback-confirmed dismiss must not quarantine');
+        a.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     test('quarantine boundary: refused at 34s, allowed at 35s', () {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
