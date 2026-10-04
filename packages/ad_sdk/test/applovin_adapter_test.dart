@@ -2435,6 +2435,114 @@ void main() {
     });
   });
 
+  // Audit round 73 (MAJOR) — App Open never got the round-42 quarantine
+  // fix above, despite having the exact same shape: its own lost-callback
+  // watchdog (_resolveAppOpenAfterLostCallback, driven by
+  // _scheduleAppOpenTimeoutCheck) abandons an unconfirmed cycle on a timer,
+  // and onAdHiddenCallback's _isStaleAd check correctly trusts an
+  // ambiguous/empty creativeId — which is routine for AppLovin's own
+  // test-mode App Open creatives. Mirrors the interstitial test above,
+  // using Android's foreground-hung heuristic (the fast path:
+  // ~2 ticks x 5s) to abandon cycle 1 instead of the 90s hard cap.
+  group('audit round 73: App Open gets the same stale-callback quarantine '
+      'as interstitial/rewarded', () {
+    test(
+        'a new show is refused while quarantined, and a stale cycle\'s '
+        'late ambiguous hidden callback cannot reach it', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        final ad1 = _fakeAd(); // default, ambiguous/shared creativeId
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(ad1);
+        bool? result1;
+        a.showAppOpen(onDismiss: (d) => result1 = d);
+        async.flushMicrotasks();
+        expect(b.showAppOpenCalls, ['appopen-id']);
+
+        // Android, resumed with no displayed callback: the watchdog's
+        // grace-period tick (attempt 0) then force-abandons on attempt 1 —
+        // 2 x 5s.
+        async.elapse(const Duration(seconds: 10));
+        expect(result1, isFalse,
+            reason: 'the watchdog resolves the abandoned caller as skipped');
+        expect(a.appOpenSlot.value, AdSlotState.cooldown);
+
+        // A caller immediately tries to show again — must be refused while
+        // quarantined, even if the slot itself looks ready again.
+        a.appOpenSlot.markReady();
+        bool? result2;
+        a.showAppOpen(onDismiss: (d) => result2 = d);
+        async.flushMicrotasks();
+        expect(result2, isFalse,
+            reason: 'refused while quarantined — not sent to the bridge');
+        expect(b.showAppOpenCalls, ['appopen-id'],
+            reason: 'no second call reached the bridge during quarantine');
+
+        // Cycle 1's real native hidden callback finally arrives late, with
+        // an ambiguous (shared/empty) creativeId — exactly the event that
+        // used to be attributable to whoever called showAppOpen() next.
+        b.appOpen!.onAdHiddenCallback(ad1);
+        expect(result2, isFalse,
+            reason: 'cycle 2 never started (refused above) — cycle 1\'s '
+                'late event must not retroactively resolve it');
+
+        // Once the quarantine window fully elapses, a new show is allowed
+        // again and proceeds normally.
+        async.elapse(const Duration(seconds: 35));
+        final ad2 = _fakeAd();
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(ad2);
+        bool? result3;
+        a.showAppOpen(onDismiss: (d) => result3 = d);
+        async.flushMicrotasks();
+        expect(b.showAppOpenCalls, ['appopen-id', 'appopen-id'],
+            reason: 'quarantine has cleared — a new show reaches the bridge '
+                'again');
+        b.appOpen!.onAdHiddenCallback(ad2);
+        expect(result3, isTrue,
+            reason: 'a genuinely new cycle\'s own dismiss, after the '
+                'quarantine window, must resolve normally');
+      });
+    });
+
+    test('teardown cancels the quarantine timer without throwing', () {
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd());
+        a.showAppOpen(onDismiss: (_) {});
+        async.flushMicrotasks();
+
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        async.elapse(const Duration(seconds: 10));
+        debugDefaultTargetPlatformOverride = null;
+
+        expect(a.dispose(), completes);
+        async.flushMicrotasks();
+        // The quarantine timer must not fire after dispose() and touch a
+        // disposed adapter's state.
+        expect(() => async.elapse(const Duration(seconds: 35)),
+            returnsNormally);
+      });
+    });
+  });
+
   // T185, revised by the smoke-test audit fix (2026-09-17) — requestId
   // correlation used to be an `Expando<String>` keyed by the loaded `MaxAd`
   // INSTANCE. That never worked against the real `applovin_max` plugin
