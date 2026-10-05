@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-29
+
 - **Added (T236):** `AdFlightRecorder` evidence coverage extended to all 4
   fullscreen formats (App Open, Interstitial, Rewarded, Rewarded
   Interstitial) and to `NativeAdWidget`, mirroring the existing
@@ -57,8 +59,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   close now defers to the same house-ad check `_recordFlightRecorderVisibility`
   already used, so house-ad content is never misattributed as provider
   evidence (it leaves the interval open instead, the safe failure mode).
-
-## [3.4.0] - 2026-09-29
+- **Fixed (Audit 73):** `AppLovinAdapter` now quarantines App Open for 35 s after
+  a show cycle whose native `onAdHidden` never arrived (the watchdog or the
+  90 s hard cap resolved it), the same protection interstitial and rewarded
+  got in audit round 42. AppLovin can deliver that callback 10-30 s late with
+  an empty or shared `creativeId`, which cannot be told apart from the next
+  cycle's own event — including when the ad was actually displayed; without
+  the quarantine that straggler could be credited to a brand-new App Open
+  caller. While quarantined, `showAppOpen` returns `onDismiss(false)` without
+  touching the slot or the native SDK, and the window clears on its own. The
+  timer is cancelled on `dispose()`. No effect on AdMob.
 
 - **Fixed (T234):** `AdFlightRecorder.attach()` was missing the same T155 fix
   already present in `BypassAuditTrail.attach()`: an entry recorded before
