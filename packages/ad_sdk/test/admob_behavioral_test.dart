@@ -86,6 +86,18 @@ class FakeGmaBridge implements GmaBridge {
   void Function(int, String)? pendingRewardedOnFailed;
   void Function(int, String)? pendingRewardedInterstitialOnFailed;
 
+  // Audit round 76 — the callbacks of the MOST RECENT load per format, kept
+  // after the load already answered, so a test can replay a late/duplicate
+  // result (a straggler from an earlier request) into a slot that is `showing`.
+  void Function(GmaFullscreenAd)? lastAppOpenOnLoaded;
+  void Function(int, String)? lastAppOpenOnFailed;
+  void Function(GmaFullscreenAd)? lastInterOnLoaded;
+  void Function(int, String)? lastInterOnFailed;
+  void Function(GmaFullscreenAd)? lastRewardedOnLoaded;
+  void Function(int, String)? lastRewardedOnFailed;
+  void Function(GmaFullscreenAd)? lastRewardedInterstitialOnLoaded;
+  void Function(int, String)? lastRewardedInterstitialOnFailed;
+
   // Captured from the most recent updateRequestConfiguration() call.
   List<String>? capturedTestDeviceIds;
 
@@ -140,6 +152,8 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaAppOpen = nonPersonalizedAds;
     rdpAppOpen = restrictedDataProcessing;
+    lastAppOpenOnLoaded = onLoaded;
+    lastAppOpenOnFailed = onFailed;
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingAppOpenOnFailed = onFailed;
@@ -160,6 +174,8 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaInter = nonPersonalizedAds;
     rdpInter = restrictedDataProcessing;
+    lastInterOnLoaded = onLoaded;
+    lastInterOnFailed = onFailed;
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingInterOnFailed = onFailed;
@@ -180,6 +196,8 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaRewarded = nonPersonalizedAds;
     rdpRewarded = restrictedDataProcessing;
+    lastRewardedOnLoaded = onLoaded;
+    lastRewardedOnFailed = onFailed;
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingRewardedOnFailed = onFailed;
@@ -198,6 +216,8 @@ class FakeGmaBridge implements GmaBridge {
       bool restrictedDataProcessing = false,
       required void Function(GmaFullscreenAd) onLoaded,
       required void Function(int, String) onFailed}) async {
+    lastRewardedInterstitialOnLoaded = onLoaded;
+    lastRewardedInterstitialOnFailed = onFailed;
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingRewardedInterstitialOnFailed = onFailed;
@@ -232,6 +252,145 @@ void main() {
     adapter = AdMobAdapter(bridge: bridge);
     expect(await adapter.initialize(_config), isTrue);
   });
+
+  // Audit round 76 — a load result that lands while the slot is `showing` (a
+  // straggler from an earlier request, or a duplicate) used to call
+  // markReady()/markFailed(): the slot left `showing`, the busy mutex read
+  // "not busy" while the ad was on screen, and the on-screen ad's reference
+  // was overwritten so its dismiss could no longer be honoured.
+  group(
+    'audit round 76: a late load result mid-show leaves `showing` alone',
+    () {
+      // format name -> (load, show, slot, last ad, replay load, replay failure,
+      //                 current requestId)
+      final formats = <String, Map<String, dynamic>>{};
+
+      setUp(() {
+        formats
+          ..clear()
+          ..addAll({
+            'appOpen': {
+              'load': () => adapter.loadAppOpen(),
+              'show': () => adapter.showAppOpen(onDismiss: (_) {}),
+              'slot': () => adapter.appOpenSlot,
+              'ad': () => bridge.lastAppOpen!,
+              'late': (GmaFullscreenAd a) => bridge.lastAppOpenOnLoaded!(a),
+              'fail': () => bridge.lastAppOpenOnFailed!(3, 'late'),
+            },
+            'interstitial': {
+              'load': () => adapter.loadInterstitial(),
+              'show': () => adapter.showInterstitial(onDone: (_) {}),
+              'slot': () => adapter.interstitialSlot,
+              'ad': () => bridge.lastInter!,
+              'late': (GmaFullscreenAd a) => bridge.lastInterOnLoaded!(a),
+              'fail': () => bridge.lastInterOnFailed!(3, 'late'),
+            },
+            'rewarded': {
+              'load': () => adapter.loadRewarded(),
+              'show': () => adapter.showRewarded(onDone: (_) {}),
+              'slot': () => adapter.rewardedSlot,
+              'ad': () => bridge.lastRewarded!,
+              'late': (GmaFullscreenAd a) => bridge.lastRewardedOnLoaded!(a),
+              'fail': () => bridge.lastRewardedOnFailed!(3, 'late'),
+            },
+            'rewardedInterstitial': {
+              'load': () => adapter.loadRewardedInterstitial(),
+              'show': () => adapter.showRewardedInterstitial(onDone: (_) {}),
+              'slot': () => adapter.rewardedInterstitialSlot,
+              'ad': () => bridge.lastRewardedInterstitial!,
+              'late': (GmaFullscreenAd a) =>
+                  bridge.lastRewardedInterstitialOnLoaded!(a),
+              'fail': () => bridge.lastRewardedInterstitialOnFailed!(3, 'late'),
+            },
+          });
+      });
+
+      for (final name in [
+        'appOpen',
+        'interstitial',
+        'rewarded',
+        'rewardedInterstitial',
+      ]) {
+        test('$name: a late load SUCCESS keeps the slot showing, keeps its '
+            'requestId, and disposes the straggler ad', () async {
+          final f = formats[name]!;
+          await f['load']();
+          final slot = f['slot']() as AdSlot;
+          final shownAd = f['ad']() as FakeGmaFullscreenAd;
+          final requestIdBefore = slot.requestId;
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'precondition');
+
+          final straggler = FakeGmaFullscreenAd();
+          f['late'](straggler);
+
+          expect(
+            slot.isShowing,
+            isTrue,
+            reason: 'a result for an earlier request must not end the show',
+          );
+          expect(
+            slot.requestId,
+            requestIdBefore,
+            reason: 'the on-screen ad keeps its own requestId',
+          );
+          expect(
+            straggler.disposeCount,
+            1,
+            reason: 'the rejected ad would otherwise leak its native object',
+          );
+          expect(
+            shownAd.disposeCount,
+            0,
+            reason: 'the ad currently on screen must not be disposed',
+          );
+        });
+
+        test('$name: a late load FAILURE keeps the slot showing', () async {
+          final f = formats[name]!;
+          await f['load']();
+          final slot = f['slot']() as AdSlot;
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'precondition');
+
+          f['fail']();
+
+          expect(
+            slot.isShowing,
+            isTrue,
+            reason: 'a failed earlier request must not end a live show',
+          );
+        });
+      }
+
+      test('appOpen: after the discarded load, the real dismiss still resolves '
+          'the caller and the slot can load again', () async {
+        await adapter.loadAppOpen();
+        bool? dismissed;
+        await adapter.showAppOpen(onDismiss: (d) => dismissed = d);
+        final shown = bridge.lastAppOpen!;
+
+        bridge.lastAppOpenOnLoaded!(FakeGmaFullscreenAd());
+        shown.shown!.onShowed?.call();
+        shown.shown!.onDismissed!();
+
+        expect(
+          dismissed,
+          isTrue,
+          reason: 'the on-screen ad dismiss must still reach the caller',
+        );
+        expect(adapter.appOpenSlot.isShowing, isFalse);
+        await adapter.loadAppOpen();
+        expect(
+          adapter.appOpenSlot.isReady,
+          isTrue,
+          reason:
+              'the slot must be able to load a fresh ad afterwards, '
+              'not be stuck on a stale cached one',
+        );
+      });
+    },
+  );
 
   group('QA test-device hashes (always merged into RequestConfiguration)',
       () {

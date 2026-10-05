@@ -883,6 +883,11 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
           if (_discardIfDisposed(ad, 'loadAppOpen')) return;
+          // R76: a late fill must not move an on-screen slot out of showing.
+          if (appOpenSlot.isShowing) {
+            _disposeAd(ad, 'loadAppOpen-mid-show');
+            return;
+          }
           if (_discardIfConsentStale(appOpenSlot, ad, AdSlotType.appOpen,
               AdPlacement.splash, 'loadAppOpen')) {
             return;
@@ -910,6 +915,7 @@ class AdMobAdapter
                 'loadAppOpen $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (appOpenSlot.isShowing) return;
           SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=$code msg=$message');
           _appOpenAd = null;
           appOpenSlot.markFailed(errorCode: code);
@@ -1228,6 +1234,11 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
           if (_discardIfDisposed(ad, 'loadInterstitial')) return;
+          // R76: a late fill must not move an on-screen slot out of showing.
+          if (interstitialSlot.isShowing) {
+            _disposeAd(ad, 'loadInterstitial-mid-show');
+            return;
+          }
           if (_discardIfConsentStale(
               interstitialSlot,
               ad,
@@ -1256,6 +1267,7 @@ class AdMobAdapter
                 'loadInterstitial $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (interstitialSlot.isShowing) return;
           SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ $code');
           _interstitialAd = null;
           interstitialSlot.markFailed(errorCode: code);
@@ -1477,6 +1489,11 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
           if (_discardIfDisposed(ad, 'loadRewarded')) return;
+          // R76: a late fill must not move an on-screen slot out of showing.
+          if (rewardedSlot.isShowing) {
+            _disposeAd(ad, 'loadRewarded-mid-show');
+            return;
+          }
           if (_discardIfConsentStale(rewardedSlot, ad, AdSlotType.rewarded,
               AdPlacement.unspecified, 'loadRewarded')) {
             return;
@@ -1501,6 +1518,7 @@ class AdMobAdapter
                 'loadRewarded $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (rewardedSlot.isShowing) return;
           SafeLogger.w(_logTag, 'loadRewarded $tag ❌ $code');
           _rewardedAd = null;
           rewardedSlot.markFailed(errorCode: code);
@@ -1746,6 +1764,11 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag ✅');
           if (_discardIfDisposed(ad, 'loadRewardedInterstitial')) return;
+          // R76: a late fill must not move an on-screen slot out of showing.
+          if (rewardedInterstitialSlot.isShowing) {
+            _disposeAd(ad, 'loadRewardedInterstitial-mid-show');
+            return;
+          }
           if (_discardIfConsentStale(
               rewardedInterstitialSlot,
               ad,
@@ -1774,6 +1797,7 @@ class AdMobAdapter
                 'loadRewardedInterstitial $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (rewardedInterstitialSlot.isShowing) return;
           SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
           _rewardedInterstitialAd = null;
           rewardedInterstitialSlot.markFailed(errorCode: code);

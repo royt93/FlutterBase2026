@@ -6,6 +6,16 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (Audit 76):** `AdMobAdapter` App Open, interstitial, rewarded and
+  rewarded-interstitial load callbacks now ignore a result that lands while the
+  slot is `showing`. A late or duplicate fill used to call `markReady()`, moving
+  the slot out of `showing` while its ad was on screen: the fullscreen busy
+  check then read "not busy" (another fullscreen could stack), the on-screen
+  ad's reference and `requestId` were overwritten, and after the dismiss the slot
+  held a stale cached ad it could not show. A rejected fill is disposed so its
+  native object is not leaked; a late failure no longer drops a live show into
+  cooldown. Same class as the AppLovin fix in 3.4.2. No effect on AppLovin.
+
 ## [3.4.2] - 2026-10-05
 
 - **Fixed (Audit 75):** `AppLovinAdapter` App Open `onAdHidden` and
