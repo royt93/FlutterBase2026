@@ -38,6 +38,10 @@ Lần 1: 8.5/10 (thiếu test biên, thông báo lỗi thô khi file track bị 
 
 ## Giới hạn
 
+- Gate đo file git ĐÃ TRACK dưới `lib/`, không phải payload pub.dev: file mới chưa `git add` không
+  bị đếm, và `.pubignore` có thể khác git. Đây là metric chọn có chủ ý, không mô hình hoá gói
+  publish (audit vòng 4 chỉ ra, comment trong test đã sửa cho đúng).
+
 - Con số 2028 KB đo trên macOS (APFS). Chưa đo trên Linux CI, nơi `du` tính block có
   thể khác vài KB. Gate mới không đếm block của thư mục nên thường thấp hơn gate cũ.
 - Trần vẫn đo theo block 4 KB, nên vẫn cao hơn dung lượng chữ thật (~1849 KB).

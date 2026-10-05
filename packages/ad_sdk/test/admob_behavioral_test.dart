@@ -104,6 +104,21 @@ class FakeGmaBridge implements GmaBridge {
   // Audit round 76 — the callbacks of the MOST RECENT load per format, kept
   // after the load already answered, so a test can replay a late/duplicate
   // result (a straggler from an earlier request) into a slot that is `showing`.
+  // Audit round 76 — hold the NEXT load's platform call open, then make it
+  // throw: models a request still in flight whose platform call fails only
+  // after an earlier request's late fill landed and was shown.
+  bool holdNextLoadOpen = false;
+  final List<Completer<void>> heldLoads = [];
+  // Only awaited when a test asked to hold the load: an unconditional await
+  // would delay every fake load by a microtask and change when the adapter's
+  // post-dismiss reload arms its watchdog.
+  Future<void> _holdLoad() {
+    holdNextLoadOpen = false;
+    final c = Completer<void>();
+    heldLoads.add(c);
+    return c.future; // completes with an error from the test
+  }
+
   void Function(GmaFullscreenAd)? lastAppOpenOnLoaded;
   void Function(int, String)? lastAppOpenOnFailed;
   void Function(GmaFullscreenAd)? lastInterOnLoaded;
@@ -169,6 +184,7 @@ class FakeGmaBridge implements GmaBridge {
     rdpAppOpen = restrictedDataProcessing;
     lastAppOpenOnLoaded = onLoaded;
     lastAppOpenOnFailed = onFailed;
+    if (holdNextLoadOpen) await _holdLoad();
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingAppOpenOnFailed = onFailed;
@@ -191,6 +207,7 @@ class FakeGmaBridge implements GmaBridge {
     rdpInter = restrictedDataProcessing;
     lastInterOnLoaded = onLoaded;
     lastInterOnFailed = onFailed;
+    if (holdNextLoadOpen) await _holdLoad();
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingInterOnFailed = onFailed;
@@ -213,6 +230,7 @@ class FakeGmaBridge implements GmaBridge {
     rdpRewarded = restrictedDataProcessing;
     lastRewardedOnLoaded = onLoaded;
     lastRewardedOnFailed = onFailed;
+    if (holdNextLoadOpen) await _holdLoad();
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingRewardedOnFailed = onFailed;
@@ -233,6 +251,7 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     lastRewardedInterstitialOnLoaded = onLoaded;
     lastRewardedInterstitialOnFailed = onFailed;
+    if (holdNextLoadOpen) await _holdLoad();
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingRewardedInterstitialOnFailed = onFailed;
@@ -475,6 +494,46 @@ void main() {
               'so a second fullscreen ad could stack');
       expect(manager.fullscreenBusy.value, isTrue);
     });
+
+    // Real ordering: request B is in flight (slot `loading`); request A's late
+    // fill lands first and takes the slot to `ready`; the host shows it; THEN
+    // B's platform call throws. The synchronous `catch` of each load method used
+    // to run `_xAd = null; slot.markFailed()` unconditionally, nulling the
+    // on-screen ad and dropping the live show into cooldown.
+    for (final name in [
+      'appOpen',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial'
+    ]) {
+      test('$name: B throws after A\'s late fill was shown: the live show '
+          'survives', () async {
+        final f = formats[name]!;
+        final slot = f['slot']() as AdSlot;
+        bridge.holdNextLoadOpen = true;
+        final inFlight = (f['load']() as Future<void>);
+        await Future<void>.delayed(Duration.zero);
+        expect(slot.isLoading, isTrue, reason: 'precondition: B is in flight');
+        expect(bridge.heldLoads, hasLength(1));
+
+        final lateA = FakeGmaFullscreenAd();
+        f['late'](lateA);
+        expect(slot.isReady, isTrue, reason: 'A\'s fill landed');
+        await f['show']();
+        expect(slot.isShowing, isTrue, reason: 'precondition: A on screen');
+
+        bridge.heldLoads.single
+            .completeError(PlatformException(code: 'load-failed'));
+        await inFlight;
+
+        expect(slot.isShowing, isTrue,
+            reason: 'a throw from the SUPERSEDED request must not end the show');
+        expect(lateA.disposeCount, 0);
+        lateA.shown!.onDismissed!();
+        expect(slot.isShowing, isFalse,
+            reason: 'the real dismiss must still release the slot');
+      });
+    }
 
     test('appOpen: after the discarded load, the real dismiss still resolves '
           'the caller and the slot can load again', () async {

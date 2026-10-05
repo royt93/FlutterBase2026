@@ -186,14 +186,27 @@ void main() {
     }, timeout: const Timeout(Duration(seconds: 60)));
   });
 
-  // The size ceiling must describe what gets published, not whatever junk a
-  // dev machine has next to it: macOS drops untracked `.DS_Store` files into
-  // lib/, and `du` rounds each file up to a 4 KB block, so two of them pushed
-  // a clean tree from 2028 KB to exactly the 2048 KB ceiling on one machine
-  // while CI (no .DS_Store) passed.
+  // The size ceiling measures the git-TRACKED files under lib/, so it does not
+  // depend on junk a dev machine has next to them: macOS drops untracked
+  // `.DS_Store` files into lib/, and `du` rounds each file up to a 4 KB block,
+  // so two of them pushed a clean tree from 2028 KB to exactly the 2048 KB
+  // ceiling on one machine while CI (no .DS_Store) passed.
+  //
+  // This is a deliberate metric, not a model of the pub.dev payload: a new lib/
+  // file that was never `git add`ed is invisible to it, and `.pubignore` can
+  // differ from what git tracks. The fixtures assume 4 KB-aligned, uncompressed
+  // content (true on APFS, ext4, tmpfs; not on compressing filesystems).
   group('size stage measures the tracked tree, not local junk', () {
+    final fixtures = <Directory>[];
+    tearDownAll(() async {
+      for (final d in fixtures) {
+        if (d.existsSync()) await d.delete(recursive: true);
+      }
+    });
+
     Future<Directory> sizedFixture({required int trackedKb}) async {
       final dir = await Directory.systemTemp.createTemp('size_fixture_repo_');
+      fixtures.add(dir);
       final lib = Directory('${dir.path}/packages/ad_sdk/lib');
       await lib.create(recursive: true);
       // 4 KB-aligned content so `du` and the byte count agree exactly.
@@ -232,6 +245,7 @@ void main() {
     test('no tracked files under lib/ fails loudly instead of passing at 0 KB',
         () async {
       final dir = await Directory.systemTemp.createTemp('size_empty_repo_');
+      fixtures.add(dir);
       await Directory('${dir.path}/packages/ad_sdk/lib')
           .create(recursive: true);
       await File('${dir.path}/packages/ad_sdk/lib/untracked.dart')

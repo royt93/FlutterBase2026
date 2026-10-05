@@ -25,7 +25,9 @@ Hậu quả (đã tái hiện bằng test):
 Mỗi `onLoaded`: nếu slot đang `showing` thì bỏ qua, và chỉ dispose ad bị từ chối khi nó
 KHÔNG bọc chính ad native đang được giữ (so bằng `==` trên 4 wrapper bridge; `identical()`
 lúc đầu vô hiệu vì bridge tạo wrapper mới ở mỗi callback, reviewer đã chỉ ra) (dispose ad đang hiển thị sẽ xoá content callback nên
-dismiss không bao giờ tới). Mỗi `onFailed`: nếu slot đang `showing` thì bỏ qua.
+dismiss không bao giờ tới). Mỗi `onFailed`: nếu slot đang `showing` thì bỏ qua. Khối `catch` của 4 hàm load (platform
+call ném lỗi) cũng thoát sớm khi slot đang `showing` (audit vòng 4 tìm ra bằng đọc code; tôi
+tái hiện bằng test đỏ rồi mới sửa).
 Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~20KB dư).
 
 ## Kiểm chứng
@@ -35,6 +37,9 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
   vẫn resolve, mutex AdManager vẫn giữ — 4 format. Đỏ khi bỏ guard, xanh khi có.
 - Widget (`test/admob_late_load_midshow_widget_test.dart`): nút host bind `fullscreenBusy`
   vẫn bị khoá, show thứ hai qua AdManager bị từ chối. Đỏ khi bỏ guard.
+- Catch path (`B throws after A's late fill was shown`, 4 format): request B treo, fill muộn của
+  A hạ cánh và được show, rồi platform call của B ném lỗi. Đỏ trên code cũ, xanh sau guard, đỏ
+  lại khi bỏ riêng guard của catch.
 - Wrapper thật (`test/gma_bridge_test.dart`): hai callback `onAdLoaded` cho cùng adId qua codec
   của plugin cho hai wrapper bằng nhau, adId khác thì không. Đỏ khi bỏ `==`.
 - Integration (`example/integration_test/admob_late_load_midshow_test.dart`): chạy lại bộ

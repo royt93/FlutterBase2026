@@ -17,8 +17,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   cooldown. A fill wrapping the very native ad already held is never disposed
   (the four internal bridge wrappers now compare by the native ad they wrap,
   since a new wrapper is built per callback), because disposing it would cancel
-  its dismiss callback. Same class as the AppLovin fix in 3.4.2. No effect on
-  AppLovin.
+  its dismiss callback. The same protection covers a load whose platform call
+  throws after a superseded request's fill was shown. Same class as the AppLovin
+  fix in 3.4.2. No effect on AppLovin.
 
 ## [3.4.2] - 2026-10-05
 
