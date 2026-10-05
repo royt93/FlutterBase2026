@@ -14,7 +14,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   ad's reference and `requestId` were overwritten, and after the dismiss the slot
   held a stale cached ad it could not show. A rejected fill is disposed so its
   native object is not leaked; a late failure no longer drops a live show into
-  cooldown. Same class as the AppLovin fix in 3.4.2. No effect on AppLovin.
+  cooldown. A fill that is the very ad already held is never disposed, since
+  that would cancel its dismiss callback. Same class as the AppLovin fix in
+  3.4.2. No effect on AppLovin.
 
 ## [3.4.2] - 2026-10-05
 

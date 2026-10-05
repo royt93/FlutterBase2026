@@ -885,7 +885,7 @@ class AdMobAdapter
           if (_discardIfDisposed(ad, 'loadAppOpen')) return;
           // R76: a late fill must not move an on-screen slot out of showing.
           if (appOpenSlot.isShowing) {
-            _disposeAd(ad, 'loadAppOpen-mid-show');
+            if (!identical(ad, _appOpenAd)) _disposeAd(ad, 'loadAppOpen-mid-show');
             return;
           }
           if (_discardIfConsentStale(appOpenSlot, ad, AdSlotType.appOpen,
@@ -1236,7 +1236,7 @@ class AdMobAdapter
           if (_discardIfDisposed(ad, 'loadInterstitial')) return;
           // R76: a late fill must not move an on-screen slot out of showing.
           if (interstitialSlot.isShowing) {
-            _disposeAd(ad, 'loadInterstitial-mid-show');
+            if (!identical(ad, _interstitialAd)) _disposeAd(ad, 'loadInterstitial-mid-show');
             return;
           }
           if (_discardIfConsentStale(
@@ -1491,7 +1491,7 @@ class AdMobAdapter
           if (_discardIfDisposed(ad, 'loadRewarded')) return;
           // R76: a late fill must not move an on-screen slot out of showing.
           if (rewardedSlot.isShowing) {
-            _disposeAd(ad, 'loadRewarded-mid-show');
+            if (!identical(ad, _rewardedAd)) _disposeAd(ad, 'loadRewarded-mid-show');
             return;
           }
           if (_discardIfConsentStale(rewardedSlot, ad, AdSlotType.rewarded,
@@ -1766,7 +1766,7 @@ class AdMobAdapter
           if (_discardIfDisposed(ad, 'loadRewardedInterstitial')) return;
           // R76: a late fill must not move an on-screen slot out of showing.
           if (rewardedInterstitialSlot.isShowing) {
-            _disposeAd(ad, 'loadRewardedInterstitial-mid-show');
+            if (!identical(ad, _rewardedInterstitialAd)) _disposeAd(ad, 'loadRewardedInterstitial-mid-show');
             return;
           }
           if (_discardIfConsentStale(

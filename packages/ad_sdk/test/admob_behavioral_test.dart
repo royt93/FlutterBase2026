@@ -361,9 +361,79 @@ void main() {
             reason: 'a failed earlier request must not end a live show',
           );
         });
+        // A duplicate delivery of the SAME ad must never dispose the ad that is
+        // on screen: dispose() nulls its content callback, so the dismiss would
+        // never arrive and the slot would sit in `showing` forever.
+        test('$name: the SAME ad delivered again mid-show is not disposed, '
+            'and its dismiss still arrives', () async {
+          final f = formats[name]!;
+          await f['load']();
+          final slot = f['slot']() as AdSlot;
+          final shownAd = f['ad']() as FakeGmaFullscreenAd;
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'precondition');
+
+          f['late'](shownAd);
+
+          expect(shownAd.disposeCount, 0,
+              reason: 'the live ad must not be disposed by its own duplicate');
+          expect(slot.isShowing, isTrue);
+          shownAd.shown!.onDismissed!();
+          expect(slot.isShowing, isFalse,
+              reason: 'the real dismiss must still release the slot');
+        });
       }
 
-      test('appOpen: after the discarded load, the real dismiss still resolves '
+      // Failure side-effects, not just the state: no AdLoadEvent (FillRateMonitor
+    // and the failover advisor read those), no failure counted against the
+    // slot's backoff, and the on-screen ad stays referenced.
+    for (final name in [
+      'appOpen',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial'
+    ]) {
+      test('$name: a late load FAILURE emits no load event and counts no '
+          'failure', () async {
+        final f = formats[name]!;
+        await f['load']();
+        final slot = f['slot']() as AdSlot;
+        await f['show']();
+        final events = <AdEvent>[];
+        adapter.eventSink = events.add;
+        final failuresBefore = slot.consecutiveFailures;
+
+        f['fail']();
+
+        expect(events.whereType<AdLoadEvent>(), isEmpty,
+            reason: 'a discarded straggler must not look like a real failure');
+        expect(slot.consecutiveFailures, failuresBefore);
+        expect(slot.isShowing, isTrue);
+      });
+    }
+
+    // The user-visible consequence, through the REAL AdManager: while an ad is
+    // on screen the fullscreen mutex must stay held so a second fullscreen ad
+    // cannot be stacked on top of it.
+    test('through AdManager: a late fill keeps the fullscreen mutex held',
+        () async {
+      final manager = AdManager();
+      manager.debugSetAdapter(adapter);
+      addTearDown(() => manager.debugSetAdapter(null));
+      await adapter.loadAppOpen();
+      await adapter.showAppOpen(onDismiss: (_) {});
+      expect(manager.debugFullscreenBusyReason, isNotNull,
+          reason: 'precondition: an ad on screen holds the mutex');
+
+      bridge.lastAppOpenOnLoaded!(FakeGmaFullscreenAd());
+
+      expect(manager.debugFullscreenBusyReason, isNotNull,
+          reason: 'before the fix the slot left `showing` and this read null, '
+              'so a second fullscreen ad could stack');
+      expect(manager.fullscreenBusy.value, isTrue);
+    });
+
+    test('appOpen: after the discarded load, the real dismiss still resolves '
           'the caller and the slot can load again', () async {
         await adapter.loadAppOpen();
         bool? dismissed;
