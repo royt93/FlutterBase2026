@@ -20,7 +20,11 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   its dismiss callback. The same protection covers a load whose platform call
   throws, or reports a failure, after a superseded request's fill was loaded or
   shown (a good ad is kept; an ordinary failed load still fails the slot). Same class as the AppLovin
-  fix in 3.4.2. No effect on AppLovin.
+  fix in 3.4.2. Each load request now also carries a per-request token, so a
+  result from a request the load watchdog already abandoned can no longer fail,
+  fill or answer the host callback of the NEWER request that took its place.
+  Trade-off: a good late fill from an abandoned request is now released instead
+  of being used if a newer request is still loading. No effect on AppLovin.
 
 ## [3.4.2] - 2026-10-05
 

@@ -394,6 +394,13 @@ class AdMobAdapter
   GmaFullscreenAd? _interstitialAd;
   GmaFullscreenAd? _rewardedAd;
   GmaFullscreenAd? _rewardedInterstitialAd; // T89
+
+  // T246 — one number per accepted load request, per format. A load callback
+  // acts on the slot only if its request is still the current one.
+  int _appOpenLoadSeq = 0;
+  int _interstitialLoadSeq = 0;
+  int _rewardedLoadSeq = 0;
+  int _rewardedInterstitialLoadSeq = 0;
   // T65 (phase 2) — one BannerAd per BannerAdWidget instance, same reasoning
   // as native's _nativeAdsByKey.
   final Map<Object, BannerAd> _bannerAdsByKey = {};
@@ -873,6 +880,7 @@ class AdMobAdapter
       return;
     }
     appOpenSlot.pendingCallback = onAdLoaded;
+    final token = ++_appOpenLoadSeq;
     SafeLogger.d(_logTag, 'loadAppOpen $tag 🔄');
 
     try {
@@ -883,6 +891,10 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadAppOpen $tag ✅');
           if (_discardIfDisposed(ad, 'loadAppOpen')) return;
+          if (token != _appOpenLoadSeq) {
+            if (ad != _appOpenAd) _disposeAd(ad, 'loadAppOpen-stale-request');
+            return;
+          }
           // R76: a late fill must not move an on-screen slot out of showing.
           if (appOpenSlot.isShowing) {
             if (ad != _appOpenAd) _disposeAd(ad, 'loadAppOpen-mid-show');
@@ -915,6 +927,7 @@ class AdMobAdapter
                 'loadAppOpen $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (token != _appOpenLoadSeq) return;
           if (appOpenSlot.isShowing || appOpenSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=$code msg=$message');
           _appOpenAd = null;
@@ -930,6 +943,7 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadAppOpen $tag THREW: $e\n$st');
+      if (token != _appOpenLoadSeq) return;
       // R76: a superseded request must not discard a loaded or shown ad.
       if (appOpenSlot.isShowing || appOpenSlot.isReady) return;
       _appOpenAd = null;
@@ -1227,6 +1241,7 @@ class AdMobAdapter
       interstitialSlot.lastLoadedAt = null;
     }
     if (!interstitialSlot.beginLoad()) return;
+    final token = ++_interstitialLoadSeq;
     SafeLogger.d(_logTag, 'loadInterstitial $tag 🔄');
     try {
       await _bridge.loadInterstitial(
@@ -1236,6 +1251,10 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
           if (_discardIfDisposed(ad, 'loadInterstitial')) return;
+          if (token != _interstitialLoadSeq) {
+            if (ad != _interstitialAd) _disposeAd(ad, 'loadInterstitial-stale-request');
+            return;
+          }
           // R76: a late fill must not move an on-screen slot out of showing.
           if (interstitialSlot.isShowing) {
             if (ad != _interstitialAd) _disposeAd(ad, 'loadInterstitial-mid-show');
@@ -1269,6 +1288,7 @@ class AdMobAdapter
                 'loadInterstitial $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (token != _interstitialLoadSeq) return;
           if (interstitialSlot.isShowing || interstitialSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ $code');
           _interstitialAd = null;
@@ -1284,6 +1304,7 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadInterstitial $tag THREW: $e\n$st');
+      if (token != _interstitialLoadSeq) return;
       // R76: a superseded request must not discard a loaded or shown ad.
       if (interstitialSlot.isShowing || interstitialSlot.isReady) return;
       _interstitialAd = null;
@@ -1484,6 +1505,7 @@ class AdMobAdapter
       rewardedSlot.lastLoadedAt = null;
     }
     if (!rewardedSlot.beginLoad()) return;
+    final token = ++_rewardedLoadSeq;
     SafeLogger.d(_logTag, 'loadRewarded $tag 🔄');
     try {
       await _bridge.loadRewarded(
@@ -1493,6 +1515,10 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewarded $tag ✅');
           if (_discardIfDisposed(ad, 'loadRewarded')) return;
+          if (token != _rewardedLoadSeq) {
+            if (ad != _rewardedAd) _disposeAd(ad, 'loadRewarded-stale-request');
+            return;
+          }
           // R76: a late fill must not move an on-screen slot out of showing.
           if (rewardedSlot.isShowing) {
             if (ad != _rewardedAd) _disposeAd(ad, 'loadRewarded-mid-show');
@@ -1522,6 +1548,7 @@ class AdMobAdapter
                 'loadRewarded $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (token != _rewardedLoadSeq) return;
           if (rewardedSlot.isShowing || rewardedSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadRewarded $tag ❌ $code');
           _rewardedAd = null;
@@ -1537,6 +1564,7 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadRewarded $tag THREW: $e\n$st');
+      if (token != _rewardedLoadSeq) return;
       // R76: a superseded request must not discard a loaded or shown ad.
       if (rewardedSlot.isShowing || rewardedSlot.isReady) return;
       _rewardedAd = null;
@@ -1761,6 +1789,7 @@ class AdMobAdapter
       rewardedInterstitialSlot.lastLoadedAt = null;
     }
     if (!rewardedInterstitialSlot.beginLoad()) return;
+    final token = ++_rewardedInterstitialLoadSeq;
     SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag 🔄');
     try {
       await _bridge.loadRewardedInterstitial(
@@ -1770,6 +1799,10 @@ class AdMobAdapter
         onLoaded: (ad) {
           SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag ✅');
           if (_discardIfDisposed(ad, 'loadRewardedInterstitial')) return;
+          if (token != _rewardedInterstitialLoadSeq) {
+            if (ad != _rewardedInterstitialAd) _disposeAd(ad, 'loadRewardedInterstitial-stale-request');
+            return;
+          }
           // R76: a late fill must not move an on-screen slot out of showing.
           if (rewardedInterstitialSlot.isShowing) {
             if (ad != _rewardedInterstitialAd) _disposeAd(ad, 'loadRewardedInterstitial-mid-show');
@@ -1803,6 +1836,7 @@ class AdMobAdapter
                 'loadRewardedInterstitial $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
+          if (token != _rewardedInterstitialLoadSeq) return;
           if (rewardedInterstitialSlot.isShowing || rewardedInterstitialSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
           _rewardedInterstitialAd = null;
@@ -1818,6 +1852,7 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadRewardedInterstitial $tag THREW: $e\n$st');
+      if (token != _rewardedInterstitialLoadSeq) return;
       // R76: a superseded request must not discard a loaded or shown ad.
       if (rewardedInterstitialSlot.isShowing || rewardedInterstitialSlot.isReady) return;
       _rewardedInterstitialAd = null;

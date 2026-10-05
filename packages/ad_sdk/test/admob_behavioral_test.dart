@@ -119,6 +119,19 @@ class FakeGmaBridge implements GmaBridge {
     return c.future; // completes with an error from the test
   }
 
+  // Per-request token (T246): EVERY load's callbacks, in request order, per
+  // format, so a test can answer request A and request B independently
+  // (A = loads[0], B = loads[1]) instead of only the most recent one.
+  final Map<String, List<({
+    void Function(GmaFullscreenAd) onLoaded,
+    void Function(int, String) onFailed,
+  })>> loads = {
+    'appOpen': [],
+    'interstitial': [],
+    'rewarded': [],
+    'rewardedInterstitial': [],
+  };
+
   void Function(GmaFullscreenAd)? lastAppOpenOnLoaded;
   void Function(int, String)? lastAppOpenOnFailed;
   void Function(GmaFullscreenAd)? lastInterOnLoaded;
@@ -182,6 +195,7 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaAppOpen = nonPersonalizedAds;
     rdpAppOpen = restrictedDataProcessing;
+    loads['appOpen']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastAppOpenOnLoaded = onLoaded;
     lastAppOpenOnFailed = onFailed;
     if (holdNextLoadOpen) await _holdLoad();
@@ -205,6 +219,7 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaInter = nonPersonalizedAds;
     rdpInter = restrictedDataProcessing;
+    loads['interstitial']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastInterOnLoaded = onLoaded;
     lastInterOnFailed = onFailed;
     if (holdNextLoadOpen) await _holdLoad();
@@ -228,6 +243,7 @@ class FakeGmaBridge implements GmaBridge {
       required void Function(int, String) onFailed}) async {
     npaRewarded = nonPersonalizedAds;
     rdpRewarded = restrictedDataProcessing;
+    loads['rewarded']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastRewardedOnLoaded = onLoaded;
     lastRewardedOnFailed = onFailed;
     if (holdNextLoadOpen) await _holdLoad();
@@ -249,6 +265,7 @@ class FakeGmaBridge implements GmaBridge {
       bool restrictedDataProcessing = false,
       required void Function(GmaFullscreenAd) onLoaded,
       required void Function(int, String) onFailed}) async {
+    loads['rewardedInterstitial']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastRewardedInterstitialOnLoaded = onLoaded;
     lastRewardedInterstitialOnFailed = onFailed;
     if (holdNextLoadOpen) await _holdLoad();
@@ -298,6 +315,10 @@ void main() {
       // format name -> (load, show, slot, last ad, replay load, replay failure,
       //                 current requestId)
       final formats = <String, Map<String, dynamic>>{};
+
+      // Several tests here end with a show still running; disposing the adapter
+      // cancels its hard-cap / show-confirm timers so none outlive the test.
+      tearDown(() => adapter.dispose());
 
       setUp(() {
         formats
@@ -667,6 +688,213 @@ void main() {
       });
     },
   );
+
+  // T246 — per-request load token. A request that the load watchdog abandoned
+  // (A) and a newer request (B) share one slot. A's late result must not touch
+  // B: state guards (`showing`/`ready`) cannot tell them apart while B is
+  // `loading`, which is the case reproduced by a probe and found by the audit.
+  group('T246: a stale request cannot act on the current one', () {
+    final formats = <String, Map<String, dynamic>>{};
+
+    tearDown(() => adapter.dispose());
+
+    setUp(() {
+      formats
+        ..clear()
+        ..addAll({
+          'appOpen': {
+            'load': () => adapter.loadAppOpen(),
+            'slot': () => adapter.appOpenSlot,
+          },
+          'interstitial': {
+            'load': () => adapter.loadInterstitial(),
+            'slot': () => adapter.interstitialSlot,
+          },
+          'rewarded': {
+            'load': () => adapter.loadRewarded(),
+            'slot': () => adapter.rewardedSlot,
+          },
+          'rewardedInterstitial': {
+            'load': () => adapter.loadRewardedInterstitial(),
+            'slot': () => adapter.rewardedInterstitialSlot,
+          },
+        });
+    });
+
+    // Starts A (held open), lets the watchdog abandon it, then starts B (held
+    // open) so B is the current `loading` request. Returns A's and B's callbacks.
+    Future<
+        ({
+          void Function(GmaFullscreenAd) aLoaded,
+          void Function(int, String) aFailed,
+          void Function(GmaFullscreenAd) bLoaded,
+          void Function(int, String) bFailed,
+          Future<void> aFuture,
+          Future<void> bFuture,
+        })> abandonAThenStartB(String name) async {
+      final f = formats[name]!;
+      final slot = f['slot']() as AdSlot;
+      bridge.holdNextLoadOpen = true;
+      final aFuture = f['load']() as Future<void>;
+      await Future<void>.delayed(Duration.zero);
+      expect(slot.isLoading, isTrue, reason: 'precondition: A in flight');
+      slot.armLoadWatchdog(name, const Duration(seconds: 30));
+      slot.debugFireLoadWatchdogNow();
+      expect(slot.isCooldown, isTrue, reason: 'precondition: A abandoned');
+      slot.lastErrorAt = null; // let B start without waiting out the backoff
+
+      bridge.holdNextLoadOpen = true;
+      final bFuture = f['load']() as Future<void>;
+      await Future<void>.delayed(Duration.zero);
+      expect(slot.isLoading, isTrue, reason: 'precondition: B is current');
+      final reqs = bridge.loads[name]!;
+      expect(reqs, hasLength(2), reason: 'precondition: A and B reached the bridge');
+      return (
+        aLoaded: reqs[0].onLoaded,
+        aFailed: reqs[0].onFailed,
+        bLoaded: reqs[1].onLoaded,
+        bFailed: reqs[1].onFailed,
+        aFuture: aFuture,
+        bFuture: bFuture,
+      );
+    }
+
+    const formatNames = [
+      'appOpen',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial',
+    ];
+
+    // App Open is the only format whose load takes a host callback. A's late
+    // failure used to flow through B's slot and answer B's pending callback
+    // `false` before B had a result; B's later success could not retract it.
+    test('appOpen: A\'s late failure does not answer the host\'s callback for B',
+        () async {
+      bridge.holdNextLoadOpen = true;
+      final aFuture = adapter.loadAppOpen(onAdLoaded: (_) {});
+      await Future<void>.delayed(Duration.zero);
+      final slot = adapter.appOpenSlot;
+      slot.armLoadWatchdog('appOpen', const Duration(seconds: 30));
+      slot.debugFireLoadWatchdogNow();
+      slot.lastErrorAt = null;
+
+      bool? bAnswer;
+      bridge.holdNextLoadOpen = true;
+      final bFuture = adapter.loadAppOpen(onAdLoaded: (ok) => bAnswer = ok);
+      await Future<void>.delayed(Duration.zero);
+      expect(slot.isLoading, isTrue, reason: 'precondition: B is current');
+      final reqs = bridge.loads['appOpen']!;
+
+      reqs[0].onFailed(3, 'stale failure from A');
+      expect(bAnswer, isNull,
+          reason: 'B has no result yet; A must not have answered for it');
+
+      final ad = FakeGmaFullscreenAd();
+      reqs[1].onLoaded(ad);
+      expect(bAnswer, isTrue,
+          reason: 'B\'s own success must still reach the host');
+      bridge.heldLoads
+        ..first.complete()
+        ..last.complete();
+      await aFuture;
+      await bFuture;
+    });
+
+    // The token must NOT be bumped by a consent discard: that path deliberately
+    // lets the in-flight request finish and be rejected by
+    // `_discardIfConsentStale`. If a discard invalidated the request, the
+    // result would be dropped early, skipping that path and leaving the slot
+    // `loading` with the host's callback still pending.
+    for (final name in formatNames) {
+      test('$name: a consent withdrawal during loading still resolves the slot '
+          'through the consent path, not as a stale request', () async {
+        final f = formats[name]!;
+        final slot = f['slot']() as AdSlot;
+        bridge.holdNextLoadOpen = true;
+        final inFlight = f['load']() as Future<void>;
+        await Future<void>.delayed(Duration.zero);
+        expect(slot.isLoading, isTrue, reason: 'precondition');
+        final events = <AdEvent>[];
+        adapter.eventSink = events.add;
+
+        await adapter.discardCachedFullscreenAds(); // consent narrowed
+        final fill = FakeGmaFullscreenAd();
+        bridge.loads[name]!.single.onLoaded(fill);
+
+        expect(slot.isLoading, isFalse,
+            reason: 'the slot must not stay stuck in loading');
+        expect(slot.isReady, isFalse,
+            reason: 'an ad requested under the old consent must not be cached');
+        expect(fill.disposeCount, 1);
+        expect(events.whereType<AdLoadEvent>(), hasLength(1),
+            reason: 'the consent path reports the discarded load');
+        bridge.heldLoads.first.complete();
+        await inFlight;
+      });
+    }
+
+    for (final name in formatNames) {
+      test('$name: A\'s late FAILURE does not fail the current request B',
+          () async {
+        final r = await abandonAThenStartB(name);
+        final slot = (formats[name]!['slot'] as Function)() as AdSlot;
+        final events = <AdEvent>[];
+        adapter.eventSink = events.add;
+        final failuresBefore = slot.consecutiveFailures;
+
+        r.aFailed(3, 'stale failure from A');
+
+        expect(slot.isLoading, isTrue,
+            reason: 'a failure belonging to the abandoned request A ended B');
+        expect(slot.consecutiveFailures, failuresBefore);
+        expect(events.whereType<AdLoadEvent>(), isEmpty);
+      });
+
+      test('$name: A\'s late SUCCESS does not become the current ad and is '
+          'disposed', () async {
+        final r = await abandonAThenStartB(name);
+        final slot = (formats[name]!['slot'] as Function)() as AdSlot;
+        final staleAd = FakeGmaFullscreenAd();
+
+        r.aLoaded(staleAd);
+
+        expect(slot.isLoading, isTrue,
+            reason: 'A\'s fill must not mark the slot ready for request B');
+        expect(staleAd.disposeCount, 1,
+            reason: 'a rejected fill must release its native object');
+      });
+
+      test('$name: B\'s own result is still applied after A was ignored',
+          () async {
+        final r = await abandonAThenStartB(name);
+        final slot = (formats[name]!['slot'] as Function)() as AdSlot;
+        r.aFailed(3, 'stale');
+        final ownAd = FakeGmaFullscreenAd();
+
+        r.bLoaded(ownAd);
+
+        expect(slot.isReady, isTrue, reason: 'the current request still works');
+        expect(ownAd.disposeCount, 0);
+      });
+
+      test('$name: A\'s late THROW does not fail the current request B',
+          () async {
+        final r = await abandonAThenStartB(name);
+        final slot = (formats[name]!['slot'] as Function)() as AdSlot;
+        final failuresBefore = slot.consecutiveFailures;
+
+        // A's platform call finally throws.
+        bridge.heldLoads.first
+            .completeError(PlatformException(code: 'load-failed'));
+        await r.aFuture;
+
+        expect(slot.isLoading, isTrue,
+            reason: 'a throw from the abandoned request A ended B');
+        expect(slot.consecutiveFailures, failuresBefore);
+      });
+    }
+  });
 
   group('QA test-device hashes (always merged into RequestConfiguration)',
       () {

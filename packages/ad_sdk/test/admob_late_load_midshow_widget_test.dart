@@ -148,4 +148,47 @@ void main() {
     bridge.lastAppOpen!.shown!.onDismissed!();
     await tester.pump();
   });
+
+  // T246 — the user-visible form of the stale-request bug. Request A is
+  // abandoned by the load watchdog, request B (the current one) is loading, and
+  // A's late result arrives. Without a per-request token that result ended B:
+  // the slot dropped to cooldown while a real load was still in flight, so the
+  // host's "ad ready" state flipped wrongly. Here the host observes it through
+  // the same `fullscreenBusy` / slot state it already binds to.
+  testWidgets(
+      'T246: an abandoned request A cannot fail the current request B in the '
+      'host-visible slot state', (tester) async {
+    await tester.pumpWidget(_Host(onTap: () {}));
+    final slot = adapter.interstitialSlot;
+
+    bridge.holdNextLoadOpen = true;
+    final aFuture = adapter.loadInterstitial();
+    await tester.pump();
+    slot.armLoadWatchdog('interstitial', const Duration(seconds: 30));
+    slot.debugFireLoadWatchdogNow();
+    slot.lastErrorAt = null;
+    bridge.holdNextLoadOpen = true;
+    final bFuture = adapter.loadInterstitial();
+    await tester.pump();
+    expect(slot.isLoading, isTrue, reason: 'precondition: B is current');
+    final reqs = bridge.loads['interstitial']!;
+    expect(reqs, hasLength(2));
+
+    reqs[0].onFailed(3, 'A failed very late');
+    await tester.pump();
+    expect(slot.isLoading, isTrue,
+        reason: 'A\'s stale failure must not end the current request B');
+
+    final ad = FakeGmaFullscreenAd();
+    reqs[1].onLoaded(ad);
+    await tester.pump();
+    expect(slot.isReady, isTrue, reason: 'B\'s own fill is still accepted');
+    expect(ad.disposeCount, 0);
+
+    bridge.heldLoads
+      ..first.complete()
+      ..last.complete();
+    await aFuture;
+    await bFuture;
+  });
 }

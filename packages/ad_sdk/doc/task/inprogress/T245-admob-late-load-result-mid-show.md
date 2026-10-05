@@ -25,9 +25,9 @@ Hậu quả (đã tái hiện bằng test):
 Mỗi `onLoaded`: nếu slot đang `showing` thì bỏ qua, và chỉ dispose ad bị từ chối khi nó
 KHÔNG bọc chính ad native đang được giữ (so bằng `==` trên 4 wrapper bridge; `identical()`
 lúc đầu vô hiệu vì bridge tạo wrapper mới ở mỗi callback, reviewer đã chỉ ra) (dispose ad đang hiển thị sẽ xoá content callback nên
-dismiss không bao giờ tới). Mỗi `onFailed`: nếu slot đang `showing` thì bỏ qua. Khối `catch` của 4 hàm load (platform
-call ném lỗi) cũng thoát sớm khi slot đang `showing` hoặc `ready` (audit vòng 4 tìm ra bằng đọc code; tôi
-tái hiện bằng test đỏ rồi mới sửa).
+dismiss không bao giờ tới). Mỗi `onFailed`: bỏ qua nếu slot đang `showing` hoặc `ready` (vòng 6 tìm ra nhánh `ready`). Khối `catch` của
+4 hàm load (platform call ném lỗi) cũng thoát sớm khi slot đang `showing` hoặc `ready` (vòng 5 tìm ra
+nhánh `showing`, vòng 6 nhánh `ready`); mỗi nhánh tôi tái hiện bằng test đỏ rồi mới sửa.
 Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~20KB dư).
 
 ## Kiểm chứng

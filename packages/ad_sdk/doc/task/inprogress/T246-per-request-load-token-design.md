@@ -1,8 +1,8 @@
-# T246 — Per-request load token for AdMob fullscreen loads (DESIGN, not implemented)
+# T246 — Per-request load token for AdMob fullscreen loads
 
 - **Loại:** Design / Hardening
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Status:** todo — chờ chủ dự án duyệt phương án. KHÔNG có code nào được viết cho task này.
+- **Status:** inprogress (đã code và test; chờ audit độc lập >9/10 mới đóng)
 
 ## Vì sao có task này
 
@@ -76,3 +76,27 @@ chạy được trên Android và iOS; audit độc lập >9/10; smoke trên thi
 - Adapter AdMob không dùng `beginReload` cho 4 format fullscreen.
 - `AdManager` arm watchdog load 30s cho mỗi format; token phải phối hợp với watchdog này, vì
   watchdog buộc slot vào cooldown rồi một lượt load mới có thể bắt đầu trong khi lượt cũ còn bay.
+
+
+## Triển khai (đã làm, theo phương án được duyệt)
+
+- `admob_adapter.dart`: 4 bộ đếm `_xLoadSeq`; mỗi `load*()` lấy `final token = ++_xLoadSeq`
+  ngay sau khi `beginLoad()` thành công; `onLoaded`, `onFailed` và `catch` chỉ tác động nếu
+  `token == _xLoadSeq`. Token KHÔNG bị tăng ở chỗ nào khác (watchdog, dispose, show-terminal,
+  consent discard), vì `discardCachedFullscreenAds()` cố ý để request đang `loading` chạy tiếp và
+  bị `_discardIfConsentStale` từ chối. Các guard `isShowing`/`isReady` và `ad != _xAd` của T245
+  vẫn giữ vì chúng bảo vệ trùng lặp của CHÍNH request hiện tại.
+- Diff production: 35 dòng; `lib` đo 2028 -> 2032 KB (trần 2048).
+- Test (đều đỏ trước khi sửa): `test/admob_behavioral_test.dart` group `T246` (4 format x
+  failure / success / own result / throw, cộng App Open pending callback, cộng consent-discard) và
+  `test/admob_late_load_midshow_widget_test.dart` (host-visible), chạy lại trên Android thật
+  `2B051FDH3006MU` và iOS Simulator.
+- Mutation check ba chiều: bỏ token thì test đỏ; token nuốt hết thì test lỗi bình thường đỏ;
+  tăng token ở `discardCachedFullscreenAds` thì test consent đỏ.
+
+## Giới hạn
+
+- Callback cũ của Google Ads SDK native không thể ép trên máy thật; thiết bị chỉ chạy lại bộ test
+  tiêm callback qua bridge giả.
+- Một fill muộn hợp lệ của request cũ khi request mới đang `loading` giờ bị bỏ (đánh đổi đã chọn).
+- Chưa có audit độc lập sau thay đổi này.
