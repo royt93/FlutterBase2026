@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.4.3] - 2026-10-05
+
 - **Fixed (Audit 76):** `AdMobAdapter` App Open, interstitial, rewarded and
   rewarded-interstitial load callbacks now ignore a result that lands while the
   slot is `showing`. A late or duplicate fill used to call `markReady()`, moving
