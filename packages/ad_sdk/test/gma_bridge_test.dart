@@ -119,6 +119,77 @@ void main() {
   // obtain the wrap the production onLoaded callback builds, and then fire the
   // exact field the plugin's own _invokePaidEvent invokes
   // (`ad.onPaidEvent?.call(...)`) — not a substitute of our own.
+  // Audit round 76 — AdMobAdapter's mid-show load guard disposes a late fill
+  // unless it is the very ad it already holds (disposing the live ad clears its
+  // content callback, so the dismiss would never arrive). The bridge builds a
+  // NEW wrapper on every onAdLoaded, so `identical()` on wrappers could never be
+  // true in production; the wrappers must compare by the native ad they wrap.
+  group('audit round 76 — wrappers compare by the native ad', () {
+    Future<List<GmaFullscreenAd>> loadTwice(
+      String label,
+      Future<void> Function(void Function(GmaFullscreenAd ad) onLoaded) load,
+    ) async {
+      calls.clear();
+      final wraps = <GmaFullscreenAd>[];
+      await load(wraps.add);
+      final adId = calls.last.arguments['adId'] as int;
+      // The plugin dispatches platform->Dart onAdLoaded; a duplicate native
+      // event for the SAME adId is the case the guard must survive.
+      for (var i = 0; i < 2; i++) {
+        await messenger.handlePlatformMessage(
+          channel.name,
+          channel.codec.encodeMethodCall(
+            MethodCall('onAdEvent', <dynamic, dynamic>{
+              'adId': adId,
+              'eventName': 'onAdLoaded',
+              'responseInfo': null,
+            }),
+          ),
+          (_) {},
+        );
+      }
+      expect(wraps, hasLength(2), reason: '$label: one wrapper per callback');
+      return wraps;
+    }
+
+    final loaders = <String,
+        Future<void> Function(void Function(GmaFullscreenAd) onLoaded)>{
+      'appOpen': (onLoaded) => bridge.loadAppOpen('u-open',
+          nonPersonalizedAds: false,
+          onLoaded: onLoaded,
+          onFailed: (_, _) {}),
+      'interstitial': (onLoaded) => bridge.loadInterstitial('u-inter',
+          nonPersonalizedAds: false,
+          onLoaded: onLoaded,
+          onFailed: (_, _) {}),
+      'rewarded': (onLoaded) => bridge.loadRewarded('u-rew',
+          nonPersonalizedAds: false,
+          onLoaded: onLoaded,
+          onFailed: (_, _) {}),
+      'rewardedInterstitial': (onLoaded) => bridge.loadRewardedInterstitial(
+          'u-ri',
+          nonPersonalizedAds: false,
+          onLoaded: onLoaded,
+          onFailed: (_, _) {}),
+    };
+
+    for (final entry in loaders.entries) {
+      test('${entry.key}: two wrappers around the SAME native ad are equal, '
+          'around different native ads are not', () async {
+        final same = await loadTwice(entry.key, entry.value);
+        expect(identical(same[0], same[1]), isFalse,
+            reason: 'precondition: production really builds a new wrapper '
+                'per callback, which is why identical() was dead code');
+        expect(same[0] == same[1], isTrue);
+        expect(same[0].hashCode, same[1].hashCode);
+
+        final other = await loadTwice(entry.key, entry.value);
+        expect(same[0] == other[0], isFalse,
+            reason: 'a different native ad must never compare equal');
+      });
+    }
+  });
+
   group('m36 — dispose() unwires onPaidEvent', () {
     Future<void> checkDisposeUnwiresPaidEvent(
       String label,

@@ -23,7 +23,8 @@ Hậu quả (đã tái hiện bằng test):
 ## Sửa
 
 Mỗi `onLoaded`: nếu slot đang `showing` thì bỏ qua, và chỉ dispose ad bị từ chối khi nó
-KHÔNG phải chính ad đang được giữ (dispose ad đang hiển thị sẽ xoá content callback nên
+KHÔNG bọc chính ad native đang được giữ (so bằng `==` trên 4 wrapper bridge; `identical()`
+lúc đầu vô hiệu vì bridge tạo wrapper mới ở mỗi callback, reviewer đã chỉ ra) (dispose ad đang hiển thị sẽ xoá content callback nên
 dismiss không bao giờ tới). Mỗi `onFailed`: nếu slot đang `showing` thì bỏ qua.
 Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~20KB dư).
 
@@ -34,8 +35,12 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
   vẫn resolve, mutex AdManager vẫn giữ — 4 format. Đỏ khi bỏ guard, xanh khi có.
 - Widget (`test/admob_late_load_midshow_widget_test.dart`): nút host bind `fullscreenBusy`
   vẫn bị khoá, show thứ hai qua AdManager bị từ chối. Đỏ khi bỏ guard.
-- Không có test thiết bị: callback muộn không ép được trên máy thật, và cầu nối giả
-  không chứng minh plugin native tạo ra thứ tự đó.
+- Wrapper thật (`test/gma_bridge_test.dart`): hai callback `onAdLoaded` cho cùng adId qua codec
+  của plugin cho hai wrapper bằng nhau, adId khác thì không. Đỏ khi bỏ `==`.
+- Integration (`example/integration_test/admob_late_load_midshow_test.dart`): chạy lại bộ
+  widget test trên Android thật (`2B051FDH3006MU`) và iOS Simulator, đều xanh. Đây là
+  render và mutex AdManager thật với callback tiêm qua bridge giả; KHÔNG chứng minh
+  Google Ads SDK native giao callback muộn, thứ không ép được.
 
 ## Giới hạn đã biết
 

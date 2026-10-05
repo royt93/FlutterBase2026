@@ -111,24 +111,38 @@ void main() {
   });
 
   testWidgets(
-      'through AdManager: a second fullscreen show is refused while the first '
-      'is on screen even after a late fill', (tester) async {
+      'through AdManager: a second fullscreen show is refused for the BUSY '
+      'reason while the first is on screen even after a late fill',
+      (tester) async {
     await tester.pumpWidget(_Host(onTap: () {}));
     AdManager().debugCanRequestAds = true;
+    addTearDown(() => AdManager().debugCanRequestAds = false);
     await adapter.loadAppOpen();
     await adapter.showAppOpen(onDismiss: (_) {});
     bridge.lastAppOpenOnLoaded!(FakeGmaFullscreenAd());
     await tester.pump();
 
+    // The mutex itself must still be held: this is what the late fill used to
+    // clear. Without this precondition `shown == false` below could come from
+    // any other gate (VIP, consent, throttle, cap).
+    expect(AdManager().debugFullscreenBusyReason, isNotNull);
+
     await adapter.loadInterstitial();
     final interShowsBefore = bridge.lastInter?.showCount ?? 0;
+    final events = <AdEvent>[];
+    final sub = AdManager().events.listen(events.add);
+    addTearDown(sub.cancel);
     bool? shown;
     await AdManager().showInterstitial(onDoneFlow: (s) => shown = s);
+    await tester.pump();
 
     expect(shown, isFalse,
         reason: 'the SDK must refuse to stack a second fullscreen ad');
     expect(bridge.lastInter?.showCount ?? 0, interShowsBefore,
         reason: 'the native show must never be called');
+    final skips = events.whereType<AdSkipEvent>().toList();
+    expect(skips.map((e) => e.reason), contains('busy'),
+        reason: 'refused because of the fullscreen mutex, not another gate');
 
     // End the on-screen App Open so no watchdog timer outlives the test.
     bridge.lastAppOpen!.shown!.onDismissed!();
