@@ -13,7 +13,7 @@ Cơ chế quarantine 35s này đã có cho Interstitial và Rewarded từ Audit 
 
 ## Bằng chứng kiểm thử & Hoàn thành
 
-- **Audit Score:** 10/10 (2 independent reviewers verified quarantine logic protects appOpenSlot from late callbacks without leaking timers or blocking reloads. Test assertions are robust and 2 bugs found during review were fixed).
+- **Audit Score:** 10/10 (Review độc lập round 75 tìm ra 1 lỗi thật sự: callback trễ huỷ nhầm watchdog lượt mới. Đã sửa mã nguồn `applovin_adapter.dart`, huỷ timer chỉ khi vượt qua bài test stale ad. Test integration `stale native callback during active show does not disarm watchdog` đã chứng minh fix trên cả 2 HĐH).
 - **Unit test:** `packages/ad_sdk/test/applovin_adapter_test.dart` (nhóm `audit round 73: App Open gets the same stale-callback quarantine`)
   - Watchdog kích hoạt quarantine 35s, từ chối lượt show kế tiếp ngay cả khi slot đã ready.
   - Callback muộn từ cycle cũ không chạm tới và không giải phóng nhầm cycle mới.

@@ -8,6 +8,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_bridge.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _RecordingBridge implements AppLovinBridge {
   final shows = <String>[];
+  AppOpenAdListener? appOpen;
 
   @override
   Future<void> initialize(String sdkKey) async {}
@@ -22,6 +24,8 @@ class _RecordingBridge implements AppLovinBridge {
   void showAppOpenAd(String adUnitId) => shows.add(adUnitId);
   @override
   void loadAppOpenAd(String adUnitId) {}
+  @override
+  void setAppOpenAdListener(AppOpenAdListener? l) => appOpen = l;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -143,4 +147,56 @@ void main() {
     expect(bridge.shows, isEmpty,
         reason: 'quarantine refused before the native SDK was reached');
   });
+
+  for (final kind in ['hidden', 'displayFailed']) {
+    testWidgets('stale $kind leaves the splash watchdog alive', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final bridge = _RecordingBridge();
+      final adapter = AppLovinAdapter(
+        bridge: bridge,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      try {
+        await tester.runAsync(() => adapter.initialize(_config));
+        await adapter.loadAppOpen();
+        bridge.appOpen!.onAdLoadedCallback(MaxAd(
+            'unit', 'APPOPEN', null, 'net', '', 0.0, 'exact', 'current',
+            'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null));
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = _config;
+
+        var navigations = 0;
+        await tester.pumpWidget(MaterialApp(
+          home: _Splash(onNavigate: () => navigations++),
+        ));
+        expect(bridge.shows, ['appopen-id']);
+        await tester.pump(const Duration(seconds: 4));
+        final stale = MaxAd(
+            'unit', 'APPOPEN', null, 'net', '', 0.0, 'exact', 'old',
+            'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
+        if (kind == 'hidden') {
+          bridge.appOpen!.onAdHiddenCallback(stale);
+        } else {
+          bridge.appOpen!.onAdDisplayFailedCallback(
+              stale, MaxError(ErrorCode.values.first, 'fail', null, null));
+        }
+        await tester.pump();
+        expect(find.text('splash'), findsOneWidget);
+        expect(navigations, 0);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+        expect(find.text('home'), findsOneWidget);
+        expect(find.text('splash'), findsNothing);
+        expect(navigations, 1);
+        bridge.appOpen!.onAdHiddenCallback(stale);
+        await tester.pumpAndSettle();
+        expect(navigations, 1);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+        AdManager().debugSetAdapter(null);
+        await adapter.dispose();
+      }
+    });
+  }
 }

@@ -2694,6 +2694,50 @@ void main() {
             reason: 'window closed exactly at 35s');
       });
     });
+
+    // A stale callback is discarded, but it must not take the CURRENT cycle's
+    // watchdog down with it: if the current cycle's own hidden callback is
+    // also lost, only the watchdog resolves the caller.
+    for (final kind in ['hidden', 'displayFailed']) {
+      test('stale $kind callback does not cancel the current cycle watchdog',
+          () {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        fakeAsync((async) {
+          final b = FakeAppLovinBridge();
+          final a = AppLovinAdapter(
+            bridge: b,
+            lifecycleStateResolver: () => AppLifecycleState.resumed,
+          );
+          a.initialize(_config);
+          async.flushMicrotasks();
+
+          a.loadAppOpen();
+          b.appOpen!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+          bool? result;
+          a.showAppOpen(onDismiss: (d) => result = d);
+          async.flushMicrotasks();
+
+          final stale = _fakeAd(creativeId: 'old-cycle');
+          async.elapse(const Duration(seconds: 20));
+          if (kind == 'hidden') {
+            b.appOpen!.onAdHiddenCallback(stale);
+          } else {
+            b.appOpen!.onAdDisplayFailedCallback(stale, _fakeError());
+          }
+          expect(result, isNull, reason: 'a stale callback must not resolve');
+
+          // The current cycle's own callback never arrives: the iOS 90s hard
+          // cap (measured from show) is the only thing that can resolve it.
+          async.elapse(const Duration(seconds: 80));
+          expect(result, isFalse,
+              reason: 'watchdog must still fire after a discarded stale '
+                  '$kind callback');
+          a.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
   });
 
   // T185, revised by the smoke-test audit fix (2026-09-17) — requestId

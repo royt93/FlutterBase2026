@@ -1244,8 +1244,6 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
                 : appOpenSlot.requestId);
       },
       onAdDisplayFailedCallback: (ad, err) {
-        _appOpenShowTimeout?.cancel();
-        _appOpenShowTimeout = null;
         // Round-31 audit fix (MAJOR) — was `_appOpenDismiss == null`, which
         // only detects "the watchdog already resolved THIS cycle". Once a
         // NEWER cycle calls showAppOpen() again, `_appOpenDismiss` is a
@@ -1260,6 +1258,10 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'appOpen $tag ❌ display failed (late — a newer cycle is already current): ${err.message}');
           return;
         }
+        // Audit round 75 — cancel only AFTER the stale check: a discarded
+        // late callback must not kill the CURRENT cycle's watchdog.
+        _appOpenShowTimeout?.cancel();
+        _appOpenShowTimeout = null;
         SafeLogger.w(_logTag, 'appOpen $tag ❌ display failed: ${err.message}');
         appOpenSlot.markShowFailed();
         final cb = _appOpenDismiss;
@@ -1297,8 +1299,6 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         ));
       },
       onAdHiddenCallback: (ad) {
-        _appOpenShowTimeout?.cancel();
-        _appOpenShowTimeout = null;
         // Round-31 audit fix (MAJOR) — was `_appOpenDismiss == null`, which
         // only catches a late callback for a cycle the watchdog resolved
         // AND no newer cycle has started yet. Once a NEWER cycle calls
@@ -1315,6 +1315,10 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'appOpen $tag 👋 hidden (late — a newer cycle is already current)');
           return;
         }
+        // Audit round 75 — cancel only AFTER the stale check (see
+        // onAdDisplayFailedCallback above).
+        _appOpenShowTimeout?.cancel();
+        _appOpenShowTimeout = null;
         SafeLogger.d(_logTag, 'appOpen $tag 👋 hidden');
         appOpenSlot.markDismissed();
         final cb = _appOpenDismiss;
