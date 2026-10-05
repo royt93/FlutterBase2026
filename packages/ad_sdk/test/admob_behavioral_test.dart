@@ -535,6 +535,73 @@ void main() {
       });
     }
 
+    // Same race, one step earlier: A's late fill landed (slot `ready`) but the
+    // host has NOT shown it yet when B's platform call throws. The catch used
+    // to null `_xAd` and mark the slot failed, throwing away a good loaded ad
+    // and leaking its native object.
+    for (final name in [
+      'appOpen',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial'
+    ]) {
+      test('$name: B throws while A\'s late fill is ready (not shown yet): A '
+          'is kept and still shows', () async {
+        final f = formats[name]!;
+        final slot = f['slot']() as AdSlot;
+        bridge.holdNextLoadOpen = true;
+        final inFlight = (f['load']() as Future<void>);
+        await Future<void>.delayed(Duration.zero);
+        expect(slot.isLoading, isTrue, reason: 'precondition: B is in flight');
+
+        final lateA = FakeGmaFullscreenAd();
+        f['late'](lateA);
+        expect(slot.isReady, isTrue, reason: 'precondition: A is loaded');
+
+        bridge.heldLoads.single
+            .completeError(PlatformException(code: 'load-failed'));
+        await inFlight;
+
+        expect(slot.isReady, isTrue,
+            reason: 'a throw from a SUPERSEDED request must not discard a '
+                'good, already loaded ad');
+        expect(lateA.disposeCount, 0);
+        await f['show']();
+        expect(slot.isShowing, isTrue, reason: 'A must still be showable');
+        lateA.shown!.onDismissed!();
+      });
+    }
+
+    // Guard against over-correction: the widened catch guard must NOT swallow
+    // the ordinary case. A load whose platform call throws while the slot is
+    // merely `loading` (nothing loaded, nothing shown) still fails the slot.
+    for (final name in [
+      'appOpen',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial'
+    ]) {
+      test('$name: a load that throws while only loading still fails the '
+          'slot into cooldown and counts one failure', () async {
+        final f = formats[name]!;
+        final slot = f['slot']() as AdSlot;
+        bridge.holdNextLoadOpen = true;
+        final inFlight = (f['load']() as Future<void>);
+        await Future<void>.delayed(Duration.zero);
+        expect(slot.isLoading, isTrue, reason: 'precondition');
+        final before = slot.consecutiveFailures;
+
+        bridge.heldLoads.single
+            .completeError(PlatformException(code: 'load-failed'));
+        await inFlight;
+
+        expect(slot.isCooldown, isTrue,
+            reason: 'an ordinary failed load must still reach markFailed');
+        expect(slot.consecutiveFailures, before + 1);
+        expect(slot.isReady, isFalse);
+      });
+    }
+
     test('appOpen: after the discarded load, the real dismiss still resolves '
           'the caller and the slot can load again', () async {
         await adapter.loadAppOpen();

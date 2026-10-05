@@ -930,8 +930,8 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadAppOpen $tag THREW: $e\n$st');
-      // R76: a superseded request must not end an ad that is on screen.
-      if (appOpenSlot.isShowing) return;
+      // R76: a superseded request must not discard a loaded or shown ad.
+      if (appOpenSlot.isShowing || appOpenSlot.isReady) return;
       _appOpenAd = null;
       appOpenSlot.markFailed();
     }
@@ -1284,8 +1284,8 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadInterstitial $tag THREW: $e\n$st');
-      // R76: a superseded request must not end an ad that is on screen.
-      if (interstitialSlot.isShowing) return;
+      // R76: a superseded request must not discard a loaded or shown ad.
+      if (interstitialSlot.isShowing || interstitialSlot.isReady) return;
       _interstitialAd = null;
       interstitialSlot.markFailed();
     }
@@ -1537,8 +1537,8 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadRewarded $tag THREW: $e\n$st');
-      // R76: a superseded request must not end an ad that is on screen.
-      if (rewardedSlot.isShowing) return;
+      // R76: a superseded request must not discard a loaded or shown ad.
+      if (rewardedSlot.isShowing || rewardedSlot.isReady) return;
       _rewardedAd = null;
       rewardedSlot.markFailed();
     }
@@ -1818,8 +1818,8 @@ class AdMobAdapter
       );
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadRewardedInterstitial $tag THREW: $e\n$st');
-      // R76: a superseded request must not end an ad that is on screen.
-      if (rewardedInterstitialSlot.isShowing) return;
+      // R76: a superseded request must not discard a loaded or shown ad.
+      if (rewardedInterstitialSlot.isShowing || rewardedInterstitialSlot.isReady) return;
       _rewardedInterstitialAd = null;
       rewardedInterstitialSlot.markFailed();
     }
