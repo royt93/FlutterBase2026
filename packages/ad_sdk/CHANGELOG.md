@@ -17,9 +17,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   cooldown. A fill wrapping the very native ad already held is never disposed
   (the four internal bridge wrappers now compare by the native ad they wrap,
   since a new wrapper is built per callback), because disposing it would cancel
-  its dismiss callback. The same protection covers a load whose platform call
-  throws, or reports a failure, after a superseded request's fill was loaded or
-  shown (a good ad is kept; an ordinary failed load still fails the slot). Same class as the AppLovin
+  its dismiss callback. A failure or thrown error that arrives while the slot already
+  holds a loaded or shown ad is ignored too (an ordinary failed load still fails
+  the slot). Same class as the AppLovin
   fix in 3.4.2. Each load request now also carries a per-request token, so a
   result from a request the load watchdog already abandoned can no longer fail,
   fill or answer the host callback of the NEWER request that took its place.

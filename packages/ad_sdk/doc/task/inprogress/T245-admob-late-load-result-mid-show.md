@@ -2,7 +2,7 @@
 
 - **Loại:** Fix
 - **Priority:** P1 · **Severity:** MAJOR (độ tin cậy audit 80%)
-- **Status:** inprogress (điểm cuối 8.5/10 chưa vượt ngưỡng >9; chờ quyết định của chủ dự án)
+- **Status:** inprogress (điểm gần nhất 8.8/10 cho toàn bộ AdMob T245/T246; chưa vượt ngưỡng >9)
 
 ## Vấn đề
 
@@ -28,7 +28,7 @@ lúc đầu vô hiệu vì bridge tạo wrapper mới ở mỗi callback, review
 dismiss không bao giờ tới). Mỗi `onFailed`: bỏ qua nếu slot đang `showing` hoặc `ready` (vòng 6 tìm ra nhánh `ready`). Khối `catch` của
 4 hàm load (platform call ném lỗi) cũng thoát sớm khi slot đang `showing` hoặc `ready` (vòng 5 tìm ra
 nhánh `showing`, vòng 6 nhánh `ready`); mỗi nhánh tôi tái hiện bằng test đỏ rồi mới sửa.
-(Đã cân nhắc token theo lượt load và ban đầu hoãn; được làm ở T246 sau khi audit chứng minh guard trạng thái không đủ.)
+(Đã cân nhắc token theo lượt load và ban đầu hoãn; được làm ở T246 sau khi audit chứng minh guard trạng thái không đủ. Từ T246, kịch bản "fill muộn của request cũ rồi mới được show" ở mục Vấn đề không còn xảy ra vì token loại fill đó; các guard của T245 còn lại bảo vệ kết quả của CHÍNH request hiện tại và slot đã `ready`/`showing`.)
 
 ## Kiểm chứng
 
@@ -37,9 +37,10 @@ nhánh `showing`, vòng 6 nhánh `ready`); mỗi nhánh tôi tái hiện bằng 
   vẫn resolve, mutex AdManager vẫn giữ — 4 format. Đỏ khi bỏ guard, xanh khi có.
 - Widget (`test/admob_late_load_midshow_widget_test.dart`): nút host bind `fullscreenBusy`
   vẫn bị khoá, show thứ hai qua AdManager bị từ chối. Đỏ khi bỏ guard.
-- Catch path (`B throws after A's late fill was shown`, 4 format): request B treo, fill muộn của
-  A hạ cánh và được show, rồi platform call của B ném lỗi. Đỏ trên code cũ, xanh sau guard, đỏ
-  lại khi bỏ riêng guard của catch.
+- Catch path (4 format): fake giao fill của CHÍNH request hiện tại rồi platform Future của nó
+  ném lỗi (sau khi ad đã `ready` hoặc `showing`). Đây là test guard trạng thái, không phải
+  sở hữu A/B của hai request khác nhau. Test T246 mới là cái địa chỉ hoá callback A và B riêng.
+  Đỏ trên code cũ, xanh sau guard, đỏ lại khi bỏ riêng guard của catch. Tên/mô tả cũ A/B đã sửa.
 - Wrapper thật (`test/gma_bridge_test.dart`): hai callback `onAdLoaded` cho cùng adId qua codec
   của plugin cho hai wrapper bằng nhau, adId khác thì không. Đỏ khi bỏ `==`.
 - Integration (`example/integration_test/admob_late_load_midshow_test.dart`): chỉ chạy lại file
@@ -71,6 +72,6 @@ Sáu vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường 
 5. Vòng 5: 8.5/10. `catch` của hàm load chưa có guard (kịch bản `showing`).
 6. Vòng 6: 8.5/10. Nêu hai điểm: `catch` còn nhánh `ready`, và `onFailed` khi slot `ready` (phổ biến hơn `catch`).
 
-Cả hai đã tái hiện bằng test đỏ rồi sửa; mutation check hai chiều xác nhận guard không thừa cũng không nuốt lỗi bình thường. Sau các sửa này CHƯA có vòng chấm lại. Điểm cuối ghi nhận là 8.5/10, dưới ngưỡng >9, nên task CHƯA đóng.
+Cả hai đã tái hiện bằng test đỏ rồi sửa; mutation check hai chiều xác nhận guard không thừa cũng không nuốt lỗi bình thường. Sau các sửa này Đã chấm lại sau T246: 8.8/10. Điểm cuối ghi nhận là 8.5/10, dưới ngưỡng >9, nên task CHƯA đóng.
 
 Xu hướng: mỗi vòng reviewer mới tìm thêm một đường cùng lớp, điểm dao động 8.5–9 và chưa vượt 9. Đây là tín hiệu của lớp lỗi "callback muộn không gắn với lượt load", mà guard theo trạng thái chỉ vá từng đường; bản sửa gốc là gắn token theo từng lượt load, đã cân nhắc và hoãn vì diff lớn và `lib` chỉ còn khoảng 20KB trước trần gate.

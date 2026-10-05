@@ -59,7 +59,7 @@ ngữ nghĩa của một load hợp lệ bị `reset()` giữa chừng (consent 
 
 ## Các lựa chọn cho chủ dự án (đã chọn A)
 
-A. Làm token đầy đủ (thay guard trạng thái). Xử lý tận gốc; tốn dung lượng và rủi ro.
+A. Làm token đầy đủ (bổ sung cho guard trạng thái; guard cũ được GIỮ). Xử lý tận gốc; tốn dung lượng và rủi ro.
 B. Giữ guard trạng thái hiện có, chấp nhận giới hạn "fill muộn khi `loading`". Không đụng
    code; lớp lỗi còn một đường hẹp đã ghi nhận.
 C. Token chỉ cho riêng `onLoaded` khi `loading` (hẹp hơn A), giữ các guard còn lại.

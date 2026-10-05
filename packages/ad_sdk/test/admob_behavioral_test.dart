@@ -516,9 +516,10 @@ void main() {
       expect(manager.fullscreenBusy.value, isTrue);
     });
 
-    // Real ordering: request B is in flight (slot `loading`); request A's late
-    // fill lands first and takes the slot to `ready`; the host shows it; THEN
-    // B's platform call throws. The synchronous `catch` of each load method used
+    // The SAME request's fill arrives before its platform Future completes;
+    // the host shows it, then the platform call throws. This pins the catch
+    // state guard, not cross-request ownership (covered by the T246 group).
+    // The synchronous `catch` of each load method used
     // to run `_xAd = null; slot.markFailed()` unconditionally, nulling the
     // on-screen ad and dropping the live show into cooldown.
     for (final name in [
@@ -527,7 +528,7 @@ void main() {
       'rewarded',
       'rewardedInterstitial'
     ]) {
-      test('$name: B throws after A\'s late fill was shown: the live show '
+      test('$name: the SAME request fills and is shown, then throws: the live show '
           'survives', () async {
         final f = formats[name]!;
         final slot = f['slot']() as AdSlot;
@@ -539,7 +540,7 @@ void main() {
 
         final lateA = FakeGmaFullscreenAd();
         f['late'](lateA);
-        expect(slot.isReady, isTrue, reason: 'A\'s fill landed');
+        expect(slot.isReady, isTrue, reason: 'the request\'s own fill landed');
         await f['show']();
         expect(slot.isShowing, isTrue, reason: 'precondition: A on screen');
 
@@ -556,8 +557,8 @@ void main() {
       });
     }
 
-    // Same race, one step earlier: A's late fill landed (slot `ready`) but the
-    // host has NOT shown it yet when B's platform call throws. The catch used
+    // Same-request variant, one step earlier: its fill landed (`ready`) but
+    // the host has NOT shown it yet when its platform Future throws. The catch used
     // to null `_xAd` and mark the slot failed, throwing away a good loaded ad
     // and leaking its native object.
     for (final name in [
@@ -566,7 +567,7 @@ void main() {
       'rewarded',
       'rewardedInterstitial'
     ]) {
-      test('$name: B throws while A\'s late fill is ready (not shown yet): A '
+      test('$name: the SAME request fills and is ready, then throws: the ad '
           'is kept and still shows', () async {
         final f = formats[name]!;
         final slot = f['slot']() as AdSlot;
@@ -824,6 +825,40 @@ void main() {
       reqs[1].onLoaded(ad);
       expect(bAnswer, isTrue,
           reason: 'B\'s own success must still reach the host');
+      bridge.heldLoads
+        ..first.complete()
+        ..last.complete();
+      await aFuture;
+      await bFuture;
+    });
+
+    // The success twin of the failure test above: A's late SUCCESS must not
+    // answer the host's pending callback for B with `true` either.
+    test('appOpen: A\'s late SUCCESS does not answer the host\'s callback for B',
+        () async {
+      bridge.holdNextLoadOpen = true;
+      final aFuture = adapter.loadAppOpen(onAdLoaded: (_) {});
+      await Future<void>.delayed(Duration.zero);
+      final slot = adapter.appOpenSlot;
+      slot.armLoadWatchdog('appOpen', const Duration(seconds: 30));
+      slot.debugFireLoadWatchdogNow();
+      slot.lastErrorAt = null;
+
+      bool? bAnswer;
+      bridge.holdNextLoadOpen = true;
+      final bFuture = adapter.loadAppOpen(onAdLoaded: (ok) => bAnswer = ok);
+      await Future<void>.delayed(Duration.zero);
+      final reqs = bridge.loads['appOpen']!;
+
+      final staleAd = FakeGmaFullscreenAd();
+      reqs[0].onLoaded(staleAd);
+
+      expect(bAnswer, isNull,
+          reason: 'A\'s fill must not answer B\'s host callback with true');
+      expect(slot.isLoading, isTrue);
+      expect(staleAd.disposeCount, 1);
+      reqs[1].onLoaded(FakeGmaFullscreenAd());
+      expect(bAnswer, isTrue, reason: 'B\'s own fill answers it');
       bridge.heldLoads
         ..first.complete()
         ..last.complete();
