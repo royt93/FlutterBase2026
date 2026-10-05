@@ -1188,6 +1188,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'appOpen $tag ⛔ load landed after teardown() — discarding');
           return;
         }
+        // R75: a load landing mid-show must not leave `showing`.
+        if (appOpenSlot.isShowing) {
+          SafeLogger.w(_logTag,
+              'appOpen $tag ⛔ load mid-show — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'appOpen $tag ✅ loaded');
         if (_discardIfConsentStale(appOpenSlot, 'appOpen')) return;
         _appOpenCreativeId = ad.creativeId;
@@ -1205,6 +1211,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         if (_teardownStarted) {
           SafeLogger.w(_logTag,
               'appOpen $tag ⛔ load failure landed after teardown() — discarding');
+          return;
+        }
+        // R75: same hazard as the load-success guard.
+        if (appOpenSlot.isShowing) {
+          SafeLogger.w(_logTag,
+              'appOpen $tag ⛔ load failure mid-show — discarding');
           return;
         }
         SafeLogger.w(_logTag, 'appOpen $tag ❌ load failed code=${err.code}');
@@ -1258,8 +1270,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'appOpen $tag ❌ display failed (late — a newer cycle is already current): ${err.message}');
           return;
         }
-        // Audit round 75 — cancel only AFTER the stale check: a discarded
-        // late callback must not kill the CURRENT cycle's watchdog.
+        // R75: cancel only after the stale check.
         _appOpenShowTimeout?.cancel();
         _appOpenShowTimeout = null;
         SafeLogger.w(_logTag, 'appOpen $tag ❌ display failed: ${err.message}');
@@ -1315,8 +1326,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'appOpen $tag 👋 hidden (late — a newer cycle is already current)');
           return;
         }
-        // Audit round 75 — cancel only AFTER the stale check (see
-        // onAdDisplayFailedCallback above).
+        // R75: cancel only after the stale check.
         _appOpenShowTimeout?.cancel();
         _appOpenShowTimeout = null;
         SafeLogger.d(_logTag, 'appOpen $tag 👋 hidden');
@@ -1506,13 +1516,13 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
   /// Recursive lifecycle-aware timeout. On Android, force-dismisses shortly
   /// after observing the app foreground without a hidden callback (= hung
   /// overlay). On iOS the ad shows while the app stays `resumed`, so foreground
-  /// is ignored and only the hard cap of 18 attempts × 5 s = 90 s applies.
+  /// is ignored and only the hard cap applies (~95 s: fires on tick #19).
   void _scheduleAppOpenTimeoutCheck(
     void Function(bool) captured, {
     required int attempt,
   }) {
     const tickSeconds = 5;
-    const maxAttempts = 18; // 18 × 5 s = 90 s hard cap
+    const maxAttempts = 18; // tick #19 => ~95 s
     // iOS presents the App Open ad as an in-app modal VC, so Flutter never
     // leaves `resumed` while it shows — the foreground-as-hung heuristic only
     // holds on Android. See the comment block in [showAppOpen].
@@ -1577,6 +1587,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'inter $tag ⛔ load landed after teardown() — discarding');
           return;
         }
+        // R75: see the App Open guard.
+        if (interstitialSlot.isShowing) {
+          SafeLogger.w(_logTag,
+              'inter $tag ⛔ load mid-show — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'inter $tag ✅ loaded');
         if (_discardIfConsentStale(interstitialSlot, 'inter')) return;
         _interstitialCreativeId = ad.creativeId;
@@ -1594,6 +1610,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         if (_teardownStarted) {
           SafeLogger.w(_logTag,
               'inter $tag ⛔ load failure landed after teardown() — discarding');
+          return;
+        }
+        // R75: same hazard as the load-success guard.
+        if (interstitialSlot.isShowing) {
+          SafeLogger.w(_logTag,
+              'inter $tag ⛔ load failure mid-show — discarding');
           return;
         }
         SafeLogger.w(_logTag, 'inter $tag ❌ load failed code=${err.code}');
@@ -1847,6 +1869,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
               'rewarded $tag ⛔ load landed after teardown() — discarding');
           return;
         }
+        // R75: see the App Open guard.
+        if (rewardedSlot.isShowing) {
+          SafeLogger.w(_logTag,
+              'rewarded $tag ⛔ load mid-show — discarding');
+          return;
+        }
         SafeLogger.d(_logTag, 'rewarded $tag ✅ loaded');
         if (_discardIfConsentStale(rewardedSlot, 'rewarded')) return;
         _rewardedCreativeId = ad.creativeId;
@@ -1864,6 +1892,12 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
         if (_teardownStarted) {
           SafeLogger.w(_logTag,
               'rewarded $tag ⛔ load failure landed after teardown() — discarding');
+          return;
+        }
+        // R75: same hazard as the load-success guard.
+        if (rewardedSlot.isShowing) {
+          SafeLogger.w(_logTag,
+              'rewarded $tag ⛔ load failure mid-show — discarding');
           return;
         }
         SafeLogger.w(_logTag, 'rewarded $tag ❌ load failed code=${err.code}');

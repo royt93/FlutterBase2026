@@ -2695,6 +2695,141 @@ void main() {
       });
     });
 
+    // A late/duplicate LOAD callback landing mid-show would markReady() and
+    // move the slot out of `showing`; the watchdog tick then exits silently
+    // (`!isShowing`) and a lost hidden callback is never resolved.
+    test('a late load callback mid-show does not strand the watchdog', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+        bool? result;
+        a.showAppOpen(onDismiss: (d) => result = d);
+        async.flushMicrotasks();
+        expect(a.appOpenSlot.isShowing, isTrue);
+
+        async.elapse(const Duration(seconds: 20));
+        b.appOpen!.onAdLoadedCallback(_fakeAd(creativeId: 'late-load'));
+        expect(a.appOpenSlot.isShowing, isTrue,
+            reason: 'a load landing mid-show must not leave `showing`');
+
+        async.elapse(const Duration(seconds: 80));
+        expect(result, isFalse,
+            reason: 'the watchdog must still resolve the lost callback');
+        a.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    // The discarded load must not overwrite the tracked creativeId: if it did,
+    // the current ad's OWN hidden callback would look stale and be dropped,
+    // leaving the caller waiting on the watchdog instead of the real dismiss.
+    test('after a discarded mid-show load, the current ad hidden still resolves',
+        () {
+      fakeAsync((async) {
+        final b = FakeAppLovinBridge();
+        final a = AppLovinAdapter(
+          bridge: b,
+          lifecycleStateResolver: () => AppLifecycleState.resumed,
+        );
+        a.initialize(_config);
+        async.flushMicrotasks();
+
+        a.loadAppOpen();
+        b.appOpen!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+        bool? result;
+        a.showAppOpen(onDismiss: (d) => result = d);
+        async.flushMicrotasks();
+
+        b.appOpen!.onAdLoadedCallback(_fakeAd(creativeId: 'late-load'));
+        b.appOpen!.onAdDisplayedCallback(_fakeAd(creativeId: 'current'));
+        b.appOpen!.onAdHiddenCallback(_fakeAd(creativeId: 'current'));
+        async.flushMicrotasks();
+
+        expect(result, isTrue,
+            reason: 'the real hidden of the current ad must still resolve');
+        a.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('interstitial: a late load callback mid-show keeps the slot showing',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(
+        bridge: b,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      await a.initialize(_config);
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      await a.showInterstitial(onDone: (_) {});
+      expect(a.interstitialSlot.isShowing, isTrue);
+
+      b.inter!.onAdLoadedCallback(_fakeAd(creativeId: 'late-load'));
+      expect(a.interstitialSlot.isShowing, isTrue,
+          reason: 'a load landing mid-show must not leave `showing`');
+      await a.dispose();
+    });
+
+    test('rewarded: a late load callback mid-show keeps the slot showing',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(
+        bridge: b,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      await a.initialize(_config);
+      await a.loadRewarded();
+      b.rewarded!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      await a.showRewarded(onDone: (_) {});
+      expect(a.rewardedSlot.isShowing, isTrue);
+
+      b.rewarded!.onAdLoadedCallback(_fakeAd(creativeId: 'late-load'));
+      expect(a.rewardedSlot.isShowing, isTrue,
+          reason: 'a load landing mid-show must not leave `showing`');
+      await a.dispose();
+    });
+
+    // The same hazard from the failure side: a late load FAILURE would
+    // markFailed() the slot out of `showing` into cooldown.
+    test('a late load FAILURE mid-show keeps every fullscreen slot showing',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(
+        bridge: b,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      await a.initialize(_config);
+      await a.loadAppOpen();
+      b.appOpen!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      await a.showAppOpen(onDismiss: (_) {});
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      await a.showInterstitial(onDone: (_) {});
+      await a.loadRewarded();
+      b.rewarded!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      await a.showRewarded(onDone: (_) {});
+
+      b.appOpen!.onAdLoadFailedCallback('a', _fakeError());
+      b.inter!.onAdLoadFailedCallback('i', _fakeError());
+      b.rewarded!.onAdLoadFailedCallback('r', _fakeError());
+
+      expect(a.appOpenSlot.isShowing, isTrue, reason: 'appOpen');
+      expect(a.interstitialSlot.isShowing, isTrue, reason: 'interstitial');
+      expect(a.rewardedSlot.isShowing, isTrue, reason: 'rewarded');
+      await a.dispose();
+    });
+
     // A stale callback is discarded, but it must not take the CURRENT cycle's
     // watchdog down with it: if the current cycle's own hidden callback is
     // also lost, only the watchdog resolves the caller.

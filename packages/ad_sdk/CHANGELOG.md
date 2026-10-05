@@ -14,6 +14,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   disarm the current cycle's watchdog; if that cycle's own callback was also
   lost, the caller never resolved. The timer is now cancelled only after the
   stale check. No effect on AdMob.
+- **Fixed (Audit 75):** `AppLovinAdapter` App Open, interstitial and rewarded
+  `onAdLoaded` and `onAdLoadFailed` callbacks now discard a load result that
+  lands while the slot is `showing`. Previously a late or duplicate load called
+  `markReady()` (or `markFailed()`), moving
+  the slot out of `showing`; the App Open watchdog tick then exited silently
+  (it requires `isShowing`), so a lost hidden callback was never resolved and
+  the caller hung. No effect on AdMob.
 
 ## [3.4.0] - 2026-09-29
 

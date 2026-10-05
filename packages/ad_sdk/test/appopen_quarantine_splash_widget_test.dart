@@ -148,6 +148,55 @@ void main() {
         reason: 'quarantine refused before the native SDK was reached');
   });
 
+  for (final late in ['loaded', 'loadFailed']) {
+    testWidgets('a late $late load result mid-show does not strand the splash',
+        (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final bridge = _RecordingBridge();
+      final adapter = AppLovinAdapter(
+        bridge: bridge,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      try {
+        await tester.runAsync(() => adapter.initialize(_config));
+        await adapter.loadAppOpen();
+        MaxAd ad(String id) => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0,
+            'exact', id, 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0),
+            null, null);
+        bridge.appOpen!.onAdLoadedCallback(ad('current'));
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = _config;
+
+        var navigations = 0;
+        await tester.pumpWidget(MaterialApp(
+          home: _Splash(onNavigate: () => navigations++),
+        ));
+        expect(bridge.shows, ['appopen-id']);
+        await tester.pump(const Duration(seconds: 4));
+        if (late == 'loaded') {
+          bridge.appOpen!.onAdLoadedCallback(ad('late-load'));
+        } else {
+          bridge.appOpen!.onAdLoadFailedCallback(
+              'a', MaxError(ErrorCode.values.first, 'fail', null, null));
+        }
+        await tester.pump();
+        expect(adapter.appOpenSlot.isShowing, isTrue);
+        expect(navigations, 0);
+
+        // The current cycle's own hidden callback is lost: only the watchdog
+        // can release the splash.
+        await tester.pump(const Duration(seconds: 6));
+        await tester.pumpAndSettle();
+        expect(find.text('home'), findsOneWidget);
+        expect(navigations, 1);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+        AdManager().debugSetAdapter(null);
+        await adapter.dispose();
+      }
+    });
+  }
+
   for (final kind in ['hidden', 'displayFailed']) {
     testWidgets('stale $kind leaves the splash watchdog alive', (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;

@@ -7,8 +7,12 @@
 // ~10s foreground grace, which arms the 35s quarantine; the next
 // `showAppOpenAd` must resolve `false`, never reach the native bridge, and
 // charge no impression. It proves the refused path on-device, NOT AppLovin's
-// real late-callback timing. Audit 75 confirms integration tests intentionally
-// leave late-callback cancellation proofs to `applovin_adapter_test.dart`.
+// real late-callback timing. The second test injects a stale (other
+// `creativeId`) hidden callback through the adapter's real listener while the
+// watchdog is armed. Both start the watchdog via `debugStartAppOpenWatchdog`
+// rather than a full `showAppOpenAd()`, so they prove the timer/quarantine
+// behavior, not the whole show flow; the full flow is in
+// `test/applovin_adapter_test.dart`.
 //
 // Run with:
 //   flutter test integration_test/appopen_quarantine_refused_test.dart -d <id>
@@ -64,9 +68,10 @@ void main() {
       (tester) async {
     // Real platform on purpose: Android's watchdog abandons after ~10s of
     // foreground, iOS only at the ~90s hard cap. Wait for the actual resolve.
+    AppLovinAdapter? adapter;
     try {
       final bridge = _RecordingBridge();
-      final adapter = AppLovinAdapter(
+      adapter = AppLovinAdapter(
         bridge: bridge,
         lifecycleStateResolver: () => AppLifecycleState.resumed,
       );
@@ -111,15 +116,17 @@ void main() {
     } finally {
       AdManager().debugSetAdapter(null);
       AdManager().markSplashActive();
+      await adapter?.dispose(); // cancels the 35s quarantine timer
     }
   });
 
   testWidgets(
       'stale native callback during active show does not disarm watchdog',
       (tester) async {
+    AppLovinAdapter? adapter;
     try {
       final bridge = _RecordingBridge();
-      final adapter = AppLovinAdapter(
+      adapter = AppLovinAdapter(
         bridge: bridge,
         lifecycleStateResolver: () => AppLifecycleState.resumed,
       );
@@ -159,6 +166,7 @@ void main() {
     } finally {
       AdManager().debugSetAdapter(null);
       AdManager().markSplashActive();
+      await adapter?.dispose(); // cancels the 35s quarantine timer
     }
   });
 }
