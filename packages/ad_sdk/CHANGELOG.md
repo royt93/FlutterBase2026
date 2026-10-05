@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (Audit 75):** `AppLovinAdapter` App Open `onAdHidden` and
+  `onAdDisplayFailed` cancelled the show watchdog BEFORE discarding a stale
+  (other-`creativeId`) callback, so a late callback from a previous cycle could
+  disarm the current cycle's watchdog; if that cycle's own callback was also
+  lost, the caller never resolved. The timer is now cancelled only after the
+  stale check. No effect on AdMob.
+
 ## [3.4.0] - 2026-09-29
 
 - **Added (T236):** `AdFlightRecorder` evidence coverage extended to all 4
