@@ -72,6 +72,6 @@ Sáu vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường 
 5. Vòng 5: 8.5/10. `catch` của hàm load chưa có guard (kịch bản `showing`).
 6. Vòng 6: 8.5/10. Nêu hai điểm: `catch` còn nhánh `ready`, và `onFailed` khi slot `ready` (phổ biến hơn `catch`).
 
-Cả hai đã tái hiện bằng test đỏ rồi sửa; mutation check hai chiều xác nhận guard không thừa cũng không nuốt lỗi bình thường. Sau các sửa này Đã chấm lại sau T246: 8.8/10. Điểm cuối ghi nhận là 8.5/10, dưới ngưỡng >9, nên task CHƯA đóng.
+Các đường `catch`/`onFailed` đã tái hiện bằng test đỏ rồi sửa; mutation check hai chiều xác nhận guard không thừa cũng không nuốt lỗi bình thường. Sau T246, kết luận đã nhận là: token 9.0/10, toàn bộ AdMob T245/T246 **8.8/10** (phạm vi hẹp). 8.5/10 là điểm của các vòng TRƯỚC T246, không phải điểm cuối. Tất cả vẫn dưới hoặc bằng ngưỡng >9, nên task CHƯA đóng.
 
-Xu hướng: mỗi vòng reviewer mới tìm thêm một đường cùng lớp, điểm dao động 8.5–9 và chưa vượt 9. Đây là tín hiệu của lớp lỗi "callback muộn không gắn với lượt load", mà guard theo trạng thái chỉ vá từng đường; bản sửa gốc là gắn token theo từng lượt load, đã cân nhắc và hoãn vì diff lớn và `lib` chỉ còn khoảng 20KB trước trần gate.
+Xu hướng: mỗi vòng reviewer mới tìm thêm một đường cùng lớp, điểm dao động 8.5–9 và chưa vượt 9. Đây là tín hiệu của lớp lỗi "callback muộn không gắn với lượt load", mà guard theo trạng thái chỉ vá từng đường; bản sửa gốc là token theo từng lượt load (ban đầu hoãn vì phạm vi lớn và dung lượng), đã được triển khai ở T246. `lib` hiện 2032/2048KB.
