@@ -64,6 +64,61 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
+      'full showAppOpenAd: a late load mid-show is dropped, real hidden resolves true',
+      (tester) async {
+    AppLovinAdapter? adapter;
+    try {
+      final bridge = _RecordingBridge();
+      adapter = AppLovinAdapter(
+        bridge: bridge,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      await adapter.initialize(_config);
+      await adapter.loadAppOpen();
+      expect(adapter.appOpenSlot.isReady, isTrue);
+
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      AdManager().debugCanRequestAds = true;
+      AdManager().markSplashInactive();
+
+      MaxAd ad(String id) => MaxAd('unit', 'APPOPEN', null, 'net', '', 0.0,
+          'exact', id, 'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0),
+          null, null);
+
+      bool? dismissed;
+      final shown = AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (d) => dismissed = d,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(bridge.shows, ['appopen-id'], reason: 'the real show path ran');
+      expect(adapter.appOpenSlot.isShowing, isTrue);
+
+      // A late/duplicate load result lands mid-show, success then failure.
+      bridge.appOpenListener!.onAdLoadedCallback(ad('late-load'));
+      bridge.appOpenListener!.onAdLoadFailedCallback(
+          'appopen-id', MaxError(ErrorCode.values.first, 'late', null, null));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(adapter.appOpenSlot.isShowing, isTrue,
+          reason: 'load results mid-show must not leave `showing`');
+      expect(dismissed, isNull, reason: 'a load result is not a dismiss');
+
+      // The current ad's own hidden must still be recognised and resolve.
+      bridge.appOpenListener!.onAdDisplayedCallback(ad('current'));
+      bridge.appOpenListener!.onAdHiddenCallback(ad('current'));
+      await shown;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(dismissed, isTrue,
+          reason: 'real hidden must resolve true, not wait for the watchdog');
+    } finally {
+      AdManager().debugSetAdapter(null);
+      AdManager().markSplashActive();
+      await adapter?.dispose();
+    }
+  });
+
+  testWidgets(
       'quarantined App Open resolves false, skips native, charges nothing',
       (tester) async {
     // Real platform on purpose: Android's watchdog abandons after ~10s of
