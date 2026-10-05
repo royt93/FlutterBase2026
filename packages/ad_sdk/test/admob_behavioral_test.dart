@@ -766,6 +766,36 @@ void main() {
       'rewardedInterstitial',
     ];
 
+    // The OTHER direction of the token: when the watchdog abandons A and NO
+    // newer request starts, A's result is still the current request's result
+    // and must be accepted (a good ad, and markReady() is correct). The token
+    // is only superseded by a new beginLoad(), not by the timeout itself, so a
+    // future "bump the token when the watchdog fires" change must turn this red.
+    for (final name in formatNames) {
+      test('$name: watchdog abandoned A, no B started: A\'s late fill is still '
+          'accepted', () async {
+        final f = formats[name]!;
+        final slot = f['slot']() as AdSlot;
+        bridge.holdNextLoadOpen = true;
+        final aFuture = f['load']() as Future<void>;
+        await Future<void>.delayed(Duration.zero);
+        slot.armLoadWatchdog(name, const Duration(seconds: 30));
+        slot.debugFireLoadWatchdogNow();
+        expect(slot.isCooldown, isTrue, reason: 'precondition: A abandoned');
+        expect(bridge.loads[name], hasLength(1),
+            reason: 'precondition: no newer request reached the bridge');
+
+        final lateFill = FakeGmaFullscreenAd();
+        bridge.loads[name]!.single.onLoaded(lateFill);
+
+        expect(slot.isReady, isTrue,
+            reason: 'with no newer request, the late fill is a good ad');
+        expect(lateFill.disposeCount, 0);
+        bridge.heldLoads.first.complete();
+        await aFuture;
+      });
+    }
+
     // App Open is the only format whose load takes a host callback. A's late
     // failure used to flow through B's slot and answer B's pending callback
     // `false` before B had a result; B's later success could not retract it.

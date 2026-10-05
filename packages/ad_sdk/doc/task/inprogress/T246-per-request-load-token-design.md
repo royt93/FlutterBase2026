@@ -17,7 +17,7 @@ Một guard theo trạng thái KHÔNG phân biệt được hai lượt load khi
 đè `_xAd` mà không dispose ad cũ (rò native object), và vẫn có thể chiếm chỗ của lượt
 load hiện tại.
 
-## Phương án
+## Phương án (BẢN THIẾT KẾ BAN ĐẦU; phần triển khai thực tế ở mục "Triển khai" bên dưới, hai chỗ khác bản này)
 
 Gán một số thứ tự cho MỖI lần `load*()` thực sự bắt đầu, và mọi callback của lần đó
 chỉ được tác động lên slot nếu số của nó còn là số HIỆN TẠI.
@@ -27,10 +27,12 @@ chỉ được tác động lên slot nếu số của nó còn là số HIỆN 
    thành công).
 2. `load*()`: sau khi `slot.beginLoad()` thành công, `final token = ++_xLoadSeq;` và đóng
    gói `token` vào `onLoaded`, `onFailed` và `catch`.
-3. Mỗi callback: `if (token != _xLoadSeq) { dispose ad nếu có; return; }` thay cho TOÀN BỘ
-   guard `isShowing`/`isReady` hiện có ở `onLoaded`, `onFailed` và `catch`.
-4. `markShowFailed`/`markDismissed`/`reset()` (dismiss, expiry, consent) tăng token để
-   mọi load còn bay bị coi là cũ.
+3. Mỗi callback: `if (token != _xLoadSeq) { dispose ad nếu có; return; }`. (Thiết kế ban đầu ghi
+   "thay cho TOÀN BỘ guard trạng thái"; THỰC TẾ các guard `isShowing`/`isReady` được GIỮ, vì
+   chúng bảo vệ trùng lặp của chính request hiện tại — xem "Triển khai".)
+4. (Thiết kế ban đầu: tăng token ở `markShowFailed`/`markDismissed`/`reset()`. THỰC TẾ KHÔNG làm:
+   không có chỗ nào khác tăng token, vì `discardCachedFullscreenAds()` cần để request đang
+   `loading` chạy tiếp và bị `_discardIfConsentStale` từ chối — xem "Triển khai".)
 
 Điểm cần quyết định: `isShowing || isReady` hiện tại KHÔNG tương đương `token != hiện tại`.
 Token an toàn hơn ở chỗ nó cũng chặn được fill muộn khi slot `loading`; nhưng nó đổi
@@ -55,7 +57,7 @@ ngữ nghĩa của một load hợp lệ bị `reset()` giữa chừng (consent 
 - Banner/MREC/Native: có cơ chế theo-từng-widget riêng.
 - Chứng minh Google Ads SDK native giao callback muộn: không thể ép trên máy thật.
 
-## Các lựa chọn cho chủ dự án
+## Các lựa chọn cho chủ dự án (đã chọn A)
 
 A. Làm token đầy đủ (thay guard trạng thái). Xử lý tận gốc; tốn dung lượng và rủi ro.
 B. Giữ guard trạng thái hiện có, chấp nhận giới hạn "fill muộn khi `loading`". Không đụng
@@ -99,4 +101,9 @@ chạy được trên Android và iOS; audit độc lập >9/10; smoke trên thi
 - Callback cũ của Google Ads SDK native không thể ép trên máy thật; thiết bị chỉ chạy lại bộ test
   tiêm callback qua bridge giả.
 - Một fill muộn hợp lệ của request cũ khi request mới đang `loading` giờ bị bỏ (đánh đổi đã chọn).
-- Chưa có audit độc lập sau thay đổi này.
+- Audit độc lập sau thay đổi: token 9.0/10, toàn bộ AdMob T245/T246 8.8/10 (phạm vi hẹp, chỉ đọc,
+  không chạy test). Không có MAJOR/BLOCKER. Điểm trừ: thiếu test "watchdog bỏ rơi A, không có B,
+  fill muộn của A vẫn được nhận" (đã bổ sung, đỏ khi token bị tăng lúc slot vào cooldown), và tài
+  liệu mâu thuẫn (đã sửa). Chưa vượt ngưỡng >9, nên task CHƯA đóng.
+- Hành vi đã có từ trước, không phải hồi quy: trong cùng một request, một `onLoaded` trùng lặp ghi đè
+  `_xAd` mà không dispose ad trước đó (cùng token, nên token không chặn).

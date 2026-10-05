@@ -28,7 +28,7 @@ lúc đầu vô hiệu vì bridge tạo wrapper mới ở mỗi callback, review
 dismiss không bao giờ tới). Mỗi `onFailed`: bỏ qua nếu slot đang `showing` hoặc `ready` (vòng 6 tìm ra nhánh `ready`). Khối `catch` của
 4 hàm load (platform call ném lỗi) cũng thoát sớm khi slot đang `showing` hoặc `ready` (vòng 5 tìm ra
 nhánh `showing`, vòng 6 nhánh `ready`); mỗi nhánh tôi tái hiện bằng test đỏ rồi mới sửa.
-Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~20KB dư).
+(Đã cân nhắc token theo lượt load và ban đầu hoãn; được làm ở T246 sau khi audit chứng minh guard trạng thái không đủ.)
 
 ## Kiểm chứng
 
@@ -50,7 +50,7 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
 ## Giới hạn đã biết
 
 - ~~Guard của `catch` chỉ phủ `showing`~~ ĐÃ ĐÓNG: guard giờ phủ cả `showing` lẫn `ready`, nên một fill muộn đã load (chưa show) không bị vứt khi platform call của request khác ném lỗi. Hai chiều đều có test: bỏ `ready` khỏi guard thì test `ready` đỏ, và guard nuốt hết thì test lỗi bình thường (slot chỉ `loading`) đỏ.
-- Guard theo trạng thái, không theo danh tính lượt load. Một fill muộn rơi vào lúc slot
+- (ĐÃ ĐÓNG bởi T246 cho phần liên request) Guard theo trạng thái, không theo danh tính lượt load. Một fill muộn rơi vào lúc slot
   đang `loading`/`ready` vẫn ghi đè `_xAd` mà không dispose ad cũ (rò native), nhưng
   không có ad nào trên màn hình. Cùng lớp lỗi, chưa sửa.
 - Chưa có bằng chứng plugin `google_mobile_ads` thật có giao callback muộn hay trùng.
