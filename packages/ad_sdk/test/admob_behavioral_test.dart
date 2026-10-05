@@ -17,6 +17,21 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeGmaFullscreenAd implements GmaFullscreenAd {
+  /// Audit round 76 — production wrappers compare by the native ad they wrap
+  /// (a new wrapper is built per callback). Two fakes sharing a non-null key
+  /// model "the same native ad delivered twice"; null keeps identity equality.
+  String? equalityKey;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (equalityKey != null &&
+          other is FakeGmaFullscreenAd &&
+          other.equalityKey == equalityKey);
+
+  @override
+  int get hashCode => equalityKey?.hashCode ?? identityHashCode(this);
+
   GmaShowCallbacks? shown;
   int showCount = 0;
   int disposeCount = 0;
@@ -364,6 +379,34 @@ void main() {
         // A duplicate delivery of the SAME ad must never dispose the ad that is
         // on screen: dispose() nulls its content callback, so the dismiss would
         // never arrive and the slot would sit in `showing` forever.
+        // The production shape: a duplicate native callback yields a DIFFERENT
+        // wrapper object around the same native ad. Pure identical() on the
+        // wrappers would dispose the live ad here; both this and the bridge
+        // equality test must hold for the guard to work on a device.
+        test('$name: an EQUAL but not identical wrapper of the on-screen ad is '
+            'not disposed', () async {
+          final f = formats[name]!;
+          await f['load']();
+          final slot = f['slot']() as AdSlot;
+          final shownAd = f['ad']() as FakeGmaFullscreenAd;
+          shownAd.equalityKey = 'native-ad-1';
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'precondition');
+
+          final duplicate = FakeGmaFullscreenAd()..equalityKey = 'native-ad-1';
+          expect(identical(duplicate, shownAd), isFalse);
+          f['late'](duplicate);
+
+          expect(duplicate.disposeCount, 0,
+              reason: 'it wraps the live native ad; disposing it would clear '
+                  'the content callback and strand the slot');
+          expect(shownAd.disposeCount, 0);
+          expect(slot.isShowing, isTrue);
+          shownAd.shown!.onDismissed!();
+          expect(slot.isShowing, isFalse,
+              reason: 'the real dismiss must still release the slot');
+        });
+
         test('$name: the SAME ad delivered again mid-show is not disposed, '
             'and its dismiss still arrives', () async {
           final f = formats[name]!;

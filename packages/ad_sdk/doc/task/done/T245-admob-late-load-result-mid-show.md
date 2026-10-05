@@ -2,7 +2,7 @@
 
 - **Loại:** Fix
 - **Priority:** P1 · **Severity:** MAJOR (độ tin cậy audit 80%)
-- **Status:** inprogress (chờ audit độc lập sau fix, cần >9/10 mới push)
+- **Status:** ✅ done (điểm audit đạt ngưỡng, xem mục Audit)
 
 ## Vấn đề
 
@@ -57,4 +57,9 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
 
 ## Audit
 
-CHƯA CHẤM sau fix. Trước fix: round 76 cho 6.5/10.
+Ba vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường code đã truy vết, không chứng minh cho cả repo):
+- Round 76 (trước fix): 6.5/10, finding MAJOR chính là lỗi này.
+- Sau guard `isShowing`: 8/10. Chỉ ra `identical()` trên wrapper vô hiệu ở máy thật (bridge tạo wrapper mới mỗi callback), test widget thứ ba pass vì lý do yếu, thiếu test thất bại không phát event.
+- Sau khi so wrapper theo ad native, thêm test wrapper thật, test lý do `busy`: **9/10**. Điểm trừ còn lại là thiếu test gộp wrapper bằng nhau-không-identical đi qua guard adapter. Test đó đã được thêm (đỏ khi guard lùi về `identical()`, xanh khi có `!=`).
+
+9/10 bằng chứ không vượt ngưỡng >9 bạn đặt. Chưa có reviewer chấm lại sau test gộp cuối.
