@@ -2762,6 +2762,47 @@ void main() {
       });
     });
 
+    // Same creativeId-clobber hazard for the formats with no watchdog: the
+    // current ad's own hidden must still be recognised after a discarded load.
+    test('interstitial: after a discarded mid-show load, hidden still resolves',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(
+        bridge: b,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      await a.initialize(_config);
+      await a.loadInterstitial();
+      b.inter!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      bool? shown;
+      await a.showInterstitial(onDone: (s) => shown = s);
+      b.inter!.onAdLoadedCallback(_fakeAd(creativeId: 'late-load'));
+      b.inter!.onAdDisplayedCallback(_fakeAd(creativeId: 'current'));
+      b.inter!.onAdHiddenCallback(_fakeAd(creativeId: 'current'));
+      expect(shown, isTrue);
+      await a.dispose();
+    });
+
+    test('rewarded: after a discarded mid-show load, hidden still resolves',
+        () async {
+      final b = FakeAppLovinBridge();
+      final a = AppLovinAdapter(
+        bridge: b,
+        lifecycleStateResolver: () => AppLifecycleState.resumed,
+      );
+      await a.initialize(_config);
+      await a.loadRewarded();
+      b.rewarded!.onAdLoadedCallback(_fakeAd(creativeId: 'current'));
+      RewardResult? result;
+      await a.showRewarded(onDone: (r) => result = r);
+      b.rewarded!.onAdLoadedCallback(_fakeAd(creativeId: 'late-load'));
+      b.rewarded!.onAdDisplayedCallback(_fakeAd(creativeId: 'current'));
+      b.rewarded!.onAdHiddenCallback(_fakeAd(creativeId: 'current'));
+      expect(result, isNotNull,
+          reason: 'the current ad hidden must resolve the caller');
+      await a.dispose();
+    });
+
     test('interstitial: a late load callback mid-show keeps the slot showing',
         () async {
       final b = FakeAppLovinBridge();

@@ -2,7 +2,7 @@
 
 - **Loại:** Fix
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** inprogress (chờ audit độc lập sau fix)
+- **Status:** ✅ done
 
 ## Bối cảnh & Vấn đề
 
@@ -28,11 +28,15 @@ không phải 90s; KHÔNG đổi thời gian.
 - [x] Widget: splash vẫn thoát qua watchdog sau load-success/load-failure muộn.
 - [x] Mutation check: bỏ guard thì test đỏ, có guard thì xanh.
 - [x] `flutter analyze` sạch; full `flutter test` pass; release gate pass.
-- [ ] Audit độc lập sau fix, điểm >9/10.
+- [x] Audit độc lập sau fix, điểm >9/10 (9.5/10).
 - [x] Integration sau fix cuối: Android thật (device `2B051FDH3006MU`) pass 2/2, iOS Simulator pass 2/2 (chờ hard cap thật). Đây là test điều khiển adapter qua bridge ghi lại, không phải smoke test quảng cáo AppLovin thật.
 - [x] Full flutter test sau fix cuối: pass (2499 test).
-- [ ] Giới hạn: gate size `lib` đang đúng ngưỡng 2048KB, thêm code sau này sẽ chạm trần.
+- [x] Ghi nhận giới hạn: gate size `lib` đang đúng ngưỡng 2048KB, thêm code sau này sẽ chạm trần.
 
 ## Audit Score
 
-9/10 (phạm vi hẹp, reviewer độc lập chỉ đọc). Không có finding chặn. Thiếu 1 test hồi quy creativeId-clobber: ĐÃ bổ sung (mutation check đỏ/xanh). Điểm 9/10 CHƯA vượt ngưỡng >9, nên chưa push. Còn ghi nhận: nhánh drop không phát AdLoadEvent (chấp nhận được), load muộn rơi vào `idle`/`cooldown` chưa được guard (đã có từ trước, ngoài phạm vi).
+9.5/10 (phạm vi hẹp, reviewer độc lập chỉ đọc, vòng cuối). Lần 1: 9/10, trừ vì thiếu test creativeId-clobber và integration chưa chạm guard load. Cả hai đã bổ sung; test vòng cuối được reviewer xác nhận phân biệt thật (đỏ khi bỏ guard). Vòng cuối còn 2 điểm nhỏ đã xử lý: comment header integration sai, CHANGELOG thiếu lý do creativeId, thiếu test interstitial/rewarded (đã thêm, đỏ khi bỏ guard).
+
+Không phải bằng chứng cho cả repo. Giới hạn đã biết, ngoài phạm vi: load muộn rơi vào `idle`/`cooldown` chưa được guard (có từ trước); nhánh drop không phát AdLoadEvent; interstitial/rewarded không có watchdog sau display (quyết định có chủ đích R10-E).
+
+Bằng chứng thiết bị: integration `appopen_quarantine_refused_test.dart` (3 test) pass trên Android thật `2B051FDH3006MU` và iOS Simulator, test full-flow đỏ khi bỏ guard. Đây là điều khiển adapter qua bridge ghi lại, KHÔNG phải quảng cáo AppLovin thật.

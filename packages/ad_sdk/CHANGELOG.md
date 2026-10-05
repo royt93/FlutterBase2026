@@ -20,7 +20,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   `markReady()` (or `markFailed()`), moving
   the slot out of `showing`; the App Open watchdog tick then exited silently
   (it requires `isShowing`), so a lost hidden callback was never resolved and
-  the caller hung. No effect on AdMob.
+  the caller hung. The late load also overwrote the tracked `creativeId`, so
+  the current ad's own hidden callback then looked stale and was dropped.
+  No effect on AdMob.
 
 ## [3.4.0] - 2026-09-29
 

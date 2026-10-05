@@ -9,10 +9,10 @@
 // charge no impression. It proves the refused path on-device, NOT AppLovin's
 // real late-callback timing. The second test injects a stale (other
 // `creativeId`) hidden callback through the adapter's real listener while the
-// watchdog is armed. Both start the watchdog via `debugStartAppOpenWatchdog`
-// rather than a full `showAppOpenAd()`, so they prove the timer/quarantine
-// behavior, not the whole show flow; the full flow is in
-// `test/applovin_adapter_test.dart`.
+// watchdog is armed. Those two start the watchdog via
+// `debugStartAppOpenWatchdog`, so they prove the timer/quarantine behavior
+// only. The first test runs the full `AdManager.showAppOpenAd` flow and
+// injects a late load result mid-show.
 //
 // Run with:
 //   flutter test integration_test/appopen_quarantine_refused_test.dart -d <id>
