@@ -2,7 +2,7 @@
 
 - **Loại:** Fix
 - **Priority:** P1 · **Severity:** MAJOR (độ tin cậy audit 80%)
-- **Status:** inprogress (9/10 chưa vượt ngưỡng >9; chờ audit sau test gộp cuối)
+- **Status:** inprogress (điểm cuối 8.5/10 chưa vượt ngưỡng >9; chờ quyết định của chủ dự án)
 
 ## Vấn đề
 
@@ -63,11 +63,14 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
 
 ## Audit
 
-Năm vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường code đã truy vết, không chứng minh cho cả repo). Điểm Part AdMob theo thứ tự:
-- Round 76 (trước fix): 6.5/10, finding MAJOR chính là lỗi này.
-- Sau guard `isShowing`: 8/10 (`identical()` trên wrapper vô hiệu ở máy thật, test widget thứ ba yếu).
-- Sau khi so wrapper theo ad native: 9/10 (thiếu test gộp equal-but-not-identical).
-- Sau test gộp: 9/10 (không finding mới ở vòng đó, nhưng điểm phụ thuộc người chấm).
-- Vòng 5: 8.5/10, tìm ra `catch` của hàm load chưa có guard. Đã tái hiện bằng test đỏ rồi sửa. Vòng cuối: 8.5/10, chỉ còn 1 gap LOW (bên dưới) và sai lệch tài liệu (đã sửa).
+Sáu vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường code đã truy vết, không chứng minh cho cả repo). Điểm phần AdMob, đúng thứ tự đã nhận:
+1. Round 76 (trước fix): 6.5/10. Finding MAJOR chính là lỗi này.
+2. Sau guard `isShowing`: 8/10. `identical()` trên wrapper vô hiệu ở máy thật; test widget thứ ba pass vì lý do yếu.
+3. Sau khi so wrapper theo ad native: 9/10. Thiếu test gộp equal-but-not-identical.
+4. Sau test gộp: 9/10.
+5. Vòng 5: 8.5/10. `catch` của hàm load chưa có guard (kịch bản `showing`).
+6. Vòng 6: 8.5/10. Nêu hai điểm: `catch` còn nhánh `ready`, và `onFailed` khi slot `ready` (phổ biến hơn `catch`).
 
-Điểm KHÔNG đi lên đều đặn: mỗi vòng reviewer mới tìm thêm một đường nhỏ hơn, nên con số dao động quanh 8.5 đến 9. Chưa có vòng nào vượt 9. Task CHƯA đóng theo ngưỡng >9.
+Cả hai đã tái hiện bằng test đỏ rồi sửa; mutation check hai chiều xác nhận guard không thừa cũng không nuốt lỗi bình thường. Sau các sửa này CHƯA có vòng chấm lại. Điểm cuối ghi nhận là 8.5/10, dưới ngưỡng >9, nên task CHƯA đóng.
+
+Xu hướng: mỗi vòng reviewer mới tìm thêm một đường cùng lớp, điểm dao động 8.5–9 và chưa vượt 9. Đây là tín hiệu của lớp lỗi "callback muộn không gắn với lượt load", mà guard theo trạng thái chỉ vá từng đường; bản sửa gốc là gắn token theo từng lượt load, đã cân nhắc và hoãn vì diff lớn và `lib` chỉ còn khoảng 20KB trước trần gate.

@@ -34,7 +34,7 @@ chạy script thật trên repo git giả, cộng chạy gate thật trên repo 
 
 ## Audit
 
-Lần 1: 8.5/10 (thiếu test biên, thông báo lỗi thô khi file track bị xoá). Đã bổ sung cả hai. Lần 2: 9/10, không có lỗi nào được xác nhận; còn ghi nhận giả định nội dung căn 4KB và hành vi gate hơi lỏng hơn do không đếm block thư mục. Fixture `/tmp` đã được dọn trong `tearDownAll` (vòng 4 chỉ ra). Phạm vi hẹp, không chứng minh cho cả repo.
+Bốn vòng reviewer chỉ đọc: 8.5, 9, 9, 9 (phạm vi hẹp, không chứng minh cho cả repo). Vòng 1 thiếu test biên và thông báo lỗi thô khi file track bị xoá: đã bổ sung. Không có lỗi nào được xác nhận ở các vòng sau; còn ghi nhận giả định nội dung căn 4KB, hành vi gate hơi lỏng hơn do không đếm block thư mục, và fixture `/tmp` đã được dọn trong `tearDownAll`. Điểm 9/10 bằng ngưỡng chứ không vượt >9, nên task CHƯA đóng.
 
 ## Giới hạn
 

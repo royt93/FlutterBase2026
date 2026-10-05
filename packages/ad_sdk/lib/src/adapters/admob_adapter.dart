@@ -915,7 +915,7 @@ class AdMobAdapter
                 'loadAppOpen $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
-          if (appOpenSlot.isShowing) return;
+          if (appOpenSlot.isShowing || appOpenSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadAppOpen $tag ❌ code=$code msg=$message');
           _appOpenAd = null;
           appOpenSlot.markFailed(errorCode: code);
@@ -1269,7 +1269,7 @@ class AdMobAdapter
                 'loadInterstitial $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
-          if (interstitialSlot.isShowing) return;
+          if (interstitialSlot.isShowing || interstitialSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadInterstitial $tag ❌ $code');
           _interstitialAd = null;
           interstitialSlot.markFailed(errorCode: code);
@@ -1522,7 +1522,7 @@ class AdMobAdapter
                 'loadRewarded $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
-          if (rewardedSlot.isShowing) return;
+          if (rewardedSlot.isShowing || rewardedSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadRewarded $tag ❌ $code');
           _rewardedAd = null;
           rewardedSlot.markFailed(errorCode: code);
@@ -1803,7 +1803,7 @@ class AdMobAdapter
                 'loadRewardedInterstitial $tag ⛔ failure landed after dispose() — discarding');
             return;
           }
-          if (rewardedInterstitialSlot.isShowing) return;
+          if (rewardedInterstitialSlot.isShowing || rewardedInterstitialSlot.isReady) return;
           SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
           _rewardedInterstitialAd = null;
           rewardedInterstitialSlot.markFailed(errorCode: code);

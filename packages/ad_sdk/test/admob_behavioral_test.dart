@@ -602,6 +602,43 @@ void main() {
       });
     }
 
+    // A `ready` slot has no load of its own pending (a new load goes through
+    // beginLoad -> `loading`), so a failure reported while `ready` belongs to an
+    // earlier, superseded request. It used to run `_xAd = null; markFailed()`,
+    // discarding a good loaded ad (native object leaked), moving the slot to
+    // cooldown and emitting a failed AdLoadEvent.
+    for (final name in [
+      'appOpen',
+      'interstitial',
+      'rewarded',
+      'rewardedInterstitial'
+    ]) {
+      test('$name: a stale load FAILURE while a good ad is ready is ignored',
+          () async {
+        final f = formats[name]!;
+        await f['load']();
+        final slot = f['slot']() as AdSlot;
+        final readyAd = f['ad']() as FakeGmaFullscreenAd;
+        expect(slot.isReady, isTrue, reason: 'precondition');
+        final events = <AdEvent>[];
+        adapter.eventSink = events.add;
+        final failuresBefore = slot.consecutiveFailures;
+
+        f['fail']();
+
+        expect(slot.isReady, isTrue,
+            reason: 'a failure from a superseded request must not discard a '
+                'good, already loaded ad');
+        expect(readyAd.disposeCount, 0);
+        expect(slot.consecutiveFailures, failuresBefore);
+        expect(events.whereType<AdLoadEvent>(), isEmpty,
+            reason: 'a discarded straggler must not look like a real failure');
+        await f['show']();
+        expect(slot.isShowing, isTrue, reason: 'the ready ad must still show');
+        readyAd.shown!.onDismissed!();
+      });
+    }
+
     test('appOpen: after the discarded load, the real dismiss still resolves '
           'the caller and the slot can load again', () async {
         await adapter.loadAppOpen();
