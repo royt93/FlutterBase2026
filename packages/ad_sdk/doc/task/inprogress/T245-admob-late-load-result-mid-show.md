@@ -42,12 +42,14 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
   lại khi bỏ riêng guard của catch.
 - Wrapper thật (`test/gma_bridge_test.dart`): hai callback `onAdLoaded` cho cùng adId qua codec
   của plugin cho hai wrapper bằng nhau, adId khác thì không. Đỏ khi bỏ `==`.
-- Integration (`example/integration_test/admob_late_load_midshow_test.dart`): chạy lại bộ
-  widget test trên Android thật (`2B051FDH3006MU`) và iOS Simulator, đều xanh. Đây là
+- Integration (`example/integration_test/admob_late_load_midshow_test.dart`): chỉ chạy lại file
+  widget test (KHÔNG gồm các test `catch` nằm ở `admob_behavioral_test.dart`) trên Android thật (`2B051FDH3006MU`) và iOS Simulator, đều xanh. Đây là
   render và mutex AdManager thật với callback tiêm qua bridge giả; KHÔNG chứng minh
   Google Ads SDK native giao callback muộn, thứ không ép được.
 
 ## Giới hạn đã biết
+
+- Guard của `catch` chỉ phủ trạng thái `showing`. Slot đang `ready` với fill muộn chưa show mà platform call của request khác ném lỗi vẫn chạy `_xAd = null; markFailed()`, vứt một ad tốt sang cooldown và không dispose native object. Cùng lớp với giới hạn "straggler khi loading/ready" bên dưới, hiếm vì `load()` thật hoàn tất lúc gọi chứ không phải lúc fill. Chưa sửa.
 
 - Guard theo trạng thái, không theo danh tính lượt load. Một fill muộn rơi vào lúc slot
   đang `loading`/`ready` vẫn ghi đè `_xAd` mà không dispose ad cũ (rò native), nhưng
@@ -62,9 +64,11 @@ Không dùng token theo từng lượt load (diff lớn hơn, `lib` chỉ còn ~
 
 ## Audit
 
-Ba vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường code đã truy vết, không chứng minh cho cả repo):
+Năm vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường code đã truy vết, không chứng minh cho cả repo). Điểm Part AdMob theo thứ tự:
 - Round 76 (trước fix): 6.5/10, finding MAJOR chính là lỗi này.
-- Sau guard `isShowing`: 8/10. Chỉ ra `identical()` trên wrapper vô hiệu ở máy thật (bridge tạo wrapper mới mỗi callback), test widget thứ ba pass vì lý do yếu, thiếu test thất bại không phát event.
-- Sau khi so wrapper theo ad native, thêm test wrapper thật, test lý do `busy`: **9/10**. Điểm trừ còn lại là thiếu test gộp wrapper bằng nhau-không-identical đi qua guard adapter. Test đó đã được thêm (đỏ khi guard lùi về `identical()`, xanh khi có `!=`).
+- Sau guard `isShowing`: 8/10 (`identical()` trên wrapper vô hiệu ở máy thật, test widget thứ ba yếu).
+- Sau khi so wrapper theo ad native: 9/10 (thiếu test gộp equal-but-not-identical).
+- Sau test gộp: 9/10 (không finding mới ở vòng đó, nhưng điểm phụ thuộc người chấm).
+- Vòng 5: 8.5/10, tìm ra `catch` của hàm load chưa có guard. Đã tái hiện bằng test đỏ rồi sửa. Vòng cuối: 8.5/10, chỉ còn 1 gap LOW (bên dưới) và sai lệch tài liệu (đã sửa).
 
-9/10 bằng ngưỡng chứ không vượt >9 bạn đặt, nên task CHƯA đóng. Chưa có reviewer chấm lại sau test gộp cuối.
+Điểm KHÔNG đi lên đều đặn: mỗi vòng reviewer mới tìm thêm một đường nhỏ hơn, nên con số dao động quanh 8.5 đến 9. Chưa có vòng nào vượt 9. Task CHƯA đóng theo ngưỡng >9.
