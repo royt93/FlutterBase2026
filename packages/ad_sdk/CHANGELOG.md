@@ -6,7 +6,7 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-## [3.4.1] - 2026-10-05
+## [3.4.2] - 2026-10-05
 
 - **Fixed (Audit 75):** `AppLovinAdapter` App Open `onAdHidden` and
   `onAdDisplayFailed` cancelled the show watchdog BEFORE discarding a stale
