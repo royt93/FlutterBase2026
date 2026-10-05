@@ -2,7 +2,7 @@
 
 - **Loại:** Fix / Hardening (Audit Round 73-74)
 - **Priority:** P1 · **Severity:** HIGH
-- **Status:** ✅ done
+- **Status:** inprogress (chờ điểm audit độc lập >9/10 để chuyển done)
 
 ## Bối cảnh & Vấn đề
 
@@ -37,7 +37,7 @@ Cơ chế quarantine 35s này đã có cho Interstitial và Rewarded từ Audit 
 - [x] Callback trễ của lượt cũ không giải phóng hoặc làm ảnh hưởng lượt mới.
 - [x] Timer tự động huỷ khi `dispose()`.
 - [x] Đầy đủ kim tự tháp kiểm thử: Unit test, Widget test, Integration test trên cả Android và iOS.
-- [x] Full `flutter test` pass (2488/2488 test).
+- [x] Full `flutter test` pass (exit 0; số test chưa ghi lại chính xác).
 
 ## Prompt vòng lặp (Loop Prompt)
 
