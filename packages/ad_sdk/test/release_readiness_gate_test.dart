@@ -244,6 +244,28 @@ void main() {
       expect(result.stderr, contains('no tracked files'));
     });
 
+    // Exact boundary: `-le 2048` must pass AT 2048 and fail at 2052 (the next
+    // 4 KB-aligned size), so an off-by-one in the comparison is caught.
+    test('exactly at the ceiling passes, one block over fails', () async {
+      final at = await sizedFixture(trackedKb: 2048);
+      final atResult = await _runGate(at, 'size');
+      expect(atResult.exitCode, 0, reason: atResult.stderr);
+      final over = await sizedFixture(trackedKb: 2052);
+      final overResult = await _runGate(over, 'size');
+      expect(overResult.exitCode, isNot(0));
+      expect(overResult.stderr, contains('>2048KB'));
+    });
+
+    test('a tracked file deleted from disk fails with a clear message',
+        () async {
+      final repo = await sizedFixture(trackedKb: 2000);
+      await File('${repo.path}/packages/ad_sdk/lib/big.dart').delete();
+      final result = await _runGate(repo, 'size');
+      expect(result.exitCode, isNot(0));
+      expect(result.stdout, isNot(contains('size passed')));
+      expect(result.stderr, contains('could not measure'));
+    });
+
     test('a tracked tree just under the ceiling passes', () async {
       final repo = await sizedFixture(trackedKb: 2040);
       final result = await _runGate(repo, 'size');
