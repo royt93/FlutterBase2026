@@ -241,7 +241,8 @@ class _AppOpenWrap implements GmaFullscreenAd {
 
   // Same native ad == same ad: the bridge builds a NEW wrapper per callback.
   @override
-  bool operator ==(Object other) => other is _AppOpenWrap && identical(other._ad, _ad);
+  bool operator ==(Object other) =>
+      other is _AppOpenWrap && identical(other._ad, _ad);
 
   @override
   int get hashCode => identityHashCode(_ad);
@@ -285,7 +286,8 @@ class _InterstitialWrap implements GmaFullscreenAd {
 
   // Same native ad == same ad: the bridge builds a NEW wrapper per callback.
   @override
-  bool operator ==(Object other) => other is _InterstitialWrap && identical(other._ad, _ad);
+  bool operator ==(Object other) =>
+      other is _InterstitialWrap && identical(other._ad, _ad);
 
   @override
   int get hashCode => identityHashCode(_ad);
@@ -328,7 +330,8 @@ class _RewardedInterstitialWrap implements GmaFullscreenAd {
 
   // Same native ad == same ad: the bridge builds a NEW wrapper per callback.
   @override
-  bool operator ==(Object other) => other is _RewardedInterstitialWrap && identical(other._ad, _ad);
+  bool operator ==(Object other) =>
+      other is _RewardedInterstitialWrap && identical(other._ad, _ad);
 
   @override
   int get hashCode => identityHashCode(_ad);
@@ -376,7 +379,8 @@ class _RewardedWrap implements GmaFullscreenAd {
 
   // Same native ad == same ad: the bridge builds a NEW wrapper per callback.
   @override
-  bool operator ==(Object other) => other is _RewardedWrap && identical(other._ad, _ad);
+  bool operator ==(Object other) =>
+      other is _RewardedWrap && identical(other._ad, _ad);
 
   @override
   int get hashCode => identityHashCode(_ad);

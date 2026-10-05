@@ -1252,12 +1252,16 @@ class AdMobAdapter
           SafeLogger.d(_logTag, 'loadInterstitial $tag ✅');
           if (_discardIfDisposed(ad, 'loadInterstitial')) return;
           if (token != _interstitialLoadSeq) {
-            if (ad != _interstitialAd) _disposeAd(ad, 'loadInterstitial-stale-request');
+            if (ad != _interstitialAd) {
+              _disposeAd(ad, 'loadInterstitial-stale-request');
+            }
             return;
           }
           // R76: a late fill must not move an on-screen slot out of showing.
           if (interstitialSlot.isShowing) {
-            if (ad != _interstitialAd) _disposeAd(ad, 'loadInterstitial-mid-show');
+            if (ad != _interstitialAd) {
+              _disposeAd(ad, 'loadInterstitial-mid-show');
+            }
             return;
           }
           if (_discardIfConsentStale(
@@ -1800,12 +1804,16 @@ class AdMobAdapter
           SafeLogger.d(_logTag, 'loadRewardedInterstitial $tag ✅');
           if (_discardIfDisposed(ad, 'loadRewardedInterstitial')) return;
           if (token != _rewardedInterstitialLoadSeq) {
-            if (ad != _rewardedInterstitialAd) _disposeAd(ad, 'loadRewardedInterstitial-stale-request');
+            if (ad != _rewardedInterstitialAd) {
+              _disposeAd(ad, 'loadRewardedInterstitial-stale-request');
+            }
             return;
           }
           // R76: a late fill must not move an on-screen slot out of showing.
           if (rewardedInterstitialSlot.isShowing) {
-            if (ad != _rewardedInterstitialAd) _disposeAd(ad, 'loadRewardedInterstitial-mid-show');
+            if (ad != _rewardedInterstitialAd) {
+              _disposeAd(ad, 'loadRewardedInterstitial-mid-show');
+            }
             return;
           }
           if (_discardIfConsentStale(
@@ -1837,7 +1845,10 @@ class AdMobAdapter
             return;
           }
           if (token != _rewardedInterstitialLoadSeq) return;
-          if (rewardedInterstitialSlot.isShowing || rewardedInterstitialSlot.isReady) return;
+          if (rewardedInterstitialSlot.isShowing ||
+              rewardedInterstitialSlot.isReady) {
+            return;
+          }
           SafeLogger.w(_logTag, 'loadRewardedInterstitial $tag ❌ $code');
           _rewardedInterstitialAd = null;
           rewardedInterstitialSlot.markFailed(errorCode: code);
@@ -1854,7 +1865,10 @@ class AdMobAdapter
       SafeLogger.e(_logTag, 'loadRewardedInterstitial $tag THREW: $e\n$st');
       if (token != _rewardedInterstitialLoadSeq) return;
       // R76: a superseded request must not discard a loaded or shown ad.
-      if (rewardedInterstitialSlot.isShowing || rewardedInterstitialSlot.isReady) return;
+      if (rewardedInterstitialSlot.isShowing ||
+          rewardedInterstitialSlot.isReady) {
+        return;
+      }
       _rewardedInterstitialAd = null;
       rewardedInterstitialSlot.markFailed();
     }

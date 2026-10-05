@@ -109,16 +109,6 @@ void main() {
     expect(request.extras, isNull);
   });
 
-  // m36 (audit_claude.md MINOR) — every _XxxWrap.dispose() nulled
-  // fullScreenContentCallback but left onPaidEvent wired, so a paid-event
-  // arriving after the ad was disposed still ran the closure
-  // setPaidEventListener installed and _emit()ed revenue for a dead ad.
-  //
-  // Unlike the rest of this file these tests reach the real _XxxWrap: they
-  // drive the plugin's own platform->Dart `onAdEvent`/`onAdLoaded` dispatch to
-  // obtain the wrap the production onLoaded callback builds, and then fire the
-  // exact field the plugin's own _invokePaidEvent invokes
-  // (`ad.onPaidEvent?.call(...)`) — not a substitute of our own.
   // Audit round 76 — AdMobAdapter's mid-show load guard disposes a late fill
   // unless it is the very ad it already holds (disposing the live ad clears its
   // content callback, so the dismiss would never arrive). The bridge builds a
@@ -190,6 +180,16 @@ void main() {
     }
   });
 
+  // m36 (audit_claude.md MINOR) — every _XxxWrap.dispose() nulled
+  // fullScreenContentCallback but left onPaidEvent wired, so a paid-event
+  // arriving after the ad was disposed still ran the closure
+  // setPaidEventListener installed and _emit()ed revenue for a dead ad.
+  //
+  // Unlike the rest of this file these tests reach the real _XxxWrap: they
+  // drive the plugin's own platform->Dart `onAdEvent`/`onAdLoaded` dispatch to
+  // obtain the wrap the production onLoaded callback builds, and then fire the
+  // exact field the plugin's own _invokePaidEvent invokes
+  // (`ad.onPaidEvent?.call(...)`) — not a substitute of our own.
   group('m36 — dispose() unwires onPaidEvent', () {
     Future<void> checkDisposeUnwiresPaidEvent(
       String label,

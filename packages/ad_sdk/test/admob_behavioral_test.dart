@@ -101,12 +101,9 @@ class FakeGmaBridge implements GmaBridge {
   void Function(int, String)? pendingRewardedOnFailed;
   void Function(int, String)? pendingRewardedInterstitialOnFailed;
 
-  // Audit round 76 — the callbacks of the MOST RECENT load per format, kept
-  // after the load already answered, so a test can replay a late/duplicate
-  // result (a straggler from an earlier request) into a slot that is `showing`.
-  // Audit round 76 — hold the NEXT load's platform call open, then make it
-  // throw: models a request still in flight whose platform call fails only
-  // after an earlier request's late fill landed and was shown.
+  // Audit round 76 — hold the NEXT load's platform call open; a test completes
+  // `heldLoads` (normally or with an error) when it wants that platform call to
+  // return or throw. Models a request still in flight.
   bool holdNextLoadOpen = false;
   final List<Completer<void>> heldLoads = [];
   // Only awaited when a test asked to hold the load: an unconditional await
@@ -132,6 +129,9 @@ class FakeGmaBridge implements GmaBridge {
     'rewardedInterstitial': [],
   };
 
+  // Audit round 76 — the callbacks of the MOST RECENT load per format, kept
+  // after the load already answered, so a test can replay a late/duplicate
+  // result into a slot that is `showing`. `loads` above keeps every request.
   void Function(GmaFullscreenAd)? lastAppOpenOnLoaded;
   void Function(int, String)? lastAppOpenOnFailed;
   void Function(GmaFullscreenAd)? lastInterOnLoaded;
@@ -198,7 +198,10 @@ class FakeGmaBridge implements GmaBridge {
     loads['appOpen']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastAppOpenOnLoaded = onLoaded;
     lastAppOpenOnFailed = onFailed;
-    if (holdNextLoadOpen) await _holdLoad();
+    if (holdNextLoadOpen) {
+      await _holdLoad();
+      return; // held requests are answered explicitly through loads[]
+    }
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingAppOpenOnFailed = onFailed;
@@ -222,7 +225,10 @@ class FakeGmaBridge implements GmaBridge {
     loads['interstitial']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastInterOnLoaded = onLoaded;
     lastInterOnFailed = onFailed;
-    if (holdNextLoadOpen) await _holdLoad();
+    if (holdNextLoadOpen) {
+      await _holdLoad();
+      return; // held requests are answered explicitly through loads[]
+    }
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingInterOnFailed = onFailed;
@@ -246,7 +252,10 @@ class FakeGmaBridge implements GmaBridge {
     loads['rewarded']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastRewardedOnLoaded = onLoaded;
     lastRewardedOnFailed = onFailed;
-    if (holdNextLoadOpen) await _holdLoad();
+    if (holdNextLoadOpen) {
+      await _holdLoad();
+      return; // held requests are answered explicitly through loads[]
+    }
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingRewardedOnFailed = onFailed;
@@ -268,7 +277,10 @@ class FakeGmaBridge implements GmaBridge {
     loads['rewardedInterstitial']!.add((onLoaded: onLoaded, onFailed: onFailed));
     lastRewardedInterstitialOnLoaded = onLoaded;
     lastRewardedInterstitialOnFailed = onFailed;
-    if (holdNextLoadOpen) await _holdLoad();
+    if (holdNextLoadOpen) {
+      await _holdLoad();
+      return; // held requests are answered explicitly through loads[]
+    }
     if (failNextLoad) {
       if (deferNextFailure) {
         pendingRewardedInterstitialOnFailed = onFailed;
@@ -468,198 +480,198 @@ void main() {
       }
 
       // Failure side-effects, not just the state: no AdLoadEvent (FillRateMonitor
-    // and the failover advisor read those), no failure counted against the
-    // slot's backoff, and the on-screen ad stays referenced.
-    for (final name in [
-      'appOpen',
-      'interstitial',
-      'rewarded',
-      'rewardedInterstitial'
-    ]) {
-      test('$name: a late load FAILURE emits no load event and counts no '
-          'failure', () async {
-        final f = formats[name]!;
-        await f['load']();
-        final slot = f['slot']() as AdSlot;
-        await f['show']();
-        final events = <AdEvent>[];
-        adapter.eventSink = events.add;
-        final failuresBefore = slot.consecutiveFailures;
+      // and the failover advisor read those), no failure counted against the
+      // slot's backoff, and the on-screen ad stays referenced.
+      for (final name in [
+        'appOpen',
+        'interstitial',
+        'rewarded',
+        'rewardedInterstitial'
+      ]) {
+        test('$name: a late load FAILURE emits no load event and counts no '
+            'failure', () async {
+          final f = formats[name]!;
+          await f['load']();
+          final slot = f['slot']() as AdSlot;
+          await f['show']();
+          final events = <AdEvent>[];
+          adapter.eventSink = events.add;
+          final failuresBefore = slot.consecutiveFailures;
 
-        f['fail']();
+          f['fail']();
 
-        expect(events.whereType<AdLoadEvent>(), isEmpty,
-            reason: 'a discarded straggler must not look like a real failure');
-        expect(slot.consecutiveFailures, failuresBefore);
-        expect(slot.isShowing, isTrue);
-      });
-    }
+          expect(events.whereType<AdLoadEvent>(), isEmpty,
+              reason: 'a discarded straggler must not look like a real failure');
+          expect(slot.consecutiveFailures, failuresBefore);
+          expect(slot.isShowing, isTrue);
+        });
+      }
 
-    // The user-visible consequence, through the REAL AdManager: while an ad is
-    // on screen the fullscreen mutex must stay held so a second fullscreen ad
-    // cannot be stacked on top of it.
-    test('through AdManager: a late fill keeps the fullscreen mutex held',
-        () async {
-      final manager = AdManager();
-      manager.debugSetAdapter(adapter);
-      addTearDown(() => manager.debugSetAdapter(null));
-      await adapter.loadAppOpen();
-      await adapter.showAppOpen(onDismiss: (_) {});
-      expect(manager.debugFullscreenBusyReason, isNotNull,
-          reason: 'precondition: an ad on screen holds the mutex');
-
-      bridge.lastAppOpenOnLoaded!(FakeGmaFullscreenAd());
-
-      expect(manager.debugFullscreenBusyReason, isNotNull,
-          reason: 'before the fix the slot left `showing` and this read null, '
-              'so a second fullscreen ad could stack');
-      expect(manager.fullscreenBusy.value, isTrue);
-    });
-
-    // The SAME request's fill arrives before its platform Future completes;
-    // the host shows it, then the platform call throws. This pins the catch
-    // state guard, not cross-request ownership (covered by the T246 group).
-    // The synchronous `catch` of each load method used
-    // to run `_xAd = null; slot.markFailed()` unconditionally, nulling the
-    // on-screen ad and dropping the live show into cooldown.
-    for (final name in [
-      'appOpen',
-      'interstitial',
-      'rewarded',
-      'rewardedInterstitial'
-    ]) {
-      test('$name: the SAME request fills and is shown, then throws: the live show '
-          'survives', () async {
-        final f = formats[name]!;
-        final slot = f['slot']() as AdSlot;
-        bridge.holdNextLoadOpen = true;
-        final inFlight = (f['load']() as Future<void>);
-        await Future<void>.delayed(Duration.zero);
-        expect(slot.isLoading, isTrue, reason: 'precondition: B is in flight');
-        expect(bridge.heldLoads, hasLength(1));
-
-        final lateA = FakeGmaFullscreenAd();
-        f['late'](lateA);
-        expect(slot.isReady, isTrue, reason: 'the request\'s own fill landed');
-        await f['show']();
-        expect(slot.isShowing, isTrue, reason: 'precondition: A on screen');
-
-        bridge.heldLoads.single
-            .completeError(PlatformException(code: 'load-failed'));
-        await inFlight;
-
-        expect(slot.isShowing, isTrue,
-            reason: 'a throw from the SUPERSEDED request must not end the show');
-        expect(lateA.disposeCount, 0);
-        lateA.shown!.onDismissed!();
-        expect(slot.isShowing, isFalse,
-            reason: 'the real dismiss must still release the slot');
-      });
-    }
-
-    // Same-request variant, one step earlier: its fill landed (`ready`) but
-    // the host has NOT shown it yet when its platform Future throws. The catch used
-    // to null `_xAd` and mark the slot failed, throwing away a good loaded ad
-    // and leaking its native object.
-    for (final name in [
-      'appOpen',
-      'interstitial',
-      'rewarded',
-      'rewardedInterstitial'
-    ]) {
-      test('$name: the SAME request fills and is ready, then throws: the ad '
-          'is kept and still shows', () async {
-        final f = formats[name]!;
-        final slot = f['slot']() as AdSlot;
-        bridge.holdNextLoadOpen = true;
-        final inFlight = (f['load']() as Future<void>);
-        await Future<void>.delayed(Duration.zero);
-        expect(slot.isLoading, isTrue, reason: 'precondition: B is in flight');
-
-        final lateA = FakeGmaFullscreenAd();
-        f['late'](lateA);
-        expect(slot.isReady, isTrue, reason: 'precondition: A is loaded');
-
-        bridge.heldLoads.single
-            .completeError(PlatformException(code: 'load-failed'));
-        await inFlight;
-
-        expect(slot.isReady, isTrue,
-            reason: 'a throw from a SUPERSEDED request must not discard a '
-                'good, already loaded ad');
-        expect(lateA.disposeCount, 0);
-        await f['show']();
-        expect(slot.isShowing, isTrue, reason: 'A must still be showable');
-        lateA.shown!.onDismissed!();
-      });
-    }
-
-    // Guard against over-correction: the widened catch guard must NOT swallow
-    // the ordinary case. A load whose platform call throws while the slot is
-    // merely `loading` (nothing loaded, nothing shown) still fails the slot.
-    for (final name in [
-      'appOpen',
-      'interstitial',
-      'rewarded',
-      'rewardedInterstitial'
-    ]) {
-      test('$name: a load that throws while only loading still fails the '
-          'slot into cooldown and counts one failure', () async {
-        final f = formats[name]!;
-        final slot = f['slot']() as AdSlot;
-        bridge.holdNextLoadOpen = true;
-        final inFlight = (f['load']() as Future<void>);
-        await Future<void>.delayed(Duration.zero);
-        expect(slot.isLoading, isTrue, reason: 'precondition');
-        final before = slot.consecutiveFailures;
-
-        bridge.heldLoads.single
-            .completeError(PlatformException(code: 'load-failed'));
-        await inFlight;
-
-        expect(slot.isCooldown, isTrue,
-            reason: 'an ordinary failed load must still reach markFailed');
-        expect(slot.consecutiveFailures, before + 1);
-        expect(slot.isReady, isFalse);
-      });
-    }
-
-    // A `ready` slot has no load of its own pending (a new load goes through
-    // beginLoad -> `loading`), so a failure reported while `ready` belongs to an
-    // earlier, superseded request. It used to run `_xAd = null; markFailed()`,
-    // discarding a good loaded ad (native object leaked), moving the slot to
-    // cooldown and emitting a failed AdLoadEvent.
-    for (final name in [
-      'appOpen',
-      'interstitial',
-      'rewarded',
-      'rewardedInterstitial'
-    ]) {
-      test('$name: a stale load FAILURE while a good ad is ready is ignored',
+      // The user-visible consequence, through the REAL AdManager: while an ad is
+      // on screen the fullscreen mutex must stay held so a second fullscreen ad
+      // cannot be stacked on top of it.
+      test('through AdManager: a late fill keeps the fullscreen mutex held',
           () async {
-        final f = formats[name]!;
-        await f['load']();
-        final slot = f['slot']() as AdSlot;
-        final readyAd = f['ad']() as FakeGmaFullscreenAd;
-        expect(slot.isReady, isTrue, reason: 'precondition');
-        final events = <AdEvent>[];
-        adapter.eventSink = events.add;
-        final failuresBefore = slot.consecutiveFailures;
+        final manager = AdManager();
+        manager.debugSetAdapter(adapter);
+        addTearDown(() => manager.debugSetAdapter(null));
+        await adapter.loadAppOpen();
+        await adapter.showAppOpen(onDismiss: (_) {});
+        expect(manager.debugFullscreenBusyReason, isNotNull,
+            reason: 'precondition: an ad on screen holds the mutex');
 
-        f['fail']();
+        bridge.lastAppOpenOnLoaded!(FakeGmaFullscreenAd());
 
-        expect(slot.isReady, isTrue,
-            reason: 'a failure from a superseded request must not discard a '
-                'good, already loaded ad');
-        expect(readyAd.disposeCount, 0);
-        expect(slot.consecutiveFailures, failuresBefore);
-        expect(events.whereType<AdLoadEvent>(), isEmpty,
-            reason: 'a discarded straggler must not look like a real failure');
-        await f['show']();
-        expect(slot.isShowing, isTrue, reason: 'the ready ad must still show');
-        readyAd.shown!.onDismissed!();
+        expect(manager.debugFullscreenBusyReason, isNotNull,
+            reason: 'before the fix the slot left `showing` and this read null, '
+                'so a second fullscreen ad could stack');
+        expect(manager.fullscreenBusy.value, isTrue);
       });
-    }
+
+      // The SAME request's fill arrives before its platform Future completes;
+      // the host shows it, then the platform call throws. This pins the catch
+      // state guard, not cross-request ownership (covered by the T246 group).
+      // The synchronous `catch` of each load method used
+      // to run `_xAd = null; slot.markFailed()` unconditionally, nulling the
+      // on-screen ad and dropping the live show into cooldown.
+      for (final name in [
+        'appOpen',
+        'interstitial',
+        'rewarded',
+        'rewardedInterstitial'
+      ]) {
+        test('$name: the SAME request fills and is shown, then throws: the live show '
+            'survives', () async {
+          final f = formats[name]!;
+          final slot = f['slot']() as AdSlot;
+          bridge.holdNextLoadOpen = true;
+          final inFlight = (f['load']() as Future<void>);
+          await Future<void>.delayed(Duration.zero);
+          expect(slot.isLoading, isTrue, reason: 'precondition: in flight');
+          expect(bridge.heldLoads, hasLength(1));
+
+          final lateA = FakeGmaFullscreenAd();
+          f['late'](lateA);
+          expect(slot.isReady, isTrue, reason: 'the request\'s own fill landed');
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'precondition: on screen');
+
+          bridge.heldLoads.single
+              .completeError(PlatformException(code: 'load-failed'));
+          await inFlight;
+
+          expect(slot.isShowing, isTrue,
+              reason: 'a throw after the fill was shown must not end the show');
+          expect(lateA.disposeCount, 0);
+          lateA.shown!.onDismissed!();
+          expect(slot.isShowing, isFalse,
+              reason: 'the real dismiss must still release the slot');
+        });
+      }
+
+      // Same-request variant, one step earlier: its fill landed (`ready`) but
+      // the host has NOT shown it yet when its platform Future throws. The catch used
+      // to null `_xAd` and mark the slot failed, throwing away a good loaded ad
+      // and leaking its native object.
+      for (final name in [
+        'appOpen',
+        'interstitial',
+        'rewarded',
+        'rewardedInterstitial'
+      ]) {
+        test('$name: the SAME request fills and is ready, then throws: the ad '
+            'is kept and still shows', () async {
+          final f = formats[name]!;
+          final slot = f['slot']() as AdSlot;
+          bridge.holdNextLoadOpen = true;
+          final inFlight = (f['load']() as Future<void>);
+          await Future<void>.delayed(Duration.zero);
+          expect(slot.isLoading, isTrue, reason: 'precondition: in flight');
+
+          final lateA = FakeGmaFullscreenAd();
+          f['late'](lateA);
+          expect(slot.isReady, isTrue, reason: 'precondition: loaded');
+
+          bridge.heldLoads.single
+              .completeError(PlatformException(code: 'load-failed'));
+          await inFlight;
+
+          expect(slot.isReady, isTrue,
+              reason: 'a throw after the fill landed must not discard a '
+                  'good, already loaded ad');
+          expect(lateA.disposeCount, 0);
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'the ad must still be showable');
+          lateA.shown!.onDismissed!();
+        });
+      }
+
+      // Guard against over-correction: the widened catch guard must NOT swallow
+      // the ordinary case. A load whose platform call throws while the slot is
+      // merely `loading` (nothing loaded, nothing shown) still fails the slot.
+      for (final name in [
+        'appOpen',
+        'interstitial',
+        'rewarded',
+        'rewardedInterstitial'
+      ]) {
+        test('$name: a load that throws while only loading still fails the '
+            'slot into cooldown and counts one failure', () async {
+          final f = formats[name]!;
+          final slot = f['slot']() as AdSlot;
+          bridge.holdNextLoadOpen = true;
+          final inFlight = (f['load']() as Future<void>);
+          await Future<void>.delayed(Duration.zero);
+          expect(slot.isLoading, isTrue, reason: 'precondition');
+          final before = slot.consecutiveFailures;
+
+          bridge.heldLoads.single
+              .completeError(PlatformException(code: 'load-failed'));
+          await inFlight;
+
+          expect(slot.isCooldown, isTrue,
+              reason: 'an ordinary failed load must still reach markFailed');
+          expect(slot.consecutiveFailures, before + 1);
+          expect(slot.isReady, isFalse);
+        });
+      }
+
+      // A `ready` slot has no load of its own pending (a new load goes through
+      // beginLoad -> `loading`), so a failure reported while `ready` belongs to an
+      // earlier, superseded request. It used to run `_xAd = null; markFailed()`,
+      // discarding a good loaded ad (native object leaked), moving the slot to
+      // cooldown and emitting a failed AdLoadEvent.
+      for (final name in [
+        'appOpen',
+        'interstitial',
+        'rewarded',
+        'rewardedInterstitial'
+      ]) {
+        test('$name: a stale load FAILURE while a good ad is ready is ignored',
+            () async {
+          final f = formats[name]!;
+          await f['load']();
+          final slot = f['slot']() as AdSlot;
+          final readyAd = f['ad']() as FakeGmaFullscreenAd;
+          expect(slot.isReady, isTrue, reason: 'precondition');
+          final events = <AdEvent>[];
+          adapter.eventSink = events.add;
+          final failuresBefore = slot.consecutiveFailures;
+
+          f['fail']();
+
+          expect(slot.isReady, isTrue,
+              reason: 'a failure from a superseded request must not discard a '
+                  'good, already loaded ad');
+          expect(readyAd.disposeCount, 0);
+          expect(slot.consecutiveFailures, failuresBefore);
+          expect(events.whereType<AdLoadEvent>(), isEmpty,
+              reason: 'a discarded straggler must not look like a real failure');
+          await f['show']();
+          expect(slot.isShowing, isTrue, reason: 'the ready ad must still show');
+          readyAd.shown!.onDismissed!();
+        });
+      }
 
     test('appOpen: after the discarded load, the real dismiss still resolves '
           'the caller and the slot can load again', () async {
@@ -697,7 +709,14 @@ void main() {
   group('T246: a stale request cannot act on the current one', () {
     final formats = <String, Map<String, dynamic>>{};
 
-    tearDown(() => adapter.dispose());
+    tearDown(() async {
+      // Release every platform call a test left held open so no Future dangles,
+      // then dispose the adapter (cancels its timers).
+      for (final c in bridge.heldLoads) {
+        if (!c.isCompleted) c.complete();
+      }
+      await adapter.dispose();
+    });
 
     setUp(() {
       formats
