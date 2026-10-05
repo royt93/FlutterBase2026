@@ -225,6 +225,25 @@ void main() {
       expect(result.stderr, contains('>2048KB'));
     });
 
+    // A measurement that finds nothing must be a failure, never a pass: with
+    // no tracked files under lib/ the sum is 0 and `0 <= 2048` would report
+    // "passed" having measured nothing (the same false-pass class as the
+    // missing-rg bug below).
+    test('no tracked files under lib/ fails loudly instead of passing at 0 KB',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('size_empty_repo_');
+      await Directory('${dir.path}/packages/ad_sdk/lib')
+          .create(recursive: true);
+      await File('${dir.path}/packages/ad_sdk/lib/untracked.dart')
+          .writeAsString('int x = 1;\n');
+      await Process.run('git', ['init', '-q'], workingDirectory: dir.path);
+      final result = await _runGate(dir, 'size');
+      expect(result.exitCode, isNot(0),
+          reason: 'nothing was measured, so the gate must not pass');
+      expect(result.stdout, isNot(contains('size passed')));
+      expect(result.stderr, contains('no tracked files'));
+    });
+
     test('a tracked tree just under the ceiling passes', () async {
       final repo = await sizedFixture(trackedKb: 2040);
       final result = await _runGate(repo, 'size');

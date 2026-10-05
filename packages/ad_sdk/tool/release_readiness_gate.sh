@@ -46,7 +46,8 @@ size_check() {
   local kb
   # Tracked files only: untracked junk (.DS_Store) must not move the gate.
   kb=$(cd "$repo_root" && git ls-files -z 'packages/ad_sdk/lib' |
-    xargs -0 du -k | awk '{s+=$1} END{print s+0}')
+    xargs -0 -r du -k | awk '{s+=$1} END{print s+0}')
+  test "$kb" -gt 0 || { echo 'release gate: no tracked files with content under lib' >&2; return 1; }
   test "$kb" -le 2048 || { echo "release gate: lib is ${kb}KB (>2048KB)" >&2; return 1; }
 }
 
