@@ -44,7 +44,9 @@ api_check() {
 
 size_check() {
   local kb
-  kb=$(du -sk "$package_dir/lib" | awk '{print $1}')
+  # Tracked files only: untracked junk (.DS_Store) must not move the gate.
+  kb=$(cd "$repo_root" && git ls-files -z 'packages/ad_sdk/lib' |
+    xargs -0 du -k | awk '{s+=$1} END{print s+0}')
   test "$kb" -le 2048 || { echo "release gate: lib is ${kb}KB (>2048KB)" >&2; return 1; }
 }
 

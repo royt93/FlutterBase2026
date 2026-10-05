@@ -186,6 +186,52 @@ void main() {
     }, timeout: const Timeout(Duration(seconds: 60)));
   });
 
+  // The size ceiling must describe what gets published, not whatever junk a
+  // dev machine has next to it: macOS drops untracked `.DS_Store` files into
+  // lib/, and `du` rounds each file up to a 4 KB block, so two of them pushed
+  // a clean tree from 2028 KB to exactly the 2048 KB ceiling on one machine
+  // while CI (no .DS_Store) passed.
+  group('size stage measures the tracked tree, not local junk', () {
+    Future<Directory> sizedFixture({required int trackedKb}) async {
+      final dir = await Directory.systemTemp.createTemp('size_fixture_repo_');
+      final lib = Directory('${dir.path}/packages/ad_sdk/lib');
+      await lib.create(recursive: true);
+      // 4 KB-aligned content so `du` and the byte count agree exactly.
+      await File('${lib.path}/big.dart')
+          .writeAsString('${'a' * 4095}\n' * (trackedKb ~/ 4));
+      await Process.run('git', ['init', '-q'], workingDirectory: dir.path);
+      await Process.run('git', ['add', '-A'], workingDirectory: dir.path);
+      return dir;
+    }
+
+    test('untracked files do not push a within-limit tree over the ceiling',
+        () async {
+      final repo = await sizedFixture(trackedKb: 2000);
+      // 100 untracked files = 400 KB of junk that git does not publish.
+      for (var i = 0; i < 100; i++) {
+        await File('${repo.path}/packages/ad_sdk/lib/.junk$i')
+            .writeAsString('x');
+      }
+      final result = await _runGate(repo, 'size');
+      expect(result.exitCode, 0,
+          reason: 'untracked junk must not count: ${result.stderr}');
+      expect(result.stdout, contains('release gate: size passed'));
+    });
+
+    test('a tracked tree over the ceiling still fails', () async {
+      final repo = await sizedFixture(trackedKb: 2100);
+      final result = await _runGate(repo, 'size');
+      expect(result.exitCode, isNot(0));
+      expect(result.stderr, contains('>2048KB'));
+    });
+
+    test('a tracked tree just under the ceiling passes', () async {
+      final repo = await sizedFixture(trackedKb: 2040);
+      final result = await _runGate(repo, 'size');
+      expect(result.exitCode, 0, reason: result.stderr);
+    });
+  });
+
   group('audit fix (post-T213) — a missing rg must fail loudly, never '
       'silently pass', () {
     test(
