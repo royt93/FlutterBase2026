@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (tooling)
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** ✅ done
+- **Status:** inprogress (9/10 chưa vượt ngưỡng >9)
 
 ## Vấn đề
 

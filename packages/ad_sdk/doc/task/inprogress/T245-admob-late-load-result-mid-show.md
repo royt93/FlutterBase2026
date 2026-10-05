@@ -2,7 +2,7 @@
 
 - **Loại:** Fix
 - **Priority:** P1 · **Severity:** MAJOR (độ tin cậy audit 80%)
-- **Status:** ✅ done (điểm audit đạt ngưỡng, xem mục Audit)
+- **Status:** inprogress (9/10 chưa vượt ngưỡng >9; chờ audit sau test gộp cuối)
 
 ## Vấn đề
 
@@ -62,4 +62,4 @@ Ba vòng reviewer chỉ đọc, phạm vi hẹp (diff này và các đường co
 - Sau guard `isShowing`: 8/10. Chỉ ra `identical()` trên wrapper vô hiệu ở máy thật (bridge tạo wrapper mới mỗi callback), test widget thứ ba pass vì lý do yếu, thiếu test thất bại không phát event.
 - Sau khi so wrapper theo ad native, thêm test wrapper thật, test lý do `busy`: **9/10**. Điểm trừ còn lại là thiếu test gộp wrapper bằng nhau-không-identical đi qua guard adapter. Test đó đã được thêm (đỏ khi guard lùi về `identical()`, xanh khi có `!=`).
 
-9/10 bằng chứ không vượt ngưỡng >9 bạn đặt. Chưa có reviewer chấm lại sau test gộp cuối.
+9/10 bằng ngưỡng chứ không vượt >9 bạn đặt, nên task CHƯA đóng. Chưa có reviewer chấm lại sau test gộp cuối.
