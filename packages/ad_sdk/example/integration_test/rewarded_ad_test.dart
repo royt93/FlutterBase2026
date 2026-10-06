@@ -84,6 +84,22 @@ Future<void> _waitForNotShowing(WidgetTester tester) async {
       'possible zombie state from the show/dismiss race');
 }
 
+Future<void> _showAndConfirm(WidgetTester tester, Finder button) async {
+  for (var i = 0; i < 180; i++) {
+    if (AdManager().canShowRewardedAd(placement: AdPlacement.unspecified)) {
+      await tester.tap(button);
+      for (var j = 0; j < 40; j++) {
+        await tester.pump(const Duration(milliseconds: 250));
+        final slot = AdManager().adapter?.rewardedSlot;
+        if (slot?.isShowing == true && slot?.displayConfirmed == true) return;
+      }
+      fail('native rewarded display was not confirmed');
+    }
+    await tester.pump(const Duration(milliseconds: 500));
+  }
+  fail('rewarded show gate did not open within 90s');
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -124,8 +140,7 @@ void main() {
     final loaded1 = await _waitForRewardedLoaded(tester);
     expect(loaded1, isTrue,
         reason: 'rewarded ad must finish loading before Cycle 1 show');
-    await tester.tap(showButton);
-    await tester.pump(const Duration(milliseconds: 500));
+    await _showAndConfirm(tester, showButton);
     // A human taps the close/X button on the native ad when it appears.
     await _waitForNotShowing(tester);
     expect(tester.takeException(), isNull);
@@ -137,8 +152,9 @@ void main() {
     expect(loaded2, isTrue,
         reason:
             'rewarded ad must reload and finish loading before Cycle 2 show');
-    await tester.tap(showButton);
-    await tester.pump(const Duration(milliseconds: 500));
+
+    await _showAndConfirm(tester, showButton);
+    // A human taps the close/X button on the native ad when it appears.
     await _waitForNotShowing(tester);
 
     expect(tester.takeException(), isNull);

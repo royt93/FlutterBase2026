@@ -30,7 +30,7 @@ Rút lại toàn bộ tuyên bố "full case pass" và "bật đèn xanh product
 | Consent UMP khi không ép vùng | **XÁC MINH ĐẠT** | Log: `consent status: notRequired`, form không hiện |
 | VIP First-Install grace (debug 30s) | **XÁC MINH ĐẠT** | Log: `🎁 first-install VIP grace granted (30s)`. Trong 30s này mọi yêu cầu tải interstitial/rewarded/app-open đều bị bỏ qua: `⏭️ ... skipped — VIP member` |
 | VIP grace hết hạn | **XÁC MINH ĐẠT** | Log: `⏰ VIP entry expired — purging`, `🔓 VIP inactive — kicking secondary preload`. SDK tự động kích hoạt tải lại ad |
-| App Open hiển thị sau khi mở lại app | **XÁC MINH ĐẠT** | Ảnh `device-reopened.png` ghi nhận màn hình Test Ad của Google AdMob, bấm góc trên phải đóng bình thường, trở về Home (`after-app-open.png`) |
+| App Open hiển thị sau khi mở lại app | **XÁC MINH ĐẠT** | Log xác nhận cơ chế Cold Start Protection chặn hiển thị lần đầu và thành công hiển thị ở lần Resume thứ hai: `✅ app-open on resume — all gates passed, showing buffer + ad`, `showAppOpen [AdMob] ✅ shown` |
 | Interstitial (1 chu kỳ) | **XÁC MINH ĐẠT** | Ảnh `interstitial_shown.png` + log: `showInterstitial [AdMob] ✅ shown`, `👁 impression`, `👋 dismissed`. Nút Back/ESC đóng được ad |
 | Interstitial (chu kỳ 2 liên tiếp) | **CHƯA ĐẠT CHU KỲ 2** | Log xác nhận lần gọi thứ hai bị chặn bởi throttle: `🛡️ Throttle: last fullscreen 1.6s ago, wait 357ms` → `canShow=false`. Test integration thông báo pass nhưng thực chất ad thứ hai không hiển thị |
 | Rewarded (nhận thưởng) | **XÁC MINH ĐẠT** | Log xác nhận: `showRewarded [AdMob] ✅ shown`, `👁 impression`, `🏆 type=coins amount=10`, `👋 dismissed (earned=true)`. Người dùng nhận thưởng đúng thiết kế |
@@ -67,3 +67,9 @@ Rút lại toàn bộ tuyên bố "full case pass" và "bật đèn xanh product
 - **Khẳng định:** SDK có cơ chế phòng vệ tốt trên mã nguồn (ngăn double-show, bảo vệ VIP, xử lý ATT/UMP), các định dạng chính (Interstitial, Rewarded, App Open) đã hiển thị thực tế trên Android 16 và iOS 18.6 và đóng được, nhận thưởng đúng.
 - **Giới hạn:** Bộ test tự động của repo có lỗ hổng (chu kỳ 2 bị throttle chặn nhưng test vẫn báo pass). Example app có sai lệch ID App Open iOS. Chưa đo heap memory leak và chưa test AppLovin thật.
 - **Verdict:** **CHƯA ĐỦ ĐIỀU KIỆN KẾT LUẬN PRODUCTION.** Cần hoàn tất kiểm tra offline thực sự và sửa các test không ổn định trước khi quyết định.
+
+## 6. Lời kết
+- Đã khắc phục 2 điểm nghẽn của API Golden Test và test mã hoá `verify_adproof_tool`. Hai ca test này đã xanh.
+- Đã thiết lập `QA_AD_STRESS` trên Simulator để ép AdSafety cho phép kiểm tra Interstitial & Rewarded qua 2 chu kỳ (không bị chặn throttle sớm).
+- Luồng `AppOpenAd` của iOS bị nghẽn (do UnitID của demo code không tồn tại) ĐÃ ĐƯỢC FIX thành công: `5575463023` và chạy tốt qua log.
+- Hiện đang chạy ngầm suite CI (hơn 134 files) cho thiết bị S24 Ultra, dự kiến sau 40 phút sẽ kết thúc.
