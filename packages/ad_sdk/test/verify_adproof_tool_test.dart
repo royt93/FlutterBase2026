@@ -212,9 +212,9 @@ void main() {
     test('tampered public key -> INVALID and exit 1', () async {
       final decoded = jsonDecode(validBundleJson) as Map<String, dynamic>;
       final pub = decoded['publicKeyBase64'] as String;
-      final flip = pub.endsWith('A') ? 'B' : 'A';
-      final corruptedPub = '${pub.substring(0, pub.length - 2)}$flip=';
-      decoded['publicKeyBase64'] = corruptedPub;
+      final bytes = base64Url.decode(base64Url.normalize(pub));
+      bytes[0] ^= 0x01;
+      decoded['publicKeyBase64'] = base64Url.encode(bytes);
 
       final file = File('${tempDir.path}/corrupt_pub.adproof');
       await file.writeAsString(jsonEncode(decoded));

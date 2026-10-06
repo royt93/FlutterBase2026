@@ -287,7 +287,7 @@ class DemoConfig {
         // (developers.google.com/admob/flutter/test-ads).
         iosBannerId: 'ca-app-pub-3940256099942544/2934735716',
         iosInterstitialId: 'ca-app-pub-3940256099942544/4411468910',
-        iosAppOpenId: 'ca-app-pub-3940256099942544/5662855259',
+        iosAppOpenId: 'ca-app-pub-3940256099942544/5575463023',
         iosRewardedId: 'ca-app-pub-3940256099942544/1712485313',
         iosMrecId: 'ca-app-pub-3940256099942544/2934735716',
         iosNativeId: 'ca-app-pub-3940256099942544/3986624511',

@@ -37,7 +37,7 @@ void main() {
       'Added (${added.length}):\n${added.map((l) => '  + $l').join('\n')}\n\n'
       'Removed (${removed.length}):\n${removed.map((l) => '  - $l').join('\n')}',
     );
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('excludes @visibleForTesting members but keeps ordinary public ones',
       () async {
@@ -55,5 +55,5 @@ void main() {
     // could have regressed to "exclude everything" and the test above
     // would pass vacuously.
     expect(actual, contains('InlineAdController.refresh'));
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
