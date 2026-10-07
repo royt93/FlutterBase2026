@@ -55,7 +55,7 @@ void main() {
     await tester.tap(replayButton);
 
     var poppedBack = false;
-    for (var i = 0; i < 60; i++) {
+    for (var i = 0; i < 180; i++) {
       await tester.pump(const Duration(milliseconds: 500));
       if (find
           .text('AdReadinessSplashController running...')

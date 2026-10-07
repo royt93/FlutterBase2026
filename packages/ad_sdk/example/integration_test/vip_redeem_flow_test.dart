@@ -80,8 +80,10 @@ void main() {
     // before doing anything with the navigator.
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 500));
-      if (find.text('VIP / redeem').evaluate().isNotEmpty) break;
+      if (find.byType(ListView).evaluate().isNotEmpty) break;
     }
+    await tester.scrollUntilVisible(find.text('VIP / redeem'), 200,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('VIP / redeem'), findsOneWidget);
 
     // Fresh installs may auto-grant a first-install VIP grace window (see
@@ -189,8 +191,11 @@ void main() {
 
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 500));
-      if (find.text('VIP / redeem').evaluate().isNotEmpty) break;
+      if (find.byType(app.HomePage).evaluate().isNotEmpty) break;
     }
+    expect(find.byType(app.HomePage), findsOneWidget);
+    await tester.scrollUntilVisibleAndSettle(find.text('VIP / redeem'), 200,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('VIP / redeem'), findsOneWidget);
 
     await AdManager().vip!.revokeAll();

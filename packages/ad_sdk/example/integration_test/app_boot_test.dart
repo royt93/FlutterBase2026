@@ -16,11 +16,66 @@
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('real network loss blocks loads and reconnect recovers',
+      (tester) async {
+    app.main();
+    await tester.pump();
+    for (var i = 0; i < 180 && !AdManager().isInitialised; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(AdManager().isInitialised, isTrue);
+    await AdManager().vip!.revokeAll();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(AdManager().canRequestAds, isTrue);
+    expect(AdManager().isConnected, isTrue);
+    debugPrint('REAL_NETWORK_READY: disable Wi-Fi and mobile data now');
+    for (var i = 0; i < 180 && AdManager().isConnected; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(AdManager().isConnected, isFalse);
+    final skips = <AdSkipEvent>[];
+    final sub = AdManager().events.listen((event) {
+      if (event is AdSkipEvent) skips.add(event);
+    });
+    addTearDown(sub.cancel);
+    bool? loaded;
+    await AdManager().loadAppOpenAd(onAdLoaded: (value) => loaded = value);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(loaded, isFalse);
+    expect(skips.any((e) => e.action == 'load' && e.reason == 'no_network'),
+        isTrue);
+    expect(AdManager().canShowInterstitial(), isFalse);
+    expect(AdManager().canShowRewardedAd(), isFalse);
+    expect(tester.takeException(), isNull);
+    debugPrint('REAL_NETWORK_OFFLINE_VERIFIED: restore network now');
+    for (var i = 0; i < 180 && !AdManager().isConnected; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(AdManager().isConnected, isTrue);
+    expect(AdManager().isInitialised, isTrue);
+    final slot = AdManager().adapter!.appOpenSlot;
+    // Default Backoff base is 15s and reconnect does not clear it unless the
+    // host opts into AdRetryPolicy.resetOnConnectivityRestored.
+    // Slot state only leaves cooldown when a load re-checks the window, so
+    // wait out the window, then load.
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    await AdManager().loadAppOpenAd();
+    for (var i = 0; i < 80 && !slot.isReady; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(slot.isReady, isTrue);
+    expect(tester.takeException(), isNull);
+    debugPrint('REAL_NETWORK_RECONNECT_VERIFIED');
+  }, skip: !const bool.fromEnvironment('RUN_REAL_NETWORK_TEST'));
 
   testWidgets('boots through splash to the demo home page', (tester) async {
     app.main();

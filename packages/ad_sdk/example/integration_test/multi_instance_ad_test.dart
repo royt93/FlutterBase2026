@@ -108,7 +108,14 @@ void main() {
     }
 
     expect(find.text('MREC demo'), findsOneWidget);
-    expect(find.byType(MrecAdWidget, skipOffstage: false), findsNWidgets(2),
+    // MrecDemoPage also embeds a third MrecAdWidget ('T240_house_ad_demo_false')
+    // purely to demonstrate the HouseAd fallback feature.
+    final t65MrecWidgets = find
+        .byType(MrecAdWidget, skipOffstage: false)
+        .evaluate()
+        .where((e) => e.widget.key != const ValueKey('T240_house_ad_demo_false') && e.widget.key != const ValueKey('T240_house_ad_demo_true'))
+        .length;
+    expect(t65MrecWidgets, 2,
         reason: 'demo page must mount two independent MrecAdWidget instances '
             '(T65) — skipOffstage:false, see the Banner test above');
     expect(tester.takeException(), isNull);
@@ -135,8 +142,10 @@ void main() {
     final t65NativeWidgets = find
         .byType(NativeAdWidget, skipOffstage: false)
         .evaluate()
-        .where((e) => e.widget.key != const ValueKey('T154_indexedstack_demo'))
-        .length;
+        .where((e) {
+      final k = e.widget.key;
+      return !(k is ValueKey<String> && RegExp(r'^T\d+_').hasMatch(k.value));
+    }).length;
     expect(t65NativeWidgets, 2,
         reason: 'demo page must mount two independent NativeAdWidget instances '
             '(T65) — skipOffstage:false, see the Banner test above');

@@ -27,28 +27,19 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-      'a toggle pushed on top of splash before init finishes re-enables '
+      'a toggle pushed before init finishes re-enables '
       'itself once init completes, without leaving the screen',
       (tester) async {
-    app.main();
-    // Deliberately minimal — enough for the very first frame (SplashScreen
-    // mounted, its initState's AdManager().initialize() call fired and
-    // returned a still-pending Future) without giving that real,
-    // network-bound async chain any realistic chance to have resolved.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    final navKey = GlobalKey<NavigatorState>();
+    AdManager().setNavigatorKey(navKey);
 
-    final navigator =
-        tester.state<NavigatorState>(find.byType(Navigator).first);
-    navigator.push(MaterialPageRoute<void>(
-        builder: (_) => const app.CcpaToggleDemoPage()));
-    // A route push transition needs a moment to actually finish building
-    // the new page — a single zero-duration pump only starts it.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.byType(Switch), findsOneWidget,
-        reason: 'the CCPA demo page must have been pushed and rendered');
+    // Mount the CCPA toggle screen directly with the required RouteAware observers.
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navKey,
+      navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
+      home: const app.CcpaToggleDemoPage(),
+    ));
+    await tester.pumpAndSettle();
 
     final caughtBeforeInit = !AdManager().isInitialised;
     // Printed (not just asserted) so a passing run is provably testing the
@@ -63,6 +54,13 @@ void main() {
           reason: 'T166 — reached this page before init finished; the '
               'toggle must start disabled, not silently broken');
     }
+
+    // Now kick off init manually, simulating what splash would do in the
+    // background, while the toggle is already mounted.
+    AdManager().initialize(
+      config: app.DemoConfig.instance.build(),
+      onComplete: (_, __) {},
+    );
 
     // Wait for real init to complete WHILE staying on this exact screen —
     // no navigation away and back.

@@ -37,6 +37,8 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
+    await AdManager().vip!.revokeAll();
+    await tester.pump(const Duration(milliseconds: 300));
 
     final tile = find.text('Native ad');
     var foundTile = false;
