@@ -421,11 +421,19 @@ class VipManager {
   void resyncSessionClock() {
     _sessionAnchorRealMs = DateTime.now().millisecondsSinceEpoch;
     _sessionClockStopwatch = Stopwatch()..start();
-    // Round-73 audit — the expiry Timer does not advance while the device is
-    // suspended, so a window that ended during sleep stayed active until the
-    // timer finally fired. Resume is the moment to re-evaluate. Runs through
-    // the same funnel as the timer, so the clock rules are unchanged.
-    if (!_disposed) _handleExpiry();
+  }
+
+  /// Re-evaluates entry expiry after a resume or sleep period, cancelling
+  /// any existing timer before scheduling the next one.
+  ///
+  /// Round-73 audit fix (regression follow-up) — called by [AdManager] AFTER
+  /// resume consent re-check has completed, not synchronously on lifecycle
+  /// state change, so that an expired VIP does not trigger ad preloads under
+  /// stale or unconfirmed consent.
+  @internal
+  void recheckExpiry() {
+    if (_disposed) return;
+    _handleExpiry();
   }
 
   /// Read-only snapshot of all entries (for UI listing).
@@ -1007,6 +1015,7 @@ class VipManager {
   }
 
   void _handleExpiry() {
+    _expiryTimer?.cancel();
     _expiryTimer = null;
     SafeLogger.d(_tag, '⏰ VIP entry expired — purging + refreshing');
     _purgeExpired();

@@ -117,6 +117,8 @@ void main() {
     expect(vip.isActive, isTrue, reason: 'sanity — expired but stale');
 
     AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+    // Allow the async resume consent recheck & VIP expiry to complete.
+    await tester.pump();
     // What the SDK does when the VIP flag flips: tell mounted widgets to retry.
     // `debugVipManager` does not wire the production listener, so do what
     // `_onVipActiveChanged` does when the flag flips, in the same order.

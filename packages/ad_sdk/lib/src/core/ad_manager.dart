@@ -9423,6 +9423,11 @@ class AdManager with WidgetsBindingObserver {
           'flight — dropping the ad work for this resume');
       return;
     }
+    // Round-73 audit fix (regression follow-up) — re-evaluate VIP expiry AFTER
+    // the resume consent re-check has settled and the adapter is verified, so
+    // that an expired VIP does not fire ad preloads under stale or unconfirmed
+    // consent (which would violate the Round-13 QC BLOCKER rule).
+    _vipManager?.recheckExpiry();
     try {
       ad.onAppResumed();
     } catch (e, st) {
