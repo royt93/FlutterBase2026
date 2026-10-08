@@ -36,8 +36,9 @@ class _DeadTimer implements Timer {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('setDoNotSell re-applies AdMob config WITH the test devices',
-      (tester) async {
+  testWidgets('setDoNotSell re-applies AdMob config WITH the test devices', (
+    tester,
+  ) async {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -56,15 +57,23 @@ void main() {
     }
 
     // Establish the baseline from a re-apply that is known to be complete.
-    await AdManager().consentManager!.applyToProviders(config: AdManager().config);
+    await AdManager().consentManager!.applyToProviders(
+      config: AdManager().config,
+    );
     final baseline = lastAppliedTestDevices();
-    expect(baseline, greaterThan(0),
-        reason: 'precondition: the QA fleet is applied natively');
+    expect(
+      baseline,
+      greaterThan(0),
+      reason: 'precondition: the QA fleet is applied natively',
+    );
 
     await AdManager().setDoNotSell(true);
     await tester.pump(const Duration(milliseconds: 500));
-    expect(lastAppliedTestDevices(), baseline,
-        reason: 'THE finding — a CCPA toggle used to send an EMPTY list');
+    expect(
+      lastAppliedTestDevices(),
+      baseline,
+      reason: 'THE finding — a CCPA toggle used to send an EMPTY list',
+    );
 
     await AdManager().setDoNotSell(false);
     await tester.pump(const Duration(milliseconds: 500));
@@ -72,8 +81,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a VIP window that ended during sleep ends on resume',
-      (tester) async {
+  testWidgets('a VIP window that ended during sleep ends on resume', (
+    tester,
+  ) async {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -83,26 +93,33 @@ void main() {
     // Timers that never fire — what a suspended device's timers look like.
     await runZoned(
       () => vip.addVip(
-          key: 'R73_SLEEP', duration: const Duration(milliseconds: 400)),
+        key: 'R73_SLEEP',
+        duration: const Duration(milliseconds: 400),
+      ),
       zoneSpecification: ZoneSpecification(
         createTimer: (self, parent, zone, d, f) => _DeadTimer(),
       ),
     );
     expect(AdManager().isVIPMember(), isTrue, reason: 'sanity');
     await tester.pump(const Duration(milliseconds: 800));
-    expect(AdManager().isVIPMember(), isTrue,
-        reason: 'sanity — expired, but nothing has noticed yet');
+    expect(
+      AdManager().isVIPMember(),
+      isTrue,
+      reason: 'sanity — expired, but nothing has noticed yet',
+    );
 
-    WidgetsBinding.instance
-        .handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    WidgetsBinding.instance.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    );
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(AdManager().isVIPMember(), isFalse);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a failed fullscreen show reloads at once on the real adapter',
-      (tester) async {
+  testWidgets('a failed fullscreen show reloads at once on the real adapter', (
+    tester,
+  ) async {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -110,29 +127,43 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     final adapter = AdManager().adapter as AdMobAdapter;
-    // Let the SDK's own startup preload settle, so nothing is half-loaded.
-    for (var i = 0; i < 40 && adapter.interstitialSlot.isLoading; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-    // Hand the slot back empty (the seam does not own an ad object, so a
-    // cached real ad would make loadInterstitial return early as "still
-    // fresh" and prove nothing), then fail a show on it.
-    adapter.interstitialSlot.reset();
-    adapter.debugSimulateInterstitialShowAndDismiss((_) {}, dismissed: false);
-    expect(adapter.interstitialSlot.isCooldown, isTrue, reason: 'sanity');
-
     await AdManager().loadInterstitial();
     for (var i = 0; i < 60 && !adapter.interstitialSlot.isReady; i++) {
       await tester.pump(const Duration(milliseconds: 500));
     }
-    expect(adapter.interstitialSlot.isReady, isTrue,
-        reason: 'THE finding — the refill used to be refused for the backoff '
-            'window and the slot stayed empty');
+    expect(
+      adapter.interstitialSlot.isReady,
+      isTrue,
+      reason: 'precondition: the initial request must finish successfully',
+    );
+    // Resetting a slot does not dispose its cached ad; use the adapter's API.
+    await adapter.discardCachedFullscreenAds();
+    expect(adapter.interstitialSlot.isIdle, isTrue);
+    adapter.debugSimulateInterstitialShowAndDismiss((_) {}, dismissed: false);
+    expect(adapter.interstitialSlot.isCooldown, isTrue, reason: 'sanity');
+
+    await AdManager().loadInterstitial();
+    expect(
+      adapter.interstitialSlot.isLoading || adapter.interstitialSlot.isReady,
+      isTrue,
+      reason: 'the refill must start without waiting out backoff',
+    );
+    for (var i = 0; i < 60 && !adapter.interstitialSlot.isReady; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(
+      adapter.interstitialSlot.isReady,
+      isTrue,
+      reason:
+          'THE finding — the refill used to be refused for the backoff '
+          'window and the slot stayed empty',
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a refresh failure on a live banner keeps it (real adapter)',
-      (tester) async {
+  testWidgets('a refresh failure on a live banner keeps it (real adapter)', (
+    tester,
+  ) async {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -164,74 +195,92 @@ void main() {
     }
     // Fill is not guaranteed; the unit and widget tests carry the assertion.
     // ignore: avoid_print
-    print('R73 banner device check: ready placements = $kept of ${keys.length}');
+    print(
+      'R73 banner device check: ready placements = $kept of ${keys.length}',
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('banner is requested again after a real network loss',
-      (tester) async {
-    app.main();
-    await tester.pump();
-    await _waitForInit(tester);
-    await AdManager().vip?.revokeAll();
-    await tester.pump(const Duration(milliseconds: 300));
+  testWidgets(
+    'banner is requested again after a real network loss',
+    (tester) async {
+      app.main();
+      await tester.pump();
+      await _waitForInit(tester);
+      await AdManager().vip?.revokeAll();
+      await tester.pump(const Duration(milliseconds: 300));
 
-    // 1. Really cut the network BEFORE opening the page.
-    debugPrint('R73_NET_CUT_NOW');
-    for (var i = 0; i < 240 && AdManager().isConnected; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-    expect(AdManager().isConnected, isFalse, reason: 'network must be cut');
+      // 1. Really cut the network BEFORE opening the page.
+      debugPrint('R73_NET_CUT_NOW');
+      for (var i = 0; i < 240 && AdManager().isConnected; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(AdManager().isConnected, isFalse, reason: 'network must be cut');
 
-    // 2. Offline, both the widget and the adapter refuse to even ask, so the
-    //    failure would never reach the adapter. Make the SDK believe it is
-    //    online (the plugin event is the only thing faked) so the request is
-    //    really sent and really fails at the native layer.
-    AdManager().debugConnectivityReady = false; // isConnected -> last-known
-    AdManager().debugConnectivityChanged(true);
-    final tile = find.text('Banner ad');
-    for (var i = 0; i < 40 && tester.any(tile) == false; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-    await tester.tap(tile);
-    for (var i = 0;
+      // 2. Offline, both the widget and the adapter refuse to even ask, so the
+      //    failure would never reach the adapter. Make the SDK believe it is
+      //    online (the plugin event is the only thing faked) so the request is
+      //    really sent and really fails at the native layer.
+      AdManager().debugConnectivityReady = false; // isConnected -> last-known
+      AdManager().debugConnectivityChanged(true);
+      final tile = find.text('Banner ad');
+      for (var i = 0; i < 40 && tester.any(tile) == false; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      await tester.tap(tile);
+      for (
+        var i = 0;
         i < 40 && tester.any(find.byType(BannerAdWidget)) == false;
-        i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-    final adapter = AdManager().adapter!;
-    final key = tester.stateList(find.byType(BannerAdWidget)).first;
+        i++
+      ) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      final adapter = AdManager().adapter!;
+      final key = tester.stateList(find.byType(BannerAdWidget)).first;
 
-    for (var i = 0; i < 160; i++) {
-      await tester.pump(const Duration(milliseconds: 250));
-      if (adapter.banner(key).needsRecovery) break;
-    }
-    final failedInFlight = adapter.banner(key).needsRecovery;
-    debugPrint('R73_NET_FAILED_IN_FLIGHT=$failedInFlight');
-    expect(failedInFlight, isTrue,
-        reason: 'precondition: the request must fail natively with no '
-            'network, otherwise this run proves nothing about recovery');
-    expect(adapter.bannerSlot(key).isReady, isFalse);
+      for (var i = 0; i < 160; i++) {
+        await tester.pump(const Duration(milliseconds: 250));
+        if (adapter.banner(key).needsRecovery) break;
+      }
+      final failedInFlight = adapter.banner(key).needsRecovery;
+      debugPrint('R73_NET_FAILED_IN_FLIGHT=$failedInFlight');
+      expect(
+        failedInFlight,
+        isTrue,
+        reason:
+            'precondition: the request must fail natively with no '
+            'network, otherwise this run proves nothing about recovery',
+      );
+      expect(adapter.bannerSlot(key).isReady, isFalse);
 
-    // 3. Tell the SDK the truth again, then bring the network back: the real
-    //    offline->online transition is what must trigger the recovery.
-    AdManager().debugConnectivityChanged(false);
-    // Hand isConnected back to the real plugin; its offline->online event is
-    // what must now drive the recovery.
-    AdManager().debugConnectivityReady = true;
-    debugPrint('R73_NET_OFFLINE_VERIFIED: restore network now');
-    for (var i = 0; i < 240 && !AdManager().isConnected; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-    expect(AdManager().isConnected, isTrue,
-        reason: 'the real connectivity plugin must report the network back');
-    for (var i = 0; i < 120; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-      if (adapter.bannerSlot(key).isReady) break;
-    }
-    expect(adapter.bannerSlot(key).isReady, isTrue,
-        reason: 'the banner must recover on its own after the network is '
-            'back, without an app resume');
-    debugPrint('R73_NET_RECONNECT_VERIFIED');
-  }, skip: !const bool.fromEnvironment('RUN_REAL_NETWORK_TEST'));
+      // 3. Tell the SDK the truth again, then bring the network back: the real
+      //    offline->online transition is what must trigger the recovery.
+      AdManager().debugConnectivityChanged(false);
+      // Hand isConnected back to the real plugin; its offline->online event is
+      // what must now drive the recovery.
+      AdManager().debugConnectivityReady = true;
+      debugPrint('R73_NET_OFFLINE_VERIFIED: restore network now');
+      for (var i = 0; i < 240 && !AdManager().isConnected; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(
+        AdManager().isConnected,
+        isTrue,
+        reason: 'the real connectivity plugin must report the network back',
+      );
+      for (var i = 0; i < 120; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+        if (adapter.bannerSlot(key).isReady) break;
+      }
+      expect(
+        adapter.bannerSlot(key).isReady,
+        isTrue,
+        reason:
+            'the banner must recover on its own after the network is '
+            'back, without an app resume',
+      );
+      debugPrint('R73_NET_RECONNECT_VERIFIED');
+    },
+    skip: !const bool.fromEnvironment('RUN_REAL_NETWORK_TEST'),
+  );
 }

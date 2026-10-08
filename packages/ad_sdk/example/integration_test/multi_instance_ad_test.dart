@@ -17,7 +17,7 @@
 
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-import 'package:flutter/widgets.dart' show IndexedStack, ValueKey;
+import 'package:flutter/widgets.dart' show IndexedStack, Size, ValueKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -55,8 +55,9 @@ Future<void> _openDemoTile(WidgetTester tester, String tileText) async {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Banner demo renders two simultaneous banners without crashing',
-      (tester) async {
+  testWidgets('Banner demo renders two simultaneous banners without crashing', (
+    tester,
+  ) async {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -86,18 +87,23 @@ void main() {
         .length;
     final t65BannerWidgets =
         find.byType(BannerAdWidget, skipOffstage: false).evaluate().length -
-            t153Banners;
-    expect(t65BannerWidgets, 2,
-        reason: 'demo page must mount two independent BannerAdWidget '
-            'instances (T65) — skipOffstage:false because an unfilled/VIP-'
-            'suppressed instance collapses to a zero-height SizedBox.shrink(), '
-            'and two stacked zero-height widgets confuse the default filter '
-            '(2026-08-18 fork-review)');
+        t153Banners;
+    expect(
+      t65BannerWidgets,
+      2,
+      reason:
+          'demo page must mount two independent BannerAdWidget '
+          'instances (T65) — skipOffstage:false because an unfilled/VIP-'
+          'suppressed instance collapses to a zero-height SizedBox.shrink(), '
+          'and two stacked zero-height widgets confuse the default filter '
+          '(2026-08-18 fork-review)',
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('MREC demo renders two simultaneous MRECs without crashing',
-      (tester) async {
+  testWidgets('MREC demo renders two simultaneous MRECs without crashing', (
+    tester,
+  ) async {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -113,16 +119,31 @@ void main() {
     final t65MrecWidgets = find
         .byType(MrecAdWidget, skipOffstage: false)
         .evaluate()
-        .where((e) => e.widget.key != const ValueKey('T240_house_ad_demo_false') && e.widget.key != const ValueKey('T240_house_ad_demo_true'))
+        .where(
+          (e) =>
+              e.widget.key != const ValueKey('T240_house_ad_demo_false') &&
+              e.widget.key != const ValueKey('T240_house_ad_demo_true'),
+        )
         .length;
-    expect(t65MrecWidgets, 2,
-        reason: 'demo page must mount two independent MrecAdWidget instances '
-            '(T65) — skipOffstage:false, see the Banner test above');
+    expect(
+      t65MrecWidgets,
+      2,
+      reason:
+          'demo page must mount two independent MrecAdWidget instances '
+          '(T65) — skipOffstage:false, see the Banner test above',
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Native demo renders two simultaneous natives without crashing',
-      (tester) async {
+  testWidgets('Native demo renders two simultaneous natives without crashing', (
+    tester,
+  ) async {
+    // Both T65 placements must fit in the viewport; ListView builds lazily.
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     app.main();
     await tester.pump();
     await _waitForInit(tester);
@@ -133,22 +154,24 @@ void main() {
     }
 
     expect(find.text('Native demo'), findsOneWidget);
-    // NativeDemoPage also embeds a third, unrelated NativeAdWidget further
-    // down the page (key 'T154_indexedstack_demo') purely to demonstrate the
-    // IndexedStack/`active` pattern — exclude it by key so this assertion
-    // stays about the actual T65 multi-instance feature, not that demo
-    // (2026-09-23: found failing 3 vs 2 on a real device; this widget was
-    // always there, not a leaked previous-route instance as first assumed).
     final t65NativeWidgets = find
         .byType(NativeAdWidget, skipOffstage: false)
         .evaluate()
-        .where((e) {
-      final k = e.widget.key;
-      return !(k is ValueKey<String> && RegExp(r'^T\d+_').hasMatch(k.value));
-    }).length;
-    expect(t65NativeWidgets, 2,
-        reason: 'demo page must mount two independent NativeAdWidget instances '
-            '(T65) — skipOffstage:false, see the Banner test above');
+        .where(
+          (e) =>
+              e.widget.key != const ValueKey('T154_indexedstack_demo') &&
+              e.widget.key !=
+                  const ValueKey('T228_admob_custom_factory_demo') &&
+              e.widget.key != const ValueKey('T228_applovin_custom_demo'),
+        )
+        .length;
+    expect(
+      t65NativeWidgets,
+      2,
+      reason:
+          'demo page must mount two independent NativeAdWidget instances '
+          '(T65) — skipOffstage:false, see the Banner test above',
+    );
     expect(tester.takeException(), isNull);
   });
 }
