@@ -6,23 +6,50 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-## [3.4.4-pre.2] - 2026-10-08
+## [3.4.4] - 2026-10-08
 
-- **Fixed (Audit 73 — Consent Resume Lock):** In `3.4.4-pre.1`, if a VIP window
-  expired while the app was backgrounded and the resume consent re-check took
-  longer to settle than the VIP timer's remaining duration, ad preloads were
-  fired immediately upon timer expiry before consent was confirmed. All ad
-  requests are now fail-closed during the active resume consent re-check window
-  (`_resumeConsentBlocked`). Once the check settles cleanly, any VIP-suppressed
-  slots are refilled immediately without waiting for the 5-minute periodic scan.
+- **Fixed (Audit 73 — Consent):** `AdManager.setDoNotSell()` called after SDK
+  initialization now passes `config: _config ?? _lastKnownConfig` into
+  `ConsentManager.set()`. Previously `config` was omitted, causing
+  `applyConsentToProviders()` to invoke AdMob's `updateRequestConfiguration` with
+  an empty `testDeviceIds` list and default age tags (the native method replaces
+  the entire configuration), which wiped QA fleet and host test devices and dropped
+  `tagForUnderAgeOfConsent`.
+- **Fixed (Audit 73 — Banner/MREC):** AdMob banner and MREC `onAdFailedToLoad`
+  callbacks now preserve the live on-screen ad and keep the slot `ready` when the
+  failure comes from an auto-refresh cycle (`slot.isReady && isLoaded`). Previously,
+  every failure callback was treated as a first-load failure, disposing the live
+  ad and leaving the surface blank until the next app resume.
+- **Fixed (Audit 73 — Reconnect):** Banners, MRECs and native ads that failed
+  while offline are now proactively re-requested on network restoration via
+  `AdMobAdapter.recoverInlineAdsAfterReconnect()`. Previously `preloadBanner` was a
+  no-op on AdMob and the mounted widget stayed `_allowed == true`, so reconnect
+  refill scans only covered fullscreen formats and left failed inline placements
+  blank until app resume.
+- **Fixed (Audit 73 — VIP Expiry & Resume Consent Lock):** `VipManager` expiry is
+  now re-evaluated on app resume (`recheckExpiry()`) to handle device sleep/suspension
+  where Dart timers do not advance. Pending timers are cancelled before rescheduling
+  to prevent orphaned timers on frequent resumes. All ad requests are strictly
+  fail-closed during active resume consent re-checks (`_resumeConsentBlocked`),
+  ensuring expired VIP cannot fire ad preloads under stale consent. Fullscreen slots
+  are refilled immediately upon consent unlock.
 - **Fixed (Audit 73 — Concurrent Consent Race):** Fixed a race where a concurrent
   host `setConsent()` native write that outlasted the resume consent check could
   cause mounted `BannerAdWidget`s to remain unrequested. `AdManager` now bumps
   `initRevision` after the provider tail write lands so mounted widgets receive a
   reliable retry signal once the gate is definitively open.
-- **Testing:** Added 3 new regression tests verifying no ad requests fire during
-  pending consent re-checks, full slot refill post-unlock, and proper widget
-  recovery across concurrent native consent writes.
+- **Fixed (Audit 73 — Show Failure):** AdMob show-failure paths (interstitial,
+  rewarded, rewarded-interstitial, app open) now clear `lastErrorAt` on the slot
+  so the subsequent refill request is not rejected by the 15 s load backoff window
+  armed by `markShowFailed()`, establishing parity with AppLovin's reload behavior.
+  Consecutive failure counts are preserved so genuine load failures still back off.
+- **Testing:** Added 7 unit and widget test suites covering all round 73 fixes
+  with confirmed mutation proofs. Verified on physical devices: full 135-file suite
+  passed on TECNO KJ7, verified with real hosted package download from pub.dev.
+
+## [3.4.4-pre.2] - 2026-10-08
+
+- Prerelease validation for the consent resume lock fix and concurrent consent race fix.
 
 ## [3.4.4-pre.1] - 2026-10-08
 
