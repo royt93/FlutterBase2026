@@ -6,7 +6,40 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-## [3.4.3] - 2026-10-05
+## [3.4.4-pre.1] - 2026-10-08
+
+- **Fixed (Audit 73 — Consent):** `AdManager.setDoNotSell()` called after SDK
+  initialization now passes `config: _config ?? _lastKnownConfig` into
+  `ConsentManager.set()`. Previously `config` was omitted, causing
+  `applyConsentToProviders()` to invoke AdMob's `updateRequestConfiguration` with
+  an empty `testDeviceIds` list and default age tags (the native method replaces
+  the entire configuration), which wiped QA fleet and host test devices and dropped
+  `tagForUnderAgeOfConsent`.
+- **Fixed (Audit 73 — Banner/MREC):** AdMob banner and MREC `onAdFailedToLoad`
+  callbacks now preserve the live on-screen ad and keep the slot `ready` when the
+  failure comes from an auto-refresh cycle (`slot.isReady && isLoaded`). Previously,
+  every failure callback was treated as a first-load failure, disposing the live
+  ad and leaving the surface blank until the next app resume.
+- **Fixed (Audit 73 — Reconnect):** Banners, MRECs and native ads that failed
+  while offline are now proactively re-requested on network restoration via
+  `AdMobAdapter.recoverInlineAdsAfterReconnect()`. Previously `preloadBanner` was a
+  no-op on AdMob and the mounted widget stayed `_allowed == true`, so reconnect
+  refill scans only covered fullscreen formats and left failed inline placements
+  blank until app resume.
+- **Fixed (Audit 73 — VIP Expiry):** `VipManager` expiry is now re-evaluated on
+  app resume (`recheckExpiry()`) to handle device sleep/suspension where Dart timers
+  do not advance. Pending timers are cancelled before rescheduling to prevent
+  orphaned timers on frequent resumes. Re-evaluation in `AdManager` is ordered
+  strictly after resume consent re-check settles, ensuring expired VIP does not
+  fire ad preloads under stale or unconfirmed consent.
+- **Fixed (Audit 73 — Show Failure):** AdMob show-failure paths (interstitial,
+  rewarded, rewarded-interstitial, app open) now clear `lastErrorAt` on the slot
+  so the subsequent refill request is not rejected by the 15 s load backoff window
+  armed by `markShowFailed()`, establishing parity with AppLovin's reload behavior.
+  Consecutive failure counts are preserved so genuine load failures still back off.
+- **Testing:** Added 7 unit and widget test suites covering all round 73 fixes
+  with confirmed mutation proofs. Updated integration tests on Android to verify
+  real native ad fills, TFUA preservation, and in-flight network loss recovery.
 
 - **Fixed (Audit 76):** `AdMobAdapter` App Open, interstitial, rewarded and
   rewarded-interstitial load callbacks now ignore a result that lands while the
