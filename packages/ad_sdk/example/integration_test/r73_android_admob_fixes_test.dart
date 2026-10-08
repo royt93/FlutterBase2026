@@ -5,6 +5,8 @@ import 'dart:async';
 import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
+import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -171,6 +173,73 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(AdManager().isVIPMember(), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('real VIP expiry waits for resume consent before native ad loads',
+      (tester) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+    final manager = AdManager();
+    final vip = manager.vip!;
+    final adapter = manager.adapter as AdMobAdapter;
+    await vip.revokeAll();
+    markCustomOverlayOnScreen(true);
+    addTearDown(() => markCustomOverlayOnScreen(false));
+    await manager.loadInterstitial();
+    for (var i = 0; i < 120; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+      if (![adapter.appOpenSlot, adapter.interstitialSlot,
+          adapter.rewardedSlot, adapter.rewardedInterstitialSlot]
+          .any((slot) => slot.isLoading)) break;
+    }
+    expect(adapter.interstitialSlot.isReady, isTrue,
+        reason: 'initial native interstitial must have filled');
+    await adapter.discardCachedFullscreenAds();
+    expect(adapter.interstitialSlot.isIdle, isTrue);
+    await vip.addVip(key: 'R73_GATE', duration: const Duration(seconds: 2));
+    final entered = Completer<void>();
+    final releaseRead = Completer<void>();
+    final snapshot = SharedPreferencesAsync();
+    IabStorage.debugOpenOverride = () async {
+      if (!entered.isCompleted) entered.complete();
+      await releaseRead.future;
+      return snapshot;
+    };
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = 'plugins.flutter.io/google_mobile_ads';
+    final codec = StandardMethodCodec(AdMessageCodec());
+    final loads = <String>[];
+    messenger.setMockMessageHandler(channel, (message) async {
+      final call = codec.decodeMethodCall(message!);
+      if (call.method.startsWith('load') && call.method.endsWith('Ad')) {
+        loads.add(call.method);
+      }
+      return messenger.delegate.send(channel, message);
+    });
+    addTearDown(() async {
+      IabStorage.debugOpenOverride = null;
+      if (!releaseRead.isCompleted) releaseRead.complete();
+      messenger.setMockMessageHandler(channel, null);
+      await vip.revokeVip('R73_GATE');
+    });
+    manager.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    for (var i = 0; i < 20 && !entered.isCompleted; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(entered.isCompleted, isTrue, reason: 'consent check must be pending');
+    await tester.pump(const Duration(seconds: 3));
+    expect(vip.isActive, isFalse, reason: 'the real expiry timer must fire');
+    expect(manager.canRequestAds, isFalse);
+    expect(manager.canRequestAdsListenable.value, isFalse);
+    expect(loads, isEmpty, reason: 'no native requests under unconfirmed consent');
+    releaseRead.complete();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(manager.canRequestAds, isTrue);
+    expect(loads, isNotEmpty, reason: 'VIP-held fullscreen slots must refill');
+    expect(adapter.interstitialSlot.isLoading || adapter.interstitialSlot.isReady,
+        isTrue);
     expect(tester.takeException(), isNull);
   });
 

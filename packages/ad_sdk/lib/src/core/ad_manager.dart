@@ -2606,8 +2606,13 @@ class AdManager with WidgetsBindingObserver {
     // immediately after calling this.
     _pessimisticGateClose = false;
     _canRequestAds = value;
-    if (_canRequestAdsNotifier.value != value) {
-      _canRequestAdsNotifier.value = value;
+    _syncCanRequestAdsNotifier();
+  }
+
+  void _syncCanRequestAdsNotifier() {
+    final allowed = _canRequestAds && !_resumeConsentBlocked;
+    if (_canRequestAdsNotifier.value != allowed) {
+      _canRequestAdsNotifier.value = allowed;
     }
   }
 
@@ -2658,13 +2663,18 @@ class AdManager with WidgetsBindingObserver {
   /// nothing persists it past that single call frame.
   bool _consentProviderApplyInFlight = false;
 
+  // A timed-out resume stays blocked until a later resume confirms consent.
+  bool _resumeConsentBlocked = false;
+  int _resumeConsentCheckGen = 0;
+
   /// See [_canRequestAds] / [_footgunBlocked] / [_testIdFootgunBlocked] /
   /// [_consentProviderApplyInFlight].
   bool get canRequestAds =>
       _canRequestAds &&
       !_footgunBlocked &&
       !_testIdFootgunBlocked &&
-      !_consentProviderApplyInFlight;
+      !_consentProviderApplyInFlight &&
+      !_resumeConsentBlocked;
 
   /// True when ANY fullscreen surface already owns the screen — an App Open,
   /// interstitial or rewarded ad, the SDK's own loading buffer, or a host
@@ -5126,6 +5136,7 @@ class AdManager with WidgetsBindingObserver {
     // the revision is exactly the "re-attempt init, but only where there is no
     // ad" signal those widgets already implement.
     initRevision.value++;
+    if (!canRequestAds) return;
     unawaited(loadAppOpenAd());
     unawaited(loadInterstitial());
     unawaited(loadRewardedAd());
@@ -5478,6 +5489,8 @@ class AdManager with WidgetsBindingObserver {
     // (and everything the host reads back) correctly reflected the newer
     // call. Captured once here, checked before the tail write.
     final consentEpoch = _consentIntentEpoch;
+    final consentSession = _consentSessionEpoch;
+    final consentAdapter = _adapter;
     // MJ7 — capture this BEFORE the assignment below: the AppLovin COPPA check
     // further down needs the value the provider was actually initialised with,
     // and `_consent` is overwritten on the next line.
@@ -5679,6 +5692,14 @@ class AdManager with WidgetsBindingObserver {
     // lose here too (round-38 MAJOR fix).
     if (consentEpoch == _consentIntentEpoch) {
       _adapter?.applyConsent(consent);
+      // Resume's reopen notification may have landed during this native write.
+      if (tighteningPersonalisation &&
+          consentSession == _consentSessionEpoch &&
+          identical(_adapter, consentAdapter) &&
+          isInitialised &&
+          canRequestAds) {
+        initRevision.value++;
+      }
     }
     // N2 — the footgun block just cleared and ads may already be running;
     // refill slots that were held back while it was blocked.
@@ -7194,6 +7215,8 @@ class AdManager with WidgetsBindingObserver {
     // itself instead of writing a dead session's answer over a new one.
     _consentIntentEpoch++;
     _consentSessionEpoch++;
+    _resumeConsentCheckGen++;
+    _resumeConsentBlocked = false;
     _pendingConsentApply = null;
     _lastHostConsentIntent = null;
     // Round-13 QC (round 4), MAJOR — a consent write that is still hanging at
@@ -7418,6 +7441,8 @@ class AdManager with WidgetsBindingObserver {
   // could later fire markSplashInactive() or an app-open show against the
   // freshly re-initialized adapter.
   void _resetGuardState() {
+    _resumeConsentCheckGen++;
+    _resumeConsentBlocked = false;
     _invalidateCoalescedLoads();
     _footgunBlocked = false;
     // Round-46 audit fix (R46-02) — a fresh initialize() re-evaluates this
@@ -9371,6 +9396,12 @@ class AdManager with WidgetsBindingObserver {
   /// withdrawn is a compliance violation, while a skipped banner refresh and
   /// App Open costs one resume and is retried on the next one.
   Future<void> _resumeAdWorkAfterConsent(AdProviderAdapter ad) async {
+    final checkGen = ++_resumeConsentCheckGen;
+    final session = _consentSessionEpoch;
+    final vip = _vipManager;
+    final wasVip = vip?.isActive == true;
+    _resumeConsentBlocked = true;
+    _syncCanRequestAdsNotifier();
     // Round-72 audit follow-up (2nd independent review) — read-site guard,
     // same reason as debugConsentGateRecoveryRetryDelay above: annotation
     // alone doesn't stop a release build from reading this override.
@@ -9382,16 +9413,24 @@ class AdManager with WidgetsBindingObserver {
       await _recheckConsentOnResume().timeout(timeout);
     } on TimeoutException {
       SafeLogger.w(
-          _tag,
-          'resume consent re-check did not settle in ${timeout.inSeconds}s — '
-          'skipping ad work for this resume rather than risking a fill under '
-          'stale consent');
+        _tag,
+        'resume consent re-check did not settle in ${timeout.inSeconds}s — '
+        'skipping ad work for this resume rather than risking a fill under '
+        'stale consent',
+      );
       return;
     } catch (e, st) {
       SafeLogger.e(
-          _tag,
-          '_recheckConsentOnResume threw: $e\n$st — skipping ad work for this '
-          'resume, the consent state could not be confirmed');
+        _tag,
+        '_recheckConsentOnResume threw: $e\n$st — skipping ad work for this '
+        'resume, the consent state could not be confirmed',
+      );
+      return;
+    }
+    if (checkGen != _resumeConsentCheckGen ||
+        session != _consentSessionEpoch ||
+        !identical(_adapter, ad) ||
+        !isInitialised) {
       return;
     }
     // Round-13 QC (round 13), MAJOR — a resume is a free second chance for a
@@ -9399,17 +9438,20 @@ class AdManager with WidgetsBindingObserver {
     // the app was backgrounded is usually not wedged any more). Returns
     // immediately when nothing is owed, which is every ordinary resume.
     _consentGateRecoveryAttempts = 0;
-    unawaited(_recoverConsentGate().catchError((Object e) {
-      SafeLogger.w(_tag, '_recoverConsentGate threw on resume: $e');
-    }));
+    unawaited(
+      _recoverConsentGate().catchError((Object e) {
+        SafeLogger.w(_tag, '_recoverConsentGate threw on resume: $e');
+      }),
+    );
     // A late-dismiss apply may still be mid-write (see
     // [_applyPrivacyOptionsResult]); its answer is newer than anything we
     // could show, so let it land and pick the ads up on the next resume.
     if (_consentApplyRunning) {
       SafeLogger.w(
-          _tag,
-          'a consent apply is still in flight on resume — skipping ad work '
-          'until it has landed');
+        _tag,
+        'a consent apply is still in flight on resume — skipping ad work '
+        'until it has landed',
+      );
       return;
     }
     // Round-13 QC (round 4), MAJOR — `destroy()` + re-initialise can swap the
@@ -9418,16 +9460,28 @@ class AdManager with WidgetsBindingObserver {
     // this resume is simply dropped: the new adapter gets its own resume.
     if (!identical(_adapter, ad)) {
       SafeLogger.w(
-          _tag,
-          'the adapter was replaced while the resume consent re-check was in '
-          'flight — dropping the ad work for this resume');
+        _tag,
+        'the adapter was replaced while the resume consent re-check was in '
+        'flight — dropping the ad work for this resume',
+      );
       return;
     }
-    // Round-73 audit fix (regression follow-up) — re-evaluate VIP expiry AFTER
-    // the resume consent re-check has settled and the adapter is verified, so
-    // that an expired VIP does not fire ad preloads under stale or unconfirmed
-    // consent (which would violate the Round-13 QC BLOCKER rule).
+    _resumeConsentBlocked = false;
     _vipManager?.recheckExpiry();
+    if (checkGen != _resumeConsentCheckGen ||
+        session != _consentSessionEpoch ||
+        !identical(_adapter, ad)) {
+      return;
+    }
+    _syncCanRequestAdsNotifier();
+    if (checkGen != _resumeConsentCheckGen ||
+        session != _consentSessionEpoch ||
+        !identical(_adapter, ad)) {
+      return;
+    }
+    if (wasVip && identical(_vipManager, vip) && !_isVipMember) {
+      _retryRefillAds();
+    }
     try {
       ad.onAppResumed();
     } catch (e, st) {

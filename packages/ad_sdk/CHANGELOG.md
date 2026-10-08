@@ -6,6 +6,24 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.4.4-pre.2] - 2026-10-08
+
+- **Fixed (Audit 73 — Consent Resume Lock):** In `3.4.4-pre.1`, if a VIP window
+  expired while the app was backgrounded and the resume consent re-check took
+  longer to settle than the VIP timer's remaining duration, ad preloads were
+  fired immediately upon timer expiry before consent was confirmed. All ad
+  requests are now fail-closed during the active resume consent re-check window
+  (`_resumeConsentBlocked`). Once the check settles cleanly, any VIP-suppressed
+  slots are refilled immediately without waiting for the 5-minute periodic scan.
+- **Fixed (Audit 73 — Concurrent Consent Race):** Fixed a race where a concurrent
+  host `setConsent()` native write that outlasted the resume consent check could
+  cause mounted `BannerAdWidget`s to remain unrequested. `AdManager` now bumps
+  `initRevision` after the provider tail write lands so mounted widgets receive a
+  reliable retry signal once the gate is definitively open.
+- **Testing:** Added 3 new regression tests verifying no ad requests fire during
+  pending consent re-checks, full slot refill post-unlock, and proper widget
+  recovery across concurrent native consent writes.
+
 ## [3.4.4-pre.1] - 2026-10-08
 
 - **Fixed (Audit 73 — Consent):** `AdManager.setDoNotSell()` called after SDK

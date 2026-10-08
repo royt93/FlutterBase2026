@@ -339,6 +339,9 @@ class _FakeVip implements VipManager {
   void resyncSessionClock() {}
 
   @override
+  void recheckExpiry() {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
