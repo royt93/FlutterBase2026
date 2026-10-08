@@ -5736,7 +5736,10 @@ class AdManager with WidgetsBindingObserver {
       );
       return;
     }
-    await mgr.set(mgr.current.copyWith(doNotSell: value));
+    // AdMob's updateRequestConfiguration REPLACES the global config, so omit
+    // `config` and the test devices + TFUA tag are wiped (round-73 audit).
+    await mgr.set(mgr.current.copyWith(doNotSell: value),
+        config: _config ?? _lastKnownConfig);
   }
 
   /// Current CCPA "Do Not Sell" choice — `false` (default/unset) until the
@@ -9722,6 +9725,8 @@ class AdManager with WidgetsBindingObserver {
       // widget mount only), so there's nothing to refill there.
       unawaited(
           _adapter?.preloadMrec(_globalMrecWarmupKey) ?? Future<void>.value());
+      final admob = _adapter;
+      if (admob is AdMobAdapter) admob.recoverInlineAdsAfterReconnect();
       initRevision.value = initRevision.value + 1;
     });
   }

@@ -1070,7 +1070,7 @@ class AdMobAdapter
           }
           SafeLogger.w(_logTag, 'showAppOpen $tag ❌ display failed: $message');
           _disposeAd(ad, 'appOpen-show-fail');
-          appOpenSlot.markShowFailed();
+          _showFailedThenReloadable(appOpenSlot);
           final cb = _appOpenDismiss;
           _appOpenDismiss = null;
           cb?.call(false);
@@ -1102,7 +1102,7 @@ class AdMobAdapter
       // disposing leaks the native ad. Reachable: gma_bridge awaits
       // setServerSideOptions() before show, and a platform call can throw.
       _disposeAd(ad, 'appOpen-show-threw');
-      appOpenSlot.markShowFailed();
+      _showFailedThenReloadable(appOpenSlot);
       final cb = _appOpenDismiss;
       _appOpenDismiss = null;
       cb?.call(false);
@@ -1420,7 +1420,7 @@ class AdMobAdapter
               _logTag, 'showInterstitial $tag ❌ display failed: $message');
           if (identical(_interstitialAd, ad)) _interstitialAd = null;
           _disposeAd(ad, 'inter-show-fail');
-          interstitialSlot.markShowFailed();
+          _showFailedThenReloadable(interstitialSlot);
           final cb = _interstitialDone;
           _interstitialDone = null;
           cb?.call(false);
@@ -1448,7 +1448,7 @@ class AdMobAdapter
       // MJ25 — dispose, don't just forget: `ad` is the last reference.
       if (identical(_interstitialAd, ad)) _interstitialAd = null;
       _disposeAd(ad, 'interstitial-show-threw');
-      interstitialSlot.markShowFailed();
+      _showFailedThenReloadable(interstitialSlot);
       final cb = _interstitialDone;
       _interstitialDone = null;
       cb?.call(false);
@@ -1481,7 +1481,7 @@ class AdMobAdapter
       interstitialSlot.markDismissed();
       cb?.call(true);
     } else {
-      interstitialSlot.markShowFailed();
+      _showFailedThenReloadable(interstitialSlot);
       cb?.call(false);
     }
   }
@@ -1719,7 +1719,7 @@ class AdMobAdapter
                   _logTag, 'showRewarded $tag ❌ display failed: $message');
               if (identical(_rewardedAd, ad)) _rewardedAd = null;
               _disposeAd(ad, 'rewarded-show-fail');
-              rewardedSlot.markShowFailed();
+              _showFailedThenReloadable(rewardedSlot);
               fire(RewardResult.skipped);
             },
             onClicked: () {
@@ -1764,7 +1764,7 @@ class AdMobAdapter
       // MJ25 — dispose, don't just forget: `ad` is the last reference.
       if (identical(_rewardedAd, ad)) _rewardedAd = null;
       _disposeAd(ad, 'rewarded-show-threw');
-      rewardedSlot.markShowFailed();
+      _showFailedThenReloadable(rewardedSlot);
       fire(RewardResult.skipped);
     }
   }
@@ -2004,7 +2004,7 @@ class AdMobAdapter
                 _rewardedInterstitialAd = null;
               }
               _disposeAd(ad, 'rewardedInterstitial-show-fail');
-              rewardedInterstitialSlot.markShowFailed();
+              _showFailedThenReloadable(rewardedInterstitialSlot);
               fire(RewardResult.skipped);
             },
             onClicked: () {
@@ -2047,7 +2047,7 @@ class AdMobAdapter
         _rewardedInterstitialAd = null;
       }
       _disposeAd(ad, 'rewardedInterstitial-show-threw');
-      rewardedInterstitialSlot.markShowFailed();
+      _showFailedThenReloadable(rewardedInterstitialSlot);
       fire(RewardResult.skipped);
     }
   }
@@ -2075,7 +2075,7 @@ class AdMobAdapter
       rewardedSlot.markDismissed();
       cb?.call(RewardResult.skipped);
     } else {
-      rewardedSlot.markShowFailed();
+      _showFailedThenReloadable(rewardedSlot);
       cb?.call(RewardResult.skipped);
     }
   }
@@ -2229,6 +2229,15 @@ class AdMobAdapter
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
             if (!_bannerRegistry.isCurrent(key, slot)) return;
+            // Round-73 audit — GMA auto-refreshes a live ad and reports a
+            // refresh no-fill through this same callback, but keeps showing
+            // the previous creative. Tearing it down here blanks a good ad
+            // until the next app resume.
+            if (slot.isReady && listenables.isLoaded.value) {
+              SafeLogger.d(_logTag,
+                  'loadBanner $tag refresh failed ${err.code} — keeping live ad');
+              return;
+            }
             SafeLogger.w(_logTag, 'loadBanner $tag ❌ ${err.code}');
             try {
               ad.dispose();
@@ -2415,6 +2424,15 @@ class AdMobAdapter
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
             if (!_mrecRegistry.isCurrent(key, slot)) return;
+            // Round-73 audit — GMA auto-refreshes a live ad and reports a
+            // refresh no-fill through this same callback, but keeps showing
+            // the previous creative. Tearing it down here blanks a good ad
+            // until the next app resume.
+            if (slot.isReady && listenables.isLoaded.value) {
+              SafeLogger.d(_logTag,
+                  'loadMrec $tag refresh failed ${err.code} — keeping live ad');
+              return;
+            }
             SafeLogger.w(_logTag, 'loadMrec $tag ❌ ${err.code}');
             try {
               ad.dispose();
@@ -2670,6 +2688,56 @@ class AdMobAdapter
       for (final l in _mrecRegistry.listenablesList) {
         _inlineVisibility.hide(l, InlineHideReason.background);
       }
+    }
+  }
+
+  /// Round-73 audit — a SHOW failure leaves a healthy load path and a spent ad,
+  /// so the refill that follows must not wait out the backoff window that
+  /// [AdSlot.markShowFailed] just armed (up to the 5-minute retry timer).
+  /// AppLovin gets this through `beginReload()`; here the slot's own stamp is
+  /// cleared once, and the failure COUNT is kept so repeated failures still
+  /// back off normally once a load fails.
+  void _showFailedThenReloadable(AdSlot slot) {
+    slot.markShowFailed();
+    slot.lastErrorAt = null;
+  }
+
+  /// Round-73 audit — reconnect recovery for inline formats. `preloadBanner`
+  /// is a no-op on AdMob (loads happen on widget mount), and a mounted widget
+  /// whose first load failed offline keeps `_allowed == true`, so neither the
+  /// reconnect `initRevision` bump nor the refill scan ever re-requested it:
+  /// the placement stayed blank until the next app resume.
+  ///
+  /// The failure backoff was stamped while offline, so it is cleared here —
+  /// reconnect is a one-shot event, not a retry loop (AdManager debounces it).
+  void recoverInlineAdsAfterReconnect() {
+    if (!canReload()) return;
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+    final view = dispatcher.implicitView ??
+        (dispatcher.views.isNotEmpty ? dispatcher.views.first : null);
+    for (final key in _bannerRegistry.listenablesKeys.toList()) {
+      final l = _bannerRegistry.listenablesByKey(key)!;
+      if (!l.needsRecovery || _bannerAdsByKey.containsKey(key)) continue;
+      if (view == null) continue;
+      _bannerRegistry.slotFor(key).lastErrorAt = null;
+      l.hasError.value = false;
+      loadBannerIfNeeded(key, view.physicalSize.width / view.devicePixelRatio);
+    }
+    for (final key in _mrecRegistry.listenablesKeys.toList()) {
+      final l = _mrecRegistry.listenablesByKey(key)!;
+      if (!l.needsRecovery || _mrecAdsByKey.containsKey(key)) continue;
+      _mrecRegistry.slotFor(key).lastErrorAt = null;
+      l.hasError.value = false;
+      loadMrecIfNeeded(key, 0);
+    }
+    for (final key in _nativeRegistry.listenablesKeys.toList()) {
+      final l = _nativeRegistry.listenablesByKey(key)!;
+      if (!l.needsRecovery || _nativeAdsByKey.containsKey(key)) continue;
+      _nativeRegistry.slotFor(key).lastErrorAt = null;
+      l.hasError.value = false;
+      preloadNative(key,
+          templateType: _nativeTemplateTypeByKey[key] ?? TemplateType.medium,
+          factoryId: _nativeFactoryIdByKey[key]);
     }
   }
 

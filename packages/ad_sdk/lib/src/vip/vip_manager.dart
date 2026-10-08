@@ -421,6 +421,11 @@ class VipManager {
   void resyncSessionClock() {
     _sessionAnchorRealMs = DateTime.now().millisecondsSinceEpoch;
     _sessionClockStopwatch = Stopwatch()..start();
+    // Round-73 audit — the expiry Timer does not advance while the device is
+    // suspended, so a window that ended during sleep stayed active until the
+    // timer finally fired. Resume is the moment to re-evaluate. Runs through
+    // the same funnel as the timer, so the clock rules are unchanged.
+    if (!_disposed) _handleExpiry();
   }
 
   /// Read-only snapshot of all entries (for UI listing).

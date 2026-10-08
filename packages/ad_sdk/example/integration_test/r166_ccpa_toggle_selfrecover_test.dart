@@ -59,7 +59,7 @@ void main() {
     // background, while the toggle is already mounted.
     AdManager().initialize(
       config: app.DemoConfig.instance.build(),
-      onComplete: (_, __) {},
+      onComplete: (_, _) {},
     );
 
     // Wait for real init to complete WHILE staying on this exact screen —

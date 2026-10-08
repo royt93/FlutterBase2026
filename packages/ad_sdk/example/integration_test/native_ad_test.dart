@@ -39,6 +39,10 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
+    // The 30 s first-install VIP grace suppresses every ad request; without
+    // this the test could pass with no ad ever loading (round-73 audit).
+    await AdManager().vip?.revokeAll();
+    await tester.pump();
 
     final tile = find.text('Native ad');
     var foundTile = false;
@@ -61,5 +65,12 @@ void main() {
     expect(find.text('Native demo'), findsOneWidget);
     expect(find.textContaining('Native ad v1: fixed layout'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    final adapter = AdManager().adapter!;
+    final ready = tester
+        .stateList(find.byType(NativeAdWidget))
+        .where((k) => adapter.nativeSlot(k).isReady)
+        .length;
+    expect(ready, greaterThan(0),
+        reason: 'at least one native placement must actually have loaded');
   });
 }

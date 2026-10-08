@@ -42,6 +42,10 @@ void main() {
     app.main();
     await tester.pump();
     await _waitForInit(tester);
+    // The 30 s first-install VIP grace suppresses every ad request; without
+    // this the test could pass with no ad ever loading (round-73 audit).
+    await AdManager().vip?.revokeAll();
+    await tester.pump();
 
     // Splash replaces itself with Home on the ROOT navigator — wait for a
     // Home landmark before navigating (pushing too early races that replace).
@@ -70,6 +74,15 @@ void main() {
     expect(find.text('Push another screen (verifies pause/resume)'),
         findsOneWidget);
     expect(tester.takeException(), isNull);
+    // Fill is Google's to give, but with VIP revoked and Google's test unit a
+    // placement that never even reaches `ready` means the load path is broken.
+    final adapter = AdManager().adapter!;
+    final ready = tester
+        .stateList(find.byType(BannerAdWidget))
+        .where((k) => adapter.bannerSlot(k).isReady)
+        .length;
+    expect(ready, greaterThan(0),
+        reason: 'at least one banner placement must actually have loaded');
 
     // Push the second screen — RouteAware should pause/hide the first
     // banner. Assert no crash while it's on top.
