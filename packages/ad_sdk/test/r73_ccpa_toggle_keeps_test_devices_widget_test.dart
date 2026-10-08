@@ -9,6 +9,8 @@ import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart'
+    show TagForUnderAgeOfConsent;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec;
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
@@ -40,6 +42,7 @@ const _config = AdConfig(
     testDeviceIds: ['host-device-1'],
   ),
   safety: AdSafetyParams(dryRun: true),
+  umpTagForUnderAgeOfConsent: true,
 );
 
 void main() {
@@ -49,8 +52,9 @@ void main() {
   final gmaCalls = <MethodCall>[];
 
   const connMethod = MethodChannel('dev.fluttercommunity.plus/connectivity');
-  const connStatus =
-      MethodChannel('dev.fluttercommunity.plus/connectivity_status');
+  const connStatus = MethodChannel(
+    'dev.fluttercommunity.plus/connectivity_status',
+  );
 
   setUp(() async {
     gmaCalls.clear();
@@ -93,16 +97,24 @@ void main() {
   });
 
   List<String> lastTestDevices() {
-    final calls =
-        gmaCalls.where((c) => c.method == 'MobileAds#updateRequestConfiguration');
+    final calls = gmaCalls.where(
+      (c) => c.method == 'MobileAds#updateRequestConfiguration',
+    );
     expect(calls, isNotEmpty);
+    for (final call in calls) {
+      expect(
+        call.arguments['tagForUnderAgeOfConsent'],
+        TagForUnderAgeOfConsent.yes,
+      );
+    }
     return List<String>.from(calls.last.arguments['testDeviceIds'] as List);
   }
 
   Widget host() => const MaterialApp(home: Scaffold(body: CcpaOptOutToggle()));
 
-  testWidgets('tapping the real toggle keeps host + QA test devices',
-      (tester) async {
+  testWidgets('tapping the real toggle keeps host + QA test devices', (
+    tester,
+  ) async {
     await tester.runAsync(() async {
       await AdManager().initialize(config: _config, onComplete: (_, _) {});
     });
@@ -112,8 +124,9 @@ void main() {
     gmaCalls.clear();
 
     await tester.tap(find.byType(Switch));
-    await tester.runAsync(() => Future<void>.delayed(
-        const Duration(milliseconds: 100)));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pump();
 
     expect(AdManager().doNotSell, isTrue, reason: 'sanity: the tap landed');
@@ -132,14 +145,16 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byType(Switch));
-    await tester.runAsync(() => Future<void>.delayed(
-        const Duration(milliseconds: 100)));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pump();
     gmaCalls.clear();
 
     await tester.tap(find.byType(Switch));
-    await tester.runAsync(() => Future<void>.delayed(
-        const Duration(milliseconds: 100)));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pump();
 
     expect(AdManager().doNotSell, isFalse);

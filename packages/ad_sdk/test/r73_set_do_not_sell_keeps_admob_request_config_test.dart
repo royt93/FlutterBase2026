@@ -8,6 +8,8 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart'
+    show TagForUnderAgeOfConsent;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec;
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
@@ -23,23 +25,24 @@ final _gmaChannel = MethodChannel(
   StandardMethodCodec(AdMessageCodec()),
 );
 
-AdConfig _config() => const AdConfig(
-      provider: AdProvider.appLovin,
-      appLovin: AppLovinConfig(
-        sdkKey: 'test-sdk-key',
-        bannerId: 'banner-id',
-        interstitialId: 'interstitial-id',
-        appOpenId: 'appopen-id',
-        rewardedId: 'rewarded-id',
-      ),
-      admob: AdMobConfig(
-        bannerId: 'b',
-        interstitialId: 'i',
-        appOpenId: 'ao',
-        testDeviceIds: ['host-device-1'],
-      ),
-      safety: AdSafetyParams(dryRun: true),
-    );
+AdConfig _config({bool underAge = false}) => AdConfig(
+  provider: AdProvider.appLovin,
+  appLovin: AppLovinConfig(
+    sdkKey: 'test-sdk-key',
+    bannerId: 'banner-id',
+    interstitialId: 'interstitial-id',
+    appOpenId: 'appopen-id',
+    rewardedId: 'rewarded-id',
+  ),
+  admob: AdMobConfig(
+    bannerId: 'b',
+    interstitialId: 'i',
+    appOpenId: 'ao',
+    testDeviceIds: ['host-device-1'],
+  ),
+  safety: const AdSafetyParams(dryRun: true),
+  umpTagForUnderAgeOfConsent: underAge,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -89,29 +92,41 @@ void main() {
   });
 
   List<String> lastTestDeviceIds() {
-    final calls = gmaCalls
-        .where((c) => c.method == 'MobileAds#updateRequestConfiguration');
-    expect(calls, isNotEmpty,
-        reason: 'the post-init call must reach AdMob at all');
+    final calls = gmaCalls.where(
+      (c) => c.method == 'MobileAds#updateRequestConfiguration',
+    );
+    expect(
+      calls,
+      isNotEmpty,
+      reason: 'the post-init call must reach AdMob at all',
+    );
     return List<String>.from(calls.last.arguments['testDeviceIds'] as List);
   }
 
-  test('post-init setDoNotSell keeps host + QA test devices registered',
-      () async {
-    await AdManager().initialize(config: _config(), onComplete: (_, _) {});
-    expect(AdManager().isInitialised, isTrue);
-    gmaCalls.clear();
+  test(
+    'post-init setDoNotSell keeps host + QA test devices registered',
+    () async {
+      await AdManager().initialize(config: _config(), onComplete: (_, _) {});
+      expect(AdManager().isInitialised, isTrue);
+      gmaCalls.clear();
 
-    await AdManager().setDoNotSell(true);
+      await AdManager().setDoNotSell(true);
 
-    final ids = lastTestDeviceIds();
-    expect(ids, contains('host-device-1'),
-        reason: 'host test device must survive a CCPA toggle');
-    for (final hash in kQaTestDeviceHashes) {
-      expect(ids, contains(hash),
-          reason: 'always-on QA fleet must survive a CCPA toggle');
-    }
-  });
+      final ids = lastTestDeviceIds();
+      expect(
+        ids,
+        contains('host-device-1'),
+        reason: 'host test device must survive a CCPA toggle',
+      );
+      for (final hash in kQaTestDeviceHashes) {
+        expect(
+          ids,
+          contains(hash),
+          reason: 'always-on QA fleet must survive a CCPA toggle',
+        );
+      }
+    },
+  );
 
   test('toggling CCPA back off also keeps the test devices', () async {
     await AdManager().initialize(config: _config(), onComplete: (_, _) {});
@@ -122,4 +137,31 @@ void main() {
 
     expect(lastTestDeviceIds(), contains('host-device-1'));
   });
+
+  for (final underAge in [true, false]) {
+    test('CCPA toggles preserve TFUA when underAge=$underAge', () async {
+      await AdManager().initialize(
+        config: _config(underAge: underAge),
+        onComplete: (_, _) {},
+      );
+      expect(AdManager().isInitialised, isTrue);
+      for (final optOut in [true, false]) {
+        gmaCalls.clear();
+        await AdManager().setDoNotSell(optOut);
+        final updates = gmaCalls.where(
+          (call) => call.method == 'MobileAds#updateRequestConfiguration',
+        );
+        expect(updates, isNotEmpty);
+        for (final call in updates) {
+          expect(
+            call.arguments['tagForUnderAgeOfConsent'],
+            underAge
+                ? TagForUnderAgeOfConsent.yes
+                : TagForUnderAgeOfConsent.unspecified,
+          );
+          expect(call.arguments['testDeviceIds'], contains('host-device-1'));
+        }
+      }
+    });
+  }
 }

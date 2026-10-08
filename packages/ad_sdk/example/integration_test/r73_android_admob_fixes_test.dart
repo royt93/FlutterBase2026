@@ -1,11 +1,4 @@
-// Round-73 audit — on-device proof for the Android + AdMob fixes. Boots the
-// real example app and reads results back from the NATIVE side where possible.
-//
-//   1. setDoNotSell() after init must not wipe AdMob's test-device list
-//      (read back from the real Google Mobile Ads SDK, not from a log line).
-//   2. A VIP window that ended while timers were suspended must end on resume.
-//   3. Banner reconnect recovery on a real network loss — opt-in, needs the
-//      harness that toggles the device network (RUN_REAL_NETWORK_TEST).
+// Real native loads; callback/timer seams drive errors that cannot be forced reliably.
 
 import 'dart:async';
 
@@ -13,7 +6,11 @@ import 'package:ad_sdk_example/main.dart' as app;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show AdMessageCodec;
 import 'package:integration_test/integration_test.dart';
 
 Future<void> _waitForInit(WidgetTester tester) async {
@@ -78,6 +75,66 @@ void main() {
     await AdManager().setDoNotSell(false);
     await tester.pump(const Duration(milliseconds: 500));
     expect(lastAppliedTestDevices(), baseline);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('CCPA preserves TFUA in requests forwarded to native Android', (
+    tester,
+  ) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+    final manager = AdManager();
+    final originalConfig = manager.config!;
+    final originalConsent = manager.consentManager!.current;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = 'plugins.flutter.io/google_mobile_ads';
+    final codec = StandardMethodCodec(AdMessageCodec());
+    final updates = <Map<dynamic, dynamic>>[];
+    // Inspect outgoing payloads, but execute every call on the real plugin.
+    messenger.setMockMessageHandler(channel, (message) async {
+      final call = codec.decodeMethodCall(message!);
+      final response = await messenger.delegate.send(channel, message);
+      if (call.method == 'MobileAds#updateRequestConfiguration') {
+        codec.decodeEnvelope(response!);
+        updates.add(Map<dynamic, dynamic>.from(call.arguments as Map));
+      }
+      return response;
+    });
+    addTearDown(() async {
+      messenger.setMockMessageHandler(channel, null);
+      manager.debugConfig = originalConfig;
+      await manager.consentManager!.set(
+        originalConsent,
+        config: originalConfig,
+      );
+    });
+
+    for (final underAge in [true, false]) {
+      final config = AdConfig(
+        provider: originalConfig.provider,
+        admob: originalConfig.admob,
+        umpTagForUnderAgeOfConsent: underAge,
+      );
+      manager.debugConfig = config;
+      await manager.consentManager!.applyToProviders(config: config);
+      final expectedDevices = config.admob!.effectiveTestDeviceIds;
+      for (final optOut in [true, false]) {
+        updates.clear();
+        await manager.setDoNotSell(optOut);
+        expect(updates, isNotEmpty);
+        for (final update in updates) {
+          expect(
+            update['tagForUnderAgeOfConsent'],
+            underAge
+                ? TagForUnderAgeOfConsent.yes
+                : TagForUnderAgeOfConsent.unspecified,
+          );
+          expect(update['testDeviceIds'], containsAll(expectedDevices));
+        }
+      }
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -161,45 +218,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a refresh failure on a live banner keeps it (real adapter)', (
-    tester,
-  ) async {
-    app.main();
-    await tester.pump();
-    await _waitForInit(tester);
-    await AdManager().vip?.revokeAll();
-    await tester.pump(const Duration(milliseconds: 300));
+  for (final mrec in [false, true]) {
+    testWidgets(
+      'refresh no-fill preserves a real ${mrec ? "MREC" : "banner"}',
+      (tester) async {
+        app.main();
+        await tester.pump();
+        await _waitForInit(tester);
+        await AdManager().vip?.revokeAll();
+        final tile = find.text(mrec ? 'MREC ad' : 'Banner ad');
+        for (var i = 0; i < 40 && tile.evaluate().isEmpty; i++) {
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        expect(tile, findsOneWidget);
+        await tester.tap(tile);
+        final widgets = find.byType(mrec ? MrecAdWidget : BannerAdWidget);
+        for (var i = 0; i < 40 && widgets.evaluate().isEmpty; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        final key = tester.stateList(widgets).first;
+        final adapter = AdManager().adapter as AdMobAdapter;
+        final slot = mrec ? adapter.mrecSlot(key) : adapter.bannerSlot(key);
+        final listenables = mrec ? adapter.mrec(key) : adapter.banner(key);
+        for (var i = 0; i < 120 && !slot.isReady; i++) {
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        expect(
+          slot.isReady,
+          isTrue,
+          reason: 'a real ad must fill before refresh',
+        );
+        await tester.pump();
+        AdWidget view() {
+          final container =
+              (mrec
+                      ? adapter.buildAdmobMrecView(key)
+                      : adapter.buildAdmobBannerView(key))
+                  as SizedBox;
+          return container.child! as AdWidget;
+        }
 
-    final tile = find.text('Banner ad');
-    for (var i = 0; i < 40 && tile.evaluate().isEmpty; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-    await tester.tap(tile);
-    for (var i = 0; i < 40; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-
-    final adapter = AdManager().adapter;
-    expect(adapter, isNotNull);
-    expect(find.byType(BannerAdWidget), findsWidgets);
-    final keys = tester
-        .stateList(find.byType(BannerAdWidget))
-        .toList(growable: false);
-    var kept = 0;
-    for (final key in keys) {
-      final slot = adapter!.bannerSlot(key);
-      if (!slot.isReady) continue; // no fill on this run — nothing to prove
-      final l = adapter.banner(key);
-      expect(l.isLoaded.value, isTrue);
-      kept++;
-    }
-    // Fill is not guaranteed; the unit and widget tests carry the assertion.
-    // ignore: avoid_print
-    print(
-      'R73 banner device check: ready placements = $kept of ${keys.length}',
+        final ad = view().ad as BannerAd;
+        final listener = mrec
+            ? adapter.debugMrecListenerFor(key)!
+            : adapter.debugBannerListenerFor(key)!;
+        listener.onAdFailedToLoad!(
+          ad,
+          LoadAdError(3, 'test', 'refresh no fill', null),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(slot.isReady, isTrue);
+        expect(listenables.isLoaded.value, isTrue);
+        expect(listenables.hasError.value, isFalse);
+        expect(listenables.needsRecovery, isFalse);
+        expect(view().ad, same(ad), reason: 'the native ad must remain cached');
+        expect(tester.takeException(), isNull);
+      },
     );
-    expect(tester.takeException(), isNull);
-  });
+  }
 
   testWidgets(
     'banner is requested again after a real network loss',

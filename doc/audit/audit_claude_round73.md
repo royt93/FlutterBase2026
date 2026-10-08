@@ -2,7 +2,7 @@
 
 Ngày khảo sát ban đầu: 2026-10-06. Cập nhật kết quả: 2026-10-08. Phiên bản khảo sát: pub.dev 3.4.3 và source tại `10fc11b`; các commit local: `698c879`, `885dab4`, `4e33bff`, `c719d9e`, `b6c91bc`.
 
-**CHƯA DUYỆT PRODUCTION. Phạm vi hiện tại: Android + Google AdMob; iOS tạm hoãn theo quyết định người dùng.** Full suite TECNO đã chạy đủ 135 file: 132 PASS, 2 FAIL, 1 skip. Sau sửa test ở `b6c91bc`, hai file FAIL chạy lại riêng đạt 7 ca PASS, 1 ca opt-in skip. Đây là bằng chứng gộp nhiều lượt, không phải một full suite xanh liền mạch trên bản test cuối. Tên commit có chữ `complete/finalize` không có nghĩa audit hoàn tất. Không tuyên bố full-case PASS, không memory leak hoặc đã đủ điều kiện production. Bản local đã sửa không phải bản mới đã phát hành lên pub.dev; phiên này chưa push/publish.
+**CHƯA DUYỆT PRODUCTION. Phạm vi hiện tại: Android + Google AdMob; iOS tạm hoãn theo quyết định người dùng.** Lượt full suite TECNO mới nhất đã chạy đủ 135 file trong một lượt liền mạch: **134 PASS, 1 all-skipped, 0 FAIL, 0 retry, real exit 0**. Lượt này gồm hai test sửa ở `b6c91bc` và test TFUA/refresh bổ sung chưa commit; không chỉ gộp rerun từ lượt 132 PASS trước đó. Các ca opt-in và 6 file chủ ý loại vẫn chưa thuộc bằng chứng suite này. Tên commit có chữ `complete/finalize` không có nghĩa audit hoàn tất. Không tuyên bố full-case PASS, không memory leak hoặc đã đủ điều kiện production. Bản local đã sửa không phải bản mới đã phát hành lên pub.dev; phiên này chưa push/publish.
 
 ## 1. Môi trường và baseline
 
@@ -55,13 +55,13 @@ Log xác nhận `preloadNative` bị gate VIP chặn khi test bấm mô phỏng 
 
 `AdManager.setDoNotSell()` sau init gọi `ConsentManager.set()` thiếu `config`. `applyConsentToProviders` thay toàn bộ `RequestConfiguration`, nên gửi test-device list rỗng và bỏ tag under-age đã cấu hình. Finding từ hai reviewer được gộp thành một.
 
-Fix `c719d9e`: truyền `_config ?? _lastKnownConfig`. Unit và widget CCPA toggle đỏ khi bỏ fix, xanh khi có. Ca Pixel qua log sink đỏ khi bỏ fix (expected 17, actual 0), xanh khi có. **Không có native readback:** `MobileAds.getRequestConfiguration()` trên Android plugin đang dùng ném lỗi codec, nên ca device dựa vào record SDK sau khi gửi cấu hình. Chưa có ca device kiểm TFUA riêng; không suy ra đã kiểm chứng mọi field chỉ từ số test devices.
+Fix `c719d9e`: truyền `_config ?? _lastKnownConfig`. Unit và widget CCPA toggle đỏ khi bỏ fix, xanh khi có. Ca Pixel qua log sink đỏ khi bỏ fix (expected 17, actual 0), xanh khi có. **Không có native readback:** `MobileAds.getRequestConfiguration()` trên Android plugin đang dùng ném lỗi codec, nên ca device dựa vào record SDK sau khi gửi cấu hình. Bổ sung mới: unit kiểm TFUA yes/unspecified khi under-age true/false và CCPA bật/tắt; widget công tắc kiểm TFUA yes cùng test-device list. Hai file unit/widget PASS 6 ca. Integration TECNO quan sát payload `MobileAds#updateRequestConfiguration`, chuyển tiếp nguyên message tới messenger native thật và kiểm response trước khi ghi kết quả. TFUA và QA hashes đều đúng qua các toggle, PASS riêng và trong full suite mới. Đây là kiểm payload gửi native + response thành công, không phải native readback; cấu hình TFUA true/false được đổi bằng `debugConfig` trong test và khôi phục ở teardown.
 
 ### R73-07 — MAJOR: refresh no-fill hủy banner/MREC đang hiển thị
 
 Handler `onAdFailedToLoad` trước đây dọn cả ad đã ở trạng thái ready khi callback đến từ auto-refresh. Fix `c719d9e`: giữ ad khi `slot.isReady && isLoaded`, vẫn dọn lỗi lần load đầu. Unit banner/MREC và widget banner đã đỏ khi bỏ guard, xanh khi có.
 
-**Giới hạn device:** ca mang tên refresh failure trong `r73_android_admob_fixes_test.dart` chỉ quan sát placement ready/isLoaded; không phát callback refresh lỗi, và không bắt buộc `kept > 0`. Log TECNO chạy lại ghi 2/2 placement ready, nhưng không chứng minh giữ ad sau refresh lỗi thật. Không tính ca này là bằng chứng device đỏ→xanh cho R73-07.
+**Coverage device mới:** thay ca chỉ quan sát fill bằng hai ca banner/MREC. Mỗi ca bắt buộc ad thật tải ready, lấy chính `BannerAd` đang cached, phát callback `onAdFailedToLoad` code 3 qua listener của adapter, rồi kiểm slot vẫn ready, isLoaded=true, hasError=false, needsRecovery=false và ad object còn nguyên identity. Hai ca PASS riêng TECNO và trong full suite mới. Lỗi refresh được mô phỏng bằng callback trên ad thật, không phải auto-refresh no-fill tự nhiên; chưa mutation bỏ guard trên bản integration mới để xác nhận đỏ. Giới hạn cũ `kept == 0` có thể PASS đã được loại.
 
 ### R73-08 — MINOR sau verify: inline AdMob không phục hồi khi reconnect
 
@@ -129,7 +129,7 @@ Cờ: `AD_PROVIDER_ADMOB=true`, `SKIP_ATT=true`, `SKIP_UMP=true`, `SKIP_SPLASH_A
 | Skip từng ca | Các ca cần cờ riêng, gồm mạng thật | Không suy ra không có skip chỉ vì file có marker PASS |
 | Hạ tầng lượt cuối | Không có `ENOSPC` hoặc lỗi Gradle; cuối suite còn gần 36GB; không còn test runner ads sau kết thúc | TECNO được điều phối với phiên khác; chỉ nhường sau khi runner kết thúc |
 
-**Kết quả gộp:** mọi file thực sự chạy test trong phạm vi runner đã có một lượt PASS (134 file), một file all-skipped. Nhưng source test khác nhau giữa full suite và hai file chạy lại; chưa có full suite xanh liền mạch trên `b6c91bc`.
+**Lượt xác minh mới sau bổ sung coverage:** chạy từ đầu trên cùng working tree, đủ **135/135 file: 134 PASS, 1 all-skipped (`ump_eea_consent_test.dart`), 0 FAIL, 0 retry, real exit 0**. Không có file trong inventory runner bị bỏ sót; không có `ENOSPC`; cuối lượt còn 16GB; không còn runner ads sau khi kết thúc. Đây là một lượt liền mạch trên bản test mới, không phải kết quả gộp. Cờ chạy giữ như trên; 6 file chủ ý loại và ca `RUN_REAL_NETWORK_TEST` vẫn ngoài lượt này. Code production không đổi so với `c719d9e`; ba file test coverage mới chưa commit lúc chạy. Log: `tecno_postcoverage_suite.txt`, `tecno_postcoverage_suite.exit`.
 
 Lần Pixel trước đó bị dừng: Gradle thiếu `metadata.bin` sau cache bị dọn, hàng loạt file fail trước khi vào test. Không dùng các lỗi build đó làm bằng chứng SDK hồi quy. Sau `gradlew --stop`, targeted test `admob_late_load_midshow_test.dart` trên TECNO build lại 311s và PASS 4/4 ca. Lượt full suite TECNO cuối chạy sau xác minh này.
 
@@ -139,6 +139,18 @@ Lịch sử thiếu sót giữ bằng chứng: có lần ngắt mạng/cài test
 
 Wi-Fi/data đã được khôi phục sau các ca mạng thật. Không ngắt mạng hoặc cài app khác trên thiết bị khi suite đang chạy.
 
+### Release/R8 smoke bổ sung trên TECNO
+
+Build bản sao example/SDK local trong `/tmp/admob-release-r73-qn2h4sob`, application ID riêng `com.example.admobr73releasesmoke` để không ghi đè app host. Không sao chép cấu hình signing private; APK dùng chứng thư Android Debug nhưng build mode **release/AOT**, không có debuggable flag.
+
+`flutter build apk --release --dart-define=AD_PROVIDER_ADMOB=true --dart-define=SKIP_ATT=true --dart-define=SKIP_SPLASH_AD=true` thành công, APK 60,8MB. Flutter Gradle plugin mặc định bật minification/resource shrinking; có `mapping.txt` khoảng 49MB và `configuration.txt` không có `-dontshrink`/`-dontobfuscate`. Không đổi cấu hình R8 trong repo.
+
+**Build log cần giữ giới hạn:** có chẩn đoán Kotlin metadata 2.3.0 so với compiler expected 2.1.0 dù Gradle build vẫn thành công. Không khẳng định log build hoàn toàn sạch chỉ từ exit 0.
+
+Cài package riêng trên TECNO, cold launch vào Home thành công; mở VIP API playground, quan sát trial release tới ngày kế tiếp rồi bấm `End VIP now`, UI chuyển VIP inactive. Mở Banner demo không crash; không thấy `FATAL EXCEPTION`, `MissingPluginException`, `NoSuchMethodError`, `ClassNotFoundException` trong log process thu được, nhưng vẫn có diagnostic đồ họa/platform thông thường.
+
+**Fill release CHƯA PASS:** banner trống do SDK chủ ý hard-block Google test ad unit IDs trong release. Log viewer hiển thị cảnh báo release test-ID guard. Người dùng chọn giữ guard, ghi smoke giới hạn và chạy suite; không bypass guard hoặc dùng production IDs giả. Bằng chứng này chỉ xác nhận build R8, install/startup, native initialization và UI không crash trong ca quan sát, không xác nhận quảng cáo hiển thị trong release hoặc bản ký production.
+
 ### iOS đã chạy một phần, hiện tạm hoãn
 
 Đã chạy một số file trên simulator iOS 18.6. `ad_retry_policy_test.dart` và `anomaly_event_test.dart` fail init với UMP `required`; đối chiếu `10fc11b` trên cùng simulator cũng fail y hệt. Điều này loại hồi quy round 73 cho **hai file được đối chiếu**, không chứng minh mọi lỗi iOS đều là môi trường.
@@ -147,7 +159,10 @@ Nhóm lọc 36 file bằng heuristic: 33 PASS, 2 FAIL, 1 all-skipped. Một file
 
 ### Hồ sơ log
 
-- Full suite cuối: `/tmp/r73/tecno_final_out.txt`, `/tmp/r73/tecno_final.exit` (exit 1).
+- Full suite mới nhất: `/tmp/r73/tecno_postcoverage_suite.txt`, `/tmp/r73/tecno_postcoverage_suite.exit` (exit 0; 134 PASS, 1 all-skipped, 0 retry).
+- Full suite cũ trước sửa test: `/tmp/r73/tecno_final_out.txt`, `/tmp/r73/tecno_final.exit` (exit 1).
+- TFUA/refresh bổ sung: `/tmp/r73/tfua_unit_widget.txt` (+6 PASS), `/tmp/r73/tecno_tfua_refresh.txt` (+6 PASS, ~1 skip).
+- Release/R8: `/tmp/r73/release_r8_build.txt`, `release_smoke_app.log`, `release_log_ui.xml`, ảnh `release_initial.png`, `release_banner.png`; APK/mapping ở bản sao `/tmp/admob-release-r73-qn2h4sob`.
 - Hai file chạy lại: `/tmp/r73/tecno_two_fixed_tests.txt` (`+7 ~1`, `All tests passed!`, task exit 0).
 - Gradle recovery: `/tmp/r73/tecno_gradle_recovery_check.txt` (`+4`, PASS).
 - Unit/widget: `/tmp/r73/unit_all3.txt` (`+2622`, PASS); analyze SDK/example: `an5.txt`, `an5e.txt`.
@@ -161,14 +176,13 @@ VIP activation cần mạng, verification local; entitlement sau activation dùn
 
 ## 6. Đánh giá hiện tại
 
-**Android + AdMob đã có 2.622 unit/widget PASS, full suite TECNO hoàn tất và hai file FAIL chạy lại riêng PASS sau sửa test. Chưa duyệt production; không gọi kết quả gộp là full suite xanh liền mạch.** Hai test fix đã commit `b6c91bc`, không đổi SDK. Phiên này chưa push/publish.
+**Full suite Android + AdMob trên TECNO đã xanh trong một lượt liền mạch: 134 file PASS, 1 all-skipped, 0 FAIL, 0 retry, real exit 0.** Baseline unit/widget full suite trước test coverage bổ sung: 2.622 PASS; TFUA unit/widget bổ sung chạy riêng 6 ca PASS. Release/R8 build và startup smoke đã làm, nhưng fill release bị test-ID guard chặn đúng thiết kế. **Chưa duyệt production toàn bộ matrix.** Hai test fix đã commit `b6c91bc`; TFUA/refresh test bổ sung và cập nhật báo cáo chưa commit; không đổi SDK production trong đợt này. Phiên này chưa push/publish.
 
 Các phần còn thiếu trong phạm vi Android + AdMob:
 
-- Full suite một lượt trên source test cuối `b6c91bc`, nếu cần gate liền mạch.
-- Build release có R8/minification và smoke test release trên thiết bị; các lượt integration trên đây chạy debug. Hạng mục này đã được chọn nhưng chưa thực hiện.
-- Bằng chứng device refresh no-fill thật cho banner/MREC; ca hiện tại chỉ quan sát fill và unit/widget mô phỏng callback.
-- Nhánh TFUA riêng sau CCPA, MREC/native reconnect, lỗi show native thực tế (thay vì seam), lifecycle teardown và các nhánh chưa có đủ ba tầng unit/widget/integration. Không tuyên bố “mọi case đủ ba tầng” từ các ca đã làm.
+- Fill quảng cáo release với cấu hình ad units hợp lệ; hiện guard Google test-ID được giữ, không bypass. Cần phân tích thêm chẩn đoán Kotlin metadata trong release build log nếu dùng build này làm release gate.
+- Auto-refresh no-fill tự nhiên trên device (coverage mới là callback mô phỏng trên ad đã fill thật); mutation integration mới cho TFUA/refresh chưa chạy lại.
+- MREC/native reconnect, lỗi show native thực tế (thay vì seam), lifecycle teardown và các nhánh chưa có đủ ba tầng unit/widget/integration. TFUA riêng đã được bổ sung và PASS; không tuyên bố “mọi case đủ ba tầng” từ các ca đã làm.
 - Đóng fullscreen thủ công, rewarded bỏ sớm/không nhận thưởng và EEA consent form; các file runner loại không được tính PASS.
 - Heap/timer memory profiling trong phiên dài; review static không chứng minh không leak.
 - Kiểm tra lại test-quality: unit đã dùng assertion mạnh và mutation cho nhiều fix, nhưng một số device case còn dựa log/seam hoặc chỉ no-crash/fill observation.
