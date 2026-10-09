@@ -6,6 +6,29 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.4.5] - 2026-10-09
+
+- **Fixed (Audit 74 — COPPA Re-init Race Condition):** Added `_consentSessionEpoch`
+  and `_consentIntentEpoch` guards in `AdManager.setConsent()` after
+  `await applyConsentToProviders()`. If `destroy()` is called or a newer consent intent
+  is issued while the provider apply is awaited, the orphaned re-init is cancelled
+  immediately instead of triggering an illegal `initialize()` into a dead or unmocked
+  session (`MissingPluginException`).
+- **Fixed (Audit 74 — Verification Error Handling):** Added `await` to
+  `verifyFlightRecorderChain()` inside `verifySignedFlightRecorderBundle()` in
+  `ad_flight_recorder.dart`. This ensures async deserialization and hash-chain errors
+  are properly caught by the enclosing `try/catch` block and fail closed (`false`)
+  rather than escaping as unhandled async exceptions.
+- **Fixed (Audit 74 — Flutter SDK Deprecation Warning):** Added
+  `// ignore: deprecated_member_use` to `cacheExtent` in `in_feed_ad_list_view.dart`
+  to maintain compatibility with the package floor (`Flutter >=3.38.1`) while silencing
+  deprecation warnings on newer Flutter SDKs (3.41+).
+- **Fixed (Audit 74 — Integration Test Lint):** Added braces to flow control
+  structures in `example/integration_test/r73_android_admob_fixes_test.dart`.
+- **Testing:** Added regression tests in `test/ad_flight_recorder_test.dart` and
+  `test/r23_coppa_midinit_flip_test.dart` with verified mutation proofs. Full SDK
+  test suite passing 2,635/2,635; verified on physical TECNO KJ7 device.
+
 ## [3.4.4] - 2026-10-08
 
 - **Fixed (Audit 73 — Consent):** `AdManager.setDoNotSell()` called after SDK
