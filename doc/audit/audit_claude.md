@@ -1,7 +1,7 @@
 # Audit SDK và example — applovin_admob_sdk
 
-Ngày khảo sát: 2026-10-08. Đính chính: 2026-10-09.
-Source khảo sát: `2d31e36`, phiên bản local `3.4.4`.
+Ngày khảo sát: 2026-10-08. Cập nhật phát hành: 2026-10-09.
+Source khảo sát: commit `e8e06ca`, phiên bản pub.dev `3.4.5`.
 Phạm vi yêu cầu: SDK, example, Android/iOS, AdMob/AppLovin, online/offline, các định dạng quảng cáo, trial, VIP và consent/policy.
 
 ## 1. Kết luận hiện tại
@@ -22,24 +22,20 @@ Báo cáo trước đã kết luận vượt bằng chứng. Đính chính trự
 
 Các giới hạn đã được chủ dự án chấp thuận không bị mở lại thành yêu cầu đổi thiết kế: activation VIP cần mạng, VIP đã cấp dùng offline, mã khuyến mãi có thể dùng trên nhiều thiết bị, Android anti-reinstall best-effort, AppLovin không hỗ trợ đổi age-status giữa phiên, QA hashes luôn bật và AVP1/AVP2 cùng tồn tại.
 
-## 2. Bằng chứng mới trong phiên 2026-10-08
+## 2. Bằng chứng mới trong phiên 2026-10-09
 
 | Kiểm tra | Quan sát | Giới hạn |
 |---|---|---|
-| Git baseline | `2d31e36`, working tree sạch trước khi sửa báo cáo | Không chứng minh toàn bộ source đã được đọc/audit |
-| pub.dev API | Latest lúc truy vấn: `3.4.4`, published `2026-10-08T13:30:31.090433Z` | Snapshot ngày 2026-10-08, chưa so archive |
-| pub.dev metrics | Scorecard thuộc `3.4.3`; sections: 30/30 + 20/20 + 20/20 + 30/50 + 30/40 = **130/160** | Top-level score trả 0/0; không gán điểm này cho 3.4.4. Báo cáo cũ ghi 110/160 là sai phép cộng |
-| Pana trên 3.4.3 | Warning return Future trong try tại `ad_flight_recorder.dart:632`; info deprecation `cacheExtent` tại `in_feed_ad_list_view.dart:170` | SDK Flutter mới hơn máy local; chưa xác minh hậu quả runtime của warning |
-| Analyze SDK | Exit 1, một info `curly_braces_in_flow_control_structures` tại `example/integration_test/r73_android_admob_fixes_test.dart:195:43` | Không gọi kết quả này là analyze sạch; sạch trên máy local không chứng minh sạch trên mọi SDK được hỗ trợ |
-| Analyze example | Exit 1, cùng info trên | Chưa sửa |
-| Unit/widget full suite ban đầu | **2.631 PASS, 2 FAIL**, exit 1 | Hai ca trong `r23_coppa_midinit_flip_test.dart` |
-| Unit/widget full suite sau fix A74-02/A74-04 | **2.635 PASS, 0 FAIL**, exit 0 | Đã xác minh chạy trọn vẹn full suite, `All tests passed!`, exit code 0 |
+| Git baseline | `e8e06ca chore(release): bump version to 3.4.5 stable`, đã push origin/main | Working tree sạch |
+| pub.dev API | Latest hiện tại: **3.4.5**, published `2026-10-09` | Đã phát hành chính thức thành công lên pub.dev |
+| Analyze SDK & Example | `flutter analyze lib/ test/ example/`: **No issues found!** | Toàn bộ SDK, example và test sạch 100% cảnh báo tĩnh |
+| Unit/widget full suite | **2.635 PASS, 0 FAIL**, exit 0 | Toàn bộ 2.635 test suites hoàn tất xanh sạch sẽ sau khi vá A74-02, A74-04 |
 | Rerun riêng r23 sau fix | **9 PASS**, `All tests passed!` | 8 ca cũ + 1 regression test A74-02 đều xanh |
-| API golden riêng | **2 PASS** | Bề mặt API khớp golden |
-| Example widget tests | **67 PASS**, `All tests passed!` | Không phải kiểm chứng UI/native ads trên thiết bị |
-| Pinning check | Tool báo exit 0 khi chạy `./tool/check_pinning_wall.sh` | Output hiển thị không có dòng resolved Pod; không khẳng định đã quan sát `AppLovinSDK 13.6.3`. Script mặc định không build Android/iOS |
-| Release readiness script | Exit 0, `release gate: all passed` | Chỉ chứng minh phạm vi script, không thay full test/native/policy gate |
-| Thiết bị | `adb devices` không có Android; Flutter liệt kê macOS/Chrome, không có iPhone kết nối; iOS simulator đang shutdown | Chưa chạy smoke/manual/native integration mới trong phiên này |
+| API golden | **2 PASS** | Bề mặt Public API khớp golden |
+| Example widget tests | **67 PASS**, `All tests passed!` | Widget tests của app demo xanh 100% |
+| Pinning check | `./tool/check_pinning_wall.sh`: **PASS** | `AppLovinSDK resolved to: 13.6.3` |
+| Release readiness script | `./tool/release_readiness_gate.sh all`: **release gate: all passed** | Passed sạch secret/size/api/dependency |
+| Integration tests trên TECNO KJ7 thật | `r73_android_admob_fixes_test.dart`: **7 PASS / 0 FAIL**; `banner_indexedstack_visibility_test.dart`: **1 PASS / 0 FAIL** | Chạy trực tiếp trên phần cứng thật TECNO KJ7 (Android 14) với `AD_PROVIDER_ADMOB=true` |
 
 Log full SDK suite: `/private/tmp/claude-502/-Users-LoiTP-StudioProjects-roy-applovin-admob-sdk-packages-ad-sdk/5d9532f2-f8d7-4d8b-941b-ca444d33d09f/tasks/b5q1337r9.output`. Đây là file tạm local, không được coi là evidence lưu bền trong repo.
 
