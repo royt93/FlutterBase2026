@@ -629,7 +629,7 @@ Future<bool> verifySignedFlightRecorderBundle(String bundleJson) async {
   if (!await verifySignedJsonPayload(bundleJson)) return false;
   try {
     final bundle = FlightRecorderBundle.fromJsonString(payloadJson);
-    return verifyFlightRecorderChain(bundle.entries);
+    return await verifyFlightRecorderChain(bundle.entries);
   } catch (_) {
     return false;
   }

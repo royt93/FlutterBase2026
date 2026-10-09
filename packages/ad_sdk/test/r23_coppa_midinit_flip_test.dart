@@ -213,11 +213,12 @@ void main() {
     expect(adapter.ageRestrictedPerCall.single, isFalse);
 
     // The age gate finishes on the splash, mid-init.
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: true,
-    )));
+    ));
     await _pumpUntil(() => AdManager().consent.isAgeRestrictedUser);
+    await consentFuture;
 
     // ...and only then does the native SDK finish coming up.
     adapter.gate.complete();
@@ -260,11 +261,12 @@ void main() {
     );
     await adapter.entered.future;
 
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: true,
-    )));
+    ));
     await _pumpUntil(() => AdManager().consent.isAgeRestrictedUser);
+    await consentFuture;
 
     adapter.gate.complete();
     await init;
@@ -300,11 +302,12 @@ void main() {
       onComplete: (ok, _) => parkedResult = ok,
     );
 
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: true,
-    )));
+    ));
     await _pumpUntil(() => AdManager().consent.isAgeRestrictedUser);
+    await consentFuture;
 
     adapter.gate.complete();
     await init;
@@ -352,11 +355,12 @@ void main() {
     expect(adapter.ageRestrictedPerCall.single, isTrue,
         reason: 'sanity — the adapter was built child-directed');
 
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: false,
-    )));
+    ));
     await _pumpUntil(() => !AdManager().consent.isAgeRestrictedUser);
+    await consentFuture;
 
     adapter.gate.complete();
     await init;
@@ -397,12 +401,13 @@ void main() {
     );
     await adapter.entered.future;
 
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: false, // flips true → false, mid-init: the parent
       // finished the age gate. This is the direction that schedules a retry.
-    )));
+    ));
     await _pumpUntil(() => !AdManager().consent.isAgeRestrictedUser);
+    await consentFuture;
 
     adapter.gate.complete();
     await init;
@@ -414,7 +419,7 @@ void main() {
             'the retry is the only answer coming');
 
     // Let the retry actually land.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await _pumpUntil(() => calls > 0);
     expect(calls, 1,
         reason: 'THE finding — the previous version handed this SAME '
             'onComplete closure into the retry AND called it immediately '
@@ -430,11 +435,12 @@ void main() {
     final init = AdManager()
         .initialize(config: _appLovinConfig, onComplete: (_, _) {});
     await first.entered.future;
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture1 = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: true,
-    )));
+    ));
     await _pumpUntil(() => AdManager().consent.isAgeRestrictedUser);
+    await consentFuture1;
     first.gate.complete();
     await init;
     await _pumpUntil(() => !AdManager().isInitialised);
@@ -446,10 +452,10 @@ void main() {
     final second = _SlowInitAdapter();
     second.gate.complete(); // this one comes up immediately
     AdManager.debugAdapterFactory = (config) => second;
-    unawaited(AdManager().setConsent(const AdConsent(
+    await AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: false,
-    )));
+    ));
     await _pumpUntil(() => second.initializeCalls > 0);
 
     expect(second.initializeCalls, greaterThanOrEqualTo(1),
@@ -492,11 +498,12 @@ void main() {
       onComplete: (ok, _) => reported = ok,
     );
     await adapter.entered.future;
-    unawaited(AdManager().setConsent(const AdConsent(
+    final consentFuture = AdManager().setConsent(const AdConsent(
       hasUserConsent: true,
       isAgeRestrictedUser: true,
-    )));
+    ));
     await _pumpUntil(() => AdManager().consent.isAgeRestrictedUser);
+    await consentFuture;
     adapter.gate.complete();
     await init;
     await _pumpUntil(() => reported != null);
@@ -506,5 +513,65 @@ void main() {
             'nothing stale to discard — tearing its adapter down would be a '
             'regression, not a fix');
     expect(AdManager().isInitialised, isTrue);
+  });
+
+  test(
+      'Round-74 regression — a teardown occurring while applyConsentToProviders '
+      'is in flight cancels the COPPA re-init instead of leaking initialize()',
+      () async {
+    final first = _SlowInitAdapter(refuseWhenRestricted: false);
+    first.gate.complete();
+    AdManager.debugAdapterFactory = (config) => first;
+
+    await AdManager().setConsent(const AdConsent(
+      hasUserConsent: true,
+      isAgeRestrictedUser: true,
+    ));
+
+    await AdManager().initialize(config: _appLovinConfig, onComplete: (_, _) {});
+    expect(AdManager().isInitialised, isTrue);
+
+    var gmaCallCount = 0;
+    final gmaHold = Completer<void>();
+    messenger.setMockMethodCallHandler(gmaChannel, (call) async {
+      if (call.method == 'MobileAds#updateRequestConfiguration') {
+        gmaCallCount++;
+        if (gmaCallCount == 2) {
+          await gmaHold.future;
+        }
+      }
+      return null;
+    });
+
+    var reinitFactoryCalls = 0;
+    AdManager.debugAdapterFactory = (config) {
+      reinitFactoryCalls++;
+      final a = _SlowInitAdapter();
+      a.gate.complete();
+      return a;
+    };
+
+    // Mid-session flip true -> false on AppLovin triggers the COPPA re-init path
+    final consentFuture = AdManager().setConsent(const AdConsent(
+      hasUserConsent: true,
+      isAgeRestrictedUser: false,
+    ));
+
+    // Await until setConsent enters the second applyConsentToProviders and hits our barrier
+    await _pumpUntil(() => gmaCallCount == 2);
+
+    // Now call destroy() while applyConsentToProviders is still held
+    await AdManager().destroy();
+
+    // Release the barrier
+    gmaHold.complete();
+    await consentFuture;
+
+    // Pump to ensure any microtask/continuation has settled
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(reinitFactoryCalls, 0,
+        reason: 'the COPPA re-init must be aborted because destroy() bumped '
+            '_consentSessionEpoch while applyConsentToProviders was awaited');
   });
 }

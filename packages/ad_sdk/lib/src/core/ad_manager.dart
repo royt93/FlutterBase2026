@@ -5602,17 +5602,20 @@ class AdManager with WidgetsBindingObserver {
       // `_isInitializing` already back to false (the newer call's own
       // re-init already completed) would otherwise still fire a whole extra,
       // redundant `initialize()` cycle from a stale, overridden intent.
-      if (consentEpoch == _consentIntentEpoch) {
+      if (consentEpoch == _consentIntentEpoch &&
+          consentSession == _consentSessionEpoch) {
         await applyConsentToProviders(consent, config: cfg);
-        // No infinite-recursion risk: initialize() reaches consent through
-        // `_consentManager.set(...)`, not through this method, and the one
-        // setConsent() call it does trigger (via auto-UMP) carries the child
-        // flag through unchanged — so it cannot re-enter this branch.
-        //
-        // It CAN be a no-op though: initialize() early-returns while another
-        // init is in flight. Say so rather than leaving it silent — a host
-        // that flips this flag mid-init would otherwise be left wondering
-        // why AppLovin never picked it up.
+        // Round-74 audit fix — if destroy() was called or a newer consent intent
+        // was registered while applyConsentToProviders was awaited above,
+        // do not proceed with the re-init: the session was torn down or superseded.
+        if (consentEpoch != _consentIntentEpoch ||
+            consentSession != _consentSessionEpoch) {
+          SafeLogger.d(
+              _tag,
+              '⏭️ COPPA re-init cancelled: superseded or destroyed during provider apply '
+              '(epoch=$consentEpoch/$_consentIntentEpoch, session=$consentSession/$_consentSessionEpoch)');
+          return;
+        }
         if (_isInitializing) {
           SafeLogger.w(
               _tag,

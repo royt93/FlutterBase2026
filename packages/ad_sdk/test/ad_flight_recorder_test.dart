@@ -304,6 +304,27 @@ void main() {
           reason: 'but the hash chain inside it does not verify');
     });
 
+    test('signed overflowing numeric input fails closed, never throws',
+        () async {
+      final recorder = AdFlightRecorder();
+      await recorder.record(
+          label: 'bannerVisible',
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]');
+      final bundle = FlightRecorderBundle(
+          entries: recorder.entries, generatedAtMs: 0);
+      final payload = bundle.toJsonString().replaceFirst('"screenX":0.0',
+          '"screenX":1e400');
+      expect(payload, isNot(bundle.toJsonString()));
+      final signed = await signJsonPayload(payload);
+      expect(await verifySignedJsonPayload(signed.toJsonString()), isTrue);
+      expect(FlightRecorderBundle.fromJsonString(payload).entries.single.screenX,
+          double.infinity);
+      expect(await verifySignedFlightRecorderBundle(signed.toJsonString()),
+          isFalse);
+    });
+
     test('malformed bundle JSON fails closed, never throws', () async {
       expect(await verifySignedFlightRecorderBundle('not json'), isFalse);
       expect(await verifySignedFlightRecorderBundle('{}'), isFalse);

@@ -190,9 +190,14 @@ void main() {
     await manager.loadInterstitial();
     for (var i = 0; i < 120; i++) {
       await tester.pump(const Duration(milliseconds: 500));
-      if (![adapter.appOpenSlot, adapter.interstitialSlot,
-          adapter.rewardedSlot, adapter.rewardedInterstitialSlot]
-          .any((slot) => slot.isLoading)) break;
+      if (![
+        adapter.appOpenSlot,
+        adapter.interstitialSlot,
+        adapter.rewardedSlot,
+        adapter.rewardedInterstitialSlot,
+      ].any((slot) => slot.isLoading)) {
+        break;
+      }
     }
     expect(adapter.interstitialSlot.isReady, isTrue,
         reason: 'initial native interstitial must have filled');

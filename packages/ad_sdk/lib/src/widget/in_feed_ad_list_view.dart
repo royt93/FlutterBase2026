@@ -167,6 +167,7 @@ class _InFeedAdListViewState extends State<InFeedAdListView> {
         addAutomaticKeepAlives: widget.addAutomaticKeepAlives,
         addRepaintBoundaries: widget.addRepaintBoundaries,
         addSemanticIndexes: widget.addSemanticIndexes,
+        // ignore: deprecated_member_use
         cacheExtent: widget.cacheExtent,
         restorationId: widget.restorationId,
         clipBehavior: widget.clipBehavior,
