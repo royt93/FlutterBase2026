@@ -12,7 +12,9 @@
 // failed re-init (see its doc comment: cleared only by destroy()).
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/consent/consent_manager.dart';
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart';
+import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,8 +29,9 @@ class _CoppaAwareAdapter implements AdProviderAdapter {
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
   @override
-  final AdSlot rewardedInterstitialSlot =
-      AdSlot(type: AdSlotType.rewardedInterstitial);
+  final AdSlot rewardedInterstitialSlot = AdSlot(
+    type: AdSlotType.rewardedInterstitial,
+  );
   @override
   AdEventSink? eventSink;
   @override
@@ -47,7 +50,8 @@ class _CoppaAwareAdapter implements AdProviderAdapter {
     AdConsent? consent,
   }) async {
     initializeCalls++;
-    final restricted = isAgeRestrictedUser || consent?.isAgeRestrictedUser == true;
+    final restricted =
+        isAgeRestrictedUser || consent?.isAgeRestrictedUser == true;
     ageRestrictedPerCall.add(restricted);
     return !restricted;
   }
@@ -97,7 +101,10 @@ void main() {
   const alChannel = MethodChannel('applovin_max');
   const gmaChannel = MethodChannel('plugins.flutter.io/google_mobile_ads');
 
-  setUp(() {
+  setUp(() async {
+    AdPreferences.resetForTest();
+    ConsentManager.resetForTest();
+    await AdManager().destroy();
     SharedPreferences.setMockInitialValues({});
     messenger.setMockMethodCallHandler(alChannel, (call) async => null);
     messenger.setMockMethodCallHandler(gmaChannel, (call) async => null);
@@ -106,12 +113,53 @@ void main() {
   tearDown(() async {
     AdManager.debugAdapterFactory = null;
     await AdManager().destroy();
+    AdPreferences.resetForTest();
+    ConsentManager.resetForTest();
     messenger.setMockMethodCallHandler(alChannel, null);
     messenger.setMockMethodCallHandler(gmaChannel, null);
   });
 
   test(
-      'M2: correcting COPPA back to false rebuilds AppLovin even after the '
+    'direct ConsentManager.set closes the AppLovin gate and rebuilds once for COPPA',
+    () async {
+      final adapter = _CoppaAwareAdapter();
+      AdManager.debugAdapterFactory = (config) => adapter;
+
+      await AdManager().initialize(
+        config: _appLovinConfig,
+        onComplete: (_, _) {},
+      );
+      expect(AdManager().isInitialised, isTrue);
+      expect(adapter.initializeCalls, 1);
+
+      final mutation = AdManager().consentManager!.set(
+        AdManager().consentManager!.current.copyWith(isAgeRestrictedUser: true),
+      );
+      expect(
+        AdManager().canRequestAds,
+        isFalse,
+        reason:
+            'COPPA gate must close synchronously before persistence/apply awaits',
+      );
+      await mutation;
+      await _pumpUntil(() => adapter.initializeCalls >= 2);
+
+      expect(
+        adapter.initializeCalls,
+        2,
+        reason: 'one direct COPPA transition must trigger exactly one re-init',
+      );
+      expect(adapter.ageRestrictedPerCall.last, isTrue);
+      expect(
+        AdManager().isInitialised,
+        isFalse,
+        reason: 'AppLovin refuses init for child-directed audience',
+      );
+      expect(AdManager().canRequestAds, isFalse);
+    },
+  );
+
+  test('M2: correcting COPPA back to false rebuilds AppLovin even after the '
       'COPPA-true re-init aborted', () async {
     final adapter = _CoppaAwareAdapter();
     AdManager.debugAdapterFactory = (config) => adapter;
@@ -127,19 +175,80 @@ void main() {
     await AdManager().setConsent(const AdConsent(isAgeRestrictedUser: true));
     await _pumpUntil(() => adapter.initializeCalls >= 2);
     expect(adapter.ageRestrictedPerCall[1], isTrue);
-    expect(AdManager().isInitialised, isFalse,
-        reason: 'sanity: AppLovin must actually have refused this init, or '
-            'the recovery below proves nothing');
+    expect(
+      AdManager().isInitialised,
+      isFalse,
+      reason:
+          'sanity: AppLovin must actually have refused this init, or '
+          'the recovery below proves nothing',
+    );
 
     // Host corrects the mistake — this must not silently no-op.
     await AdManager().setConsent(const AdConsent(isAgeRestrictedUser: false));
     await _pumpUntil(() => adapter.initializeCalls >= 3);
 
-    expect(adapter.initializeCalls, 3,
-        reason: 'M2: the COPPA recovery must reach the re-init block using '
-            '_lastKnownConfig, not bail out at the !isInitialised guard');
+    expect(
+      adapter.initializeCalls,
+      3,
+      reason:
+          'M2: the COPPA recovery must reach the re-init block using '
+          '_lastKnownConfig, not bail out at the !isInitialised guard',
+    );
     expect(adapter.ageRestrictedPerCall[2], isFalse);
-    expect(AdManager().isInitialised, isTrue,
-        reason: 'AppLovin must come back up once the flag is corrected');
+    expect(
+      AdManager().isInitialised,
+      isTrue,
+      reason: 'AppLovin must come back up once the flag is corrected',
+    );
+  });
+
+  test(
+    'direct ConsentManager.reset preserves COPPA and does not re-init',
+    () async {
+      final adapter = _CoppaAwareAdapter();
+      AdManager.debugAdapterFactory = (config) => adapter;
+
+      await AdManager().initialize(
+        config: _appLovinConfig,
+        onComplete: (_, _) {},
+      );
+      expect(AdManager().isInitialised, isTrue);
+      expect(adapter.initializeCalls, 1);
+
+      await AdManager().consentManager!.reset();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        adapter.initializeCalls,
+        1,
+        reason:
+            'reset preserves COPPA and does not flip it, so no re-init should run',
+      );
+      expect(AdManager().isInitialised, isTrue);
+    },
+  );
+
+  test('device reconcile does not trigger COPPA re-init', () async {
+    final adapter = _CoppaAwareAdapter();
+    AdManager.debugAdapterFactory = (config) => adapter;
+
+    await AdManager().initialize(
+      config: _appLovinConfig,
+      onComplete: (_, _) {},
+    );
+    expect(AdManager().isInitialised, isTrue);
+    expect(adapter.initializeCalls, 1);
+
+    await AdManager().consentManager!.setWithOrigin(
+      AdManager().consentManager!.current.copyWith(doNotSell: true),
+      origin: ConsentMutationOrigin.deviceReconcile,
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      adapter.initializeCalls,
+      1,
+      reason: 'device reconcile origin must not trigger COPPA re-init',
+    );
   });
 }

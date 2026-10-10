@@ -128,6 +128,35 @@ void main() {
     },
   );
 
+  test(
+    'direct ConsentManager.set keeps host/QA test devices and TFUA',
+    () async {
+      await AdManager().initialize(
+        config: _config(underAge: true),
+        onComplete: (_, _) {},
+      );
+      expect(AdManager().isInitialised, isTrue);
+      gmaCalls.clear();
+
+      final current = AdManager().consentManager!.current;
+      await AdManager().consentManager!.set(current.copyWith(doNotSell: true));
+
+      final updates = gmaCalls.where(
+        (call) => call.method == 'MobileAds#updateRequestConfiguration',
+      );
+      expect(updates, isNotEmpty);
+      for (final call in updates) {
+        final ids = List<String>.from(call.arguments['testDeviceIds'] as List);
+        expect(ids, contains('host-device-1'));
+        expect(ids, containsAll(kQaTestDeviceHashes));
+        expect(
+          call.arguments['tagForUnderAgeOfConsent'],
+          TagForUnderAgeOfConsent.yes,
+        );
+      }
+    },
+  );
+
   test('toggling CCPA back off also keeps the test devices', () async {
     await AdManager().initialize(config: _config(), onComplete: (_, _) {});
     await AdManager().setDoNotSell(true);

@@ -4140,9 +4140,12 @@ class AdManager with WidgetsBindingObserver {
       // prefs) BEFORE picking/initialising the adapter, so a previously
       // recorded isAgeRestrictedUser=true can gate AppLovin's init (it has
       // no runtime child-directed API — see AppLovinAdapter.initialize).
-      final consentMgr = await ConsentManager.bootstrap(
+      final consentMgr = await ConsentManager.bootstrapWithPolicy(
         prefs: prefs,
         provenanceJournal: provenanceJournal,
+        config: config,
+        onPolicyMutation: _onConsentManagerPolicyMutation,
+        onPolicyMutationApplied: _onConsentManagerPolicyMutationApplied,
       );
       // Same round-6 MAJOR, next await: `ConsentManager.bootstrap` reads
       // persisted consent, and publishing it into a torn-down SDK leaves
@@ -4176,7 +4179,11 @@ class AdManager with WidgetsBindingObserver {
       final pendingConsent = _pendingConsentSettings;
       if (pendingConsent != null) {
         _pendingConsentSettings = null;
-        await consentMgr.set(pendingConsent, config: config);
+        await consentMgr.setWithOrigin(
+          pendingConsent,
+          config: config,
+          origin: ConsentMutationOrigin.adManager,
+        );
         _consent = consentMgr.adConsent;
       }
 
@@ -4385,6 +4392,7 @@ class AdManager with WidgetsBindingObserver {
       }
       if (!ok) {
         SafeLogger.e(_tag, 'adapter init FAILED');
+        _updateCanRequestAds(false);
         // MJ19 — release the adapter we just built. AppLovinAdapter wires its
         // four native listeners BEFORE awaiting the SDK init, so on the 20 s
         // timeout branch the native side can still come up afterwards and
@@ -5541,7 +5549,11 @@ class AdManager with WidgetsBindingObserver {
     // persisted data and clobbering this fresh value.
     if (_consentManager != null) {
       try {
-        await _consentManager!.set(settings, config: _config);
+        await _consentManager!.setWithOrigin(
+          settings,
+          config: _config ?? _lastKnownConfig,
+          origin: ConsentMutationOrigin.adManager,
+        );
       } catch (e, st) {
         // Round-18 QC, BLOCKER — a persist failure must never stop the
         // decision from reaching the providers. `ConsentManager.set()` updates
@@ -5799,6 +5811,7 @@ class AdManager with WidgetsBindingObserver {
   /// throw here can take an adapter teardown down with it.
   void _detachConsentListener() {
     try {
+      _consentManager?.clearPolicyCallbacks();
       _consentManager?.listenable.removeListener(_syncConsentToAdapter);
     } catch (e) {
       SafeLogger.w(_tag, 'detaching the consent listener threw: $e');
@@ -5871,6 +5884,61 @@ class AdManager with WidgetsBindingObserver {
       // kept auto-refreshing. This notifier is a separate signal the widgets
       // treat like the gate closing: drop the instance, then reload.
       personalisationRevision.value = personalisationRevision.value + 1;
+    }
+  }
+
+  void _onConsentManagerPolicyMutation(
+    ConsentMutationOrigin origin,
+    ConsentSettings previous,
+    ConsentSettings current,
+  ) {
+    if (origin == ConsentMutationOrigin.adManager ||
+        origin == ConsentMutationOrigin.deviceReconcile) {
+      return;
+    }
+    _consent = current.toAdConsent();
+    _lastHostConsentIntent = _consent;
+    _pendingConsentApply = null;
+    _consentIntentEpoch++;
+    final cfg = _config ?? _lastKnownConfig;
+    if (!isAdMobProvider &&
+        cfg != null &&
+        current.isAgeRestrictedUser != previous.isAgeRestrictedUser) {
+      if (current.isAgeRestrictedUser) {
+        _updateCanRequestAds(false);
+      }
+    }
+  }
+
+  Future<void> _onConsentManagerPolicyMutationApplied(
+    ConsentMutationOrigin origin,
+    ConsentSettings previous,
+    ConsentSettings current,
+  ) async {
+    if (origin == ConsentMutationOrigin.adManager ||
+        origin == ConsentMutationOrigin.deviceReconcile) {
+      return;
+    }
+    final cfg = _config ?? _lastKnownConfig;
+    if (!isAdMobProvider &&
+        cfg != null &&
+        current.isAgeRestrictedUser != previous.isAgeRestrictedUser) {
+      SafeLogger.w(
+        _tag,
+        '🔄 COPPA child-directed flipped to ${current.isAgeRestrictedUser} '
+        'on AppLovin via direct ConsentManager — MAX only reads this at SDK init, '
+        'so re-initialising the adapter to carry it',
+      );
+      if (_isInitializing) {
+        SafeLogger.w(
+          _tag,
+          '⚠️ COPPA flag changed while initialize() is still running — the '
+          'AppLovin re-init cannot run now. Call initialize() again once it '
+          'completes, or set the flag before initialize().',
+        );
+      } else {
+        unawaited(initialize(config: cfg, onComplete: (_, _) {}));
+      }
     }
   }
 
@@ -6938,7 +7006,11 @@ class AdManager with WidgetsBindingObserver {
         _tag,
         '🔐 device US Privacy string reports a sale opt-out — applying '
         'doNotSell to both providers');
-    await mgr.set(mgr.current.copyWith(doNotSell: true), config: _config);
+    await mgr.setWithOrigin(
+      mgr.current.copyWith(doNotSell: true),
+      config: _config,
+      origin: ConsentMutationOrigin.deviceReconcile,
+    );
   }
 
   /// Round-13 (device verification) BLOCKER, backstop half — re-apply consent
@@ -7311,6 +7383,7 @@ class AdManager with WidgetsBindingObserver {
     // not tied to the adapter lifecycle, and clearing it would force a
     // re-prompt on the next initialize() which is bad UX. Caller can wipe
     // explicitly via `ConsentManager.instance.reset()`.
+    _consentManager?.clearPolicyCallbacks();
     _consentManager?.listenable.removeListener(_syncConsentToAdapter);
     _consentManager = null;
     // Same rationale as ConsentManager just above — the journal itself is

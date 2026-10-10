@@ -10,6 +10,9 @@ import '../utils/safe_logger.dart';
 import 'consent_fallback.dart';
 import 'consent_settings.dart';
 
+@internal
+enum ConsentMutationOrigin { host, adManager, deviceReconcile }
+
 /// Standalone consent helper — owns persistence and the provider-apply
 /// pipeline. Available independently of [AdManager.initialize] so a host
 /// app can:
@@ -24,8 +27,24 @@ class ConsentManager {
   ConsentManager._({
     required AdPreferences prefs,
     ConsentProvenanceJournal? provenanceJournal,
-  })  : _prefs = prefs,
-        _journal = provenanceJournal;
+    AdConfig? config,
+    void Function(
+      ConsentMutationOrigin origin,
+      ConsentSettings previous,
+      ConsentSettings current,
+    )?
+    onPolicyMutation,
+    Future<void> Function(
+      ConsentMutationOrigin origin,
+      ConsentSettings previous,
+      ConsentSettings current,
+    )?
+    onPolicyMutationApplied,
+  }) : _prefs = prefs,
+       _journal = provenanceJournal,
+       _config = config,
+       _onPolicyMutation = onPolicyMutation,
+       _onPolicyMutationApplied = onPolicyMutationApplied;
 
   static const String _tag = 'ConsentManager';
 
@@ -42,8 +61,10 @@ class ConsentManager {
   static ConsentManager get instance {
     final i = _instance;
     if (i == null) {
-      throw StateError('ConsentManager not bootstrapped — '
-          'call AdManager.initialize first or ConsentManager.bootstrap directly');
+      throw StateError(
+        'ConsentManager not bootstrapped — '
+        'call AdManager.initialize first or ConsentManager.bootstrap directly',
+      );
     }
     return i;
   }
@@ -84,23 +105,75 @@ class ConsentManager {
   static Future<ConsentManager> bootstrap({
     required AdPreferences prefs,
     ConsentProvenanceJournal? provenanceJournal,
+  }) => _bootstrapInternal(prefs: prefs, provenanceJournal: provenanceJournal);
+
+  @internal
+  static Future<ConsentManager> bootstrapWithPolicy({
+    required AdPreferences prefs,
+    ConsentProvenanceJournal? provenanceJournal,
+    AdConfig? config,
+    void Function(
+      ConsentMutationOrigin origin,
+      ConsentSettings previous,
+      ConsentSettings current,
+    )?
+    onPolicyMutation,
+    Future<void> Function(
+      ConsentMutationOrigin origin,
+      ConsentSettings previous,
+      ConsentSettings current,
+    )?
+    onPolicyMutationApplied,
+  }) => _bootstrapInternal(
+    prefs: prefs,
+    provenanceJournal: provenanceJournal,
+    config: config,
+    onPolicyMutation: onPolicyMutation,
+    onPolicyMutationApplied: onPolicyMutationApplied,
+  );
+
+  static Future<ConsentManager> _bootstrapInternal({
+    required AdPreferences prefs,
+    ConsentProvenanceJournal? provenanceJournal,
+    AdConfig? config,
+    void Function(
+      ConsentMutationOrigin origin,
+      ConsentSettings previous,
+      ConsentSettings current,
+    )?
+    onPolicyMutation,
+    Future<void> Function(
+      ConsentMutationOrigin origin,
+      ConsentSettings previous,
+      ConsentSettings current,
+    )?
+    onPolicyMutationApplied,
   }) async {
     final existing = _instance;
     if (existing != null && !identical(existing._prefs, prefs)) {
       SafeLogger.w(
-          _tag,
-          'bootstrap() called again with a different AdPreferences instance '
-          '— ignored; the singleton keeps using the one from its first '
-          'bootstrap() call. Pass the same AdPreferences every time.');
+        _tag,
+        'bootstrap() called again with a different AdPreferences instance '
+        '— ignored; the singleton keeps using the one from its first '
+        'bootstrap() call. Pass the same AdPreferences every time.',
+      );
     }
-    final m = existing ??
+    final m =
+        existing ??
         ConsentManager._(
           prefs: prefs,
           provenanceJournal: provenanceJournal,
+          config: config,
+          onPolicyMutation: onPolicyMutation,
+          onPolicyMutationApplied: onPolicyMutationApplied,
         );
     // Round 63 audit fix: unconditional, including null — see this
     // method's own doc comment above.
     m._journal = provenanceJournal;
+    m._config = config ?? m._config;
+    m._onPolicyMutation = onPolicyMutation ?? m._onPolicyMutation;
+    m._onPolicyMutationApplied =
+        onPolicyMutationApplied ?? m._onPolicyMutationApplied;
     await m._load();
     _instance = m;
     return m;
@@ -116,8 +189,10 @@ class ConsentManager {
   @visibleForTesting
   static void resetForTest() {
     if (kReleaseMode || debugSimulateReleaseModeForTestSeams) {
-      SafeLogger.e(_tag,
-          'resetForTest ignored in a release build — test-only seam (round-71 audit)');
+      SafeLogger.e(
+        _tag,
+        'resetForTest ignored in a release build — test-only seam (round-71 audit)',
+      );
       return;
     }
     _instance?._settingsListenable.dispose();
@@ -129,6 +204,19 @@ class ConsentManager {
 
   final AdPreferences _prefs;
   ConsentProvenanceJournal? _journal;
+  AdConfig? _config;
+  void Function(
+    ConsentMutationOrigin origin,
+    ConsentSettings previous,
+    ConsentSettings current,
+  )?
+  _onPolicyMutation;
+  Future<void> Function(
+    ConsentMutationOrigin origin,
+    ConsentSettings previous,
+    ConsentSettings current,
+  )?
+  _onPolicyMutationApplied;
 
   /// Round-39 audit fix (MAJOR) — serializes every [_persist] call after
   /// whatever previous one is still in flight, same intent as
@@ -314,14 +402,37 @@ class ConsentManager {
   Future<void> _persist() async {
     final encoded = ConsentSettings.encode(_current);
     // Round-72 audit fix: read-site guard, same reason as resetForTest above.
-    final delay =
-        (kReleaseMode || debugSimulateReleaseModeForTestSeams) ? null : debugPersistDelay;
+    final delay = (kReleaseMode || debugSimulateReleaseModeForTestSeams)
+        ? null
+        : debugPersistDelay;
     if (delay != null) await Future<void>.delayed(delay);
     await _prefs.setConsentSettingsRaw(encoded);
   }
 
   Future<void> _applyToProviders(AdConfig? config) async {
-    await applyConsentToProviders(_current.toAdConsent(), config: config);
+    final effectiveConfig = config ?? _config;
+    if (config != null) _config = config;
+    await applyConsentToProviders(
+      _current.toAdConsent(),
+      config: effectiveConfig,
+    );
+  }
+
+  void _applyPolicyMutation(
+    ConsentMutationOrigin origin,
+    ConsentSettings previous,
+    ConsentSettings current,
+  ) {
+    _onPolicyMutation?.call(origin, previous, current);
+  }
+
+  Future<void> _applyPolicyMutationApplied(
+    ConsentMutationOrigin origin,
+    ConsentSettings previous,
+    ConsentSettings current,
+  ) async {
+    final callback = _onPolicyMutationApplied;
+    if (callback != null) await callback(origin, previous, current);
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -341,8 +452,30 @@ class ConsentManager {
     String source = 'host',
     String policyRevision = kUmpPolicyRevision,
   }) async {
-    await _setInternal(settings,
-        config: config, source: source, policyRevision: policyRevision);
+    await _setInternal(
+      settings,
+      config: config,
+      source: source,
+      policyRevision: policyRevision,
+      origin: ConsentMutationOrigin.host,
+    );
+  }
+
+  @internal
+  Future<void> setWithOrigin(
+    ConsentSettings settings, {
+    AdConfig? config,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
+    ConsentMutationOrigin origin = ConsentMutationOrigin.host,
+  }) async {
+    await _setInternal(
+      settings,
+      config: config,
+      source: source,
+      policyRevision: policyRevision,
+      origin: origin,
+    );
   }
 
   /// Records a versioned, conservative fallback when UMP/ATT cannot resolve.
@@ -402,12 +535,51 @@ class ConsentManager {
     String source = 'host',
     String policyRevision = kUmpPolicyRevision,
   }) async {
+    await _resetInternal(
+      config: config,
+      source: source,
+      policyRevision: policyRevision,
+      origin: ConsentMutationOrigin.host,
+    );
+  }
+
+  @internal
+  Future<void> resetWithOrigin({
+    AdConfig? config,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
+    ConsentMutationOrigin origin = ConsentMutationOrigin.host,
+  }) async {
+    await _resetInternal(
+      config: config,
+      source: source,
+      policyRevision: policyRevision,
+      origin: origin,
+    );
+  }
+
+  @internal
+  void clearPolicyCallbacks() {
+    _onPolicyMutation = null;
+    _onPolicyMutationApplied = null;
+  }
+
+  // ─── Internals ────────────────────────────────────────────────────────────
+
+  Future<void> _resetInternal({
+    AdConfig? config,
+    String source = 'host',
+    String policyRevision = kUmpPolicyRevision,
+    ConsentMutationOrigin origin = ConsentMutationOrigin.host,
+  }) async {
     final epoch = ++_applyEpoch;
+    final previous = _current;
     _current = ConsentSettings.unset.copyWith(
       isAgeRestrictedUser: _current.isAgeRestrictedUser,
       doNotSell: _current.doNotSell,
     );
     _settingsListenable.value = _current;
+    _applyPolicyMutation(origin, previous, _current);
     await _recordProvenance(source: source, policyRevision: policyRevision);
     await _schedulePersist();
     SafeLogger.d(_tag, 'reset → unset (COPPA/CCPA flags preserved)');
@@ -416,25 +588,30 @@ class ConsentManager {
         ? null
         : debugApplyBarrier;
     if (barrier != null) await barrier;
-    if (epoch == _applyEpoch) {
+    final providersApplied = epoch == _applyEpoch;
+    if (providersApplied) {
       await _applyToProviders(config);
+      await _applyPolicyMutationApplied(origin, previous, _current);
     } else {
-      SafeLogger.d(_tag,
-          'reset: superseded by a newer call before its own apply ran — skipping');
+      SafeLogger.d(
+        _tag,
+        'reset: superseded by a newer call before its own apply ran — skipping',
+      );
     }
   }
-
-  // ─── Internals ────────────────────────────────────────────────────────────
 
   Future<void> _setInternal(
     ConsentSettings s, {
     AdConfig? config,
     String source = 'host',
     String policyRevision = kUmpPolicyRevision,
+    ConsentMutationOrigin origin = ConsentMutationOrigin.host,
   }) async {
     final epoch = ++_applyEpoch;
+    final previous = _current;
     _current = s;
     _settingsListenable.value = s;
+    _applyPolicyMutation(origin, previous, s);
     await _recordProvenance(source: source, policyRevision: policyRevision);
     await _schedulePersist();
     SafeLogger.d(_tag, () => 'set → $s');
@@ -446,11 +623,15 @@ class ConsentManager {
         ? null
         : debugApplyBarrier;
     if (barrier != null) await barrier;
-    if (epoch == _applyEpoch) {
+    final providersApplied = epoch == _applyEpoch;
+    if (providersApplied) {
       await _applyToProviders(config);
+      await _applyPolicyMutationApplied(origin, previous, s);
     } else {
-      SafeLogger.d(_tag,
-          'set: superseded by a newer call before its own apply ran — skipping');
+      SafeLogger.d(
+        _tag,
+        'set: superseded by a newer call before its own apply ran — skipping',
+      );
     }
   }
 }

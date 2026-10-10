@@ -160,4 +160,33 @@ void main() {
     expect(AdManager().doNotSell, isFalse);
     expect(lastTestDevices(), contains('host-device-1'));
   });
+
+  testWidgets(
+    'programmatic ConsentManager.set updates toggle and preserves test devices',
+    (tester) async {
+      await tester.runAsync(() async {
+        await AdManager().initialize(config: _config, onComplete: (_, _) {});
+      });
+      await tester.pumpWidget(host());
+      await tester.pump();
+      gmaCalls.clear();
+
+      await tester.runAsync(() async {
+        await ConsentManager.instance.set(
+          ConsentManager.instance.current.copyWith(doNotSell: true),
+        );
+      });
+      await tester.pump();
+
+      expect(AdManager().doNotSell, isTrue);
+      final switchWidget = tester.widget<Switch>(find.byType(Switch));
+      expect(switchWidget.value, isTrue);
+
+      final ids = lastTestDevices();
+      expect(ids, contains('host-device-1'));
+      for (final hash in kQaTestDeviceHashes) {
+        expect(ids, contains(hash));
+      }
+    },
+  );
 }

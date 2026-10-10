@@ -24,7 +24,7 @@ export 'src/config/ad_log_level.dart';
 // Consent (manager)
 export 'src/consent/ccpa_opt_out_strings.dart';
 export 'src/consent/ccpa_opt_out_toggle.dart';
-export 'src/consent/consent_manager.dart';
+export 'src/consent/consent_manager.dart' hide ConsentMutationOrigin;
 export 'src/consent/consent_fallback.dart';
 export 'src/consent/consent_settings.dart';
 
