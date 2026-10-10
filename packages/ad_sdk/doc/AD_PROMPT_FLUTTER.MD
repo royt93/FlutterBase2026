@@ -4,7 +4,7 @@
 
 **This is a prompt for an AI coding agent, not a tutorial for a human to read start-to-finish.** If you are a human engineer who just received this file: open an AI coding assistant that can read/edit your project's files (Claude Code, Cursor, GitHub Copilot Chat, etc.), start it inside your Flutter project, and paste this **entire file** as your first message. It will fill in Section 0 by asking you questions (ad unit IDs, SDK key, Privacy Policy URL, ...), then execute Steps 1-12 itself, editing files and running builds/tests as it goes. You only need to answer its questions and review its output — you do not need to manually perform Steps 1-12 yourself.
 
-If your team has no AI-agent workflow and needs to integrate by hand: don't start here. Read `packages/ad_sdk/README.md`'s Quick Start section first for a plain human-readable walkthrough, then use this file only as a detailed reference for specific steps (splash lifecycle in Step 4, consent in Step 8, VIP in Step 9-10) as you go — trying to read all 12 Steps + 4 Appendices top-to-bottom as prose is exactly the kind of dense, imperative "the AI must..." checklist that will be confusing without an agent actually executing it.
+If your team has no AI-agent workflow and needs to integrate by hand: don't start here. Read `packages/ad_sdk/README.md`'s Quick Start section first for a plain human-readable walkthrough, then use this file only as a detailed reference for specific steps (splash lifecycle in Step 4, consent in Step 8, optional VIP in Steps 9-10) as you go — trying to read all 12 Steps + 4 Appendices top-to-bottom as prose is exactly the kind of dense, imperative "the AI must..." checklist that will be confusing without an agent actually executing it.
 
 **A note on the conventions below (GetX, `BaseStatefulState`, `SafeLogger`, i18n `.tr` keys):** these come from one reference integration this template was extracted from — they are this document's own conventions, **not** a requirement of the SDK itself, which has zero dependency on GetX or any particular state-management/logging setup. If your project already uses Provider/Riverpod/Bloc/plain `setState`, or its own logger, keep using it — swap every GetX/`BaseStatefulState`/`SafeLogger` reference below for your project's real equivalent. Only the ad-integration-specific rules (splash bootstrap order, `bypassSafety` restriction, VIP grace, consent ordering) are actual SDK constraints that don't bend to your architecture.
 
@@ -12,16 +12,15 @@ If your team has no AI-agent workflow and needs to integrate by hand: don't star
 >
 > **Filling in this template:** Section 0 below is where you record the *consuming* project's own values — SDK version pinned, provider choice, ad unit IDs, bundle ID, native config, logging setup, and so on. Do not carry over IDs, paths, or config from any other project. Every `<...>` placeholder must be filled with values that belong to the project you are integrating into.
 >
-> This template applies to any **Flutter** project. Before handing it to an AI agent, **fill in every `<...>` placeholder** in Section 0. The VIP feature is **mandatory** — every project must ship a VIP screen plus first-install grace (already built into the SDK — do not reimplement it).
-> If your project already has a VIP-related screen, reuse or enhance it following Step 10 below. If not, build a new one — the SDK also ships a ready-made `VipRedeemScreen` widget you can wrap directly (see the usage note in Step 10.2, and `packages/ad_sdk/README.md` if you happen to have the SDK's source available).
+> This template applies to any **Flutter** project. Before handing it to an AI agent, **fill in every `<...>` placeholder** in Section 0. VIP is optional: integrate it only when the product requires it. If enabled, use the SDK's signed-key flow or the pre-built `VipRedeemScreen`; never add a plaintext or Base64-obfuscated key whitelist. First-install grace is SDK-managed when configured and must not be reimplemented in app code.
 >
 > **Core rules (apply only to the NEW code this integration generates — the splash screen, VIP screen, and any other file the agent writes/edits for this task — not a mandate to refactor the rest of the existing project):**
 > 1. **Do NOT** use `setState` — use `ValueNotifier<T>` + `ValueListenableBuilder` instead (or the reactive equivalent of whatever state manager is in use — GetX `Rx<T>` + `Obx` preferred).
 > 2. **Do NOT** use `!` (the bang operator) — use a null-safe pattern instead: `if (x case final v?)`, `final v = x; if (v == null) return;`, or the null-coalescing operator `??`.
 > 3. **Do NOT** use `late` / `late final` — use a nullable field initialized in `initState` instead, read via a local copy (`final c = _controller; if (c != null) ...`).
-> 4. **Prefer** `AdProvider.appLovin` as the active runtime provider; treat AdMob as a fallback only (swap by flipping one line, `AdConfig.provider`).
-> 5. **Preferred state management**: GetX (`Rx<T>` / `Obx` / `'.tr'` for i18n / `Get.to` for navigation). i18n keys use `'snake_case'.tr`.
-> 6. **Preferred logger**: the project's own logger, wired through `AdConfig.onLog`. (One reference implementation names its logger `SafeLogger` and prefixes every line with a project tag, e.g. `roy93~` — that's just an example from one integration, not a requirement; use whatever logger convention your project already has.)
+> 4. **Provider choice is partner-owned**: select `AdProvider.appLovin` or `AdProvider.adMob` only after confirming the partner's account, inventory, mediation setup, and regional policy. The SDK selects its provider at initialization and does not silently fail over in-session.
+> 5. **State management and navigation**: preserve the partner app's existing framework and localization approach; do not add GetX or another framework solely for this SDK integration.
+> 6. **Logging**: wire `AdConfig.onLog` to the partner's approved logger and apply its retention/access policy. Do not log ad identifiers, consent strings, user-entered VIP codes, or other personal data unless the partner's privacy/security review explicitly approves the fields and purpose. (One reference implementation names its logger `SafeLogger` and prefixes every line with a project tag, e.g. `roy93~` — that's just an example from one integration, not a requirement; use whatever logger convention your project already has.)
 
 ---
 
@@ -41,9 +40,9 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
 | Sample app | `packages/ad_sdk/example/lib/main.dart` (demo pages, one page per feature) |
 | Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
 | Release build target | `flutter build apk --release --analyze-size` — verify the size delta is < 5MB versus baseline |
-| Primary provider (active at runtime) | **`AdProvider.appLovin`** (hard preference — do not change) |
-| Fallback provider | `AdProvider.adMob` (swap by changing `AdConfig.provider`) |
-| AppLovin SDK key | `<ask the user — stop if missing>` (86 chars, from `dash.applovin.com → Account → Keys → SDK Key`) |
+| Primary provider (active at runtime) | `<ask partner which provider is approved and configured: AdMob or AppLovin MAX>` |
+| Alternate provider | `<optional; provider is selected at initialization, not switched automatically during a session>` |
+| AppLovin SDK key | `<only if AppLovin is selected; obtain through the partner's approved secret/config channel, never commit it>` (86 chars, from `dash.applovin.com → Account → Keys → SDK Key`) |
 | AppLovin Android banner ID | `<ask the user — stop if missing, if targeting Android>` |
 | AppLovin Android interstitial ID | `<ask the user — stop if missing, if targeting Android>` |
 | AppLovin Android app open ID | `<ask the user — stop if missing, if targeting Android>` |
@@ -52,36 +51,39 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
 | AppLovin iOS interstitial ID | `<ask the user — stop if missing, if targeting iOS>` |
 | AppLovin iOS app open ID | `<ask the user — stop if missing, if targeting iOS>` |
 | AppLovin iOS rewarded ID | `<ask the user — stop if missing, if targeting iOS>` |
-| AdMob `APPLICATION_ID` | `<ask the user — if the user has no AdMob account, use Google's test App ID `ca-app-pub-3940256099942544~3347511713` + add a warning to the final report>` |
+| AdMob `APPLICATION_ID` | `<only if AdMob is selected; if no account and no AdMob serving is planned, use Google's test App ID and record this in the report>` |
 | AdMob banner ID | `<ask the user — stop if missing>` (do NOT use a test ID once the user has a production ID) |
 | AdMob interstitial ID | `<ask the user — stop if missing>` |
 | AdMob app open ID | `<ask the user — stop if missing>` |
 | AdMob rewarded ID | `<ask the user — stop if missing>` |
-| Privacy Policy URL | `<ask the user — stop if missing>` (gets embedded into the VIP screen footer + your own UMP/CMP privacy-policy link) |
+| Privacy Policy URL | `<partner-approved privacy policy URL if required by enabled providers/regions or VIP UI>` |
 | Splash hard cap (seconds) | `<ask the user, default 8>` (must match `AdConfig.splashMaxDuration`) |
-| VIP key whitelist (plaintext) | `<ask the user — list in the form "KEY: <duration>", e.g. "PROMO30: 30 days, PROMO3: 3 days">` |
-| VIP key obfuscation level | Plaintext `Map<String, Duration>` in `vip_keys.dart` (simple, good enough for a new project). A stronger mechanism — Ed25519-signed keys, not a Base64 map — is also available if the user wants a higher anti-forgery bar; see `packages/ad_sdk/README.md` → "Signed VIP keys" (if you have the SDK source) or the hosted package's README on pub.dev. |
+| VIP feature | `<enabled only if product requires it; otherwise skip VIP UI/key setup>` |
+| VIP signing public key | `<if VIP is enabled: embed the Ed25519 public key only; keep the private signing key in an approved secret manager, never in the app/repository>` |
+| VIP activation | `<if VIP is enabled: use redeemSignedKey or VipRedeemScreen; activation requires network, VIP works offline after activation>` |
 
 **Hard rules for Section 0**:
 
-1. **Both AppLovin and AdMob config are mandatory** before setting up `AdConfig` — `AppLovinConfig` and `AdMobConfig` must both be non-null in the constructor (SDK constraint). For AppLovin, **ad unit IDs must be split per platform** if the app targets both; never reuse iOS units for Android or vice versa. This keeps provider swapping possible without rebuilding the template. If the user says "I only have AppLovin" → still ask for the AdMob IDs separately; never auto-fill a test ID when the user has a real one.
+1. Configure the provider approved for this integration. Only that provider's config and ad-unit IDs are required; configure the alternate provider only if the partner will use it. When both platforms are targeted, use platform-specific AppLovin ad-unit IDs and keep native app IDs/credentials correct for each platform. Never insert a test ID when the partner has a production ID.
 2. **AdMob `APPLICATION_ID` exception**: if the user has no AdMob account and confirms they won't serve AdMob ads → it's fine to use Google's test App ID `ca-app-pub-3940256099942544~3347511713` + write a warning into the final report in Step 12.
-3. Any field still marked `<ask the user — stop if missing>`: the AI **must ask the user in chat** and then **stop and wait for an answer** — do not auto-fill the placeholder, do not use a test ID when the user has a production ID, do not skip it.
-4. **Latest version**: fetch the `pub.dev` API or read `flutter pub outdated` to get the latest stable version right when starting Step 1. Every feature referenced in this document (VIP stacking, `bypassVipGuard`, the anti-uninstall-bypass guard, ATT integration) is present in current releases, so there's no known minimum-version constraint beyond "use whatever is latest."
+3. Any field still marked `<ask the user — stop if missing>`: the AI **must ask the user in chat** and then **stop and wait for an answer** — do not auto-fill the placeholder, do not use a test ID when the user has a production ID, do not skip it. If VIP is disabled, do not ask for VIP keys or signing material.
+4. **Latest version**: fetch the `pub.dev` API or read `flutter pub outdated` to get the latest stable version right when starting Step 1. Verify every API and native requirement in this guide against that exact version's README/CHANGELOG; never assume all current features exist in every published version.
 
 ---
 
 ## Forbidden (applies to every project)
 
+Items marked partner approval below are release gates, not optional documentation suggestions. Never infer a provider, VIP entitlement, backup policy, or consent policy from the sample app.
+
 - Adding a new ad slot beyond the slots that already exist in the current code.
 - Refactoring code unrelated to the ad integration.
 - Bumping or downgrading the SDK version outside the range settled in Section 0.
-- Changing `AdConfig.provider` from AppLovin to AdMob without the user asking for it.
+- Changing `AdConfig.provider` without partner approval. Select only a provider the partner has configured and approved; the SDK does not perform silent in-session provider failover.
 - Re-reading the same file more than once for "double checking" — review the result you already have; don't re-read.
 - Adding a new interstitial trigger (e.g. "show after every action X") if the existing code doesn't already do that.
 - Filling an ad ID with a test ID or placeholder when the user already has a production ID — you must ask the user instead.
 - Bypassing `AdSafetyParams.auto` anywhere except the one sanctioned spot: the splash App Open ad (`bypassSafety: true`).
-- Re-implementing first-install VIP grace in app code — the SDK already has `firstInstallVipGrace: FirstInstallVipGrace.auto` (30s debug / 24h release). **Mandate using `auto`, do NOT override it.**
+- Re-implementing first-install VIP grace in app code. If product and security owners approve VIP grace, configure the SDK's `firstInstallVipGrace` explicitly; otherwise use `FirstInstallVipGrace.disabled`. Never silently enable a free entitlement in a partner app.
 - Showing an App Open Ad **directly on a bare splash screen** (this violates AdMob's "Disallowed interstitial implementations" policy) — it must go through the flow `loadAppOpenAd → AdLoadingDialog.showAdBuffer → showAppOpenAd(bypassSafety: true)`.
 - Subscribing to `WidgetsBindingObserver` lifecycle yourself to show App Open on resume — the SDK already hooks this; double-subscribing means double-showing.
 - Adding an Android/iOS permission beyond the whitelist (see Step 2 + Step 11), except for an ad-related permission with a clear justification (e.g. `ACCESS_WIFI_STATE` for AppLovin GeoTargeting). Any non-ad-related permission → ask the user first.
@@ -98,7 +100,7 @@ Read the SDK source carefully before starting: the monorepo path `packages/ad_sd
   - Bootstrap: `AdManager().setNavigatorKey(key)`, `adRouteObserver`, `AdScreenRouteLogger()`, `SimpleEventBus().listen`, `AdManager().initialize(config:, onComplete:)`.
   - Splash flow: `markSplashActive` / `markSplashInactive` / `incrementSplashCount` / `countInitSplashScreen`, `loadAppOpenAd`, `AdLoadingDialog.showAdBuffer`, `showAppOpenAd(bypassSafety: true)`.
   - Per-screen: `class XxxScreen extends AdScreen` → `class _XxxState extends AdScreenState<XxxScreen>` gives you `buildBanner()`, `showInterstitialAd(onDone:)`, `showRewardedAd(onEarnedReward:)`.
-  - VIP: `AdManager().vip` (nullable!) → `addVip / redeemVip / revokeVip / revokeAll / activeListenable / activeStream / expiresAt / entries`. **`addVip` and `redeemVip` take a `stack: bool` (default `false`)** — `stack: true` means **global stacking**: `+duration` is added on top of the highest current expiry across ALL active entries (every source shares one timeline; e.g. 6 days left + a 30-day code ⇒ 36 days). `stack: false` keeps "latest-expiry-wins" semantics. Optional cap: **`AdConfig.maxVipStackDuration`** (default `null` = no cap) clamps the total to `≤ now + cap`. (Available in current SDK releases — check `CHANGELOG.md` if you need the exact version it landed in.)
+  - VIP (only if the product needs it): `AdManager().vip` is nullable. For promotions, use `redeemSignedKey` or `VipRedeemScreen` with the public key; activation requires network and VIP works offline after activation. Never place the private key or a plaintext/Base64 key whitelist in the app. `addVip` is for trusted purchase/reward flows, not validating user-entered promo codes. Check this SDK version's README/CHANGELOG for stacking, revoke, and expiry APIs.
   - Rewarded while already VIP: `showRewardedAd(bypassVipGuard: true, ...)` lets a VIP user **voluntarily** watch a real rewarded ad to extend their window (the SDK loads the ad on-demand and shows a loading dialog; default `false` keeps the surface suppressed). Configurable `onDemandLoadTimeout` (default 15s). `showRewardedAd` is already **re-entrancy-safe** (blocks double-tap while loading/showing). (Available in current SDK releases — check `CHANGELOG.md` for the exact version.)
   - Consent: `AdManager().requestUmpConsent(testMode:, debugGeography:, testIdentifiers:)` (Google UMP, a certified CMP, wired by default via `AdConfig.autoRequestUmpConsent: true`) + `CcpaOptOutToggle` for the separate CCPA "Do Not Sell" axis. No built-in GDPR consent dialog — removed round 44 (was not a certified CMP).
   - Safety: `AdSafetyParams.auto` (default, do NOT override).
@@ -124,7 +126,7 @@ Answer 8 questions (yes/no + evidence as `file:line`):
 2. What does `main.dart` currently call for init? Does it call `AdManager().setNavigatorKey(navigatorKey)` **before** `runApp`? Are `adRouteObserver` + `AdScreenRouteLogger()` present in `navigatorObservers`?
 3. Does the splash screen call `AdManager().initialize` (NOT `main`)? Is `SimpleEventBus().listen` registered **before** `initialize`? Is there a hard-cap timer + hot-restart guard (`countInitSplashScreen > 1`)?
 4. Which screens currently load banner / interstitial / rewarded, and with which API? Have they already been converted to extend `AdScreen`?
-5. **Is there a VIP screen already?** If yes → the AI will **upgrade it in place** in Step 10. If not → create a new one. Describe the current UI if one exists.
+5. **Does the approved product scope include VIP?** If yes, is there an existing screen to reuse or enhance in Step 10? If no, skip VIP UI, key setup, and grace configuration entirely. Do not add an entitlement feature without product approval.
 6. State management: is the project using GetX / Provider / Riverpod / Bloc / setState? Verify whether GetX is already present (`pubspec.yaml`) — if not → the AI will add it.
 7. Does the project have a `BaseStatefulState` (or `BaseStatefulWidget`, `BaseScreen` equivalent)? Where is it? What helpers does it already provide (alert dialogs, lifecycle logging)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/core/base_stateful_state.dart`.
 8. Does the project have a `SafeLogger` (or `Logger`, `Talker`, `LogUtils` equivalent)? Where is it? Which methods (`d`/`i`/`w`/`e`)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/util/safe_logger.dart`.
@@ -152,7 +154,7 @@ It must contain these sections:
 
 **(3) Before/after comparison table** — at least 8 rows (Provider, Architecture, App Open lifecycle, Consent UI + UMP, Memory leak risk, Frequency cap, VIP support, Banner pause/resume).
 
-**(4) Information still needed from the user** — a clear list of what's missing: ad unit IDs, AppLovin SDK key, Privacy Policy URL, banner placement layout (top/bottom/anchored — default bottom), VIP key whitelist + duration mapping, splash hard-cap.
+**(4) Information still needed from the user** — list only required values for the approved scope: provider credentials/ad unit IDs, Privacy Policy URL where required, banner placement, splash hard-cap, and (only if VIP is approved) public signing key and activation policy. Never request or embed the VIP private signing key.
 
 ## Step 4 — Lifecycle requirements (hard rule, applies to every Flutter project)
 
@@ -542,7 +544,7 @@ Before deleting any old SDK file/class, **grep-verify** nothing else still uses 
 
 - List the old SDK files that will be deleted (e.g. `lib/utils/ad_helper.dart`, `lib/services/admob_service.dart`, a custom `AdMobManager`, ...).
 - For each file: `grep -r 'ClassName\|methodName' lib/` across the whole project, confirm 0 references, then delete.
-- Remove old deps from `pubspec.yaml` (`google_mobile_ads`, `applovin_max`, `unity_ads`, etc.) except `gma_mediation_applovin` (mandatory at the app level for native mediation — do NOT remove it).
+- Remove old direct ad-SDK integrations from `pubspec.yaml` only after checking remaining callers and the approved architecture. Keep `google_mobile_ads`/`applovin_max` dependencies required by the SDK's public config types/native implementation; add `gma_mediation_applovin` only when the partner explicitly uses AppLovin as an AdMob mediation network, and verify its version against the pinning guidance.
 - Don't add banner/interstitial/rewarded to any screen the old SDK wasn't already on.
 
 ## Step 6 — Build & memory check
@@ -630,54 +632,73 @@ want an explicit "child app" config checked ahead of the very first `initialize(
 flag, not something derived from consent state) so AppLovin never initializes even on install #1. Do not
 silently ship the one-time gap without asking.
 
-## Step 9 — First-install VIP grace + anti-uninstall-bypass guard
+## Step 9 — Optional first-install VIP grace + anti-uninstall-bypass guard
+
+Skip this step and Step 10 if the product does not use VIP. If VIP is enabled, confirm with the partner's product and security owners which grant types are allowed and whether the host's backup policy permits persisting the first-install marker.
 
 ### 9.1 — Grace config (SDK built-in, do NOT reimplement)
 
-**Do NOT** store a manual `pref_first_launch_vip_granted` flag, and **do NOT** call `vip.addVip(...)` in `main()` to grant a day — the SDK already ships `firstInstallVipGrace` defaulting to `auto` (30s debug / 24h release).
+**Do NOT** store a manual `pref_first_launch_vip_granted` flag, and **do NOT** call `vip.addVip(...)` in `main()` to grant a day. The SDK defaults `firstInstallVipGrace` to `auto` (30s debug / 24h release); for an integration where VIP grace is not approved, explicitly configure `FirstInstallVipGrace.disabled`.
 
 ```dart
 AdConfig(
-  // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override
-  // firstInstallVipKey: '__FIRST_INSTALL__',          // default
+  // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default; use only if approved
+  // firstInstallVipGrace: FirstInstallVipGrace.disabled, // if grace is not approved
+  // firstInstallVipKey: '__FIRST_INSTALL__',
 )
 ```
 
-Verify the `__FIRST_INSTALL__` entry appears in `vip.entries` after the first init (see Step 10.6 — special entries).
+### 9.2 — Anti-uninstall-bypass guard (only if VIP grace is enabled; verify against this SDK version)
 
-### 9.2 — Anti-uninstall-bypass guard (available since SDK 1.0.17 — check `CHANGELOG.md` for your version)
+This guard attempts to prevent repeated first-install grants after reinstall; it is not paid-license or account-level enforcement.
 
-Goal: prevent a user from uninstalling + reinstalling the app to get an unlimited number of 24h grace windows. Mechanism per platform:
-
-| Platform | Mechanism | What does the AI need to do? |
+| Platform | Mechanism | Limit |
 |---|---|---|
-| **iOS** | SDK auto: writes a flag to the Keychain via `flutter_secure_storage`. Keychain persists across uninstall by default. | ✅ Nothing (the SDK handles it) |
-| **Android** | **Host-app config**: AndroidManifest + 2 XML files so Auto Backup can restore `FlutterSharedPreferences.xml` on reinstall under the same Google account. | ⚠️ **The AI MUST configure this** (see 9.3) |
+| **iOS** | SDK stores a marker in Keychain via `flutter_secure_storage`. | Keychain persistence is device-local and can be affected by device erase/restore behavior. |
+| **Android** | Host backup rules may preserve the marker across backup-enabled restores. | Clear-data, backup settings, account/device changes, and timing can bypass it; this is best-effort only. |
 
-Accepted limitations (documented):
-- Android: bypass is possible if the app is uninstalled within the first 24h (before Auto Backup has run), if the user disables Backup, across accounts, or after a factory reset. ~5-15% edge cases.
-- iOS: bypass is only possible via "Erase All Content and Settings" or restoring an encrypted backup onto a different device.
+### 9.3 — Android backup config (OPTIONAL; security/privacy owner approval required)
 
-### 9.3 — Android Auto Backup config (MANDATORY if the host targets Android)
+Do not enable backup or change existing backup policy solely to support VIP grace. The proposed rule includes the entire `FlutterSharedPreferences.xml` file, not only the SDK marker; that file may also contain host-app or plugin preferences. Review its contents and the partner's backup/data-retention policy with the app security/privacy owner before adding the rules. If approval is absent or the host disallows backup, preserve the existing policy and disable first-install VIP grace rather than weakening host controls.
 
-**(a) `android/app/src/main/AndroidManifest.xml`** — add 3 attributes to `<application>`:
+Only after approval, merge the SDK's required preference file into the host's existing backup rules; never overwrite existing Firebase, database, or other app-specific rules. Do not claim that this makes VIP grants single-use or tamper-proof.
+
+**(a) `android/app/src/main/AndroidManifest.xml`** — only after owner approval, configure the existing backup policy to reference the appropriate rule files:
 
 ```xml
 <application
-    android:name="${applicationName}"
     android:allowBackup="true"
     android:fullBackupContent="@xml/full_backup_content"
     android:dataExtractionRules="@xml/data_extraction_rules"
     ...>
 ```
 
-What each attribute does:
-- `android:allowBackup="true"` — enables Google Auto Backup (MANDATORY).
-- `android:fullBackupContent="@xml/full_backup_content"` — legacy rules for Android 6-11 (API 23-30).
-- `android:dataExtractionRules="@xml/data_extraction_rules"` — modern rules for Android 12+ (API 31+).
+Do not change an existing `android:allowBackup="false"` without explicit approval. An approved integration may instead retain its current backup policy and disable the VIP grace feature.
 
-If the host app already has `android:allowBackup="false"` → the AI **must ask the user before changing it** (they may have turned it off for a compliance/privacy reason). If the user confirms → set it to `true`.
+**(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31), merge only after approval:
 
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
+    </device-transfer>
+</data-extraction-rules>
+```
+
+**(c) `android/app/src/main/res/xml/full_backup_content.xml`** — Android 6-11 legacy, merge only after approval:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
+</full-backup-content>
+```
+
+Both files may be needed across supported Android versions. An explicit include is scoped to the named file, but backs up every preference stored in that file; it does not filter individual keys.
 **(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31), create this file if it doesn't exist:
 
 ```xml
@@ -762,9 +783,9 @@ adb shell bmgr backupnow <package_name>
 9. Restore firstInstallVipGrace = .auto for production
 ```
 
-## Step 10 — VIP management screen UI/UX (detailed, mandatory)
+## Step 10 — Optional VIP management screen UI/UX
 
-**The VIP feature is mandatory — do not skip it. Step 2 already audited whether one exists: if so, upgrade it in place; if not, create a new one.**
+Skip this step unless product scope explicitly includes VIP and the partner has approved its entitlement, promotion, and privacy behavior. If approved, reuse an existing screen or the SDK's `VipRedeemScreen`; do not create an entitlement UI by default.
 
 ### 10.1 — File structure (mandate)
 
@@ -781,7 +802,7 @@ lib/<DART_PACKAGE_NAME>/
     ├── splash/splash_screen.dart
     └── vip/
         ├── vip_screen.dart       ← main UI
-        └── vip_keys.dart         ← validator + key map
+        └── vip_config.dart       ← public signing key only (if VIP is approved)
 ```
 
 ### 10.2 — `AdKey` class
@@ -861,7 +882,7 @@ screen per Step 2. See `packages/ad_sdk/README.md`'s "Pre-built redeem screen (`
 | 3 | Expiry date row | `'Expires: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.expiresAt)}'` (hidden if free) |
 | 4 | Progress bar (elapsed) | `LinearProgressIndicator` with `value = (now − entry.grantedAt) / (entry.expiresAt − entry.grantedAt)`, clamped to `[0.0, 1.0]`. **3 points on the horizontal timeline**: `start = entry.grantedAt` (left edge, 0%), `end = entry.expiresAt` (right edge, 100%), `current = now` (fill position). The bar starts **empty right after activation and fills up toward expiry** (elapsed semantics — matches the user's mental model of "progression toward expiry"). Absolutely do NOT invert the formula to `remaining/total` (full → empty) — that's confusing UX. Only show this when VIP is active. **No need for `TweenAnimationBuilder`** — a per-second tick from `_now` is smooth enough (Δ ≪ 0.001%/s for a 24h+ VIP window); `TweenAnimationBuilder` would only add overhead and slow rebuilds. Edge case `total ≤ 0` (clock skew / already expired) → default to `value = 1.0` (full = expired) |
 | 5 | Countdown text | Format like `12d 03h 24m 15s` — updated via `Timer.periodic(Duration(seconds: 1), ...)` in `initState`, `cancel()`'d in `dispose`. State goes through `ValueNotifier<Duration>`, never `setState` |
-| 6 | VIP key text field | `TextEditingController` + `TextCapitalization.characters` (auto-uppercase), prefix icon `Icons.confirmation_number`, suffix clear button. The "Activate" button calls `vip.redeemVip(context, key, duration, validator, strings, stack: true)` — `stack: true` for **global stacking**: `+duration` on top of the highest expiry across all entries (including watch-ad entries) instead of resetting. The SDK already handles the Cupertino verifying/success/failed dialogs (the success dialog reports the expiry after stacking) |
+| 6 | Signed VIP code field (if promotions are in scope) | `TextEditingController` + `TextCapitalization.characters`; redeem with `redeemSignedKey` or the SDK screen. Handle statuses explicitly; activation requires network. Never check user-entered codes against an app-bundled plaintext/Base64 key map. |
 | 7 | "Watch ad → N days VIP" button | Tap → `showRewardedAd(onEarnedReward: (earned) {...})`. **Only grant VIP when `earned == true`** (the user watched the rewarded ad to completion). **Do NOT** fall back to an interstitial to grant the reward — granting VIP for watching an interstitial violates Google/AppLovin's rewarded policy (it blurs the rewarded/interstitial line). If rewarded isn't ready → show "try again later". **Stacking**: grant via the fixed key `REWARDED_VIP` + `addVip(..., stack: true)` (collapses into one entry). To let an active VIP extend their window this way, keep the button visible even while `active` and use `showRewardedAd(bypassVipGuard: true, ...)` (see 4.7). Pulse animation #1 |
 | 8 | Buy 30-day VIP (disabled) | `OutlinedButton.icon(icon: Icon(Icons.card_giftcard))` disabled, label `'vip_buy_30d_locked'.tr` ('Buy 30-day VIP — coming soon'). Waiting on IAP integration |
 | 9 | Buy 90-day VIP (disabled) | Same as #8 |
@@ -996,36 +1017,21 @@ Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (com
   }
   ```
 
-### 10.6 — VIP key whitelist + special entries
+### 10.6 — Signed VIP redemption + special entries (only if VIP is approved)
 
-`vip_keys.dart`:
+Use the SDK's Ed25519 signed-code flow, never an app-bundled plaintext or Base64-obfuscated key-to-duration map. Generate the keypair once; keep the private signing key outside the application and source repository in the partner's approved secret manager. Ship only the public key. Mint codes with expiry, bundle binding, and a short validity window appropriate to the promotion; see `packages/ad_sdk/README.md` → "Signed VIP keys" for the exact command/API matching this SDK version.
 
 ```dart
-// Plaintext map (simple):
-final Map<String, Duration> kVipKeyMap = {
-  'PROMO30': const Duration(days: 30),
-  'PROMO3':  const Duration(days: 3),
-};
-
-// OR a Base64-obfuscated map (a bit more obscured, good enough for a new project):
-// import 'dart:convert';
-// final Map<String, Duration> kVipKeyMap = {
-//   utf8.decode(base64Decode('OUZBMFE3RU4hMjdDTFgwNEAyMTk5M1kyVTBJNyNRMA==')):
-//       const Duration(days: 30),
-// };
-// A stronger option — Ed25519 signed keys instead of a plaintext/Base64 duration map —
-// is also available if you need it; see `packages/ad_sdk/README.md` → "Signed VIP keys".
-
-Future<bool> vipKeyValidator(String normalisedKey) async =>
-    kVipKeyMap.containsKey(normalisedKey);
-
-Duration? lookupVipKeyDuration(String normalisedKey) =>
-    kVipKeyMap[normalisedKey];
+final result = await AdManager().vip?.redeemSignedKey(
+  userInput,
+  publicKeyBase64: kVipPublicKeyBase64,
+  stack: true,
+);
 ```
 
-`VipManager.normaliseKey` (trim + uppercase) runs before the validator → a user typing `promo30` or ` PROMO30 ` will still match.
+Handle the returned status explicitly. Redemption requires network even though signature verification is local; VIP remains usable offline after activation. These are promotional entitlements, not globally single-use paid licenses: Android clear-data/reinstall can replay a leaked valid key. Use server-verified purchase entitlements for paid VIP where replay creates material loss; do not treat this client-side mechanism as an authorization boundary for sensitive data or features.
 
-**Special entries** (auto-managed by the SDK, do NOT delete manually):
+**Special entries** (auto-managed by the SDK, do NOT delete manually; omit this UI section if VIP is not in product scope):
 
 | Key prefix | Source | UI label (i18n key) |
 |---|---|---|
@@ -1080,7 +1086,23 @@ ValueListenableBuilder<bool>(
 )
 ```
 
-## Step 11 — Self-review & update `<PROJECT_PATH>/doc/AD.MD`
+## Step 11 — Partner readiness review & update `<PROJECT_PATH>/doc/AD.MD`
+
+Before handoff or production rollout, complete this checklist with the partner's owners. Record exact SDK/Flutter/native dependency versions, device/OS/build results, region/provider configuration, and any accepted limitations in the integration record. A passing emulator build is not device compatibility evidence.
+
+### 11.0 — Partner release gates
+
+- [ ] Product owner approved provider, ad formats/placements, launch triggers, VIP/grace scope, and all user-facing ad disclosures; placements do not risk accidental clicks or interrupt active interaction
+- [ ] Privacy/legal owner approved target markets, consent/CMP flow, ATT purpose text, age-directed behavior, privacy-policy URL, data purposes, retention, and any permitted diagnostics
+- [ ] Security/privacy owner reviewed Android backup policy before any change; backup include rules are merged, not replaced, and scope is understood to include all keys in `FlutterSharedPreferences.xml`
+- [ ] Tested consent granted, denied/withdrawn, unavailable/offline, app resume, and re-initialization for each enabled provider; record provider-specific limitations, including AppLovin consent writes being fire-and-forget
+- [ ] Ran on real partner-target devices/OS versions, including at least one low-memory/low-end device and one current flagship per supported platform; add OEM-specific devices (Samsung, TECNO, Huawei, etc.) from the partner's launch matrix. Record device model, OS, architecture, provider, build mode, network, and outcome
+- [ ] Verified cold start, splash timeout/ad success/ad unavailable, fullscreen dismiss/reward, background/resume, rotation/window resize where supported, no-network/reconnect, and VIP/consent paths that are in scope
+- [ ] Release build uses production app IDs/ad unit IDs only in approved release configuration; debug/test builds use test inventory. Confirm no test geography, test IDs, verbose logs, private VIP signing key, or unapproved diagnostics are shipped
+- [ ] Reviewed merged manifest permissions, exported components, backup rules, iOS privacy declarations/ATT text, SKAdNetwork configuration, and dependency lockfiles against partner policy
+- [ ] Captured final analyze/test/build results and signed-off known limitations, rollback owner/path, monitoring owner, and escalation contacts
+
+
 
 One review pass only, do NOT repeat it 3 times. Checklist:
 
@@ -1109,18 +1131,17 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 - [ ] Every screen with an ad extends `AdScreen` + `AdScreenState`
 - [ ] Banner is wrapped edge-to-edge if the app uses `UIUtils.initEdgeToEdge()`
 - [ ] Every ad slot has been replaced (grepping the old SDK's name no longer matches anything)
-- [ ] Old SDK deps removed from `pubspec.yaml` (except `gma_mediation_applovin`)
+- [ ] Remove superseded direct integrations only; retain the selected provider dependencies, and include `gma_mediation_applovin` only when the partner uses AppLovin as AdMob mediation
 - [ ] Both build targets from Section 0 are green (debug + release)
 - [ ] `flutter analyze --fatal-infos` → 0 issues
 
-### 11.4 — VIP + Consent
+### 11.4 — Consent + optional VIP
 
-- [ ] First-install VIP grace uses the SDK's `auto`, not overridden
-- [ ] `AdKey` class at `lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart` contains `appLovinAndroid`, `appLovinIos`, a platform-selecting `appLovin` getter, `adMob: AdMobConfig(...)`, `privacyPolicyUrl`
-- [ ] The VIP screen has **all 13 UI components** (10.3) + **all 5 animations** (10.4) + **0 violations of the memory leak rules** (10.5)
-- [ ] Translations for both locales added (10.7), 0 hardcoded user-facing strings
-- [ ] The AppBar VIP icon is reactive via `vip?.activeListenable` (10.8)
-- [ ] Consent: all 3 pieces wired (auto-show + UMP + iOS ATT)
+- [ ] Consent flow and provider-specific behavior reviewed for target regions, age groups, and approved CMP/policy requirements; record test evidence for consent granted, denied/withdrawn, unavailable/offline, and resume/re-init paths
+- [ ] iOS ATT prompt is present only where applicable, with partner-approved purpose text and correct ordering before UMP/first ad request
+- [ ] If VIP is approved: ship only the public signing key; use signed redemption and handle invalid, expired, wrong-app, already-used, and offline cases; document Android reinstall/clear-data replay limitation
+- [ ] If first-install grace is approved: verify the configured duration and backup policy with the partner security/privacy owner; otherwise set `FirstInstallVipGrace.disabled`
+- [ ] If VIP is out of scope: no VIP UI, plaintext key map, signing material, or unapproved grace entitlement is added
 
 ### 11.5 — Code style enforcement (core rule)
 
@@ -1129,61 +1150,46 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 - [ ] `grep -rn 'late ' lib/` → 0 matches
 - [ ] `grep -rn 'late final' lib/` → 0 matches
 
-### 11.6 — 5-step smoke test (mandatory)
+### 11.6 — Smoke and device-matrix tests (mandatory before partner handoff)
 
-Run it once on an emulator or a real device (debug build), recording the result of each step:
+Run the debug smoke test on an emulator, then run the agreed real-device/OS matrix from 11.0. Record each result; emulator success does not replace physical-device testing.
 
 ```
-1. Cold-start the app on an emulator/device (debug build).
-   Verify: console has no "FATAL"/"Exception", splash renders in < 1s.
+1. Cold-start the app.
+   Verify: no fatal exception, splash renders, initialization completes or hard-cap exits without a stuck state.
 
-2. Wait through the splash flow.
-   Verify: console log `🚀 AdManager singleton CREATED` appears exactly once.
-   Verify: the `splash_ads_notice` text is shown.
-   Verify: if network is OK and the ad loads successfully → App Open Ad shows, dismisses → enters main screen.
-   Verify: if the hard-cap (8s) fires → main screen shows immediately, no stuck state.
+2. Exercise the configured consent path.
+   Verify: consent form behavior for applicable region; record granted/denied/withdrawn and unavailable/offline results before any ad request.
 
-3. Tap the VIP 👑 icon in the AppBar → enters VipScreen.
-   Verify: countdown text updates every second (via ValueNotifier, not setState).
-   Verify: if first-install grace is active → the __FIRST_INSTALL__ entry appears in the list with label `vip_entry_first_install`.tr.
+3. Exercise enabled ad formats with test inventory in debug.
+   Verify: load/show/dismiss or reward callbacks, safety gate behavior, and no crash during background/resume or reconnect.
 
-4. Enter a valid VIP key (e.g. "PROMO30") → tap "Activate".
-   Verify: the Cupertino "Verifying" dialog shows for ≥ 400ms.
-   Verify: the success dialog shows, the new entry is added to the list.
-   Verify: the AppBar VIP icon turns gold `0xFFFFD60A` immediately (reactive ValueListenableBuilder).
-   Verify: the hero card transitions from grey → gold gradient + crown shimmer animation plays.
-   Verify: confetti animation fires + heavy haptic feedback.
+4. Inspect release configuration and logs.
+   Verify: no test ad IDs/geography, private VIP signing key, user-entered VIP key, consent string, or unapproved personal data in shipped config/log output.
 
-5. Tap "Revoke all VIP" → confirm in the Material 3 dialog.
-   Verify: the entries list is empty.
-   Verify: the AppBar VIP icon reverts to a white outline immediately.
+5. If VIP is approved, redeem test AVP2 keys only.
+   Verify: valid, invalid, expired, wrong-app, already-used, and offline redemption behavior; never use a production promotion/license key for testing.
+
+6. Verify Android backup behavior only if partner security/privacy owner approved enabling it.
+   Verify: merged backup rules and observed restore scope; otherwise confirm existing backup policy remains unchanged and VIP grace is disabled.
+
+7. Attach the device/OS/provider/build/network matrix, test evidence, known limitations, and sign-off owners to the partner handoff record.
 ```
 
 If any item FAILs → fix it → re-check only that item (don't re-check items that already PASSed).
 
-## Step 12 — Final report (once, ≤ 25 lines)
+## Step 12 — Partner handoff report
 
-Fixed format, **only 2 sections**:
+Report only verified results; do not mark a gate PASS without evidence. Include:
 
-```
-### Integration Result
-- Build: flutter analyze=<PASS|FAIL>, flutter build apk --debug=<PASS|FAIL>, flutter build apk --release=<PASS|FAIL>, (iOS) flutter build ios --debug=<PASS|FAIL>
-- Slots integrated: <N/M>
-- Policy: <5/5 or list failing rules>
-- Memory review: <OK | list suspect points with file:line>
-- VIP UI: <13/13 components, 5/5 animations | list missing>
-- Code style: setState=<0 match>, !=<count user-introduced>, late=<0 match>, late final=<0 match>
-- Smoke test: <5/5 PASS | step <X> FAIL: <reason>>
-- Translations: vi=<count keys>, en=<count keys>
-- Files changed: <count>, lines +<X> -<Y>
-- AdMob APPLICATION_ID: <production | test ID — user has no AdMob account>
+- SDK, Flutter, Dart, Android Gradle/Kotlin, iOS/Xcode, and provider SDK versions
+- `flutter analyze`, unit/widget tests, platform builds, and real-device matrix with model/OS/provider/build/network/results
+- Enabled formats and placements; approved consent/CMP/ATT behavior by market and provider
+- Release-config checks (test IDs/geography absent, logging/privacy review, manifest/permissions, backup policy)
+- VIP/grace scope and approved behavior, if applicable; disclose Android replay limitation
+- Known failures, accepted limitations, rollback/monitoring owners, and outstanding partner sign-offs
 
-### Open questions for user
-- <specific key/id still missing>
-- <pending decision, if any>
-```
-
-Do NOT repeat this "3 rounds" — once the Step 11 checklist is all PASS, stop. If there's a FAIL, fix it until it PASSes, then report.
+Never include real credentials, private VIP signing keys, raw user-entered keys, or raw consent strings in the report or attached logs.
 
 ---
 
@@ -1199,7 +1205,7 @@ If the user is migrating from a native Android project using an `_AdmobWrapper`,
 | `AdManager.loadBanner(view, R.id.banner_container)` | `class _XxxState extends AdScreenState<Xxx>` → `buildBanner()` inside `build()` |
 | `AdManager.showInterstitial { ... }` | `showInterstitialAd(onDone: (shown) {...})` |
 | `AdManager.loadRewarded` + `showRewarded` | `showRewardedAd(onEarnedReward: (earned) {...})` |
-| `AdManager.activateVipByKey(base64)` | `AdManager().vip` (null-safe) → `redeemVip(context, key:, duration:, validator:, strings:)` |
+| Legacy app-local VIP map | `AdManager().vip` (null-safe) → `redeemSignedKey(code, publicKeyBase64:)` or `VipRedeemScreen` (only if VIP is approved; requires network) |
 | `AdSafetyLimits(interstitialMinIntervalSec: 60, ...)` | `AdSafetyParams.production.copyWith(...)` (defaults to `auto`, do NOT override) |
 | `BuildConfig.IS_ENABLE_ADMOB` flag | Flip `AdConfig.provider` (`AdProvider.appLovin` ↔ `AdProvider.adMob`) |
 | `Application.onCreate { AdManager.initialize() }` | `main()` only calls `setNavigatorKey`; init happens in `SplashScreen.initState()` |
@@ -1310,7 +1316,7 @@ Practical step-by-step guides for upgrading from older versions of `applovin_adm
 - [1.0.15 → 1.0.16](#d-1015--1016) — documentation-only release
 - [1.0.14 → 1.0.15](#d-1014--1015) — no breaking changes; opt-in new features
 - [1.x → 2.x (legacy upgrade path)](#d-1x--2x) — auto-migrating; old calls still work
-- [Latest fix-only release](#d6--latest-fix-only-release-audit-rounds-2026-08-192026-08-20) — no breaking changes; 3 audit fixes
+- [3.x compatibility and latest release](#d6--3x-compatibility-and-latest-release) — verify Flutter/Dart/Kotlin floors, provider pins, and native build requirements
 - [Common issues](#d-common-issues)
 - [FAQ](#d-faq)
 
@@ -1646,9 +1652,15 @@ Signed VIP key format: AVP1 → AVP2 by default. `tool/vip_mint.dart` mints `AVP
 
 ---
 
-### D.6 — Latest fix-only release (audit rounds 2026-08-19/2026-08-20)
+### D.6 — 3.x compatibility and latest release
 
-**No breaking changes.** Bump to whatever is the current latest published version on `https://pub.dev/api/packages/applovin_admob_sdk` and `flutter pub get` (do not hardcode a version number here — check the API for what's actually live, per the Section 0 note). This release line is fix-only, from the 2026-08-19/2026-08-20 audit rounds: App Open (and the other 3 fullscreen AdMob types) now re-checks freshness at *show* time, not just at load time, so a ready ad that sat past its 4h/1h expiry window is discarded and reloaded instead of shown; `showAppOpenAdOnResume` no longer bypasses the daily/hourly/session safety cap outside the splash flow (`bypassSafety: true` is now splash-only); AppLovin banner/MREC widgets no longer leak the native `MaxAdView` on disposal or on repeated preload of an already-live slot. No action needed beyond the version bump — see `CHANGELOG.md` for the exact version these landed in once published.
+Fetch the latest stable version from pub.dev when integrating; do not assume this guide describes every release. Read that exact version's README and CHANGELOG, run `flutter pub get`, and validate native dependency resolution/builds for every target platform.
+
+The current source package metadata sets Flutter `>=3.38.1` and Dart `>=3.10.0`. It constrains `google_mobile_ads` to `>=9.0.0 <9.1.0` because `9.1.0` has a documented iOS build regression. On Android, GMA 9.0.0 requires the consuming app's Kotlin Gradle plugin to be `>=2.3.0`; Kotlin 2.3 removes the old `kotlinOptions { jvmTarget = ... }` DSL. Confirm all these constraints against the actual published version selected for the partner.
+
+`gma_mediation_applovin` is optional and belongs at the consuming-app level only when using AppLovin as an AdMob mediation network. When enabled, verify the exact AppLovin iOS SDK pod pin against the selected `applovin_max` and GMA adapter versions. Run the package pinning-wall check and a real consuming-app `pod install`/iOS simulator build when dependency versions change; Dart resolution alone does not prove native compatibility.
+
+For behavior changes between SDK releases, read the full CHANGELOG entry and this guide's corresponding integration sections. Do not treat a version bump as automatically source-compatible; confirm breaking changes and migration steps first.
 
 ---
 

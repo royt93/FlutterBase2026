@@ -91,8 +91,9 @@ void main() {
       int lastAppliedTestDevices() {
         final applied = RegExp(r'testDevices=(\d+)');
         for (final e in app.LogBuffer.instance.snapshot().reversed) {
-          if (!e.message.contains('AdMob RequestConfiguration applied'))
+          if (!e.message.contains('AdMob RequestConfiguration applied')) {
             continue;
+          }
           return int.parse(applied.firstMatch(e.message)!.group(1)!);
         }
         return -1;
