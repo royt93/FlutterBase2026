@@ -27,6 +27,19 @@ Use one copy per partner and release train. Fill unknowns with `TBD — owner, d
 | SSV | `<client-only / backend-authoritative>` | `<backend + monetization>` | SDK forwards values; partner backend verifies signed postback |
 | Optional SDK modules | `<list selected: arbitrator, monitors, remote safety, diagnostics, exports...>` | `<owner>` | Record fields, network requests, retention, rollout and rollback |
 
+## Partner intake form — send one copy per partner
+
+Copy this form into email/project tracker and ask the partner's mobile or product contact. They may answer `Unknown` and nominate an owner; do not guess technical or legal details on their behalf.
+
+1. Which exact app/product and release are in scope? Who owns mobile integration?
+2. Which platforms and minimum OS versions will launch? Which exact Android models/OEMs and iPhone models should QA cover?
+3. Which launch countries/markets and user age groups are in scope? Is any audience child-directed?
+4. Which provider is approved and already has an account: AdMob, AppLovin MAX, or AppLovin mediated by AdMob? Who supplies each platform's App IDs, SDK key, and ad-unit IDs?
+5. Which formats and placements will launch: banner, MREC, native, interstitial, rewarded, App Open, rewarded interstitial? Where and on what user action should each appear?
+6. Which consent/CMP, privacy-options, ATT, CCPA/US-state policy and approved user-facing copy does the partner require? Who is privacy/legal approver?
+7. Is VIP/first-install grace in scope? If yes, is it a promotion or paid entitlement, who issues codes, and who owns billing/SSV backend? May Android backup policy change?
+8. Who approves release, test accounts/test devices, rollout/rollback, support contact, and expected handoff evidence?
+
 ## Named partner intake status
 
 No partner-specific Android model/OS, iOS target, launch countries, active provider, app IDs, ad-unit inventory, consent policy, VIP scope, or SSV/backend owner was provided in this session. These rows are intake placeholders, not confirmed rollout requirements:
