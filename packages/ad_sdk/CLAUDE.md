@@ -69,6 +69,10 @@ Dependency versions are deliberately constrained around Flutter/Dart and CocoaPo
 
 `google_mobile_ads` is pinned below `9.1.0` because `9.1.0` has a confirmed iOS build regression. AppLovin iOS mediation pins must agree on exact `AppLovinSDK` version; the pinning check asserts the resolved CocoaPods version.
 
+For public API changes, follow SemVer and `README.md`'s API stability policy: mark removals deprecated for at least one MINOR release, remove only in a MAJOR release, and update `CHANGELOG.md`. If the public API changes, regenerate `test/goldens/public_api_surface.txt` with `dart run tool/api_surface.dart > test/goldens/public_api_surface.txt` and review its diff.
+
+Before publishing, run `dart pub publish --dry-run`; it does not catch pub.dev screenshot description length limits, so keep package and screenshot descriptions under 160 characters as required by `pubspec.yaml` comments.
+
 ## Task workflow
 
 Backlog files live in `doc/task/`:
