@@ -6,27 +6,27 @@ Use one copy per partner and release train. Fill unknowns with `TBD — owner, d
 
 | Device | Build/package | Provider | Observed | Limits |
 |---|---|---|---|---|
-| TECNO KJ7 / Android 14 | debug, isolated `com.roy.admobwrapper.smoketest` | AdMob test inventory | App launched; UMP returned `notRequired`/`canRequestAds=true`; AdMob initialized; App Open test ad displayed; interstitial/rewarded/rewarded-interstitial loaded; no fatal exception observed | This proves one debug device's baseline only. EEA UMP presentation, custom native factories, rewarded dismiss/reward, release build, AppLovin provider, and partner app config were not verified here. UMP EEA test was blocked because no device-specific hashed test identifier was supplied; do not force geography without registering that test ID. |
+| TECNO KJ7 / Android 14 | debug, isolated `com.roy.admobwrapper.smoketest` | AdMob test inventory | App launched; UMP returned `notRequired`/`canRequestAds=true`; AdMob initialized; App Open test ad displayed; interstitial loaded and displayed from its demo button; rewarded/rewarded-interstitial loaded; no fatal exception observed | This proves one debug device's baseline only. EEA UMP presentation, interstitial dismiss callback (test creative did not dismiss on Android Back), custom native factories, rewarded completion, release build, AppLovin provider, and partner app config were not verified here. UMP EEA test was blocked because no device-specific hashed test identifier was supplied; do not force geo without registering it. |
 
 ## 1. Partner scope and decisions
 
-**Working pilot profile (not release approval):** Android-only, AdMob active, UMP automatic, formats selected below. AdMob is the proposed default, not confirmed for any partner; confirm the provider against each partner's account/inventory before release. VIP/grace and SSV remain `TBD` until product/security/backend owners answer.
+**Partner-confirmed pilot profile (release-specific details still pending):** All six named partners confirmed Android-only, AdMob, UMP automatic, non-child-directed audience, and Banner/MREC/Native, Interstitial/App Open, and Rewarded formats. AdMob IDs were supplied through a secure channel; do not copy them into this matrix. VIP/first-install grace and SSV are out of scope. The local TECNO KJ7 / Android 14 is a common smoke-test baseline only; the six partners' actual release models/OS versions remain to be confirmed individually.
 
 | Field | Partner value / status | Owner | Evidence / notes |
 |---|---|---|---|
 | Partner / product / release train | `<name>` | `<owner>` | |
 | Package version + Flutter/Dart | `<exact pinned versions>` | `<mobile lead>` | `pubspec.lock` |
-| Proposed / confirmed provider | `AdMob` proposed for Android pilot; release provider must be confirmed per partner | `<monetization owner>` | |
-| Mediation | `None proposed for Android AdMob-only pilot; confirm` | `<monetization owner>` | Add `gma_mediation_applovin` only for AppLovin as AdMob mediation |
-| Android / iOS targets | `Android-only proposed for pilot; release targets per partner TBD` | `<mobile lead>` | |
-| Ad formats and placements | `Banner/MREC/Native, Interstitial/App Open, Rewarded proposed for pilot; confirm each partner's product/placement` | `<product + monetization>` | Rewarded interstitial is AdMob-only in this SDK |
-| Regions / age groups | `<countries/regions; child-directed?; age policy>` | `<privacy/legal>` | Per-partner input required before consent setup |
-| Consent/CMP | `UMP auto proposed for pilot; privacy/legal approval and region config required` | `<privacy/legal + mobile>` | UMP message published for every AdMob App ID if enabled |
+| Proposed / confirmed provider | `AdMob confirmed for Android pilot` | `<monetization owner>` | App ID/ad-unit IDs provided via secure channel; values intentionally not stored in matrix |
+| Mediation | `None; AdMob is active provider` | `<monetization owner>` | `gma_mediation_applovin` not selected |
+| Android / iOS targets | `Android-only pilot confirmed` | `<mobile lead>` | Specific minimum OS and per-partner release models still required |
+| Ad formats and placements | `Banner/MREC/Native, Interstitial/App Open, Rewarded confirmed` | `<product + monetization>` | Exact screen/placement trigger per partner app still needed; Rewarded Interstitial not selected |
+| Regions / age groups | `Global; audience confirmed non-child-directed` | `<privacy/legal>` | Market-specific privacy/legal requirements and approved disclosures still need confirmation |
+| Consent/CMP | `UMP automatic confirmed` | `<privacy/legal + mobile>` | Publish UMP message per each AdMob App ID; Android EEA debug test remains blocked pending registered hashed test ID |
 | ATT | `<in scope? purpose text and localization>` | `<privacy/legal>` | iOS only; require approved `NSUserTrackingUsageDescription` |
 | CCPA / US state options | `<in scope? UI and backend owner>` | `<privacy/legal>` | Host exposes durable privacy-options route when required |
-| VIP / free grace | `<out of scope / approved grant types, duration>` | `<product + security>` | If out of scope or unapproved, configure `FirstInstallVipGrace.disabled` |
+| VIP / free grace | `Out of scope` | `<product + security>` | Configure `FirstInstallVipGrace.disabled`; no VIP UI/keys |
 | Android backup change | `<no / approved / rejected>` | `<security/privacy>` | Do not enable/change backup solely to support grace without approval |
-| SSV | `<client-only / backend-authoritative>` | `<backend + monetization>` | SDK forwards values; partner backend verifies signed postback |
+| SSV | `Out of scope for this pilot` | `<backend + monetization>` | If scope changes later, SDK forwards values; partner backend verifies signed postback |
 | Optional SDK modules | `<list selected: arbitrator, monitors, remote safety, diagnostics, exports...>` | `<owner>` | Record fields, network requests, retention, rollout and rollback |
 
 ## Partner intake form — send one copy per partner
@@ -44,16 +44,16 @@ Copy this form into email/project tracker and ask the partner's mobile or produc
 
 ## Named partner intake status
 
-No partner-specific Android model/OS, iOS target, launch countries, active provider, app IDs, ad-unit inventory, consent policy, VIP scope, or SSV/backend owner was provided in this session. These rows are intake placeholders, not confirmed rollout requirements:
+Partner confirmed the pilot scope: all six named partners, Android-only, AdMob, automatic UMP, global distribution, non-child-directed audience, and the listed ad formats. AdMob App IDs/unit IDs were supplied through a secure channel and are intentionally not copied here. Partner-specific model/OS and placement mapping remain outstanding; VIP/grace and SSV are out of scope.
 
-| Partner | Mobile owner | Android models/OS | iPhone/iOS target | Launch markets/age policy | Proposed provider/formats | Backend/VIP owner | Status |
+| Partner | Mobile owner | Android models/OS | iOS models/OS | Markets/age | Provider, app ID and formats | Backend/VIP owner | Status |
 |---|---|---|---|---|---|---|---|
-| Skyjoy | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
-| Vietjet | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
-| Samsung | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
-| HTC | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
-| TECNO | `TBD` | `TECNO KJ7 / Android 14` is local smoke evidence only; confirm launch target models | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
-| Huawei | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
+| Skyjoy | `TBD — mobile contact` | `TBD — exact Android model/version` | `Not in Android pilot` | `Global; non-child-directed confirmed` | `AdMob confirmed; IDs received securely; formats confirmed; placements TBD` | `VIP/SSV out of scope` | Need model/OS + placement map |
+| Vietjet | `TBD — mobile contact` | `TBD — exact Android model/version` | `Not in Android pilot` | `Global; non-child-directed confirmed` | `AdMob confirmed; IDs received securely; formats confirmed; placements TBD` | `VIP/SSV out of scope` | Need model/OS + placement map |
+| Samsung | `TBD — mobile contact` | `TBD — exact Android model/version` | `Not in Android pilot` | `Global; non-child-directed confirmed` | `AdMob confirmed; IDs received securely; formats confirmed; placements TBD` | `VIP/SSV out of scope` | Need model/OS + placement map |
+| HTC | `TBD — mobile contact` | `TBD — exact Android model/version` | `Not in Android pilot` | `Global; non-child-directed confirmed` | `AdMob confirmed; IDs received securely; formats confirmed; placements TBD` | `VIP/SSV out of scope` | Need model/OS + placement map |
+| TECNO | `TBD — mobile contact` | `TECNO KJ7 / Android 14 is local baseline only; release model/version TBD` | `Not in Android pilot` | `Global; non-child-directed confirmed` | `AdMob confirmed; IDs received securely; formats confirmed; placements TBD` | `VIP/SSV out of scope` | Need release model/OS + placement map |
+| Huawei | `TBD — mobile contact` | `TBD — exact Android model/version` | `Not in Android pilot` | `Global; non-child-directed confirmed` | `AdMob confirmed; IDs received securely; formats confirmed; placements TBD` | `VIP/SSV out of scope` | Need model/OS + placement map |
 
 Do not substitute the SDK's local TECNO test for the partner's signed device matrix; Huawei distribution channel/services may also affect which ad provider SDKs are eligible and must be confirmed with the partner.
 
