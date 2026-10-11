@@ -14,7 +14,7 @@
 ## Phạm vi
 
 - Tra cứu toàn bộ call sites, docs và model semantics.
-- Chọn rõ: reject số âm bằng lỗi có thể xử lý, hoặc quy định/chuẩn hoá dữ liệu theo contract; không nuốt lỗi im lặng.
+- Đã chọn: chỉ xác minh contract và caller; không đổi code nếu chưa thấy contract bị vi phạm hoặc dữ liệu đầu vào không tin cậy.
 - Giữ `0` impressions/revenue hợp lệ nếu product semantics hiện tại yêu cầu.
 - Không đổi thuật toán optimizer hay đổi data từ provider.
 

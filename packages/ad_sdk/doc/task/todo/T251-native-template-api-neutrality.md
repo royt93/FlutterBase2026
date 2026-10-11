@@ -13,6 +13,7 @@ Public widget provider-neutral nhưng nhận `google_mobile_ads.TemplateType`; A
 
 ## Phạm vi
 
+- Đã chọn: chỉ nghiên cứu và đưa khuyến nghị; chưa thay đổi public API.
 - So sánh kích thước template native hiện có trên cả hai adapter và host custom factory/layout.
 - Nếu cần API chung, dùng package-owned enum/contract; giữ đường migration SemVer tương thích, cập nhật barrel/golden/docs.
 - Nếu không có template semantics tương ứng ở AppLovin thì giữ provider-specific option hoặc kết luận không đổi; không tạo mapping giả.

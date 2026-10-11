@@ -13,6 +13,7 @@ README có câu mô tả NativeAdWidget dùng route-aware gating giống MREC, n
 
 ## Acceptance criteria
 
+- [ ] Đã chọn: sửa README, không chỉ thêm known-limitation note.
 - [ ] README nói rõ NativeAdWidget không tự pause theo route.
 - [ ] Nêu rõ host phải điều khiển `active` cho tab/child không hiển thị; phân biệt khỏi hành vi Banner/MREC.
 - [ ] Nội dung khớp implementation và test hiện tại; không thêm claim về SDK behavior.

@@ -13,6 +13,7 @@ SDK đã lưu lịch sử thay đổi consent có hash-chain, nhưng host cần 
 
 ## Phạm vi
 
+- Đã chọn: validate use case host trước khi thêm API public; nếu không có nhu cầu thật, ghi REFUTED.
 - Phỏng vấn/use-case host trước khi thêm API public; nếu không có nhu cầu thật, ghi REFUTED.
 - Nếu làm, expose dữ liệu tối thiểu, redaction rõ, không gửi network tự động; giữ `clearSdkData` và purge semantics.
 - Không tạo UI dashboard riêng khi example diagnostic surface đủ.

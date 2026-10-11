@@ -13,6 +13,7 @@ Device tests hiện chưa chứng minh trực tiếp contract “tab ẩn không
 
 ## Phạm vi
 
+- Đã chọn: điều tra trước; chỉ thêm assertion nếu test harness có signal ổn định, nếu không kết luận REFUTED.
 - Kiểm tra test harness hiện tại có thể đọc fake bridge request/callback hoặc event stream trên simulator/device không.
 - Thêm assertion ẩn/hiện cho banner và native ở IndexedStack nếu tín hiệu đáng tin cậy.
 - Không tuyên bố kiểm thử impression thật; không thử auto-dismiss AppLovin creative.

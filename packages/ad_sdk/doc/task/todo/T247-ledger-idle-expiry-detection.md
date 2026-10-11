@@ -13,7 +13,7 @@
 
 ## Phạm vi
 
-- Đánh giá timer đến hạn sớm nhất hoặc cơ chế polling tối thiểu; không thêm timer lặp vô hạn nếu không cần.
+- Đã chọn: thêm timer tới hạn cho pending show sớm nhất; reschedule khi pending thay đổi. Giữ timer trong-process; không hứa chạy khi OS suspend app.
 - Giữ nguyên match chính xác theo `requestId`, fallback FIFO hiện tại, và semantics `dispose()`.
 - Xác nhận `matchWindow <= 0`, nhiều pending show, callback đến sát hạn, event trễ, và clock injection.
 

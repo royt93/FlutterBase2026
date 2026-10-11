@@ -13,6 +13,7 @@ SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfC
 
 ## Discovery gate
 
+- [ ] Đã chọn: theo dõi và migrate khi có deprecation/removal trigger hoặc dependency window đã duyệt; không migrate ngay.
 - [ ] Xác minh trạng thái chính thức của Google API và version đã pin trước khi bắt đầu.
 - [ ] Không bump `google_mobile_ads` chỉ để làm task này; phối hợp dependency window và pinning wall.
 - [ ] Nếu chưa có deprecation/removal hoặc lợi ích tương thích rõ, để deferred/REFUTED, không tạo code thay đổi.

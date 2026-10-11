@@ -15,6 +15,7 @@ SDK có nhiều tín hiệu cục bộ riêng lẻ: integration diagnostics, fil
 
 ## Discovery gate trước code
 
+- [ ] Đã chọn: validate host need trước; chưa được code report nếu chưa xác nhận use case.
 - [ ] Xác nhận ít nhất một host/use case cần report tổng hợp thay vì API/module hiện tại.
 - [ ] Map từng field về nguồn hiện hữu, freshness, privacy và ý nghĩa; không phát minh metric/claim uplift.
 - [ ] Nếu chỉ gom getter không giảm công tích hợp, kết luận REFUTED.

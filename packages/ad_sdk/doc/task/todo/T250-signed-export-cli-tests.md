@@ -13,7 +13,7 @@
 
 ## Phạm vi
 
-- Tạo tests subprocess theo pattern hiện có trong `test/verify_adproof_tool_test.dart`.
+- Đã chọn: test cả ba CLI bằng subprocess theo pattern hiện có trong `test/verify_adproof_tool_test.dart`.
 - Bao phủ input hợp lệ, tampering/signature invalid, JSON malformed, path thiếu/không đọc được, usage và exit code.
 - Xác minh từng CLI đúng semantics của nó; không khẳng định chữ ký embedded tự chứng minh danh tính thiết bị nếu verifier chỉ kiểm tra internal consistency.
 

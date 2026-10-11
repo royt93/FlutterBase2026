@@ -13,7 +13,7 @@ Mỗi `recordSession()` tải toàn bộ record, thêm phiên mới, serialize v
 
 ## Phạm vi
 
-- Xác định cửa sổ theo số record gần nhất hoặc thời gian, dựa trên recommendation và privacy semantics hiện tại.
+- Đã chọn retention 90 ngày theo `timestampMs`; xác minh clock/future timestamp và giữ đủ mẫu hợp lệ cho từng provider. Đây là cửa sổ thời gian, không giới hạn cứng số record nếu ghi dày.
 - Cắt record cũ trước khi ký/lưu; giữ nguyên xác minh chữ ký và fallback khi payload bị sửa/hỏng.
 - Không thay thuật toán chọn provider, không thêm backend hay thu thập telemetry.
 
