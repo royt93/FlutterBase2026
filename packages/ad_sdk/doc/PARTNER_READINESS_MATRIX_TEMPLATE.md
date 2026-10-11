@@ -10,16 +10,18 @@ Use one copy per partner and release train. Fill unknowns with `TBD — owner, d
 
 ## 1. Partner scope and decisions
 
+**Working pilot profile (not release approval):** Android-only, AdMob active, UMP automatic, formats selected below. AdMob is the proposed default, not confirmed for any partner; confirm the provider against each partner's account/inventory before release. VIP/grace and SSV remain `TBD` until product/security/backend owners answer.
+
 | Field | Partner value / status | Owner | Evidence / notes |
 |---|---|---|---|
 | Partner / product / release train | `<name>` | `<owner>` | |
 | Package version + Flutter/Dart | `<exact pinned versions>` | `<mobile lead>` | `pubspec.lock` |
-| Active provider | `<AdMob / AppLovin MAX>` | `<monetization owner>` | |
-| Mediation | `<none / AppLovin in AdMob / other approved setup>` | `<monetization owner>` | Add `gma_mediation_applovin` only for AppLovin as AdMob mediation |
-| Android / iOS targets | `<yes/no + min OS>` | `<mobile lead>` | |
-| Ad formats and placements | `<banner/MREC/native/interstitial/rewarded/App Open/rewarded-interstitial>` | `<product + monetization>` | Rewarded interstitial is AdMob-only in this SDK |
-| Regions / age groups | `<countries/regions; child-directed?; age policy>` | `<privacy/legal>` | |
-| Consent/CMP | `<UMP auto / manual UMP / partner CMP>` | `<privacy/legal + mobile>` | UMP message published for every AdMob App ID if enabled |
+| Proposed / confirmed provider | `AdMob` proposed for Android pilot; release provider must be confirmed per partner | `<monetization owner>` | |
+| Mediation | `None proposed for Android AdMob-only pilot; confirm` | `<monetization owner>` | Add `gma_mediation_applovin` only for AppLovin as AdMob mediation |
+| Android / iOS targets | `Android-only proposed for pilot; release targets per partner TBD` | `<mobile lead>` | |
+| Ad formats and placements | `Banner/MREC/Native, Interstitial/App Open, Rewarded proposed for pilot; confirm each partner's product/placement` | `<product + monetization>` | Rewarded interstitial is AdMob-only in this SDK |
+| Regions / age groups | `<countries/regions; child-directed?; age policy>` | `<privacy/legal>` | Per-partner input required before consent setup |
+| Consent/CMP | `UMP auto proposed for pilot; privacy/legal approval and region config required` | `<privacy/legal + mobile>` | UMP message published for every AdMob App ID if enabled |
 | ATT | `<in scope? purpose text and localization>` | `<privacy/legal>` | iOS only; require approved `NSUserTrackingUsageDescription` |
 | CCPA / US state options | `<in scope? UI and backend owner>` | `<privacy/legal>` | Host exposes durable privacy-options route when required |
 | VIP / free grace | `<out of scope / approved grant types, duration>` | `<product + security>` | If out of scope or unapproved, configure `FirstInstallVipGrace.disabled` |
@@ -44,14 +46,14 @@ Copy this form into email/project tracker and ask the partner's mobile or produc
 
 No partner-specific Android model/OS, iOS target, launch countries, active provider, app IDs, ad-unit inventory, consent policy, VIP scope, or SSV/backend owner was provided in this session. These rows are intake placeholders, not confirmed rollout requirements:
 
-| Partner | Mobile owner | Android models/OS | iPhone/iOS target | Launch markets/age policy | Provider/formats | Backend/SSV owner | Status |
+| Partner | Mobile owner | Android models/OS | iPhone/iOS target | Launch markets/age policy | Proposed provider/formats | Backend/VIP owner | Status |
 |---|---|---|---|---|---|---|---|
-| Skyjoy | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | Inputs required |
-| Vietjet | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | Inputs required |
-| Samsung | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | Inputs required |
-| HTC | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | Inputs required |
-| TECNO | `TBD` | `TECNO KJ7 / Android 14` is local smoke evidence only; confirm launch target models | `TBD` | `TBD` | `TBD` | `TBD` | Inputs required |
-| Huawei | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | `TBD` | Inputs required |
+| Skyjoy | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
+| Vietjet | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
+| Samsung | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
+| HTC | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
+| TECNO | `TBD` | `TECNO KJ7 / Android 14` is local smoke evidence only; confirm launch target models | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
+| Huawei | `TBD` | `TBD` | Android-only pilot proposal; confirm release scope | `TBD` | AdMob proposed; selected formats above pending confirmation | `TBD` | Inputs required |
 
 Do not substitute the SDK's local TECNO test for the partner's signed device matrix; Huawei distribution channel/services may also affect which ad provider SDKs are eligible and must be confirmed with the partner.
 
@@ -102,7 +104,7 @@ Run only the flows applicable to partner markets/provider. For UMP, use a dedica
 | Flow | Platform/provider | Expected result | Result / evidence |
 |---|---|---|---|
 | UMP not required | `<platform/market>` | Form skipped; record `status` and `canRequestAds` | `NOT RUN` |
-| UMP required, first launch | `<platform/market>` | Published message displays; user choice persisted; result gates first ad request | `NOT RUN` |
+| UMP required, first launch | `<platform/market>` | Published message displays; user choice persisted; result gates first ad request | `BLOCKED — UMP hashed test-device ID not available on local device; do not force geo without registering it` |
 | UMP no-network/update error | `<platform/market>` | Record error/status; verify SDK consent gate, do not assume ads load | `NOT RUN` |
 | User revisits privacy options | `<platform/market>` | Permanent host settings entry opens provider form when required | `NOT RUN` |
 | Consent withdrawal/resume | `<platform/provider>` | Re-check after resume; record provider-specific behavior, including AppLovin's unconfirmable fire-and-forget writes | `NOT RUN` |
