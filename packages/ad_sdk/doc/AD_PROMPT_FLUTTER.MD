@@ -2,23 +2,23 @@
 
 ## How to use this document
 
-**This is a prompt for an AI coding agent, not a tutorial for a human to read start-to-finish.** If you are a human engineer who just received this file: open an AI coding assistant that can read/edit your project's files (Claude Code, Cursor, GitHub Copilot Chat, etc.), start it inside your Flutter project, and paste this **entire file** as your first message. It will fill in Section 0 by asking you questions (ad unit IDs, SDK key, Privacy Policy URL, ...), then execute Steps 1-12 itself, editing files and running builds/tests as it goes. You only need to answer its questions and review its output — you do not need to manually perform Steps 1-12 yourself.
+**This is a step-by-step integration prompt for an AI coding agent, and a detailed reference for a junior engineer.** For AI-assisted use, start the agent in the consuming Flutter project and provide this complete file. It should fill Section 0 from partner-approved values, ask before unresolved decisions, then follow Steps 1–12 in order. Steps 9–10 are conditional on approved VIP scope; provider-specific native setup is conditional on the selected provider/platform. Review each change and recorded test result before handoff.
 
-If your team has no AI-agent workflow and needs to integrate by hand: don't start here. Read `packages/ad_sdk/README.md`'s Quick Start section first for a plain human-readable walkthrough, then use this file only as a detailed reference for specific steps (splash lifecycle in Step 4, consent in Step 8, optional VIP in Steps 9-10) as you go — trying to read all 12 Steps + 4 Appendices top-to-bottom as prose is exactly the kind of dense, imperative "the AI must..." checklist that will be confusing without an agent actually executing it.
+**Manual/junior-developer use:** read `packages/ad_sdk/README.md` → Quick start once for the minimal working integration, then follow Steps 0–12 here in order. Fill Section 0 before editing; Step 2 records current state; Step 3 records the plan; Steps 4–10 make only approved changes; Steps 11–12 collect evidence and handoff. Skip only the explicitly conditional steps whose feature is out of scope, and record that decision in `<PROJECT_PATH>/doc/AD.MD`.
 
-**A note on the conventions below (GetX, `BaseStatefulState`, `SafeLogger`, i18n `.tr` keys):** these come from one reference integration this template was extracted from — they are this document's own conventions, **not** a requirement of the SDK itself, which has zero dependency on GetX or any particular state-management/logging setup. If your project already uses Provider/Riverpod/Bloc/plain `setState`, or its own logger, keep using it — swap every GetX/`BaseStatefulState`/`SafeLogger` reference below for your project's real equivalent. Only the ad-integration-specific rules (splash bootstrap order, `bypassSafety` restriction, VIP grace, consent ordering) are actual SDK constraints that don't bend to your architecture.
+**Example conventions:** GetX, `BaseStatefulState`, `SafeLogger`, and `.tr` appear in historical examples from one host app; they are not SDK requirements. Keep the partner app's existing state management, navigation, localization, and logging. The SDK-specific constraints are called out in each step (navigator setup, splash event ordering, ad safety, consent-before-provider initialization, and optional VIP behavior).
 
 > **Maintenance note:** this file is the complete, self-contained handoff given to a partner engineering team integrating this SDK. Whenever the SDK version, ad unit conventions, native config requirements, splash lifecycle, VIP flow, or consent flow changes, update this file at the same time.
 >
 > **Filling in this template:** Section 0 below is where you record the *consuming* project's own values — SDK version pinned, provider choice, ad unit IDs, bundle ID, native config, logging setup, and so on. Do not carry over IDs, paths, or config from any other project. Every `<...>` placeholder must be filled with values that belong to the project you are integrating into.
 >
-> This template applies to any **Flutter** project. Before handing it to an AI agent, **fill in every `<...>` placeholder** in Section 0. VIP is optional: integrate it only when the product requires it. If enabled, use the SDK's signed-key flow or the pre-built `VipRedeemScreen`; never add a plaintext or Base64-obfuscated key whitelist. First-install grace is SDK-managed when configured and must not be reimplemented in app code.
+> This template applies to any **Flutter** project. Before handing it to an AI agent, **fill in every `<...>` placeholder** in Section 0. VIP is optional: integrate it only when the partner's approved product scope requires it. If not approved, skip Steps 9–10 entirely and set `firstInstallVipGrace: FirstInstallVipGrace.disabled`; do not ship first-install grace by default. If enabled, use the SDK's signed-key flow or the pre-built `VipRedeemScreen`; never add a plaintext or Base64-obfuscated key whitelist. First-install grace is SDK-managed only when explicitly approved.
 >
 > **Core rules (apply only to the NEW code this integration generates — the splash screen, VIP screen, and any other file the agent writes/edits for this task — not a mandate to refactor the rest of the existing project):**
-> 1. **Do NOT** use `setState` — use `ValueNotifier<T>` + `ValueListenableBuilder` instead (or the reactive equivalent of whatever state manager is in use — GetX `Rx<T>` + `Obx` preferred).
-> 2. **Do NOT** use `!` (the bang operator) — use a null-safe pattern instead: `if (x case final v?)`, `final v = x; if (v == null) return;`, or the null-coalescing operator `??`.
-> 3. **Do NOT** use `late` / `late final` — use a nullable field initialized in `initState` instead, read via a local copy (`final c = _controller; if (c != null) ...`).
-> 4. **Provider choice is partner-owned**: select `AdProvider.appLovin` or `AdProvider.adMob` only after confirming the partner's account, inventory, mediation setup, and regional policy. The SDK selects its provider at initialization and does not silently fail over in-session.
+> 1. Preserve the host app's state-management conventions; use its existing reactive pattern where needed.
+> 2. Use null-safe Dart patterns and avoid force-unwrapping values that can legitimately be absent (for example, `AdManager().vip` before initialization).
+> 3. Manage lifecycle-bound resources (`Timer`, controllers, subscriptions) with the host app's existing conventions and dispose/cancel them with their owning widget.
+> 4. **Provider choice is partner-owned**: select `AdProvider.appLovin` or `AdProvider.admob` only after confirming the partner's account, inventory, mediation setup, and regional policy. The SDK selects its provider at initialization and does not silently fail over in-session.
 > 5. **State management and navigation**: preserve the partner app's existing framework and localization approach; do not add GetX or another framework solely for this SDK integration.
 > 6. **Logging**: wire `AdConfig.onLog` to the partner's approved logger and apply its retention/access policy. Do not log ad identifiers, consent strings, user-entered VIP codes, or other personal data unless the partner's privacy/security review explicitly approves the fields and purpose. (One reference implementation names its logger `SafeLogger` and prefixes every line with a project tag, e.g. `roy93~` — that's just an example from one integration, not a requirement; use whatever logger convention your project already has.)
 
@@ -26,50 +26,82 @@ If your team has no AI-agent workflow and needs to integrate by hand: don't star
 
 ## 0. Context — fill in before running
 
-Read the SDK source carefully before starting: the monorepo path `packages/ad_sdk/` if you have it available, otherwise the hosted package under `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<version>/`.
+Read the SDK source before starting. In this repository, SDK root is `packages/ad_sdk/`; if integrating a consuming app from a separate checkout, read the installed package under `~/.pub-cache/hosted/pub.dev/applovin_admob_sdk-<version>/` and replace monorepo-relative paths below with that package's corresponding README/CHANGELOG/example paths.
 
 | Field | Value |
 |---|---|
 | Current project (cwd, absolute path) | `<PROJECT_PATH>` |
 | Dart package name (from `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
-| Current state management | `<GetX \| Provider \| Riverpod \| Bloc \| none>` (GetX preferred; if empty → ask the user) |
+| Current state management | `<existing framework/pattern, or none>` |
 | Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
-| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` ← **fetch `https://pub.dev/api/packages/applovin_admob_sdk` (or run `flutter pub outdated`) to get the current latest stable version and fill it in here before running Step 1.** Always use whatever is actually latest at integration time — never hardcode a version number in this template, it goes stale the moment a new release ships. |
+| `applovin_admob_sdk` version | `<LATEST_STABLE_VERSION>` — check the published package metadata on pub.dev, pin that version in `pubspec.yaml`, then read that exact version's README/CHANGELOG before integration. `flutter pub outdated` is only a dependency report; it does not replace checking the latest published release. |
 | Local library reference (if monorepo) | `packages/ad_sdk/` |
 | Library's own spec files | `packages/ad_sdk/README.md` (Quick start + API) + `packages/ad_sdk/CHANGELOG.md` (feature history) + this file's Appendix D (migration guide) |
 | Sample app | `packages/ad_sdk/example/lib/main.dart` (demo pages, one page per feature) |
 | Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
-| Release build target | `flutter build apk --release --analyze-size` — verify the size delta is < 5MB versus baseline |
+| Release build target | `flutter build apk --release --analyze-size` (Android); compare against the partner's approved size budget/baseline, if one exists |
 | Primary provider (active at runtime) | `<ask partner which provider is approved and configured: AdMob or AppLovin MAX>` |
 | Alternate provider | `<optional; provider is selected at initialization, not switched automatically during a session>` |
-| AppLovin SDK key | `<only if AppLovin is selected; obtain through the partner's approved secret/config channel, never commit it>` (86 chars, from `dash.applovin.com → Account → Keys → SDK Key`) |
-| AppLovin Android banner ID | `<ask the user — stop if missing, if targeting Android>` |
-| AppLovin Android interstitial ID | `<ask the user — stop if missing, if targeting Android>` |
-| AppLovin Android app open ID | `<ask the user — stop if missing, if targeting Android>` |
-| AppLovin Android rewarded ID | `<ask the user — stop if missing, if targeting Android>` |
-| AppLovin iOS banner ID | `<ask the user — stop if missing, if targeting iOS>` |
-| AppLovin iOS interstitial ID | `<ask the user — stop if missing, if targeting iOS>` |
-| AppLovin iOS app open ID | `<ask the user — stop if missing, if targeting iOS>` |
-| AppLovin iOS rewarded ID | `<ask the user — stop if missing, if targeting iOS>` |
-| AdMob `APPLICATION_ID` | `<only if AdMob is selected; if no account and no AdMob serving is planned, use Google's test App ID and record this in the report>` |
-| AdMob banner ID | `<ask the user — stop if missing>` (do NOT use a test ID once the user has a production ID) |
-| AdMob interstitial ID | `<ask the user — stop if missing>` |
-| AdMob app open ID | `<ask the user — stop if missing>` |
-| AdMob rewarded ID | `<ask the user — stop if missing>` |
+| AppLovin SDK key | `<only if AppLovin is selected; store in CI/build secret and provide as `--dart-define=APPLOVIN_SDK_KEY=...`; embedded in binary at build>` (86 chars, from `dash.applovin.com → Account → Keys → SDK Key`) |
+| AppLovin ad-unit IDs (each enabled format/platform) | `<required only when AppLovin is selected; keep Android/iOS units separate>` |
+| AdMob `APPLICATION_ID` | `<required by the bundled google_mobile_ads/UMP setup even when AppLovin is the active provider; use partner app ID, or Google test app ID for a test-only app>` |
+| AdMob ad-unit IDs (each enabled format/platform) | `<required only if AdMob is selected; use platform-specific production IDs in release and test IDs only in test builds>` |
+| AppLovin MREC/native IDs | `<per platform, only if those formats are selected; custom native builder is optional>` |
+| AdMob rewarded-interstitial IDs | `<separate Android/iOS AdMob units, only if Rewarded Interstitial is selected>` |
+| AdMob MREC/native IDs | `<per platform, only if selected; custom NativeAdFactory is separate Android/iOS host work>` |
 | Privacy Policy URL | `<partner-approved privacy policy URL if required by enabled providers/regions or VIP UI>` |
 | Splash hard cap (seconds) | `<ask the user, default 8>` (must match `AdConfig.splashMaxDuration`) |
+| First-install VIP grace | `<default is 24h in release; partner integrations should use disabled unless explicitly approved>` |
 | VIP feature | `<enabled only if product requires it; otherwise skip VIP UI/key setup>` |
 | VIP signing public key | `<if VIP is enabled: embed the Ed25519 public key only; keep the private signing key in an approved secret manager, never in the app/repository>` |
 | VIP activation | `<if VIP is enabled: use redeemSignedKey or VipRedeemScreen; activation requires network, VIP works offline after activation>` |
 
 **Hard rules for Section 0**:
 
-1. Configure the provider approved for this integration. Only that provider's config and ad-unit IDs are required; configure the alternate provider only if the partner will use it. When both platforms are targeted, use platform-specific AppLovin ad-unit IDs and keep native app IDs/credentials correct for each platform. Never insert a test ID when the partner has a production ID.
-2. **AdMob `APPLICATION_ID` exception**: if the user has no AdMob account and confirms they won't serve AdMob ads → it's fine to use Google's test App ID `ca-app-pub-3940256099942544~3347511713` + write a warning into the final report in Step 12.
-3. Any field still marked `<ask the user — stop if missing>`: the AI **must ask the user in chat** and then **stop and wait for an answer** — do not auto-fill the placeholder, do not use a test ID when the user has a production ID, do not skip it. If VIP is disabled, do not ask for VIP keys or signing material.
-4. **Latest version**: fetch the `pub.dev` API or read `flutter pub outdated` to get the latest stable version right when starting Step 1. Verify every API and native requirement in this guide against that exact version's README/CHANGELOG; never assume all current features exist in every published version.
+1. Choose exactly the active ad provider approved for this build and configure only that provider's ad-unit IDs. The Android/iOS AdMob `APPLICATION_ID` metadata is still required by `google_mobile_ads`/UMP initialization even when AppLovin serves ads; use the partner's AdMob App ID, or Google's test App ID only for an explicitly test-only app with no production AdMob account. Never substitute a test ad-unit ID for a partner's production unit. Keep provider app IDs/ad units correct per platform.
+2. For AppLovin builds, read the SDK key from the CI/build secret channel into `--dart-define=APPLOVIN_SDK_KEY=...`; the key is embedded in the app binary because the native SDK needs it at runtime. Do not commit it in Dart/Gradle source or confuse it with the VIP private signing key (which must never ship).
+3. Include `gma_mediation_applovin` only when the partner uses AppLovin as an AdMob mediation network. Direct AppLovin (`AdProvider.appLovin`) and AdMob-only integrations do not need it.
+4. If any required field is missing, ask for it and pause that branch. Do not infer production identifiers, bundle IDs, provider choice, privacy/legal copy, backup policy, VIP grants, or tracking purpose text. If VIP is out of scope, do not ask for VIP signing material.
+5. Before editing, verify the selected release's pub.dev package metadata, README, CHANGELOG, and native constraints. Confirm the same SDK version is locked by `pubspec.lock`; do not treat `flutter pub outdated` alone as the latest-release source.
 
 ---
+
+## Feature coverage matrix — select before Step 2
+
+Use this table to decide what the partner app will integrate. **Core** means needed for any ad-serving integration; **select** means choose only the formats/features in approved product scope; **optional** means no code/config is needed unless the partner explicitly adopts it. The SDK exposes more APIs than most apps should wire on day one.
+
+| Area | Scope | Host integration step | Provider/platform notes | Reference |
+|---|---|---|---|---|
+| Provider config + bootstrap | Core | Steps 0, 4; choose one `AdConfig.provider`, matching `AdMobConfig` or `AppLovinConfig`; set navigator key and observers; use manual init or `bootstrap`, not both | Active provider's ad units are required; bundled `google_mobile_ads`/UMP still needs app ID metadata even when AppLovin serves ads; mediation only for AdMob mediation; splash controller optional | README → Quick start, Configuration reference |
+| App Open (splash/resume) | Select | Step 4; splash event listener, hard cap, `loadAppOpenAd` → buffer → show; resume is SDK-managed | Splash bypass is only for splash call; AppLovin does not expose ad freshness timestamp | README → Quick start, Pitfalls |
+| Banner / MREC | Select | Step 4.4/4.8; use `AdScreen` helper or widget, register route observer, place in approved layout | MREC is fixed 300×250; `IndexedStack` tabs need explicit visibility/`active` wiring | README → Quick start, Configuration reference |
+| Native | Select | Step 4.9; default layout needs Dart widget only; custom layout uses provider-specific implementation | AdMob custom layout requires host Kotlin/Swift `NativeAdFactory`; AppLovin custom builder is Flutter-side; check AdChoices | README → Native Ad (v1), example native factory files |
+| Adaptive / in-feed surfaces | Select | Use `AdaptiveAdSurface` or `InFeedAdListView` when layout changes by width/list index; pass active/visibility state for offscreen routes | Test rotation, resizing, and list index changes; `IndexedStack` must also wire visibility | README → Configuration reference / Pitfalls; `AdaptiveSurfaceDemoPage`, inspect `InFeedAdListView` public API |
+| Interstitial / rewarded | Select | Step 4.6–4.7; preserve existing triggers; handle shown/earned callbacks | Rewarded grants only after `earned == true`; safety gates remain on | README → Quick start, Configuration reference |
+| Rewarded interstitial | Select | Step 4.10 only if partner has a natural user-initiated disclosure flow | AdMob only; AppLovin implementation is unsupported/no-op; includes disclosure API | README → API reference; example `RewardedInterstitialDemoPage` |
+| Navigation / inline lifecycle | Core for mounted ads | Step 4; `adRouteObserver`, `AdScreen`, `AdScreenState`; use safe modal helper for nested navigators | `InlineAdController` and manual refresh/pause/resume are optional; overlays and `IndexedStack` need special handling | README → Quick start, Pitfalls, Configuration reference |
+| Consent / privacy | Required when applicable; confirm with partner | Step 8; auto UMP or explicit manual UMP (one owner only), ATT after first frame if approved, privacy options/CCPA UI where required | UMP is default auto path; no SDK-made certified GDPR dialog; AppLovin consent writes are fire-and-forget; COPPA behavior differs | README → Consent & compliance, Known limitations |
+| Safety / placements | Core defaults; overrides optional | Step 7; retain `AdSafetyParams.auto`, validate placements against network policy | Placement registry, per-placement caps, custom retry and remote safety provider are opt-in; remote backend is partner-owned | README → Configuration reference, Pitfalls |
+| PlacementRegistry | Optional | Configure an `AdPlacement` ID → `PlacementSpec` map in `AdConfig.placements`; specify the exact `AdSlotType` that uses the override | Override applies only when registered format matches the actual show call; does not configure ad-unit IDs | README → Configuration reference → Centralized placement behavior overrides |
+| Signed feature-flag kill switch | Advanced; only if SDK owner supplies a signed payload/public-key contract | Apply `AdManager().applySignedFeatureFlags(payload, publicKeyBase64: ...)` only with that matching public key and monotonic revision | Current recognized payload actions disable `arbitrator`, `waterfallTuner`, `journeyPrefetcher`, and `selfHealingObserver`; it is not a general remote-config service. Private signing key remains with SDK flag issuer | Public API / source `config/feature_flags.dart`; not a normal partner setup step |
+| Compatibility matrix | Informational/CI-owned | Compare the partner's Flutter/platform/provider target against the SDK's declared matrix; do not change the SDK matrix from a consuming app | Matrix data is maintained with SDK release/CI review; unsupported entries must be escalated to SDK owner | Public API / source `config/compatibility_matrix.dart` |
+| Test devices / release validation | Core QA task | Register test-device IDs in the right provider console/config; inspect release warnings before rollout | SDK carries an always-on QA hash fleet; AdMob test IDs/test geography must not ship as release config | README → Built-in QA test devices, Debugging |
+| Connectivity / recovery | Core runtime path | Step 11; test offline → reconnect with configured formats and mounted inline widgets | SDK retries/reconnects known surfaces; host owns connectivity-specific UX and monitoring | README → Pitfalls, Configuration reference |
+| Revenue / event stream | Optional | Subscribe to `AdManager().events` if analytics/finance needs impression, revenue, load, show or reward events | SDK emits typed events; analytics destination, retention, deduplication are host-owned | README → Why this SDK, Public API |
+| Reward SSV | Optional; backend-owned | If authoritative server reward is required, configure provider dashboard postback, pass user/custom data, verify signed callback on partner backend | SDK does not provide endpoint, signature verification service, or authoritative reward database | README → Server-Side Verification (SSV) for rewarded ads |
+| VIP / first-install grace | Optional | Steps 9–10 only after product/security/privacy approval; otherwise configure grace disabled and skip UI/key work | Signed redemption requires network; offline VIP after activation; Android clear-data/reinstall replay is possible; not a paid-license boundary | README → VIP system, Known limitations |
+| Consent provenance / journal | Optional; privacy-owner approval | Enable `enableConsentProvenanceJournal` only if a partner workflow needs local audit evidence; define read/export/retention controls | Journal records decisions locally; it is not legal consent by itself and must not be exported without approval | README → Consent & compliance |
+| Revenue / event stream | Optional | Subscribe to `AdManager().events` if analytics/finance needs impression, revenue, load, show or reward events | SDK emits typed events; analytics destination, retention, deduplication are host-owned | README → Why this SDK, Public API |
+| Monetization Arbitrator | Optional | Enable only after product/monetization approval; configure formats/placements and act on emitted recommendations | Opt-in; does not silently change providers during a session | README → Monetization Arbitrator |
+| Fill-rate / baseline monitors | Optional | Configure sample window/thresholds; decide who receives alerts and what response is allowed | Opt-in observers; avoid collecting more analytics than approved | README → Fill-rate monitor, Other advanced opt-in modules |
+| Waterfall / cohort / failover advice | Optional advanced | Enable only a named experiment or operations owner; document sample size, provider assignment, rollback and whether requests create real traffic | Advice/recommendations are not automatic live failover; session exploration can make real provider requests | README → Other advanced opt-in modules |
+| Prefetch / journey optimisation | Optional advanced | Add only when app navigation model and consent state are understood; review which slots can be prefetched on each route | Can create requests before a visible placement; validate partner/network policy and consent gates | README → Other advanced opt-in modules |
+| Diagnostics / compliance / flight recorder | Optional; owner-controlled | Use debug self-check for integration; enable recorders/export only with owner-approved fields, retention, access and transfer procedure | Self-check can request real ads; recorder/compliance reports may contain operational identifiers; no data is uploaded automatically | README → Diagnostics & integration self-check, Consent & compliance |
+| SDK data erasure | Optional; privacy/deletion flow | Call `AdManager().clearSdkData(scope:, ...)` only from an approved account/privacy deletion workflow; choose scope and require explicit confirmation before entitlement erasure | Do not call broad preference clears; verify what gets erased and what entitlement data remains | README → Consent & compliance / Public API |
+| ScenarioRunner / fake adapter | QA-only | Use `ScenarioRunner` + `FakeAdProviderAdapter` in tests or an internal QA harness to script provider outcomes/events | Not production ad serving; do not use fake adapter as release provider | README → Public API; `example/integration_test/` |
+| Custom provider adapter | Advanced/testing only | Implement exported adapter contract only if partner owns another provider or test harness | Not needed for normal AdMob/AppLovin integration; review adapter lifecycle and API golden first | README → Public API; `lib/src/core/ad_provider_adapter.dart` |
+
+Record selected rows and explicit exclusions in `<PROJECT_PATH>/doc/AD.MD` before Step 2. For every selected row, identify owner screen/file, trigger, provider, platforms, required identifiers/native files, and a verification case. Do not add optional modules merely because they appear in the public API.
 
 ## Forbidden (applies to every project)
 
@@ -87,8 +119,8 @@ Items marked partner approval below are release gates, not optional documentatio
 - Showing an App Open Ad **directly on a bare splash screen** (this violates AdMob's "Disallowed interstitial implementations" policy) — it must go through the flow `loadAppOpenAd → AdLoadingDialog.showAdBuffer → showAppOpenAd(bypassSafety: true)`.
 - Subscribing to `WidgetsBindingObserver` lifecycle yourself to show App Open on resume — the SDK already hooks this; double-subscribing means double-showing.
 - Adding an Android/iOS permission beyond the whitelist (see Step 2 + Step 11), except for an ad-related permission with a clear justification (e.g. `ACCESS_WIFI_STATE` for AppLovin GeoTargeting). Any non-ad-related permission → ask the user first.
-- **Using `setState`, `!` (the bang operator), or `late` / `late final`** — this violates the three core rules at the top of this file. Step 11 will grep for these and reject the integration if found.
-- Hardcoding user-facing strings (consent dialog, VIP UI, disclaimer) — they must go through `'snake_case_key'.tr` (GetX) with the key added to both `vi_vn.dart` and `en_us.dart`.
+- Introducing lifecycle leaks, unsafe nullable-state access, or a parallel state-management framework solely to satisfy this template. Existing host conventions such as `setState`, `late`, or a chosen framework are not prohibited; review changed code for actual lifecycle/nullability bugs instead of blanket grep bans.
+- Adding new user-facing consent/disclosure strings without using the host app's existing localization mechanism.
 
 ---
 
@@ -106,30 +138,30 @@ Items marked partner approval below are release gates, not optional documentatio
   - Safety: `AdSafetyParams.auto` (default, do NOT override).
   - Logger pipe: `AdConfig.onLog: (level, tag, msg) { ... }`.
 - Read `packages/ad_sdk/CHANGELOG.md` — the "What's new" section for the version you're using, to learn about newer features (UMP wrapper, smart App-Open timeout, slot-state dismiss watcher, first-install grace, the anti-bypass guard if present in that version, the taskAffinity pitfall).
-- Read `packages/ad_sdk/example/lib/main.dart` to see which demo pages are active. It is one large file (3000+ lines, 21 demo pages) — don't read it end to end; instead `grep -n "^class <Name>"` for the specific page below matching the feature you're integrating right now, and read just that class:
-  - Banner → `BannerDemoPage` · MREC → `MrecDemoPage` · Native → `NativeDemoPage`
-  - Interstitial → `InterstitialDemoPage` · Rewarded → `RewardedDemoPage` · Rewarded interstitial → `RewardedInterstitialDemoPage`
-  - App Open → `AppOpenDemoPage` · Adaptive banner/MREC switch → `AdaptiveSurfaceDemoPage`
-  - Consent/UMP/ATT → `ConsentDemoPage` · VIP redeem/revoke → `VipDemoPage`
-  - Safety caps/dry-run/arbitrator toggle → `SafetyDemoPage` · Remote-controlled safety params (T88) → `RemoteSafetyDemoPage`
-  - Splash-controller shortcut (T94) → `ReadinessControllerDemoPage` · Compliance export → `ComplianceDemoPage`
-  - Diagnostics/self-check → `DiagnosticsDemoPage` · Event log viewer → `LogViewerDemoPage` · Events feed → `EventsDemoPage`
-  - Revenue dashboard → `RevenueDemoPage` · Internal state panel → `StatePanelDemoPage` · Test-device hash → `TestDeviceHashDemoPage`
+- Use the README chapter matching selected feature; don't ask junior integrators to infer feature steps from internal architecture docs:
+  - Setup/provider/bootstrap/formats → `README.md` → [Quick start](../README.md#quick-start), [Configuration reference](../README.md#configuration-reference), [Pitfalls](../README.md#pitfalls)
+  - Consent/UMP/ATT/CCPA/COPPA/privacy options → [Consent & compliance](../README.md#consent--compliance)
+  - VIP/signed keys/CRL/Android limits → [VIP system](../README.md#vip-system), [Known limitations](../README.md#known-limitations--read-before-adopting)
+  - Rewarded server verification → [Server-Side Verification](../README.md#server-side-verification-ssv-for-rewarded-ads)
+  - Native ad layouts/factories → [Native Ad (v1)](../README.md#native-ad-v1)
+  - Arbitrator/fill-rate/waterfall/cohort/failover advice → [Monetization Arbitrator](../README.md#monetization-arbitrator-opt-in), [Fill-rate monitor](../README.md#fill-rate-monitor-opt-in), [Other advanced opt-in modules](../README.md#other-advanced-opt-in-modules-brief)
+  - Diagnostics/self-check/exports → [Diagnostics & integration self-check](../README.md#diagnostics--integration-self-check)
+- For runnable examples, open only the matching class in `example/lib/main.dart`; the file is intentionally long so pub.dev can display a complete example entry point. Current examples include: ad formats/lifecycle (`BannerDemoPage`, `BannerAdaptiveSizingDemoPage`, `MrecDemoPage`, `NativeDemoPage`, `InterstitialDemoPage`, `RewardedDemoPage`, `RewardedInterstitialDemoPage`, `AppOpenDemoPage`, `AdaptiveSurfaceDemoPage`, `InlineAdControllerDemoPage`); consent (`ConsentDemoPage`, `CcpaToggleDemoPage`, `I18nPresetDemoPage`); VIP and SDK data (`VipDemoPage`, `ClearSdkDataDemoPage`); controls (`SafetyDemoPage`, `PlacementThrottleDemoPage`, `RemoteSafetyDemoPage`, `ReadinessControllerDemoPage`); operations (`ComplianceDemoPage`, `DiagnosticsDemoPage`, `EventsDemoPage`, `LogViewerDemoPage`, `RevenueDemoPage`, `StatePanelDemoPage`, `TestDeviceHashDemoPage`, `CustomOverlayDemoPage`). Search the current file for each class before using it; this navigation list is not a substitute for the public API reference.
 
-**Required output**: a summary of ≤ 10 lines covering the library's API surface and everything the SDK manages automatically (App Open auto-show via `WidgetsBindingObserver`, banner auto pause/resume via `adRouteObserver` + RouteAware, frequency caps via the multi-layer safety gate, VIP auto-expire via `Timer`, UMP consent flow before adapter init, first-install grace, anti-bypass guard if that version has it).
+**Required output from Step 1**: return (a) a one-line summary of the installed package version, (b) one row per feature-family in the matrix stating public entry point, host action, and optional/provider limitations, and (c) a clear list of behaviors the SDK owns automatically versus behaviors the host must implement. Do not use a 10-line cap if that would omit an exported feature family; link to the exact README chapter for details.
 
 ## Step 2 — Audit the current state of the project
 
 Answer 8 questions (yes/no + evidence as `file:line`):
 
-1. Has the project already adopted `applovin_admob_sdk`? Or is it still on an old SDK (e.g. raw `google_mobile_ads`, a custom `AdMobManager`, `AdsHelper`, ...)?
-2. What does `main.dart` currently call for init? Does it call `AdManager().setNavigatorKey(navigatorKey)` **before** `runApp`? Are `adRouteObserver` + `AdScreenRouteLogger()` present in `navigatorObservers`?
-3. Does the splash screen call `AdManager().initialize` (NOT `main`)? Is `SimpleEventBus().listen` registered **before** `initialize`? Is there a hard-cap timer + hot-restart guard (`countInitSplashScreen > 1`)?
-4. Which screens currently load banner / interstitial / rewarded, and with which API? Have they already been converted to extend `AdScreen`?
-5. **Does the approved product scope include VIP?** If yes, is there an existing screen to reuse or enhance in Step 10? If no, skip VIP UI, key setup, and grace configuration entirely. Do not add an entitlement feature without product approval.
-6. State management: is the project using GetX / Provider / Riverpod / Bloc / setState? Verify whether GetX is already present (`pubspec.yaml`) — if not → the AI will add it.
-7. Does the project have a `BaseStatefulState` (or `BaseStatefulWidget`, `BaseScreen` equivalent)? Where is it? What helpers does it already provide (alert dialogs, lifecycle logging)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/core/base_stateful_state.dart`.
-8. Does the project have a `SafeLogger` (or `Logger`, `Talker`, `LogUtils` equivalent)? Where is it? Which methods (`d`/`i`/`w`/`e`)? If none exists → the AI will create one at `lib/<DART_PACKAGE_NAME>/util/safe_logger.dart`.
+1. Is `applovin_admob_sdk` already present? Record the current package/version and existing ad integrations; do not remove a provider or old implementation until every caller and intended migration scope is identified.
+2. What does `main.dart` call during startup? Record the navigator key, `navigatorObservers`, and current splash/init entry point with `file:line` evidence.
+3. Does splash call `AdManager().initialize` rather than `main()`? Is `SimpleEventBus().listen` registered before init? Is there a hard-cap timer and hot-restart guard (`countInitSplashScreen > 1`)?
+4. Which screens show each currently used format, what triggers them, and which SDK API is used? Record existing `AdScreen`/`AdScreenState` usage; do not add ad placements or change triggers during migration.
+5. **Does partner-approved scope include VIP or first-install grace?** If not, record both as disabled and skip the corresponding implementation/UI steps. If yes, record approved grant types, activation policy, duration, and Android backup/privacy decision before coding.
+6. Which state-management, navigation, localization, and logging systems does the host app already use? Keep these; do not add GetX or create a new framework layer solely for this integration.
+7. Which existing base widget/state or lifecycle helpers can the integration reuse? Reuse if useful; do not create `BaseStatefulState` or other project-wide abstractions merely to match this template.
+8. Which logger does the host app use, and what fields/retention are approved? Wire `AdConfig.onLog` to that logger without logging raw consent strings, user-entered VIP codes, or personal data.
 
 ## Step 3 — Write the integration plan into `<PROJECT_PATH>/doc/AD.MD`
 
@@ -139,70 +171,127 @@ It must contain these sections:
 
 **(1) Touchpoint table** — one row per slot. If a slot doesn't exist yet in the project, write `(none yet)` in the "Old API replaced" column:
 
-| Slot | Current file | Trigger | New API | Old API replaced |
-|---|---|---|---|---|
-| Banner | `<host screen>.dart` | `build()` of a screen extending `AdScreen` | `buildBanner()` (edge-to-edge wrap — Step 4) | `<old API or (none yet)>` |
-| Interstitial | `<host screen>.dart` | `<keep the existing trigger>` | `showInterstitialAd(onDone: (shown) {...})` | `<old API>` |
-| App Open (cold) | Splash | after `initialize` + `loadAppOpenAd` + `AdLoadingDialog.showAdBuffer` | `showAppOpenAd(bypassSafety: true, onAdDismiss:)` | `<old API or (none yet)>` |
-| App Open (resume) | SDK auto | `WidgetsBindingObserver` (SDK internal) | (never called manually) | `<old API or (none yet)>` |
-| Rewarded | VIP screen / clear-history button / etc. | user click | `showRewardedAd(onEarnedReward: (earned) {...})` | `<old API or (none yet)>` |
-| MREC | `<host screen>.dart` (only if the project wants a rectangle placement — Step 4.8) | `build()` of a screen extending `AdScreen` | `buildMrec()` | `<old API or (none yet)>` |
-| Native | `<host screen>.dart` (only if the project wants an inline/feed native ad — Step 4.9) | `build()` of a screen extending `AdScreen` | `buildNative()` | `<old API or (none yet)>` |
-| Rewarded Interstitial | VIP screen / etc. (only if the project wants the built-in disclosure screen — Step 4.10) | user click | `showRewardedInterstitialAd(onDone: (shown, earned) {...})` | `<old API or (none yet)>` |
+| Feature/API | In scope? | Host file / owner | Trigger/config | Provider/platform caveat | Verification case | README reference |
+|---|---|---|---|---|---|---|
+| SDK bootstrap + splash | Yes | `<main.dart>`, `<splash file>` | `setNavigatorKey` before `runApp`; register observers; initialize from splash with hard cap | Choose one UMP owner; don't manual-call UMP if auto UMP is enabled | Cold start, init success/failure, timeout, no duplicate init event | Quick start / Consent & compliance |
+| App Open (splash) | `<yes/no>` | `<splash file>` | Existing splash trigger only; `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` | `bypassSafety` only at this splash call | Ad available/unavailable, dismiss, hard cap | Quick start / Pitfalls |
+| App Open (resume) | `<yes/no>` | SDK lifecycle | SDK auto via `WidgetsBindingObserver`; never call manually | Provider freshness differs; modal/overlay edge cases below | Background/resume, modal on top | Quick start / Pitfalls |
+| Banner | `<yes/no>` | `<screen/file>` | Existing placement; `buildBanner()` or `BannerAdWidget` | Verify approved provider unit IDs and visible placement | Load, route away/back, rotate/resize | Quick start |
+| MREC | `<yes/no>` | `<screen/file>` | Existing placement; `buildMrec()` or `MrecAdWidget` | Fixed 300×250 | Load, route/off-screen lifecycle | Quick start |
+| Native | `<yes/no>` | `<screen/file>` | Existing feed/card placement; `buildNative()` or `NativeAdWidget` | AdMob custom layout requires native factory; AppLovin builder differs | Default/custom factory loads on each selected provider | Native Ad (v1) |
+| Interstitial | `<yes/no>` | `<screen/file>` | Keep existing user-flow trigger; `showInterstitialAd(onDone:)` | Respect safety gate; no new frequency trigger | Eligible, blocked, dismiss | Quick start / Configuration |
+| Rewarded | `<yes/no>` | `<screen/file>` | Explicit user action; `showRewardedAd(onEarnedReward:)` | Grant reward only when `earned == true`; SSV optional for authoritative server reward | Earned/not-earned, unavailable, repeated tap | SSV for rewarded ads |
+| Rewarded Interstitial | `<yes/no>` | `<screen/file>` | User action and pre-ad disclosure | AdMob only; don't promise this format for AppLovin | AdMob load/show/disclosure; AppLovin excluded | README API / example demo |
+| VIP / first-install grace | `<yes/no>` | `<screen/config>` | Only with product/security approval | Disabled by default in partner config unless approved; Android replay/backup trade-offs | Signed-key cases and grace expiry only if enabled | VIP system / Known limitations |
+| Revenue/events | `<yes/no>` | `<analytics adapter>` | Subscribe to `AdManager().events` only if partner needs analytics | Partner owns analytics endpoint, retention and dedupe | Revenue event fields, consented logging | Public API |
+| SSV / advanced modules | `<yes/no>` | `<partner backend or module owner>` | Add only selected modules from feature matrix | SSV verification/remote config are partner backend responsibilities | Backend signature/replay tests or module-specific checks | SSV / Other advanced opt-in modules |
 
-**(2) Step-by-step plan** — 6 steps (Setup pubspec + native config, App init wiring + Consent + ATT, Splash flow, VIP UI + AdKey + i18n, Banner placement edge-to-edge, Interstitial/Rewarded triggers). Each step should state which files get edited, which functions get added, and which lines get removed.
+Keep one row per existing placement. `In scope? = no` means leave old behavior untouched and do not add a slot. Add the exact SDK API, test/verification case, and code owner before editing.
+
+**(2) Step-by-step plan** — plan only the in-scope work: setup pubspec + native config, app init wiring + consent + ATT, splash flow, enabled ad placements/triggers, and optional VIP UI/config/i18n only when partner-approved. Each step should state which files get edited, which functions get added, and which lines get removed.
 
 **(3) Before/after comparison table** — at least 8 rows (Provider, Architecture, App Open lifecycle, Consent UI + UMP, Memory leak risk, Frequency cap, VIP support, Banner pause/resume).
 
-**(4) Information still needed from the user** — list only required values for the approved scope: provider credentials/ad unit IDs, Privacy Policy URL where required, banner placement, splash hard-cap, and (only if VIP is approved) public signing key and activation policy. Never request or embed the VIP private signing key.
+**(4) Information still needed from the user** — list only required values for the approved scope: selected provider credentials/ad unit IDs, target platforms, enabled formats/placements, privacy-policy URL if required, splash hard-cap, and target markets/age groups for consent review. If VIP is approved, ask for the public signing key and activation/grant policy; never request or embed the private signing key. Ask before adding any missing third-party package or changing backup policy.
 
 ## Step 4 — Lifecycle requirements (hard rule, applies to every Flutter project)
+
+### 4.0 — Add package and native prerequisites before Dart integration
+
+Do these steps in the consuming app root. Fill every placeholder from Section 0 first. Do not replace entire manifests/plists; merge only the shown entries into existing app configuration.
+
+**(a) `pubspec.yaml`** — pin one released SDK version selected in Section 0:
+
+```yaml
+dependencies:
+  applovin_admob_sdk: <PINNED_STABLE_VERSION>
+  # Only for AppLovin served through AdMob mediation (not direct AppLovin):
+  # gma_mediation_applovin: <PARTNER_APPROVED_COMPATIBLE_VERSION>
+```
+
+Then run:
+
+```bash
+flutter pub get
+```
+
+Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transparency`, or UI/state-management packages just because the SDK/example uses them transitively. Add `gma_mediation_applovin` only for the mediation branch. Current source supports Flutter `>=3.38.1`, Dart `>=3.10.0`, and pins `google_mobile_ads >=9.0.0 <9.1.0`; verify the selected published release's constraints before using these values.
+
+**(b) Android permissions and app ID** — edit `android/app/src/main/AndroidManifest.xml`. These are fragments to merge into the existing elements; do not paste the comment markers as tags or replace the whole manifest.
+
+Add the permissions as direct children of the existing `<manifest>`:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+```
+
+Add the App ID metadata inside the existing `<application>`:
+
+```xml
+<meta-data
+    android:name="com.google.android.gms.ads.APPLICATION_ID"
+    android:value="<ADMOB_APPLICATION_ID_OR_TEST_ONLY_ID>" />
+```
+
+Use the partner's AdMob App ID when one exists. Google's public test App ID is only for a test-only app/build that will not serve production ads; do not ship it in production. For AppLovin, do not add an `applovin.sdk.key` manifest entry: pass the SDK key to `AppLovinConfig.sdkKey` in Step 4.2 via the partner-approved secret/config mechanism. Keep any existing `android:taskAffinity` non-empty; see README → Pitfalls.
+
+Set `minSdk = 24` in the app's existing Gradle file. With current GMA 9.0.0, set Kotlin Gradle plugin `>=2.3.0` in `android/settings.gradle.kts`; if upgrading from older Kotlin, replace removed `kotlinOptions { jvmTarget = ... }` with the `kotlin { compilerOptions { ... } }` snippet in Step 11.1.
+
+**(c) iOS identifiers and deployment target** — merge into `ios/Runner/Info.plist`:
+
+```xml
+<key>GADApplicationIdentifier</key>
+<string><ADMOB_APPLICATION_ID_OR_TEST_ONLY_ID></string>
+<!-- Include only when AppLovin is enabled: -->
+<key>AppLovinSdkKey</key>
+<string><APPLOVIN_SDK_KEY></string>
+<!-- Include only when partner approves an ATT prompt: -->
+<key>NSUserTrackingUsageDescription</key>
+<string><PARTNER_APPROVED_LOCALIZED_TRACKING_PURPOSE></string>
+```
+
+Set `platform :ios, '13.0'` in the existing `ios/Podfile`, then run `(cd ios && pod install)`. If iOS is a target, obtain current `SKAdNetworkItems` from each enabled provider/mediation partner's official source and merge their identifiers with existing entries; do not paste a stale fixed-count list. If AppLovin is not enabled, do not add an AppLovin key solely from this example.
+
+**(d) Resolve before proceeding:** run `flutter pub get`; if mediation or native dependency versions changed, run `pod install` and build both Android and iOS Simulator before proceeding. A successful Dart dependency solve or CocoaPods resolve alone is not a successful native build; see Step 6 and Appendix D.6.
 
 ### 4.1 — Bootstrap order in `main.dart` (do NOT reorder)
 
 ```dart
-Future<void> main() async {
+import 'package:flutter/material.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+
+final navigatorKey = GlobalKey<NavigatorState>();
+
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. setNavigatorKey BEFORE runApp — mandatory
+  // Register before runApp; dialogs and App Open resume need this Navigator.
   AdManager().setNavigatorKey(navigatorKey);
 
-  // 2. ATT: do NOT call it here. Apple will reject a prompt shown on a blank screen.
-  //    Call `AdManager().requestAtt()` inside SplashScreen (postFrame, before
-  //    requestUmpConsent) — see Step 4.2.4 and Step 8.2.
-
-  // 3. Project bootstrap (wakelock, edge-to-edge, refresh rate)
-  WakelockPlus.enable();
-  UIUtils.initEdgeToEdge();
-  if (Platform.isAndroid) await FlutterDisplayMode.setHighRefreshRate();
-
-  // 4. State manager init
-  Get.put(ControllerMain());
-
-  // 5. Locale
-  final savedLocale = await LanguageService.getSavedLanguage();
-
-  // 6. runApp with the navigator key + both observers
-  runApp(GetMaterialApp(
+  runApp(MaterialApp(
     navigatorKey: navigatorKey,
     navigatorObservers: [adRouteObserver, AdScreenRouteLogger()],
-    translations: AppTranslations(),
-    locale: savedLocale ?? const Locale('vi', 'VN'),
-    fallbackLocale: const Locale('en', 'US'),
     home: const SplashScreen(),
   ));
 }
 ```
+
+Keep the host app's existing state-manager initialization, locale loading, theme, and app widget. Add only `setNavigatorKey`, both SDK observers, and `SplashScreen` wiring shown above. Do not add GetX, wakelock, or display-mode packages solely for this SDK integration.
 
 If `setNavigatorKey` is missing, App Open on resume and `AdLoadingDialog`'s buffer will silently fail.
 
 ### 4.2 — Splash flow (hard rule, hot-restart guard is mandatory)
 
 ```dart
-class _SplashScreenState extends BaseStatefulState<SplashScreen> {
+// Enable only after the partner's iOS tracking/privacy review approves ATT.
+const bool kRequestAtt = false;
+
+class _SplashScreenState extends State<SplashScreen> {
   Timer? _hardCap;
-  StreamSubscription<BoolEvent>? _busSub;
-  final ValueNotifier<bool> _navigated = ValueNotifier(false);
+  void Function(BoolEvent)? _onInitEvent;
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -221,60 +310,78 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
     _hardCap = Timer(const Duration(seconds: 8), _goHome);
 
     // 4.2.3 — Subscribe BEFORE initialize
-    _busSub = SimpleEventBus().listen<BoolEvent>((e) {
-      if (e.value) {
+    void onInitEvent(BoolEvent event) {
+      if (!mounted || _navigated) return;
+      if (event.value) {
         _showSplashAppOpen();
       } else {
         _goHome();
       }
-    });
+    }
+    _onInitEvent = onInitEvent;
+    SimpleEventBus().listen(onInitEvent);
 
-    // 4.2.4 — ATT (iOS) → UMP → initialize. MANDATORY ORDER.
+    // 4.2.4 — If ATT is in scope: request it after first frame, then initialize.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // ATT before UMP so IDFA settles before the first ad request. No-op on Android.
-      // The SDK swallows errors internally → returns AttStatus.denied, never throws.
-      try {
+      // Call ATT only when the partner approved it; requestAtt() is no-op on Android.
+      if (kRequestAtt) {
         final att = await AdManager().requestAtt();
-        SafeLogger.d('Splash', 'ATT status=${att.status.name}');
-      } catch (e) {
-        SafeLogger.w('Splash', 'ATT threw, continuing: $e');
+        debugPrint('ATT status=${att.status.name}');
       }
-      // testMode: false — let real geolocation decide EEA (do NOT force EEA in debug).
-      try {
-        await AdManager().requestUmpConsent(testMode: false);
-      } catch (e) {
-        SafeLogger.w('Splash', 'UMP threw, continuing init anyway: $e');
-      }
-      AdManager().initialize(
-        config: AdConfig(
-          provider: AdProvider.appLovin,                  // RULE #4 preference
-          appLovin: AdKey.appLovin,                       // RULE #16 AdKey class
-          admob: AdKey.adMob,
-          // firstInstallVipGrace: FirstInstallVipGrace.auto,  // default — do NOT override
-          // autoRequestUmpConsent: true,                       // default — Google UMP handles GDPR consent
-          vipKeyValidator: vipKeyValidator,
-          vipDialogStrings: VipDialogStrings(
-            verifyingTitle: 'vip_verifying_title'.tr,
-            successTitle: 'vip_success_title'.tr,
-            failedTitle: 'vip_failed_title'.tr,
-            // ... full strings
-          ),
-          logLevel: kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning,
-          onLog: (level, tag, msg) {
-            switch (level) {
-              case AdLogLevel.error:   SafeLogger.e(tag, msg); break;
-              case AdLogLevel.warning: SafeLogger.w(tag, msg); break;
-              default:                  SafeLogger.d(tag, msg);
-            }
-          },
+      // Build exactly one of these provider configs from Section 0.
+      // AppLovin example (keep separate platform IDs):
+      const config = AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: const String.fromEnvironment('APPLOVIN_SDK_KEY'),
+          bannerId: '<APPLOVIN_ANDROID_BANNER_ID>',
+          interstitialId: '<APPLOVIN_ANDROID_INTERSTITIAL_ID>',
+          appOpenId: '<APPLOVIN_ANDROID_APP_OPEN_ID>',
+          rewardedId: '<APPLOVIN_ANDROID_REWARDED_ID>',
+          iosBannerId: '<APPLOVIN_IOS_BANNER_ID>',
+          iosInterstitialId: '<APPLOVIN_IOS_INTERSTITIAL_ID>',
+          iosAppOpenId: '<APPLOVIN_IOS_APP_OPEN_ID>',
+          iosRewardedId: '<APPLOVIN_IOS_REWARDED_ID>',
+          // If selected, set mrecId/nativeId and iosMrecId/iosNativeId here.
         ),
+        firstInstallVipGrace: FirstInstallVipGrace.disabled,
+        autoRequestUmpConsent: true,
+        logLevel: kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning,
+      );
+
+      // AdMob-only alternative (use instead of the AppLovin config above):
+      // const config = AdConfig(
+      //   provider: AdProvider.admob,
+      //   admob: AdMobConfig(
+      //     bannerId: '<ADMOB_ANDROID_BANNER_ID>',
+      //     interstitialId: '<ADMOB_ANDROID_INTERSTITIAL_ID>',
+      //     appOpenId: '<ADMOB_ANDROID_APP_OPEN_ID>',
+      //     rewardedId: '<ADMOB_ANDROID_REWARDED_ID>',
+      //     iosBannerId: '<ADMOB_IOS_BANNER_ID>',
+      //     iosInterstitialId: '<ADMOB_IOS_INTERSTITIAL_ID>',
+      //     iosAppOpenId: '<ADMOB_IOS_APP_OPEN_ID>',
+      //     iosRewardedId: '<ADMOB_IOS_REWARDED_ID>',
+      //     // Add only for selected formats: mrecId/nativeId and platform overrides.
+      //     // rewardedInterstitialId is a separate AdMob unit (AdMob only).
+      //     rewardedInterstitialId: '<ADMOB_ANDROID_REWARDED_INTERSTITIAL_ID>',
+      //     iosRewardedInterstitialId: '<ADMOB_IOS_REWARDED_INTERSTITIAL_ID>',
+      //   ),
+      //   firstInstallVipGrace: FirstInstallVipGrace.disabled,
+      //   autoRequestUmpConsent: true,
+      // );
+
+      await AdManager().initialize(
+        config: config,
+        onComplete: (success, _) {
+          if (!success && mounted) _goHome();
+        },
       );
     });
   }
 
   void _showSplashAppOpen() {
     AdManager().loadAppOpenAd(onAdLoaded: (loaded) {
-      if (_navigated.value || !mounted) return;
+      if (_navigated || !mounted) return;
       if (!loaded) return _goHome();
       AdLoadingDialog.showAdBuffer(context, onComplete: () {
         if (!mounted) return _goHome();
@@ -290,57 +397,61 @@ class _SplashScreenState extends BaseStatefulState<SplashScreen> {
   }
 
   void _goHome() {
-    if (_navigated.value) return;
-    _navigated.value = true;
+    if (_navigated) return;
+    _navigated = true;
     _hardCap?.cancel();
     _hardCap = null;
     AdManager().markSplashInactive();
     if (!mounted) return;
-    Get.offAll(() => const MainScreen());
+    Navigator.of(context).pushAndRemoveUntil<void>(
+      MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+      (_) => false,
+    );
   }
 
   @override
   void dispose() {
     _hardCap?.cancel();
-    _busSub?.cancel();
-    _navigated.dispose();
+    final onInitEvent = _onInitEvent;
+    if (onInitEvent != null) SimpleEventBus().remove(onInitEvent);
     super.dispose();
   }
 }
 ```
 
 **Note on 4.2.4 (informational, does not change the hard rule above):** the SDK
-also ships `bootstrap(AdBootstrapOptions(config: ...))`, which wraps the
-`requestAtt() → requestUmpConsent() → initialize()` sequence into one awaited
+also ships `bootstrap(AdBootstrapOptions(config: ..., requestAtt: kRequestAtt))`, which wraps the
+optional ATT request → UMP → initialize sequence into one awaited
 call returning `AdBootstrapResult`. It does NOT replace the hard-cap timer /
 hot-restart guard / App-Open dance mandated above — those still need writing
 by hand as shown. Its `initTimeout` option (default 20s) bounds how long it
 waits specifically on `initialize()`, so a wedged native init can't hang the
 splash for the ~130s worst-case retry pileup `AdManager.initialize()` itself
-can take. Use it only if you'd rather not hand-write the three `try/catch`
-blocks in 4.2.4 — the manual pattern above remains correct and is what most
+can take. Use either `bootstrap(...)` OR the manual sequence; never call both for the same startup. With `bootstrap`, remove the manual `requestAtt()`/`initialize()` calls and read `result.initSuccess`; keep the splash hard-cap, event subscription, and App Open display logic. The manual pattern above remains available and is what most
 of this document assumes.
 
-### 4.3 — Splash UI (disclaimer is mandatory)
+### 4.3 — Splash UI and partner-approved disclosure
 
-The splash screen must show a disclaimer before the App Open Ad appears:
+Keep the host splash screen and add disclosure copy only if the partner's policy/legal owner requires it or approves it. Do not copy the sample sentence below as a universal legal statement. Place approved localized text where it is visible before any ad surface it describes, using the host app's existing localization system.
+
+Example layout (replace `localizedDisclosure` with the host localization lookup; omit the `Text` entirely if no splash disclosure is approved/required):
 
 ```dart
-Text(
-  'splash_ads_notice'.tr,    // mandatory i18n key
-  textAlign: TextAlign.center,
-  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
-)
-LinearProgressIndicator(...)
+Widget buildSplashContent() {
+  // Replace with partner-approved localized copy, or keep null if none applies.
+  const String? localizedDisclosure = null;
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (localizedDisclosure case final text?)
+        Text(text, textAlign: TextAlign.center),
+      const LinearProgressIndicator(),
+    ],
+  );
+}
 ```
 
-Required translations to add:
-```dart
-// vi_vn.dart
-'splash_ads_notice': 'Lưu ý: ứng dụng có thể hiển thị quảng cáo',
-// en_us.dart
-'splash_ads_notice': 'Please note: this action may show ads',
-```
+Record the approved copy, languages, placement, and approving owner in `<PROJECT_PATH>/doc/AD.MD`; never infer legal wording from this example.
 
 ### 4.4 — Banner: extend `AdScreen` + edge-to-edge
 
@@ -388,10 +499,14 @@ it checks `isDialogOnTop` (tracked by `AdScreenRouteLogger` counting open `Popup
 showInterstitialAd(onDone: (shown) {
   // shown=true → ad displayed and dismissed
   // shown=false → blocked by safety / VIP / no network / slot showing
-  // ALWAYS execute the post-action regardless (navigate, etc.)
-  Get.to(() => const HistoryScreen());
+  // ALWAYS perform the existing post-action regardless.
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => const HistoryScreen()),
+  );
 });
 ```
+
+Replace `HistoryScreen` with the screen your existing trigger already navigates to; keep the original trigger and destination.
 
 ### 4.7 — Rewarded pattern
 
@@ -480,14 +595,20 @@ class _FeedScreenState extends AdScreenState<FeedScreen> {
 }
 ```
 
-`buildNative()` loads once per mount and does not re-fetch on navigation — do not wrap it in anything that
-rebuilds it on every route change (that would burn ad requests without gaining impressions).
+`buildNative()` loads once per mount and does not re-fetch on navigation — do not wrap it in anything that rebuilds it on every route change (that would burn ad requests without gaining impressions).
 
-### 4.10 — Rewarded Interstitial pattern (audit round 27 addition — this surface exists in the SDK)
+**Default vs. custom layout:** default `buildNative()`/`NativeAdWidget()` uses the provider's built-in layout and needs no native factory. If a custom AdMob layout is requested, custom factory work is required in the host app:
+- Android: copy `example/android/app/src/main/kotlin/.../T228CustomNativeAdFactory.kt` and its layout XML; register the factory in `MainActivity.configureFlutterEngine`.
+- iOS: copy `example/ios/Runner/T228CustomNativeAdFactory.swift`; register in `AppDelegate.didInitializeImplicitFlutterEngine`.
+- Dart: set `factoryId: 't228CustomNativeAd'`; it must exactly match the native registration.
 
-Same earned-only reward contract as plain rewarded (Step 4.7), but shows a built-in disclosure/intro screen
-before the ad by default — use this instead of plain rewarded when the product wants that extra "are you
-sure" step before spending the user's time on an ad:
+For AppLovin custom layout, use `customNativeAdBuilder` with its asset widgets; this does not use Google's native factory. See `README.md` → “Custom native ad layout” and the selected release's example files before copying, since platform templates may change.
+
+### 4.10 — Rewarded Interstitial (optional; AdMob only)
+
+Use only when `AdProvider.admob` is selected, this format is configured with an AdMob rewarded-interstitial unit ID, and product wants the extra disclosure/intro step. AppLovin MAX does not support this surface through this SDK; if provider is AppLovin, skip this section and use an approved AppLovin-supported format instead.
+
+Same earned-only reward contract as plain rewarded (Step 4.7), but the SDK shows a built-in disclosure/intro screen by default:
 
 ```dart
 showRewardedInterstitialAd(onDone: (shown, earned) {
@@ -536,9 +657,9 @@ around them, instead of rediscovering each one the hard way:
   `AdProvider.appLovin`, do not treat the AppLovin branch of consent as a hard guarantee; see
   `doc/audit/audit_round33_consolidated.md` for the full trace.
 
-## Step 5 — Scope of replacement (mandate replace-all)
+## Step 5 — Scope of replacement (replace only approved ad call sites)
 
-If the project has an old ad SDK, it **must be fully replaced** with `applovin_admob_sdk`. No coexistence.
+Migrate only the ad placements and triggers listed in the approved Step 3 touchpoint table. Do not run both old and new implementations for the same placement, because that can double-request or double-show ads. Do not remove another provider, mediation adapter, or unrelated feature unless the partner approved that scope and all callers were traced.
 
 Before deleting any old SDK file/class, **grep-verify** nothing else still uses it:
 
@@ -547,63 +668,93 @@ Before deleting any old SDK file/class, **grep-verify** nothing else still uses 
 - Remove old direct ad-SDK integrations from `pubspec.yaml` only after checking remaining callers and the approved architecture. Keep `google_mobile_ads`/`applovin_max` dependencies required by the SDK's public config types/native implementation; add `gma_mediation_applovin` only when the partner explicitly uses AppLovin as an AdMob mediation network, and verify its version against the pinning guidance.
 - Don't add banner/interstitial/rewarded to any screen the old SDK wasn't already on.
 
-## Step 6 — Build & memory check
+## Step 6 — Resolve dependencies, build selected platforms, test selected features
 
-### 6.1 — Build
+### 6.1 — Resolve and build
 
-- `flutter analyze --fatal-infos` → 0 issues (mandate)
-- `flutter build apk --debug` → green
-- `flutter build apk --release --analyze-size` → green, size delta < 5MB
-- (If targeting iOS) `flutter build ios --debug --no-codesign` → green
+From the consuming app root:
 
-### 6.2 — Memory leak review (4 manual checks)
+```bash
+flutter pub get
+flutter analyze --fatal-infos
+flutter build apk --debug
+# If targeting iOS, from the Flutter app root:
+(cd ios && pod install)
+flutter build ios --simulator --debug --no-codesign
+```
 
-- Does every screen extending `AdScreen` call `super.dispose()` at the end of `dispose()`?
-- Does the VIP screen cancel every `Timer`, `AnimationController`, `StreamSubscription`, `TextEditingController.dispose()`, `FocusNode.dispose()`, `ValueNotifier.dispose()` in `dispose()`?
-- Does the splash screen call `_hardCap?.cancel()` + `_busSub?.cancel()` + `_navigated.dispose()` in `dispose()`?
-- Does `MaterialApp.navigatorKey` hold a stale reference after a hot restart?
+For release validation, also run `flutter build apk --release --analyze-size` and compare with an agreed baseline built using the same Flutter version, build flags, flavors, and architectures. If partner does not have a baseline, record “baseline unavailable”; do not claim a `<5MB` pass without measurement.
 
-Output: a table of "review item / conclusion / `file:line` evidence".
+If `gma_mediation_applovin` or any native provider dependency changed, use this repo's `./tool/check_pinning_wall.sh` for resolution/pod-pin assertion and `--with-builds` for fixture builds. This does not replace builds from the consuming app.
 
-## Step 7 — Policy check (5 specific rules)
+### 6.2 — Run only in-scope tests
 
-| # | Rule | How to verify |
+From the consuming app root:
+
+```bash
+flutter test
+```
+
+This runs the partner app's own unit/widget tests; it does not run tests hidden in a published SDK dependency. If working in this SDK source repository, separately run the SDK suite from `packages/ad_sdk/` and its integration suite from `packages/ad_sdk/example/` using a real/simulated device as CI requires. Do not tell a hosted-package consumer to run internal SDK repository tests they do not have.
+
+1. Preserve/add host tests for existing ad triggers and callbacks.
+2. For each selected format, run the matching available `example/integration_test/` case when source checkout is available, or write/evidence an equivalent partner test. Use test ad inventory and test devices, not live partner inventory.
+3. Exercise offline → reconnect, background/resume, hard-cap, consent result, and repeated user action where applicable.
+4. Review resource ownership for changed widgets: cancel timers, remove `SimpleEventBus` callback with `remove(callback)`, and dispose controllers/subscriptions in the owning `State`.
+5. If custom AdMob native layout is selected, test native factory registration on Android and iOS; if custom AppLovin native layout is selected, test the Dart builder.
+6. For optional SSV, test signature validation/replay protection on partner backend using provider test postbacks; SDK tests cannot validate the partner endpoint.
+7. For optional diagnostics/exports, review fields, retention, access control, and consent basis before enabling in production.
+
+Record command, exit status, device/provider, and output artifact for each run. Mark skipped/not configured cases “not in scope” or “not run”; do not infer PASS from compile alone.
+
+## Step 7 — Ad policy and disclosure review
+
+For each enabled placement, record PASS/FAIL and `file:line` evidence. These checks do not replace provider policy review or partner legal/privacy approval.
+
+| # | Check | How to verify |
 |---|---|---|
-| 1 | Banner never obscures interactive content, edge-to-edge wrap is correct | Read the host banner layout + verify SafeArea/Padding per Step 4.4 |
-| 2 | App Open never shows on a bare splash — only after the loading buffer (`AdLoadingDialog.showAdBuffer`) right before navigating to main, or on resume from background (SDK auto) | Read the splash screen + verify the flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` |
-| 3 | Interstitial never shows back-to-back below the frequency cap threshold | Trust the `AdSafetyParams.auto` default, and record the exact values (production: 60s throttle, session cap 6, hourly cap 3, daily cap 5) |
-| 4 | Rewarded only triggers on a user tap | Read the VIP screen + check for any other rewarded trigger |
-| 5 | The "may show ads" disclaimer is shown on splash before App Open | Read the splash UI |
+| 1 | Banner/native/MREC never obscure controls or imitate clickable app controls | Inspect host layout on target device sizes; compare placement against current selected-network policy |
+| 2 | App Open never interrupts first-use navigation unexpectedly | Verify cold-start flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` and resume behavior; confirm hard cap reaches app when no ad is ready |
+| 3 | Interstitial respects configured frequency gates | Confirm `AdSafetyParams.auto` or an explicitly approved preset; record actual caps from selected SDK version/config |
+| 4 | Rewarded appears only in approved user flow and reward is granted only when earned | Inspect each enabled placement and callback; do not reward from impression/show/dismiss alone |
+| 5 | Partner-approved ad/disclosure text is shown at the agreed location, if required | Get exact copy/location from partner policy/legal owner; localize using host system; do not use this template's sample text as legal advice |
 
-Report: PASS/FAIL for each rule + `file:line` evidence.
+Do not mark a check PASS based on reading code alone when it needs device or owner verification.
 
 ## Step 8 — Consent (UMP + iOS ATT)
 
-No built-in GDPR consent dialog — removed round 44 audit (was not a
-Google-certified CMP, produced no valid IAB TCF string). Wire up **both**:
+No built-in GDPR consent dialog — removed in audit round 44 because it was not a
+Google-certified CMP and produced no valid IAB TCF string. Use Google UMP for applicable consent requirements; handle ATT separately only when the partner's iOS tracking/measurement plan and privacy review call for it:
 
-### 8.1 — Google UMP form (mandatory)
+### 8.1 — Google UMP form (review for every selected provider/market)
 
-Already called in splash before `initialize()` (Step 4.2.4). Minimum test scenarios to record in the report (no need to actually run them):
-- Non-EEA: dialog skipped, ads load normally.
-- EEA, first launch: Google's UMP form shows → user chooses → cached in `SharedPreferences`.
-- EEA, no internet: `requestConsentInfoUpdate` fails → caught → init continues anyway.
+By default, `autoRequestUmpConsent: true` runs Google UMP during `initialize()` before the selected ad provider initializes. In the Step 4.2 example, call `requestAtt()` after the first frame (iOS only), then call `initialize()`; do not call `requestUmpConsent()` separately as well. If the host must present UMP earlier itself, await `requestUmpConsent()` before `initialize()` and set `autoRequestUmpConsent: false` in `AdConfig`.
 
-### 8.2 — iOS ATT (mandatory)
+Before release, the partner must publish the Google UMP consent message for **each AdMob App ID** in its AdMob console. A newly created/unconfigured App ID may return `no form(s) configured`. Follow README → Consent & compliance → “AdMob Console setup” for generic per-App-ID steps; do not use `doc/UMP_SETUP.md`, which is a stale record for a retired host app and contains unrelated historical IDs.
+
+If UMP is enabled, add a permanent privacy-options entry point in the host app's Settings/Privacy screen that calls `AdManager().showPrivacyOptions()`. Do not make it splash-only or transient. See README → Consent & compliance → Privacy Options entry point.
+
+For each applicable target market/provider, execute and record these cases; do not mark a case passed because code was only reviewed:
+- Region where UMP is not required: confirm form is skipped and record returned `status` + `canRequestAds`.
+- EEA/UK first launch with network: in a dedicated debug build, configure `umpDebugGeography: DebugGeography.debugGeographyEea` and add the device's hashed UMP test ID to `umpTestIdentifiers`; use test ad units. Confirm form, user choice, persisted CMP state, and `canRequestAds` before ad requests.
+- No network / UMP update error: record returned error/status and confirm the SDK consent gate controls ad requests; do not assume ads load just because initialization callback fires.
+- Withdraw consent through CMP privacy options, resume app, and confirm subsequent requests obey returned UMP state and selected provider behavior.
+- Before release, remove `umpDebugGeography`, test identifiers, and test ad units; run the release-config warnings and confirm release binary uses only partner-approved production values.
+
+Do not ask a junior to change geo on a live production build or test with real inventory. If the partner cannot supply UMP test-device identifiers/market access, record the case as blocked/not run and ask the CMP owner for a test setup.
+
+### 8.2 — Optional iOS ATT
 
 ATT is already built into the SDK — do NOT call
 `app_tracking_transparency` directly yourself. Use `AdManager().requestAtt()`.
 
 - The `app_tracking_transparency` dependency is transitive from the SDK — do NOT add it at the app level.
-- Add the `Info.plist` key `NSUserTrackingUsageDescription` (MANDATORY — without it the
-  prompt is silently suppressed):
+- If the partner's iOS product/privacy review approves showing ATT, add a truthful, localized `NSUserTrackingUsageDescription` to `Info.plist`; without it, iOS suppresses the system prompt:
   ```xml
   <key>NSUserTrackingUsageDescription</key>
-  <string>This identifier is used to deliver personalised ads.</string>
+  <string>PARTNER_APPROVED_LOCALIZED_TRACKING_PURPOSE</string>
   ```
-- Call it in **SplashScreen postFrame, BEFORE `requestUmpConsent`** (Step 4.2.4) —
-  do NOT call it in `main()` before `runApp`: **Apple will reject** a prompt shown on a
-  blank screen.
+- Call `requestAtt()` in **SplashScreen postFrame, before `initialize()`** (Step 4.2.4), after app UI is visible. It is no-op on Android and does not replace Google UMP. Calling before `runApp()` prevents showing the system prompt until UI is available.
   ```dart
   final att = await AdManager().requestAtt();   // no-op on Android
   // att.status: notSupported | notDetermined | restricted | denied | authorized
@@ -675,7 +826,7 @@ Only after approval, merge the SDK's required preference file into the host's ex
 
 Do not change an existing `android:allowBackup="false"` without explicit approval. An approved integration may instead retain its current backup policy and disable the VIP grace feature.
 
-**(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31), merge only after approval:
+**(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31). Create or merge only after approval:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -689,7 +840,7 @@ Do not change an existing `android:allowBackup="false"` without explicit approva
 </data-extraction-rules>
 ```
 
-**(c) `android/app/src/main/res/xml/full_backup_content.xml`** — Android 6-11 legacy, merge only after approval:
+**(c) `android/app/src/main/res/xml/full_backup_content.xml`** — Android 6–11 (API 23–30). Create or merge only after approval:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -698,63 +849,15 @@ Do not change an existing `android:allowBackup="false"` without explicit approva
 </full-backup-content>
 ```
 
-Both files may be needed across supported Android versions. An explicit include is scoped to the named file, but backs up every preference stored in that file; it does not filter individual keys.
-**(b) `android/app/src/main/res/xml/data_extraction_rules.xml`** — Android 12+ (target SDK ≥ 31), create this file if it doesn't exist:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-  Auto Backup + Device Transfer rules required by applovin_admob_sdk
-  anti-uninstall-bypass guard. The first-install grace flag in
-  FlutterSharedPreferences.xml must be cloud-backed up so a reinstall
-  on the same Google account restores the flag and skips re-granting
-  a fresh 24h grace window.
-
-  Do NOT add an <exclude> for FlutterSecureStorage.xml here: an explicit
-  <include> already excludes everything else in the `sharedpref` domain by
-  default (its EncryptedSharedPreferences ciphertext is unrecoverable
-  without the device-bound Keystore key anyway), and a sibling <exclude>
-  not nested under an included path is redundant at best.
--->
-<data-extraction-rules>
-    <cloud-backup>
-        <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-    </cloud-backup>
-    <device-transfer>
-        <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-    </device-transfer>
-</data-extraction-rules>
-```
-
-**(c) `android/app/src/main/res/xml/full_backup_content.xml`** — Android 6-11 legacy, create this file if it doesn't exist:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-  Legacy Auto Backup rules (Android 6-11, API 23-30).
-  Replaced by data_extraction_rules.xml on API 31+.
-  Same intent: include host SharedPreferences (where the SDK first-install
-  grace flag lives) — everything else in `sharedpref`, including
-  EncryptedSharedPreferences ciphertext, is excluded by default.
-
-  Do NOT add an explicit <exclude> for FlutterSecureStorage.xml: Android
-  lint's FullBackupContent check rejects an <exclude> that isn't nested
-  under an included path and FAILS THE RELEASE BUILD.
--->
-<full-backup-content>
-    <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-</full-backup-content>
-```
-
-**Note**: both `data_extraction_rules.xml` and `full_backup_content.xml` are needed — Android picks whichever file fits the runtime API level. You can't rely on just one.
-
-**Verify**: if the host app already has a `res/xml/` directory with other backup files (e.g. for Firebase, Hive backup), the AI **must merge** the include/exclude entries rather than overwrite the file.
+Both files may be needed across supported Android versions. The explicit include backs up the entire `FlutterSharedPreferences.xml` file; it cannot select only the SDK marker. Never overwrite existing Firebase/database/app backup rules—merge deliberately and re-review the resulting scope. Android lint rejects an `<exclude>` outside an included path, so do not add an unrelated `FlutterSecureStorage.xml` exclude.
 
 ### 9.4 — iOS — no additional config needed
 
 The SDK handles the Keychain itself. The default `flutter_secure_storage` settings (`kSecAttrAccessibleAfterFirstUnlock`, no `synchronizable`, no `kSecAttrAccessGroup`) are correct for anti-bypass. Do NOT override them.
 
-### 9.5 — Manual smoke test for anti-bypass (release builds)
+### 9.5 — Optional anti-bypass smoke test (only if VIP grace is approved)
+
+Skip this test when VIP grace is disabled. Never enable a free entitlement solely to run the test on a partner build; use a dedicated non-production test application/configuration, then retain the approved production setting.
 
 **Android (Play Store internal track)**:
 ```bash
@@ -780,73 +883,40 @@ adb shell bmgr backupnow <package_name>
 6. Reinstall via Xcode/TestFlight
 7. Verify the log "🛡️ Keychain flag present — prior install detected on this device"
 8. Verify the log "🛡️ first-install VIP grace SKIPPED"
-9. Restore firstInstallVipGrace = .auto for production
+9. Restore the partner-approved setting; use `FirstInstallVipGrace.disabled` unless the entitlement was explicitly approved
 ```
 
 ## Step 10 — Optional VIP management screen UI/UX
 
 Skip this step unless product scope explicitly includes VIP and the partner has approved its entitlement, promotion, and privacy behavior. If approved, reuse an existing screen or the SDK's `VipRedeemScreen`; do not create an entitlement UI by default.
 
-### 10.1 — File structure (mandate)
+### 10.1 — Optional file structure (adapt to the host app)
+
+Use the host app's existing feature/config layout. If it has no established location, a small optional VIP feature can use:
 
 ```
 lib/<DART_PACKAGE_NAME>/
-├── common/const/
-│   ├── ad_keys.dart              ← class AdKey
-│   └── color_constants.dart      ← (already in the project)
-├── core/
-│   └── base_stateful_state.dart  ← detect existing or create
-├── util/
-│   └── safe_logger.dart          ← detect existing or create
-└── widget/
-    ├── splash/splash_screen.dart
-    └── vip/
-        ├── vip_screen.dart       ← main UI
-        └── vip_config.dart       ← public signing key only (if VIP is approved)
+├── config/ad_config.dart       # selected provider config; Section 0
+└── features/vip/
+    ├── vip_screen.dart         # only if using a custom screen
+    └── vip_config.dart         # public signing key only
 ```
 
-### 10.2 — `AdKey` class
+Do not create a new global state base class or logger just for VIP. Keep the private signing key out of this tree, the app binary, and source control.
 
-`lib/<DART_PACKAGE_NAME>/common/const/ad_keys.dart`:
+### 10.2 — Add the public VIP key (only if VIP promotions are approved)
+
+Generate the Ed25519 pair as described in `packages/ad_sdk/README.md` → “Signed VIP keys”. The private key stays with the authorized minting operator in an approved secret manager; the app receives only the public key. Example config file:
+
+`lib/<DART_PACKAGE_NAME>/features/vip/vip_config.dart`:
 
 ```dart
-import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
-
-/// Centralised ad-related constants. AppLovin SDK key can be shared by account,
-/// but AppLovin ad unit IDs must be split per platform.
-abstract final class AdKey {
-  static AppLovinConfig get appLovin {
-    return Platform.isIOS ? appLovinIos : appLovinAndroid;
-  }
-
-  static const AppLovinConfig appLovinAndroid = AppLovinConfig(
-    sdkKey:         '<APPLOVIN_SDK_KEY>',
-    bannerId:       '<APPLOVIN_ANDROID_BANNER_ID>',
-    interstitialId: '<APPLOVIN_ANDROID_INTERSTITIAL_ID>',
-    appOpenId:      '<APPLOVIN_ANDROID_APP_OPEN_ID>',
-    rewardedId:     '<APPLOVIN_ANDROID_REWARDED_ID>',
-  );
-
-  static const AppLovinConfig appLovinIos = AppLovinConfig(
-    sdkKey:         '<APPLOVIN_SDK_KEY>',
-    bannerId:       '<APPLOVIN_IOS_BANNER_ID>',
-    interstitialId: '<APPLOVIN_IOS_INTERSTITIAL_ID>',
-    appOpenId:      '<APPLOVIN_IOS_APP_OPEN_ID>',
-    rewardedId:     '<APPLOVIN_IOS_REWARDED_ID>',
-  );
-
-  static const AdMobConfig adMob = AdMobConfig(
-    bannerId:       '<ADMOB_BANNER_ID>',
-    interstitialId: '<ADMOB_INTERSTITIAL_ID>',
-    appOpenId:      '<ADMOB_APP_OPEN_ID>',
-    rewardedId:     '<ADMOB_REWARDED_ID>',
-  );
-
-  static const String privacyPolicyUrl = '<PRIVACY_POLICY_URL>';
+abstract final class VipConfig {
+  static const publicKeyBase64 = '<PARTNER_VIP_PUBLIC_KEY_BASE64>';
 }
 ```
 
-**Usage:** `AdManager().initialize(config: AdConfig(provider: AdProvider.appLovin, appLovin: AdKey.appLovin, admob: AdKey.adMob, ...))`.
+Do not put promo codes, key-to-duration maps, or private signing material in app config. Configure ad-provider credentials separately as shown in Section 0 and Step 4.2. See the current SDK README for the exact signed-key API and status values for the selected release.
 
 ### 10.2b — Or skip 10.3 entirely: wrap the SDK's `VipRedeemScreen` (round-37 audit — this note was a dangling forward-reference before, fixed here)
 
@@ -857,47 +927,42 @@ header, redeem field, watch-ad-to-extend, revoke, Do Not Sell toggle) that its o
 ```dart
 Navigator.push(
   context,
-  MaterialPageRoute(
+  MaterialPageRoute<void>(
     builder: (_) => VipRedeemScreen(
-      publicKeyBase64: AdKey.vipPublicKeyBase64, // your public key, not the private one
-      onPrivacyPolicyTap: () => launchUrl(Uri.parse(AdKey.privacyPolicyUrl)),
+      publicKeyBase64: VipConfig.publicKeyBase64,
+      onPrivacyPolicyTap: () => launchPartnerPrivacyPolicy(),
       onPrivacyOptionsTap: () => AdManager().showPrivacyOptions(),
     ),
   ),
 );
 ```
 
-Only `publicKeyBase64` is required; `strings:` (a `VipRedeemStrings`) covers localisation instead of the
-`.tr` keys Step 10.3 assumes. Only fall back to building the 13-component screen manually (Step 10.3) if the
-project needs a bespoke design `VipRedeemScreen`'s stock layout can't match, or is enhancing an existing
-screen per Step 2. See `packages/ad_sdk/README.md`'s "Pre-built redeem screen (`VipRedeemScreen`)" section and
-`example/lib/main.dart`'s `VipDemoPage` for the full reference usage.
+Replace `launchPartnerPrivacyPolicy()` with the host app's approved privacy-policy launcher. `publicKeyBase64` is required; other callbacks/localized `VipRedeemStrings` are optional. This screen handles signed promotion redemption; activation requires network. Do not wire a private signing key or plaintext promo validator. If the built-in screen meets the partner UI requirements, stop here and skip the custom UI, animation, and translation design sections below. See `packages/ad_sdk/README.md` → “Pre-built redeem screen (`VipRedeemScreen`)” for the complete current constructor.
 
-### 10.3 — UI structure (13 components required, only if not using `VipRedeemScreen` above)
+### 10.3 — Optional custom VIP UI (only if approved and `VipRedeemScreen` does not meet host requirements)
 
-| # | Component | Detail (Flutter idiom, no `setState`/`!`/`late`) |
+Use this as a sequence of UI requirements only when the partner approved VIP and needs a custom screen. These details are not reasons to add a state-management, animation, or localization package: use existing host-app patterns and omit visual extras the product does not need.
+
+| # | Optional idea | Detail |
 |---|---|---|
-| 1 | Status header / Hero card | `ValueListenableBuilder<bool>` listening to `vip?.activeListenable` (null-safe pattern). Active: gold gradient + crown icon `Icons.workspace_premium` + 2-line text (`'vip_active'.tr` + `'vip_until'.trParams({'date': formatted})`). Inactive: grey gradient + `'vip_free_user'.tr` |
+| 1 | Status header / Hero card | Observe `vip.activeListenable` through the host app's reactive pattern after checking `vip != null`. Active state can show approved localized status/expiry; inactive state shows the host's normal free-user state. The `.tr` names in older examples are GetX-specific, not SDK API. |
 | 2 | Activation date row | `'Activated: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.grantedAt)}'` (hidden if free). Uses `package:intl`. The field is named `grantedAt` (SDK 1.0.18+), NOT `startedAt` |
 | 3 | Expiry date row | `'Expires: ${DateFormat('dd/MM/yyyy HH:mm').format(entry.expiresAt)}'` (hidden if free) |
 | 4 | Progress bar (elapsed) | `LinearProgressIndicator` with `value = (now − entry.grantedAt) / (entry.expiresAt − entry.grantedAt)`, clamped to `[0.0, 1.0]`. **3 points on the horizontal timeline**: `start = entry.grantedAt` (left edge, 0%), `end = entry.expiresAt` (right edge, 100%), `current = now` (fill position). The bar starts **empty right after activation and fills up toward expiry** (elapsed semantics — matches the user's mental model of "progression toward expiry"). Absolutely do NOT invert the formula to `remaining/total` (full → empty) — that's confusing UX. Only show this when VIP is active. **No need for `TweenAnimationBuilder`** — a per-second tick from `_now` is smooth enough (Δ ≪ 0.001%/s for a 24h+ VIP window); `TweenAnimationBuilder` would only add overhead and slow rebuilds. Edge case `total ≤ 0` (clock skew / already expired) → default to `value = 1.0` (full = expired) |
 | 5 | Countdown text | Format like `12d 03h 24m 15s` — updated via `Timer.periodic(Duration(seconds: 1), ...)` in `initState`, `cancel()`'d in `dispose`. State goes through `ValueNotifier<Duration>`, never `setState` |
 | 6 | Signed VIP code field (if promotions are in scope) | `TextEditingController` + `TextCapitalization.characters`; redeem with `redeemSignedKey` or the SDK screen. Handle statuses explicitly; activation requires network. Never check user-entered codes against an app-bundled plaintext/Base64 key map. |
 | 7 | "Watch ad → N days VIP" button | Tap → `showRewardedAd(onEarnedReward: (earned) {...})`. **Only grant VIP when `earned == true`** (the user watched the rewarded ad to completion). **Do NOT** fall back to an interstitial to grant the reward — granting VIP for watching an interstitial violates Google/AppLovin's rewarded policy (it blurs the rewarded/interstitial line). If rewarded isn't ready → show "try again later". **Stacking**: grant via the fixed key `REWARDED_VIP` + `addVip(..., stack: true)` (collapses into one entry). To let an active VIP extend their window this way, keep the button visible even while `active` and use `showRewardedAd(bypassVipGuard: true, ...)` (see 4.7). Pulse animation #1 |
-| 8 | Buy 30-day VIP (disabled) | `OutlinedButton.icon(icon: Icon(Icons.card_giftcard))` disabled, label `'vip_buy_30d_locked'.tr` ('Buy 30-day VIP — coming soon'). Waiting on IAP integration |
-| 9 | Buy 90-day VIP (disabled) | Same as #8 |
-| 10 | Buy 1-year VIP (disabled) | Same as #8 |
-| 11 | Buy lifetime VIP (disabled) | Same as #8 |
-| 12 | List of active entries | `ValueListenableBuilder<List<VipEntry>>` (subscribed via `vip.activeStream` + a local notifier). Each entry is a card with its own icon (10.6), days/hours remaining, expiry date, and a revoke button |
-| 13 | "Restore Purchase" (disabled) | `OutlinedButton.icon(icon: Icon(Icons.restore))` disabled, label `'vip_restore_locked'.tr` ('Restore purchase — coming soon'). Placeholder for future IAP |
-| — | "Revoke all VIP" button | Material 3 `AlertDialog` confirm → `await vip.revokeAll()`. Disabled for free users |
-| — | "VIP" toolbar badge on the main screen | `ValueListenableBuilder<bool>(valueListenable: vip.activeListenable, ...)` — active: gold chip `0xFFFFD60A`, inactive: white outline |
+| 8 | Purchase tiers | Show purchase/restore controls only if partner billing scope is approved and a real purchase integration exists. Do not ship disabled “coming soon” purchase promises copied from the demo. |
+| 9 | Additional tiers | Add only the products actually configured in partner billing; omit speculative tiers. |
+| 12 | List of active entries | Observe the host-supported VIP entries stream/listenable; each entry may show grant source and expiry. Mask or omit key material in UI and logs. |
+| 13 | Restore purchase | If paid VIP is in scope, use the partner's verified billing restore flow; the SDK does not implement app-store purchase validation. Omit otherwise. |
+| — | Revoke VIP | If product policy permits user revocation, confirm in host UI then call `await vip.revokeAll()`; omit otherwise. |
+| — | VIP status indicator | Optional; observe `activeListenable` after initialization using the host's existing reactive pattern. |
 | — | Privacy Policy footer | `InkWell` → `url_launcher.launchUrl(Uri.parse(AdKey.privacyPolicyUrl), mode: LaunchMode.externalApplication)` |
 
-- The text field and dialogs must use Material 3 (`useMaterial3: true` in `ThemeData`).
-- After a successful VIP activation, the UI must update immediately via the reactive `activeListenable` — never `setState`. Pair it with a confetti animation + `HapticFeedback.heavyImpact()`.
+For any custom screen, required behaviors are: validate via the signed redemption API, show success/failure status, reflect active/expired state, and avoid logging the entered key. Keep the host's existing state-management and design system; confetti, haptics, gradients, countdown animations, and Material 3 are optional presentation choices.
 
-#### Reference implementation for row #4 (progress bar — elapsed semantics)
+#### Optional progress-bar implementation for row #4 (elapsed semantics)
 
 ```dart
 /// 3 points on the horizontal timeline [grantedAt ─── expiresAt]:
@@ -943,7 +1008,7 @@ T+29d    [███████████████████████�
 T+30d    [███████████████████████████]  100% — expired
 ```
 
-### 10.4 — Animation (5 required — Flutter idiom, no `late`)
+### 10.4 — Optional animation examples (skip unless approved by product/design)
 
 | # | Animation | Implementation | Trigger |
 |---|---|---|---|
@@ -955,9 +1020,11 @@ T+30d    [███████████████████████�
 
 Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (comes with Material 3), an animated gradient background for the status header.
 
-### 10.5 — Memory leak rules specific to the VIP screen (do NOT use these patterns)
+### 10.5 — Lifecycle checklist for custom VIP UI
 
-- **NO `late` / `late final`** — use a nullable field + null-check on every read instead:
+Use patterns that fit the host app; the important requirement is that resources cannot outlive their owner and nullable SDK state is handled. Examples below are Dart/Flutter options, not style mandates.
+
+- A nullable `AnimationController` is one option when initialization is conditional:
   ```dart
   // ❌ DO NOT
   late AnimationController _pulseController;
@@ -968,7 +1035,7 @@ Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (com
   if (c == null) return const SizedBox.shrink();
   return ScaleTransition(scale: Tween(1.0, 1.05).animate(c), ...);
   ```
-- **NO `setState`** — use `ValueNotifier<T>` + `ValueListenableBuilder` instead (or GetX `Rx<T>` + `Obx`). Countdown example:
+- For reactive countdown/status, use the host app's existing state mechanism. A `ValueNotifier<T>` + `ValueListenableBuilder` is one Flutter-native option:
   ```dart
   // ❌ DO NOT
   setState(() => _remaining = newDuration);
@@ -982,7 +1049,7 @@ Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (com
     builder: (_, d, __) => Text(_format(d)),
   )
   ```
-- **NO `!` (the bang operator)**:
+- Since `AdManager().vip` is null before SDK initialization, check it before use. Pattern matching is one option:
   ```dart
   // ❌ DO NOT
   AdManager().vip!.redeemVip(...);
@@ -1019,17 +1086,42 @@ Bonus (nice-to-have, not mandatory): default ripple effect for both buttons (com
 
 ### 10.6 — Signed VIP redemption + special entries (only if VIP is approved)
 
-Use the SDK's Ed25519 signed-code flow, never an app-bundled plaintext or Base64-obfuscated key-to-duration map. Generate the keypair once; keep the private signing key outside the application and source repository in the partner's approved secret manager. Ship only the public key. Mint codes with expiry, bundle binding, and a short validity window appropriate to the promotion; see `packages/ad_sdk/README.md` → "Signed VIP keys" for the exact command/API matching this SDK version.
+Use signed AVP2 promotions, never an app-bundled plaintext/Base64 key-to-duration map. Generate the Ed25519 keypair once with `dart tool/vip_keygen.dart`; keep the 0600 private-key file with an authorized minting operator in an approved secret manager. Ship only the public key. Mint a time-limited, app-bound promotion from the package root:
 
-```dart
-final result = await AdManager().vip?.redeemSignedKey(
-  userInput,
-  publicKeyBase64: kVipPublicKeyBase64,
-  stack: true,
-);
+```bash
+dart tool/vip_mint.dart --priv-file .vip-private-key --days 30 --valid-days 14 --bundle com.example.app --kid PROMO30-001
 ```
 
-Handle the returned status explicitly. Redemption requires network even though signature verification is local; VIP remains usable offline after activation. These are promotional entitlements, not globally single-use paid licenses: Android clear-data/reinstall can replay a leaked valid key. Use server-verified purchase entitlements for paid VIP where replay creates material loss; do not treat this client-side mechanism as an authorization boundary for sensitive data or features.
+Replace `com.example.app` with the exact consuming app bundle ID and choose expiry/validity per promotion policy. Do not use `--priv`; the CLI intentionally rejects private keys in argv. Never commit the private-key file or paste its contents into chat/source.
+
+On the screen, first check that SDK initialization has completed (`AdManager().vip` is nullable), then handle all result statuses:
+
+```dart
+final vip = AdManager().vip;
+if (vip == null) {
+  showMessage('VIP is not ready yet');
+  return;
+}
+
+final result = await vip.redeemSignedKey(
+  userInput,
+  publicKeyBase64: VipConfig.publicKeyBase64,
+  stack: true,
+);
+switch (result.status) {
+  case VipRedeemStatus.success:
+    showMessage('VIP activated');
+    break;
+  case VipRedeemStatus.alreadyUsed:
+    showMessage('This code was already redeemed on this device');
+    break;
+  case VipRedeemStatus.invalid:
+    showMessage('Code invalid, expired, or for another app');
+    break;
+}
+```
+
+Replace `showMessage` with the host app's existing UI. Signature verification is local, but redemption requires network; activated VIP remains usable offline. These are transferable promotions, not globally single-use paid licenses: Android clear-data/reinstall can replay a leaked still-valid key. For paid entitlements with material loss, use server-verified purchases; never use this client-side grant as an authorization boundary for sensitive data/features.
 
 **Special entries** (auto-managed by the SDK, do NOT delete manually; omit this UI section if VIP is not in product scope):
 
@@ -1040,9 +1132,9 @@ Handle the returned status explicitly. Redemption requires network even though s
 | `REWARDED_VIP` (prefix `REWARDED_`) | Watch-ad reward (fixed key + `stack: true`) | `'vip_reward_entry'.tr` ('Ad-watch reward') |
 | Anything else | User redeem or programmatic `addVip` | `entry.key` raw (mask the first 3 characters) |
 
-### 10.7 — Translations (mandatory: local + English)
+### 10.7 — Localize VIP strings (only if VIP UI is in scope)
 
-Add to `lib/translations/vi_vn.dart` and `en_us.dart` (snake_case keys):
+Add these meanings to the host app's existing localization files/system; file names and key syntax below are examples from one integration, not SDK requirements:
 
 ```dart
 // VIP
@@ -1069,26 +1161,44 @@ Add to `lib/translations/vi_vn.dart` and `en_us.dart` (snake_case keys):
 
 Other languages (zh / ja / ko / es / fr, etc.) can be added in a later pass — don't add them for this integration.
 
-### 10.8 — Entry point from the AppBar
+### 10.8 — Optional entry point from the host UI
+
+Add an entry point only if the partner approved a VIP user-facing feature. Reuse the host app's existing navigation and rebuild/listenable pattern; do not add GetX or allocate a new `ValueNotifier` during `build()`. For example, route a button to the screen through the app's existing Navigator/router and observe `AdManager().vip?.activeListenable` after SDK initialization.
+
+### 10.9 — Optional modules beyond ad surfaces
+
+Do not implement these during core ads setup unless Step 0/3 selected them. If selected, follow the named README section, record owner/configuration, and add the corresponding test/check to the integration record:
+
+| Module | Add it when | Host/backend work | Minimum validation | Reference |
+|---|---|---|---|---|
+| Revenue / `AdEvent` analytics | Partner needs impression/revenue/reward events outside provider dashboards | Subscribe once to `AdManager().events`; map only approved event fields to existing analytics, define dedupe/retention | Confirm one test impression yields expected format/provider/placement/revenue fields; confirm stream subscription is cancelled | README → Public API; `RevenueDemoPage`, `EventsDemoPage` |
+| Rewarded SSV | Reward must be authoritative outside the client | Configure selected provider's dashboard callback URL/secret; backend verifies provider signature, timestamp/replay, user/custom data, then grants reward server-side | Use provider test postback; test valid, invalid-signature, replay, unknown-user cases on partner backend | README → Server-Side Verification (SSV) for rewarded ads |
+
+For the optional SSV branch, pass a stable partner user ID (not raw PII) and optional opaque server-issued state when showing the ad:
 
 ```dart
-// In your app's main/home screen:
-final vip = AdManager().vip;     // null-safe, no `!`
-ValueListenableBuilder<bool>(
-  valueListenable: vip?.activeListenable ?? ValueNotifier(false),
-  builder: (_, active, __) => IconButton(
-    icon: Icon(
-      Icons.workspace_premium,
-      color: active ? const Color(0xFFFFD60A) : Colors.white,
-    ),
-    onPressed: () => Get.to(() => const VipScreen()),
-  ),
-)
+showRewardedAd(
+  ssvUserId: currentUser.rewardAccountId,
+  ssvCustomData: serverIssuedRewardNonce,
+  onEarnedReward: (earned) {
+    if (!earned) return;
+    // Update UI optimistically only. The partner backend postback is authoritative.
+  },
+);
 ```
+
+The guide does not prescribe the partner's postback URL, signature-validation code, identity schema, database, or reward policy. Those are backend-owned; follow each network's current SSV docs and validate callback signatures/replay before crediting rewards. Never grant valuable entitlements solely from the client callback when SSV is the approved source of truth.
+| Monetization Arbitrator | Partner explicitly wants SDK event-based arbitration | Enable/configure module, define eligible formats and decision owner; no automatic provider switch is implied | Feed representative test events; record recommendation and host action; compare against simple control | README → Monetization Arbitrator |
+| Fill-rate / baseline monitor | Partner needs local fill or revenue alerts | Enable selected monitor and sampling window; decide alert destination/retention | Simulate fill/no-fill and verify alert thresholds/destination | README → Fill-rate monitor, Other advanced opt-in modules |
+| Remote safety policy | Partner must adjust caps without app release | Implement `RemoteAdSafetyProvider` using approved remote config, validation/versioning, and safe defaults | Test valid, stale, malformed, timeout/offline values and verify local safety defaults remain active | README → Configuration reference / Other advanced opt-in modules |
+| Cohort, waterfall tuning, failover advice, prefetch | A named monetization owner approved the experiment and impact | Configure one selected module, sampling/persistence/rollback; review whether prefetch or exploration sends real ad requests | Use test units where supported; record request behavior, recommendation, rollback result; never call advisory output automatic failover | README → Other advanced opt-in modules |
+| Diagnostics, flight recorder, compliance export | Support/audit workflow requires local evidence | Choose fields, enable flag, retention, access and secure transfer path with privacy/security owners | Export a test artifact, verify signature/chain where applicable, redact identifiers, verify delete/retention flow | README → Diagnostics & integration self-check / Consent & compliance |
+
+If no row was selected, record “not in scope”; do not add packages, backend endpoints, storage, network calls, or UI for these modules.
 
 ## Step 11 — Partner readiness review & update `<PROJECT_PATH>/doc/AD.MD`
 
-Before handoff or production rollout, complete this checklist with the partner's owners. Record exact SDK/Flutter/native dependency versions, device/OS/build results, region/provider configuration, and any accepted limitations in the integration record. A passing emulator build is not device compatibility evidence.
+Before handoff or production rollout, complete this checklist with the partner's owners. Put the completed evidence in `<PROJECT_PATH>/doc/AD.MD` (created in Step 3) under “Partner readiness”. For each test row, record: test case, device/model + OS, build mode, provider/region, expected result, observed result, log/screenshot path, and PASS/FAIL. A passing emulator build is not device compatibility evidence.
 
 ### 11.0 — Partner release gates
 
@@ -1108,27 +1218,38 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: `applovin_admob_sdk: <LATEST_STABLE>` + `gma_mediation_applovin:` (app-level) + the required packages:
-  - `get`, `intl`, `url_launcher`, `confetti`, `shared_preferences` (already present if using GetX), the SDK
-  - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level
-  - For VIP confetti/success feedback: **skip** adding a separate `vibration` package, use Flutter's built-in `HapticFeedback.heavyImpact()` instead. Note: some projects legitimately keep `vibration` as a real dependency in `pubspec.yaml` for an unrelated long-press haptic feature elsewhere in the app — that's fine and unrelated to VIP/ads; this rule only applies to the VIP UI itself.
+- [ ] `pubspec.yaml`: add `applovin_admob_sdk: <LATEST_STABLE>` and keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
+  - `gma_mediation_applovin` is **optional**, app-level, and only for AppLovin as an AdMob mediation network. Current source fixture pins `2.6.2` and asserts AppLovinSDK `13.6.3`; read `packages/ad_sdk/CLAUDE.md` and `tool/check_pinning_wall.sh` before changing this combination.
+  - `google_mobile_ads` is constrained to `>=9.0.0 <9.1.0` in current package metadata; do not upgrade across that cap until the iOS regression is resolved and the source constraint changes.
+  - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level.
+  - Do not add GetX, `intl`, `url_launcher`, `confetti`, or other packages solely because optional examples use them.
 - [ ] `AndroidManifest.xml` permission whitelist: `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Any ad-related permission beyond these 3 needs a clear justification. Any non-ad permission → ask the user first.
-- [ ] `AndroidManifest.xml` has the AdMob `APPLICATION_ID` meta-data (production or test ID + warning)
+- [ ] If AdMob is selected, `AndroidManifest.xml` has the matching AdMob `APPLICATION_ID` (test ID for debug only; production ID for release)
 - [ ] `MainActivity` does **NOT** have `android:taskAffinity=""` (pitfall #1)
-- [ ] (If iOS) `ios/Runner/Info.plist` has `GADApplicationIdentifier`, `AppLovinSdkKey`, `NSUserTrackingUsageDescription`, `SKAdNetworkItems` (count them for real with `grep -c SKAdNetworkIdentifier ios/Runner/Info.plist`, do NOT hardcode a number — the mediation partner list changes over time; currently 152 entries as of 2026-08-19)
-- [ ] (If iOS) Podfile targets ≥ 13.0
+- [ ] If targeting iOS, configure `GADApplicationIdentifier` required by `google_mobile_ads`/UMP, `AppLovinSdkKey` if AppLovin is enabled, and partner-approved `NSUserTrackingUsageDescription` only if ATT is approved/in scope. AdMob ad-unit IDs are needed only if serving AdMob ads.
+- [ ] Merge required `SKAdNetworkItems` for enabled networks/mediation from current official provider lists. The example `example/ios/Runner/Info.plist` is a reference list; merge it with existing partner entries rather than replacing the array, and re-check provider documentation at release time. Do not rely on a dated ID count.
+- [ ] Android app uses Kotlin Gradle plugin `>=2.3.0` with GMA 9.0.0. In `android/settings.gradle.kts`, set the plugin version (check current example `example/android/settings.gradle.kts`); in `android/app/build.gradle.kts`, replace removed `kotlinOptions { jvmTarget = ... }` with:
+  ```kotlin
+  kotlin {
+      compilerOptions {
+          jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+      }
+  }
+  ```
+- [ ] If AppLovin is selected, match AppLovin SDK key/platform ad-unit IDs to partner dashboard. If AdMob is selected, register correct App ID per platform in manifest/Info.plist.
+- [ ] (If iOS) Podfile deployment target is at least 13.0; run `(cd ios && pod install)` and then an actual `flutter build ios --simulator --debug --no-codesign`. Successful `pod install` alone does not prove Xcode compile/link succeeds.
 
 ### 11.2 — Bootstrap
 
 - [ ] `main.dart`: `AdManager().setNavigatorKey` before `runApp`, navigator observers complete (`adRouteObserver` + `AdScreenRouteLogger()`)
-- [ ] (If iOS) `AdManager().requestAtt()` is called in **splash postFrame, before `requestUmpConsent`** (NOT called in `main()` before `runApp`)
+- [ ] If ATT is in scope on iOS, `AdManager().requestAtt()` is called after first frame; then `initialize()` runs. SDK auto UMP is enabled by default and runs before provider init. If host explicitly calls `requestUmpConsent()` itself, set `autoRequestUmpConsent: false` to avoid duplicate consent flow.
 - [ ] Splash: `SimpleEventBus().listen` registered BEFORE `initialize`, hard-cap (default 8s), `markSplashActive/Inactive` paired correctly, **hot-restart guard `countInitSplashScreen > 1`** (mandatory), the App Open flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` in the right order
-- [ ] Splash UI has the `'splash_ads_notice'.tr` disclaimer
+- [ ] If disclosure is required/approved, splash shows the exact owner-approved localized copy before the relevant ad surface; approval/copy/location recorded in `doc/AD.MD`
 - [ ] `AdConfig.onLog` is wired to the project's logger
 
 ### 11.3 — Slot integration
 
-- [ ] Every screen with an ad extends `AdScreen` + `AdScreenState`
+- [ ] For widget/helper integration, screens use `AdScreen` + `AdScreenState` when practical; if using direct widgets/APIs, document equivalent route/visibility/disposal wiring for each placement
 - [ ] Banner is wrapped edge-to-edge if the app uses `UIUtils.initEdgeToEdge()`
 - [ ] Every ad slot has been replaced (grepping the old SDK's name no longer matches anything)
 - [ ] Remove superseded direct integrations only; retain the selected provider dependencies, and include `gma_mediation_applovin` only when the partner uses AppLovin as AdMob mediation
@@ -1137,18 +1258,17 @@ One review pass only, do NOT repeat it 3 times. Checklist:
 
 ### 11.4 — Consent + optional VIP
 
-- [ ] Consent flow and provider-specific behavior reviewed for target regions, age groups, and approved CMP/policy requirements; record test evidence for consent granted, denied/withdrawn, unavailable/offline, and resume/re-init paths
+- [ ] Consent flow and provider-specific behavior reviewed for target regions, age groups, and partner-approved CMP/policy requirements; execute and record grant, deny/withdraw, no-network/update-failure, privacy-options revisit, resume, and re-init paths for enabled flows
 - [ ] iOS ATT prompt is present only where applicable, with partner-approved purpose text and correct ordering before UMP/first ad request
 - [ ] If VIP is approved: ship only the public signing key; use signed redemption and handle invalid, expired, wrong-app, already-used, and offline cases; document Android reinstall/clear-data replay limitation
 - [ ] If first-install grace is approved: verify the configured duration and backup policy with the partner security/privacy owner; otherwise set `FirstInstallVipGrace.disabled`
 - [ ] If VIP is out of scope: no VIP UI, plaintext key map, signing material, or unapproved grace entitlement is added
 
-### 11.5 — Code style enforcement (core rule)
+### 11.5 — Host conventions and lifecycle
 
-- [ ] `grep -rn 'setState' lib/` → 0 matches (except `super.setState` inside `BaseStatefulState` framework code, if any)
-- [ ] `grep -rn '\!' lib/` manually reviewed → 0 user-introduced bang operators (Dart's `!=` "not equal" syntax is allowed; every other `expr!` pattern is forbidden)
-- [ ] `grep -rn 'late ' lib/` → 0 matches
-- [ ] `grep -rn 'late final' lib/` → 0 matches
+- [ ] New code follows the host app's state-management, localization, and logging conventions; no framework/package was added solely to match this template
+- [ ] Contexts, nullable SDK state, timers, controllers, and subscriptions are used/disposed safely in each changed integration file
+- [ ] Raw user-entered VIP codes and IAB consent strings are absent from logs and diagnostics
 
 ### 11.6 — Smoke and device-matrix tests (mandatory before partner handoff)
 
@@ -1207,7 +1327,7 @@ If the user is migrating from a native Android project using an `_AdmobWrapper`,
 | `AdManager.loadRewarded` + `showRewarded` | `showRewardedAd(onEarnedReward: (earned) {...})` |
 | Legacy app-local VIP map | `AdManager().vip` (null-safe) → `redeemSignedKey(code, publicKeyBase64:)` or `VipRedeemScreen` (only if VIP is approved; requires network) |
 | `AdSafetyLimits(interstitialMinIntervalSec: 60, ...)` | `AdSafetyParams.production.copyWith(...)` (defaults to `auto`, do NOT override) |
-| `BuildConfig.IS_ENABLE_ADMOB` flag | Flip `AdConfig.provider` (`AdProvider.appLovin` ↔ `AdProvider.adMob`) |
+| `BuildConfig.IS_ENABLE_ADMOB` flag | Select `AdConfig.provider` at init (`AdProvider.appLovin` or `AdProvider.admob`); changing later requires explicit `destroy()` + reinitialize and partner approval |
 | `Application.onCreate { AdManager.initialize() }` | `main()` only calls `setNavigatorKey`; init happens in `SplashScreen.initState()` |
 | `ProcessLifecycleOwner` for App Open resume | SDK auto via `WidgetsBindingObserver` — do NOT subscribe yourself |
 | Fragment + `onDestroyView` | `StatefulWidget` + `dispose()` |
@@ -1216,9 +1336,9 @@ If the user is migrating from a native Android project using an `_AdmobWrapper`,
 | `DateFormat.getDateInstance(MEDIUM)` | `package:intl` `DateFormat('dd/MM/yyyy')` |
 | `VibrationEffect.EFFECT_CLICK` | `HapticFeedback.heavyImpact()` (Flutter built-in) |
 | Material You (`com.google.android.material`) | Material 3 (`ThemeData(useMaterial3: true)`) |
-| Kotlin `lateinit var` | **FORBIDDEN** `late` — use nullable + check instead (Step 10.5) |
-| Kotlin `!!` | **FORBIDDEN** `!` — use pattern matching `if (x case final v?)` or a local copy |
-| `viewModel.observe { setState }` | `ValueListenableBuilder` + `ValueNotifier` (or GetX `Obx` + `Rx<T>`) — **never `setState`** |
+| Kotlin `lateinit var` | Use the host's normal Dart initialization pattern; ensure nullable SDK values (e.g. `AdManager().vip`) are checked before use |
+| Kotlin `!!` | Prefer null-aware access/pattern matching for values that can be absent |
+| `viewModel.observe { ... }` | Use the host app's existing reactive/state-management pattern; `ValueListenableBuilder` + `ValueNotifier` are Flutter-native options |
 
 ## Appendix B — Where to find more detail
 
@@ -1397,7 +1517,7 @@ If you previously copy-pasted snippets from the old README in your own internal 
 
 ---
 
-### D.4 — 1.0.14 → 1.0.15
+### D.4 — Historical: 1.0.14 → 1.0.15 (not current guidance)
 
 **No breaking changes.** All public API in 1.0.14 continues to compile and behave the same way in 1.0.15. The new features are opt-in and the new defaults are designed to be conservative.
 
@@ -1461,17 +1581,9 @@ The app should return to your screen, not the launcher. If it drops you to the l
 
 The following are opt-in and disabled by default for backwards compatibility, except where noted:
 
-*Built-in consent dialog — removed (round 44 audit).* If you're upgrading
-from a version that had `AdConfig.autoShowConsentDialog`/`consentDialogStrings`
-/`consentBarrierDismissible`/`consentDialogPostSplashDelay` or called
-`ConsentManager.instance.showDialog(...)`: it was a plain Allow/Reject
-sheet, not a Google-certified CMP, and produced no valid IAB TCF consent
-string — a "yes" it collected was not a valid legal basis for personalized
-ads in the EEA/UK/Switzerland. Remove those config fields and switch to
-Google UMP (`autoRequestUmpConsent: true`, the default) or your own
-certified CMP. See README's "Consent & compliance" section.
+*Historical built-in consent dialog — removed in current releases.* Older versions described a plain Allow/Reject sheet (`autoShowConsentDialog`, `consentDialogStrings`, and related fields). Do not carry that flow forward as a CMP. Current integration uses Google UMP (`autoRequestUmpConsent: true` by default) or a partner-approved CMP wired with `setConsent`; see Step 8 and README → Consent & compliance.
 
-*First-install VIP grace (default ON).* Enabled by default. New installs see no ads for 30 seconds in debug builds and 24 hours in release builds. **No code change required.**
+*First-install VIP grace (SDK default ON, partner opt-in by policy).* This historical release default grants 30 seconds in debug and 24 hours in release. For a partner integration, set `firstInstallVipGrace: FirstInstallVipGrace.disabled` unless the entitlement is explicitly approved; see Step 9 for the Android backup/privacy decision.
 
 To customize:
 
@@ -1512,9 +1624,11 @@ This requires no extra dependency since `google_mobile_ads` 6.x ships UMP suppor
 
 ---
 
-### D.5 — 1.x → 2.x
+### D.5 — Historical: 1.x → 2.x (migration record, not current integration sample)
 
-The 2.x series is mostly source-compatible with 1.x. Existing call sites compile and behave the same; old methods that no longer fit the architecture are deprecated rather than removed (will be removed in 3.0).
+The examples in this historical section show the API surface available during 1.x → 2.x. Do not copy legacy GAID, `redeemVip` plaintext-validator, or logger patterns into a new partner app. For current integrations use the selected release's API instructions above (signed VIP promotions where VIP is approved).
+
+The 2.x series was mostly source-compatible with 1.x. Existing call sites compile and behave the same; old methods that no longer fit the architecture are deprecated rather than removed (will be removed in 3.0).
 
 **1. Update the import.** The 1.x package exposed two identical entry points; 2.x keeps only one:
 
@@ -1656,9 +1770,22 @@ Signed VIP key format: AVP1 → AVP2 by default. `tool/vip_mint.dart` mints `AVP
 
 Fetch the latest stable version from pub.dev when integrating; do not assume this guide describes every release. Read that exact version's README and CHANGELOG, run `flutter pub get`, and validate native dependency resolution/builds for every target platform.
 
-The current source package metadata sets Flutter `>=3.38.1` and Dart `>=3.10.0`. It constrains `google_mobile_ads` to `>=9.0.0 <9.1.0` because `9.1.0` has a documented iOS build regression. On Android, GMA 9.0.0 requires the consuming app's Kotlin Gradle plugin to be `>=2.3.0`; Kotlin 2.3 removes the old `kotlinOptions { jvmTarget = ... }` DSL. Confirm all these constraints against the actual published version selected for the partner.
+The current source package metadata sets Flutter `>=3.38.1` and Dart `>=3.10.0`. It constrains `google_mobile_ads` to `>=9.0.0 <9.1.0` because `9.1.0` has a documented iOS build regression. On Android, GMA 9.0.0 requires the consuming app's Kotlin Gradle plugin to be `>=2.3.0`; Kotlin 2.3 removes the old `kotlinOptions { jvmTarget = ... }` DSL. Confirm these constraints against the actual published version selected for the partner.
 
-`gma_mediation_applovin` is optional and belongs at the consuming-app level only when using AppLovin as an AdMob mediation network. When enabled, verify the exact AppLovin iOS SDK pod pin against the selected `applovin_max` and GMA adapter versions. Run the package pinning-wall check and a real consuming-app `pod install`/iOS simulator build when dependency versions change; Dart resolution alone does not prove native compatibility.
+For an Android app on Kotlin below 2.3.0:
+
+1. In `android/settings.gradle.kts`, raise `id("org.jetbrains.kotlin.android")` plugin version to at least `2.3.0` (see `example/android/settings.gradle.kts` for this SDK's current pattern).
+2. In `android/app/build.gradle.kts`, remove the old `android { kotlinOptions { jvmTarget = ... } }` block and use:
+   ```kotlin
+   kotlin {
+       compilerOptions {
+           jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+       }
+   }
+   ```
+3. Run `flutter clean`, `flutter pub get`, and `flutter build apk --debug`. If Gradle/Kotlin fails, record the complete error and check Android Gradle Plugin/Gradle compatibility before changing further versions.
+
+`gma_mediation_applovin` is optional and belongs at the consuming-app level only when using AppLovin as an AdMob mediation network. The checked-in known-good fixture pins `gma_mediation_applovin: 2.6.2` with `applovin_max: ^4.6.4` and asserts CocoaPods resolves `AppLovinSDK 13.6.3`. In this repository run `./tool/check_pinning_wall.sh` for Dart/pod resolution + pod version assertion, or `./tool/check_pinning_wall.sh --with-builds` to additionally compile the fixture APK and iOS Simulator app. This fixture validates dependency compatibility, not partner app configuration. When versions change, also run `flutter pub get`, `(cd ios && pod install)`, and real Android/iOS builds in the consuming app; dependency resolution alone is not compile proof.
 
 For behavior changes between SDK releases, read the full CHANGELOG entry and this guide's corresponding integration sections. Do not treat a version bump as automatically source-compatible; confirm breaking changes and migration steps first.
 
@@ -1685,7 +1812,7 @@ See `README.md` → Pitfalls → 1. Most likely you have `android:taskAffinity="
 
 **Ads not loading on iOS**
 
-Verify `Info.plist` contains `SKAdNetworkItems`, `NSUserTrackingUsageDescription`, `AppLovinSdkKey`, and `GADApplicationIdentifier`. Verify Podfile targets iOS 13 or newer and you ran `pod install`.
+Verify `Info.plist` contains `GADApplicationIdentifier` for bundled Google Mobile Ads/UMP, `AppLovinSdkKey` only if AppLovin is enabled, partner-approved `NSUserTrackingUsageDescription` only if ATT is in scope, and current merged `SKAdNetworkItems` for enabled networks. Verify Podfile targets iOS 13 or newer; run `pod install` and an iOS Simulator/device build.
 
 **"Inter ad doesn't show — `canShow=false`"**
 
@@ -1727,9 +1854,9 @@ If the banner truly never loaded, you'll see `[BannerAdWidget] _initBanner ⏭�
 
 Yes. 1.0.15 has zero breaking changes. The new behaviors (auto consent dialog, first-install grace) are opt-in defaults that you can disable if they conflict with your existing UX.
 
-**Should I migrate to 2.x?**
+**Which version should I integrate?**
 
-Yes — 2.x has shipped and is the actively-maintained line (check `https://pub.dev/api/packages/applovin_admob_sdk` for the current latest published version). 2.0.0 removed all `@Deprecated` symbols listed in `CHANGELOG.md` — primarily the legacy GAID-based VIP API — and changed 3 defaults, see [D.5 §7 above](#d5--1x--2x). If you already migrated to the modern VipManager API in 1.0.15, the 2.x upgrade is close to a drop-in replacement.
+Use the latest stable release shown by pub.dev at integration time, then read that version's README and CHANGELOG before changing `pubspec.yaml`. The historical 1.x → 2.x migration notes above describe only that version transition; they are not a substitute for the migration notes required when moving to the currently selected release. Check Appendix D.6 for current 3.x compatibility constraints.
 
 **How do I roll back from 1.0.15?**
 

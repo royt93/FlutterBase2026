@@ -38,7 +38,7 @@ Drop in, configure 5 keys, ship. The SDK ships sensible defaults for compliance,
 | You want | The SDK gives you |
 |---|---|
 | Switch between AdMob and AppLovin without rewriting code | One `AdConfig.provider` flag |
-| First-session ad-free experience for new installs (boost D1 retention) | `firstInstallVipGrace` — auto-grants VIP for 24 hours on first install |
+| Optional first-install ad-free period | `firstInstallVipGrace` defaults to `auto` (24 hours in release); partner apps should set `FirstInstallVipGrace.disabled` unless product, privacy, and commercial owners explicitly approve this entitlement |
 | GDPR-compliant consent for EEA/UK/Switzerland users | Google UMP, wired by default (`autoRequestUmpConsent: true`) — `AdManager().requestUmpConsent()` wraps `google_mobile_ads`'s built-in `ConsentInformation` API, a certified CMP |
 | Anti-fraud protection so AdMob doesn't suspend your account | Multi-layer safety gate: per-session/hour/day caps, throttle, CTR threshold, click-spam detection, progressive cooldown |
 | Banner that pauses on navigation and resumes on return | `buildBanner()` — hooks into the navigator and adapter lifecycle automatically |
@@ -343,18 +343,17 @@ Open `ios/Runner/Info.plist` and add the keys below at the root `<dict>`. Replac
 <key>AppLovinSdkKey</key>
 <string>YOUR_86_CHARACTER_APPLOVIN_SDK_KEY_HERE</string>
 
-<!-- Required since iOS 14.5: shown in the system ATT prompt -->
+<!-- Include only if the partner's privacy/tracking review approves showing ATT.
+     Text must describe the app's real use and match its localization policy. -->
 <key>NSUserTrackingUsageDescription</key>
-<string>This identifier is used to deliver personalised ads.</string>
+<string>PARTNER_APPROVED_TRACKING_PURPOSE_TEXT</string>
 
-<!-- Required by AdMob & AppLovin MAX mediation on iOS 14.5+. AdMob's own
-     canonical list (https://developers.google.com/admob/ios/ios14#skadnetwork)
-     is only 50 entries — it doesn't cover AppLovin MAX's mediation partners.
-     Use AppLovin's official superset instead (152 entries, includes all 50
-     AdMob IDs): https://skadnetwork-ids.applovin.com/v1/skadnetworkids.json -->
+<!-- Merge the current SKAdNetwork IDs required by enabled ad providers and
+     mediation partners, using their current official lists. Preserve any IDs
+     already present in the host app; do not rely on a fixed entry count. -->
 <key>SKAdNetworkItems</key>
 <array>
-    <!-- 152 entries — paste from the AppLovin link above -->
+    <!-- Add/merge current provider-required SKAdNetworkIdentifier entries. -->
 </array>
 ```
 
@@ -539,12 +538,12 @@ class _SplashScreenState extends State<SplashScreen> {
             rewardedId:     'ca-app-pub-3940256099942544/5224354917',
           ),
 
-          // Optional: validate redeemed VIP keys against your server.
-          // vipKeyValidator: (key) => myServer.verifyVipKey(key),
+          // Optional legacy validator for redeemVip() integrations only.
+          // For user-entered promotion codes, use redeemSignedKey() or
+          // VipRedeemScreen; never ship a plaintext key-to-duration map.
         ),
-        onComplete: (success, gaid) {
-          // Optional: log to your analytics here.
-          debugPrint('SDK init complete: success=$success gaid=$gaid');
+        onComplete: (success, _) {
+          debugPrint('SDK init complete: success=$success');
         },
       );
     });
@@ -755,7 +754,7 @@ flutter run
 
 You should see the splash screen, then a splash app-open ad (if available), then the home screen. If the device is in an EEA/UK/Switzerland test geography, Google UMP's own consent form appears during splash (see `requestUmpConsent`/UMP setup below) — skipped on subsequent launches once the user has answered. The default behaviour you get out-of-the-box:
 
-- ✅ **First-install VIP grace 24h** — the user does not see ads during their first 24 hours after install. Tunable via `AdConfig.firstInstallVipGrace`.
+- ⚠️ **First-install VIP grace defaults to 24h in release** — ads are suppressed during that period. This is an SDK default, not a universal partner recommendation. Set `firstInstallVipGrace: FirstInstallVipGrace.disabled` unless the partner's product, privacy, and commercial owners explicitly approve the free entitlement and its Android backup/privacy implications.
 - ✅ **Google UMP consent** wired by default (`autoRequestUmpConsent: true`) — a certified CMP, not a built-in dialog this SDK draws itself.
 - ✅ **Splash app-open ad** with an 8-second hard cap so the user is never stuck.
 - ✅ **Banner pause/resume** automatically when the user navigates between screens.
@@ -1088,7 +1087,7 @@ with `$(...)`.
 **2. Mint keys offline with the private key:**
 
 ```bash
-dart tool/vip_mint.dart --priv <b64priv> --days 30 --kid promo30_001
+dart tool/vip_mint.dart --priv-file .vip-private-key --days 30 --valid-days 14 --bundle com.example.app --kid promo30_001
 # → AVP2.<payload>.<signature>
 ```
 
@@ -1505,7 +1504,7 @@ new key material, same private key that mints VIP keys mints the CRL too.
 1. **Mint the CRL offline** whenever you learn a `kid` leaked (same private
    key as `tool/vip_mint.dart`, never commit it):
    ```bash
-   dart tool/vip_crl_mint.dart --priv <b64privkey> --kids leaked-kid-1,leaked-kid-2
+   dart tool/vip_crl_mint.dart --priv-file .vip-private-key --kids leaked-kid-1,leaked-kid-2
    # → CRL1.<payload>.<signature>
    ```
    (bare `dart tool/...`, not `dart run tool/...` — see the vip_keygen note
@@ -2146,15 +2145,18 @@ The raw IAB TCF v2.3 consent string Google UMP writes to native storage after a 
 
 **F7 — why this SDK doesn't also forward the TC-string to AppLovin**: [Q18/setConsent](#option-2--google-ump-form-required-for-eea-users-on-admob) only syncs the boolean `hasUserConsent` flag to `AppLovinMAX.setHasUserConsent`, not the raw TC-string — and that's intentional, not a gap. AppLovin MAX SDK 12.0.0+ (this project pins native `13.2.0.1` / Flutter `applovin_max: ^4.6.4`, both well above that threshold) already auto-reads `IABTCF_TCString`, `IABTCF_gdprApplies`, and `IABTCF_AddtlConsent` directly from the platform's shared storage per the IAB standard, the moment UMP writes them — no app code has to relay it. `AdManager().tcfConsentString` above exists only as a manual escape hatch for a *third* party outside AppLovin/AdMob that also needs the raw string.
 
-#### Per-app-id setup (do this for EVERY app, not just once)
+#### AdMob Console setup (repeat for EVERY AdMob App ID)
 
-The UMP consent message is configured and **published per AdMob app ID** in
-the AdMob console — it is **not** a one-time SDK-level setup. Every new app
-(or clone of this app under a different AdMob account/app ID) needs its own
-consent message published before shipping to EEA users, otherwise
-`requestConsentInfoUpdate` fails with `no form(s) configured` and consent
-gathering silently no-ops. Full step-by-step console instructions:
-`doc/UMP_SETUP.md` (in the host app repo).
+UMP messages are configured and **published per AdMob App ID**; SDK code does not create or publish them. For each Android/iOS app ID used by the consuming app:
+
+1. Sign in to the partner's AdMob account and open **Privacy & messaging**.
+2. Create or edit the GDPR/European regulations message for the correct app ID. If the app ID is missing, add the app to the partner account first.
+3. Configure the partner-approved privacy-policy URL, consent choices, ad partners/purposes, and localized message text. Do not copy another company's IDs or policy URL.
+4. Publish the message; saving a draft is not sufficient. Repeat for every platform/app ID that the partner distributes.
+5. If US state privacy applies, configure the partner's approved US-state message/options separately.
+6. In a debug build only, test the EEA form with UMP test mode, `DebugGeography.debugGeographyEea`, and this device's hashed test identifier as described in the SDK Configuration reference. Remove debug geography/test identifiers before release.
+
+If the message is not published for the exact app ID, UMP may report `no form(s) configured`; record the result and resolve it in AdMob Console before claiming EEA consent is verified. Console labels can change; follow current Google UMP/AdMob UI if names differ.
 
 #### Privacy Options entry point (MUST — required by Google UMP policy)
 
@@ -2468,7 +2470,7 @@ like a crash to the user.
 
 ### 2. iOS requires `SKAdNetworkItems`
 
-Without `SKAdNetworkItems` in `Info.plist`, AdMob and AppLovin will not serve ads on iOS 14.5+. [AdMob's own canonical list](https://developers.google.com/admob/ios/ios14#skadnetwork) is only 50 entries and doesn't cover AppLovin MAX's mediation partners — use [AppLovin's official superset list](https://skadnetwork-ids.applovin.com/v1/skadnetworkids.json) instead (152 entries, a strict superset that includes all 50 AdMob IDs).
+Verify the current `SKAdNetworkItems` requirements for every enabled ad provider and mediation partner before release. AdMob and AppLovin publish their own lists; merge the applicable IDs into the host `Info.plist` without deleting partner-specific entries. See [AdMob's current iOS guidance](https://developers.google.com/admob/ios/ios14#skadnetwork) and [AppLovin's current list](https://skadnetwork-ids.applovin.com/v1/skadnetworkids.json); do not rely on a fixed list size, since provider inventories change.
 
 ### 3. AppLovin has no public test ad units
 

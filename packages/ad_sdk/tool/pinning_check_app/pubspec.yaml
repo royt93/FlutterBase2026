@@ -1,12 +1,11 @@
 name: pinning_check_app
 description: >
-  T85 — not a real app. A minimal consuming-app fixture. MIGRATION IN
-  PROGRESS (google_mobile_ads 7->9.1.0): testing whether gma_mediation_applovin
-  2.6.2 (AppLovin iOS adapter 13.6.3.0) resolves the CocoaPods wall against
-  applovin_max ^4.6.4 (AppLovinSDK = 13.6.3) WITHOUT the dependency_overrides
-  hold-back the old 2.5.2 combo needed. Run `tool/check_pinning_wall.sh` from
-  the ad_sdk package root to verify this combo still resolves; that script is
-  what CI runs.
+  T85 — not a real app. Minimal consumer fixture for the optional AdMob +
+  AppLovin mediation dependency graph. Pins gma_mediation_applovin 2.6.2 with
+  applovin_max ^4.6.4 and the SDK's google_mobile_ads >=9.0.0 <9.1.0 ceiling;
+  the check asserts CocoaPods resolves AppLovinSDK 13.6.3. Run
+  `tool/check_pinning_wall.sh` from the ad_sdk package root. Add
+  `--with-builds` to compile the fixture for Android and iOS Simulator.
 publish_to: 'none'
 version: 0.0.1
 
