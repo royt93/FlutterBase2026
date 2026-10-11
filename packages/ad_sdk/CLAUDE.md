@@ -49,6 +49,12 @@ Persistent SDK state goes through `AdPreferences` (`lib/src/utils/ad_preferences
 
 `example/` is both demo app and integration-test host, not a production template. Real ad IDs and AppLovin SDK key are supplied via `--dart-define`; placeholders in source are deliberate.
 
+## Integration caveats
+
+- `BannerAdWidget`/`MrecAdWidget` visibility detection cannot track inactive children in a bare `IndexedStack`. Use `Visibility(maintainState: true)` for each tab or pass its selected state through `active`; otherwise hidden tabs may keep serving ads. See `README.md`'s known limitations.
+- Real AppLovin test creatives do not expose an accessible dismiss control, so app-open/interstitial/rewarded dismissal cannot be fully automated in integration tests. Keep those cases as explicit manual verification; do not treat missing CI automation as proof that dismissal works.
+- AppLovin MAX exposes no load timestamp for ads, so this SDK cannot enforce AdMob-style ad freshness for that provider. Do not claim stale cached MAX creatives are rejected at show time.
+
 ## Owner-approved product decisions — do not reopen as audit findings
 
 - VIP promotion-code activation **must require network**. Ed25519 verification is local, but online redemption permits signed-CRL refresh and reduces leaked-code abuse. VIP works offline after activation. Do not add offline redemption or grace without explicit owner approval.
