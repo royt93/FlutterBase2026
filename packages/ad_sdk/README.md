@@ -763,13 +763,15 @@ You should see the splash screen, then a splash app-open ad (if available), then
 
 ### Imperative inline ad control (T201)
 
-`BannerAdWidget`/`MrecAdWidget`/`NativeAdWidget` normally manage their own
-lifecycle entirely on their own (route-aware pause/resume, scroll-visibility,
-consent gating). For the rarer case where a host needs to imperatively
-`refresh()`/`pause()`/`resume()` ONE specific slot — e.g. a "reload ad" button
-next to a feed item, or pausing just the ad in a video player's overlay while
-it plays — attach an `InlineAdController` instead of juggling your own
-`active: bool` state variable and forcing a rebuild every time it changes:
+`BannerAdWidget`/`MrecAdWidget` manage route-aware pause/resume and scroll
+visibility automatically. `NativeAdWidget` has consent gating but no automatic
+route-pause or visibility detector; its `active` parameter gates initial load,
+so hosts must set it for retained hidden children. For the rarer case where a
+host needs to imperatively `refresh()`/`pause()`/`resume()` ONE specific slot —
+e.g. a "reload ad" button next to a feed item, or pausing just the ad in a
+video player's overlay while it plays — attach an `InlineAdController` instead
+of juggling your own `active: bool` state variable and forcing a rebuild every
+time it changes:
 
 ```dart
 final _bannerController = InlineAdController();
@@ -1933,8 +1935,10 @@ per-ad-type checks attempt real loads). See also the example app's
 ## Native Ad (v1)
 
 `buildNative()` (or `NativeAdWidget` directly, outside `AdScreen`) renders a
-native ad — same route-aware/VIP/offline gating as `buildMrec()`, but the two
-providers use fundamentally different mechanisms (no shared Dart-side shape):
+native ad with VIP/offline gating. Unlike `buildMrec()`, native ads do not
+pause automatically when their route is covered; hosts using tab stacks or
+other retained hidden children must control `NativeAdWidget.active` themselves.
+The providers use fundamentally different mechanisms (no shared Dart-side shape):
 
 - **AdMob**: `NativeAd extends AdWithView` (same base as `BannerAd`/MREC),
   preloaded with `NativeTemplateStyle(templateType: TemplateType.medium)` and
