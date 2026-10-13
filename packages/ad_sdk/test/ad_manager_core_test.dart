@@ -2175,7 +2175,8 @@ void main() {
       expect(
         AdSafetyConfig.debugIsAdFatigued,
         isTrue,
-        reason: '_FakeAdapter.showInterstitial resolves onDone(true) '
+        reason:
+            '_FakeAdapter.showInterstitial resolves onDone(true) '
             'near-instantly — this only goes true if the real elapsed '
             'duration is actually threaded through to '
             'AdSafetyConfig.recordFullscreenAdShown',
@@ -2195,8 +2196,11 @@ void main() {
       AdManager().debugVipManager = _FakeVip(true);
       await AdManager().showInterstitial(onDoneFlow: (_) {});
       await AdManager().showInterstitial(onDoneFlow: (_) {});
-      expect(adapter.showInterstitialCalls, 0,
-          reason: 'sanity: the adapter must never have been reached');
+      expect(
+        adapter.showInterstitialCalls,
+        0,
+        reason: 'sanity: the adapter must never have been reached',
+      );
       expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
     });
 
@@ -2218,16 +2222,17 @@ void main() {
       expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
     });
 
-    test('rewarded: adapter throw never records a duration — no streak',
-        () async {
-      adapter.throwOnShow = true;
-      await AdManager().showRewardedAd(onEarnedReward: (_) {});
-      await AdManager().showRewardedAd(onEarnedReward: (_) {});
-      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
-    });
+    test(
+      'rewarded: adapter throw never records a duration — no streak',
+      () async {
+        adapter.throwOnShow = true;
+        await AdManager().showRewardedAd(onEarnedReward: (_) {});
+        await AdManager().showRewardedAd(onEarnedReward: (_) {});
+        expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+      },
+    );
 
-    test('rewarded: two real shown+dismissed calls mark ad fatigue',
-        () async {
+    test('rewarded: two real shown+dismissed calls mark ad fatigue', () async {
       await AdManager().showRewardedAd(onEarnedReward: (_) {});
       await AdManager().showRewardedAd(onEarnedReward: (_) {});
       expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
@@ -2256,33 +2261,35 @@ void main() {
       expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
     });
 
-    test('appOpen: adapter throw never records a duration — no streak',
-        () async {
-      adapter.throwOnShowAppOpen = true;
-      await AdManager()
-          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
-      await AdManager()
-          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
-      expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
-    });
+    test(
+      'appOpen: adapter throw never records a duration — no streak',
+      () async {
+        adapter.throwOnShowAppOpen = true;
+        await AdManager().showAppOpenAd(
+          bypassSafety: true,
+          onAdDismiss: (_) {},
+        );
+        await AdManager().showAppOpenAd(
+          bypassSafety: true,
+          onAdDismiss: (_) {},
+        );
+        expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
+      },
+    );
 
     test('appOpen: VIP-blocked (skipped before the adapter is ever called) '
         'does not create a streak', () async {
       AdManager().debugVipManager = _FakeVip(true);
-      await AdManager()
-          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
-      await AdManager()
-          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager().showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager().showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
       expect(adapter.showAppOpenCalls, 0);
       expect(AdSafetyConfig.debugIsAdFatigued, isFalse);
     });
 
     test('appOpen (bypassSafety: true): two real shown+dismissed calls '
         'mark ad fatigue', () async {
-      await AdManager()
-          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
-      await AdManager()
-          .showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager().showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
+      await AdManager().showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
       expect(AdSafetyConfig.debugIsAdFatigued, isTrue);
     });
 
@@ -2296,8 +2303,11 @@ void main() {
         'an existing fatigue streak', () async {
       await AdManager().showInterstitial(onDoneFlow: (_) {});
       await AdManager().showInterstitial(onDoneFlow: (_) {});
-      expect(AdSafetyConfig.debugIsAdFatigued, isTrue,
-          reason: 'sanity: fatigue must be active before decay is proven');
+      expect(
+        AdSafetyConfig.debugIsAdFatigued,
+        isTrue,
+        reason: 'sanity: fatigue must be active before decay is proven',
+      );
 
       adapter.showInterstitialDelay = const Duration(milliseconds: 1100);
       await AdManager().showInterstitial(onDoneFlow: (_) {});
@@ -5009,6 +5019,87 @@ void main() {
       AdManager().debugVipManager = null;
       AdManager().markSplashActive();
       AdScreenRouteLogger.resetState();
+    });
+
+    test('resume sweeps registered revenue ledger before init guard', () async {
+      var now = DateTime(2026, 1, 1);
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(seconds: 10),
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(
+        const AdShowEvent(
+          providerTag: '[LifecycleFake]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          success: true,
+        ),
+      );
+      await pumpEventQueue();
+      now = now.add(const Duration(seconds: 11));
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, hasLength(1));
+      expect(
+        adapter.onAppResumedCalls,
+        0,
+        reason: 'uninitialised resume must not start adapter work',
+      );
+      ledger.dispose();
+    });
+
+    test('destroy disposes a directly constructed revenue ledger', () async {
+      AdManager().incidentRecorder.clear();
+      var now = DateTime(2026, 1, 1);
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(seconds: 10),
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(
+        const AdShowEvent(
+          providerTag: '[DestroyLedger]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          success: true,
+        ),
+      );
+      await pumpEventQueue();
+      expect(ledger.pendingCount, 1);
+
+      AdManager().debugVipManager = null;
+      await AdManager().destroy();
+      now = now.add(const Duration(days: 1));
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, isEmpty);
+    });
+
+    test('disposed direct ledger is not swept on resume', () async {
+      AdManager().incidentRecorder.clear();
+      var now = DateTime(2026, 1, 1);
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(seconds: 10),
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(
+        const AdShowEvent(
+          providerTag: '[DisposedLedger]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+          success: true,
+        ),
+      );
+      await pumpEventQueue();
+      now = now.add(const Duration(days: 1));
+      ledger.dispose();
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, isEmpty);
     });
 
     test('not initialised → logs only, never throws', () {

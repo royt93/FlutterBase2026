@@ -910,6 +910,24 @@ class AdManager with WidgetsBindingObserver {
         _swapDisposable(_revenueIntegrityLedger, ledger, (l) => l.dispose());
   }
 
+  final Set<RevenueIntegrityLedger> _resumeLedgers = {};
+
+  @internal
+  void registerRevenueLedgerForResume(RevenueIntegrityLedger ledger) {
+    _resumeLedgers.add(ledger);
+  }
+
+  @internal
+  void unregisterRevenueLedgerForResume(RevenueIntegrityLedger ledger) {
+    _resumeLedgers.remove(ledger);
+  }
+
+  void _sweepRevenueLedgersOnResume() {
+    for (final ledger in List<RevenueIntegrityLedger>.of(_resumeLedgers)) {
+      ledger.sweepExpired();
+    }
+  }
+
   /// Test/host seam: clear a previously-registered revenue integrity ledger.
   @visibleForTesting
   void disableRevenueIntegrityLedger() {
@@ -7403,7 +7421,10 @@ class AdManager with WidgetsBindingObserver {
     _arbitrator = null;
     _fillRateMonitor?.dispose();
     _fillRateMonitor = null;
-    _revenueIntegrityLedger?.dispose();
+    for (final ledger in List<RevenueIntegrityLedger>.of(_resumeLedgers)) {
+      ledger.dispose();
+    }
+    _resumeLedgers.clear();
     _revenueIntegrityLedger = null;
     _fillRateBaselineMonitorGen++;
     _fillRateBaselineMonitor?.dispose();
@@ -8023,16 +8044,6 @@ class AdManager with WidgetsBindingObserver {
     // few instructions early changes nothing observable, and it keeps the
     // guard the last check immediately before the act (see show_paths_guard_test.dart).
     final showStopwatch = Stopwatch()..start();
-    // Sweep invariant — asked immediately before presenting, never at the door.
-    // See [_presentBlockedReason]. No `await` sits above this today; the guard
-    // is here so that the day one does, the hole does not reopen.
-    final blocked = _presentBlockedReason(ad);
-    if (blocked != null) {
-      SafeLogger.w(_tag, '⏭️ showAppOpen skipped — $blocked');
-      _emitSkip(AdSlotType.appOpen, 'show', 'blocked', placement: placement);
-      onAdDismiss(false);
-      return;
-    }
     SafeLogger.d(
         _tag,
         () =>
@@ -8054,6 +8065,13 @@ class AdManager with WidgetsBindingObserver {
     // convenience.
     final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
     inline?.setInlineAdsHidden(true);
+    final blocked = _presentBlockedReason(ad);
+    if (blocked != null) {
+      SafeLogger.w(_tag, '⏭️ showAppOpen skipped — $blocked');
+      _emitSkip(AdSlotType.appOpen, 'show', 'blocked', placement: placement);
+      onAdDismiss(false);
+      return;
+    }
     _lastShownPlacement[AdSlotType.appOpen] = placement;
     try {
       await ad.showAppOpen(onDismiss: (dismissed) {
@@ -9361,6 +9379,9 @@ class AdManager with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused) {
       unawaited(bypassAuditTrail.flush());
       unawaited(_flightRecorder?.flush() ?? Future<void>.value());
+    }
+    if (state == AppLifecycleState.resumed) {
+      _sweepRevenueLedgersOnResume();
     }
     if (!isInitialised) {
       // Defensive: any field access inside the closure can throw if the

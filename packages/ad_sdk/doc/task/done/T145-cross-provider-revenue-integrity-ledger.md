@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P2
-- **Status:** 🔲 todo
+- **Status:** ✅ done
 - **Effort:** L
 - **Files (dự kiến):** `lib/src/state/ad_event.dart` (`AdShowEvent`,
   `AdRevenueEvent` — không có field ID chung, xem dưới),
@@ -78,6 +78,10 @@ thu thập dữ liệu thật trước khi chốt threshold mặc định.
   liên quan); `flutter test` 1782/1782; integration test
   `t145_revenue_integrity_ledger_test.dart` pass thật trên Pixel 7 Pro
   (Android thật).
+
+## Follow-up (2026-10-13) — idle / wall-clock expiry
+
+The original 2026-09-07 implementation was event-driven and had no Timer. T247 later added a wall-clock deadline Timer while active, automatic lifecycle resume sweep for all directly constructed ledgers, and a 1-minute wall-clock recheck while entries are pending. This follow-up does not change the original T145 heuristic or its T145 completion score; it documents current runtime behavior. Tests on Pixel 7 Pro observed `mWakefulness=Dozing` with screen off and verified overdue expiry on resume, but did not prove deep CPU suspend.
 
 ## Prompt vòng lặp (dán vào session code mới để bắt đầu implement)
 

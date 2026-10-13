@@ -1294,14 +1294,13 @@ No new reporting mechanism: flags land in the same `IncidentRecorder`
 export. Completely on-device — only consumes events the SDK already
 emits, no third-party API calls.
 
-**Known limitation — purely event-driven, no internal timer.**
-`matchWindow` is only actually checked the next time ANY ad event
-arrives (any type/provider/placement) — not on a schedule. A show with
-no matching revenue callback, followed by total ad inactivity, sits
-un-flagged in memory until the next event of any kind arrives (or until
-the ledger is disposed, which silently drops it). In a normally-active
-app this delay is negligible; it only matters for a session that goes
-completely quiet right after the show in question.
+**Expiry during idle and app suspension.** A one-shot timer checks the
+oldest pending deadline while the app isolate is active, even if no further ad
+event arrives. Deadlines use wall-clock time; `AdManager` also sweeps
+registered ledgers when the app resumes, so elapsed sleep time counts. A wall
+clock correction can shift an expiry; the matching window remains a heuristic,
+not proof of fraud or lost revenue. OS suspension can delay the callback until
+resume, where the explicit sweep runs.
 
 ### Zero-shadow dual-provider failover (`ProviderFailoverAdvisor`)
 

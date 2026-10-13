@@ -12,33 +12,33 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-AdShowEvent _show(
-        {String providerTag = '[AdMob]',
-        AdPlacement placement = AdPlacement.unspecified,
-        AdSlotType type = AdSlotType.interstitial,
-        bool success = true,
-        String? requestId}) =>
-    AdShowEvent(
-      providerTag: providerTag,
-      type: type,
-      placement: placement,
-      success: success,
-      requestId: requestId,
-    );
+AdShowEvent _show({
+  String providerTag = '[AdMob]',
+  AdPlacement placement = AdPlacement.unspecified,
+  AdSlotType type = AdSlotType.interstitial,
+  bool success = true,
+  String? requestId,
+}) => AdShowEvent(
+  providerTag: providerTag,
+  type: type,
+  placement: placement,
+  success: success,
+  requestId: requestId,
+);
 
-AdRevenueEvent _revenue(
-        {String providerTag = '[AdMob]',
-        AdPlacement placement = AdPlacement.unspecified,
-        AdSlotType type = AdSlotType.interstitial,
-        String? requestId}) =>
-    AdRevenueEvent(
-      providerTag: providerTag,
-      type: type,
-      placement: placement,
-      valueMicros: 1000,
-      currencyCode: 'USD',
-      requestId: requestId,
-    );
+AdRevenueEvent _revenue({
+  String providerTag = '[AdMob]',
+  AdPlacement placement = AdPlacement.unspecified,
+  AdSlotType type = AdSlotType.interstitial,
+  String? requestId,
+}) => AdRevenueEvent(
+  providerTag: providerTag,
+  type: type,
+  placement: placement,
+  valueMicros: 1000,
+  currencyCode: 'USD',
+  requestId: requestId,
+);
 
 Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
@@ -52,7 +52,7 @@ void main() {
   group('normal match', () {
     test('a revenue event within the window clears the pending show — no '
         'incident recorded', () async {
-      var now = DateTime(2026, 1, 1, 12, 0, 0);
+      var now = DateTime.now();
       final ledger = RevenueIntegrityLedger(
         matchWindow: const Duration(seconds: 60),
         debugClock: () => now,
@@ -71,7 +71,7 @@ void main() {
 
     test('revenue arriving LATE but still inside the window does not '
         'false-positive', () async {
-      var now = DateTime(2026, 1, 1, 12, 0, 0);
+      var now = DateTime.now();
       final ledger = RevenueIntegrityLedger(
         matchWindow: const Duration(seconds: 60),
         debugClock: () => now,
@@ -85,50 +85,283 @@ void main() {
       await _flush();
 
       expect(ledger.pendingCount, 0);
-      expect(AdManager().incidentRecorder.entries, isEmpty,
-          reason: 'revenue arrived before the window closed — not a real '
-              'integrity issue, must not be flagged');
+      expect(
+        AdManager().incidentRecorder.entries,
+        isEmpty,
+        reason:
+            'revenue arrived before the window closed — not a real '
+            'integrity issue, must not be flagged',
+      );
       ledger.dispose();
     });
   });
 
   group('genuinely missing revenue', () {
-    test('a successful show with NO matching revenue event past the '
-        'window is flagged via IncidentRecorder EXACTLY ONCE', () async {
-      var now = DateTime(2026, 1, 1, 12, 0, 0);
+    test('wall-clock deadline expires after injected clock advances', () async {
+      var now = DateTime(2026, 1, 1);
       final ledger = RevenueIntegrityLedger(
-        matchWindow: const Duration(seconds: 60),
+        matchWindow: const Duration(seconds: 10),
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(_show());
+      await _flush();
+
+      now = now.add(const Duration(seconds: 10));
+      ledger.sweepExpired();
+
+      expect(ledger.pendingCount, 1, reason: 'exact deadline is still valid');
+      expect(AdManager().incidentRecorder.entries, isEmpty);
+
+      now = now.add(const Duration(microseconds: 1));
+      ledger.sweepExpired();
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, hasLength(1));
+      ledger.dispose();
+    });
+
+    test(
+      'fixed injected wall clock keeps pending record and re-arms',
+      () async {
+        final fixedTime = DateTime(2026, 1, 1);
+        final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(milliseconds: 20),
+          debugClock: () => fixedTime,
+        );
+        AdManager().debugEmit(_show());
+        await _flush();
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+
+        expect(ledger.pendingCount, 1);
+        expect(AdManager().incidentRecorder.entries, isEmpty);
+        ledger.dispose();
+      },
+    );
+
+    test(
+      'clock rollback delays expiry until wall clock passes deadline',
+      () async {
+        var now = DateTime(2026, 1, 1);
+        final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(milliseconds: 40),
+          debugClock: () => now,
+        );
+        AdManager().debugEmit(_show());
+        await _flush();
+
+        now = now.subtract(const Duration(milliseconds: 100));
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        expect(ledger.pendingCount, 1);
+        expect(AdManager().incidentRecorder.entries, isEmpty);
+
+        now = now.add(const Duration(milliseconds: 141));
+        ledger.sweepExpired();
+        expect(ledger.pendingCount, 0);
+        expect(AdManager().incidentRecorder.entries, hasLength(1));
+        ledger.dispose();
+      },
+    );
+
+    test('idle expiry is flagged without a subsequent event', () async {
+      var now = DateTime(2026, 1, 1);
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(seconds: 10),
         debugClock: () => now,
       );
       AdManager().debugEmit(_show(providerTag: '[AppLovin]'));
       await _flush();
 
-      now = now.add(const Duration(seconds: 61));
-      // Any subsequent event drives the expiry sweep.
-      AdManager()
-          .debugEmit(_show(providerTag: '[AppLovin]', success: false));
+      now = now.add(const Duration(seconds: 10, microseconds: 1));
+      ledger.sweepExpired();
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, hasLength(1));
+      expect(
+        AdManager().incidentRecorder.entries.single.label,
+        contains('[AppLovin]'),
+      );
+      ledger.dispose();
+    });
+
+    test('late matching revenue does not undo an expired incident', () async {
+      var now = DateTime(2026, 1, 1);
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(seconds: 10),
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(_show());
+      await _flush();
+      now = now.add(const Duration(seconds: 10, microseconds: 1));
+      ledger.sweepExpired();
+
+      AdManager().debugEmit(_revenue());
       await _flush();
 
-      expect(ledger.pendingCount, 0,
-          reason: 'the stale entry was swept; the new failed show never '
-              'creates a pending entry (only success:true does)');
+      expect(ledger.pendingCount, 0);
       expect(AdManager().incidentRecorder.entries, hasLength(1));
-      expect(AdManager().incidentRecorder.entries.single.label,
-          contains('[AppLovin]'));
+      ledger.dispose();
+    });
+
+    test(
+      'revenue before the deadline cancels expiry with scheduling margin',
+      () async {
+        final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 10),
+        );
+        AdManager().debugEmit(_show());
+        await _flush();
+        await Future<void>.delayed(const Duration(seconds: 2));
+        expect(ledger.pendingCount, 1);
+        expect(AdManager().incidentRecorder.entries, isEmpty);
+        await Future<void>.delayed(const Duration(seconds: 2));
+
+        AdManager().debugEmit(_revenue());
+        await _flush();
+        await Future<void>.delayed(const Duration(seconds: 7));
+
+        expect(ledger.pendingCount, 0);
+        expect(AdManager().incidentRecorder.entries, isEmpty);
+        ledger.dispose();
+      },
+    );
+
+    test('matching revenue clears pending expiry', () async {
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(milliseconds: 60),
+      );
+      AdManager().debugEmit(_show());
+      await _flush();
+      AdManager().debugEmit(_revenue());
+      await _flush();
+
+      await Future<void>.delayed(const Duration(milliseconds: 90));
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, isEmpty);
+      ledger.dispose();
+    });
+
+    test('dispose cancels idle expiry without recording an incident', () async {
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(milliseconds: 20),
+      );
+      AdManager().debugEmit(_show());
+      await _flush();
+      ledger.dispose();
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, isEmpty);
+    });
+
+    test('multiple pending shows expire at their own deadlines', () async {
+      var now = DateTime.now();
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(seconds: 10),
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(_show(providerTag: '[first]'));
+      await _flush();
+      now = now.add(const Duration(seconds: 5));
+      AdManager().debugEmit(_show(providerTag: '[second]'));
+      await _flush();
+
+      now = now.add(const Duration(milliseconds: 5200));
+      ledger.sweepExpired();
+      expect(ledger.pendingCount, 1);
+      expect(AdManager().incidentRecorder.entries, hasLength(1));
+      expect(
+        AdManager().incidentRecorder.entries.single.label,
+        contains('[first]'),
+      );
+
+      now = now.add(const Duration(milliseconds: 5200));
+      ledger.sweepExpired();
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, hasLength(2));
+      ledger.dispose();
+    });
+
+    test('zero window expires after strict boundary is crossed', () async {
+      AdManager().incidentRecorder.clear();
+      var now = DateTime(2026, 1, 1);
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: Duration.zero,
+        debugClock: () => now,
+      );
+      AdManager().debugEmit(_show());
+      await _flush();
+
+      expect(ledger.pendingCount, 1, reason: 'exact boundary remains eligible');
+      now = now.add(const Duration(microseconds: 1));
+      ledger.sweepExpired();
+
+      expect(ledger.pendingCount, 0);
+      expect(AdManager().incidentRecorder.entries, hasLength(1));
+      ledger.dispose();
+    });
+
+    test(
+      'negative window expires automatically without a later event',
+      () async {
+        AdManager().incidentRecorder.clear();
+        final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(milliseconds: -1),
+        );
+        AdManager().debugEmit(_show());
+        await _flush();
+
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(ledger.pendingCount, 0);
+        expect(AdManager().incidentRecorder.entries, hasLength(1));
+        ledger.dispose();
+      },
+    );
+
+    test('a successful show with NO matching revenue event past the '
+        'window is flagged via IncidentRecorder EXACTLY ONCE', () async {
+      final ledger = RevenueIntegrityLedger(
+        matchWindow: const Duration(milliseconds: 20),
+      );
+      AdManager().debugEmit(_show(providerTag: '[AppLovin]'));
+      await _flush();
+
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // A subsequent event also sweeps elapsed entries.
+      AdManager().debugEmit(_show(providerTag: '[AppLovin]', success: false));
+      await _flush();
+
+      expect(
+        ledger.pendingCount,
+        0,
+        reason:
+            'the stale entry was swept; the new failed show never '
+            'creates a pending entry (only success:true does)',
+      );
+      expect(AdManager().incidentRecorder.entries, hasLength(1));
+      expect(
+        AdManager().incidentRecorder.entries.single.label,
+        contains('[AppLovin]'),
+      );
 
       // Round-1 review — the swept entry must not linger and re-report on
       // a LATER, unrelated event: it was already removed from the pending
       // list by the sweep above, so a further event must not add a
       // second incident for the same (already-gone) entry.
-      now = now.add(const Duration(seconds: 1));
-      AdManager().debugEmit(const AdClickEvent(
-        providerTag: '[AppLovin]',
-        type: AdSlotType.interstitial,
-        placement: AdPlacement.unspecified,
-      ));
+      AdManager().debugEmit(
+        const AdClickEvent(
+          providerTag: '[AppLovin]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+        ),
+      );
       await _flush();
-      expect(AdManager().incidentRecorder.entries, hasLength(1),
-          reason: 'a swept entry must not re-report on a later event');
+      expect(
+        AdManager().incidentRecorder.entries,
+        hasLength(1),
+        reason: 'a swept entry must not re-report on a later event',
+      );
       ledger.dispose();
     });
 
@@ -146,15 +379,19 @@ void main() {
     test('a revenue event for a DIFFERENT providerTag (same placement) '
         'does not clear an unrelated pending show', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       AdManager().debugEmit(_show(providerTag: '[AdMob]'));
       await _flush();
 
       AdManager().debugEmit(_revenue(providerTag: '[AppLovin]'));
       await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: 'different providerTag — must not match');
+      expect(
+        ledger.pendingCount,
+        1,
+        reason: 'different providerTag — must not match',
+      );
       ledger.dispose();
     });
 
@@ -163,16 +400,21 @@ void main() {
       const placementA = AdPlacement.custom('level_complete');
       const placementB = AdPlacement.custom('reward_shop');
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       AdManager().debugEmit(_show(placement: placementA));
       await _flush();
 
       AdManager().debugEmit(_revenue(placement: placementB));
       await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: 'same providerTag but different placement — must not '
-              'match');
+      expect(
+        ledger.pendingCount,
+        1,
+        reason:
+            'same providerTag but different placement — must not '
+            'match',
+      );
       ledger.dispose();
     });
 
@@ -182,30 +424,34 @@ void main() {
     // provider, a revenue event for one format could FIFO-match a pending
     // show of the OTHER format — silently "paying off" the wrong show and
     // hiding a genuine gap on whichever format actually lost its callback.
-    test(
-        'a revenue event for a DIFFERENT type (same providerTag+placement) '
+    test('a revenue event for a DIFFERENT type (same providerTag+placement) '
         'does not clear an unrelated pending show', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       AdManager().debugEmit(_show(type: AdSlotType.interstitial));
       await _flush();
 
       AdManager().debugEmit(_revenue(type: AdSlotType.rewarded));
       await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: 'same providerTag+placement but different type — must '
-              'not match, or a revenue event for one ad format silently '
-              'pays off a pending show of a completely different format');
+      expect(
+        ledger.pendingCount,
+        1,
+        reason:
+            'same providerTag+placement but different type — must '
+            'not match, or a revenue event for one ad format silently '
+            'pays off a pending show of a completely different format',
+      );
       ledger.dispose();
     });
 
-    test(
-        'a revenue event for the MATCHING type (same providerTag+placement) '
+    test('a revenue event for the MATCHING type (same providerTag+placement) '
         'still clears the pending show, even when a different-type entry '
         'is also pending for the same providerTag+placement', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       AdManager().debugEmit(_show(type: AdSlotType.interstitial));
       await _flush();
       AdManager().debugEmit(_show(type: AdSlotType.rewarded));
@@ -215,17 +461,19 @@ void main() {
       AdManager().debugEmit(_revenue(type: AdSlotType.rewarded));
       await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: 'only the rewarded entry must clear, leaving the '
-              'interstitial one still pending');
+      expect(
+        ledger.pendingCount,
+        1,
+        reason:
+            'only the rewarded entry must clear, leaving the '
+            'interstitial one still pending',
+      );
       ledger.dispose();
     });
 
-    test(
-        'multiple pending shows for the same key are matched FIFO — the '
-        'OLDEST is the one actually cleared, not just "some" entry',
-        () async {
-      var now = DateTime(2026, 1, 1, 12, 0, 0);
+    test('multiple pending shows for the same key are matched FIFO — the '
+        'OLDEST is the one actually cleared, not just "some" entry', () async {
+      var now = DateTime.now();
       final ledger = RevenueIntegrityLedger(
         matchWindow: const Duration(seconds: 10),
         debugClock: () => now,
@@ -238,31 +486,40 @@ void main() {
       expect(ledger.pendingCount, 2);
 
       // One revenue event — under FIFO this clears #1 (older), leaving
-      // only #2 (newer, still has 5s left in its own 10s window) pending.
+      // only #2 (newer, with 5s left) pending.
       AdManager().debugEmit(_revenue());
       await _flush();
       expect(ledger.pendingCount, 1);
 
-      // Advance to t0+11s: #1 would have expired at t0+10s if it were
-      // STILL pending (proving a LIFO/any-non-FIFO match had wrongly kept
-      // it) — but #2 (matched at t0+5s, expires at t0+15s) has not. A
-      // driving event here must therefore report ZERO incidents under the
-      // correct FIFO behavior.
-      now = now.add(const Duration(seconds: 6));
-      AdManager().debugEmit(const AdClickEvent(
-        providerTag: '[AdMob]',
-        type: AdSlotType.interstitial,
-        placement: AdPlacement.unspecified,
-      ));
+      // Sweep past #1's 10s deadline, but before #2's 15s deadline. A
+      // driving event must report ZERO incidents under FIFO: #1 was matched;
+      // #2 remains pending.
+      now = now.add(const Duration(milliseconds: 5200));
+      ledger.sweepExpired();
+      AdManager().debugEmit(
+        const AdClickEvent(
+          providerTag: '[AdMob]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+        ),
+      );
       await _flush();
-      expect(AdManager().incidentRecorder.entries, isEmpty,
-          reason: 'FIFO must have cleared #1 (older) on the revenue '
-              'event — if the newer one had been cleared instead (LIFO), '
-              '#1 would still be pending and would have expired by now, '
-              'producing an incident here');
-      expect(ledger.pendingCount, 1,
-          reason: '#2 (newer) is still legitimately pending, not yet '
-              'expired');
+      expect(
+        AdManager().incidentRecorder.entries,
+        isEmpty,
+        reason:
+            'FIFO must have cleared #1 (older) on the revenue '
+            'event — if the newer one had been cleared instead (LIFO), '
+            '#1 would still be pending and would have expired by now, '
+            'producing an incident here',
+      );
+      expect(
+        ledger.pendingCount,
+        1,
+        reason:
+            '#2 (newer) is still legitimately pending, not yet '
+            'expired',
+      );
       ledger.dispose();
     });
   });
@@ -272,23 +529,28 @@ void main() {
         'show even outside (providerTag, type, placement) — the ID alone '
         'is authoritative', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
-      AdManager().debugEmit(_show(
-        providerTag: '[AdMob]',
-        type: AdSlotType.interstitial,
-        placement: AdPlacement.custom('a'),
-        requestId: 'req-1',
-      ));
+        matchWindow: const Duration(seconds: 60),
+      );
+      AdManager().debugEmit(
+        _show(
+          providerTag: '[AdMob]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.custom('a'),
+          requestId: 'req-1',
+        ),
+      );
       await _flush();
 
       // Deliberately mismatched provider/type/placement — only requestId
       // should decide this.
-      AdManager().debugEmit(_revenue(
-        providerTag: '[AppLovin]',
-        type: AdSlotType.rewarded,
-        placement: AdPlacement.custom('b'),
-        requestId: 'req-1',
-      ));
+      AdManager().debugEmit(
+        _revenue(
+          providerTag: '[AppLovin]',
+          type: AdSlotType.rewarded,
+          placement: AdPlacement.custom('b'),
+          requestId: 'req-1',
+        ),
+      );
       await _flush();
 
       expect(ledger.pendingCount, 0);
@@ -296,34 +558,42 @@ void main() {
       ledger.dispose();
     });
 
-    test('a requestId match is chosen over an unrelated pending show that '
-        'would otherwise match by (providerTag, type, placement) FIFO',
-        () async {
-      final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
-      // #1 has no requestId (simulates a not-yet-updated adapter) and would
-      // normally be the FIFO match for the same-key revenue event below.
-      AdManager().debugEmit(_show());
-      await _flush();
-      // #2 carries the real requestId this revenue event should resolve to.
-      AdManager().debugEmit(_show(requestId: 'req-exact'));
-      await _flush();
+    test(
+      'a requestId match is chosen over an unrelated pending show that '
+      'would otherwise match by (providerTag, type, placement) FIFO',
+      () async {
+        final ledger = RevenueIntegrityLedger(
+          matchWindow: const Duration(seconds: 60),
+        );
+        // #1 has no requestId (simulates a not-yet-updated adapter) and would
+        // normally be the FIFO match for the same-key revenue event below.
+        AdManager().debugEmit(_show());
+        await _flush();
+        // #2 carries the real requestId this revenue event should resolve to.
+        AdManager().debugEmit(_show(requestId: 'req-exact'));
+        await _flush();
 
-      AdManager().debugEmit(_revenue(requestId: 'req-exact'));
-      await _flush();
+        AdManager().debugEmit(_revenue(requestId: 'req-exact'));
+        await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: '#2 (matched by requestId) is gone; #1 (no requestId, '
+        expect(
+          ledger.pendingCount,
+          1,
+          reason:
+              '#2 (matched by requestId) is gone; #1 (no requestId, '
               'FIFO-oldest) must still be pending — proves the exact match '
-              'was NOT bypassed in favor of FIFO ordering');
-      ledger.dispose();
-    });
+              'was NOT bypassed in favor of FIFO ordering',
+        );
+        ledger.dispose();
+      },
+    );
 
     test('a requestId that matches nothing pending falls back to the '
         '(providerTag, type, placement) heuristic instead of being '
         'dropped', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       // Pending show has no requestId at all (adapter didn't stamp one).
       AdManager().debugEmit(_show());
       await _flush();
@@ -334,9 +604,13 @@ void main() {
       AdManager().debugEmit(_revenue(requestId: 'req-orphan'));
       await _flush();
 
-      expect(ledger.pendingCount, 0,
-          reason: 'falls back to (providerTag, type, placement) FIFO when '
-              'the requestId itself matches no pending show');
+      expect(
+        ledger.pendingCount,
+        0,
+        reason:
+            'falls back to (providerTag, type, placement) FIFO when '
+            'the requestId itself matches no pending show',
+      );
       expect(AdManager().incidentRecorder.entries, isEmpty);
       ledger.dispose();
     });
@@ -349,12 +623,11 @@ void main() {
     // revenue event for A "resolve" B instead — silently misattributing
     // revenue and masking A's real gap, the opposite of what an exact-ID
     // match is supposed to guarantee.
-    test(
-        'an orphaned requestId does NOT fall back to FIFO-matching a '
-        'DIFFERENT pending show that has its own distinct requestId',
-        () async {
+    test('an orphaned requestId does NOT fall back to FIFO-matching a '
+        'DIFFERENT pending show that has its own distinct requestId', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       // Show A has its own known requestId — it must only ever be
       // resolved by that exact id, never by an unrelated orphaned one.
       AdManager().debugEmit(_show(requestId: 'req-A'));
@@ -365,17 +638,22 @@ void main() {
       AdManager().debugEmit(_revenue(requestId: 'req-orphan'));
       await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: 'show A (its own distinct requestId) must still be '
-              'pending — an orphaned, non-matching requestId must not '
-              'silently consume it via FIFO fallback');
+      expect(
+        ledger.pendingCount,
+        1,
+        reason:
+            'show A (its own distinct requestId) must still be '
+            'pending — an orphaned, non-matching requestId must not '
+            'silently consume it via FIFO fallback',
+      );
       ledger.dispose();
     });
 
     test('omitting requestId on both sides is the exact pre-T185 fallback '
         'behavior — unchanged', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       AdManager().debugEmit(_show());
       await _flush();
       AdManager().debugEmit(_revenue());
@@ -391,36 +669,47 @@ void main() {
     test('an unrelated AdClickEvent does not clear an existing pending '
         'show (only a matching AdRevenueEvent may)', () async {
       final ledger = RevenueIntegrityLedger(
-          matchWindow: const Duration(seconds: 60));
+        matchWindow: const Duration(seconds: 60),
+      );
       AdManager().debugEmit(_show());
       await _flush();
       expect(ledger.pendingCount, 1);
 
-      AdManager().debugEmit(const AdClickEvent(
-        providerTag: '[AdMob]',
-        type: AdSlotType.interstitial,
-        placement: AdPlacement.unspecified,
-      ));
+      AdManager().debugEmit(
+        const AdClickEvent(
+          providerTag: '[AdMob]',
+          type: AdSlotType.interstitial,
+          placement: AdPlacement.unspecified,
+        ),
+      );
       await _flush();
 
-      expect(ledger.pendingCount, 1,
-          reason: 'an unrelated event must not clear an existing, '
-              'still-valid pending entry');
+      expect(
+        ledger.pendingCount,
+        1,
+        reason:
+            'an unrelated event must not clear an existing, '
+            'still-valid pending entry',
+      );
       ledger.dispose();
     });
 
-    test('an AdClickEvent alone, with nothing pending, creates no entry',
-        () async {
-      final ledger = RevenueIntegrityLedger();
-      AdManager().debugEmit(const AdClickEvent(
-        providerTag: '[AdMob]',
-        type: AdSlotType.interstitial,
-        placement: AdPlacement.unspecified,
-      ));
-      await _flush();
-      expect(ledger.pendingCount, 0);
-      ledger.dispose();
-    });
+    test(
+      'an AdClickEvent alone, with nothing pending, creates no entry',
+      () async {
+        final ledger = RevenueIntegrityLedger();
+        AdManager().debugEmit(
+          const AdClickEvent(
+            providerTag: '[AdMob]',
+            type: AdSlotType.interstitial,
+            placement: AdPlacement.unspecified,
+          ),
+        );
+        await _flush();
+        expect(ledger.pendingCount, 0);
+        ledger.dispose();
+      },
+    );
   });
 
   group('dispose', () {

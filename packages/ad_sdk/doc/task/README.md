@@ -33,10 +33,12 @@
 - **T145 done, 9.5/10** — RevenueIntegrityLedger: heuristic khớp thời
   gian (không có ID chung thật giữa AdShowEvent/AdRevenueEvent) — show
   thành công không có revenue trong `matchWindow` (mặc định 60s) báo qua
-  `IncidentRecorder` có sẵn. FIFO match, thuần event-driven (không
-  Timer). 2 vòng review độc lập `codex`: 8.5/10 → 9.5/10 — vòng 1: thiếu
-  document giới hạn "no Timer" + 4 test không thực sự chứng minh điều
-  tuyên bố (tự phát hiện qua mutation-test FIFO trước khi gửi vòng 2).
+  `IncidentRecorder` có sẵn. FIFO match; expiry dùng wall-clock deadline,
+  timer khi app active và sweep ledger đã đăng ký khi `AdManager` resume, nên
+  thời gian ngủ được tính theo clock hệ thống (clock correction có thể đổi
+  expiry). 2 vòng review độc lập `codex`: 8.5/10 → 9.5/10 — vòng 1: thiếu document giới hạn
+  expiry + 4 test không thực sự chứng minh điều tuyên bố (tự phát hiện qua
+  mutation-test FIFO trước khi gửi vòng 2).
   `todo/` còn 4 (T131, T141, T142, T146 — T87/CI-CD loại trừ theo yêu
   cầu); `done/` có 197.
 

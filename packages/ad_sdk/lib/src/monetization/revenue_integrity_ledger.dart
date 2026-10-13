@@ -34,22 +34,17 @@ import '../utils/safe_logger.dart';
 /// Completely on-device: only consumes events this SDK already emits from
 /// AdMob/AppLovin — no third-party API calls, no backend.
 ///
-/// **Known limitation (round-1 review) — purely event-driven, no internal
-/// [Timer].** [matchWindow] is only actually evaluated the next time ANY
-/// [AdEvent] arrives (any type, any provider, any placement) — expiry is a
-/// side effect of processing an event, not a scheduled check. If the app
-/// goes quiet (no ad activity at all) right after a show that never gets
-/// its revenue callback, that pending entry sits un-flagged in memory
-/// until the next event of any kind arrives, however long that takes — or
-/// until [dispose] silently drops it. This trades a small, bounded memory
-/// footprint and zero extra timers for delayed-rather-than-missed
-/// detection; it does not affect correctness once another event does
-/// arrive, and a genuinely idle app has no ad revenue to audit anyway.
+/// Expiry is checked when an [AdEvent] arrives, by a [Timer] (at most once per
+/// minute while pending), and when [sweepExpired] is called on app resume.
+/// Deadlines use wall-clock time so time spent while the device sleeps counts;
+/// clock corrections can shift an expiry, so entries remain a heuristic rather
+/// than a verdict.
 class RevenueIntegrityLedger {
   RevenueIntegrityLedger({
     this.matchWindow = const Duration(seconds: 60),
     @visibleForTesting DateTime Function() debugClock = DateTime.now,
   }) : _now = debugClock {
+    AdManager().registerRevenueLedgerForResume(this);
     _sub = AdManager().events.listen(_onEvent);
   }
 
@@ -63,6 +58,7 @@ class RevenueIntegrityLedger {
 
   final DateTime Function() _now;
   StreamSubscription<AdEvent>? _sub;
+  Timer? _expiryTimer;
 
   final List<_PendingShow> _pending = [];
 
@@ -71,16 +67,19 @@ class RevenueIntegrityLedger {
   int get pendingCount => _pending.length;
 
   void _onEvent(AdEvent event) {
-    _sweepExpired();
+    sweepExpired();
     if (event is AdShowEvent) {
       if (!event.success) return;
-      _pending.add(_PendingShow(
-        providerTag: event.providerTag,
-        type: event.type,
-        placement: event.placement,
-        requestId: event.requestId,
-        at: _now(),
-      ));
+      _pending.add(
+        _PendingShow(
+          providerTag: event.providerTag,
+          type: event.type,
+          placement: event.placement,
+          requestId: event.requestId,
+          at: _now(),
+        ),
+      );
+      _scheduleExpiry();
       return;
     }
     if (event is AdRevenueEvent) {
@@ -96,6 +95,7 @@ class RevenueIntegrityLedger {
           : _pending.indexWhere((p) => p.requestId == requestId);
       if (exactIndex != -1) {
         _pending.removeAt(exactIndex);
+        _scheduleExpiry();
         return;
       }
       // Fallback — FIFO: no EXACT requestId match was found, so the
@@ -123,13 +123,16 @@ class RevenueIntegrityLedger {
       // requestId-less entries is what "resolved EXACTLY — no guessing"
       // (this class's own doc comment) actually requires: an entry with
       // its own known ID may only ever be resolved by that exact ID.
-      final index = _pending.indexWhere((p) =>
-          p.requestId == null &&
-          p.providerTag == event.providerTag &&
-          p.type == event.type &&
-          p.placement == event.placement);
+      final index = _pending.indexWhere(
+        (p) =>
+            p.requestId == null &&
+            p.providerTag == event.providerTag &&
+            p.type == event.type &&
+            p.placement == event.placement,
+      );
       if (index != -1) {
         _pending.removeAt(index);
+        _scheduleExpiry();
       } else {
         // T150 (codex re-review) — with `type` now part of the key, a
         // revenue event that matches no pending show at all (as opposed
@@ -139,15 +142,18 @@ class RevenueIntegrityLedger {
         // _sweepExpired) or one this particular instance never saw is
         // routine, not alarming on its own.
         SafeLogger.d(
-            'RevenueIntegrityLedger',
-            () => 'revenue event matched no pending show: '
-                '${event.providerTag}/${event.type.name}/'
-                '${event.placement.id}');
+          'RevenueIntegrityLedger',
+          () =>
+              'revenue event matched no pending show: '
+              '${event.providerTag}/${event.type.name}/'
+              '${event.placement.id}',
+        );
       }
     }
   }
 
-  void _sweepExpired() {
+  @internal
+  void sweepExpired() {
     final now = _now();
     _pending.removeWhere((p) {
       if (now.difference(p.at) <= matchWindow) return false;
@@ -159,6 +165,29 @@ class RevenueIntegrityLedger {
       );
       return true;
     });
+    _scheduleExpiry();
+  }
+
+  void _scheduleExpiry() {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    if (_pending.isEmpty || _sub == null) return;
+
+    final now = _now();
+    final earliestExpiry = _pending
+        .map((p) => p.at.add(matchWindow).add(const Duration(microseconds: 1)))
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final untilDeadline = earliestExpiry.difference(now);
+    const maxClockCheckInterval = Duration(minutes: 1);
+    final delay = matchWindow.isNegative
+        ? Duration.zero
+        : untilDeadline.isNegative || untilDeadline > maxClockCheckInterval
+        ? maxClockCheckInterval
+        : untilDeadline;
+    _expiryTimer = Timer(delay, () {
+      _expiryTimer = null;
+      sweepExpired();
+    });
   }
 
   /// Stops listening for new events. Already-pending entries are dropped
@@ -166,6 +195,9 @@ class RevenueIntegrityLedger {
   /// `AdManager().destroy()`) isn't reporting a real integrity gap, just
   /// tearing down.
   void dispose() {
+    AdManager().unregisterRevenueLedgerForResume(this);
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
     _sub?.cancel();
     _sub = null;
     _pending.clear();
