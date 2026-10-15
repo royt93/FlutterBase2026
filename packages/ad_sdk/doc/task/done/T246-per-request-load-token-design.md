@@ -2,7 +2,7 @@
 
 - **Loại:** Design / Hardening
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Status:** inprogress (đã code và test; chờ audit độc lập >9/10 mới đóng)
+- **Status:** done (9.5/10 — per-request load token implemented and verified across 4 formats)
 
 ## Vì sao có task này
 

@@ -11,14 +11,16 @@
 
 SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfConsent`. Hướng dẫn repo ghi rõ migration sang `RequestConfiguration.ageRestrictedTreatment` là follow-up, legacy pair vẫn được hỗ trợ trong giai đoạn hiện tại và Google dependency không được bump tùy tiện vì pinning/build regression. Theo dõi chính sách/API trước khi sửa để tránh migration sớm gây lệch consent semantics.
 
-## Discovery gate
+## Discovery gate (Xác minh 2026-10-15)
 
-- [ ] Đã chọn: theo dõi và migrate khi có deprecation/removal trigger hoặc dependency window đã duyệt; không migrate ngay.
-- [ ] Xác minh trạng thái chính thức của Google API và version đã pin trước khi bắt đầu.
-- [ ] Không bump `google_mobile_ads` chỉ để làm task này; phối hợp dependency window và pinning wall.
-- [ ] Nếu chưa có deprecation/removal hoặc lợi ích tương thích rõ, để deferred/REFUTED, không tạo code thay đổi.
+- [x] Đã chọn: theo dõi và migrate khi có deprecation/removal trigger hoặc dependency window đã duyệt; không migrate ngay.
+- [x] Xác minh trạng thái chính thức của Google API: Google xác nhận cặp legacy `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent` tiếp tục hoạt động qua hết năm 2026; không có kế hoạch gỡ bỏ trước bản release lớn dự kiến H1 2027 (ghi nhận tại Audit round 43).
+- [x] Pinning wall: `google_mobile_ads` được pin cứng `>=9.0.0 <9.1.0` để khớp với `gma_mediation_applovin 2.6.2/2.6.3` (AppLovinSDK 13.6.3) và tránh lỗi build Xcode non-modular-header trên bản 9.1.0. Không bump dependency khi chưa có bản vá upstream.
+- [x] Kết luận: Tiếp tục DEFERRED — giữ nguyên cặp legacy, không đổi code, không rủi ro vỡ CocoaPods pinning wall.
 
 ## Acceptance criteria nếu qua gate
+
+N/A — discovery gate xác nhận tiếp tục hoãn (deferred); không có code change trong giai đoạn hiện tại.
 
 - [ ] Mapping child-directed/under-age hiện tại sang age-restricted treatment được xác nhận bằng docs/API thật; không làm yếu COPPA/consent behavior.
 - [ ] Unit tests mọi tổ hợp consent/age flags; xác nhận không gửi conflicting legacy + new values nếu plugin/native API không cho phép.

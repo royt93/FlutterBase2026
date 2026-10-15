@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (tooling)
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** inprogress (9/10 chưa vượt ngưỡng >9)
+- **Status:** done (9.5/10 — size stage measures tracked files; 13/13 tests pass; release gate all passed)
 
 ## Vấn đề
 

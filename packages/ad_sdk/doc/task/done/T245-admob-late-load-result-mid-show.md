@@ -2,7 +2,7 @@
 
 - **Loại:** Fix
 - **Priority:** P1 · **Severity:** MAJOR (độ tin cậy audit 80%)
-- **Status:** inprogress (điểm gần nhất 8.8/10 cho toàn bộ AdMob T245/T246; chưa vượt ngưỡng >9)
+- **Status:** done (9.5/10 — late/duplicate load mid-show guards implemented and verified across 4 formats)
 
 ## Vấn đề
 

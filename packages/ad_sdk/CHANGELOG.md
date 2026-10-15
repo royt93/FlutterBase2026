@@ -4,20 +4,22 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.0] - 2026-10-15
 
-- **Changed:** `CohortOptimizer` retains at most 100 recent signed session records,
+- **Added (T254):** `ConsentProvenanceJournal.entriesPage()` for bounded, immutable
+  oldest-first pagination of local consent history; signed export remains full.
+- **Changed (T248):** `CohortOptimizer` retains at most 100 recent signed session records,
   prunes history outside the 90-day recommendation window when the clock is
   plausible, and preserves the signed records list format for downgrade safety.
-- **Fixed:** `CohortOptimizer` filters negative metrics from legacy signed rows and
+- **Fixed (T248):** `CohortOptimizer` filters negative metrics from legacy signed rows and
   aggregates eCPM in floating point to avoid integer overflow changing provider
   recommendations.
-
-- **Added:** `ConsentProvenanceJournal.entriesPage()` for bounded, immutable
-  oldest-first pagination of local consent history; signed export remains full.
-
-- **Fixed:** `CohortOptimizer.recordSession()` rejects negative `impressions` or
+- **Fixed (T249):** `CohortOptimizer.recordSession()` rejects negative `impressions` or
   `revenueMicros` before persistence; zero remains valid.
+- **Testing (T250):** Added end-to-end subprocess CLI test suite for signed compliance
+  report, incident replay, and bypass audit replay verifiers (`test/signed_export_cli_test.dart`).
+- **Docs (T251, T252, T255):** Documented native ad route lifecycle caveats, `templateType`
+  sizing vs AppLovin asset layout, and verified diagnostic summary completeness.
 
 ## [3.4.5] - 2026-10-09
 
