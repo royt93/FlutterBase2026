@@ -22,9 +22,9 @@ import 'shimmer_view.dart';
 ///
 /// Unlike [BannerAdWidget]/[MrecAdWidget], native ads have no adaptive size,
 /// no auto-refresh ticker, and (on AppLovin) no `preloadWidgetAdView`/adViewId
-/// bridge — `MaxNativeAdView` loads on mount as a self-contained widget. Both
-/// branches render at a fixed height (Google's recommended 320 for
-/// `TemplateType.medium`).
+/// bridge — `MaxNativeAdView` loads on mount as a self-contained widget. The
+/// default height follows `templateType` for both providers (320 for medium,
+/// 90 for small); AppLovin ignores `templateType` only when rendering assets.
 ///
 /// **No `RouteAware` here, deliberately (m25, decided 2026-08-23).** Banner and
 /// MREC implement it because they own an auto-refresh ticker that would keep

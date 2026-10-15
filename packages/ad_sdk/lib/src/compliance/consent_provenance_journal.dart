@@ -56,19 +56,16 @@ class ConsentProvenanceEntry {
   /// order, and `jsonEncode` walks a `Map` in that order), so this is
   /// reproducible from the same field values every time.
   Map<String, dynamic> hashedFields() => {
-        'at': at.toUtc().toIso8601String(),
-        'source': source,
-        'policyRevision': policyRevision,
-        'hasUserConsent': hasUserConsent,
-        'isAgeRestrictedUser': isAgeRestrictedUser,
-        'doNotSell': doNotSell,
-        'regionSignal': regionSignal,
-      };
+    'at': at.toUtc().toIso8601String(),
+    'source': source,
+    'policyRevision': policyRevision,
+    'hasUserConsent': hasUserConsent,
+    'isAgeRestrictedUser': isAgeRestrictedUser,
+    'doNotSell': doNotSell,
+    'regionSignal': regionSignal,
+  };
 
-  Map<String, dynamic> toJson() => {
-        ...hashedFields(),
-        'entryHash': entryHash,
-      };
+  Map<String, dynamic> toJson() => {...hashedFields(), 'entryHash': entryHash};
 
   factory ConsentProvenanceEntry.fromJson(Map<String, dynamic> j) =>
       ConsentProvenanceEntry(
@@ -118,8 +115,7 @@ class ConsentProvenanceJournal {
   /// either way, an exception (sync throw, or the Future an `async`
   /// callback returns rejecting) is swallowed — same guarantee either way,
   /// so a broken host callback can never fail a real consent change.
-  final FutureOr<void> Function(ConsentProvenanceEntry entry)?
-      _onEntryAppended;
+  final FutureOr<void> Function(ConsentProvenanceEntry entry)? _onEntryAppended;
 
   /// Serializes [append] calls (audit finding A) — `ConsentManager.set()`/
   /// `.reset()` don't serialize their own calls against each other, so two
@@ -132,6 +128,18 @@ class ConsentProvenanceJournal {
 
   /// Read-only view, oldest first.
   List<ConsentProvenanceEntry> get entries => List.unmodifiable(_entries);
+
+  /// Returns an immutable oldest-first page without changing the journal.
+  /// [offset] is zero-based; [limit] defaults to 100 and is capped at 500.
+  List<ConsentProvenanceEntry> entriesPage({int offset = 0, int limit = 100}) {
+    if (offset < 0) throw ArgumentError.value(offset, 'offset');
+    if (limit < 1 || limit > 500) {
+      throw ArgumentError.value(limit, 'limit', 'must be between 1 and 500');
+    }
+    if (offset >= _entries.length) return const [];
+    final end = (offset + limit).clamp(0, _entries.length);
+    return List.unmodifiable(_entries.sublist(offset, end));
+  }
 
   static Future<ConsentProvenanceJournal> load(
     AdPreferences prefs, {
@@ -148,8 +156,7 @@ class ConsentProvenanceJournal {
   static ConsentProvenanceJournal fromEntries(
     AdPreferences prefs,
     List<ConsentProvenanceEntry> entries,
-  ) =>
-      ConsentProvenanceJournal._(prefs, List.of(entries), null);
+  ) => ConsentProvenanceJournal._(prefs, List.of(entries), null);
 
   static List<ConsentProvenanceEntry> _decode(String? raw) {
     if (raw == null || raw.isEmpty) return [];
@@ -170,8 +177,13 @@ class ConsentProvenanceJournal {
     await _prefs.setConsentProvenanceJournalRaw(json);
   }
 
-  static Future<String> _hash(String prevHash, Map<String, dynamic> fields) async {
-    final digest = await Sha256().hash(utf8.encode(prevHash + jsonEncode(fields)));
+  static Future<String> _hash(
+    String prevHash,
+    Map<String, dynamic> fields,
+  ) async {
+    final digest = await Sha256().hash(
+      utf8.encode(prevHash + jsonEncode(fields)),
+    );
     return base64Url.encode(digest.bytes);
   }
 
@@ -187,15 +199,17 @@ class ConsentProvenanceJournal {
     String? regionSignal,
     DateTime? now,
   }) {
-    final result = _writeQueue.then((_) => _appendLocked(
-          source: source,
-          policyRevision: policyRevision,
-          hasUserConsent: hasUserConsent,
-          isAgeRestrictedUser: isAgeRestrictedUser,
-          doNotSell: doNotSell,
-          regionSignal: regionSignal,
-          now: now,
-        ));
+    final result = _writeQueue.then(
+      (_) => _appendLocked(
+        source: source,
+        policyRevision: policyRevision,
+        hasUserConsent: hasUserConsent,
+        isAgeRestrictedUser: isAgeRestrictedUser,
+        doNotSell: doNotSell,
+        regionSignal: regionSignal,
+        now: now,
+      ),
+    );
     // Swallow errors here so one failed append doesn't wedge the queue for
     // every append after it — the error still propagates to `result`.
     _writeQueue = result.then((_) {}, onError: (_) {});
@@ -299,5 +313,5 @@ class ConsentProvenanceJournal {
 /// [SignedPayload] and [ConsentProvenanceJournal.verifyChain]'s doc comment
 /// for what this does and doesn't prove.
 Future<SignedPayload> signConsentProvenanceJournal(
-        ConsentProvenanceJournal journal) =>
-    signJsonPayload(journal.toPayloadJson());
+  ConsentProvenanceJournal journal,
+) => signJsonPayload(journal.toPayloadJson());

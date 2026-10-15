@@ -763,13 +763,14 @@ You should see the splash screen, then a splash app-open ad (if available), then
 
 ### Imperative inline ad control (T201)
 
-`BannerAdWidget`/`MrecAdWidget` manage route-aware pause/resume and scroll
-visibility automatically. `NativeAdWidget` has consent gating but no automatic
-route-pause or visibility detector; its `active` parameter gates initial load,
-so hosts must set it for retained hidden children. For the rarer case where a
-host needs to imperatively `refresh()`/`pause()`/`resume()` ONE specific slot —
-e.g. a "reload ad" button next to a feed item, or pausing just the ad in a
-video player's overlay while it plays — attach an `InlineAdController` instead
+`BannerAdWidget`/`MrecAdWidget` automatically pause on covered routes and
+manage scroll visibility. `NativeAdWidget` does **not** pause when its route is
+covered and has no automatic route or visibility signal. Its `active` parameter
+gates loading: a widget mounted with `active: false` does not load until it
+becomes `true`. Pass `active: false` for retained hidden children (such as
+unselected `IndexedStack` tabs), then set it to `true` when shown. To imperatively `refresh()`/`pause()`/
+`resume()` one specific slot — for example, a feed ad's reload button or pausing
+an ad under a video overlay — attach an `InlineAdController` instead
 of juggling your own `active: bool` state variable and forcing a rebuild every
 time it changes:
 
@@ -1869,10 +1870,11 @@ experimental/advanced rather than something to wire up by default.
 
 ## Diagnostics & integration self-check
 
-`AdManager.diagnostics()` is a one-shot, read-only snapshot that combines the
-3 monetization signals above — mediation waterfall, fill rate, arbitrator
-stats — into a single `AdDiagnostics` object, so a partner can answer "why is
-eCPM low today" without cross-referencing 3 separate pages/subsystems:
+`AdManager.diagnostics()` is a one-shot, read-only snapshot that combines
+mediation waterfall, fill rate, arbitrator stats, active baseline-regression
+alerts, and revenue-integrity signals (pending checks and recent incidents)
+into a single `AdDiagnostics` object. Disabled opt-in subsystems report empty
+or `null` values; this call never enables them.
 
 ```dart
 final diag = AdManager().diagnostics();
@@ -1880,8 +1882,19 @@ diag.lastWaterfallBySlot;        // most recent mediation waterfall per AdSlotTy
 diag.fillRateBySlot;             // FillRateMonitor.fillRate per slot (empty map if monitor disabled)
 diag.arbitratorEstimatedEcpmMicros; // null if arbitrator disabled
 diag.arbitratorVetoRate;             // null if arbitrator disabled
-diag.toJson();                       // hand to a partner/reviewer
+diag.fillRateRegressionBySlot;       // active regressions vs. the 7-day baseline
+diag.pendingRevenueChecks;           // null if revenue-integrity ledger is off
+diag.recentRevenueIntegrityIncidents; // incidents already recorded locally
+diag.toJson();                       // raw snapshot for local debugging
+
+// For a support bundle, use the bounded, redacted, checksummed export:
+final safeJson = await AdManager().exportSafeDiagnostics();
+final ok = await AdDiagnostics.verifySafeJsonString(safeJson);
 ```
+
+The snapshot has no per-field freshness timestamp or severity and does not
+label findings as observed, inferred or unknown. The SHA-256 checksum detects
+payload edits but does not authenticate who created the export.
 
 `AdManager.runIntegrationSelfCheck()` is a **debug-only** "integration
 doctor" checklist (init → consent → per-ad-type load → VIP wiring →
@@ -1937,24 +1950,30 @@ per-ad-type checks attempt real loads). See also the example app's
 native ad with VIP/offline gating. Unlike `buildMrec()`, native ads do not
 pause automatically when their route is covered; hosts using tab stacks or
 other retained hidden children must control `NativeAdWidget.active` themselves.
-The providers use fundamentally different mechanisms (no shared Dart-side shape):
+
+AdMob and AppLovin use fundamentally different native-ad mechanisms (no shared
+Dart-side shape):
 
 - **AdMob**: `NativeAd extends AdWithView` (same base as `BannerAd`/MREC),
   preloaded with `NativeTemplateStyle(templateType: TemplateType.medium)` and
   shown via `AdWidget`. The template draws its own "Ad"/AdChoices
   attribution.
 - **AppLovin**: `MaxNativeAdView` is self-contained, loading on mount from
-  `adUnitId` + a custom Dart layout (`MaxNativeAdIconView`/`TitleView`/
-  `MediaView`/`BodyView`/`CallToActionView`) — doesn't go through the bridge
-  banner/MREC use, so the package draws its own "Ad" badge (mirrors MREC) to
-  stay compliant.
+  `adUnitId` + a custom Dart layout using asset views such as
+  `MaxNativeAdIconView`, `MaxNativeAdTitleView`, `MaxNativeAdMediaView`,
+  `MaxNativeAdBodyView`, and `MaxNativeAdCallToActionView`. It doesn't go
+  through the bridge banner/MREC use, so the package draws its own "Ad" badge
+  (mirrors MREC) to stay compliant.
 
-**v1 is a fixed layout, not a customizable editor** — both render at a fixed
-320px height, and AppLovin's asset arrangement isn't configurable from host
-code. Need a different arrangement? Pull the raw ad object yourself
-(`AdManager().adapter?.buildAdmobNativeView(key)` for AdMob template swaps,
-or build your own `MaxNativeAdView` for AppLovin) instead of `buildNative()`.
-No route-pause/auto-refresh either — it loads once per mount.
+`NativeAdWidget.templateType` uses Google's `TemplateType`: it selects AdMob's
+rendered template, while AppLovin ignores it for rendering. The widget still
+uses `templateType` to choose its default height for both providers: medium is
+320 logical px, small is 90. Set `height` to override either provider's widget
+height. To choose AdMob's template, set `templateType` before the ad loads; for
+a host-registered AdMob layout, use `factoryId`. `buildAdmobNativeView(key)`
+only renders the already-loaded AdMob ad. For a custom AppLovin arrangement, use
+`NativeAdWidget.customNativeAdBuilder` or build your own `MaxNativeAdView`.
+There is no automatic route-pause or auto-refresh.
 
 ### Custom native ad layout (T228)
 
@@ -2335,7 +2354,16 @@ for (final entry in journal?.entries ?? const []) {
   print('${entry.at}: ${entry.source} set hasUserConsent=${entry.hasUserConsent}');
 }
 await journal?.verifyChain(); // false ⇒ persisted history was tampered with
+
+// For long histories, read an immutable oldest-first page (default 100,
+// maximum 500; throws ArgumentError for a negative offset or invalid limit).
+final page = journal?.entriesPage(offset: 0, limit: 100) ?? const [];
 ```
+
+`entriesPage` is read-only and does not change `exportSignedConsentProvenanceJournal()`:
+the signed export still contains the full history. A local hash chain proves
+internal consistency only — it cannot prove origin or non-deletion unless the
+host also stores an external anchor (see `onConsentProvenanceEntryAppended`).
 
 When enabled, every `ConsentManager.set`/`.reset` call records
 an entry automatically. Pass `source`/`policyRevision` to tag where a

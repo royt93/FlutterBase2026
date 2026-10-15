@@ -768,6 +768,7 @@ ConsentProvenanceJournal  [class]  class ConsentProvenanceJournal
 ConsentProvenanceJournal.append  [method]  Future<ConsentProvenanceEntry> append({required String source, required String policyRevision, required bool hasUserConsent, required bool isAgeRestrictedUser, required bool doNotSell, String? regionSignal, DateTime? now})
 ConsentProvenanceJournal.clear  [method]  Future<void> clear()
 ConsentProvenanceJournal.entries  [getter]  List<ConsentProvenanceEntry> get entries
+ConsentProvenanceJournal.entriesPage  [method]  List<ConsentProvenanceEntry> entriesPage({int offset = 0, int limit = 100})
 ConsentProvenanceJournal.load  [method]  Future<ConsentProvenanceJournal> load(AdPreferences prefs, {FutureOr<void> Function(ConsentProvenanceEntry)? onEntryAppended})
 ConsentProvenanceJournal.toPayloadJson  [method]  String toPayloadJson()
 ConsentProvenanceJournal.verifyChain  [method]  Future<bool> verifyChain()

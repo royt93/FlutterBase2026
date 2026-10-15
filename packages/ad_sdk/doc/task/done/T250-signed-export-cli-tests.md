@@ -3,7 +3,7 @@
 - **Loại:** Test hardening
 - **Priority:** P2 · **Effort:** S
 - **Confidence:** CONFIRMED test gap (không đồng nghĩa verifier có bug)
-- **Status:** todo
+- **Status:** done (10 subprocess CLI cases; focused suite 10/10; analyzer clean; full SDK suite 2692/2692; independent audit 9.5/10, no findings)
 - **Evidence:** `tool/verify_compliance_report.dart`, `tool/incident_replay.dart`, `tool/bypass_audit_replay.dart`; đối chiếu `test/verify_adproof_tool_test.dart`
 - **Dependency:** none
 
@@ -19,12 +19,12 @@
 
 ## Acceptance criteria
 
-- [ ] Test CLI compliance report: valid → exit 0/VALID; invalid signature hoặc malformed payload → INVALID/nonzero.
-- [ ] Test CLI incident replay và bypass audit replay: valid fixture và từng loại invalid fixture; exit code/output đúng contract.
-- [ ] Test usage, file missing/unreadable; tests dọn fixture/temp files.
-- [ ] Widget/integration/device test: không áp dụng — CLI thuần Dart, không có UI/native runtime; subprocess tests là end-to-end contract.
-- [ ] `dart analyze`/test suite liên quan pass.
-- [ ] Audit độc lập diff, điểm >9/10.
+- [x] Test CLI compliance report: valid → exit 0/`VALID`; flipped valid-length Ed25519 signature, tampered `reportJson`, wrong-length public key, malformed JSON và non-map JSON root → `INVALID`/exit 1.
+- [x] Test CLI incident replay và bypass audit replay: valid fixture; flipped signature và tampered `payloadJson` vẫn in parsed output nhưng exit 1; malformed envelope và validly signed malformed payload exit 2 với stderr đúng.
+- [x] Test usage, missing file và unreadable directory path exit 2; fixtures nằm trong system-temp và tearDown dọn directory.
+- [x] Widget/integration/device test: không áp dụng — CLI thuần Dart, không có UI/native runtime; subprocess tests là end-to-end contract.
+- [x] `flutter analyze test/signed_export_cli_test.dart` clean; focused subprocess suite 10/10 pass; full SDK suite 2692/2692 pass.
+- [x] Audit độc lập diff: 9.5/10, no findings.
 
 ## Prompt vòng lặp
 

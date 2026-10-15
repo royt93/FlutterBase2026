@@ -1,228 +1,415 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cryptography/cryptography.dart';
+import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Directory _findPackageRoot({Directory? from}) {
-  var directory = from ?? Directory.current;
-  while (true) {
-    final candidates = [
-      directory,
-      Directory('${directory.path}/packages/ad_sdk'),
-    ];
-    for (final candidate in candidates) {
-      final pubspec = File('${candidate.path}/pubspec.yaml');
-      if (pubspec.existsSync()) {
-        final name = RegExp(
-          r'^name:\s*applovin_admob_sdk\s*$',
-          multiLine: true,
-        );
-        if (name.hasMatch(pubspec.readAsStringSync())) return candidate;
-      }
+class _MemorySecureStorage extends FlutterSecureStorage {
+  final Map<String, String> values = {};
+
+  @override
+  Future<String?> read({
+    required String key,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async => values[key];
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (value == null) {
+      values.remove(key);
+    } else {
+      values[key] = value;
     }
-    final parent = directory.parent;
-    if (parent.path == directory.path) {
-      throw StateError('could not find applovin_admob_sdk package root');
-    }
-    directory = parent;
   }
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('package root is found from a monorepo root working directory', () {
-    final package = _findPackageRoot(from: Directory.current.parent.parent);
-    expect(package.path, endsWith('/packages/ad_sdk'));
-  });
-
   late Directory tempDir;
-  late SimpleKeyPair keyPair;
-  late String publicKeyBase64;
-  late String signatureBase64;
+  final root = Directory.current.path;
+  late String complianceJson;
+  late String incidentJson;
+  late String bypassJson;
 
-  final ed25519 = Ed25519();
-  final packageRoot = _findPackageRoot();
+  Future<ProcessResult> runTool(String script, List<String> args) =>
+      Process.run('dart', [
+        'run',
+        '$root/tool/$script',
+        ...args,
+      ], workingDirectory: root);
 
-  Future<ProcessResult> runTool(String tool, List<String> args) => Process.run(
-    'dart',
-    ['run', '${packageRoot.path}/tool/$tool', ...args],
-    workingDirectory: packageRoot.path,
-  );
-
-  Future<String> signedEnvelope(String payloadJson) async {
-    final signature = await ed25519.sign(
-      utf8.encode(payloadJson),
-      keyPair: keyPair,
-    );
-    return jsonEncode({
-      'payloadJson': payloadJson,
-      'publicKeyBase64': publicKeyBase64,
-      'signatureBase64': base64Url.encode(signature.bytes),
-    });
+  Future<String> writeFixture(String name, String body) async {
+    final file = File('${tempDir.path}/$name');
+    await file.writeAsString(body);
+    return file.path;
   }
 
-  Future<String> complianceEnvelope(String reportJson) async {
-    final signature = await ed25519.sign(
-      utf8.encode(reportJson),
-      keyPair: keyPair,
-    );
-    return jsonEncode({
-      'reportJson': reportJson,
-      'publicKeyBase64': publicKeyBase64,
-      'signatureBase64': base64Url.encode(signature.bytes),
-    });
-  }
-
-  Future<File> writeFixture(String name, String contents) async {
-    final file = File('${tempDir.path}/$name.json');
-    await file.writeAsString(contents);
-    return file;
-  }
+  Future<String> signedPayloadEnvelope(String payload) async =>
+      (await signJsonPayload(
+        payload,
+        secureStorage: _MemorySecureStorage(),
+      )).toJsonString();
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('signed_export_cli_');
-    keyPair = await ed25519.newKeyPair();
-    final publicKey = await keyPair.extractPublicKey();
-    publicKeyBase64 = base64Url.encode(publicKey.bytes);
-    signatureBase64 = base64Url.encode(
-      (await ed25519.sign(utf8.encode('{}'), keyPair: keyPair)).bytes,
+  });
+
+  setUpAll(() async {
+    final storage = _MemorySecureStorage();
+    const safety = AdSafetySnapshot(
+      fullscreenAdsShownInSession: 1,
+      maxFullscreenAdsPerSession: 6,
+      hourlyAdCount: 1,
+      maxFullscreenAdsPerHour: 3,
+      dailyAdCount: 1,
+      maxFullscreenAdsPerDay: 10,
+      clickThroughRate: 0,
+      fullscreenClickThroughRate: 0,
+      suspiciousCtrThreshold: 0.3,
+      clicksLastMinute: 0,
+      suspiciousViolationCount: 0,
+      isSuspended: false,
+      dryRun: false,
     );
+    final report = ComplianceReport.generate(
+      events: const [
+        {'kind': 'ad_event', 'timestampMs': 1},
+      ],
+      safety: safety,
+      consent: ConsentSettings.accepted,
+      vipActive: false,
+      now: DateTime.utc(2026, 1, 1),
+    );
+    complianceJson = (await signComplianceReport(
+      report,
+      secureStorage: storage,
+    )).toJsonString();
+
+    const config = AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(
+        bannerId: 'banner',
+        interstitialId: 'interstitial',
+        appOpenId: 'app-open',
+        rewardedId: 'rewarded',
+      ),
+    );
+    final recorder = IncidentRecorder();
+    recorder.record(
+      'boot',
+      const AdSdkStateSnapshot(
+        isInitialised: false,
+        canRequestAds: false,
+        isOffline: false,
+        isVipActive: false,
+        fullscreenBusy: false,
+      ),
+      now: DateTime.utc(2026, 1, 1),
+    );
+    incidentJson = (await signJsonPayload(
+      IncidentBundle.capture(
+        recorder,
+        config,
+        now: DateTime.utc(2026, 1, 1),
+      ).toJsonString(),
+      secureStorage: storage,
+    )).toJsonString();
+
+    final trail = BypassAuditTrail();
+    trail.record(
+      kind: 'bypassSafety',
+      callSiteTag: 'test_splash',
+      type: AdSlotType.appOpen,
+    );
+    bypassJson = (await signJsonPayload(
+      trail.toPayloadJson(),
+      secureStorage: storage,
+    )).toJsonString();
   });
 
   tearDown(() async {
-    if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+    if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
   group('verify_compliance_report CLI', () {
-    const tool = 'verify_compliance_report.dart';
+    const script = 'verify_compliance_report.dart';
 
-    test('valid report prints VALID and exits zero', () async {
-      final file = await writeFixture(
-        'valid_compliance',
-        await complianceEnvelope('{"schemaVersion":1}'),
-      );
-      final result = await runTool(tool, [file.path]);
+    test('valid signed report prints VALID and exits 0', () async {
+      final path = await writeFixture('report.json', complianceJson);
+      final result = await runTool(script, [path]);
       expect(result.exitCode, 0);
-      expect(result.stdout, contains('VALID'));
-      expect(result.stderr, isEmpty);
+      expect(result.stdout.toString().trim(), 'VALID');
+      expect(result.stderr.toString(), isEmpty);
     });
 
-    test('tampered signature prints INVALID and exits one', () async {
-      final envelope =
-          jsonDecode(await complianceEnvelope('{"schemaVersion":1}'))
-              as Map<String, dynamic>;
-      envelope['signatureBase64'] = signatureBase64;
-      final file = await writeFixture('bad_compliance', jsonEncode(envelope));
-      final result = await runTool(tool, [file.path]);
-      expect(result.exitCode, 1);
-      expect(result.stdout, contains('INVALID'));
+    test(
+      'tampered signature and malformed JSON print INVALID and exit 1',
+      () async {
+        final decoded = jsonDecode(complianceJson) as Map<String, dynamic>;
+        final signature = base64Url.decode(
+          base64Url.normalize(decoded['signatureBase64'] as String),
+        );
+        signature[0] ^= 1;
+        decoded['signatureBase64'] = base64Url.encode(signature);
+        final tamperedPath = await writeFixture(
+          'tampered-signature.json',
+          jsonEncode(decoded),
+        );
+        final tampered = await runTool(script, [tamperedPath]);
+        expect(tampered.exitCode, 1);
+        expect(tampered.stdout.toString().trim(), 'INVALID');
+
+        final payloadTampered =
+            jsonDecode(complianceJson) as Map<String, dynamic>;
+        payloadTampered['reportJson'] =
+            (payloadTampered['reportJson'] as String).replaceFirst(
+              'ad_event',
+              'x',
+            );
+        final payloadPath = await writeFixture(
+          'tampered-report.json',
+          jsonEncode(payloadTampered),
+        );
+        final payloadResult = await runTool(script, [payloadPath]);
+        expect(payloadResult.exitCode, 1);
+        expect(payloadResult.stdout.toString().trim(), 'INVALID');
+
+        final malformedPath = await writeFixture('malformed.json', '{bad');
+        final malformed = await runTool(script, [malformedPath]);
+        expect(malformed.exitCode, 1);
+        expect(malformed.stdout.toString().trim(), endsWith('INVALID'));
+      },
+    );
+
+    test('well-formed wrong public key and JSON root print INVALID', () async {
+      final wrongKey = jsonDecode(complianceJson) as Map<String, dynamic>;
+      wrongKey['publicKeyBase64'] = base64Url.encode(List<int>.filled(31, 0));
+      final wrongKeyPath = await writeFixture(
+        'wrong-public-key.json',
+        jsonEncode(wrongKey),
+      );
+      final wrongKeyResult = await runTool(script, [wrongKeyPath]);
+      expect(wrongKeyResult.exitCode, 1);
+      expect(wrongKeyResult.stdout.toString().trim(), 'INVALID');
+
+      final rootPath = await writeFixture('array-root.json', '[]');
+      final rootResult = await runTool(script, [rootPath]);
+      expect(rootResult.exitCode, 1);
+      expect(rootResult.stdout.toString().trim(), 'INVALID');
     });
 
-    test('missing path and malformed JSON use error exit codes', () async {
-      final missing = await runTool(tool, ['${tempDir.path}/missing.json']);
+    test('usage, missing and unreadable path use exit 2', () async {
+      final usage = await runTool(script, []);
+      expect(usage.exitCode, 2);
+      expect(usage.stderr.toString(), contains('usage:'));
+      expect(usage.stdout.toString(), isEmpty);
+
+      final missing = await runTool(script, ['${tempDir.path}/missing.json']);
       expect(missing.exitCode, 2);
-      expect(missing.stderr, contains('could not read'));
+      expect(missing.stderr.toString(), contains('could not read'));
+      expect(missing.stdout.toString(), isEmpty);
 
-      final malformed = await writeFixture('malformed_compliance', '{');
-      final invalid = await runTool(tool, [malformed.path]);
-      expect(invalid.exitCode, 1);
-      expect(invalid.stdout, contains('INVALID'));
-    });
-
-    test('missing arguments prints usage and exits two', () async {
-      final result = await runTool(tool, []);
-      expect(result.exitCode, 2);
-      expect(result.stderr, contains('usage:'));
+      final unreadable = await runTool(script, [tempDir.path]);
+      expect(unreadable.exitCode, 2);
+      expect(unreadable.stderr.toString(), contains('could not read'));
     });
   });
 
   group('incident_replay CLI', () {
-    const tool = 'incident_replay.dart';
-    const payload = '{"generatedAtMs":1,"configFingerprint":{},"entries":[]}';
+    const script = 'incident_replay.dart';
 
-    test('valid signed bundle prints timeline and exits zero', () async {
-      final file = await writeFixture(
-        'valid_incident',
-        await signedEnvelope(payload),
-      );
-      final result = await runTool(tool, [file.path]);
+    test('valid signed incident prints timeline and exits 0', () async {
+      final path = await writeFixture('incident.json', incidentJson);
+      final result = await runTool(script, [path]);
       expect(result.exitCode, 0);
-      expect(result.stdout, contains('signature: VALID'));
-      expect(result.stdout, contains('0 entries'));
-      expect(result.stderr, isEmpty);
+      expect(result.stdout.toString(), contains('signature: VALID'));
+      expect(result.stdout.toString(), contains('boot'));
+      expect(result.stderr.toString(), isEmpty);
     });
 
-    test('tampered signature still prints replay but exits one', () async {
-      final envelope =
-          jsonDecode(await signedEnvelope(payload)) as Map<String, dynamic>;
-      envelope['signatureBase64'] = signatureBase64;
-      final file = await writeFixture('bad_incident', jsonEncode(envelope));
-      final result = await runTool(tool, [file.path]);
-      expect(result.exitCode, 1);
-      expect(result.stdout, contains('signature: INVALID'));
-    });
+    test(
+      'invalid signature still prints parsed timeline and exits 1',
+      () async {
+        final decoded = jsonDecode(incidentJson) as Map<String, dynamic>;
+        final signature = base64Url.decode(
+          base64Url.normalize(decoded['signatureBase64'] as String),
+        );
+        signature[0] ^= 1;
+        decoded['signatureBase64'] = base64Url.encode(signature);
+        final path = await writeFixture(
+          'incident-invalid.json',
+          jsonEncode(decoded),
+        );
+        final result = await runTool(script, [path]);
+        expect(result.exitCode, 1);
+        expect(result.stdout.toString(), contains('signature: INVALID'));
+        expect(result.stdout.toString(), contains('boot'));
 
-    test('missing path and malformed envelope exit two', () async {
-      final missing = await runTool(tool, ['${tempDir.path}/missing.json']);
-      expect(missing.exitCode, 2);
-      expect(missing.stderr, contains('could not read'));
+        final payloadTampered =
+            jsonDecode(incidentJson) as Map<String, dynamic>;
+        final payload =
+            jsonDecode(payloadTampered['payloadJson'] as String)
+                as Map<String, dynamic>;
+        payload['entries'] = <dynamic>[];
+        payloadTampered['payloadJson'] = jsonEncode(payload);
+        final payloadPath = await writeFixture(
+          'incident-payload-tampered.json',
+          jsonEncode(payloadTampered),
+        );
+        final payloadResult = await runTool(script, [payloadPath]);
+        expect(payloadResult.exitCode, 1);
+        expect(payloadResult.stdout.toString(), contains('signature: INVALID'));
+        expect(payloadResult.stdout.toString(), contains('0 entries:'));
+      },
+    );
 
-      final malformed = await writeFixture('malformed_incident', '{');
-      final result = await runTool(tool, [malformed.path]);
-      expect(result.exitCode, 2);
-      expect(result.stderr, contains('not a valid signed bundle'));
-    });
+    test(
+      'malformed envelope, usage and missing file use documented exits',
+      () async {
+        final malformedPath = await writeFixture(
+          'incident-malformed.json',
+          '{bad',
+        );
+        final malformed = await runTool(script, [malformedPath]);
+        expect(malformed.exitCode, 2);
+        expect(
+          malformed.stderr.toString(),
+          contains('not a valid signed bundle'),
+        );
+        expect(malformed.stdout.toString(), isEmpty);
 
-    test('missing arguments prints usage and exits two', () async {
-      final result = await runTool(tool, []);
-      expect(result.exitCode, 2);
-      expect(result.stderr, contains('usage:'));
-    });
+        final invalidPayloadEnvelope = await signedPayloadEnvelope('{bad');
+        final invalidPayloadPath = await writeFixture(
+          'incident-invalid-payload.json',
+          invalidPayloadEnvelope,
+        );
+        final invalidPayload = await runTool(script, [invalidPayloadPath]);
+        expect(invalidPayload.exitCode, 2);
+        expect(invalidPayload.stdout.toString(), contains('signature: VALID'));
+        expect(
+          invalidPayload.stderr.toString(),
+          contains('payloadJson is not a valid incident bundle'),
+        );
+
+        final usage = await runTool(script, []);
+        expect(usage.exitCode, 2);
+        expect(usage.stderr.toString(), contains('usage:'));
+
+        final missing = await runTool(script, ['${tempDir.path}/missing.json']);
+        expect(missing.exitCode, 2);
+        expect(missing.stderr.toString(), contains('could not read'));
+        expect(missing.stdout.toString(), isEmpty);
+
+        final unreadable = await runTool(script, [tempDir.path]);
+        expect(unreadable.exitCode, 2);
+        expect(unreadable.stderr.toString(), contains('could not read'));
+        expect(unreadable.stdout.toString(), isEmpty);
+      },
+    );
   });
 
   group('bypass_audit_replay CLI', () {
-    const tool = 'bypass_audit_replay.dart';
-    const payload = '{"generatedAtMs":1,"entries":[]}';
+    const script = 'bypass_audit_replay.dart';
 
-    test('valid signed bundle prints entries and exits zero', () async {
-      final file = await writeFixture(
-        'valid_bypass',
-        await signedEnvelope(payload),
-      );
-      final result = await runTool(tool, [file.path]);
+    test('valid signed trail prints entries and exits 0', () async {
+      final path = await writeFixture('bypass.json', bypassJson);
+      final result = await runTool(script, [path]);
       expect(result.exitCode, 0);
-      expect(result.stdout, contains('signature: VALID'));
-      expect(result.stdout, contains('0 entries'));
-      expect(result.stderr, isEmpty);
+      expect(result.stdout.toString(), contains('signature: VALID'));
+      expect(result.stdout.toString(), contains('test_splash'));
+      expect(result.stderr.toString(), isEmpty);
     });
 
-    test('tampered signature still prints replay but exits one', () async {
-      final envelope =
-          jsonDecode(await signedEnvelope(payload)) as Map<String, dynamic>;
-      envelope['signatureBase64'] = signatureBase64;
-      final file = await writeFixture('bad_bypass', jsonEncode(envelope));
-      final result = await runTool(tool, [file.path]);
+    test('invalid signature still prints parsed entries and exits 1', () async {
+      final decoded = jsonDecode(bypassJson) as Map<String, dynamic>;
+      final signature = base64Url.decode(
+        base64Url.normalize(decoded['signatureBase64'] as String),
+      );
+      signature[0] ^= 1;
+      decoded['signatureBase64'] = base64Url.encode(signature);
+      final path = await writeFixture(
+        'bypass-invalid.json',
+        jsonEncode(decoded),
+      );
+      final result = await runTool(script, [path]);
       expect(result.exitCode, 1);
-      expect(result.stdout, contains('signature: INVALID'));
+      expect(result.stdout.toString(), contains('signature: INVALID'));
+      expect(result.stdout.toString(), contains('test_splash'));
+
+      final payloadTampered = jsonDecode(bypassJson) as Map<String, dynamic>;
+      final payload =
+          jsonDecode(payloadTampered['payloadJson'] as String)
+              as Map<String, dynamic>;
+      payload['entries'] = <dynamic>[];
+      payloadTampered['payloadJson'] = jsonEncode(payload);
+      final payloadPath = await writeFixture(
+        'bypass-payload-tampered.json',
+        jsonEncode(payloadTampered),
+      );
+      final payloadResult = await runTool(script, [payloadPath]);
+      expect(payloadResult.exitCode, 1);
+      expect(payloadResult.stdout.toString(), contains('signature: INVALID'));
+      expect(payloadResult.stdout.toString(), contains('0 entries:'));
     });
 
-    test('missing path and malformed envelope exit two', () async {
-      final missing = await runTool(tool, ['${tempDir.path}/missing.json']);
-      expect(missing.exitCode, 2);
-      expect(missing.stderr, contains('could not read'));
+    test(
+      'malformed envelope, usage and missing file use documented exits',
+      () async {
+        final malformedPath = await writeFixture(
+          'bypass-malformed.json',
+          '{bad',
+        );
+        final malformed = await runTool(script, [malformedPath]);
+        expect(malformed.exitCode, 2);
+        expect(
+          malformed.stderr.toString(),
+          contains('not a valid signed bundle'),
+        );
+        expect(malformed.stdout.toString(), isEmpty);
 
-      final malformed = await writeFixture('malformed_bypass', '{');
-      final result = await runTool(tool, [malformed.path]);
-      expect(result.exitCode, 2);
-      expect(result.stderr, contains('not a valid signed bundle'));
-    });
+        final invalidPayloadEnvelope = await signedPayloadEnvelope('{bad');
+        final invalidPayloadPath = await writeFixture(
+          'bypass-invalid-payload.json',
+          invalidPayloadEnvelope,
+        );
+        final invalidPayload = await runTool(script, [invalidPayloadPath]);
+        expect(invalidPayload.exitCode, 2);
+        expect(invalidPayload.stdout.toString(), contains('signature: VALID'));
+        expect(
+          invalidPayload.stderr.toString(),
+          contains('payloadJson is not a valid bypass audit trail'),
+        );
 
-    test('missing arguments prints usage and exits two', () async {
-      final result = await runTool(tool, []);
-      expect(result.exitCode, 2);
-      expect(result.stderr, contains('usage:'));
-    });
+        final usage = await runTool(script, []);
+        expect(usage.exitCode, 2);
+        expect(usage.stderr.toString(), contains('usage:'));
+
+        final missing = await runTool(script, ['${tempDir.path}/missing.json']);
+        expect(missing.exitCode, 2);
+        expect(missing.stderr.toString(), contains('could not read'));
+        expect(missing.stdout.toString(), isEmpty);
+
+        final unreadable = await runTool(script, [tempDir.path]);
+        expect(unreadable.exitCode, 2);
+        expect(unreadable.stderr.toString(), contains('could not read'));
+        expect(unreadable.stdout.toString(), isEmpty);
+      },
+    );
   });
 }

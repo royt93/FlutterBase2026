@@ -6,6 +6,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Changed:** `CohortOptimizer` retains at most 100 recent signed session records,
+  prunes history outside the 90-day recommendation window when the clock is
+  plausible, and preserves the signed records list format for downgrade safety.
+- **Fixed:** `CohortOptimizer` filters negative metrics from legacy signed rows and
+  aggregates eCPM in floating point to avoid integer overflow changing provider
+  recommendations.
+
+- **Added:** `ConsentProvenanceJournal.entriesPage()` for bounded, immutable
+  oldest-first pagination of local consent history; signed export remains full.
+
+- **Fixed:** `CohortOptimizer.recordSession()` rejects negative `impressions` or
+  `revenueMicros` before persistence; zero remains valid.
+
 ## [3.4.5] - 2026-10-09
 
 - **Fixed (Audit 74 — COPPA Re-init Race Condition):** Added `_consentSessionEpoch`

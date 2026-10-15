@@ -1,10 +1,9 @@
 // T154 — on-device proof that switching NativeDemoPage's IndexedStack tabs
-// doesn't crash and the tab-2 native ad only ever mounts once tab 2 is
-// actually selected. The real "never counts an impression while hidden"
-// claim is proven at the unit level in test/native_ad_widget_test.dart
-// (real AdMobAdapter/AppLovinAdapter, load-call counting) — this on-device
-// run only pins that the widget tree itself behaves under a real SDK init
-// and a real tap sequence.
+// doesn't crash. The widget-level gate is proven in
+// test/native_ad_widget_test.dart by counting adapter load calls while
+// `active` is false/true. This does not observe provider network requests or
+// prove an impression was prevented; the device test only exercises the real
+// widget tree under SDK init and a real tap sequence.
 //
 // Run with:
 //   flutter test integration_test/native_indexedstack_visibility_test.dart -d <device-or-sim-id>

@@ -668,12 +668,61 @@ class AdPreferences {
   // T146 — Privacy-safe cohort optimizer signed records
   static const String _keyCohortOptimizerRecords =
       'ad_sdk_cohort_optimizer_records_v1';
+  static const String _keyCohortOptimizerClockAnchor =
+      'ad_sdk_cohort_optimizer_clock_anchor_v1';
+
+  @visibleForTesting
+  static Future<void> Function()? debugBeforeCohortWrite;
+  @visibleForTesting
+  static bool? debugCohortRecordsWriteResult;
+  @visibleForTesting
+  static bool? debugCohortAnchorWriteResult;
+  @visibleForTesting
+  static bool? debugCohortRestoreWriteResult;
 
   String? getCohortOptimizerRecordsRaw() =>
       _prefs?.getString(_keyCohortOptimizerRecords);
 
-  Future<void> setCohortOptimizerRecordsRaw(String raw) async {
-    await _prefs?.setString(_keyCohortOptimizerRecords, raw);
+  Future<bool> setCohortOptimizerRecordsRaw(String raw) async {
+    final beforeWrite = debugBeforeCohortWrite;
+    if (!kReleaseMode && !debugSimulateReleaseModeForTestSeams) {
+      await beforeWrite?.call();
+    }
+    if (!kReleaseMode &&
+        !debugSimulateReleaseModeForTestSeams &&
+        debugCohortRecordsWriteResult != null) {
+      return debugCohortRecordsWriteResult!;
+    }
+    return await _prefs?.setString(_keyCohortOptimizerRecords, raw) ?? false;
+  }
+
+  /// Restores [previousRaw] (or removes the key when null), bypassing the test
+  /// write seams so rollback cannot be forced to fail by them.
+  Future<bool> restoreCohortOptimizerRecordsRaw(String? previousRaw) async {
+    if (!kReleaseMode &&
+        !debugSimulateReleaseModeForTestSeams &&
+        debugCohortRestoreWriteResult != null) {
+      return debugCohortRestoreWriteResult!;
+    }
+    final prefs = _prefs;
+    if (prefs == null) return false;
+    if (previousRaw == null) {
+      return prefs.remove(_keyCohortOptimizerRecords);
+    }
+    return prefs.setString(_keyCohortOptimizerRecords, previousRaw);
+  }
+
+  String? getCohortOptimizerClockAnchorRaw() =>
+      _prefs?.getString(_keyCohortOptimizerClockAnchor);
+
+  Future<bool> setCohortOptimizerClockAnchorRaw(String raw) async {
+    if (!kReleaseMode &&
+        !debugSimulateReleaseModeForTestSeams &&
+        debugCohortAnchorWriteResult != null) {
+      return debugCohortAnchorWriteResult!;
+    }
+    return await _prefs?.setString(_keyCohortOptimizerClockAnchor, raw) ??
+        false;
   }
 
   int getProviderFailoverConsecutiveFailures() =>

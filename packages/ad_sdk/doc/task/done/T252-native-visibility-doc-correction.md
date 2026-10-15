@@ -3,7 +3,7 @@
 - **Loại:** Fix documentation
 - **Priority:** P2 · **Effort:** XS
 - **Confidence:** CONFIRMED docs contradiction
-- **Status:** todo
+- **Status:** done (README corrected; documentation diff clean; independent audit 9.5/10, no findings)
 - **Evidence:** `README.md` phần NativeAdWidget; `lib/src/widget/native_ad_widget.dart` ghi rõ widget không dùng RouteAware; đối chiếu `CLAUDE.md` integration caveats
 - **Dependency:** none
 
@@ -13,11 +13,11 @@ README có câu mô tả NativeAdWidget dùng route-aware gating giống MREC, n
 
 ## Acceptance criteria
 
-- [ ] Đã chọn: sửa README, không chỉ thêm known-limitation note.
-- [ ] README nói rõ NativeAdWidget không tự pause theo route.
-- [ ] Nêu rõ host phải điều khiển `active` cho tab/child không hiển thị; phân biệt khỏi hành vi Banner/MREC.
-- [ ] Nội dung khớp implementation và test hiện tại; không thêm claim về SDK behavior.
-- [ ] Chạy kiểm tra docs/link/format phù hợp. Không cần unit/widget/integration/device test vì wording-only, không đổi behavior.
+- [x] Sửa README trực tiếp, không chỉ thêm known-limitation note.
+- [x] README nói rõ NativeAdWidget không tự pause khi route bị cover.
+- [x] Nêu rõ host phải đặt `active: false/true` cho retained hidden tabs/children; phân biệt khỏi Banner/MREC tự pause route và tự quản lý scroll visibility.
+- [x] Nội dung khớp class doc, `initState`/`didUpdateWidget` và tests hiện tại; không thêm claim behavior mới.
+- [x] Docs/link check: wording-only, không thêm link; diff check clean. Unit/widget/integration/device tests không áp dụng vì không đổi behavior.
 
 ## Prompt vòng lặp
 
