@@ -1,126 +1,71 @@
-# Audit SDK và example — applovin_admob_sdk
+# Audit SDK và example — applovin_admob_sdk 3.5.0
 
-Ngày khảo sát: 2026-10-08. Cập nhật phát hành: 2026-10-09.
-Source khảo sát: commit `e8e06ca`, phiên bản pub.dev `3.4.5`.
-Phạm vi yêu cầu: SDK, example, Android/iOS, AdMob/AppLovin, online/offline, các định dạng quảng cáo, trial, VIP và consent/policy.
+Ngày: 2026-10-16  
+Baseline: `2c8971c51bad0525a660b0fdf6cc310d84ae64eb` (`main`)  
+Latest pub.dev: `3.5.0`, xuất bản 2026-10-15.  
+Phạm vi: source SDK + example; Android/iOS; AdMob/AppLovin; online/offline; ad formats/lifecycle; trial/VIP; consent/policy; kiểm tra tĩnh và automated tests.
 
-## 1. Kết luận hiện tại
+## Kết luận
 
-**CHƯA ĐỦ BẰNG CHỨNG DUYỆT PRODUCTION**, kể cả Android + AdMob. Đây là báo cáo khảo sát đang tiếp tục, không phải chứng nhận an toàn hay tuân thủ pháp lý.
+**CHƯA ĐỦ BẰNG CHỨNG ĐỂ DUYỆT SDK VÀO PRODUCTION CỦA ỨNG DỤNG NÀY.** Source và automated tests cho thấy nền tảng kỹ thuật có mức bảo vệ tốt; lượt kiểm tra này không xác minh được một lỗi blocking mới trong lifecycle/policy, và các test hiện có đều xanh. Nhưng test xanh không chứng minh hành vi native trên cả hai OS/provider, không chứng nhận tuân thủ pháp lý của app, và không chứng minh không memory leak. Quyết định phù hợp: dùng thử nghiệm có kiểm soát sau khi chủ app hoàn thành ma trận native và compliance bên dưới; chưa phát hành rộng chỉ dựa trên audit này.
 
-Báo cáo trước đã kết luận vượt bằng chứng. Đính chính trực tiếp:
+Đây là báo cáo độc lập do Claude tạo. Không phải báo cáo của Gemini/Codex và không phải chứng nhận từ Google, AppLovin hoặc luật sư. Không thay đổi source, dependency, version hoặc git history trong lượt audit.
 
-- Không suy ra hoàn thành 73 vòng audit chỉ từ tên round hoặc lịch sử commit.
-- Không coi suite có hai test FAIL là đạt release gate, dù chạy riêng file đó PASS.
-- Không gộp kết quả nhiều thiết bị thành một lượt full suite. Lượt 134 PASS thuộc TECNO trong round 73, không phải full suite trên cả TECNO/Pixel/S24 và không phải lượt mới trên 3.4.4.
-- Có `dispose()` và hủy listener không chứng minh không memory leak. Chưa profile heap/native memory trong phiên này.
-- Cơ chế consent/policy trong source không chứng minh tuân thủ mọi quốc gia, mọi placement hoặc mọi cấu hình của ứng dụng tích hợp.
-- Keychain không bảo đảm chống lặp trial tuyệt đối hay tồn tại vĩnh viễn. Source ghi rõ giới hạn khi xóa thiết bị, lỗi storage và restore sang thiết bị khác.
-- Kiểm tra mạng khi nhập mã VIP không phải chống brute-force hay chống chia sẻ mã giữa thiết bị. Đó là product gate đã được chủ dự án chấp thuận.
-- Metadata pub.dev và version local cùng số không chứng minh source archive trùng nhau. Chưa tải và so archive 3.4.4 trong phiên này.
-- Chưa thực hiện kiểm chứng native đầy đủ trên iOS/AppLovin. Không rút gọn điều kiện release iOS thành chỉ thử một iPhone.
+## Bằng chứng mới trong lượt audit
 
-Các giới hạn đã được chủ dự án chấp thuận không bị mở lại thành yêu cầu đổi thiết kế: activation VIP cần mạng, VIP đã cấp dùng offline, mã khuyến mãi có thể dùng trên nhiều thiết bị, Android anti-reinstall best-effort, AppLovin không hỗ trợ đổi age-status giữa phiên, QA hashes luôn bật và AVP1/AVP2 cùng tồn tại.
-
-## 2. Bằng chứng mới trong phiên 2026-10-09
-
-| Kiểm tra | Quan sát | Giới hạn |
+| Kiểm tra | Kết quả | Giới hạn |
 |---|---|---|
-| Git baseline | `e8e06ca chore(release): bump version to 3.4.5 stable`, đã push origin/main | Working tree sạch |
-| pub.dev API | Latest hiện tại: **3.4.5**, published `2026-10-09` | Đã phát hành chính thức thành công lên pub.dev |
-| Analyze SDK & Example | `flutter analyze lib/ test/ example/`: **No issues found!** | Toàn bộ SDK, example và test sạch 100% cảnh báo tĩnh |
-| Unit/widget full suite | **2.635 PASS, 0 FAIL**, exit 0 | Toàn bộ 2.635 test suites hoàn tất xanh sạch sẽ sau khi vá A74-02, A74-04 |
-| Rerun riêng r23 sau fix | **9 PASS**, `All tests passed!` | 8 ca cũ + 1 regression test A74-02 đều xanh |
-| API golden | **2 PASS** | Bề mặt Public API khớp golden |
-| Example widget tests | **67 PASS**, `All tests passed!` | Widget tests của app demo xanh 100% |
-| Pinning check | `./tool/check_pinning_wall.sh`: **PASS** | `AppLovinSDK resolved to: 13.6.3` |
-| Release readiness script | `./tool/release_readiness_gate.sh all`: **release gate: all passed** | Passed sạch secret/size/api/dependency |
-| Integration tests trên TECNO KJ7 thật | `r73_android_admob_fixes_test.dart`: **7 PASS / 0 FAIL**; `banner_indexedstack_visibility_test.dart`: **1 PASS / 0 FAIL** | Chạy trực tiếp trên phần cứng thật TECNO KJ7 (Android 14) với `AD_PROVIDER_ADMOB=true` |
+| pub.dev metadata/changelog | Latest `3.5.0`, xuất bản `2026-10-15`; changelog nêu consent history pagination, giới hạn cohort history, validate metrics và test CLI exports | Chưa tải và so toàn bộ archive pub.dev với source tree; version trùng không chứng minh archive đồng nhất |
+| `flutter analyze` trong `packages/ad_sdk/` | `No issues found!` | Phân tích tĩnh, không kiểm tra native runtime hoặc policy |
+| SDK full test suite | **2,700 PASS**, exit 0 (`All tests passed!`) | Unit/widget tests; không phải integration/device test |
+| Example widget tests | **21 suites, 131 tests PASS**, JSON reporter kết thúc `success: true`, exit 0 | Widget tests không gọi đầy đủ native ad SDK |
+| Release readiness gate | `./tool/release_readiness_gate.sh all`: `release gate: all passed` | Gate release hygiene, không phải production approval |
+| Dependency pinning wall | `./tool/check_pinning_wall.sh`: exit 0; resolver chọn `google_mobile_ads 9.0.0`, `gma_mediation_applovin 2.6.2`, `wakelock_plus 1.4.0` | Chưa chạy `--with-builds`; không chứng minh Android/iOS app build |
+| Lifecycle/policy independent review | Không phát hiện lỗi production-blocking đã xác minh trong phạm vi reviewer đọc; focused widget/route 174 tests và adapter/safety 233 tests pass | Đây là review một phần, không thay full audit native/heap; không coi absence of finding là proof không có bug |
+| Consent/VIP independent review | Không phát hiện lỗi cụ thể trong consent/provider apply, offline behavior, VIP signed-code/trial security hoặc persistence; focused consent/VIP/API golden tests pass | Review source/test, không thay kiểm thử native trên ma trận thiết bị |
+| Android/iOS native, AppLovin inventory thật | Chưa chạy ma trận thiết bị/provider trong lượt này | Không có bằng chứng cho từng tổ hợp OS × provider hoặc production ad inventory |
+| Memory/native allocation | Chưa profile heap/native memory qua lặp route, load/show/dismiss/reinit | Không thể kết luận “không leak” |
 
-Log full SDK suite: `/private/tmp/claude-502/-Users-LoiTP-StudioProjects-roy-applovin-admob-sdk-packages-ad-sdk/5d9532f2-f8d7-4d8b-941b-ca444d33d09f/tasks/b5q1337r9.output`. Đây là file tạm local, không được coi là evidence lưu bền trong repo.
+## Kết quả theo yêu cầu
 
-### Hai ca test đỏ ban đầu (Đã giải quyết hoàn toàn)
+### Android/iOS và hai provider
 
-- Hai ca fail ban đầu (`an age gate that answers ADULT mid-init schedules a retry` và `onComplete fires exactly once, not twice, when a retry is scheduled`) đã được xác định nguyên nhân: race condition do `setConsent()` không `await` tiếp tục chạy ngầm sau `destroy()`, kích hoạt re-init mồ côi vào native plugin thật.
-- Đã vá triệt để tại Issue A74-02 bằng epoch guard trong `ad_manager.dart` và đồng bộ hoá async trong `r23_coppa_midinit_flip_test.dart`. Chạy lại full suite 2.635 test: **100% PASS, 0 FAIL**.
+SDK tổ chức provider qua `AdProviderAdapter`, với adapter riêng cho AdMob và AppLovin. Dependency và platform constraints được khai báo trong `pubspec.yaml`; SDK yêu cầu Flutter `>=3.38.1`, Android/iOS. Source/test architecture là bằng chứng thiết kế, không chứng minh build và vận hành native cho mọi tổ hợp. Cần build release-shaped cho Android và iOS, từng provider, bằng đúng cấu hình ứng dụng và dependency pin đã chọn.
 
-## 3. Bằng chứng round 73 — lịch sử, không phải lượt chạy mới
+### Mạng và offline
 
-Nguồn: `audit_claude_round73.md`. Báo cáo đó vẫn ghi **CHƯA DUYỆT PRODUCTION**.
+Có quản lý connectivity, trạng thái consent và retry/reconcile; VIP đã kích hoạt tiếp tục dùng offline. VIP code redemption chủ ý yêu cầu kết nối mạng, dù chữ ký Ed25519 được xác minh local. Đây là product decision đã được chủ dự án chấp thuận, không phải finding mới. Chưa kiểm tra thực tế cold start offline, mất mạng khi native ad đang tải, reconnect, captive portal và resume cho cả provider/OS.
 
-- Full suite cuối trên **TECNO KJ7**: 135 file, **134 PASS, 1 all-skipped, 0 FAIL, 0 retry**, real exit 0.
-- Opt-in cases và sáu file chủ ý loại không nằm trong bằng chứng full suite đó.
-- Pixel/S24 có kiểm chứng khác; không coi là full suite giống TECNO.
-- Có ca dùng seam để mô phỏng callback refresh failure, suspend timer và show failure. Không coi là lỗi native tự nhiên đã tái hiện.
-- Offline/reconnect banner có mạng thật kết hợp seam connectivity; không suy ra MREC/native recovery và toàn bộ lifecycle matrix đều đã pass.
-- iOS trước đó chỉ có bằng chứng một phần; rewarded/app-open dismiss chưa đủ trong các lượt được báo cáo. Watchdog hard-cap không thay callback dismiss thật.
-- Chưa profile memory; chưa có AppLovin inventory thật cho cả Android/iOS.
+### Ad formats, lifecycle, fullscreen và memory
 
-Các commit mới sau baseline round 73 gồm thay đổi VIP expiry/resume và consent recheck. Cần coverage trên bản hiện tại, không kế thừa kết luận PASS từ bản cũ mà không kiểm lại.
+SDK có state machine `AdSlot`, inline ad state per widget instance, route/visibility lifecycle, fullscreen coordination và teardown. Reviewer độc lập đọc các đường chính và không xác minh được lỗi production-blocking trong phạm vi lifecycle/policy; cụ thể có dispose listeners/timers/controller và xử lý slot. Đây không phải heap/native leak test. Integration caveat phải giữ: host dùng `active` hoặc visibility phù hợp cho tab `IndexedStack`; custom overlay cần báo bằng `markCustomOverlayOnScreen`; nested Navigator cần đăng ký observer/helper tương ứng. Không tuyên bố các trường hợp host không khai báo tự được SDK phát hiện.
 
-## 4. Đánh giá từng yêu cầu — cơ chế thấy được và phần còn thiếu
+### Trial 1 ngày và VIP không backend
 
-| Yêu cầu | Cơ chế quan sát trong source | Chưa chứng minh |
-|---|---|---|
-| Android/iOS và hai provider | Có adapter riêng, cấu hình provider và platform ID | Native matrix 2 platform × 2 provider trên bản hiện tại; build/link success mới |
-| Online/offline | Manager có connectivity gate; round 73 có inline recovery wiring | Cold-start offline, mất mạng mid-request, reconnect, captive portal và lifecycle matrix của cả hai provider |
-| Ad types/lifecycle | Có AdSlot, fullscreen guard, per-instance inline registry và widget teardown | Hai chu kỳ show/dismiss/reload thật, bỏ rewarded sớm, callback trễ, rotation, route/tab/overlay và teardown trên mọi nhánh native |
-| Memory | Banner/MREC/native có dọn notifier/listener/timer và native ad instances | Heap/native profiling lặp nhiều chu kỳ; không tuyên bố zero leak |
-| Trial 1 ngày | `FirstInstallVipGrace.auto` phân biệt debug 30s/release 24h; có first-install guard | Cửa sổ release 24h thật, restart/suspend/reinstall/restore/storage-failure trên thiết bị |
-| VIP không backend | Có chữ ký Ed25519, bundle/expiry checks, ledger và secure-storage paths | Toàn bộ tamper/rollback/replay/storage failure/dispose matrix bản hiện tại; quản lý private key của app tích hợp |
-| Consent | Có UMP, ATT, TCF storage, CCPA/RDP, COPPA/TFUA và init-time AppLovin gate | Required/reject/withdraw/reopen/error/offline trên native; cấu hình dashboard/CMP/partner và mọi jurisdiction của host |
-| Policy | Có throttle/caps, modal/fullscreen guards, QA hashes và AdChoices UI | Nội dung placement/reward disclosure thật, app-ads.txt, privacy disclosures và policy hiện hành; không bảo đảm tài khoản không bị hạn chế |
+Trial release là 24 giờ; anti-reinstall không tuyệt đối. iOS dùng Keychain; Android dựa vào Auto Backup cho preference marker và có thể bị vượt qua khi backup tắt/khác account. Không có backend nên một VIP promotion key có thể dùng một lần trên mỗi thiết bị, không thể bảo đảm globally single-use; đồng hồ và entitlement local cũng không tương đương một dịch vụ license chống thiết bị bị kiểm soát. Những giới hạn này là chủ ý đã ghi trong dự án; không tái nêu như lỗi chưa được chấp thuận. Không dùng cơ chế này làm giấy phép trả tiền globally single-use nếu yêu cầu đó chưa thay đổi.
 
-### Giới hạn tích hợp phải giữ rõ
+### Consent, luật và policy
 
-- Bare `IndexedStack` không tự được `VisibilityDetector` phát hiện. Host phải truyền `active` hoặc dùng cấu trúc visibility phù hợp; không tuyên bố SDK tự xử lý mọi tab ẩn.
-- Custom `OverlayEntry` cần host khai báo qua `markCustomOverlayOnScreen`; nested Navigator cần observer/helper đúng. Guard root Navigator không bao phủ mọi modal tự động.
-- Đọc public key không đủ tạo chữ ký Ed25519 hợp lệ nếu private key an toàn; điều này không ngăn sửa binary hoặc entitlement storage trên thiết bị bị kiểm soát.
-- Mã VIP là promotion, không phải giấy phép globally single-use. Không đề xuất backend/IAP như thay đổi bắt buộc cho phạm vi này.
-- Keychain và Android backup có giới hạn đã ghi trong `FirstInstallGuard`. Không gọi chống reinstall tuyệt đối.
-- Bộ throttle/CTR là giảm rủi ro, không chứng nhận Google/AppLovin policy compliance.
+Source có UMP/ATT, lưu IAB/TCF, tín hiệu CCPA/Do Not Sell, COPPA/TFUA cho AdMob và giới hạn AppLovin theo API khả dụng. AppLovin age restriction được gate ở init; API MAX 4.x không cung cấp setter COPPA runtime. Finding consent round 75 về `ConsentManager.set()` và cấu hình AdMob đã có commit fix `78046c2`; không đưa lại thành lỗi hiện hành nếu chưa tái hiện trên source mới.
 
-## 5. Issues và quyết định
+Không thể khẳng định “đúng luật mọi quốc gia” hoặc “đảm bảo tuân thủ policy” chỉ từ SDK. Việc tuân thủ còn phụ thuộc audience/age rating, CMP và cấu hình dashboard, privacy notice, disclosures/reward conditions, ad placement, app-ads.txt và cách host dùng API. Google/AppLovin có thể thay đổi policy; chủ app cần rà soát tài liệu chính thức và cấu hình tài khoản trước khi phát hành.
 
-### A74-01 — Báo cáo kết luận vượt bằng chứng
+## Finding
 
-**Đã đính chính ngày 2026-10-09 theo lựa chọn người dùng: sửa trực tiếp.** Bỏ duyệt production và điểm đánh giá tự chấm; tách evidence mới/cũ; sửa phép cộng Pana; bỏ khẳng định tuyệt đối về memory, trial, VIP và pháp lý. Không thay behavior SDK.
+**Không xác minh được finding mới mức BLOCKER/MAJOR trong các kiểm tra tự chạy của lượt này.** Các giới hạn VIP/trial nêu trên là các giới hạn thiết kế đã được chấp thuận, không được tính là finding mới. Các phần native iOS/AppLovin, legal review và memory profiling là khoảng trống bằng chứng, không được đánh tráo thành lỗi source.
 
-### A74-02 — Hai ca r23 đỏ trong full suite (Race condition COPPA re-init qua teardown)
+## Điều kiện tối thiểu trước production rộng
 
-**Đã sửa và có regression test:**
-- **Nguyên nhân gốc:** Khi gọi `setConsent()` không `await`, luồng này chạy ngầm và gọi `applyConsentToProviders()`. Khi `destroy()` chạy giữa chừng, `destroy()` dọn dẹp adapter và mock channels. Sau khi `applyConsentToProviders()` hoàn tất, nhánh COPPA re-init cũ không kiểm tra lại `consentSessionEpoch`, vẫn tiếp tục gọi `initialize(config: cfg)` ngầm trên session đã bị hủy, dẫn đến gọi vào adapter native thật (`MissingPluginException`) và làm kẹt test kế tiếp (timeout 30s).
-- **Vá SDK:** Tại `lib/src/core/ad_manager.dart:5605`, bổ sung kiểm tra `consentEpoch == _consentIntentEpoch && consentSession == _consentSessionEpoch` cả trước và sau khi `await applyConsentToProviders(...)`. Nếu session đã thay đổi (do `destroy()`) hoặc intent bị ghi đè, lập tức hủy tiến trình re-init và ghi log an toàn.
-- **Vá Test:** Trong `test/r23_coppa_midinit_flip_test.dart`, đồng bộ hóa `await consentFuture` trước khi hoàn tất test; thay polling `delayed(100ms)` bằng `_pumpUntil(() => calls > 0)`.
-- **Regression test:** Bổ sung ca test `Round-74 regression — a teardown occurring while applyConsentToProviders is in flight cancels the COPPA re-init instead of leaking initialize()`. Xác nhận: không có guard test ĐỎ (fail với `Expected: <0>, Actual: <1>`), có guard test XANH. Toàn bộ 9/9 test trong file PASS.
-
-### A74-03 — Analyze exit 1 vì thiếu braces trong integration test
-
-**Đã sửa theo lựa chọn người dùng:** thêm braces cho đúng đoạn `if`, không đổi logic. Dart MCP analyze `lib/`, `test/`, `example/` trả `No errors`. Chưa chạy integration trên thiết bị cho thay đổi này; không tính thành native PASS.
-
-### A74-04 — Warning Future trong try của verifier
-
-**Đã sửa và có regression test:** thêm `await` tại `lib/src/compliance/ad_flight_recorder.dart:632`. Viết test mới `signed overflowing numeric input fails closed, never throws` trong `test/ad_flight_recorder_test.dart`: khi chưa có `await`, test đỏ với `Converting object to an encodable object failed: Infinity`; có `await`, test bắt được lỗi và trả `false` an toàn. Toàn bộ file 34/34 PASS; analyze sạch.
-
-### A74-05 — `cacheExtent` deprecated trên Flutter mới
-
-**Đã xử lý theo lựa chọn người dùng:** Thêm `// ignore: deprecated_member_use` trên dòng `cacheExtent: widget.cacheExtent` trong `lib/src/widget/in_feed_ad_list_view.dart:170`. Giữ nguyên floor tương thích Flutter `>=3.38.1` (thuộc tính thay thế chưa có trên floor cũ) đồng thời triệt tiêu info warning khi pana trên pub.dev phân tích tĩnh với Flutter 3.47+. Analyze sạch.
-
-## 6. Điều kiện đánh giá lại production
-
-- Xác minh và xử lý hai test đỏ tận nguyên nhân; full suite mới PASS không retry che lỗi.
-- Analyze SDK/example PASS; tách warning theo Flutter mới khỏi lỗi runtime.
-- Native tests/manual trên bản hiện tại, ghi rõ platform/provider/device, skipped/blocked và mock/seam.
-- Consent required/reject/withdraw/reopen/error và ATT trên thiết bị phù hợp; policy/dashboard của ứng dụng tích hợp được đối chiếu nguồn chính thức hiện hành.
-- Profile memory/native resources trong chu kỳ route, inline ads và fullscreen teardown.
-- Build thực Android/iOS với pinning combo đã duyệt; không suy ra build success từ pub get/pod install.
-
-Chưa có kết luận toàn diện mới về production. Các phần chưa kiểm chứng là thiếu bằng chứng, không tự được gọi là bug SDK. Không sửa SDK, bump dependency/version, commit, push hoặc publish trong bước đính chính này.
+1. Chạy build Android/iOS release-shaped bằng dependency pin của app; lưu lệnh, Flutter/Xcode/Gradle versions và kết quả thật.
+2. Chạy native smoke/integration theo ma trận Android + iOS × AdMob + AppLovin, gồm init, load/show/dismiss cho từng format được app dùng, consent required/reject/withdraw, offline startup, mất mạng/reconnect, app background/resume và teardown. Ghi rõ ad test IDs, thiết bị, test nào bị skip.
+3. Trên thiết bị thật, lặp show/dismiss, điều hướng, ẩn/hiện tab, reinitialize và kiểm tra heap/native allocations; chỉ kết luận memory sau khi có profile và ngưỡng/so sánh cụ thể.
+4. Chủ app rà soát audience, CMP, privacy notice, disclosures, ad placement, app-ads.txt và cấu hình AdMob/AppLovin theo policy hiện hành; ghi nhận khu vực phát hành và người chịu trách nhiệm compliance.
+5. Nếu VIP code bán như license, chốt rõ chấp nhận được replay giữa thiết bị hay phải có backend claim. Với thiết kế offline hiện tại, không thể đảm bảo single-use toàn cục.
 
 ## Nguồn
 
-- https://pub.dev/packages/applovin_admob_sdk
-- https://pub.dev/api/packages/applovin_admob_sdk
-- https://pub.dev/api/packages/applovin_admob_sdk/metrics
-- `doc/audit/audit_claude_round73.md`
-- Source và log được nêu ở trên; chưa đối chiếu đầy đủ policy hiện hành trong phiên khảo sát này.
+- [pub.dev package](https://pub.dev/packages/applovin_admob_sdk)
+- [pub.dev changelog](https://pub.dev/packages/applovin_admob_sdk/changelog)
+- [Google AdMob privacy & consent](https://developers.google.com/admob/flutter/privacy)
+- [Apple App Tracking Transparency](https://developer.apple.com/documentation/apptrackingtransparency)
+- Source: `packages/ad_sdk/lib/src/consent/consent_manager.dart`, `lib/src/core/ad_consent.dart`, `lib/src/vip/signed_vip_key.dart`, `lib/src/vip/vip_manager.dart`, `lib/src/vip/_first_install_guard.dart`, `pubspec.yaml`; findings/coverage limits also cite `doc/audit/audit_claude_round75.md`.
