@@ -3923,10 +3923,10 @@ class AdManager with WidgetsBindingObserver {
       AdSafetyConfig.setAnomalySink(_emit); // T25: anomaly/fraud alert stream
 
       // ── Release footguns (loud, fire in release where it matters) ──────────
-      // isDebug: kDebugMode on purpose (not isActuallyRelease()) — these
-      // warnings must still fire in profile-mode builds, unlike the
-      // isActuallyRelease() call sites below, which gate release-only guards.
-      for (final w in releaseFootgunWarnings(config, isDebug: kDebugMode)) {
+      // Release footgun warnings must not assert in profile builds: profile
+      // is non-release but still used for staging measurements with test ads.
+      for (final w in releaseFootgunWarnings(
+          config, isDebug: !isActuallyRelease(isRelease))) {
         SafeLogger.e(_tag, w);
         assert(false, w);
       }

@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
@@ -458,6 +459,14 @@ void main() {
         expect(w, isEmpty);
       },
     );
+
+    test('profile build does not run release footgun warnings', () {
+      final w = AdManager.releaseFootgunWarnings(
+        _admobConfig(dryRun: false, testIds: true),
+        isDebug: !kReleaseMode,
+      );
+      expect(w, isEmpty);
+    });
 
     test('release + AdMob Google test IDs → one warning', () {
       final w = AdManager.releaseFootgunWarnings(

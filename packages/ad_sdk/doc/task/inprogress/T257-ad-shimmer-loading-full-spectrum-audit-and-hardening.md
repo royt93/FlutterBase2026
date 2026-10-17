@@ -2,7 +2,7 @@
 
 - **Loại:** Hardening / Enhancement / Performance
 - **Priority:** P0 · **Severity:** HIGH
-- **Status:** todo (chuyển sang `inprogress/` khi làm, sang `done/` khi hoàn tất)
+- **Status:** inprogress (đang triển khai)
 
 ## Bối cảnh & Vấn đề
 
@@ -28,6 +28,18 @@ Trong `lib/src/widget/shimmer_view.dart`, `ShimmerView` được sử dụng là
 - [ ] Network conditioning test: khi mất mạng giữa chừng, shimmer tự chuyển sang trạng thái collapse an toàn, không giật lag.
 - [ ] Frame rate/jank test: giảm thiểu frame drop, đạt 60fps ổn định trên thiết bị vật lý.
 - [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
+
+## Tiến độ thực tế (2026-10-17) — CHƯA đủ điều kiện done
+
+Đã xong: Dark Mode theo Theme, Ticker dừng khi app paused/inactive/hidden, cờ `active`, 13 test + 2 golden, suite 2718 xanh.
+
+Còn thiếu (không được tick done khi chưa làm):
+- [ ] Smoke test Pixel 7 Pro (máy đang không kết nối adb).
+- [ ] Giải pháp #3 (collapse sau ~10s không có kết quả) CHƯA code; test "network cut" hiện chỉ chứng minh widget cha unmount được, không chứng minh hành vi thật.
+- [ ] Test "60fps" trong flutter test không đo FrameTiming thật; cần số `gfxinfo` trên máy.
+- [ ] `BannerAdWidget`/`MrecAdWidget` chưa truyền `active` vào ShimmerView (chỉ Native).
+- [ ] Gỡ `// ignore_for_file: unused_field` thừa; lib sát trần 2048KB của release gate (đã cắt comment cũ của shimmer_view để qua gate).
+- [ ] Chưa có audit độc lập chấm điểm >9/10.
 
 ## Kế hoạch kiểm thử
 

@@ -1,4 +1,4 @@
-# T260 — Tích Hợp Kiểm Tra Cấu Hình Android Auto Backup Vào Runtime Integration Doctor
+# T260 — Tích Hợp Kiểm Tra Cấu Hình Android Auto Backup Vào Runtime Integration Self-Check
 
 - **Loại:** Enhancement / Security Hardening
 - **Priority:** P1 · **Severity:** MEDIUM
@@ -13,20 +13,20 @@ SDK áp dụng cơ chế 1-day VIP trial (dùng thử miễn phí 24 giờ khôn
 
 ## Đề xuất giải pháp
 
-1. Mở rộng `IntegrationDoctor` (`doctor.dart` / runtime self-check):
-   - Thêm phương thức kiểm tra cảnh báo tích hợp Android Auto Backup: `checkAndroidBackupIntegrity()`.
-   - Nếu phát hiện cấu hình backup của ứng dụng bị vô hiệu hóa (`allowBackup="false"` hoặc thiếu quy tắc include cho SharedPreferences), in ra hướng dẫn rõ ràng trong logcat ở chế độ debug/profile để lập trình viên biết và giữ lại file cờ trial.
-2. Bổ sung helper script hoặc tài liệu hướng dẫn trong `doc/` về cấu hình XML chuẩn.
+1. Mở rộng `runIntegrationSelfCheck` (`lib/src/core/integration_self_check.dart`):
+   - Thêm hạng mục kiểm tra cảnh báo tích hợp Android Auto Backup cho 1-day trial.
+   - Khi chạy ở chế độ debug/profile, nếu môi trường Android thiếu cấu hình backup an toàn cho SharedPreferences, ghi nhận một `IntegrationCheckItem` dạng warning trong báo cáo self-check để lập trình viên biết và giữ lại file cờ trial.
+2. Cập nhật tài liệu hướng dẫn trong `doc/` về cấu hình XML backup chuẩn cho Android.
 
 ## Acceptance Criteria
 
-- [ ] `IntegrationDoctor` phát hiện và cảnh báo nếu host app vô hiệu hóa Auto Backup gây hổng cơ chế 1-day trial.
-- [ ] Không làm crash ứng dụng nếu host app cố tình tắt backup; chỉ ghi log cảnh báo rõ ràng.
+- [ ] `runIntegrationSelfCheck` trong `lib/src/core/integration_self_check.dart` kiểm tra và cảnh báo nếu host app vô hiệu hóa Auto Backup gây hổng cơ chế 1-day trial.
+- [ ] Không làm crash ứng dụng nếu host app tắt backup; chỉ ghi log và trả kết quả item warning trong self-check report.
 - [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
 
 ## Kế hoạch kiểm thử
 
-- **Unit test:** Kiểm tra logic cảnh báo của doctor khi cung cấp các giả lập cấu hình backup khác nhau.
+- **Unit test:** Kiểm tra logic cảnh báo của self-check trong `test/integration_self_check_test.dart` khi cung cấp các giả lập cấu hình backup khác nhau.
 - **Integration test:** Chạy self-check trên Pixel 7 Pro và xác nhận kết quả kiểm tra được xuất ra đúng định dạng.
 
 ---
@@ -35,7 +35,7 @@ SDK áp dụng cơ chế 1-day VIP trial (dùng thử miễn phí 24 giờ khôn
 
 ```markdown
 Triển khai task T260 theo quy trình kỹ thuật nghiêm ngặt:
-1. Đọc kỹ file task này và lib/src/doctor/doctor.dart, lib/src/vip/_first_install_guard.dart.
+1. Đọc kỹ file task này và lib/src/core/integration_self_check.dart, lib/src/vip/_first_install_guard.dart.
 2. Viết test trước để kiểm tra các kịch bản cấu hình backup (TDD).
 3. Triển khai mã nguồn tối giản nhất có thể để vượt qua các test.
 4. Tín hiệu kết thúc vòng lặp (End Loop Signals) BẮT BUỘC:

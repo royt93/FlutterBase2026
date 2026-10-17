@@ -710,7 +710,11 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
           builder: (context, loaded, _) {
             if (!loaded) {
               return ShimmerView(
-                  cornerRadius: 0, width: double.infinity, height: _height);
+                cornerRadius: 0,
+                width: double.infinity,
+                height: _height,
+                active: widget.active,
+              );
             }
             final view = AdManager().admobNativeView(this);
             if (view == null) {

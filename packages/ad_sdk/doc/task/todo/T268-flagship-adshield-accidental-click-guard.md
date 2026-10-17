@@ -1,36 +1,35 @@
-# T268 — Tính Năng Độc Quyền: Lá Chắn Bảo Vệ Chống Click Nhầm "AdShield" (Touch Guard Zone)
+# T268 — Rà Soát & Phòng Ngừa Click Nhầm Theo Chính Sách AdMob (Accidental Clicks Prevention & Layout Safety)
 
-- **Loại:** Flagship Feature / Account Protection & Anti-Fraud
-- **Priority:** P0 · **Severity:** HIGH
+- **Loại:** Enhancement / Policy Compliance & Account Safety
+- **Priority:** P1 · **Severity:** MEDIUM
 - **Status:** todo (chuyển sang `inprogress/` khi làm, sang `done/` khi hoàn tất)
 
 ## Bối cảnh & Vấn đề
 
-Nguyên nhân hàng đầu khiến các tài khoản Google AdMob bị giới hạn quảng cáo (Ad serving limit) hoặc bị khóa vĩnh viễn là: **Lưu lượng truy cập không hợp lệ do click nhầm (Accidental Clicks)**:
-- Người dùng đang lướt app hoặc chuẩn bị bấm vào một nút, quảng cáo banner bất ngờ nạp xong hoặc quảng cáo xen kẽ bất ngờ bật lên đúng vị trí ngón tay đang bấm xuống.
-- Hoặc khi nút "Đóng" (X) vừa xuất hiện, người dùng bấm quá sát mép viền khiến hệ điều hành ghi nhận chạm vào vùng quảng cáo thay vì nút đóng.
-- Tỷ lệ click nhầm cao khiến Google đánh giá ứng dụng cố tình đánh lừa người dùng, dẫn đến khóa tài khoản kiếm tiền mà không thể kháng cáo.
+Chính sách của Google AdMob về "Lưu lượng truy cập không hợp lệ" (Invalid Traffic) nghiêm cấm các hành vi dẫn tới click nhầm (Accidental Clicks):
+- Đặt quảng cáo quá sát các nút bấm điều hướng hoặc thanh cuộn khiến ngón tay vô tình chạm trúng khi thao tác.
+- Quảng cáo nạp chậm làm đẩy lệch bố cục màn hình (Layout Shift) đúng lúc người dùng chuẩn bị bấm vào nội dung app.
+- **Cảnh báo kỹ thuật:** Tuyệt đối KHÔNG sử dụng các kỹ thuật chặn cảm ứng nhân tạo (như phủ lớp màng trong suốt đè lên ad platform view) vì Google coi việc can thiệp vào tầng chạm của native ad là hành vi che khuất/sửa đổi quảng cáo trái phép.
 
-## Đề xuất giải pháp (Tính năng độc quyền)
+## Đề xuất giải pháp (Tuân thủ chính sách AdMob)
 
-Xây dựng hệ thống bảo vệ **AdShield Touch Guard**:
-1. **Khóa cảm ứng 500ms khi hiển thị (Mount Touch Lock):**
-   - Khi một quảng cáo toàn màn hình (Interstitial, Rewarded, App Open) hoặc Native Ad vừa render xong lên màn hình: một lớp màng bảo vệ trong suốt vô hình khóa tương tác cảm ứng chạm vào ad trong đúng **500 miligiây đầu tiên**.
-   - Nếu ngón tay vô tình chạm trúng trong 500ms này, sự kiện chạm bị triệt tiêu hoàn toàn, không mở trình duyệt quảng cáo.
-2. **Edge Tap Filter (Bộ lọc viền nút đóng):**
-   - Tự động mở rộng vùng nhận diện của nút "Đóng" thêm 8px ra xung quanh, ngăn ngừa việc chạm hụt nút X làm kích hoạt quảng cáo.
+1. **Khóa chiều cao tối thiểu tránh Layout Shift:**
+   - Trong `BannerAdWidget`, `MrecAdWidget` và `NativeAdWidget`, đảm bảo placeholder luôn giữ đúng diện tích dự kiến trong suốt quá trình loading (đã kết hợp với `ShimmerView` ở T257).
+2. **Khuyến nghị & Cảnh báo khoảng cách an toàn (Proximity Guard):**
+   - Hướng dẫn và kiểm tra khoảng đệm tối thiểu (margin >= 8-16dp) giữa banner/native ad và các nút bấm tương tác quan trọng của host app.
+3. **Chống kích hoạt hiển thị bất ngờ:**
+   - Khi người dùng đang thao tác cuộn nhanh hoặc gõ bàn phím, trì hoãn hiển thị ad toàn màn hình cho đến khi tác vụ người dùng kết thúc.
 
 ## Acceptance Criteria
 
-- [ ] Trong 500ms đầu tiên sau khi ad hiện, mọi cú chạm vô tình đều bị chặn, không bao giờ mở trang đích quảng cáo.
-- [ ] Sau 500ms, quảng cáo phản hồi click bình thường cho người dùng có nhu cầu tìm hiểu thật.
-- [ ] Giảm thiểu 99% rủi ro bị Google AdMob phạt lỗi Accidental Clicks / Invalid Traffic.
+- [ ] Giữ vững diện tích khung ad trong lúc nạp, loại bỏ hiện tượng giật layout (Cumulative Layout Shift = 0).
+- [ ] Tuân thủ 100% Google Publisher Policies về Unintended Clicks (không can thiệp platform touch channel trái phép).
 - [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
 
 ## Kế hoạch kiểm thử
 
-- **Widget test:** Bấm vào ad ở ms 200 (xác nhận click bị chặn), bấm ở ms 600 (xác nhận click được ghi nhận).
-- **Integration test:** Thao tác trên Google Pixel 7 Pro thật để kiểm chứng cảm giác mượt mà và an toàn.
+- **Widget test:** Kiểm tra layout không bị co giật khi chuyển từ Shimmer sang Loaded.
+- **Integration test:** Thao tác cuộn trên Pixel 7 Pro và xác nhận banner không nhảy vị trí.
 
 ---
 
@@ -38,8 +37,8 @@ Xây dựng hệ thống bảo vệ **AdShield Touch Guard**:
 
 ```markdown
 Triển khai task T268 theo quy trình kỹ thuật nghiêm ngặt:
-1. Đọc kỹ file task này và lib/src/core/ad_safety_config.dart, lib/src/widget/ad_screen.dart, lib/src/widget/banner_ad_widget.dart.
-2. Viết test trước để kiểm tra cơ chế chặn click trong 500ms đầu (TDD).
+1. Đọc kỹ file task này và lib/src/widget/banner_ad_widget.dart, lib/src/widget/native_ad_widget.dart.
+2. Viết test trước để kiểm tra tính ổn định layout (TDD).
 3. Triển khai mã nguồn tối giản nhất có thể để vượt qua các test.
 4. Tín hiệu kết thúc vòng lặp (End Loop Signals) BẮT BUỘC:
    - Hãy audit lại code changes và chấm điểm trên thang điểm 10.
