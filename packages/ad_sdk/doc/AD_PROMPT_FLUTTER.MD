@@ -4,7 +4,16 @@
 
 **This is a step-by-step integration prompt for an AI coding agent, and a detailed reference for a junior engineer.** For AI-assisted use, start the agent in the consuming Flutter project and provide this complete file. It should fill Section 0 from partner-approved values, ask before unresolved decisions, then follow Steps 1–12 in order. Steps 9–10 are conditional on approved VIP scope; provider-specific native setup is conditional on the selected provider/platform. Review each change and recorded test result before handoff.
 
-**Manual/junior-developer use:** read `packages/ad_sdk/README.md` → Quick start once for the minimal working integration, then follow Steps 0–12 here in order. Fill Section 0 before editing; Step 2 records current state; Step 3 records the plan; Steps 4–10 make only approved changes; Steps 11–12 collect evidence and handoff. Skip only the explicitly conditional steps whose feature is out of scope, and record that decision in `<PROJECT_PATH>/doc/AD.MD`.
+**Manual/junior-developer use:** 
+If integrating manually, use the companion standalone `example/` project (packaged via `tool/package_partner_example.sh` or extracted from `ad_sdk_partner_bundle.zip`).
+1. **Run the example first:** `cd example && flutter pub get && flutter run` on a real device/emulator to see all working ad formats (Banner, Interstitial, Rewarded, App Open, Consent UMP, VIP) in action.
+2. **Direct code mapping from `example/` to your project:**
+   - **Bootstrap & Splash lifecycle (Steps 4.1–4.2):** see `example/lib/main.dart` lines 1–40 (`setNavigatorKey`, observers) and `_SplashScreenState` (hard-cap, `AdLoadingDialog.showAdBuffer`, `showAppOpenAd`).
+   - **Ad surfaces (Steps 4.4–4.7):** see `BannerDemoPage`, `MrecDemoPage`, `InterstitialDemoPage`, and `RewardedDemoPage` in `example/lib/main.dart`.
+   - **Android configuration (Step 4.0b):** compare with `example/android/app/src/main/AndroidManifest.xml` (permissions, AdMob App ID) and `example/android/app/build.gradle.kts` (Kotlin 2.3+ compilerOptions).
+   - **iOS configuration (Step 4.0c):** compare with `example/ios/Runner/Info.plist` (contains complete `SKAdNetworkItems` array, `GADApplicationIdentifier`, and ATT description).
+   - **Custom Native Ad Factory (Step 4.9):** copy `example/android/app/src/main/kotlin/.../T228CustomNativeAdFactory.kt` and `example/ios/Runner/T228CustomNativeAdFactory.swift` directly into your host app if using native ads.
+3. Then follow Steps 0–12 here in order. Fill Section 0 before editing; Step 2 records current state; Step 3 records the plan; Steps 4–10 make only approved changes; Steps 11–12 collect evidence and handoff. Skip only the explicitly conditional steps whose feature is out of scope, and record that decision in `<PROJECT_PATH>/doc/AD.MD`.
 
 **Example conventions:** GetX, `BaseStatefulState`, `SafeLogger`, and `.tr` appear in historical examples from one host app; they are not SDK requirements. Keep the partner app's existing state management, navigation, localization, and logging. The SDK-specific constraints are called out in each step (navigator setup, splash event ordering, ad safety, consent-before-provider initialization, and optional VIP behavior).
 
