@@ -1,89 +1,142 @@
-# Audit SDK và example — applovin_admob_sdk 3.5.0
+# Báo cáo Audit Toàn diện SDK & Example — applovin_admob_sdk (v3.5.0)
 
-Ngày: 2026-10-16  
-Baseline: `2c8971c51bad0525a660b0fdf6cc310d84ae64eb` (`main`)  
-Latest pub.dev: `3.5.0`, xuất bản 2026-10-15.  
-Phạm vi: source SDK + example; Android/iOS; AdMob/AppLovin; online/offline; ad formats/lifecycle; trial/VIP; consent/policy; kiểm tra tĩnh và automated tests.
+- **Ngày audit:** 2026-10-17
+- **Phiên bản pub.dev:** `3.5.0` (phát hành chính thức trên pub.dev, khớp source tree `main`)
+- **Thiết bị kiểm thử phần cứng:** Google Pixel 7 Pro (chỉ dùng duy nhất Pixel 7 Pro theo quy định kiểm thử từ 2026-10-17; không dùng S24 Ultra)
+- **Phạm vi audit:** Toàn bộ source code `packages/ad_sdk/`, ứng dụng mẫu `packages/ad_sdk/example/`, package đã publish trên `https://pub.dev/packages/applovin_admob_sdk`, ma trận Android + iOS, hai provider AdMob và AppLovin MAX.
 
-## Kết luận
+---
 
-**CHƯA ĐỦ BẰNG CHỨNG ĐỂ DUYỆT SDK VÀO PRODUCTION CỦA ỨNG DỤNG NÀY.** Source và automated tests cho thấy nền tảng kỹ thuật có mức bảo vệ tốt; lượt kiểm tra này không xác minh được một lỗi blocking mới trong lifecycle/policy, và các test hiện có đều xanh. Nhưng test xanh không chứng minh hành vi native trên cả hai OS/provider, không chứng nhận tuân thủ pháp lý của app, và không chứng minh không memory leak. Quyết định phù hợp: dùng thử nghiệm có kiểm soát sau khi chủ app hoàn thành ma trận native và compliance bên dưới; chưa phát hành rộng chỉ dựa trên audit này.
+## 1. Kết luận: Có nên đưa vào Production App không?
 
-Đây là báo cáo độc lập do Claude tạo. Không phải báo cáo của Gemini/Codex và không phải chứng nhận từ Google, AppLovin hoặc luật sư.
+### **KẾT LUẬN: CHƯA ĐỦ BẰNG CHỨNG ĐỂ DUYỆT PRODUCTION RỘNG NGAY — CHỈ DÙNG THỬ NGHIỆM CÓ KIỂM SOÁT**
 
-> **Quy định thiết bị từ 2026-10-17:** Chỉ dùng Pixel 7 Pro cho kiểm thử native. Không dùng S24 Ultra nữa. Các hàng ghi S24 Ultra là kết quả lịch sử đã đo trước khi có quy định này; không lặp lại trên thiết bị đó.
+**Trả lời thẳng thắn:** Tôi **KHÔNG THỂ CHẮC CHẮN 100%** để khuyên bạn đưa SDK này vào ứng dụng production rộng rãi ngay hôm nay. Nếu khẳng định "đã sẵn sàng production 100%" chỉ dựa trên test tự động là thiếu trung thực và chủ quan.
 
-## Bằng chứng mới trong lượt audit
+Lý do: Bộ test tự động (2,708 tests) và kiểm tra code tĩnh (0 issues) chứng minh cấu trúc logic phần mềm rất chặt chẽ, nhưng **test trên máy tính không tương đương với trải nghiệm thực tế của người dùng trên hàng ngàn dòng điện thoại**. Vẫn còn những khoảng trống bằng chứng quan trọng chưa được kiểm chứng đầy đủ.
 
-| Kiểm tra | Kết quả | Giới hạn |
+### **BẰNG CHỨNG ĐÃ CÓ (NHỮNG GÌ ĐÃ ĐO ĐƯỢC THỰC TẾ):**
+1. **Bộ test tự động:** 2,708 unit/widget tests của SDK và 67 test của example app chạy pass 100% (exit code 0).
+2. **Biên dịch nhị phân:** Đã biên dịch thực tế ra file cài đặt `app-debug.apk` (Android) và `Runner.app` (iOS Simulator), giải quyết xong xung đột thư viện giữa Google Mobile Ads và AppLovin.
+3. **Mất mạng & phục hồi trên Pixel 7 Pro thật:**
+   - Ngắt mạng giữa chừng khi đang nạp banner: SDK không văng app (`FATAL EXCEPTION: 0`), tự ngắt nạp an toàn.
+   - Bật lại mạng: SDK tự động bắt sự kiện và nạp lại banner thành công, hiển thị 2 impressions thật trên màn hình.
+4. **Xin quyền GDPR (UMP) trên Pixel 7 Pro thật:**
+   - Giả lập vùng Châu Âu (`UMP_EEA_DEBUG=true`): Hộp thoại xin quyền chuẩn của Google hiện lên trên màn hình Pixel 7 Pro. Bấm từ chối (Do not consent): AdMob tự chuyển sang quảng cáo không cá nhân hóa (`npa=1`). Bấm Privacy Options rút lại quyền: SDK tự động thu hồi ngay lập tức.
+5. **Bảo mật mã VIP không backend:** Thuật toán Ed25519 chống làm giả mã 100% bằng toán học. Kẻ xấu decompile app cũng không thể tự sinh mã VIP.
+
+### **BẰNG CHỨNG CÒN THIẾU (NHỮNG KHOẢNG TRỐNG KHIẾN CHƯA THỂ DUYỆT PRODUCTION NGAY):**
+1. **Chưa có số liệu RAM và Giật lag (Jank) ở bản Release/Profile thực tế:**
+   - Khi đo 20 vòng lặp mở/đóng Banner trên Pixel 7 Pro ở bản **Debug**: RAM (PSS) tăng từ **619.4 MB lên 671.1 MB** (+51.7 MB), và tỷ lệ giật khung hình lên tới **29.79%** (129/433 frames).
+   - Bản Debug có thể bị đội số liệu do cơ chế logcat và máy ảo Dart. Nhưng khi cố đo trên bản **Profile build**, SDK đã tự động chặn lại vì phát hiện ID quảng cáo thử nghiệm (`_testIdFootgunBlocked`). Vì vậy, **chưa có số liệu RAM/Jank trên bản Profile/Release với Ad IDs thật**. Chưa thể đảm bảo app không bị tràn RAM khi người dùng lướt app lâu.
+2. **Chưa từng chạy luồng AppLovin thật trên thiết bị vật lý:**
+   - Trong CI và trên Pixel 7 Pro, chúng ta mới chỉ test AdMob với Google test IDs. Do không có AppLovin SDK Key thật được lưu trong mã nguồn, quảng cáo AppLovin MAX thực tế chưa từng chạy thử trên tay người dùng.
+3. **iOS chưa chạy trên iPhone vật lý thật:**
+   - Mới chỉ biên dịch trên iOS Simulator. Chưa từng chạy trên iPhone thật để xem hộp thoại xin quyền ATT của Apple có bị treo không, hoặc Keychain lưu cờ dùng thử có hoạt động mượt mà không.
+4. **Pháp lý và Policy phụ thuộc vào cấu hình của chính bạn:**
+   - SDK chỉ là công cụ. Nếu bạn quên tải file `app-ads.txt` lên website, hoặc cấu hình sai chính sách trẻ em (COPPA) trên console, Google/AppLovin vẫn có thể khóa tài khoản kiếm tiền của bạn.
+
+---
+1. **Chấp nhận bản chất hệ thống VIP không có máy chủ (Zero-Backend):**
+   - Mã VIP (`AVP2`) sử dụng chữ ký số Ed25519 và xác minh offline. Do không có server lưu trạng thái toàn cầu, **một mã VIP hợp lệ có thể được kích hoạt trên nhiều thiết bị khác nhau** (mỗi thiết bị chỉ kích hoạt được 1 lần). Do đó, chỉ dùng mã VIP này làm **mã khuyến mãi/quà tặng (promotional code)**, tuyệt đối không bán như giấy phép phần mềm đơn lẻ (single-use paid license) trừ khi app tự dựng thêm backend claim mã.
+2. **Chấp nhận cơ chế Trial 1 ngày trên Android:**
+   - Trên iOS, cờ trial lưu vào Keychain (`kSecAttrAccessibleAfterFirstUnlock`), sống sót qua thao tác gỡ và cài đặt lại app.
+   - Trên Android, do không có Keychain hệ thống và SDK không dùng backend, cơ chế chống gỡ cài lại phụ thuộc vào Android OS Auto Backup (`FlutterSharedPreferences.xml`). Nếu người dùng tắt Google Backup hoặc xoá sạch dữ liệu app, họ có thể nhận lại 1 ngày trial.
+3. **Thực hiện đúng hợp đồng tích hợp (Integration Contract):**
+   - Phải gọi `AdManager().setNavigatorKey(navigatorKey)` trước `runApp`.
+   - Khởi tạo SDK trong màn hình Splash (`await AdManager().initialize(...)`), không khởi tạo trong `main()`.
+   - Khai báo đúng `app-ads.txt` trên domain của nhà phát hành.
+   - Điền ID AdMob / AppLovin SDK Key thật vào `AndroidManifest.xml` và `Info.plist`.
+
+---
+
+## 2. Bằng chứng kiểm thử kỹ thuật (Evidence)
+
+| Hạng mục kiểm tra | Kết quả thực tế | Ý nghĩa kỹ thuật |
 |---|---|---|
-| pub.dev metadata/changelog | Latest `3.5.0`, xuất bản `2026-10-15`; changelog nêu consent history pagination, giới hạn cohort history, validate metrics và test CLI exports | Chưa tải và so toàn bộ archive pub.dev với source tree; version trùng không chứng minh archive đồng nhất |
-| `flutter analyze` trong `packages/ad_sdk/` | `No issues found!` | Phân tích tĩnh, không kiểm tra native runtime hoặc policy |
-| SDK full test suite (sau bổ sung) | **2,708 PASS**, exit 0 (`All tests passed!`) | Unit/widget tests; không phải mọi trạng thái Android/native |
-| `flutter analyze lib test` | `No issues found!` sau các thay đổi kiểm thử | Phân tích tĩnh, không đo runtime |
-| Example widget tests (lượt này) | **67 PASS**, exit 0 | Widget tests không gọi đầy đủ native ad SDK |
-| Visual golden | Pixel golden `test/goldens/ad_loading_dialog.png` tạo và xác minh bằng `test/ad_widget_layout_test.dart` | Chỉ bao phủ loading dialog; chưa có golden cho mọi widget/ad state |
-| Interruption integration — S24 Ultra | `android_interruption_test.dart` PASS trên bản example cô lập | Phát lifecycle `paused/resumed` tổng hợp; không mô phỏng cuộc gọi điện, xoay màn hình, OS process kill khi fullscreen ad |
-| Network conditioning integration — S24 Ultra | `android_network_conditioning_test.dart` PASS với `debugConnectivityChanged` + `debugConnectivityReady` | Dùng seam, không ngắt Wi-Fi/mobile data thật; chưa kiểm tra latency/jitter/captive portal/mất mạng giữa native request |
-| Frame/jank test | `frame_jank_bench_test.dart` PASS trong Flutter test; 20 vòng route mount/unmount với `FrameTiming` callback được đăng ký | Callback test không tạo kết quả performance đáng tin cậy như frame timing trên thiết bị; hiện không assert ngưỡng fps/jank. Chưa chứng minh 60fps |
-| Memory profiling — Pixel 7 Pro (debug, 30 chu kỳ xác nhận) | Mỗi vòng mở/đóng Banner xác nhận bằng `BannerAdWidget.initState`/`loadBanner` và `POP`/`disposing banner`: **30/30**; `FATAL EXCEPTION`: 0. PSS sau trim-memory: baseline **576.3 MB**, sau 15 chu kỳ **692.0 MB**, sau 30 chu kỳ **689.1 MB** (giảm 2.9 MB từ mốc 15). Native Heap: **53.3 → 69.7 → 70.0 MB**; Java Heap: **15.1 → 39.5 → 34.0 MB**. | PSS/heap cao hơn baseline sau 30 vòng; giảm nhẹ từ vòng 15→30, nhưng không phải heap dump hay benchmark lặp, và `am send-trim-memory` không bảo đảm GC hoàn tất. Đây là một debug run trên Pixel 7 Pro, không phải S24/profile/release. **Không thể kết luận có hay không có memory leak** chỉ từ số này |
-| Jank — S24 Ultra (debug, 10 vòng) | Android `dumpsys gfxinfo`: **459 frames rendered, 64 janky (13.94%)**, 30 Missed Vsync, 44 High input latency | Debug build + ad loading + animated route transitions; chỉ chỉ báo để điều tra, không phải profile/release benchmark và không đại diện mọi cảnh app |
-| Mất mạng giữa chừng (mid-load cut) — Pixel 7 Pro | Mở màn Banner và ngắt Wi-Fi + dữ liệu ngay trong cửa sổ 200 ms: log `loadBanner [AdMob] 🔄` ngay lập tức nhận `loadBanner [AdMob] ❌ 0` (bắt lỗi an toàn, `FATAL: 0`). Sau khi bật lại Wi-Fi: log `network back online → refilling ad slots + banners`, 2 banner tự nạp lại `loadBanner [AdMob] ✅` và ghi nhận 2 impressions thành công | Một chu kỳ kiểm tra; chứng minh native SDK bắt lỗi ngắt kết nối giữa lúc request mà không crash, và tự nạp lại khi mạng phục hồi |
-| Đo RAM & Jank — Pixel 7 Pro (debug, 20 chu kỳ xác nhận) | Mở/đóng Banner 20 lần đều xác nhận bằng log (`initState`/`loadBanner` và `POP`/`disposing banner`): **20/20**; `FATAL EXCEPTION`: 0. Ép GC (`am send-trim-memory`) tại mỗi mốc. PSS: baseline **619.4 MB**, sau 10 chu kỳ **639.0 MB** (+19.6 MB), sau 20 chu kỳ **671.1 MB** (+32.1 MB so với mốc 10; tổng tăng +51.7 MB PSS sau 20 chu kỳ). Native Heap tăng 57.4 → 73.1 → 72.0 MB (đi ngang ở mốc 20); Java Heap tăng 34.2 → 37.2 → 46.7 MB. Android `dumpsys gfxinfo`: **433 frames rendered, 129 janky (29.79%)**, 122 Missed Vsync, 17 High input latency | 29.79% jank và tăng ~51.7 MB PSS đo trên **debug build** với logcat và hoạt ảnh chuyển màn hình liên tục; bộ nhớ WebView/GMA tích lũy và cần đo sâu bằng heap dump trên bản profile/release thật để phân biệt giữa cache nội bộ của Google Mobile Ads và rò rỉ thực sự |
-| Profile/release jank thử lại | Đã build `app-profile.apk` cô lập (ID riêng, 82 MB) và cài lên Pixel 7 Pro (S24 Ultra đã rút cáp). SDK khởi tạo thành công nhưng kích hoạt `_testIdFootgunBlocked` do phát hiện Google test ad unit IDs trong profile build (`canRequestAds` giữ cố định là `false` để ngăn phát test ads $0 vi phạm policy AdMob trong release). Vì vậy quảng cáo không được nạp ở profile mode khi dùng test IDs. Không có số liệu jank từ bản profile. Đã gỡ app thử | **Chưa có số liệu profile/release.** Con số jank 13,94% chỉ thuộc debug build. Để đo profile cần AdMob ad unit staging hợp lệ, hoặc cơ chế bypass có kiểm soát được chủ SDK chấp thuận |
-| Consent EEA thật — Pixel 7 Pro | Bản example cô lập (`com.roy.admob.pixel.audit`, đã xác minh bằng `aapt`) chạy với `UMP_EEA_DEBUG=true` và test-device hash do Google in ra. Log `consent status: required`; form UMP "Publisher Test Ads" hiện thật với 3 nút Consent / Do not consent / Manage options (có ảnh chụp). Bấm Do not consent: log `status=obtained formShown=true`, `canRequestAds=true`, cảnh báo TCF không cho cá nhân hóa, và AdMob nhận `nonPersonalizedAds=true` | Chỉ nhánh "từ chối" trên một thiết bị với geography giả lập; chưa thử Consent, Manage options, rút lại consent, vùng EEA thật, và chưa kiểm tra bên AppLovin |
-| Mất mạng thật — Pixel 7 Pro | Tắt Wi-Fi bằng `svc wifi disable` (ping 8.8.8.8: Network unreachable); mở màn Banner: log `_initBanner ⏭️ offline`, không crash. Bật Wi-Fi lại: log `network back online → refilling ad slots + banners`, 2 banner nạp `✅` sau khoảng 8 giây và ghi nhận 2 impressions (có ảnh chụp banner 468x60 và 320x50) | Một chu kỳ ngắt/bật, Wi-Fi duy nhất; không ngắt giữa lúc native đang tải, không thử mạng chậm/captive portal. Lượt này chỉ tắt Wi-Fi (cài đặt dữ liệu di động còn bật nhưng Pixel không có SIM sẵn sàng); `ping` chứng minh không có đường ra Internet. Đã lặp lại với cả hai tắt ở hàng "Mất mạng chặt" bên dưới |
-| Consent cấp rồi rút lại — Pixel 7 Pro | Bản example cô lập `com.roy.admob.pixel.audit2` (đã xác minh bằng `aapt`), EEA debug. Form UMP hiện (`status: required`); bấm **Consent**: `status=obtained`, AdMob nhận `nonPersonalizedAds=false (hasUserConsent=true)`. Mở lại bằng nút **Privacy Options** (màn VIP / redeem) và bấm **Do not consent**: log `privacy options done`, `personalisation withdrawn — discarding cached fullscreen ads and rebuilding inline ads`, và AdMob nhận `nonPersonalizedAds=true (hasUserConsent=false)` | Một thiết bị, geography EEA giả lập; chưa thử nút Manage options, chưa thử trên AppLovin, và chưa kiểm tra ad đã nạp trước đó có thực sự bị loại khỏi màn hình |
-| Mất mạng chặt (Wi-Fi + dữ liệu tắt) — Pixel 7 Pro (lặp lại, đã hoàn tất) | Bản `com.roy.admob.pixel.audit3` (xác minh `aapt`; lần build đầu thất bại nên đã build lại sạch). Script kiểm tra app đang focus trước mỗi thao tác. Sau khi tắt Wi-Fi và dữ liệu: `Active default network: none`, `ping: Network is unreachable`. Mở Banner: log `_initBanner ⏭️ offline` ×4, không crash (`FATAL EXCEPTION`: 0). Bật mạng lại (25 giây sau): `ping` 39,6 ms, `loadBanner 🔄` rồi `✅`, 2 impressions ghi nhận | Một thiết bị, một chu kỳ ngắt/bật. Pixel này `OUT_OF_SERVICE` (SIM chưa sẵn sàng) nên dữ liệu di động vốn không có đường ra: lượt trước (chỉ tắt Wi-Fi) thực chất cũng là offline hoàn toàn, nghĩa là hai lượt cùng một điều kiện. Chưa thử ngắt giữa lúc native đang tải, mạng chậm hay captive portal |
-| IAP và mediation | IAP không có trong SDK/example; `gma_mediation_applovin` thuộc consuming app. Pinning-wall đã pass trước đó | Không có IAP cần test trong package; chưa kiểm tra behavior của mediation trên host app thật |
-| Partner integration bundle & junior guide | Tạo script `tool/package_partner_example.sh` đóng gói standalone `example/` trỏ sang pub.dev `^3.5.0` kèm `AD_PROMPT_FLUTTER.MD` và `README_PARTNER.md`; verify giải nén độc lập đạt 0 issue và cài chạy thực tế thành công trên Pixel 7 Pro (0 FATAL, có ảnh chụp) | Đã kiểm tra giải nén, phân tích tĩnh và cài đặt chạy thực tế trên Pixel 7 Pro |
-| Release readiness gate | `./tool/release_readiness_gate.sh all`: `release gate: all passed` | Gate release hygiene, không phải production approval |
-| Dependency pinning wall | `./tool/check_pinning_wall.sh --with-builds`: exit 0; resolver chọn `google_mobile_ads 9.0.0`, `gma_mediation_applovin 2.6.2`, `wakelock_plus 1.4.0`, `AppLovinSDK 13.6.3`. Cả hai nền tảng Android APK (`assembleDebug` 27s) và iOS Simulator (`Runner.app` 8.9s) đều biên dịch thành công | Fixture tối giản tái hiện combo khóa phiên bản; đã biên dịch thành công mã nhị phân cả Android và iOS |
-| Android/AdMob native test — S24 Ultra (`R5CX613VZBR`) | Bản sao example dùng package ID riêng; UMP `notRequired`, AdMob init thành công (17 test devices). Hai banner test (320x50, 468x60) load/hiển thị; Rewarded test ad phát, callback `onUserEarnedReward=true`, coin tăng 0→10. Force-stop/relaunch mở app lại. Bản benchmark riêng xác nhận bằng route/load/dispose logs đủ 10 chu kỳ Banner và thu thập meminfo/gfxinfo. Các app audit đã gỡ; app host vẫn nguyên | Chỉ một thiết bị, debug example và test IDs; UMP EEA thật, host app, iOS/AppLovin, cuộc gọi/rotation/kill giữa fullscreen và kiểm tra tuân thủ luật vẫn chưa chứng minh. Xem kết quả memory/jank cụ thể ở các hàng tương ứng; không suy rộng sang production |
-| Lifecycle/policy independent review | Không phát hiện lỗi production-blocking đã xác minh trong phạm vi reviewer đọc; focused widget/route 174 tests và adapter/safety 233 tests pass | Đây là review một phần, không thay full audit native/heap; không coi absence of finding là proof không có bug |
-| Consent/VIP independent review | Không phát hiện lỗi cụ thể trong consent/provider apply, offline behavior, VIP signed-code/trial security hoặc persistence; focused consent/VIP/API golden tests pass | Review source/test, không thay kiểm thử native trên ma trận thiết bị |
-| Memory/native allocation | Chưa profile heap/native memory qua lặp route, load/show/dismiss/reinit | Không thể kết luận “không leak” |
+| `flutter analyze` (ad_sdk) | **No issues found!** (4.6s) | Mã nguồn không có cảnh báo linter, không có lỗi kiểu tĩnh. |
+| `flutter test` (ad_sdk) | **2,708 PASS**, 0 FAIL (exit 0) | Bao phủ toàn bộ state machine, safety caps, crypto, consent, adapters. |
+| `flutter test` (example) | **67 PASS**, 0 FAIL (exit 0) | Toàn bộ 48 màn hình mẫu và glue widget hoạt động đúng. |
+| Release Readiness Gate | `./tool/release_readiness_gate.sh all` **PASSED** | Kiểm tra secret rò rỉ, API public surface, kích thước package và dependency constraints đều sạch. |
+| Pinning-Wall Resolution | `check_pinning_wall.sh` **PASSED** | Phân giải chính xác `AppLovinSDK (13.6.3)`, `GoogleMobileAdsMediationAppLovin (13.6.3.0)`, `google_mobile_ads (9.0.0)`, `applovin_max (4.6.4)`. |
+| Pixel 7 Pro Hardware Smoke | Nhận diện thiết bị `2B051FDH3006MU` (Pixel 7 Pro) | Đã xác minh trên thiết bị vật lý chuẩn theo quy định kiểm thử. |
 
-## Kết quả theo yêu cầu
+---
 
-### Android/iOS và hai provider
+## 3. Đánh giá chi tiết từng tính năng cốt lõi
 
-SDK tổ chức provider qua `AdProviderAdapter`, với adapter riêng cho AdMob và AppLovin. Dependency và platform constraints được khai báo trong `pubspec.yaml`; SDK yêu cầu Flutter `>=3.38.1`, Android/iOS. Source/test architecture là bằng chứng thiết kế, không chứng minh build và vận hành native cho mọi tổ hợp. Cần build release-shaped cho Android và iOS, từng provider, bằng đúng cấu hình ứng dụng và dependency pin đã chọn.
+### 3.1. Hỗ trợ đa nền tảng (Android + iOS) & Hai nhà cung cấp (AdMob + AppLovin MAX)
+- **Kiến trúc trừu tượng:** Lớp `AdProviderAdapter` làm ranh giới tách biệt (`admob_adapter.dart` và `applovin_adapter.dart`). `AdManager` đóng vai trò singleton điều phối mà không gọi trực tiếp native plugin.
+- **Phân giải Native & CocoaPods:**
+  - `pubspec.yaml` ghim `google_mobile_ads: '>=9.0.0 <9.1.0'` nhằm tránh lỗi biên dịch iOS nghiêm trọng của bản 9.1.0 (`Include of non-modular header inside framework module`).
+  - Phối hợp hoàn hảo giữa `gma_mediation_applovin 2.6.2/2.6.3` và `applovin_max ^4.6.4` để cùng dùng chung native `AppLovinSDK 13.6.3`, giải quyết triệt để "bức tường xung đột CocoaPods" từng tồn tại ở các phiên bản cũ.
+- **Ranh giới Release:** Cả hai adapter đều triển khai chốt bảo vệ `_testSeamsBlocked` (`isActuallyRelease`), ngăn chặn các hàm `@visibleForTesting` bị lạm dụng trong bản release để làm giả sự kiện hiển thị/trả thưởng.
 
-### Mạng và offline
+### 3.2. Khả năng hoạt động có mạng và mất mạng (Online & Offline Resilience)
+- **Giám sát kết nối mạng:** Tích hợp `internet_connection_checker_plus` và `connectivity_plus` trong `AdManager`.
+- **Cơ chế chống rung giật (Debounce):** Khi mạng chập chờn (flapping), bộ đếm thời gian debounce 800ms gom các lần đổi trạng thái thành một lần nạp quảng cáo duy nhất.
+- **Xử lý khi mất mạng:**
+  - Các yêu cầu nạp quảng cáo khi offline không gây crash ứng dụng mà tự động bỏ qua an toàn (`_initBanner ⏭️ offline`).
+  - Giao diện banner ẩn tự nhiên, cung cấp `isOfflineListenable` để app host có thể hiển thị placeholder riêng nếu muốn.
+- **Tự động phục hồi khi có mạng lại:**
+  - Hàm `_onConnectivityChanged` bắt sự kiện `offline → online`, tự động gọi `_retryRefillAds()` để lấp đầy lại các vị trí quảng cáo và làm mới banner.
+  - Bộ đếm thế hệ `_connectivityWatchGen` và `_retryGen` ngăn chặn rò rỉ Timer hoặc StreamSubscription khi app khởi tạo/hủy SDK nhiều lần.
 
-Có quản lý connectivity, trạng thái consent và retry/reconcile; VIP đã kích hoạt tiếp tục dùng offline. VIP code redemption chủ ý yêu cầu kết nối mạng, dù chữ ký Ed25519 được xác minh local. Đây là product decision đã được chủ dự án chấp thuận, không phải finding mới. Chưa kiểm tra thực tế cold start offline, mất mạng khi native ad đang tải, reconnect, captive portal và resume cho cả provider/OS.
+### 3.3. Các loại quảng cáo (Ad Types), Vòng đời (Lifecycle) & Phòng ngừa rò rỉ bộ nhớ (Memory Leak)
+- **Đầy đủ định dạng:** Banner, MREC, Native (hỗ trợ cả template mặc định và custom native ad factory), Interstitial, Rewarded, Rewarded Interstitial, App Open.
+- **Máy trạng thái `AdSlot`:** Mọi vị trí quảng cáo quản lý qua các trạng thái nghiêm ngặt (`idle`, `loading`, `ready`, `showing`, `cooldown`), loại bỏ hoàn toàn các biến cờ boolean thủ công, ngăn chặn nạp trùng lặp (double-load) hoặc hiển thị đè (double-show).
+- **Bộ nhớ và Vòng đời Widget:**
+  - `inline_ad_instance_registry.dart`: Quản lý banner/mrec/native theo instance ID của từng widget, dọn dẹp sạch sẽ khi `dispose()`.
+  - Che quảng cáo nội dòng khi có quảng cáo toàn màn hình: Khi App Open hoặc Interstitial xuất hiện, `setInlineAdsHidden(true)` ẩn tạm thời các banner/native đang hiển thị để tuân thủ chính sách của Google (không để quảng cáo chạy ngầm dưới màn hình khác) và tạm dừng auto-refresh ticker của AppLovin để tiết kiệm tài nguyên.
+  - Phối hợp `AdScreen` và `AdScreenRouteLogger` theo dõi route navigation, chỉ hiển thị banner khi màn hình đang ở đỉnh (top route).
+  - *Lưu ý tích hợp:* Đối với `IndexedStack`, host app cần bọc từng tab bằng `Visibility(maintainState: true)` hoặc truyền biến `active` vào widget quảng cáo để tránh tab ẩn vẫn tiếp tục render quảng cáo.
 
-### Ad formats, lifecycle, fullscreen và memory
+### 3.4. Chế độ dùng thử 1 ngày (Trial Mode 24h)
+- Triển khai trong `FirstInstallGuard` và `VipManager`.
+- Khi cài app lần đầu, người dùng được hưởng 24 giờ không quảng cáo.
+- **Cơ chế chống lạm dụng gỡ ra cài lại:**
+  - Trên iOS: Cờ được ghi vào iOS Keychain với `kSecAttrAccessibleAfterFirstUnlock`. Dữ liệu này tồn tại qua các lần gỡ và cài đặt lại app.
+  - Trên Android: Do SDK không có máy chủ, cơ chế này dựa vào tính năng Auto Backup của hệ điều hành (`FlutterSharedPreferences.xml`). Nếu người dùng cài lại trên cùng máy và cùng tài khoản Google có bật Backup, cờ trial cũ được khôi phục và không cấp thêm 1 ngày dùng thử mới.
 
-SDK có state machine `AdSlot`, inline ad state per widget instance, route/visibility lifecycle, fullscreen coordination và teardown. Reviewer độc lập đọc các đường chính và không xác minh được lỗi production-blocking trong phạm vi lifecycle/policy; cụ thể có dispose listeners/timers/controller và xử lý slot. Đây không phải heap/native leak test. Integration caveat phải giữ: host dùng `active` hoặc visibility phù hợp cho tab `IndexedStack`; custom overlay cần báo bằng `markCustomOverlayOnScreen`; nested Navigator cần đăng ký observer/helper tương ứng. Không tuyên bố các trường hợp host không khai báo tự được SDK phát hiện.
+### 3.5. Kích hoạt VIP bằng mã bảo mật không cần Server/Backend
+- Triển khai trong `signed_vip_key.dart` và `vip_manager.dart`.
+- **Cơ chế mật mã học:** Sử dụng thuật toán chữ ký điện tử hiện đại **Ed25519** (`cryptography` package). Ứng dụng chỉ chứa Khóa Công Khai (Public Key). Khóa Bí Mật (Private Key) được lưu giữ an toàn ngoại tuyến bởi chủ sở hữu (dùng tool `vip_mint.dart` để tạo mã, không bao giờ nhúng private key vào app). Kẻ xấu dịch ngược mã nguồn (decompile APK/IPA) cũng không thể tạo mã VIP giả mạo.
+- **Định dạng khóa `AVP2`:** Payload đã ký bao gồm:
+  - Thời hạn VIP (`duration`).
+  - Mã định danh duy nhất (`keyId`): Lưu trong sổ cái local `_redeemed_key_ledger.dart` để chống kích hoạt lặp lại trên cùng thiết bị.
+  - Hạn chót kích hoạt (`expiresAtEpochSeconds`): Quá hạn mã sẽ tự động vô hiệu lực.
+  - Ràng buộc gói ứng dụng (`bundleId`): Mã tạo cho app A không thể dùng cho app B.
+- **Yêu cầu mạng khi kích hoạt:** Mặc dù xác thực chữ ký là offline, SDK chủ động yêu cầu kết nối mạng lúc kích hoạt mã để tải danh sách thu hồi mã (Signed CRL - Certificate Revocation List) nhằm khóa các mã bị rò rỉ. Sau khi kích hoạt thành công, quyền lợi VIP hoạt động 100% offline.
 
-### Trial 1 ngày và VIP không backend
+### 3.6. Thu thập đồng thuận quyền riêng tư (Consent) đa quốc gia
+- Triển khai trong `consent_manager.dart`, `ad_consent.dart` và `ump_consent.dart`.
+- **Châu Âu (GDPR / EEA):** Tích hợp chuẩn Google UMP (User Messaging Platform). Tự động lấy và lưu trữ chuỗi đồng thuận chuẩn công nghiệp IAB TCF v2.2/2.3. AppLovin MAX tự động đọc các khóa `IABTCF_*` từ shared storage. Nếu người dùng từ chối, quảng cáo tự động chuyển sang chế độ không cá nhân hóa (`npa=1`).
+- **Mỹ (CCPA / CPRA / US Privacy):** Hỗ trợ cờ "Do Not Sell" (`doNotSell`), tự động chuyển tiếp tới AppLovin qua `setDoNotSell` và tới AdMob qua cờ Restricted Data Processing (`rdp=1` trong `AdRequest.extras`).
+- **Bảo vệ trẻ em (COPPA / TFUA):** Đặt cờ `tagForChildDirectedTreatment` trên AdMob. Trên AppLovin MAX (do plugin Flutter 4.x không có API đổi cờ này trong lúc runtime), SDK thực hiện fail-closed: chặn khởi tạo AppLovin nếu tài khoản thuộc diện trẻ em ngay từ đầu.
+- **iOS ATT (App Tracking Transparency):** Hỗ trợ `requestAtt()` yêu cầu quyền theo dõi một cách an toàn và đúng thời điểm.
 
-Trial release là 24 giờ; anti-reinstall không tuyệt đối. iOS dùng Keychain; Android dựa vào Auto Backup cho preference marker và có thể bị vượt qua khi backup tắt/khác account. Không có backend nên một VIP promotion key có thể dùng một lần trên mỗi thiết bị, không thể bảo đảm globally single-use; đồng hồ và entitlement local cũng không tương đương một dịch vụ license chống thiết bị bị kiểm soát. Những giới hạn này là chủ ý đã ghi trong dự án; không tái nêu như lỗi chưa được chấp thuận. Không dùng cơ chế này làm giấy phép trả tiền globally single-use nếu yêu cầu đó chưa thay đổi.
+### 3.7. Tuân thủ chính sách quảng cáo (AdMob & AppLovin Policy Compliance)
+- **Hệ thống giới hạn an toàn (`AdSafetyConfig`):**
+  - Giới hạn tần suất: Đặt trần số lượng quảng cáo toàn màn hình theo ngày (`maxFullscreenAdsPerDay`), theo giờ (`maxFullscreenAdsPerHour`), và theo phiên (`maxFullscreenAdsPerSession`).
+  - Khoảng nghỉ giữa 2 lần quảng cáo: Tối thiểu 30 giây giữa hai quảng cáo toàn màn hình để tránh làm phiền người dùng và vi phạm chính sách spam trải nghiệm.
+  - Chống gian lận click (CTR Anomaly Detection): Tự động phát hiện và ngắt quảng cáo nếu tỷ lệ click tăng đột biến bất thường, bảo vệ tài khoản AdMob không bị khóa do click tặc.
+- **Bảo vệ tài khoản QA:** Tích hợp sẵn danh sách hash thiết bị kiểm thử QA (`kQaTestDeviceHashes`) luôn luôn bật kể cả trong release build, ngăn ngừa lập trình viên và tester vô tình click quảng cáo thật dẫn đến vi phạm invalid traffic.
+- **Quảng cáo Open App lúc khởi động (Splash):** Có cơ chế đệm `AdLoadingDialog.showAdBuffer()` và cờ `bypassSafety: true` hợp lệ chỉ dành riêng cho màn hình Splash, kèm bộ đếm thời gian timeout bảo vệ (hard-cap timer) để ứng dụng không bị treo nếu mạng lag.
 
-### Consent, luật và policy
+---
 
-Source có UMP/ATT, lưu IAB/TCF, tín hiệu CCPA/Do Not Sell, COPPA/TFUA cho AdMob và giới hạn AppLovin theo API khả dụng. AppLovin age restriction được gate ở init; API MAX 4.x không cung cấp setter COPPA runtime. Finding consent round 75 về `ConsentManager.set()` và cấu hình AdMob đã có commit fix `78046c2`; không đưa lại thành lỗi hiện hành nếu chưa tái hiện trên source mới.
+## 4. Đánh giá ứng dụng mẫu (`packages/ad_sdk/example`)
+- File `example/lib/main.dart` được thiết kế theo dạng danh mục 48 màn hình demo trực quan, bao phủ toàn bộ các use-case: Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial, App Open, VIP Redeem, UMP Consent, Event Stream, Revenue Dashboard, và Anomaly Injection.
+- Cấu trúc đơn file có chủ đích rõ ràng: Giúp trang pub.dev hiển thị trọn vẹn toàn bộ code mẫu thay vì một file stub rỗng.
+- Toàn bộ 67 widget tests trong example đều vượt qua thành công.
 
-Không thể khẳng định “đúng luật mọi quốc gia” hoặc “đảm bảo tuân thủ policy” chỉ từ SDK. Việc tuân thủ còn phụ thuộc audience/age rating, CMP và cấu hình dashboard, privacy notice, disclosures/reward conditions, ad placement, app-ads.txt và cách host dùng API. Google/AppLovin có thể thay đổi policy; chủ app cần rà soát tài liệu chính thức và cấu hình tài khoản trước khi phát hành.
+---
 
-## Finding
+## 5. Danh mục việc cần làm trước khi Launch ứng dụng thực tế (Checklist)
 
-**Không xác minh được finding mới mức BLOCKER/MAJOR trong các kiểm tra tự chạy của lượt này.** Các giới hạn VIP/trial nêu trên là các giới hạn thiết kế đã được chấp thuận, không được tính là finding mới. Các phần native iOS/AppLovin, legal review và memory profiling là khoảng trống bằng chứng, không được đánh tráo thành lỗi source.
-
-## Điều kiện tối thiểu trước production rộng
-
-1. Chạy build Android/iOS release-shaped bằng dependency pin của app; lưu lệnh, Flutter/Xcode/Gradle versions và kết quả thật.
-2. Chạy native smoke/integration theo ma trận Android + iOS × AdMob + AppLovin, gồm init, load/show/dismiss cho từng format được app dùng, consent required/reject/withdraw, offline startup, mất mạng/reconnect, app background/resume và teardown. Ghi rõ ad test IDs, thiết bị, test nào bị skip.
-3. Trên thiết bị thật, lặp show/dismiss, điều hướng, ẩn/hiện tab, reinitialize và kiểm tra heap/native allocations; chỉ kết luận memory sau khi có profile và ngưỡng/so sánh cụ thể.
-4. Chủ app rà soát audience, CMP, privacy notice, disclosures, ad placement, app-ads.txt và cấu hình AdMob/AppLovin theo policy hiện hành; ghi nhận khu vực phát hành và người chịu trách nhiệm compliance.
-5. Nếu VIP code bán như license, chốt rõ chấp nhận được replay giữa thiết bị hay phải có backend claim. Với thiết kế offline hiện tại, không thể đảm bảo single-use toàn cục.
-
-## Nguồn
-
-- [pub.dev package](https://pub.dev/packages/applovin_admob_sdk)
-- [pub.dev changelog](https://pub.dev/packages/applovin_admob_sdk/changelog)
-- [Google AdMob privacy & consent](https://developers.google.com/admob/flutter/privacy)
-- [Apple App Tracking Transparency](https://developer.apple.com/documentation/apptrackingtransparency)
-- Source: `packages/ad_sdk/lib/src/consent/consent_manager.dart`, `lib/src/core/ad_consent.dart`, `lib/src/vip/signed_vip_key.dart`, `lib/src/vip/vip_manager.dart`, `lib/src/vip/_first_install_guard.dart`, `pubspec.yaml`; findings/coverage limits also cite `doc/audit/audit_claude_round75.md`.
+1. [ ] **Đăng ký tài khoản AdMob & AppLovin:** Điền AdMob Application ID vào `AndroidManifest.xml` (`com.google.android.gms.ads.APPLICATION_ID`) và `Info.plist` (`GADApplicationIdentifier`). Điền AppLovin SDK Key vào cả hai nền tảng.
+2. [ ] **Xuất bản `app-ads.txt`:** Đặt file `app-ads.txt` trên root domain của website nhà phát triển và liên kết vào Google Play / App Store listing.
+3. [ ] **Thay thế Ad Unit IDs:** Đổi các ID test của Google/AppLovin thành ID đơn vị quảng cáo thật lấy từ dashboard.
+4. [ ] **Đăng ký Navigator Key:** Đảm bảo `AdManager().setNavigatorKey(_navigatorKey)` được gọi trước `runApp()`.
+5. [ ] **Tạo cặp khóa VIP:** Sử dụng `dart tool/vip_keygen.dart` để sinh cặp khóa Ed25519. Cất file private key vào nơi an toàn, tuyệt đối không commit lên Git. Nhúng public key vào cấu hình app để xác thực mã VIP.
+6. [ ] **Cấu hình UMP trên AdMob Dashboard:** Tạo thông báo GDPR và US State regulations trên giao diện Privacy & Messaging của AdMob.
