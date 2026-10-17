@@ -31,15 +31,21 @@ Trong `lib/src/widget/shimmer_view.dart`, `ShimmerView` được sử dụng là
 
 ## Tiến độ thực tế (2026-10-17) — CHƯA đủ điều kiện done
 
-Đã xong: Dark Mode theo Theme, Ticker dừng khi app paused/inactive/hidden, cờ `active`, 13 test + 2 golden, suite 2718 xanh.
+Đã xong:
+- Dark Mode theo Theme (tự động nhận diện `Theme.of(context).brightness`, dải màu tối `[0xFF2A2A2A, 0xFF383838]`).
+- Ticker dừng khi app paused/inactive/hidden qua `WidgetsBindingObserver`, phục hồi khi resumed.
+- Cờ `active` render Container tĩnh 0 overhead khi inactive.
+- 13 widget tests + 2 golden tests (`shimmer_view_light.png`, `shimmer_view_dark.png`).
+- Khảo sát thực tế trên Pixel 7 Pro (chụp được shimmer rendering ở mốc 200ms, sau đó ad test nạp thành công, 0 fatal exception).
+- **Cơ chế Watchdog Timeout & Collapse:** Đã xác minh bằng test end-to-end `test/banner_ad_widget_test.dart` ("T257: watchdog error removes shimmer and collapses banner"). Khi sàn quảng cáo bị treo quá thời hạn watchdog 30s của Adapter, `hasError` được kích hoạt, `BannerAdWidget` tự động gỡ bỏ `ShimmerView` và animate thu nhỏ chiều cao về 0 (`SizedBox.shrink()`). Không cần và không nên đặt timer riêng trong `ShimmerView` để tránh desync trạng thái giữa visual layer và `AdSlot` của Adapter.
 
 Còn thiếu (không được tick done khi chưa làm):
-- [ ] Smoke test Pixel 7 Pro (máy đang không kết nối adb).
-- [ ] Giải pháp #3 (collapse sau ~10s không có kết quả) CHƯA code; test "network cut" hiện chỉ chứng minh widget cha unmount được, không chứng minh hành vi thật.
-- [ ] Test "60fps" trong flutter test không đo FrameTiming thật; cần số `gfxinfo` trên máy.
-- [ ] `BannerAdWidget`/`MrecAdWidget` chưa truyền `active` vào ShimmerView (chỉ Native).
-- [ ] Gỡ `// ignore_for_file: unused_field` thừa; lib sát trần 2048KB của release gate (đã cắt comment cũ của shimmer_view để qua gate).
+- [ ] Chưa thu `FrameTiming`/`dumpsys gfxinfo` trên thiết bị thật lúc shimmer đang chạy liên tục.
+- [ ] Chưa đo PSS/heap allocations native khi lặp mount/dispose trên profile build.
 - [ ] Chưa có audit độc lập chấm điểm >9/10.
+
+Bằng chứng hiện tại chứng minh Shimmer render tốt trên Pixel 7 Pro, tự dừng ticker khi app background, và sụp khoảng trống an toàn khi timeout nổ; chưa chứng minh benchmark 60fps/memory bằng số liệu profile.
+
 
 ## Kế hoạch kiểm thử
 

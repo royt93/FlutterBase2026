@@ -18,6 +18,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart'
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart'
     show BannerErrorSelfCollapse;
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:applovin_admob_sdk/src/widget/shimmer_view.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -608,6 +609,33 @@ void main() {
     expect(adapter.bannerListenablesByKey.values, contains(listenables),
         reason: 'the mounted error state must remain registered so the debug '
             'overlay can report it and the adapter can retry its recovery debt');
+  });
+
+  testWidgets('T257: adapter load error removes shimmer and collapses banner',
+      (tester) async {
+    final adapter = _CollapsingBannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final listenables = adapter.bannerListenablesByKey.values.single;
+    expect(find.byType(ShimmerView), findsWidgets);
+
+    listenables.hasError.value = true;
+    await tester.pump();
+    expect(find.byType(ShimmerView), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(BannerAdWidget)).height, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('collapseAnimationDuration: zero disables the animation '
