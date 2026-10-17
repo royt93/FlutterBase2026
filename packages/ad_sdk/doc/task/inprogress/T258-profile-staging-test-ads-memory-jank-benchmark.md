@@ -39,20 +39,19 @@
    - Tổng quát: PSS tăng sau 10 chu kỳ khoảng 35–48 MB so với baseline; mốc 20 ở Run 1 tăng 47 MB, Run 2 tăng 46 MB, Run 3 tăng 48 MB. Đây là **dấu hiệu cần phân tích thêm**, không chứng minh leak: `send-trim-memory` không đảm bảo GC hoàn tất, PSS gồm cả cache/native allocation của Google Mobile Ads. Các lượt đo không có heap dump/native allocation attribution.
    - Jank tổng phiên khoảng 12–13%; không đo riêng shimmer và không quy kết toàn bộ jank cho shimmer. P95 28–32ms nên dữ liệu này **không chứng minh 60fps ổn định**.
 
-5. **Phân rã native heap/graphics và HPROF trên Pixel 7 Pro (một lần, cùng build Profile):**
-   - Baseline trước chu kỳ: PSS **433,593 KB**, Java Heap **41,736 KB**, Native Heap **55,892 KB**, Graphics **189,476 KB**, WebViews **6**, native malloced allocations **530 objects / 49 KB**.
-   - Sau 10 chu kỳ: PSS **433,933 KB**, Java Heap **20,700 KB**, Native Heap **62,036 KB**, Graphics **207,484 KB**, WebViews **7**, native malloced allocations **1,026 objects / 96 KB**.
-   - Sau 20 chu kỳ: PSS **449,862 KB**, Java Heap **31,124 KB**, Native Heap **64,348 KB**, Graphics **211,240 KB**, WebViews **11**, native malloced allocations **1,861 objects / 176 KB**.
-   - So với baseline, sau 20 chu kỳ Native Heap +**8,456 KB**, Graphics +**21,764 KB**, PSS +**16,269 KB**, WebViews +**5**. Native malloced count +**1,331**, size +**127 KB**. `Dalvik Heap` dao động 33,812 → 13,995 → 24,419 KB; có thể phản ánh GC/timing.
-   - Đã tạo HPROF baseline **43,423,600 bytes** và HPROF sau 20 chu kỳ **45,668,382 bytes**, nhưng chưa mở/so sánh object graph bằng Android Studio Profiler/MAT; HPROF chỉ là artifact, không phải leak verdict. Dump đã được kéo về máy để chuẩn bị phân tích; xác minh file đã xóa local/device sau khi ghi nhận báo cáo.
-   - Đây mới là một lần đo breakdown, chưa lặp 3 lần. Native/WebView/Graphics tăng có thể là cache GMA/Chromium hoặc allocation không thu hồi; không được kết luận leak nếu chưa phân tích allocation/retaining paths.
+5. **Phân rã native heap/graphics và HPROF trên Pixel 7 Pro (2026-10-17):**
+   - **Lượt 1 (meminfo breakdown):** Baseline PSS **433,593 KB**, Native **55,892 KB**, Graphics **189,476 KB**, WebViews **6**. Sau 10 chu kỳ PSS **433,933 KB**, Native **62,036 KB**, Graphics **207,484 KB**, WebViews **7**. Sau 20 chu kỳ PSS **449,862 KB**, Native **64,348 KB**, Graphics **211,240 KB**, WebViews **11**.
+   - **Lượt 2 (HPROF cho Android Studio Profiler):** Dùng `com.roy.admob.t258.asprofile`, 21 banner init/load requests, `FATAL EXCEPTION`: 0.
+     - Dump baseline raw **78,767,457 bytes**, convert bằng `hprof-conv` thành `file:///tmp/baseline_as.hprof` (~75 MB).
+     - Dump sau 20 chu kỳ raw **47,338,484 bytes**, convert thành `file:///tmp/20cycles_as.hprof` (~45 MB).
+     - Sau 20 chu kỳ ở lượt này: PSS **446,311 KB**, Java Heap **23,232 KB**, Native Heap **65,540 KB**, Graphics **209,832 KB**, WebViews **6**. WebViews không tăng lên 11 như lượt 1; số liệu dao động giữa các lượt chạy.
+     - Hai file HPROF chuẩn Android Studio đã lưu tại `/tmp` để mở bằng GUI; chưa so sánh retained-object graph/dominators trong phiên làm việc này.
 
 ## Việc còn lại
 
-1. Lặp breakdown native heap/graphics và heap dump ít nhất 3 lần, dùng cùng điểm đo và cùng trạng thái ad.
-2. Mở/so sánh HPROF bằng Android Studio Profiler hoặc MAT để xem retained objects; HPROF chưa được phân tích trong lượt này.
-3. Thu frame timing riêng trong lúc shimmer chạy; `gfxinfo` hiện gộp init, UMP, ad load và các chu kỳ.
-4. Giữ báo cáo tách riêng Profile harness với app production; chưa khái quát kết quả sang thiết bị khác.
+1. Mở hai file `file:///tmp/baseline_as.hprof` và `file:///tmp/20cycles_as.hprof` trong Android Studio Profiler để so sánh retained objects. Lệnh `open -a "Android Studio" ...` đã chạy nhưng phiên làm việc không thể xác nhận GUI đã nạp/parse xong hai dump; đây vẫn là bước chưa hoàn tất.
+2. Thu frame timing riêng trong lúc shimmer chạy; `gfxinfo` hiện gộp init, UMP, ad load và các chu kỳ.
+3. Giữ báo cáo tách riêng Profile harness với app production; chưa khái quát kết quả sang thiết bị khác.
 
 
 ## Acceptance Criteria
