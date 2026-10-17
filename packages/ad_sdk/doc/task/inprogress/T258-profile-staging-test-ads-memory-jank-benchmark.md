@@ -41,17 +41,23 @@
 
 5. **Phân rã native heap/graphics và HPROF trên Pixel 7 Pro (2026-10-17):**
    - **Lượt 1 (meminfo breakdown):** Baseline PSS **433,593 KB**, Native **55,892 KB**, Graphics **189,476 KB**, WebViews **6**. Sau 10 chu kỳ PSS **433,933 KB**, Native **62,036 KB**, Graphics **207,484 KB**, WebViews **7**. Sau 20 chu kỳ PSS **449,862 KB**, Native **64,348 KB**, Graphics **211,240 KB**, WebViews **11**.
-   - **Lượt 2 (HPROF cho Android Studio Profiler):** Dùng `com.roy.admob.t258.asprofile`, 21 banner init/load requests, `FATAL EXCEPTION`: 0.
-     - Dump baseline raw **78,767,457 bytes**, convert bằng `hprof-conv` thành `file:///tmp/baseline_as.hprof` (~75 MB).
-     - Dump sau 20 chu kỳ raw **47,338,484 bytes**, convert thành `file:///tmp/20cycles_as.hprof` (~45 MB).
-     - Sau 20 chu kỳ ở lượt này: PSS **446,311 KB**, Java Heap **23,232 KB**, Native Heap **65,540 KB**, Graphics **209,832 KB**, WebViews **6**. WebViews không tăng lên 11 như lượt 1; số liệu dao động giữa các lượt chạy.
-     - Hai file HPROF chuẩn Android Studio đã lưu tại `/tmp` để mở bằng GUI; chưa so sánh retained-object graph/dominators trong phiên làm việc này.
+   - **Lượt 2 (native dump + HPROF histogram):** Dùng `com.roy.admob.t258.heaprun`, Profile, 20 toggles; dump baseline và sau run bằng `am dumpheap`; convert bằng `hprof-conv`; so sánh class instance counts với parser HPROF cô lập.
+   - **Class histogram delta (baseline → sau run):**
+     - `io.flutter.plugins.googlemobileads.FlutterBannerAd`: **1 → 6** (+5).
+     - `io.flutter.plugins.googlemobileads.BannerAdCreator`: **1 → 6** (+5).
+     - `com.android.webview.chromium.WebViewChromium`: **6 → 11** (+5).
+     - `org.chromium.android_webview.AwContents`: **6 → 11** (+5).
+     - `io.flutter.plugin.platform.PlatformViewRegistryImpl`: **1 → 1**; `PlatformViewsController`: **1 → 1**; `FlutterPlatformView`: **1 → 1**.
+   - **Giới hạn kết luận:** Class count +5 xác nhận thêm 5 Java wrapper/WebView instances còn reachable tại thời điểm dump. Nó **không chứng minh cache** và cũng **không tự chứng minh leak**; cần retained size/dominator path và/hoặc đo sau idle + GC để biết chúng được GMA/Chromium giữ có chủ đích hay còn bị giữ bởi đường tham chiếu bất thường. PlatformView manager singleton không tăng, nhưng điều đó không chứng minh không có retained ad instances.
+   - Lượt HPROF khác trước đó cho PSS **446,311 KB**, Native Heap **65,540 KB**, Graphics **209,832 KB**, WebViews **6**; chênh với lượt histogram cho thấy run-to-run variation đáng kể. Không trộn các lượt thành một chuỗi đo duy nhất.
+   - Các HPROF đã dọn sau khi parser kết thúc; parser chưa tính retained sizes, dominator tree hay inbound references.
 
 ## Việc còn lại
 
-1. Mở hai file `file:///tmp/baseline_as.hprof` và `file:///tmp/20cycles_as.hprof` trong Android Studio Profiler để so sánh retained objects. Lệnh `open -a "Android Studio" ...` đã chạy nhưng phiên làm việc không thể xác nhận GUI đã nạp/parse xong hai dump; đây vẫn là bước chưa hoàn tất.
-2. Thu frame timing riêng trong lúc shimmer chạy; `gfxinfo` hiện gộp init, UMP, ad load và các chu kỳ.
-3. Giữ báo cáo tách riêng Profile harness với app production; chưa khái quát kết quả sang thiết bị khác.
+1. Phân tích retaining paths/dominator của `FlutterBannerAd`, `WebViewChromium`, `AwContents`, `BannerAdCreator` bằng Android Studio Profiler hoặc MAT.
+2. Lặp lại sau idle/GC để xác định instance count giảm hay giữ nguyên; không dùng class count đơn lẻ để gán kết luận cache/leak.
+3. Thu frame timing riêng trong lúc shimmer chạy; `gfxinfo` hiện gộp init, UMP, ad load và chu kỳ.
+4. Giữ các harness/run riêng biệt; chưa khái quát sang thiết bị khác.
 
 
 ## Acceptance Criteria
