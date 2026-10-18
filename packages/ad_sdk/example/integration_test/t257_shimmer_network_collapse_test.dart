@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/widget/shimmer_view.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -39,6 +41,7 @@ class _WatchdogTimeoutLoadingAdapter extends FakeAdProviderAdapter {
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  const bannerBoundaryKey = ValueKey('t257_banner_boundary');
 
   testWidgets(
     'T257 on-device: real watchdog collapses banner; screenshot captured for visual inspection',
@@ -66,7 +69,14 @@ void main() {
         MaterialApp(
           theme: ThemeData.dark(),
           navigatorObservers: [adRouteObserver],
-          home: const Scaffold(body: Center(child: BannerAdWidget())),
+          home: Scaffold(
+            body: Center(
+              child: RepaintBoundary(
+                key: bannerBoundaryKey,
+                child: const BannerAdWidget(),
+              ),
+            ),
+          ),
         ),
       );
 
@@ -80,7 +90,7 @@ void main() {
         reason: 'loadBannerIfNeeded must have been invoked on the adapter',
       );
 
-      // 1. Assert ShimmerView is mounted and animating
+      // 1. Assert ShimmerView is mounted and occupies visible banner area
       final shimmerFinder = find.byType(ShimmerView);
       expect(
         shimmerFinder,
@@ -105,6 +115,28 @@ void main() {
       debugPrint(
         'T257_VISUAL_SCREENSHOT: captured ${bytes.length} bytes on device ✅',
       );
+
+      // Shimmer must really move: banner pixels 300ms apart must differ.
+      Future<List<int>> bannerPixels() async {
+        final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(bannerBoundaryKey),
+        );
+        final image = await boundary.toImage();
+        final data = await image.toByteData();
+        image.dispose();
+        return data!.buffer.asUint8List().toList(growable: false);
+      }
+
+      final before = await bannerPixels();
+      await tester.pump(const Duration(milliseconds: 300));
+      final after = await bannerPixels();
+      expect(before, isNotEmpty);
+      expect(
+        listEquals(before, after),
+        isFalse,
+        reason: 'shimmer gradient must change in banner pixels 300ms apart',
+      );
+      debugPrint('T257_ANIMATION: banner pixels differ 300ms apart ✅');
 
       // 3. Wait out the genuine 30s watchdog deadline (31s with pump intervals)
       debugPrint('T257_WATCHDOG: waiting for real 30s watchdog timeout...');

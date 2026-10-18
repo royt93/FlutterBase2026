@@ -1,0 +1,7 @@
+I/flutter (24647): T257_VISUAL_SCREENSHOT: captured 38599 bytes on device ✅
+I/flutter (24647): T257_ANIMATION: banner pixels differ 300ms apart ✅
+I/flutter (24647): T257_WATCHDOG: waiting for real 30s watchdog timeout...
+I/flutter (24647): T257_WATCHDOG: real 30s watchdog fired naturally ✅
+I/flutter (24647): T257_WATCHDOG: Clean collapse to 0 height verified on Pixel 7 Pro ✅
+I/flutter (24647): 00:30 +2: All tests passed!
+All tests passed.
