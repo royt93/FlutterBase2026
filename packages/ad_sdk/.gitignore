@@ -37,3 +37,6 @@ coverage/
 # (or to --private-out); never commit it (see CLAUDE.md "VIP entitlement").
 .vip-private-key
 *.vip-private-key
+
+# Local Android Studio heap dumps are device-specific profiling artifacts.
+/tool/hprof_out/*.hprof

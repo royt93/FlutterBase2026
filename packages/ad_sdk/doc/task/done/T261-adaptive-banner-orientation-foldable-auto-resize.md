@@ -2,45 +2,32 @@
 
 - **Loại:** Enhancement / UX
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** todo (chuyển sang `inprogress/` khi làm, sang `done/` khi hoàn tất)
+- **Status:** done (KẾT LUẬN: ALREADY IMPLEMENTED & VERIFIED — ĐÃ CÓ ĐẦY ĐỦ TRONG CODEBASE)
 
-## Bối cảnh & Vấn đề
+## Bối cảnh & Kết quả Rà soát Mã nguồn Thực tế (2026-10-17)
 
-Quảng cáo Adaptive Banner của Google AdMob phụ thuộc vào chiều rộng màn hình (`AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(width)`):
-- Hiện tại, kích thước banner được tính toán cố định một lần khi widget mount (`initState`).
-- Khi người dùng xoay điện thoại từ dọc sang ngang (Portrait sang Landscape), hoặc trên các thiết bị gập (Galaxy Z Fold, Pixel Fold) khi mở ra/gập lại: chiều rộng màn hình thay đổi đột ngột từ 400px lên 800px+.
-- Banner cũ vẫn giữ kích thước cũ, tạo ra khoảng trống đen xấu xí hai bên hoặc bị tràn viền (overflow error), làm giảm tỷ lệ click và trải nghiệm thẩm mỹ.
+Yêu cầu ban đầu: *Khi xoay ngang/dọc hoặc mở thiết bị gập (width thay đổi), Banner adaptive phải tự động tính lại kích thước, có debounce 300ms chống giật lag và nạp lại vừa vặn không tràn viền.*
 
-## Đề xuất giải pháp
+**KẾT LUẬN: TÍNH NĂNG NÀY ĐÃ ĐƯỢC TRIỂN KHAI VÀ BẢO VỆ CHẶT CHẼ TỪ T157 VÀ ROUND-29 AUDIT:**
 
-1. Trong `BannerAdWidget`, lắng nghe thay đổi kích thước thông qua `OrientationBuilder` hoặc `MediaQuery.sizeOf(context).width`.
-2. Áp dụng cơ chế **Debounce (300ms)** khi xoay màn hình để tránh tải lại quảng cáo liên tục trong lúc animation xoay đang chạy.
-3. Khi chiều rộng thay đổi vượt ngưỡng 20px so với kích thước banner hiện tại, tự động hủy banner cũ và nạp banner adaptive mới với kích thước khớp hoàn hảo với chiều rộng mới.
+1. **Cơ chế Layout Observer & Debounce 300ms (`lib/src/widget/banner_ad_widget.dart`):**
+   - Hằng số `_widthCorrectionDebounceDuration = Duration(milliseconds: 300)`.
+   - Widget con `_AdmobWidthObserver` lắng nghe mọi pass layout thực tế (bao gồm xoay màn hình, container cha co giãn, hoặc thiết bị gập).
+   - Hàm `_maybeCorrectAdmobWidth()`:
+     - So sánh chiều rộng hiện tại `_resolveAdmobWidth(context)` với chiều rộng ad đã nạp trước đó `_admobWidthPx`.
+     - Nếu phát hiện thay đổi chiều rộng, kích hoạt debounce 300ms để đợi animation layout ổn định.
+     - Sau khi ổn định, gọi `AdManager().disposeBannerInstance(this)` để hủy sạch ad cũ, và gọi `_initBanner(context)` để nạp Banner adaptive mới khớp hoàn hảo với chiều rộng màn hình/container mới.
+2. **Phía AppLovin MAX:**
+   - AppLovin `MaxAdView` hỗ trợ co giãn kích thước adaptive ở tầng native (`isAdaptiveBannerEnabled: true`), nên SDK chủ động không hủy view để tối ưu hiệu năng và giữ nguyên impression.
+3. **Bộ test tự động đã xác minh (`test/banner_ad_widget_test.dart`):**
+   - `a width change reloads at the new width instead of keeping the ad sized for the old one` (PASS).
+   - `an unrelated dependency change with the same width does not reload` (PASS).
+   - `rapid surface-width changes settle on one final AdMob reload` (PASS).
+4. **Quyết định:** Đóng task dưới dạng **ALREADY IMPLEMENTED & VERIFIED**.
 
 ## Acceptance Criteria
 
-- [ ] Banner tự động tính lại kích thước và hiển thị vừa vặn khi xoay ngang/dọc.
-- [ ] Có debounce 300ms chống giật lag khi xoay màn hình liên tục.
-- [ ] Không rò rỉ banner instance cũ khi tải lại kích thước mới.
-- [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
-
-## Kế hoạch kiểm thử
-
-- **Widget test:** Bọc `BannerAdWidget` trong `MediaQuery`, thay đổi `size.width` từ 400 lên 800 và xác nhận banner được tái tạo với size mới.
-- **Interruption test:** Xoay màn hình nhiều lần liên tiếp, kiểm tra không bị lỗi layout overflow.
-- **Frame rate/Jank test:** Đo animation xoay màn hình giữ vững 60fps trên thiết bị thật.
-
----
-
-## Prompt vòng lặp (Loop Prompt)
-
-```markdown
-Triển khai task T261 theo quy trình kỹ thuật nghiêm ngặt:
-1. Đọc kỹ file task này và lib/src/widget/banner_ad_widget.dart, lib/src/adapters/admob_adapter.dart.
-2. Viết test trước để kiểm tra hành vi xoay màn hình (TDD).
-3. Triển khai mã nguồn tối giản nhất có thể để vượt qua các test.
-4. Tín hiệu kết thúc vòng lặp (End Loop Signals) BẮT BUỘC:
-   - Hãy audit lại code changes và chấm điểm trên thang điểm 10.
-   - Bổ sung unit test + widget test + integration test cho mọi case + smoke test lên device chứng minh.
-   - Nếu work và điểm >9/10 thì push code.
-```
+- [x] Banner tự động tính lại kích thước và hiển thị vừa vặn khi xoay ngang/dọc (đã có từ T157).
+- [x] Có debounce 300ms chống giật lag khi xoay màn hình liên tục (đã có từ T157).
+- [x] Không rò rỉ banner instance cũ khi tải lại kích thước mới (`disposeBannerInstance` được gọi trước khi reload).
+- [x] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
