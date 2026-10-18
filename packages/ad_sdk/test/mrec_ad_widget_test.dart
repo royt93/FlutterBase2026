@@ -5,6 +5,7 @@
 // loadAdmobMrecIfNeeded).
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/widget/shimmer_view.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,9 +77,24 @@ class _MrecCountingAdapter implements AdProviderAdapter {
   Widget? buildAdmobMrecView(Object key) =>
       null; // placeholder path, no native view
   @override
+  ValueListenable<Object?> appLovinMrecAdViewId(Object key) =>
+      const _NullObjectListenable();
+  @override
+  void setMrecRoutePaused(Object key, bool paused) {}
+  @override
   void applyConsent(AdConsent consent) {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NullObjectListenable extends ValueListenable<Object?> {
+  const _NullObjectListenable();
+  @override
+  Object? get value => null;
+  @override
+  void addListener(VoidCallback listener) {}
+  @override
+  void removeListener(VoidCallback listener) {}
 }
 
 const _admobConfig = AdConfig(
@@ -92,11 +108,58 @@ const _admobConfig = AdConfig(
   ),
 );
 
+final _appLovinConfig = AdConfig(
+  provider: AdProvider.appLovin,
+  appLovin: AppLovinConfig(
+    sdkKey: 'test-sdk-key',
+    bannerId: 'test-banner-id',
+    interstitialId: 'test-interstitial-id',
+    rewardedId: 'test-rewarded-id',
+    appOpenId: 'test-appopen-id',
+    mrecId: 'test-mrec-id',
+  ),
+);
+
 void main() {
   Widget host(Widget child) => MaterialApp(
         navigatorObservers: [adRouteObserver],
         home: Scaffold(body: Center(child: child)),
       );
+
+  testWidgets(
+      'T257: AppLovin mrec forwards active to loading ShimmerViews when the '
+      'host flips it to false after mount', (tester) async {
+    final adapter = _MrecCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetMrecCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(true);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => MrecAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    var shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers, isNotEmpty, reason: 'loading mrec must show shimmer');
+    expect(shimmers.every((s) => s.active), isTrue);
+
+    active.value = false;
+    await tester.pump();
+
+    shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers, isNotEmpty,
+        reason: 'still loading, AppLovin placeholder stays mounted');
+    expect(shimmers.every((s) => !s.active), isTrue,
+        reason: 'a hidden tab must not keep animating its mrec placeholder');
+  });
 
   testWidgets('renders an empty box when the SDK is not initialised',
       (tester) async {

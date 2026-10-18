@@ -688,6 +688,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'T257: AppLovin banner forwards active to loading ShimmerViews when the '
+      'host flips it to false after mount', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(true);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => BannerAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    var shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers, isNotEmpty, reason: 'loading banner must show shimmer');
+    expect(shimmers.every((s) => s.active), isTrue);
+
+    active.value = false;
+    await tester.pump();
+
+    shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers, isNotEmpty,
+        reason: 'still loading, AppLovin placeholder stays mounted');
+    expect(shimmers.every((s) => !s.active), isTrue,
+        reason: 'a hidden tab must not keep animating its banner placeholder');
+  });
+
   testWidgets('collapseAnimationDuration: zero disables the animation '
       '(instant jump, old behavior)', (tester) async {
     final adapter = _CollapsingBannerCountingAdapter();
