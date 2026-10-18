@@ -106,6 +106,7 @@ class _ShimmerViewState extends State<ShimmerView>
       animation: controller,
       builder: (context, child) {
         return ShaderMask(
+          blendMode: BlendMode.srcIn,
           shaderCallback: (bounds) {
             final value = controller.value;
             return LinearGradient(

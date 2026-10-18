@@ -70,8 +70,9 @@ void main() {
         ),
       );
 
-      // Pump frame so BannerAdWidget mounts and loadBannerIfNeeded runs
+      // Let first layout complete and BannerAdWidget start the held load.
       await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 400));
 
       expect(
         adapter.activeBannerListenables,
@@ -85,6 +86,11 @@ void main() {
         shimmerFinder,
         findsWidgets,
         reason: 'ShimmerView must be mounted while ad is in loading state',
+      );
+      expect(
+        tester.getSize(find.byType(BannerAdWidget)).height,
+        greaterThan(0),
+        reason: 'loading placeholder must occupy visible banner area',
       );
 
       // 2. Capture on-device screenshot: must succeed and produce non-empty PNG

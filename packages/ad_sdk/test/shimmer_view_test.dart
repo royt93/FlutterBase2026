@@ -1,7 +1,10 @@
 // Widget, lifecycle, theme and interruption tests for ShimmerView (T257).
 
+import 'dart:ui' as ui;
+
 import 'package:applovin_admob_sdk/src/widget/shimmer_view.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -47,10 +50,14 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       theme: ThemeData.dark(),
       home: const Scaffold(
-        body: ShimmerView(cornerRadius: 4, width: 300, height: 60),
+        body: RepaintBoundary(
+          key: ValueKey('dark-shimmer-pixels'),
+          child: ShimmerView(cornerRadius: 4, width: 300, height: 60),
+        ),
       ),
     ));
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 300));
 
     // Verify container uses dark background
     final container = tester.widget<Container>(find.descendant(
@@ -59,6 +66,22 @@ void main() {
     ));
     final decoration = container.decoration as BoxDecoration;
     expect(decoration.color, const Color(0xFF1E1E1E));
+
+    final renderedCenterPixel = await tester.runAsync(() async {
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('dark-shimmer-pixels')),
+      );
+      final image = await boundary.toImage(pixelRatio: 1);
+      final width = image.width;
+      final height = image.height;
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      image.dispose();
+      if (data == null) return null;
+      final center = ((width ~/ 2) + (height ~/ 2) * width) * 4;
+      return data.getUint8(center);
+    });
+    expect(renderedCenterPixel, greaterThan(30),
+        reason: 'rendered shimmer pixel must be brighter than its #1E1E1E base');
     expect(tester.takeException(), isNull);
   });
 
