@@ -15,14 +15,20 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart'
     hide BannerErrorSelfCollapse;
+import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart'
     show BannerErrorSelfCollapse;
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/widget/shimmer_view.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show AdMessageCodec;
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'admob_behavioral_test.dart' show FakeGmaBridge;
 
 /// AdMob-provider fake that counts banner loads, for the T12 rebuild test.
 class _BannerCountingAdapter implements AdProviderAdapter {
@@ -609,6 +615,50 @@ void main() {
     expect(adapter.bannerListenablesByKey.values, contains(listenables),
         reason: 'the mounted error state must remain registered so the debug '
             'overlay can report it and the adapter can retry its recovery debt');
+  });
+
+  testWidgets(
+      'T257: real AdMobAdapter watchdog timeout removes shimmer and collapses banner',
+      (tester) async {
+    final channel = MethodChannel(
+      'plugins.flutter.io/google_mobile_ads',
+      StandardMethodCodec(AdMessageCodec()),
+    );
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async => null);
+    final adapter = AdMobAdapter(bridge: FakeGmaBridge());
+    expect(await adapter.initialize(_admobConfig), isTrue);
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() async {
+      await adapter.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(ShimmerView), findsWidgets);
+    final bannerKey = tester.state(find.byType(BannerAdWidget));
+    expect(adapter.bannerSlot(bannerKey).isLoading, isTrue);
+    expect(adapter.debugBannerListenerFor(bannerKey), isNotNull,
+        reason: 'real AdMobAdapter must have a pending GMA banner listener');
+
+    await tester.pump(const Duration(seconds: 31));
+    await tester.pumpAndSettle();
+
+    expect(adapter.bannerSlot(bannerKey).isLoading, isFalse);
+    expect(adapter.banner(bannerKey).hasError.value, isTrue);
+    expect(adapter.debugBannerListenerFor(bannerKey), isNull,
+        reason: 'watchdog must evict the native ad that never called back');
+    expect(find.byType(ShimmerView), findsNothing);
+    expect(tester.getSize(find.byType(BannerAdWidget)).height, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('T257: adapter load error removes shimmer and collapses banner',

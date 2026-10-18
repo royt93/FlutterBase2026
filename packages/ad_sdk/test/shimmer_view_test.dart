@@ -229,8 +229,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  // ─── T257: 60fps Frame-Timing Animation Benchmark ─────────────────────────
-  testWidgets('T257: 60fps frame-rate benchmark across full animation cycle',
+  // ─── T257: Animation cycle pump simulation ─────────────────────────
+  testWidgets('T257: animation cycle pumps 75 frames without throwing',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: Scaffold(
