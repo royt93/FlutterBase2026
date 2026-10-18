@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-// ignore_for_file: unused_field
-
 /// Shimmer placeholder shown while ads are loading.
 class ShimmerView extends StatefulWidget {
   final double cornerRadius;
@@ -39,13 +37,20 @@ class _ShimmerViewState extends State<ShimmerView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (_controller != null) return;
+    _isBackgrounded.value = _isBackground(
+      WidgetsBinding.instance.lifecycleState,
+    );
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
-    if (widget.active) _controller?.repeat();
+    if (widget.active && !_isBackgrounded.value) _controller?.repeat();
   }
+
+  // inactive is excluded on purpose: on Android it also fires while the app
+  // is still visible (split-screen, notification shade, system dialogs).
+  static bool _isBackground(AppLifecycleState? state) =>
+      state == AppLifecycleState.paused || state == AppLifecycleState.hidden;
 
   @override
   void didUpdateWidget(ShimmerView oldWidget) {
@@ -61,12 +66,10 @@ class _ShimmerViewState extends State<ShimmerView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden) {
+    if (_isBackground(state)) {
       _isBackgrounded.value = true;
       _controller?.stop();
-    } else if (state == AppLifecycleState.resumed) {
+    } else {
       _isBackgrounded.value = false;
       if (widget.active) _controller?.repeat();
     }

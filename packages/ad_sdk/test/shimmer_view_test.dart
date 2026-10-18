@@ -229,6 +229,85 @@ void main() {
     expect(state.debugIsAnimating, isTrue);
   });
 
+  // The first pumpWidget never builds while frames are off, but an ancestor
+  // rebuild + pump() still does: that mounts a brand new ShimmerView while the
+  // binding reports `hidden`, which is exactly what D1 is about.
+  testWidgets('T257: mounted while app is hidden does not animate until resume',
+      (tester) async {
+    var show = false;
+    late StateSetter toggle;
+    await tester.pumpWidget(MaterialApp(
+      home: StatefulBuilder(
+        builder: (context, setState) {
+          toggle = setState;
+          return Scaffold(
+            body: show
+                ? const ShimmerView(cornerRadius: 4, width: 300, height: 60)
+                : const SizedBox(),
+          );
+        },
+      ),
+    ));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+
+    toggle(() => show = true);
+    await tester.pump();
+
+    final state = tester.state(find.byType(ShimmerView)) as dynamic;
+    expect(state.debugIsAnimating, isFalse,
+        reason: 'D1: initState must read the current lifecycleState');
+    expect(find.byType(ShaderMask), findsNothing);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(state.debugIsAnimating, isTrue);
+    expect(find.byType(ShaderMask), findsOneWidget);
+  });
+
+  testWidgets('T257: mounted while app is inactive keeps animating (D2)',
+      (tester) async {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    addTearDown(() => tester.binding
+        .handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: ShimmerView(cornerRadius: 4, width: 300, height: 60),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final state = tester.state(find.byType(ShimmerView)) as dynamic;
+    expect(state.debugIsAnimating, isTrue,
+        reason: 'inactive also fires while the app is still visible '
+            '(split-screen, notification shade); the shimmer must keep moving');
+    expect(find.byType(ShaderMask), findsOneWidget);
+  });
+
+  testWidgets('T257: inactive does not stop the ticker, hidden does',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: ShimmerView(cornerRadius: 4, width: 300, height: 60),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+    final state = tester.state(find.byType(ShimmerView)) as dynamic;
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(state.debugIsAnimating, isTrue);
+    expect(find.byType(ShaderMask), findsOneWidget);
+
+    state.didChangeAppLifecycleState(AppLifecycleState.hidden);
+    expect(state.debugIsAnimating, isFalse);
+
+    state.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    expect(state.debugIsAnimating, isTrue);
+  });
+
   testWidgets(
       'T257: rebuild while backgrounded restores ShaderMask upon resume without setState',
       (tester) async {
@@ -254,8 +333,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byType(ShaderMask), findsOneWidget);
 
-    // inactive keeps frames enabled (unlike paused), so rebuilds still run
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    // Drive the State directly: paused/hidden disable frames in flutter_test,
+    // yet a real device can still rebuild an ancestor around such a transition.
+    final state = tester.state(find.byType(ShimmerView)) as dynamic;
+    state.didChangeAppLifecycleState(AppLifecycleState.hidden);
     await tester.pump();
 
     // Ancestor rebuilds while backgrounded -> build() falls into static Container
@@ -265,7 +346,7 @@ void main() {
     expect(find.text('counter=1'), findsOneWidget);
 
     // App resumes -> must re-attach ShaderMask even without State.setState()
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    state.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pump();
     expect(
       find.byType(ShaderMask),
