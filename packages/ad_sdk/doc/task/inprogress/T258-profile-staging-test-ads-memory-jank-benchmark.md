@@ -40,24 +40,59 @@
    - Jank tổng phiên khoảng 12–13%; không đo riêng shimmer và không quy kết toàn bộ jank cho shimmer. P95 28–32ms nên dữ liệu này **không chứng minh 60fps ổn định**.
 
 5. **Phân rã native heap/graphics và HPROF trên Pixel 7 Pro (2026-10-17):**
-   - **Lượt 1 (meminfo breakdown):** Baseline PSS **433,593 KB**, Native **55,892 KB**, Graphics **189,476 KB**, WebViews **6**. Sau 10 chu kỳ PSS **433,933 KB**, Native **62,036 KB**, Graphics **207,484 KB**, WebViews **7**. Sau 20 chu kỳ PSS **449,862 KB**, Native **64,348 KB**, Graphics **211,240 KB**, WebViews **11**.
-   - **Lượt 2 (native dump + HPROF histogram):** Dùng `com.roy.admob.t258.heaprun`, Profile, 20 toggles; dump baseline và sau run bằng `am dumpheap`; convert bằng `hprof-conv`; so sánh class instance counts với parser HPROF cô lập.
-   - **Class histogram delta (baseline → sau run):**
-     - `io.flutter.plugins.googlemobileads.FlutterBannerAd`: **1 → 6** (+5).
-     - `io.flutter.plugins.googlemobileads.BannerAdCreator`: **1 → 6** (+5).
-     - `com.android.webview.chromium.WebViewChromium`: **6 → 11** (+5).
-     - `org.chromium.android_webview.AwContents`: **6 → 11** (+5).
-     - `io.flutter.plugin.platform.PlatformViewRegistryImpl`: **1 → 1**; `PlatformViewsController`: **1 → 1**; `FlutterPlatformView`: **1 → 1**.
-   - **Giới hạn kết luận:** Class count +5 xác nhận thêm 5 Java wrapper/WebView instances còn reachable tại thời điểm dump. Nó **không chứng minh cache** và cũng **không tự chứng minh leak**; cần retained size/dominator path và/hoặc đo sau idle + GC để biết chúng được GMA/Chromium giữ có chủ đích hay còn bị giữ bởi đường tham chiếu bất thường. PlatformView manager singleton không tăng, nhưng điều đó không chứng minh không có retained ad instances.
-   - Lượt HPROF khác trước đó cho PSS **446,311 KB**, Native Heap **65,540 KB**, Graphics **209,832 KB**, WebViews **6**; chênh với lượt histogram cho thấy run-to-run variation đáng kể. Không trộn các lượt thành một chuỗi đo duy nhất.
-   - Các HPROF đã dọn sau khi parser kết thúc; parser chưa tính retained sizes, dominator tree hay inbound references.
+   - **Lượt meminfo (Profile, 20 chu kỳ):** Baseline PSS **433,593 KB**, Native **55,892 KB**, Graphics **189,476 KB**, WebViews **6**. Sau 10 chu kỳ PSS **433,933 KB**, Native **62,036 KB**, Graphics **207,484 KB**, WebViews **7**. Sau 20 chu kỳ PSS **449,862 KB**, Native **64,348 KB**, Graphics **211,240 KB**, WebViews **11**.
+   - **Lượt HPROF độc lập (`com.roy.admob.t258.heaprun`, Profile, 20 toggles):** Parser HPROF cô lập đọc class instance counts baseline → after:
+     - `io.flutter.plugins.googlemobileads.FlutterBannerAd`: **1 → 7** (+6).
+     - `io.flutter.plugins.googlemobileads.FlutterBannerAdListener`: **1 → 7** (+6).
+     - `io.flutter.plugins.googlemobileads.BannerAdCreator`: **1 → 7** (+6).
+     - `com.android.webview.chromium.WebViewChromium`: **6 → 12** (+6).
+     - `org.chromium.android_webview.AwContents`: **6 → 12** (+6).
+     - `PlatformViewsController`, `FlutterPlatformView`, `AdInstanceManager`: mỗi loại **1 → 1**.
+   - Một lần HPROF khác trước đó ghi WebViews **6 → 11**; các lượt khác nhau dao động, nên không gộp thành một chuỗi đo. Class histogram chỉ cho biết instance còn trong snapshot; **không chứng minh cache hay leak**.
+   - Android Studio Shark parser được thử qua CLI nhưng không tạo class counts/path đáng tin ở dump baseline. Không trích được dominator/retaining path bằng CLI.
+   - HPROF đã bị xóa theo lựa chọn của user sau khi retained-path analysis qua GUI không hoàn tất. Không còn dump để phân tích lại; chưa có retained-size hoặc inbound-reference evidence.
+
+6. **Shimmer-only Flutter frame timings (Pixel 7 Pro, Profile, 2026-10-18):**
+   - **Đợt 1 (driven pump test):** `example/integration_test/t258_shimmer_frame_timing_test.dart` mount `ShimmerView` (320x50), thu 300 pump(16ms). 3 lượt đo đều ra 300–301 frames, raster p95 2.85–2.98ms, 0 frame raster > 16.67ms.
+   - **Đợt 2 (vsync tự nhiên, Impeller Vulkan, màn 120Hz Pixel 7 Pro):** Standalone app `example/lib/t258_shimmer_profile.dart` chỉ mount `ShimmerView`, chạy 5 giây theo vòng lặp render tự nhiên của hệ thống, thu `FrameTiming` thật.
+
+     | Run | Total Frames (~5s) | Avg FPS | Raster >16.67ms | Build >16.67ms | Total Span >16.67ms | p95 Raster | p95 Build | p95 Total |
+     |---|---:|---:|---:|---:|---:|---:|---:|---:|
+     | 1 | 570 | ~114 | 1 | 0 | 3 | 2.63ms | 1.67ms | 5.65ms |
+     | 2 | 569 | ~114 | 1 | 0 | 3 | 2.62ms | 1.68ms | 5.61ms |
+     | 3 | 584 | ~117 | 1 | 0 | 3 | 2.59ms | 1.66ms | 5.46ms |
+
+   - **Giới hạn diễn giải:** Các run thu được ~114–117 frame/s trong cửa sổ 5 giây; p95 raster ~2.6ms, p95 build ~1.7ms, p95 total ~5.5ms. Có 3 frame/lượt có `totalSpan >16.67ms`. Đây là timing của shimmer-only trong harness riêng, không chứng minh frame delivery ổn định cho app hoặc giải thích tỷ lệ `gfxinfo` ở mục 4.
+
+7. **Điều tra nguồn jank toàn phiên (Phân rã theo pha, Pixel 7 Pro, Profile, 2026-10-18):**
+   - Harness: `example/lib/t258_phase_jank_profile.dart`, phân rã theo mốc `Timeline.now` ứng với từng pha hoạt động, chạy 3 lượt độc lập trên Pixel 7 Pro (Vulkan Impeller, màn hình 120Hz).
+   - **Pha 1: UMP Consent & SDK Init:**
+     - Thời gian chạy: UMP 534–832ms, Init 501–2294ms.
+     - Số frame Flutter render: 0 (không có animation/UI re-layout). Không có jank từ luồng Flutter.
+   - **Pha 2: First Banner (Mount + Shimmer + Android PlatformView / WebView creation):**
+     - Run 1: 365 frames, 3 frames >16.67ms, 1 frame >33.3ms, p95 total 5.95ms.
+     - Run 2: 140 frames, 2 frames >16.67ms, 2 frames >33.3ms, p95 total 7.08ms.
+     - Run 3: 136 frames, 3 frames >16.67ms, 2 frames >33.3ms, p95 total 9.98ms.
+   - **Pha 3: 20 Chu kỳ Mount (600ms) / Dispose (400ms) liên tục (~20 giây):**
+
+     | Run | Total Frames | Frames >16.67ms | Frames >33.3ms | p95 Total Span | Tỷ lệ Jank (Flutter) |
+     |---|---:|---:|---:|---:|---:|
+     | 1 | 1,448 | 3 | 2 | 6.67ms | 0.21% |
+     | 2 | 1,429 | 4 | 3 | 6.69ms | 0.28% |
+     | 3 | 1,442 | 6 | 3 | 6.66ms | 0.42% |
+
+   - **Giới hạn diễn giải:**
+     - Các con số trên là `FrameTiming.totalSpan` vượt các ngưỡng thời lượng nêu trong bảng; **không tương đương phép đo dropped-frame/vsync miss**. `FrameTiming` ghi build/raster pipeline latency, không cung cấp trực tiếp khoảng cách giữa hai lần vsync.
+     - UMP/Init có 0 frame được ghi nhận trong khoảng marker ở các lượt này; điều đó chỉ nói không có `FrameTiming` gán vào khoảng đó, không chứng minh main thread hoặc native UI không bị block.
+     - Kết quả Flutter timing thấp trong giai đoạn cycles không giải thích được tỷ lệ `dumpsys gfxinfo` 12–13%. Chưa có bằng chứng quy tỷ lệ kia cho splash, Android compositor, WebView hay thành phần cụ thể nào.
+     - Không dùng các số này để khẳng định 60/120fps ổn định hoặc loại trừ jank native.
 
 ## Việc còn lại
 
-1. Phân tích retaining paths/dominator của `FlutterBannerAd`, `WebViewChromium`, `AwContents`, `BannerAdCreator` bằng Android Studio Profiler hoặc MAT.
-2. Lặp lại sau idle/GC để xác định instance count giảm hay giữ nguyên; không dùng class count đơn lẻ để gán kết luận cache/leak.
-3. Thu frame timing riêng trong lúc shimmer chạy; `gfxinfo` hiện gộp init, UMP, ad load và chu kỳ.
-4. Giữ các harness/run riêng biệt; chưa khái quát sang thiết bị khác.
+1. Đối chiếu `FrameTiming` với Android `gfxinfo` có marker cùng khoảng thời gian, nếu cần truy nguồn gốc tỷ lệ 12–13%.
+2. **Tạm ngừng HPROF investigation theo quyết định user.** Chỉ tạo lại heap dump nếu user yêu cầu tiếp tục.
+3. Đã dọn dẹp các harness thử nghiệm tạm thời khỏi repo (`example/lib/t258_*.dart` và test liên quan).
+4. Giữ các harness/run riêng biệt; chưa kết luận leak/cache hoặc khái quát sang thiết bị khác.
 
 
 ## Acceptance Criteria
