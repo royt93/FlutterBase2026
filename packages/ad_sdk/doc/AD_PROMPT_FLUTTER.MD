@@ -722,11 +722,12 @@ For each enabled placement, record PASS/FAIL and `file:line` evidence. These che
 
 | # | Check | How to verify |
 |---|---|---|
-| 1 | Banner/native/MREC never obscure controls or imitate clickable app controls | Inspect host layout on target device sizes; compare placement against current selected-network policy |
-| 2 | App Open never interrupts first-use navigation unexpectedly | Verify cold-start flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` and resume behavior; confirm hard cap reaches app when no ad is ready |
-| 3 | Interstitial respects configured frequency gates | Confirm `AdSafetyParams.auto` or an explicitly approved preset; record actual caps from selected SDK version/config |
-| 4 | Rewarded appears only in approved user flow and reward is granted only when earned | Inspect each enabled placement and callback; do not reward from impression/show/dismiss alone |
-| 5 | Partner-approved ad/disclosure text is shown at the agreed location, if required | Get exact copy/location from partner policy/legal owner; localize using host system; do not use this template's sample text as legal advice |
+| 1 | Banner/native/MREC stay visually separate from app controls and do not shift content under a pending tap | On the target device, inspect every placement with the ad empty/loading and after it fills. Keep ads away from navigation buttons, scrollbars, floating actions, and frequently tapped controls; reserve the intended ad area before requesting/filling so content is not inserted under a finger mid-gesture. For list/feed ads, use `InFeedAdListView` where appropriate and test slow fill while scrolling. Compare placement against the selected network's current policy and the host's approved layout. The SDK cannot inspect arbitrary host sibling widgets or promise a universal safe margin; the host owns spacing and placement. Never cover a native ad with a transparent hit-test layer, intercept its touch events, or make app controls look like ad controls. Record screenshot and the ad container's top/height before and after fill; investigate visible movement that could redirect a tap. |
+| 2 | Fullscreen ads do not interrupt active input or an unintentional transition | Host should wait for a deliberate transition point; do not trigger while a scroll gesture is active or a text-entry keyboard is open. Test app-open/interstitial triggers with the keyboard open, during scrolling, and on route changes. The SDK suppresses some modal/dialog cases, but only the host knows keyboard and scroll intent. |
+| 3 | App Open never interrupts first-use navigation unexpectedly | Verify cold-start flow `loadAppOpenAd → showAdBuffer → showAppOpenAd(bypassSafety: true)` and resume behavior; confirm hard cap reaches app when no ad is ready |
+| 4 | Interstitial respects configured frequency gates | Confirm `AdSafetyParams.auto` or an explicitly approved preset; record actual caps from selected SDK version/config |
+| 5 | Rewarded appears only in approved user flow and reward is granted only when earned | Inspect each enabled placement and callback; do not reward from impression/show/dismiss alone |
+| 6 | Partner-approved ad/disclosure text is shown at the agreed location, if required | Get exact copy/location from partner policy/legal owner; localize using host system; do not use this template's sample text as legal advice |
 
 Do not mark a check PASS based on reading code alone when it needs device or owner verification.
 
@@ -1211,7 +1212,7 @@ Before handoff or production rollout, complete this checklist with the partner's
 
 ### 11.0 — Partner release gates
 
-- [ ] Product owner approved provider, ad formats/placements, launch triggers, VIP/grace scope, and all user-facing ad disclosures; placements do not risk accidental clicks or interrupt active interaction
+- [ ] Product owner approved provider, ad formats/placements, launch triggers, VIP/grace scope, and all user-facing ad disclosures. On target devices, verify each placement has clear separation from navigation buttons, scroll controls, and other tappable app content; review real layout after ad fill to catch shifts that could redirect a pending tap. Avoid showing fullscreen ads during active scrolling, with the keyboard open, or outside an intentional transition/approved user flow.
 - [ ] Privacy/legal owner approved target markets, consent/CMP flow, ATT purpose text, age-directed behavior, privacy-policy URL, data purposes, retention, and any permitted diagnostics
 - [ ] Security/privacy owner reviewed Android backup policy before any change; backup include rules are merged, not replaced, and scope is understood to include all keys in `FlutterSharedPreferences.xml`
 - [ ] Tested consent granted, denied/withdrawn, unavailable/offline, app resume, and re-initialization for each enabled provider; record provider-specific limitations, including AppLovin consent writes being fire-and-forget
