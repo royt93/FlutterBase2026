@@ -97,9 +97,12 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   @override
   Widget? buildAdmobBannerView(Object key) =>
       null; // placeholder path, no native view
+  /// Null by default (placeholder path). A test can set it to emulate a MAX
+  /// ad view that exists but has not loaded yet (AdViewId is just a `num`).
+  final ValueNotifier<Object?> appLovinAdViewId = ValueNotifier<Object?>(null);
   @override
   ValueListenable<Object?> appLovinBannerAdViewId(Object key) =>
-      const _NullObjectListenable();
+      appLovinAdViewId;
   @override
   void applyConsent(AdConsent consent) {}
   // AppLovin (non-AdMob) branch of didPush/didPushNext/didPopNext calls this
@@ -109,18 +112,6 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   void setBannerRoutePaused(Object key, bool paused) {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-/// Constant-null listenable for `appLovinBannerAdViewId` — the test only
-/// asserts on preload/dispose counts, never renders a real `MaxAdView`.
-class _NullObjectListenable extends ValueListenable<Object?> {
-  const _NullObjectListenable();
-  @override
-  Object? get value => null;
-  @override
-  void addListener(VoidCallback listener) {}
-  @override
-  void removeListener(VoidCallback listener) {}
 }
 
 class _CollapsingBannerCountingAdapter extends _BannerCountingAdapter
@@ -686,6 +677,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getSize(find.byType(BannerAdWidget)).height, 0);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'T257: AppLovin banner with an existing adViewId forwards active to the '
+      'loading ShimmerViews of _BannerContainer', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    adapter.appLovinAdViewId.value = 1; // view exists, but isLoaded stays false
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(true);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => BannerAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    var shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers.length, 2, reason: 'badge + body placeholders');
+    expect(shimmers.every((s) => s.active), isTrue);
+
+    active.value = false;
+    await tester.pump();
+
+    shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers.length, 2);
+    expect(shimmers.every((s) => !s.active), isTrue,
+        reason: '_BannerContainer must forward active to both placeholders');
   });
 
   testWidgets(

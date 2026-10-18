@@ -67,7 +67,9 @@ void main() {
     final decoration = container.decoration as BoxDecoration;
     expect(decoration.color, const Color(0xFF1E1E1E));
 
-    final renderedCenterPixel = await tester.runAsync(() async {
+    // ShaderMask(srcIn) paints the gradient itself over the opaque child, so
+    // every interior pixel is a blend of base #2A2A2A and highlight #383838.
+    final pixels = await tester.runAsync(() async {
       final boundary = tester.renderObject<RenderRepaintBoundary>(
         find.byKey(const ValueKey('dark-shimmer-pixels')),
       );
@@ -77,11 +79,24 @@ void main() {
       final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       image.dispose();
       if (data == null) return null;
-      final center = ((width ~/ 2) + (height ~/ 2) * width) * 4;
-      return data.getUint8(center);
+      final y = height ~/ 2;
+      return [
+        for (var x = 12; x < width - 12; x += 12)
+          [
+            for (var c = 0; c < 3; c++) data.getUint8((x + y * width) * 4 + c),
+          ],
+      ];
     });
-    expect(renderedCenterPixel, greaterThan(30),
-        reason: 'rendered shimmer pixel must be brighter than its #1E1E1E base');
+    expect(pixels, isNotNull);
+    expect(pixels, isNotEmpty);
+    for (final rgb in pixels!) {
+      for (final channel in rgb) {
+        expect(channel, inInclusiveRange(0x2A - 1, 0x38 + 1),
+            reason: 'dark shimmer pixel $rgb left the #2A2A2A..#383838 band');
+      }
+      expect(rgb[0], rgb[1], reason: 'dark shimmer must be neutral grey');
+      expect(rgb[1], rgb[2], reason: 'dark shimmer must be neutral grey');
+    }
     expect(tester.takeException(), isNull);
   });
 

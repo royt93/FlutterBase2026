@@ -27,28 +27,25 @@ class ShimmerView extends StatefulWidget {
 
 class _ShimmerViewState extends State<ShimmerView>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  AnimationController? _controller;
+  late final AnimationController _controller;
   final ValueNotifier<bool> _isBackgrounded = ValueNotifier<bool>(false);
 
   @visibleForTesting
-  bool get debugIsAnimating => _controller?.isAnimating ?? false;
+  bool get debugIsAnimating => _controller.isAnimating;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _isBackgrounded.value = _isBackground(
-      WidgetsBinding.instance.lifecycleState,
-    );
+    final state = WidgetsBinding.instance.lifecycleState;
+    _isBackgrounded.value = _isBackground(state);
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
-    if (widget.active && !_isBackgrounded.value) _controller?.repeat();
+    if (widget.active && !_isBackgrounded.value) _controller.repeat();
   }
 
-  // inactive is excluded on purpose: on Android it also fires while the app
-  // is still visible (split-screen, notification shade, system dialogs).
   static bool _isBackground(AppLifecycleState? state) =>
       state == AppLifecycleState.paused || state == AppLifecycleState.hidden;
 
@@ -57,9 +54,9 @@ class _ShimmerViewState extends State<ShimmerView>
     super.didUpdateWidget(oldWidget);
     if (widget.active != oldWidget.active) {
       if (widget.active && !_isBackgrounded.value) {
-        _controller?.repeat();
+        _controller.repeat();
       } else {
-        _controller?.stop();
+        _controller.stop();
       }
     }
   }
@@ -68,18 +65,17 @@ class _ShimmerViewState extends State<ShimmerView>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isBackground(state)) {
       _isBackgrounded.value = true;
-      _controller?.stop();
+      _controller.stop();
     } else {
       _isBackgrounded.value = false;
-      if (widget.active) _controller?.repeat();
+      if (widget.active) _controller.repeat();
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
-    _controller = null;
+    _controller.dispose();
     _isBackgrounded.dispose();
     super.dispose();
   }
@@ -106,9 +102,9 @@ class _ShimmerViewState extends State<ShimmerView>
       ),
     );
 
-    if (!widget.active || _controller == null) return staticBox();
+    if (!widget.active) return staticBox();
 
-    final controller = _controller!;
+    final controller = _controller;
     return ValueListenableBuilder<bool>(
       valueListenable: _isBackgrounded,
       builder: (context, backgrounded, _) {
