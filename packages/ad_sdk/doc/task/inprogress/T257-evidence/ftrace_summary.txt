@@ -1,0 +1,25 @@
+# T257 ftrace summaries (raw .pftrace not committed: 22-118 MB each, kept locally in /tmp)
+# Device: Pixel 7 Pro, Profile build, --trace-systrace, atrace gfx/view for com.roy.admobwrapper
+# Query: ftrace_frame_cadence.sql run with trace_processor v58.2 (python3 -I trace_processor -q <sql> <trace>)
+
+## deterministic run2 (self-driven, 23.95s)
+"frames","span_s","fps","gap_gt_16_7","gap_gt_25","gap_gt_33_4","gap_gt_50","max_gap_ms","avg_gap_ms","ui_gt_8_33","ui_gt_16_7"
+2550,23.950000,106.500000,17,9,6,5,492.800000,9.400000,15,4
+"raster_avg","raster_gt_8_33","raster_gt_16_7","raster_max"
+2.070000,1,0,11.000000
+
+## real AdMob banner run1 (26s capture; banner state=ready loaded=true error=false)
+"frames","span_s","fps","gap_gt_16_7","gap_gt_25","gap_gt_33_4","gap_gt_50","max_gap_ms","avg_gap_ms","ui_gt_8_33","ui_gt_16_7"
+552,16.050000,34.400000,11,3,3,3,8234.100000,29.130000,17,0
+"raster_avg","raster_gt_8_33","raster_gt_16_7","raster_max"
+2.160000,0,0,5.000000
+
+## 2s scroll windows (cols: frames,fps,ui_avg_ms,ui_max_ms,ui_gt_8_33,ui_gt_16_7,gap_gt_16_7,max_gap_ms)
+# real AdMob banner: scroll_down 41378.71s, scroll_back 41381.72s (CLOCK_BOOTTIME)
+"name","frames","fps","ui_avg_ms","ui_max_ms","ui_gt_8_33","ui_gt_16_7","gap_gt_16_7","max_gap_ms"
+"scroll_a",225,112.500000,4.630000,14.280000,13,0,8,8234.100000
+"scroll_b",235,117.500000,3.950000,13.600000,4,0,2,1000.300000
+# deterministic run2: cycle3 scroll 40841.16s, scroll_back 40845.72s
+"name","frames","fps","ui_avg_ms","ui_max_ms","ui_gt_8_33","ui_gt_16_7","gap_gt_16_7","max_gap_ms"
+"scroll_a",240,120.000000,2.240000,7.170000,0,0,0,10.900000
+"scroll_b",234,117.000000,2.890000,10.270000,3,0,2,16.800000

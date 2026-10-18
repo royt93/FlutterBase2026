@@ -1,0 +1,7 @@
+create or replace perfetto table bf as
+select s.ts, s.dur from slice s join thread_track tt on s.track_id=tt.id join thread t using(utid) join process p using(upid)
+where p.name like '%admobwrapper%' and s.name='Animator::BeginFrame';
+create or replace perfetto table g as select ts, dur, ts - lag(ts) over (order by ts) gap from bf;
+select 'scroll_a' name, count(*) frames, round(count(*)/2.0,1) fps, round(avg(dur)/1e6,2) ui_avg_ms, round(max(dur)/1e6,2) ui_max_ms, sum(dur>8.33e6) ui_gt_8_33, sum(dur>16.7e6) ui_gt_16_7, sum(gap>16.7e6) gap_gt_16_7, round(max(gap)/1e6,1) max_gap_ms from g where ts between 41378.71e9 and 41380.71e9
+union all
+select 'scroll_b', count(*), round(count(*)/2.0,1), round(avg(dur)/1e6,2), round(max(dur)/1e6,2), sum(dur>8.33e6), sum(dur>16.7e6), sum(gap>16.7e6), round(max(gap)/1e6,1) from g where ts between 41381.72e9 and 41383.72e9;
