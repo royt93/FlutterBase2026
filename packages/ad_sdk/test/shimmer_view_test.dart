@@ -272,6 +272,43 @@ void main() {
     expect(find.byType(ShaderMask), findsOneWidget);
   });
 
+  // ─── T257: Route cover/uncover (Flutter mutes tickers under opaque routes) ─
+  testWidgets(
+      'T257: opaque route covering a mounted shimmer mutes its ticker, pop resumes',
+      (tester) async {
+    final navKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navKey,
+      home: const Scaffold(
+        body: ShimmerView(cornerRadius: 4, width: 300, height: 60),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.binding.hasScheduledFrame, isTrue,
+        reason: 'visible shimmer keeps scheduling frames');
+
+    navKey.currentState!.push(MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(body: SizedBox()),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ShimmerView, skipOffstage: false), findsOneWidget,
+        reason: 'covered route stays mounted (maintainState)');
+    final shimmerContext =
+        tester.element(find.byType(ShimmerView, skipOffstage: false));
+    expect(TickerMode.valuesOf(shimmerContext).enabled, isFalse);
+    expect(tester.binding.hasScheduledFrame, isFalse,
+        reason: 'muted ticker must not schedule frames while covered');
+
+    navKey.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(TickerMode.valuesOf(shimmerContext).enabled, isTrue);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.binding.hasScheduledFrame, isTrue,
+        reason: 'uncovered shimmer resumes scheduling frames');
+  });
+
   // ─── T257: Network cut simulation (transition to error/collapsed state) ───
   testWidgets('T257: clean unmount when ad load fails/collapses during shimmer',
       (tester) async {

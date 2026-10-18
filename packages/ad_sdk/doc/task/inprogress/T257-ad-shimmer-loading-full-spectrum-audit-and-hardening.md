@@ -7,7 +7,7 @@
 ## Bối cảnh & Vấn đề
 
 Trong `lib/src/widget/shimmer_view.dart`, `ShimmerView` được sử dụng làm placeholder trong suốt quá trình nạp quảng cáo Banner, MREC và Native. Qua rà soát mã nguồn và đo đạc thực tế trên Google Pixel 7 Pro, phát hiện các hạn chế:
-1. **Lãng phí CPU/GPU và Ticker chạy ngầm:** `AnimationController(..repeat())` chạy liên tục chu kỳ 1200ms bằng `ShaderMask`. Khi ứng dụng bị đưa vào background hoặc chuyển sang route khác mà không unmount, Ticker vẫn tiếp tục tiêu tốn chu kỳ GPU và pin.
+1. **Ticker và trạng thái ẩn:** `AnimationController(..repeat())` chạy chu kỳ 1200ms bằng `ShaderMask`. App background cần xử lý lifecycle riêng. Route bị route opaque che kín đã được Flutter `TickerMode` tự mute: không schedule frame callbacks (test xác nhận qua `hasScheduledFrame`, không assert trạng thái nội bộ của controller). Route không opaque (ví dụ dialog) có thể để trang dưới còn hiển thị; bare `IndexedStack` không tự phát tín hiệu `TickerMode`, cần host quản lý trạng thái ẩn.
 2. **Lỗi hiển thị Dark Mode (Gây chói mắt người dùng):** Màu gradient cố định `Color(0xFFE0E0E0)` và `Color(0xFFF8F8F8)` là màu xám trắng. Trên ứng dụng nền tối (Dark Theme), placeholder lóe sáng trắng đột ngột trước khi ad hiện, gây trải nghiệm người dùng xấu.
 3. **Mất mạng & Timeout:** Khi thiết bị mất mạng hoặc ad load bị treo, cần cơ chế để shimmer tự động dừng hoặc sụp khoảng trống (collapse) mượt mà khi adapter báo lỗi/watchdog hết hạn.
 4. **Thiếu kiểm thử đa chiều:** Cần bộ test bao phủ Golden test (Light/Dark), Interruption (lifecycle pause/resume), Network conditioning (mất mạng/phục hồi), Ticker leak qua nhiều chu kỳ, và đo Frame timing trên thiết bị thật.
@@ -21,21 +21,21 @@ Trong `lib/src/widget/shimmer_view.dart`, `ShimmerView` được sử dụng là
 ## Acceptance Criteria
 
 - [x] `ShimmerView` hỗ trợ màu Dark Mode tự nhiên theo theme hiện tại của ứng dụng (`[0xFF2A2A2A, 0xFF383838]`).
-- [x] Ticker tự động dừng khi route bị ẩn hoặc ứng dụng chuyển sang chế độ background qua `WidgetsBindingObserver`, phục hồi khi trở lại foreground.
+- [x] Ticker dừng khi ứng dụng chuyển sang background qua `WidgetsBindingObserver` và phục hồi khi foreground; route opaque che kín được Flutter `TickerMode` mute tự động (widget test `T257: opaque route covering a mounted shimmer mutes its ticker, pop resumes`). Không claim cho dialog/popup không opaque hay bare `IndexedStack` thiếu tín hiệu `TickerMode`.
 - [x] Không rò rỉ `AnimationController`/`TickerProvider` qua 30 chu kỳ mount/unmount trong widget test (`test/shimmer_view_test.dart`). Native heap/ad allocation leak chưa được đo riêng cho shimmer.
 - [x] Golden test xác minh pixel hiển thị chính xác ở cả Light mode (`test/goldens/shimmer_view_light.png`) và Dark mode (`test/goldens/shimmer_view_dark.png`).
 - [x] Interruption test xác minh vòng đời `paused`/`resumed` không gây crash hay rò rỉ Ticker.
 - [x] Deterministic on-device loading + real watchdog: `example/integration_test/t257_shimmer_network_collapse_test.dart` dùng `debugSetAdapter` với controllable adapter, `AdSlot.armLoadWatchdog` 30s thật; assert `loadBannerIfNeeded` reached adapter, `ShimmerView` mounted trong lúc loading, watchdog nổ tự nhiên sau ~30s, shimmer bị gỡ và banner collapse height 0 trên Pixel 7 Pro (`flutter drive --profile`). Không mô phỏng mất mạng thật.
 - [x] AdMobAdapter watchdog wiring: widget test `test/banner_ad_widget_test.dart` ("T257: real AdMobAdapter watchdog timeout removes shimmer and collapses banner") dùng `AdMobAdapter` thật, `MethodChannel` mock không callback, và `pump(31s)` để advance fake time; xác nhận listener bị evict, `hasError`, shimmer removal và height 0. Đây là test wiring/timer, không phải 30 giây wall-clock trên device.
-- [x] Visual proof shimmer trên thiết bị: Dark Mode screenshot Pixel 7 Pro được lưu tạm tại `/tmp/t257_shimmer_pixel7pro.png` (1440x3120, 38,932 bytes; latest Pixel 7 Pro capture). Ảnh kiểm tra trực quan cho thấy dải shimmer hiển thị; pixel analysis thấy màu vùng banner khoảng `#292929`–`#2F2F2F` trên nền `#141218`. Ảnh không được commit và chưa có golden/pixel assertion tự động trên screenshot device.
+- [x] Visual proof shimmer trên thiết bị: Dark Mode screenshot Pixel 7 Pro được lưu tạm tại `/tmp/t257_shimmer_pixel7pro.png` (1440x3120, 38,932 bytes; latest Pixel 7 Pro capture). Ảnh kiểm tra trực quan cho thấy dải shimmer hiển thị; pixel analysis thấy màu vùng banner khoảng `#292929`–`#2F2F2F` trên nền `#141218`. Ảnh và output pixel analysis không được commit; các số này là ghi nhận cục bộ của phiên trước, không thể audit lại chỉ từ evidence trong repo. Chưa có golden/pixel assertion tự động trên screenshot device.
 - [ ] Frame rate/jank test 60fps ổn định toàn app: chưa đạt. Đã đo Flutter `FrameTiming` trên runner Profile chứa list/scroll + banner; số liệu ở mục 6 bên dưới. Tuy nhiên Android `dumpsys gfxinfo` chỉ trả 2 frames cho `SurfaceView` Flutter ở các runs này, nên chưa xác minh được presentation/drop rate ở tầng Android. Không kết luận 60fps ổn định từ các số này.
 - [ ] Audit độc lập chấm điểm >9/10: vòng trước chấm 8.5/10; yêu cầu audit lại sau các thay đổi mới.
-- [x] `flutter analyze` sạch 0 issue; full package unit/widget suite 2,725/2,725 pass (2026-10-18, sau BlendMode fix và dark pixel assertion). Con số này không gồm integration test và screenshot driver (chạy riêng trên device, chưa thuộc CI/release gate).
+- [x] `flutter analyze` sạch 0 issue; full package unit/widget suite 2,726/2,726 pass (2026-10-18, gồm opaque-route ticker mute/resume test). Con số này không gồm integration test và screenshot driver (chạy riêng trên device, chưa thuộc CI/release gate).
 
 ## Tiến độ thực tế & Bằng chứng kiểm thử (2026-10-17 / 2026-10-18)
 
 1. **Dark Mode theo Theme:** Tự động nhận diện `Theme.of(context).brightness`, dải màu tối `[0xFF2A2A2A, 0xFF383838]`, nền `0xFF1E1E1E`. `ShaderMask` dùng `BlendMode.srcIn` để gradient dark không bị nhân với nền thành gần đen. Có 2 file golden tests và assertion pixel trong `test/shimmer_view_test.dart`; screenshot Pixel 7 Pro xác nhận pixel vùng shimmer xuất hiện trong dark theme.
-2. **Lifecycle Aware Ticker:** Tích hợp `WidgetsBindingObserver`, `.stop()` controller khi app paused/inactive/hidden, `.repeat()` lại khi resumed. Thêm cờ `active` render `Container` tĩnh 0 overhead khi inactive.
+2. **Lifecycle Aware Ticker:** Tích hợp `WidgetsBindingObserver`, `.stop()` controller khi app paused/inactive/hidden, `.repeat()` lại khi resumed. Flutter `TickerMode` mute ticker khi route opaque che route đang giữ shimmer; test xác nhận ticker không schedule frame khi route dưới vẫn mounted và resume sau pop. `active: false` render `Container` tĩnh, nhưng State/controller/observer vẫn tồn tại.
 3. **Watchdog Timeout & Collapse:**
    - Unit/Widget level: Đã có 2 test trong `test/banner_ad_widget_test.dart`: (a) "T257: adapter load error removes shimmer and collapses banner" và (b) "T257: real AdMobAdapter watchdog timeout removes shimmer and collapses banner" (kiểm tra `AdMobAdapter` thật + watchdog 30s tự nổ mà không cần gọi trigger thủ công).
    - On-device level (Pixel 7 Pro): Test `example/integration_test/t257_shimmer_network_collapse_test.dart` (chạy qua `flutter drive --profile`) kích hoạt `AdSlot.armLoadWatchdog` 30s thật, giữ loading hiển thị `ShimmerView`, lưu screenshot, chờ đúng 30s nổ tự nhiên, gỡ bỏ `ShimmerView` và co chiều cao banner về 0.
@@ -47,12 +47,12 @@ Trong `lib/src/widget/shimmer_view.dart`, `ShimmerView` được sử dụng là
      - Run 3: 584 frames (~117 fps), raster p95 2.59ms, build p95 1.66ms, total p95 5.46ms.
    - **Giới hạn diễn giải:** Các lượt đo standalone chạy ở ~114–117 frame/s trong cửa sổ 5 giây; p95 raster ~2.6ms, p95 build ~1.7ms, p95 total ~5.5ms; có 3 frame/lượt có `totalSpan >16.67ms`. Đây là timing của shimmer-only trong harness riêng, chưa chứng minh 60/120fps ổn định cho toàn bộ ứng dụng khi có WebView/AdMob. Không đo mức tiêu thụ CPU/GPU thực tế.
 5. **Bộ test tự động:**
-   - 13 widget tests trong `test/shimmer_view_test.dart` (theme, custom colors, active toggle, pause/resume lifecycle, 30 mount/unmount ticker clean, 75-frame pump simulation, network-error unmount).
+   - 14 widget tests trong `test/shimmer_view_test.dart` (theme, custom colors, active toggle, pause/resume lifecycle, opaque-route ticker mute/resume, 30 mount/unmount ticker clean, 75-frame pump simulation, network-error unmount).
    - 2 visual golden tests: `test/goldens/shimmer_view_light.png`, `test/goldens/shimmer_view_dark.png`.
    - 2 widget tests error/watchdog collapse trong `test/banner_ad_widget_test.dart` (gồm 1 test với `AdMobAdapter` thật).
    - 1 on-device integration test trên Pixel 7 Pro: `example/integration_test/t257_shimmer_network_collapse_test.dart`.
    - 1 screenshot driver: `example/test_driver/t257_screenshot_driver.dart`.
-   - Full package suite: **2,725/2,725 tests pass**, `flutter analyze` 0 issue.
+   - Full package suite: **2,726/2,726 tests pass**, `flutter analyze` 0 issue (2026-10-18, gồm opaque-route regression).
 
 6. **Benchmark toàn UI trên Pixel 7 Pro (Profile, Android 17, màn 120Hz, thermal status 0, 2026-10-18):** runner `example/lib/t257_profile_frame_benchmark.dart` (list 80 dòng cuộn thật + `BannerAdWidget` cố định ở đáy, AdMob test IDs, UMP trả `notRequired`, `FirstInstallVipGrace.disabled` chỉ trong harness). Chạy bằng `flutter run --profile -t lib/t257_profile_frame_benchmark.dart --dart-define=AD_PROVIDER_ADMOB=true --dart-define=T257_BENCH_SCENARIO=<real|deterministic> -d <Pixel 7 Pro>`.
    - **Real (AdMob test banner), 3 lượt:** cả 3 lượt banner `ready` (không no-fill). Hai pha cuộn mỗi lượt (~3s mỗi pha): 228–264 `FrameTiming` samples, p95 build 1.69–2.48ms, p95 raster 2.86–3.58ms, p95 total 5.34–7.08ms, chỉ 1 sample `totalSpan` >16.67ms trong tổng 6 pha (lượt 2); khoảng cách vsync giữa các samples >16.67ms: 0–7/pha, >33.3ms: 0–1/pha.
