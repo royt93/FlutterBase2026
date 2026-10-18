@@ -30,7 +30,7 @@ class ShimmerView extends StatefulWidget {
 class _ShimmerViewState extends State<ShimmerView>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   AnimationController? _controller;
-  bool _isBackgrounded = false;
+  final ValueNotifier<bool> _isBackgrounded = ValueNotifier<bool>(false);
 
   @visibleForTesting
   bool get debugIsAnimating => _controller?.isAnimating ?? false;
@@ -51,7 +51,7 @@ class _ShimmerViewState extends State<ShimmerView>
   void didUpdateWidget(ShimmerView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.active != oldWidget.active) {
-      if (widget.active && !_isBackgrounded) {
+      if (widget.active && !_isBackgrounded.value) {
         _controller?.repeat();
       } else {
         _controller?.stop();
@@ -64,10 +64,10 @@ class _ShimmerViewState extends State<ShimmerView>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      _isBackgrounded = true;
+      _isBackgrounded.value = true;
       _controller?.stop();
     } else if (state == AppLifecycleState.resumed) {
-      _isBackgrounded = false;
+      _isBackgrounded.value = false;
       if (widget.active) _controller?.repeat();
     }
   }
@@ -77,53 +77,63 @@ class _ShimmerViewState extends State<ShimmerView>
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _controller = null;
+    _isBackgrounded.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final base = widget.baseColor ??
+    final base =
+        widget.baseColor ??
         (isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE0E0E0));
-    final highlight = widget.highlightColor ??
+    final highlight =
+        widget.highlightColor ??
         (isDark ? const Color(0xFF383838) : const Color(0xFFF8F8F8));
-    final bg = widget.backgroundColor ??
+    final bg =
+        widget.backgroundColor ??
         (isDark ? const Color(0xFF1E1E1E) : Colors.white);
 
-    if (!widget.active || _isBackgrounded || _controller == null) {
-      return Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(widget.cornerRadius),
-        ),
-      );
-    }
+    Widget staticBox() => Container(
+      width: widget.width,
+      height: widget.height,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(widget.cornerRadius),
+      ),
+    );
+
+    if (!widget.active || _controller == null) return staticBox();
 
     final controller = _controller!;
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, child) {
-        return ShaderMask(
-          blendMode: BlendMode.srcIn,
-          shaderCallback: (bounds) {
-            final value = controller.value;
-            return LinearGradient(
-              begin: Alignment(-1.0 + (value * 3), -0.3),
-              end: Alignment(1.0 + (value * 3), 0.3),
-              colors: [base, highlight, base],
-              stops: const [0.0, 0.5, 1.0],
-            ).createShader(bounds);
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isBackgrounded,
+      builder: (context, backgrounded, _) {
+        if (backgrounded) return staticBox();
+        return AnimatedBuilder(
+          animation: controller,
+          builder: (context, child) {
+            return ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (bounds) {
+                final value = controller.value;
+                return LinearGradient(
+                  begin: Alignment(-1.0 + (value * 3), -0.3),
+                  end: Alignment(1.0 + (value * 3), 0.3),
+                  colors: [base, highlight, base],
+                  stops: const [0.0, 0.5, 1.0],
+                ).createShader(bounds);
+              },
+              child: Container(
+                width: widget.width,
+                height: widget.height,
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(widget.cornerRadius),
+                ),
+              ),
+            );
           },
-          child: Container(
-            width: widget.width,
-            height: widget.height,
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(widget.cornerRadius),
-            ),
-          ),
         );
       },
     );

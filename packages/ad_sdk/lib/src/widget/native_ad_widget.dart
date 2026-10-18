@@ -765,6 +765,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
           return _NativeContainer(
             isLoaded: AdManager().nativeIsLoaded(this),
             height: effectiveHeight,
+            active: widget.active,
             child: () {
               if (AdManager().debugShouldSkipRealAppLovinNativeView) {
                 // Debug-only, explicit opt-in (see
@@ -792,11 +793,13 @@ class _NativeContainer extends StatelessWidget {
     required this.isLoaded,
     required this.child,
     required this.height,
+    this.active = true,
   });
 
   final ValueListenable<bool> isLoaded;
   final Widget Function() child;
   final double height;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -832,7 +835,12 @@ class _NativeContainer extends StatelessWidget {
                           height: 1.1,
                         ),
                       )
-                    : const ShimmerView(cornerRadius: 2, width: 20, height: 13),
+                    : ShimmerView(
+                        cornerRadius: 2,
+                        width: 20,
+                        height: 13,
+                        active: active,
+                      ),
               ),
               // T62 — `child()` (MaxNativeAdView) must always be mounted,
               // not gated behind `loaded`: `loaded` is only ever flipped
@@ -849,9 +857,11 @@ class _NativeContainer extends StatelessWidget {
                     child(),
                     if (!loaded)
                       ShimmerView(
-                          cornerRadius: 0,
-                          width: double.infinity,
-                          height: height),
+                        cornerRadius: 0,
+                        width: double.infinity,
+                        height: height,
+                        active: active,
+                      ),
                   ],
                 ),
               ),

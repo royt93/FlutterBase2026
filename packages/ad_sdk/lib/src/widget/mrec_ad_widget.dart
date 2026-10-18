@@ -588,6 +588,7 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
                 return _MrecContainer(
                   isLoaded: AdManager().mrecIsLoaded(this),
                   adSize: AdManager().mrecAdSize(this),
+                  active: widget.active ?? true,
                   child: () {
                     final view = AdManager().admobMrecView(this);
                     return view ?? const SizedBox.shrink();
@@ -611,10 +612,13 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
         return ValueListenableBuilder<Object?>(
           valueListenable: AdManager().mrecAdViewId(this),
           builder: (context, adViewId, _) {
-            if (adViewId == null) return const _ShimmerOnlyMrecContainer();
+            if (adViewId == null) {
+              return _ShimmerOnlyMrecContainer(active: widget.active ?? true);
+            }
             return _MrecContainer(
               isLoaded: AdManager().mrecIsLoaded(this),
               adSize: AdManager().mrecAdSize(this),
+              active: widget.active ?? true,
               child: () => _AppLovinMaxMrecView(
                 key: ValueKey(adViewId),
                 adViewId: adViewId as AdViewId,
@@ -636,7 +640,10 @@ class _MrecContainer extends StatelessWidget {
     required this.isLoaded,
     required this.adSize,
     required this.child,
+    this.active = true,
   });
+
+  final bool active;
 
   final ValueListenable<bool> isLoaded;
   final ValueListenable<Size?> adSize;
@@ -680,8 +687,12 @@ class _MrecContainer extends StatelessWidget {
                               height: 1.1,
                             ),
                           )
-                        : const ShimmerView(
-                            cornerRadius: 2, width: 20, height: 13),
+                        : ShimmerView(
+                            cornerRadius: 2,
+                            width: 20,
+                            height: 13,
+                            active: active,
+                          ),
                   ),
                   SizedBox(
                     width: double.infinity,
@@ -692,6 +703,7 @@ class _MrecContainer extends StatelessWidget {
                             cornerRadius: 0,
                             width: double.infinity,
                             height: h,
+                            active: active,
                           ),
                   ),
                 ],
@@ -705,7 +717,9 @@ class _MrecContainer extends StatelessWidget {
 }
 
 class _ShimmerOnlyMrecContainer extends StatelessWidget {
-  const _ShimmerOnlyMrecContainer();
+  const _ShimmerOnlyMrecContainer({this.active = true});
+
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -713,15 +727,20 @@ class _ShimmerOnlyMrecContainer extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 8),
       alignment: Alignment.center,
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.only(bottom: 4),
-            child: ShimmerView(cornerRadius: 2, width: 20, height: 13),
+            padding: const EdgeInsets.only(bottom: 4),
+            child: ShimmerView(
+                cornerRadius: 2, width: 20, height: 13, active: active),
           ),
-          ShimmerView(cornerRadius: 0, width: double.infinity, height: 250),
+          ShimmerView(
+              cornerRadius: 0,
+              width: double.infinity,
+              height: 250,
+              active: active),
         ],
       ),
     );

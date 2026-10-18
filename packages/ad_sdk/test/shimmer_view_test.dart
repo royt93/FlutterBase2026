@@ -163,6 +163,49 @@ void main() {
     expect(find.byType(ShaderMask), findsOneWidget);
   });
 
+  testWidgets(
+      'T257: ShimmerView inside a parent with active=false renders static box without ticker',
+      (tester) async {
+    bool parentActive = false;
+    late StateSetter updateState;
+
+    await tester.pumpWidget(MaterialApp(
+      home: StatefulBuilder(
+        builder: (context, setState) {
+          updateState = setState;
+          return Scaffold(
+            body: Column(
+              children: [
+                ShimmerView(
+                  cornerRadius: 2,
+                  width: 20,
+                  height: 13,
+                  active: parentActive,
+                ),
+                ShimmerView(
+                  cornerRadius: 0,
+                  width: 320,
+                  height: 50,
+                  active: parentActive,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // When parent is inactive, both inner shimmers render Container, no ShaderMask
+    expect(find.byType(ShaderMask), findsNothing);
+    expect(find.byType(Container), findsNWidgets(2));
+
+    // When parent becomes active, both inner shimmers render ShaderMask
+    updateState(() => parentActive = true);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(ShaderMask), findsNWidgets(2));
+  });
+
   // ─── T257: Interruption test (AppLifecycleState paused/resumed) ───────────
   testWidgets('T257: app pause stops ticker and resume restarts ticker',
       (tester) async {
@@ -185,6 +228,52 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(state.debugIsAnimating, isTrue);
+  });
+
+  testWidgets(
+      'T257: rebuild while backgrounded restores ShaderMask upon resume without setState',
+      (tester) async {
+    int counter = 0;
+    late StateSetter bump;
+    await tester.pumpWidget(MaterialApp(
+      home: StatefulBuilder(
+        builder: (context, setState) {
+          bump = setState;
+          return Scaffold(
+            body: Column(
+              children: [
+                Text('counter=$counter'),
+                // Non-const on purpose: a const instance is never rebuilt
+                // by its parent, so build() would not run while backgrounded.
+                ShimmerView(cornerRadius: 4, width: 300.0 + counter, height: 60),
+              ],
+            ),
+          );
+        },
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(ShaderMask), findsOneWidget);
+
+    // inactive keeps frames enabled (unlike paused), so rebuilds still run
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+
+    // Ancestor rebuilds while backgrounded -> build() falls into static Container
+    bump(() => counter++);
+    await tester.pump();
+    expect(find.byType(ShaderMask), findsNothing);
+    expect(find.text('counter=1'), findsOneWidget);
+
+    // App resumes -> must re-attach ShaderMask even without State.setState()
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(
+      find.byType(ShaderMask),
+      findsOneWidget,
+      reason:
+          'ShimmerView must re-render ShaderMask when resumed after a background rebuild',
+    );
   });
 
   // ─── T257: Visual Golden Tests ───────────────────────────────────────────

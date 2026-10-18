@@ -991,6 +991,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
                 return _BannerContainer(
                   isLoaded: AdManager().bannerIsLoaded(this),
                   adSize: AdManager().bannerAdSize(this),
+                  active: widget.active ?? true,
                   child: () {
                     final view = AdManager().admobBannerView(this);
                     return view ?? const SizedBox.shrink();
@@ -1020,10 +1021,13 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
         return ValueListenableBuilder<Object?>(
           valueListenable: AdManager().bannerAdViewId(this),
           builder: (context, adViewId, _) {
-            if (adViewId == null) return const _ShimmerOnlyContainer();
+            if (adViewId == null) {
+              return _ShimmerOnlyContainer(active: widget.active ?? true);
+            }
             return _BannerContainer(
               isLoaded: AdManager().bannerIsLoaded(this),
               adSize: AdManager().bannerAdSize(this),
+              active: widget.active ?? true,
               child: () => _AppLovinMaxAdView(
                 key: ValueKey(adViewId),
                 adViewId: adViewId as AdViewId,
@@ -1045,7 +1049,10 @@ class _BannerContainer extends StatelessWidget {
     required this.isLoaded,
     required this.adSize,
     required this.child,
+    this.active = true,
   });
+
+  final bool active;
 
   final ValueListenable<bool> isLoaded;
   final ValueListenable<Size?> adSize;
@@ -1089,8 +1096,12 @@ class _BannerContainer extends StatelessWidget {
                               height: 1.1,
                             ),
                           )
-                        : const ShimmerView(
-                            cornerRadius: 2, width: 20, height: 13),
+                        : ShimmerView(
+                            cornerRadius: 2,
+                            width: 20,
+                            height: 13,
+                            active: active,
+                          ),
                   ),
                   SizedBox(
                     width: double.infinity,
@@ -1101,6 +1112,7 @@ class _BannerContainer extends StatelessWidget {
                             cornerRadius: 0,
                             width: double.infinity,
                             height: h,
+                            active: active,
                           ),
                   ),
                 ],
@@ -1114,7 +1126,9 @@ class _BannerContainer extends StatelessWidget {
 }
 
 class _ShimmerOnlyContainer extends StatelessWidget {
-  const _ShimmerOnlyContainer();
+  const _ShimmerOnlyContainer({this.active = true});
+
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -1122,15 +1136,20 @@ class _ShimmerOnlyContainer extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 8),
       alignment: Alignment.center,
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.only(bottom: 4),
-            child: ShimmerView(cornerRadius: 2, width: 20, height: 13),
+            padding: const EdgeInsets.only(bottom: 4),
+            child: ShimmerView(
+                cornerRadius: 2, width: 20, height: 13, active: active),
           ),
-          ShimmerView(cornerRadius: 0, width: double.infinity, height: 50),
+          ShimmerView(
+              cornerRadius: 0,
+              width: double.infinity,
+              height: 50,
+              active: active),
         ],
       ),
     );
