@@ -92,5 +92,11 @@ void main() {
         reason: 'all three slots were pre-marked ready, so the whole '
             'self-check must resolve immediately — a value close to the '
             '15s timeout would mean the readiness-first fix regressed');
+
+    // T260 — on Android, advisory item must be present with documentation hint.
+    final backup = result.items.firstWhere(
+        (i) => i.name == 'Android Auto Backup config (trial integrity)');
+    expect(backup.status, SelfCheckStatus.skipped);
+    expect(backup.detail, contains('data_extraction_rules.xml'));
   });
 }

@@ -1752,6 +1752,7 @@ class AdManager with WidgetsBindingObserver {
           vip != null ? SelfCheckStatus.pass : SelfCheckStatus.fail),
       _selfCheckNavigatorKey(),
       _selfCheckRouteObserver(),
+      _selfCheckAndroidBackupTrial(),
       await _selfCheckAtt(),
     ];
     return SelfCheckResult(items);
@@ -1796,6 +1797,28 @@ class AdManager with WidgetsBindingObserver {
         SelfCheckStatus.skipped,
         'no navigation events observed yet — add AdScreenRouteLogger() to '
             'navigatorObservers, or re-run this check after a route has pushed');
+  }
+
+  /// T260 — the Android 1-day trial survives a reinstall only through OS Auto
+  /// Backup of `FlutterSharedPreferences.xml`. Dart cannot read the host's
+  /// manifest or backup XML, so this is an advisory: always `skipped`, never
+  /// `pass`/`fail`, and only when a trial can actually be granted.
+  SelfCheckItem _selfCheckAndroidBackupTrial() {
+    const name = 'Android Auto Backup config (trial integrity)';
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return const SelfCheckItem(name, SelfCheckStatus.skipped, 'not Android');
+    }
+    if (!(_config?.firstInstallVipGrace.isEnabled ?? false)) {
+      return const SelfCheckItem(
+          name, SelfCheckStatus.skipped, 'firstInstallVipGrace is disabled');
+    }
+    return const SelfCheckItem(
+        name,
+        SelfCheckStatus.skipped,
+        'cannot verify host backup rules from Dart — make sure '
+        'data_extraction_rules.xml / full_backup_content.xml do not exclude '
+        'FlutterSharedPreferences.xml, or a reinstall resets the 1-day trial '
+        '(see README "Android — required host-app configuration")');
   }
 
   /// T98 — read-only (never prompts) sanity check that the

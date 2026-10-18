@@ -5,6 +5,7 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -319,6 +320,66 @@ void main() {
       final item = result.items
           .firstWhere((i) => i.name == 'ATT status readable (iOS)');
       expect(item.status, SelfCheckStatus.skipped);
+    });
+
+    group('T260 Android Auto Backup advisory', () {
+      const itemName = 'Android Auto Backup config (trial integrity)';
+
+      AdConfig configWith(FirstInstallVipGrace grace) => AdConfig(
+            provider: AdProvider.admob,
+            admob: const AdMobConfig(
+              bannerId: 'ca-app-pub-3940256099942544/6300978111',
+              interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+              appOpenId: 'ca-app-pub-3940256099942544/3419835294',
+              rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+            ),
+            firstInstallVipGrace: grace,
+          );
+
+      Future<SelfCheckItem> run(
+          TargetPlatform platform, FirstInstallVipGrace grace) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = configWith(grace);
+        AdManager().debugVipManager = _FakeVip();
+        final result = await AdManager()
+            .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+        return result.items.firstWhere((i) => i.name == itemName);
+      }
+
+      test('non-Android platform: skipped, "not Android"', () async {
+        final item = await run(TargetPlatform.iOS, FirstInstallVipGrace.day);
+        expect(item.status, SelfCheckStatus.skipped);
+        expect(item.detail, contains('not Android'));
+      });
+
+      test('Android + grace disabled: skipped, nothing to protect', () async {
+        final item =
+            await run(TargetPlatform.android, FirstInstallVipGrace.disabled);
+        expect(item.status, SelfCheckStatus.skipped);
+        expect(item.detail, contains('firstInstallVipGrace is disabled'));
+      });
+
+      test('Android + grace enabled: advisory names the backup XML + README',
+          () async {
+        final item = await run(TargetPlatform.android, FirstInstallVipGrace.day);
+        expect(item.status, SelfCheckStatus.skipped);
+        expect(item.detail, contains('data_extraction_rules.xml'));
+        expect(item.detail, contains('README "Android — required host-app'));
+      });
+
+      test('advisory never fails the overall check', () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = configWith(FirstInstallVipGrace.day);
+        AdManager().debugVipManager = _FakeVip();
+        AdManager().setNavigatorKey(GlobalKey<NavigatorState>());
+        final result = await AdManager()
+            .runIntegrationSelfCheck(loadTimeout: const Duration(seconds: 2));
+        expect(result.allPassed, isTrue);
+      });
     });
 
     // B: coverage — SelfCheckItem.toJson and SelfCheckResult.toJson (lines 15,16,34,35).
