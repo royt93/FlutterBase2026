@@ -37,8 +37,8 @@ class _ShimmerViewState extends State<ShimmerView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final state = WidgetsBinding.instance.lifecycleState;
-    _isBackgrounded.value = _isBackground(state);
+    _isBackgrounded.value =
+        _isBackground(WidgetsBinding.instance.lifecycleState);
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -46,8 +46,8 @@ class _ShimmerViewState extends State<ShimmerView>
     if (widget.active && !_isBackgrounded.value) _controller.repeat();
   }
 
-  static bool _isBackground(AppLifecycleState? state) =>
-      state == AppLifecycleState.paused || state == AppLifecycleState.hidden;
+  static bool _isBackground(AppLifecycleState? s) =>
+      s != null && s != AppLifecycleState.resumed && s != AppLifecycleState.inactive;
 
   @override
   void didUpdateWidget(ShimmerView oldWidget) {

@@ -301,6 +301,57 @@ void main() {
     expect(find.byType(ShaderMask), findsOneWidget);
   });
 
+  testWidgets(
+      'T257: active flipping to true while backgrounded stays stopped until '
+      'resume', (tester) async {
+    var active = false;
+    late StateSetter update;
+    await tester.pumpWidget(MaterialApp(
+      home: StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return Scaffold(
+            body: ShimmerView(
+              cornerRadius: 4,
+              width: 300,
+              height: 60,
+              active: active,
+            ),
+          );
+        },
+      ),
+    ));
+    final state = tester.state(find.byType(ShimmerView)) as dynamic;
+    state.didChangeAppLifecycleState(AppLifecycleState.hidden);
+
+    update(() => active = true);
+    await tester.pump();
+    expect(state.debugIsAnimating, isFalse,
+        reason: 'a host enabling the shimmer while the app is hidden must '
+            'not start the ticker');
+
+    state.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(state.debugIsAnimating, isTrue);
+    expect(find.byType(ShaderMask), findsOneWidget);
+  });
+
+  testWidgets('T257: detached stops the ticker like hidden does',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: ShimmerView(cornerRadius: 4, width: 300, height: 60),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+    final state = tester.state(find.byType(ShimmerView)) as dynamic;
+    expect(state.debugIsAnimating, isTrue);
+
+    state.didChangeAppLifecycleState(AppLifecycleState.detached);
+    expect(state.debugIsAnimating, isFalse,
+        reason: 'detached has no visible view; it must not restart the ticker');
+  });
+
   testWidgets('T257: inactive does not stop the ticker, hidden does',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(

@@ -672,6 +672,41 @@ void main() {
   });
 
   testWidgets(
+      'T257: AdMob native forwards active to its loading ShimmerView when the '
+      'host flips it to false after mount', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(true);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => NativeAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    var shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers.length, 1, reason: 'loading AdMob native shows one shimmer');
+    expect(shimmers.every((s) => s.active), isTrue);
+
+    active.value = false;
+    await tester.pump();
+
+    shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers.length, 1,
+        reason: 'still loading, so the AdMob placeholder stays mounted');
+    expect(shimmers.every((s) => !s.active), isTrue,
+        reason: 'a hidden tab must not keep animating its native placeholder');
+  });
+
+  testWidgets(
       'T257: AppLovin native forwards active to loading ShimmerViews when the '
       'host flips it to false after mount', (tester) async {
     final adapter = _NativeCountingAdapter();
