@@ -4,6 +4,7 @@
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
+import 'package:applovin_admob_sdk/src/widget/shimmer_view.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -668,6 +669,41 @@ void main() {
     expect(find.byType(MaxNativeAdOptionsView), findsOneWidget,
         reason: 'AppLovin policy requires the privacy-information view to '
             'be present in every native ad layout the package renders');
+  });
+
+  testWidgets(
+      'T257: AppLovin native forwards active to loading ShimmerViews when the '
+      'host flips it to false after mount', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final active = ValueNotifier<bool>(true);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(host(ValueListenableBuilder<bool>(
+      valueListenable: active,
+      builder: (context, isActive, _) => NativeAdWidget(active: isActive),
+    )));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    var shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers, isNotEmpty, reason: 'loading native must show shimmer');
+    expect(shimmers.every((s) => s.active), isTrue);
+
+    active.value = false;
+    await tester.pump();
+
+    shimmers = tester.widgetList<ShimmerView>(find.byType(ShimmerView));
+    expect(shimmers, isNotEmpty,
+        reason: 'still loading, so the placeholder stays mounted');
+    expect(shimmers.every((s) => !s.active), isTrue,
+        reason: 'a hidden tab must not keep animating its placeholder');
   });
 
   // Round-44 audit fix — a live native ad used to stay mounted and visible

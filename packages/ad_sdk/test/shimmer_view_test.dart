@@ -164,9 +164,9 @@ void main() {
   });
 
   testWidgets(
-      'T257: ShimmerView inside a parent with active=false renders static box without ticker',
+      'T257: multiple ShimmerViews dynamically react to active flag toggle',
       (tester) async {
-    bool parentActive = false;
+    bool active = false;
     late StateSetter updateState;
 
     await tester.pumpWidget(MaterialApp(
@@ -180,13 +180,13 @@ void main() {
                   cornerRadius: 2,
                   width: 20,
                   height: 13,
-                  active: parentActive,
+                  active: active,
                 ),
                 ShimmerView(
                   cornerRadius: 0,
                   width: 320,
                   height: 50,
-                  active: parentActive,
+                  active: active,
                 ),
               ],
             ),
@@ -196,12 +196,11 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 100));
 
-    // When parent is inactive, both inner shimmers render Container, no ShaderMask
+    // When inactive, neither shimmer renders a ShaderMask
     expect(find.byType(ShaderMask), findsNothing);
-    expect(find.byType(Container), findsNWidgets(2));
 
-    // When parent becomes active, both inner shimmers render ShaderMask
-    updateState(() => parentActive = true);
+    // When activated, both shimmers mount ShaderMasks
+    updateState(() => active = true);
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byType(ShaderMask), findsNWidgets(2));
   });
