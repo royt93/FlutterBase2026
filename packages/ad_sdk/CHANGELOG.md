@@ -4,6 +4,14 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- **Changed (T266):** Network-reconnect refill now adds random jitter (0 to half
+  the 800 ms debounce) and staggers fullscreen loads: App Open and Rewarded
+  Interstitial load first, Interstitial one step later, Rewarded two steps later
+  (step = 500 ms by default). Pending staggered loads are cancelled on offline,
+  destroy, VIP, daily cap, or adapter change. No public API change.
+
 ## [3.5.0] - 2026-10-15
 
 - **Added (T254):** `ConsentProvenanceJournal.entriesPage()` for bounded, immutable

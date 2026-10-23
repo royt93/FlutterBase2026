@@ -22,6 +22,7 @@ class _FakeTransitionAdapter implements AdProviderAdapter {
   int loadAppOpenCount = 0;
   int loadInterstitialCount = 0;
   int loadRewardedCount = 0;
+  int loadRewardedInterstitialCount = 0;
 
   @override
   String get tag => 'transition_fake';
@@ -47,7 +48,10 @@ class _FakeTransitionAdapter implements AdProviderAdapter {
   @override
   Future<void> preloadMrec(Object key) async {}
   @override
-  Future<void> loadRewardedInterstitial() async {}
+  Future<void> loadRewardedInterstitial() async {
+    loadRewardedInterstitialCount++;
+  }
+
   @override
   void applyConsent(AdConsent consent) {}
 
@@ -100,7 +104,7 @@ void main() {
       AdManager().debugConnectivityChanged(true);
       expect(AdManager().isConnected, isTrue);
 
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
       // Refill quét nạp lại các slot ad
       expect(adapter.loadAppOpenCount, greaterThanOrEqualTo(1));
       expect(adapter.loadInterstitialCount, greaterThanOrEqualTo(1));

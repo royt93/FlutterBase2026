@@ -7,6 +7,7 @@
 //     by connectivity churn alone — only actual ad show/impression paths
 //     increment those, never the reconnect-refill scan.
 //   - that repeated genuine online transitions each cause exactly one refill.
+//   - jitter bounds and reconnect-only stagger cancellation.
 
 import 'dart:async';
 
@@ -27,8 +28,9 @@ class _CountingAdapter implements AdProviderAdapter {
   @override
   final AdSlot rewardedSlot = AdSlot(type: AdSlotType.rewarded);
   @override
-  final AdSlot rewardedInterstitialSlot =
-      AdSlot(type: AdSlotType.rewardedInterstitial);
+  final AdSlot rewardedInterstitialSlot = AdSlot(
+    type: AdSlotType.rewardedInterstitial,
+  );
   final AdSlot _bannerSlot = AdSlot(type: AdSlotType.banner);
   @override
   AdSlot bannerSlot(Object key) => _bannerSlot;
@@ -97,6 +99,7 @@ void main() {
     // Realistic debounce (matches production default) unless a test
     // overrides it explicitly.
     AdManager().debugReconnectDebounce = const Duration(milliseconds: 800);
+    AdManager().debugReconnectNextInt = (max) => 0;
   });
 
   tearDown(() {
@@ -105,9 +108,145 @@ void main() {
     AdManager().debugVipManager = null;
   });
 
-  group('rapid flapping (faster than the 800ms debounce)', () {
+  group('reconnect jitter and stagger', () {
     test(
-        '8 disconnect/reconnect cycles in quick succession collapse into '
+      'base delay and stagger are bounded and zero debounce stays immediate',
+      () async {
+        AdManager().debugReconnectNextInt = (max) => 200;
+        AdManager().debugReconnectDebounce = const Duration(milliseconds: 800);
+        AdManager().debugConnectivityChanged(false);
+        AdManager().debugConnectivityChanged(true);
+
+        await _flush(const Duration(milliseconds: 800));
+        expect(adapter.loadAppOpenCalls, 0);
+        expect(adapter.loadRewardedInterstitialCalls, 0);
+
+        await _flush(const Duration(milliseconds: 200));
+        expect(adapter.loadAppOpenCalls, 1);
+        expect(adapter.loadRewardedInterstitialCalls, 1);
+        expect(adapter.loadInterstitialCalls, 0);
+        expect(adapter.loadRewardedCalls, 0);
+
+        await _flush(const Duration(milliseconds: 500));
+        expect(adapter.loadInterstitialCalls, 1);
+        expect(adapter.loadRewardedCalls, 0);
+
+        await _flush(const Duration(milliseconds: 500));
+        expect(adapter.loadRewardedCalls, 1);
+
+        AdManager().debugConnectivityChanged(false);
+        adapter.loadAppOpenCalls = 0;
+        adapter.loadInterstitialCalls = 0;
+        adapter.loadRewardedCalls = 0;
+        adapter.loadRewardedInterstitialCalls = 0;
+        AdManager().debugReconnectDebounce = Duration.zero;
+        AdManager().debugReconnectNextInt = (max) => 200;
+        AdManager().debugConnectivityChanged(true);
+        await _flush();
+        expect(adapter.loadAppOpenCalls, 1);
+        expect(adapter.loadRewardedInterstitialCalls, 1);
+        expect(adapter.loadInterstitialCalls, 1);
+        expect(adapter.loadRewardedCalls, 1);
+      },
+    );
+
+    test('offline flap cancels pending staggered loads', () async {
+      AdManager().debugReconnectNextInt = (max) => 0;
+      AdManager().debugConnectivityChanged(false);
+      AdManager().debugConnectivityChanged(true);
+      await _flush(const Duration(milliseconds: 800));
+      expect(adapter.loadAppOpenCalls, 1);
+      expect(adapter.loadInterstitialCalls, 0);
+      AdManager().debugConnectivityChanged(false);
+      await _flush(const Duration(seconds: 2));
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 0);
+    });
+
+    Future<void> reconnectAndPassImmediateLoads() async {
+      AdManager().debugConnectivityChanged(false);
+      AdManager().debugConnectivityChanged(true);
+      await _flush(const Duration(milliseconds: 800));
+      expect(adapter.loadAppOpenCalls, 1);
+    }
+
+    test('VIP activated mid-stagger blocks delayed loads', () async {
+      await reconnectAndPassImmediateLoads();
+      AdManager().debugVipManager = _FakeVip(true);
+      await _flush(const Duration(milliseconds: 1200));
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 0);
+    });
+
+    test('daily cap reached mid-stagger blocks delayed loads', () async {
+      await AdSafetyConfig.init(
+        prefs,
+        params: const AdSafetyParams(maxFullscreenAdsPerDay: 1),
+      );
+      AdSafetyConfig.resetForReinit();
+      await reconnectAndPassImmediateLoads();
+      await prefs.incrementDailyAdCount();
+      await _flush(const Duration(milliseconds: 1200));
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 0);
+    });
+
+    test(
+      'adapter replaced mid-stagger never loads into either adapter',
+      () async {
+        await reconnectAndPassImmediateLoads();
+        final replacement = _CountingAdapter();
+        AdManager().debugSetAdapter(replacement);
+        await _flush(const Duration(milliseconds: 1200));
+        expect(adapter.loadInterstitialCalls, 0);
+        expect(adapter.loadRewardedCalls, 0);
+        expect(replacement.loadInterstitialCalls, 0);
+        expect(replacement.loadRewardedCalls, 0);
+      },
+    );
+
+    test('config cleared mid-stagger blocks delayed loads', () async {
+      await reconnectAndPassImmediateLoads();
+      AdManager().debugConfig = null;
+      await _flush(const Duration(milliseconds: 1200));
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 0);
+    });
+
+    test('destroy mid-stagger cancels delayed loads', () async {
+      await reconnectAndPassImmediateLoads();
+      await AdManager().destroy();
+      await _flush(const Duration(milliseconds: 1200));
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 0);
+    });
+
+    test('slot already loading skips only its own delayed load', () async {
+      await reconnectAndPassImmediateLoads();
+      expect(adapter.interstitialSlot.beginLoad(), isTrue);
+      await _flush(const Duration(milliseconds: 1200));
+      expect(adapter.loadInterstitialCalls, 0);
+      expect(adapter.loadRewardedCalls, 1);
+    });
+
+    test('offline then fresh reconnect restarts one clean schedule', () async {
+      await reconnectAndPassImmediateLoads();
+      AdManager().debugConnectivityChanged(false);
+      AdManager().debugConnectivityChanged(true);
+      await _flush(const Duration(milliseconds: 800));
+      expect(adapter.loadAppOpenCalls, 2);
+      expect(adapter.loadInterstitialCalls, 0);
+      await _flush(const Duration(milliseconds: 1000));
+      expect(adapter.loadInterstitialCalls, 1);
+      expect(adapter.loadRewardedCalls, 1);
+      await _flush(const Duration(milliseconds: 600));
+      expect(adapter.loadInterstitialCalls, 1);
+      expect(adapter.loadRewardedCalls, 1);
+    });
+  });
+
+  group('rapid flapping (faster than the 800ms debounce)', () {
+    test('8 disconnect/reconnect cycles in quick succession collapse into '
         'a single refill', () async {
       final rev0 = AdManager().initRevision.value;
       final dailyBefore = prefs.getDailyAdCount();
@@ -131,7 +270,7 @@ void main() {
       expect(adapter.loadRewardedCalls, 0);
       expect(adapter.loadAppOpenCalls, 0);
 
-      await _flush(const Duration(milliseconds: 850));
+      await _flush(const Duration(milliseconds: 1900));
 
       // Exactly one refill fires for the whole flapping burst.
       expect(adapter.loadInterstitialCalls, 1);
@@ -180,8 +319,7 @@ void main() {
   });
 
   group('long offline period then reconnect', () {
-    test(
-        'one genuine transition after a long offline gap refills exactly '
+    test('one genuine transition after a long offline gap refills exactly '
         'once', () async {
       final rev0 = AdManager().initRevision.value;
       AdManager().debugConnectivityChanged(true); // seed online
@@ -189,11 +327,14 @@ void main() {
 
       // Well beyond the debounce window — simulates a long real outage.
       await _flush(const Duration(seconds: 2));
-      expect(adapter.loadInterstitialCalls, 0,
-          reason: 'still offline, no refill should ever fire');
+      expect(
+        adapter.loadInterstitialCalls,
+        0,
+        reason: 'still offline, no refill should ever fire',
+      );
 
       AdManager().debugConnectivityChanged(true); // reconnect
-      await _flush(const Duration(milliseconds: 850));
+      await _flush(const Duration(milliseconds: 1900));
 
       expect(adapter.loadInterstitialCalls, 1);
       expect(adapter.loadRewardedCalls, 1);
@@ -202,8 +343,7 @@ void main() {
       expect(AdManager().initRevision.value, rev0 + 1);
     });
 
-    test(
-        'multiple genuine online transitions each refill exactly once, '
+    test('multiple genuine online transitions each refill exactly once, '
         'safety counters stay untouched throughout', () async {
       final dailyBefore = prefs.getDailyAdCount();
       final suspiciousBefore = prefs.getSuspiciousCount();
@@ -212,10 +352,13 @@ void main() {
         AdManager().debugConnectivityChanged(false);
         await _flush(const Duration(milliseconds: 850)); // long-ish offline
         AdManager().debugConnectivityChanged(true); // genuine reconnect
-        await _flush(const Duration(milliseconds: 850));
+        await _flush(const Duration(milliseconds: 1900));
 
-        expect(adapter.loadInterstitialCalls, cycle,
-            reason: 'cycle $cycle should add exactly one more refill');
+        expect(
+          adapter.loadInterstitialCalls,
+          cycle,
+          reason: 'cycle $cycle should add exactly one more refill',
+        );
         expect(adapter.loadRewardedCalls, cycle);
         expect(adapter.loadAppOpenCalls, cycle);
       }
@@ -226,26 +369,28 @@ void main() {
   });
 
   group('VIP + not-initialised edge cases stay safe under churn', () {
-    test('VIP active: flapping + long offline never refills, never throws',
-        () async {
-      AdManager().debugVipManager = _FakeVip(true);
-      var caught = 0;
-      await runZonedGuarded(() async {
-        AdManager().debugConnectivityChanged(false);
-        for (var i = 0; i < 6; i++) {
-          AdManager().debugConnectivityChanged(true);
+    test(
+      'VIP active: flapping + long offline never refills, never throws',
+      () async {
+        AdManager().debugVipManager = _FakeVip(true);
+        var caught = 0;
+        await runZonedGuarded(() async {
           AdManager().debugConnectivityChanged(false);
-        }
-        await _flush(const Duration(seconds: 1));
-        AdManager().debugConnectivityChanged(true);
-        await _flush(const Duration(milliseconds: 850));
-      }, (e, st) => caught++);
+          for (var i = 0; i < 6; i++) {
+            AdManager().debugConnectivityChanged(true);
+            AdManager().debugConnectivityChanged(false);
+          }
+          await _flush(const Duration(seconds: 1));
+          AdManager().debugConnectivityChanged(true);
+          await _flush(const Duration(milliseconds: 850));
+        }, (e, st) => caught++);
 
-      expect(caught, 0);
-      expect(adapter.loadInterstitialCalls, 0);
-      expect(adapter.loadRewardedCalls, 0);
-      expect(adapter.loadAppOpenCalls, 0);
-    });
+        expect(caught, 0);
+        expect(adapter.loadInterstitialCalls, 0);
+        expect(adapter.loadRewardedCalls, 0);
+        expect(adapter.loadAppOpenCalls, 0);
+      },
+    );
   });
 }
 

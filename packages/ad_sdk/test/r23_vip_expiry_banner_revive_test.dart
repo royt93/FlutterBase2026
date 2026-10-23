@@ -230,7 +230,7 @@ void main() {
 
       // Drain the connectivity-change debounce so the binding does not fail
       // the test on a pending timer.
-      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump(const Duration(milliseconds: 2500));
     });
   });
 }

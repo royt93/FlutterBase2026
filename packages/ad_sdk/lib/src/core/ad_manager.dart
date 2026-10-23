@@ -2493,6 +2493,8 @@ class AdManager with WidgetsBindingObserver {
   // ─── Connectivity watch (T08) ─────────────────────────────────────────────
   StreamSubscription<bool>? _connectivitySub;
   Timer? _reconnectDebounceTimer;
+  Timer? _reconnectInterstitialTimer, _reconnectRewardedTimer;
+  int Function(int) _reconnectNextInt = math.Random().nextInt;
 
   /// Guards the race in [_startConnectivityWatch] below (2026-08-16 audit).
   int _connectivityWatchGen = 0;
@@ -2531,6 +2533,12 @@ class AdManager with WidgetsBindingObserver {
   set debugReconnectDebounce(Duration d) {
     if (_testSeamsBlocked) return _warnSeamBlocked('debugReconnectDebounce');
     _reconnectDebounce = d;
+  }
+
+  @visibleForTesting
+  set debugReconnectNextInt(int Function(int) nextInt) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugReconnectNextInt');
+    _reconnectNextInt = nextInt;
   }
 
   /// Test seam: observe the retry-timer generation counter. [_stopAdRetryTimer]
@@ -9815,8 +9823,15 @@ class AdManager with WidgetsBindingObserver {
     _connectivityWatchGen++;
     _connectivitySub?.cancel();
     _connectivitySub = null;
+    _cancelReconnectRefillTimers();
     _reconnectDebounceTimer?.cancel();
     _reconnectDebounceTimer = null;
+  }
+
+  void _cancelReconnectRefillTimers() {
+    _reconnectInterstitialTimer?.cancel();
+    _reconnectRewardedTimer?.cancel();
+    _reconnectInterstitialTimer = _reconnectRewardedTimer = null;
   }
 
   /// Handles a connectivity event. Only an offline→online transition triggers a
@@ -9826,21 +9841,20 @@ class AdManager with WidgetsBindingObserver {
     _lastConnected = connected;
     _offlineNotifier.value = !connected;
     if (!connected) {
-      // Round-48 audit fix (MINOR) — a pending debounce timer from an
-      // earlier, now-stale offline→online transition must not survive a
-      // subsequent online→offline flap: its callback only checks
-      // isInitialised/_isVipMember, not current connectivity, so left
-      // running it would fire "network back online" work (UMP retry, ad
-      // refill, banner/mrec preload) while the device is actually offline.
-      // Wasted, not harmful (every call already fails safely offline — see
-      // round 45's offline audit), but pointless.
+      // Cancel stale reconnect work before the offline state can refill ads.
       _reconnectDebounceTimer?.cancel();
       _reconnectDebounceTimer = null;
+      _cancelReconnectRefillTimers();
       return;
     }
-    if (was) return; // already online, nothing changed
+    if (was) return; // already online
     _reconnectDebounceTimer?.cancel();
-    _reconnectDebounceTimer = Timer(_reconnectDebounce, () {
+    _cancelReconnectRefillTimers();
+    final maxJitterMs = _reconnectDebounce.inMilliseconds ~/ 2;
+    final jitterMs = maxJitterMs == 0 ? 0 : _reconnectNextInt(maxJitterMs + 1);
+    _reconnectDebounceTimer = Timer(
+      _reconnectDebounce + Duration(milliseconds: jitterMs),
+      () {
       if (!isInitialised || _isVipMember) return;
       SafeLogger.d(
           _tag, '📶 network back online → refilling ad slots + banners');
@@ -9889,7 +9903,7 @@ class AdManager with WidgetsBindingObserver {
           SafeLogger.w(_tag, '_recoverConsentGate (reconnect) threw: $e');
         }));
       }
-      _retryRefillAds();
+      _retryRefillAds(staggered: true);
       // Banners re-run their init on an initRevision bump (the widget checks
       // isConnected in _initBanner); also nudge the adapter's banner preload
       // for the case where no widget is mounted yet — T65 (phase 2): shares
@@ -9910,7 +9924,14 @@ class AdManager with WidgetsBindingObserver {
     });
   }
 
-  void _retryRefillAds() {
+  bool _reconnectRefillAllowed(AdProviderAdapter ad) =>
+      isInitialised &&
+      isConnected &&
+      !_isVipMember &&
+      !AdSafetyConfig.dailyCapReached() &&
+      identical(_adapter, ad);
+
+  void _retryRefillAds({bool staggered = false}) {
     // R10-C — don't even attempt a refill scan while offline; every load*()
     // call below would just fail immediately and log noise.
     if (!isConnected) return;
@@ -9931,12 +9952,6 @@ class AdManager with WidgetsBindingObserver {
           'rewarded=${ad.rewardedSlot.value.name} '
           'appOpen=${ad.appOpenSlot.value.name}',
     );
-    // T108 — this scan only ever runs while isConnected (see the guard
-    // above), so for any slot opted into AdRetryPolicy.resetOnConnectivityRestored
-    // this is exactly the "connectivity restored" moment its cooldown should
-    // clear early instead of waiting out a backoff window that may have been
-    // computed while offline. No-op for every slot with no policy, or a
-    // policy that didn't opt in — matches prior behavior.
     ad.appOpenSlot.clearCooldownOnReconnect();
     ad.interstitialSlot.clearCooldownOnReconnect();
     ad.rewardedSlot.clearCooldownOnReconnect();
@@ -9944,11 +9959,29 @@ class AdManager with WidgetsBindingObserver {
     if (ad.appOpenSlot.isIdle || ad.appOpenSlot.isCooldown) {
       unawaited(loadAppOpenAd());
     }
-    if (ad.interstitialSlot.isIdle || ad.interstitialSlot.isCooldown) {
-      unawaited(loadInterstitial());
-    }
-    if (ad.rewardedSlot.isIdle || ad.rewardedSlot.isCooldown) {
-      unawaited(loadRewardedAd());
+    if (staggered) {
+      final step = Duration(milliseconds: _reconnectDebounce.inMilliseconds * 5 ~/ 8);
+      _reconnectInterstitialTimer = Timer(step, () {
+        _reconnectInterstitialTimer = null;
+        if (_reconnectRefillAllowed(ad) &&
+            (ad.interstitialSlot.isIdle || ad.interstitialSlot.isCooldown)) {
+          unawaited(loadInterstitial());
+        }
+      });
+      _reconnectRewardedTimer = Timer(step * 2, () {
+        _reconnectRewardedTimer = null;
+        if (_reconnectRefillAllowed(ad) &&
+            (ad.rewardedSlot.isIdle || ad.rewardedSlot.isCooldown)) {
+          unawaited(loadRewardedAd());
+        }
+      });
+    } else {
+      if (ad.interstitialSlot.isIdle || ad.interstitialSlot.isCooldown) {
+        unawaited(loadInterstitial());
+      }
+      if (ad.rewardedSlot.isIdle || ad.rewardedSlot.isCooldown) {
+        unawaited(loadRewardedAd());
+      }
     }
     // 2026-08-16 audit: rewardedInterstitial (T89, AdMob-only) was missing
     // from this backstop entirely — if its first load ever failed (no

@@ -2,7 +2,7 @@
 
 - **Loại:** Enhancement / Network Resilience
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** todo (chuyển sang `inprogress/` khi làm, sang `done/` khi hoàn tất)
+- **Status:** done (2026-10-23; jitter + stagger reconnect, full SDK suite 2,753/2,753, device S24 Ultra pass; chưa đo được giảm timeout thật trên mạng nghẽn)
 
 ## Bối cảnh & Vấn đề
 
@@ -18,9 +18,14 @@ Khi thiết bị vừa phục hồi kết nối Internet sau một khoảng th�
 
 ## Acceptance Criteria
 
-- [ ] Giảm thiểu tỷ lệ lỗi timeout khi vừa có mạng trở lại.
-- [ ] Dàn đều tải mạng giữa các định dạng quảng cáo.
-- [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
+- [x] Jitter 0..debounce/2 cộng vào debounce reconnect (seam test `debugReconnectNextInt`).
+- [x] Dàn đều tải: App Open + Rewarded Interstitial ngay sau debounce; Interstitial +500 ms; Rewarded +1000 ms. Chỉ reconnect; các caller khác giữ nạp tức thì. Timer bị hủy khi offline/destroy; callback kiểm tra lại init, mạng, VIP, daily cap, adapter, trạng thái slot.
+- [x] `flutter analyze` sạch; full suite 2753/2753 pass; gate `api` và `size` pass (2048 KB, không nâng trần).
+- [x] Mutation check: tắt stagger làm 9 test đỏ; ép jitter = 0 làm test bounds đỏ.
+- [x] Device: `example/integration_test/t266_reconnect_jitter_stagger_test.dart` trên Galaxy S24 Ultra (SM S928B, Android 17), chủ sở hữu đã xác nhận bỏ quy tắc cấm S24U cho phiên này. Offset slot vào `loading`: appOpen 1160 ms, interstitial 1669 ms, rewarded 2170 ms.
+- [ ] Không chứng minh được: giảm tỷ lệ timeout thật trên mạng nghẽn. Test chỉ chứng minh thứ tự và khoảng cách thời gian, không đo congestion thực.
+
+Ghi chú: các wait trong `connectivity_resilience_test`, `ad_manager_connectivity_transition_test`, `connectivity_refill_test`, `r23_vip_expiry_banner_revive_test` được nới theo lịch mới; assertion không bị nới.
 
 ## Kế hoạch kiểm thử
 

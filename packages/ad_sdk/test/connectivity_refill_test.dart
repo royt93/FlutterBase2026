@@ -83,7 +83,8 @@ const _config = AdConfig(
   ),
 );
 
-Future<void> _flush() => Future<void>.delayed(const Duration(milliseconds: 5));
+Future<void> _flush() =>
+    Future<void>.delayed(const Duration(milliseconds: 50));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -149,7 +150,7 @@ void main() {
       AdManager().debugConnectivityChanged(true);
       AdManager().debugConnectivityChanged(false);
       AdManager().debugConnectivityChanged(true);
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
       // Two false→true edges, but the debounce timer is reset each time, so a
       // single refill runs.
       expect(adapter.loadInterstitialCalls, 1);
