@@ -13,6 +13,7 @@
         android:fullBackupOnly="true"
         android:fullBackupContent="@xml/full_backup_content"
         android:dataExtractionRules="@xml/data_extraction_rules">
+        <profileable android:shell="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

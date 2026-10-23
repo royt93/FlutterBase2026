@@ -26,4 +26,4 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.3.0" apply false
 }
 
-include(":app")
+include(":app", ":macrobenchmark")

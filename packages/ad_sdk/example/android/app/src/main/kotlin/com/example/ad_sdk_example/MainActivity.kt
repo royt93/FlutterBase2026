@@ -9,6 +9,16 @@ import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin
 private const val T228_NATIVE_AD_FACTORY_ID = "t228CustomNativeAd"
 
 class MainActivity : FlutterActivity() {
+  private val isT257Benchmark get() = intent.getBooleanExtra("t257Macrobenchmark", false)
+
+  override fun getInitialRoute(): String? =
+      if (isT257Benchmark) {
+        val scenario = intent.getStringExtra("t257Scenario") ?: "deterministic"
+        "/$scenario${if (intent.getBooleanExtra("t257AutoStart", false)) "-auto" else ""}"
+      } else {
+        super.getInitialRoute()
+      }
+
   override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
     super.configureFlutterEngine(flutterEngine)
     // T228 — registers the reference NativeAdFactory (T228CustomNativeAdFactory.kt)

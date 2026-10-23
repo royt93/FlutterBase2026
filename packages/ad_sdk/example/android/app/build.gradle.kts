@@ -75,6 +75,11 @@ android {
     }
 
     buildTypes {
+        getByName("profile") {
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            applicationIdSuffix = ".benchmark"
+        }
         release {
             signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
