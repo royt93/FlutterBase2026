@@ -8190,6 +8190,12 @@ class AdManager with WidgetsBindingObserver {
       SafeLogger.d(_tag, '⏭️ app-open on resume skipped — VIP member');
       return;
     }
+    if (AdSensitiveScreen.isActive) {
+      SafeLogger.d(
+          _tag, '⏭️ App Open skipped — active route is marked as sensitive');
+      _emitSkip(AdSlotType.appOpen, 'show', 'sensitive_screen');
+      return;
+    }
     // C3 — same shared mutex the other two show paths now use. This path
     // already had the full condition inline; it is the one the helper was
     // extracted from. Covers stacking on another fullscreen ad AND on a modal
@@ -8256,6 +8262,11 @@ class AdManager with WidgetsBindingObserver {
     final navContext = _navigatorKey?.currentContext;
     if (navContext != null) {
       AdLoadingDialog.showAdBuffer(navContext, onComplete: () {
+        if (AdSensitiveScreen.isActive) {
+          SafeLogger.d(
+              _tag, '⏭️ App Open skipped — active route is marked as sensitive');
+          return;
+        }
         if (_isSplashActive ||
             _isVipMember ||
             ad.interstitialSlot.isShowing ||
@@ -8283,6 +8294,11 @@ class AdManager with WidgetsBindingObserver {
       _resumeFallbackTimer = Timer(const Duration(seconds: 1), () {
         _resumeFallbackTimer = null;
         if (!isInitialised) return;
+        if (AdSensitiveScreen.isActive) {
+          SafeLogger.d(
+              _tag, '⏭️ App Open skipped — active route is marked as sensitive');
+          return;
+        }
         if (_isSplashActive ||
             _isVipMember ||
             ad.interstitialSlot.isShowing ||

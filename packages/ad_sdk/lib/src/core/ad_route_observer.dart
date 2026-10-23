@@ -67,6 +67,39 @@ final ValueNotifier<bool> customOverlayOnScreen = ValueNotifier<bool>(false);
 void markCustomOverlayOnScreen(bool value) =>
     customOverlayOnScreen.value = value;
 
+/// Wrap checkout, camera, OTP, or password screens to suppress resumed App Open
+/// ads until every [AdSensitiveScreen] is disposed.
+class AdSensitiveScreen extends StatefulWidget {
+  const AdSensitiveScreen({super.key, required this.child});
+
+  final Widget child;
+
+  static int _activeCount = 0;
+  static bool get isActive => _activeCount > 0;
+
+  static void _changeCount(int delta) => _activeCount += delta;
+
+  @override
+  State<AdSensitiveScreen> createState() => _AdSensitiveScreenState();
+}
+
+class _AdSensitiveScreenState extends State<AdSensitiveScreen> {
+  @override
+  void initState() {
+    super.initState();
+    AdSensitiveScreen._changeCount(1);
+  }
+
+  @override
+  void dispose() {
+    AdSensitiveScreen._changeCount(-1);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// Global RouteObserver for banner ad lifecycle management.
 ///
 /// Register in your app's [navigatorObservers]:

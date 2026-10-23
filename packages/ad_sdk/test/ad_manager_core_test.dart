@@ -377,6 +377,7 @@ AdConfig _admobConfig({
   FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto,
   bool autoRequestUmpConsent = true,
   bool umpTagForUnderAgeOfConsent = false,
+  int loadingBufferMs = 1000,
 }) {
   const realPrefix = 'ca-app-pub-9999999999999999';
   const testPrefix = 'ca-app-pub-3940256099942544';
@@ -392,6 +393,7 @@ AdConfig _admobConfig({
     safety: AdSafetyParams(dryRun: dryRun),
     appOpenTrigger: appOpenTrigger,
     firstInstallVipGrace: firstInstallVipGrace,
+    loadingBufferMs: loadingBufferMs,
     autoRequestUmpConsent: autoRequestUmpConsent,
     umpTagForUnderAgeOfConsent: umpTagForUnderAgeOfConsent,
   );
@@ -5003,6 +5005,127 @@ void main() {
         );
       });
     });
+  });
+
+  group('App Open suppression on sensitive screens', () {
+    late _FakeAdapter adapter;
+
+    setUp(() async {
+      await AdManager().destroy();
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _FakeAdapter();
+      AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().markSplashInactive();
+      AdScreenRouteLogger.resetState();
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugVipManager = null;
+      AdManager().markSplashActive();
+    });
+
+    testWidgets('active sensitive screen suppresses resume without refill', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: AdSensitiveScreen(child: Scaffold(body: Text('checkout'))),
+        ),
+      );
+      adapter.appOpenSlot.beginLoad();
+      adapter.appOpenSlot.markReady();
+
+      AdManager().showAppOpenAdOnResume();
+
+      expect(adapter.showAppOpenCalls, 0);
+      expect(adapter.loadAppOpenCalls, 0);
+    });
+
+    testWidgets(
+      'fallback timer rechecks sensitive screen before presentation',
+      (tester) async {
+        await tester.pumpWidget(const MaterialApp(home: Scaffold()));
+        adapter.appOpenSlot.beginLoad();
+        adapter.appOpenSlot.markReady();
+
+        AdManager().showAppOpenAdOnResume();
+        AdManager().showAppOpenAdOnResume();
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: AdSensitiveScreen(child: Scaffold(body: Text('otp'))),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 1, milliseconds: 100));
+
+        expect(adapter.showAppOpenCalls, 0);
+      },
+    );
+
+    testWidgets(
+      'loading buffer rechecks sensitive screen before presentation',
+      (tester) async {
+        final navigatorKey = GlobalKey<NavigatorState>();
+        AdManager().setNavigatorKey(navigatorKey);
+        AdManager().debugConfig = _admobConfig(
+          dryRun: true,
+          testIds: true,
+          loadingBufferMs: 100,
+        );
+        await tester.pumpWidget(
+          MaterialApp(navigatorKey: navigatorKey, home: const Scaffold()),
+        );
+        adapter.appOpenSlot.beginLoad();
+        adapter.appOpenSlot.markReady();
+
+        AdManager().showAppOpenAdOnResume();
+        AdManager().showAppOpenAdOnResume();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorKey: navigatorKey,
+            home: const AdSensitiveScreen(
+              child: Scaffold(body: Text('checkout')),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump();
+
+        expect(adapter.showAppOpenCalls, 0);
+        expect(AdSensitiveScreen.isActive, isTrue);
+      },
+    );
+
+    testWidgets(
+      'normal screen allows resume behavior again after sensitive closes',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: AdSensitiveScreen(child: Scaffold(body: Text('payment'))),
+          ),
+        );
+        adapter.appOpenSlot.beginLoad();
+        adapter.appOpenSlot.markReady();
+        AdManager().showAppOpenAdOnResume();
+        expect(adapter.showAppOpenCalls, 0);
+
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: Text('home'))),
+        );
+        AdManager().showAppOpenAdOnResume();
+        AdManager().showAppOpenAdOnResume();
+        await tester.pump(const Duration(seconds: 1, milliseconds: 100));
+
+        expect(adapter.showAppOpenCalls, 1);
+      },
+    );
   });
 
   group('didChangeAppLifecycleState()', () {

@@ -494,6 +494,11 @@ AdSelfHealingObserveEvent.currentScore  [field]  double currentScore
 AdSelfHealingObserveEvent.new  [constructor]  AdSelfHealingObserveEvent AdSelfHealingObserveEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required String wouldSwitchToProvider, required double currentScore, required double recommendedScore})
 AdSelfHealingObserveEvent.recommendedScore  [field]  double recommendedScore
 AdSelfHealingObserveEvent.wouldSwitchToProvider  [field]  String wouldSwitchToProvider
+AdSensitiveScreen  [class]  class AdSensitiveScreen extends StatefulWidget
+AdSensitiveScreen.child  [field]  Widget child
+AdSensitiveScreen.createState  [method]  State<AdSensitiveScreen> createState()
+AdSensitiveScreen.isActive  [getter]  bool get isActive
+AdSensitiveScreen.new  [constructor]  AdSensitiveScreen AdSensitiveScreen({Key? key, required Widget child})
 AdShowEvent  [class]  class AdShowEvent extends AdEvent
 AdShowEvent.new  [constructor]  AdShowEvent AdShowEvent({required String providerTag, required AdSlotType type, required AdPlacement placement, required bool success, String? requestId})
 AdShowEvent.requestId  [field]  String? requestId

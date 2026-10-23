@@ -412,6 +412,11 @@ void main() {
 > `showModalBottomSheet` for any bottom sheet, since the raw API defaults to
 > `useRootNavigator: false` and would otherwise push onto an unobserved
 > Navigator, letting a resumed App Open ad show on top of it.
+>
+> Wrap payment, camera/QR, OTP, and password flows in
+> `AdSensitiveScreen(child: ...)`. App Open ads are skipped on resume while any
+> such wrapper remains mounted; the host must add the wrapper explicitly.
+> Other fullscreen ad formats are unaffected.
 
 ### Step 5 — Initialize the SDK in `splash_screen.dart`
 

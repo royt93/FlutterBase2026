@@ -12,6 +12,10 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
   (step = 500 ms by default). Pending staggered loads are cancelled on offline,
   destroy, VIP, daily cap, or adapter change. No public API change.
 
+- **Added (T262):** `AdSensitiveScreen` lets hosts mark checkout, camera/QR,
+  OTP, and password flows so App Open ads are skipped on resume until all
+  marked screens are disposed. Other fullscreen formats remain unchanged.
+
 ## [3.5.0] - 2026-10-15
 
 - **Added (T254):** `ConsentProvenanceJournal.entriesPage()` for bounded, immutable

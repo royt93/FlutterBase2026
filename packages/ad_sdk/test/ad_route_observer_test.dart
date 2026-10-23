@@ -166,6 +166,34 @@ void main() {
     expect(AdScreenRouteLogger.isDialogOnTop, isFalse);
   });
 
+  testWidgets('sensitive screen count clears only after last wrapper disposes',
+      (tester) async {
+    final showSecond = ValueNotifier<bool>(false);
+    await tester.pumpWidget(MaterialApp(
+      home: Column(children: [
+        const Expanded(
+          child: AdSensitiveScreen(child: Text('sensitive one')),
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: showSecond,
+          builder: (context, show, _) => show
+              ? const AdSensitiveScreen(child: Text('sensitive two'))
+              : const SizedBox.shrink(),
+        ),
+      ]),
+    ));
+    expect(AdSensitiveScreen.isActive, isTrue);
+
+    showSecond.value = true;
+    await tester.pump();
+    showSecond.value = false;
+    await tester.pump();
+    expect(AdSensitiveScreen.isActive, isTrue);
+
+    await tester.pumpWidget(const MaterialApp(home: Text('normal')));
+    expect(AdSensitiveScreen.isActive, isFalse);
+  });
+
   test('didReplace tracks popup-for-popup and popup-for-page swaps', () {
     final logger = AdScreenRouteLogger();
     final popup1 = _FakePopupRoute();
