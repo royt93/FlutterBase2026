@@ -3,14 +3,101 @@ import 'dart:developer' show Timeline;
 import 'dart:ui' show FramePhase;
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-const _scenario = String.fromEnvironment(
-  'T257_BENCH_SCENARIO',
-  defaultValue: 'real',
-);
-const _deterministic = _scenario == 'deterministic';
+late String _scenario;
+bool get _loading => _scenario == 'loading';
+late bool _autoStart;
+
+class T257StartGate extends StatefulWidget {
+  const T257StartGate({
+    super.key,
+    required this.canStart,
+    required this.autoStart,
+    required this.onStart,
+  });
+
+  final ValueListenable<bool> canStart;
+  final bool autoStart;
+  final VoidCallback onStart;
+
+  @override
+  State<T257StartGate> createState() => _T257StartGateState();
+}
+
+class _T257StartGateState extends State<T257StartGate> {
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.canStart.addListener(_readinessChanged);
+    _readinessChanged();
+  }
+
+  @override
+  void didUpdateWidget(covariant T257StartGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.canStart != widget.canStart) {
+      oldWidget.canStart.removeListener(_readinessChanged);
+      widget.canStart.addListener(_readinessChanged);
+      _readinessChanged();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.canStart.removeListener(_readinessChanged);
+    super.dispose();
+  }
+
+  void _readinessChanged() {
+    if (widget.autoStart && widget.canStart.value && !_started) {
+      _start();
+    }
+  }
+
+  void _start() {
+    if (_started || !widget.canStart.value) return;
+    _started = true;
+    widget.onStart();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: widget.canStart,
+    builder: (context, canStart, _) => Semantics(
+      button: true,
+      label: 't267-start-benchmark',
+      enabled: canStart && !_started,
+      onTap: !canStart || _started ? null : _start,
+      child: SizedBox(
+        width: 200,
+        height: 48,
+        child: ExcludeSemantics(
+          child: TextButton(
+            onPressed: canStart && !_started ? _start : null,
+            child: const Text('Start benchmark'),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+void _startBenchmark() {
+  if (_benchmarkStarted.isCompleted) return;
+  debugPrint('T267_START requested');
+  _benchmarkStarted.complete();
+}
+
+void _autoStartBenchmark() {
+  if (_benchmarkStarted.isCompleted) return;
+  debugPrint('T267_START auto');
+  _benchmarkStarted.complete();
+}
 
 const _config = AdConfig(
   provider: AdProvider.admob,
@@ -27,21 +114,35 @@ const _config = AdConfig(
 
 final _navigatorKey = GlobalKey<NavigatorState>();
 final _bannerKey = GlobalKey();
+final _benchmarkInitialized = ValueNotifier<bool>(false);
+final _benchmarkStarted = Completer<void>();
 final _timings = <FrameTiming>[];
 final _phases = <(String, int)>[];
-final _bannerGeneration = ValueNotifier<int>(0);
 final _scrollController = ScrollController();
-_ControllableAdapter? _fake;
+final _benchmarkCompleted = ValueNotifier<bool>(false);
+final _scrollStarted = ValueNotifier<bool>(false);
+final _bannerReady = ValueNotifier<bool>(false);
+final _canStart = ValueNotifier<bool>(false);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  if (_scenario != 'real' && !_deterministic) {
-    throw StateError('T257_BENCH_SCENARIO must be real or deterministic');
-  }
-  if (_deterministic) {
-    _fake = _ControllableAdapter();
-    // ignore: invalid_use_of_visible_for_testing_member
-    AdManager.debugAdapterFactory = (_) => _fake!;
+  runT257ProfileFrameBenchmark(
+    WidgetsBinding.instance.platformDispatcher.defaultRouteName,
+  );
+}
+
+void runT257ProfileFrameBenchmark(String route) {
+  WidgetsFlutterBinding.ensureInitialized();
+  _autoStart = route.endsWith('-auto');
+  final baseRoute = _autoStart ? route.substring(0, route.length - 5) : route;
+  _scenario = baseRoute == '/real' || baseRoute == '/loading'
+      ? baseRoute.substring(1)
+      : const String.fromEnvironment(
+          'T257_BENCH_SCENARIO',
+          defaultValue: 'real',
+        );
+  if (_scenario != 'real' && !_loading) {
+    throw StateError('T257_BENCH_SCENARIO must be real or loading');
   }
   AdManager().setNavigatorKey(_navigatorKey);
   SchedulerBinding.instance.addTimingsCallback(_onTimings);
@@ -93,73 +194,98 @@ Future<void> _initialize() async {
     },
   );
   if (AdManager().vip?.isActive ?? false) await AdManager().vip?.revokeAll();
+  _benchmarkInitialized.value = true;
   _mark('banner_load_begin');
   await _waitFor(
-    () => _fake == null || _fake!.activeKey != null,
-    const Duration(seconds: 15),
+    () =>
+        _bannerKey.currentState != null &&
+        AdManager().adapter!.bannerSlot(_bannerKey.currentState!).value !=
+            AdSlotState.idle,
+    const Duration(seconds: 10),
   );
-  await Future<void>.delayed(const Duration(milliseconds: 800));
-  _mark('banner_loading_observed');
-  final key = _fake?.activeKey ?? _bannerKey.currentState!;
+  final key = _bannerKey.currentState!;
   final adapter = AdManager().adapter!;
   debugPrint(
     'T257_AD slot=${adapter.bannerSlot(key).value.name} '
     'loaded=${adapter.banner(key).isLoaded.value} scenario=$_scenario',
   );
-
-  if (_deterministic) {
-    for (var cycle = 0; cycle < 5; cycle++) {
-      final loadingKey = _fake!.activeKey;
-      _mark('deterministic_cycle_${cycle + 1}_loading_scroll');
-      unawaited(
-        _scrollController.animateTo(
-          420,
-          duration: const Duration(seconds: 2),
-          curve: Curves.easeInOut,
-        ),
-      );
-      await Future<void>.delayed(const Duration(seconds: 2));
-      _fake!.resolveCurrentLoad(success: true);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      _mark('deterministic_cycle_${cycle + 1}_filled_scroll_back');
-      unawaited(
-        _scrollController.animateTo(
-          0,
-          duration: const Duration(seconds: 2),
-          curve: Curves.easeInOut,
-        ),
-      );
-      await Future<void>.delayed(const Duration(seconds: 2));
-      _bannerGeneration.value++;
-      await _waitFor(
-        () => _fake!.activeKey != loadingKey,
-        const Duration(seconds: 10),
-      );
-    }
-  } else {
-    await Future<void>.delayed(const Duration(seconds: 10));
-    final realSlot = adapter.bannerSlot(key);
-    debugPrint(
-      'T257_REAL_AD_RESULT state=${realSlot.value.name} '
-      'loaded=${adapter.banner(key).isLoaded.value} error=${adapter.banner(key).hasError.value}',
+  await _waitFor(
+    () =>
+        adapter.bannerSlot(key).value == AdSlotState.loading ||
+        adapter.bannerSlot(key).value == AdSlotState.ready ||
+        adapter.banner(key).hasError.value,
+    const Duration(seconds: 15),
+  );
+  if (!_loading) {
+    await _waitFor(
+      () =>
+          adapter.bannerSlot(key).value == AdSlotState.ready ||
+          adapter.banner(key).hasError.value,
+      const Duration(seconds: 45),
     );
-    _mark('real_banner_visible_end');
-    _scrollController.animateTo(
+    _bannerReady.value =
+        adapter.bannerSlot(key).value == AdSlotState.ready &&
+        adapter.banner(key).isLoaded.value;
+    debugPrint('T257_REAL_AD_READY ready=${_bannerReady.value}');
+  }
+
+  if (_loading) {
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    _mark('banner_loading_observed');
+  } else if (!_bannerReady.value) {
+    _mark('real_banner_not_ready');
+  }
+  if (!_loading && !_bannerReady.value) {
+    throw StateError('AdMob test banner not ready');
+  }
+  debugPrint('T267_READY scenario=$_scenario');
+  _canStart.value = true;
+  await _benchmarkStarted.future;
+  _scrollStarted.value = true;
+  debugPrint(
+    'T267_BANNER_AT_SCROLL slot=${adapter.bannerSlot(key).value.name} '
+    'loaded=${adapter.banner(key).isLoaded.value} error=${adapter.banner(key).hasError.value}',
+  );
+  if (_loading) {
+    _mark('loading_scroll');
+    await _scrollController.animateTo(
       420,
       duration: const Duration(seconds: 2),
       curve: Curves.easeInOut,
     );
-    await Future<void>.delayed(const Duration(seconds: 3));
-    _mark('real_scroll_end');
-    _scrollController.animateTo(
-      0,
-      duration: const Duration(seconds: 2),
-      curve: Curves.easeInOut,
+    _mark('loading_scroll_end');
+  } else {
+    final realSlot = adapter.bannerSlot(key);
+    final isReady =
+        _bannerReady.value &&
+        realSlot.value == AdSlotState.ready &&
+        adapter.banner(key).isLoaded.value;
+    _bannerReady.value = isReady;
+    debugPrint(
+      'T257_REAL_AD_RESULT state=${realSlot.value.name} '
+      'loaded=${adapter.banner(key).isLoaded.value} ready=$isReady '
+      'error=${adapter.banner(key).hasError.value}',
     );
-    await Future<void>.delayed(const Duration(seconds: 3));
-    _mark('real_return_end');
+    if (isReady) {
+      _mark('real_banner_visible_end');
+      _scrollController.animateTo(
+        420,
+        duration: const Duration(seconds: 2),
+        curve: Curves.easeInOut,
+      );
+      await Future<void>.delayed(const Duration(seconds: 3));
+      _mark('real_scroll_end');
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(seconds: 2),
+        curve: Curves.easeInOut,
+      );
+      await Future<void>.delayed(const Duration(seconds: 3));
+      _mark('real_return_end');
+    }
   }
 
+  _benchmarkCompleted.value = true;
   _mark('report');
   _report();
 }
@@ -170,22 +296,57 @@ class _BenchmarkHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text('T257 Profile · $_scenario')),
-    body: ListView.builder(
-      controller: _scrollController,
-      itemCount: 80,
-      itemBuilder: (context, index) => ListTile(
-        title: Text('Benchmark content row $index'),
-        trailing: const Icon(Icons.chevron_right),
-      ),
+    body: ValueListenableBuilder<bool>(
+      valueListenable: _benchmarkInitialized,
+      builder: (context, initialized, _) {
+        if (!initialized) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return Column(
+          children: [
+            ValueListenableBuilder<bool>(
+              valueListenable: _benchmarkCompleted,
+              builder: (context, completed, _) => ValueListenableBuilder<bool>(
+                valueListenable: _scrollStarted,
+                builder: (context, scrollStarted, _) => Column(
+                  children: [
+                    T257StartGate(
+                      canStart: _canStart,
+                      autoStart: _autoStart,
+                      onStart: _autoStart
+                          ? _autoStartBenchmark
+                          : _startBenchmark,
+                    ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _bannerReady,
+                      builder: (context, ready, _) => Text(
+                        't267Ready=true bannerReady=$ready benchmarkComplete=$completed scrollStarted=$scrollStarted',
+                        key: const ValueKey('t257-benchmark-status'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                itemCount: 80,
+                itemBuilder: (context, index) => ListTile(
+                  title: Text('Benchmark content row $index'),
+                  trailing: const Icon(Icons.chevron_right),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     ),
-    bottomNavigationBar: SafeArea(
-      top: false,
-      child: ValueListenableBuilder<int>(
-        valueListenable: _bannerGeneration,
-        builder: (context, generation, _) => BannerAdWidget(
-          key: generation == 0 ? _bannerKey : ValueKey('banner-$generation'),
-        ),
-      ),
+    bottomNavigationBar: ValueListenableBuilder<bool>(
+      valueListenable: _benchmarkInitialized,
+      builder: (context, initialized, _) => initialized
+          ? SafeArea(top: false, child: BannerAdWidget(key: _bannerKey))
+          : const SizedBox.shrink(),
     ),
   );
 }
@@ -227,6 +388,15 @@ void _report() {
     final over120 = total.where((v) => v > 8.33).length;
     final intervalOver16 = vsyncIntervals.where((v) => v > 16.67).length;
     final intervalOver33 = vsyncIntervals.where((v) => v > 33.3).length;
+    for (final frame in phaseFrames) {
+      debugPrint(
+        'T257_FRAME scenario=$_scenario phase=$name '
+        'vsync_us=${frame.timestampInMicroseconds(FramePhase.vsyncStart)} '
+        'build_us=${frame.buildDuration.inMicroseconds} '
+        'raster_us=${frame.rasterDuration.inMicroseconds} '
+        'total_us=${frame.totalSpan.inMicroseconds}',
+      );
+    }
     debugPrint(
       'T257_METRIC scenario=$_scenario phase=$name phase_start_us=$start phase_end_us=$end '
       'first_vsync_us=$firstVsync last_vsync_us=$lastVsync '
@@ -245,36 +415,4 @@ void _report() {
     'T257_LIMIT: FrameTiming durations/sample gaps are Flutter pipeline observations, '
     'not confirmed presented/dropped-frame counts. Correlate with Android frame-timeline evidence.',
   );
-}
-
-class _ControllableAdapter extends FakeAdProviderAdapter {
-  Completer<void>? _pending;
-  Object? activeKey;
-  bool _pendingSuccess = false;
-
-  @override
-  Future<void> loadBannerIfNeeded(Object key, double widthPx) async {
-    activeKey = key;
-    final slot = bannerSlot(key);
-    final listenables = banner(key);
-    if (!slot.beginLoad()) return;
-    _pendingSuccess = false;
-    _pending = Completer<void>();
-    await _pending!.future;
-    if (!slot.isLoading) return;
-    if (_pendingSuccess) {
-      slot.markReady();
-      listenables.clearError();
-      listenables.isLoaded.value = true;
-      listenables.adSize.value = Size(widthPx, 50);
-    } else {
-      slot.markFailed();
-      listenables.markError();
-    }
-  }
-
-  void resolveCurrentLoad({required bool success}) {
-    _pendingSuccess = success;
-    if (!(_pending?.isCompleted ?? true)) _pending!.complete();
-  }
 }

@@ -66,11 +66,20 @@ import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart' show SharedPreferencesAsync;
+import 't257_profile_frame_benchmark.dart' show runT257ProfileFrameBenchmark;
 
 final _navigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  final route = WidgetsBinding.instance.platformDispatcher.defaultRouteName;
+  if (route == '/real' ||
+      route == '/loading' ||
+      route == '/real-auto' ||
+      route == '/loading-auto') {
+    runT257ProfileFrameBenchmark(route);
+    return;
+  }
   // Edge-to-edge: status bar + nav bar transparent, content paints behind them.
   // Required on Android 15+ (target SDK 35) and recommended on older versions.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
