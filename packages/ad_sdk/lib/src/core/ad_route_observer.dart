@@ -5,16 +5,11 @@ import '../utils/safe_logger.dart';
 /// Drop-in replacement for [showModalBottomSheet] that is always visible to
 /// [AdScreenRouteLogger.isDialogOnTop].
 ///
-/// Round-28 audit finding: [showModalBottomSheet] defaults to
-/// `useRootNavigator: false` — unlike [showDialog], which defaults to
-/// `true` — so it pushes onto whichever `Navigator` owns [context]. In an
-/// app with nested Navigators (bottom-nav tabs, a `go_router` `ShellRoute`
-/// branch, ...) that is usually a *nested* Navigator, not the root one
-/// `AdScreenRouteLogger` is registered on per the integration contract. The
-/// sheet then goes untracked and a resumed App Open ad can show on top of
-/// it. This helper always forces `useRootNavigator: true` so the sheet is
-/// pushed on the observed root Navigator no matter which nested Navigator's
-/// [context] it is called from.
+/// Round-28 audit: [showModalBottomSheet] defaults to `useRootNavigator:
+/// false`, so in nested-Navigator apps (bottom-nav tabs, `go_router`
+/// `ShellRoute`) the sheet goes untracked by [AdScreenRouteLogger] and a
+/// resumed App Open ad can show on top of it. This helper always forces
+/// `useRootNavigator: true`.
 Future<T?> showAdSafeModalBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
@@ -153,6 +148,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
   static void resetState() {
     _popupDepth = 0;
     _navigationEventsObserved = 0;
+    navigationEventsNotifier.value = 0;
   }
 
   /// T98 — count of navigation callbacks (`didPush`/`didPop`/`didRemove`/
@@ -165,9 +161,17 @@ class AdScreenRouteLogger extends NavigatorObserver {
   static int _navigationEventsObserved = 0;
   static int get navigationEventsObserved => _navigationEventsObserved;
 
+  /// T264 — page-level navigations only (popup/dialog routes excluded, so the
+  /// SDK's own loading dialog never counts as user navigation).
+  static final ValueNotifier<int> navigationEventsNotifier = ValueNotifier(0);
+  static void _countNav(Route? route) {
+    _navigationEventsObserved++;
+    if (route is! PopupRoute) navigationEventsNotifier.value++;
+  }
+
   @override
   void didPush(Route route, Route? previousRoute) {
-    _navigationEventsObserved++;
+    _countNav(route);
     if (route is PopupRoute) _popupDepth++;
     SafeLogger.d(
         _tag,
@@ -177,7 +181,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   @override
   void didPop(Route route, Route? previousRoute) {
-    _navigationEventsObserved++;
+    _countNav(route);
     if (route is PopupRoute && _popupDepth > 0) _popupDepth--;
     SafeLogger.d(
         _tag,
@@ -187,7 +191,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   @override
   void didRemove(Route route, Route? previousRoute) {
-    _navigationEventsObserved++;
+    _countNav(route);
     if (route is PopupRoute && _popupDepth > 0) _popupDepth--;
     SafeLogger.d(
         _tag,
@@ -197,7 +201,7 @@ class AdScreenRouteLogger extends NavigatorObserver {
 
   @override
   void didReplace({Route? newRoute, Route? oldRoute}) {
-    _navigationEventsObserved++;
+    _countNav(newRoute);
     if (oldRoute is PopupRoute && _popupDepth > 0) _popupDepth--;
     if (newRoute is PopupRoute) _popupDepth++;
     SafeLogger.d(

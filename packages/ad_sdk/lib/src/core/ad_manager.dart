@@ -4826,6 +4826,19 @@ class AdManager with WidgetsBindingObserver {
       }
 
       _scheduleFirstSecondaryLoad();
+      _navBase = AdScreenRouteLogger.navigationEventsObserved;
+      if (_smartPreload && !_userEngaged) {
+        // Foreground only: init can finish while the app is backgrounded
+        // (UMP form, splash); the resume handler arms the timer then.
+        if (_prevLifecycleState == AppLifecycleState.paused) {
+          _engageArmed = true;
+        } else {
+          _armEngagement();
+        }
+        AdScreenRouteLogger.navigationEventsNotifier
+          ..removeListener(_onNavEvent)
+          ..addListener(_onNavEvent);
+      }
       _startAdRetryTimer();
       unawaited(_startConnectivityWatch());
 
@@ -5195,12 +5208,13 @@ class AdManager with WidgetsBindingObserver {
     initRevision.value++;
     if (!canRequestAds) return;
     unawaited(loadAppOpenAd());
-    unawaited(loadInterstitial());
-    unawaited(loadRewardedAd());
-    // T148 — rewardedInterstitial was missing from this fast-refill path,
-    // left to wait out the 5-minute periodic retry timer instead of
-    // reloading immediately like its three siblings above.
-    unawaited(loadRewardedInterstitialAd());
+    if (_smartPreload && !_userEngaged) {
+      _secondaryPending = true;
+    } else {
+      unawaited(loadInterstitial());
+      unawaited(loadRewardedAd());
+      unawaited(loadRewardedInterstitialAd());
+    }
     // T65 (phase 2) — no widget key at this call site; shares the sentinel
     // key (see its doc comment).
     unawaited(ad.preloadBanner(_globalBannerWarmupKey));
@@ -5279,6 +5293,61 @@ class AdManager with WidgetsBindingObserver {
 
   bool _isFirstAdLoadTriggered = false;
 
+  // T264 — engagement gate for automatic secondary preload.
+  bool _userEngaged = false;
+  bool _secondaryPending = false;
+  bool _engageArmed = false;
+  int _navBase = 0;
+  Timer? _engageTimer;
+
+  bool get _smartPreload => _config?.smartPreloadEnabled ?? true;
+
+  void _armEngagement() {
+    _engageArmed = true;
+    _engageTimer?.cancel();
+    _engageTimer = Timer(const Duration(seconds: 15), markUserEngaged);
+  }
+
+  void _resetEngagement() {
+    _engageTimer?.cancel();
+    _engageTimer = null;
+    _engageArmed = false;
+    AdScreenRouteLogger.navigationEventsNotifier.removeListener(_onNavEvent);
+    _userEngaged = false;
+    _secondaryPending = false;
+  }
+
+  void _onNavEvent() {
+    if (AdScreenRouteLogger.navigationEventsObserved - _navBase >= 2) {
+      markUserEngaged();
+    }
+  }
+
+  /// T264 — for SDK-internal automatic preloaders (AdScreen, JourneyPrefetcher):
+  /// true if the preload was deferred until engagement (released by
+  /// [markUserEngaged]). Never defers host-called `loadX()`.
+  @internal
+  bool deferAutoPreload() {
+    if (!isInitialised || !_smartPreload || _userEngaged) return false;
+    _secondaryPending = true;
+    return true;
+  }
+
+  /// T264 — tell the SDK the user is genuinely engaged; releases deferred
+  /// automatic Interstitial/Rewarded/RewardedInterstitial preloads. Idempotent.
+  void markUserEngaged() {
+    if (_userEngaged) return;
+    _userEngaged = true;
+    _engageTimer?.cancel();
+    _engageTimer = null;
+    AdScreenRouteLogger.navigationEventsNotifier.removeListener(_onNavEvent);
+    if (!_secondaryPending) return;
+    _secondaryPending = false;
+    unawaited(loadInterstitial());
+    unawaited(loadRewardedAd());
+    unawaited(loadRewardedInterstitialAd());
+  }
+
   void _scheduleFirstSecondaryLoad() {
     if (_isFirstAdLoadTriggered) return;
     final ad = _adapter;
@@ -5298,11 +5367,13 @@ class AdManager with WidgetsBindingObserver {
       if (_isFirstAdLoadTriggered) return;
       _isFirstAdLoadTriggered = true;
       ad.appOpenSlot.state.removeListener(_onAppOpenStateChange);
+      if (_smartPreload && !_userEngaged) {
+        _secondaryPending = true;
+        return;
+      }
       SafeLogger.d(_tag, 'first secondary load → inter + rewarded + RI');
       unawaited(loadInterstitial());
       unawaited(loadRewardedAd());
-      // T148 — rewardedInterstitial was missing here too, same gap as
-      // _onVipActiveChanged above.
       unawaited(loadRewardedInterstitialAd());
     }
   }
@@ -7799,6 +7870,7 @@ class AdManager with WidgetsBindingObserver {
     // Without this, a re-init without explicit destroy would skip secondary
     // loads (preserves Fix V from 1.x).
     _isFirstAdLoadTriggered = false;
+    _resetEngagement();
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -9450,8 +9522,16 @@ class AdManager with WidgetsBindingObserver {
     }
     if (state == AppLifecycleState.paused) {
       _lastPausedAtMs = DateTime.now().millisecondsSinceEpoch;
+      _engageTimer?.cancel();
+      _engageTimer = null;
     }
     if (state == AppLifecycleState.resumed) {
+      if (_smartPreload &&
+          !_userEngaged &&
+          _engageArmed &&
+          prev == AppLifecycleState.paused) {
+        _armEngagement();
+      }
       // B3 follow-up (audit_claude.md, 2026-08-20) — Stopwatch-based drift
       // detection in VipManager._effectiveNow misreads a normal sleep/
       // background gap as clock tamper (monotonic uptime clock pauses
@@ -9974,6 +10054,10 @@ class AdManager with WidgetsBindingObserver {
     ad.rewardedInterstitialSlot.clearCooldownOnReconnect();
     if (ad.appOpenSlot.isIdle || ad.appOpenSlot.isCooldown) {
       unawaited(loadAppOpenAd());
+    }
+    if (_smartPreload && !_userEngaged) {
+      _secondaryPending = true;
+      return;
     }
     if (staggered) {
       final step = Duration(milliseconds: _reconnectDebounce.inMilliseconds * 5 ~/ 8);

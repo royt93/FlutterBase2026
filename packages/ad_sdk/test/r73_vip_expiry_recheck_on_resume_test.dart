@@ -367,6 +367,7 @@ void main() {
             interstitialId: 'i',
             appOpenId: 'a',
           ),
+          smartPreloadEnabled: false,
         );
 
         final mgr = await grant(const Duration(milliseconds: 150));
@@ -455,6 +456,7 @@ void main() {
             interstitialId: 'i',
             appOpenId: 'a',
           ),
+          smartPreloadEnabled: false,
         );
 
         final mgr = await grant(const Duration(milliseconds: 150));
@@ -567,6 +569,7 @@ void main() {
             interstitialId: 'i',
             appOpenId: 'a',
           ),
+          smartPreloadEnabled: false,
         );
         AdManager().debugCanRequestAds = true;
         final first = _GatedConsentStore();
@@ -696,6 +699,7 @@ void main() {
             interstitialId: 'i',
             appOpenId: 'a',
           ),
+          smartPreloadEnabled: false,
           firstInstallVipGrace: FirstInstallVipGrace.disabled,
           safety: AdSafetyParams(dryRun: true),
         ),

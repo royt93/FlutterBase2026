@@ -42,6 +42,7 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState $runtimeType — preloading interstitial');
+    if (AdManager().deferAutoPreload()) return;
     AdManager().loadInterstitial();
   }
 

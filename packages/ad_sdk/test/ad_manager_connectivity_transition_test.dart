@@ -67,6 +67,7 @@ const _testConfig = AdConfig(
     appOpenId: 'ca-app-pub-3940256099942544/9257395921',
     rewardedId: 'ca-app-pub-3940256099942544/5224354917',
   ),
+  smartPreloadEnabled: false,
 );
 
 void main() {

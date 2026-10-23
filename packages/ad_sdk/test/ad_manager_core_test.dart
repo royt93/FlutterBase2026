@@ -378,6 +378,7 @@ AdConfig _admobConfig({
   bool autoRequestUmpConsent = true,
   bool umpTagForUnderAgeOfConsent = false,
   int loadingBufferMs = 1000,
+  bool smartPreload = true,
 }) {
   const realPrefix = 'ca-app-pub-9999999999999999';
   const testPrefix = 'ca-app-pub-3940256099942544';
@@ -396,6 +397,7 @@ AdConfig _admobConfig({
     loadingBufferMs: loadingBufferMs,
     autoRequestUmpConsent: autoRequestUmpConsent,
     umpTagForUnderAgeOfConsent: umpTagForUnderAgeOfConsent,
+    smartPreloadEnabled: smartPreload,
   );
 }
 
@@ -1875,7 +1877,7 @@ void main() {
 
     test('both (default) → showAppOpenAd(bypassSafety: true) is NOT blocked '
         'by the trigger gate', () async {
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       bool? dismissed;
       await AdManager().showAppOpenAd(
         bypassSafety: true,
@@ -1887,7 +1889,7 @@ void main() {
 
     test('both (default) → showAppOpenAdOnResume() is NOT blocked by the '
         'trigger gate (still gated by cold-start, as before)', () {
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       adapter.appOpenSlot.beginReload();
       adapter.appOpenSlot.markReady();
       AdManager().showAppOpenAdOnResume();
@@ -1934,14 +1936,14 @@ void main() {
     });
 
     test('both + splash inactive → loadAppOpenAd() still loads', () async {
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       await AdManager().loadAppOpenAd();
       expect(adapter.loadAppOpenCalls, 1);
     });
 
     test('C3: interstitial already showing → showAppOpenAd(bypassSafety: true) '
         'is skipped instead of stacking on top of it', () async {
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       // beginShow() is only valid from `ready`, so warm the slot up first.
       adapter.interstitialSlot.beginReload();
       adapter.interstitialSlot.markReady();
@@ -2505,7 +2507,7 @@ void main() {
       // plugins) isn't reachable in a plain `flutter test` run, but the guard
       // this fix touches runs BEFORE that call, so this is enough to exercise it.
       AdManager().debugSetAdapter(_FakeAdapter());
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
     });
 
     tearDown(() {
@@ -2694,7 +2696,7 @@ void main() {
     setUp(() {
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().debugCanRequestAds = true;
     });
@@ -2774,7 +2776,7 @@ void main() {
       AdSafetyConfig.resetForReinit();
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().debugCanRequestAds = true;
       events = <AdEvent>[];
@@ -3605,7 +3607,7 @@ void main() {
       AdSafetyConfig.resetForReinit();
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().debugCanRequestAds = true;
     });
@@ -3691,7 +3693,7 @@ void main() {
       AdSafetyConfig.resetForReinit();
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().debugCanRequestAds = true;
     });
@@ -4678,7 +4680,7 @@ void main() {
       AdSafetyConfig.resetForReinit(); // fresh _isColdStart=true per test
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().markSplashInactive();
       AdScreenRouteLogger.resetState();
@@ -5018,7 +5020,7 @@ void main() {
       AdSafetyConfig.resetForReinit();
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().markSplashInactive();
       AdScreenRouteLogger.resetState();
@@ -5139,7 +5141,7 @@ void main() {
       AdSafetyConfig.resetForReinit();
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       AdManager().debugVipManager = _FakeVip(false);
       AdManager().markSplashInactive();
       AdScreenRouteLogger.resetState();
@@ -5503,7 +5505,7 @@ void main() {
       await AdManager().destroy();
       adapter = _FakeAdapter();
       AdManager().debugSetAdapter(adapter);
-      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true);
+      AdManager().debugConfig = _admobConfig(dryRun: true, testIds: true, smartPreload: false);
       // m12 (round 5 audit) — the poll tick now re-attempts the connectivity
       // watch whenever it is not up yet, so these tests can no longer rely on
       // it never starting. Left alone, the checker runs for real under

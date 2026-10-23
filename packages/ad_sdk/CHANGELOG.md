@@ -6,6 +6,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Changed (T264):** Automatic Interstitial / Rewarded / Rewarded Interstitial
+  preloading now waits until the user is engaged: 15s of continuous foreground
+  (background time and `inactive` blips do not count), 2 page navigations after
+  init (dialogs and bottom sheets do not count), or `AdManager().markUserEngaged()`.
+  Gated automatic paths: App Open settling, VIP expiry, the 5-minute retry scan,
+  reconnect refill, `AdScreenState.initState()` and `JourneyPrefetcher.notifySignal`
+  (fullscreen formats only). App Open and banner/MREC preload are unchanged, and
+  your own `loadInterstitial()` / `loadRewardedAd()` calls are never gated. New
+  `AdConfig.smartPreloadEnabled` (default `true`; `false` restores immediate
+  preload), `AdManager.markUserEngaged()`, and
+  `AdScreenRouteLogger.navigationEventsNotifier` (read-only for hosts).
+  Migration: an Interstitial or Rewarded shown within the first seconds of a
+  session may not be ready yet unless the host calls `markUserEngaged()` or
+  loads it itself.
+
 - **Changed (T266):** Network-reconnect refill now adds random jitter (0 to half
   the 800 ms debounce) and staggers fullscreen loads: App Open and Rewarded
   Interstitial load first, Interstitial one step later, Rewarded two steps later

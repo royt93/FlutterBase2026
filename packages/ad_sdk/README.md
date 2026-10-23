@@ -854,6 +854,11 @@ AdConfig({
   // ─── App Open trigger ───────────────────────────────────────────
   AppOpenTrigger appOpenTrigger = AppOpenTrigger.both,
 
+  // Defer automatic Interstitial/Rewarded/RewardedInterstitial preload until
+  // the user is engaged (15s foreground, 2 navigations, or
+  // AdManager().markUserEngaged()). App Open and banners are unaffected.
+  bool smartPreloadEnabled = true,
+
   // Wraps ad callbacks so a throw inside a host callback can't take the
   // app down. Leave on unless you are debugging a swallowed error.
   bool enableCrashGuard = true,
@@ -892,6 +897,8 @@ AdConfig({
 `umpDebugGeography` / `umpTestIdentifiers` are forwarded to Google UMP when `autoRequestUmpConsent: true` — set them the same way you would the equivalent params on `AdManager.requestUmpConsent()` (e.g. `umpDebugGeography: DebugGeography.debugGeographyEea` to simulate an EEA device from anywhere, `umpTestIdentifiers: ['<hashed-device-id>']` so Google serves the debug form for your test device).
 
 `appOpenTrigger` (see `AppOpenTrigger` below) controls which App Open surfaces the SDK is allowed to trigger — default `both` preserves existing behavior.
+
+`smartPreloadEnabled` (default `true`) stops quick-bounce sessions from spending Interstitial/Rewarded/Rewarded-Interstitial requests that are never shown: those automatic preloads wait for 15 s of continuous foreground, two navigation events after init (needs `AdScreenRouteLogger()` in `navigatorObservers`), or an explicit `AdManager().markUserEngaged()`. Dialogs and bottom sheets do not count as navigation, and time spent in the background does not count toward the 15 s. `AdScreen` screens and `JourneyPrefetcher` signals respect the same gate for fullscreen formats. Your own `loadInterstitial()` / `loadRewardedAd()` calls are never delayed. If you show an Interstitial or Rewarded in the first seconds of a session, call `markUserEngaged()` earlier or set `smartPreloadEnabled: false` to preload immediately as before.
 
 ### Release-build safety checks (config validation)
 

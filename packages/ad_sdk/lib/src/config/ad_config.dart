@@ -426,6 +426,7 @@ class AdConfig {
     this.enableCrashGuard = true,
     this.appOpenTrigger = AppOpenTrigger.both,
     this.keepScreenOnDuringSession = true,
+    this.smartPreloadEnabled = true,
   }) : assert(
           provider == AdProvider.appLovin ? appLovin != null : admob != null,
           'AppLovinConfig required when provider==appLovin; AdMobConfig required when provider==admob',
@@ -671,6 +672,9 @@ class AdConfig {
   /// Set `false` if the host app manages its own wake lock, or doesn't want
   /// this SDK to affect screen timeout at all.
   final bool keepScreenOnDuringSession;
+
+  /// T264 — defer secondary preload until user engagement (default `true`).
+  final bool smartPreloadEnabled;
 
   /// Convenience getter.
   bool get isAdMob => provider == AdProvider.admob;

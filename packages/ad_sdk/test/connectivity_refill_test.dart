@@ -81,6 +81,7 @@ const _config = AdConfig(
     appOpenId: 'ca-app-pub-3940256099942544/3333333333',
     rewardedId: 'ca-app-pub-3940256099942544/4444444444',
   ),
+  smartPreloadEnabled: false,
 );
 
 Future<void> _flush() =>

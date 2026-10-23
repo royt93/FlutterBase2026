@@ -39,13 +39,14 @@ AdConfig.loadingBufferMs  [field]  int loadingBufferMs
 AdConfig.logLevel  [field]  AdLogLevel logLevel
 AdConfig.logTagFilter  [field]  List<String>? logTagFilter
 AdConfig.maxVipStackDuration  [field]  Duration? maxVipStackDuration
-AdConfig.new  [constructor]  AdConfig AdConfig({required AdProvider provider, AppLovinConfig? appLovin, AdMobConfig? admob, List<String> vipDeviceGaids = const [], int loadingBufferMs = 1000, AdLogLevel logLevel = kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning, List<String>? logTagFilter, void Function(AdLogLevel, String, String)? onLog, String adNotReadyMessage = 'Ad not ready — please wait and try again.', String adLoadingMessage = 'Loading…', AdSafetyParams safety = AdSafetyParams.auto, PlacementRegistry? placements, Map<Duration, AdSafetyParams>? safetyRampSchedule, Future<bool> Function(String)? vipKeyValidator, VipDialogStrings vipDialogStrings = const VipDialogStrings(), Duration? maxVipStackDuration = const Duration(days: 90), Duration splashMaxDuration = const Duration(seconds: 8), FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto, String firstInstallVipKey = '__FIRST_INSTALL__', bool autoRequestUmpConsent = true, bool umpTagForUnderAgeOfConsent = false, DebugGeography? umpDebugGeography, List<String> umpTestIdentifiers = const [], bool disableAppLovinCmpFlow = true, bool enableConsentProvenanceJournal = false, FutureOr<void> Function(ConsentProvenanceEntry)? onConsentProvenanceEntryAppended, bool enableCrashGuard = true, AppOpenTrigger appOpenTrigger = AppOpenTrigger.both, bool keepScreenOnDuringSession = true})
+AdConfig.new  [constructor]  AdConfig AdConfig({required AdProvider provider, AppLovinConfig? appLovin, AdMobConfig? admob, List<String> vipDeviceGaids = const [], int loadingBufferMs = 1000, AdLogLevel logLevel = kDebugMode ? AdLogLevel.verbose : AdLogLevel.warning, List<String>? logTagFilter, void Function(AdLogLevel, String, String)? onLog, String adNotReadyMessage = 'Ad not ready — please wait and try again.', String adLoadingMessage = 'Loading…', AdSafetyParams safety = AdSafetyParams.auto, PlacementRegistry? placements, Map<Duration, AdSafetyParams>? safetyRampSchedule, Future<bool> Function(String)? vipKeyValidator, VipDialogStrings vipDialogStrings = const VipDialogStrings(), Duration? maxVipStackDuration = const Duration(days: 90), Duration splashMaxDuration = const Duration(seconds: 8), FirstInstallVipGrace firstInstallVipGrace = FirstInstallVipGrace.auto, String firstInstallVipKey = '__FIRST_INSTALL__', bool autoRequestUmpConsent = true, bool umpTagForUnderAgeOfConsent = false, DebugGeography? umpDebugGeography, List<String> umpTestIdentifiers = const [], bool disableAppLovinCmpFlow = true, bool enableConsentProvenanceJournal = false, FutureOr<void> Function(ConsentProvenanceEntry)? onConsentProvenanceEntryAppended, bool enableCrashGuard = true, AppOpenTrigger appOpenTrigger = AppOpenTrigger.both, bool keepScreenOnDuringSession = true, bool smartPreloadEnabled = true})
 AdConfig.onConsentProvenanceEntryAppended  [field]  FutureOr<void> Function(ConsentProvenanceEntry)? onConsentProvenanceEntryAppended
 AdConfig.onLog  [field]  void Function(AdLogLevel, String, String)? onLog
 AdConfig.placements  [field]  PlacementRegistry? placements
 AdConfig.provider  [field]  AdProvider provider
 AdConfig.safety  [field]  AdSafetyParams safety
 AdConfig.safetyRampSchedule  [field]  Map<Duration, AdSafetyParams>? safetyRampSchedule
+AdConfig.smartPreloadEnabled  [field]  bool smartPreloadEnabled
 AdConfig.splashMaxDuration  [field]  Duration splashMaxDuration
 AdConfig.umpDebugGeography  [field]  DebugGeography? umpDebugGeography
 AdConfig.umpTagForUnderAgeOfConsent  [field]  bool umpTagForUnderAgeOfConsent
@@ -213,6 +214,7 @@ AdManager.loadRewardedAd  [method]  Future<void> loadRewardedAd({Duration watchd
 AdManager.loadRewardedInterstitialAd  [method]  Future<void> loadRewardedInterstitialAd({Duration watchdog = const Duration(seconds: 30)})
 AdManager.markSplashActive  [method]  void markSplashActive()
 AdManager.markSplashInactive  [method]  void markSplashInactive()
+AdManager.markUserEngaged  [method]  void markUserEngaged()
 AdManager.mrecAdSize  [method]  ValueListenable<Size?> mrecAdSize(Object key)
 AdManager.mrecAdViewId  [method]  ValueListenable<Object?> mrecAdViewId(Object key)
 AdManager.mrecAutoRefreshEnabled  [method]  ValueListenable<bool> mrecAutoRefreshEnabled(Object key)
@@ -466,6 +468,7 @@ AdScreenRouteLogger.didRemove  [method]  void didRemove(Route<dynamic> route, Ro
 AdScreenRouteLogger.didReplace  [method]  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute})
 AdScreenRouteLogger.isDialogOnTop  [getter]  bool get isDialogOnTop
 AdScreenRouteLogger.isDialogOnTopNotifier  [field]  ValueNotifier<bool> isDialogOnTopNotifier
+AdScreenRouteLogger.navigationEventsNotifier  [field]  ValueNotifier<int> navigationEventsNotifier
 AdScreenRouteLogger.navigationEventsObserved  [getter]  int get navigationEventsObserved
 AdScreenRouteLogger.new  [constructor]  AdScreenRouteLogger AdScreenRouteLogger()
 AdScreenRouteLogger.resetState  [method]  void resetState()

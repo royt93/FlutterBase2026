@@ -74,6 +74,7 @@ const _config = AdConfig(
   ),
   safety: AdSafetyParams(dryRun: true),
   firstInstallVipGrace: FirstInstallVipGrace.disabled,
+  smartPreloadEnabled: false,
 );
 
 void main() {

@@ -99,6 +99,7 @@ const _config = AdConfig(
     appOpenId: 'ca-app-pub-3940256099942544/3333333333',
     rewardedId: 'ca-app-pub-3940256099942544/4444444444',
   ),
+  smartPreloadEnabled: false,
 );
 
 /// A preferences store whose *consent* write can be made to fail, and only
@@ -1819,6 +1820,8 @@ void main() {
         () async {
       final adapter = _StubAdapter();
       AdManager().debugSetAdapter(adapter);
+      AdManager().debugConfig = _config;
+      addTearDown(() => AdManager().debugConfig = null);
       addTearDown(() => AdManager().debugSetAdapter(null));
 
       canRequestAds = false;

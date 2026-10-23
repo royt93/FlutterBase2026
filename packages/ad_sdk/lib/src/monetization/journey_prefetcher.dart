@@ -287,6 +287,13 @@ class JourneyPrefetcher {
 
     final avg = averageTimeToShow(signal, type);
     if (avg != null && avg > maxHoldDuration) return;
+    if (type != AdSlotType.appOpen &&
+        type != AdSlotType.banner &&
+        type != AdSlotType.mrec &&
+        type != AdSlotType.native &&
+        AdManager().deferAutoPreload()) {
+      return;
+    }
 
     switch (type) {
       case AdSlotType.appOpen:

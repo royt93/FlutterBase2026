@@ -84,20 +84,11 @@ class _RevenuePanelState extends State<RevenuePanel> {
   void _onEvent(AdEvent event) {
     if (!mounted) return;
     if (event is AdRevenueEvent) {
-      // T135 — _totalUsd is a USD-only running sum (the UI prefixes it
-      // with a bare '$'); event.value is just valueMicros / 1_000_000, a
-      // pure arithmetic conversion with no currency conversion behind it.
-      // Adding a non-USD event's raw value here would silently mix
-      // currencies into one number with no unit conversion — wrong, not
-      // just imprecise. Skip it instead (impressions still count — that
-      // part is currency-agnostic); log once so a host actually running
-      // multi-currency mediation notices instead of wondering why the
-      // total looks off.
+      // T135 — USD-only sum; event.value is valueMicros / 1e6, no currency
+      // conversion. Non-USD values are skipped (impressions still count).
       if (event.currencyCode == 'USD') {
         _totalUsd.value = _totalUsd.value + event.value;
-        // T186 — same USD-only rule as the session total above: mixing an
-        // unconverted non-USD value into a per-type USD figure would be
-        // just as wrong as mixing it into the session total.
+        // T186 — same USD-only rule for per-type breakdown.
         final prev = _byType.value[event.type];
         final updated = RevenueTypeStats(
           totalUsd: (prev?.totalUsd ?? 0) + event.value,
