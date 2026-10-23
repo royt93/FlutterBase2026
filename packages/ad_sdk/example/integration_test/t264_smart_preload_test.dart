@@ -137,6 +137,70 @@ void main() {
     debugPrint('T264_DEVICE adscreen: interstitial ready after engagement');
   });
 
+  testWidgets(
+    'host-driven resume restarts automatic preload after real background',
+    (tester) async {
+      final manager = AdManager();
+      await tester.pumpWidget(const MaterialApp(home: Text('lifecycle probe')));
+      await tester.runAsync(() async {
+        await manager.requestUmpConsent();
+        await manager.initialize(
+          config: _config(smartPreload: true),
+          onComplete: (_, _) {},
+        );
+      });
+      expect(manager.canRequestAds, isTrue);
+      final adapter = manager.adapter!;
+      manager.markSplashInactive();
+      await tester.runAsync(() async {
+        await _until(() => adapter.appOpenSlot.isReady);
+      });
+      expect(adapter.appOpenSlot.isReady, isTrue);
+      expect(adapter.interstitialSlot.isIdle, isTrue);
+      expect(adapter.rewardedSlot.isIdle, isTrue);
+
+      await tester.runAsync(() async {
+        debugPrint('T264_HOST background_ready');
+        await _until(
+          () =>
+              WidgetsBinding.instance.lifecycleState ==
+              AppLifecycleState.paused,
+          seconds: 10,
+        );
+        expect(
+          WidgetsBinding.instance.lifecycleState,
+          AppLifecycleState.paused,
+        );
+        debugPrint('T264_HOST paused');
+        await _until(
+          () =>
+              WidgetsBinding.instance.lifecycleState ==
+              AppLifecycleState.resumed,
+          seconds: 15,
+        );
+        expect(
+          WidgetsBinding.instance.lifecycleState,
+          AppLifecycleState.resumed,
+        );
+        debugPrint('T264_HOST resumed');
+        await Future<void>.delayed(const Duration(seconds: 14));
+        expect(adapter.interstitialSlot.isIdle, isTrue);
+        expect(adapter.rewardedSlot.isIdle, isTrue);
+        debugPrint('T264_HOST still_deferred_at_14s');
+        await _until(
+          () =>
+              !adapter.interstitialSlot.isIdle && !adapter.rewardedSlot.isIdle,
+          seconds: 5,
+        );
+        expect(adapter.interstitialSlot.isIdle, isFalse);
+        expect(adapter.rewardedSlot.isIdle, isFalse);
+        debugPrint('T264_HOST automatic_preload_released');
+      });
+    },
+    // Host sends Home/relaunch only after the synchronization markers.
+    skip: !const bool.fromEnvironment('T264_HOST_LIFECYCLE'),
+  );
+
   testWidgets('smartPreloadEnabled:false preloads without engagement', (
     tester,
   ) async {

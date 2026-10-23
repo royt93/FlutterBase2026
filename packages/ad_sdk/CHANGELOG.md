@@ -8,7 +8,7 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - **Changed (T264):** Automatic Interstitial / Rewarded / Rewarded Interstitial
   preloading now waits until the user is engaged: 15s of continuous foreground
-  (background time and `inactive` blips do not count), 2 page navigations after
+  (backgrounding resets the timer; brief `inactive` blips do not), 2 page navigations after
   init (dialogs and bottom sheets do not count), or `AdManager().markUserEngaged()`.
   Gated automatic paths: App Open settling, VIP expiry, the 5-minute retry scan,
   reconnect refill, `AdScreenState.initState()` and `JourneyPrefetcher.notifySignal`

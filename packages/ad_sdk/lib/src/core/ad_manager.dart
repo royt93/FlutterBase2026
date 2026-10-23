@@ -4826,11 +4826,12 @@ class AdManager with WidgetsBindingObserver {
       }
 
       _scheduleFirstSecondaryLoad();
-      _navBase = AdScreenRouteLogger.navigationEventsObserved;
+      _navBase = AdScreenRouteLogger.navigationEventsNotifier.value;
       if (_smartPreload && !_userEngaged) {
         // Foreground only: init can finish while the app is backgrounded
         // (UMP form, splash); the resume handler arms the timer then.
-        if (_prevLifecycleState == AppLifecycleState.paused) {
+        if (_prevLifecycleState == AppLifecycleState.paused ||
+            _prevLifecycleState == AppLifecycleState.hidden) {
           _engageArmed = true;
         } else {
           _armEngagement();
@@ -5318,7 +5319,7 @@ class AdManager with WidgetsBindingObserver {
   }
 
   void _onNavEvent() {
-    if (AdScreenRouteLogger.navigationEventsObserved - _navBase >= 2) {
+    if (AdScreenRouteLogger.navigationEventsNotifier.value - _navBase >= 2) {
       markUserEngaged();
     }
   }
@@ -9522,6 +9523,9 @@ class AdManager with WidgetsBindingObserver {
     }
     if (state == AppLifecycleState.paused) {
       _lastPausedAtMs = DateTime.now().millisecondsSinceEpoch;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
       _engageTimer?.cancel();
       _engageTimer = null;
     }
@@ -9529,7 +9533,7 @@ class AdManager with WidgetsBindingObserver {
       if (_smartPreload &&
           !_userEngaged &&
           _engageArmed &&
-          prev == AppLifecycleState.paused) {
+          _engageTimer == null) {
         _armEngagement();
       }
       // B3 follow-up (audit_claude.md, 2026-08-20) — Stopwatch-based drift

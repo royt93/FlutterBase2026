@@ -78,6 +78,23 @@ AdConfig _config({bool smartPreload = true}) => AdConfig(
   smartPreloadEnabled: smartPreload,
 );
 
+class _Popup extends PopupRoute<void> {
+  @override
+  Color? get barrierColor => null;
+  @override
+  bool get barrierDismissible => true;
+  @override
+  String? get barrierLabel => null;
+  @override
+  Duration get transitionDuration => Duration.zero;
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) => const SizedBox();
+}
+
 class _ProbeScreen extends AdScreen {
   const _ProbeScreen();
   @override
@@ -278,6 +295,17 @@ void main() {
         0,
         reason: 'popup routes are not user navigation',
       );
+
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const Text('single page')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        adapter.secondaryCalls,
+        0,
+        reason: 'dialog cycle + 1 page = only 1 page nav; requires 2',
+      );
     },
   );
 
@@ -286,6 +314,9 @@ void main() {
     final route = MaterialPageRoute<void>(builder: (_) => const SizedBox());
     logger.didPush(route, null);
     logger.didPush(route, null);
+    final popup = _Popup();
+    logger.didPush(popup, route);
+    logger.didPop(popup, route);
 
     await boot();
     settleAppOpen();
@@ -343,7 +374,66 @@ void main() {
   );
 
   test(
+    'Android paused -> hidden -> inactive -> resumed restarts 15s timer',
+    () async {
+      await boot();
+      settleAppOpen();
+      await Future<void>.delayed(const Duration(seconds: 10));
+
+      for (final state in [
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        AdManager().didChangeAppLifecycleState(state);
+      }
+
+      await Future<void>.delayed(const Duration(seconds: 14));
+      expect(adapter.secondaryCalls, 0, reason: '14s since actual resume');
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      expect(adapter.secondaryCalls, 3, reason: '15.5s since actual resume');
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  test(
+    'hidden without paused stops the timer until resumed',
+    () async {
+      await boot();
+      settleAppOpen();
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.hidden);
+      await Future<void>.delayed(const Duration(seconds: 16));
+      expect(adapter.secondaryCalls, 0, reason: 'hidden time must not count');
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.inactive);
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await Future<void>.delayed(const Duration(milliseconds: 15500));
+      expect(adapter.secondaryCalls, 3);
+    },
+    timeout: const Timeout(Duration(seconds: 50)),
+  );
+
+  test(
+    'init finishing while hidden does not count hidden time',
+    () async {
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.hidden);
+      await boot();
+      settleAppOpen();
+
+      await Future<void>.delayed(const Duration(seconds: 16));
+      expect(adapter.secondaryCalls, 0, reason: 'still hidden');
+
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.inactive);
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await Future<void>.delayed(const Duration(milliseconds: 15500));
+      expect(adapter.secondaryCalls, 3, reason: '15.5s since resume');
+    },
+    timeout: const Timeout(Duration(seconds: 50)),
+  );
+
+  test(
     'inactive -> resumed (no pause) does not restart the 15s clock',
+
     () async {
       await boot();
       settleAppOpen();

@@ -2,7 +2,7 @@
 
 - **Loại:** Feature / Monetization Optimization
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** done (2026-10-23; code, unit/widget tests, TECNO integration pass; full SDK suite 2,778/2,778; chưa đo được tác động Show Rate/eCPM trên dashboard)
+- **Status:** done (2026-10-23; code, unit/widget tests, TECNO integration pass; full SDK suite 2,781/2,781; chưa đo được tác động Show Rate/eCPM trên dashboard)
 
 ## Bối cảnh & Vấn đề
 
@@ -27,7 +27,7 @@ Hiện tại, ngay khi ứng dụng khởi chạy xong splash, SDK tự động 
 - [x] Preload tự động Interstitial / Rewarded / RewardedInterstitial bị hoãn cho tới khi có engagement; App Open và banner/MREC không đổi. Test và log TECNO xác nhận slot `idle` sau khi App Open `ready`.
 - [x] Đủ 15s foreground liên tục, 2 navigation sau init, hoặc `markUserEngaged()` thì tải đúng một lần (unit + widget với `Navigator` thật + TECNO).
 - [ ] Nâng Show Rate / bảo vệ eCPM trên dashboard sàn: **chưa kiểm chứng**. Test chỉ chứng minh số request fullscreen trước engagement giảm về 0 trong harness; hiệu quả doanh thu cần đo production/A-B riêng.
-- [x] `flutter analyze` sạch (SDK + example); full suite 2,778/2,778; `release_readiness_gate.sh all` pass (size 2048 KB, trần không đổi).
+- [x] `flutter analyze` sạch (SDK + example); full suite 2,781/2,781; `release_readiness_gate.sh all` pass (size 2048 KB, trần không đổi).
 
 ## Quyết định đã chốt (owner, 2026-10-23)
 
@@ -38,11 +38,23 @@ Hiện tại, ngay khi ứng dụng khởi chạy xong splash, SDK tự động 
 ## Thực thi và bằng chứng
 
 - Code: `AdConfig.smartPreloadEnabled` (mặc định `true`); `AdManager.markUserEngaged()`; `AdScreenRouteLogger.navigationEventsNotifier`; `AdManager.deferAutoPreload()` (`@internal`, dùng chung cho AdScreen và JourneyPrefetcher). Gate tại `_onAppOpenStateChange`, `_onVipActiveChanged`, `_retryRefillAds` (bao cả reconnect), `AdScreenState.initState`, `JourneyPrefetcher.notifySignal`. Reset trong `_disposeAdapter` (`destroy()` đi qua đây).
-- Test: `test/t264_smart_preload_test.dart` (25 ca: mặc định, hoãn, release 1 lần, trước/sau App Open settle, 1 vs 2 navigation thật, dialog không tính, navigation trước init (1 trước + 1 sau init chỉ tính 1), 15s vs 14s, pause reset, `inactive→resumed` không reset, init khi đang ở nền, retry, VIP, host load, AdScreen hoãn/sau engagement/opt-out, JourneyPrefetcher hoãn và sau engagement, opt-out, destroy, re-init). Mutation check: bỏ từng điểm (open-state gate, retry gate, VIP gate, pause-cancel, reset ở `_disposeAdapter`, `_navBase`, lọc popup, điều kiện `prev==paused`, arm-khi-ở-nền) đều làm test tương ứng đỏ; reset thừa trong `_resetGuardState` bị loại vì không test nào cần.
+- Test: `test/t264_smart_preload_test.dart` (28 ca: mặc định, hoãn, release 1 lần, trước/sau App Open settle, 1 vs 2 navigation thật, dialog không tính, navigation trước init (1 trước + 1 sau init chỉ tính 1), 15s vs 14s, pause reset, `inactive→resumed` không reset, init khi đang ở nền, retry, VIP, host load, AdScreen hoãn/sau engagement/opt-out, JourneyPrefetcher hoãn và sau engagement, opt-out, destroy, re-init). Mutation check: bỏ từng điểm (open-state gate, retry gate, VIP gate, pause-cancel, reset ở `_disposeAdapter`, `_navBase`, lọc popup, điều kiện `prev==paused`, arm-khi-ở-nền) đều làm test tương ứng đỏ; reset thừa trong `_resetGuardState` bị loại vì không test nào cần.
 - Audit độc lập (agent riêng, đọc diff): 2 MAJOR đã sửa (dialog của SDK tự đếm thành 2 navigation làm gate mở ngay ở splash; AdScreen/JourneyPrefetcher tải Interstitial không qua gate), 2 MINOR đã sửa (timer chạy khi init xong lúc ở nền; `inactive→resumed` reset đồng hồ), 1 MINOR đã sửa (test navigation-trước-init vacuous, probe debug bỏ quên). Chưa sửa/ghi nhận: `AdScreenRouteLogger.resetState()` về 0 thấp hơn baseline chỉ xảy ra khi test/crash recovery vì `destroy()` không gọi nó; khi VIP đang active mà engagement đạt thì 3 `loadX()` phát 3 `AdSkipEvent('vip')` (nhiễu log, không sai hành vi).
 - Integration TECNO KJ7 Android 14, Google test ads: `example/integration_test/t264_smart_preload_test.dart` 4/4 pass (hoãn rồi release sau `markUserEngaged()`; host `loadInterstitial()` không bị chặn và Rewarded vẫn `idle`; màn `AdScreen` mở trước engagement không preload rồi preload sau `markUserEngaged()`; opt-out nạp ngay). Log `/tmp/t264_tecno2.log` (local).
 - Test cũ phải opt-out `smartPreloadEnabled: false` vì chúng kiểm tra refill/reconnect/VIP chứ không phải engagement: `connectivity_*`, `ad_manager_connectivity_transition`, `fast_refill_rewarded_interstitial`, `tcf_personalisation_consent`, `r73_vip_expiry_recheck_on_resume`, retry timer trong `ad_manager_core_test`.
 - Giới hạn size gate: lib ở đúng 2048 KB; thêm code phải bù bằng cách rút gọn comment. Đã rút gọn `revenue_panel.dart` (-1 block) và `ad_route_observer.dart` (doc comment `showAdSafeModalBottomSheet`); không đổi ngưỡng.
+
+## Re-audit và regression verification (2026-10-23)
+
+- Audit chuỗi 7 commit phát hiện 2 lỗi T264 đã xác minh bằng test đỏ: (1) resume sau chuỗi Android `paused→hidden→inactive→resumed` không arm lại timer vì code chỉ nhận `prev==paused`; (2) notifier chỉ báo page route nhưng baseline/phép so sánh dùng `navigationEventsObserved` gồm popup, nên dialog mở/đóng + 1 page có thể mở gate.
+- Sửa lifecycle: paused/hidden hủy timer; resumed chỉ arm lại khi engagement gate đã được khởi tạo và timer đang null. `inactive→resumed` không có background giữ nguyên timer. Sửa navigation: baseline và phép so sánh cùng dùng `navigationEventsNotifier.value` (page-only), không đổi bộ đếm self-check T98.
+- T264 focused **28/28 pass**; full SDK **2,781/2,781 pass**; analyzer SDK + example sạch; release gates `all` pass (2048 KB). Test thêm/phát huy: chuỗi Android đầy đủ, hidden không qua paused, popup trước init, popup cycle + 1 page sau init. Mutation M12/M14/M15 (baseline gồm popup, hidden không cancel, compare gồm popup) đều đỏ đúng test; mutation bỏ resume re-arm cũng đỏ. Code đã khôi phục sau mutation.
+- Integration TECNO mặc định **4 pass, 1 skip** (host-driven case opt-in), log `/tmp/t264_fix_tecno_default.log`. Host-driven case với `--dart-define=T264_HOST_LIFECYCLE=true --plain-name 'host-driven resume'`: host đợi `T264_HOST background_ready`, gửi Home; đợi `T264_HOST paused`, rồi relaunch activity. Log `/tmp/t264_host_lifecycle2.log` xác nhận real OS paused/hidden/inactive/resumed, vẫn idle ở giây 14 sau resume, tự release secondary preload sau mốc 15s; **1/1 pass**. Không gọi `markUserEngaged()` hay API `@internal` trong ca này.
+- Kiểm chứng tương thích test cũ với T264 mặc định `true`: `interstitial_ad_test.dart` và `rewarded_ad_test.dart` trên TECNO/AdMob test IDs đều **1/1 pass**, mỗi test native show+dismiss hai chu kỳ; rewarded cả hai có `earned=true`. Logs `/tmp/t264_interstitial_verified.log`, `/tmp/t264_rewarded_verified.log`. Lượt interstitial đầu hết thời gian chờ đóng ở chu kỳ 2; rerun với UIAutomator quan sát và tap đúng close control thì pass. Không chỉnh test/example config để tắt gate.
+- Integration mở rộng trên TECNO/AdMob test IDs sau hai fix: `round37_dialog_gating_test.dart`, `t139_journey_prefetcher_auto_route_signal_test.dart`, `journey_prefetcher_test.dart` đều **1/1 pass**. Log local `/tmp/t264_round37_dialog_gating_test.log`, `/tmp/t264_t139_journey_prefetcher_auto_route_signal_test.log`, `/tmp/t264_journey_prefetcher_test.log`. Các test này bổ sung kiểm tra dialog/route/Journey, không thay thế test T264 trực tiếp.
+- Ca bổ sung: init hoàn tất khi `hidden` phải chờ resume mới đếm 15s. Test/mutation M16 xác nhận việc bỏ kiểm tra hidden ở init làm test đỏ. Full SDK sau ca này **2,781/2,781 pass**, focused T264 **28/28 pass**, analyzer SDK/example và gate `all` sạch tại 2048 KB.
+- Independent follow-up review: các reviewer ban đầu bị isolation chặn checkout gốc nên không có kết luận. Một reviewer khác đọc các đoạn source hiện tại do parent cung cấp (không chạy test, không đọc toàn checkout), không thấy blocker trong các đoạn lifecycle/counter/reset; nêu thiếu assertion App Open ready trong host-driven test. Assertion đã bổ sung và test TECNO Home/relaunch chạy lại **1/1 pass**, log `/tmp/t264_host_lifecycle3.log`. Secondary non-idle chỉ chứng minh request bắt đầu, không khẳng định ad đã ready trong ca lifecycle này.
+- Các kết quả trên chưa là toàn bộ example integration suite, chưa là Pixel/iOS/AppLovin. Chưa push follow-up.
 
 ## Rủi ro / việc theo dõi
 
