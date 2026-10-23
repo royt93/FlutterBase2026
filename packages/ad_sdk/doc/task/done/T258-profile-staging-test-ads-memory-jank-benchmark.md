@@ -2,7 +2,7 @@
 
 - **Loại:** Investigation / Tooling / Performance
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** inprogress (đang xác minh thực nghiệm trên thiết bị)
+- **Status:** done (2026-10-22; hoàn tất phần Profile/PSS/Flutter FrameTiming trên TECNO, giới hạn Android jank attribution được chuyển sang T267)
 
 ## Bối cảnh & Kết quả Xác minh Thực tế (2026-10-17 trên Pixel 7 Pro)
 
@@ -93,11 +93,20 @@
 2. **Tạm ngừng HPROF investigation theo quyết định user.** Chỉ tạo lại heap dump nếu user yêu cầu tiếp tục.
 3. Đã dọn dẹp các harness thử nghiệm tạm thời khỏi repo (`example/lib/t258_*.dart` và test liên quan).
 4. Giữ các harness/run riêng biệt; chưa kết luận leak/cache hoặc khái quát sang thiết bị khác.
-
+5. **Smoke Profile trên TECNO KJ7 / Android 14 (2026-10-22; thiết bị được owner chọn cho lượt tiếp theo):** Profile APK build thành công (84.2 MB), cài và khởi chạy cold thành công; screenshot xác nhận HomePage hiển thị, process còn sống và không có `FATAL EXCEPTION`. Log ghi `markSplashActive`, `incrementSplashCount`, rồi `splash budget exceeded (8s)`; không thấy marker xác nhận SDK init hoàn tất, nên không kết luận init hoàn tất. Snapshot ban đầu `dumpsys meminfo`: TOTAL PSS 271,506 KB, Native Heap 36,612 KB, Graphics 128,776 KB. Hai lần `dumpsys gfxinfo` trước harness scroll trả 0 frame, nên không tính percentile 4,950ms hoặc `Janky frames: 0`.
+6. **FrameTiming auto-start smoke trên TECNO (2026-10-22):** Harness Profile `/loading`, `T257_BENCH_AUTO_START=true`; log tuần tự `T267_READY`, `T267_START auto`, `T267_BANNER_AT_SCROLL slot=loading loaded=false error=false`, `loading_scroll`, `loading_scroll_end`, `report`. Pha scroll 2,051ms có **218 FrameTiming samples** (106.28 samples/s); 5 `totalSpan >16.67ms`, 13 `>8.33ms`; 5 sampled vsync gaps `>16.67ms`, 4 `>33.3ms`; p95 sampled gap **8.35ms**, p95 build **1.34ms**, p95 raster **2.80ms**, p95 total **10.05ms**. Đây là pipeline timing/sample gaps Flutter, không phải Android presented/dropped frames. Sau run, toàn phiên `dumpsys gfxinfo` có 76 frames, 2 janky (2.63%); đây là app-level session aggregate, không được quy riêng cho pha scroll. PSS snapshot sau harness: TOTAL PSS 411,537 KB, Native Heap 45,472 KB, Graphics 199,284 KB; khác mốc ban đầu do ads/harness đã chạy, không so như leak delta. Không có `FATAL EXCEPTION`.
+7. **Kiểm tra mã/test (2026-10-22):** `flutter analyze` sạch; focused widget tests 4/4 pass; full example widget suite 71/71 pass; full SDK suite **2,739 tests passed**; working tree không có thay đổi trong `AdConfig`.
 
 ## Acceptance Criteria
 
-- [ ] Profile build khởi chạy hoàn tất qua màn hình Splash vào HomePage trên Pixel 7 Pro.
-- [ ] Đo được số liệu PSS RAM và tỷ lệ giật khung hình gfxinfo trên Profile build thật.
-- [ ] Không thêm thuộc tính public dư thừa vào `AdConfig`.
-- [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
+**Phạm vi thiết bị được owner đổi ngày 2026-10-22:** dùng TECNO KJ7 / Android 14 cho smoke T258; không dùng kết quả này để khái quát sang Pixel 7 Pro.
+
+- [x] Profile app mở được HomePage trên TECNO sau splash budget timeout; process còn sống, không có `FATAL EXCEPTION`. SDK initialize hoàn tất chưa được chứng minh.
+- [x] Thu được PSS trên Profile build thật: TOTAL PSS 271,506 KB, Native Heap 36,612 KB, Graphics 128,776 KB.
+- [x] Thu được `gfxinfo` sample trên TECNO: 76 frame toàn phiên, 2 janky (2.63%). Đây là aggregate cả phiên, không cô lập scroll phase.
+- [x] Thu được `FrameTiming` scroll-phase sample: 218 mẫu trong 2,051ms, engine-only; chi tiết ở mục 6.
+- [ ] Thu được jank sample Android `gfxinfo` được correlate/cô lập cho scroll phase; hiện chỉ có aggregate toàn phiên. Deferred sang T267; không chặn hoàn tất phạm vi T258 bên dưới.
+- [x] Không thêm thuộc tính public dư thừa vào `AdConfig`.
+- [x] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh (2,739 tests).
+
+**Trạng thái:** T258 hoàn tất theo phạm vi Profile launch, PSS, Flutter `FrameTiming`, phân tích và test. `gfxinfo` chưa được correlate riêng với scroll và được deferred sang T267; SDK init hoàn tất chưa được chứng minh. Không suy ra leak hoặc 60fps từ các số liệu này.
