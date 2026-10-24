@@ -33,6 +33,8 @@ void main() {
           onComplete: (_, _) {},
         );
         AdManager().markSplashInactive();
+        AdManager()
+            .markUserEngaged(); // T264: reconnect only refills after engagement.
         await Future<void>.delayed(const Duration(seconds: 6));
 
         final ad = AdManager().adapter!;

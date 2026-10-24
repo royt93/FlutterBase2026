@@ -32,15 +32,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 AdConfig _admobConfig() => const AdConfig(
-      provider: AdProvider.admob,
-      admob: AdMobConfig(
-        bannerId: 'ca-app-pub-3940256099942544/6300978111',
-        interstitialId: 'ca-app-pub-3940256099942544/1033173712',
-        appOpenId: 'ca-app-pub-3940256099942544/9257395921',
-        rewardedId: 'ca-app-pub-3940256099942544/5224354917',
-      ),
-      safety: AdSafetyParams(dryRun: true),
-    );
+  provider: AdProvider.admob,
+  admob: AdMobConfig(
+    bannerId: 'ca-app-pub-3940256099942544/6300978111',
+    interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+    appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+    rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+  ),
+  safety: AdSafetyParams(dryRun: true),
+);
 
 Future<bool> _gateOpenWithin(WidgetTester tester, Duration limit) async {
   final steps = limit.inMilliseconds ~/ 250;
@@ -61,8 +61,7 @@ void main() {
 
   testWidgets('a queued apply superseded by the host still leaves the ad gate '
       'open', (tester) async {
-    await AdManager()
-        .initialize(config: _admobConfig(), onComplete: (_, _) {});
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
     await AdManager().requestUmpConsent();
 
     // One apply parks at its write — a slow provider call is all it takes.
@@ -83,10 +82,14 @@ void main() {
     await first;
     await queued;
 
-    expect(await _gateOpenWithin(tester, const Duration(seconds: 10)), isTrue,
-        reason: 'UMP allows ads on this device and what is applied matches it '
-            '— a gate left shut here means no banner, no interstitial and no '
-            'app-open ad for the rest of the session');
+    expect(
+      await _gateOpenWithin(tester, const Duration(seconds: 10)),
+      isTrue,
+      reason:
+          'UMP allows ads on this device and what is applied matches it '
+          '— a gate left shut here means no banner, no interstitial and no '
+          'app-open ad for the rest of the session',
+    );
   });
 
   // Round-14 QC, MINOR, on device — reopening the gate is only half of it: the
@@ -97,10 +100,10 @@ void main() {
   //
   // On device because the refill goes through the real AdMob adapter: the slot
   // state a mocked adapter reports is our own bookkeeping, not the plugin's.
-  testWidgets('a recovered gate has its fullscreen slots refilled behind it',
-      (tester) async {
-    await AdManager()
-        .initialize(config: _admobConfig(), onComplete: (_, _) {});
+  testWidgets('a recovered gate has its fullscreen slots refilled behind it', (
+    tester,
+  ) async {
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
     await AdManager().requestUmpConsent();
     // A VIP loads no ads at all — by design — and this fleet's devices carry
     // VIP entries from the other suites. Same setup the ad-loading integration
@@ -120,8 +123,12 @@ void main() {
     stuck.complete();
     await first;
     await queued;
-    expect(await _gateOpenWithin(tester, const Duration(seconds: 10)), isTrue,
-        reason: 'sanity: the recovery reopened the gate');
+    expect(
+      await _gateOpenWithin(tester, const Duration(seconds: 10)),
+      isTrue,
+      reason: 'sanity: the recovery reopened the gate',
+    );
+    AdManager().markUserEngaged(); // T264: this test targets consent refill.
 
     var refilled = false;
     for (var i = 0; i < 40; i++) {
@@ -132,15 +139,18 @@ void main() {
         break;
       }
     }
-    expect(refilled, isTrue,
-        reason: 'an open gate with every slot still empty is the same blank '
-            'screen to the user as a shut one');
+    expect(
+      refilled,
+      isTrue,
+      reason:
+          'an open gate with every slot still empty is the same blank '
+          'screen to the user as a shut one',
+    );
   });
 
   testWidgets('an apply whose write fails does not take the queued intent '
       'down with it', (tester) async {
-    await AdManager()
-        .initialize(config: _admobConfig(), onComplete: (_, _) {});
+    await AdManager().initialize(config: _admobConfig(), onComplete: (_, _) {});
     await AdManager().requestUmpConsent();
 
     final failing = Completer<void>();
@@ -152,12 +162,19 @@ void main() {
 
     AdManager.debugConsentWriteBarrier = null;
     failing.completeError(StateError('storage is gone'));
-    await expectLater(first, throwsA(isA<StateError>()),
-        reason: 'the caller is still told its own apply failed');
+    await expectLater(
+      first,
+      throwsA(isA<StateError>()),
+      reason: 'the caller is still told its own apply failed',
+    );
     await queued;
 
-    expect(await _gateOpenWithin(tester, const Duration(seconds: 10)), isTrue,
-        reason: 'the queued intent must still get its turn — one failing '
-            'write must not cost the session its ads');
+    expect(
+      await _gateOpenWithin(tester, const Duration(seconds: 10)),
+      isTrue,
+      reason:
+          'the queued intent must still get its turn — one failing '
+          'write must not cost the session its ads',
+    );
   });
 }

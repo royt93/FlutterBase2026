@@ -16,58 +16,80 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-      'expanding the debug overlay then navigating to Banner ad does not '
-      'crash with "setState() or markNeedsBuild() called during build"',
-      (tester) async {
-    app.main();
-    await tester.pump();
+    'expanding the debug overlay then navigating to Banner ad does not '
+    'crash with "setState() or markNeedsBuild() called during build"',
+    (tester) async {
+      app.main();
+      await tester.pump();
 
-    final home = find.text('ad_sdk demo');
-    var reachedHome = false;
-    for (var i = 0; i < 90; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-      if (home.evaluate().isNotEmpty) {
-        reachedHome = true;
-        break;
+      final home = find.text('ad_sdk demo');
+      var reachedHome = false;
+      for (var i = 0; i < 90; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+        if (home.evaluate().isNotEmpty) {
+          reachedHome = true;
+          break;
+        }
       }
-    }
-    expect(reachedHome, isTrue,
-        reason: 'splash must navigate to HomePage within ~45s');
+      expect(
+        reachedHome,
+        isTrue,
+        reason: 'splash must navigate to HomePage within ~45s',
+      );
 
-    // Wait for the SDK to actually finish initialising — otherwise
-    // BannerDemoPage's initState() preload call below hits the (harmless
-    // but non-representative) "adapter null" early-return instead of
-    // genuinely flipping interstitialSlot.state, which would make this
-    // test pass trivially without ever exercising the vulnerable path.
-    var initialised = false;
-    for (var i = 0; i < 60; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
-      if (AdManager().isInitialised) {
-        initialised = true;
-        break;
+      // Wait for the SDK to actually finish initialising — otherwise
+      // BannerDemoPage's initState() preload call below hits the (harmless
+      // but non-representative) "adapter null" early-return instead of
+      // genuinely flipping interstitialSlot.state, which would make this
+      // test pass trivially without ever exercising the vulnerable path.
+      var initialised = false;
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+        if (AdManager().isInitialised) {
+          initialised = true;
+          break;
+        }
       }
-    }
-    expect(initialised, isTrue,
-        reason: 'SDK must finish initialising before this repro is '
-            'meaningful');
+      expect(
+        initialised,
+        isTrue,
+        reason:
+            'SDK must finish initialising before this repro is '
+            'meaningful',
+      );
+      // Fresh installs have VIP grace; revoke it so BannerDemoPage's load
+      // exercises the overlay crash path rather than the VIP early return.
+      await AdManager().vip!.revokeAll();
+      await tester.pump(const Duration(milliseconds: 300));
+      // This test targets the debug-overlay build crash, not T264's delay.
+      AdManager().markUserEngaged();
 
-    // Expand the debug panel — subscribes DebugAdOverlay's ValueListenableBuilders.
-    await tester.tap(find.text('🐛 Ad'));
-    await tester.pump();
-    expect(find.text('🐛 Ad SDK Debug'), findsOneWidget);
+      // Expand the debug panel — subscribes DebugAdOverlay's ValueListenableBuilders.
+      await tester.tap(find.text('🐛 Ad'));
+      await tester.pump();
+      expect(find.text('🐛 Ad SDK Debug'), findsOneWidget);
 
-    // Navigate to the Banner ad demo — its initState() preloads an
-    // interstitial synchronously (see BannerDemoPage), which is the exact
-    // repro reported for this ticket.
-    await tester.tap(find.text('Banner ad'));
-    await tester.pump();
+      // Navigate to the Banner ad demo — its initState() preloads an
+      // interstitial synchronously (see BannerDemoPage), which is the exact
+      // repro reported for this ticket.
+      await tester.tap(find.text('Banner ad'));
+      await tester.pump();
 
-    expect(AdManager().adapter?.interstitialSlot.isLoading, isTrue,
-        reason: 'confirms the preload call actually flipped the slot '
+      expect(
+        AdManager().adapter?.interstitialSlot.isLoading,
+        isTrue,
+        reason:
+            'confirms the preload call actually flipped the slot '
             'synchronously — otherwise the exception check below would '
-            'pass trivially without exercising the vulnerable path');
-    expect(tester.takeException(), isNull,
-        reason: 'no FlutterError should have been thrown navigating away '
-            'while the debug overlay panel is expanded');
-  });
+            'pass trivially without exercising the vulnerable path',
+      );
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'no FlutterError should have been thrown navigating away '
+            'while the debug overlay panel is expanded',
+      );
+    },
+  );
 }
