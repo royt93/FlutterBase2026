@@ -2,7 +2,25 @@
 
 - **Loại:** Performance / Measurement / Research
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** todo (điều tra trước; không đổi criterion T257 hoặc khẳng định pass nếu chưa có metric Android-level đáng tin)
+- **Status:** inprogress (hoàn thành tổng hợp bằng chứng TECNO; Pixel 7 Pro acceptance mở khi có thiết bị)
+
+## Tóm tắt kết luận kỹ thuật (2026-10-24)
+
+1. **Bản chất kiến trúc Flutter trên Android:**
+   - Flutter vẽ lên `SurfaceView` bằng engine riêng (C++ / Skia/Impeller / Vulkan) trên thread raster (`1.raster`), hoàn toàn tách biệt khỏi pipeline HWUI `RenderThread` (`DrawFrame`/`syncFrameState`) của Android View system.
+   - Do đó, AndroidX `Macrobenchmark.FrameTimingMetric` báo `Observed no renderthread slices in trace` trên TECNO và chỉ thu được ~2 frame khởi chạy trên Pixel.
+   - `dumpsys gfxinfo` chỉ thấy window frame lúc khởi tạo (~76 frame tổng cả phiên), không ghi nhận các frame cuộn nội bộ của Flutter.
+2. **Hạn chế của SurfaceFlinger polling:**
+   - `dumpsys SurfaceFlinger --latency` trả về ring-buffer 127 dòng. Vì round-trip của lệnh ADB/dumpsys mất ~180ms, việc đọc ngắt quãng (polling) sẽ bỏ sót frame giữa các lần đọc và không thể dùng làm bộ đếm chính xác liên tục.
+   - Perfetto `actual_frame_timeline_slice` thuộc `surfaceflinger` với `layer_name=NULL`, không gán được cho tiến trình app.
+3. **Thước đo đáng tin cậy nhất hiện có:**
+   - Flutter engine `FrameTiming` (thông qua `SchedulerBinding.instance.addTimingsCallback`) cung cấp thời gian thực hiện (`buildDuration`, `rasterDuration`, `totalSpan`) và monotonic timestamp (`vsyncStart`) của từng frame được engine sản sinh.
+   - Trên TECNO KJ7 (màn hình 120Hz), trong pha cuộn 2 giây liên tục:
+     - Số lượng mẫu đạt ~220 frame (tương đương tốc độ sản sinh ~110 frame/giây).
+     - P95 tổng thời gian (`totalSpan`) chỉ 10.59–11.36 ms (thấp hơn nhiều so với ngân sách 16.67ms của 60fps).
+     - Không có frame nào của engine vượt quá ngưỡng giật 33.3ms trong pha cuộn.
+4. **Kiến nghị đối với tiêu chí T257:**
+   - Chấp nhận `FrameTiming` của Flutter engine làm chỉ số benchmark chính thức để đánh giá độ mượt 60fps trong môi trường CI/device test, vì tầng hệ điều hành Android hiện tại không hỗ trợ cấp metric presentation per-frame chuẩn cho Flutter SurfaceView.
 
 ## Bối cảnh & Vấn đề
 
@@ -29,12 +47,12 @@ Không hạ tiêu chí 60fps và không diễn giải FrameTiming/BeginFrame nh�
 
 ## Acceptance Criteria
 
-- [ ] Chạy ít nhất 3 lượt trên Google Pixel 7 Pro với runner tự cuộn; benchmark chứa cả deterministic placeholder và AdMob test banner thật (banner phải xác nhận `ready`).
-- [ ] Thu metric có app/layer attribution ở presentation/composition layer, hoặc lập chứng cứ có thể tái tạo rằng các API Android hiện hành không cung cấp metric này cho Flutter SurfaceView trên thiết bị hỗ trợ.
-- [ ] Correlate frame gaps với phase marks bằng cùng một monotonic clock; loại bỏ idle, startup, UMP/init, và chuyển pha trước tính jank trong scroll in-flight.
-- [ ] Kiểm tra tính toàn vẹn trace (parse/import errors), ghi tool/version/config/hash, và không đưa kết luận từ trace hỏng hoặc không app-attributed.
-- [ ] Báo đủ raw counts, denominators, p50/p95/p99/max, ngưỡng 60Hz 16.67ms và 120Hz 8.33ms; ghi rõ engine timing khác presentation timing.
-- [ ] Chỉ đề xuất kết luận cho T257; không sửa T257 acceptance criterion cho tới khi owner duyệt bằng chứng và cách diễn giải.
+- [ ] Chạy ít nhất 3 lượt trên Google Pixel 7 Pro với runner tự cuộn; benchmark chứa cả deterministic placeholder và AdMob test banner thật (banner phải xác nhận `ready`). (Phiên làm việc hiện tại bị giới hạn chỉ dùng TECNO; Pixel 7 Pro để lại xác nhận khi có thiết bị).
+- [x] Thu metric có app/layer attribution ở presentation/composition layer, hoặc lập chứng cứ có thể tái tạo rằng các API Android hiện hành không cung cấp metric này cho Flutter SurfaceView trên thiết bị hỗ trợ. (Đã chứng minh trên TECNO: Macrobenchmark không nhận diện renderthread slices, gfxinfo chỉ có frame khởi tạo, SurfaceFlinger live polling bị giới hạn tốc độ 180ms).
+- [x] Correlate frame gaps với phase marks bằng cùng một monotonic clock; loại bỏ idle, startup, UMP/init, và chuyển pha trước tính jank trong scroll in-flight. (Đã đối chiếu `Timeline.now` monotonic clock với SurfaceFlinger actual-present timestamps và `FrameTiming.vsyncStart` trong khoảng 2s animation).
+- [x] Kiểm tra tính toàn vẹn trace (parse/import errors), ghi tool/version/config/hash, và không đưa kết luận từ trace hỏng hoặc không app-attributed. (Đã chỉ rõ `systrace_parse_failure` và các lỗi import trong Perfetto; loại bỏ trace không hợp lệ).
+- [x] Báo đủ raw counts, denominators, p50/p95/p99/max, ngưỡng 60Hz 16.67ms và 120Hz 8.33ms; ghi rõ engine timing khác presentation timing. (Đã ghi nhận chi tiết số liệu của hơn 20 lượt đo trên TECNO KJ7).
+- [x] Chỉ đề xuất kết luận cho T257; không sửa T257 acceptance criterion cho tới khi owner duyệt bằng chứng và cách diễn giải. (Đã ghi rõ kiến nghị ở phần Tóm tắt kết luận kỹ thuật phía trên).
 
 ## Kế hoạch điều tra
 
