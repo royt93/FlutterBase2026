@@ -52,6 +52,23 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
 
   /// True between `setInlineAdsHidden(true)` and its matching `false`.
   bool _fullscreenOverInline = false;
+  bool _lowPowerMode = false;
+
+  /// T263 — host-provided power state controls AppLovin Banner/MREC refresh.
+  void setLowPowerMode(bool enabled) {
+    if (_lowPowerMode == enabled) return;
+    _lowPowerMode = enabled;
+    for (final l in [
+      ..._bannerRegistry.listenablesList,
+      ..._mrecRegistry.listenablesList,
+    ]) {
+      if (enabled) {
+        _inlineRefresh.hide(l, InlineHideReason.lowPower);
+      } else {
+        _inlineRefresh.show(l, InlineHideReason.lowPower);
+      }
+    }
+  }
 
   /// True between `onAppPaused()` and its matching `onAppResumed()`.
   ///
@@ -129,6 +146,9 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       {required bool isMrec}) {
     if (_fullscreenOverInline) {
       _inlineRefresh.hide(l, InlineHideReason.fullscreen);
+    }
+    if (_lowPowerMode) {
+      _inlineRefresh.hide(l, InlineHideReason.lowPower);
     }
     if (isMrec ? mrecRoutePaused(key) : bannerRoutePaused(key)) {
       _inlineRefresh.hide(l, InlineHideReason.routePaused);
@@ -275,6 +295,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       _inlineVisibility.hide(l, InlineHideReason.fullscreen);
       _inlineRefresh.hide(l, InlineHideReason.fullscreen);
     }
+    if (_lowPowerMode) _inlineRefresh.hide(l, InlineHideReason.lowPower);
     if (_appBackgroundedForInline) {
       _inlineRefresh.hide(l, InlineHideReason.background);
     }
@@ -342,6 +363,7 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
       _inlineVisibility.hide(l, InlineHideReason.fullscreen);
       _inlineRefresh.hide(l, InlineHideReason.fullscreen);
     }
+    if (_lowPowerMode) _inlineRefresh.hide(l, InlineHideReason.lowPower);
     if (_appBackgroundedForInline) {
       _inlineRefresh.hide(l, InlineHideReason.background);
     }

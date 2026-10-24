@@ -824,6 +824,15 @@ Widget build(BuildContext context) => Column(
   to a second widget while still attached to another is a usage error
   (asserts in debug).
 
+Hosts that already observe Battery Saver / Low Power Mode can call
+`AdManager().setLowPowerMode(true/false)`. `true` pauses only AppLovin
+Banner/MREC auto-refresh; `false` releases that hold without overriding
+fullscreen, background, or route visibility holds. The SDK does not read battery
+state itself, change AdMob's native refresh or fullscreen ads, or choose a
+battery threshold for the host. The initial value is `false` and the latest host
+value survives SDK destroy/reinitialize in the same process. Call again whenever
+OS power mode or the host's battery threshold result changes.
+
 ---
 
 ## Configuration reference

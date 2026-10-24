@@ -42,9 +42,9 @@ const _appLovinConfig = AdConfig(
 
 void main() {
   Widget host(Widget child) => MaterialApp(
-        navigatorObservers: [adRouteObserver],
-        home: Scaffold(body: Center(child: child)),
-      );
+    navigatorObservers: [adRouteObserver],
+    home: Scaffold(body: Center(child: child)),
+  );
 
   late AppLovinAdapter adapter;
 
@@ -60,51 +60,140 @@ void main() {
   });
 
   testWidgets(
-      'a banner mounting under a live App Open stays non-refreshing after '
-      'didPush', (tester) async {
-    // The launch App Open is up before the banner ever mounts — the ownership
-    // hold this banner must inherit.
-    adapter.setInlineAdsHidden(true);
+    'a banner mounting under a live App Open stays non-refreshing after '
+    'didPush',
+    (tester) async {
+      // The launch App Open is up before the banner ever mounts — the ownership
+      // hold this banner must inherit.
+      adapter.setInlineAdsHidden(true);
 
-    await tester.pumpWidget(host(const BannerAdWidget()));
-    // Not pumpAndSettle: the loading placeholder animates forever.
-    await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpWidget(host(const BannerAdWidget()));
+      // Not pumpAndSettle: the loading placeholder animates forever.
+      await tester.pump(const Duration(milliseconds: 50));
 
-    // The adapter keys its listenables by the widget's STATE object (`this`
-    // inside `didPush`), not the widget itself — `tester.state` is the seam
-    // that gets us the same key without naming the private State class.
-    final held = adapter.banner(tester.state(find.byType(BannerAdWidget)));
-    expect(held.autoRefreshEnabled.value, isFalse,
-        reason: 'THE finding — a direct write in didPush overwrote the '
+      // The adapter keys its listenables by the widget's STATE object (`this`
+      // inside `didPush`), not the widget itself — `tester.state` is the seam
+      // that gets us the same key without naming the private State class.
+      final held = adapter.banner(tester.state(find.byType(BannerAdWidget)));
+      expect(
+        held.autoRefreshEnabled.value,
+        isFalse,
+        reason:
+            'THE finding — a direct write in didPush overwrote the '
             'fullscreen hold a launch App Open had already taken, one frame '
-            'after every single mount');
+            'after every single mount',
+      );
 
-    adapter.setInlineAdsHidden(false);
-    expect(held.autoRefreshEnabled.value, isTrue);
-  });
+      adapter.setInlineAdsHidden(false);
+      expect(held.autoRefreshEnabled.value, isTrue);
+    },
+  );
 
   testWidgets(
-      'a route pushed on top and popped does not leave refresh stuck off',
-      (tester) async {
-    await tester.pumpWidget(host(const BannerAdWidget()));
-    await tester.pump(const Duration(milliseconds: 50));
+    'T263 low-power hold composes with route hold for Banner and MREC',
+    (tester) async {
+      await tester.pumpWidget(
+        host(const Column(children: [BannerAdWidget(), MrecAdWidget()])),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+      final bannerKey = tester.state(find.byType(BannerAdWidget));
+      final mrecKey = tester.state(find.byType(MrecAdWidget));
+      final banner = adapter.banner(bannerKey);
+      final mrec = adapter.mrec(mrecKey);
 
-    final held = adapter.banner(tester.state(find.byType(BannerAdWidget)));
-    expect(held.autoRefreshEnabled.value, isTrue, reason: 'sanity');
+      AdManager().setLowPowerMode(true);
+      expect(banner.autoRefreshEnabled.value, isFalse);
+      expect(mrec.autoRefreshEnabled.value, isFalse);
 
-    Navigator.of(tester.element(find.byType(BannerAdWidget))).push(
-      MaterialPageRoute<void>(builder: (_) => const SizedBox()),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(held.autoRefreshEnabled.value, isFalse,
-        reason: 'covered by another route');
+      AdManager().setBannerRoutePaused(bannerKey, true);
+      AdManager().setMrecRoutePaused(mrecKey, true);
+      AdManager().setLowPowerMode(false);
+      expect(
+        banner.autoRefreshEnabled.value,
+        isFalse,
+        reason: 'route owner must remain after low-power owner releases',
+      );
+      expect(
+        mrec.autoRefreshEnabled.value,
+        isFalse,
+        reason: 'route owner must remain after low-power owner releases',
+      );
 
-    Navigator.of(tester.element(find.byType(BannerAdWidget))).pop();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(held.autoRefreshEnabled.value, isTrue,
-        reason: 'the push→pop cycle must release the route hold, entirely '
-            'through setBannerRoutePaused — no direct write needed');
-  });
+      AdManager().setBannerRoutePaused(bannerKey, false);
+      AdManager().setMrecRoutePaused(mrecKey, false);
+      expect(banner.autoRefreshEnabled.value, isTrue);
+      expect(mrec.autoRefreshEnabled.value, isTrue);
+    },
+  );
+
+  testWidgets(
+    'low-power release does not resume refresh over a fullscreen hold',
+    (tester) async {
+      await tester.pumpWidget(host(const BannerAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+      final key = tester.state(find.byType(BannerAdWidget));
+      final banner = adapter.banner(key);
+
+      AdManager().setLowPowerMode(true);
+      adapter.setInlineAdsHidden(true);
+      AdManager().setLowPowerMode(false);
+      expect(banner.autoRefreshEnabled.value, isFalse);
+
+      adapter.setInlineAdsHidden(false);
+      expect(banner.autoRefreshEnabled.value, isTrue);
+    },
+  );
+
+  testWidgets(
+    'low-power state set before surfaces mount is applied on attach',
+    (tester) async {
+      AdManager().setLowPowerMode(true);
+      await tester.pumpWidget(
+        host(const Column(children: [BannerAdWidget(), MrecAdWidget()])),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final banner = adapter.banner(tester.state(find.byType(BannerAdWidget)));
+      final mrec = adapter.mrec(tester.state(find.byType(MrecAdWidget)));
+      expect(banner.autoRefreshEnabled.value, isFalse);
+      expect(mrec.autoRefreshEnabled.value, isFalse);
+
+      AdManager().setLowPowerMode(false);
+      expect(banner.autoRefreshEnabled.value, isTrue);
+      expect(mrec.autoRefreshEnabled.value, isTrue);
+    },
+  );
+
+  testWidgets(
+    'a route pushed on top and popped does not leave refresh stuck off',
+    (tester) async {
+      await tester.pumpWidget(host(const BannerAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final held = adapter.banner(tester.state(find.byType(BannerAdWidget)));
+      expect(held.autoRefreshEnabled.value, isTrue, reason: 'sanity');
+
+      Navigator.of(
+        tester.element(find.byType(BannerAdWidget)),
+      ).push(MaterialPageRoute<void>(builder: (_) => const SizedBox()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        held.autoRefreshEnabled.value,
+        isFalse,
+        reason: 'covered by another route',
+      );
+
+      Navigator.of(tester.element(find.byType(BannerAdWidget))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        held.autoRefreshEnabled.value,
+        isTrue,
+        reason:
+            'the push→pop cycle must release the route hold, entirely '
+            'through setBannerRoutePaused — no direct write needed',
+      );
+    },
+  );
 }

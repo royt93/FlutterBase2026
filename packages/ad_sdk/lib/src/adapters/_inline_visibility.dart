@@ -45,6 +45,9 @@ enum InlineHideReason {
   /// branch can keep the surface blank *for its own reason* — released by the
   /// fill — instead of squatting on the background owner's hold.
   pendingFill,
+
+  /// Host-reported low-power state pauses AppLovin inline auto-refresh.
+  lowPower,
 }
 
 /// Tracks which owners want each inline surface blanked, and derives

@@ -610,6 +610,26 @@ void main() {
     expect(adapter.loadRewardedCalls, 0, reason: 'only the signalled format');
   });
 
+  test('low-power signal does not change AdMob fullscreen or preload behavior',
+      () async {
+    await boot();
+    settleAppOpen();
+    AdManager().markUserEngaged();
+    await Future<void>.delayed(Duration.zero);
+    adapter.loadInterstitialCalls = 0;
+    adapter.loadRewardedCalls = 0;
+    adapter.loadRewardedInterstitialCalls = 0;
+
+    AdManager().setLowPowerMode(true);
+    await AdManager().loadInterstitial();
+    await AdManager().loadRewardedAd();
+    await AdManager().loadRewardedInterstitialAd();
+
+    expect(adapter.loadInterstitialCalls, 1);
+    expect(adapter.loadRewardedCalls, 1);
+    expect(adapter.loadRewardedInterstitialCalls, 1);
+  });
+
   test('smartPreloadEnabled:false preloads immediately as before', () async {
     await boot(smartPreload: false);
     settleAppOpen();

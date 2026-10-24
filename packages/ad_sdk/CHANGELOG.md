@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Added (T263):** `AdManager().setLowPowerMode(bool)` lets hosts pause/resume
+  AppLovin Banner/MREC auto-refresh when the host observes low-power mode. The
+  initial value is false and the latest value is replayed after SDK reinitialize.
+  No battery APIs or plugin dependencies are added; AdMob/native refresh and
+  fullscreen ads are unaffected.
+
 - **Changed (T264):** Automatic Interstitial / Rewarded / Rewarded Interstitial
   preloading now waits until the user is engaged: 15s of continuous foreground
   (backgrounding resets the timer; brief `inactive` blips do not), 2 page navigations after

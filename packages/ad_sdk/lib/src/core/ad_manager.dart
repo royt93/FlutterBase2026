@@ -297,6 +297,18 @@ class AdManager with WidgetsBindingObserver {
   /// adapter about to be disposed is the point, not a side effect.
   AdProviderAdapter? get adapter => _destroyInFlight != null ? null : _adapter;
 
+  bool _lowPowerMode = false;
+
+  /// Host-reported low-power state. Pauses AppLovin Banner/MREC auto-refresh;
+  /// does not affect AdMob or fullscreen formats. Keep the value current when
+  /// the host observes a battery/power-mode change.
+  void setLowPowerMode(bool enabled) {
+    if (_lowPowerMode == enabled) return;
+    _lowPowerMode = enabled;
+    final ad = _adapter;
+    if (ad is AppLovinAdapter) ad.setLowPowerMode(enabled);
+  }
+
   /// Release-build footgun checks, returned as human-readable warnings.
   /// `initialize()` logs each (and asserts in non-release). Pure + static so it
   /// is unit-testable without running the full native init.
@@ -4608,6 +4620,9 @@ class AdManager with WidgetsBindingObserver {
       }
 
       _config = config;
+      if (adapter is AppLovinAdapter && _lowPowerMode) {
+        adapter.setLowPowerMode(true);
+      }
       // M2 — survives `_disposeAdapter()` (which nulls `_config`) so the COPPA
       // recovery in setConsent() can still rebuild the adapter after a re-init
       // that legitimately aborted. Never cleared except by destroy().

@@ -250,6 +250,7 @@ AdManager.setBannerRoutePaused  [method]  void setBannerRoutePaused(Object key, 
 AdManager.setConsent  [method]  Future<void> setConsent(AdConsent consent, {bool qualifiesAsConsentFlow = true})
 AdManager.setDoNotSell  [method]  Future<void> setDoNotSell(bool value)
 AdManager.setKeepScreenOn  [method]  Future<void> setKeepScreenOn(bool enable)
+AdManager.setLowPowerMode  [method]  void setLowPowerMode(bool enabled)
 AdManager.setMrecRoutePaused  [method]  void setMrecRoutePaused(Object key, bool paused)
 AdManager.setNavigatorKey  [method]  void setNavigatorKey(GlobalKey<NavigatorState> key)
 AdManager.showAppOpenAd  [method]  Future<void> showAppOpenAd({required void Function(bool) onAdDismiss, bool bypassSafety = false, AdPlacement placement = AdPlacement.splash, String callSiteTag = 'unspecified'})
