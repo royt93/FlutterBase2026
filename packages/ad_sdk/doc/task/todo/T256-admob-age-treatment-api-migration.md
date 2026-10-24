@@ -11,11 +11,12 @@
 
 SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfConsent`. Hướng dẫn repo ghi rõ migration sang `RequestConfiguration.ageRestrictedTreatment` là follow-up, legacy pair vẫn được hỗ trợ trong giai đoạn hiện tại và Google dependency không được bump tùy tiện vì pinning/build regression. Theo dõi chính sách/API trước khi sửa để tránh migration sớm gây lệch consent semantics.
 
-## Discovery gate (Xác minh 2026-10-15)
+## Discovery gate (Xác minh 2026-10-15 & 2026-10-24)
 
 - [x] Đã chọn: theo dõi và migrate khi có deprecation/removal trigger hoặc dependency window đã duyệt; không migrate ngay.
 - [x] Xác minh trạng thái chính thức của Google API: Google xác nhận cặp legacy `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent` tiếp tục hoạt động qua hết năm 2026; không có kế hoạch gỡ bỏ trước bản release lớn dự kiến H1 2027 (ghi nhận tại Audit round 43).
 - [x] Pinning wall: `google_mobile_ads` được pin cứng `>=9.0.0 <9.1.0` để khớp với `gma_mediation_applovin 2.6.2/2.6.3` (AppLovinSDK 13.6.3) và tránh lỗi build Xcode non-modular-header trên bản 9.1.0. Không bump dependency khi chưa có bản vá upstream.
+- [x] Kiểm tra mã nguồn `google_mobile_ads 9.0.0` (2026-10-24): `RequestConfiguration` trong bản 9.0.0 chưa có thuộc tính `ageRestrictedTreatment`; nó chỉ hỗ trợ `tagForChildDirectedTreatment` và `tagForUnderAgeOfConsent`. Do đó việc migrate ở phiên bản hiện tại là bất khả thi về mặt kỹ thuật nếu không nâng dependency.
 - [x] Kết luận: Tiếp tục DEFERRED — giữ nguyên cặp legacy, không đổi code, không rủi ro vỡ CocoaPods pinning wall.
 
 ## Acceptance criteria nếu qua gate
