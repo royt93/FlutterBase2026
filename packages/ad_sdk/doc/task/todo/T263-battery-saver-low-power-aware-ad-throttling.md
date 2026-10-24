@@ -2,7 +2,16 @@
 
 - **Loại:** Enhancement / Performance & Battery Health
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** todo (chuyển sang `inprogress/` khi làm, sang `done/` khi hoàn tất)
+- **Status:** todo · discovery-first (không thêm dependency/native code trước khi xác minh API pin trên Android+iOS, test seam, và release size/pinning constraints)
+
+## Discovery gate (bắt buộc trước implementation)
+
+- [ ] Xác minh Android API cho battery percent và Battery Saver/Power Save Mode; xác minh iOS API cho Low Power Mode và battery state. Ghi rõ cần platform channel nào, permission/capability nào, và giá trị/stream nào có thể quan sát mà không thêm dependency.
+- [ ] Kiểm tra dependency/pinning wall và release-size gate trước khi đề xuất package mới; giữ nguyên các pin đã khóa nếu chưa có owner approval.
+- [ ] Định nghĩa hành vi khi trạng thái pin không khả dụng, stream lỗi, app quay foreground, hoặc pin/Battery Saver đổi khi ad đang loading/showing.
+- [ ] Đối chiếu proposal với implementation hiện tại: fullscreen throttle đã mặc định 60s; banner/MREC refresh có ownership/lifecycle suppression riêng. Chỉ thay đổi hành vi chưa được cover, không giả định cần đổi 30→60s.
+- [ ] Nếu chỉ một nền tảng có API đáng tin, giữ feature platform-specific và fail-safe; không tuyên bố cross-platform.
+- [ ] Dừng ở discovery nếu không thể có API/test seam đáng tin mà không nới dependency pinning wall.
 
 ## Bối cảnh & Vấn đề
 
