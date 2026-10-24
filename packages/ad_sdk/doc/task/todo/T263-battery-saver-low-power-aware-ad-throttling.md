@@ -2,14 +2,14 @@
 
 - **Loại:** Enhancement / Performance & Battery Health
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** todo · discovery-first (không thêm dependency/native code trước khi xác minh API pin trên Android+iOS, test seam, và release size/pinning constraints)
+- **Status:** todo · discovery complete 2026-10-24; implementation still gated on scope/behavior decision
 
 ## Discovery gate (bắt buộc trước implementation)
 
-- [ ] Xác minh Android API cho battery percent và Battery Saver/Power Save Mode; xác minh iOS API cho Low Power Mode và battery state. Ghi rõ cần platform channel nào, permission/capability nào, và giá trị/stream nào có thể quan sát mà không thêm dependency.
-- [ ] Kiểm tra dependency/pinning wall và release-size gate trước khi đề xuất package mới; giữ nguyên các pin đã khóa nếu chưa có owner approval.
+- [x] Discovery 2026-10-24: Android có `PowerManager.isPowerSaveMode()` và `BatteryManager`/`ACTION_BATTERY_CHANGED`; iOS có `ProcessInfo.isLowPowerModeEnabled` và `UIDevice.batteryLevel/batteryState`. Các API cần native bridge/host channel (battery percentage Android là sticky broadcast; không thấy quyền đặc biệt cần cho mức pin/Power Save, nhưng phải xác nhận trên minSdk/build cụ thể trước implementation). Chưa thêm code hoặc dependency.
+- [x] Dependency scan: repo hiện không khai báo `battery_plus`/`device_info_plus`; package có Android Gradle/Kotlin, Google Mobile Ads và AppLovin CocoaPods pinning walls. Không đề xuất plugin mới trước owner approval; prefer một native channel tối thiểu hoặc API host-provided.
 - [ ] Định nghĩa hành vi khi trạng thái pin không khả dụng, stream lỗi, app quay foreground, hoặc pin/Battery Saver đổi khi ad đang loading/showing.
-- [ ] Đối chiếu proposal với implementation hiện tại: fullscreen throttle đã mặc định 60s; banner/MREC refresh có ownership/lifecycle suppression riêng. Chỉ thay đổi hành vi chưa được cover, không giả định cần đổi 30→60s.
+- [x] Đối chiếu implementation (2026-10-24): `AdSafetyParams.minTimeBetweenFullscreenAds` default hiện là 60,000ms, không phải 30s; T230 fatigue path đã tự nhân đôi throttle. Không đổi throttle lần nữa nếu chưa chốt rõ điều kiện/giá trị mới. AppLovin auto-refresh đã qua `InlineVisibilityOwners`/`autoRefreshEnabled`; AdMob Google SDK quản lý refresh native và notifier tương ứng là unused stub. Dừng việc giả định một Dart switch có thể pause cả hai provider.
 - [ ] Nếu chỉ một nền tảng có API đáng tin, giữ feature platform-specific và fail-safe; không tuyên bố cross-platform.
 - [ ] Dừng ở discovery nếu không thể có API/test seam đáng tin mà không nới dependency pinning wall.
 
