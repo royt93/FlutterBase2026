@@ -2,9 +2,20 @@
 
 - **Loại:** Enhancement / Revenue Integrity
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** todo (chuyển sang `inprogress/` khi làm, sang `done/` khi hoàn tất)
+- **Status:** done (2026-10-24; Discovery-only / Không triển khai theo quy định trong CLAUDE.md)
 
-## Bối cảnh & Vấn đề
+## Kết luận Discovery (2026-10-24)
+
+- **Quy định ràng buộc (CLAUDE.md:56):**
+  > "AppLovin MAX exposes no load timestamp for ads, so this SDK cannot enforce AdMob-style ad freshness for that provider. Do not claim stale cached MAX creatives are rejected at show time."
+- **Lý do kỹ thuật:**
+  1. Plugin `applovin_max` tự quản lý vòng đời và bộ nhớ đệm (cache) bên trong native SDK. Nó không trả về timestamp thời điểm tải thực tế của creative từ máy chủ quảng cáo.
+  2. Việc dùng thời gian callback `onAdLoaded` trong Dart chỉ phản ánh thời điểm Flutter nhận sự kiện, không phản ánh tuổi thọ thực của creative trên mạng quảng cáo.
+  3. AppLovin MAX không cung cấp API cho phép hủy bỏ hoặc làm mới có chọn lọc một creative cụ thể đang nằm trong bộ đệm nội bộ mà không gọi lệnh hiển thị.
+  4. Triển khai một bộ đếm thời gian giả lập phía Dart sẽ vi phạm quy định dự án và gây hiểu nhầm về tính đảm bảo doanh thu.
+- **Quyết định:** Đóng task dưới dạng Discovery Documented Limitation. Giữ nguyên cơ chế hiện tại, không thêm mã nguồn mới.
+
+## Bối cảnh & Vấn đề ban đầu
 
 Theo chính sách của các mạng quảng cáo:
 - Google AdMob có cơ chế tự động kiểm tra quảng cáo đã nạp có quá 4 giờ hay không; nếu quá 4 giờ, quảng cáo được coi là hết hạn (stale) và không được phép phát để tránh hiển thị nội dung lỗi thời và mất doanh thu.
@@ -21,14 +32,14 @@ Theo chính sách của các mạng quảng cáo:
 
 ## Acceptance Criteria
 
-- [ ] Quảng cáo AppLovin tồn kho quá 4 tiếng không bao giờ bị phát cho người dùng.
-- [ ] Tự động nạp lại creative mới khi phát hiện quảng cáo cũ hết hạn.
-- [ ] `flutter analyze` sạch 0 issue; toàn bộ suite test xanh.
+- [x] Rà soát và đối chiếu với quy định tại `CLAUDE.md:56` và `admob_adapter.dart:845`.
+- [x] Xác nhận `applovin_max` không cung cấp load timestamp và không hỗ trợ API huỷ creative stale an toàn.
+- [x] Không triển khai cơ chế freshness giả định bằng Dart wall-clock để tránh vi phạm quy tắc dự án.
+- [x] Đã cập nhật task record và phân loại là giới hạn nền tảng đã biết (known platform limitation).
 
 ## Kế hoạch kiểm thử
 
-- **Unit test:** Dùng `fakeAsync` tua thời gian 4 giờ 1 phút, kiểm tra hàm `showInterstitialAd` từ chối phát và kích hoạt nạp lại.
-- **Integration test:** Chạy self-check trên thiết bị thật, kiểm tra log ghi nhận thời gian tồn kho của creative.
+Không có thay đổi mã nguồn SDK. Tiếp tục duy trì toàn bộ test suite xanh hiện tại.
 
 ---
 
