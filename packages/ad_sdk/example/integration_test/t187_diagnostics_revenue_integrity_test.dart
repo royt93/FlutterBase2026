@@ -21,45 +21,61 @@ void main() {
   });
 
   testWidgets(
-      'a successful show with no matching revenue event becomes a pending '
-      'check, then (past matchWindow) a recorded incident — both visible '
-      'in AdManager().diagnostics() on a real device', (tester) async {
-    AdManager().enableRevenueIntegrityLedger(
-        RevenueIntegrityLedger(matchWindow: const Duration(milliseconds: 1)));
+    'a successful show with no matching revenue event becomes a pending '
+    'check, then (past matchWindow) a recorded incident — both visible '
+    'in AdManager().diagnostics() on a real device',
+    (tester) async {
+      AdManager().enableRevenueIntegrityLedger(
+        RevenueIntegrityLedger(matchWindow: const Duration(milliseconds: 1)),
+      );
 
-    expect(AdManager().diagnostics().pendingRevenueChecks, 0);
-    expect(AdManager().diagnostics().recentRevenueIntegrityIncidents, 0);
+      expect(AdManager().diagnostics().pendingRevenueChecks, 0);
+      expect(AdManager().diagnostics().recentRevenueIntegrityIncidents, 0);
 
-    AdManager().debugEmit(const AdShowEvent(
-      providerTag: '[AdMob]',
-      type: AdSlotType.interstitial,
-      placement: _placement,
-      success: true,
-    ));
-    await tester.pump();
-    await tester.pump();
+      AdManager().debugEmit(
+        const AdShowEvent(
+          providerTag: '[AdMob]',
+          type: AdSlotType.interstitial,
+          placement: _placement,
+          success: true,
+        ),
+      );
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
 
-    expect(AdManager().diagnostics().pendingRevenueChecks, 1,
-        reason: 'a real successful show with no revenue event yet must be '
-            'pending, on a real device event stream');
+      expect(
+        AdManager().diagnostics().pendingRevenueChecks,
+        1,
+        reason:
+            'a real successful show with no revenue event yet must be '
+            'pending, on a real device event stream',
+      );
 
-    // Real device clock, no fake_async — a genuine, if short, wait past
-    // the 1ms matchWindow, then an unrelated event triggers the sweep
-    // (RevenueIntegrityLedger only checks expiry when processing an event).
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    AdManager().debugEmit(const AdClickEvent(
-      providerTag: '[AdMob]',
-      type: AdSlotType.interstitial,
-      placement: _placement,
-    ));
-    await tester.pump();
-    await tester.pump();
+      // Real device clock, no fake_async — a genuine, if short, wait past
+      // the 1ms matchWindow, then an unrelated event triggers the sweep
+      // (RevenueIntegrityLedger only checks expiry when processing an event).
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      AdManager().debugEmit(
+        const AdClickEvent(
+          providerTag: '[AdMob]',
+          type: AdSlotType.interstitial,
+          placement: _placement,
+        ),
+      );
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
 
-    final d = AdManager().diagnostics();
-    expect(d.pendingRevenueChecks, 0,
-        reason: 'the expired pending show must have been swept');
-    expect(d.recentRevenueIntegrityIncidents, 1,
-        reason: 'the sweep must have recorded a real incident, on a real '
-            'device, readable back through AdDiagnostics');
-  });
+      final d = AdManager().diagnostics();
+      expect(
+        d.pendingRevenueChecks,
+        0,
+        reason: 'the expired pending show must have been swept',
+      );
+      expect(
+        d.recentRevenueIntegrityIncidents,
+        1,
+        reason:
+            'the sweep must have recorded a real incident, on a real '
+            'device, readable back through AdDiagnostics',
+      );
+    },
+  );
 }
