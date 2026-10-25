@@ -2641,6 +2641,8 @@ Record command, exit status, device/provider, and output artifact for each run. 
 
 ## Step 7 — Ad policy and disclosure review
 
+> **In a hurry (new Android + AdMob app)?** Only rows 1, 2 and 5 of the table below can fail from your code: banner not touching buttons, no fullscreen ad while the keyboard is open or scrolling, reward granted only when `earned == true`. Check those three on your own device and write PASS or FAIL beside each. The other rows need the partner's decision; ask for it, and do not guess legal text.
+
 For each enabled placement, record PASS/FAIL and `file:line` evidence. These checks do not replace provider policy review or partner legal/privacy approval.
 
 | # | Check | How to verify |
@@ -3774,6 +3776,8 @@ This was run with a real minted token: all four tests pass. A real redemption (`
 
 ## Step 11 — Partner readiness review & update `<PROJECT_PATH>/doc/AD.MD`
 
+> **Read in this order.** Do 11.0a (release build and the three leak checks) first, because it catches the most expensive mistakes: test IDs or Google's test App ID shipped to production. Then 11.1 (native config), then 11.6 (device tests). 11.2 to 11.5 are checklists to tick; each box names the Step that explains it. Gate rows you cannot verify yourself (legal, consent by market) go to the partner owner and are recorded as "pending owner", never as PASS.
+
 Before handoff or production rollout, complete this checklist with the partner's owners. Put the completed evidence in `<PROJECT_PATH>/doc/AD.MD` (created in Step 3) under “Partner readiness”. For each test row, record: test case, device/model + OS, build mode, provider/region, expected result, observed result, log/screenshot path, and PASS/FAIL. A passing emulator build is not device compatibility evidence.
 
 ### 11.0 — Partner release gates
@@ -3918,6 +3922,8 @@ Run the debug smoke test on an emulator, then run the agreed real-device/OS matr
 If any item FAILs → fix it → re-check only that item (don't re-check items that already PASSed).
 
 ## Step 12 — Partner handoff report
+
+> **Shortest honest report:** a table with one row per item below and one of three values: `PASS (evidence path)`, `FAIL (reason)` or `NOT RUN (reason)`. Do not write PASS without a log, screenshot or command output you can point to. If you did only the Fast path, the report is: build modes tried, device model and OS, and what you saw. Everything else is `NOT RUN`.
 
 Report only verified results; do not mark a gate PASS without evidence. Include:
 
