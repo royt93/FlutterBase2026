@@ -36,6 +36,6 @@
 - [x] `dart analyze` các file SDK/example liên quan không có issue.
 - [x] Public API golden `test/goldens/public_api_surface.txt` được regenerate và `test/api_golden_test.dart` pass.
 - [x] Full SDK suite **2,792 tests pass**; 36 focused tests và regression suite liên quan pass.
-- [x] TECNO KJ7 integration `rewarded_ad_test.dart` với AdMob test ads hoàn tất **2 show/dismiss cycles** và pass; ad đóng bằng thao tác X thủ công.
+- [x] TECNO KJ7 integration: cả `rewarded_ad_test.dart` và `interstitial_ad_test.dart` với AdMob test ads đều hoàn tất **2 show/dismiss cycles** và pass (đã verify arm guard `🛡️ dismissed — app-open/post-dismiss guard armed`).
 - [x] Release gate `./tool/release_readiness_gate.sh all` pass; tracked `lib/` <= 2048 KB.
-- [ ] Chưa commit hoặc push. Chưa đo uplift doanh thu, Invalid Traffic hoặc hiệu quả 750ms trên sản phẩm thật; kết quả là correctness/policy-safety verification, không phải cam kết doanh thu.
+- [ ] Chưa push lên remote. Chưa đo uplift doanh thu, Invalid Traffic hoặc hiệu quả 750ms trên sản phẩm thật; kết quả là correctness/policy-safety verification, không phải cam kết doanh thu.
