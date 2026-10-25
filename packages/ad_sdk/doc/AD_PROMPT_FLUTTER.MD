@@ -4,13 +4,14 @@
 
 This file targets the current SDK integration API and is the single partner handoff for `applovin_admob_sdk`. Start with the **Fast path** (Android + AdMob test banner), then follow **Quick start** for minimum ad setup, then complete selected feature recipes and release checklist. **Coverage:** every public SDK feature family has an in-file recipe or an explicit SDK ceiling (see the completeness gate at the end). Coverage is documentation coverage; runtime credentials, device behavior, consent/legal approval and provider policy still require evidence in Step 11. Fill Section 0 with partner-approved values first; stop and ask when required decisions or credentials are missing. Keep optional features disabled unless explicitly approved.
 
-This file is the self-contained integration path, and it is written so you can finish without contacting anyone. Where a step names an SDK file (the example app, the README, a tool script), you can get all of them yourself from pub.dev with one command and no checkout:
+This file is the self-contained integration path, and it is written so you can finish without contacting anyone. From 3.6.2 on the same file also ships inside the pub.dev package (`doc/AD_PROMPT_FLUTTER.MD` after `dart pub unpack`), so the copy you were handed can be checked against the version you pinned. If the two differ, the copy inside the package for your pinned version wins. Where a step names an SDK file (the example app, the README, a tool script), you can get all of them yourself from pub.dev with one command and no checkout:
 
 ```bash
 mkdir -p ~/sdk_ref && cd ~/sdk_ref
-dart pub unpack applovin_admob_sdk:3.6.1      # use the version you pinned
-# ~/sdk_ref/applovin_admob_sdk-3.6.1/ now contains README.md, CHANGELOG.md,
-# example/ (a full runnable demo app), tool/ (operator scripts) and lib/ (SDK source)
+dart pub unpack applovin_admob_sdk:3.6.2      # use the version you pinned
+# ~/sdk_ref/applovin_admob_sdk-3.6.2/ now contains README.md, CHANGELOG.md,
+# example/ (a full runnable demo app), tool/ (operator scripts), lib/ (SDK source)
+# and, from 3.6.2 on, doc/AD_PROMPT_FLUTTER.MD (a copy of this guide)
 ```
 
 Use that folder as a read-only reference; never edit files inside it and never run it from inside your own app. If this guide and the SDK's own README ever disagree, trust this guide for **your integration steps** and the README for **API details**, and record the difference in Step 12.
@@ -176,7 +177,7 @@ Follow this file in the consuming Flutter project; source checkout is not requir
 | Dart package name (from `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | Current state management | `<existing framework/pattern, or none>` |
 | Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
-| `applovin_admob_sdk` version | **`3.6.1`** unless the partner names another. This guide was verified against 3.6.1. To use a newer one, pin it in `pubspec.yaml` (Step 4.0) and skim that version's CHANGELOG on pub.dev first. |
+| `applovin_admob_sdk` version | **`3.6.2`** unless the partner names another. This guide was verified against 3.6.2. To use a newer one, pin it in `pubspec.yaml` (Step 4.0) and skim that version's CHANGELOG on pub.dev first. |
 | Library's own spec files | Obtained with `dart pub unpack` (see "How to use this document"): `README.md`, `CHANGELOG.md`. Optional deeper reading; this file does not depend on them. |
 | Sample app | `example/lib/main.dart` inside the unpacked package (demo pages, one page per feature); optional |
 | Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --simulator --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
@@ -356,11 +357,11 @@ Keep one row per existing placement. `In scope? = no` means leave old behavior u
 
 Do these steps in the consuming app root. Fill every placeholder from Section 0 first. Do not replace entire manifests/plists; merge only the shown entries into existing app configuration.
 
-**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide was verified against **3.6.1**; if you pin a newer version, read its changelog on pub.dev before using version-specific steps.
+**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide was verified against **3.6.2**; if you pin a newer version, read its changelog on pub.dev before using version-specific steps.
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^3.6.1   # replace with the version you selected
+  applovin_admob_sdk: ^3.6.2   # replace with the version you selected
   # Only AppLovin served through AdMob mediation (not direct AppLovin):
   # gma_mediation_applovin: <PARTNER_APPROVED_COMPATIBLE_VERSION>
 ```
@@ -3666,7 +3667,7 @@ Revoke actions remove local grants, not globally issued codes. `revokeAll()` doe
 
 ### 10.6a — VIP operator quick start (no SDK checkout needed)
 
-The SDK ships its operator scripts inside the pub.dev package, so a partner with only pub.dev access can run them. These steps were run end to end against SDK 3.6.1 (replace `<VERSION>` below with the version you pinned).
+The SDK ships its operator scripts inside the pub.dev package, so a partner with only pub.dev access can run them. These steps were run end to end against SDK 3.6.2 (replace `<VERSION>` below with the version you pinned).
 
 **1. Get the scripts (once).** Do this in a scratch folder **outside** your app and outside `~/.pub-cache`:
 
@@ -3841,7 +3842,7 @@ Pass criteria: check 1 prints `0`, check 2 lists every format you ship, check 3 
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: add `applovin_admob_sdk: ^3.6.1` (or the pub.dev version you selected in Step 4.0) and keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
+- [ ] `pubspec.yaml`: add `applovin_admob_sdk: ^3.6.2` (or the pub.dev version you selected in Step 4.0) and keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
   - `gma_mediation_applovin` is **optional**, app-level, and only for AppLovin as an AdMob mediation network. Current source fixture pins `2.6.2` and asserts AppLovinSDK `13.6.3`; read `packages/ad_sdk/CLAUDE.md` and `tool/check_pinning_wall.sh` before changing this combination.
   - `google_mobile_ads` is constrained to `>=9.0.0 <9.1.0` in current package metadata; do not upgrade across that cap until the iOS regression is resolved and the source constraint changes.
   - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level.

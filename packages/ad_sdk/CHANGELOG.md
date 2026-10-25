@@ -6,6 +6,10 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-10-25
+
+- **Changed (packaging):** the package now ships `doc/AD_PROMPT_FLUTTER.MD`, the single-file partner integration guide, so `dart pub unpack applovin_admob_sdk:<VERSION>` contains it. `.pubignore` still excludes the rest of `doc/` (audits, task backlogs) apart from `doc/screenshots/`. No code change.
+
 ## [3.6.1] - 2026-10-25
 
 - **Fixed (consent, banner):** a banner that was missing while consent was declined stayed missing after the user granted consent through `AdManager().showPrivacyOptions()`, until the next background/foreground. Closing the UMP form can resume the app while the consent write is still in flight; that resume was skipped (log: `consent apply is still in flight on resume`) and left the internal resume-consent block set, so the gate stayed shut even after the grant landed. The apply drain now replays the one skipped resume through the normal consent re-check, so a withdrawal still wins and no ad is requested under unconfirmed consent. Measured on a Pixel 7 Pro (Android 17, debug, EEA test geography, 5 cold-start rounds each): 3.6.0 loaded the banner 0 of 5 times without a resume, 3.6.1 5 of 5. Adds two widget tests in `consent_gate_banner_widget_test.dart` (grant recovers, refusal stays closed). No public API change.

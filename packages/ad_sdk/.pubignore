@@ -49,6 +49,7 @@ coverage/
 # doc/screenshots/ must stay — `screenshots:` in pubspec.yaml points at it.
 doc/*
 !doc/screenshots/
+!doc/AD_PROMPT_FLUTTER.MD
 
 # The test suite serves this repo's CI, not consumers, and pana does not score
 # it either way.
