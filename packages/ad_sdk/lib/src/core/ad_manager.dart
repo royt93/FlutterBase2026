@@ -6530,6 +6530,12 @@ class AdManager with WidgetsBindingObserver {
   PrivacyOptionsResult? _pendingConsentApply;
   bool _consentApplyRunning = false;
 
+  /// A resume was skipped because [_consentApplyRunning] was set. The skipped
+  /// resume left [_resumeConsentBlocked] shut, and no later event reopens it
+  /// until the next real resume, so the apply drain replays one resume when it
+  /// ends. Cleared by whoever replays or tears down.
+  AdProviderAdapter? _resumeSkippedForApply;
+
   /// Identifies the run that currently owns [_consentApplyRunning], so a loop
   /// that has been disowned (by [destroy]) cannot release the flag out from
   /// under the loop that replaced it.
@@ -6665,6 +6671,17 @@ class AdManager with WidgetsBindingObserver {
       // [_consentApplyRunToken].
       if (_consentApplyRunToken == token) {
         _consentApplyRunning = false;
+        // Replay the one resume that was skipped while this drain ran, so the
+        // block it left behind is re-evaluated against the consent that has
+        // just landed. It goes through the normal re-check, so a withdrawal
+        // still wins.
+        final skipped = _resumeSkippedForApply;
+        _resumeSkippedForApply = null;
+        if (skipped != null && identical(_adapter, skipped) && isInitialised) {
+          unawaited(_resumeAdWorkAfterConsent(skipped).catchError((Object e) {
+            SafeLogger.w(_tag, 'replayed resume threw: $e');
+          }));
+        }
         // Round-13 QC (round 12) — see [_recoverConsentGate]. The round-11
         // pessimistic close needs someone to lift it when the apply that was
         // meant to never gets there.
@@ -7422,6 +7439,7 @@ class AdManager with WidgetsBindingObserver {
     _consentSessionEpoch++;
     _resumeConsentCheckGen++;
     _resumeConsentBlocked = false;
+    _resumeSkippedForApply = null;
     _pendingConsentApply = null;
     _lastHostConsentIntent = null;
     // Round-13 QC (round 4), MAJOR — a consent write that is still hanging at
@@ -7652,6 +7670,7 @@ class AdManager with WidgetsBindingObserver {
   void _resetGuardState() {
     _resumeConsentCheckGen++;
     _resumeConsentBlocked = false;
+    _resumeSkippedForApply = null;
     _invalidateCoalescedLoads();
     _footgunBlocked = false;
     // Round-46 audit fix (R46-02) — a fresh initialize() re-evaluates this
@@ -9720,6 +9739,7 @@ class AdManager with WidgetsBindingObserver {
         'a consent apply is still in flight on resume — skipping ad work '
         'until it has landed',
       );
+      _resumeSkippedForApply = ad;
       return;
     }
     // Round-13 QC (round 4), MAJOR — `destroy()` + re-initialise can swap the

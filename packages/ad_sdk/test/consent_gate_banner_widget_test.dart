@@ -959,4 +959,99 @@ void main() {
         reason: 'a consenting user must get their banner back');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'a resume landing mid-apply must not leave the banner gate shut after '
+      'the grant lands', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = false;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 0, reason: 'sanity: shut gate, no request');
+
+    // Grant: the apply parks just before its write, as on a slow device.
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    final stuckWrite = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuckWrite.future;
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    final grant = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Closing the UMP form resumes the app while the write is still parked.
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    stuckWrite.complete();
+    await tester.runAsync(() => grant);
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(AdManager().canRequestAds, isTrue,
+        reason: 'the grant landed; the skipped resume must not keep the '
+            'gate shut until some later resume');
+    expect(adapter.loadBannerCalls, 1,
+        reason: 'a consenting user must get the banner without a second '
+            'background/foreground cycle');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a resume skipped mid-apply must not reopen the gate when the apply '
+      'that lands is a refusal', (tester) async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugResetBannerCooldown();
+
+    canRequestAds = true;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesAllow,
+    });
+    await tester.runAsync(() => AdManager().requestUmpConsent());
+    await tester.pumpWidget(host(const BannerAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadBannerCalls, 1, reason: 'sanity: first banner');
+
+    // The user withdraws; the apply parks before its write.
+    privacyOptionsRequirement = _privacyOptionsRequired;
+    final stuckWrite = Completer<void>();
+    AdManager.debugConsentWriteBarrier = stuckWrite.future;
+    canRequestAds = false;
+    seedTcf({
+      'IABTCF_gdprApplies': 1,
+      'IABTCF_PurposeConsents': _purposesRefuse,
+    });
+    final withdrawal = AdManager().showPrivacyOptions();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    stuckWrite.complete();
+    await tester.runAsync(() => withdrawal);
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    expect(AdManager().canRequestAds, isFalse,
+        reason: 'the replayed resume re-checks consent; a withdrawal wins');
+    expect(adapter.loadBannerCalls, 1,
+        reason: 'no new request may go out after the user withdrew');
+    expect(tester.takeException(), isNull);
+  });
 }
