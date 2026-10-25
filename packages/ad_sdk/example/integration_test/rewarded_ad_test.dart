@@ -30,6 +30,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'scroll_helpers.dart';
+
 // On a real device the splash flow can hit BOTH the real ATT system prompt
 // AND a real UMP consent form before initialize() ever completes -- each
 // has its own internal 20s timeout when nothing dismisses it headlessly (see
@@ -127,6 +129,11 @@ void main() {
     }
     expect(foundTile, isTrue,
         reason: 'HomePage must list the Rewarded ad tile');
+
+    // Below the fold at the device's default density; scroll instead of
+    // relying on a smaller `wm density`.
+    await tester.scrollUntilVisibleAndSettle(tile, 200,
+        scrollable: find.byType(Scrollable).first);
 
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
