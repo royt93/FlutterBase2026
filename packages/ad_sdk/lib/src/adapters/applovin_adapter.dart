@@ -2780,6 +2780,44 @@ class AppLovinAdapter implements AdProviderAdapter, InlineAdVisibility {
     }
   }
 
+  /// Recovers inline ads (banners and MRECs) that failed while offline.
+  /// Triggered on an offline→online transition by AdManager.
+  void recoverInlineAdsAfterReconnect() {
+    if (!canReload()) return;
+    for (final key in _bannerRegistry.listenablesKeys.toList()) {
+      final listenables = banner(key);
+      if (!listenables.needsRecovery) continue;
+      _bannerRegistry.slotFor(key).lastErrorAt = null;
+      final adViewIdNotifier = _bannerAdViewIdFor(key);
+      final oldId = adViewIdNotifier.value;
+      listenables.hasError.value = false;
+      adViewIdNotifier.value = null;
+      _reassertAppLovinRefreshHolds(listenables, key, isMrec: false);
+      if (oldId != null) {
+        unawaited(_bridge.destroyWidgetAdView(oldId).catchError((Object e) {
+          SafeLogger.w(_logTag, 'destroyWidgetAdView (recoverInlineAds) threw: $e');
+        }));
+      }
+      unawaited(preloadBanner(key));
+    }
+    for (final key in _mrecRegistry.listenablesKeys.toList()) {
+      final listenables = mrec(key);
+      if (!listenables.needsRecovery) continue;
+      _mrecRegistry.slotFor(key).lastErrorAt = null;
+      final adViewIdNotifier = _mrecAdViewIdFor(key);
+      final oldId = adViewIdNotifier.value;
+      listenables.hasError.value = false;
+      adViewIdNotifier.value = null;
+      _reassertAppLovinRefreshHolds(listenables, key, isMrec: true);
+      if (oldId != null) {
+        unawaited(_bridge.destroyWidgetAdView(oldId).catchError((Object e) {
+          SafeLogger.w(_logTag, 'destroyWidgetAdView (recoverInlineAds) threw: $e');
+        }));
+      }
+      unawaited(preloadMrec(key));
+    }
+  }
+
   @override
   void onAppResumed() {
     // The app really is in the foreground the instant this runs — cleared

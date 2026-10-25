@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Added (T272):** `AppLovinAdapter.recoverInlineAdsAfterReconnect()` automatically recovers failed AppLovin Banner and MREC ads immediately upon network reconnection, matching AdMob's recovery path and preventing lost inline impressions after network outages.
+
 - **Added (T270 & T271):**
   - `InFeedAdListView.builder` and `InFeedIndexCalculator` support optional `firstAdIndex` to display the first native ad earlier in feeds while keeping regular `adInterval` for subsequent ads.
   - `AdScreenState` exposes `bool get preloadRewardedOnMount => false;` (override to pre-warm rewarded video on reward-heavy screens on mount) and helper `loadRewardedAd()`.
