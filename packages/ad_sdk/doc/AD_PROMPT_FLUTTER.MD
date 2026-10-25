@@ -8,8 +8,8 @@ This file is the self-contained integration path, and it is written so you can f
 
 ```bash
 mkdir -p ~/sdk_ref && cd ~/sdk_ref
-dart pub unpack applovin_admob_sdk:3.6.0      # use the version you pinned
-# ~/sdk_ref/applovin_admob_sdk-3.6.0/ now contains README.md, CHANGELOG.md,
+dart pub unpack applovin_admob_sdk:3.6.1      # use the version you pinned
+# ~/sdk_ref/applovin_admob_sdk-3.6.1/ now contains README.md, CHANGELOG.md,
 # example/ (a full runnable demo app), tool/ (operator scripts) and lib/ (SDK source)
 ```
 
@@ -176,7 +176,7 @@ Follow this file in the consuming Flutter project; source checkout is not requir
 | Dart package name (from `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | Current state management | `<existing framework/pattern, or none>` |
 | Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
-| `applovin_admob_sdk` version | **`3.6.0`** unless the partner names another. This guide was verified against 3.6.0. To use a newer one, pin it in `pubspec.yaml` (Step 4.0) and skim that version's CHANGELOG on pub.dev first. |
+| `applovin_admob_sdk` version | **`3.6.1`** unless the partner names another. This guide was verified against 3.6.1. To use a newer one, pin it in `pubspec.yaml` (Step 4.0) and skim that version's CHANGELOG on pub.dev first. |
 | Library's own spec files | Obtained with `dart pub unpack` (see "How to use this document"): `README.md`, `CHANGELOG.md`. Optional deeper reading; this file does not depend on them. |
 | Sample app | `example/lib/main.dart` inside the unpacked package (demo pages, one page per feature); optional |
 | Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --simulator --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
@@ -358,7 +358,7 @@ Do these steps in the consuming app root. Fill every placeholder from Section 0 
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^3.6.0   # replace with the version you selected
+  applovin_admob_sdk: ^3.6.1   # replace with the version you selected
   # Only AppLovin served through AdMob mediation (not direct AppLovin):
   # gma_mediation_applovin: <PARTNER_APPROVED_COMPATIBLE_VERSION>
 ```
@@ -2689,7 +2689,7 @@ AdConfig(
 
 **What "UMP works" looks like.** On a first debug launch with the EEA geography, the form appears before any ad; after you choose, the app continues and ads can load. Restart: the form does not appear again. Temporarily print `AdManager().canRequestAds` (it is `false` until consent is settled, then `true`) and the `ConsentStatus` to confirm. On an emulator with no test ID listed or no AdMob message configured for the App ID, expect no form and a log containing `no form(s) configured`: that is a console-setup issue, not a code bug.
 
-If UMP is enabled, add a permanent privacy-options entry point in your Settings/Privacy screen; do not make it splash-only. `showPrivacyOptions()` is safe to call at any time: when Google does not require a privacy-options form for this user (a non-EEA user or consent never collected) it returns immediately and shows nothing, so you can show the button to everyone. It returns a `PrivacyOptionsResult` (`canRequestAds`, `status`, an optional `error`, `formShown`) and re-applies the user's new choice to the ad provider for you. **Known limitation in published 3.6.0 (fixed in the repository, not yet released):** if the user changes consent from declined to granted, the form closing can fire an app resume while the consent write is still in flight. In 3.6.0 the SDK then skips ad work for that resume (log: `consent apply is still in flight on resume — skipping ad work until it has landed`) and a banner that was missing stays missing until the next background-to-foreground. Measured on a Pixel 7 Pro (Android 17, debug, EEA test geography, 5 cold-start rounds each): 3.6.0 loaded the banner 0 of 5 times without a resume; the fixed build loaded it 5 of 5 about 1.5 seconds after that log line. It fails closed (no ad is served without consent) and costs only revenue. On 3.6.0, do not add your own retry or re-init in the host app (that could request ads under unconfirmed consent); for QA, background and reopen the app once. If you pin a release newer than 3.6.0, check its changelog for this fix before treating the log line as a defect. Complete screen, reachable from anywhere with `Navigator.push`:
+If UMP is enabled, add a permanent privacy-options entry point in your Settings/Privacy screen; do not make it splash-only. `showPrivacyOptions()` is safe to call at any time: when Google does not require a privacy-options form for this user (a non-EEA user or consent never collected) it returns immediately and shows nothing, so you can show the button to everyone. It returns a `PrivacyOptionsResult` (`canRequestAds`, `status`, an optional `error`, `formShown`) and re-applies the user's new choice to the ad provider for you. **Fixed in 3.6.1 (reproduced in 3.6.0, source-traced and Pixel-verified):** if the user changes consent from declined to granted, the form closing can fire an app resume while the consent write is still in flight. In 3.6.0 the SDK skipped ad work for that resume (log: `consent apply is still in flight on resume — skipping ad work until it has landed`) and a banner that was missing stays missing until the next background-to-foreground. Measured on a Pixel 7 Pro (Android 17, debug, EEA test geography, 5 cold-start rounds each): 3.6.0 loaded the banner 0 of 5 times without a resume; the fixed build loaded it 5 of 5 about 1.5 seconds after that log line. It fails closed (no ad is served without consent) and costs only revenue. If you still use 3.6.0, do not add your own retry or re-init in the host app (that could request ads under unconfirmed consent); for QA, background and reopen the app once. On 3.6.1, the banner recovers automatically about 1.5 seconds after that log line without any background-to-foreground. Complete screen, reachable from anywhere with `Navigator.push`:
 
 <!-- snippet: privacy_screen.dart -->
 ```dart
@@ -3656,14 +3656,14 @@ Revoke actions remove local grants, not globally issued codes. `revokeAll()` doe
 
 ### 10.6a — VIP operator quick start (no SDK checkout needed)
 
-The SDK ships its operator scripts inside the pub.dev package, so a partner with only pub.dev access can run them. These steps were run end to end against SDK 3.6.0.
+The SDK ships its operator scripts inside the pub.dev package, so a partner with only pub.dev access can run them. These steps were run end to end against SDK 3.6.1.
 
 **1. Get the scripts (once).** Do this in a scratch folder **outside** your app and outside `~/.pub-cache`:
 
 ```bash
 mkdir -p ~/vip_tools && cd ~/vip_tools
-dart pub unpack applovin_admob_sdk:3.6.0
-cd applovin_admob_sdk-3.6.0
+dart pub unpack applovin_admob_sdk:3.6.1
+cd applovin_admob_sdk-3.6.1
 ```
 
 `dart pub unpack` downloads the package and runs `pub get` for you, so the scripts are ready. Use the same version as your app. Always run the scripts with **bare `dart`** (`dart tool/vip_mint.dart ...`), never `dart run ...`: on Dart 3.10+ `dart run` prints "Running build hooks..." before the token and corrupts anything you capture.
@@ -3829,7 +3829,7 @@ Pass criteria: check 1 prints `0`, check 2 lists every format you ship, check 3 
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: add `applovin_admob_sdk: ^3.6.0` (or the pub.dev version you selected in Step 4.0) and keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
+- [ ] `pubspec.yaml`: add `applovin_admob_sdk: ^3.6.1` (or the pub.dev version you selected in Step 4.0) and keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
   - `gma_mediation_applovin` is **optional**, app-level, and only for AppLovin as an AdMob mediation network. Current source fixture pins `2.6.2` and asserts AppLovinSDK `13.6.3`; read `packages/ad_sdk/CLAUDE.md` and `tool/check_pinning_wall.sh` before changing this combination.
   - `google_mobile_ads` is constrained to `>=9.0.0 <9.1.0` in current package metadata; do not upgrade across that cap until the iOS regression is resolved and the source constraint changes.
   - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level.
