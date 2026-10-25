@@ -6,6 +6,10 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Added (T270 & T271):**
+  - `InFeedAdListView.builder` and `InFeedIndexCalculator` support optional `firstAdIndex` to display the first native ad earlier in feeds while keeping regular `adInterval` for subsequent ads.
+  - `AdScreenState` exposes `bool get preloadRewardedOnMount => false;` (override to pre-warm rewarded video on reward-heavy screens on mount) and helper `loadRewardedAd()`.
+
 - **Added (T269):** `AdManager().showRewardedAd(onDemandBuffer: true)` can load a
   missing Rewarded creative on demand, display a blocking buffer, and show it
   when ready. Defaults to `false`; timeout/no-fill returns `earned: false`.

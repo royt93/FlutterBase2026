@@ -2642,6 +2642,8 @@ class HomeScreen extends AdScreen {
 }
 
 class _HomeScreenState extends AdScreenState<HomeScreen> {
+  @override bool get preloadRewardedOnMount => true;     // optional: preload rewarded ad on screen mount (e.g. Shop/Gift)
+  void loadRewardedAd();                                 // manually trigger rewarded load
   Widget buildBanner({placement, active});               // anchored adaptive banner
   Widget buildMrec({placement, active});                 // fixed 300x250 rectangle
   Widget buildNative({placement, active});               // fixed layout v1, see Native Ad (v1)

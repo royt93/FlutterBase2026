@@ -38,12 +38,28 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
 
   bool _isDisposed = false;
 
+  /// Whether to preload rewarded ads when this screen mounts.
+  ///
+  /// Override to return `true` on reward-heavy screens (e.g. Shop, Gift, Daily Rewards)
+  /// so that rewarded video ads are ready immediately when the user taps to claim.
+  /// Defaults to `false`.
+  bool get preloadRewardedOnMount => false;
+
   @override
   void initState() {
     super.initState();
     SafeLogger.d(_tag, 'initState $runtimeType — preloading interstitial');
     if (AdManager().deferAutoPreload()) return;
     AdManager().loadInterstitial();
+    if (preloadRewardedOnMount) {
+      SafeLogger.d(_tag, 'initState $runtimeType — preloading rewarded');
+      AdManager().loadRewardedAd();
+    }
+  }
+
+  /// Manually triggers a rewarded ad load for this screen.
+  void loadRewardedAd() {
+    AdManager().loadRewardedAd();
   }
 
   /// Returns a [BannerAdWidget] that manages its own lifecycle.

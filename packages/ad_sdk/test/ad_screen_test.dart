@@ -38,6 +38,8 @@ class _ReadyAdapter implements AdProviderAdapter {
 
   int showInterstitialCalls = 0;
   int showRewardedCalls = 0;
+  int loadInterstitialCalls = 0;
+  int loadRewardedCalls = 0;
   String? lastSsvUserId;
   String? lastSsvCustomData;
 
@@ -69,7 +71,9 @@ class _ReadyAdapter implements AdProviderAdapter {
   void disposeBannerInstance(Object key) {}
 
   @override
-  Future<void> loadInterstitial() async {}
+  Future<void> loadInterstitial() async {
+    loadInterstitialCalls++;
+  }
 
   @override
   Future<void> showInterstitial(
@@ -79,7 +83,9 @@ class _ReadyAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> loadRewarded() async {}
+  Future<void> loadRewarded() async {
+    loadRewardedCalls++;
+  }
 
   @override
   Future<void> showRewarded({
@@ -844,4 +850,74 @@ void main() {
       expect(result, isTrue);
     });
   });
+
+  group('preloadRewardedOnMount (T271)', () {
+    late _ReadyAdapter adapter;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      adapter = _ReadyAdapter();
+      AdManager().debugSetAdapter(adapter);
+    });
+
+    tearDown(() {
+      AdManager().debugSetAdapter(null);
+    });
+
+    testWidgets(
+        'default preloadRewardedOnMount: false does not load rewarded on mount',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: const _RewardPreloadScreen(preload: false),
+      ));
+
+      expect(adapter.loadInterstitialCalls, 1);
+      expect(adapter.loadRewardedCalls, 0);
+    });
+
+    testWidgets(
+        'preloadRewardedOnMount: true triggers loadRewardedAd on mount',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: const _RewardPreloadScreen(preload: true),
+      ));
+
+      expect(adapter.loadInterstitialCalls, 1);
+      expect(adapter.loadRewardedCalls, 1);
+    });
+
+    testWidgets('loadRewardedAd() helper manually triggers rewarded load',
+        (tester) async {
+      final key = GlobalKey<_RewardPreloadScreenState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorObservers: [adRouteObserver],
+        home: _RewardPreloadScreen(key: key, preload: false),
+      ));
+
+      expect(adapter.loadRewardedCalls, 0);
+      key.currentState?.loadRewardedAd();
+      expect(adapter.loadRewardedCalls, 1);
+    });
+  });
+}
+
+class _RewardPreloadScreen extends AdScreen {
+  const _RewardPreloadScreen({super.key, this.preload = true});
+  final bool preload;
+
+  @override
+  State<_RewardPreloadScreen> createState() => _RewardPreloadScreenState();
+}
+
+class _RewardPreloadScreenState extends AdScreenState<_RewardPreloadScreen> {
+  @override
+  bool get preloadRewardedOnMount => widget.preload;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox();
 }

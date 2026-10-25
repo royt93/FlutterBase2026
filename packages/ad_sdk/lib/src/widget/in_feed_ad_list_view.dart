@@ -10,33 +10,58 @@ class InFeedIndexCalculator {
   const InFeedIndexCalculator._();
 
   /// Whether a raw list position is an ad position.
-  ///
-  /// For [adInterval] = N, positions (N), (2N + 1), (3N + 2)... are ads.
-  /// That is, an ad appears after every N content items.
-  static bool isAdPosition(int rawIndex, {required int adInterval}) {
+  static bool isAdPosition(
+    int rawIndex, {
+    required int adInterval,
+    int? firstAdIndex,
+  }) {
     assert(adInterval > 0, 'adInterval must be greater than 0');
-    return (rawIndex + 1) % (adInterval + 1) == 0;
+    final f = firstAdIndex ?? adInterval;
+    assert(f >= 0, 'firstAdIndex must be non-negative');
+    if (rawIndex < f) return false;
+    return (rawIndex - f) % (adInterval + 1) == 0;
   }
 
   /// Maps a raw list index to the corresponding content item index in the original list.
   /// Returns null if [rawIndex] is an ad position.
-  static int toOriginalItemIndex(int rawIndex, {required int adInterval}) {
+  static int toOriginalItemIndex(
+    int rawIndex, {
+    required int adInterval,
+    int? firstAdIndex,
+  }) {
     assert(adInterval > 0, 'adInterval must be greater than 0');
-    final adCountBefore = rawIndex ~/ (adInterval + 1);
+    final f = firstAdIndex ?? adInterval;
+    assert(f >= 0, 'firstAdIndex must be non-negative');
+    if (rawIndex < f) return rawIndex;
+    final adCountBefore = (rawIndex - f) ~/ (adInterval + 1) + 1;
     return rawIndex - adCountBefore;
   }
 
   /// Calculates which ad slot number (0-based) corresponds to [rawIndex].
-  static int toAdIndex(int rawIndex, {required int adInterval}) {
+  static int toAdIndex(
+    int rawIndex, {
+    required int adInterval,
+    int? firstAdIndex,
+  }) {
     assert(adInterval > 0, 'adInterval must be greater than 0');
-    return (rawIndex + 1) ~/ (adInterval + 1) - 1;
+    final f = firstAdIndex ?? adInterval;
+    assert(f >= 0, 'firstAdIndex must be non-negative');
+    if (rawIndex < f) return -1;
+    return (rawIndex - f) ~/ (adInterval + 1);
   }
 
   /// Total count of elements in the raw list, including both content items and inserted ads.
-  static int totalCount({required int itemCount, required int adInterval}) {
+  static int totalCount({
+    required int itemCount,
+    required int adInterval,
+    int? firstAdIndex,
+  }) {
     assert(adInterval > 0, 'adInterval must be greater than 0');
+    final f = firstAdIndex ?? adInterval;
+    assert(f >= 0, 'firstAdIndex must be non-negative');
     if (itemCount <= 0) return 0;
-    final adCount = itemCount ~/ adInterval;
+    if (itemCount < f) return itemCount;
+    final adCount = 1 + (itemCount - f) ~/ adInterval;
     return itemCount + adCount;
   }
 }
@@ -49,6 +74,7 @@ class InFeedAdListView extends StatefulWidget {
     required this.itemCount,
     required this.itemBuilder,
     this.adInterval = 10,
+    this.firstAdIndex,
     this.adBuilder,
     this.scrollDirection = Axis.vertical,
     this.reverse = false,
@@ -65,7 +91,11 @@ class InFeedAdListView extends StatefulWidget {
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     this.restorationId,
     this.clipBehavior = Clip.hardEdge,
-  }) : assert(adInterval > 0, 'adInterval must be greater than 0');
+  })  : assert(adInterval > 0, 'adInterval must be greater than 0'),
+        assert(
+          firstAdIndex == null || firstAdIndex >= 0,
+          'firstAdIndex must be non-negative',
+        );
 
   /// The total number of content items in the original feed.
   final int itemCount;
@@ -75,6 +105,9 @@ class InFeedAdListView extends StatefulWidget {
 
   /// The number of content items between each ad. Defaults to 10.
   final int adInterval;
+
+  /// Number of content items before the first ad. Defaults to [adInterval].
+  final int? firstAdIndex;
 
   /// Optional custom builder for the ad widget at [adIndex] (0-based ad counter).
   /// If null, defaults to building a `NativeAdWidget()`.
@@ -151,6 +184,7 @@ class _InFeedAdListViewState extends State<InFeedAdListView> {
     final total = InFeedIndexCalculator.totalCount(
       itemCount: widget.itemCount,
       adInterval: widget.adInterval,
+      firstAdIndex: widget.firstAdIndex,
     );
 
     return NotificationListener<ScrollNotification>(
@@ -175,10 +209,12 @@ class _InFeedAdListViewState extends State<InFeedAdListView> {
           if (InFeedIndexCalculator.isAdPosition(
             rawIndex,
             adInterval: widget.adInterval,
+            firstAdIndex: widget.firstAdIndex,
           )) {
             final adIndex = InFeedIndexCalculator.toAdIndex(
               rawIndex,
               adInterval: widget.adInterval,
+              firstAdIndex: widget.firstAdIndex,
             );
             if (widget.adBuilder != null) {
               return widget.adBuilder!(context, adIndex);
@@ -201,6 +237,7 @@ class _InFeedAdListViewState extends State<InFeedAdListView> {
           final originalIndex = InFeedIndexCalculator.toOriginalItemIndex(
             rawIndex,
             adInterval: widget.adInterval,
+            firstAdIndex: widget.firstAdIndex,
           );
           return widget.itemBuilder(context, originalIndex);
         },

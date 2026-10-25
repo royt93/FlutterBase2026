@@ -479,7 +479,9 @@ AdScreenState.buildMrec  [method]  Widget buildMrec({AdPlacement placement = AdP
 AdScreenState.buildNative  [method]  Widget buildNative({AdPlacement placement = AdPlacement.unspecified, bool active = true})
 AdScreenState.dispose  [method]  void dispose()
 AdScreenState.initState  [method]  void initState()
+AdScreenState.loadRewardedAd  [method]  void loadRewardedAd()
 AdScreenState.new  [constructor]  AdScreenState<T> AdScreenState()
+AdScreenState.preloadRewardedOnMount  [getter]  bool get preloadRewardedOnMount
 AdScreenState.showInterstitialAd  [method]  void showInterstitialAd({required void Function(bool) onDone, AdPlacement placement = AdPlacement.unspecified})
 AdScreenState.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, bool onDemandBuffer = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel, String? ssvUserId, String? ssvCustomData, String callSiteTag = 'unspecified'})
 AdScreenState.showRewardedInterstitialAd  [method]  Future<void> showRewardedInterstitialAd({required void Function(bool, bool) onDone, AdPlacement placement = AdPlacement.unspecified, bool showDisclosure = true, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel})
@@ -992,12 +994,13 @@ InFeedAdListView.adInterval  [field]  int adInterval
 InFeedAdListView.addAutomaticKeepAlives  [field]  bool addAutomaticKeepAlives
 InFeedAdListView.addRepaintBoundaries  [field]  bool addRepaintBoundaries
 InFeedAdListView.addSemanticIndexes  [field]  bool addSemanticIndexes
-InFeedAdListView.builder  [constructor]  InFeedAdListView InFeedAdListView.builder({Key? key, required int itemCount, required Widget? Function(BuildContext, int) itemBuilder, int adInterval = 10, Widget Function(BuildContext, int)? adBuilder, Axis scrollDirection = Axis.vertical, bool reverse = false, ScrollController? controller, bool? primary, ScrollPhysics? physics, bool shrinkWrap = false, EdgeInsetsGeometry? padding, bool addAutomaticKeepAlives = false, bool addRepaintBoundaries = true, bool addSemanticIndexes = true, double? cacheExtent, DragStartBehavior dragStartBehavior = DragStartBehavior.start, ScrollViewKeyboardDismissBehavior keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual, String? restorationId, Clip clipBehavior = Clip.hardEdge})
+InFeedAdListView.builder  [constructor]  InFeedAdListView InFeedAdListView.builder({Key? key, required int itemCount, required Widget? Function(BuildContext, int) itemBuilder, int adInterval = 10, int? firstAdIndex, Widget Function(BuildContext, int)? adBuilder, Axis scrollDirection = Axis.vertical, bool reverse = false, ScrollController? controller, bool? primary, ScrollPhysics? physics, bool shrinkWrap = false, EdgeInsetsGeometry? padding, bool addAutomaticKeepAlives = false, bool addRepaintBoundaries = true, bool addSemanticIndexes = true, double? cacheExtent, DragStartBehavior dragStartBehavior = DragStartBehavior.start, ScrollViewKeyboardDismissBehavior keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual, String? restorationId, Clip clipBehavior = Clip.hardEdge})
 InFeedAdListView.cacheExtent  [field]  double? cacheExtent
 InFeedAdListView.clipBehavior  [field]  Clip clipBehavior
 InFeedAdListView.controller  [field]  ScrollController? controller
 InFeedAdListView.createState  [method]  State<InFeedAdListView> createState()
 InFeedAdListView.dragStartBehavior  [field]  DragStartBehavior dragStartBehavior
+InFeedAdListView.firstAdIndex  [field]  int? firstAdIndex
 InFeedAdListView.itemBuilder  [field]  Widget? Function(BuildContext, int) itemBuilder
 InFeedAdListView.itemCount  [field]  int itemCount
 InFeedAdListView.keyboardDismissBehavior  [field]  ScrollViewKeyboardDismissBehavior keyboardDismissBehavior
@@ -1009,10 +1012,10 @@ InFeedAdListView.reverse  [field]  bool reverse
 InFeedAdListView.scrollDirection  [field]  Axis scrollDirection
 InFeedAdListView.shrinkWrap  [field]  bool shrinkWrap
 InFeedIndexCalculator  [class]  class InFeedIndexCalculator
-InFeedIndexCalculator.isAdPosition  [method]  bool isAdPosition(int rawIndex, {required int adInterval})
-InFeedIndexCalculator.toAdIndex  [method]  int toAdIndex(int rawIndex, {required int adInterval})
-InFeedIndexCalculator.toOriginalItemIndex  [method]  int toOriginalItemIndex(int rawIndex, {required int adInterval})
-InFeedIndexCalculator.totalCount  [method]  int totalCount({required int itemCount, required int adInterval})
+InFeedIndexCalculator.isAdPosition  [method]  bool isAdPosition(int rawIndex, {required int adInterval, int? firstAdIndex})
+InFeedIndexCalculator.toAdIndex  [method]  int toAdIndex(int rawIndex, {required int adInterval, int? firstAdIndex})
+InFeedIndexCalculator.toOriginalItemIndex  [method]  int toOriginalItemIndex(int rawIndex, {required int adInterval, int? firstAdIndex})
+InFeedIndexCalculator.totalCount  [method]  int totalCount({required int itemCount, required int adInterval, int? firstAdIndex})
 IncidentBundle  [class]  class IncidentBundle
 IncidentBundle.capture  [constructor]  IncidentBundle IncidentBundle.capture(IncidentRecorder recorder, AdConfig config, {DateTime? now})
 IncidentBundle.configFingerprint  [field]  Map<String, dynamic> configFingerprint

@@ -2,7 +2,7 @@
 
 - **Loại:** Enhancement / Revenue Maximization & Policy Safety
 - **Priority:** P1 · **Severity:** HIGH
-- **Status:** implementation complete (2026-10-25; verified locally, not committed)
+- **Status:** complete (2026-10-25; verified locally, integration test passed on TECNO KJ7, pushed to remote)
 
 ## Bối cảnh & Vấn đề
 
@@ -38,4 +38,4 @@
 - [x] Full SDK suite **2,792 tests pass**; 36 focused tests và regression suite liên quan pass.
 - [x] TECNO KJ7 integration: cả `rewarded_ad_test.dart` và `interstitial_ad_test.dart` với AdMob test ads đều hoàn tất **2 show/dismiss cycles** và pass (đã verify arm guard `🛡️ dismissed — app-open/post-dismiss guard armed`).
 - [x] Release gate `./tool/release_readiness_gate.sh all` pass; tracked `lib/` <= 2048 KB.
-- [ ] Chưa push lên remote. Chưa đo uplift doanh thu, Invalid Traffic hoặc hiệu quả 750ms trên sản phẩm thật; kết quả là correctness/policy-safety verification, không phải cam kết doanh thu.
+- [x] Đã push lên remote (commits b59b9f5 & 9f08926). Kết quả là correctness/policy-safety verification, không phải cam kết doanh thu.

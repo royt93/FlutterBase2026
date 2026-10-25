@@ -74,6 +74,162 @@ void main() {
     ); // 9 items + 2 ads
   });
 
+  test('InFeedIndexCalculator converts indices with firstAdIndex correctly', () {
+    // firstAdIndex = 2, adInterval = 4
+    // raw 0 -> item 0
+    // raw 1 -> item 1
+    // raw 2 -> ad 0 (after 2 items)
+    // raw 3 -> item 2
+    // raw 4 -> item 3
+    // raw 5 -> item 4
+    // raw 6 -> item 5
+    // raw 7 -> ad 1 (after 2 + 4 = 6 items)
+    // raw 8 -> item 6
+    // raw 9 -> item 7
+    // raw 10 -> item 8
+    // raw 11 -> item 9
+    // raw 12 -> ad 2 (after 2 + 8 = 10 items)
+
+    expect(
+      InFeedIndexCalculator.isAdPosition(0, adInterval: 4, firstAdIndex: 2),
+      isFalse,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(1, adInterval: 4, firstAdIndex: 2),
+      isFalse,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(2, adInterval: 4, firstAdIndex: 2),
+      isTrue,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(3, adInterval: 4, firstAdIndex: 2),
+      isFalse,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(6, adInterval: 4, firstAdIndex: 2),
+      isFalse,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(7, adInterval: 4, firstAdIndex: 2),
+      isTrue,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(12, adInterval: 4, firstAdIndex: 2),
+      isTrue,
+    );
+
+    expect(
+      InFeedIndexCalculator.toAdIndex(2, adInterval: 4, firstAdIndex: 2),
+      equals(0),
+    );
+    expect(
+      InFeedIndexCalculator.toAdIndex(7, adInterval: 4, firstAdIndex: 2),
+      equals(1),
+    );
+    expect(
+      InFeedIndexCalculator.toAdIndex(12, adInterval: 4, firstAdIndex: 2),
+      equals(2),
+    );
+
+    expect(
+      InFeedIndexCalculator.toOriginalItemIndex(0, adInterval: 4, firstAdIndex: 2),
+      equals(0),
+    );
+    expect(
+      InFeedIndexCalculator.toOriginalItemIndex(1, adInterval: 4, firstAdIndex: 2),
+      equals(1),
+    );
+    expect(
+      InFeedIndexCalculator.toOriginalItemIndex(3, adInterval: 4, firstAdIndex: 2),
+      equals(2),
+    );
+    expect(
+      InFeedIndexCalculator.toOriginalItemIndex(6, adInterval: 4, firstAdIndex: 2),
+      equals(5),
+    );
+    expect(
+      InFeedIndexCalculator.toOriginalItemIndex(8, adInterval: 4, firstAdIndex: 2),
+      equals(6),
+    );
+
+    expect(
+      InFeedIndexCalculator.totalCount(itemCount: 0, adInterval: 4, firstAdIndex: 2),
+      equals(0),
+    );
+    expect(
+      InFeedIndexCalculator.totalCount(itemCount: 1, adInterval: 4, firstAdIndex: 2),
+      equals(1),
+    );
+    expect(
+      InFeedIndexCalculator.totalCount(itemCount: 2, adInterval: 4, firstAdIndex: 2),
+      equals(3),
+    ); // 2 items + 1 ad
+    expect(
+      InFeedIndexCalculator.totalCount(itemCount: 5, adInterval: 4, firstAdIndex: 2),
+      equals(6),
+    ); // 5 items + 1 ad
+    expect(
+      InFeedIndexCalculator.totalCount(itemCount: 6, adInterval: 4, firstAdIndex: 2),
+      equals(8),
+    ); // 6 items + 2 ads
+
+    // firstAdIndex = 0 (top-of-feed ad)
+    expect(
+      InFeedIndexCalculator.isAdPosition(0, adInterval: 3, firstAdIndex: 0),
+      isTrue,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(1, adInterval: 3, firstAdIndex: 0),
+      isFalse,
+    );
+    expect(
+      InFeedIndexCalculator.isAdPosition(4, adInterval: 3, firstAdIndex: 0),
+      isTrue,
+    );
+    expect(
+      InFeedIndexCalculator.toOriginalItemIndex(1, adInterval: 3, firstAdIndex: 0),
+      equals(0),
+    );
+  });
+
+  testWidgets(
+    'InFeedAdListView renders early ad with firstAdIndex',
+    (tester) async {
+      final originalItems = List.generate(20, (i) => 'Item $i');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: InFeedAdListView.builder(
+              itemCount: originalItems.length,
+              adInterval: 5,
+              firstAdIndex: 2,
+              itemBuilder: (context, index) {
+                return SizedBox(
+                  height: 50,
+                  child: Text('Rendered: ${originalItems[index]}'),
+                );
+              },
+              adBuilder: (context, adIndex) {
+                return SizedBox(
+                  height: 100,
+                  child: Text('Ad Position $adIndex'),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Initial view should render Items 0..1, then Ad 0, then Item 2...
+      expect(find.text('Rendered: Item 0'), findsOneWidget);
+      expect(find.text('Rendered: Item 1'), findsOneWidget);
+      expect(find.text('Ad Position 0'), findsOneWidget);
+      expect(find.text('Rendered: Item 2'), findsOneWidget);
+    },
+  );
+
   testWidgets(
     'InFeedAdListView renders items and native ad widgets at intervals',
     (tester) async {
