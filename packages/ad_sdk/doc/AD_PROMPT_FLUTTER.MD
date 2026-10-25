@@ -2,7 +2,7 @@
 
 ## How to use this document
 
-This file targets the current SDK integration API and is the single partner handoff for `applovin_admob_sdk`. Follow **Quick start** for minimum ad setup, then complete selected feature recipes and release checklist. **Coverage:** every public SDK feature family has an in-file recipe or an explicit SDK ceiling (see the completeness gate at the end). Coverage is documentation coverage; runtime credentials, device behavior, consent/legal approval and provider policy still require evidence in Step 11. Fill Section 0 with partner-approved values first; stop and ask when required decisions or credentials are missing. Keep optional features disabled unless explicitly approved.
+This file targets the current SDK integration API and is the single partner handoff for `applovin_admob_sdk`. Start with the **Fast path** (Android + AdMob test banner), then follow **Quick start** for minimum ad setup, then complete selected feature recipes and release checklist. **Coverage:** every public SDK feature family has an in-file recipe or an explicit SDK ceiling (see the completeness gate at the end). Coverage is documentation coverage; runtime credentials, device behavior, consent/legal approval and provider policy still require evidence in Step 11. Fill Section 0 with partner-approved values first; stop and ask when required decisions or credentials are missing. Keep optional features disabled unless explicitly approved.
 
 This file is the self-contained integration path, and it is written so you can finish without contacting anyone. Where a step names an SDK file (the example app, the README, a tool script), you can get all of them yourself from pub.dev with one command and no checkout:
 
@@ -21,6 +21,7 @@ Manual users can run companion `example/` app as reference. Search by class name
 
 Use the Quick start first. Steps 4.1–4.10 are the core ad path; everything marked optional is chosen per partner scope.
 
+- [Fast path — Android + AdMob, first banner in about 30 minutes](#fast-path--android--admob-first-banner-in-about-30-minutes)
 - [Quick start — minimum working integration](#quick-start--minimum-working-integration)
 - [0. Context — fill in before running](#0-context--fill-in-before-running)
 - [Feature coverage matrix — select before Step 2](#feature-coverage-matrix--select-before-step-2)
@@ -90,6 +91,45 @@ Use the Quick start first. Steps 4.1–4.10 are the core ad path; everything mar
 - [Appendix F — Semantic-preservation record for the one-file restructure](#appendix-f--semantic-preservation-record-for-the-one-file-restructure)
 - [Appendix G — Public API coverage map (types without their own recipe)](#appendix-g--public-api-coverage-map-types-without-their-own-recipe)
 - [Single-file completeness gate — SDK owner review before handoff](#single-file-completeness-gate--sdk-owner-review-before-handoff)
+
+## Fast path — Android + AdMob, first banner in about 30 minutes
+
+**Read only this section first.** It gets a new app to a working test banner, a test interstitial and a test rewarded ad on Android. Everything else in this file (iOS, AppLovin, VIP, advanced modules, release) comes after, and only if the partner asked for it. Do not read ahead; do not install anything not named here.
+
+**Before you start, you need nothing from anyone.** Google's public test IDs are already in the snippets. Real ad IDs, AppLovin keys and VIP keys are **not** needed for this path.
+
+| # | Do this | Where the exact text is | You know it worked when |
+|---|---|---|---|
+| 1 | `flutter create my_app`, then `cd my_app` and `dart pub add applovin_admob_sdk` | Step 4.0(a) | `pubspec.yaml` lists `applovin_admob_sdk` |
+| 2 | Make edits 1-4 (edit 2 has two parts) (Kotlin 2.3.0, delete `kotlinOptions`, add `kotlin { compilerOptions }`, `minSdk = 24`, delete `android:taskAffinity=""`). Skip edit 5 (R8 rule) until a release build. | Step 4.0(a2), edits 1-4 | edits copy-paste as shown, no guessing |
+| 3 | Add 3 permissions and the AdMob test App ID `ca-app-pub-3940256099942544~3347511713` to `AndroidManifest.xml` | Step 4.0(b) | `flutter build apk --debug` succeeds |
+| 4 | Delete `test/widget_test.dart` | Step 4.0(a2), last paragraph | `flutter analyze` is no longer red about `MyApp` |
+| 5 | Create `lib/main.dart`, `lib/ad_config.dart`, `lib/splash_screen.dart`, `lib/home_screen.dart`, `lib/privacy_screen.dart` by copying the Dart blocks tagged `main.dart`, `ad_config.dart`, `splash_screen.dart`, `home_screen.dart` (Steps 4.1, 4.2, 4.4) and `privacy_screen.dart` (Step 8.1). Copy whole blocks, change nothing. | Steps 4.1, 4.2, 4.4, 8.1 | `flutter analyze` prints `No issues found` (it stays red until all 5 files exist) |
+| 6 | Connect a device or start an emulator, then `flutter run` | Step 4.0(e) | spinner, then Home with a Google "Test Ad" banner at the bottom |
+| 7 | Tap the two buttons | Step 4.0(e) | rewarded: test video, then +10 coins. Interstitial: test ad, then the privacy screen |
+
+**If it fails, look here first.**
+
+| Symptom | Cause and fix |
+|---|---|
+| Build error `Inconsistent JVM-target compatibility` | `jvmTarget` differs from `compileOptions`; make both 17 (Step 4.0(a2) edit 2) |
+| Build error mentioning `kotlinOptions` | You skipped deleting it (edit 2) |
+| Banner never appears | Device offline, or you are not in a debug build; read `flutter logs` for the reason, do not swap in production IDs (Step 4.0(e)) |
+| Interstitial does nothing on first tap | Ad had not loaded yet; wait a few seconds after start-up and tap again |
+| Back to launcher after closing an ad | `taskAffinity` was not deleted (edit 4) |
+| UMP form appears, then no ad | Normal in a consent region; answer the form (Step 8.1) |
+
+**What this path leaves out on purpose, and where to continue:**
+
+| You also need | Go to |
+|---|---|
+| Your own production ad IDs | Step 11.0a (release build with `--dart-define`) |
+| iOS | Step 4.0(c), then Step 6 |
+| AppLovin instead of AdMob | Step 4.2 (`applovin_ad_config.dart`) and Step 8.3 (COPPA rule) |
+| MREC, native, in-feed, rewarded interstitial | Steps 4.8 to 4.13 |
+| VIP codes | Steps 9, 10 and 10.6a |
+| Consent and privacy review | Steps 7 and 8 |
+| Final checklist before handing over | Steps 11 and 12 |
 
 ## Quick start — minimum working integration
 
@@ -437,7 +477,8 @@ Set `minSdk = 24` in the app's existing Gradle file. With current GMA 9.0.0, set
 - **App IDs.** AdMob test App IDs (Google's public ones, safe for test-only builds): Android `ca-app-pub-3940256099942544~3347511713`, iOS `ca-app-pub-3940256099942544~1458002511`. Production builds use the partner's own App ID from the AdMob console (an App ID contains `~`; an ad-unit ID contains `/`).
 - **`AppLovinSdkKey` is not required.** The SDK passes `AppLovinConfig.sdkKey` from Dart to the native AppLovin SDK, so do **not** add an `AppLovinSdkKey` entry to `Info.plist` (it would only put the secret into a committed file). Supply the key as a dart-define (Step 4.2).
 - **ATT purpose text.** iOS shows the system prompt only if this key exists, and the text is reviewed by Apple and your privacy owner, so the partner must approve the wording. Example draft (not legal text): "This identifier is used to deliver personalised ads." Localize it per language through `InfoPlist.strings`.
-- **Podfile.** Set `platform :ios, '13.0'` in `ios/Podfile`, then run `(cd ios && pod install)`.
+- **Podfile.** Set `platform :ios, '13.0'` in `ios/Podfile`, then run `(cd ios && pod install)`. If the project has no `ios/` folder, create it first with `flutter create --platforms=ios .` from the app root; that command also re-creates `test/widget_test.dart`, so delete it again.
+- **What you will see on first run (iOS Simulator, observed).** The app launches and the log shows `initialize start, provider=admob`. A first-run privacy explainer dialog (UMP message) can cover Home and keeps the banner from loading until the user taps **Continue**; that is not an integration failure. While it is open, `_initBanner` logs `AdManager not initialised yet` and the splash budget (8s) may expire first. The iOS Simulator does not give reliable UMP evidence, so verify consent on a real iPhone (Step 11). On a `--no-codesign` Simulator build you may also see `VipManager secure storage read FAILED ... retrying` (retries at 2s, 10s, 45s). The cause was not confirmed; it appeared only on the unsigned Simulator build, so re-check on a signed device build before treating it as a defect.
 - **SKAdNetwork.** Add a `SKAdNetworkItems` array so ad networks can attribute installs. Shape (one `<dict>` per network):
 
   ```xml
@@ -505,7 +546,7 @@ If `setNavigatorKey` is missing, App Open on resume and `AdLoadingDialog`'s buff
 |---|---|---|
 | Show an App Open ad on the splash screen? | **No** (`showAppOpenOnReady: false`) | `true`: after init succeeds the controller loads an App Open ad, shows the short loading buffer, then shows the ad (`bypassSafety: true`, the only allowed call site) and calls `onReady` when the ad is dismissed, skipped or failed. `false`: `onReady` is called as soon as init finishes and no splash ad is attempted. Choose `true` only if the partner wants a splash ad; resume App Open ads (returning from background) are separate and stay governed by `appOpenTrigger`. |
 | How long may the splash wait? | **8 seconds** | `hardCapDuration` is the longest the splash waits for init plus the ad **load**; when it expires `onReady` fires so the app is never stuck. Once an ad is actually showing, its own dismissal ends the wait. Set the controller `hardCapDuration` and `AdConfig.splashMaxDuration` to the same value. |
-| Does the iOS build need the ATT prompt or a custom consent step before ads? | **No** | Yes means use the manual splash below instead of the controller. |
+| Does the iOS build need the ATT prompt or a custom consent step before ads? | **Android-only app: No. App that ships on iOS: ask the partner, because "No" has a cost** | Yes means use the manual splash below instead of the controller. The controller never calls `requestAtt()`. On iOS with the controller, the SDK therefore logs `requestUmpConsent() called before requestAtt() on iOS` and, in release, a louder warning that IDFA availability is unsettled for the first ad requests (lost attribution/revenue, not a legal block). That log is expected when the partner declines ATT; record the decision in Step 12 so nobody treats it as a bug. |
 
 Choose exactly one startup path:
 
@@ -2648,7 +2689,7 @@ AdConfig(
 
 **What "UMP works" looks like.** On a first debug launch with the EEA geography, the form appears before any ad; after you choose, the app continues and ads can load. Restart: the form does not appear again. Temporarily print `AdManager().canRequestAds` (it is `false` until consent is settled, then `true`) and the `ConsentStatus` to confirm. On an emulator with no test ID listed or no AdMob message configured for the App ID, expect no form and a log containing `no form(s) configured`: that is a console-setup issue, not a code bug.
 
-If UMP is enabled, add a permanent privacy-options entry point in your Settings/Privacy screen; do not make it splash-only. `showPrivacyOptions()` is safe to call at any time: when Google does not require a privacy-options form for this user (a non-EEA user or consent never collected) it returns immediately and shows nothing, so you can show the button to everyone. It returns a `PrivacyOptionsResult` (`canRequestAds`, `status`, an optional `error`, `formShown`) and re-applies the user's new choice to the ad provider for you. Complete screen, reachable from anywhere with `Navigator.push`:
+If UMP is enabled, add a permanent privacy-options entry point in your Settings/Privacy screen; do not make it splash-only. `showPrivacyOptions()` is safe to call at any time: when Google does not require a privacy-options form for this user (a non-EEA user or consent never collected) it returns immediately and shows nothing, so you can show the button to everyone. It returns a `PrivacyOptionsResult` (`canRequestAds`, `status`, an optional `error`, `formShown`) and re-applies the user's new choice to the ad provider for you. **Known limitation in published 3.6.0 (fixed in the repository, not yet released):** if the user changes consent from declined to granted, the form closing can fire an app resume while the consent write is still in flight. In 3.6.0 the SDK then skips ad work for that resume (log: `consent apply is still in flight on resume — skipping ad work until it has landed`) and a banner that was missing stays missing until the next background-to-foreground. Measured on a Pixel 7 Pro (Android 17, debug, EEA test geography, 5 cold-start rounds each): 3.6.0 loaded the banner 0 of 5 times without a resume; the fixed build loaded it 5 of 5 about 1.5 seconds after that log line. It fails closed (no ad is served without consent) and costs only revenue. On 3.6.0, do not add your own retry or re-init in the host app (that could request ads under unconfirmed consent); for QA, background and reopen the app once. If you pin a release newer than 3.6.0, check its changelog for this fix before treating the log line as a defect. Complete screen, reachable from anywhere with `Navigator.push`:
 
 <!-- snippet: privacy_screen.dart -->
 ```dart
@@ -2894,6 +2935,8 @@ Navigator.push(
   ),
 );
 ```
+
+**Where to put this code (a junior needs this).** Put the `Navigator.push` call inside the `onPressed` of a button on a screen that already exists, for example a new `ListTile`/`TextButton` labelled "VIP code" on the privacy or settings screen. The file that contains it needs two imports: `import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';` and `import 'vip_config.dart';` (adjust the path to where you saved `lib/vip_config.dart` in Step 10.2). `launchPartnerPrivacyPolicy` is a name for the host's own function; if the project has none, pass `onPrivacyPolicyTap: () {}` while you test and replace it before release. Verified on a device (Android, debug): online redeem returns `success`, the same token again returns `alreadyUsed`, a token with a flipped signature character returns `invalid` (signature invalid), a token minted for another bundle id returns `invalid` (key bound to a different app), and a new token while offline is rejected with `isOffline == true`. An already-active VIP survives killing and reopening the app, also offline.
 
 Replace `launchPartnerPrivacyPolicy()` with the host app's approved privacy-policy launcher. `publicKeyBase64` is required; other callbacks/localized `VipRedeemStrings` are optional. This screen handles signed promotion redemption; activation requires network. Do not wire a private signing key or plaintext promo validator. If the built-in screen meets the partner UI requirements, stop here and skip the custom UI, animation, and translation design sections below. See `packages/ad_sdk/README.md` → “Pre-built redeem screen (`VipRedeemScreen`)” for the complete current constructor.
 
@@ -3763,16 +3806,19 @@ For a Play Store upload build with `flutter build appbundle --release`, use the 
 
 ```bash
 # 1. No Google TEST ad-unit IDs inside the compiled Dart code. Expect: 0
+rm -rf /tmp/apk_check   # a stale folder from an earlier build would fool check 1
 unzip -q -o build/app/outputs/flutter-apk/app-release.apk -d /tmp/apk_check
 strings /tmp/apk_check/lib/arm64-v8a/libapp.so | grep -cE "ca-app-pub-3940256099942544/[0-9]+"
 
 # 2. Your production IDs ARE present. Expect: one line per configured format
-strings /tmp/apk_check/lib/arm64-v8a/libapp.so | grep "ca-app-pub-XXXXXXXXXXXXXXXX/"
+# (or, without knowing your publisher id: ... | grep "ca-app-pub-" | grep -v 3940256099942544)
+strings /tmp/apk_check/lib/arm64-v8a/libapp.so | grep "ca-app-pub-XXXXXXXXXXXXXXXX/"   # replace XXXXXXXXXXXXXXXX with your own publisher id
 
 # 3. The AdMob APP ID in the shipped manifest is yours, not Google's test App ID.
 #    Expect your ca-app-pub-...~... value, NOT ca-app-pub-3940256099942544~3347511713
 # If ANDROID_HOME is empty: run `flutter doctor -v`, read the "Android SDK at ..." path,
-#   and use the newest folder under <that path>/build-tools/ as <version>.
+#   and use the newest folder under <that path>/build-tools/ as <version>
+#   (example: ls ~/Library/Android/sdk/build-tools | sort -V | tail -1).
 "${ANDROID_HOME:-<ANDROID_SDK_PATH>}"/build-tools/<version>/aapt2 dump xmltree --file AndroidManifest.xml \
   build/app/outputs/flutter-apk/app-release.apk | grep -A1 APPLICATION_ID
 ```
