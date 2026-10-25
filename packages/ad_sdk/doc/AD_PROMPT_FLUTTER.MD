@@ -274,6 +274,8 @@ This section answers "what do I do when I do not have an answer" so you never ne
 
 ## Step 1 — Verify the selected SDK release and recipe coverage
 
+> **New app with no existing ads? Skip Steps 1, 2 and 3 and go to the Fast path (top of this file).** These three steps are for projects that already have ad code or need a written plan.
+
 This step does not require the junior partner to read SDK source. Use the in-file recipes for implementation; the source/README/example navigation below is optional for reviewers. Version metadata and release notes must be checked when upgrading beyond the version this guide was verified against. If a feature is listed without an executable host recipe, label it blocked rather than claiming it is fully documented.
 
 **Optional reviewer reference map (not a substitute for missing steps):**
@@ -354,7 +356,7 @@ Keep one row per existing placement. `In scope? = no` means leave old behavior u
 
 Do these steps in the consuming app root. Fill every placeholder from Section 0 first. Do not replace entire manifests/plists; merge only the shown entries into existing app configuration.
 
-**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide was verified against **3.6.0**; if you pin a newer version, read its changelog on pub.dev before using version-specific steps.
+**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide was verified against **3.6.1**; if you pin a newer version, read its changelog on pub.dev before using version-specific steps.
 
 ```yaml
 dependencies:
@@ -2689,7 +2691,13 @@ AdConfig(
 
 **What "UMP works" looks like.** On a first debug launch with the EEA geography, the form appears before any ad; after you choose, the app continues and ads can load. Restart: the form does not appear again. Temporarily print `AdManager().canRequestAds` (it is `false` until consent is settled, then `true`) and the `ConsentStatus` to confirm. On an emulator with no test ID listed or no AdMob message configured for the App ID, expect no form and a log containing `no form(s) configured`: that is a console-setup issue, not a code bug.
 
-If UMP is enabled, add a permanent privacy-options entry point in your Settings/Privacy screen; do not make it splash-only. `showPrivacyOptions()` is safe to call at any time: when Google does not require a privacy-options form for this user (a non-EEA user or consent never collected) it returns immediately and shows nothing, so you can show the button to everyone. It returns a `PrivacyOptionsResult` (`canRequestAds`, `status`, an optional `error`, `formShown`) and re-applies the user's new choice to the ad provider for you. **Fixed in 3.6.1 (reproduced in 3.6.0, source-traced and Pixel-verified):** if the user changes consent from declined to granted, the form closing can fire an app resume while the consent write is still in flight. In 3.6.0 the SDK skipped ad work for that resume (log: `consent apply is still in flight on resume — skipping ad work until it has landed`) and a banner that was missing stays missing until the next background-to-foreground. Measured on a Pixel 7 Pro (Android 17, debug, EEA test geography, 5 cold-start rounds each): 3.6.0 loaded the banner 0 of 5 times without a resume; the fixed build loaded it 5 of 5 about 1.5 seconds after that log line. It fails closed (no ad is served without consent) and costs only revenue. If you still use 3.6.0, do not add your own retry or re-init in the host app (that could request ads under unconfirmed consent); for QA, background and reopen the app once. On 3.6.1, the banner recovers automatically about 1.5 seconds after that log line without any background-to-foreground. Complete screen, reachable from anywhere with `Navigator.push`:
+If UMP is enabled, add a permanent privacy-options entry point in your Settings/Privacy screen; do not make it splash-only. `showPrivacyOptions()` is safe to call at any time: when Google does not require a privacy-options form for this user (a non-EEA user or consent never collected) it returns immediately and shows nothing, so you can show the button to everyone. It returns a `PrivacyOptionsResult` (`canRequestAds`, `status`, an optional `error`, `formShown`) and re-applies the user's new choice to the ad provider for you.
+
+**Behaviour to know about (SDK 3.6.1 and newer).** If the user changes consent from declined to granted, a banner that was missing comes back by itself about 1.5 seconds after the form closes. You do not need to do anything.
+
+**If you are stuck on 3.6.0:** the banner can stay missing until the next background-to-foreground. The log shows `consent apply is still in flight on resume — skipping ad work until it has landed`. This costs only revenue; no ad is served without consent. Do **not** add your own retry or re-init in the host app (that could request ads under unconfirmed consent). For QA, background and reopen the app once, or upgrade to 3.6.1. Evidence: Pixel 7 Pro, Android 17, debug, EEA test geography, 5 cold-start rounds each: 3.6.0 loaded the banner 0 of 5 times, 3.6.1 5 of 5.
+
+Complete screen, reachable from anywhere with `Navigator.push`:
 
 <!-- snippet: privacy_screen.dart -->
 ```dart
@@ -2936,7 +2944,7 @@ Navigator.push(
 );
 ```
 
-**Where to put this code (a junior needs this).** Put the `Navigator.push` call inside the `onPressed` of a button on a screen that already exists, for example a new `ListTile`/`TextButton` labelled "VIP code" on the privacy or settings screen. The file that contains it needs two imports: `import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';` and `import 'vip_config.dart';` (adjust the path to where you saved `lib/vip_config.dart` in Step 10.2). `launchPartnerPrivacyPolicy` is a name for the host's own function; if the project has none, pass `onPrivacyPolicyTap: () {}` while you test and replace it before release. Verified on a device (Android, debug): online redeem returns `success`, the same token again returns `alreadyUsed`, a token with a flipped signature character returns `invalid` (signature invalid), a token minted for another bundle id returns `invalid` (key bound to a different app), and a new token while offline is rejected with `isOffline == true`. An already-active VIP survives killing and reopening the app, also offline.
+**Where to put this code (a junior needs this).** **Do Step 10.2 first**: `lib/vip_config.dart` must exist or this code does not compile. Put the `Navigator.push` call in the callback of a widget on a screen that already exists: `onTap` for a `ListTile`, `onPressed` for a `TextButton`/`ElevatedButton`. In the guide's own app, add a `ListTile(title: const Text('VIP code'), onTap: () { ...push... })` to the `ListView` in `lib/privacy_screen.dart` (Step 8.1). The file that contains it needs two imports: `import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';` and `import 'vip_config.dart';` (adjust the path to where you saved `lib/vip_config.dart` in Step 10.2). `launchPartnerPrivacyPolicy` is a name for the host's own function; if the project has none, pass `onPrivacyPolicyTap: () {}` while you test and replace it before release. Verified on a device (Android, debug): online redeem returns `success`, the same token again returns `alreadyUsed`, a token with a flipped signature character returns `invalid` (signature invalid), a token minted for another bundle id returns `invalid` (key bound to a different app), and a new token while offline is rejected with `isOffline == true`. An already-active VIP survives killing and reopening the app, also offline.
 
 Replace `launchPartnerPrivacyPolicy()` with the host app's approved privacy-policy launcher. `publicKeyBase64` is required; other callbacks/localized `VipRedeemStrings` are optional. This screen handles signed promotion redemption; activation requires network. Do not wire a private signing key or plaintext promo validator. If the built-in screen meets the partner UI requirements, stop here and skip the custom UI, animation, and translation design sections below. See `packages/ad_sdk/README.md` → “Pre-built redeem screen (`VipRedeemScreen`)” for the complete current constructor.
 
@@ -3656,14 +3664,14 @@ Revoke actions remove local grants, not globally issued codes. `revokeAll()` doe
 
 ### 10.6a — VIP operator quick start (no SDK checkout needed)
 
-The SDK ships its operator scripts inside the pub.dev package, so a partner with only pub.dev access can run them. These steps were run end to end against SDK 3.6.1.
+The SDK ships its operator scripts inside the pub.dev package, so a partner with only pub.dev access can run them. These steps were run end to end against SDK 3.6.1 (replace `<VERSION>` below with the version you pinned).
 
 **1. Get the scripts (once).** Do this in a scratch folder **outside** your app and outside `~/.pub-cache`:
 
 ```bash
 mkdir -p ~/vip_tools && cd ~/vip_tools
-dart pub unpack applovin_admob_sdk:3.6.1
-cd applovin_admob_sdk-3.6.1
+dart pub unpack applovin_admob_sdk:<VERSION>   # for example 3.6.1, or the version you pinned
+cd applovin_admob_sdk-<VERSION>
 ```
 
 `dart pub unpack` downloads the package and runs `pub get` for you, so the scripts are ready. Use the same version as your app. Always run the scripts with **bare `dart`** (`dart tool/vip_mint.dart ...`), never `dart run ...`: on Dart 3.10+ `dart run` prints "Running build hooks..." before the token and corrupts anything you capture.
@@ -3717,7 +3725,7 @@ dart tool/vip_crl_mint.dart --priv-file ~/secure/vip-private-key --kids PROMO30-
 
 It prints one line starting with `CRL1.`. Each run produces a **replacement** list that is stamped with the current time: always include **all** revoked kids, not just the new one. Host that text file anywhere reachable by your app over HTTPS (a static file on your site or a cloud storage object is enough) and return its raw contents from the `fetchSignedCrl` callback in Step 10.13. An empty `--kids` produces a valid empty list, which does not un-revoke anything already applied. A revoked grant is shortened to a short grace (up to 24 hours), not cut instantly, and a device that is offline will not see the list until it reconnects.
 
-**5. Test every outcome without a server.** Use throwaway keys, never your real issuer key. `verifySignedVipKey` checks a token fully offline, so you can prove each failure mode in a Flutter test (Dart-only, no device). Mint a token for `com.partner.app` as in step 3, then:
+**5. Test every outcome without a server.** Use throwaway keys, never your real issuer key. `verifySignedVipKey` checks a token fully offline, so you can prove each failure mode in a Flutter test (Dart-only, no device). Mint a token for your own app id as in step 3 (the `applicationId` in `android/app/build.gradle.kts`). The test below uses `com.partner.app` as a stand-in: **replace it with your own app id in every place it appears in the test**, or the bundle checks fail. Save the file as `test/vip_offline_verify_test.dart` in your app (or in the unpacked SDK folder), then run `flutter test test/vip_offline_verify_test.dart`. Then:
 
 <!-- snippet: vip_offline_verify_test.dart -->
 ```dart
