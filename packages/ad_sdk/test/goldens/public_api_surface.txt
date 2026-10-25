@@ -257,7 +257,7 @@ AdManager.showAppOpenAd  [method]  Future<void> showAppOpenAd({required void Fun
 AdManager.showAppOpenAdOnResume  [method]  void showAppOpenAdOnResume()
 AdManager.showInterstitial  [method]  Future<void> showInterstitial({required void Function(bool) onDoneFlow, AdPlacement placement = AdPlacement.unspecified})
 AdManager.showPrivacyOptions  [method]  Future<PrivacyOptionsResult> showPrivacyOptions()
-AdManager.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? ssvCustomData, String? ssvUserId, String callSiteTag = 'unspecified'})
+AdManager.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, bool onDemandBuffer = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? ssvCustomData, String? ssvUserId, String callSiteTag = 'unspecified'})
 AdManager.showRewardedInterstitialAd  [method]  Future<void> showRewardedInterstitialAd({required void Function(bool, bool) onDone, AdPlacement placement = AdPlacement.unspecified})
 AdManager.stateSnapshot  [getter]  ValueListenable<AdSdkStateSnapshot> get stateSnapshot
 AdManager.tcfConsentString  [getter]  Future<String?> get tcfConsentString
@@ -481,7 +481,7 @@ AdScreenState.dispose  [method]  void dispose()
 AdScreenState.initState  [method]  void initState()
 AdScreenState.new  [constructor]  AdScreenState<T> AdScreenState()
 AdScreenState.showInterstitialAd  [method]  void showInterstitialAd({required void Function(bool) onDone, AdPlacement placement = AdPlacement.unspecified})
-AdScreenState.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel, String? ssvUserId, String? ssvCustomData, String callSiteTag = 'unspecified'})
+AdScreenState.showRewardedAd  [method]  Future<void> showRewardedAd({required void Function(bool) onEarnedReward, bool vipAutoGrant = false, bool bypassVipGuard = false, bool onDemandBuffer = false, Duration onDemandLoadTimeout = const Duration(seconds: 15), AdPlacement placement = AdPlacement.unspecified, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel, String? ssvUserId, String? ssvCustomData, String callSiteTag = 'unspecified'})
 AdScreenState.showRewardedInterstitialAd  [method]  Future<void> showRewardedInterstitialAd({required void Function(bool, bool) onDone, AdPlacement placement = AdPlacement.unspecified, bool showDisclosure = true, String? disclosureTitle, String? disclosureSubtitle, String? disclosureButtonLabel, String? disclosureCancelLabel})
 AdSdkStateSnapshot  [class]  class AdSdkStateSnapshot
 AdSdkStateSnapshot.==  [method]  bool ==(Object other)

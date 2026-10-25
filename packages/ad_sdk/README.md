@@ -737,6 +737,7 @@ class _HomeScreenState extends AdScreenState<HomeScreen> {
             // Rewarded — user opts in to watch in exchange for a reward
             FilledButton(
               onPressed: () => showRewardedAd(
+                onDemandBuffer: true,
                 onEarnedReward: (earned) {
                   if (earned) {
                     setState(() => _coins += 10);
@@ -1427,6 +1428,26 @@ screen reports `(false, false)` and costs nothing.
 `showRewardedInterstitialAd()` always calls back `(false, false)`. No
 VIP-bypass-to-extend or SSV params for this ad type either.
 
+### On-demand buffer when rewarded ad is not ready
+
+Normal preloading remains default. If the user explicitly requests a rewarded ad
+before its slot is ready, pass `onDemandBuffer: true` to show a blocking loading
+dialog and let SDK try loading for up to 15 seconds. No fill, network failure or
+timeout returns `earned: false`. This can recover an otherwise missed view, but
+may add a short wait and does not guarantee an ad will be available.
+
+```dart
+AdManager().showRewardedAd(
+  onDemandBuffer: true,
+  onEarnedReward: (earned) {
+    if (earned) grantReward();
+  },
+);
+```
+
+`AdScreenState.showRewardedAd()` forwards `onDemandBuffer` too; its usual
+readiness pre-check is bypassed only when the flag is `true`.
+
 ### Watch a rewarded ad to EXTEND VIP (even while already VIP)
 
 By default the SDK suppresses every ad for a VIP member, so a rewarded ad will
@@ -1460,9 +1481,8 @@ re-entrancy-safe — a second tap while a load/show is in flight is rejected wit
 
 `AdScreenState.showRewardedAd()` (the documented `AdScreen` helper — see
 [Step 6 — Show ads on any screen](#step-6--show-ads-on-any-screen)) forwards
-`bypassVipGuard` and `onDemandLoadTimeout` the same way, so this flow works
-identically whether you call `AdManager().showRewardedAd()` directly or
-through that helper.
+`bypassVipGuard`, `onDemandBuffer` and `onDemandLoadTimeout` the same way, so
+this flow works identically through either entry point.
 
 ### Waiting for VIP to be ready
 

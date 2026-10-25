@@ -2752,35 +2752,8 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// Keeping it in one place also means a fifth ad type added later is covered
   /// by construction rather than by remembering to copy the condition.
-  /// The one answer to "may this adapter present a fullscreen ad **right
-  /// now**". Returns a reason to skip, or `null` to proceed.
-  ///
-  /// Round-25 sweep (post-QC-22) — rounds 12 through 22 were every one of them
-  /// the same shape: a guard read before an `await`, an act performed after it.
-  /// Each round the fix was a fresh hand-written check at whichever site the
-  /// reviewer happened to probe, so the guards ended up in three different
-  /// styles and the next unswept branch was always one round away. This is the
-  /// single place those three facts are asked about now, and every fullscreen
-  /// show path asks it immediately before presenting:
-  ///
-  ///  * a teardown started (`destroy()` is dismantling the session),
-  ///  * the adapter was swapped (a `destroy()` + re-`initialize()` while `ad`
-  ///    was captured before an await — showing on it drives a disposed native
-  ///    channel),
-  ///  * consent was withdrawn (an impression served after the user said no is
-  ///    the single outcome this SDK exists to prevent).
-  ///
-  /// Deliberately NOT here: the fullscreen mutex ([_fullscreenBusyReason]), the
-  /// safety caps and the VIP suppression. Those have per-path semantics — the
-  /// splash App Open bypasses safety, the VIP extension flow bypasses VIP — so
-  /// folding them in would make this helper lie at three of its four call
-  /// sites. Their own checks stay where they are.
-  ///
-  /// At three of the four call sites there is no `await` between the entry gate
-  /// and the show today, so the call is redundant *today*. That is the point:
-  /// the next person to add an await there — an on-demand load, a dialog, a
-  /// mediation hop — inherits the guard instead of re-opening the hole.
-  /// `test/show_paths_guard_test.dart` fails if a show path stops calling it.
+  /// Checks teardown, adapter identity and consent immediately before show.
+  /// Mutex, VIP and safety policy stay at their individual call sites.
   String? _presentBlockedReason(AdProviderAdapter ad) {
     if (_destroyInFlight != null) return 'a teardown is in flight';
     if (!identical(_adapter, ad)) {
@@ -5237,6 +5210,26 @@ class AdManager with WidgetsBindingObserver {
     unawaited(ad.preloadMrec(_globalMrecWarmupKey));
   }
 
+  Timer? _bannerRestoreTimer;
+  static const Duration _kPostDismissBannerBuffer = Duration(milliseconds: 750);
+
+  void _cancelBannerRestoreTimer() {
+    _bannerRestoreTimer?.cancel();
+    _bannerRestoreTimer = null;
+  }
+
+  void _scheduleRestoreInlineAds() {
+    _cancelBannerRestoreTimer();
+    if (_adapter is! InlineAdVisibility) return;
+    _bannerRestoreTimer = Timer(_kPostDismissBannerBuffer, () {
+      _bannerRestoreTimer = null;
+      final inline = _adapter is InlineAdVisibility
+          ? _adapter as InlineAdVisibility
+          : null;
+      inline?.setInlineAdsHidden(false);
+    });
+  }
+
   /// Attach listeners to the four fullscreen slots so we can record the real
   /// dismiss instant (when state transitions OUT of [AdSlotState.showing]).
   /// This is the source of truth for [_lastFullscreenDismissAt] used by the
@@ -5268,10 +5261,11 @@ class AdManager with WidgetsBindingObserver {
         final curr = slot.value;
         if (prev == AdSlotState.showing && curr != AdSlotState.showing) {
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+          _scheduleRestoreInlineAds();
           SafeLogger.d(
               _tag,
               () =>
-                  '🛡️ ${slot.type.name} dismissed — app-open suppression armed');
+                  '🛡️ ${slot.type.name} dismissed — app-open/post-dismiss guard armed');
         }
         _slotPrevState[slot.type] = curr;
       }
@@ -8167,23 +8161,9 @@ class AdManager with WidgetsBindingObserver {
         _tag,
         () =>
             '▶️ showAppOpen (bypassSafety=$bypassSafety, placement=${placement.id})');
-    // Round-23 QC (reviewer B, MAJOR) — Google's App Open guidance says not to
-    // show an App Open ad on top of another ad, and names banner content. The
-    // resume path had just restored banner visibility (`onAppResumed`) before
-    // getting here, so a user coming back to a monetised screen got exactly
-    // that placement: a fullscreen ad over a live banner. Blank the inline
-    // surfaces for the duration instead of skipping the App Open — dropping it
-    // would kill the format on every screen that carries a banner, which is
-    // most of them.
-    //
-    // Round-28 QC (reviewer B, MINOR) — the backstop is `_armAppOpenShowTimeout`
-    // (90 s hard cap, calls the captured `onDismiss`, which restores below) and
-    // `dispose()`. NOT `onAppResumed`, as this said before visibility became
-    // owned: a resume releases only the `background` owner and leaves the
-    // `fullscreen` hold. The cap is the contract for a host adapter, not a
-    // convenience.
+    // Keep inline surfaces out of every fullscreen ad. The App Open watchdog
+    // and dispose path release the hold if native dismiss never arrives.
     final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
-    inline?.setInlineAdsHidden(true);
     final blocked = _presentBlockedReason(ad);
     if (blocked != null) {
       SafeLogger.w(_tag, '⏭️ showAppOpen skipped — $blocked');
@@ -8191,12 +8171,14 @@ class AdManager with WidgetsBindingObserver {
       onAdDismiss(false);
       return;
     }
+    _cancelBannerRestoreTimer();
+    inline?.setInlineAdsHidden(true);
     _lastShownPlacement[AdSlotType.appOpen] = placement;
     try {
       await ad.showAppOpen(onDismiss: (dismissed) {
         delivered = true;
-        inline?.setInlineAdsHidden(false);
         if (dismissed) {
+          _scheduleRestoreInlineAds();
           AdSafetyConfig.recordFullscreenAdShown(
               showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
@@ -8207,6 +8189,9 @@ class AdManager with WidgetsBindingObserver {
             type: AdSlotType.appOpen,
             placement: placement,
           ));
+        } else {
+          _cancelBannerRestoreTimer();
+          inline?.setInlineAdsHidden(false);
         }
         _emit(AdShowEvent(
           providerTag: ad.tag,
@@ -8232,6 +8217,7 @@ class AdManager with WidgetsBindingObserver {
       // that never fires — the exact failure class `showRewardedAd` was
       // hardened against in round-29. Resolve it the same way instead.
       SafeLogger.e(_tag, 'showAppOpenAd threw: $e\n$st');
+      _cancelBannerRestoreTimer();
       inline?.setInlineAdsHidden(false);
       // Independent review (round 37 verification) — only fall back if the
       // real callback never ran (see showInterstitial's identical guard).
@@ -8557,6 +8543,9 @@ class AdManager with WidgetsBindingObserver {
       onDoneFlow(false);
       return;
     }
+    _cancelBannerRestoreTimer();
+    final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
+    inline?.setInlineAdsHidden(true);
     SafeLogger.d(
         _tag,
         () =>
@@ -8577,6 +8566,9 @@ class AdManager with WidgetsBindingObserver {
               showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
           _lastFullscreenDismissAt = DateTime.now().millisecondsSinceEpoch;
+          if (!ad.interstitialSlot.isShowing && _bannerRestoreTimer == null) {
+            _scheduleRestoreInlineAds();
+          }
           // T236 audit fix — see _recordFullscreenFlight's doc comment.
           unawaited(_recordFullscreenFlight(
             type: AdSlotType.interstitial,
@@ -8591,6 +8583,10 @@ class AdManager with WidgetsBindingObserver {
           // T185 — read BEFORE the reload below can overwrite it.
           requestId: ad.interstitialSlot.requestId,
         ));
+        if (!shown) {
+          _cancelBannerRestoreTimer();
+          inline?.setInlineAdsHidden(false);
+        }
         onDoneFlow(shown);
         // Fix #1 (preserved from 1.x): reload after dismiss OR show-fail to
         // keep the slot filled for the next user-triggered show. AppLovin
@@ -8605,6 +8601,8 @@ class AdManager with WidgetsBindingObserver {
       // this method with `onDoneFlow` never called, matching the exact
       // failure `showRewardedAd` was hardened against in round-29.
       SafeLogger.e(_tag, 'showInterstitial threw: $e\n$st');
+      _cancelBannerRestoreTimer();
+      inline?.setInlineAdsHidden(false);
       // Independent review (round 37 verification) — only fall back here if
       // the real callback never ran. Otherwise this double-delivers: the
       // host already got its result, and re-invoking it with a different
@@ -8799,6 +8797,7 @@ class AdManager with WidgetsBindingObserver {
     required void Function(bool earned) onEarnedReward,
     bool vipAutoGrant = false,
     bool bypassVipGuard = false,
+    bool onDemandBuffer = false,
     Duration onDemandLoadTimeout = const Duration(seconds: 15),
     AdPlacement placement = AdPlacement.unspecified,
     String? ssvCustomData,
@@ -8916,7 +8915,7 @@ class AdManager with WidgetsBindingObserver {
     // so fetch one on demand and wait for it before showing. A blocking loading
     // dialog covers the wait (the slot can take seconds). A normal (non-VIP)
     // caller with a preloaded slot skips both the dialog and the wait.
-    if (bypassVipGuard && !ad.rewardedSlot.isReady) {
+    if ((bypassVipGuard || onDemandBuffer) && !ad.rewardedSlot.isReady) {
       final ctx = _navigatorKey?.currentContext;
       if (ctx == null) {
         // No live navigator context — can't show a blocking dialog, so the
@@ -9015,11 +9014,16 @@ class AdManager with WidgetsBindingObserver {
     final blocked = _presentBlockedReason(ad);
     if (blocked != null) {
       _rewardedInFlight = false;
+      final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
+      inline?.setInlineAdsHidden(false);
       SafeLogger.w(_tag, '⏭️ showRewarded skipped — $blocked');
       _emitSkip(AdSlotType.rewarded, 'show', 'blocked', placement: placement);
       onEarnedReward(false);
       return;
     }
+    _cancelBannerRestoreTimer();
+    final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
+    inline?.setInlineAdsHidden(true);
     SafeLogger.d(
         _tag,
         () =>
@@ -9046,10 +9050,16 @@ class AdManager with WidgetsBindingObserver {
                   showDurationMs: showStopwatch.elapsedMilliseconds);
               AdSafetyConfig.recordPlacementAdShown(placement); // T92
               // T236 audit fix — see _recordFullscreenFlight's doc comment.
+              if (!ad.rewardedSlot.isShowing && _bannerRestoreTimer == null) {
+                _scheduleRestoreInlineAds();
+              }
               unawaited(_recordFullscreenFlight(
                 type: AdSlotType.rewarded,
                 placement: placement,
               ));
+            } else {
+              _cancelBannerRestoreTimer();
+              inline?.setInlineAdsHidden(false);
             }
             if (result.earned) {
               _emit(AdRewardEvent(
@@ -9075,6 +9085,8 @@ class AdManager with WidgetsBindingObserver {
             unawaited(loadRewardedAd());
           });
     } catch (e) {
+      _cancelBannerRestoreTimer();
+      inline?.setInlineAdsHidden(false);
       // Round-29 audit (BLOCKER) — `ad.showRewarded()` is a real native
       // platform-channel call; if it throws instead of calling `onDone`,
       // `_rewardedInFlight` was never reset above and every future
@@ -9262,6 +9274,8 @@ class AdManager with WidgetsBindingObserver {
     // is here so that the day one does, the hole does not reopen.
     final blocked = _presentBlockedReason(ad);
     if (blocked != null) {
+      final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
+      inline?.setInlineAdsHidden(false);
       SafeLogger.w(_tag, '⏭️ showRewardedInterstitial skipped — $blocked');
       _emitSkip(AdSlotType.rewardedInterstitial, 'show', 'blocked',
           placement: placement);
@@ -9269,6 +9283,9 @@ class AdManager with WidgetsBindingObserver {
       return;
     }
     _lastShownPlacement[AdSlotType.rewardedInterstitial] = placement;
+    _cancelBannerRestoreTimer();
+    final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;
+    inline?.setInlineAdsHidden(true);
     // Independent review (round 37 verification) — see showInterstitial's
     // identical `delivered` guard above for why this must be set before
     // `onDone` runs, not after.
@@ -9294,10 +9311,16 @@ class AdManager with WidgetsBindingObserver {
               showDurationMs: showStopwatch.elapsedMilliseconds);
           AdSafetyConfig.recordPlacementAdShown(placement); // T92
           // T236 audit fix — see _recordFullscreenFlight's doc comment.
+          if (!ad.rewardedInterstitialSlot.isShowing && _bannerRestoreTimer == null) {
+            _scheduleRestoreInlineAds();
+          }
           unawaited(_recordFullscreenFlight(
             type: AdSlotType.rewardedInterstitial,
             placement: placement,
           ));
+        } else {
+          _cancelBannerRestoreTimer();
+          inline?.setInlineAdsHidden(false);
         }
         if (result.earned) {
           _emit(AdRewardEvent(
@@ -9324,6 +9347,8 @@ class AdManager with WidgetsBindingObserver {
         unawaited(loadRewardedInterstitialAd());
       });
     } catch (e, st) {
+      _cancelBannerRestoreTimer();
+      inline?.setInlineAdsHidden(false);
       // Round-37 audit (MAJOR) — see showInterstitial's identical fix above.
       SafeLogger.e(_tag, 'showRewardedInterstitialAd threw: $e\n$st');
       if (!delivered) onDone(false, false);

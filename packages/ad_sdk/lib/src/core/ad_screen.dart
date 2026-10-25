@@ -210,10 +210,7 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     required void Function(bool) onEarnedReward,
     bool vipAutoGrant = false,
     bool bypassVipGuard = false,
-    // T156 (codex round 1, P2) — bypassVipGuard's own real path loads a
-    // rewarded ad on demand when nothing was preloaded (VIP members never
-    // preload one); without forwarding this, that load was hardcoded to
-    // AdManager.showRewardedAd's 15s default with no way to tune it here.
+    bool onDemandBuffer = false,
     Duration onDemandLoadTimeout = const Duration(seconds: 15),
     AdPlacement placement = AdPlacement.unspecified,
     String? disclosureTitle,
@@ -253,7 +250,8 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
     }
 
     // T181 (codex round-2 fix) — see showInterstitialAd's comment.
-    final canShow = AdManager().canShowRewardedAd(placement: placement);
+    final canShow = onDemandBuffer ||
+        AdManager().canShowRewardedAd(placement: placement);
     SafeLogger.d(_tag, 'showRewardedAd pre-check result: canShow=$canShow');
 
     if (!canShow) {
@@ -301,6 +299,7 @@ abstract class AdScreenState<T extends AdScreen> extends State<T> {
       AdManager().showRewardedAd(
         vipAutoGrant: vipAutoGrant,
         bypassVipGuard: bypassVipGuard,
+        onDemandBuffer: onDemandBuffer,
         onDemandLoadTimeout: onDemandLoadTimeout,
         placement: placement,
         ssvUserId: ssvUserId,

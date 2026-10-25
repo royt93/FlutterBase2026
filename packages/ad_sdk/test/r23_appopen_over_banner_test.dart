@@ -158,12 +158,15 @@ void main() {
             'placement Google names as prohibited');
   });
 
-  test('and both come back the moment it is dismissed', () async {
+  test('and both come back after the post-dismiss safety buffer', () async {
     final adapter = _InlineAwareAdapter();
     AdManager().debugSetAdapter(adapter);
 
     await AdManager().showAppOpenAd(bypassSafety: true, onAdDismiss: (_) {});
 
+    expect(adapter.bannerL.visible.value, isFalse);
+    expect(adapter.mrecL.visible.value, isFalse);
+    await Future<void>.delayed(const Duration(milliseconds: 800));
     expect(adapter.bannerL.visible.value, isTrue);
     expect(adapter.mrecL.visible.value, isTrue,
         reason: 'a banner the host paid to load must not stay blank for the '

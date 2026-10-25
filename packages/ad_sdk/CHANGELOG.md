@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Added (T269):** `AdManager().showRewardedAd(onDemandBuffer: true)` can load a
+  missing Rewarded creative on demand, display a blocking buffer, and show it
+  when ready. Defaults to `false`; timeout/no-fill returns `earned: false`.
+  Fullscreen presentations now hide inline views through the existing visibility
+  owner and restore them 750 ms after dismiss, reducing immediate post-close
+  mis-taps without intercepting platform-view touches.
+
 - **Added (T263):** `AdManager().setLowPowerMode(bool)` lets hosts pause/resume
   AppLovin Banner/MREC auto-refresh when the host observes low-power mode. The
   initial value is false and the latest value is replayed after SDK reinitialize.
