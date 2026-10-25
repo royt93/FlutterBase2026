@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-10-25
+
 - **Added (T272):** `AppLovinAdapter.recoverInlineAdsAfterReconnect()` automatically recovers failed AppLovin Banner and MREC ads immediately upon network reconnection, matching AdMob's recovery path and preventing lost inline impressions after network outages.
 
 - **Added (T270 & T271):**
