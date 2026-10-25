@@ -54,4 +54,58 @@ void main() {
     expect(find.text('In-Feed Native Ad Slot #1'), findsOneWidget);
     expect(adBuildCount, greaterThanOrEqualTo(2));
   });
+
+  testWidgets('T270: InFeedAdListView with firstAdIndex renders early ad on physical device', (tester) async {
+    final items = List.generate(30, (i) => 'Feed Item #$i');
+    var adBuildCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(title: const Text('InFeedAdListView firstAdIndex Test')),
+          body: InFeedAdListView.builder(
+            itemCount: items.length,
+            adInterval: 6,
+            firstAdIndex: 2,
+            itemBuilder: (context, index) {
+              return Container(
+                height: 80,
+                color: index.isEven ? Colors.grey[200] : Colors.white,
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(items[index], style: const TextStyle(fontSize: 16)),
+              );
+            },
+            adBuilder: (context, adIndex) {
+              adBuildCount++;
+              return Container(
+                height: 120,
+                color: Colors.amber[100],
+                alignment: Alignment.center,
+                child: Text('Early Native Ad Slot #$adIndex'),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Verify initial viewport contains Feed Item #0, #1, then Early Native Ad Slot #0, then Item #2
+    expect(find.text('Feed Item #0'), findsOneWidget);
+    expect(find.text('Feed Item #1'), findsOneWidget);
+    expect(find.text('Early Native Ad Slot #0'), findsOneWidget);
+    expect(find.text('Feed Item #2'), findsOneWidget);
+
+    // Scroll until next ad slot (after 2 + 6 = 8 items) is visible
+    await tester.scrollUntilVisible(
+      find.text('Early Native Ad Slot #1'),
+      200,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Early Native Ad Slot #1'), findsOneWidget);
+    expect(adBuildCount, greaterThanOrEqualTo(2));
+  });
 }

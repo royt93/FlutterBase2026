@@ -2,7 +2,7 @@
 
 - **Loại:** Enhancement / Revenue Maximization
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** in progress (2026-10-25)
+- **Status:** complete (2026-10-25; verified on TECNO KJ7 device)
 
 ## Bối cảnh & Vấn đề
 
@@ -28,5 +28,6 @@
 - [x] `flutter analyze` sạch 0 issue trên cả package và example.
 - [x] `test/goldens/public_api_surface.txt` được regenerate và `api_golden_test.dart` pass.
 - [x] Full SDK test suite **2,797 tests pass**; example suite 71 tests pass.
+- [x] TECNO KJ7 device test: `t141_in_feed_native_ad_list_view_test.dart` pass 2/2 tests (mounting, firstAdIndex positioning, recycling khi cuộn).
 - [x] Release gate `./tool/release_readiness_gate.sh all` pass; dung lượng `lib/` giữ đúng 2048 KB.
 
