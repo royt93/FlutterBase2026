@@ -6,6 +6,13 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.3] - 2026-10-26
+
+- **Fixed (native):** a retry timer armed for a failed native load no longer disposes a healthy replacement loaded through a manual refresh or consent recovery before the timer fires. A regression widget test verifies the recovered ad survives without another request.
+- **Fixed (lifecycle):** pausing invalidates a pending resume consent re-check, preventing its continuation from resuming ad work after the app has returned to the background. The gate stays closed until a fresh resume confirms consent. Tests cover the stale continuation and successful recovery on the next resume.
+- **Documentation:** Android setup includes conditional core-library desugaring for consuming apps with dependencies that require it. The partner guide clarifies that SDK teardown disables the shared wake lock even when the host acquired it; wake-lock behavior is unchanged.
+- **Verification:** 2807 unit/widget tests and the release-readiness gate pass. A TECNO KJ7 path-dependency build passed five native EEA consent-change rounds and rapid background/foreground checks; these device checks establish no observed regression, not direct reproduction of either race.
+
 ## [3.6.2] - 2026-10-25
 
 - **Changed (packaging):** the package now ships `doc/AD_PROMPT_FLUTTER.MD`, the single-file partner integration guide, so `dart pub unpack applovin_admob_sdk:<VERSION>` contains it. `.pubignore` still excludes the rest of `doc/` (audits, task backlogs) apart from `doc/screenshots/`. No code change.
