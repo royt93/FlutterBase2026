@@ -9643,6 +9643,8 @@ class AdManager with WidgetsBindingObserver {
       // process could be killed while backgrounded.
       unawaited(_eventLog?.flush() ?? Future<void>.value());
       AdSafetyConfig.recordAppWentBackground();
+      _resumeConsentCheckGen++; // stale resume re-check
+      _resumeSkippedForApply = null;
       try {
         ad.onAppPaused();
       } catch (e, st) {

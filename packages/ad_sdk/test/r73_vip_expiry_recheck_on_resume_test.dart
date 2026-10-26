@@ -602,6 +602,98 @@ void main() {
       },
     );
 
+    test(
+      'a pause that arrives while the resume consent read is pending must '
+      'not let that resume run ad work in the background',
+      () async {
+        final adapter = _RecordingAdapter();
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+          ),
+          smartPreloadEnabled: false,
+        );
+        AdManager().debugCanRequestAds = true;
+        final gated = _GatedConsentStore();
+        addTearDown(() async {
+          IabStorage.debugOpenOverride = null;
+          if (!gated.release.isCompleted) gated.release.complete();
+          await pumpEventQueue(times: 30);
+          await AdManager().destroy();
+        });
+        SharedPreferencesAsyncPlatform.instance = gated;
+        final prefs = SharedPreferencesAsync();
+        IabStorage.debugOpenOverride = () async => prefs;
+
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await gated.entered.future.timeout(const Duration(seconds: 1));
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+        adapter.calls.clear();
+
+        gated.release.complete();
+        await pumpEventQueue(times: 30);
+
+        expect(adapter.calls.where((c) => c == 'onAppResumed'), isEmpty,
+            reason: 'the app went back to the background before the consent '
+                'read finished; the stale resume must not recreate banners '
+                'or re-enable auto-refresh behind the user');
+      },
+    );
+
+    test(
+      'after a pause cancels a pending resume, the next resume reopens the '
+      'gate and runs ad work exactly once',
+      () async {
+        final adapter = _RecordingAdapter();
+        AdManager().debugSetAdapter(adapter);
+        AdManager().debugConfig = const AdConfig(
+          provider: AdProvider.admob,
+          admob: AdMobConfig(
+            bannerId: 'b',
+            interstitialId: 'i',
+            appOpenId: 'a',
+          ),
+          smartPreloadEnabled: false,
+        );
+        AdManager().debugCanRequestAds = true;
+        final first = _GatedConsentStore();
+        addTearDown(() async {
+          IabStorage.debugOpenOverride = null;
+          if (!first.release.isCompleted) first.release.complete();
+          await pumpEventQueue(times: 30);
+          await AdManager().destroy();
+        });
+        SharedPreferencesAsyncPlatform.instance = first;
+        final firstPrefs = SharedPreferencesAsync();
+        IabStorage.debugOpenOverride = () async => firstPrefs;
+
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await first.entered.future.timeout(const Duration(seconds: 1));
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+        first.release.complete();
+        await pumpEventQueue(times: 30);
+        expect(AdManager().canRequestAds, isFalse,
+            reason: 'the cancelled resume never confirmed consent, so the '
+                'gate must stay shut while backgrounded');
+
+        adapter.calls.clear();
+        SharedPreferencesAsyncPlatform.instance =
+            InMemorySharedPreferencesAsync.withData({});
+        IabStorage.debugResetForTest();
+        IabStorage.debugOpenOverride = null;
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await pumpEventQueue(times: 30);
+
+        expect(AdManager().canRequestAds, isTrue,
+            reason: 'a fresh resume must not stay blocked by the cancelled one');
+        expect(adapter.calls.where((c) => c == 'onAppResumed'), hasLength(1));
+      },
+    );
+
     test('destroyed session cannot reopen a new session resume gate', () async {
       final old = _RecordingAdapter();
       const config = AdConfig(
