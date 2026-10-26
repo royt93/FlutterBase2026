@@ -308,6 +308,8 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     _retryTimer?.cancel();
     _retryTimer = Timer(const Duration(seconds: 30), () {
       if (!mounted) return;
+      // Stale timer: a healthy replacement may exist; don't destroy it.
+      if (!AdManager().nativeHasError(this).value) return;
       SafeLogger.d(_tag, 'retrying after load failure');
       // Round-38 audit fix (MAJOR) — AdMob's own load call resets its
       // `hasError` notifier on retry, but AppLovin's native view only ever

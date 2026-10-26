@@ -1002,6 +1002,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+      'a stale retry timer from an earlier failure must not dispose a native '
+      'ad that has since recovered', (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    final controller = InlineAdController();
+    await tester.pumpWidget(host(NativeAdWidget(controller: controller)));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 1);
+
+    // A: the first load fails and arms the 30s retry timer.
+    adapter.nativeListenablesByKey.values.single.hasError.value = true;
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // The host refreshes by hand well before that timer fires, and B loads.
+    AdManager().debugResetNativeCooldown();
+    controller.refresh();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 2, reason: 'sanity: manual refresh reloaded');
+    adapter.nativeListenablesByKey.values.single.isLoaded.value = true;
+    await tester.pump(const Duration(milliseconds: 50));
+    final disposesBefore = adapter.disposeNativeCalls;
+    final loadsBefore = adapter.loadNativeCalls;
+
+    // A's stale timer fires. B is healthy, so nothing may be torn down.
+    AdManager().debugResetNativeCooldown();
+    await tester.pump(const Duration(seconds: 31));
+
+    expect(adapter.disposeNativeCalls, disposesBefore,
+        reason: 'the recovered ad must not be disposed by a timer armed for '
+            'a failure that no longer applies');
+    expect(adapter.loadNativeCalls, loadsBefore,
+        reason: 'and no extra request may be issued for it');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('VIP active → native ad collapses to empty box, never loads',
       (tester) async {
     final adapter = _NativeCountingAdapter();
