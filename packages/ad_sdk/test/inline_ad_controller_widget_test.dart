@@ -387,6 +387,62 @@ void main() {
       expect(adapter.loadBannerCalls, 2);
     });
 
+    // A resume() queues a post-frame reload (didPopNext). A pause() issued
+    // before that frame must win — the queued callback may not load a
+    // placement the host has already paused again.
+    testWidgets('resume() then pause() before the next frame stays paused',
+        (tester) async {
+      await tester.pumpWidget(host(BannerAdWidget(controller: controller)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+      controller.pause();
+      await tester.pump();
+      AdManager().debugResetBannerCooldown();
+      final before = adapter.loadBannerCalls;
+      controller.resume();
+      controller.pause();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.status, InlineAdControllerStatus.paused);
+      expect(adapter.loadBannerCalls, before,
+          reason: 'a pending resume must not override a later pause');
+
+      // The later resume still works (guard is not sticky).
+      controller.resume();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, before + 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Route-away race: returning to the route queues a post-frame reload;
+    // another route pushed over it before that frame must cancel the reload.
+    testWidgets('pop then push before the next frame does not load under '
+        'the covering route', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(body: BannerAdWidget(controller: controller)),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadBannerCalls, 1);
+
+      Route<void> page() => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('top')));
+      navKey.currentState!.push(page());
+      await tester.pumpAndSettle();
+      expect(adapter.disposeCalls, 1);
+
+      AdManager().debugResetBannerCooldown();
+      navKey.currentState!.pop();
+      navKey.currentState!.push(page());
+      await tester.pumpAndSettle();
+      expect(adapter.loadBannerCalls, 1,
+          reason: 'banner is covered again; a stale resume must not load');
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump();
+    });
+
     testWidgets('pause() disposes the live instance; resume() reloads it',
         (tester) async {
       await tester.pumpWidget(host(BannerAdWidget(controller: controller)));
@@ -523,6 +579,56 @@ void main() {
       await tester.pump();
       expect(adapter.disposeCalls, 1);
       expect(adapter.loadMrecCalls, 2);
+    });
+
+    testWidgets('resume() then pause() before the next frame stays paused',
+        (tester) async {
+      await tester.pumpWidget(host(MrecAdWidget(controller: controller)));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadMrecCalls, 1);
+      controller.pause();
+      await tester.pump();
+      AdManager().debugResetMrecCooldown();
+      final before = adapter.loadMrecCalls;
+      controller.resume();
+      controller.pause();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(controller.status, InlineAdControllerStatus.paused);
+      expect(adapter.loadMrecCalls, before,
+          reason: 'a pending resume must not override a later pause');
+
+      controller.resume();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadMrecCalls, before + 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('pop then push before the next frame does not load under '
+        'the covering route', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        navigatorObservers: [adRouteObserver],
+        home: Scaffold(body: MrecAdWidget(controller: controller)),
+      ));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(adapter.loadMrecCalls, 1);
+
+      Route<void> page() => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('top')));
+      navKey.currentState!.push(page());
+      await tester.pumpAndSettle();
+      expect(adapter.disposeCalls, 1);
+
+      AdManager().debugResetMrecCooldown();
+      navKey.currentState!.pop();
+      navKey.currentState!.push(page());
+      await tester.pumpAndSettle();
+      expect(adapter.loadMrecCalls, 1,
+          reason: 'MREC is covered again; a stale resume must not load');
+
+      await tester.pumpWidget(host(const SizedBox()));
+      await tester.pump();
     });
 
     testWidgets('pause()/resume() dispose and reload the live instance',

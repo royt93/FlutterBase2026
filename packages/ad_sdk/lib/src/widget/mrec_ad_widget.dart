@@ -427,6 +427,13 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
       } else if (!_admobIsTop.value) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
+          // See BannerAdWidget.didPopNext: stale queued resume must lose to
+          // a later pause / active:false / covering route.
+          if (_pausedByController ||
+              widget.active == false ||
+              _subscribedRoute?.isCurrent == false) {
+            return;
+          }
           _admobIsTop.value = true;
           _initMrec(context);
         });
@@ -513,7 +520,10 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
             !_initScheduled &&
             AdManager().isInitialised &&
             widget.active != false &&
-            !_pausedByController) {
+            !_pausedByController &&
+            // Covered by another route: didPopNext reloads on return; a
+            // rebuild while covered must not load under it.
+            _subscribedRoute?.isCurrent != false) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;

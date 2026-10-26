@@ -778,6 +778,14 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       } else if (!_admobIsTop.value) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
+          // The state that queued this may be stale by the time the frame
+          // runs: a pause()/active:false or another route pushed over this
+          // one in between must win, and _admobIsTop must stay false.
+          if (_pausedByController ||
+              widget.active == false ||
+              _subscribedRoute?.isCurrent == false) {
+            return;
+          }
           _admobIsTop.value = true;
           _initBanner(context);
         });
@@ -911,7 +919,10 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
             !_initScheduled &&
             AdManager().isInitialised &&
             widget.active != false &&
-            !_pausedByController) {
+            !_pausedByController &&
+            // Covered by another route: didPopNext reloads on return; a
+            // rebuild while covered must not load under it.
+            _subscribedRoute?.isCurrent != false) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;
