@@ -7397,6 +7397,7 @@ class AdManager with WidgetsBindingObserver {
       WidgetsBinding.instance.removeObserver(this);
       _isObserverAdded = false;
     }
+    _prevLifecycleState = null; // stale `paused`: no observer to clear it
     _resumeFallbackTimer?.cancel();
     _resumeFallbackTimer = null;
     // Round-25 QC round 8 (`agy`, MAJOR) — the pending init retry is killed
@@ -9725,10 +9726,8 @@ class AdManager with WidgetsBindingObserver {
         !isInitialised) {
       return;
     }
-    // Round-13 QC (round 13), MAJOR — a resume is a free second chance for a
-    // gate whose recovery retries all failed (a channel that was wedged while
-    // the app was backgrounded is usually not wedged any more). Returns
-    // immediately when nothing is owed, which is every ordinary resume.
+    // A resume is a free second chance for a gate whose recovery retries all
+    // failed; returns at once when nothing is owed (every ordinary resume).
     _consentGateRecoveryAttempts = 0;
     unawaited(
       _recoverConsentGate().catchError((Object e) {

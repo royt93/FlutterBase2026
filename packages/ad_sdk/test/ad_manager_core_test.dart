@@ -1988,6 +1988,30 @@ void main() {
       AdManager().debugVipManager = null;
     });
 
+    test('destroy() while backgrounded does not leave later shows blocked',
+        () async {
+      AdManager().debugVipManager = null; // destroy() touches a real VIP only
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+      await AdManager().destroy(); // observer removed: `resumed` never arrives
+      AdPreferences.resetForTest();
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
+      AdSafetyConfig.resetForReinit();
+      final fresh = _FakeAdapter();
+      AdManager().debugSetAdapter(fresh);
+      AdManager().debugVipManager = _FakeVip(false);
+      fresh.interstitialSlot.beginLoad();
+      fresh.interstitialSlot.markReady();
+
+      bool? flow;
+      await AdManager().showInterstitial(onDoneFlow: (v) => flow = v);
+
+      expect(fresh.showInterstitialCalls, 1,
+          reason: 'a new session must not inherit the previous session\'s '
+              'backgrounded state');
+      expect(flow, isTrue);
+    });
+
     test('showInterstitial() throwing still calls onDoneFlow(false)', () async {
       adapter.interstitialSlot.beginLoad();
       adapter.interstitialSlot.markReady();
