@@ -443,6 +443,16 @@ Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transpa
 
    With a default `flutter create` project (shrinking off) you will not see the error until you turn shrinking on; turn it on, since unshrunk release builds are large. A release build was verified to succeed with exactly these edits.
 
+6. **Only if another package in your app needs core library desugaring** (the SDK alone does not; reproduced with a package that depends on `flutter_local_notifications` 20.1.0). Without it, `flutter build apk --debug` fails with `Execution failed for task ':app:checkDebugAarMetadata'` and `Dependency ':flutter_local_notifications' requires core library desugaring to be enabled for :app`. In `android/app/build.gradle.kts`, add `isCoreLibraryDesugaringEnabled = true` inside the existing `compileOptions { }` block, and add a `dependencies { }` block at the end of the file if there is none:
+
+   ```kotlin
+   dependencies {
+       coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+   }
+   ```
+
+   After this, debug and release (with edit 5) builds were verified to succeed with that package and this SDK together. Skip this edit when the build does not print the desugaring error.
+
 Then delete the template's `test/widget_test.dart` in a **new** app (it references the `MyApp` class that Step 4.1 replaces, so `flutter analyze` and `flutter test` fail until it is removed). Create all four files from Steps 4.1, 4.2 and 4.4 (`main.dart`, `ad_config.dart`, `splash_screen.dart`, `home_screen.dart`) before running `flutter analyze`: each imports the others, so analysis is red until the set is complete.
 
 **(b) Android permissions and app ID** — edit `android/app/src/main/AndroidManifest.xml`. These are fragments to merge into the existing elements; do not paste the comment markers as tags or replace the whole manifest.
