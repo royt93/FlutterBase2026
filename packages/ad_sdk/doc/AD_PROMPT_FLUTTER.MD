@@ -1196,7 +1196,7 @@ void reportHostLowPowerState(bool enabled) {
 }
 ```
 
-`setKeepScreenOn` controls a wake lock, not display brightness or refresh rate. `setLowPowerMode` affects AppLovin Banner/MREC auto-refresh only; it does not change AdMob or fullscreen formats. The SDK does not detect the OS power mode for the host. Do not add a battery plugin solely for an AdMob integration with no effect to observe. Verify screen sleep and restore behavior on device; if the host already controls wake locks, use one explicit owner.
+`setKeepScreenOn` controls a wake lock, not display brightness or refresh rate. `setLowPowerMode` affects AppLovin Banner/MREC auto-refresh only; it does not change AdMob or fullscreen formats. The SDK does not detect the OS power mode for the host. Do not add a battery plugin solely for an AdMob integration with no effect to observe. Verify screen sleep and restore behavior on device. **If the host app manages its own wake lock (for example during video playback or gameplay):** (1) set `keepScreenOnDuringSession: false` in `AdConfig`, and (2) know that `AdManager().destroy()` always calls `WakelockPlus.disable()` (SDK behavior, pinned by `test/wake_lock_test.dart`), which also turns off a wake lock the SDK never enabled. Avoid calling `destroy()` while the host still needs its own wake lock (for example during video playback). The SDK disables it asynchronously without awaiting completion, so calling `WakelockPlus.enable()` immediately after `destroy()` is not a guaranteed workaround. `keepScreenOnDuringSession: false` prevents the SDK from enabling the wake lock, but does not prevent this teardown side effect.
 
 ### 4.14 — Sensitive screens, hidden tabs and inline controls
 
