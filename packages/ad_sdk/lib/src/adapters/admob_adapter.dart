@@ -2541,8 +2541,9 @@ class AdMobAdapter
     });
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'preloadNative $tag 🔄');
+    NativeAd? nativeAd;
     try {
-      final nativeAd = NativeAd(
+      nativeAd = NativeAd(
         adUnitId: cfg.nativeId,
         request: AdRequest(
           nonPersonalizedAds: _nonPersonalizedAds,
@@ -2648,6 +2649,11 @@ class AdMobAdapter
       await nativeAd.load();
     } catch (e, st) {
       SafeLogger.e(_logTag, 'preloadNative $tag THREW: $e\n$st');
+      // Late rejection: only touch state this request still owns.
+      if (!_nativeRegistry.isCurrent(key, slot) ||
+          (nativeAd != null && !identical(_nativeAdsByKey[key], nativeAd))) {
+        return;
+      }
       _nativeAdsByKey.remove(key)?.dispose();
       listenables.isLoaded.value = false;
       listenables.markError();

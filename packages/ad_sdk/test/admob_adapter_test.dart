@@ -7,6 +7,8 @@
 //     `debugSimulateAppOpenShowAndArmWatchdog`, so the "no dismiss callback →
 //     force dismiss(false)" path can be exercised end-to-end without GMA.
 
+import 'dart:async';
+
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:flutter/services.dart';
@@ -561,6 +563,94 @@ void main() {
       );
       expect(adapter.native('k').hasError.value, isTrue);
       expect(adapter.nativeSlot('k').value, AdSlotState.cooldown);
+    });
+  });
+
+  // A native load() Future can reject long after its widget instance was
+  // disposed (or the adapter destroyed) and a replacement started for the same
+  // key. The stale catch must not touch the replacement or disposed notifiers.
+  group('late nativeAd.load() rejection', () {
+    const config = AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(
+        bannerId: 'b',
+        interstitialId: 'i',
+        appOpenId: 'ao',
+        rewardedId: 'r',
+        nativeId: 'n',
+      ),
+    );
+    late Completer<void> entered;
+    late Completer<void> release;
+    late int loads;
+    late AdMobAdapter adapter;
+    var adapterDisposed = false;
+
+    setUp(() async {
+      entered = Completer<void>();
+      release = Completer<void>();
+      loads = 0;
+      final channel = MethodChannel(
+        'plugins.flutter.io/google_mobile_ads',
+        StandardMethodCodec(AdMessageCodec()),
+      );
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'loadNativeAd' && ++loads == 1) {
+          entered.complete();
+          await release.future;
+          throw PlatformException(code: 'load-failed', message: 'late A');
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      adapter = AdMobAdapter(bridge: FakeGmaBridge());
+      expect(await adapter.initialize(config), isTrue);
+      adapterDisposed = false;
+      addTearDown(() => adapterDisposed ? null : adapter.dispose());
+    });
+
+    test('after disposeNativeInstance + replacement: replacement survives',
+        () async {
+      final a = adapter.preloadNative('key');
+      final aOutcome = a.then<Object?>((_) => null, onError: (Object e) => e);
+      await entered.future;
+      adapter.disposeNativeInstance('key');
+      await adapter.preloadNative('key');
+      final b = adapter.debugNativeListenerFor('key');
+      final bSlot = adapter.nativeSlot('key');
+      expect(b, isNotNull);
+      expect(bSlot.value, AdSlotState.loading);
+
+      release.complete();
+      expect(await aOutcome, isNull,
+          reason: 'no disposed-notifier error may escape');
+      expect(adapter.debugNativeListenerFor('key'), same(b));
+      expect(adapter.nativeSlot('key'), same(bSlot));
+      expect(bSlot.value, AdSlotState.loading);
+      expect(adapter.native('key').hasError.value, isFalse);
+    });
+
+    test('after adapter dispose: no error escapes', () async {
+      final a = adapter.preloadNative('key');
+      final aOutcome = a.then<Object?>((_) => null, onError: (Object e) => e);
+      await entered.future;
+      adapterDisposed = true;
+      await adapter.dispose();
+      release.complete();
+      expect(await aOutcome, isNull);
+      expect(adapter.debugNativeListenerFor('key'), isNull);
+    });
+
+    test('still-current own failure marks error and cooldown', () async {
+      final a = adapter.preloadNative('key');
+      await entered.future;
+      release.complete();
+      await a;
+      expect(adapter.debugNativeListenerFor('key'), isNull);
+      expect(adapter.native('key').hasError.value, isTrue);
+      expect(adapter.nativeSlot('key').value, AdSlotState.cooldown);
     });
   });
 
