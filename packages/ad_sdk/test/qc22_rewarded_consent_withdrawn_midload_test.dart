@@ -15,6 +15,7 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_admob_sdk/src/vip/_vip_entries_store.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -95,6 +96,7 @@ void main() {
     AdManager().debugSetAdapter(fake);
     AdManager().debugVipManager = vip;
     AdManager().debugCanRequestAds = true;
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
   });
 
   tearDown(() {
@@ -153,6 +155,21 @@ void main() {
     expect(replacement.showRewardedCalls, 0,
         reason: 'and it must not be re-pointed at the new adapter either — '
             'that ad was requested under the old session');
+    expect(flow.reward(), isFalse);
+  });
+
+  test('the app going to the background during the on-demand load blocks the show',
+      () async {
+    final flow = startWatchAd();
+    await Future<void>.delayed(Duration.zero);
+    expect(fake.rewardedSlot.value, AdSlotState.loading);
+
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+    fake.completeLoad();
+    await flow.call;
+
+    expect(fake.showRewardedCalls, 0,
+        reason: 'the user left the app before the fill returned');
     expect(flow.reward(), isFalse);
   });
 

@@ -2760,7 +2760,10 @@ class AdManager with WidgetsBindingObserver {
       return 'the SDK was torn down or re-initialised';
     }
     if (!canRequestAds) return 'consent was withdrawn';
-    return null;
+    final s = _prevLifecycleState;
+    return s == AppLifecycleState.paused || s == AppLifecycleState.hidden
+        ? 'backgrounded'
+        : null;
   }
 
   String? get _fullscreenBusyReason {
@@ -9744,10 +9747,8 @@ class AdManager with WidgetsBindingObserver {
       _resumeSkippedForApply = ad;
       return;
     }
-    // Round-13 QC (round 4), MAJOR — `destroy()` + re-initialise can swap the
-    // adapter out while the re-check is in flight. Calling into the old one
-    // would drive a disposed native channel (and could recreate ads on it), so
-    // this resume is simply dropped: the new adapter gets its own resume.
+    // destroy()+re-init can swap the adapter mid re-check; drop this resume
+    // (the new adapter gets its own) rather than drive a disposed channel.
     if (!identical(_adapter, ad)) {
       SafeLogger.w(
         _tag,

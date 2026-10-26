@@ -4929,6 +4929,39 @@ void main() {
       },
     );
 
+    testWidgets('queued App Open is dropped when the app is backgrounded',
+        (tester) async {
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+      AdManager().showAppOpenAdOnResume(); // consumes cold-start skip
+      AdManager().showAppOpenAdOnResume(); // schedules fallback presentation
+      // paused flushes the audit trail; run it in the real zone so the write
+      // chain it starts is not stranded in this test's fake-async zone.
+      await tester.runAsync(() async {
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+        await pumpEventQueue(times: 20);
+      });
+      await tester.pump(const Duration(seconds: 1, milliseconds: 100));
+      expect(adapter.showAppOpenCalls, 0,
+          reason: 'the user returned to the launcher before presentation');
+      await tester.runAsync(() async {
+        AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await pumpEventQueue(times: 50);
+      });
+    });
+
+    testWidgets('queued App Open still shows when the app remains foreground',
+        (tester) async {
+      AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+      adapter.appOpenSlot.beginReload();
+      adapter.appOpenSlot.markReady();
+      AdManager().showAppOpenAdOnResume(); // consumes cold-start skip
+      AdManager().showAppOpenAdOnResume(); // schedules fallback presentation
+      await tester.pump(const Duration(seconds: 1, milliseconds: 100));
+      expect(adapter.showAppOpenCalls, 1,
+          reason: 'the cancellation guard must not block a valid foreground show');
+    });
+
     // 2026-08-19 audit (Finding 4/6): showAppOpenAdOnResume() always called
     // showAppOpenAd(bypassSafety: true) — not just the splash flow — so a
     // resume-triggered App Open skipped the daily/hourly/session fullscreen
