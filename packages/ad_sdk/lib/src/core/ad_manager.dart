@@ -9021,6 +9021,7 @@ class AdManager with WidgetsBindingObserver {
     // act (see show_paths_guard_test.dart); a blocked/skipped path below
     // returns before ever reading it.
     final showStopwatch = Stopwatch()..start();
+    if (ad is AdMobAdapter) ad.canPresent = () => _presentBlockedReason(ad) == null;
     // Round-25 QC round 22 (`codex`, BLOCKER) — the consent gate at the top of
     // this method is read BEFORE a load that can take `onDemandLoadTimeout`
     // (15s by default). A withdrawal that lands inside that window — the user

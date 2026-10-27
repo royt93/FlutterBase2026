@@ -136,11 +136,11 @@ class AdMobAdapter
   @override
   AdEventSink? eventSink;
 
-  // ponytail: AdMobAdapter has no adapter-internal auto-reload path (unlike
-  // AppLovinAdapter's dismiss/fail callbacks), so this gate is never
-  // consulted here — kept only to satisfy AdProviderAdapter.
   @override
   bool Function() canReload = () => true;
+
+  /// Re-read after the rewarded SSV await; AdManager sets it per show.
+  bool Function() canPresent = () => true;
 
   void _emit(AdEvent e) => eventSink?.call(e);
 
@@ -1658,6 +1658,7 @@ class AdMobAdapter
           ssvCustomData: ssvCustomData,
           ssvUserId: ssvUserId,
           GmaShowCallbacks(
+            canShow: () => !cycleEnded && canPresent(),
             onShowed: () {
               rewardedSlot.markDisplayed();
               SafeLogger.d(_logTag, 'showRewarded $tag ✅ shown');
@@ -1760,6 +1761,7 @@ class AdMobAdapter
             },
           ));
     } catch (e, st) {
+      if (cycleEnded) return; // the watchdog already resolved this cycle
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
       // MJ25 — dispose, don't just forget: `ad` is the last reference.
       if (identical(_rewardedAd, ad)) _rewardedAd = null;

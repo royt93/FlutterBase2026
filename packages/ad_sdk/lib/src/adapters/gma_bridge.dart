@@ -11,6 +11,7 @@ class GmaShowCallbacks {
     this.onClicked,
     this.onImpression,
     this.onUserEarnedReward,
+    this.canShow,
   });
 
   final void Function()? onShowed;
@@ -21,6 +22,9 @@ class GmaShowCallbacks {
 
   /// Rewarded only — fires when the user earns the reward.
   final void Function(num amount, String type)? onUserEarnedReward;
+
+  /// Re-checked after the rewarded SSV await; false cancels the show.
+  final bool Function()? canShow;
 }
 
 /// A loaded GMA fullscreen ad (App Open / Interstitial / Rewarded), abstracted
@@ -398,6 +402,10 @@ class _RewardedWrap implements GmaFullscreenAd {
           customData: ssvCustomData,
         ),
       );
+      if (callbacks.canShow?.call() == false) {
+        callbacks.onFailedToShow?.call('cancelled while SSV was pending');
+        return;
+      }
     }
     _ad.fullScreenContentCallback = _content<RewardedAd>(callbacks);
     return _ad.show(
