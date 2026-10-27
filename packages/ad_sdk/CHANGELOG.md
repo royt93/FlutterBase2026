@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.5] - 2026-10-27
+
+- **Fixed (rewarded, SSV):** a rewarded show that passes `ssvUserId`/`ssvCustomData` awaits the server-side-verification setup before the native show. Consent withdrawal, the app going to the background or an SDK teardown inside that await no longer lets the ad present; the guard is re-read after the await and the show ends as skipped. Apps that do not pass SSV values are unaffected (no await).
+- **Fixed (rewarded, SSV):** a late SSV failure that arrives after the 10 s show watchdog already ended that cycle no longer demotes the replacement ad's slot from `showing` to `cooldown`.
+- **Verification:** 10 new tests drive the real `RewardedAd` wrapper over the real plugin channel (5 fail without the fix); 2828 tests, `flutter analyze` and the release gate pass. On a TECNO KJ7 an SSV rewarded ad was shown, earned once and closed (2 runs), a control without SSV behaved the same, and HOME pressed while the ad was already on screen left it up and recovered the slot. Not verified on a device: HOME inside the sub-second SSV window (adb timing could not reach it, so that case is covered by unit tests only), and the SSV server callback.
+
 ## [3.6.4] - 2026-10-26
 
 - **Fixed (fullscreen):** a presentation queued before the user pressed Home (App Open fallback timer or loading buffer, or an on-demand rewarded load finishing late) no longer calls into the native SDK once the app is `paused` or `hidden`. The shared pre-show guard covers App Open, interstitial, rewarded and rewarded interstitial. On a TECNO KJ7, the published 3.6.3 still attempted the native show (AdMob rejected it with "The ad can not be shown when app is not in foreground"); the fixed build logged `showAppOpen skipped — backgrounded` and made no native call in 3 of 4 adb-timed runs; in the fourth the press of HOME came after the App Open had already been shown, so it did not exercise the guard. The timing is not deterministic.
