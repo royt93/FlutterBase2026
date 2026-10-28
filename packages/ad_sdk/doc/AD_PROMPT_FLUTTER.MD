@@ -3202,7 +3202,7 @@ Do not implement these during core ads setup unless Step 0/3 selected them. If s
 | SDK data erasure | Step 10.10 | Privacy/account-deletion owner |
 | Signed feature flags | Step 4.16 | SDK/operations issuer owns private signing key |
 
-Rewarded SSV is backend-owned. The client only passes identifiers; it does not verify the provider postback. Configure the provider dashboard callback, then pass a stable partner reward-account ID (never raw PII) and an opaque server-issued nonce when showing the ad:
+Rewarded without SSV needs no backend: omit both `ssvUserId` and `ssvCustomData`; grant the ordinary in-app reward only when `onEarnedReward(true)` arrives (as in Step 4.7). This is client-side behavior and is not authoritative against a modified client. Choose SSV only if the partner already owns a backend that must verify rewards. SSV is backend-owned: the client only passes identifiers and does not verify the provider postback. Configure the provider dashboard callback, then pass a stable partner reward-account ID (never raw PII) and an opaque server-issued nonce when showing the ad:
 
 ```dart
 void showServerVerifiedReward({
