@@ -49,6 +49,40 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
+  test('the GMA event channel drops callbacks after ad disposal', () async {
+    var loaded = 0;
+    await bridge.loadRewarded(
+      'unit-rewarded',
+      nonPersonalizedAds: false,
+      onLoaded: (_) => loaded++,
+      onFailed: (_, _) {},
+    );
+    final adId = calls.last.arguments['adId'] as int;
+    final ad = instanceManager.adFor(adId)! as RewardedAd;
+
+    Future<void> dispatchLoaded() async {
+      await messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(
+          MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId,
+            'eventName': 'onAdLoaded',
+            'responseInfo': null,
+          }),
+        ),
+        (_) {},
+      );
+    }
+
+    await dispatchLoaded();
+    expect(loaded, 1);
+    await ad.dispose();
+    expect(instanceManager.adFor(adId), isNull);
+
+    await dispatchLoaded();
+    expect(loaded, 1);
+  });
+
   test('initialize forwards MobileAds#initialize', () async {
     await bridge.initialize();
     // MobileAds.instance's first-ever access also fires a one-time '_init'
