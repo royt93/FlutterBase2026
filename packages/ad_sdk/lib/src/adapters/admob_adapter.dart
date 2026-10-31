@@ -2139,13 +2139,11 @@ class AdMobAdapter
           _logTag, 'loadBanner $tag ⏭️ already loading/showing or in cooldown');
       return;
     }
-    // MJ20 — banner/mrec/native depended entirely on GMA calling a listener
-    // back. `beginLoad()` has no timeout of its own (AdSlot says so), the
-    // fullscreen formats all arm this watchdog, and `_retryRefillAds` never
-    // scanned these three slots — so a listener that never fired left the slot
-    // `loading` forever, every later beginLoad() refused, and the widget sat on
-    // its shimmer placeholder for the rest of the session with hasError false.
+    // Inline slots have no load timeout; without this watchdog a missing GMA
+    // callback leaves the widget loading forever.
+    var loadTimedOut = false;
     slot.armLoadWatchdog('banner', _widgetLoadWatchdog, onTimeout: () {
+      loadTimedOut = true;
       // M3 — the slot state alone repairs nothing: loadBanner early-returns
       // while `_bannerAdsByKey` still holds a key, so a dead BannerAd left in
       // the map blocks every later load for this widget instance. Drop it.
@@ -2197,7 +2195,7 @@ class AdMobAdapter
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!_bannerRegistry.isCurrent(key, slot)) return;
+            if (loadTimedOut || !_bannerRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'loadBanner $tag ✅');
             listenables.isLoaded.value = true;
             listenables.clearError();
@@ -2230,7 +2228,7 @@ class AdMobAdapter
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!_bannerRegistry.isCurrent(key, slot)) return;
+            if (loadTimedOut || !_bannerRegistry.isCurrent(key, slot)) return;
             // Round-73 audit — GMA auto-refreshes a live ad and reports a
             // refresh no-fill through this same callback, but keeps showing
             // the previous creative. Tearing it down here blanks a good ad

@@ -15,9 +15,11 @@ import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 // AdMessageCodec isn't exported from the public API — same workaround as
 // gma_bridge_test.dart / admob_adapter_test.dart.
-import 'package:google_mobile_ads/src/ad_instance_manager.dart' show AdMessageCodec;
+import 'package:google_mobile_ads/src/ad_instance_manager.dart'
+    show AdMessageCodec, instanceManager;
 
 import 'admob_behavioral_test.dart' show FakeGmaBridge;
 
@@ -42,11 +44,16 @@ void main() {
   );
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final calls = <MethodCall>[];
 
   late AdMobAdapter adapter;
 
   setUp(() async {
-    messenger.setMockMethodCallHandler(channel, (call) async => null);
+    calls.clear();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return null;
+    });
     adapter = AdMobAdapter(bridge: FakeGmaBridge());
     expect(await adapter.initialize(_config), isTrue);
   });
@@ -139,6 +146,28 @@ void main() {
             reason: 'M3: the dead BannerAd must be dropped from the cache');
       });
     });
+
+    test('banner load callback after watchdog cannot revive the timed-out slot', () {
+        fakeAsync((async) {
+          adapter.loadBannerIfNeeded('late', 300);
+          async.elapse(const Duration(seconds: 1));
+          final listener = adapter.debugBannerListenerFor('late')!;
+          final adId = calls.last.arguments['adId'] as int;
+          final ad = instanceManager.adFor(adId)! as BannerAd;
+          expect(adapter.bannerSlot('late').isLoading, isTrue);
+
+          async.elapse(const Duration(seconds: 31));
+          expect(adapter.bannerSlot('late').value, AdSlotState.cooldown);
+          expect(adapter.banner('late').hasError.value, isTrue);
+          expect(adapter.debugBannerListenerFor('late'), isNull);
+
+          listener.onAdLoaded!(ad);
+          expect(adapter.bannerSlot('late').value, AdSlotState.cooldown);
+          expect(adapter.banner('late').hasError.value, isTrue);
+          expect(adapter.banner('late').isLoaded.value, isFalse);
+          expect(adapter.debugBannerListenerFor('late'), isNull);
+        });
+      });
   });
 
   group('MJ21 — dispose-during-await race', () {
