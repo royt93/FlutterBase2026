@@ -6,6 +6,11 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.6] - 2026-10-31
+
+- **Fixed (Banner):** a GMA `onAdLoaded` or `onAdFailedToLoad` callback arriving after the widget-load watchdog expired no longer changes the timed-out slot or its listenables. The watchdog has already disposed and removed that ad; late callbacks from that load are ignored.
+- **Verification:** a regression test reproduces the previous false transition from `cooldown` to `ready` after timeout. The test now verifies the slot remains in cooldown with no loaded ad. Full suite: 2838 tests, `flutter analyze` and the release-readiness gate pass. This callback ordering is covered by a deterministic listener test; no real late GMA callback was forced on-device.
+
 ## [3.6.5] - 2026-10-27
 
 - **Fixed (rewarded, SSV):** a rewarded show that passes `ssvUserId`/`ssvCustomData` awaits the server-side-verification setup before the native show. Consent withdrawal, the app going to the background or an SDK teardown inside that await no longer lets the ad present; the guard is re-read after the await and the show ends as skipped. Apps that do not pass SSV values are unaffected (no await).
