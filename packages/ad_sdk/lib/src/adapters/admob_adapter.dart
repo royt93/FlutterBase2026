@@ -2362,7 +2362,9 @@ class AdMobAdapter
       return;
     }
     // MJ20 — see loadBanner.
+    var loadTimedOut = false;
     slot.armLoadWatchdog('mrec', _widgetLoadWatchdog, onTimeout: () {
+      loadTimedOut = true;
       // M3 — see loadBanner.
       _mrecAdsByKey.remove(key)?.dispose();
       listenables.markError();
@@ -2388,7 +2390,7 @@ class AdMobAdapter
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!_mrecRegistry.isCurrent(key, slot)) return;
+            if (loadTimedOut || !_mrecRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'loadMrec $tag ✅');
             listenables.isLoaded.value = true;
             listenables.clearError();
@@ -2416,7 +2418,7 @@ class AdMobAdapter
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!_mrecRegistry.isCurrent(key, slot)) return;
+            if (loadTimedOut || !_mrecRegistry.isCurrent(key, slot)) return;
             // Round-73 audit — GMA auto-refreshes a live ad and reports a
             // refresh no-fill through this same callback, but keeps showing
             // the previous creative. Tearing it down here blanks a good ad
@@ -2527,7 +2529,9 @@ class AdMobAdapter
       return;
     }
     // MJ20 — see loadBanner.
+    var loadTimedOut = false;
     slot.armLoadWatchdog('native', _widgetLoadWatchdog, onTimeout: () {
+      loadTimedOut = true;
       // M3 — see loadBanner.
       _nativeAdsByKey.remove(key)?.dispose();
       // T152 — this was missing here (banner/mrec both have it): without
@@ -2560,7 +2564,7 @@ class AdMobAdapter
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!_nativeRegistry.isCurrent(key, slot)) return;
+            if (loadTimedOut || !_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.d(_logTag, 'preloadNative $tag ✅');
             if (factoryId != null) {
               SafeLogger.d(
@@ -2582,7 +2586,7 @@ class AdMobAdapter
             // (fast scroll, route pop) and disposeXInstance(key) may have
             // disposed exactly those notifiers. The MJ21/B-2 identity guard
             // only covered the pre-creation await window.
-            if (!_nativeRegistry.isCurrent(key, slot)) return;
+            if (loadTimedOut || !_nativeRegistry.isCurrent(key, slot)) return;
             SafeLogger.w(_logTag, 'preloadNative $tag ❌ ${err.code}');
             // T228 — factoryId opt-in with no matching native-side
             // NativeAdFactory registration surfaces here as a normal load

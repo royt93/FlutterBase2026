@@ -168,6 +168,48 @@ void main() {
           expect(adapter.debugBannerListenerFor('late'), isNull);
         });
       });
+
+    test('MREC load callback after watchdog cannot revive timed-out slot', () {
+      fakeAsync((async) {
+        adapter.loadMrecIfNeeded('late', 300);
+        async.flushMicrotasks();
+        final listener = adapter.debugMrecListenerFor('late')!;
+        final adId = calls.last.arguments['adId'] as int;
+        final ad = instanceManager.adFor(adId)! as BannerAd;
+
+        async.elapse(const Duration(seconds: 31));
+        expect(adapter.mrecSlot('late').value, AdSlotState.cooldown);
+        expect(adapter.mrec('late').hasError.value, isTrue);
+        expect(adapter.debugMrecListenerFor('late'), isNull);
+
+        listener.onAdLoaded!(ad);
+        expect(adapter.mrecSlot('late').value, AdSlotState.cooldown);
+        expect(adapter.mrec('late').hasError.value, isTrue);
+        expect(adapter.mrec('late').isLoaded.value, isFalse);
+        expect(adapter.debugMrecListenerFor('late'), isNull);
+      });
+    });
+
+    test('Native load callback after watchdog cannot revive timed-out slot', () {
+      fakeAsync((async) {
+        adapter.preloadNative('late');
+        async.flushMicrotasks();
+        final listener = adapter.debugNativeListenerFor('late')!;
+        final adId = calls.last.arguments['adId'] as int;
+        final ad = instanceManager.adFor(adId)! as NativeAd;
+
+        async.elapse(const Duration(seconds: 31));
+        expect(adapter.nativeSlot('late').value, AdSlotState.cooldown);
+        expect(adapter.native('late').hasError.value, isTrue);
+        expect(adapter.debugNativeListenerFor('late'), isNull);
+
+        listener.onAdLoaded!(ad);
+        expect(adapter.nativeSlot('late').value, AdSlotState.cooldown);
+        expect(adapter.native('late').hasError.value, isTrue);
+        expect(adapter.native('late').isLoaded.value, isFalse);
+        expect(adapter.debugNativeListenerFor('late'), isNull);
+      });
+    });
   });
 
   group('MJ21 — dispose-during-await race', () {
