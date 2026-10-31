@@ -182,4 +182,42 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(advisor.shouldFailoverNextSession, isFalse);
   });
+
+  test(
+      'clearSdkData() clears live compliance event log, bypass audit trail and incident recorder',
+      () async {
+    final log = AdEventLog(prefs);
+    AdManager().debugEventLog = log;
+    log.recordEvent(AdClickEvent(
+      providerTag: '[AdMob]',
+      type: AdSlotType.banner,
+      placement: AdPlacement.home,
+    ));
+    AdManager().bypassAuditTrail.attach(prefs);
+    AdManager().bypassAuditTrail.record(
+      kind: 'bypassSafety',
+      callSiteTag: 'test_splash',
+      type: AdSlotType.appOpen,
+    );
+    AdManager().incidentRecorder.record(
+      'test_incident',
+      AdManager().stateSnapshot.value,
+    );
+
+    expect(AdManager().exportComplianceReport().events, isNotEmpty,
+        reason: 'sanity: compliance log populated before erasure');
+    expect(AdManager().bypassAuditTrail.entries, isNotEmpty,
+        reason: 'sanity: bypass audit trail populated before erasure');
+    expect(AdManager().incidentRecorder.entries, isNotEmpty,
+        reason: 'sanity: incident recorder populated before erasure');
+
+    await AdManager().clearSdkData();
+
+    expect(AdManager().exportComplianceReport().events, isEmpty,
+        reason: 'clearSdkData() must clear in-memory compliance events');
+    expect(AdManager().bypassAuditTrail.entries, isEmpty,
+        reason: 'clearSdkData() must clear in-memory bypass audit entries');
+    expect(AdManager().incidentRecorder.entries, isEmpty,
+        reason: 'clearSdkData() must clear in-memory incident entries');
+  });
 }

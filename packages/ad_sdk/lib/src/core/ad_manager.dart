@@ -1661,20 +1661,13 @@ class AdManager with WidgetsBindingObserver {
       scope: scope,
       confirmedEntitlementErasure: confirmedEntitlementErasure,
     );
-    // Round 54 audit fix (MINOR) — ProviderFailoverAdvisor's persisted
-    // streak/circuit keys aren't entitlement keys, so the sweep above
-    // already erased them at either scope. A live advisor instance's own
-    // in-memory copy survives that untouched, so without this its next
-    // AdEvent write-chain would silently re-persist the just-erased
-    // values right back — same "reset the live instance too" reasoning
-    // as the VIP/consent-provenance-journal branches below.
+    // Reset live in-memory logs/monitors so an erased disk state is not
+    // resurrected by the next event or exported from RAM after erasure.
     _providerFailoverAdvisor?.resetInMemoryState();
-    // T231 — same "reset the live instance too" reasoning as
-    // ProviderFailoverAdvisor above: the on-disk key is swept by the
-    // ad_sdk_-prefix loop in prefs.clearSdkData, but a live recorder's
-    // in-memory buffer would otherwise survive untouched and silently
-    // re-persist itself on the very next record() call.
     _flightRecorder?.clear();
+    await _eventLog?.clear();
+    await bypassAuditTrail.clear();
+    incidentRecorder.clear();
     if (purgeConsentProvenanceJournal) {
       final journal = _provenanceJournal;
       if (journal != null) {
