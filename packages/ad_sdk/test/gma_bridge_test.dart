@@ -383,6 +383,61 @@ void main() {
       expect(showed, isTrue);
     });
 
+    test('interstitial failed-to-show callback forwards exact message', () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadInterstitial('unit-inter',
+          nonPersonalizedAds: false, onLoaded: (ad) => wrap = ad,
+          onFailed: (_, _) {});
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as InterstitialAd;
+      await messenger.handlePlatformMessage(channel.name,
+          channel.codec.encodeMethodCall(MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId, 'eventName': 'onAdLoaded', 'responseInfo': null,
+          })), (_) {});
+      final failures = <String>[];
+      await wrap!.show(GmaShowCallbacks(onFailedToShow: failures.add));
+      ad.fullScreenContentCallback?.onAdFailedToShowFullScreenContent?.call(
+          ad, AdError(17, 'domain', 'interstitial failed'));
+      expect(failures, ['interstitial failed']);
+    });
+
+    test('rewarded failed-to-show callback forwards exact message', () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadRewarded('unit-rewarded',
+          nonPersonalizedAds: false, onLoaded: (ad) => wrap = ad,
+          onFailed: (_, _) {});
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as RewardedAd;
+      await messenger.handlePlatformMessage(channel.name,
+          channel.codec.encodeMethodCall(MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId, 'eventName': 'onAdLoaded', 'responseInfo': null,
+          })), (_) {});
+      final failures = <String>[];
+      await wrap!.show(GmaShowCallbacks(onFailedToShow: failures.add));
+      ad.fullScreenContentCallback?.onAdFailedToShowFullScreenContent?.call(
+          ad, AdError(19, 'domain', 'rewarded failed'));
+      expect(failures, ['rewarded failed']);
+    });
+
+    test('rewarded interstitial failed-to-show callback forwards exact message',
+        () async {
+      GmaFullscreenAd? wrap;
+      await bridge.loadRewardedInterstitial('unit-rew-inter',
+          nonPersonalizedAds: false, onLoaded: (ad) => wrap = ad,
+          onFailed: (_, _) {});
+      final adId = calls.last.arguments['adId'] as int;
+      final ad = instanceManager.adFor(adId)! as RewardedInterstitialAd;
+      await messenger.handlePlatformMessage(channel.name,
+          channel.codec.encodeMethodCall(MethodCall('onAdEvent', <dynamic, dynamic>{
+            'adId': adId, 'eventName': 'onAdLoaded', 'responseInfo': null,
+          })), (_) {});
+      final failures = <String>[];
+      await wrap!.show(GmaShowCallbacks(onFailedToShow: failures.add));
+      ad.fullScreenContentCallback?.onAdFailedToShowFullScreenContent?.call(
+          ad, AdError(23, 'domain', 'rewarded interstitial failed'));
+      expect(failures, ['rewarded interstitial failed']);
+    });
+
     test('rewarded shows with SSV and dispatches reward callback', () async {
       GmaFullscreenAd? wrap;
       await bridge.loadRewarded(
