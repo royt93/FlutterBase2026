@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.8] - 2026-10-31
+
+- **Fixed (compliance):** `AdManager().clearSdkData()` now also clears in-memory `_eventLog`, `bypassAuditTrail`, and `incidentRecorder`. Previously, `clearSdkData()` cleared on-disk SharedPreferences keys and live monitors (`_flightRecorder`, `_providerFailoverAdvisor`, `_provenanceJournal`, `_vipManager`), but left compliance logs in RAM. As a result, subsequent calls to `exportComplianceReport()`, `exportSignedBypassAuditTrail()`, and `exportSignedIncidentBundle()` continued to export pre-erasure events from memory, and the next recorded ad event or safety bypass re-persisted the erased entries back to disk.
+- **Clarification (testing):** as documented in the codebase tests, the late inline callback timeout latch added in 3.6.6 and 3.6.7 was verified by direct listener injection to guard state consistency against late callbacks. The standard `google_mobile_ads` 9.0.0 event manager removes disposed ad IDs and drops platform events without a registered ad (`Ad with id '<id>' is not available for onAdLoaded.`), so a production-reachable post-dispose GMA callback has not been demonstrated on device.
+- **Verification:** a regression test in `t200_clear_sdk_data_test.dart` asserts that `clearSdkData()` completely empties `exportComplianceReport().events`, `bypassAuditTrail.entries`, and `incidentRecorder.entries`. Full suite: 2842 tests, `flutter analyze` and the release-readiness gate pass.
+
 ## [3.6.7] - 2026-10-31
 
 - **Fixed (MREC/Native):** GMA `onAdLoaded` and `onAdFailedToLoad` callbacks arriving after the widget-load watchdog expired no longer revive the timed-out slot or mutate its listenables. The watchdog has already disposed and removed that ad; late callbacks from that load are ignored, matching the Banner guard added in 3.6.6.
