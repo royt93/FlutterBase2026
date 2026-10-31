@@ -36,6 +36,8 @@ import 'dart:async';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/core/ad_provider_adapter.dart';
+import 'package:applovin_admob_sdk/src/core/ump_consent.dart'
+    show debugRequestConsentInfoUpdateTimeoutOverride;
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
@@ -176,6 +178,7 @@ void main() {
   });
 
   tearDown(() async {
+    debugRequestConsentInfoUpdateTimeoutOverride = null;
     AdManager.debugAdapterFactory = null;
     await AdManager().destroy();
     messenger.setMockMethodCallHandler(_alChannel, null);
@@ -352,6 +355,70 @@ void main() {
           reason: 'a stale in-flight future would silently swallow every '
               'later call — worse than the bug being fixed');
     });
+  });
+
+  test('an initialized setConsent grant cannot open the UMP request gate',
+      () async {
+    AdManager.debugAdapterFactory = (config) => _InstantAdapter();
+    status = _statusRequired;
+    canRequestAds = false;
+    await AdManager().initialize(
+      config: _appLovinConfig,
+      onComplete: (_, _) {},
+    );
+    await AdManager().requestUmpConsent();
+    expect(AdManager().canRequestAds, isFalse);
+
+    await AdManager().setConsent(const AdConsent(hasUserConsent: true));
+    expect(AdManager().consent.hasUserConsent, isTrue);
+    expect(AdManager().canRequestAds, isFalse);
+
+    status = _statusObtained;
+    canRequestAds = true;
+    await AdManager().requestUmpConsent();
+    expect(AdManager().canRequestAds, isTrue);
+  });
+
+  test('a late UMP result from a destroyed session cannot overwrite re-init',
+      () async {
+    AdManager.debugAdapterFactory = (config) => _InstantAdapter();
+    await AdManager().initialize(config: _appLovinConfig, onComplete: (_, _) {});
+    status = _statusRequired;
+    canRequestAds = false;
+    final oldUpdate = Completer<void>();
+    debugRequestConsentInfoUpdateTimeoutOverride = const Duration(seconds: 20);
+    messenger.setMockMethodCallHandler(_umpChannel, (call) {
+      umpCalls.add(call.method);
+      switch (call.method) {
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return oldUpdate.future;
+        case 'ConsentInformation#canRequestAds':
+          return Future.value(canRequestAds);
+        case 'ConsentInformation#getConsentStatus':
+          return Future.value(status);
+        case 'ConsentInformation#isConsentFormAvailable':
+          return Future.value(false);
+        default:
+          return Future.value(null);
+      }
+    });
+
+    final oldRequest = AdManager().requestUmpConsent();
+    await Future<void>.delayed(Duration.zero);
+    expect(umpCalls, contains('ConsentInformation#requestConsentInfoUpdate'));
+
+    await AdManager().destroy();
+    status = _statusObtained;
+    canRequestAds = true;
+    await AdManager().initialize(config: _appLovinConfig, onComplete: (_, _) {});
+    final newResult = await AdManager().requestUmpConsent();
+    expect(newResult.canRequestAds, isTrue);
+    expect(AdManager().canRequestAds, isTrue);
+
+    oldUpdate.complete();
+    await oldRequest;
+    expect(AdManager().canRequestAds, isTrue);
+    debugRequestConsentInfoUpdateTimeoutOverride = null;
   });
 
   group('M6 — the 240s cap on the mutex itself', () {

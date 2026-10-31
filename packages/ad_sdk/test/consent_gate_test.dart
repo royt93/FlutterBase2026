@@ -7,6 +7,7 @@
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +29,8 @@ class _CountingAdapter implements AdProviderAdapter {
   int loadRewardedCalls = 0;
   int loadAppOpenCalls = 0;
   int showInterstitialCalls = 0;
+  int showAppOpenCalls = 0;
+  int showRewardedCalls = 0;
 
   @override
   String get tag => 'counting';
@@ -46,6 +49,22 @@ class _CountingAdapter implements AdProviderAdapter {
   @override
   Future<void> loadAppOpen({void Function(bool)? onAdLoaded}) async =>
       loadAppOpenCalls++;
+  @override
+  Future<void> showAppOpen({
+    required void Function(bool dismissed) onDismiss,
+  }) async {
+    showAppOpenCalls++;
+    onDismiss(true);
+  }
+  @override
+  Future<void> showRewarded({
+    required void Function(RewardResult result) onDone,
+    String? ssvCustomData,
+    String? ssvUserId,
+  }) async {
+    showRewardedCalls++;
+    onDone(const RewardResult(earned: true, shown: true));
+  }
   @override
   void applyConsent(AdConsent consent) {}
   @override
@@ -81,6 +100,13 @@ void main() {
     final prefs = await AdPreferences.getInstance();
     await AdSafetyConfig.init(prefs, params: AdSafetyParams.debug);
     AdSafetyConfig.resetForReinit();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('applovin_max'),
+            (call) async => null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/google_mobile_ads'),
+            (call) async => null);
     adapter = _CountingAdapter();
     AdManager().debugSetAdapter(adapter);
     AdManager().debugConfig = _config;
@@ -93,6 +119,11 @@ void main() {
     AdManager().debugConfig = null;
     AdManager().debugVipManager = null;
     AdManager().debugCanRequestAds = true;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('applovin_max'), null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/google_mobile_ads'), null);
   });
 
   group('canRequestAds gate', () {
@@ -118,6 +149,25 @@ void main() {
       expect(adapter.loadInterstitialCalls, 1);
       expect(adapter.loadRewardedCalls, 1);
       expect(adapter.loadAppOpenCalls, 1);
+    });
+
+    test('gate CLOSED → direct Rewarded show is skipped', () async {
+      AdManager().debugCanRequestAds = false;
+      bool? earned;
+      await AdManager().showRewardedAd(onEarnedReward: (value) => earned = value);
+      expect(earned, isFalse);
+      expect(adapter.showRewardedCalls, 0);
+    });
+
+    test('gate CLOSED → App Open bypassSafety still cannot show', () async {
+      AdManager().debugCanRequestAds = false;
+      bool? dismissed;
+      await AdManager().showAppOpenAd(
+        bypassSafety: true,
+        onAdDismiss: (value) => dismissed = value,
+      );
+      expect(dismissed, isFalse);
+      expect(adapter.showAppOpenCalls, 0);
     });
 
     test('loadAppOpenAd fires onAdLoaded(false) when gate closed', () async {
