@@ -1374,6 +1374,21 @@ void main() {
       expect(calls, 1);
     });
 
+    test('fail-to-show disposes old ad, skips reward and enters cooldown', () async {
+      await adapter.loadRewardedInterstitial();
+      final old = bridge.lastRewardedInterstitial!;
+      RewardResult? result;
+      await adapter.showRewardedInterstitial(onDone: (r) => result = r);
+
+      old.shown!.onFailedToShow!('show failed');
+      expect(result, isNotNull);
+      expect(result!.earned, isFalse);
+      expect(result!.shown, isFalse);
+      expect(old.disposeCount, 1);
+      expect(bridge.loads['rewardedInterstitial'], hasLength(1));
+      expect(adapter.rewardedInterstitialSlot.value, AdSlotState.cooldown);
+    });
+
     test('dismiss WITHOUT earning → skipped (no reward)', () async {
       await adapter.loadRewardedInterstitial();
       RewardResult? result;
@@ -1396,6 +1411,19 @@ void main() {
   });
 
   group('App Open dismiss resolution', () {
+    test('fail-to-show disposes old ad, reports false and enters cooldown', () async {
+      await adapter.loadAppOpen();
+      final old = bridge.lastAppOpen!;
+      bool? dismissed;
+      await adapter.showAppOpen(onDismiss: (value) => dismissed = value);
+
+      old.shown!.onFailedToShow!('show failed');
+      expect(dismissed, isFalse);
+      expect(old.disposeCount, 1);
+      expect(bridge.loads['appOpen'], hasLength(1));
+      expect(adapter.appOpenSlot.value, AdSlotState.cooldown);
+    });
+
     test('dismiss → onDismiss(true) and ad disposed', () async {
       await adapter.loadAppOpen();
       expect(adapter.appOpenSlot.isReady, isTrue);
