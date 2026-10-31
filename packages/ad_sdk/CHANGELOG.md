@@ -6,6 +6,11 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.6.7] - 2026-10-31
+
+- **Fixed (MREC/Native):** GMA `onAdLoaded` and `onAdFailedToLoad` callbacks arriving after the widget-load watchdog expired no longer revive the timed-out slot or mutate its listenables. The watchdog has already disposed and removed that ad; late callbacks from that load are ignored, matching the Banner guard added in 3.6.6.
+- **Verification:** deterministic listener tests reproduced `cooldown → ready` for both formats before the fix, then passed after it. Full suite: 2840 tests, `flutter analyze` and release-readiness gate pass. The late callback was injected through captured GMA listeners; a real late GMA callback was not forced on-device.
+
 ## [3.6.6] - 2026-10-31
 
 - **Fixed (Banner):** a GMA `onAdLoaded` or `onAdFailedToLoad` callback arriving after the widget-load watchdog expired no longer changes the timed-out slot or its listenables. The watchdog has already disposed and removed that ad; late callbacks from that load are ignored.
