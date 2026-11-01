@@ -11,6 +11,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // Build the singleton in the real zone: created lazily inside a
+  // testWidgets body, its persist-chain futures bind to that test's
+  // fake-async zone and never complete for later awaits.
+  setUpAll(() => AdManager());
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
