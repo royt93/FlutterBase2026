@@ -17,6 +17,44 @@ Widget _host(
 );
 
 void main() {
+  testWidgets('benchmark readiness status follows canStart', (tester) async {
+    final handle = tester.ensureSemantics();
+    final canStart = ValueNotifier(false);
+    final bannerReady = ValueNotifier(false);
+    final benchmarkCompleted = ValueNotifier(false);
+    final scrollStarted = ValueNotifier(false);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: T257BenchmarkStatus(
+            canStart: canStart,
+            bannerReady: bannerReady,
+            benchmarkCompleted: benchmarkCompleted,
+            scrollStarted: scrollStarted,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .getSemantics(find.byKey(const ValueKey('t257-benchmark-status')))
+          .label,
+      't267Ready=false bannerReady=false benchmarkComplete=false scrollStarted=false',
+    );
+
+    canStart.value = true;
+    await tester.pump();
+
+    expect(
+      tester
+          .getSemantics(find.byKey(const ValueKey('t257-benchmark-status')))
+          .label,
+      't267Ready=true bannerReady=false benchmarkComplete=false scrollStarted=false',
+    );
+    handle.dispose();
+  });
+
   testWidgets('manual mode: no start before ready, tap starts once', (
     tester,
   ) async {

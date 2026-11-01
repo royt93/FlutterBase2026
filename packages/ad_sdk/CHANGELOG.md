@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Clarification (testing):** The 3.6.6/3.6.7 late-load tests invoke captured GMA listeners directly after watchdog expiry. They verify listener guards, not that a late platform callback reaches the SDK: `google_mobile_ads` 9.0.0 removes disposed ad IDs and drops events for unknown IDs. A real post-dispose GMA callback reaching the SDK has not been demonstrated.
+
 ## [3.6.8] - 2026-10-31
 
 - **Fixed (compliance):** `AdManager().clearSdkData()` now also clears in-memory `_eventLog`, `bypassAuditTrail`, and `incidentRecorder`. Previously, `clearSdkData()` cleared on-disk SharedPreferences keys and live monitors (`_flightRecorder`, `_providerFailoverAdvisor`, `_provenanceJournal`, `_vipManager`), but left compliance logs in RAM. As a result, subsequent calls to `exportComplianceReport()`, `exportSignedBypassAuditTrail()`, and `exportSignedIncidentBundle()` continued to export pre-erasure events from memory, and the next recorded ad event or safety bypass re-persisted the erased entries back to disk.

@@ -27,6 +27,39 @@ class T257StartGate extends StatefulWidget {
   State<T257StartGate> createState() => _T257StartGateState();
 }
 
+class T257BenchmarkStatus extends StatelessWidget {
+  const T257BenchmarkStatus({
+    super.key,
+    required this.canStart,
+    required this.bannerReady,
+    required this.benchmarkCompleted,
+    required this.scrollStarted,
+  });
+
+  final ValueListenable<bool> canStart;
+  final ValueListenable<bool> bannerReady;
+  final ValueListenable<bool> benchmarkCompleted;
+  final ValueListenable<bool> scrollStarted;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: canStart,
+    builder: (context, ready, _) => ValueListenableBuilder<bool>(
+      valueListenable: bannerReady,
+      builder: (context, bannerLoaded, _) => ValueListenableBuilder<bool>(
+        valueListenable: benchmarkCompleted,
+        builder: (context, completed, _) => ValueListenableBuilder<bool>(
+          valueListenable: scrollStarted,
+          builder: (context, scrolling, _) => Text(
+            't267Ready=$ready bannerReady=$bannerLoaded benchmarkComplete=$completed scrollStarted=$scrolling',
+            key: const ValueKey('t257-benchmark-status'),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _T257StartGateState extends State<T257StartGate> {
   bool _started = false;
 
@@ -317,12 +350,11 @@ class _BenchmarkHome extends StatelessWidget {
                           ? _autoStartBenchmark
                           : _startBenchmark,
                     ),
-                    ValueListenableBuilder<bool>(
-                      valueListenable: _bannerReady,
-                      builder: (context, ready, _) => Text(
-                        't267Ready=true bannerReady=$ready benchmarkComplete=$completed scrollStarted=$scrollStarted',
-                        key: const ValueKey('t257-benchmark-status'),
-                      ),
+                    T257BenchmarkStatus(
+                      canStart: _canStart,
+                      bannerReady: _bannerReady,
+                      benchmarkCompleted: _benchmarkCompleted,
+                      scrollStarted: _scrollStarted,
                     ),
                   ],
                 ),
