@@ -421,6 +421,52 @@ void main() {
     debugRequestConsentInfoUpdateTimeoutOverride = null;
   });
 
+  test('abandoned-form recheck from old session cannot open re-init UMP gate',
+      () async {
+    AdManager.debugAdapterFactory = (config) => _InstantAdapter();
+    await AdManager().initialize(config: _appLovinConfig, onComplete: (_, _) {});
+    AdManager().debugUmpFormAbandoned = true;
+    final oldCanRequest = Completer<bool>();
+    var canRequestCalls = 0;
+    status = _statusObtained;
+    canRequestAds = false;
+    formAvailable = false;
+    messenger.setMockMethodCallHandler(_umpChannel, (call) {
+      umpCalls.add(call.method);
+      switch (call.method) {
+        case 'ConsentInformation#canRequestAds':
+          canRequestCalls++;
+          return canRequestCalls == 1 ? oldCanRequest.future : Future.value(false);
+        case 'ConsentInformation#getConsentStatus':
+          return Future.value(status);
+        case 'ConsentInformation#requestConsentInfoUpdate':
+          return Future.value(null);
+        case 'ConsentInformation#isConsentFormAvailable':
+          return Future.value(false);
+        default:
+          return Future.value(null);
+      }
+    });
+
+    final oldRecheck = AdManager().debugRecheckAbandonedUmpForm();
+    await Future<void>.delayed(Duration.zero);
+    expect(canRequestCalls, 1);
+
+    await AdManager().destroy();
+    status = _statusRequired;
+    canRequestAds = false;
+    await AdManager().initialize(config: _appLovinConfig, onComplete: (_, _) {});
+    final newResult = await AdManager().requestUmpConsent();
+    expect(newResult.canRequestAds, isFalse);
+    expect(AdManager().canRequestAds, isFalse);
+
+    status = _statusObtained;
+    oldCanRequest.complete(true);
+    await oldRecheck;
+    expect(AdManager().canRequestAds, isFalse,
+        reason: 'an old abandoned-form recheck must not reopen a new session gate');
+  });
+
   group('M6 — the 240s cap on the mutex itself', () {
     // A full AdManager.initialize() (VipManager, FirstInstallGuard, GAID...)
     // does not settle inside a fakeAsync zone (some of that chain does not

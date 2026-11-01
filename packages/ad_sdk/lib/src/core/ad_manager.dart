@@ -6416,6 +6416,7 @@ class AdManager with WidgetsBindingObserver {
   /// [_retryUmpConsent], so both retry call sites' `runZonedGuarded`
   /// wrapping can be exercised without a real UMP channel.
   Future<void> _recheckAbandonedUmpForm() async {
+    final session = _consentSessionEpoch;
     if (!_testSeamsBlocked && debugForceAutoUmpError != null) {
       throw debugForceAutoUmpError!;
     }
@@ -6424,7 +6425,11 @@ class AdManager with WidgetsBindingObserver {
         _tag,
         () => '🔁 rechecking abandoned UMP form (no form presented) → '
             'status=${result.status.name} canRequestAds=${result.canRequestAds}');
-    await _applyUmpConsentResult(result, cameFromAbandonedFormRecheck: true);
+    await _applyUmpConsentResult(
+      result,
+      cameFromAbandonedFormRecheck: true,
+      session: session,
+    );
   }
 
   /// Whether UMP already got an answer out of this user, or decided none was
