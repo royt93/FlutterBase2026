@@ -1,5 +1,6 @@
 package com.example.ad_sdk_macrobenchmark
 
+import android.content.Intent
 import androidx.benchmark.macro.CompilationMode
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
@@ -36,7 +37,7 @@ class T257FrameTimingBenchmark {
                         .getLaunchIntentForPackage(TARGET_PACKAGE)!!
                         .putExtra("t257Macrobenchmark", true)
                         .putExtra("t257Scenario", scenario)
-                        .putExtra("t257AutoStart", true),
+                        .putExtra("t257AutoStart", false),
                 )
                 check(
                     device.wait(
@@ -52,8 +53,24 @@ class T257FrameTimingBenchmark {
                         ),
                     ) { "AdMob banner did not report ready" }
                 }
+                check(
+                    device.wait(
+                        Until.hasObject(By.desc("t267-start-benchmark")),
+                        10_000,
+                    ),
+                ) { "T267 start button did not become available" }
             },
             measureBlock = {
+                InstrumentationRegistry.getInstrumentation().context.sendBroadcast(
+                    Intent("com.example.ad_sdk_example.T257_START")
+                        .setPackage(TARGET_PACKAGE),
+                )
+                check(
+                    device.wait(
+                        Until.hasObject(By.descContains("scrollStarted=true")),
+                        10_000,
+                    ),
+                ) { "T267 scroll did not start during measurement" }
                 check(
                     device.wait(
                         Until.hasObject(By.descContains("benchmarkComplete=true")),

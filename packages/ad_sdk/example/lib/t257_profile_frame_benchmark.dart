@@ -5,8 +5,10 @@ import 'dart:ui' show FramePhase;
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 
+const _t257BenchmarkChannel = MethodChannel('com.example.ad_sdk_example/t257_benchmark');
 late String _scenario;
 bool get _loading => _scenario == 'loading';
 late bool _autoStart;
@@ -167,6 +169,11 @@ void main() {
 void runT257ProfileFrameBenchmark(String route) {
   WidgetsFlutterBinding.ensureInitialized();
   _autoStart = route.endsWith('-auto');
+  if (route == '/real' || route == '/loading') {
+    _t257BenchmarkChannel.setMethodCallHandler((call) async {
+      if (call.method == 'start') _startBenchmark();
+    });
+  }
   final baseRoute = _autoStart ? route.substring(0, route.length - 5) : route;
   _scenario = baseRoute == '/real' || baseRoute == '/loading'
       ? baseRoute.substring(1)
