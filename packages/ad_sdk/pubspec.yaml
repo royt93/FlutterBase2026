@@ -62,18 +62,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # BREAKING (migration in progress): bumped 7.0.0 -> 9.0.0 to let a
-  # consuming app pair this with gma_mediation_applovin 2.6.2/2.6.3, whose
-  # AppLovin iOS adapter pin (13.6.3.0) matches applovin_max's own
-  # AppLovinSDK (= 13.6.3) requirement — resolving the CocoaPods pinning
-  # wall documented in CLAUDE.md without holding applovin_max back to 4.6.0.
-  # Pinned below 9.1.0 on purpose: 9.1.0 ships a confirmed upstream iOS build
-  # regression (non-modular-header Xcode failure from its new Ad Preloading
-  # API, google_mobile_ads.FLTAd_Internal / GoogleMobileAds_Beta.h) — verified
-  # locally (flutter build ios --simulator fails on 9.1.0, succeeds on 9.0.0),
-  # also 2.6.2's own changelog says it was "built and tested" against 9.0.0
-  # specifically. Revisit once Google ships a fixed 9.1.x/9.2.0.
-  google_mobile_ads: '>=9.0.0 <9.1.0'
+  # 9.2.0 adds the consolidated ageRestrictedTreatment API and fixes the
+  # non-modular Beta-header regression from 9.1.0; verified in the isolated
+  # pinning fixture with Google Mobile Ads 13.11.0 and AppLovinSDK 13.6.3.
+  google_mobile_ads: '>=9.2.0 <9.3.0'
   applovin_max: ^4.6.4
   app_tracking_transparency: ^2.0.7
   shared_preferences: ^2.5.0

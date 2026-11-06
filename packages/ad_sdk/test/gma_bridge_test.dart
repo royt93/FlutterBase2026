@@ -92,9 +92,16 @@ void main() {
   });
 
   test('updateRequestConfiguration forwards test device ids', () async {
-    await bridge.updateRequestConfiguration(['device1', 'device2']);
+    await bridge.updateRequestConfiguration(
+      ['device1', 'device2'],
+      ageRestrictedTreatment: AgeRestrictedTreatment.child,
+    );
     expect(calls.single.method, 'MobileAds#updateRequestConfiguration');
     expect(calls.single.arguments['testDeviceIds'], ['device1', 'device2']);
+    expect(
+      calls.single.arguments['ageRestrictedTreatment'],
+      AgeRestrictedTreatment.child.index,
+    );
   });
 
   test(

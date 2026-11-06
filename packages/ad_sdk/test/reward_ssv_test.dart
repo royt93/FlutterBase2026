@@ -16,6 +16,7 @@ import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show AgeRestrictedTreatment;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ─── AppLovin fakes (mirrors applovin_adapter_test.dart's FakeAppLovinBridge,
@@ -128,8 +129,7 @@ class _FakeGmaBridge implements GmaBridge {
   @override
   Future<void> updateRequestConfiguration(
     List<String> ids, {
-    int? tagForChildDirectedTreatment,
-    int? tagForUnderAgeOfConsent,
+    required AgeRestrictedTreatment ageRestrictedTreatment,
   }) async {}
   @override
   Future<void> loadAppOpen(String id,

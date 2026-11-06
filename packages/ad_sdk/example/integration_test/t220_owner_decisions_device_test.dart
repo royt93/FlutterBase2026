@@ -5,6 +5,7 @@ import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show AgeRestrictedTreatment;
 
 final _ed = Ed25519();
 
@@ -66,7 +67,10 @@ void main() {
         ),
       );
       expect(childConsent.appLovinCoppaForwarded, isFalse);
-      expect(childConsent.admobTagForChildDirectedTreatment, equals('yes'));
+      expect(
+        childConsent.admobAgeRestrictedTreatment,
+        AgeRestrictedTreatment.child,
+      );
 
       // 3. Online redemption grants AVP2 on hardware
       final onlineMgr = VipManager(prefs, isConnectedCheck: () => true);

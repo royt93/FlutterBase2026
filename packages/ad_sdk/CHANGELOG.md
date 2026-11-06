@@ -6,6 +6,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Added:** `ConsentSimulationResult.admobAgeRestrictedTreatment` exposes consolidated AdMob age treatment (`child` or `unspecified`); legacy COPPA/TFUA simulator fields remain available but are deprecated.
+- **Migration:** AdMob now uses `RequestConfiguration.ageRestrictedTreatment`. COPPA or under-age-of-consent set to true maps to `child`; otherwise `unspecified`. Google Mobile Ads pin updated to 9.2.0; mediation fixture/example use `gma_mediation_applovin 2.6.3`.
+
 - **Clarification (testing):** The 3.6.6/3.6.7 late-load tests invoke captured GMA listeners directly after watchdog expiry. They verify listener guards, not that a late platform callback reaches the SDK: `google_mobile_ads` 9.0.0 removes disposed ad IDs and drops events for unknown IDs. A real post-dispose GMA callback reaching the SDK has not been demonstrated.
 
 ## [3.6.8] - 2026-10-31

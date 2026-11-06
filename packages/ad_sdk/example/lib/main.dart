@@ -1693,10 +1693,8 @@ class _ConsentDemoPageState extends State<ConsentDemoPage> {
                     content: Text(
                       'AppLovin hasUserConsent: ${result.appLovinHasUserConsent}\n'
                       'AppLovin doNotSell: ${result.appLovinDoNotSell}\n'
-                      'AdMob tagForChildDirectedTreatment: '
-                      '${result.admobTagForChildDirectedTreatment}\n'
-                      'AdMob tagForUnderAgeOfConsent: '
-                      '${result.admobTagForUnderAgeOfConsent}',
+                      'AdMob ageRestrictedTreatment: '
+                      '${result.admobAgeRestrictedTreatment.name}',
                     ),
                     actions: [
                       TextButton(

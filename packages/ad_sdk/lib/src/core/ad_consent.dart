@@ -91,6 +91,7 @@ class ConsentSimulationResult {
     required this.appLovinCoppaForwarded,
     required this.admobTagForChildDirectedTreatment,
     required this.admobTagForUnderAgeOfConsent,
+    required this.admobAgeRestrictedTreatment,
   });
 
   /// What `AppLovinMAX.setHasUserConsent` would receive.
@@ -105,15 +106,19 @@ class ConsentSimulationResult {
   /// misread as implying AppLovin ever gets this signal.
   final bool appLovinCoppaForwarded;
 
-  /// What AdMob's `RequestConfiguration.tagForChildDirectedTreatment` would
-  /// be set to: `'yes'` or `'no'`.
+  /// Legacy COPPA output, retained for compatibility. New code should use
+  /// [admobAgeRestrictedTreatment].
+  @Deprecated('Use admobAgeRestrictedTreatment instead')
   final String admobTagForChildDirectedTreatment;
 
-  /// What AdMob's `RequestConfiguration.tagForUnderAgeOfConsent` would be
-  /// set to: `'yes'` or `'unspecified'` — never `'no'`, see
-  /// [applyConsentToProviders]'s comment on why that axis never asserts a
-  /// negative.
+  /// Legacy TFUA output, retained for compatibility. New code should use
+  /// [admobAgeRestrictedTreatment].
+  @Deprecated('Use admobAgeRestrictedTreatment instead')
   final String admobTagForUnderAgeOfConsent;
+
+  /// Combined Google age treatment sent to AdMob. Child treatment wins if
+  /// either COPPA or under-age-of-consent applies.
+  final AgeRestrictedTreatment admobAgeRestrictedTreatment;
 }
 
 /// The one place both [applyConsentToProviders] and [simulateConsentOutcome]
@@ -127,6 +132,10 @@ ConsentSimulationResult _decideConsentOutcome(AdConsent c, AdConfig? config) =>
       admobTagForChildDirectedTreatment: c.isAgeRestrictedUser ? 'yes' : 'no',
       admobTagForUnderAgeOfConsent:
           config?.umpTagForUnderAgeOfConsent == true ? 'yes' : 'unspecified',
+      admobAgeRestrictedTreatment:
+          c.isAgeRestrictedUser || config?.umpTagForUnderAgeOfConsent == true
+              ? AgeRestrictedTreatment.child
+              : AgeRestrictedTreatment.unspecified,
     );
 
 /// T120 — pure, side-effect-free preview of what [applyConsentToProviders]
@@ -197,28 +206,10 @@ Future<void> applyConsentToProviders(
     final cfg = RequestConfiguration(
       // Preserve test-device registration across consent updates.
       testDeviceIds: testDeviceIds,
-      tagForChildDirectedTreatment:
-          outcome.admobTagForChildDirectedTreatment == 'yes'
-              ? TagForChildDirectedTreatment.yes
-              : TagForChildDirectedTreatment.no,
-      // MJ4 (round 5 audit) — TFUA models the EEA "under age of consent"
-      // concept. It used to be left unset here on the grounds that this SDK
-      // exposed no flag for that axis, but it does:
-      // `AdConfig.umpTagForUnderAgeOfConsent`. That value only ever reached
-      // UMP's ConsentRequestParameters, so a host that declared an under-age
-      // audience got the right consent form and then had every ad request go
-      // out with no under-age signal on it at all — which is the half Google
-      // actually requires on the request configuration.
-      //
-      // Only `yes` is ever asserted. Absent an explicit declaration the answer
-      // stays `unspecified` rather than `no`: claiming a user is NOT under the
-      // age of consent is a statement about them we have no basis for. It is
-      // still never derived from `doNotSell` (CCPA) — that is a different
-      // jurisdiction and a different axis, handled per-request via RDP.
-      tagForUnderAgeOfConsent:
-          outcome.admobTagForUnderAgeOfConsent == 'yes'
-              ? TagForUnderAgeOfConsent.yes
-              : TagForUnderAgeOfConsent.unspecified,
+      ageRestrictedTreatment: c.isAgeRestrictedUser ||
+              config?.umpTagForUnderAgeOfConsent == true
+          ? AgeRestrictedTreatment.child
+          : AgeRestrictedTreatment.unspecified,
     );
     await MobileAds.instance.updateRequestConfiguration(cfg);
     SafeLogger.d(tag,

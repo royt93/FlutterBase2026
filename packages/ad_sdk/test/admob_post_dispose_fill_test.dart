@@ -16,6 +16,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart' show AgeRestrictedTreatment;
 
 class _FakeAd implements GmaFullscreenAd {
   int disposeCount = 0;
@@ -55,8 +56,10 @@ class _DeferredBridge implements GmaBridge {
   @override
   Future<void> initialize() async {}
   @override
-  Future<void> updateRequestConfiguration(List<String> ids,
-      {int? tagForChildDirectedTreatment, int? tagForUnderAgeOfConsent}) async {}
+  Future<void> updateRequestConfiguration(
+    List<String> ids, {
+    required AgeRestrictedTreatment ageRestrictedTreatment,
+  }) async {}
 
   @override
   Future<void> loadAppOpen(String id,

@@ -13,7 +13,7 @@ dependencies:
 
   applovin_admob_sdk:
     path: ../
-  google_mobile_ads: '>=9.0.0 <9.1.0'
+  google_mobile_ads: '>=9.2.0 <9.3.0'
   applovin_max: ^4.6.4
   # Only for the SharedPreferencesAsync type used by ConsentDemoPage's
   # "Simulate broken privacy store (T146)" button (via

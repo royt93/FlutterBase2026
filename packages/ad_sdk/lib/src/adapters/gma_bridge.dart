@@ -69,8 +69,7 @@ abstract class GmaBridge {
   /// every call — see m8 in AdMobAdapter.initialize.
   Future<void> updateRequestConfiguration(
     List<String> testDeviceIds, {
-    int? tagForChildDirectedTreatment,
-    int? tagForUnderAgeOfConsent,
+    required AgeRestrictedTreatment ageRestrictedTreatment,
   });
 
   Future<void> loadAppOpen(
@@ -130,14 +129,12 @@ class RealGmaBridge implements GmaBridge {
   @override
   Future<void> updateRequestConfiguration(
     List<String> testDeviceIds, {
-    int? tagForChildDirectedTreatment,
-    int? tagForUnderAgeOfConsent,
+    required AgeRestrictedTreatment ageRestrictedTreatment,
   }) {
     return MobileAds.instance.updateRequestConfiguration(
       RequestConfiguration(
         testDeviceIds: testDeviceIds,
-        tagForChildDirectedTreatment: tagForChildDirectedTreatment,
-        tagForUnderAgeOfConsent: tagForUnderAgeOfConsent,
+        ageRestrictedTreatment: ageRestrictedTreatment,
       ),
     );
   }

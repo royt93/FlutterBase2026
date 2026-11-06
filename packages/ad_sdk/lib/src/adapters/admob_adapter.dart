@@ -498,19 +498,17 @@ class AdMobAdapter
       // to be called before initialize() "to ensure that all ad requests
       // apply the request configuration changes", and initialize() is what
       // spins up every mediation adapter (Meta, Unity, ...) — those read the
-      // COPPA/TFUA tags at their own init time, which happens INSIDE this
-      // call. Calling this after initialize() (as before) meant a mediation
-      // partner's first request could go out with no child-directed tag at
-      // all. Carry the tags through so this call can never drop them (m8).
+      // Either COPPA or under-age-of-consent requires Google's child
+      // treatment. Set the strictest signal before init so mediation adapters
+      // see it on their first request.
       await _bridge.updateRequestConfiguration(
         cfg.effectiveTestDeviceIds,
-        tagForChildDirectedTreatment:
-            (isAgeRestrictedUser || consent?.isAgeRestrictedUser == true)
-                ? TagForChildDirectedTreatment.yes
-                : TagForChildDirectedTreatment.no,
-        tagForUnderAgeOfConsent: config.umpTagForUnderAgeOfConsent
-            ? TagForUnderAgeOfConsent.yes
-            : TagForUnderAgeOfConsent.unspecified,
+        ageRestrictedTreatment:
+            (isAgeRestrictedUser ||
+                consent?.isAgeRestrictedUser == true ||
+                config.umpTagForUnderAgeOfConsent)
+            ? AgeRestrictedTreatment.child
+            : AgeRestrictedTreatment.unspecified,
       );
       await _bridge.initialize();
       SafeLogger.d(_logTag,

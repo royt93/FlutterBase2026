@@ -167,10 +167,10 @@ void main() {
         expect(updates, isNotEmpty);
         for (final update in updates) {
           expect(
-            update['tagForUnderAgeOfConsent'],
+            update['ageRestrictedTreatment'],
             underAge
-                ? TagForUnderAgeOfConsent.yes
-                : TagForUnderAgeOfConsent.unspecified,
+                ? AgeRestrictedTreatment.child.index
+                : AgeRestrictedTreatment.unspecified.index,
           );
           expect(update['testDeviceIds'], containsAll(expectedDevices));
         }

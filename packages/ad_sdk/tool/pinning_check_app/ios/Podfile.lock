@@ -13,14 +13,14 @@ PODS:
   - flutter_secure_storage_darwin (10.0.0):
     - Flutter
     - FlutterMacOS
-  - gma_mediation_applovin (2.6.2):
+  - gma_mediation_applovin (2.6.3):
     - Flutter
     - GoogleMobileAdsMediationAppLovin (~> 13.6.3.0)
-  - Google-Mobile-Ads-SDK (13.3.0):
+  - Google-Mobile-Ads-SDK (13.11.0):
     - GoogleUserMessagingPlatform (>= 1.1)
-  - google_mobile_ads (9.0.0):
+  - google_mobile_ads (9.2.0):
     - Flutter
-    - Google-Mobile-Ads-SDK (~> 13.3.0)
+    - Google-Mobile-Ads-SDK (~> 13.11)
     - webview_flutter_wkwebview
   - GoogleMobileAdsMediationAppLovin (13.6.3.0):
     - AppLovinSDK (= 13.6.3)
@@ -92,9 +92,9 @@ SPEC CHECKSUMS:
   connectivity_plus: cb623214f4e1f6ef8fe7403d580fdad517d2f7dd
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
-  gma_mediation_applovin: a4d0c57b3366234c99add8d9ccc34d8f58b66ee1
-  Google-Mobile-Ads-SDK: 7692126a35ed859f20635af281c50a2162be8bea
-  google_mobile_ads: bab325fd4e31c9705cab0cb298e4f5a9bdb7370f
+  gma_mediation_applovin: 51dfe63ca11f34c3c34a4f88e6daa1b27089e050
+  Google-Mobile-Ads-SDK: 09d0868abe43b9f851b7b340a245679f0eafc96c
+  google_mobile_ads: 2d3c1fe797954fe6a4103b74eff2375c08eab20e
   GoogleMobileAdsMediationAppLovin: 8929ef5280829acc3e1e4c41f9c6cfd3f99ee7cd
   GoogleUserMessagingPlatform: befe603da6501006420c206222acd449bba45a9c
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499

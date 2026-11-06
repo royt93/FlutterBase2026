@@ -9,7 +9,7 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
-    show TagForChildDirectedTreatment, TagForUnderAgeOfConsent;
+    show AgeRestrictedTreatment;
 import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
@@ -143,6 +143,7 @@ class FakeGmaBridge implements GmaBridge {
 
   // Captured from the most recent updateRequestConfiguration() call.
   List<String>? capturedTestDeviceIds;
+  AgeRestrictedTreatment? capturedAgeRestrictedTreatment;
 
   // Round-31 audit — records call order so a test can assert
   // updateRequestConfiguration (COPPA/TFUA tags) reaches the native side
@@ -166,10 +167,9 @@ class FakeGmaBridge implements GmaBridge {
   bool? rdpInter;
   bool? rdpRewarded;
 
-  // m8 — RequestConfiguration replaces rather than merges, so these must
-  // travel with every updateRequestConfiguration call or the tags get wiped.
-  int? capturedCoppaTag;
-  int? capturedTfuaTag;
+  // RequestConfiguration replaces rather than merges, so the age treatment
+  // must travel with every updateRequestConfiguration call.
+
 
   @override
   Future<void> initialize() async {
@@ -178,13 +178,11 @@ class FakeGmaBridge implements GmaBridge {
   @override
   Future<void> updateRequestConfiguration(
     List<String> ids, {
-    int? tagForChildDirectedTreatment,
-    int? tagForUnderAgeOfConsent,
+    required AgeRestrictedTreatment ageRestrictedTreatment,
   }) async {
     callLog.add('updateRequestConfiguration');
     capturedTestDeviceIds = ids;
-    capturedCoppaTag = tagForChildDirectedTreatment;
-    capturedTfuaTag = tagForUnderAgeOfConsent;
+    capturedAgeRestrictedTreatment = ageRestrictedTreatment;
   }
 
   @override
@@ -1021,42 +1019,46 @@ void main() {
   // this could be asserted; nothing read them until now. RequestConfiguration
   // REPLACES rather than merges, so passing only test-device ids wiped whatever
   // COPPA/TFUA state had just been set.
-  group('m8: RequestConfiguration carries the COPPA/TFUA tags', () {
-    test('child-directed init sends tagForChildDirectedTreatment=yes',
-        () async {
-      final b = FakeGmaBridge();
-      final a = AdMobAdapter(bridge: b);
-      expect(
-        await a.initialize(_config,
-            consent: const AdConsent(isAgeRestrictedUser: true)),
-        isTrue,
-      );
-      expect(b.capturedCoppaTag, TagForChildDirectedTreatment.yes);
-      addTearDown(() => a.dispose());
-    });
+  group('m8: RequestConfiguration carries the age treatment', () {
+    for (final isAgeRestrictedUser in [false, true]) {
+      for (final underAge in [false, true]) {
+        test(
+            'COPPA=$isAgeRestrictedUser, under-age=$underAge maps to '
+            '${isAgeRestrictedUser || underAge ? 'child' : 'unspecified'}',
+            () async {
+          final b = FakeGmaBridge();
+          final a = AdMobAdapter(bridge: b);
+          expect(
+            await a.initialize(
+              AdConfig(
+                provider: AdProvider.admob,
+                umpTagForUnderAgeOfConsent: underAge,
+                admob: const AdMobConfig(
+                    bannerId: 'b',
+                    interstitialId: 'i',
+                    appOpenId: 'ao',
+                    rewardedId: 'r'),
+              ),
+              consent: AdConsent(isAgeRestrictedUser: isAgeRestrictedUser),
+            ),
+            isTrue,
+          );
+          expect(
+            b.capturedAgeRestrictedTreatment,
+            isAgeRestrictedUser || underAge
+                ? AgeRestrictedTreatment.child
+                : AgeRestrictedTreatment.unspecified,
+          );
+          addTearDown(() => a.dispose());
+        });
+      }
+    }
 
-    test('umpTagForUnderAgeOfConsent:true sends TFUA=yes', () async {
-      final b = FakeGmaBridge();
-      final a = AdMobAdapter(bridge: b);
-      expect(
-        await a.initialize(const AdConfig(
-          provider: AdProvider.admob,
-          umpTagForUnderAgeOfConsent: true,
-          admob: AdMobConfig(
-              bannerId: 'b', interstitialId: 'i', appOpenId: 'ao',
-              rewardedId: 'r'),
-        )),
-        isTrue,
-      );
-      expect(b.capturedTfuaTag, TagForUnderAgeOfConsent.yes);
-      addTearDown(() => a.dispose());
-    });
-
-    test('no declaration → TFUA stays unspecified, never a bare "no"',
-        () async {
-      expect(bridge.capturedTfuaTag, TagForUnderAgeOfConsent.unspecified,
-          reason: 'claiming a user is NOT under the age of consent is a '
-              'statement we have no basis for');
+    test('no declaration never claims a negative age status', () async {
+      expect(bridge.capturedAgeRestrictedTreatment,
+          AgeRestrictedTreatment.unspecified,
+          reason: 'claiming a user is not restricted is a statement we have '
+              'no basis for');
     });
 
     test(

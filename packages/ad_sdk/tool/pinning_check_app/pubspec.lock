@@ -23,7 +23,7 @@ packages:
       path: "../.."
       relative: true
     source: path
-    version: "3.5.0"
+    version: "3.6.8"
   applovin_max:
     dependency: transitive
     description:
@@ -235,18 +235,18 @@ packages:
     dependency: "direct main"
     description:
       name: gma_mediation_applovin
-      sha256: "8310f8f508cc4a2f8a62db322e3d4c26767b44f1461c894d0481d25b70fc85e1"
+      sha256: "69d95caf283a090874eec71a59da59ec16ef259324ebc81093fc6bad308627fe"
       url: "https://pub.dev"
     source: hosted
-    version: "2.6.2"
+    version: "2.6.3"
   google_mobile_ads:
     dependency: transitive
     description:
       name: google_mobile_ads
-      sha256: "6029f6c48bc9b6b47767ddbb4847683048a2f006d418c871bd93c5eb6a8e5c3c"
+      sha256: "439e018d73b47565d1cf21410e893a8f46d5fb95110c41c266a6fb78449d7106"
       url: "https://pub.dev"
     source: hosted
-    version: "9.0.0"
+    version: "9.2.0"
   hooks:
     dependency: transitive
     description:

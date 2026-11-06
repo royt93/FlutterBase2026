@@ -3,7 +3,7 @@
 - **Loại:** Compatibility follow-up
 - **Priority:** P3 · **Effort:** M
 - **Confidence:** FOLLOW-UP explicitly noted in repo guidance; not current failure
-- **Status:** todo · discovery re-opened 2026-11-06; implementation still deferred pending verified CocoaPods/pinning-wall window
+- **Status:** implementation + static/build gates complete; physical-device consent smoke remains before closure
 - **Evidence:** `CLAUDE.md` pinning notes; `lib/src/adapters/admob_adapter.dart` legacy child/under-age flags; `lib/src/adapters/gma_bridge.dart`; `pubspec.yaml` Google Mobile Ads pin/comment; `test/admob_adapter_test.dart`, consent tests; 2026-11-06 pub.dev `google_mobile_ads` 9.1/9.2 changelog/API docs and `gma_mediation_applovin` 2.6.5 metadata
 - **Dependency:** upstream API/deprecation status; consuming-app CocoaPods/pinning-wall validation
 
@@ -11,26 +11,29 @@
 
 SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfConsent`. Hướng dẫn repo ghi rõ migration sang `RequestConfiguration.ageRestrictedTreatment` là follow-up, legacy pair vẫn được hỗ trợ trong giai đoạn hiện tại và Google dependency không được bump tùy tiện vì pinning/build regression. Theo dõi chính sách/API trước khi sửa để tránh migration sớm gây lệch consent semantics.
 
-## Discovery gate (Xác minh 2026-10-15 & 2026-10-24)
+## Discovery gate và migration evidence (cập nhật 2026-11-06)
 
 - [x] Đã chọn: theo dõi và migrate khi có deprecation/removal trigger hoặc dependency window đã duyệt; không migrate ngay.
 - [x] Xác minh trạng thái chính thức của Google API: Google xác nhận cặp legacy `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent` tiếp tục hoạt động qua hết năm 2026; không có kế hoạch gỡ bỏ trước bản release lớn dự kiến H1 2027 (ghi nhận tại Audit round 43).
-- [x] Pinning wall: `google_mobile_ads` được pin cứng `>=9.0.0 <9.1.0` để khớp với `gma_mediation_applovin 2.6.2/2.6.3` (AppLovinSDK 13.6.3) và tránh lỗi build Xcode non-modular-header trên bản 9.1.0. Không bump dependency khi chưa có bản vá upstream.
-- [x] Kiểm tra mã nguồn `google_mobile_ads 9.0.0` (2026-10-24): `RequestConfiguration` trong bản 9.0.0 chưa có thuộc tính `ageRestrictedTreatment`; nó chỉ hỗ trợ `tagForChildDirectedTreatment` và `tagForUnderAgeOfConsent`. Do đó việc migrate ở phiên bản hiện tại là bất khả thi về mặt kỹ thuật nếu không nâng dependency.
-- [x] Kết luận: Tiếp tục DEFERRED — giữ nguyên cặp legacy, không đổi code, không rủi ro vỡ CocoaPods pinning wall.
-- [x] Re-check 2026-11-06 (research only, không đổi dependency/code): pub.dev changelog cho thấy `google_mobile_ads 9.1.0` thêm `RequestConfiguration.ageRestrictedTreatment`; API docs `9.2.0` expose `ageRestrictedTreatment` và đánh dấu `tagForChildDirectedTreatment`/`tagForUnderAgeOfConsent` deprecated. Changelog 9.2.0 liệt kê "Fixed Beta headers" ([PR 1516](https://github.com/googleads/googleads-mobile-flutter/pull/1516)); PR mô tả bỏ import `GoogleMobileAds_Beta.h` khỏi public headers để xử lý lỗi non-modular-header, nhưng chưa được xác minh bằng `pod install`/Xcode build của SDK này. `gma_mediation_applovin 2.6.5` khai báo `google_mobile_ads ^9.1.0` và pin `GoogleMobileAdsMediationAppLovin ~>13.6.4.0`; không khớp `AppLovinSDK (=13.6.3)` hiện hành. Bản `2.6.3` khớp `AppLovinSDK 13.6.3` nhưng khai báo `google_mobile_ads ^9.1.0`, nên là candidate cần kiểm tra. Podspec Google: 9.0.0 yêu cầu `Google-Mobile-Ads-SDK ~>13.3.0`, 9.1.0 `~>13.7`, 9.2.0 `~>13.11`. PR 1516 sửa cấu trúc header, nhưng build 9.2.0 chưa xác minh trong consuming app và dependency graph tổng thể chưa được resolve. Điều kiện mở: candidate `google_mobile_ads 9.2.0 + gma_mediation_applovin 2.6.3 + applovin_max 4.6.4` phải qua `flutter pub get`, `pod install`, `tool/check_pinning_wall.sh --with-builds` và Android/iOS build trước khi chấp nhận migration/pin change.
-- [x] Candidate fixture check 2026-11-06 (bản copy cô lập tại `/tmp/t256_candidate`, repo không đổi dependency): đổi tạm `google_mobile_ads` thành `>=9.2.0 <9.3.0` và fixture `gma_mediation_applovin` thành `2.6.3`. `flutter pub get` resolve; `pod install --repo-update` resolve `AppLovinSDK 13.6.3`, `GoogleMobileAdsMediationAppLovin 13.6.3.0`, `Google-Mobile-Ads-SDK 13.11.0`, `google_mobile_ads 9.2.0`, `gma_mediation_applovin 2.6.3`, `applovin_max 4.6.4`. Fixture `flutter build apk --debug` và `flutter build ios --simulator --debug` đều pass. Giới hạn và follow-up: chưa chạy `tool/check_pinning_wall.sh` nguyên script trên repo thật, device/UMP/COPPA/TFUA checks hoặc API migration; kết quả chỉ chứng minh dependency graph và compile của fixture. Candidate `flutter analyze lib/ test/` báo 26 `deprecated_member_use` infos tại legacy COPPA/under-age usages, exit 1 — migration code sẽ phải chuyển chúng sang `ageRestrictedTreatment` và giữ semantics/test matrix. Standard `flutter test --reporter=compact` trong copy có 2,839 pass và 5 fail đều ở `release_readiness_gate_test.dart`; các test gọi Git/script dựa trên repository root nên fixture `/tmp` không có `.git` làm chúng fail (`fatal: not a git repository`), không phải lỗi do GMA 9.2 đã xác định. Một lần chạy với danh sách file tự tạo cũng lôi vào helper/fixture `.dart` và không hợp lệ, không dùng làm suite result. Nếu sau này đổi pin thật, cần chạy gate trong repo git thật, migrate deprecated API, rồi toàn bộ analyzer/tests, pinning wall, Android/iOS build và device consent matrix trước khi đóng T256.
+- Historical note (2026-10-24): `google_mobile_ads 9.0.0` lacked `ageRestrictedTreatment`, and 9.1.0 had an iOS header regression. Both blockers are addressed by the 9.2.0 API/header fix; candidate compatibility and builds are now verified below. Upstream fix: [PR 1516](https://github.com/googleads/googleads-mobile-flutter/pull/1516).
+- [x] Candidate fixture check 2026-11-06 (bản copy cô lập tại `/tmp/t256_candidate`, repo không đổi dependency): `flutter pub get` và `pod install --repo-update` resolve `AppLovinSDK 13.6.3`, `GoogleMobileAdsMediationAppLovin 13.6.3.0`, `Google-Mobile-Ads-SDK 13.11.0`, `google_mobile_ads 9.2.0`, `gma_mediation_applovin 2.6.3`, `applovin_max 4.6.4`; `flutter build apk --debug` và `flutter build ios --simulator --debug` pass. Bản copy test runs bị nhiễu vì không có `.git` (5 release-readiness test fail với `fatal: not a git repository`), nên dùng repo git thật để chứng minh suite/gate.
+- [x] Implementation 2026-11-06: migrated `GmaBridge`/AdMob initialization and consent re-application to `RequestConfiguration.ageRestrictedTreatment`; either COPPA or TFUA true maps to `child`, otherwise `unspecified`. Legacy public `ConsentSimulationResult` fields retained and deprecated; additive `admobAgeRestrictedTreatment` added. API golden, example diagnostics, changelog updated. Focused mapping/bridge/CCPA-test-device tests passed.
+- [x] Repo verification: full `flutter test --reporter=compact` passes 2,846 tests; `flutter analyze lib/ test/ example/lib/` reports no issues; `./tool/release_readiness_gate.sh all` passes; example analyzer/widget tests pass; example Android debug APK and iOS simulator debug builds pass. Tracked pinning fixture lock refreshed; `tool/check_pinning_wall.sh --with-builds` passes in the actual repository, resolving AppLovinSDK 13.6.3 and building Android/iOS simulator.
+- [x] Android physical-device smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): `r73_android_admob_fixes_test.dart`, `CCPA preserves TFUA in requests forwarded to native Android`, passed. It exercised TFUA true/false with doNotSell true/false, inspected outgoing `ageRestrictedTreatment`, and confirmed test-device IDs retained. UMP geography was `notRequired`; this covers one Android device and does not cover iOS, an EEA UMP form, or `isAgeRestrictedUser == true`.
+- [ ] Remaining device coverage: iOS physical-device smoke, EEA/debug-geography UMP form path, and COPPA-enabled request path with test IDs only.
+- Final analyzer after migration reports no issues. Keep T256 open until remaining device coverage is complete.
 
-## Acceptance criteria nếu qua gate
+## Acceptance criteria
 
-N/A — discovery gate xác nhận tiếp tục hoãn (deferred); không có code change trong giai đoạn hiện tại.
+- [x] Mapping được xác nhận theo Google API: COPPA true hoặc TFUA true => `child`; không cờ nào => `unspecified`; không phát sinh teen signal.
+- [x] Regression tests cho cả 4 tổ hợp COPPA × TFUA; bridge serialization, consent re-apply và test-device retention tests pass.
+- [x] Public compatibility giữ legacy simulator fields deprecated; thêm enum field; API golden và CHANGELOG cập nhật.
+- [x] `flutter pub get`, example `flutter pub get`, CocoaPods resolve; tracked pinning fixture updated; `tool/check_pinning_wall.sh --with-builds`, Android/iOS simulator builds, and repo release gate all pass.
+- [x] SDK full suite: 2,846 pass; analyzer no issues; example analyzer and widget tests pass; example Android/iOS simulator builds pass.
+- [x] Android physical-device smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): `r73_android_admob_fixes_test.dart`, `CCPA preserves TFUA in requests forwarded to native Android`, passed. It exercised TFUA true/false with doNotSell true/false, inspected outgoing `ageRestrictedTreatment`, and confirmed test-device IDs retained. UMP geography was `notRequired`; this covers one Android device and does not cover iOS, an EEA UMP form, or `isAgeRestrictedUser == true`.
+- [ ] Remaining device coverage: iOS physical-device smoke, EEA/debug-geography UMP form path, and COPPA-enabled request path with test IDs only.
 
-- [ ] Mapping child-directed/under-age hiện tại sang age-restricted treatment được xác nhận bằng docs/API thật; không làm yếu COPPA/consent behavior.
-- [ ] Unit tests mọi tổ hợp consent/age flags; xác nhận không gửi conflicting legacy + new values nếu plugin/native API không cho phép.
-- [ ] Widget tests cho host-visible consent state/update paths nếu UI contract thay đổi; nếu adapter-only ghi N/A.
-- [ ] Android/iOS integration tests qua bridge/native cho config request thực; kiểm tra platform divergence.
-- [ ] Smoke test Android/iOS trên test app, xác nhận init/config và consent path; không dùng production ad IDs.
-- [ ] Pinning-wall và build verification chạy theo project policy; API golden/changelog nếu public surface đổi; audit độc lập >9/10.
+T256 remains in progress until the device smoke is done; no release/publish approval is implied.
 
 ## Prompt vòng lặp
 

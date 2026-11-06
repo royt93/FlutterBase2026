@@ -9,7 +9,7 @@ import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
-    show TagForUnderAgeOfConsent;
+    show AgeRestrictedTreatment;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec;
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
@@ -150,8 +150,8 @@ void main() {
         expect(ids, contains('host-device-1'));
         expect(ids, containsAll(kQaTestDeviceHashes));
         expect(
-          call.arguments['tagForUnderAgeOfConsent'],
-          TagForUnderAgeOfConsent.yes,
+          call.arguments['ageRestrictedTreatment'],
+          AgeRestrictedTreatment.child.index,
         );
       }
     },
@@ -183,10 +183,10 @@ void main() {
         expect(updates, isNotEmpty);
         for (final call in updates) {
           expect(
-            call.arguments['tagForUnderAgeOfConsent'],
+            call.arguments['ageRestrictedTreatment'],
             underAge
-                ? TagForUnderAgeOfConsent.yes
-                : TagForUnderAgeOfConsent.unspecified,
+                ? AgeRestrictedTreatment.child.index
+                : AgeRestrictedTreatment.unspecified.index,
           );
           expect(call.arguments['testDeviceIds'], contains('host-device-1'));
         }

@@ -14,7 +14,7 @@ import 'package:applovin_admob_sdk/src/utils/safe_logger.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
-    show TagForUnderAgeOfConsent;
+    show AgeRestrictedTreatment;
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -442,8 +442,8 @@ void main() {
         expect(ids, contains('custom-test-device'));
         expect(ids, containsAll(kQaTestDeviceHashes));
         expect(
-          lastUpdate.arguments['tagForUnderAgeOfConsent'],
-          TagForUnderAgeOfConsent.yes,
+          lastUpdate.arguments['ageRestrictedTreatment'],
+          AgeRestrictedTreatment.child.index,
         );
       },
     );
@@ -471,8 +471,8 @@ void main() {
         final lastUpdate = updates.last;
         expect(lastUpdate.arguments['testDeviceIds'], isEmpty);
         expect(
-          lastUpdate.arguments['tagForUnderAgeOfConsent'],
-          TagForUnderAgeOfConsent.unspecified,
+          lastUpdate.arguments['ageRestrictedTreatment'],
+          AgeRestrictedTreatment.unspecified.index,
         );
       },
     );

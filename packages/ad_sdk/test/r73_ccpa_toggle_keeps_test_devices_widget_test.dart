@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart'
-    show TagForUnderAgeOfConsent;
+    show AgeRestrictedTreatment;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec;
 import 'package:google_mobile_ads/src/ump/user_messaging_codec.dart';
@@ -103,8 +103,8 @@ void main() {
     expect(calls, isNotEmpty);
     for (final call in calls) {
       expect(
-        call.arguments['tagForUnderAgeOfConsent'],
-        TagForUnderAgeOfConsent.yes,
+        call.arguments['ageRestrictedTreatment'],
+        AgeRestrictedTreatment.child.index,
       );
     }
     return List<String>.from(calls.last.arguments['testDeviceIds'] as List);

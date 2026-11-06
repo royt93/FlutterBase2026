@@ -802,12 +802,13 @@ ConsentSettings.toJson  [method]  Map<String, dynamic> toJson()
 ConsentSettings.toString  [method]  String toString()
 ConsentSettings.unset  [field]  ConsentSettings unset
 ConsentSimulationResult  [class]  class ConsentSimulationResult
+ConsentSimulationResult.admobAgeRestrictedTreatment  [field]  AgeRestrictedTreatment admobAgeRestrictedTreatment
 ConsentSimulationResult.admobTagForChildDirectedTreatment  [field]  String admobTagForChildDirectedTreatment
 ConsentSimulationResult.admobTagForUnderAgeOfConsent  [field]  String admobTagForUnderAgeOfConsent
 ConsentSimulationResult.appLovinCoppaForwarded  [field]  bool appLovinCoppaForwarded
 ConsentSimulationResult.appLovinDoNotSell  [field]  bool appLovinDoNotSell
 ConsentSimulationResult.appLovinHasUserConsent  [field]  bool appLovinHasUserConsent
-ConsentSimulationResult.new  [constructor]  ConsentSimulationResult ConsentSimulationResult({required bool appLovinHasUserConsent, required bool appLovinDoNotSell, required bool appLovinCoppaForwarded, required String admobTagForChildDirectedTreatment, required String admobTagForUnderAgeOfConsent})
+ConsentSimulationResult.new  [constructor]  ConsentSimulationResult ConsentSimulationResult({required bool appLovinHasUserConsent, required bool appLovinDoNotSell, required bool appLovinCoppaForwarded, required String admobTagForChildDirectedTreatment, required String admobTagForUnderAgeOfConsent, required AgeRestrictedTreatment admobAgeRestrictedTreatment})
 ConsentStatus  [enum]  enum ConsentStatus
 ConsentStatus.new  [constructor]  ConsentStatus ConsentStatus()
 ConsentStatus.notRequired  [field]  ConsentStatus notRequired
