@@ -244,7 +244,7 @@ abstract class AdProviderAdapter {
   /// AppLovin policy violations).
   ///
   /// [isAgeRestrictedUser] mirrors [AdConsent.isAgeRestrictedUser] known at
-  /// init time (T40). AdMob honours this via `tagForChildDirectedTreatment`
+  /// init time (T40). AdMob honours this via `ageRestrictedTreatment`
   /// after init; AppLovin MAX 4.x has no equivalent runtime API and instead
   /// skips native init entirely when true — see [AppLovinAdapter.initialize].
   /// [consent] is the state to apply **before** the native SDK starts, not

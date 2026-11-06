@@ -179,6 +179,53 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('COPPA forwards child age treatment to native Android', (
+    tester,
+  ) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+    final manager = AdManager();
+    final originalConfig = manager.config!;
+    final originalConsent = manager.consentManager!.current;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = 'plugins.flutter.io/google_mobile_ads';
+    final codec = StandardMethodCodec(AdMessageCodec());
+    final updates = <Map<dynamic, dynamic>>[];
+    messenger.setMockMessageHandler(channel, (message) async {
+      final call = codec.decodeMethodCall(message!);
+      final response = await messenger.delegate.send(channel, message);
+      if (call.method == 'MobileAds#updateRequestConfiguration') {
+        codec.decodeEnvelope(response!);
+        updates.add(Map<dynamic, dynamic>.from(call.arguments as Map));
+      }
+      return response;
+    });
+    addTearDown(() async {
+      messenger.setMockMessageHandler(channel, null);
+      await manager.consentManager!.set(
+        originalConsent,
+        config: originalConfig,
+      );
+    });
+
+    await manager.consentManager!.set(
+      originalConsent.copyWith(isAgeRestrictedUser: true),
+      config: originalConfig,
+    );
+
+    expect(updates, isNotEmpty);
+    for (final update in updates) {
+      expect(update['ageRestrictedTreatment'], AgeRestrictedTreatment.child.index);
+      expect(
+        update['testDeviceIds'],
+        containsAll(originalConfig.admob!.effectiveTestDeviceIds),
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a VIP window that ended during sleep ends on resume', (
     tester,
   ) async {

@@ -188,8 +188,8 @@ Future<void> applyConsentToProviders(
       SafeLogger.w(
           tag,
           'isAgeRestrictedUser=true but AppLovin MAX 4.x has no setIsAgeRestrictedUser API — '
-          'COPPA child-directed signal is NOT forwarded to AppLovin (AdMob still receives it '
-          'via tagForChildDirectedTreatment). AppLovin was already initialized before this '
+          'COPPA child age-treatment is NOT forwarded to AppLovin (AdMob still receives the '
+          'child treatment signal). AppLovin was already initialized before this '
           'consent change — it cannot be un-initialized here; call AdManager.destroy() then '
           're-initialize if you need the init-time gate (T40) to take effect.');
     }
