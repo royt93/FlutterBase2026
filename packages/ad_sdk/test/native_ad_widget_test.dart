@@ -741,6 +741,34 @@ void main() {
         reason: 'a hidden tab must not keep animating its placeholder');
   });
 
+  testWidgets('AppLovin native controller refresh remounts the plugin view',
+      (tester) async {
+    final adapter = _NativeCountingAdapter();
+    final controller = InlineAdController();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      controller.dispose();
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(NativeAdWidget(controller: controller)));
+    await tester.pump(const Duration(milliseconds: 50));
+    final firstViewState = tester.state(find.byType(MaxNativeAdView));
+
+    AdManager().debugResetNativeCooldown();
+    controller.refresh();
+    await tester.pump();
+
+    final replacementState = tester.state(find.byType(MaxNativeAdView));
+    expect(identical(firstViewState, replacementState), isFalse);
+    expect(adapter.disposeNativeCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   // Round-44 audit fix — a live native ad used to stay mounted and visible
   // underneath an App Open ad (its own adapter doc comment admitted native
   // was "never hidden the way banner/mrec are hidden"). `AdManager

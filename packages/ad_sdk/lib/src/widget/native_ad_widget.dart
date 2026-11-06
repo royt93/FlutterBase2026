@@ -198,6 +198,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
       widget.height ?? (widget.templateType == TemplateType.small ? 90 : 320);
 
   final ValueNotifier<bool> _allowed = ValueNotifier<bool>(false);
+  int _appLovinViewGeneration = 0;
   bool _initScheduled = false;
   bool _didLogCustomLayoutFallback = false;
 
@@ -467,6 +468,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     SafeLogger.d(_tag, 'controllerRefresh — reloading');
     _closeFlightRecorderVisibilityForReload();
     mgr.disposeNativeInstance(this);
+    if (!mgr.isAdMobProvider) _appLovinViewGeneration++;
     _allowed.value = false;
     _initNative();
   }
@@ -777,6 +779,7 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
                 return const SizedBox.shrink();
               }
               return _AppLovinMaxNativeView(
+                key: ValueKey(_appLovinViewGeneration),
                 nativeId: AdManager().appLovinNativeId,
                 instanceKey: this,
                 placement: widget.placement,
@@ -881,6 +884,7 @@ class _NativeContainer extends StatelessWidget {
 /// listener callbacks — the adapter has no load flow of its own for native.
 class _AppLovinMaxNativeView extends StatelessWidget {
   const _AppLovinMaxNativeView({
+    super.key,
     required this.nativeId,
     required this.instanceKey,
     required this.placement,
