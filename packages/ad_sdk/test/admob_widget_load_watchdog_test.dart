@@ -213,6 +213,34 @@ void main() {
   });
 
   group('MJ21 — dispose-during-await race', () {
+    test('a late adaptive-size error after widget disposal is ignored', () async {
+      calls.clear();
+      final sizeLookup = Completer<num?>();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'AdSize#getAnchoredAdaptiveBannerAdSize') {
+          return sizeLookup.future;
+        }
+        return null;
+      });
+
+      final loadFuture = adapter.loadBannerIfNeeded('late_size_error', 300);
+      await Future<void>.delayed(Duration.zero);
+      final slot = adapter.bannerSlot('late_size_error');
+      final listenables = adapter.banner('late_size_error');
+      expect(slot.isLoading, isTrue);
+
+      adapter.disposeBannerInstance('late_size_error');
+      sizeLookup.completeError(PlatformException(code: 'size_failed'));
+      await loadFuture;
+
+      expect(adapter.bannerSlot('late_size_error').value, AdSlotState.idle,
+          reason: 'the replacement key gets a fresh idle slot');
+      expect(listenables.hasError.value, isFalse,
+          reason: 'the late lookup error must not mutate disposed listenables');
+      expect(calls.where((c) => c.method == 'loadBannerAd'), isEmpty);
+    });
+
     test(
         'banner disposed while the adaptive-size lookup is in flight must '
         'not resurrect a BannerAd for the abandoned key', () async {
@@ -240,6 +268,111 @@ void main() {
 
       expect(adapter.debugBannerListenerFor('k'), isNull,
           reason: 'a load nobody owns any more must not create a BannerAd');
+    });
+
+    test(
+        'R78 — size lookup resolving after watchdog timeout must not instantiate '
+        'or load a BannerAd for the timed-out slot', () async {
+      calls.clear();
+      final sizeLookup = Completer<num?>();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'AdSize#getAnchoredAdaptiveBannerAdSize') {
+          return sizeLookup.future;
+        }
+        return null;
+      });
+
+      final loadFuture = adapter.loadBannerIfNeeded('timed_out_lookup', 300);
+      await Future<void>.delayed(Duration.zero);
+      expect(adapter.bannerSlot('timed_out_lookup').isLoading, isTrue);
+
+      adapter.bannerSlot('timed_out_lookup').debugFireLoadWatchdogNow();
+      expect(adapter.bannerSlot('timed_out_lookup').value, AdSlotState.cooldown);
+      expect(adapter.banner('timed_out_lookup').hasError.value, isTrue);
+
+      sizeLookup.complete(50);
+      await loadFuture;
+
+      expect(calls.where((c) => c.method == 'loadBannerAd'), isEmpty,
+          reason: 'a size lookup that resolves after the watchdog timed out '
+              'must not create or start loading a BannerAd');
+    });
+
+    for (final lateError in [false, true]) {
+      test('expired size lookup ${lateError ? "failure" : "success"} '
+          'cannot alter a successful retry', () async {
+        final firstLookup = Completer<num?>();
+        var lookups = 0;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          if (call.method == 'AdSize#getAnchoredAdaptiveBannerAdSize') {
+            if (lookups++ == 0) return firstLookup.future;
+            return 50;
+          }
+          return null;
+        });
+        final firstLoad = adapter.loadBannerIfNeeded('retry', 300);
+        await Future<void>.delayed(Duration.zero);
+        final slot = adapter.bannerSlot('retry');
+        slot.debugFireLoadWatchdogNow();
+        adapter.recoverInlineAdsAfterReconnect();
+        await Future<void>.delayed(Duration.zero);
+        final request = calls.singleWhere((c) => c.method == 'loadBannerAd');
+        final ad = instanceManager.adFor(request.arguments['adId'] as int)!;
+        adapter.debugBannerListenerFor('retry')!.onAdLoaded!(ad);
+        expect(slot.isReady, isTrue);
+
+        if (lateError) {
+          firstLookup.completeError(PlatformException(code: 'old_lookup'));
+        } else {
+          firstLookup.complete(50);
+        }
+        await firstLoad;
+        expect(slot.isReady, isTrue);
+        expect(adapter.banner('retry').hasError.value, isFalse);
+        expect(calls.where((c) => c.method == 'loadBannerAd'), hasLength(1));
+        adapter.disposeBannerInstance('retry');
+      });
+    }
+
+    test(
+        'R78 — canReload closing during size lookup (e.g. VIP/offline/consent) '
+        'must drop the pending load before native BannerAd creation', () async {
+      calls.clear();
+      final sizeLookup = Completer<num?>();
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'AdSize#getAnchoredAdaptiveBannerAdSize') {
+          return sizeLookup.future;
+        }
+        return null;
+      });
+
+      var allowReload = true;
+      adapter.canReload = () => allowReload;
+
+      final loadFuture = adapter.loadBannerIfNeeded('gate_closed_mid_lookup', 300);
+      await Future<void>.delayed(Duration.zero);
+      expect(adapter.bannerSlot('gate_closed_mid_lookup').isLoading, isTrue);
+
+      allowReload = false; // e.g. VIP activated or consent revoked mid-await
+      sizeLookup.complete(50);
+      await loadFuture;
+
+      expect(adapter.bannerSlot('gate_closed_mid_lookup').value,
+          AdSlotState.cooldown);
+      expect(adapter.banner('gate_closed_mid_lookup').needsRecovery, isTrue,
+          reason: 'a gate closed mid-flight must leave inline recovery debt');
+      expect(calls.where((c) => c.method == 'loadBannerAd'), isEmpty,
+          reason: 'when canReload flips false while suspended on size lookup, '
+              'the continuation must not request a native banner');
+
+      allowReload = true;
+      adapter.recoverInlineAdsAfterReconnect();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls.where((c) => c.method == 'loadBannerAd'), hasLength(1),
+          reason: 'the failed request must be eligible for reconnect recovery');
     });
   });
 }

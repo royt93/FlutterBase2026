@@ -11,6 +11,8 @@ import 'package:flutter_test/flutter_test.dart';
 // gma_bridge_test.dart, needed to decode the real MobileAds#
 // updateRequestConfiguration call args (RequestConfiguration uses this
 // custom codec, not the default StandardMethodCodec).
+import 'package:google_mobile_ads/google_mobile_ads.dart'
+    show AgeRestrictedTreatment;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec;
 
@@ -423,6 +425,56 @@ void main() {
           simulated.appLovinHasUserConsent);
       expect((alCalls[1].arguments as Map)['value'],
           simulated.appLovinDoNotSell);
+    });
+
+    test('backward compatibility: legacy 5-argument constructor call compiles '
+        'and derives admobAgeRestrictedTreatment', () {
+      // Legacy caller without admobAgeRestrictedTreatment:
+      // ignore: deprecated_member_use
+      const legacyChild = ConsentSimulationResult(
+        appLovinHasUserConsent: false,
+        appLovinDoNotSell: false,
+        appLovinCoppaForwarded: false,
+        admobTagForChildDirectedTreatment: 'yes',
+        admobTagForUnderAgeOfConsent: 'unspecified',
+      );
+      expect(legacyChild.admobAgeRestrictedTreatment,
+          AgeRestrictedTreatment.child);
+
+      // ignore: deprecated_member_use
+      const legacyTfua = ConsentSimulationResult(
+        appLovinHasUserConsent: false,
+        appLovinDoNotSell: false,
+        appLovinCoppaForwarded: false,
+        admobTagForChildDirectedTreatment: 'no',
+        admobTagForUnderAgeOfConsent: 'yes',
+      );
+      expect(legacyTfua.admobAgeRestrictedTreatment,
+          AgeRestrictedTreatment.child);
+
+      // ignore: deprecated_member_use
+      const legacyAdult = ConsentSimulationResult(
+        appLovinHasUserConsent: true,
+        appLovinDoNotSell: false,
+        appLovinCoppaForwarded: false,
+        admobTagForChildDirectedTreatment: 'no',
+        admobTagForUnderAgeOfConsent: 'unspecified',
+      );
+      expect(legacyAdult.admobAgeRestrictedTreatment,
+          AgeRestrictedTreatment.unspecified);
+
+      // Explicit modern parameter overrides derivation:
+      // ignore: deprecated_member_use
+      const explicitOverride = ConsentSimulationResult(
+        appLovinHasUserConsent: false,
+        appLovinDoNotSell: false,
+        appLovinCoppaForwarded: false,
+        admobTagForChildDirectedTreatment: 'no',
+        admobTagForUnderAgeOfConsent: 'unspecified',
+        admobAgeRestrictedTreatment: AgeRestrictedTreatment.child,
+      );
+      expect(explicitOverride.admobAgeRestrictedTreatment,
+          AgeRestrictedTreatment.child);
     });
   });
 }

@@ -2156,22 +2156,20 @@ class AdMobAdapter
           // ignore: deprecated_member_use
           await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(
               widthPx.truncate());
-      // MJ21 — the adaptive-size lookup above is a real suspension point, and
-      // a fast scroll disposes this widget during it. Without this check the
-      // continuation builds an ad for a key nobody owns any more: nothing ever
-      // disposes it, and its callbacks write to disposed ValueNotifiers.
-      //
-      // B-2 (second independent review) — the first attempt used a permanent
-      // per-key tombstone set, which was a REGRESSION: the key is the State
-      // object and it IS legitimately reused (withdrawing consent, or the
-      // consent gate closing then reopening, both dispose the instance and then
-      // re-init the SAME widget), so every later load was dropped and the
-      // banner disappeared for good. Slot identity asks the real question —
-      // "is this still the load I started?" — with no bookkeeping that can
-      // outlive the widget.
-      if (!_bannerRegistry.isCurrent(key, slot)) {
+      // R78 audit fix — the adaptive-size lookup above is a real suspension point.
+      // If the widget was disposed, or the 30s watchdog timed out, or the reload
+      // gate closed mid-lookup (VIP activated, consent revoked, daily cap reached,
+      // device went offline), drop this request before allocating or loading a BannerAd.
+      if (!_bannerRegistry.isCurrent(key, slot) || loadTimedOut) {
         SafeLogger.d(_logTag,
-            'loadBanner $tag ⏭️ widget was disposed mid-load — dropping');
+            'loadBanner $tag ⏭️ aborted mid-lookup (disposed=${!_bannerRegistry.isCurrent(key, slot)}, timeout=$loadTimedOut)');
+        return;
+      }
+      if (!canReload()) {
+        SafeLogger.d(_logTag,
+            'loadBanner $tag ⏭️ reload gate closed mid-lookup — aborting load');
+        slot.markFailed();
+        listenables.markError();
         return;
       }
       final size = adaptive ?? AdSize.banner;
@@ -2297,6 +2295,7 @@ class AdMobAdapter
       )..load();
       // Slot already transitioned to `loading` above (before BannerAd creation).
     } catch (e, st) {
+      if (loadTimedOut || !_bannerRegistry.isCurrent(key, slot)) return;
       SafeLogger.e(_logTag, 'loadBanner $tag adaptive size THREW: $e\n$st');
       listenables.markError();
       slot.markFailed();

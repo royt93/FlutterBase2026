@@ -91,8 +91,12 @@ class ConsentSimulationResult {
     required this.appLovinCoppaForwarded,
     required this.admobTagForChildDirectedTreatment,
     required this.admobTagForUnderAgeOfConsent,
-    required this.admobAgeRestrictedTreatment,
-  });
+    AgeRestrictedTreatment? admobAgeRestrictedTreatment,
+  }) : admobAgeRestrictedTreatment = admobAgeRestrictedTreatment ??
+            ((admobTagForChildDirectedTreatment == 'yes' ||
+                    admobTagForUnderAgeOfConsent == 'yes')
+                ? AgeRestrictedTreatment.child
+                : AgeRestrictedTreatment.unspecified);
 
   /// What `AppLovinMAX.setHasUserConsent` would receive.
   final bool appLovinHasUserConsent;

@@ -6,6 +6,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (AdMob banner):** Adaptive-size lookup completion no longer starts a native banner request after its load watchdog expires or its reload gate closes. Gate cancellation leaves recovery debt; late lookup errors cannot mutate a disposed or timed-out slot.
+- **Fixed (API compatibility):** `ConsentSimulationResult` retains its legacy five-argument const constructor calls. The new age-treatment argument is optional and derives from legacy COPPA/TFUA flags when omitted; explicitly supplied values are preserved.
+
 - **Added:** `ConsentSimulationResult.admobAgeRestrictedTreatment` exposes consolidated AdMob age treatment (`child` or `unspecified`); legacy COPPA/TFUA simulator fields remain available but are deprecated.
 - **Migration:** AdMob now uses `RequestConfiguration.ageRestrictedTreatment`. COPPA or under-age-of-consent set to true maps to `child`; otherwise `unspecified`. Google Mobile Ads pin updated to 9.2.0; mediation fixture/example use `gma_mediation_applovin 2.6.3`.
 
