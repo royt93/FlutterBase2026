@@ -3,7 +3,7 @@
 - **Loại:** Compatibility follow-up
 - **Priority:** P3 · **Effort:** M
 - **Confidence:** FOLLOW-UP explicitly noted in repo guidance; not current failure
-- **Status:** implementation + static/build gates complete; physical-device consent smoke remains before closure
+- **Status:** inprogress · implementation + static/build gates complete; physical-device consent smoke remains before closure
 - **Evidence:** `CLAUDE.md` pinning notes; `lib/src/adapters/admob_adapter.dart` legacy child/under-age flags; `lib/src/adapters/gma_bridge.dart`; `pubspec.yaml` Google Mobile Ads pin/comment; `test/admob_adapter_test.dart`, consent tests; 2026-11-06 pub.dev `google_mobile_ads` 9.1/9.2 changelog/API docs and `gma_mediation_applovin` 2.6.5 metadata
 - **Dependency:** upstream API/deprecation status; consuming-app CocoaPods/pinning-wall validation
 

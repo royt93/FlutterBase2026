@@ -26,3 +26,16 @@ Thêm `unawaited(_adapter?.preloadMrec(_globalMrecWarmupKey) ?? Future<void>.val
 TDD: thêm `preloadMrecCalls` counter + assertion `greaterThan(0)` vào `connectivity_refill_test.dart` (RED trước: `Actual: <0>`). Fix lộ thêm 2 fake adapter test khác (`connectivity_resilience_test.dart`, `banner_ad_widget_test.dart`) thiếu override `preloadMrec` → `NoSuchMethodError` khi chạy full suite — thêm no-op override cho cả 2.
 
 `flutter test`: 723/723 pass, `flutter analyze` sạch.
+
+## Android + AdMob device smoke (Pixel 7 Pro, 2026-11-07)
+
+- Offline test: Wi-Fi tắt, Android báo `Active default network: none`; UMP consent-info request lỗi mạng, AdManager bỏ qua fullscreen ad loads vì offline, và mounted banner bỏ qua load (`_initBanner ⏭️ offline`). Không crash.
+- Reconnect test trong cùng tiến trình: bật Wi-Fi, Android báo kết nối lại; watcher ghi `network back online → refilling ad slots + banners`; interstitial và rewarded test ads load thành công. Sau khi mở Banner demo, hai banner AdMob test ads load thành công và ghi nhận impression.
+- Cold-start online riêng cũng ghi `connectivity watch started (connected=true)` và AdMob app-open test ad load thành công.
+- Rewarded-interstitial test ad load/show thành công sau disclosure; ad cấp đúng 10 xu và app trở về demo. App-open test ad hiển thị, đóng được bằng close button và trở về demo. Không chạm nội dung/CTA quảng cáo.
+- Chỉ test ad IDs; một thiết bị Android. Đây là smoke evidence, không chứng minh độ tin cậy mọi mạng/OEM hay policy toàn diện. Không thay đổi T67 scope hoặc T257 acceptance.
+- `doc/task/inprogress/T267-flutter-android-present-frame-attribution.md` được rà lại trong lượt này; phép đo hiện có vẫn không gán được presentation frame ổn định cho Flutter SurfaceView. Giữ task mở; không thay đổi acceptance.
+- Pixel real-network integration (`r73_android_admob_fixes_test.dart`, 2026-11-07): Wi-Fi tắt; mounted banner được xác nhận `needsRecovery=true` sau native load failure; bật Wi-Fi; watcher ghi `network back online`, banner được request lại và `slot.isReady` thành true mà không resume app. Cả file suite pass 10/10. Case đã có sẵn; không thêm duplicate test.
+- Pixel Wi-Fi bật lại sau smoke.
+
+**Device smoke:** Pixel 7 Pro, Android 17 (API 37), 2026-11-07. Test ads only. No code changes or test-suite rerun in this smoke pass.
