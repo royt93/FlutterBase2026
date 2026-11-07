@@ -22,7 +22,7 @@ SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfC
 - [x] Android physical-device smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): TFUA true/false with doNotSell true/false passed; outgoing `ageRestrictedTreatment` and test-device IDs confirmed. UMP geography was `notRequired`; no EEA UMP form shown.
 - [x] Android COPPA smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): `COPPA forwards child age treatment to native Android` passed; outgoing `ageRestrictedTreatment=child` and effective test-device IDs confirmed.
 - [x] EEA UMP debug flow on Pixel 7 Pro (2026-11-07, AdMob publisher test ads): obtained UMP test-device hash from Google log, forced EEA debug geography, confirmed form rendered for 205 partners. First dismissal attempt closed form visually but callback timed out after 180s (`status=required`, `canRequestAds=false`); app data was cleared and flow repeated. Second attempt pressed Consent; callback completed without error, final status `obtained`, `canRequestAds=true`, `formShown=true`. Pixel app data cleared after test. This verifies debug EEA flow on Pixel only, not general compliance/region coverage.
-- [ ] Remaining device coverage: iOS physical-device smoke. No production ad traffic used.
+- [ ] Remaining device coverage: iOS physical-device smoke. iOS Simulator launch surfaced the ATT prompt, but automated dismissal is blocked by host accessibility restrictions (`System Events` click returned -25204; `simctl privacy` failed with `Operation not permitted`). Do not claim iOS consent-flow completion. No production ad traffic used.
 - Final analyzer after migration reports no issues. Keep T256 open until remaining device coverage is complete.
 
 ## Acceptance criteria
@@ -35,7 +35,7 @@ SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfC
 - [x] Android physical-device smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): TFUA true/false with doNotSell true/false passed; outgoing `ageRestrictedTreatment` and test-device IDs confirmed. UMP geography was `notRequired`; no EEA UMP form shown.
 - [x] Android COPPA smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): `COPPA forwards child age treatment to native Android` passed; outgoing `ageRestrictedTreatment=child` and effective test-device IDs confirmed.
 - [x] EEA UMP debug flow on Pixel 7 Pro (2026-11-07, AdMob publisher test ads): obtained UMP test-device hash from Google log, forced EEA debug geography, confirmed form rendered for 205 partners. First dismissal attempt closed form visually but callback timed out after 180s (`status=required`, `canRequestAds=false`); app data was cleared and flow repeated. Second attempt pressed Consent; callback completed without error, final status `obtained`, `canRequestAds=true`, `formShown=true`. Pixel app data cleared after test. This verifies debug EEA flow on Pixel only, not general compliance/region coverage.
-- [ ] Remaining device coverage: iOS physical-device smoke. No production ad traffic used.
+- [ ] Remaining device coverage: iOS physical-device smoke. iOS Simulator launch surfaced the ATT prompt, but automated dismissal is blocked by host accessibility restrictions (`System Events` click returned -25204; `simctl privacy` failed with `Operation not permitted`). Do not claim iOS consent-flow completion. No production ad traffic used.
 
 T256 remains in progress until the device smoke is done; no release/publish approval is implied.
 
