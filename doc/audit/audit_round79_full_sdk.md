@@ -57,11 +57,17 @@ Round 78 (`audit_round78_android_admob.md`) ghi chi tiết:
 - Trial mặc định 24 giờ ở release (`ad_config.dart:32-55, 417`). iOS dùng Keychain; Android anti-reinstall chỉ best-effort theo host Auto Backup; clear-data/reinstall có thể cấp lại trial/key. Đây là owner-approved, no-backend product limitation (`packages/ad_sdk/CLAUDE.md`, `_first_install_guard.dart`), không phải finding mới.
 - Không thấy implementation IAP trong SDK; purchase flow là host-owned.
 
-## 4. Example — verified documentation/UX issues
+## 4. Example — audit findings and fixes
 
-1. **P2 — Signed VIP demo gọi redemption là offline, nhưng offline redemption bị từ chối.** `example/lib/main.dart:4137-4144, 4364-4374` gọi signed keys “offline/no network”; `redeemSignedKey` đòi connectivity (`lib/src/vip/vip_manager.dart:1358-1369`). Device offline nên người thử bấm key nhưng nhận lỗi. Regression coverage xác nhận hành vi từ chối ở `example/integration_test/t220_owner_decisions_device_test.dart:107-121`; README giải thích đúng ở `README.md:1075-1078`. **Phân loại:** sai nhãn trong example, không phải lỗi SDK. Nên nói “offline signature verification; internet required to redeem”.
-2. **P2 — Example không có durable/always-visible Privacy Options entry.** Home menu có consent demo, nhưng `AdManager().showPrivacyOptions()` chỉ được nối vào `VipRedeemScreen` tại `example/lib/main.dart:623-637`; không thấy entry cố định ở Settings/home. README yêu cầu entry lâu dài, luôn dễ tìm cho người dùng tại `README.md:2224-2252`. **Phân loại:** thiếu sót UX của demo; không chứng minh consent API hỏng. Host app vẫn phải tự cung cấp entry.
-3. **P3 — Privacy policy action trong VIP demo không mở policy.** Callback chỉ `debugPrint` tại `example/lib/main.dart:631-635`. Người dùng thử demo không thể mở policy từ nút đó. **Phân loại:** demo UX chưa hoàn chỉnh, không phải SDK runtime defect.
+### Findings at audit start (all corrected in `9c5fc51`)
+
+1. **P2 — Signed VIP demo mislabeled redemption as offline.** `example/lib/main.dart` originally called signed keys “offline/no network”, but `redeemSignedKey` requires connectivity (`lib/src/vip/vip_manager.dart:1358-1369`). Offline users would tap and get rejected. Device test confirms expected offline rejection (`example/integration_test/t220_owner_decisions_device_test.dart:107-121`); README documents it (`README.md:1075-1078`). This was example copy, not an SDK defect.
+2. **P2 — No durable Privacy Options entry in demo home.** Before the change, `showPrivacyOptions()` appeared only on `VipRedeemScreen`; README requires a durable, always-visible entry (`README.md:2224-2252`). This was demo UX, not evidence of a broken consent API.
+3. **P3 — Privacy policy action did not open a policy.** The previous callback only called `debugPrint` in `example/lib/main.dart`. This was incomplete demo behavior.
+
+### Current state and verification
+
+Commit `9c5fc51` fixes all three: signed-key label states “offline verification; internet required to redeem”; home now exposes **Privacy settings** with Privacy Options and privacy policy; policy URL opens using `url_launcher`. Example suite: 74 tests pass; analyzer clean. Integration test passes on Pixel 7 Pro (AdMob) and iOS simulator. On Pixel, adb tap opened Chrome and the supplied Notion page loaded, showing “Term & Privacy Policy & Disclaimer”. iOS simulator verified the privacy settings screen only, not the external browser; no iPhone claim.
 
 Consent form UMP là native UI. `ump_eea_consent_test.dart` yêu cầu device hash và một lần trả lời thủ công; test không tự tap form và có thể skip nếu chưa cấu hình (`example/integration_test/ump_eea_consent_test.dart:14-31, 55-100`). Đây là giới hạn kiểm thử cần nêu khi đánh giá EEA QA.
 
@@ -71,18 +77,44 @@ SDK chuyển tiếp một số tín hiệu consent/age/restriction và có UMP f
 
 ## 6. Production recommendation
 
-- **Closed pilot Android + AdMob:** Có thể, với host checklist ở `audit_round78_android_admob.md:105-116`, tester cohort nhỏ, real AdMob account/test configuration được rà soát, telemetry/crash/fill/consent monitoring, và khả năng rollback/tắt ad serving.
+- **Closed pilot Android + AdMob:** Có thể sau khi host checklist ở `audit_round78_android_admob.md:105-116` được tick, tester cohort nhỏ, telemetry/crash/fill/consent monitoring, và có rollback/tắt ad serving. Hướng dẫn partner trong `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` vẫn có version/dependency cũ ở thời điểm audit (xem mục 7); không copy nguyên cấu hình 3.6.8 cho 3.7.0.
 - **Public rollout hoặc toàn nền tảng/providers:** Chưa khuyến nghị dựa trên evidence hiện có. Trước đó cần iPhone thật: ATT → UMP EEA (accept/decline/privacy options) → AdMob; xác minh IAB strings và ad gate. Cần thiết bị/credentials AppLovin để kiểm tra load/show/click/reward/dismiss, banner/MREC pause-refresh-destroy, Native load-refresh, và consent behavior. Không tuyên bố CI thay thế những phép thử này.
 - Trial 24h release default phải được chủ sản phẩm/pháp lý/thương mại chấp thuận; nếu không, host cấu hình `FirstInstallVipGrace.disabled`. VIP promotion code không nên được bán như license có cam kết single-use/bảo vệ chống gian lận toàn cầu nếu không có backend.
 
-## 7. Việc tiếp theo
+### Tiêu chí go/no-go cho closed pilot Android + AdMob
 
-- Sửa `CHANGELOG.md` release heading/QA wording để phản ánh 3.7.0 đã publish.
-- Sửa nhãn VIP trong example, thêm Privacy Options entry cố định, và quyết định policy URL thực hay ẩn action trong demo.
-- T256: iPhone thật, ATT + UMP + AdMob.
-- R76: AppLovin native refresh/device QA với key, units, creative hợp lệ.
-- T267: attribution Flutter SurfaceView frame presentation.
-- Recheck CI workflow/billing trước khi dựa vào CI xanh cho release tương lai.
+Chỉ mở pilot khi host app đã tick đủ checklist ở `audit_round78_android_admob.md:105-116`. Đề xuất ngưỡng (chủ sản phẩm có thể chỉnh; đây không phải tiêu chuẩn của AdMob hay Google):
+
+- **Quy mô:** cohort nhỏ, kéo dài vài ngày trước khi mở rộng; ghi lại bản SDK `3.7.0` và hash archive đã dùng.
+- **Dừng ngay (no-go)** nếu gặp bất kỳ: crash/ANR tăng rõ so với bản không có ad; quảng cáo hiện khi VIP/trial đang hoạt động; ad request khi chưa có consent hợp lệ ở thị trường cần UMP; cảnh báo policy hoặc invalid-traffic từ AdMob; click nhầm do vị trí đặt quảng cáo.
+- **Theo dõi:** tỷ lệ fill, lỗi tải, doanh thu/impression, reward chỉ cấp khi `earned=true`, hành vi khi mất/có lại mạng, rút consent qua Privacy Options.
+- **Chưa kiểm chứng bằng audit này:** host app thực tế. Repo đang audit không chứa host app dùng SDK, nên cấu hình AdMob App ID/ad unit/UMP/app-ads.txt của app thật phải được owner xác nhận riêng.
+- **Rollback:** có đường lùi về bản package trước hoặc tắt ad serving từ host/console; pub.dev không thể rút bản đã publish.
+
+## 7. Guideline và partner readiness
+
+### Android + AdMob findings
+
+- **HIGH — Partner guide release/dependency baseline is stale.** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD:10-15, 179-180, 360-375, 4053` still shows SDK 3.6.8 and Google Mobile Ads `>=9.0.0 <9.1.0`; current package metadata is SDK 3.7.0 and GMA `>=9.2.0 <9.3.0` (`packages/ad_sdk/pubspec.yaml:6, 54-68`). Integration snippets may therefore pin the wrong version/API; 3.7.0 uses `RequestConfiguration.ageRestrictedTreatment` (`CHANGELOG.md:13`).
+- **HIGH — README Android setup omits Kotlin Gradle Plugin prerequisite.** `README.md:283-331` instructs App ID, permissions and minSdk 24 but does not mention Kotlin Gradle Plugin >=2.3.0 or migration away from `kotlinOptions`. Current example sets Kotlin 2.3.0 and `compilerOptions` (`example/android/settings.gradle.kts:22-25`, `example/android/app/build.gradle.kts:97-99`). Host following README alone can fail Kotlin compilation with GMA 9.2.x.
+- **MEDIUM — README example uses Google test ad units without code-level debug/release split.** `README.md:537-544` puts public test IDs directly in a generic `AdConfig` snippet. Although the prose says replace before publishing, a host that copies it unchanged will have ad requests blocked in release by `_applyTestIdFootgunGuard` (`lib/src/core/ad_manager.dart:3036-3053`). The partner guide has a safer debug/release split at `doc/AD_PROMPT_FLUTTER.MD:574-625`.
+- **Android Runtime:** This documentation review did not verify a new Android/AdMob runtime defect. The release guard blocking Google test IDs is present in source; it prevents serving test inventory in release, but does not make the copied production configuration useful.
+
+### VIP/trial and partner pilot boundary
+
+- **Accepted no-backend limitations:** signed promo keys are not globally single-use; Android reinstall/clear-data protection is best-effort; offline activation is deliberately refused; wall-clock checks cannot provide trusted server time. See `packages/ad_sdk/CLAUDE.md`, `README.md:60-76, 1067-1089`, `lib/src/vip/vip_manager.dart`, and `_first_install_guard.dart`. Do not market promotions as paid, single-use licenses. The 24h release trial is on by default in SDK config and partner guide says disable unless product/privacy/commercial owners approve.
+- **MINOR — Android trial can be farmed via SDK entitlement erase, without reinstall.** `AdManager.clearSdkData(scope: allIncludingEntitlements, confirmedEntitlementErasure: true)` clears `_keyFirstInstallApplied` (`lib/src/core/ad_manager.dart:1659-1663`; `lib/src/utils/ad_preferences.dart:777-810`). The iOS Keychain marker is deliberately preserved, but `FirstInstallGuard` has no Android persistent marker (`ad_manager.dart:1691-1707`; `_first_install_guard.dart:147-155, 192-196`). Next `initialize()` therefore grants another 24h trial; repeat the explicit erase + initialize to repeat. This goes beyond the documented reinstall/clear-data limitation because no reinstall is needed. This may be intended as full entitlement erasure; however iOS specifically preserves its marker to prevent the same trial-renewal path, so platform behavior is asymmetric. Existing tests cover fresh grant and entitlement erase separately, not erase → reinitialize → regrant. Host mitigations: set `firstInstallVipGrace: FirstInstallVipGrace.disabled` unless approved; don't expose entitlement erasure as a routine user action if repeated grace is unacceptable. Confirm product intent before changing SDK behavior.
+- **MEDIUM — Restored Android preferences may retain “redeemed” marker while losing the VIP grant.** Backup XML explicitly includes only `FlutterSharedPreferences.xml` (`example/android/app/src/main/res/xml/full_backup_content.xml`, `data_extraction_rules.xml`). Redeemed VIP key IDs are stored in SharedPreferences (`lib/src/utils/ad_preferences.dart:442-451`), but VIP entry data is stored via `flutter_secure_storage` (`lib/src/vip/_vip_entries_store.dart:67-80`) and secure-storage data is excluded from backup by the explicit include rules. After device transfer/reinstall restoring SharedPreferences but not device-bound secure storage, the user has no active VIP entry while `redeemSignedKey` rejects the same key as already used (`lib/src/vip/vip_manager.dart:1457-1461`). This is a code/config consequence; no actual device restore was run. Existing backup test checks XML coverage only, not entitlement/ledger consistency after restore. Before relying on VIP for legitimate grants, either exclude redemption ledger from backup (weakens replay guard), define recovery/support behavior, or use a server-backed entitlement. Confirm policy trade-off; do not silently change backup scope.
+- **Closed pilot cannot run from this SDK-only repository.** The consuming host app is not present here, so its manifest, AdMob App ID/ad units, UMP console setup, app-ads.txt, placement, release signing/R8 and rollback controls are not verified. No production ad units were used. Host repo/path and publisher-approved configuration are required before pilot execution.
+- When host is available, first verify Android Kotlin Gradle Plugin >=2.3.0, `minSdk >=24`, app-specific AdMob `APPLICATION_ID`, correct platform ad units, UMP message and Privacy Options entry. Start a small closed cohort with test IDs, then switch to publisher-approved units only in the approved release config. Keep safety gates enabled; monitor crash/ANR, consent withdrawal, requests/fill, rewards, VIP suppression and offline/reconnect; have rollback and remote ad-off ready. Treat cohort/monitoring time as product-selected, not a Google policy standard.
+
+### Remaining non-Android work (out of current focus)
+
+- T256: iPhone device ATT + UMP + AdMob.
+- R76: AppLovin native refresh/device QA with key, units and creative.
+- T267: Flutter SurfaceView frame-presentation attribution.
+- `CHANGELOG.md:9-16` still says 3.7.0 is a draft; this is stale in the already published archive and can only be corrected in a later package release.
+- Recheck CI workflow/billing before relying on CI for future release validation.
 
 ## 8. Round 78 correction
 
