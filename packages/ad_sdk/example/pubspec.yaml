@@ -19,6 +19,7 @@ dependencies:
   # "Simulate broken privacy store (T146)" button (via
   # IabStorage.debugOpenOverride, not by touching the real platform plugin).
   shared_preferences: ^2.5.0
+  url_launcher: 6.3.2
 
 dev_dependencies:
   flutter_test:

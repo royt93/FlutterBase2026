@@ -46,8 +46,10 @@
 import 'dart:async';
 import 'dart:convert' show JsonEncoder;
 import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 // IabStorage is an internal implementation detail, not part
@@ -69,6 +71,18 @@ import 'package:shared_preferences/shared_preferences.dart' show SharedPreferenc
 import 't257_profile_frame_benchmark.dart' show runT257ProfileFrameBenchmark;
 
 final _navigatorKey = GlobalKey<NavigatorState>();
+final _demoPrivacyPolicyUri = Uri.parse(
+  'https://loitp.notion.site/Term-Privacy-Policy-Disclaimer-319b1cd8783942fa8923d2a3c9bce60f',
+);
+
+Future<void> openDemoPrivacyPolicy() async {
+  if (!await launchUrl(
+    _demoPrivacyPolicyUri,
+    mode: LaunchMode.externalApplication,
+  )) {
+    SafeLogger.w('Example', 'Could not open demo privacy policy');
+  }
+}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -524,6 +538,30 @@ class DemoTile extends StatelessWidget {
 
 // Top-level list of all demos.
 
+class PrivacySettingsPage extends StatelessWidget {
+  const PrivacySettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Privacy settings')),
+        body: ListView(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.tune),
+              title: const Text('Privacy Options'),
+              subtitle: const Text('Review or change consent preferences'),
+              onTap: () => AdManager().showPrivacyOptions(),
+            ),
+            ListTile(
+              leading: const Icon(Icons.policy_outlined),
+              title: const Text('Privacy policy'),
+              onTap: openDemoPrivacyPolicy,
+            ),
+          ],
+        ),
+      );
+}
+
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -630,12 +668,19 @@ class HomePage extends StatelessWidget {
               MaterialPageRoute(
                 builder: (_) => VipRedeemScreen(
                   publicKeyBase64: kDemoVipPublicKey,
-                  onPrivacyPolicyTap: () =>
-                      debugPrint('[example] privacy policy tapped'),
+                  onPrivacyPolicyTap: openDemoPrivacyPolicy,
                   onPrivacyOptionsTap: () => AdManager().showPrivacyOptions(),
                 ),
               ),
             ),
+          ),
+          DemoTile(
+            icon: Icons.privacy_tip_outlined,
+            title: 'Privacy settings',
+            subtitle: 'UMP privacy options + privacy policy',
+            color: Colors.blueGrey,
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const PrivacySettingsPage())),
           ),
           DemoTile(
             icon: Icons.science_outlined,
@@ -4363,7 +4408,7 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
 
           // Signed offline keys (Ed25519). Redeeming twice shows the
           // per-device one-time-use guard ("already used").
-          const Text('Signed keys (T18 — offline, forge-proof)',
+          const Text('Signed keys (offline verification; internet required to redeem)',
               style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Wrap(

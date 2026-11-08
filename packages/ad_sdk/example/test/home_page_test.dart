@@ -8,8 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Future<void> pumpHomePage(WidgetTester tester) async {
-    // The list has 28 tiles — grow the viewport so they all build without
-    // needing a scroll gesture.
+    // Grow viewport so every tile builds without a scroll gesture.
     tester.view.physicalSize = const Size(800, 5700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -21,7 +20,8 @@ void main() {
   testWidgets('renders a DemoTile for every demo', (tester) async {
     await pumpHomePage(tester);
 
-    expect(find.byType(DemoTile), findsNWidgets(28));
+    expect(find.byType(DemoTile), findsNWidgets(29));
+    expect(find.text('Privacy settings'), findsOneWidget);
     expect(find.text('Banner ad'), findsOneWidget);
     expect(find.text('Banner adaptive sizing (T157)'), findsOneWidget);
     expect(find.text('MREC ad'), findsOneWidget);
@@ -30,6 +30,17 @@ void main() {
     expect(find.text('Compliance report'), findsOneWidget);
     expect(find.text('Remote safety provider (T88)'), findsOneWidget);
     expect(find.text('Splash shortcut (T94)'), findsOneWidget);
+  });
+
+  testWidgets('privacy tile opens durable privacy settings', (tester) async {
+    await pumpHomePage(tester);
+
+    await tester.tap(find.text('Privacy settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PrivacySettingsPage), findsOneWidget);
+    expect(find.text('Privacy Options'), findsOneWidget);
+    expect(find.text('Privacy policy'), findsOneWidget);
   });
 
   testWidgets('tapping a tile navigates to its destination page',
