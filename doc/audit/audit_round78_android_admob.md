@@ -12,8 +12,8 @@
 1. **Release 3.6.8 và local hiện tại không giống nhau.** Pub.dev archive vẫn ghim `google_mobile_ads >=9.0.0 <9.1.0` và dùng API AdMob cũ `tagForChildDirectedTreatment` / `tagForUnderAgeOfConsent`. Local đã chuyển sang `google_mobile_ads >=9.2.0 <9.3.0`, `RequestConfiguration.ageRestrictedTreatment`, có UMP session-epoch guard và AppLovin Native refresh remount fix. Bằng chứng build/test local không được xem là bằng chứng rằng 3.6.8 trên pub.dev có các sửa đổi này.
 2. **Hai vấn đề local đã được sửa trong vòng audit này:**
    - Banner AdMob vẫn có thể gửi request sau khi adaptive-size lookup hoàn tất dù watchdog đã timeout hoặc `canReload()` đã đóng giữa lúc chờ.
-   - `ConsentSimulationResult` thêm tham số enum `required` làm hỏng source compatibility của các caller cũ dù legacy fields vẫn còn.
-3. **Đánh giá:** Local Android + AdMob có thể cân nhắc cho pilot có kiểm soát sau khi cập nhật các sửa đổi này lên nhánh phát hành và xác nhận app-specific AdMob setup/monitoring. Audit này **không** chứng minh mọi thị trường/pháp nhân tuân thủ, không thay publisher responsibility đối với UMP configuration, disclosures, app-ads.txt và ad placement; cũng không chứng minh native memory không rò rỉ.
+   - `ConsentSimulationResult` thêm tham số enum `required` làm hỏng source compatibility của các caller cũ; đã chuyển sang optional và suy ra từ cờ legacy khi bị bỏ qua.
+3. **Đánh giá:** Local Android + AdMob có thể cân nhắc cho pilot có kiểm soát sau khi host app xác nhận cấu hình và nguồn SDK. Audit này **không** chứng minh mọi thị trường/pháp nhân tuân thủ, không thay publisher responsibility đối với UMP configuration, disclosures, app-ads.txt và ad placement; cũng không chứng minh native memory không rò rỉ.
 4. **Không publish trong audit.** T256 vẫn chờ iPhone thật; T267 frame-presentation attribution vẫn chưa đạt; R76 AppLovin Native device QA chưa có key/creative hợp lệ.
 
 ## 2. Đối chiếu bản phát hành với local
@@ -67,18 +67,19 @@
 | Consent tests | Pass, 15 tests | Bao gồm legacy constructor + enum mapping. |
 | API golden | Pass | Chữ ký public mới có optional enum parameter. |
 | Banner widget tests | Pass | Flutter widget lifecycle; adapter channel race nằm ở unit/channel tests riêng. |
-| Full SDK suite | 2,852 passed | Repo suite, không phải toàn bộ tổ hợp thiết bị/provider/pháp nhân. |
+| Full SDK suite | 2,852 passed (final local run, concurrency 4) | Analyzer no issues; release-readiness gate passed in same command. Không phải toàn bộ tổ hợp thiết bị/provider/pháp nhân. |
 | `flutter analyze lib/ test/ example/lib/` | No issues | Static analysis. |
 | `./tool/release_readiness_gate.sh all` | Pass | Local release gate. |
 | Pixel interruption integration | 1/1 pass | Flutter lifecycle simulation; không phải Android force-stop/OS reclaim. |
 | Pixel network-conditioning integration | 1/1 pass | SDK connectivity seam; không thay thế radio/carrier chaos. |
-| `r73_android_admob_fixes_test.dart` | 9 passed, 1 skipped | 1 case yêu cầu real Wi-Fi cut; đã có run real-network case riêng bên dưới. |
-| `r73_android_admob_fixes_test.dart` real-network banner recovery | 10/10 pass | Wi-Fi thực bị tắt/bật; mounted banner gặp native error, watcher reconnect, request lại và slot ready không cần app resume. |
-| `r78_banner_async_guard_test.dart` Pixel | 1/1 pass | Channel handler giữ lời đáp adaptive-size để điều khiển timeout/gate; confirms requests blocked, then recovery requests sent. Đây không phải tự nhiên phát sinh timing. |
+| `r73_android_admob_fixes_test.dart` Pixel, ordinary integration run | 9 passed, 1 skipped | Case real Wi-Fi cut là opt-in và bị skip trong lượt này. |
+| `r73_android_admob_fixes_test.dart` real-network banner recovery | 10/10 pass (earlier Pixel run) | Wi-Fi thực bị tắt/bật; mounted banner gặp native error, watcher reconnect, request lại và slot ready không cần app resume. |
+| `r78_banner_async_guard_test.dart` Pixel | 1/1 pass (rerun after final full suite) | Channel handler giữ lời đáp adaptive-size để điều khiển timeout/gate; verifies no native request until recovery. Đây là forced race, không phải timing tự nhiên hoặc xác suất race ngoài thực tế. |
 | `t212_memory_backpressure_test.dart` Pixel | 1/1 pass | 10k event delivery và 50 `initialize()`/`destroy()` cycles trên `_LeakDetectableAdapter`; kiểm tra listener của adapter giả, **không** native heap leak của Google Mobile Ads. |
 | `./tool/check_pinning_wall.sh --with-builds` | Pass | `AppLovinSDK 13.6.3`; Android debug + iOS simulator build. Đây là build/pinning, không kiểm chứng mediation ad fill. |
+| `dart pub publish --dry-run` | Exit 65; 3 dependency warnings | Open `shared_preferences_android` range and exact `wakelock_plus`/platform-interface pins are documented pinning-wall choices. Do not loosen pins casually; no upload was attempted. |
 | Pixel ad-format smoke, AdMob test IDs | Banner, interstitial, rewarded, rewarded-interstitial, app-open observed working; test reward UI showed +10 coins | Một máy, một debug build; không phải production inventory, không cover mọi dismiss/no-fill/reinstall/market. |
-| Pixel profiling & memory (Profile APK, 3 cold starts) | PSS ready: 368,582 / 362,556 / 365,382 KiB; sau report: 353,633 / 348,172 / 352,321 KiB | Đo qua `dumpsys meminfo`; ba process khác nhau, không phải chuỗi mount/dispose trong cùng process, không có heap-retention analysis hoặc baseline trước fix. Không đủ kết luận không leak hay cải thiện memory. |
+| Pixel profiling & memory (Profile APK, 3 cold starts) | PSS ready: 368,582 / 362,556 / 365,382 KiB (360.0 / 354.1 / 356.8 MiB); sau report: 353,633 / 348,172 / 352,321 KiB (345.3 / 339.8 / 343.9 MiB) | Đo qua `dumpsys meminfo`; ba process khác nhau, không phải chuỗi mount/dispose trong cùng process, không có heap-retention analysis hoặc baseline trước fix. Không đủ kết luận không leak hay cải thiện memory. |
 | Frame/jank | Not passed / unresolved | Pixel Android 17 Perfetto/SurfaceView traces chưa cung cấp layer attribution; `FrameTimingMetric` không chứng minh Flutter frame presentation. T267 giữ mở; không báo 60fps pass. |
 | iOS device / AppLovin Native device QA | Not run | iPhone thật và AppLovin QA credentials/creative chưa sẵn sàng. T256/R76 giữ mở. |
 
@@ -86,7 +87,7 @@
 
 Các lượt đều có banner `ready=true`, real-ad result loaded/ready và terminal `T257_LIMIT`. Lọc `T257_FRAME` theo `[phase marker, phase marker + 2s)` để loại phần idle trong summary 3 giây của harness. Đơn vị timing: ms; percentile dùng nearest-rank theo index làm tròn của harness.
 
-| Lượt | DOWN samples | DOWN p95 / p99 / max totalSpan | DOWN >16.67ms | RETURN samples | RETURN p95 / p99 / max | RETURN >16.67ms |
+| Lượt | DOWN n | DOWN p95 / p99 / max `totalSpan` ms | DOWN >16.67 ms | RETURN n | RETURN p95 / p99 / max `totalSpan` ms | RETURN >16.67 ms |
 |---|---:|---|---:|---:|---|---:|
 | 1 | 230 | 6.179 / 9.393 / 32.400 | 2 | 240 | 5.057 / 6.687 / 7.459 | 0 |
 | 2 | 231 | 7.906 / 10.884 / 64.990 | 1 | 239 | 5.652 / 7.203 / 9.290 | 0 |
@@ -101,10 +102,23 @@ Các lượt đều có banner `ready=true`, real-ad result loaded/ready và ter
 - https://developers.google.com/admob/flutter/privacy
 - https://perfetto.dev/docs/data-sources/frametimeline
 
-## 7. Phán quyết & việc còn lại
+## 7. Checklist Android + AdMob closed pilot (app host)
 
-- **Android + AdMob local:** Đủ cơ sở cho pilot có kiểm soát sau khi hai R78 fixes được review/merge vào nhánh định phát hành; theo dõi crash, fill, consent, ad serving và policy trong app thật.
-- **Không phát hành/publish bởi audit này.** Pub.dev 3.6.8 chưa có các local changes GMA 9.2.0 và R78 fixes; build/test local không làm archive cũ đổi nội dung.
+Trước khi cài closed-test APK/AAB từ host app, xác nhận:
+
+- Dùng artifact/source đã được release owner phê duyệt. Fixes nằm trong `25e3b42`, release metadata draft `3.7.0` trong `55292fd`; pub.dev vẫn là 3.6.8. Không giả định consumer tải 3.6.8 đã nhận các fixes đó; không trỏ production app vào git dependency chưa qua quy trình release.
+- Host Android đáp ứng Kotlin Gradle Plugin 2.3.0+, `minSdk >= 24`, Android manifest AdMob `APPLICATION_ID`, quyền/backup XML theo guide; release R8 rules và signing phải do host xác minh.
+- AdMob App ID, Android ad-unit IDs, app-ads.txt và UMP messages/domain đều thuộc đúng app/publisher; tuyệt đối không đưa test IDs vào release build.
+- UMP là consent owner duy nhất; `requestConsentInfoUpdate()` chạy mỗi app launch. Review riêng `canRequestAds`, personalization, COPPA/TFUA và CCPA/RDP; cung cấp Privacy Options entry point khi UMP yêu cầu. Consent/legal review theo thị trường do publisher chịu trách nhiệm.
+- Giữ safety gate mặc định. Không dùng `bypassSafety` ngoài App Open splash được tài liệu hoá; không đặt interstitial gần thao tác thường xuyên. Reward chỉ cấp khi callback báo `earned=true`.
+- Giai đoạn closed test: crash/ANR, AdMob request/error/fill/impression/reward, test consent withdrawal, foreground/background và Wi-Fi loss/reconnect. Bắt đầu với tester cohort nhỏ; có cách rollback package/version và tắt ad serving từ host/console.
+- Thu thập telemetry tối thiểu cần thiết, không log GAID/ad-unit hoặc raw consent strings ngoài quy trình QA được duyệt. Không đánh giá native memory là “không leak” dựa trên ba `dumpsys meminfo` snapshot.
+- Sau pilot, review Play policy status, crash/fill data và khiếu nại trước khi mở rộng. iOS/AppLovin không thuộc bằng chứng pilot Android + AdMob này.
+
+## 8. Phán quyết & việc còn lại
+
+- **Android + AdMob local:** Đủ cơ sở để cân nhắc closed pilot với fixes trong commit `25e3b42`; release metadata draft `3.7.0` nằm trong commit `55292fd` trên `origin/main`, chưa publish. Trước khi pilot, host app xác nhận cấu hình ở mục 7; theo dõi crash, fill, consent, ad serving và policy. Đây không phải duyệt production toàn diện.
+- **Không phát hành/publish bởi audit này.** Tại thời điểm audit, pub.dev vẫn là 3.6.8 và chưa có GMA 9.2.0/R78 fixes. Draft local `3.7.0` (`55292fd`) chưa publish. `dart pub publish --dry-run` trả exit 65 với 3 warning: upper bound mở của `shared_preferences_android` và exact pins `wakelock_plus`/`wakelock_plus_platform_interface` đã được ghi nhận trong pinning-wall constraints; chưa upload. Public publish cần owner quyết định rõ và QA iOS/AppLovin còn deferred.
 - **T256:** Chờ iPhone thật để ATT + UMP EEA + AdMob test ad smoke.
 - **R76:** Chờ AppLovin QA key/units và thiết bị để kiểm chứng native Native refresh.
 - **T267:** Giữ mở; cần nguồn frame presentation có attribution cho Flutter SurfaceView trên Pixel.
