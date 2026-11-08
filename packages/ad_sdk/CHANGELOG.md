@@ -6,14 +6,19 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-## [3.7.0] - DRAFT — not published
+## [3.7.1] - 2026-11-08
+
+- **Docs only:** Updated the partner integration guide to use the host's pinned SDK metadata instead of stale version numbers, documented the Android Kotlin Gradle Plugin requirement, and separated AdMob test IDs from release IDs in the README Quick Start.
+- **No runtime/API changes.** This documentation patch does not add iOS physical-device or AppLovin native QA; those remain deferred.
+
+## [3.7.0] - 2026-11-08
 
 - **Fixed (AdMob banner):** Adaptive-size lookup completion no longer starts a native banner request after its load watchdog expires or its reload gate closes. Gate cancellation leaves recovery debt; late lookup errors cannot mutate a disposed, timed-out, or successfully retried slot.
 - **Changed (API compatibility):** `ConsentSimulationResult.admobAgeRestrictedTreatment` remains available, while constructor parameter is optional. Legacy five-argument const construction derives treatment from the deprecated COPPA/TFUA fields; explicitly supplied enum takes precedence.
 - **Migration:** AdMob uses `RequestConfiguration.ageRestrictedTreatment`. COPPA or under-age-of-consent true maps to `child`; otherwise `unspecified`. Google Mobile Ads pin is 9.2.x; mediation fixture uses `gma_mediation_applovin 2.6.3`.
 - **Clarification (testing):** Tests injecting captured GMA listeners after watchdog expiry prove Dart-side slot guards, not that a late platform callback reaches the SDK. Google Mobile Ads removes disposed ad IDs and drops events for unknown IDs; a post-dispose native GMA callback has not been demonstrated.
 - **QA:** 2,852 SDK tests pass; analyzer and release-readiness gate pass. Pixel 7 Pro Android + AdMob test-ad, network recovery, interruption and async-guard checks pass. Profile/memory data are limited observations, not proof of zero native leaks or 60fps physical presentation.
-- **Deferred QA:** iOS physical-device smoke (T256), AppLovin Native device refresh (R76), and Flutter SurfaceView frame attribution (T267) remain unverified/deferred. This draft does not authorize publication.
+- **Deferred QA:** iOS physical-device smoke (T256), AppLovin Native device refresh (R76), and Flutter SurfaceView frame attribution (T267) remain unverified/deferred. These are not claims of iOS/AppLovin production validation.
 
 ## [3.6.8] - 2026-10-31
 
