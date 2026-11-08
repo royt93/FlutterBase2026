@@ -8,8 +8,8 @@ This file is the self-contained integration path, and it is written so you can f
 
 ```bash
 mkdir -p ~/sdk_ref && cd ~/sdk_ref
-dart pub unpack applovin_admob_sdk:3.6.8      # use the version you pinned
-# ~/sdk_ref/applovin_admob_sdk-3.6.8/ now contains README.md, CHANGELOG.md,
+dart pub unpack applovin_admob_sdk:<PINNED_VERSION>
+# ~/sdk_ref/applovin_admob_sdk-<PINNED_VERSION>/ now contains README.md, CHANGELOG.md,
 # example/ (a full runnable demo app), tool/ (operator scripts), lib/ (SDK source)
 # and, from 3.6.2 on, doc/AD_PROMPT_FLUTTER.MD (a copy of this guide)
 ```
@@ -177,7 +177,7 @@ Follow this file in the consuming Flutter project; source checkout is not requir
 | Dart package name (from `pubspec.yaml: name`) | `<DART_PACKAGE_NAME>` |
 | Current state management | `<existing framework/pattern, or none>` |
 | Default locale | `<vi_VN \| en_US \| ...>` (default to whatever the project already targets) |
-| `applovin_admob_sdk` version | **`3.6.8`** unless the partner names another. This guide was last fully walked through on 3.6.4; 3.6.5 changed the rewarded SSV show path, 3.6.6/3.6.7 added inline late-callback guards, and 3.6.8 fixes live compliance log erasure in `clearSdkData`. To use a newer one, pin it in `pubspec.yaml` (Step 4.0) and skim that version's CHANGELOG on pub.dev first. |
+| `applovin_admob_sdk` version | Use the exact version approved for this host app and pin it in `pubspec.yaml` (Step 4.0). Before following version-sensitive instructions, inspect `pubspec.yaml` and `CHANGELOG.md` unpacked for that pinned release; this guide is not itself a package compatibility constraint. |
 | Library's own spec files | Obtained with `dart pub unpack` (see "How to use this document"): `README.md`, `CHANGELOG.md`. Optional deeper reading; this file does not depend on them. |
 | Sample app | `example/lib/main.dart` inside the unpacked package (demo pages, one page per feature); optional |
 | Debug build target | `flutter build apk --debug` (Android) + `flutter build ios --simulator --debug --no-codesign` (iOS, if targeting iOS) — both must succeed |
@@ -357,11 +357,11 @@ Keep one row per existing placement. `In scope? = no` means leave old behavior u
 
 Do these steps in the consuming app root. Fill every placeholder from Section 0 first. Do not replace entire manifests/plists; merge only the shown entries into existing app configuration.
 
-**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide was last fully walked through on **3.6.4** (3.6.5 changed the rewarded SSV show path; 3.6.6/3.6.7 added inline late-callback guards; 3.6.8 fixes live compliance log erasure); if you pin a newer version, read its changelog on pub.dev before using version-specific steps.
+**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide is not a compatibility matrix: inspect the `pubspec.yaml` and `CHANGELOG.md` for the pinned release before using version-specific steps.
 
 ```yaml
 dependencies:
-  applovin_admob_sdk: ^3.6.8   # replace with the version you selected
+  applovin_admob_sdk: <PINNED_VERSION>   # replace with the exact approved version
   # Only AppLovin served through AdMob mediation (not direct AppLovin):
   # gma_mediation_applovin: <PARTNER_APPROVED_COMPATIBLE_VERSION>
 ```
@@ -372,11 +372,11 @@ Run:
 flutter pub get
 ```
 
-Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transparency`, or UI/state-management packages just because the SDK/example uses them transitively. Add `gma_mediation_applovin` only for the mediation branch. Current package source supports Flutter `>=3.38.1`, Dart `>=3.10.0`, and constrains `google_mobile_ads` to `>=9.0.0 <9.1.0`; verify the selected published release's constraints before relying on these values.
+Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transparency`, or UI/state-management packages just because the SDK/example uses them transitively. Add `gma_mediation_applovin` only for the mediation branch. Read the selected release's `pubspec.yaml` for its Flutter/Dart floor and `google_mobile_ads` constraint; do not infer them from this guide.
 
 **(a2) Android build files — exact edits for a project created with `flutter create`.** The first four edits are required for every build and the fifth for shrunk release builds; each one fixed a real build failure when the guide was tried on a fresh app (Flutter 3.41.9 template). Skip an edit only if its "before" text is already absent.
 
-1. `android/settings.gradle.kts` — raise the Kotlin plugin to 2.3.0 or newer (Google Mobile Ads 9.0.0 needs it):
+1. `android/settings.gradle.kts` — raise the Kotlin plugin to 2.3.0 or newer (required by the pinned Google Mobile Ads native dependency; confirm against the selected release):
 
    ```diff
    -    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
@@ -475,7 +475,7 @@ Add the App ID metadata inside the existing `<application>`:
 
 Use the partner's AdMob App ID when one exists. Google's public test App ID is only for a test-only app/build that will not serve production ads; do not ship it in production. For AppLovin, do not add an `applovin.sdk.key` manifest entry: pass the SDK key to `AppLovinConfig.sdkKey` in Step 4.2 via the partner-approved secret/config mechanism. Keep any existing `android:taskAffinity` non-empty; see README → Pitfalls.
 
-Set `minSdk = 24` in the app's existing Gradle file. With current GMA 9.0.0, set Kotlin Gradle plugin `>=2.3.0` in `android/settings.gradle.kts`; if upgrading from older Kotlin, replace removed `kotlinOptions { jvmTarget = ... }` with the `kotlin { compilerOptions { ... } }` snippet in Step 11.1.
+Set `minSdk = 24` in the app's existing Gradle file. Check the pinned release's native dependency requirements; current SDK releases using Google Mobile Ads 9.2.x require Kotlin Gradle plugin `>=2.3.0` in `android/settings.gradle.kts`. If upgrading from older Kotlin, replace removed `kotlinOptions { jvmTarget = ... }` with the `kotlin { compilerOptions { ... } }` snippet in Step 11.1.
 
 **(c) iOS identifiers and deployment target** — only if you ship on iOS. Merge into `ios/Runner/Info.plist` (inside the top-level `<dict>`; do not replace the file):
 
@@ -3852,9 +3852,9 @@ Pass criteria: check 1 prints `0`, check 2 lists every format you ship, check 3 
 
 ### 11.1 — Native config
 
-- [ ] `pubspec.yaml`: add `applovin_admob_sdk: ^3.6.8` (or the pub.dev version you selected in Step 4.0) and keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
-  - `gma_mediation_applovin` is **optional**, app-level, and only for AppLovin as an AdMob mediation network. Current source fixture pins `2.6.2` and asserts AppLovinSDK `13.6.3`; read `packages/ad_sdk/CLAUDE.md` and `tool/check_pinning_wall.sh` before changing this combination.
-  - `google_mobile_ads` is constrained to `>=9.0.0 <9.1.0` in current package metadata; do not upgrade across that cap until the iOS regression is resolved and the source constraint changes.
+- [ ] `pubspec.yaml`: add the exact approved `applovin_admob_sdk` release selected in Step 4.0; keep unrelated dependencies unchanged. Do not add provider plugin dependencies manually unless required by the selected integration.
+  - `gma_mediation_applovin` is **optional**, app-level, and only for AppLovin as an AdMob mediation network. Before changing its version or any native provider pin, inspect the selected package release's compatibility notes and run its pinning/build checks.
+  - Do not add or override `google_mobile_ads` in the host unless the integration explicitly requires it. Read the selected SDK release's `pubspec.yaml` for its supported constraint; do not copy a version range from this guide.
   - `app_tracking_transparency` is a **transitive dependency of the SDK** — do NOT add it at the app level.
   - Do not add GetX, `intl`, `url_launcher`, `confetti`, or other packages solely because optional examples use them.
 - [ ] `AndroidManifest.xml` permission whitelist: `INTERNET` + `ACCESS_NETWORK_STATE` + `AD_ID`. Any ad-related permission beyond these 3 needs a clear justification. Any non-ad permission → ask the user first.
@@ -3862,7 +3862,7 @@ Pass criteria: check 1 prints `0`, check 2 lists every format you ship, check 3 
 - [ ] `MainActivity` does **NOT** have `android:taskAffinity=""` (pitfall #1)
 - [ ] If targeting iOS, configure `GADApplicationIdentifier` required by `google_mobile_ads`/UMP, `AppLovinSdkKey` if AppLovin is enabled, and partner-approved `NSUserTrackingUsageDescription` only if ATT is approved/in scope. AdMob ad-unit IDs are needed only if serving AdMob ads.
 - [ ] Merge required `SKAdNetworkItems` for enabled networks/mediation from current official provider lists. The example `example/ios/Runner/Info.plist` is a reference list; merge it with existing partner entries rather than replacing the array, and re-check provider documentation at release time. Do not rely on a dated ID count.
-- [ ] Android app uses Kotlin Gradle plugin `>=2.3.0` with GMA 9.0.0. In `android/settings.gradle.kts`, set the plugin version (check current example `example/android/settings.gradle.kts`); in `android/app/build.gradle.kts`, replace removed `kotlinOptions { jvmTarget = ... }` with:
+- [ ] Android app meets Kotlin Gradle plugin requirement of the pinned Google Mobile Ads native dependency. For current GMA 9.2.x releases this is `>=2.3.0`. In `android/settings.gradle.kts`, set the plugin version (check the example matching the pinned release); in `android/app/build.gradle.kts`, replace removed `kotlinOptions { jvmTarget = ... }` with:
   ```kotlin
   kotlin {
       compilerOptions {
@@ -4050,9 +4050,9 @@ Do not uppercase or rewrite the entire signed token: preserve its Base64url payl
 
 Fetch the latest stable version from pub.dev when integrating; do not assume this guide describes every release. Read that exact version's README and CHANGELOG, run `flutter pub get`, and validate native dependency resolution/builds for every target platform.
 
-The package metadata currently sets Flutter `>=3.38.1` and Dart `>=3.10.0`. It constrains `google_mobile_ads` to `>=9.0.0 <9.1.0` because `9.1.0` has a documented iOS build regression. Verify these values against the selected release. On Android, GMA 9.0.0 requires the consuming app's Kotlin Gradle plugin to be `>=2.3.0`; Kotlin 2.3 removes the old `kotlinOptions { jvmTarget = ... }` DSL. Confirm these constraints against the actual published version selected for the partner.
+Read the selected release's package metadata for its Flutter/Dart floors and Google Mobile Ads constraint; do not treat this guide as the source of truth for dependency versions. Current SDK releases using Google Mobile Ads 9.2.x require consuming apps to use Kotlin Gradle plugin `>=2.3.0`; Kotlin 2.3 removes the old `kotlinOptions { jvmTarget = ... }` DSL. Confirm the Kotlin requirement against the pinned release's example/native setup.
 
-For an Android app on Kotlin below 2.3.0:
+For an Android app whose Kotlin plugin is below the version required by the pinned release:
 
 1. In `android/settings.gradle.kts`, raise `id("org.jetbrains.kotlin.android")` plugin version to at least `2.3.0` (see `example/android/settings.gradle.kts` for this SDK's current pattern).
 2. In `android/app/build.gradle.kts`, remove the old `android { kotlinOptions { jvmTarget = ... } }` block and use:

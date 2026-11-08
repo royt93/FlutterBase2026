@@ -330,6 +330,8 @@ android {
 }
 ```
 
+**Kotlin Gradle Plugin:** Current `google_mobile_ads` 9.2.x needs Kotlin `>=2.3.0`. Set this in `android/settings.gradle.kts`; Kotlin 2.3 also removes `kotlinOptions { jvmTarget = ... }`. For the exact migration snippet and verification steps, follow [`doc/AD_PROMPT_FLUTTER.MD`](doc/AD_PROMPT_FLUTTER.MD) Step 4.0(a2), and compare with `example/android/settings.gradle.kts` / `example/android/app/build.gradle.kts`. Always confirm requirements against the SDK version pinned by the host app.
+
 ### Step 3 — iOS configuration
 
 Open `ios/Runner/Info.plist` and add the keys below at the root `<dict>`. Replace `YOUR_…` placeholders:
@@ -534,13 +536,33 @@ class _SplashScreenState extends State<SplashScreen> {
             rewardedId:    'YOUR_REWARDED_AD_UNIT_ID',
           ),
 
-          // AdMob test units — public, always valid. Replace with your real
-          // ad unit IDs (from admob.google.com) before publishing the app.
-          admob: const AdMobConfig(
-            bannerId:       'ca-app-pub-3940256099942544/6300978111',
-            interstitialId: 'ca-app-pub-3940256099942544/1033173712',
-            appOpenId:      'ca-app-pub-3940256099942544/9257395921',
-            rewardedId:     'ca-app-pub-3940256099942544/5224354917',
+          // Public test units are debug-only. Supply your publisher's real
+          // IDs to release builds through dart-define; otherwise the SDK's
+          // release guard blocks all ad requests when it sees test IDs.
+          admob: AdMobConfig(
+            bannerId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/6300978111'
+                : const String.fromEnvironment('ADMOB_ANDROID_BANNER_ID'),
+            interstitialId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/1033173712'
+                : const String.fromEnvironment('ADMOB_ANDROID_INTERSTITIAL_ID'),
+            appOpenId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/9257395921'
+                : const String.fromEnvironment('ADMOB_ANDROID_APP_OPEN_ID'),
+            rewardedId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/5224354917'
+                : const String.fromEnvironment('ADMOB_ANDROID_REWARDED_ID'),
+            rewardedInterstitialId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/5354046379'
+                : const String.fromEnvironment(
+                    'ADMOB_ANDROID_REWARDED_INTERSTITIAL_ID',
+                  ),
+            mrecId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/6300978111'
+                : const String.fromEnvironment('ADMOB_ANDROID_MREC_ID'),
+            nativeId: kDebugMode
+                ? 'ca-app-pub-3940256099942544/2247696110'
+                : const String.fromEnvironment('ADMOB_ANDROID_NATIVE_ID'),
           ),
 
           // Optional legacy validator for redeemVip() integrations only.
