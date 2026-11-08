@@ -6,13 +6,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
-- **Fixed (AdMob banner):** Adaptive-size lookup completion no longer starts a native banner request after its load watchdog expires or its reload gate closes. Gate cancellation leaves recovery debt; late lookup errors cannot mutate a disposed or timed-out slot.
-- **Fixed (API compatibility):** `ConsentSimulationResult` retains its legacy five-argument const constructor calls. The new age-treatment argument is optional and derives from legacy COPPA/TFUA flags when omitted; explicitly supplied values are preserved.
+## [3.7.0] - DRAFT — not published
 
-- **Added:** `ConsentSimulationResult.admobAgeRestrictedTreatment` exposes consolidated AdMob age treatment (`child` or `unspecified`); legacy COPPA/TFUA simulator fields remain available but are deprecated.
-- **Migration:** AdMob now uses `RequestConfiguration.ageRestrictedTreatment`. COPPA or under-age-of-consent set to true maps to `child`; otherwise `unspecified`. Google Mobile Ads pin updated to 9.2.0; mediation fixture/example use `gma_mediation_applovin 2.6.3`.
-
-- **Clarification (testing):** The 3.6.6/3.6.7 late-load tests invoke captured GMA listeners directly after watchdog expiry. They verify listener guards, not that a late platform callback reaches the SDK: `google_mobile_ads` 9.0.0 removes disposed ad IDs and drops events for unknown IDs. A real post-dispose GMA callback reaching the SDK has not been demonstrated.
+- **Fixed (AdMob banner):** Adaptive-size lookup completion no longer starts a native banner request after its load watchdog expires or its reload gate closes. Gate cancellation leaves recovery debt; late lookup errors cannot mutate a disposed, timed-out, or successfully retried slot.
+- **Changed (API compatibility):** `ConsentSimulationResult.admobAgeRestrictedTreatment` remains available, while constructor parameter is optional. Legacy five-argument const construction derives treatment from the deprecated COPPA/TFUA fields; explicitly supplied enum takes precedence.
+- **Migration:** AdMob uses `RequestConfiguration.ageRestrictedTreatment`. COPPA or under-age-of-consent true maps to `child`; otherwise `unspecified`. Google Mobile Ads pin is 9.2.x; mediation fixture uses `gma_mediation_applovin 2.6.3`.
+- **Clarification (testing):** Tests injecting captured GMA listeners after watchdog expiry prove Dart-side slot guards, not that a late platform callback reaches the SDK. Google Mobile Ads removes disposed ad IDs and drops events for unknown IDs; a post-dispose native GMA callback has not been demonstrated.
+- **QA:** 2,852 SDK tests pass; analyzer and release-readiness gate pass. Pixel 7 Pro Android + AdMob test-ad, network recovery, interruption and async-guard checks pass. Profile/memory data are limited observations, not proof of zero native leaks or 60fps physical presentation.
+- **Deferred QA:** iOS physical-device smoke (T256), AppLovin Native device refresh (R76), and Flutter SurfaceView frame attribution (T267) remain unverified/deferred. This draft does not authorize publication.
 
 ## [3.6.8] - 2026-10-31
 
