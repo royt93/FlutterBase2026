@@ -1,0 +1,21 @@
+--------- beginning of main
+11-08 22:29:15.371 11354 11354 I flutter : roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-08 22:29:15.379 11354 11354 I flutter : roy93~ [AdScreen] initState _MrecDemoPageState — preloading interstitial
+11-08 22:29:15.391 11354 11354 I flutter : roy93~ [AdScreen] buildMrec _MrecDemoPageState
+11-08 22:29:15.391 11354 11354 I flutter : roy93~ [AdScreen] buildMrec _MrecDemoPageState
+11-08 22:29:15.396 11354 11354 I flutter : roy93~ [MrecAdWidget] initState
+11-08 22:29:15.397 11354 11354 I flutter : roy93~ [MrecAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-08 22:29:15.408 11354 11354 I flutter : roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-08 22:29:15.443 11354 11354 I flutter : roy93~ [MrecAdWidget] initState
+11-08 22:29:15.443 11354 11354 I flutter : roy93~ [MrecAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-08 22:29:15.444 11354 11354 I flutter : roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-08 22:29:15.448 11354 11354 I flutter : roy93~ [MrecAdWidget] initState
+11-08 22:29:15.448 11354 11354 I flutter : roy93~ [MrecAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-08 22:29:15.449 11354 11354 I flutter : roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-08 22:29:16.825 11354 11354 I flutter : roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-08 22:29:16.854 11354 11354 I flutter : roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-08 22:29:16.862 11354 11354 I flutter : roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-08 22:29:16.917 11354 11354 I flutter : roy93~ [AdMobAdapter] mrec [AdMob] 👁 impression
+11-08 22:29:16.917 11354 11354 I flutter : roy93~ [AdSafety] 📊 Banner impression | totalImpressions=4
+11-08 22:29:16.940 11354 11354 I flutter : roy93~ [AdMobAdapter] mrec [AdMob] 👁 impression
+11-08 22:29:16.940 11354 11354 I flutter : roy93~ [AdSafety] 📊 Banner impression | totalImpressions=5

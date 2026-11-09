@@ -1,0 +1,4 @@
+0b380b2c80d58c9ffd0887335b8a36a8bede56d1aa88577f69d7b7b0f696c019  /Users/LoiTP/StudioProjects/roy/applovin_admob_sdk/doc/audit/evidence/round79_tecno/post_decline_logcat.txt
+fc9da3eb71f3a258e49197364531c4e122341cdcc6a5a8e74b715e4bb00359e0  /Users/LoiTP/StudioProjects/roy/applovin_admob_sdk/doc/audit/evidence/round79_tecno/ump_accept_logcat.txt
+f6f1de86440976d53de05b37c3cbdc7db2c990af35d2f6180245e64da34cfa1f  /Users/LoiTP/StudioProjects/roy/applovin_admob_sdk/doc/audit/evidence/round79_tecno/ump_decline_logcat.txt
+6499fcec12be6e18acb78d662d18debf867d817f7c8f78c02f6f3b1a449504f8  /Users/LoiTP/StudioProjects/roy/applovin_admob_sdk/doc/audit/evidence/round79_tecno/wifi_consent_logcat.txt

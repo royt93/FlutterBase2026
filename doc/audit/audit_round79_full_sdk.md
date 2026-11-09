@@ -1,10 +1,10 @@
-# Audit round 79 — Full SDK + example, pub.dev 3.7.0
+# Audit round 79 — Full SDK + example, pub.dev 3.7.1
 
 - **Ngày:** 2026-11-08
 - **Phạm vi:** `packages/ad_sdk/` và `packages/ad_sdk/example/`; Android + iOS; AdMob + AppLovin MAX; consent, lifecycle, offline/reconnect, trial/VIP, memory, policy và release status.
-- **Bản phát hành đối chiếu:** `applovin_admob_sdk` 3.7.0 trên pub.dev; published `2026-11-08T06:52:35.860011Z`.
-- **Archive SHA-256:** `31cd1a6f0e698f103431d4fe44d59de7be5921c74e1f39e1d5818bf7740d83a0`.
-- **Dependency resolution độc lập:** Consumer fixture resolve `applovin_admob_sdk 3.7.0` đúng SHA ở trên và `google_mobile_ads 9.2.0`; fixture lockfile được tạo bằng Flutter 3.41.9. Đây là xác nhận archive/dependency resolution, không phải build trên CI floor Flutter 3.38.1.
+- **Bản phát hành hiện tại:** `applovin_admob_sdk` 3.7.1 đã publish trên pub.dev ngày 2026-11-08. Đây là bản docs-only; không thay đổi runtime/API. Bản runtime đối chiếu của audit vẫn là 3.7.0.
+- **Archive SHA-256 của 3.7.0:** `31cd1a6f0e698f103431d4fe44d59de7be5921c74e1f39e1d5818bf7740d83a0`.
+- **Dependency resolution độc lập:** Consumer fixture resolve `applovin_admob_sdk 3.7.0` đúng SHA ở trên và `google_mobile_ads 9.2.0`; fixture lockfile được tạo bằng Flutter 3.41.9. Đây là xác nhận archive/dependency resolution, không phải build trên CI floor Flutter 3.38.1. 3.7.1 không đổi dependency/runtime payload.
 
 ---
 
@@ -33,7 +33,20 @@ Round 78 (`audit_round78_android_admob.md`) ghi chi tiết:
 - `ConsentSimulationResult` giữ caller cũ 5 tham số; enum tùy chọn suy ra child từ cờ COPPA/TFUA. Consent tests và API golden pass.
 - UMP EEA debug form, AdMob test ad cho banner/interstitial/rewarded/rewarded-interstitial/app-open, real Wi-Fi banner recovery, interruption/network-conditioning, và pinning/build checks đã được ghi lại với giới hạn từng phép thử.
 - Full SDK suite trong lần xác nhận round 78: 2,852 pass; analyzer và local release-readiness gate pass.
-- `FrameTiming.totalSpan` không phải physical presentation/fps; T267 vẫn chưa chứng minh 60fps. Ba `dumpsys meminfo` snapshot ở process khởi chạy khác nhau không chứng minh leak hoặc không leak.
+- Ba integration test trên Pixel 7 Pro thật (Android 17 / API 37, 2026-11-08) đều pass khi chạy example với `--dart-define=AD_PROVIDER_ADMOB=true`: `android_interruption_test.dart`, `android_network_conditioning_test.dart`, `t212_memory_backpressure_test.dart`. Giới hạn test: interruption test gọi `WidgetsBinding.handleAppLifecycleStateChanged` để giả lập pause/resume, không đưa app background bằng thao tác người dùng; network test bật/tắt `AdManager.debugConnectivityChanged`, không ngắt/kết nối Wi-Fi hoặc mạng di động thật; T212 bơm 10k synthetic events và chạy 50 init/destroy cycles qua fake adapter, không đo heap/native memory. Kết quả pass chỉ áp dụng cho assertion của các harness này.
+- Lượt đầu chạy interruption test thiếu AdMob define, chọn AppLovin placeholder IDs và bị watchdog; lượt đó đã dừng, không tính vào kết quả. Lượt đúng provider AdMob pass. UMP trên Pixel báo `notRequired`; test này không xác minh EEA consent form hay publisher UMP setup.
+- Pixel UI smoke (ADB input có screenshot/log, không phải người dùng tự chạm màn hình): mở example, tap **Banner ad**, screenshot hiển thị hai Google test banners có nhãn “Quảng cáo thử nghiệm”. Sau khi đưa app nền bằng Home rồi relaunch, screenshot hiển thị Google Ads fullscreen test creative; activity đứng đầu là `com.google.android.gms.ads.AdActivity`. Một lần Back chưa đóng được creative; Back lần hai đưa app về `MainActivity`. Không chạm creative, CTA hoặc nút cài đặt. Log xác nhận `provider=admob`, lifecycle `paused → resumed`, và SDK gọi nhánh app-open khi resume; không thấy `FATAL EXCEPTION` trong log được rà. Đây là tương tác ADB nhìn thấy được với test creative trên example/Pixel, không phải host app production. Lượt launch ban đầu có VIP active nên banner bị skip; sau đó banner test hiển thị. Pixel status `notRequired`, UMP EEA form chưa xác minh.
+- Pixel Android + AdMob test-ad rerun, hai phiên capture riêng (ADB UI actions/screenshots, 2026-11-08; Google test IDs; không click creative/CTA): Banner và MREC được load; log có `loadBanner ✅`, `loadMrec ✅` và MREC impressions. Native screenshot hiển thị hai test creatives, validator báo `0 implementation issues found`; isolated rerun log `rerun3_native_full_logcat.txt` ghi ba `preloadNative ✅` và hai impression callbacks. Kết luận giới hạn ở example test ads trên Pixel, không phải host production. Interstitial log `✅ shown` rồi `dismissed` sau nút X. Rewarded log thứ nhất ghi `✅ shown` → `🏆 type=coins amount=10` → `onEarnedReward: result=true` → `dismissed (earned=true)`; screenshot UI `Coins: 10`, `Last: earned`. Rewarded Interstitial log ghi `✅ shown` → `🏆 type=Coins amount=10` → `onDone: shown=true earned=true` → `dismissed (earned=true)`; screenshot UI `shown=true earned=true`. App Open log ghi resume gate passed, `showAppOpen ✅ shown` và `dismissed`; screenshot có fullscreen test creative. Không thấy `FATAL EXCEPTION` trong hai log được kiểm.
+- Evidence bundle: `doc/audit/evidence/round79_pixel/rerun_full_logcat.txt` (1.86 MB; Interstitial + Rewarded + Rewarded Interstitial) và `rerun2_inline_appopen_full_logcat.txt` (580 KB; Banner/MREC/Native/App Open); screenshot tương ứng bắt đầu bằng `rerun_` / `rerun2_` trong cùng thư mục. Rerun isolate thêm `rerun3_native_full_logcat.txt` và `rerun3_mrec_logcat.txt` kèm screenshot `rerun3_native.png`, `rerun3_mrec.png`: Native có ba `preloadNative ✅` và hai impressions; MREC có ba `loadMrec ✅` và hai impressions. SHA-256 của hai log đầu nằm trong `rerun_log_sha256.txt`; không có `FATAL EXCEPTION` trong các log được kiểm. App Open log capture có thao tác validator Help ngoài ý muốn trước lần mở ad; screenshot/log phân biệt validator với App Open. Test một lượt từng format, trên example app chứ không host/publisher production; không đo memory/FPS; UMP EEA chưa xác minh.
+- **TECNO KJ7 (Android 14) — Wi‑Fi off/on và UMP EEA test thật (2026-11-09):**
+  - **Mạng thật:** Tắt Wi‑Fi qua ADB khiến `Active default network: none` và `wifi_on: 0`; mở lại khôi phục `Active default network: 101` và `wifi_on: 1`. Logcat SDK ghi nhận sự kiện `network back online → refilling ad slots + banners`. Raw logcat (`wifi_consent_logcat.txt`, 11 MB) và `post_decline_logcat.txt` (3.8 MB) chỉ lưu cục bộ trên máy kiểm thử, không nằm trong repo; các giá trị `wifi_on`/default-network là output adb trong lượt chạy và không có artifact commit kèm theo.
+  - **UMP EEA Form:** Build example với `--dart-define=UMP_EEA_DEBUG=true` và `--dart-define=UMP_TEST_ID=2814A47071F0761D9F546B5DD3AB9EA8` (hash trích từ logcat UMP lần đầu). Form native "Welcome to Publisher Test Ads" xuất hiện với 3 lựa chọn (`Consent`, `Do not consent`, `Manage options`; ảnh `doc/audit/evidence/round79_tecno/ump_launch.png`).
+  - **Nhánh Consent:** Chọn `Consent`; UMP ghi `IABTCF_gdprApplies: 1` và chuỗi `IABTCF_TCString` có vendor consents. SDK ghi nhận `status=obtained, formShown=true, canRequestAds=true`. AdMob áp dụng `nonPersonalizedAds=false` (ảnh `ump_accept_result.png`, log `ump_accept_logcat.txt`).
+  - **Nhánh Do not consent:** Xóa dữ liệu example (`pm clear`), form xuất hiện lại. Chọn `Do not consent`; UMP ghi `IABTCF_gdprApplies: 1` và `IABTCF_VendorConsents` toàn bộ bit 0. SDK ghi nhận `status=obtained, formShown=true, canRequestAds=true`. AdMob áp dụng `nonPersonalizedAds=true` (NPA - quảng cáo không cá nhân hóa). Chưa kiểm chứng ad load/show hoặc response cụ thể sau khi từ chối trong lượt này (ảnh `ump_decline_result.png`, log `ump_decline_logcat.txt`).
+  - **Bằng chứng lưu:** Thư mục riêng `doc/audit/evidence/round79_tecno/` gồm 4 ảnh PNG (ump_launch, ump_accept_result, ump_decline_result, privacy_settings_screen), 2 file logcat chính (ump_accept, ump_decline) và file băm SHA-256 `tecno_sha256.txt`. Giới hạn: Đây là kết quả trên thiết bị TECNO KJ7 với test geography EEA và test ad unit, không đại diện cho toàn bộ tài khoản AdMob hay mọi thị trường pháp lý.
+
+- Defensive unit/widget checks also pass for selected suites: `r73_admob_show_failure_real_path_test.dart`, `r73_admob_show_failure_reloads_immediately_test.dart`, `qc22_rewarded_consent_withdrawn_midload_test.dart`, `r23_rewarded_interstitial_disclosure_test.dart`, `interstitial_rewarded_watchdog_test.dart`. These test simulated platform failures and gates, not real network/consent changes on Pixel.
+- `FrameTiming.totalSpan` không phải physical presentation/FPS; T267 vẫn chưa chứng minh 60fps. Pixel trace/presentation attribution trước đó chưa cho app-layer linkage đã xác thực; không có T267 acceptance mới trong lượt này. Ba `dumpsys meminfo` snapshot ở process khởi chạy khác nhau không chứng minh leak hoặc không leak.
 
 ### iOS + AppLovin
 
@@ -77,7 +90,7 @@ SDK chuyển tiếp một số tín hiệu consent/age/restriction và có UMP f
 
 ## 6. Production recommendation
 
-- **Closed pilot Android + AdMob:** Có thể sau khi host checklist ở `audit_round78_android_admob.md:105-116` được tick, tester cohort nhỏ, telemetry/crash/fill/consent monitoring, và có rollback/tắt ad serving. Hướng dẫn partner trong `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` vẫn có version/dependency cũ ở thời điểm audit (xem mục 7); không copy nguyên cấu hình 3.6.8 cho 3.7.0.
+- **Closed pilot Android + AdMob:** Có thể sau khi host checklist ở `audit_round78_android_admob.md:105-116` được tick, tester cohort nhỏ, telemetry/crash/fill/consent monitoring, và có rollback/tắt ad serving. Partner guide và README đã được cập nhật trong 3.7.1 docs-only; host vẫn cần xác nhận cấu hình riêng, không thể suy ra từ example/device tests.
 - **Public rollout hoặc toàn nền tảng/providers:** Chưa khuyến nghị dựa trên evidence hiện có. Trước đó cần iPhone thật: ATT → UMP EEA (accept/decline/privacy options) → AdMob; xác minh IAB strings và ad gate. Cần thiết bị/credentials AppLovin để kiểm tra load/show/click/reward/dismiss, banner/MREC pause-refresh-destroy, Native load-refresh, và consent behavior. Không tuyên bố CI thay thế những phép thử này.
 - Trial 24h release default phải được chủ sản phẩm/pháp lý/thương mại chấp thuận; nếu không, host cấu hình `FirstInstallVipGrace.disabled`. VIP promotion code không nên được bán như license có cam kết single-use/bảo vệ chống gian lận toàn cầu nếu không có backend.
 
@@ -85,7 +98,7 @@ SDK chuyển tiếp một số tín hiệu consent/age/restriction và có UMP f
 
 Chỉ mở pilot khi host app đã tick đủ checklist ở `audit_round78_android_admob.md:105-116`. Đề xuất ngưỡng (chủ sản phẩm có thể chỉnh; đây không phải tiêu chuẩn của AdMob hay Google):
 
-- **Quy mô:** cohort nhỏ, kéo dài vài ngày trước khi mở rộng; ghi lại bản SDK `3.7.0` và hash archive đã dùng.
+- **Quy mô:** cohort nhỏ, kéo dài vài ngày trước khi mở rộng; ghi lại bản SDK `3.7.1` và hash archive đã dùng.
 - **Dừng ngay (no-go)** nếu gặp bất kỳ: crash/ANR tăng rõ so với bản không có ad; quảng cáo hiện khi VIP/trial đang hoạt động; ad request khi chưa có consent hợp lệ ở thị trường cần UMP; cảnh báo policy hoặc invalid-traffic từ AdMob; click nhầm do vị trí đặt quảng cáo.
 - **Theo dõi:** tỷ lệ fill, lỗi tải, doanh thu/impression, reward chỉ cấp khi `earned=true`, hành vi khi mất/có lại mạng, rút consent qua Privacy Options.
 - **Chưa kiểm chứng bằng audit này:** host app thực tế. Repo đang audit không chứa host app dùng SDK, nên cấu hình AdMob App ID/ad unit/UMP/app-ads.txt của app thật phải được owner xác nhận riêng.
@@ -94,6 +107,8 @@ Chỉ mở pilot khi host app đã tick đủ checklist ở `audit_round78_andro
 ## 7. Guideline và partner readiness
 
 ### Android + AdMob findings
+
+> **Trạng thái sau 3.7.1:** ba finding tài liệu ngay dưới đây là phát hiện tại thời điểm audit và đã được xử lý bởi commits `4cb4a30` và release `3.7.1`; giữ nguyên để bảo toàn lịch sử audit.
 
 - **HIGH — Partner guide release/dependency baseline is stale.** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD:10-15, 179-180, 360-375, 4053` still shows SDK 3.6.8 and Google Mobile Ads `>=9.0.0 <9.1.0`; current package metadata is SDK 3.7.0 and GMA `>=9.2.0 <9.3.0` (`packages/ad_sdk/pubspec.yaml:6, 54-68`). Integration snippets may therefore pin the wrong version/API; 3.7.0 uses `RequestConfiguration.ageRestrictedTreatment` (`CHANGELOG.md:13`).
 - **HIGH — README Android setup omits Kotlin Gradle Plugin prerequisite.** `README.md:283-331` instructs App ID, permissions and minSdk 24 but does not mention Kotlin Gradle Plugin >=2.3.0 or migration away from `kotlinOptions`. Current example sets Kotlin 2.3.0 and `compilerOptions` (`example/android/settings.gradle.kts:22-25`, `example/android/app/build.gradle.kts:97-99`). Host following README alone can fail Kotlin compilation with GMA 9.2.x.
@@ -114,7 +129,7 @@ Chỉ mở pilot khi host app đã tick đủ checklist ở `audit_round78_andro
 - T256: iPhone device ATT + UMP + AdMob.
 - R76: AppLovin native refresh/device QA with key, units and creative.
 - T267: Flutter SurfaceView frame-presentation attribution.
-- `CHANGELOG.md:9-16` still says 3.7.0 is a draft; this is stale in the already published archive and can only be corrected in a later package release.
+- T267: Flutter SurfaceView frame-presentation attribution remains open; Pixel acceptance has not been achieved.
 - Recheck CI workflow/billing before relying on CI for future release validation.
 
 ## 8. Round 78 correction
