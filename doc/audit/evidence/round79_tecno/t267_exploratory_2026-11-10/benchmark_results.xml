@@ -1,0 +1,30 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.example.ad_sdk_macrobenchmark.T257FrameTimingBenchmark" tests="1" failures="1" errors="0" skipped="0" time="59.131" timestamp="2026-11-10T12:46:21" hostname="localhost">
+  <properties>
+    <property name="device" value="TECNO KJ7 - 14" />
+    <property name="flavor" value="" />
+    <property name="project" value=":macrobenchmark" />
+  </properties>
+  <testcase name="realAdMobScroll" classname="com.example.ad_sdk_macrobenchmark.T257FrameTimingBenchmark" time="57.448">
+    <failure>java.lang.IllegalStateException: Observed no renderthread slices in trace - verify that your benchmark is redrawing and is hardware accelerated (which is the default).
+at androidx.benchmark.macro.perfetto.FrameTimingQuery.getFrameData$benchmark_macro(FrameTimingQuery.kt:186)
+at androidx.benchmark.macro.FrameTimingMetric.getMeasurements$benchmark_macro(Metric.kt:231)
+at androidx.benchmark.macro.MacrobenchmarkPhaseKt.runPhase$lambda$1$3(MacrobenchmarkPhase.kt:143)
+at androidx.benchmark.macro.MacrobenchmarkPhaseKt.$r8$lambda$mescrdgwZZiZ1uff-ulgVsbFp8I(MacrobenchmarkPhase.kt:0)
+at androidx.benchmark.macro.MacrobenchmarkPhaseKt$$ExternalSyntheticLambda1.invoke(D8$$SyntheticClass:0)
+at androidx.benchmark.traceprocessor.TraceProcessor.loadTrace(TraceProcessor.kt:173)
+at androidx.benchmark.macro.MacrobenchmarkPhaseKt.runPhase(MacrobenchmarkPhase.kt:135)
+at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmark$lambda$3(Macrobenchmark.kt:304)
+at androidx.benchmark.macro.MacrobenchmarkKt.$r8$lambda$rByRuBSyI5Ww_xmeQ2qH7fDtqrE(Macrobenchmark.kt:0)
+at androidx.benchmark.macro.MacrobenchmarkKt$$ExternalSyntheticLambda2.invoke(D8$$SyntheticClass:0)
+at androidx.benchmark.TraceProcessorExtensions.runServer(TraceProcessorExtensions.kt:152)
+at androidx.benchmark.TraceProcessorExtensions.runServer$default(TraceProcessorExtensions.kt:149)
+at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmark(Macrobenchmark.kt:296)
+at androidx.benchmark.macro.MacrobenchmarkKt.macrobenchmarkWithStartupMode(Macrobenchmark.kt:435)
+at androidx.benchmark.macro.junit4.MacrobenchmarkRule.measureRepeated(MacrobenchmarkRule.kt:87)
+at androidx.benchmark.macro.junit4.MacrobenchmarkRule.measureRepeated$default(MacrobenchmarkRule.kt:78)
+at com.example.ad_sdk_macrobenchmark.T257FrameTimingBenchmark.runScenario(T257FrameTimingBenchmark.kt:27)
+at com.example.ad_sdk_macrobenchmark.T257FrameTimingBenchmark.realAdMobScroll(T257FrameTimingBenchmark.kt:24)
+</failure>
+  </testcase>
+</testsuite>
