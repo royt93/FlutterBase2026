@@ -391,6 +391,10 @@ class _BenchmarkHome extends StatelessWidget {
 }
 
 void _report() {
+  // Macrobenchmark can kill the process right after the scroll completes, and
+  // logcat is flushed in order — so the compact per-phase summaries and the
+  // limitation notice go first, and the (large) per-frame lines go last.
+  final frameLines = <String>[];
   for (var i = 0; i < _phases.length - 1; i++) {
     final (name, start) = _phases[i];
     final end = _phases[i + 1].$2;
@@ -428,7 +432,7 @@ void _report() {
     final intervalOver16 = vsyncIntervals.where((v) => v > 16.67).length;
     final intervalOver33 = vsyncIntervals.where((v) => v > 33.3).length;
     for (final frame in phaseFrames) {
-      debugPrint(
+      frameLines.add(
         'T257_FRAME scenario=$_scenario phase=$name '
         'vsync_us=${frame.timestampInMicroseconds(FramePhase.vsyncStart)} '
         'build_us=${frame.buildDuration.inMicroseconds} '
@@ -454,4 +458,5 @@ void _report() {
     'T257_LIMIT: FrameTiming durations/sample gaps are Flutter pipeline observations, '
     'not confirmed presented/dropped-frame counts. Correlate with Android frame-timeline evidence.',
   );
+  frameLines.forEach(debugPrint);
 }
