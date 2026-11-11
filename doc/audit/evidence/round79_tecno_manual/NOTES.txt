@@ -33,3 +33,15 @@ VIP: key "NOTAREALKEY123" -> log "redeemSignedKey result=VipRedeemStatus.invalid
 Revenue dashboard "Simulate" buttons and VIP API playground were NOT pressed.
 Crash check for session 3: FATAL EXCEPTION=0, ANR=0; AndroidRuntime lines are the adb shell helper processes (uid 2000, exit 0).
 Note: when the example was re-launched at 20:57 an App Open ad appeared on resume (logged earlier as skipped only on the first resume).
+
+--- Session 4 (screens4/) --- logcat (flutter) recorded continuously 21:14-21:19; FATAL=0, ANR=0
+VIP "Watch ad -> free VIP" (rewarded test ad): log "addVip: stacked REWARDED_VIP (+4320m) -> 2026-11-14", "VIP active - ad loads suppressed",
+  "active state changed: false -> true"; VIP screen shows "VIP ACTIVE ... Active VIP (1) Watch-ad reward" (s_vip_active.png).
+While VIP active: Banner screen shows no banners (log "_initBanner skipped VIP"; s_vip_banner_suppressed.png);
+  Interstitial show -> pre-check canShow=false, no ad (log "loadInterstitial skipped - VIP member").
+Revoke (confirm dialog "Remove this VIP entry?" -> Delete): log "revokeVip: removed REWARDED_VIP", "VIP inactive", "active state changed: true -> false";
+  then MREC screen loads test ads again (s_after_revoke_mrec.png). The test VIP entry was created and removed by this test on the example app only.
+Revenue dashboard: the 2 "Simulate" buttons are synthetic; "Simulate revenue (interstitial only)" shows $1.2300 / 1 imp and log
+  "revenue event matched no pending show: [AdMob]/interstitial/level_complete" (simulated event, not a real ad impression; s_revenue_after_simulate.png).
+  "Simulate revenue (rewarded, T186)" and VIP API playground were NOT pressed.
+Still NOT tested: valid signed VIP key (needs a key minted by the owner for bundle com.roy.admobwrapper); MREC branch of Adaptive surface (>=600pt).

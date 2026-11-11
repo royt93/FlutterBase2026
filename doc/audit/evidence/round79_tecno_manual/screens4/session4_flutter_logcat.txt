@@ -1,0 +1,68 @@
+--------- beginning of main
+11-11 21:14:39.137 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:14:49.090 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:15:43.973 I/flutter (17212): roy93~ [BypassAuditTrail] ⚠️ 🔓 bypassVipGuard recorded (unspecified, rewarded)
+11-11 21:15:43.975 I/flutter (17212): roy93~ [AdManager] ▶️ showRewarded (placement=unspecified, vipAutoGrant=false, slot=ready)
+11-11 21:15:44.022 I/flutter (17212): roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=showing | appOpen=ready
+11-11 21:15:44.101 I/flutter (17212): roy93~ [AdMobAdapter] showRewarded [AdMob] ✅ shown
+11-11 21:15:44.102 I/flutter (17212): roy93~ [AdMobAdapter] showRewarded [AdMob] 👁 impression
+11-11 21:15:52.166 I/flutter (17212): roy93~ [AdMobAdapter] showRewarded [AdMob] 🏆 type=coins amount=10
+11-11 21:15:52.168 I/flutter (17212): roy93~ [AdSafety] 📊 Ad SHOWN | session=6/999 | hourly=6/999 | daily=6/999 | impressions=15
+11-11 21:15:52.174 I/flutter (17212): roy93~ [VipManager] addVip: stacked REWARDED_VIP (+4320m) → 2026-11-14 21:15:52.172165
+11-11 21:15:52.364 I/flutter (17212): roy93~ [AdManager] 🔒 VIP active — ad loads suppressed
+11-11 21:15:52.364 I/flutter (17212): roy93~ [VipManager] active state changed: false → true
+11-11 21:15:52.367 I/flutter (17212): roy93~ [VipManager] ⏲️ next VIP timer event in 172799s
+11-11 21:16:05.940 I/flutter (17212): roy93~ [AdMobAdapter] showRewarded [AdMob] 👋 dismissed (earned=true)
+11-11 21:16:05.940 I/flutter (17212): roy93~ [AdManager] 🛡️ rewarded dismissed — app-open/post-dismiss guard armed
+11-11 21:16:05.963 I/flutter (17212): roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=true | adapter=[AdMob] | inter=ready | rewarded=idle | appOpen=ready | backgroundedFor=1166.0s
+11-11 21:16:06.016 I/flutter (17212): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 21:16:06.018 I/flutter (17212): roy93~ [VipManager] ⏲️ next VIP timer event in 172786s
+11-11 21:16:06.019 I/flutter (17212): roy93~ [AdMobAdapter] onAppResumed [AdMob] ⏭️ skipped — gate closed
+11-11 21:16:06.019 I/flutter (17212): roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=true appOpenSlot=ready interSlot=ready rewardedSlot=idle
+11-11 21:16:06.019 I/flutter (17212): roy93~ [AdManager] ⏭️ app-open on resume skipped — VIP member
+11-11 21:16:25.517 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:16:32.799 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:16:32.804 I/flutter (17212): roy93~ [AdScreen] initState _BannerDemoPageState — preloading interstitial
+11-11 21:16:32.804 I/flutter (17212): roy93~ [AdManager] ⏭️ loadInterstitial skipped — VIP member
+11-11 21:16:32.817 I/flutter (17212): roy93~ [AdScreen] buildBanner _BannerDemoPageState
+11-11 21:16:32.818 I/flutter (17212): roy93~ [AdScreen] buildBanner _BannerDemoPageState
+11-11 21:16:32.818 I/flutter (17212): roy93~ [AdScreen] buildBanner _BannerDemoPageState
+11-11 21:16:53.214 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:16:53.690 I/flutter (17212): roy93~ [AdScreen] dispose() _BannerDemoPageState
+11-11 21:17:00.462 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:17:00.468 I/flutter (17212): roy93~ [AdScreen] initState _InterstitialDemoPageState — preloading interstitial
+11-11 21:17:00.469 I/flutter (17212): roy93~ [AdManager] ⏭️ loadInterstitial skipped — VIP member
+11-11 21:17:05.843 I/flutter (17212): roy93~ [AdScreen] showInterstitialAd called from _InterstitialDemoPageState, isDisposed=false, mounted=true
+11-11 21:17:05.844 I/flutter (17212): roy93~ [AdScreen] showInterstitialAd pre-check result: canShow=false
+11-11 21:17:05.844 I/flutter (17212): roy93~ [AdScreen] showInterstitialAd ⏭️ pre-check failed → skip dialog
+11-11 21:17:27.262 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:17:27.764 I/flutter (17212): roy93~ [AdScreen] dispose() _InterstitialDemoPageState
+11-11 21:17:41.847 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:17:51.793 I/flutter (17212): roy93~ [RevenueIntegrityLedger] revenue event matched no pending show: [AdMob]/interstitial/level_complete
+11-11 21:18:07.221 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:18:18.183 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:18:27.684 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=1
+11-11 21:18:52.113 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:18:52.127 I/flutter (17212): roy93~ [VipManager] revokeVip: removed REWARDED_VIP
+11-11 21:18:52.139 I/flutter (17212): roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-11 21:18:52.140 I/flutter (17212): roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already fresh, reuse
+11-11 21:18:52.140 I/flutter (17212): roy93~ [AdMobAdapter] loadRewarded [AdMob] 🔄
+11-11 21:18:52.141 I/flutter (17212): roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-11 21:18:52.141 I/flutter (17212): roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+11-11 21:18:52.141 I/flutter (17212): roy93~ [VipManager] active state changed: true → false
+11-11 21:18:54.489 I/flutter (17212): roy93~ [AdMobAdapter] loadRewarded [AdMob] ✅
+11-11 21:19:10.096 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:19:17.423 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:19:17.428 I/flutter (17212): roy93~ [AdScreen] initState _MrecDemoPageState — preloading interstitial
+11-11 21:19:17.441 I/flutter (17212): roy93~ [AdScreen] buildMrec _MrecDemoPageState
+11-11 21:19:17.442 I/flutter (17212): roy93~ [AdScreen] buildMrec _MrecDemoPageState
+11-11 21:19:17.444 I/flutter (17212): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:19:17.462 I/flutter (17212): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:19:17.467 I/flutter (17212): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:19:18.764 I/flutter (17212): roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-11 21:19:18.799 I/flutter (17212): roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-11 21:19:18.870 I/flutter (17212): roy93~ [AdMobAdapter] mrec [AdMob] 👁 impression
+11-11 21:19:18.870 I/flutter (17212): roy93~ [AdSafety] 📊 Banner impression | totalImpressions=16
+11-11 21:19:19.110 I/flutter (17212): roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-11 21:19:19.181 I/flutter (17212): roy93~ [AdMobAdapter] mrec [AdMob] 👁 impression
+11-11 21:19:19.181 I/flutter (17212): roy93~ [AdSafety] 📊 Banner impression | totalImpressions=17
