@@ -14,11 +14,14 @@ Round 79 chỉ kiểm tra **example app** với Google test ads:
 |---|---|---|
 | Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial, App Open hiển thị | Pixel 7 Pro | Test ads; ảnh + log trong `evidence/round79_pixel/` |
 | UMP EEA: form hiện, Consent và Do not consent đều ghi trạng thái và cờ NPA đúng | TECNO KJ7 | Test geography EEA; ảnh + 2 log trong `evidence/round79_tecno/` |
-| Wi‑Fi tắt/bật thật, SDK nối lại mạng | TECNO KJ7 | **Chỉ có log cục bộ và output terminal, không có artifact trong repo; người đọc không tự kiểm lại được** |
+| Wi‑Fi tắt/bật thật, SDK nối lại mạng | TECNO KJ7 | Offline: không request mới (`no network`, `_initMrec offline`); bật lại: `network back online -> refilling ad slots` và MREC tải lại ~4 giây. Một lần chạy, chỉ Wi‑Fi (không thử mạng di động/captive portal); ảnh + log trong `evidence/round79_tecno_manual/screens7/` |
+| Quảng cáo trong vòng đời VIP: xem rewarded -> VIP 3 ngày, ad bị chặn khi VIP, gỡ VIP thì ad lại tải | TECNO KJ7 | Test ads, log liên tục; `evidence/round79_tecno_manual/screens4/` |
+| Adaptive surface nhánh MREC (>=600pt) | TECNO KJ7 | Chạy bằng `wm density 240` (giả lập, đã khôi phục), không phải màn rộng thật; `screens6/` |
+| Key VIP ký (AVP1 demo, AVP2: hết hạn/sai bundle/đúng bundle/dùng lại/không ràng bundle) và CRL thu hồi | TECNO KJ7 + S24U | Dùng cặp khóa tạm và gói tạm (đã gỡ), không phải key của owner; CRL chỉ được nạp từ provider giả lập trong example, chưa qua mạng thật; `screens5/`, `screens8/`, `screens9/` |
 | Privacy Options đổi consent sau khi đã từ chối | TECNO KJ7 | **Chỉ kiểm một phần**: form mở được, nhưng quá 180 giây SDK báo timeout; lựa chọn Consent đến muộn và SDK vẫn áp dụng lại. Chưa chứng minh luồng hoàn tất trong thời hạn |
 | Consent đã lưu thì form không hiện lại | TECNO KJ7 | Gọi trực tiếp luồng UMP, không qua UI đầy đủ |
 
-Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 mở), iOS, AppLovin.
+Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 mở), iOS, AppLovin. Chưa thử thêm: CRL tải qua mạng thật, CRL cũ/bị phát lại, CRL ký sai khóa, CRL còn hiệu lực sau khi khởi động lại app, key AVP2 ký bằng khóa thật của owner.
 
 ## A. Trước khi cài bản pilot
 
@@ -43,7 +46,7 @@ Chưa có bằng chứng: host app thật, ad unit production, consent trên thi
 
 - [ ] Mỗi format host dùng: load → show → dismiss → không crash. Với reward: chỉ cấp khi callback `earned=true`.
 - [ ] Giữ safety gate mặc định; `bypassSafety` chỉ cho App Open ở splash như tài liệu.
-- [ ] Mất mạng thật (tắt Wi‑Fi): không request mới; mạng về thì tải lại. Example đã được thử một lần trên TECNO (kết quả chỉ có trong log cục bộ, xem bảng trên); host phải tự kiểm lại.
+- [ ] Mất mạng thật (tắt Wi‑Fi): không request mới; mạng về thì tải lại. Example đã được thử một lần trên TECNO (log trong repo, xem bảng trên); host phải tự kiểm lại trên app và thiết bị của mình, kể cả mạng di động.
 - [ ] Đưa app xuống nền rồi mở lại: App Open không chồng lên dialog; không hiện ad khi VIP/trial đang hoạt động.
 - [ ] Banner/MREC trong `IndexedStack` dùng `active:` hoặc `Visibility(maintainState: true)` (xem README).
 

@@ -22,11 +22,14 @@ Toàn bộ chỉ chạy trên **app mẫu của SDK** với quảng cáo thử n
 - Bộ test tự động của SDK: 2852 test, đều pass; analyzer không báo lỗi.
 - Pixel 7 Pro: Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial và App Open đều hiển thị; Rewarded chỉ cấp thưởng khi callback báo đã xem xong.
 - TECNO KJ7: form đồng ý UMP (vùng EEA thử nghiệm) hiện ra; chọn "Consent" và "Do not consent" đều được ghi nhận, và từ chối chuyển sang quảng cáo không cá nhân hoá.
+- TECNO KJ7 và Samsung S24 Ultra (thử bằng tay qua adb, có ảnh và log trong repo; phần CRL chạy trên cả hai máy): tắt Wi‑Fi thật thì không có request quảng cáo mới, bật lại thì SDK tự tải lại; có VIP thì quảng cáo bị chặn và gỡ VIP thì quảng cáo quay lại; mã VIP hết hạn, sai app hoặc đã dùng bị từ chối, và danh sách thu hồi (CRL) chặn đúng mã bị liệt kê (thử bằng cặp khóa tạm, không phải khóa của bạn).
 
 ## Chưa được kiểm tra, hoặc chỉ kiểm một phần
 
 - **App của bạn:** chưa có app host nào được kiểm tra. Cấu hình AdMob, `app-ads.txt`, UMP message, ký bản release và R8 là việc của bạn.
-- **Mất/có lại mạng thật** và **Privacy Options (đổi ý sau khi từ chối):** chỉ thử một lần, kết quả chỉ nằm trong log cục bộ. Privacy Options vượt thời hạn chờ 180 giây của SDK; lựa chọn đến muộn và SDK vẫn áp dụng lại. Hãy tự kiểm lại trên app của bạn.
+- **Mất/có lại mạng thật:** chỉ thử một lần trên một máy, chỉ Wi‑Fi (chưa thử mạng di động hay mạng cần đăng nhập). Hãy tự kiểm lại trên app của bạn.
+- **Privacy Options (đổi ý sau khi từ chối):** chỉ kiểm một phần. Form vượt thời hạn chờ 180 giây của SDK; lựa chọn đến muộn và SDK vẫn áp dụng lại. Hãy tự kiểm lại trên app của bạn.
+- **VIP:** mã VIP và danh sách thu hồi mới được thử với khóa tạm và dữ liệu giả lập trong app mẫu; chưa thử danh sách thu hồi tải qua mạng thật, danh sách cũ bị phát lại, hay mã ký bằng khóa thật của bạn.
 - **Hiệu năng khung hình (T267):** chưa có kết luận. Chưa đo được khung hình thực sự hiển thị; số liệu có chỉ là thời gian xử lý trong Flutter.
 - **Rò rỉ bộ nhớ native:** chưa chứng minh được là không rò rỉ.
 - **iOS và AppLovin MAX:** không nằm trong phạm vi này, chưa kiểm.

@@ -78,3 +78,15 @@ keys minted with a one-off private key (never in repo; deleted after the run), p
  - key without bundle     -> success (+1h)
 Test VIP entries removed after each success. NOT tested: CRL revocation, redemption without network, AVP2 key minted with the real owner key.
 Note: this exercises the example's redeem path; it says nothing about a host app's key management.
+
+--- Session 9/10 (screens9/): CRL (signed revocation list), throwaway keypair, temp package com.roy.admobwrapper.crltest (uninstalled; keys deleted) ---
+Temp example copy in /tmp: public key + applicationId patched, and _DemoCrlProvider returns a CRL signed by the throwaway key revoking kids CRLA and CRLB. Repo sources untouched.
+TECNO KJ7: key CRLC redeemed OK BEFORE the CRL was loaded; tapping "Refresh revocation list (CRL)" -> "refreshRevocationList: applied 2 revoked kid(s)";
+  then CRLA -> "kid CRLA is revoked" / VipRedeemStatus.invalid error=key revoked; CRLB -> "kid CRLB is revoked".
+  TECNO then dropped off adb (device not found) before the unrevoked-key check could run.
+Samsung S24U (SM-S928B, Android 17, user-selected device; user-0 install): fresh install, CRL loaded ("applied 2 revoked kid(s)"),
+  CRLD (not in CRL) -> "redeemSignedKey ok kid=CRLD +24h"; CRLB -> revoked; CRLA -> revoked. The CRLD entry was removed afterwards.
+  Screenshot caveat: s_crl_a_revoked_s24u.png was taken while the CRLD VIP entry was still active, so it shows "VIP ACTIVE" and not an error;
+  the "key revoked" result is evidenced by the log lines (session10_crl_s24u_logcat.txt), not by that image.
+Early attempts that logged "bad format" were my input-automation mistakes (field not cleared), not SDK behaviour; they are in the logs.
+NOT tested: CRL fetched over a real network, an older/replayed CRL being rejected, CRL signed with a different key, CRL persistence across restart, expiry interplay.
