@@ -57,3 +57,24 @@ Signed VIP key, AVP1 DEMO code "1d" (public demo keypair published in example/li
 NOT tested: AVP2 key (needs a key minted by the owner with their private key for com.roy.admobwrapper), CRL revocation, bundle-bound key rejection,
  expiry of a signed key, redemption without network. Wide-width MREC branch of Adaptive surface still not exercised on a real device.
 Incident: pressing Back twice from the VIP screen left the example (to the launcher) and the app cold-started afterwards; an App Open ad then showed on resume.
+
+--- Session 6 (screens6/): Adaptive surface MREC branch via temporary display density ---
+`adb shell wm density 240` (original 480, no prior override) -> logical width 540dp; slider to 800pt -> MREC 300x250 test ad shown
+(log: MrecAdWidget initState, loadMrec ok). At 320pt the same screen showed a 320x50 banner. Density restored with `wm density reset`
+(verified 480). So the >=600pt MREC branch IS now exercised on a real device (with emulated density, not a physically wide screen).
+
+--- Session 7 (screens7/): real Wi-Fi off/on, continuous logcat, FATAL=0 ---
+`svc wifi disable` (wifi_on=0, mobile data had no service, no other network): "loadInterstitial skipped - no network", "_initMrec offline"; MREC screen empty
+(screenshot s_offline_mrec_screen.png). `svc wifi enable`: "network back online -> refilling ad slots + banners", MREC loads again ~4s later
+(s_wifi_back_mrec.png). Single run, one device, WiFi only; not a cellular or captive-portal test.
+
+--- Session 8 (screens8/): AVP2 signed keys with a THROWAWAY keypair ---
+Built a copy of the example in /tmp (public key + applicationId com.roy.admobwrapper.avp2test patched; repo files NOT modified), installed as a new package,
+keys minted with a one-off private key (never in repo; deleted after the run), package uninstalled afterwards. Results (VipRedeemScreen):
+ - expired key            -> invalid: "key expired at ..."
+ - key bound to other app -> invalid: "key is bound to com.other.app, not com.roy.admobwrapper.avp2test"
+ - key bound to this app  -> success (+24h), VIP active, ads suppressed
+ - same key again         -> alreadyUsed
+ - key without bundle     -> success (+1h)
+Test VIP entries removed after each success. NOT tested: CRL revocation, redemption without network, AVP2 key minted with the real owner key.
+Note: this exercises the example's redeem path; it says nothing about a host app's key management.

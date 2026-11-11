@@ -1,0 +1,10 @@
+11-11 21:41:38.619 I/flutter ( 6311): roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-11 21:41:38.621 I/flutter ( 6311): roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+11-11 21:44:28.437 I/flutter ( 6311): roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=320.0
+11-11 21:44:29.261 I/flutter ( 6311): roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-11 21:44:56.709 I/flutter ( 6311): roy93~ [MrecAdWidget] initState
+11-11 21:44:56.712 I/flutter ( 6311): roy93~ [MrecAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-11 21:44:56.729 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:44:57.857 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-11 21:45:24.862 I/flutter ( 6311): roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=360.0
+11-11 21:45:26.087 I/flutter ( 6311): roy93~ [AdMobAdapter] loadBanner [AdMob] ✅

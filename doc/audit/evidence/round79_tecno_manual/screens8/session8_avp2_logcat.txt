@@ -1,0 +1,41 @@
+11-11 21:53:37.168 I/flutter (19284): roy93~ [VipManager] load() entries=0 active=false
+11-11 21:53:37.170 I/flutter (19284): roy93~ [AdManager] VIP active=false entries=0
+11-11 21:53:37.182 I/flutter (19284): roy93~ [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-11 21:54:07.179983
+11-11 21:53:37.195 I/flutter (19284): roy93~ [VipManager] active state changed: false → true
+11-11 21:53:37.200 I/flutter (19284): roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-11 21:53:37.211 I/flutter (19284): roy93~ [AdManager] 🎁 first-install VIP grace granted (30s, mode=debug)
+11-11 21:53:38.482 I/flutter (19284): roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+11-11 21:53:38.519 I/flutter (19284): roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+11-11 21:53:38.520 I/flutter (19284): roy93~ [AdManager] ⏭️ banner/mrec preload skipped — VIP member
+11-11 21:53:52.197 I/flutter (19284): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 21:53:52.215 I/flutter (19284): roy93~ [VipManager] grace nudge due: true
+11-11 21:53:52.216 I/flutter (19284): roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-11 21:54:07.183 I/flutter (19284): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 21:54:07.186 I/flutter (19284): roy93~ [VipManager] purgeExpired: removed 1
+11-11 21:54:07.188 I/flutter (19284): roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-11 21:54:07.228 I/flutter (19284): roy93~ [VipManager] active state changed: true → false
+11-11 21:54:07.229 I/flutter (19284): roy93~ [VipManager] grace nudge due: false
+11-11 21:54:38.249 I/flutter (19284): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: key expired at 2026-11-10T14:53:23.000Z
+11-11 21:54:38.250 I/flutter (19284): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key expired at 2026-11-10T14:53:23.000Z
+11-11 21:55:31.559 I/flutter (19284): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: key is bound to com.other.app, not com.roy.admobwrapper.avp2test
+11-11 21:55:31.559 I/flutter (19284): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key is bound to com.other.app, not com.roy.admobwrapper.avp2test
+11-11 21:55:59.787 I/flutter (19284): roy93~ [VipManager] addVip: stacked SIGNED_OKBND (+1440m) → 2026-11-12 21:55:59.772302
+11-11 21:55:59.848 I/flutter (19284): roy93~ [AdManager] 🔒 VIP active — ad loads suppressed
+11-11 21:55:59.848 I/flutter (19284): roy93~ [VipManager] active state changed: false → true
+11-11 21:55:59.850 I/flutter (19284): roy93~ [VipManager] ⏲️ next VIP timer event in 43199s
+11-11 21:55:59.919 I/flutter (19284): roy93~ [VipManager] 🔑 redeemSignedKey ok kid=OKBND +24:00:00.000000
+11-11 21:55:59.945 I/flutter (19284): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.success error=null
+11-11 21:56:43.893 I/flutter (19284): roy93~ [VipManager] redeemSignedKey: kid OKBND already used
+11-11 21:56:43.893 I/flutter (19284): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.alreadyUsed error=null
+11-11 21:57:20.721 I/flutter (19284): roy93~ [VipManager] revokeVip: removed SIGNED_OKBND
+11-11 21:57:20.773 I/flutter (19284): roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-11 21:57:20.774 I/flutter (19284): roy93~ [VipManager] active state changed: true → false
+11-11 21:59:01.688 I/flutter (19284): roy93~ [VipManager] addVip: stacked SIGNED_NOBND (+60m) → 2026-11-11 22:59:01.672675
+11-11 21:59:01.717 I/flutter (19284): roy93~ [AdManager] 🔒 VIP active — ad loads suppressed
+11-11 21:59:01.717 I/flutter (19284): roy93~ [VipManager] active state changed: false → true
+11-11 21:59:01.719 I/flutter (19284): roy93~ [VipManager] ⏲️ next VIP timer event in 1799s
+11-11 21:59:01.748 I/flutter (19284): roy93~ [VipManager] 🔑 redeemSignedKey ok kid=NOBND +1:00:00.000000
+11-11 21:59:01.762 I/flutter (19284): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.success error=null
+11-11 21:59:26.626 I/flutter (19284): roy93~ [VipManager] revokeVip: removed SIGNED_NOBND
+11-11 21:59:26.647 I/flutter (19284): roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-11 21:59:26.649 I/flutter (19284): roy93~ [VipManager] active state changed: true → false

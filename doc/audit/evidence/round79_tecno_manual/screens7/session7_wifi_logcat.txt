@@ -1,0 +1,30 @@
+--------- beginning of main
+11-11 21:47:42.272 I/flutter ( 6311): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:47:42.797 I/flutter ( 6311): roy93~ [AdScreen] dispose() _BannerDemoPageState
+11-11 21:47:49.610 I/flutter ( 6311): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:47:49.617 I/flutter ( 6311): roy93~ [AdScreen] initState _MrecDemoPageState — preloading interstitial
+11-11 21:47:49.617 I/flutter ( 6311): roy93~ [AdManager] ⏭️ loadInterstitial skipped — no network
+11-11 21:47:49.634 I/flutter ( 6311): roy93~ [AdScreen] buildMrec _MrecDemoPageState
+11-11 21:47:49.634 I/flutter ( 6311): roy93~ [AdScreen] buildMrec _MrecDemoPageState
+11-11 21:47:49.637 I/flutter ( 6311): roy93~ [MrecAdWidget] _initMrec ⏭️ offline
+11-11 21:47:49.666 I/flutter ( 6311): roy93~ [MrecAdWidget] _initMrec ⏭️ offline
+11-11 21:47:49.671 I/flutter ( 6311): roy93~ [MrecAdWidget] _initMrec ⏭️ offline
+11-11 21:47:49.685 I/flutter ( 6311): roy93~ [MrecAdWidget] _initMrec ⏭️ offline
+11-11 21:47:49.685 I/flutter ( 6311): roy93~ [MrecAdWidget] _initMrec ⏭️ offline
+11-11 21:47:49.685 I/flutter ( 6311): roy93~ [MrecAdWidget] _initMrec ⏭️ offline
+11-11 21:47:51.710 I/flutter ( 6311): roy93~ [MrecAdWidget] 🏠 house ad shown (blank > 2s)
+11-11 21:48:23.457 I/flutter ( 6311): roy93~ [AdManager] 📶 network back online → refilling ad slots + banners
+11-11 21:48:23.458 I/flutter ( 6311): roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+11-11 21:48:23.488 I/flutter ( 6311): roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-11 21:48:23.489 I/flutter ( 6311): roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+11-11 21:48:23.505 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:48:23.506 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:48:23.507 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] 🔄
+11-11 21:48:23.550 I/flutter ( 6311): roy93~ [MrecAdWidget] 🏠 house ad reverted (real ad available again)
+11-11 21:48:26.053 I/flutter ( 6311): roy93~ [MrecAdWidget] 🏠 house ad shown (blank > 2s)
+11-11 21:48:27.132 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-11 21:48:27.152 I/flutter ( 6311): roy93~ [AdMobAdapter] loadMrec [AdMob] ✅
+11-11 21:48:27.257 I/flutter ( 6311): roy93~ [AdMobAdapter] mrec [AdMob] 👁 impression
+11-11 21:48:27.257 I/flutter ( 6311): roy93~ [AdSafety] 📊 Banner impression | totalImpressions=8
+11-11 21:48:27.311 I/flutter ( 6311): roy93~ [AdMobAdapter] mrec [AdMob] 👁 impression
+11-11 21:48:27.311 I/flutter ( 6311): roy93~ [AdSafety] 📊 Banner impression | totalImpressions=9
