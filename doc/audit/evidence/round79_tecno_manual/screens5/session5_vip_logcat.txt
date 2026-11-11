@@ -1,0 +1,34 @@
+11-11 21:25:18.231 I/flutter (17212): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 21:25:18.234 I/flutter (17212): roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=ready rewardedSlot=ready
+11-11 21:25:18.234 I/flutter (17212): roy93~ [AdManager] ✅ app-open on resume — all gates passed, showing buffer + ad
+11-11 21:26:49.299 I/flutter (17212): roy93~ [AdManager] 🛡️ appOpen dismissed — app-open/post-dismiss guard armed
+11-11 21:27:04.071 I/flutter (17212): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 21:27:04.072 I/flutter (17212): roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=ready rewardedSlot=ready
+11-11 21:27:04.073 I/flutter (17212): roy93~ [AdManager] ⏭️ app-open on resume skipped — resume with no new background since the last check (spurious lifecycle event) → triggering reload
+11-11 21:28:11.227 I/flutter (17212): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: AVP1 legacy key format rejected — pass allowLegacyV1: true to accept keys already distributed in that format
+11-11 21:28:11.227 I/flutter (17212): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=AVP1 legacy key format rejected — pass allowLegacyV1: true to accept keys already distributed in that format
+11-11 21:31:30.780 I/flutter (17212): roy93~ [VipManager] load() entries=0 active=false
+11-11 21:31:30.783 I/flutter (17212): roy93~ [AdManager] VIP active=false entries=0
+11-11 21:31:37.538 I/flutter (17212): roy93~ [AdManager] ⏰ splash budget elapsed but app-open in flight — re-arming +30s
+11-11 21:32:34.688 I/flutter (17212): roy93~ [AdManager] 🛡️ appOpen dismissed — app-open/post-dismiss guard armed
+11-11 21:32:35.395 I/flutter (17212): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 21:32:35.401 I/flutter (17212): roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=loading interSlot=ready rewardedSlot=ready
+11-11 21:32:35.402 I/flutter (17212): roy93~ [AdManager] ⏭️ skipping app-open on resume (recent fullscreen dismiss 709ms ago)
+11-11 21:33:02.271 I/flutter (17212): roy93~ [VipManager] addVip: stacked SIGNED_DEMO1D (+1440m) → 2026-11-12 21:33:02.246195
+11-11 21:33:02.300 I/flutter (17212): roy93~ [AdManager] 🔒 VIP active — ad loads suppressed
+11-11 21:33:02.301 I/flutter (17212): roy93~ [VipManager] active state changed: false → true
+11-11 21:33:02.304 I/flutter (17212): roy93~ [VipManager] ⏲️ next VIP timer event in 43199s
+11-11 21:33:02.344 I/flutter (17212): roy93~ [VipManager] 🔑 redeemSignedKey ok kid=demo1d +24:00:00.000000
+11-11 21:33:26.245 I/flutter (17212): roy93~ [VipManager] redeemSignedKey: kid demo1d already used
+11-11 21:34:03.679 I/flutter (17212): roy93~ [VipManager] revokeAll: cleared
+11-11 21:34:03.704 I/flutter (17212): roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-11 21:34:03.705 I/flutter (17212): roy93~ [VipManager] active state changed: true → false
+11-11 21:33:02.271 I/flutter (17212): roy93~ [VipManager] addVip: stacked SIGNED_DEMO1D (+1440m) → 2026-11-12 21:33:02.246195
+11-11 21:33:02.300 I/flutter (17212): roy93~ [AdManager] 🔒 VIP active — ad loads suppressed
+11-11 21:33:02.301 I/flutter (17212): roy93~ [VipManager] active state changed: false → true
+11-11 21:33:02.304 I/flutter (17212): roy93~ [VipManager] ⏲️ next VIP timer event in 43199s
+11-11 21:33:02.344 I/flutter (17212): roy93~ [VipManager] 🔑 redeemSignedKey ok kid=demo1d +24:00:00.000000
+11-11 21:33:26.245 I/flutter (17212): roy93~ [VipManager] redeemSignedKey: kid demo1d already used
+11-11 21:34:03.679 I/flutter (17212): roy93~ [VipManager] revokeAll: cleared
+11-11 21:34:03.704 I/flutter (17212): roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-11 21:34:03.705 I/flutter (17212): roy93~ [VipManager] active state changed: true → false

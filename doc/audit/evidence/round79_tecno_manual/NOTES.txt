@@ -45,3 +45,15 @@ Revenue dashboard: the 2 "Simulate" buttons are synthetic; "Simulate revenue (in
   "revenue event matched no pending show: [AdMob]/interstitial/level_complete" (simulated event, not a real ad impression; s_revenue_after_simulate.png).
   "Simulate revenue (rewarded, T186)" and VIP API playground were NOT pressed.
 Still NOT tested: valid signed VIP key (needs a key minted by the owner for bundle com.roy.admobwrapper); MREC branch of Adaptive surface (>=600pt).
+
+--- Session 5 (screens5/) --- continuous flutter logcat, FATAL=0, ANR=0
+Signed VIP key, AVP1 DEMO code "1d" (public demo keypair published in example/lib/main.dart, marked DO NOT SHIP; NOT an owner/production key):
+ - VipRedeemScreen ("VIP / redeem", no allowLegacyV1): pasting the demo key -> "redeemSignedKey invalid: AVP1 legacy key format rejected - pass allowLegacyV1: true".
+   Expected: AVP1 is gated off by default (round 72); the screen stayed "VIP NOT ACTIVE" (s_demo_key_result.png).
+ - VIP API playground ("signed 1d", allowLegacyV1: true): "redeemSignedKey ok kid=demo1d +24h", "addVip stacked SIGNED_DEMO1D (+1440m)",
+   "VIP active - ad loads suppressed" (s_playground_signed1d.png).
+ - Replaying the same key: "redeemSignedKey: kid demo1d already used" (one-time-use per device, enforced locally).
+ - "End VIP now": "revokeAll: cleared", "VIP inactive", "active state changed: true -> false" (s_playground_end_vip.png). Test VIP removed.
+NOT tested: AVP2 key (needs a key minted by the owner with their private key for com.roy.admobwrapper), CRL revocation, bundle-bound key rejection,
+ expiry of a signed key, redemption without network. Wide-width MREC branch of Adaptive surface still not exercised on a real device.
+Incident: pressing Back twice from the VIP screen left the example (to the launcher) and the app cold-started afterwards; an App Open ad then showed on resume.
