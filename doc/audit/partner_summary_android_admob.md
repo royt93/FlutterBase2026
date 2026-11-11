@@ -29,7 +29,7 @@ Toàn bộ chỉ chạy trên **app mẫu của SDK** với quảng cáo thử n
 - **App của bạn:** chưa có app host nào được kiểm tra. Cấu hình AdMob, `app-ads.txt`, UMP message, ký bản release và R8 là việc của bạn.
 - **Mất/có lại mạng thật:** chỉ thử một lần trên một máy, chỉ Wi‑Fi (chưa thử mạng di động hay mạng cần đăng nhập). Hãy tự kiểm lại trên app của bạn.
 - **Privacy Options (đổi ý sau khi từ chối):** chỉ kiểm một phần. Form vượt thời hạn chờ 180 giây của SDK; lựa chọn đến muộn và SDK vẫn áp dụng lại. Hãy tự kiểm lại trên app của bạn.
-- **VIP:** mã VIP và danh sách thu hồi mới được thử với khóa tạm và dữ liệu giả lập trong app mẫu; chưa thử danh sách thu hồi tải qua mạng thật, danh sách cũ bị phát lại, hay mã ký bằng khóa thật của bạn.
+- **VIP:** mã VIP và danh sách thu hồi mới được thử với khóa tạm và dữ liệu giả lập trong app mẫu; chưa thử danh sách thu hồi tải qua mạng thật, danh sách thu hồi còn hiệu lực sau khi khởi động lại app, hay mã ký bằng khóa thật của bạn. Danh sách thu hồi cũ bị phát lại và danh sách ký sai khóa đã bị từ chối đúng trong app mẫu.
 - **Hiệu năng khung hình (T267):** chưa có kết luận. Chưa đo được khung hình thực sự hiển thị; số liệu có chỉ là thời gian xử lý trong Flutter.
 - **Rò rỉ bộ nhớ native:** chưa chứng minh được là không rò rỉ.
 - **iOS và AppLovin MAX:** không nằm trong phạm vi này, chưa kiểm.

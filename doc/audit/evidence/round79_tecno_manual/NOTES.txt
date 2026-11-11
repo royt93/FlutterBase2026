@@ -90,3 +90,13 @@ Samsung S24U (SM-S928B, Android 17, user-selected device; user-0 install): fresh
   the "key revoked" result is evidenced by the log lines (session10_crl_s24u_logcat.txt), not by that image.
 Early attempts that logged "bad format" were my input-automation mistakes (field not cleared), not SDK behaviour; they are in the logs.
 NOT tested: CRL fetched over a real network, an older/replayed CRL being rejected, CRL signed with a different key, CRL persistence across restart, expiry interplay.
+
+--- Session 11 (screens10/): CRL edge cases on Samsung S24U (SM-S928B, Android 17), throwaway keypairs (two), temp package com.roy.admobwrapper.crl2test (uninstalled, keys deleted) ---
+Temp example copy; its CRL provider returned three CRLs in order (repo sources untouched):
+ call #1: CRL issued ~+60s in the future of the host clock, signed by the app's key, revokes KA -> "refreshRevocationList: applied 1 revoked kid(s)"
+ call #2: CRL issued 1 day earlier, empty list, signed by the app's key -> "fetched CRL is not newer than cached - ignoring" (older/replayed CRL rejected)
+ call #3: well-formed CRL signed by a DIFFERENT key, revokes KD -> "fetched CRL failed to verify: VipKeyException: signature invalid" (forged CRL rejected)
+After the three CRLs: KA -> "kid KA is revoked" (stale empty CRL did not un-revoke it); KD -> "redeemSignedKey ok" (forged CRL did not revoke it). KD entry removed afterwards.
+Caveats: CRL #1 was minted with issuedAt = host clock + 60s (so it counts as "newer"); a "bad format" line appears once in the log from my input automation (field not cleared), not SDK behaviour.
+Screenshots: s_crl2_ka_still_revoked.png / s_crl2_kd_not_blocked_by_forged.png are the app screen after each redeem attempt; the verdict is in session11_crl2_s24u_logcat.txt.
+NOT tested: CRL over real network, CRL persistence after app restart, CRL with huge kid lists, clock skew on the device.
