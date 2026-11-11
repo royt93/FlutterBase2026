@@ -13,7 +13,9 @@ Round 79 chỉ kiểm tra **example app** với Google test ads:
 | Đã có bằng chứng | Thiết bị | Ghi chú |
 |---|---|---|
 | Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial, App Open hiển thị | Pixel 7 Pro | Test ads; ảnh + log trong `evidence/round79_pixel/` |
-| Wi‑Fi tắt/bật thật; UMP EEA accept / decline / Privacy Options | TECNO KJ7 | Test geography EEA; `evidence/round79_tecno/` |
+| UMP EEA: form hiện, Consent và Do not consent đều ghi trạng thái và cờ NPA đúng | TECNO KJ7 | Test geography EEA; ảnh + 2 log trong `evidence/round79_tecno/` |
+| Wi‑Fi tắt/bật thật, SDK nối lại mạng | TECNO KJ7 | **Chỉ có log cục bộ và output terminal, không có artifact trong repo; người đọc không tự kiểm lại được** |
+| Privacy Options đổi consent sau khi đã từ chối | TECNO KJ7 | **Chỉ kiểm một phần**: form mở được, nhưng quá 180 giây SDK báo timeout; lựa chọn Consent đến muộn và SDK vẫn áp dụng lại. Chưa chứng minh luồng hoàn tất trong thời hạn |
 | Consent đã lưu thì form không hiện lại | TECNO KJ7 | Gọi trực tiếp luồng UMP, không qua UI đầy đủ |
 
 Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 mở), iOS, AppLovin.
@@ -41,7 +43,7 @@ Chưa có bằng chứng: host app thật, ad unit production, consent trên thi
 
 - [ ] Mỗi format host dùng: load → show → dismiss → không crash. Với reward: chỉ cấp khi callback `earned=true`.
 - [ ] Giữ safety gate mặc định; `bypassSafety` chỉ cho App Open ở splash như tài liệu.
-- [ ] Mất mạng thật (tắt Wi‑Fi): không request mới; mạng về thì tải lại. Example đã được kiểm trên TECNO.
+- [ ] Mất mạng thật (tắt Wi‑Fi): không request mới; mạng về thì tải lại. Example đã được thử một lần trên TECNO (kết quả chỉ có trong log cục bộ, xem bảng trên); host phải tự kiểm lại.
 - [ ] Đưa app xuống nền rồi mở lại: App Open không chồng lên dialog; không hiện ad khi VIP/trial đang hoạt động.
 - [ ] Banner/MREC trong `IndexedStack` dùng `active:` hoặc `Visibility(maintainState: true)` (xem README).
 
