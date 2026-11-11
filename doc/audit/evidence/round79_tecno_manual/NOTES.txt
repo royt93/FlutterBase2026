@@ -100,3 +100,14 @@ After the three CRLs: KA -> "kid KA is revoked" (stale empty CRL did not un-revo
 Caveats: CRL #1 was minted with issuedAt = host clock + 60s (so it counts as "newer"); a "bad format" line appears once in the log from my input automation (field not cleared), not SDK behaviour.
 Screenshots: s_crl2_ka_still_revoked.png / s_crl2_kd_not_blocked_by_forged.png are the app screen after each redeem attempt; the verdict is in session11_crl2_s24u_logcat.txt.
 NOT tested: CRL over real network, CRL persistence after app restart, CRL with huge kid lists, clock skew on the device.
+
+--- Session 12 (screens11/): CRL after restart, redeem offline, device clock skew; Samsung S24U (SM-S928B, Android 17), throwaway keypair, temp package com.roy.admobwrapper.crl3test (uninstalled, keys deleted) ---
+1) CRL persistence: CRL loaded once ("applied 1 revoked kid(s)", kid RA); `am force-stop` + relaunch (new pid, NO CRL fetch in the new process): redeem RA -> "kid RA is revoked".
+2) Redeem offline: `svc wifi disable` (mobile data off, no other network): redeem RB -> "rejected - device is offline" / "no network connection - connect to the internet to redeem a VIP code".
+   Wi-Fi back: RB redeems OK (+24h, VIP active, ads suppressed). Wi-Fi off again while VIP active: interstitial pre-check canShow=false (loadInterstitial skipped - VIP member),
+   VIP screen still "VIP ACTIVE" (s_vip_still_active_offline.png). This matches the owner decision: redeem needs network, VIP works offline afterwards.
+3) Clock skew (device clock set with `cmd alarm set-time` as adb shell, auto-time left ON; app data cleared before each run): clock -1 day: CRL applied, RA -> revoked;
+   clock +2 days: CRL applied, RA -> revoked. Clock restored to host time afterwards (delta 0 s, verified; the log timestamps 11-10 / 11-13 are the skewed clock).
+Caveats: the CRL used (issuedAt = host clock at mint) was only tested at one issuance moment; the SDK source has no explicit future-dated-CRL guard (a far-future CRL would block older ones; documented accepted risk, "Round-23 QC").
+  Not tested: CRL over real network, a CRL with a far-future issuedAt on-device, clock changes while the app is running, TECNO (device dropped off adb earlier).
+Two "bad format" lines in the log are my input-automation mistakes (field not cleared), not SDK behaviour. Test VIP entry (RB) removed afterwards.

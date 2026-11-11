@@ -22,14 +22,14 @@ Toàn bộ chỉ chạy trên **app mẫu của SDK** với quảng cáo thử n
 - Bộ test tự động của SDK: 2852 test, đều pass; analyzer không báo lỗi.
 - Pixel 7 Pro: Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial và App Open đều hiển thị; Rewarded chỉ cấp thưởng khi callback báo đã xem xong.
 - TECNO KJ7: form đồng ý UMP (vùng EEA thử nghiệm) hiện ra; chọn "Consent" và "Do not consent" đều được ghi nhận, và từ chối chuyển sang quảng cáo không cá nhân hoá.
-- TECNO KJ7 và Samsung S24 Ultra (thử bằng tay qua adb, có ảnh và log trong repo; phần CRL chạy trên cả hai máy): tắt Wi‑Fi thật thì không có request quảng cáo mới, bật lại thì SDK tự tải lại; có VIP thì quảng cáo bị chặn và gỡ VIP thì quảng cáo quay lại; mã VIP hết hạn, sai app hoặc đã dùng bị từ chối, và danh sách thu hồi (CRL) chặn đúng mã bị liệt kê (thử bằng cặp khóa tạm, không phải khóa của bạn).
+- TECNO KJ7 và Samsung S24 Ultra (thử bằng tay qua adb, có ảnh và log trong repo): tắt Wi‑Fi thật thì không có request quảng cáo mới, bật lại thì SDK tự tải lại; có VIP thì quảng cáo bị chặn và gỡ VIP thì quảng cáo quay lại.
 
 ## Chưa được kiểm tra, hoặc chỉ kiểm một phần
 
 - **App của bạn:** chưa có app host nào được kiểm tra. Cấu hình AdMob, `app-ads.txt`, UMP message, ký bản release và R8 là việc của bạn.
 - **Mất/có lại mạng thật:** chỉ thử một lần trên một máy, chỉ Wi‑Fi (chưa thử mạng di động hay mạng cần đăng nhập). Hãy tự kiểm lại trên app của bạn.
 - **Privacy Options (đổi ý sau khi từ chối):** chỉ kiểm một phần. Form vượt thời hạn chờ 180 giây của SDK; lựa chọn đến muộn và SDK vẫn áp dụng lại. Hãy tự kiểm lại trên app của bạn.
-- **VIP:** mã VIP và danh sách thu hồi mới được thử với khóa tạm và dữ liệu giả lập trong app mẫu; chưa thử danh sách thu hồi tải qua mạng thật, danh sách thu hồi còn hiệu lực sau khi khởi động lại app, hay mã ký bằng khóa thật của bạn. Danh sách thu hồi cũ bị phát lại và danh sách ký sai khóa đã bị từ chối đúng trong app mẫu.
+- **VIP:** trong app mẫu, mã hết hạn, sai app, đã dùng hoặc bị thu hồi đều bị từ chối; không có mạng thì không nhập được mã, nhưng VIP đã kích hoạt vẫn chặn quảng cáo khi mất mạng. Mới thử bằng khóa tạm và dữ liệu giả lập, chưa thử danh sách thu hồi tải qua mạng thật hay mã ký bằng khóa thật của bạn (chi tiết kỹ thuật: bảng bằng chứng trong `pilot_checklist_android_admob.md`).
 - **Hiệu năng khung hình (T267):** chưa có kết luận. Chưa đo được khung hình thực sự hiển thị; số liệu có chỉ là thời gian xử lý trong Flutter.
 - **Rò rỉ bộ nhớ native:** chưa chứng minh được là không rò rỉ.
 - **iOS và AppLovin MAX:** không nằm trong phạm vi này, chưa kiểm.
