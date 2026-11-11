@@ -1,0 +1,3 @@
+fddbfd005cf8f61951704f9b20ad03a8b0b27f4ab1677b8c4ad2f64a1f93cbc8  (local only, not in repo) tecno_privacy_options_logcat.txt
+6499fcec12be6e18acb78d662d18debf867d817f7c8f78c02f6f3b1a449504f8  (local only, not in repo) wifi_consent_logcat.txt
+0b380b2c80d58c9ffd0887335b8a36a8bede56d1aa88577f69d7b7b0f696c019  (local only, not in repo) post_decline_logcat.txt
