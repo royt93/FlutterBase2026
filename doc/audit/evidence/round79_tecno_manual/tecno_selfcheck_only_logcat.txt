@@ -1,0 +1,9 @@
+11-11 20:45:22.864 17212 17212 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] 🔄
+11-11 20:45:24.326 17212 17212 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] ✅
+11-11 20:45:24.328 17212 17212 I flutter : roy93~ [AdMobAdapter] loadRewarded [AdMob] 🔄
+11-11 20:45:26.435 17212 17212 I flutter : roy93~ [AdMobAdapter] loadRewarded [AdMob] ✅
+11-11 20:45:26.437 17212 17212 I flutter : roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+11-11 20:45:27.705 17212 17212 I flutter : roy93~ [AdMobAdapter] loadAppOpen [AdMob] ✅
+11-11 20:46:22.138 17212 17212 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+11-11 20:46:22.140 17212 17212 I flutter : roy93~ [AdMobAdapter] loadRewardedInterstitial [AdMob] 🔄
+11-11 20:46:24.002 17212 17212 I flutter : roy93~ [AdMobAdapter] loadRewardedInterstitial [AdMob] ✅

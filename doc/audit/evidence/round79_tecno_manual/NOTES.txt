@@ -1,0 +1,35 @@
+Manual adb UI test, TECNO KJ7 (serial 115333744A005844), 2026-11-11, example app 3.7.1,
+package com.roy.admobwrapper, built with AD_PROVIDER_ADMOB=true SKIP_ATT=true, Google test ad IDs.
+Driven by adb input tap/keyevent; screenshots via adb screencap.
+
+Screenshots: t_banner, t_mrec, t_native, t_inter_show, t_rewarded, t_rewarded_final,
+t_ri_1 (disclosure), t_ri_2, t_appopen2 (2nd resume), t_selfcheck.
+t_appopen.png = 1st resume: ad was NOT shown (cold-start protection skip, by design).
+
+LIMIT: logcat was cleared (logcat -c) before each step, so the only saved log is the
+self-check step (tecno_selfcheck_only_logcat.txt). Per-format log lines (shown/impression/
+dismissed/earned, FATAL=0, ANR=0) were read live in the terminal and are NOT saved here.
+CCPA toggle (restrictedDataProcessing true/false) has no screenshot or saved log.
+Not covered: Banner adaptive sizing, Adaptive surface, VIP, Privacy settings, Consent screen,
+Safety status, Log viewer, Revenue dashboard. Test ads only; not Pixel; not T267 evidence.
+
+--- Session 2 (screens2/) ---
+Banner adaptive sizing: full-screen banner (320x50) and 220px popup banner both show a test ad.
+Adaptive surface: at 320pt a 320x50 banner shows. Slider to 796pt still shows a banner (468x60);
+log: "[BannerAdWidget] width changed (320.0 -> 360.0)" - the widget is capped by the 360dp-wide
+phone screen, so the MREC branch (>=600pt) was NOT exercised in portrait. Landscape attempt failed:
+another app (com.galaxyjoy.roycasualkit) was in the foreground, cause unknown; screenshot discarded.
+Device rotation settings changed during the attempt and restored to accelerometer_rotation=1, user_rotation=0.
+Full device logcat for this session (~1.9MB, whole device, not only SDK) kept local-only in /tmp, not in repo.
+
+--- Session 3 (screens3/) --- logcat (flutter+AndroidRuntime) recorded continuously 20:57:42-21:03:06
+s_safety: Safety demo opens; demo params = debug preset; production preset shown (60000ms/6/3/5).
+s_consent / s_privacy / s_vip_redeem / s_logviewer / s_revenue (+ .txt of visible labels): each screen opens.
+Privacy Options (no screenshot of a form): log "[UmpConsent] privacy options: not required (status=notRequired) - no-op".
+  UMP form NOT shown in this region by design; the form path was tested earlier with EEA debug (see round79_tecno/).
+VIP: key "NOTAREALKEY123" -> log "redeemSignedKey result=VipRedeemStatus.invalid error=bad format ...";
+  screen stayed "VIP NOT ACTIVE" (s_vip_typed.png = before submit, s_vip_wrongkey_result.png = after).
+  Valid-key redemption and rewarded "watch ad -> free VIP" were NOT tested.
+Revenue dashboard "Simulate" buttons and VIP API playground were NOT pressed.
+Crash check for session 3: FATAL EXCEPTION=0, ANR=0; AndroidRuntime lines are the adb shell helper processes (uid 2000, exit 0).
+Note: when the example was re-launched at 20:57 an App Open ad appeared on resume (logged earlier as skipped only on the first resume).

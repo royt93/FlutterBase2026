@@ -1,0 +1,5 @@
+content-desc="Back"
+content-desc="VIP NOT ACTIVE&#10;Enjoy an ad-free experience with VIP."
+content-desc="Enter VIP key&#10;Enter your activation key to unlock the ad-free experience."
+content-desc="Activate&#10;ACTIVATE"
+content-desc="Watch ad → free VIP&#10;FREE&#10;Watch one short ad to get 3 days of VIP for free.&#10;WATCH AD"

@@ -1,0 +1,8 @@
+content-desc="Back"
+content-desc="Log viewer"
+content-desc="Clear"
+content-desc="20:58:15&#10;VERBOSE&#10;[AdMobAdapter] loadBanner [AdMob] &#128260; width=360.0"
+content-desc="20:58:16&#10;VERBOSE&#10;[AdMobAdapter] loadAppOpen [AdMob] ✅"
+content-desc="20:58:16&#10;VERBOSE&#10;[AdMobAdapter] loadBanner [AdMob] ✅"
+content-desc="20:58:44&#10;VERBOSE&#10;[AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0"
+content-desc="20:58:53&#10;VERBOSE&#10;[AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0"

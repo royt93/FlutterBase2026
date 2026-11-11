@@ -1,0 +1,6 @@
+content-desc="Back"
+content-desc="Revenue dashboard"
+content-desc="Session Revenue&#10;$0.0000&#10;0 impressions"
+content-desc="Simulate 2 shows&#10;(banner + interstitial)"
+content-desc="Simulate revenue&#10;(interstitial only)"
+content-desc="Simulate revenue&#10;(rewarded, T186)"

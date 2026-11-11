@@ -1,0 +1,4 @@
+content-desc="Back"
+content-desc="Privacy settings"
+content-desc="Privacy Options&#10;Review or change consent preferences"
+content-desc="Privacy policy"

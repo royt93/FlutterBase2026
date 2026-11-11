@@ -1,0 +1,8 @@
+content-desc="Back"
+content-desc="Consent demo"
+content-desc="GDPR consent (hasUserConsent)&#10;EEA users — set after UMP form ACCEPT."
+content-desc="Age-restricted (COPPA)&#10;App targets children &lt; 13 → tagForChildDirectedTreatment=YES."
+content-desc="Do-not-sell (CCPA)&#10;California users opt-out of personal-data sale."
+content-desc="Preview outcome (no device call)"
+content-desc="Apply consent to providers"
+content-desc="&#127919; AdMob ad requests: personalized"

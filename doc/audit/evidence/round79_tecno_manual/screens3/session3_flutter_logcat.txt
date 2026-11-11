@@ -1,0 +1,282 @@
+--------- beginning of main
+11-11 20:57:42.506 D/AndroidRuntime(32483): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:57:42.512 I/AndroidRuntime(32483): Using default boot image
+11-11 20:57:42.512 I/AndroidRuntime(32483): Leaving lock profiling enabled
+11-11 20:57:42.640 D/AndroidRuntime(32483): Calling main entry com.android.commands.monkey.Monkey
+11-11 20:57:42.725 I/AndroidRuntime(32483): VM exiting with result code 0.
+11-11 20:57:42.741 I/flutter (17212): roy93~ [AdManager] lifecycle: paused → hidden | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=ready | appOpen=ready
+11-11 20:57:42.741 I/flutter (17212): roy93~ [AdManager] lifecycle: hidden → inactive | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=ready | appOpen=ready
+11-11 20:57:43.184 I/flutter (17212): roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=ready | appOpen=ready | backgroundedFor=63.2s
+11-11 20:57:43.267 I/flutter (17212): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 20:57:43.269 I/flutter (17212): roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=ready rewardedSlot=ready
+11-11 20:57:43.270 I/flutter (17212): roy93~ [AdManager] ✅ app-open on resume — all gates passed, showing buffer + ad
+11-11 20:57:43.288 I/flutter (17212): roy93~ [AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+11-11 20:57:43.290 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=1
+11-11 20:57:43.320 I/flutter (17212): roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=360.0
+11-11 20:57:43.624 D/AndroidRuntime(32531): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:57:43.631 I/AndroidRuntime(32531): Using default boot image
+11-11 20:57:43.631 I/AndroidRuntime(32531): Leaving lock profiling enabled
+11-11 20:57:43.800 D/AndroidRuntime(32531): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:57:44.310 I/flutter (17212): roy93~ [AdLoadingDialog] showAdBuffer: timer done, dismissing dialog
+11-11 20:57:44.332 I/flutter (17212): roy93~ [AdScreen~Router] 🗑️ REMOVE: null popupDepth=0
+11-11 20:57:44.333 I/flutter (17212): roy93~ [AdLoadingDialog] showAdBuffer: dialog dismissed ✅
+11-11 20:57:44.333 I/flutter (17212): roy93~ [AdLoadingDialog] showAdBuffer: calling onComplete()
+11-11 20:57:44.334 I/flutter (17212): roy93~ [AdManager] ▶️ showAppOpen (bypassSafety=false, placement=splash)
+11-11 20:57:44.408 I/flutter (17212): roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=ready | appOpen=showing
+11-11 20:57:44.542 I/flutter (17212): roy93~ [AdMobAdapter] showAppOpen [AdMob] ✅ shown
+11-11 20:57:44.543 I/flutter (17212): roy93~ [AdMobAdapter] showAppOpen [AdMob] 👁 impression
+11-11 20:57:44.878 I/flutter (17212): roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-11 20:57:45.952 D/AndroidRuntime(32531): Shutting down VM
+11-11 20:57:46.909 D/AndroidRuntime(32601): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:57:46.915 I/AndroidRuntime(32601): Using default boot image
+11-11 20:57:46.915 I/AndroidRuntime(32601): Leaving lock profiling enabled
+11-11 20:57:47.034 D/AndroidRuntime(32601): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:57:48.091 D/AndroidRuntime(32601): Shutting down VM
+11-11 20:57:50.501 D/AndroidRuntime(32646): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:57:50.506 I/AndroidRuntime(32646): Using default boot image
+11-11 20:57:50.506 I/AndroidRuntime(32646): Leaving lock profiling enabled
+11-11 20:57:50.623 D/AndroidRuntime(32646): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:57:51.688 D/AndroidRuntime(32646): Shutting down VM
+11-11 20:57:54.168 D/AndroidRuntime(32677): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:57:54.173 I/AndroidRuntime(32677): Using default boot image
+11-11 20:57:54.173 I/AndroidRuntime(32677): Leaving lock profiling enabled
+11-11 20:57:54.293 D/AndroidRuntime(32677): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:57:55.369 D/AndroidRuntime(32677): Shutting down VM
+11-11 20:58:02.614 D/AndroidRuntime(32747): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:02.620 I/AndroidRuntime(32747): Using default boot image
+11-11 20:58:02.620 I/AndroidRuntime(32747): Leaving lock profiling enabled
+11-11 20:58:02.739 D/AndroidRuntime(32747): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:03.925 D/AndroidRuntime(32747): Shutting down VM
+11-11 20:58:15.002 I/flutter (17212): roy93~ [AdMobAdapter] showAppOpen [AdMob] 👋 dismissed
+11-11 20:58:15.003 I/flutter (17212): roy93~ [AdManager] 🛡️ appOpen dismissed — app-open/post-dismiss guard armed
+11-11 20:58:15.004 I/flutter (17212): roy93~ [AdSafety] 📊 Ad SHOWN | session=5/999 | hourly=5/999 | daily=5/999 | impressions=14
+11-11 20:58:15.005 I/flutter (17212): roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+11-11 20:58:15.006 I/flutter (17212): roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already loading/showing
+11-11 20:58:15.104 I/flutter (17212): roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=ready | appOpen=loading | backgroundedFor=95.2s
+11-11 20:58:15.223 I/flutter (17212): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 20:58:15.225 I/flutter (17212): roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=loading interSlot=ready rewardedSlot=ready
+11-11 20:58:15.225 I/flutter (17212): roy93~ [AdManager] ⏭️ skipping app-open on resume (recent fullscreen dismiss 221ms ago)
+11-11 20:58:15.229 I/flutter (17212): roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=360.0
+11-11 20:58:16.503 I/flutter (17212): roy93~ [AdMobAdapter] loadAppOpen [AdMob] ✅
+11-11 20:58:16.528 I/flutter (17212): roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-11 20:58:18.093 D/AndroidRuntime(  564): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:18.099 I/AndroidRuntime(  564): Using default boot image
+11-11 20:58:18.099 I/AndroidRuntime(  564): Leaving lock profiling enabled
+11-11 20:58:18.219 D/AndroidRuntime(  564): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:19.278 D/AndroidRuntime(  564): Shutting down VM
+11-11 20:58:21.692 D/AndroidRuntime(  726): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:21.698 I/AndroidRuntime(  726): Using default boot image
+11-11 20:58:21.698 I/AndroidRuntime(  726): Leaving lock profiling enabled
+11-11 20:58:21.814 D/AndroidRuntime(  726): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:22.888 D/AndroidRuntime(  726): Shutting down VM
+11-11 20:58:25.351 D/AndroidRuntime(  749): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:25.357 I/AndroidRuntime(  749): Using default boot image
+11-11 20:58:25.357 I/AndroidRuntime(  749): Leaving lock profiling enabled
+11-11 20:58:25.472 D/AndroidRuntime(  749): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:26.560 D/AndroidRuntime(  749): Shutting down VM
+11-11 20:58:29.011 D/AndroidRuntime(  884): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:29.017 I/AndroidRuntime(  884): Using default boot image
+11-11 20:58:29.017 I/AndroidRuntime(  884): Leaving lock profiling enabled
+11-11 20:58:29.138 D/AndroidRuntime(  884): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:30.232 D/AndroidRuntime(  884): Shutting down VM
+11-11 20:58:36.877 D/AndroidRuntime( 1069): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:36.883 I/AndroidRuntime( 1069): Using default boot image
+11-11 20:58:36.883 I/AndroidRuntime( 1069): Leaving lock profiling enabled
+11-11 20:58:37.001 D/AndroidRuntime( 1069): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:38.090 D/AndroidRuntime( 1069): Shutting down VM
+11-11 20:58:44.976 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 20:58:47.076 D/AndroidRuntime( 1253): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:47.082 I/AndroidRuntime( 1253): Using default boot image
+11-11 20:58:47.082 I/AndroidRuntime( 1253): Leaving lock profiling enabled
+11-11 20:58:47.203 D/AndroidRuntime( 1253): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:48.352 D/AndroidRuntime( 1253): Shutting down VM
+11-11 20:58:50.823 D/AndroidRuntime( 1393): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:50.828 I/AndroidRuntime( 1393): Using default boot image
+11-11 20:58:50.828 I/AndroidRuntime( 1393): Leaving lock profiling enabled
+11-11 20:58:50.945 D/AndroidRuntime( 1393): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:52.030 D/AndroidRuntime( 1393): Shutting down VM
+11-11 20:58:53.090 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 20:58:57.689 D/AndroidRuntime( 1475): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:58:57.695 I/AndroidRuntime( 1475): Using default boot image
+11-11 20:58:57.695 I/AndroidRuntime( 1475): Leaving lock profiling enabled
+11-11 20:58:57.813 D/AndroidRuntime( 1475): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:58:58.945 D/AndroidRuntime( 1475): Shutting down VM
+11-11 20:59:15.699 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 20:59:17.845 D/AndroidRuntime( 1781): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:17.851 I/AndroidRuntime( 1781): Using default boot image
+11-11 20:59:17.851 I/AndroidRuntime( 1781): Leaving lock profiling enabled
+11-11 20:59:17.969 D/AndroidRuntime( 1781): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:19.101 D/AndroidRuntime( 1781): Shutting down VM
+11-11 20:59:20.128 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 20:59:25.687 D/AndroidRuntime( 1867): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:25.693 I/AndroidRuntime( 1867): Using default boot image
+11-11 20:59:25.693 I/AndroidRuntime( 1867): Leaving lock profiling enabled
+11-11 20:59:25.810 D/AndroidRuntime( 1867): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:26.978 D/AndroidRuntime( 1867): Shutting down VM
+11-11 20:59:28.012 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 20:59:30.128 D/AndroidRuntime( 2031): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:30.134 I/AndroidRuntime( 2031): Using default boot image
+11-11 20:59:30.134 I/AndroidRuntime( 2031): Leaving lock profiling enabled
+11-11 20:59:30.253 D/AndroidRuntime( 2031): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:31.412 D/AndroidRuntime( 2031): Shutting down VM
+11-11 20:59:32.467 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 20:59:37.994 D/AndroidRuntime( 2174): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:38.000 I/AndroidRuntime( 2174): Using default boot image
+11-11 20:59:38.000 I/AndroidRuntime( 2174): Leaving lock profiling enabled
+11-11 20:59:38.118 D/AndroidRuntime( 2174): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:39.249 D/AndroidRuntime( 2174): Shutting down VM
+11-11 20:59:40.257 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 20:59:42.395 D/AndroidRuntime( 2238): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:42.401 I/AndroidRuntime( 2238): Using default boot image
+11-11 20:59:42.401 I/AndroidRuntime( 2238): Leaving lock profiling enabled
+11-11 20:59:42.518 D/AndroidRuntime( 2238): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:43.621 D/AndroidRuntime( 2238): Shutting down VM
+11-11 20:59:44.680 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 20:59:50.388 D/AndroidRuntime( 2311): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:50.395 I/AndroidRuntime( 2311): Using default boot image
+11-11 20:59:50.396 I/AndroidRuntime( 2311): Leaving lock profiling enabled
+11-11 20:59:50.529 D/AndroidRuntime( 2311): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:51.618 D/AndroidRuntime( 2311): Shutting down VM
+11-11 20:59:52.677 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 20:59:54.773 D/AndroidRuntime( 2441): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 20:59:54.779 I/AndroidRuntime( 2441): Using default boot image
+11-11 20:59:54.779 I/AndroidRuntime( 2441): Leaving lock profiling enabled
+11-11 20:59:54.898 D/AndroidRuntime( 2441): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 20:59:56.074 D/AndroidRuntime( 2441): Shutting down VM
+11-11 20:59:57.122 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:00:02.741 D/AndroidRuntime( 2564): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:02.747 I/AndroidRuntime( 2564): Using default boot image
+11-11 21:00:02.747 I/AndroidRuntime( 2564): Leaving lock profiling enabled
+11-11 21:00:02.866 D/AndroidRuntime( 2564): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:04.020 D/AndroidRuntime( 2564): Shutting down VM
+11-11 21:00:05.071 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:00:07.191 D/AndroidRuntime( 2604): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:07.196 I/AndroidRuntime( 2604): Using default boot image
+11-11 21:00:07.196 I/AndroidRuntime( 2604): Leaving lock profiling enabled
+11-11 21:00:07.322 D/AndroidRuntime( 2604): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:08.450 D/AndroidRuntime( 2604): Shutting down VM
+11-11 21:00:10.919 D/AndroidRuntime( 2666): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:10.925 I/AndroidRuntime( 2666): Using default boot image
+11-11 21:00:10.925 I/AndroidRuntime( 2666): Leaving lock profiling enabled
+11-11 21:00:11.047 D/AndroidRuntime( 2666): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:12.121 D/AndroidRuntime( 2666): Shutting down VM
+11-11 21:00:13.162 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:00:18.777 D/AndroidRuntime( 2723): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:18.783 I/AndroidRuntime( 2723): Using default boot image
+11-11 21:00:18.783 I/AndroidRuntime( 2723): Leaving lock profiling enabled
+11-11 21:00:18.904 D/AndroidRuntime( 2723): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:20.032 D/AndroidRuntime( 2723): Shutting down VM
+11-11 21:00:21.053 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:00:33.022 D/AndroidRuntime( 2851): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:33.028 I/AndroidRuntime( 2851): Using default boot image
+11-11 21:00:33.028 I/AndroidRuntime( 2851): Leaving lock profiling enabled
+11-11 21:00:33.149 D/AndroidRuntime( 2851): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:34.295 D/AndroidRuntime( 2851): Shutting down VM
+11-11 21:00:36.785 D/AndroidRuntime( 2887): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:36.790 I/AndroidRuntime( 2887): Using default boot image
+11-11 21:00:36.790 I/AndroidRuntime( 2887): Leaving lock profiling enabled
+11-11 21:00:36.909 D/AndroidRuntime( 2887): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:37.977 D/AndroidRuntime( 2887): Shutting down VM
+11-11 21:00:40.480 D/AndroidRuntime( 2943): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:40.486 I/AndroidRuntime( 2943): Using default boot image
+11-11 21:00:40.486 I/AndroidRuntime( 2943): Leaving lock profiling enabled
+11-11 21:00:40.605 D/AndroidRuntime( 2943): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:41.667 D/AndroidRuntime( 2943): Shutting down VM
+11-11 21:00:44.145 D/AndroidRuntime( 3049): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:44.151 I/AndroidRuntime( 3049): Using default boot image
+11-11 21:00:44.151 I/AndroidRuntime( 3049): Leaving lock profiling enabled
+11-11 21:00:44.270 D/AndroidRuntime( 3049): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:45.335 D/AndroidRuntime( 3049): Shutting down VM
+11-11 21:00:47.809 D/AndroidRuntime( 3098): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:47.815 I/AndroidRuntime( 3098): Using default boot image
+11-11 21:00:47.815 I/AndroidRuntime( 3098): Leaving lock profiling enabled
+11-11 21:00:47.934 D/AndroidRuntime( 3098): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:49.008 D/AndroidRuntime( 3098): Shutting down VM
+11-11 21:00:54.496 D/AndroidRuntime( 3156): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:00:54.502 I/AndroidRuntime( 3156): Using default boot image
+11-11 21:00:54.502 I/AndroidRuntime( 3156): Leaving lock profiling enabled
+11-11 21:00:54.629 D/AndroidRuntime( 3156): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:00:55.738 D/AndroidRuntime( 3156): Shutting down VM
+11-11 21:01:16.427 D/AndroidRuntime( 3334): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:01:16.432 I/AndroidRuntime( 3334): Using default boot image
+11-11 21:01:16.432 I/AndroidRuntime( 3334): Leaving lock profiling enabled
+11-11 21:01:16.551 D/AndroidRuntime( 3334): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:01:17.627 D/AndroidRuntime( 3334): Shutting down VM
+11-11 21:01:20.109 D/AndroidRuntime( 3356): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:01:20.115 I/AndroidRuntime( 3356): Using default boot image
+11-11 21:01:20.115 I/AndroidRuntime( 3356): Leaving lock profiling enabled
+11-11 21:01:20.235 D/AndroidRuntime( 3356): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:01:21.304 D/AndroidRuntime( 3356): Shutting down VM
+11-11 21:01:22.171 I/flutter (17212): roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+11-11 21:01:22.340 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:01:25.488 D/AndroidRuntime( 3452): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:01:25.494 I/AndroidRuntime( 3452): Using default boot image
+11-11 21:01:25.494 I/AndroidRuntime( 3452): Leaving lock profiling enabled
+11-11 21:01:25.615 D/AndroidRuntime( 3452): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:01:26.760 D/AndroidRuntime( 3452): Shutting down VM
+11-11 21:01:27.812 I/flutter (17212): roy93~ [UmpConsent] privacy options: not required (status=notRequired) — no-op
+11-11 21:01:27.821 I/flutter (17212): roy93~ [AdManager] 🔐 privacy options → canRequestAds=true (status=notRequired)
+11-11 21:01:27.837 I/flutter (17212): roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+11-11 21:01:27.837 I/flutter (17212): roy93~ [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+11-11 21:01:27.852 I/flutter (17212): roy93~ [ConsentManager] set → ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true)
+11-11 21:01:27.863 I/flutter (17212): roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+11-11 21:01:27.887 I/flutter (17212): roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+11-11 21:01:27.892 I/flutter (17212): roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+11-11 21:01:27.901 I/flutter (17212): roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+11-11 21:01:27.901 I/flutter (17212): roy93~ [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+11-11 21:01:44.880 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:01:49.940 D/AndroidRuntime( 3704): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:01:49.945 I/AndroidRuntime( 3704): Using default boot image
+11-11 21:01:49.945 I/AndroidRuntime( 3704): Leaving lock profiling enabled
+11-11 21:01:50.065 D/AndroidRuntime( 3704): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:01:51.133 D/AndroidRuntime( 3704): Shutting down VM
+11-11 21:01:53.592 D/AndroidRuntime( 3776): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:01:53.598 I/AndroidRuntime( 3776): Using default boot image
+11-11 21:01:53.598 I/AndroidRuntime( 3776): Leaving lock profiling enabled
+11-11 21:01:53.734 D/AndroidRuntime( 3776): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:01:54.853 D/AndroidRuntime( 3776): Shutting down VM
+11-11 21:01:55.921 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:01:59.037 D/AndroidRuntime( 3840): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:01:59.043 I/AndroidRuntime( 3840): Using default boot image
+11-11 21:01:59.043 I/AndroidRuntime( 3840): Leaving lock profiling enabled
+11-11 21:01:59.175 D/AndroidRuntime( 3840): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:00.264 D/AndroidRuntime( 3840): Shutting down VM
+11-11 21:02:04.021 D/AndroidRuntime( 3953): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:04.028 I/AndroidRuntime( 3953): Using default boot image
+11-11 21:02:04.028 I/AndroidRuntime( 3953): Leaving lock profiling enabled
+11-11 21:02:04.172 D/AndroidRuntime( 3953): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:05.260 D/AndroidRuntime( 3953): Shutting down VM
+11-11 21:02:06.314 I/flutter (17212): roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-11 21:02:07.460 D/AndroidRuntime( 4079): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:07.465 I/AndroidRuntime( 4079): Using default boot image
+11-11 21:02:07.466 I/AndroidRuntime( 4079): Leaving lock profiling enabled
+11-11 21:02:07.586 D/AndroidRuntime( 4079): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:08.684 D/AndroidRuntime( 4079): Shutting down VM
+11-11 21:02:14.298 D/AndroidRuntime( 4165): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:14.304 I/AndroidRuntime( 4165): Using default boot image
+11-11 21:02:14.304 I/AndroidRuntime( 4165): Leaving lock profiling enabled
+11-11 21:02:14.425 D/AndroidRuntime( 4165): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:15.579 D/AndroidRuntime( 4165): Shutting down VM
+11-11 21:02:30.274 D/AndroidRuntime( 4282): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:30.279 I/AndroidRuntime( 4282): Using default boot image
+11-11 21:02:30.279 I/AndroidRuntime( 4282): Leaving lock profiling enabled
+11-11 21:02:30.396 D/AndroidRuntime( 4282): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:31.465 D/AndroidRuntime( 4282): Shutting down VM
+11-11 21:02:33.953 D/AndroidRuntime( 4328): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:33.958 I/AndroidRuntime( 4328): Using default boot image
+11-11 21:02:33.958 I/AndroidRuntime( 4328): Leaving lock profiling enabled
+11-11 21:02:34.075 D/AndroidRuntime( 4328): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:35.146 D/AndroidRuntime( 4328): Shutting down VM
+11-11 21:02:36.205 I/flutter (17212): roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-11 21:02:39.321 D/AndroidRuntime( 4382): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:39.327 I/AndroidRuntime( 4382): Using default boot image
+11-11 21:02:39.327 I/AndroidRuntime( 4382): Leaving lock profiling enabled
+11-11 21:02:39.453 D/AndroidRuntime( 4382): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:40.522 D/AndroidRuntime( 4382): Shutting down VM
+11-11 21:02:44.820 D/AndroidRuntime( 4457): >>>>>> START com.android.internal.os.RuntimeInit uid 2000 <<<<<<
+11-11 21:02:44.826 I/AndroidRuntime( 4457): Using default boot image
+11-11 21:02:44.826 I/AndroidRuntime( 4457): Leaving lock profiling enabled
+11-11 21:02:44.950 D/AndroidRuntime( 4457): Calling main entry com.android.commands.uiautomator.Launcher
+11-11 21:02:46.026 D/AndroidRuntime( 4457): Shutting down VM
+11-11 21:03:06.033 I/flutter (17212): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 21:03:06.034 I/flutter (17212): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=bad format (expected AVP1|AVP2.<payload>.<sig>)
