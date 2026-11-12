@@ -1,0 +1,72 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+Running Gradle task 'assembleDebug'...                             12.4s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           3.7s
+00:00 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-12T21:01:45.054
+roy93~ [AdManager] setNavigatorKey ✅
+roy93~ [AdManager] markSplashActive
+roy93~ [AdManager] incrementSplashCount → 1
+roy93~ [AdManager] ATT → notSupported
+ATT status: notSupported
+roy93~ [UmpConsent] consent status: notRequired
+roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+roy93~ [AdManager] initialize start, provider=admob
+roy93~ [AdManager] GAID resolved (present=true)
+roy93~ [VipManager] purgeExpired: removed 1
+roy93~ [VipManager] load() entries=0 active=false
+roy93~ [AdManager] VIP active=false entries=0
+roy93~ [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+roy93~ [AdManager] 🔐 gate closed until UMP resolves (SDK-owned consent flow)
+roy93~ [AdManager] ⏭️ auto UMP skipped — host already called requestUmpConsent()
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdManager] triggering App Open + banner/mrec preload
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+roy93~ [AdManager] 📶 connectivity watch started (connected=true)
+roy93~ [AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+roy93~ [AdLoadingDialog] showAdBuffer: timer done, dismissing dialog
+roy93~ [AdLoadingDialog] showAdBuffer: dialog dismissed ✅
+roy93~ [AdLoadingDialog] showAdBuffer: calling onComplete()
+roy93~ [BypassAuditTrail] ⚠️ 🔓 bypassSafety recorded (unspecified, appOpen)
+roy93~ [AdManager] ▶️ showAppOpen (bypassSafety=true, placement=splash)
+00:08 +0: loading <tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+roy93~ [AdManager] lifecycle: — → inactive | splash=true | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=showing
+00:08 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+roy93~ [AdManager] ⏰ splash budget elapsed but app-open in flight — re-arming +30s
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: true
+  Actual: <false>
+HomePage must list the VIP API playground tile
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file://<tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart:54:5)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1682:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file://<tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart line 54
+The test description was:
+  the CRL demo button calls refreshRevocationList without crashing or blocking the page
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:25 +0 -1: the CRL demo button calls refreshRevocationList without crashing or blocking the page [E]
+  Test failed. See exception logs above.
+  The test description was: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+  
+00:25 +0 -1: (tearDownAll)
+00:26 +0 -1: Some tests failed.
+exit=1
