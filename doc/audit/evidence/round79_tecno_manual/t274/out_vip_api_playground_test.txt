@@ -1,0 +1,15 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/vip_api_playground_test.dart
+Running Gradle task 'assembleDebug'...                             12.1s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           4.2s
+00:00 +0: quick-redeem buttons flip VIP active and stack across a second redeem
+ATT status: notSupported
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+00:14 +1: signed key redeem grants VIP and rejects reuse on this device
+00:15 +1: quick-redeem buttons flip VIP active and stack across a second redeem
+00:18 +1: signed key redeem grants VIP and rejects reuse on this device
+00:18 +1: quick-redeem buttons flip VIP active and stack across a second redeem
+00:23 +1: signed key redeem grants VIP and rejects reuse on this device
+00:27 +2: (tearDownAll)
+00:27 +2: All tests passed!
+exit=0

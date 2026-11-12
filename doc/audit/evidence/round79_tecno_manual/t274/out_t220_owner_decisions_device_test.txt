@@ -1,0 +1,8 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/t220_owner_decisions_device_test.dart
+Running Gradle task 'assembleDebug'...                             12.1s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           3.5s
+00:00 +0: T220: verified owner decisions on physical device (AVP2, AVP1 opt-in, offline check, QA fleet, COPPA preview)
+00:08 +1: (tearDownAll)
+00:08 +1: All tests passed!
+exit=0

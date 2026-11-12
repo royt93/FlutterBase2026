@@ -1,0 +1,37 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+Running Gradle task 'assembleDebug'...                             12.7s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           3.7s
+00:00 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+ATT status: notSupported
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+00:06 +0: loading <tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+00:06 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: true
+  Actual: <false>
+HomePage must list the VIP API playground tile
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file://<tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart:54:5)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1682:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file://<tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart line 54
+The test description was:
+  the CRL demo button calls refreshRevocationList without crashing or blocking the page
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:24 +0 -1: the CRL demo button calls refreshRevocationList without crashing or blocking the page [E]
+  Test failed. See exception logs above.
+  The test description was: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+  
+00:24 +0 -1: (tearDownAll)
+00:25 +0 -1: Some tests failed.
+exit=1

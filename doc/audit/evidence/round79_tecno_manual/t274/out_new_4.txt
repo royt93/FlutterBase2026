@@ -1,0 +1,11 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+Running Gradle task 'assembleDebug'...                             13.0s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           4.1s
+00:00 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+ATT status: notSupported
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+[example] fetchSignedCrl: no VIP_CRL_URL configured — revocation refresh is a no-op (see demo_crl_provider.dart)
+00:10 +1: (tearDownAll)
+00:11 +1: All tests passed!
+exit=0

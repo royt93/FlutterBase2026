@@ -1,0 +1,14 @@
+00:00 +0: loading <tmp>/packages/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+Running Gradle task 'assembleDebug'...                             20.1s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           3.9s
+00:00 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+ATT status: notSupported
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+[example] fetchSignedCrl: no real CRL backend in this demo
+00:10 +1: (tearDownAll)
+adb uninstall failed: ProcessException: Process exited abnormally with exit code 1:
+Failure [DELETE_FAILED_INTERNAL_ERROR]
+  Command: /Users/LoiTP/Library/Android/sdk/platform-tools/adb -s 115333744A005844 uninstall com.example.ad_sdk_example
+00:10 +1: All tests passed!
+exit=0

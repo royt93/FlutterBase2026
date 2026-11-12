@@ -2,10 +2,10 @@
 // VipRevocationProvider/refreshRevocationList wiring at all, so a partner
 // copying this example verbatim could ship VIP-code revocation completely
 // inert without realising it. VipDemoPage now has a "Refresh revocation
-// list (CRL)" button (main.dart's _DemoCrlProvider) — this confirms it
-// actually works end to end on a real device: tapping it calls through to
-// VipManager.refreshRevocationList with a stub provider and neither crashes
-// nor blocks the page.
+// list (CRL)" button (demo_crl_provider.dart's DemoCrlProvider) — this
+// confirms it actually works end to end on a real device: tapping it calls
+// through to VipManager.refreshRevocationList and neither crashes nor blocks
+// the page. Without --dart-define=VIP_CRL_URL the provider is a no-op.
 //
 // Run with:
 //   flutter test integration_test/round39_vip_crl_demo_button_test.dart -d <device-or-sim-id>
@@ -29,8 +29,7 @@ Future<void> _waitForInit(WidgetTester tester) async {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets(
-      'the CRL demo button calls refreshRevocationList without crashing '
+  testWidgets('the CRL demo button calls refreshRevocationList without crashing '
       'or blocking the page', (tester) async {
     // Same synthetic tall viewport as vip_api_playground_test.dart — the
     // HomePage demo list is viewport-lazy at default phone height.
@@ -52,8 +51,11 @@ void main() {
         break;
       }
     }
-    expect(foundTile, isTrue,
-        reason: 'HomePage must list the VIP API playground tile');
+    expect(
+      foundTile,
+      isTrue,
+      reason: 'HomePage must list the VIP API playground tile',
+    );
 
     await tester.tap(tile);
     await tester.pump(const Duration(milliseconds: 300));
@@ -64,15 +66,25 @@ void main() {
     await tester.pump();
 
     final crlButton = find.text('Refresh revocation list (CRL)');
-    await tester.scrollUntilVisibleAndSettle(crlButton, 200,
-        scrollable: find.byType(Scrollable).first);
+    await tester.scrollUntilVisibleAndSettle(
+      crlButton,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(crlButton);
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    expect(tester.takeException(), isNull,
-        reason: 'tapping the CRL demo button must never throw');
-    expect(find.textContaining('Checked for a revocation list'),
-        findsOneWidget,
-        reason: 'the demo snackbar must confirm the call actually ran');
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'tapping the CRL demo button must never throw',
+    );
+    // T273: the snackbar text depends on whether --dart-define=VIP_CRL_URL is
+    // set. Without it (this test's default) the provider is a no-op and says so.
+    expect(
+      find.textContaining('No VIP_CRL_URL set'),
+      findsOneWidget,
+      reason: 'the demo snackbar must confirm the call actually ran',
+    );
   });
 }

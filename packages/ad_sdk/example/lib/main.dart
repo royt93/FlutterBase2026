@@ -50,6 +50,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'demo_crl_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 // IabStorage is an internal implementation detail, not part
@@ -4479,18 +4481,24 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
           // host app would call this from a `Timer.periodic` (see
           // VipRevocationProvider's own doc comment) with a provider that
           // fetches `tool/vip_crl_mint.dart`'s output from its own backend —
-          // this button just demonstrates the call shape with a stub.
+          // this button calls `DemoCrlProvider` (demo_crl_provider.dart), which
+          // does one HTTPS GET of `--dart-define=VIP_CRL_URL=...` and is a no-op
+          // when that is unset.
           OutlinedButton.icon(
             onPressed: () async {
               await vip?.refreshRevocationList(
                 publicKeyBase64: kDemoVipPublicKey,
-                revocationProvider: _DemoCrlProvider(),
+                revocationProvider: DemoCrlProvider(),
               );
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text(
-                        'Checked for a revocation list (demo stub — wire '
-                        'your own backend via VipRevocationProvider)')));
+                        kDemoCrlUrl.isEmpty
+                        ? 'No VIP_CRL_URL set — nothing fetched (pass '
+                            '--dart-define=VIP_CRL_URL=https://... or wire your own '
+                            'VipRevocationProvider)'
+                        : 'Revocation list refresh finished — see the log for '
+                            'the result')));
               }
             },
             icon: const Icon(Icons.block_flipped),
@@ -4499,18 +4507,6 @@ class _VipDemoPageState extends AdScreenState<VipDemoPage> {
         ],
       ),
     );
-  }
-}
-
-/// Demo-only stub — a real host implements [fetchSignedCrl] against its own
-/// backend (see [VipRevocationProvider]'s own doc comment). Returning `null`
-/// is a normal, safe result: `refreshRevocationList` fails open and leaves
-/// whatever was already cached untouched.
-class _DemoCrlProvider implements VipRevocationProvider {
-  @override
-  Future<String?> fetchSignedCrl() async {
-    debugPrint('[example] fetchSignedCrl: no real CRL backend in this demo');
-    return null;
   }
 }
 

@@ -1,0 +1,10 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/vip_revocation_list_test.dart
+Running Gradle task 'assembleDebug'...                             12.0s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           3.5s
+00:00 +0: a revoked kid is rejected after refreshRevocationList persists a real signed CRL to on-device storage, and a clean kid still redeems
+ATT status: notSupported
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+00:09 +1: (tearDownAll)
+00:10 +1: All tests passed!
+exit=0

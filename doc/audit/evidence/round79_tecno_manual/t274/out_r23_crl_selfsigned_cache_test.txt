@@ -1,0 +1,13 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/r23_crl_selfsigned_cache_test.dart
+Running Gradle task 'assembleDebug'...                             12.3s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           4.0s
+00:00 +0: a self-signed future-dated cache written into the REAL preferences cannot wedge revocation off
+ATT status: notSupported
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+00:17 +1: CONTROL — a cache the host key actually verifies still refuses a replayed older CRL
+00:19 +1: a self-signed future-dated cache written into the REAL preferences cannot wedge revocation off
+00:19 +1: CONTROL — a cache the host key actually verifies still refuses a replayed older CRL
+00:31 +2: (tearDownAll)
+00:31 +2: All tests passed!
+exit=0
