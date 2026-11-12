@@ -1,0 +1,13 @@
+22:06:58.725 [UmpConsent] consent status: required
+22:07:19.285 [UmpConsent] ✅ done canRequestAds=true status=obtained formShown=true
+11-12 22:07:19.342 I/flutter (12044): UMP: canRequestAds=true status=ConsentStatus.obtained formShown=true error=null
+22:07:20.339 [ConsentManager] load → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=false)
+22:07:20.365 [ConsentManager] set → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=true)
+22:07:20.416 [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+22:07:20.441 [AdManager] ⏭️ auto UMP skipped — host already called requestUmpConsent()
+22:07:21.318 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+22:08:45.801 [UmpConsent] 🔐 privacy options done canRequestAds=true status=obtained
+22:08:45.807 [AdManager] 🔐 privacy options → canRequestAds=true (status=obtained)
+22:08:45.824 [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+22:08:45.850 [ConsentManager] set → ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true)
+22:08:45.869 [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)

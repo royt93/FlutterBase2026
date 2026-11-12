@@ -1,0 +1,15 @@
+21:24:02.400 [IMPORTANT:flutter/shell/platform/android/android_context_vk_impeller.cc(62)] Using the Impeller rendering backend (Vulkan).
+21:24:02.507 roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-12T21:24:02.507
+21:24:02.508 roy93~ [AdManager] setNavigatorKey ✅
+21:24:02.512 roy93~ [AdScreen~Router] ➡️ PUSH: / (from: null) popupDepth=0
+21:24:02.513 roy93~ [AdManager] markSplashActive
+21:24:02.513 roy93~ [AdManager] incrementSplashCount → 1
+21:24:03.311 roy93~ [UmpConsent] consent status: notRequired
+21:24:03.311 roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+21:24:03.312 roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+21:24:03.312 roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+21:24:03.316 roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+21:24:03.316 roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+21:24:03.316 roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+21:24:03.316 UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+21:24:03.317 roy93~ [AdManager] ❌ 🚨 AdMob provider is active in RELEASE with Google TEST ad unit IDs (ca-app-pub-3940256099942544/…). Serving test ads in production violates AdMob policy and earns $0. Replace with production unit IDs before shipping.

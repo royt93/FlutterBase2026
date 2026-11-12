@@ -1,0 +1,35 @@
+21:46:12.739 [UmpConsent] consent status: required
+21:49:12.792 [UmpConsent] ⚠️ consent form: consent form dismiss timed out after 180s
+21:49:12.810 [UmpConsent] ✅ done canRequestAds=false status=required formShown=true
+21:49:12.812 [AdManager] 🔐 UMP gate → canRequestAds=false (status=required)
+21:49:12.844 [AdManager] ⚠️ UMP inconclusive (status=required, err=consent form dismiss timed out after 180s) — keeping the persisted consent value instead of downgrading it
+21:49:12.845 [AdManager] ⚠️ ⚠️ consent form abandoned by our own timeout — the native form may still be on screen, so the periodic backstop will not re-present one
+11-12 21:49:12.845 I/flutter (28714): UMP: canRequestAds=false status=ConsentStatus.required formShown=true error=consent form dismiss timed out after 180s
+21:49:14.288 [ConsentManager] load → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=false)
+21:49:14.289 [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+21:49:14.290 [AdManager] 🔐 gate closed until UMP resolves (SDK-owned consent flow)
+21:49:14.299 [AdManager] ⏭️ auto UMP skipped — host already called requestUmpConsent()
+21:49:15.394 [ConsentManager] applyToProviders (ConsentSettings(consent=false, coppa=false, ccpa=false, asked=false))
+21:54:15.490 [AdManager] ⏭️ loadAppOpen skipped — consent not granted (UMP)
+21:54:15.491 [AdManager] ⏭️ loadInterstitial skipped — consent not granted (UMP)
+21:54:15.493 [AdManager] ⏭️ loadRewarded skipped — consent not granted (UMP)
+21:54:15.495 [AdManager] ⏭️ loadRewardedInterstitial skipped — consent not granted (UMP)
+21:54:15.499 [AdManager] 🔁 rechecking abandoned UMP form (no form presented) → status=required canRequestAds=false
+21:54:15.500 [AdManager] 🔐 UMP gate → canRequestAds=false (status=required)
+21:54:15.550 [ConsentManager] set → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=true)
+21:59:15.502 [AdManager] ⏭️ loadAppOpen skipped — consent not granted (UMP)
+21:59:15.503 [AdManager] ⏭️ loadInterstitial skipped — consent not granted (UMP)
+21:59:15.506 [AdManager] ⏭️ loadRewarded skipped — consent not granted (UMP)
+21:59:15.507 [AdManager] ⏭️ loadRewardedInterstitial skipped — consent not granted (UMP)
+21:59:15.514 [AdManager] 🔁 rechecking abandoned UMP form (no form presented) → status=required canRequestAds=false
+21:59:15.514 [AdManager] 🔐 UMP gate → canRequestAds=false (status=required)
+21:59:15.544 [ConsentManager] set → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=true)
+22:01:12.747 [UmpConsent] ⚠️ a UMP form never reported being dismissed — releasing the ad block after 15m rather than blocking ads for the whole process
+22:04:15.513 [AdManager] ⏭️ loadAppOpen skipped — consent not granted (UMP)
+22:04:15.513 [AdManager] ⏭️ loadInterstitial skipped — consent not granted (UMP)
+22:04:15.514 [AdManager] ⏭️ loadRewarded skipped — consent not granted (UMP)
+22:04:15.515 [AdManager] ⏭️ loadRewardedInterstitial skipped — consent not granted (UMP)
+22:04:15.519 [AdManager] 🔁 rechecking abandoned UMP form (no form presented) → status=required canRequestAds=false
+22:04:15.520 [AdManager] 🔐 UMP gate → canRequestAds=false (status=required)
+22:04:15.547 [ConsentManager] set → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=true)
+22:06:20.961 [AdManager] ⏭️ loadAppOpen skipped — consent not granted (UMP)

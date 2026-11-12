@@ -1,0 +1,3 @@
+21:24:04.190 I/Ads     (28281): Updating ad debug logging enablement.
+21:24:04.197 W/Ads     (28281): Update ad debug logging enablement as false
+21:24:04.903 I/Ads     (28281): JS: The jsLoaded GMSG has been sent (https://googleads.g.doubleclick.net/mads/static/sdk/native/sdk-core-v40.html:1115)

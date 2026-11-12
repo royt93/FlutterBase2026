@@ -28,7 +28,7 @@ Toàn bộ chỉ chạy trên **app mẫu của SDK** với quảng cáo thử n
 
 - **App của bạn:** chưa có app host nào được kiểm tra. Cấu hình AdMob, `app-ads.txt`, UMP message, ký bản release và R8 là việc của bạn.
 - **Mất/có lại mạng thật:** chỉ thử một lần trên một máy, chỉ Wi‑Fi (chưa thử mạng di động hay mạng cần đăng nhập). Hãy tự kiểm lại trên app của bạn.
-- **Privacy Options (đổi ý sau khi từ chối):** chỉ kiểm một phần. Form vượt thời hạn chờ 180 giây của SDK; lựa chọn đến muộn và SDK vẫn áp dụng lại. Hãy tự kiểm lại trên app của bạn.
+- **Privacy Options (đổi ý sau khi từ chối):** đã thử lại trên một máy: từ chối rồi đổi sang đồng ý qua Privacy Options hoàn tất trong thời hạn, quảng cáo chuyển từ không cá nhân hoá sang cá nhân hoá. Các nút form được bấm bằng công cụ adb, không phải người thật bấm; nếu form bị bỏ mặc quá 180 giây thì SDK báo hết hạn và chỉ nhả chặn quảng cáo sau 15 phút. Hãy tự kiểm lại trên app của bạn, với người dùng thật.
 - **VIP:** trong app mẫu, mã hết hạn, sai app, đã dùng hoặc bị thu hồi đều bị từ chối; không có mạng thì không nhập được mã, nhưng VIP đã kích hoạt vẫn chặn quảng cáo khi mất mạng. Mới thử bằng khóa tạm trong app mẫu; danh sách thu hồi đã thử tải qua mạng nội bộ từ một server tạm (áp dụng và cập nhật được, lỗi mạng thì giữ danh sách cũ). Đã thử thêm qua HTTPS với chứng chỉ tạm (chứng chỉ giả mạo bị từ chối và danh sách cũ được giữ). Chưa thử qua CA công khai/mạng di động hay với mã ký bằng khóa thật của bạn (chi tiết kỹ thuật: bảng bằng chứng trong `pilot_checklist_android_admob.md`).
 - **Hiệu năng khung hình (T267):** chưa có kết luận. Chưa đo được khung hình thực sự hiển thị; số liệu có chỉ là thời gian xử lý trong Flutter.
 - **Rò rỉ bộ nhớ native:** chưa chứng minh được là không rò rỉ.
