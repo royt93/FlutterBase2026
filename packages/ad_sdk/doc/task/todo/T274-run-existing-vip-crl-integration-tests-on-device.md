@@ -2,7 +2,7 @@
 
 - **Loại:** Verification
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** done-pending-review (4/5 file pass 1 lần; file thứ 5 flaky, xem T279)
+- **Status:** todo (4/5 file pass 1 lần; round39 flaky có cơ chế đã xác lập ở T279; đóng khi T279 được duyệt cách sửa và chạy lại)
 - **Nguồn:** audit round 79
 
 ## Mục tiêu
@@ -21,3 +21,6 @@ Xác nhận 5 file integration đã có còn pass trên máy thật: `vip_revoca
 ## Kết quả (2026-11-12, TECNO KJ7 Android 14, gói tạm `.t274test`)
 - `vip_revocation_list_test` PASS (1 test), `vip_api_playground_test` PASS (2), `r23_crl_selfsigned_cache_test` PASS (2), `t220_owner_decisions_device_test` PASS (1), `round39_vip_crl_demo_button_test`: xem T279 (flaky có sẵn từ trước).
 - Mỗi file chạy 1 lần (riêng round39 chạy nhiều lần). Một lần pass không chứng minh ổn định. Log: `doc/audit/evidence/round79_tecno_manual/t274/`.
+
+## Cập nhật (2026-11-12)
+`round39` chạy 20 lượt liên tiếp: 19 pass, 1 fail; nguyên nhân là test phụ thuộc cài sạch (không có trial thì App Open che màn hình), có đối chứng; chi tiết ở T279. Bốn file còn lại mỗi file mới chạy 1 lần.

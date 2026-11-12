@@ -1,0 +1,10 @@
+23:04:27 start c1
+23:05:14 end c1 exit=0
+23:05:14 start c2
+23:06:06 end c2 exit=1
+23:06:06 start d1
+23:06:48 end d1 exit=0
+23:06:48 pm clear com.roy.admobwrapper.t279d -> Success
+23:06:48 start d2
+23:07:20 end d2 exit=0
+DONE

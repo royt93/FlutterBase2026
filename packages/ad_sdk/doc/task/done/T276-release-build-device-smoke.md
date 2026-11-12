@@ -2,7 +2,7 @@
 
 - **Loại:** Verification
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** done-pending-review (chạy máy xong; các giới hạn ghi rõ bên dưới)
+- **Status:** done (2026-11-12; chủ sản phẩm duyệt đóng task, giới hạn ghi trong mục Kết quả)
 - **Nguồn:** audit round 79. Toàn bộ test tay chạy bản DEBUG; log ghi `FirstInstallGuard: debug build — anti-bypass guard bypassed (test on release builds)` và trial 24h chỉ chạy 30 giây ở debug.
 
 ## Mục tiêu

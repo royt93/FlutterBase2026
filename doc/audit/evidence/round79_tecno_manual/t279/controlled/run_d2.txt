@@ -1,0 +1,43 @@
+00:00 +0: loading <tmp>/ad_sdk/example/integration_test/round39_vip_crl_demo_button_test.dart
+Running Gradle task 'assembleDebug'...                             12.4s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           3.6s
+00:00 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-12T23:07:10.338
+roy93~ [AdManager] setNavigatorKey ✅
+roy93~ [AdManager] markSplashActive
+roy93~ [AdManager] incrementSplashCount → 1
+roy93~ [AdManager] ATT → notSupported
+ATT status: notSupported
+roy93~ [UmpConsent] consent status: notRequired
+roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+roy93~ [AdManager] initialize start, provider=admob
+roy93~ [AdManager] GAID resolved (present=true)
+roy93~ [VipManager] load() entries=0 active=false
+roy93~ [AdManager] VIP active=false entries=0
+roy93~ [FirstInstallGuard] ⏭️ debug build — anti-bypass guard bypassed (test on release builds)
+roy93~ [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-12 23:07:42.867124
+roy93~ [VipManager] active state changed: false → true
+roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+roy93~ [FirstInstallGuard] ⏭️ debug build — Keychain flag write skipped (avoid polluting release)
+roy93~ [AdManager] 🎁 first-install VIP grace granted (30s, mode=debug)
+roy93~ [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+roy93~ [AdManager] 🔐 gate closed until UMP resolves (SDK-owned consent flow)
+roy93~ [AdManager] ⏭️ auto UMP skipped — host already called requestUmpConsent()
+roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+roy93~ [AdManager] markSplashInactive
+roy93~ [AdManager] triggering App Open + banner/mrec preload
+roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+roy93~ [AdManager] ⏭️ banner/mrec preload skipped — VIP member
+roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+roy93~ [AdManager] 📶 connectivity watch started (connected=true)
+[example] fetchSignedCrl: no VIP_CRL_URL configured — revocation refresh is a no-op (see demo_crl_provider.dart)
+00:10 +1: (tearDownAll)
+00:10 +1: All tests passed!
+exit=0

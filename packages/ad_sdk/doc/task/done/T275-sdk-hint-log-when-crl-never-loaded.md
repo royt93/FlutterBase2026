@@ -2,7 +2,7 @@
 
 - **Loại:** SDK / Developer experience
 - **Priority:** P3 · **Severity:** LOW
-- **Status:** todo (đã đánh giá; chặn bởi trần size gate và cần duyệt sửa lib/)
+- **Status:** wont-do (2026-11-12; chủ sản phẩm quyết định bỏ)
 
 ## Bối cảnh
 SDK không biết host cố ý bỏ CRL hay quên nối. Chỉ có thể log gợi ý, không phải lỗi, và không đổi hành vi redeem.
@@ -21,3 +21,6 @@ SDK không biết host cố ý bỏ CRL hay quên nối. Chỉ có thể log g�
 - **Rào cản:** gate size đang ở đúng trần 2048 KB; `vip_manager.dart` là 93.817 byte, còn 391 byte trước khi `du -k` tăng thêm 4 KB (gate sẽ fail). Một dòng log có điều kiện + cờ "đã log" khoảng 250-400 byte: sát ngưỡng, rất dễ vượt.
 - Muốn làm thì phải rút gọn một đoạn khác trong `lib/` trước (không nâng trần), và chủ sản phẩm phải duyệt việc sửa `lib/`. Lợi ích nhỏ (một dòng log debug), rủi ro không nhỏ (đụng trần gate, đụng đường redeem).
 - **Đề xuất:** để task này ở `todo`, KHÔNG làm cho tới khi có lý do mạnh hơn; thay vào đó dùng example (T273) và tài liệu để nhắc partner nối CRL.
+
+## Quyết định (2026-11-12)
+Chủ sản phẩm chọn **bỏ (won't do)**. Lý do: lib/ đang đúng trần size gate (2048 KB đo theo cách gate đo), thêm log vừa sát trần vừa đụng đường redeem để đổi lấy một dòng log debug. Thay thế: example có `DemoCrlProvider` (T273) và tài liệu/README đã có mẫu `VipRevocationProvider`. Mở lại nếu có bằng chứng partner thực tế quên nối CRL.

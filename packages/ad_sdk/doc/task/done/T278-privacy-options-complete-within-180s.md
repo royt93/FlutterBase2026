@@ -2,7 +2,7 @@
 
 - **Loại:** Verification (có người thao tác)
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Status:** done-pending-review (đã có bằng chứng bằng adb; chưa có người thao tác thật)
+- **Status:** done (2026-11-12; chủ sản phẩm duyệt đóng task, giới hạn ghi trong mục Kết quả)
 - **Nguồn:** audit round 79: lượt thử trên TECNO vượt 180 giây, SDK báo timeout, lựa chọn đến muộn vẫn được áp dụng lại. Chưa chứng minh luồng hoàn tất bình thường trong thời hạn.
 
 ## Việc cần làm

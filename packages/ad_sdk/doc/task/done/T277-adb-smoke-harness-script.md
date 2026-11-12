@@ -2,7 +2,7 @@
 
 - **Loại:** Tooling
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** done-pending-review
+- **Status:** done (2026-11-12; chủ sản phẩm duyệt đóng task, giới hạn ghi trong mục Kết quả)
 - **Nguồn:** audit round 79. Nhiều lần "bad format" trong log là lỗi tự động hóa nhập liệu (không xóa ô, tọa độ cố định theo từng máy), phải thử lại; kết quả khó tái lập giữa TECNO (1080x2436) và S24U (1080x2340, density override).
 
 ## Việc cần làm

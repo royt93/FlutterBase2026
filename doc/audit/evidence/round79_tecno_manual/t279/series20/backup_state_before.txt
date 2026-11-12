@@ -1,0 +1,9 @@
+== backup state before the runs (device)
+    com.android.localtransport/.LocalTransport
+    com.google.android.gms/.backup.migrate.service.D2dTransport
+  * com.google.android.gms/.backup.BackupTransportService
+    com.google.android.apps.restore/.transport.BackupTransportService
+Backup Manager is enabled / setup complete / not pending init
+Auto-restore is enabled
+Current transport clients: 0
+Ever backed up: 82
