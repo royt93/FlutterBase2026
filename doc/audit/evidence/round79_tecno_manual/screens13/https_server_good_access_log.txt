@@ -1,0 +1,2 @@
+<lan-ip> - - [19:55:55] "GET /crl.txt HTTP/1.1" 200 -
+<lan-ip> - - [19:57:07] "GET /crl.txt HTTP/1.1" 200 -

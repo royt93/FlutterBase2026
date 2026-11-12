@@ -1,0 +1,28 @@
+11-12 19:56:29.644 I/flutter (16713): roy93~ [VipManager] load() entries=0 active=false
+11-12 19:56:29.665 I/flutter (16713): roy93~ [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-12 19:56:59.662647
+11-12 19:56:29.681 I/flutter (16713): roy93~ [VipManager] active state changed: false → true
+11-12 19:56:29.689 I/flutter (16713): roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-12 19:56:44.685 I/flutter (16713): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-12 19:56:44.702 I/flutter (16713): roy93~ [VipManager] grace nudge due: true
+11-12 19:56:44.704 I/flutter (16713): roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-12 19:56:59.719 I/flutter (16713): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-12 19:56:59.733 I/flutter (16713): roy93~ [VipManager] purgeExpired: removed 1
+11-12 19:56:59.755 I/flutter (16713): roy93~ [VipManager] active state changed: true → false
+11-12 19:56:59.755 I/flutter (16713): roy93~ [VipManager] grace nudge due: false
+11-12 19:57:06.105 I/flutter (16713): [example] fetchSignedCrl: call #1 GET https://<mac-lan-ip>:8766/crl.txt
+11-12 19:57:06.261 I/flutter (16713): [example] fetchSignedCrl: HTTP 200 len=114
+11-12 19:57:07.298 I/flutter (16713): roy93~ [VipManager] refreshRevocationList: applied 1 revoked kid(s)
+11-12 19:57:30.034 I/flutter (16713): [example] fetchSignedCrl: call #2 GET https://<mac-lan-ip>:8767/crl.txt
+11-12 19:57:30.084 I/flutter (16713): [example] fetchSignedCrl: error HandshakeException
+11-12 19:57:30.101 I/flutter (16713): roy93~ [VipManager] ⚠️ refreshRevocationList: fetch threw: HandshakeException: Handshake error in client (OS Error: 
+11-12 19:58:23.838 I/flutter (16713): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-12 19:58:23.839 I/flutter (16713): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-12 19:58:48.679 I/flutter (16713): roy93~ [VipManager] redeemSignedKey: kid HA is revoked
+11-12 19:58:48.679 I/flutter (16713): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key revoked
+11-12 19:59:11.822 I/flutter (16713): roy93~ [VipManager] addVip: stacked SIGNED_HB (+1440m) → 2026-11-13 19:59:11.806969
+11-12 19:59:11.853 I/flutter (16713): roy93~ [VipManager] active state changed: false → true
+11-12 19:59:11.854 I/flutter (16713): roy93~ [VipManager] ⏲️ next VIP timer event in 43199s
+11-12 19:59:11.920 I/flutter (16713): roy93~ [VipManager] 🔑 redeemSignedKey ok kid=HB +24:00:00.000000
+11-12 19:59:11.934 I/flutter (16713): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.success error=null
+11-12 19:59:44.998 I/flutter (16713): roy93~ [VipManager] revokeVip: removed SIGNED_HB
+11-12 19:59:45.054 I/flutter (16713): roy93~ [VipManager] active state changed: true → false

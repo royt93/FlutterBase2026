@@ -1,8 +1,8 @@
 # Tóm tắt cho partner — `applovin_admob_sdk` 3.7.1 (Android + AdMob)
 
-- **Ngày:** 2026-11-11
+- **Ngày:** 2026-11-12
 - **Dùng kèm:** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` (hướng dẫn tích hợp) và `doc/audit/pilot_checklist_android_admob.md` (checklist pilot).
-- **Tình trạng tài liệu này:** bản nháp để chủ sản phẩm duyệt. Chưa gửi cho ai.
+- **Tình trạng tài liệu này:** đã rà soát nội dung theo bằng chứng trong repo; **chờ chủ sản phẩm duyệt lần cuối trước khi gửi**. Chưa gửi cho ai.
 
 ## Kết luận ngắn
 
@@ -29,7 +29,7 @@ Toàn bộ chỉ chạy trên **app mẫu của SDK** với quảng cáo thử n
 - **App của bạn:** chưa có app host nào được kiểm tra. Cấu hình AdMob, `app-ads.txt`, UMP message, ký bản release và R8 là việc của bạn.
 - **Mất/có lại mạng thật:** chỉ thử một lần trên một máy, chỉ Wi‑Fi (chưa thử mạng di động hay mạng cần đăng nhập). Hãy tự kiểm lại trên app của bạn.
 - **Privacy Options (đổi ý sau khi từ chối):** chỉ kiểm một phần. Form vượt thời hạn chờ 180 giây của SDK; lựa chọn đến muộn và SDK vẫn áp dụng lại. Hãy tự kiểm lại trên app của bạn.
-- **VIP:** trong app mẫu, mã hết hạn, sai app, đã dùng hoặc bị thu hồi đều bị từ chối; không có mạng thì không nhập được mã, nhưng VIP đã kích hoạt vẫn chặn quảng cáo khi mất mạng. Mới thử bằng khóa tạm trong app mẫu; danh sách thu hồi đã thử tải qua mạng nội bộ từ một server tạm (áp dụng và cập nhật được, lỗi mạng thì giữ danh sách cũ). Chưa thử qua HTTPS/mạng di động hay với mã ký bằng khóa thật của bạn (chi tiết kỹ thuật: bảng bằng chứng trong `pilot_checklist_android_admob.md`).
+- **VIP:** trong app mẫu, mã hết hạn, sai app, đã dùng hoặc bị thu hồi đều bị từ chối; không có mạng thì không nhập được mã, nhưng VIP đã kích hoạt vẫn chặn quảng cáo khi mất mạng. Mới thử bằng khóa tạm trong app mẫu; danh sách thu hồi đã thử tải qua mạng nội bộ từ một server tạm (áp dụng và cập nhật được, lỗi mạng thì giữ danh sách cũ). Đã thử thêm qua HTTPS với chứng chỉ tạm (chứng chỉ giả mạo bị từ chối và danh sách cũ được giữ). Chưa thử qua CA công khai/mạng di động hay với mã ký bằng khóa thật của bạn (chi tiết kỹ thuật: bảng bằng chứng trong `pilot_checklist_android_admob.md`).
 - **Hiệu năng khung hình (T267):** chưa có kết luận. Chưa đo được khung hình thực sự hiển thị; số liệu có chỉ là thời gian xử lý trong Flutter.
 - **Rò rỉ bộ nhớ native:** chưa chứng minh được là không rò rỉ.
 - **iOS và AppLovin MAX:** không nằm trong phạm vi này, chưa kiểm.

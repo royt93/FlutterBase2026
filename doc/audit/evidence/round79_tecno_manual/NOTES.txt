@@ -122,3 +122,14 @@ Setup: temp copy of the example (repo untouched) whose CRL provider does an HTTP
 Caveats: the provider is my temporary test code, not an SDK-supplied transport; plain HTTP on a local network, no TLS, no auth, no captive portal, no mobile data, no slow/partial responses.
   The server access log (crl_http_server_access_log.txt) shows the phone's GETs. "bad format" lines are my input-automation mistakes, not SDK behaviour.
 Also this session: `flutter analyze` -> "No issues found!"; `flutter test` in packages/ad_sdk -> "+2852: All tests passed!" (terminal output of this session, not saved as a file).
+
+--- Session 14 (screens13/): CRL over HTTPS with certificate pinning to a temp CA, TECNO KJ7 (Android, user-selected device), throwaway keypair + throwaway CA, temp package com.roy.admobwrapper.crl5test (uninstalled; keys, certs and temp dir deleted) ---
+Setup: temp copy of the example (repo untouched). Its CRL provider builds an HttpClient with SecurityContext(withTrustedRoots: false) trusting ONLY the temp CA, then GETs
+  call #1 https://<mac-lan-ip>:8766/crl.txt (server cert signed by the temp CA, SAN = that IP) and call #2 https://<mac-lan-ip>:8767/crl.txt (server cert signed by a DIFFERENT "rogue" CA, same IP).
+  Port 8767 served a different signed CRL (revoking HA and HB); both servers stopped afterwards (verified: no process, no listener).
+ 1) call #1: "HTTP 200 len=114" -> "refreshRevocationList: applied 1 revoked kid(s)" (kid HA); HA redeem -> "kid HA is revoked".
+ 2) call #2 (rogue certificate): "fetchSignedCrl: error HandshakeException" -> "refreshRevocationList: fetch threw: HandshakeException: Handshake error in client"; no HTTP request reached the rogue server from the phone
+    (its access log only shows my own curl check); HB, which only the rogue CRL listed, redeemed fine ("redeemSignedKey ok kid=HB"). HB entry removed afterwards.
+Caveats: the TLS trust pinning is MY temporary test code, not SDK behaviour (the SDK has no transport; "fetch threw -> fail-open" is the SDK part). Self-signed temp CA, LAN only, no public CA, no mobile data,
+  no captive portal, no slow/partial responses. The CRL signature check itself was already shown in sessions 11 (wrong-key CRL rejected) and does not depend on TLS.
+"bad format" line = my input-automation mistake, not SDK behaviour.
