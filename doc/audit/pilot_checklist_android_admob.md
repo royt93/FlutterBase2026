@@ -21,7 +21,7 @@ Round 79 chỉ kiểm tra **example app** với Google test ads:
 | Privacy Options đổi consent sau khi đã từ chối | TECNO KJ7 | **Chỉ kiểm một phần**: form mở được, nhưng quá 180 giây SDK báo timeout; lựa chọn Consent đến muộn và SDK vẫn áp dụng lại. Chưa chứng minh luồng hoàn tất trong thời hạn |
 | Consent đã lưu thì form không hiện lại | TECNO KJ7 | Gọi trực tiếp luồng UMP, không qua UI đầy đủ |
 
-Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 mở), iOS, AppLovin. Chưa thử thêm: CRL tải qua mạng thật, đổi đồng hồ khi app đang chạy, key AVP2 ký bằng khóa thật của owner. (Đã thử trên S24U, đạt: CRL còn hiệu lực sau khi khởi động lại app, redeem bị từ chối khi offline, VIP vẫn chặn quảng cáo khi offline, đồng hồ lệch -1 ngày/+2 ngày, xem `screens11/`.) (CRL cũ bị phát lại và CRL ký sai khóa đã được thử trên S24U, bị từ chối đúng, xem `screens10/`.)
+Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 mở), iOS, AppLovin. Chưa thử thêm: CRL qua HTTPS/mạng di động, phản hồi chậm hoặc cụt, đổi đồng hồ khi app đang chạy, key AVP2 ký bằng khóa thật của owner. (CRL tải qua HTTP trong mạng LAN từ server tạm đã thử trên S24U: áp dụng được, cập nhật được, và lỗi mạng thì SDK giữ CRL cũ; xem `screens12/`.) (Đã thử trên S24U, đạt: CRL còn hiệu lực sau khi khởi động lại app, redeem bị từ chối khi offline, VIP vẫn chặn quảng cáo khi offline, đồng hồ lệch -1 ngày/+2 ngày, xem `screens11/`.) (CRL cũ bị phát lại và CRL ký sai khóa đã được thử trên S24U, bị từ chối đúng, xem `screens10/`.)
 
 ## A. Trước khi cài bản pilot
 

@@ -1,0 +1,3 @@
+<mac-lan-ip> - - [23:24:13] "GET /crl.txt HTTP/1.1" 200 -
+<phone-lan-ip> - - [23:25:12] "GET /crl.txt HTTP/1.1" 200 -
+<phone-lan-ip> - - [23:27:48] "GET /crl.txt HTTP/1.1" 200 -

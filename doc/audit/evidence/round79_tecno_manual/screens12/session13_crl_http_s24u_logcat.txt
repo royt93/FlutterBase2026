@@ -1,0 +1,39 @@
+11-11 23:24:33.753 I/flutter (15113): roy93~ [VipManager] load() entries=0 active=false
+11-11 23:24:33.760 I/flutter (15113): roy93~ [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-11 23:25:03.759474
+11-11 23:24:33.766 I/flutter (15113): roy93~ [VipManager] active state changed: false → true
+11-11 23:24:33.767 I/flutter (15113): roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-11 23:24:48.782 I/flutter (15113): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 23:24:48.792 I/flutter (15113): roy93~ [VipManager] grace nudge due: true
+11-11 23:24:48.792 I/flutter (15113): roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-11 23:25:03.894 I/flutter (15113): roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-11 23:25:03.898 I/flutter (15113): roy93~ [VipManager] purgeExpired: removed 1
+11-11 23:25:03.909 I/flutter (15113): roy93~ [VipManager] active state changed: true → false
+11-11 23:25:03.909 I/flutter (15113): roy93~ [VipManager] grace nudge due: false
+11-11 23:25:12.871 I/flutter (15113): [example] fetchSignedCrl: GET http://<mac-lan-ip>:8765/crl.txt
+11-11 23:25:12.927 I/flutter (15113): [example] fetchSignedCrl: HTTP 200 len=114
+11-11 23:25:13.268 I/flutter (15113): roy93~ [VipManager] refreshRevocationList: applied 1 revoked kid(s)
+11-11 23:26:05.614 I/flutter (15113): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 23:26:05.614 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 23:26:25.144 I/flutter (15113): roy93~ [VipManager] redeemSignedKey: kid NA is revoked
+11-11 23:26:25.144 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key revoked
+11-11 23:26:44.084 I/flutter (15113): roy93~ [VipManager] addVip: stacked SIGNED_NC (+1440m) → 2026-11-12 23:26:44.079458
+11-11 23:26:44.101 I/flutter (15113): roy93~ [VipManager] active state changed: false → true
+11-11 23:26:44.101 I/flutter (15113): roy93~ [VipManager] ⏲️ next VIP timer event in 43199s
+11-11 23:26:44.121 I/flutter (15113): roy93~ [VipManager] 🔑 redeemSignedKey ok kid=NC +24:00:00.000000
+11-11 23:26:44.124 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.success error=null
+11-11 23:27:11.101 I/flutter (15113): roy93~ [VipManager] revokeVip: removed SIGNED_NC
+11-11 23:27:11.111 I/flutter (15113): roy93~ [VipManager] active state changed: true → false
+11-11 23:27:48.545 I/flutter (15113): [example] fetchSignedCrl: GET http://<mac-lan-ip>:8765/crl.txt
+11-11 23:27:48.790 I/flutter (15113): [example] fetchSignedCrl: HTTP 200 len=118
+11-11 23:27:49.028 I/flutter (15113): roy93~ [VipManager] refreshRevocationList: applied 2 revoked kid(s)
+11-11 23:28:23.374 I/flutter (15113): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 23:28:23.374 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 23:28:42.465 I/flutter (15113): roy93~ [VipManager] redeemSignedKey: kid NB is revoked
+11-11 23:28:42.465 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key revoked
+11-11 23:29:31.797 I/flutter (15113): [example] fetchSignedCrl: GET http://<mac-lan-ip>:8765/crl.txt
+11-11 23:29:31.811 I/flutter (15113): [example] fetchSignedCrl: error SocketException
+11-11 23:29:31.819 I/flutter (15113): roy93~ [VipManager] ⚠️ refreshRevocationList: fetch threw: SocketException: Connection refused (OS Error: Connection refused, errno = 111), address = <mac-lan-ip>, port = 52260
+11-11 23:30:08.507 I/flutter (15113): roy93~ [VipManager] ⚠️ redeemSignedKey invalid: bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 23:30:08.507 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=bad format (expected AVP1|AVP2.<payload>.<sig>)
+11-11 23:30:27.291 I/flutter (15113): roy93~ [VipManager] redeemSignedKey: kid NB is revoked
+11-11 23:30:27.291 I/flutter (15113): roy93~ [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key revoked

@@ -111,3 +111,14 @@ NOT tested: CRL over real network, CRL persistence after app restart, CRL with h
 Caveats: the CRL used (issuedAt = host clock at mint) was only tested at one issuance moment; the SDK source has no explicit future-dated-CRL guard (a far-future CRL would block older ones; documented accepted risk, "Round-23 QC").
   Not tested: CRL over real network, a CRL with a far-future issuedAt on-device, clock changes while the app is running, TECNO (device dropped off adb earlier).
 Two "bad format" lines in the log are my input-automation mistakes (field not cleared), not SDK behaviour. Test VIP entry (RB) removed afterwards.
+
+--- Session 13 (screens12/): CRL fetched over a REAL network (HTTP over the LAN), Samsung S24U (SM-S928B, Android 17), throwaway keypair, temp package com.roy.admobwrapper.crl4test (uninstalled, keys deleted) ---
+Setup: temp copy of the example (repo untouched) whose CRL provider does an HTTP GET to a throwaway static server (python http.server, one file crl.txt, bound to the Mac LAN address,
+  cleartext allowed ONLY in the temp copy's manifest). The server was stopped afterwards (verified: process gone, port 8765 not listening). LAN IPs are redacted in the saved logs.
+ 1) GET -> HTTP 200 (114 bytes): "applied 1 revoked kid(s)"; key NA -> "kid NA is revoked"; unlisted key NC -> "redeemSignedKey ok". NC entry removed afterwards.
+ 2) Server switched to a newer CRL (also revokes NB): GET -> HTTP 200 (118 bytes): "applied 2 revoked kid(s)"; NB -> "kid NB is revoked".
+ 3) Server stopped, refresh pressed: "fetchSignedCrl: error SocketException" / "refreshRevocationList: fetch threw: SocketException: Connection refused" (fail-open, cached CRL kept);
+    NB is still "revoked" afterwards.
+Caveats: the provider is my temporary test code, not an SDK-supplied transport; plain HTTP on a local network, no TLS, no auth, no captive portal, no mobile data, no slow/partial responses.
+  The server access log (crl_http_server_access_log.txt) shows the phone's GETs. "bad format" lines are my input-automation mistakes, not SDK behaviour.
+Also this session: `flutter analyze` -> "No issues found!"; `flutter test` in packages/ad_sdk -> "+2852: All tests passed!" (terminal output of this session, not saved as a file).
