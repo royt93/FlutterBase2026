@@ -2,7 +2,7 @@
 
 - **Loại:** Verification
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** todo (4/5 file pass 1 lần; round39 flaky nếu không `pm clear` trước mỗi lượt, xem T279 đã đóng; đóng khi chạy lại cả 5 file với `pm clear` và ghi kết quả)
+- **Status:** done (2026-11-13; 5/5 file pass 2 lần với `pm clear` trước mỗi lượt; giới hạn ghi bên dưới)
 - **Nguồn:** audit round 79
 
 ## Mục tiêu
@@ -24,3 +24,8 @@ Xác nhận 5 file integration đã có còn pass trên máy thật: `vip_revoca
 
 ## Cập nhật (2026-11-12)
 `round39` chạy 20 lượt liên tiếp: 19 pass, 1 fail; nguyên nhân là test phụ thuộc cài sạch (không có trial thì App Open che màn hình), có đối chứng; chi tiết ở T279. Bốn file còn lại mỗi file mới chạy 1 lần.
+
+## Chạy lại với quy trình `pm clear` (2026-11-13, TECNO KJ7, gói tạm `.t274b`)
+- Mỗi file chạy 2 lần liên tiếp, `pm clear` trước từng lượt (đúng `example/integration_test/README.md`): `vip_revocation_list_test`, `vip_api_playground_test`, `round39_vip_crl_demo_button_test`, `r23_crl_selfsigned_cache_test`, `t220_owner_decisions_device_test` -> **10/10 pass**, không lượt nào bắt đầu trên dữ liệu VIP còn sót.
+- **Giới hạn:** mỗi file chỉ 2 lượt nên không chứng minh ổn định (round39 flaky ~1/20 khi KHÔNG dọn, xem T279); chưa chạy trên CI; một máy, một phiên. Không kiểm trường hợp "quên pm clear".
+- Bằng chứng: `doc/audit/evidence/round79_tecno_manual/t274/with_pm_clear/`.

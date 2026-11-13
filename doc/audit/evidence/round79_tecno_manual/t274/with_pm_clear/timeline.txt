@@ -1,0 +1,21 @@
+22:59:19 start vip_revocation_list_test_1
+23:00:00 end vip_revocation_list_test_1 exit=0
+23:00:00 start vip_revocation_list_test_2
+23:00:34 end vip_revocation_list_test_2 exit=0
+23:00:34 start vip_api_playground_test_1
+23:01:24 end vip_api_playground_test_1 exit=0
+23:01:24 start vip_api_playground_test_2
+23:02:15 end vip_api_playground_test_2 exit=0
+23:02:15 start round39_vip_crl_demo_button_test_1
+23:02:50 end round39_vip_crl_demo_button_test_1 exit=0
+23:02:50 start round39_vip_crl_demo_button_test_2
+23:03:25 end round39_vip_crl_demo_button_test_2 exit=0
+23:03:25 start r23_crl_selfsigned_cache_test_1
+23:04:19 end r23_crl_selfsigned_cache_test_1 exit=0
+23:04:19 start r23_crl_selfsigned_cache_test_2
+23:05:13 end r23_crl_selfsigned_cache_test_2 exit=0
+23:05:13 start t220_owner_decisions_device_test_1
+23:05:45 end t220_owner_decisions_device_test_1 exit=0
+23:05:45 start t220_owner_decisions_device_test_2
+23:06:16 end t220_owner_decisions_device_test_2 exit=0
+DONE
