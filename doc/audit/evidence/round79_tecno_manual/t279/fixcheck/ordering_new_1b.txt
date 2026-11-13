@@ -1,0 +1,5 @@
+60:[AdManager] ⚠️ ⏰ splash budget exceeded (8s) — forcing markSplashInactive
+63:[AdScreen~Router] 🔄 REPLACE: / → null popupDepth=0
+93:[AdMobAdapter] loadAppOpen [AdMob] 🔄
+100:[AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+103:[AdMobAdapter] loadAppOpen [AdMob] ✅

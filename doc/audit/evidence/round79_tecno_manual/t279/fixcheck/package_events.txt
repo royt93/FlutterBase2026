@@ -1,0 +1,80 @@
+21:57:33.688 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+21:58:00.150 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=1 restoreSet=3d63c9835dab6455
+21:58:15.816 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.example.ad_sdk_example''
+21:59:03.538 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+21:59:03.594 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10230 user=-1: deletePackageX
+21:59:03.896 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+21:59:28.590 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=3 restoreSet=3d63c9835dab6455
+21:59:44.501 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.example.ad_sdk_example''
+22:00:22.556 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:00:22.592 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10231 user=-1: deletePackageX
+22:00:22.925 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:00:41.314 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=5 restoreSet=3d63c9835dab6455
+22:00:55.694 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:00:55.736 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10236 user=-1: deletePackageX
+22:01:14.328 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=6 restoreSet=3d63c9835dab6455
+22:01:28.638 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:01:28.671 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10237 user=-1: deletePackageX
+22:01:29.033 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:01:47.489 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=7 restoreSet=3d63c9835dab6455
+22:02:01.913 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:02:01.955 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10238 user=-1: deletePackageX
+22:02:21.927 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=8 restoreSet=3d63c9835dab6455
+22:02:36.109 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:02:36.143 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10240 user=-1: deletePackageX
+22:02:36.540 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:02:55.279 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=9 restoreSet=3d63c9835dab6455
+22:03:09.526 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:03:09.556 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10241 user=-1: deletePackageX
+22:03:29.536 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=a restoreSet=3d63c9835dab6455
+22:03:43.587 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:03:43.618 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10242 user=-1: deletePackageX
+22:03:43.953 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:04:04.119 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=b restoreSet=3d63c9835dab6455
+22:04:18.166 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:04:18.215 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10243 user=-1: deletePackageX
+22:04:37.556 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=c restoreSet=3d63c9835dab6455
+22:04:52.161 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:04:52.237 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10244 user=-1: deletePackageX
+22:04:52.589 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:05:13.396 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=d restoreSet=3d63c9835dab6455
+22:05:28.796 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:05:28.868 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10245 user=-1: deletePackageX
+22:05:48.500 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=e restoreSet=3d63c9835dab6455
+22:06:02.177 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:06:02.219 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10246 user=-1: deletePackageX
+22:06:02.618 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:06:22.464 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=f restoreSet=3d63c9835dab6455
+22:06:37.463 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:06:37.498 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10247 user=-1: deletePackageX
+22:07:06.426 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=10 restoreSet=3d63c9835dab6455
+22:07:20.355 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:07:20.418 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10248 user=-1: deletePackageX
+22:07:20.979 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:07:46.989 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=11 restoreSet=3d63c9835dab6455
+22:08:02.150 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:08:02.196 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10249 user=-1: deletePackageX
+22:08:21.948 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=12 restoreSet=3d63c9835dab6455
+22:08:35.799 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:08:35.842 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10250 user=-1: deletePackageX
+22:08:36.152 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:08:54.961 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=13 restoreSet=3d63c9835dab6455
+22:09:08.887 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:09:08.922 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10251 user=-1: deletePackageX
+22:09:32.656 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=14 restoreSet=3d63c9835dab6455
+22:09:46.880 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:09:46.914 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10252 user=-1: deletePackageX
+22:09:47.374 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:10:11.203 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=15 restoreSet=3d63c9835dab6455
+22:10:25.353 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:10:25.385 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10253 user=-1: deletePackageX
+22:10:45.473 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fold token=16 restoreSet=3d63c9835dab6455
+22:10:59.933 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fold''
+22:10:59.976 ActivityManager Force stopping com.roy.admobwrapper.t279fold appid=10254 user=-1: deletePackageX
+22:11:00.300 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:11:19.112 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=17 restoreSet=3d63c9835dab6455
+22:11:33.264 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:11:33.310 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10255 user=-1: deletePackageX
+22:11:52.054 BackupManagerService [UserID:0] restoreAtInstall pkg=com.roy.admobwrapper.t279fnew token=18 restoreSet=3d63c9835dab6455
+22:12:06.368 adbd adbd service requested 'shell,v2,TERM=xterm-256color:cmd package 'uninstall' 'com.roy.admobwrapper.t279fnew''
+22:12:06.398 ActivityManager Force stopping com.roy.admobwrapper.t279fnew appid=10257 user=-1: deletePackageX

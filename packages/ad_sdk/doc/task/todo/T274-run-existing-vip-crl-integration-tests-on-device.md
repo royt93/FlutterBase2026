@@ -2,7 +2,7 @@
 
 - **Loại:** Verification
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** todo (4/5 file pass 1 lần; round39 flaky có cơ chế đã xác lập ở T279; đóng khi T279 được duyệt cách sửa và chạy lại)
+- **Status:** todo (4/5 file pass 1 lần; round39 flaky nếu không `pm clear` trước mỗi lượt, xem T279 đã đóng; đóng khi chạy lại cả 5 file với `pm clear` và ghi kết quả)
 - **Nguồn:** audit round 79
 
 ## Mục tiêu

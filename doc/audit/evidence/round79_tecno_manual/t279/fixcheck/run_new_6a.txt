@@ -1,0 +1,90 @@
+Resolving dependencies...
+Downloading packages...
+  clock 1.1.2 (1.1.3 available)
+  connectivity_plus 7.3.0 (7.3.2 available)
+  crypto 3.0.7 (3.0.8 available)
+  dbus 0.7.14 (0.8.0 available)
+  flutter_secure_storage 10.3.1 (11.2.0 available)
+  flutter_secure_storage_darwin 0.3.2 (0.4.3 available)
+  flutter_secure_storage_linux 3.0.1 (3.0.3 available)
+  flutter_secure_storage_platform_interface 2.0.1 (2.1.1 available)
+  flutter_secure_storage_windows 4.1.0 (4.2.2 available)
+  internet_connection_checker_plus 2.9.1+2 (3.1.2 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.17.0 (1.19.0 available)
+  nm 0.5.0 (0.6.0 available)
+  package_info_plus 9.0.1 (10.2.2 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_android 2.2.23 (2.3.1 available)
+  path_provider_foundation 2.5.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  petitparser 7.0.2 (7.1.0 available)
+  platform 3.1.6 (3.2.0 available)
+  process 5.0.5 (5.0.6 available)
+  shared_preferences 2.5.3 (2.5.6 available)
+  shared_preferences_android 2.4.13 (2.5.5 available)
+  shared_preferences_foundation 2.5.4 (2.6.2 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test_api 0.7.10 (0.7.15 available)
+  url_launcher 6.3.2 (6.3.3 available)
+  url_launcher_android 6.3.30 (6.3.33 available)
+  vector_math 2.2.0 (2.4.4 available)
+  vm_service 15.1.0 (15.4.0 available)
+  wakelock_plus 1.4.0 (1.8.2 available)
+  wakelock_plus_platform_interface 1.3.0 (1.7.0 available)
+  web 1.1.1 (1.1.2 available)
+  webdriver 3.1.0 (3.2.0 available)
+  webview_flutter_android 4.12.0 (4.14.1 available)
+  webview_flutter_wkwebview 3.25.1 (3.27.2 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 6.6.1 (7.1.0 available)
+Got dependencies!
+42 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading <tmp>/example/integration_test/round39_vip_crl_demo_button_test.dart
+Running Gradle task 'assembleDebug'...                             12.6s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           4.4s
+00:00 +0: the CRL demo button calls refreshRevocationList without crashing or blocking the page
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-13T22:11:23.628
+roy93~ [AdManager] setNavigatorKey ✅
+roy93~ [AdManager] markSplashActive
+roy93~ [AdManager] incrementSplashCount → 1
+roy93~ [AdManager] ATT → notSupported
+ATT status: notSupported
+roy93~ [UmpConsent] consent status: notRequired
+roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+roy93~ [AdManager] initialize start, provider=admob
+roy93~ [AdManager] GAID resolved (present=true)
+roy93~ [VipManager] load() entries=0 active=false
+roy93~ [AdManager] VIP active=false entries=0
+roy93~ [FirstInstallGuard] ⏭️ debug build — anti-bypass guard bypassed (test on release builds)
+roy93~ [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-13 22:11:55.978454
+roy93~ [VipManager] active state changed: false → true
+roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+roy93~ [FirstInstallGuard] ⏭️ debug build — Keychain flag write skipped (avoid polluting release)
+roy93~ [AdManager] 🎁 first-install VIP grace granted (30s, mode=debug)
+roy93~ [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+roy93~ [AdManager] 🔐 gate closed until UMP resolves (SDK-owned consent flow)
+roy93~ [AdManager] ⏭️ auto UMP skipped — host already called requestUmpConsent()
+roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+roy93~ [AdManager] markSplashInactive
+roy93~ [AdManager] triggering App Open + banner/mrec preload
+roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+roy93~ [AdManager] ⏭️ banner/mrec preload skipped — VIP member
+roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+roy93~ [AdManager] 📶 connectivity watch started (connected=true)
+[example] fetchSignedCrl: no VIP_CRL_URL configured — revocation refresh is a no-op (see demo_crl_provider.dart)
+00:10 +1: (tearDownAll)
+00:10 +1: All tests passed!
+exit=0

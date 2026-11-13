@@ -2,7 +2,7 @@
 
 - **Loại:** Test reliability
 - **Priority:** P2 · **Severity:** LOW (chỉ test, không phải SDK)
-- **Status:** todo (nguyên nhân đã xác lập bằng thí nghiệm đối chứng; chờ chủ sản phẩm duyệt cách sửa)
+- **Status:** done-partial (2026-11-13; đã rõ cơ chế và đã ghi quy trình `pm clear`; KHÔNG sửa test vì bản sửa thử chưa chứng minh hiệu quả)
 - **Nguồn:** T274, 2026-11-12, TECNO KJ7.
 
 ## Bằng chứng
@@ -35,3 +35,14 @@ Không kết luận "test ổn" từ vài lần pass. Không đổi hành vi SDK
 - **Hướng sửa đề xuất (CHƯA làm, cần chủ sản phẩm duyệt vì sửa integration test):** (a) quy trình: `pm clear` gói trước mỗi lượt; hoặc (b) test: không phụ thuộc trial, ví dụ chờ `AdManager().fullscreenBusy` về `false` rồi mới tìm tile, hoặc `revokeAll()` + chờ App Open xong; sau khi sửa phải chạy >= 20 lượt liên tiếp có xen kẽ lượt không dọn.
 - **Giới hạn:** một máy; không kiểm chứng vì sao đúng một chuyển tiếp trong chuỗi 20 lượt không có bước gỡ gói thật; cơ chế "dọn cuối không đáng tin" là quan sát, chưa thử toàn diện.
 - Bằng chứng: `doc/audit/evidence/round79_tecno_manual/t279/` (`series20/`, `controlled/`, README.txt).
+
+## Kiểm chứng bản sửa (2026-11-13, TECNO KJ7) — KẾT QUẢ: CHƯA chứng minh được
+- Sửa thử (chưa commit): `round39` chờ `AdManager().fullscreenBusy` về `false` (tối đa 60 s) trước khi tìm tile. Qua analyzer; **chưa có bằng chứng thiết bị rằng nó hoạt động.**
+- Thí nghiệm 24 lượt (mỗi bản 6 cặp: lượt `a` cài mới, lượt `b` chạy ngay không dọn). Lượt `a` cả hai bản 12/12 pass (đều có trial). Lượt `b`: bản cũ 5 pass / 1 fail; bản mới 6 pass / 0 fail.
+- **Chỉ cặp 1 của mỗi bản thật sự rơi vào trạng thái lỗi** (dữ liệu cũ, không có trial). Cặp 1 bản cũ FAIL (App Open hiện). Cặp 1 bản mới PASS nhưng **App Open không hiện** trong lượt đó (splash hết 8 s trước khi App Open kịp hiện), nên vòng chờ `fullscreenBusy` chưa hề phải chờ. Ở cặp 2-6 gói bị gỡ giữa `a` và `b` nên `b` lại là cài mới, không kiểm bản sửa.
+- **Kết luận:** mẫu không phân biệt được "bản sửa hiệu quả" với "may mắn". Muốn kiểm thật phải ép trạng thái lỗi (ví dụ chạy `b` trên dữ liệu còn sót nhiều lần mà không gỡ gói), một thí nghiệm khác.
+- **Đề xuất:** KHÔNG commit bản sửa như đã kiểm chứng. Chọn một: (1) viết thí nghiệm ép trạng thái lỗi rồi mới quyết định; (2) chỉ giữ README `pm clear` (đã commit `e7e3b56`) và đóng T279 ở mức "đã rõ cơ chế, đã ghi quy trình, chưa sửa test".
+- Bằng chứng: `doc/audit/evidence/round79_tecno_manual/t279/fixcheck/` (README.txt có số liệu và giới hạn).
+
+## Quyết định đóng (2026-11-13)
+Chủ sản phẩm chọn **đóng T279, bỏ bản sửa chưa kiểm chứng**. Đã làm: nguyên nhân xác lập có đối chứng (test cần cài sạch; xem mục cập nhật 2026-11-12), quy trình `pm clear` ghi ở `example/integration_test/README.md` (commit `e7e3b56`). **Không làm:** sửa `round39`. Bản sửa thử (chờ `AdManager().fullscreenBusy` về `false` trước khi tìm tile) đã bỏ khỏi working tree; thí nghiệm 24 lượt không chứng minh được hiệu quả vì chỉ 1 lượt rơi vào trạng thái lỗi và lượt đó App Open không hiện (xem `t279/fixcheck/README.txt`). Hệ quả còn lại: nếu ai đó quên `pm clear`, test vẫn có thể flaky (~5% trên một máy). Mở lại nếu cần: thí nghiệm ép trạng thái lỗi (chạy lượt `b` nhiều lần trên dữ liệu còn sót, không gỡ gói) trước khi đổi test.

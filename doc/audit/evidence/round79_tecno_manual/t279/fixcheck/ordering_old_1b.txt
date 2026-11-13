@@ -1,0 +1,11 @@
+88:[AdMobAdapter] loadAppOpen [AdMob] 🔄
+98:[AdMobAdapter] loadAppOpen [AdMob] ✅
+99:[AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+100:[AdScreen~Router] ➡️ PUSH: null (from: /) popupDepth=1
+101:[AdLoadingDialog] showAdBuffer: timer done, dismissing dialog
+103:[AdLoadingDialog] showAdBuffer: dialog dismissed ✅
+104:[AdLoadingDialog] showAdBuffer: calling onComplete()
+106:[AdManager] ▶️ showAppOpen (bypassSafety=true, placement=splash)
+110:[AdMobAdapter] showAppOpen [AdMob] ✅ shown
+111:[AdMobAdapter] showAppOpen [AdMob] 👁 impression
+112:[AdManager] ⏰ splash budget elapsed but app-open in flight — re-arming +30s
