@@ -1,6 +1,6 @@
 # Tóm tắt cho partner — `applovin_admob_sdk` 3.7.1 (Android + AdMob)
 
-- **Ngày:** 2026-11-12
+- **Ngày:** 2026-11-13
 - **Dùng kèm:** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` (hướng dẫn tích hợp) và `doc/audit/pilot_checklist_android_admob.md` (checklist pilot).
 - **Tình trạng tài liệu này:** đã rà soát nội dung theo bằng chứng trong repo; **chờ chủ sản phẩm duyệt lần cuối trước khi gửi**. Chưa gửi cho ai.
 
@@ -23,13 +23,14 @@ Toàn bộ chỉ chạy trên **app mẫu của SDK** với quảng cáo thử n
 - Pixel 7 Pro: Banner, MREC, Native, Interstitial, Rewarded, Rewarded Interstitial và App Open đều hiển thị; Rewarded chỉ cấp thưởng khi callback báo đã xem xong.
 - TECNO KJ7: form đồng ý UMP (vùng EEA thử nghiệm) hiện ra; chọn "Consent" và "Do not consent" đều được ghi nhận, và từ chối chuyển sang quảng cáo không cá nhân hoá.
 - TECNO KJ7 và Samsung S24 Ultra (thử bằng tay qua adb, có ảnh và log trong repo): tắt Wi‑Fi thật thì không có request quảng cáo mới, bật lại thì SDK tự tải lại; có VIP thì quảng cáo bị chặn và gỡ VIP thì quảng cáo quay lại.
+- TECNO KJ7, **bản release** của app mẫu (ký bằng khóa debug, chỉ test ad unit của Google): app khởi động bình thường; SDK ghi cảnh báo "đang dùng test ad unit ở release" và không phát ra request quảng cáo nào (0 dòng trong ~35.000 dòng log); trial dùng thử khi cài mới kéo dài khoảng 24 giờ. Điều này **không** chứng minh quảng cáo thật hiển thị ở release (không dùng ad unit production).
 
 ## Chưa được kiểm tra, hoặc chỉ kiểm một phần
 
 - **App của bạn:** chưa có app host nào được kiểm tra. Cấu hình AdMob, `app-ads.txt`, UMP message, ký bản release và R8 là việc của bạn.
 - **Mất/có lại mạng thật:** chỉ thử một lần trên một máy, chỉ Wi‑Fi (chưa thử mạng di động hay mạng cần đăng nhập). Hãy tự kiểm lại trên app của bạn.
 - **Privacy Options (đổi ý sau khi từ chối):** đã thử lại trên một máy: từ chối rồi đổi sang đồng ý qua Privacy Options hoàn tất trong thời hạn, quảng cáo chuyển từ không cá nhân hoá sang cá nhân hoá. Các nút form được bấm bằng công cụ adb, không phải người thật bấm; nếu form bị bỏ mặc quá 180 giây thì SDK báo hết hạn và chỉ nhả chặn quảng cáo sau 15 phút. Hãy tự kiểm lại trên app của bạn, với người dùng thật.
-- **VIP:** trong app mẫu, mã hết hạn, sai app, đã dùng hoặc bị thu hồi đều bị từ chối; không có mạng thì không nhập được mã, nhưng VIP đã kích hoạt vẫn chặn quảng cáo khi mất mạng. Mới thử bằng khóa tạm trong app mẫu; danh sách thu hồi đã thử tải qua mạng nội bộ từ một server tạm (áp dụng và cập nhật được, lỗi mạng thì giữ danh sách cũ). Đã thử thêm qua HTTPS với chứng chỉ tạm (chứng chỉ giả mạo bị từ chối và danh sách cũ được giữ). Chưa thử qua CA công khai/mạng di động hay với mã ký bằng khóa thật của bạn (chi tiết kỹ thuật: bảng bằng chứng trong `pilot_checklist_android_admob.md`).
+- **VIP:** trong app mẫu, mã hết hạn, sai app, đã dùng hoặc bị thu hồi đều bị từ chối; không có mạng thì không nhập được mã, nhưng VIP đã kích hoạt vẫn chặn quảng cáo khi mất mạng. Mới thử bằng khóa tạm trong app mẫu; danh sách thu hồi đã thử tải qua mạng nội bộ từ một server tạm (áp dụng và cập nhật được, lỗi mạng thì giữ danh sách cũ). Đã thử thêm qua HTTPS với chứng chỉ tạm bằng đoạn mã thử nghiệm riêng của chúng tôi (chứng chỉ giả mạo bị từ chối và danh sách cũ được giữ; đây là mã kiểm thử, không phải tính năng của SDK) và qua provider mẫu của app ví dụ (một yêu cầu HTTP trong mạng nội bộ, danh sách được áp dụng). Chưa thử qua CA công khai/mạng di động hay với mã ký bằng khóa thật của bạn (chi tiết kỹ thuật: bảng bằng chứng trong `pilot_checklist_android_admob.md`).
 - **Hiệu năng khung hình (T267):** chưa có kết luận. Chưa đo được khung hình thực sự hiển thị; số liệu có chỉ là thời gian xử lý trong Flutter.
 - **Rò rỉ bộ nhớ native:** chưa chứng minh được là không rò rỉ.
 - **iOS và AppLovin MAX:** không nằm trong phạm vi này, chưa kiểm.

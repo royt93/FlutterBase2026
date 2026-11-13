@@ -2,7 +2,7 @@
 
 - **Loại:** Example / Documentation
 - **Priority:** P2 · **Severity:** LOW
-- **Status:** done-pending-review (2026-11-13; đủ tiêu chí, các giới hạn ghi bên dưới)
+- **Status:** done (2026-11-13; chủ sản phẩm duyệt đóng task; giới hạn ghi trong mục "Chạy tay trên thiết bị")
 - **Nguồn:** audit round 79 (bằng chứng: `doc/audit/evidence/round79_tecno_manual/screens9..13`, `NOTES.txt`)
 
 ## Vấn đề
