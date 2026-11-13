@@ -1,0 +1,21 @@
+22:46:44.701 [VipManager] load() entries=0 active=false
+22:46:44.715 [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-13 22:47:14.712340
+22:46:44.730 [VipManager] active state changed: false → true
+22:46:44.734 [VipManager] ⏲️ next VIP timer event in 14s
+22:46:59.716 [VipManager] ⏰ VIP entry expired — purging + refreshing
+22:46:59.734 [VipManager] grace nudge due: true
+22:46:59.735 [VipManager] ⏲️ next VIP timer event in 14s
+22:47:14.716 [VipManager] ⏰ VIP entry expired — purging + refreshing
+22:47:14.719 [VipManager] purgeExpired: removed 1
+22:47:14.779 [VipManager] active state changed: true → false
+22:47:14.780 [VipManager] grace nudge due: false
+22:48:16.069 [VipManager] refreshRevocationList: applied 1 revoked kid(s)
+22:49:22.554 [VipManager] redeemSignedKey: kid DA is revoked
+22:49:22.554 [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.invalid error=key revoked
+22:49:45.503 [VipManager] addVip: stacked SIGNED_DB (+1440m) → 2026-11-14 22:49:45.487033
+22:49:45.548 [VipManager] active state changed: false → true
+22:49:45.551 [VipManager] ⏲️ next VIP timer event in 43199s
+22:49:45.623 [VipManager] 🔑 redeemSignedKey ok kid=DB +24:00:00.000000
+22:49:45.639 [VipRedeemScreen] redeemSignedKey result=VipRedeemStatus.success error=null
+22:50:43.960 [VipManager] revokeVip: removed SIGNED_DB
+22:50:44.067 [VipManager] active state changed: true → false
