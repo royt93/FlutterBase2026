@@ -1,0 +1,6 @@
+--------- beginning of main
+         1794647403.473 27730 27730 I flutter : roy93~ [AdManager] 📶 network back online → refilling ad slots + banners
+         1794647403.474 27730 27730 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+         1794647403.502 27730 27730 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+         1794647403.502 27730 27730 I flutter : roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+         1794647418.531 27730 27740 I per.walkthrough: Background young concurrent mark compact GC freed 10MB AllocSpace bytes, 0(0B) LOS objects, 95% free, 11MB/256MB, paused 1.732ms,10.045ms total 102.209ms

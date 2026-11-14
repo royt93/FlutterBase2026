@@ -1,0 +1,5 @@
+--------- beginning of main
+         1794647367.605 27730 27730 I flutter : roy93~ [AdManager] 📶 network back online → refilling ad slots + banners
+         1794647367.606 27730 27730 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+         1794647367.629 27730 27730 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+         1794647367.629 27730 27730 I flutter : roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)

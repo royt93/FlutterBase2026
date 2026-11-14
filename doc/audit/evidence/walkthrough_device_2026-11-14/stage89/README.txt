@@ -35,3 +35,9 @@ Stage 9 decisive cold-start/reconnect test (2026-11-14):
 - UMP update failed with `2:Error making request.`; banner size lookup was aborted by reload gate; interstitial load logged `skipped — no network`.
 - Wi-Fi restored after about 26 seconds. SDK logged `network back online → refilling ad slots + banners`; banner then logged `loadBanner [AdMob] ✅` and is visibly rendered (`cold_start_reconnected_banner.png`).
 - PASS for this specific cold-start test path on this Pixel/test inventory: UMP correctly failed closed on offline update, ad work was skipped/aborted, and banner recovered after reconnect. Not a claim about all network conditions or broader stability. Two separate 30-second intervals with a preloaded banner remain partial evidence only.
+
+Three additional isolated cycles, same already-loaded-banner app:
+- Each cycle confirmed Wi-Fi `0` during the offline period, then `1` after restoration.
+- Per-cycle logcat was cleared before disabling Wi-Fi; each isolated offline+reconnect log shows no SDK load/refill/error during the offline period, followed by `network back online → refilling ad slots + banners` after restoration.
+- Banner was loaded before these cycles; no new successful banner creative load was recorded after them. These cycles support gating/refill observation only; cold-start recovery evidence above demonstrates one successful post-reconnect banner load.
+- Per-cycle logs, Wi-Fi values and timestamps are `repeat{1,2,3}_*` files in this directory.

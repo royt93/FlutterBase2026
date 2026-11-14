@@ -21,3 +21,5 @@ Lưu ý: Một lượt thử trên một thiết bị, không phải kiểm đ�
 Two additional 30-second intervals with an already-loaded banner had no observed SDK load/refill/error while offline, but did not prove new-ad recovery. The separate cold-start path above did prove banner recovery after reconnect.
 
 Stage 9 cold-start recovery passed on one Pixel test path; see stage89/cold_start_* evidence.
+
+Three repeated Wi-Fi cycles (2026-11-14): same app process with banner already loaded; each cycle recorded Wi-Fi `1 → 0 → 1`, cleared logcat before the offline interval, observed no SDK request/error/refill during the off interval, then observed the reconnect refill hook. No new banner creative was observed after these repeated cycles. Combined evidence supports the documented cold-start recovery path plus 3 repeated connectivity-hook cycles on one Pixel; it does not establish behavior across all network conditions.
