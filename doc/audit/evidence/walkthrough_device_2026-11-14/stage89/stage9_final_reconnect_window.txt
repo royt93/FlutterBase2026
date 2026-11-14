@@ -1,0 +1,100 @@
+         1794643725.540 21274 21956 W per.walkthrough: AIBinder_linkToDeath is being called with a non-null cookie and no onUnlink callback set. Use AIBinder_DeathRecipient_setOnUnlinked to manage the lifetime of the cookie. This will become an abort.
+         1794643725.543 21274 21957 D CCodecConfig: c2 config diff is   c2::u32 output.delay.value = 12
+         1794643725.543 21274 21957 D LegacyGraphicsTracker: maxDequeueCount committed to IGBP: 19
+         1794643725.543 21274 21957 D LegacyGraphicsTracker: Cache size 1 -> 1: maybe_cleared(0), dequeued(1)
+         1794643725.543 21274 21957 D LegacyGraphicsTracker: maxDqueueCount change 10 -> 19: pending: 0
+         1794643725.546 21274 21457 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] Ignoring stale input buffer done callback: last flush index = 0, frameIndex = 0
+         1794643725.547 21274 21957 D CCodecConfig: c2 config diff is   c2::u32 raw.crop.height = 360
+         1794643725.547 21274 21957 D CCodecConfig:   c2::u32 raw.crop.left = 0
+         1794643725.547 21274 21957 D CCodecConfig:   c2::u32 raw.crop.top = 0
+         1794643725.547 21274 21957 D CCodecConfig:   c2::u32 raw.crop.width = 640
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.blue.x = 0.131
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.blue.y = 0.046
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.green.x = 0.17
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.green.y = 0.797
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.max-luminance = 1000
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.red.x = 0.708
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.red.y = 0.292
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.white.x = 0.3127
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.mastering.white.y = 0.329
+         1794643725.547 21274 21957 D CCodecConfig:   c2::float raw.hdr-static-info.max-fall = 65536
+         1794643725.548 21274 21957 D CCodecConfig: found invalid HDR static metadata AMessage(what = 0x00000000) = {
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t android._color-format = 2130708361
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t android._video-scaling = 1
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.green.y = 0.797000
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t color-standard = 1
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t color-range = 2
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t color-transfer = 3
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.red.y = 0.292000
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t width = 640
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.white.y = 0.329000
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.white.x = 0.312700
+         1794643725.548 21274 21957 D CCodecConfig:           float cta861.max-cll = 0.000000
+         1794643725.548 21274 21957 D CCodecConfig:           float cta861.max-fall = 65536.000000
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.max-luminance = 1000.000000
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.min-luminance = 0.000000
+         1794643725.548 21274 21957 D CCodecConfig:           Rect crop(0, 0, 639, 359)
+         1794643725.548 21274 21957 D CCodecConfig:           float smpte2086.red.x = 0.708000
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t height = 360
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t max-height = 360
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t max-width = 640
+         1794643725.548 21274 21957 D CCodecConfig:           string mime = "video/raw"
+         1794643725.548 21274 21957 D CCodecConfig:           Buffer output.hdr-dynamic-info.data = {
+         1794643725.548 21274 21957 D CCodecConfig:           }
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t output.hdr-dynamic-info.type = 1
+         1794643725.548 21274 21957 D CCodecConfig:           int32_t pri
+         1794643725.548 21274 21957 D LegacyGraphicsTracker: maxDequeueCount is already 19
+         1794643725.553 21274 21567 I per.walkthrough: Use dataspace 281083904as it is
+         1794643725.561 21274 21274 I DynamiteModule: Considering local module com.google.android.gms.ads.dynamite:0 and remote module com.google.android.gms.ads.dynamite:263500502
+         1794643725.561 21274 21274 I DynamiteModule: Selected remote version of com.google.android.gms.ads.dynamite, version >= 263500502
+         1794643725.562 21274 21290 E LegacyGraphicsTracker: Tried to deallocate non dequeued buffer
+         1794643725.562 21274 21290 W Codec2-LegacyGraphicBufferAllocator: deallocate() 91371134255171 was not successful 2
+         1794643725.564 21274 21524 D AAudio  : AAudioStream_requestStop(s#2) called
+         1794643725.564 21274 21524 D AAudioStream: setState(s#2) from 4 to 9
+         1794643725.564 21274 21524 D AudioTrack: stop(243): called with 9303 frames delivered
+         1794643725.565 21274 21524 D AAudioStream: setState(s#2) from 9 to 10
+         1794643725.565 21274 21524 D AAudio  : AAudioStream_requestStop(s#2) called
+         1794643725.565 21274 21524 D AAudio  : AAudioStream_close(s#2) called ---------------
+         1794643725.565 21274 21524 D AAudioStream: setState(s#2) from 10 to 11
+         1794643725.570 21274 21524 D AAudioStream: setState(s#2) from 11 to 12
+         1794643725.570 21274 21524 D AAudioStream: ~AudioStream(s#2) mPlayerBase strongCount = 2
+         1794643725.570 21274 21524 D AAudio  : AAudioStream_close(s#2) returned 0 ---------
+         1794643725.570 21274 21524 W chromium: [WARNING:services/audio/sync_reader.cc:154] ASR: No room in socket buffer.: Broken pipe (32)
+         1794643725.570 21274 21274 I flutter : roy93~ [AdMobAdapter] loadRewarded [AdMob] ✅
+         1794643725.574 21274 21513 W cr_MediaCodecBridge: Releasing: c2.exynos.vp9.decoder
+         1794643725.575 21274 21956 I Surface : Creating surface for consumer unnamed-21274-7 with slotExpansion=0 for 64 slots
+         1794643725.575 21274 21940 D SurfaceUtils: disconnecting from surface 0xb400007204e887b0, reason disconnectFromSurface
+         1794643725.575 21274 21956 D SurfaceUtils: connecting to surface 0xb400007204e76600, reason connectToSurface
+         1794643725.575 21274 21956 I MediaCodec: [c2.exynos.vp9.decoder] setting surface generation to 21784580
+         1794643725.575 21274 21956 D SurfaceUtils: disconnecting from surface 0xb400007204e76600, reason connectToSurface(reconnect)
+         1794643725.575 21274 21956 D SurfaceUtils: connecting to surface 0xb400007204e765f0, reason connectToSurface(reconnect-with-listener)
+         1794643725.576 21274 21956 D Codec2Client: setOutputSurface -- failed to set consumer usage (6/BAD_INDEX)
+         1794643725.576 21274 21956 D LegacyGraphicsTracker: new surface in configuration: maxDequeueRequested(0), maxDequeueCommitted(19)
+         1794643725.576 21274 21956 D LegacyGraphicsTracker: new surface configured with id:91371134255111 gen:21784580 maxDequeue:19
+         1794643725.576 21274 21956 D LegacyGraphicsTracker: maxDequeueCount is already 19
+         1794643725.576 21274 21956 D Codec2Client: setOutputSurface -- generation=21784580 consumer usage=0x900
+         1794643725.576 21274 21956 D SurfaceUtils: disconnecting from surface 0xb400007204e91bc0, reason disconnectFromSurface
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.578 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.578 21274 21966 D CCodec  : hold CodecLooper(1) until release
+         1794643725.579 21274 21513 W cr_MediaCodecBridge: Codec released
+         1794643725.587 21274 21956 D SurfaceUtils: disconnecting from surface 0xb400007204e76600, reason disconnectFromSurface
+         1794643730.501 21274 21944 D AidlBufferPool: bufferpool2 0xb400007294e656f8 : 0(0 size) total buffers - 0(0 size) used buffers - 10/15 (recycle/alloc) - 5/11 (fetch/transfer)
+         1794643730.501 21274 21944 D AidlBufferPoolAcc: evictor expired: 1, evicted: 1
+         1794643730.571 21274 21524 D AAudio  : AAudioStream_requestStop(s#1) called
+         1794643730.571 21274 21524 D AAudio  : AAudioStream_close(s#1) called ---------------
+         1794643730.572 21274 21524 D AAudioStream: setState(s#1) from 10 to 11
+         1794643730.577 21274 21524 D AAudioStream: setState(s#1) from 11 to 12
+         1794643730.577 21274 21524 D AAudioStream: ~AudioStream(s#1) mPlayerBase strongCount = 2
+         1794643730.577 21274 21524 D AAudio  : AAudioStream_close(s#1) returned 0 ---------
+         1794643731.502 21274 21944 D AidlBufferPool: bufferpool2 0xb400007294ec9738 : 0(0 size) total buffers - 0(0 size) used buffers - 10/15 (recycle/alloc) - 5/11 (fetch/transfer)
+         1794643731.502 21274 21944 D AidlBufferPoolAcc: evictor expired: 1, evicted: 1
+         1794643767.205 21274 21285 I per.walkthrough: Background young concurrent mark compact GC freed 9089KB AllocSpace bytes, 63(9840KB) LOS objects, 95% free, 11MB/256MB, paused 2.491ms,7.448ms total 148.367ms
+         1794643781.039 21274 21274 I flutter : roy93~ [AdManager] 📶 network back online → refilling ad slots + banners
+         1794643781.050 21274 21274 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+         1794643781.134 21274 21274 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+         1794643781.134 21274 21274 I flutter : roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)

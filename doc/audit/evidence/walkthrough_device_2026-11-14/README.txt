@@ -17,3 +17,5 @@ NOT RUN — Stage 10: release build.
 Bảo vệ app chủ: `packages_before.txt` và `packages_after_uninstall.txt` xác nhận chỉ `package:com.roy.admobwrapper` trước/sau Stage 1–7. Ở lượt bổ sung, danh sách trước cleanup gồm cả app tạm; sau đó chỉ còn `package:com.roy.admobwrapper`. Wi-Fi kết thúc ở `1` (on). Lệnh uninstall bổ sung trả `DELETE_FAILED_INTERNAL_ERROR` vì app tạm đã không còn cài tại thời điểm gọi; danh sách xác nhận app tạm vắng mặt.
 
 Lưu ý: Một lượt thử trên một thiết bị, không phải kiểm định partner app hoặc production ad units. Logs đã lọc; raw log không lưu trong repo.
+
+Stage 9 final controlled retry evidence: `stage89/retry_offline_window.txt`, `stage89/retry_reconnect_window.txt`, `stage89/stage9_final_offline_window.txt`, and `stage89/stage9_final_reconnect_window.txt`. Second 30-second test still has no observed SDK request while Wi-Fi was off; reconnect hook logged, but no new successful banner load observed after reconnect. Remains PARTIAL.

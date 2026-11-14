@@ -1,0 +1,20 @@
+         1794643725.576 21274 21956 D LegacyGraphicsTracker: maxDequeueCount is already 19
+         1794643725.576 21274 21956 D Codec2Client: setOutputSurface -- generation=21784580 consumer usage=0x900
+         1794643725.576 21274 21956 D SurfaceUtils: disconnecting from surface 0xb400007204e91bc0, reason disconnectFromSurface
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.577 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.578 21274 21956 D CCodecBufferChannel: [c2.exynos.vp9.decoder#260] MediaCodec discarded an unknown buffer
+         1794643725.578 21274 21966 D CCodec  : hold CodecLooper(1) until release
+         1794643725.579 21274 21513 W cr_MediaCodecBridge: Codec released
+         1794643725.587 21274 21956 D SurfaceUtils: disconnecting from surface 0xb400007204e76600, reason disconnectFromSurface
+         1794643730.501 21274 21944 D AidlBufferPool: bufferpool2 0xb400007294e656f8 : 0(0 size) total buffers - 0(0 size) used buffers - 10/15 (recycle/alloc) - 5/11 (fetch/transfer)
+         1794643730.501 21274 21944 D AidlBufferPoolAcc: evictor expired: 1, evicted: 1
+         1794643730.571 21274 21524 D AAudio  : AAudioStream_requestStop(s#1) called
+         1794643730.571 21274 21524 D AAudio  : AAudioStream_close(s#1) called ---------------
+         1794643730.572 21274 21524 D AAudioStream: setState(s#1) from 10 to 11
+         1794643730.577 21274 21524 D AAudioStream: setState(s#1) from 11 to 12
+         1794643730.577 21274 21524 D AAudioStream: ~AudioStream(s#1) mPlayerBase strongCount = 2
+         1794643730.577 21274 21524 D AAudio  : AAudioStream_close(s#1) returned 0 ---------

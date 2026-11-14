@@ -22,3 +22,9 @@ Stage 9 re-run (additional isolated observation, 2026-11-14):
 - Wi-Fi remained off for 30 seconds (`retry_wifi_off.txt` = 0). Filtered app-PID log for this interval had no SDK load/refill/error entries; only two Android Codec2 surface warnings appeared (`retry_offline_window.txt`).
 - Re-enabled Wi-Fi (`retry_wifi_after.txt` = 1). SDK logged `network back online → refilling ad slots + banners` (`retry_reconnect_window.txt`).
 - The banner was already loaded and stayed mounted, so this does not prove a new ad request completed after reconnect. Stage 9 remains partial: no request observed during the bounded offline window, reconnect hook observed, actual post-reconnect new creative not established.
+
+Stage 9 repeated (final controlled interval):
+- Consent EEA completed; Home banner logged `loadBanner [AdMob] ✅` before disconnect.
+- Host-side epoch boundaries: Wi-Fi turned off at 1794643730 and turned on at 1794643760 (30 seconds); `wifi_off=0`, final Wi-Fi `1`.
+- App PID log during the window contained no SDK request/load/refill/error entries; only `Codec2Client setOutputSurface` surface warning. This supports “no SDK ad request observed during this 30-second window,” not proof for every offline condition.
+- On reconnect the SDK logged `network back online → refilling ad slots + banners`. The banner was already loaded before disconnect and no new successful banner creative load was observed afterward; post-reconnect creative recovery remains unverified. Therefore Stage 9 remains PARTIAL, not PASS.
