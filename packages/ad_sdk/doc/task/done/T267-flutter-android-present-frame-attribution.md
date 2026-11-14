@@ -2,7 +2,7 @@
 
 - **Loại:** Performance / Measurement / Research
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** inprogress (Pixel 7 Pro đã thử: Macrobenchmark không ra metric; JankData listener không cho dữ liệu dùng được; chưa đạt acceptance; xem mục Pixel 2026-11-14)
+- **Status:** done-negative (2026-11-14; đóng theo quyết định của chủ sản phẩm: KHÔNG đo được frame hiển thị của Flutter SurfaceView bằng API công khai đã thử; T257 không kết luận pass/fail; xem mục Quyết định đóng)
 
 ## Tóm tắt kết luận kỹ thuật (2026-10-24)
 
@@ -44,8 +44,8 @@ Không hạ tiêu chí 60fps và không diễn giải FrameTiming/BeginFrame nh�
 
 ## Acceptance Criteria
 
-- [ ] Chạy ít nhất 3 lượt trên Google Pixel 7 Pro với runner tự cuộn; benchmark chứa cả deterministic placeholder và AdMob test banner thật (banner phải xác nhận `ready`). (Phiên làm việc hiện tại bị giới hạn chỉ dùng TECNO; Pixel 7 Pro để lại xác nhận khi có thiết bị).
-- [ ] Thu metric có app/layer attribution ở presentation/composition layer, hoặc lập chứng cứ có thể tái tạo rằng các API Android hiện hành không cung cấp metric này cho Flutter SurfaceView trên thiết bị hỗ trợ. (TECNO có polling exploratory, nhưng cột actual-present chưa được xác minh trên firmware OEM và polling không liên tục; Pixel 7 Pro acceptance vẫn mở).
+- [~] (đạt một phần, ghi chú 2026-11-14) Chạy ít nhất 3 lượt trên Google Pixel 7 Pro với runner tự cuộn; benchmark chứa cả deterministic placeholder và AdMob test banner thật (banner phải xác nhận `ready`). (Phiên làm việc hiện tại bị giới hạn chỉ dùng TECNO; Pixel 7 Pro để lại xác nhận khi có thiết bị).
+- [~] (KHÔNG thu được metric; đóng bằng bằng chứng âm tính trên các cấu hình đã thử, ghi chú 2026-11-14) Thu metric có app/layer attribution ở presentation/composition layer, hoặc lập chứng cứ có thể tái tạo rằng các API Android hiện hành không cung cấp metric này cho Flutter SurfaceView trên thiết bị hỗ trợ. (TECNO có polling exploratory, nhưng cột actual-present chưa được xác minh trên firmware OEM và polling không liên tục; Pixel 7 Pro acceptance vẫn mở).
 - [x] Correlate sampled timestamps với phase marks bằng cùng một monotonic clock trong các lượt TECNO; lọc cửa sổ animation 2s để loại idle/startup. Polling chưa chứng minh mọi frame/gap đều được capture.
 - [x] Kiểm tra tính toàn vẹn trace và ghi các lỗi đã thấy; Perfetto trace có parse/import errors bị loại khỏi kết luận. SurfaceFlinger polling evidence được ghi nhãn exploratory, chưa coi là capture liên tục hoặc Pixel acceptance.
 - [x] Báo sampled counts, denominators, p50/p95/p99/max và ngưỡng 60Hz 16.67ms / 120Hz 8.33ms; ghi rõ giới hạn polling, và engine timing khác presentation timing. Số liệu nằm ở các mục Evidence dưới đây.
@@ -148,3 +148,12 @@ Chủ sản phẩm nói hiện không có Pixel và dùng TECNO cho mọi phiên
 - **Giới hạn:** một máy, một build, một phiên; dùng reflection lên thành viên không thuộc SDK; pin 10-14% đang sạc; chưa đối chiếu luật giao dữ liệu của listener với mã AOSP (có thể listener cần frame đi qua SurfaceControl của chính cửa sổ, điều mà nội dung SurfaceView không làm). Không phải bằng chứng rằng mọi API đều không dùng được.
 - Bằng chứng: `doc/audit/evidence/round79_pixel/t267_jankdata_2026-11-14/` (README.txt, log lọc, `MainActivity_experiment_copy.kt` chỉ để tham khảo).
 - **Đề xuất bước tiếp (cần bạn duyệt):** (a) đóng T267 ở mức "không đo được frame hiển thị của Flutter SurfaceView bằng API công khai hiện có trên Pixel 7 Pro/Android 17; T257 không thể kết luận pass/fail" (kết luận âm tính có tài liệu), hoặc (b) đọc mã AOSP để xem luật giao dữ liệu rồi thử `Choreographer`/`SurfaceControl.Transaction` completion callback, hoặc (c) chờ bản Android/Perfetto có hỗ trợ SurfaceView.
+
+## Quyết định đóng (2026-11-14)
+Chủ sản phẩm chọn **đóng T267 ở mức "không đo được"**. Kết luận này chỉ đứng trên bằng chứng sau, KHÔNG phải bằng chứng rằng mọi API đều không dùng được:
+- **Macrobenchmark `FrameTimingMetric`:** thất bại `Observed no renderthread slices in trace` trên TECNO KJ7, Samsung S24 Ultra và Pixel 7 Pro (Pixel 2026-11-14: pin 10-12% đang sạc, đã tắt `LOW-BATTERY` ở bản sao theo yêu cầu; không lưu được trace).
+- **Perfetto FrameTimeline / SurfaceFlinger:** hàng frame ở mức hiển thị có nhưng `layer_name=NULL` và không có `surface_frame_token` để gắn với SurfaceView của Flutter; `dumpsys SurfaceFlinger --latency` chỉ trả chu kỳ vsync trên Pixel và S24U.
+- **JankData listener trên Pixel 7 Pro (Android 17):** `SurfaceView.registerOnJankDataListener` không có trên framework của máy; listener cấp cửa sổ đăng ký được nhưng bốn getter present bị hidden-API chặn và cả phiên chỉ nhận một lô 3 frame, không có frame nào lúc cuộn.
+- **Flutter `FrameTiming`:** chỉ là thời gian engine, không phải frame được present; số mẫu/giây thấp hơn tần số quét nên không đọc thành FPS.
+**Hệ quả cho T257:** tiêu chí "60fps ổn định toàn app" của T257 **vẫn chưa đạt và không được báo pass**; không có số FPS hiển thị nào. Ghi nhận trung thực: phần "60fps" dựa trên engine timing, không phải bằng chứng hiển thị.
+**Chưa thử / còn có thể mở lại:** callback hoàn tất `SurfaceControl.Transaction` (cần harness native/JNI), đối chiếu luật giao dữ liệu của listener với mã AOSP, các bản Android/Perfetto sau này hỗ trợ SurfaceView, đo bằng camera tốc độ cao hoặc dụng cụ phần cứng. Mở lại task này nếu có thêm nguồn dữ liệu.

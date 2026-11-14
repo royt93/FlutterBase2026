@@ -104,3 +104,6 @@ Triển khai task T257 theo quy trình kỹ thuật nghiêm ngặt:
    - Bổ sung unit test + widget test + integration test cho mọi case + smoke test lên device chứng minh.
    - Nếu work và điểm >9/10 thì push code.
 ```
+
+## Cập nhật (2026-11-14): kết luận cuối về tiêu chí 60fps
+T267 đã đóng ở mức "không đo được" (xem `T267-flutter-android-present-frame-attribution.md`, mục "Quyết định đóng"). Tiêu chí "Frame rate/jank 60fps ổn định toàn app" **vẫn chưa đạt và không được báo pass**: không có phương pháp đã thử nào thu được frame hiển thị của Flutter SurfaceView trên Pixel 7 Pro, TECNO KJ7 hay S24 Ultra; số liệu Flutter `FrameTiming` chỉ là thời gian engine. Task T257 giữ trạng thái "đóng có ngoại lệ".

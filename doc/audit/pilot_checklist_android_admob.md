@@ -21,7 +21,7 @@ Round 79 chỉ kiểm tra **example app** với Google test ads:
 | Privacy Options đổi consent sau khi đã từ chối | TECNO KJ7 | Lần 2 (adb bấm nút, không phải người): từ chối -> Privacy Options -> Consent hoàn tất trong ~19 giây, `nonPersonalizedAds` true -> false, không timeout. Lần 1 không ai bấm: timeout 180 giây rồi nhả chặn sau 15 phút. Một máy, một lần chạy thành công; `evidence/round79_tecno_manual/t278/` |
 | Consent đã lưu thì form không hiện lại | TECNO KJ7 | Gọi trực tiếp luồng UMP, không qua UI đầy đủ |
 
-Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 mở), iOS, AppLovin. Chưa thử thêm: CRL qua CA công khai thật/mạng di động, phản hồi chậm hoặc cụt, đổi đồng hồ khi app đang chạy, key AVP2 ký bằng khóa thật của owner. (CRL qua HTTPS với CA tạm ghim chứng chỉ trên TECNO: chứng chỉ giả mạo bị từ chối, SDK giữ CRL cũ, xem `screens13/`. CRL tải qua HTTP trong mạng LAN từ server tạm đã thử trên S24U: áp dụng được, cập nhật được, và lỗi mạng thì SDK giữ CRL cũ; xem `screens12/`.) (Đã thử trên S24U, đạt: CRL còn hiệu lực sau khi khởi động lại app, redeem bị từ chối khi offline, VIP vẫn chặn quảng cáo khi offline, đồng hồ lệch -1 ngày/+2 ngày, xem `screens11/`.) (CRL cũ bị phát lại và CRL ký sai khóa đã được thử trên S24U, bị từ chối đúng, xem `screens10/`.)
+Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 đóng: không đo được bằng các cách đã thử), iOS, AppLovin. Chưa thử thêm: CRL qua CA công khai thật/mạng di động, phản hồi chậm hoặc cụt, đổi đồng hồ khi app đang chạy, key AVP2 ký bằng khóa thật của owner. (CRL qua HTTPS với CA tạm ghim chứng chỉ trên TECNO: chứng chỉ giả mạo bị từ chối, SDK giữ CRL cũ, xem `screens13/`. CRL tải qua HTTP trong mạng LAN từ server tạm đã thử trên S24U: áp dụng được, cập nhật được, và lỗi mạng thì SDK giữ CRL cũ; xem `screens12/`.) (Đã thử trên S24U, đạt: CRL còn hiệu lực sau khi khởi động lại app, redeem bị từ chối khi offline, VIP vẫn chặn quảng cáo khi offline, đồng hồ lệch -1 ngày/+2 ngày, xem `screens11/`.) (CRL cũ bị phát lại và CRL ký sai khóa đã được thử trên S24U, bị từ chối đúng, xem `screens10/`.)
 
 ## A. Trước khi cài bản pilot
 
@@ -77,6 +77,6 @@ Ngưỡng cụ thể (số người, số ngày) do chủ sản phẩm chọn; �
 ## G. Khoảng trống còn mở
 
 - Pilot trên host app thật chưa chạy.
-- T267 (frame/presentation) chưa đạt: acceptance cần Pixel 7 Pro; kết quả S24U/TECNO chỉ là engine timing.
+- T267 (frame/presentation) đã đóng ở mức "không đo được" (Macrobenchmark, Perfetto/SurfaceFlinger và JankData đều không cho frame hiển thị của Flutter SurfaceView trên Pixel 7 Pro, TECNO, S24U): không có số FPS hiển thị, chỉ có thời gian engine. T257 (60 fps toàn app) vẫn chưa đạt.
 - iPhone thật (ATT + UMP + AdMob) và AppLovin chưa được kiểm tra.
 - Bốn kết luận trên không thay thế review pháp lý/consent của publisher.

@@ -40,7 +40,7 @@ Mỗi thư mục có `README.txt` hoặc `NOTES.txt` nói rõ **đã thấy gì 
 - **Bản release:** chỉ kiểm bản release của app mẫu với test ad unit (SDK chặn request, đúng thiết kế). Chưa chứng minh quảng cáo thật hiển thị ở release.
 - **Privacy Options:** các nút form được bấm bằng adb, không phải người thật bấm.
 - **VIP/CRL:** dùng khóa tạm và server tạm trong mạng nội bộ; chưa thử qua CA công khai, mạng di động, hay mã ký bằng khóa thật. Đoạn ghim chứng chỉ HTTPS là mã kiểm thử của chúng tôi, không phải tính năng SDK.
-- **Hiệu năng khung hình (T267):** chưa có kết luận; acceptance cần Pixel 7 Pro đang mở.
+- **Hiệu năng khung hình (T267):** **không đo được** frame hiển thị của Flutter SurfaceView bằng các cách đã thử (Macrobenchmark, Perfetto/SurfaceFlinger, JankData) trên Pixel 7 Pro, TECNO và S24 Ultra; không có số FPS hiển thị. Số liệu duy nhất là thời gian xử lý của engine Flutter, không phải frame được hiển thị. Đừng dùng nó để khẳng định "60 fps".
 - **Rò rỉ bộ nhớ native:** chưa chứng minh.
 - **Pháp lý/đồng ý:** SDK không thay thế trách nhiệm của publisher về UMP, chính sách quyền riêng tư và từng thị trường.
 - **Số lần chạy ít:** nhiều kiểm tra chỉ chạy một lần trên một máy; một lần pass không chứng minh ổn định.
