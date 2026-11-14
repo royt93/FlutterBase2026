@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Docs only:** Corrected README Quick Start to select AdMob when configured with AdMob test IDs; clarified AppLovin requires its own provider and credentials.
+
 ## [3.7.1] - 2026-11-08
 
 - **Docs only:** Updated the partner integration guide to use the host's pinned SDK metadata instead of stale version numbers, documented the Android Kotlin Gradle Plugin requirement, and separated AdMob test IDs from release IDs in the README Quick Start.

@@ -524,17 +524,11 @@ class _SplashScreenState extends State<SplashScreen> {
       await AdManager().requestAtt();          // iOS only, no-op on Android
       await AdManager().initialize(
         config: AdConfig(
-          // Pick one. Switch by changing this single line.
-          provider: AdProvider.appLovin,
+          // Android quick start uses AdMob. AppLovin is a separate provider choice.
+          provider: AdProvider.admob,
 
-          // TODO: replace with your real keys from dash.applovin.com
-          appLovin: const AppLovinConfig(
-            sdkKey:        'YOUR_86_CHARACTER_APPLOVIN_SDK_KEY_HERE',
-            bannerId:      'YOUR_BANNER_AD_UNIT_ID',
-            interstitialId:'YOUR_INTERSTITIAL_AD_UNIT_ID',
-            appOpenId:     'YOUR_APP_OPEN_AD_UNIT_ID',
-            rewardedId:    'YOUR_REWARDED_AD_UNIT_ID',
-          ),
+          // For AppLovin, select AdProvider.appLovin and provide its own
+          // AppLovinConfig credentials and ad units instead of AdMob IDs.
 
           // Public test units are debug-only. Supply your publisher's real
           // IDs to release builds through dart-define; otherwise the SDK's
