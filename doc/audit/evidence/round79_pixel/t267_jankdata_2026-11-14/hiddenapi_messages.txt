@@ -1,0 +1,4 @@
+Accessing hidden method Landroid/view/SurfaceControl$JankData;->getActualPresentDeltaNanos()J (runtime_flags=0, domain=platform, api=blocked) from Lcom/example/ad_sdk_example/MainActivity; (domain=app
+Accessing hidden method Landroid/view/SurfaceControl$JankData;->getFrameIntervalNanos()J (runtime_flags=0, domain=platform, api=blocked) from Lcom/example/ad_sdk_example/MainActivity; (domain=app, Tar
+Accessing hidden method Landroid/view/SurfaceControl$JankData;->getJankScore()D (runtime_flags=0, domain=platform, api=blocked) from Lcom/example/ad_sdk_example/MainActivity; (domain=app, TargetSdkVer
+Accessing hidden method Landroid/view/SurfaceControl$JankData;->getPresentDelayNanos()J (runtime_flags=0, domain=platform, api=blocked) from Lcom/example/ad_sdk_example/MainActivity; (domain=app, Targ

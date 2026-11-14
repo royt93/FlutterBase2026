@@ -2,7 +2,7 @@
 
 - **Loại:** Performance / Measurement / Research
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** inprogress (Pixel 7 Pro có mặt từ 2026-11-14 nhưng Macrobenchmark vẫn không thu được metric; chưa đạt acceptance; xem mục Pixel 2026-11-14)
+- **Status:** inprogress (Pixel 7 Pro đã thử: Macrobenchmark không ra metric; JankData listener không cho dữ liệu dùng được; chưa đạt acceptance; xem mục Pixel 2026-11-14)
 
 ## Tóm tắt kết luận kỹ thuật (2026-10-24)
 
@@ -139,3 +139,12 @@ Chủ sản phẩm nói hiện không có Pixel và dùng TECNO cho mọi phiên
 - **Không có trace Perfetto nào được lưu** (lượt hỏng trước khi sao chép), nên không có dữ liệu FrameTimeline/SurfaceFlinger theo app-layer lần này.
 - **Kết luận:** có Pixel thật không làm phương pháp hiện tại đo được frame hiển thị; hai tiêu chí chính (3 lượt trên Pixel; metric attribution app/layer) **vẫn mở**, không kết luận 60fps/jank. Hướng tiếp theo đã ghi ở mục SurfaceView attribution (`SurfaceView.registerOnJankDataListener`, API 35+, chưa kiểm chứng trên máy) cần được duyệt vì phải sửa harness.
 - Bằng chứng: `doc/audit/evidence/round79_pixel/t267_2026-11-14/` (README.txt có số liệu và giới hạn).
+
+## Thử JankData listener trên Pixel 7 Pro, 2026-11-14 (thí nghiệm, bản sao /tmp, repo KHÔNG đổi)
+- Đọc framework thật của Pixel (dexdump `/system/framework/framework.jar`, build `google/cheetah/cheetah:17/CP3A.261005.002.A1/16269273`): `SurfaceView.registerOnJankDataListener` **không có** trên máy này (stub android-37.2 có, framework máy thì không); `JankData.getPresentTimeNanos`/`getDesiredPresentTimeNanos` cũng **không có**. Có `AttachedSurfaceControl.registerOnJankDataListener` (cấp cửa sổ, cờ hiddenapi SDK,TEST-API).
+- Flutter dùng đúng `FlutterSurfaceView` (1440x3120). Đăng ký listener qua `AttachedSurfaceControl` thành công (reflection, không cần đổi compileSdk/AGP), nhưng bốn getter present (`getActualPresentDeltaNanos`, `getPresentDelayNanos`, `getFrameIntervalNanos`, `getJankScore`) bị hidden-API `api=blocked`, chỉ đọc được `getJankType`, `getVsyncId`, `getActualAppFrameTimeNanos`.
+- **Giao hàng dữ liệu:** cả phiên chỉ nhận **một lô 3 frame** (trước khi cuộn); không có frame nào trong cửa sổ cuộn 3 giây, cửa sổ quay lại 3 giây hay sau đó, dù flush mỗi giây và flush cuối ở `onPause` (`SUMMARY batches=1 frames=3`).
+- **Kết luận:** không có luồng dữ liệu frame theo SurfaceView dùng được từ API này trên bản build này. Không rút ra 60fps/jank. T267/T257 vẫn chưa đạt.
+- **Giới hạn:** một máy, một build, một phiên; dùng reflection lên thành viên không thuộc SDK; pin 10-14% đang sạc; chưa đối chiếu luật giao dữ liệu của listener với mã AOSP (có thể listener cần frame đi qua SurfaceControl của chính cửa sổ, điều mà nội dung SurfaceView không làm). Không phải bằng chứng rằng mọi API đều không dùng được.
+- Bằng chứng: `doc/audit/evidence/round79_pixel/t267_jankdata_2026-11-14/` (README.txt, log lọc, `MainActivity_experiment_copy.kt` chỉ để tham khảo).
+- **Đề xuất bước tiếp (cần bạn duyệt):** (a) đóng T267 ở mức "không đo được frame hiển thị của Flutter SurfaceView bằng API công khai hiện có trên Pixel 7 Pro/Android 17; T257 không thể kết luận pass/fail" (kết luận âm tính có tài liệu), hoặc (b) đọc mã AOSP để xem luật giao dữ liệu rồi thử `Choreographer`/`SurfaceControl.Transaction` completion callback, hoặc (c) chờ bản Android/Perfetto có hỗ trợ SurfaceView.

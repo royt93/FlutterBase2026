@@ -1,0 +1,6 @@
+device framework (Pixel 7 Pro, Android 17 / API 37, build google/cheetah/cheetah:17/CP3A.261005.002.A1/16269273:user/release-keys), read from dexdump of /system/framework/framework.jar:
+  SurfaceView.registerOnJankDataListener: NOT declared
+  AttachedSurfaceControl.registerOnJankDataListener(Executor, OnJankDataListener): declared, hiddenapi flags SDK,TEST-API
+  SurfaceControl$JankData getters present: getActualAppFrameTimeNanos getActualPresentDeltaNanos getFrameIntervalNanos getJankScore getJankType getJankTypeExperimental getJankTypeLegacy getPresentDelayNanos getScheduledAppFrameTimeNanos getVsyncId
+  getPresentTimeNanos / getDesiredPresentTimeNanos: NOT present
+  (the android-37.2 stub jar has SurfaceView.registerOnJankDataListener and getPresentTimeNanos; this device's framework differs)

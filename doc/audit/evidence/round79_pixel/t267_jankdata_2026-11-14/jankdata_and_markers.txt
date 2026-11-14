@@ -1,0 +1,94 @@
+11:14:23.978 T257_PHASE_MARK phase=startup timeline_us=2622155432 latest_frame_vsync_us=-1 timing_samples=0
+11:14:23.978 T257_PHASE_MARK phase=consent_init timeline_us=2622155535 latest_frame_vsync_us=-1 timing_samples=0
+11:14:24.861 T257_PHASE_MARK phase=banner_load_begin timeline_us=2623038672 latest_frame_vsync_us=2622981024 timing_samples=87
+11:14:25.467 SurfaceViews found=1 io.flutter.embedding.android.FlutterSurfaceView[1440x3120]
+11:14:25.467 rootSurfaceControl=android.view.ViewRootImpl sdk=37
+11:14:25.468 JankData getters: type=true vsync=true app=true delta=false delay=false interval=false score=false presentTime=false
+11:14:25.469 registered OK registration=true
+11:14:25.905 T257_REAL_AD_READY ready=true
+11:14:25.905 T267_READY scenario=real
+11:14:26.966 tick batches=0 frames=0
+11:14:26.969 batch=1 size=3 totalFrames=3 deltaPositive=0 first{vsync=707328 type=2 appFrameNs=39414676 schedNs=16600000 presentDeltaNs=null presentDelayNs=null intervalNs=null score=null}
+11:14:27.967 tick batches=1 frames=3
+11:14:28.969 tick batches=1 frames=3
+11:14:29.971 tick batches=1 frames=3
+11:14:30.972 tick batches=1 frames=3
+11:14:31.974 tick batches=1 frames=3
+11:14:32.975 tick batches=1 frames=3
+11:14:33.978 tick batches=1 frames=3
+11:14:34.980 tick batches=1 frames=3
+11:14:35.899 T267_START requested
+11:14:35.900 T257_REAL_AD_RESULT state=ready loaded=true ready=true error=false
+11:14:35.900 T257_PHASE_MARK phase=real_banner_visible_end timeline_us=2634077065 latest_frame_vsync_us=2625964893 timing_samples=249
+11:14:35.980 tick batches=1 frames=3
+11:14:36.980 tick batches=1 frames=3
+11:14:37.981 tick batches=1 frames=3
+11:14:38.904 T257_PHASE_MARK phase=real_scroll_end timeline_us=2637080597 latest_frame_vsync_us=2636093374 timing_samples=490
+11:14:38.982 tick batches=1 frames=3
+11:14:39.982 tick batches=1 frames=3
+11:14:40.982 tick batches=1 frames=3
+11:14:41.908 T257_PHASE_MARK phase=real_return_end timeline_us=2640084710 latest_frame_vsync_us=2639301557 timing_samples=747
+11:14:41.908 T257_PHASE_MARK phase=report timeline_us=2640085597 latest_frame_vsync_us=2639301557 timing_samples=747
+11:14:41.983 tick batches=1 frames=3
+11:14:42.984 tick batches=1 frames=3
+11:14:43.985 tick batches=1 frames=3
+11:14:44.990 tick batches=1 frames=3
+11:14:45.994 tick batches=1 frames=3
+11:14:46.996 tick batches=1 frames=3
+11:14:47.997 tick batches=1 frames=3
+11:14:48.052 SUMMARY batches=1 frames=3 presentTimeKnown=0 jankTypeCounts={1=1, 2=1, 3=1}
+11:14:48.052 flush() called in onPause
+11:14:49.000 tick batches=1 frames=3
+11:14:50.003 tick batches=1 frames=3
+11:14:51.006 tick batches=1 frames=3
+11:14:52.009 tick batches=1 frames=3
+11:14:53.014 tick batches=1 frames=3
+11:14:54.017 tick batches=1 frames=3
+11:14:55.019 tick batches=1 frames=3
+11:14:56.022 tick batches=1 frames=3
+11:14:57.025 tick batches=1 frames=3
+11:14:58.028 tick batches=1 frames=3
+11:14:59.031 tick batches=1 frames=3
+11:15:00.033 tick batches=1 frames=3
+11:15:01.035 tick batches=1 frames=3
+11:15:02.038 tick batches=1 frames=3
+11:15:03.040 tick batches=1 frames=3
+11:15:04.044 tick batches=1 frames=3
+11:15:05.047 tick batches=1 frames=3
+11:15:06.051 tick batches=1 frames=3
+11:15:07.054 tick batches=1 frames=3
+11:15:08.056 tick batches=1 frames=3
+11:15:09.058 tick batches=1 frames=3
+11:15:10.061 tick batches=1 frames=3
+11:15:11.064 tick batches=1 frames=3
+11:15:12.066 tick batches=1 frames=3
+11:15:13.070 tick batches=1 frames=3
+11:15:14.074 tick batches=1 frames=3
+11:15:15.076 tick batches=1 frames=3
+11:15:16.081 tick batches=1 frames=3
+11:15:17.084 tick batches=1 frames=3
+11:15:18.087 tick batches=1 frames=3
+11:15:19.090 tick batches=1 frames=3
+11:15:20.094 tick batches=1 frames=3
+11:15:21.097 tick batches=1 frames=3
+11:15:22.100 tick batches=1 frames=3
+11:15:23.103 tick batches=1 frames=3
+11:15:24.107 tick batches=1 frames=3
+11:15:25.110 tick batches=1 frames=3
+11:15:26.111 tick batches=1 frames=3
+11:15:27.114 tick batches=1 frames=3
+11:15:28.118 tick batches=1 frames=3
+11:15:29.121 tick batches=1 frames=3
+11:15:30.123 tick batches=1 frames=3
+11:15:31.129 tick batches=1 frames=3
+11:15:32.132 tick batches=1 frames=3
+11:15:33.134 tick batches=1 frames=3
+11:15:34.136 tick batches=1 frames=3
+11:15:35.143 tick batches=1 frames=3
+11:15:36.145 tick batches=1 frames=3
+11:15:37.149 tick batches=1 frames=3
+11:15:38.151 tick batches=1 frames=3
+11:15:39.156 tick batches=1 frames=3
+11:15:40.158 tick batches=1 frames=3
+11:15:41.161 tick batches=1 frames=3
+11:15:42.164 tick batches=1 frames=3
