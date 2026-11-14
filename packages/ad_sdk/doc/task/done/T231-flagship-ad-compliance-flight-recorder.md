@@ -2,7 +2,7 @@
 
 - **Loại:** Flagship (Độc quyền)
 - **Priority:** P1 · **Severity:** HIGH
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the evidence section in this file; no matching CHANGELOG entry)
 
 ## Vấn đề (Why)
 Khi nhà mạng (AdMob/AppLovin) phạt trừ tiền hoặc khóa tài khoản vì nghi ngờ 'Invalid Traffic' hoặc 'Ad layout che UI', nhà phát triển hầu như không có bằng chứng đối chất. SDK cần một 'Hộp đen' ghi nhận bất biến mọi trạng thái.

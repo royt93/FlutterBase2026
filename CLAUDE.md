@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Suite | Path | How to run |
 |---|---|---|
 | SDK (primary gate) | `packages/ad_sdk/test/` — file/test counts grow every release, see `CHANGELOG.md`'s latest entry for the exact current numbers | `cd packages/ad_sdk && flutter test` |
-| SDK on-device | `packages/ad_sdk/example/integration_test/` — 133 files (132 test suites + shared `scroll_helpers.dart`; audit round 42, 2026-09-17 — verify with `ls packages/ad_sdk/example/integration_test \| wc -l` rather than trusting this number long-term) | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
+| SDK on-device | `packages/ad_sdk/example/integration_test/` — roughly 150 `*_test.dart` suites plus shared `scroll_helpers.dart` and a `README.md` (2026-11-14: 152 test files; count it with `ls packages/ad_sdk/example/integration_test/*_test.dart \| wc -l` instead of trusting this number). Read `example/integration_test/README.md` first: run `adb shell pm clear <applicationId>` before each device run | `cd packages/ad_sdk/example && flutter test integration_test/` (needs emulator/simulator; CI runs it on both) |
 
 ```bash
 cd packages/ad_sdk

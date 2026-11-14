@@ -2,7 +2,7 @@
 
 ## How to use this document
 
-This file targets the current SDK integration API and is the single partner handoff for `applovin_admob_sdk`. Start with the **Fast path** (Android + AdMob test banner), then follow **Quick start** for minimum ad setup, then complete selected feature recipes and release checklist. **Coverage:** every public SDK feature family has an in-file recipe or an explicit SDK ceiling (see the completeness gate at the end). Coverage is documentation coverage; runtime credentials, device behavior, consent/legal approval and provider policy still require evidence in Step 11. Fill Section 0 with partner-approved values first; stop and ask when required decisions or credentials are missing. Keep optional features disabled unless explicitly approved.
+This file targets the current SDK integration API and is the single partner handoff for `applovin_admob_sdk`. Start with the **numbered walkthrough** (Android + AdMob, empty folder to handoff report; the **Fast path** after it is the same first stages in table form), then follow **Quick start** for minimum ad setup, then complete selected feature recipes and release checklist. **Coverage:** every public SDK feature family has an in-file recipe or an explicit SDK ceiling (see the completeness gate at the end). Coverage is documentation coverage; runtime credentials, device behavior, consent/legal approval and provider policy still require evidence in Step 11. Fill Section 0 with partner-approved values first; stop and ask when required decisions or credentials are missing. Keep optional features disabled unless explicitly approved.
 
 This file is the self-contained integration path, and it is written so you can finish without contacting anyone. From 3.6.2 on the same file also ships inside the pub.dev package (`doc/AD_PROMPT_FLUTTER.MD` after `dart pub unpack`), so the copy you were handed can be checked against the version you pinned. If the two differ, the copy inside the package for your pinned version wins. Where a step names an SDK file (the example app, the README, a tool script), you can get all of them yourself from pub.dev with one command and no checkout:
 
@@ -22,6 +22,7 @@ Manual users can run companion `example/` app as reference. Search by class name
 
 Use the Quick start first. Steps 4.1–4.10 are the core ad path; everything marked optional is chosen per partner scope.
 
+- [Start here — numbered walkthrough (Android + AdMob)](#start-here--numbered-walkthrough-android--admob)
 - [Fast path — Android + AdMob, first banner in about 30 minutes](#fast-path--android--admob-first-banner-in-about-30-minutes)
 - [Quick start — minimum working integration](#quick-start--minimum-working-integration)
 - [0. Context — fill in before running](#0-context--fill-in-before-running)
@@ -30,7 +31,7 @@ Use the Quick start first. Steps 4.1–4.10 are the core ad path; everything mar
 - [Working without access to the SDK author](#working-without-access-to-the-sdk-author)
 - [Step 1 — Verify the selected SDK release and recipe coverage](#step-1--verify-the-selected-sdk-release-and-recipe-coverage)
 - [Step 2 — Audit the current state of the project](#step-2--audit-the-current-state-of-the-project)
-- [Step 3 — Write the integration plan into `<PROJECT_PATH>/doc/AD.MD`](#step-3--write-the-integration-plan-into-projectpathdocadmd)
+- [Step 3 — Write the integration plan into `<PROJECT_PATH>/doc/AD.MD`](#step-3--write-the-integration-plan-into-project_pathdocadmd)
 - [Step 4 — Lifecycle requirements (hard rule, applies to every Flutter project)](#step-4--lifecycle-requirements-hard-rule-applies-to-every-flutter-project)
   - [4.0 — Add package and native prerequisites before Dart integration](#40--add-package-and-native-prerequisites-before-dart-integration)
   - [4.1 — Bootstrap order in `main.dart` (do NOT reorder)](#41--bootstrap-order-in-maindart-do-not-reorder)
@@ -75,7 +76,7 @@ Use the Quick start first. Steps 4.1–4.10 are the core ad path; everything mar
   - [10.12 — Evidence and compliance recipes (optional, local by default)](#1012--evidence-and-compliance-recipes-optional-local-by-default)
   - [10.13 — VIP status, promotion results and revocation (optional)](#1013--vip-status-promotion-results-and-revocation-optional)
   - [10.6a — VIP operator quick start (no SDK checkout needed)](#106a--vip-operator-quick-start-no-sdk-checkout-needed)
-- [Step 11 — Partner readiness review & update `<PROJECT_PATH>/doc/AD.MD`](#step-11--partner-readiness-review--update-projectpathdocadmd)
+- [Step 11 — Partner readiness review & update `<PROJECT_PATH>/doc/AD.MD`](#step-11--partner-readiness-review--update-project_pathdocadmd)
   - [11.0 — Partner release gates](#110--partner-release-gates)
   - [11.0a — Building and checking a release (copy-paste, verified)](#110a--building-and-checking-a-release-copy-paste-verified)
   - [11.1 — Native config](#111--native-config)
@@ -93,16 +94,106 @@ Use the Quick start first. Steps 4.1–4.10 are the core ad path; everything mar
 - [Appendix G — Public API coverage map (types without their own recipe)](#appendix-g--public-api-coverage-map-types-without-their-own-recipe)
 - [Single-file completeness gate — SDK owner review before handoff](#single-file-completeness-gate--sdk-owner-review-before-handoff)
 
+## Start here — numbered walkthrough (Android + AdMob)
+
+This is the one path to follow from an empty folder to a handoff report. Each stage says **Do**, **You should see**, and **If not**. The detailed recipes later in this file are the reference for every stage; the stage names the Step to open. Skip a stage only where it says "skip if". The Fast path below is stages 1 to 7 in table form.
+
+**What has and has not been proven (SDK 3.7.1, 2026-11-14).** The text of Stages 2 to 6 was followed once, by hand, on a brand-new app created with Flutter 3.41.9: `flutter analyze` printed `No issues found!` and `flutter build apk --debug` finished with `Built build/app/outputs/flutter-apk/app-debug.apk`. That run built the app but did not install it, and its log was not saved in the repo, so treat it as a single unrecorded observation and repeat it yourself. Showing ads on a device was verified separately on this SDK's own example app with Google test ads on a Pixel 7 Pro (all seven formats) and a TECNO KJ7 (consent forms, offline/online, VIP); Samsung S24 Ultra was used only for VIP revocation-list and clock checks, not for showing ads. None of that was done on an app built from this file or on a partner app. Not verified by anyone: your production ad units, `app-ads.txt`, your UMP message, real ads in a release build, ad loading after "Do not consent", iOS, AppLovin, and frame rate (no FPS figure exists; do not claim one). Anything you do not run yourself goes in the Step 12 report as `NOT RUN`.
+
+### Stage 0 — Decide four things (no one else is needed)
+
+| Decision | Default if nobody tells you | Where it is explained |
+|---|---|---|
+| Ad provider | AdMob with Google test ad units | Section 0 |
+| Show an App Open ad on the splash | No | Step 4.2 |
+| First-install free trial (VIP grace) | **Disabled.** The snippets already set `FirstInstallVipGrace.disabled`. The SDK's own default is on, about 24 hours in release and 30 seconds in debug, so never delete that line unless the owner approved the trial | Step 9 |
+| VIP promo codes | Not used. Skip Steps 9 and 10 | Step 10 |
+
+With the trial disabled, a **release** build logs a loud warning that new installs get no ad-free trial. That is expected when the owner has not approved a trial; it is not an error.
+
+Write the answers in one line each in `<PROJECT_PATH>/doc/AD.MD` (the short form in Step 3). Stop and ask the owner only if they say yes to VIP or to a trial.
+
+### Stage 1 — Check your tools
+
+**Do:** `flutter --version` and `flutter doctor`.
+**You should see:** Flutter 3.38.1 or newer (Dart 3.10 or newer) and a green "Android toolchain" line.
+**If not:** upgrade Flutter first; the SDK cannot resolve on older versions. If Gradle fails with an unclear error, your JDK may be too new for the Gradle in your project; use JDK 17 for that command only (for example `JAVA_HOME=$(/usr/libexec/java_home -v 17) flutter build apk --debug` on macOS).
+
+### Stage 2 — Create the app and pin the SDK
+
+**Do:** `flutter create my_app`, `cd my_app`, then `dart pub add applovin_admob_sdk:<PINNED_VERSION>` (use the version the owner approved; the latest is on pub.dev). Step 4.0(a).
+**You should see:** `pubspec.yaml` contains `applovin_admob_sdk: <PINNED_VERSION>` with no `^`.
+**If not:** a version that cannot be found right after a release usually resolves after a minute or two (pub.dev caching); retry.
+
+### Stage 3 — Edit the Android build files
+
+**Do:** Step 4.0(a2), edits 1 to 4, exactly as shown: Kotlin plugin 2.3.0 or newer in `android/settings.gradle.kts`; delete `kotlinOptions { }` and add `kotlin { compilerOptions { } }` in `android/app/build.gradle.kts`; `minSdk = 24`; delete `android:taskAffinity=""` from `MainActivity` in `android/app/src/main/AndroidManifest.xml`. Edit 5 is for release builds (Stage 10). Edit 6 only if the build prints a desugaring error.
+**You should see:** nothing yet; the build in Stage 6 is the check.
+**If not:** a "before" line that is already missing means the template changed; skip that edit and keep going.
+
+### Stage 4 — Add permissions and the test App ID
+
+**Do:** Step 4.0(b): three `uses-permission` lines (`INTERNET`, `ACCESS_NETWORK_STATE`, `com.google.android.gms.permission.AD_ID`) and the `APPLICATION_ID` meta-data inside `<application>`, value `ca-app-pub-3940256099942544~3347511713` (Google's test App ID, test builds only).
+**You should see:** the manifest still has a single `<manifest>` and a single `<application>`.
+**If not:** you pasted a whole file over the manifest; undo and merge only the shown lines.
+
+### Stage 5 — Create the five Dart files
+
+**Do:** delete `test/widget_test.dart`. Create `lib/main.dart`, `lib/ad_config.dart`, `lib/splash_screen.dart`, `lib/home_screen.dart`, `lib/privacy_screen.dart` by copying the code blocks tagged `main.dart` (Step 4.1), `ad_config.dart` and `splash_screen.dart` (Step 4.2), `home_screen.dart` (Step 4.4) and `privacy_screen.dart` (Step 8.1). Copy each block whole and change nothing.
+**You should see:** nothing yet; analysis stays red until all five files exist.
+**If not:** a missing-import error means one of the five is missing or misnamed.
+
+### Stage 6 — Analyze and build
+
+**Do:** `flutter pub get`, `flutter analyze`, `flutter build apk --debug`.
+**You should see:** `No issues found!` and `Built build/app/outputs/flutter-apk/app-debug.apk`.
+**If not:** `Inconsistent JVM-target compatibility` means `jvmTarget` differs from `compileOptions` (make both 17, Stage 3). An error naming `kotlinOptions` means that block was not deleted. Search this file for any other exact error text, then Appendix D.2.
+
+### Stage 7 — Run on a device and look at the screen
+
+**Do:** connect a device with USB debugging on (or start an emulator), `adb devices` must list it, then `flutter run`. Step 4.0(e).
+**You should see, in order:** a spinner, then Home with a Google "Test Ad" banner at the bottom and a coin counter. The rewarded button shows a test video and then adds 10 coins. The privacy button shows an interstitial test ad (wait a few seconds after start-up so it can load) and then the privacy screen.
+**If not:** blank banner means the device is offline, or a consent form is waiting (answer it, Stage 8). Do not paste production IDs to "fix" a missing test ad. To read the SDK's log lines: `adb logcat | grep "roy93~"` (redact before sharing).
+**Re-running:** before each fresh test run on the same device, clear the app's data with `adb shell pm clear <applicationId>`, otherwise state from the previous run changes what you see.
+
+### Stage 8 — Test consent (skip if you never ship to the EEA, UK or Switzerland; record it as `NOT RUN`)
+
+**Do:** Step 8.1: set `umpDebugGeography` and put your device's hashed ID in `umpTestIdentifiers` (Step 8.1 shows how to read it from the log), in a debug build; run once, answer the form with "Consent", then again with "Do not consent".
+**You should see:** the form appears; after "Consent" ads load. After "Do not consent" the SDK reports `canRequestAds=true` with non-personalised ads; whether an ad then actually loads was **not** verified, so check it and record the result.
+**If not:** `no form(s) configured` means the owner has not published a UMP message for that AdMob App ID in the AdMob console; that is account work, not code. Remove `umpDebugGeography` before any release build.
+
+### Stage 9 — Test losing and regaining the network
+
+**Do:** with the app open and an ad showing, turn Wi-Fi off for about a minute, then on.
+**You should see:** no new ad requests while offline; after reconnect the SDK logs `network back online -> refilling ad slots` (in one TECNO run an MREC reloaded in about 4 seconds).
+**If not:** record exactly what you saw in the Step 12 table. This was tried once, on Wi-Fi only; also try mobile data and a captive-portal network before relying on it.
+
+### Stage 10 — Build the release with your own ad IDs
+
+**Do:** Step 11.0a: `flutter build apk --release --dart-define=ADMOB_ANDROID_BANNER_ID=...` (one define per format you ship, with your production **ad unit** IDs), also put your own AdMob **App ID** in the manifest, add the R8 rule (edit 5), then run the three checks in 11.0a.
+**You should see:** check 1 prints `0`, check 2 lists every format you ship, check 3 shows your own App ID, not Google's.
+**If not:** the SDK blocks all ad requests in release if any Google test ad-unit ID is still configured (the app runs, `canRequestAds` stays false). That is by design. Your own production units may show no fill for a while after creation; that is an AdMob matter.
+**Note:** a release signed with the Flutter debug key installs for testing but cannot be uploaded to Google Play.
+
+### Stage 11 — Write the handoff report and decide on a pilot
+
+**Do:** Step 11 (tick the boxes you can verify) and Step 12 (one row per item: `PASS (evidence path)`, `FAIL (reason)` or `NOT RUN (reason)`). Never write `PASS` without a log, screenshot or command output you can point to.
+**Before any live-user pilot, confirm with the owner:**
+- Ad unit IDs, `app-ads.txt` and the UMP message belong to the right app and publisher.
+- The trial decision from Stage 0 is recorded.
+- Start with a small closed group, not everyone. Stop at once if any of these happens: crashes or ANRs clearly rise compared with a build without ads; an ad shows while a user has VIP or a trial; an ad is requested before valid consent where consent is required; AdMob raises a policy or invalid-traffic warning, or users tap by mistake because of where an ad sits.
+- This file and the SDK tests do not replace the publisher's own legal and privacy review for each market.
+
 ## Fast path — Android + AdMob, first banner in about 30 minutes
 
-**Read only this section first.** It gets a new app to a working test banner, a test interstitial and a test rewarded ad on Android. Everything else in this file (iOS, AppLovin, VIP, advanced modules, release) comes after, and only if the partner asked for it. Do not read ahead; do not install anything not named here.
+**Short version of walkthrough stages 1 to 7.** It gets a new app to a working test banner, a test interstitial and a test rewarded ad on Android. Everything else in this file (iOS, AppLovin, VIP, advanced modules, release) comes after, and only if the partner asked for it. Do not read ahead; do not install anything not named here.
 
 **Before you start, you need nothing from anyone.** Google's public test IDs are already in the snippets. Real ad IDs, AppLovin keys and VIP keys are **not** needed for this path.
 
 | # | Do this | Where the exact text is | You know it worked when |
 |---|---|---|---|
-| 1 | `flutter create my_app`, then `cd my_app` and `dart pub add applovin_admob_sdk` | Step 4.0(a) | `pubspec.yaml` lists `applovin_admob_sdk` |
-| 2 | Make edits 1-4 (edit 2 has two parts) (Kotlin 2.3.0, delete `kotlinOptions`, add `kotlin { compilerOptions }`, `minSdk = 24`, delete `android:taskAffinity=""`). Skip edit 5 (R8 rule) until a release build. | Step 4.0(a2), edits 1-4 | edits copy-paste as shown, no guessing |
+| 1 | `flutter create my_app`, then `cd my_app` and `dart pub add applovin_admob_sdk:<PINNED_VERSION>` | Step 4.0(a) | `pubspec.yaml` lists `applovin_admob_sdk` |
+| 2 | Do edits 1, 2, 3 and 4 of Step 4.0(a2). Edit 2 has two parts: delete the `kotlinOptions { }` block, then add a `kotlin { compilerOptions { } }` block. The four edits are: Kotlin plugin 2.3.0, the `kotlin { compilerOptions }` swap, `minSdk = 24`, and deleting `android:taskAffinity=""` from `MainActivity`. Skip edit 5 (R8 rule) until a release build, and edit 6 unless the build prints a desugaring error. | Step 4.0(a2), edits 1-4 | edits copy-paste as shown, no guessing |
 | 3 | Add 3 permissions and the AdMob test App ID `ca-app-pub-3940256099942544~3347511713` to `AndroidManifest.xml` | Step 4.0(b) | `flutter build apk --debug` succeeds |
 | 4 | Delete `test/widget_test.dart` | Step 4.0(a2), last paragraph | `flutter analyze` is no longer red about `MyApp` |
 | 5 | Create `lib/main.dart`, `lib/ad_config.dart`, `lib/splash_screen.dart`, `lib/home_screen.dart`, `lib/privacy_screen.dart` by copying the Dart blocks tagged `main.dart`, `ad_config.dart`, `splash_screen.dart`, `home_screen.dart` (Steps 4.1, 4.2, 4.4) and `privacy_screen.dart` (Step 8.1). Copy whole blocks, change nothing. | Steps 4.1, 4.2, 4.4, 8.1 | `flutter analyze` prints `No issues found` (it stays red until all 5 files exist) |
@@ -357,7 +448,7 @@ Keep one row per existing placement. `In scope? = no` means leave old behavior u
 
 Do these steps in the consuming app root. Fill every placeholder from Section 0 first. Do not replace entire manifests/plists; merge only the shown entries into existing app configuration.
 
-**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once (`dart pub add applovin_admob_sdk` writes it for you, or open `https://pub.dev/packages/applovin_admob_sdk`), then keep that exact version in `pubspec.yaml` for the whole integration. This guide is not a compatibility matrix: inspect the `pubspec.yaml` and `CHANGELOG.md` for the pinned release before using version-specific steps.
+**(a) `pubspec.yaml`** — the package is hosted on **pub.dev**; no git or path dependency is needed. Look up the current stable version once on `https://pub.dev/packages/applovin_admob_sdk`, then run `dart pub add applovin_admob_sdk:<PINNED_VERSION>`. That writes the exact version with no `^` (verified: it writes `applovin_admob_sdk: 3.7.1` for `:3.7.1`). A plain `dart pub add applovin_admob_sdk` writes `^<latest>`, which lets a later `flutter pub upgrade` move you to a newer release. Keep the exact version in `pubspec.yaml` for the whole integration. This guide is not a compatibility matrix: inspect the `pubspec.yaml` and `CHANGELOG.md` for the pinned release before using version-specific steps.
 
 ```yaml
 dependencies:
@@ -374,7 +465,7 @@ flutter pub get
 
 Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transparency`, or UI/state-management packages just because the SDK/example uses them transitively. Add `gma_mediation_applovin` only for the mediation branch. Read the selected release's `pubspec.yaml` for its Flutter/Dart floor and `google_mobile_ads` constraint; do not infer them from this guide.
 
-**(a2) Android build files — exact edits for a project created with `flutter create`.** The first four edits are required for every build and the fifth for shrunk release builds; each one fixed a real build failure when the guide was tried on a fresh app (Flutter 3.41.9 template). Skip an edit only if its "before" text is already absent.
+**(a2) Android build files — exact edits for a project created with `flutter create`.** The first four edits are required for every build, the fifth for shrunk release builds, and the sixth only if the build prints a desugaring error; each one fixed a real build failure when the guide was tried on a fresh app (Flutter 3.41.9 template). Skip an edit only if its "before" text is already absent.
 
 1. `android/settings.gradle.kts` — raise the Kotlin plugin to 2.3.0 or newer (required by the pinned Google Mobile Ads native dependency; confirm against the selected release):
 
@@ -413,13 +504,15 @@ Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transpa
    +        minSdk = 24
    ```
 
-4. `android/app/src/main/AndroidManifest.xml` — **delete** `android:taskAffinity=""` from the `MainActivity` `<activity>` element. Flutter's template adds it, and with it an interstitial or App Open closed after the user pressed Home can drop the user at the launcher instead of your app. Keep every other attribute:
+4. `android/app/src/main/AndroidManifest.xml` — **delete** `android:taskAffinity=""` from the `MainActivity` `<activity>` element. Flutter's template adds it, and with it an interstitial or App Open closed after the user pressed Home can drop the user at the launcher instead of your app. Keep every other attribute. Find the line by its text, not by its indentation or position (the template's indentation differs between Flutter versions, so a copy-paste match on spaces can fail):
 
    ```diff
           android:launchMode="singleTop"
    -      android:taskAffinity=""
           android:theme="@style/LaunchTheme"
    ```
+
+   Only `MainActivity` matters. A `grep taskAffinity` over the **merged** manifest (`build/app/intermediates/merged_manifests/...`) can still show one `android:taskAffinity=""` that belongs to a dependency's own activity (observed: Google's `NotificationHandlerActivity`); that one is not yours to edit. Check your own `android/app/src/main/AndroidManifest.xml`.
 
 5. **Release builds only** — AppLovin's bundled ad-verification library triggers an R8 "Missing class `com.amazon.privacypass...`" error when you build a release with code shrinking on, even if you never use AppLovin. Add `android/app/proguard-rules.pro`:
 
@@ -453,7 +546,7 @@ Do not separately add `google_mobile_ads`, `applovin_max`, `app_tracking_transpa
 
    After this, debug and release (with edit 5) builds were verified to succeed with that package and this SDK together. Skip this edit when the build does not print the desugaring error.
 
-Then delete the template's `test/widget_test.dart` in a **new** app (it references the `MyApp` class that Step 4.1 replaces, so `flutter analyze` and `flutter test` fail until it is removed). Create all four files from Steps 4.1, 4.2 and 4.4 (`main.dart`, `ad_config.dart`, `splash_screen.dart`, `home_screen.dart`) before running `flutter analyze`: each imports the others, so analysis is red until the set is complete.
+Then delete the template's `test/widget_test.dart` in a **new** app (it references the `MyApp` class that Step 4.1 replaces, so `flutter analyze` and `flutter test` fail until it is removed). Create all five files from Steps 4.1, 4.2, 4.4 and 8.1 (`main.dart`, `ad_config.dart`, `splash_screen.dart`, `home_screen.dart`, `privacy_screen.dart`) before running `flutter analyze`: each imports the others (`home_screen.dart` imports `privacy_screen.dart`), so analysis is red until the set is complete.
 
 **(b) Android permissions and app ID** — edit `android/app/src/main/AndroidManifest.xml`. These are fragments to merge into the existing elements; do not paste the comment markers as tags or replace the whole manifest.
 
@@ -473,7 +566,7 @@ Add the App ID metadata inside the existing `<application>`:
     android:value="<ADMOB_APPLICATION_ID_OR_TEST_ONLY_ID>" />
 ```
 
-Use the partner's AdMob App ID when one exists. Google's public test App ID is only for a test-only app/build that will not serve production ads; do not ship it in production. For AppLovin, do not add an `applovin.sdk.key` manifest entry: pass the SDK key to `AppLovinConfig.sdkKey` in Step 4.2 via the partner-approved secret/config mechanism. Keep any existing `android:taskAffinity` non-empty; see README → Pitfalls.
+Use the partner's AdMob App ID when one exists. Google's public test App ID is only for a test-only app/build that will not serve production ads; do not ship it in production. For AppLovin, do not add an `applovin.sdk.key` manifest entry: pass the SDK key to `AppLovinConfig.sdkKey` in Step 4.2 via the partner-approved secret/config mechanism. Do not leave an **empty** `android:taskAffinity=""` on `MainActivity`: delete that line (Step 4.0(a2) edit 4; README → Pitfalls #1). If your project sets a non-empty custom value of its own, leave it and record it in Step 12.
 
 Set `minSdk = 24` in the app's existing Gradle file. Check the pinned release's native dependency requirements; current SDK releases using Google Mobile Ads 9.2.x require Kotlin Gradle plugin `>=2.3.0` in `android/settings.gradle.kts`. If upgrading from older Kotlin, replace removed `kotlinOptions { jvmTarget = ... }` with the `kotlin { compilerOptions { ... } }` snippet in Step 11.1.
 

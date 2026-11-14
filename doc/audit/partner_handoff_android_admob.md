@@ -4,13 +4,17 @@
 - **Tình trạng:** bản chuẩn bị sẵn để **chủ sản phẩm tự gửi**. Chưa gửi cho ai. Người gửi nên đọc lại lần cuối.
 - **Phạm vi:** chỉ Android + AdMob. iOS và AppLovin MAX không nằm trong gói này.
 
-## 1. Đọc theo thứ tự này
+## 1. Đầu mối duy nhất: `AD_PROMPT_FLUTTER.MD`
+
+Partner chỉ cần **một file** để bắt đầu và làm đến hết: `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD`. Mở mục **"Start here — numbered walkthrough"** ở đầu file: 12 giai đoạn từ thư mục trống đến báo cáo bàn giao, mỗi giai đoạn có việc cần làm, kết quả mong đợi và cách xử lý khi sai. File này cũng nằm trong gói pub.dev (`dart pub unpack applovin_admob_sdk:<version>`), nên bản partner nhận có thể đối chiếu với đúng version đã pin. Các tài liệu còn lại bên dưới là **bằng chứng và bối cảnh**, không phải hướng dẫn thao tác.
+
+Thứ tự đọc:
 
 | # | Tài liệu | Dùng để |
 |---|---|---|
-| 1 | `doc/audit/partner_summary_android_admob.md` | Kết luận ngắn, đã kiểm gì, chưa kiểm gì, việc partner phải tự quyết |
-| 2 | `doc/audit/pilot_checklist_android_admob.md` | Checklist trước và trong closed pilot, tiêu chí dừng ngay, bảng bằng chứng |
-| 3 | `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` | Hướng dẫn tích hợp đúng phiên bản 3.7.1 |
+| 1 | `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` | **Đầu mối duy nhất.** Hướng dẫn từng bước đúng phiên bản 3.7.1; làm theo "Start here" |
+| 2 | `doc/audit/partner_summary_android_admob.md` | Kết luận ngắn, đã kiểm gì, chưa kiểm gì, việc partner phải tự quyết |
+| 3 | `doc/audit/pilot_checklist_android_admob.md` | Checklist trước và trong closed pilot, tiêu chí dừng ngay, bảng bằng chứng |
 | 4 | `doc/audit/audit_round79_full_sdk.md` | Báo cáo kiểm tra đầy đủ (chi tiết kỹ thuật, tiếng Việt) |
 
 ## 2. Kết luận (nguyên văn từ bản tóm tắt)

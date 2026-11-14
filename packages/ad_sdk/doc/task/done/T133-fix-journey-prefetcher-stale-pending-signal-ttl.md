@@ -4,7 +4,7 @@
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
   Xem `doc/audit/audit_round41.md` cho context audit liên quan.
 - **Priority:** P2
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** S
 - **Files (dự kiến):** `packages/ad_sdk/lib/src/monetization/journey_prefetcher.dart`
 - **Nguồn gợi ý:** codex + agy đồng thuận (đã tự verify lại cơ chế thật, mô

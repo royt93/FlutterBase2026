@@ -6,7 +6,9 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 package_dir="$(cd "$script_dir/.." && pwd)"
-repo_root="$(git -C "$package_dir" rev-parse --show-toplevel 2>/dev/null || cd "$package_dir/../.." && pwd)"
+
+sdk_version="$(sed -n 's/^version: *//p' "$package_dir/pubspec.yaml" | head -1 | tr -d '[:space:]')"
+[[ "$sdk_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version không hợp lệ (cần dạng x.y.z): '$sdk_version'" >&2; exit 1; }
 
 output_dir="/tmp/ad_sdk_partner_bundle"
 zip_file="${package_dir}/build/ad_sdk_partner_bundle.zip"
@@ -38,7 +40,7 @@ rsync -av \
   --exclude="test" \
   "$package_dir/example/" "$output_dir/example/" >/dev/null
 
-echo "2. Chuyển đổi pubspec.yaml sang phiên bản pub.dev (^3.5.0)..."
+echo "2. Chuyển đổi pubspec.yaml sang phiên bản pub.dev ($sdk_version)..."
 example_pubspec="$output_dir/example/pubspec.yaml"
 
 # Thay thế dependency path: ../ bằng phiên bản pub.dev
@@ -49,9 +51,9 @@ path = '$example_pubspec'
 with open(path, 'r', encoding='utf-8') as f:
     content = f.read()
 
-# Thay thế applovin_admob_sdk:\n    path: ../ bằng applovin_admob_sdk: ^3.5.0
+# Thay thế applovin_admob_sdk:\n    path: ../ bằng đúng phiên bản đang đóng gói (pin cứng, không dùng ^)
 pattern = r'applovin_admob_sdk:\s*\n\s*path:\s*\.\./'
-replacement = 'applovin_admob_sdk: ^3.5.0'
+replacement = 'applovin_admob_sdk: $sdk_version'
 
 if not re.search(pattern, content):
     print('WARNING: Không tìm thấy pattern path: ../ trong pubspec.yaml')
@@ -60,7 +62,7 @@ else:
 
 with open(path, 'w', encoding='utf-8') as f:
     f.write(content)
-print('Đã cập nhật pubspec.yaml sang applovin_admob_sdk: ^3.5.0')
+print('Đã cập nhật pubspec.yaml sang applovin_admob_sdk: $sdk_version')
 "
 
 echo "3. Sao chép tài liệu AD_PROMPT_FLUTTER.MD..."
@@ -68,13 +70,13 @@ cp "$package_dir/doc/AD_PROMPT_FLUTTER.MD" "$output_dir/AD_PROMPT_FLUTTER.MD"
 
 echo "4. Tạo README_PARTNER.md hướng dẫn nhanh..."
 cat << 'EOF' > "$output_dir/README_PARTNER.md"
-# Bộ tài liệu & Source mẫu tích hợp applovin_admob_sdk (v3.5.0)
+# Bộ tài liệu & Source mẫu tích hợp applovin_admob_sdk (v__SDK_VERSION__)
 
 Chào bạn, đây là gói tài liệu và project mẫu để bạn tích hợp SDK quảng cáo AdMob/AppLovin vào ứng dụng Flutter.
 
 ## 1. Cấu trúc gói bàn giao
 - `AD_PROMPT_FLUTTER.MD`: Bản tài liệu đặc tả và hướng dẫn chi tiết 12 bước tích hợp (hỗ trợ cả AI coding agent và kỹ sư trực tiếp làm theo).
-- `example/`: Ứng dụng mẫu Flutter hoàn chỉnh chạy độc lập, đã kết nối với package `applovin_admob_sdk: ^3.5.0` trên pub.dev.
+- `example/`: Ứng dụng mẫu Flutter hoàn chỉnh chạy độc lập, đã kết nối với package `applovin_admob_sdk: __SDK_VERSION__` trên pub.dev.
 
 ## 2. Hướng dẫn nhanh cho Junior Dev
 1. **Chạy thử app mẫu trước:**
@@ -92,8 +94,9 @@ Chào bạn, đây là gói tài liệu và project mẫu để bạn tích hợ
    - **Native Ad Factory:** Copy file `example/android/app/src/main/kotlin/.../T228CustomNativeAdFactory.kt` và `example/ios/Runner/T228CustomNativeAdFactory.swift` nếu bạn dùng loại Native Ad.
 
 3. **Thực hiện theo tài liệu:**
-   Mở file `AD_PROMPT_FLUTTER.MD`, điền các ID quảng cáo của dự án bạn vào Phần 0, và thực hiện theo các bước từ 4.0 đến 4.7.
+   Mở file `AD_PROMPT_FLUTTER.MD` và làm theo mục **"Start here — numbered walkthrough"** ở đầu file (từng giai đoạn: việc cần làm, kết quả mong đợi, xử lý khi sai). Đây là tài liệu duy nhất cần đọc để bắt đầu; các mục phía sau là tham chiếu chi tiết.
 EOF
+sed -i.bak "s/__SDK_VERSION__/$sdk_version/g" "$output_dir/README_PARTNER.md" && rm -f "$output_dir/README_PARTNER.md.bak"
 
 echo "5. Xác thực project độc lập bằng flutter pub get..."
 (

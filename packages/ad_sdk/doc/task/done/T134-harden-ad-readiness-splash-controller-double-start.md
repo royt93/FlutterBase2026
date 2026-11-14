@@ -5,7 +5,7 @@
   Xem `doc/audit/audit_round41.md` cho context audit liên quan.
 - **Priority:** P3 (hạ từ P2 gốc sau khi tự verify — xem "Vấn đề" bên dưới,
   mức độ rủi ro thật nhẹ hơn brainstorm mô tả)
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** S
 - **Files (dự kiến):** `packages/ad_sdk/lib/src/widget/ad_readiness_splash_controller.dart`
 - **Nguồn gợi ý:** codex (KHÔNG tự verify ở brainstorm gốc) — ticket này đã

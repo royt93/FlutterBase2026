@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P1
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** L
 - **Files (dự kiến):** `lib/src/monetization/waterfall_tuner.dart`,
   `lib/src/monetization/self_healing_observer.dart`, `lib/src/core/ad_manager.dart`

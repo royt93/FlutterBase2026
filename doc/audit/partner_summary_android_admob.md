@@ -1,7 +1,7 @@
 # Tóm tắt cho partner — `applovin_admob_sdk` 3.7.1 (Android + AdMob)
 
 - **Ngày:** 2026-11-13
-- **Dùng kèm:** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD` (hướng dẫn tích hợp) và `doc/audit/pilot_checklist_android_admob.md` (checklist pilot).
+- **Đầu mối duy nhất để làm:** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD`. Mở mục "Start here — numbered walkthrough" ở đầu file và làm theo từng giai đoạn. Tài liệu này chỉ tóm tắt bằng chứng; checklist pilot nằm ở `doc/audit/pilot_checklist_android_admob.md`.
 - **Tình trạng tài liệu này:** đã rà soát nội dung theo bằng chứng trong repo; **chờ chủ sản phẩm duyệt lần cuối trước khi gửi**. Chưa gửi cho ai.
 
 ## Kết luận ngắn

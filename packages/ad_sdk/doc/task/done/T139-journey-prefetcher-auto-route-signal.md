@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P3
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** M
 - **Files (dự kiến):** `lib/src/monetization/journey_prefetcher.dart`,
   `lib/src/core/ad_route_observer.dart`

@@ -9,8 +9,9 @@
 > The real automated tests (all passing — see `CHANGELOG.md`'s top entry for
 > the current file/test counts and SDK version) live in
 > **`packages/ad_sdk/test/`** — run them with
-> `cd packages/ad_sdk && flutter test`. There's also a 51-suite on-device set
-> at `packages/ad_sdk/example/integration_test/`. CI (`.github/workflows/test.yml`,
+> `cd packages/ad_sdk && flutter test`. There's also an on-device set (about 150 suites; count
+> with `ls example/integration_test/*_test.dart | wc -l`) at `packages/ad_sdk/example/integration_test/`. Clear app data with
+> `adb shell pm clear <applicationId>` before each device run (see that folder's `README.md`). CI (`.github/workflows/test.yml`,
 > at the repo root) runs four jobs: `sdk` (analyze + test, primary gate),
 > `pinning-wall` (`tool/check_pinning_wall.sh` against the consuming-app
 > fixture), `sdk-integration` (Android emulator) and `sdk-integration-ios`

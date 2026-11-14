@@ -5,7 +5,7 @@
   Xem `doc/audit/audit_round41.md` cho context audit liên quan.
 - **Priority:** P3 (xem "Ghi chú" — rủi ro thật thấp trong thực tế hiện tại,
   hạ từ P2 giả định ban đầu trong brainstorm)
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** S
 - **Files:** `packages/ad_sdk/lib/src/widget/revenue_panel.dart` — **đây là
   code SDK thật (`lib/`), KHÔNG phải chỉ demo trong `example/`** — đã verify

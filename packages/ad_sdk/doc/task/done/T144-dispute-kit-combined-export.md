@@ -3,7 +3,7 @@
 - **REQ:** brainstorm round 43 (2026-09-06) — đọc source thật + tham khảo
   `codex`/`agy` độc lập trong bản copy cô lập, user chọn qua AskUserQuestion.
 - **Priority:** P3 (đã giảm từ P2 gốc — hạ tầng chính đã có sẵn, xem dưới)
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** S (đã giảm từ L gốc — KHÔNG phải xây từ đầu)
 - **Files (dự kiến):** `lib/src/core/ad_manager.dart` (dòng ~1014-1062, nơi
   `exportSignedComplianceReport`/`exportSignedBypassAuditTrail` đã có),

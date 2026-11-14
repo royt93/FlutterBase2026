@@ -5,7 +5,7 @@
   User chọn qua AskUserQuestion.
 - **Priority:** P1 (differentiator mạnh nếu khả thi — xem cảnh báo kiến trúc
   bên dưới trước khi cam kết effort)
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see the "Kết quả" block below)
 - **Effort:** XL (có thể phải nâng lên XXL — xem "Vấn đề kiến trúc" bên dưới)
 - **Files (dự kiến):** `lib/src/config/ad_config.dart` (enum `AdProvider`,
   dòng ~62 + assert ở dòng ~418 hiện bắt buộc CHỈ 1 trong 2 config được

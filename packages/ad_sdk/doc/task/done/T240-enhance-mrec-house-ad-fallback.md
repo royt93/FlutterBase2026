@@ -2,7 +2,7 @@
 
 - **Loại:** Enhancement
 - **Priority:** P3 · **Severity:** LOW
-- **Status:** 🔲 todo
+- **Status:** ✅ done (header synced to done/ folder on 2026-11-14; see CHANGELOG.md and the evidence section)
 
 ## Vấn đề (Why)
 

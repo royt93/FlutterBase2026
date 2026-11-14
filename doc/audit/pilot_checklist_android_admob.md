@@ -26,7 +26,7 @@ Chưa có bằng chứng: host app thật, ad unit production, consent trên thi
 ## A. Trước khi cài bản pilot
 
 - [ ] Dependency trỏ tới bản **đã publish** `applovin_admob_sdk 3.7.1` (pub.dev), không dùng git/path dependency chưa qua quy trình release.
-- [ ] Làm theo `doc/AD_PROMPT_FLUTTER.MD` của đúng version đang pin (không copy cấu hình từ bản cũ).
+- [ ] Làm theo `doc/AD_PROMPT_FLUTTER.MD` của đúng version đang pin, bắt đầu từ mục "Start here — numbered walkthrough" (không copy cấu hình từ bản cũ).
 - [ ] Kotlin Gradle Plugin `>= 2.3.0` (cần cho `google_mobile_ads 9.2.x`); `kotlinOptions { jvmTarget }` đã chuyển sang `kotlin { compilerOptions { ... } }`.
 - [ ] `minSdk >= 24`; AdMob `APPLICATION_ID` trong manifest đúng app/publisher.
 - [ ] **Test ad unit IDs của Google không nằm trong cấu hình release** (SDK sẽ chặn request ở release; vẫn phải kiểm tra bằng build release thật).
