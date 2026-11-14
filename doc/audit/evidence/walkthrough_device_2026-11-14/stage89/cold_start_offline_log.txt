@@ -1,0 +1,58 @@
+         1794646023.681 25499 25499 I flutter : roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-14T15:47:03.678
+         1794646023.696 25499 25499 I flutter : roy93~ [AdManager] setNavigatorKey ✅
+         1794646023.899 25499 25499 I flutter : roy93~ [AdScreen~Router] ➡️ PUSH: / (from: null) popupDepth=0
+         1794646023.959 25499 25499 I flutter : roy93~ [AdManager] markSplashActive
+         1794646023.960 25499 25499 I flutter : roy93~ [AdManager] incrementSplashCount → 1
+         1794646024.128 25499 25499 I flutter : roy93~ [AdManager] initialize start, provider=admob
+         1794646024.140 25499 25499 I flutter : roy93~ [AdSafety] 🔄 init, dailyAds=0/999, suspiciousCount=0
+         1794646024.272 25499 25499 I flutter : roy93~ [AdManager] GAID resolved (present=true)
+         1794646024.394 25499 25499 I flutter : roy93~ [VipManager] load() entries=0 active=false
+         1794646024.395 25499 25499 I flutter : roy93~ [AdManager] VIP active=false entries=0
+         1794646024.398 25499 25499 I flutter : roy93~ [ConsentManager] load → ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true)
+         1794646024.398 25499 25499 I flutter : roy93~ [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+         1794646024.398 25499 25499 I flutter : roy93~ [AdManager] 🔐 gate closed until UMP resolves (SDK-owned consent flow)
+         1794646024.414 25499 25579 D UserMessagingPlatform: Stored info not exists: GppMetadata
+         1794646024.414 25499 25579 D UserMessagingPlatform: Stored info not exists: IDFA_freqCapNumViews
+         1794646024.414 25499 25579 D UserMessagingPlatform: Stored info not exists: UMP_CoMoAdStoragePurposeConsentStatus
+         1794646024.414 25499 25579 D UserMessagingPlatform: Stored info not exists: UMP_CoMoAnalyticsStoragePurposeConsentStatus
+         1794646024.414 25499 25579 D UserMessagingPlatform: Stored info not exists: UMP_CoMoAdPersonalizationPurposeConsentStatus
+         1794646024.414 25499 25579 D UserMessagingPlatform: Stored info not exists: UMP_CoMoAdUserDataPurposeConsentStatus
+         1794646024.415 25499 25579 D UserMessagingPlatform: Stored info not exists: IABTCF_idfaFlowControl
+         1794646024.415 25499 25579 D UserMessagingPlatform: Stored info not exists: IABGPP_HDR_GppString
+         1794646024.415 25499 25579 D UserMessagingPlatform: Stored info not exists: IABGPP_GppSID
+         1794646024.528 25499 25579 W UserMessagingPlatform: Metrics reporting URL is not set yet.
+         1794646024.530 25499 25499 W UserMessagingPlatform: Error making request.
+         1794646024.535 25499 25499 I flutter : roy93~ [UmpConsent] ⚠️ requestConsentInfoUpdate failed: 2:Error making request.
+         1794646024.546 25499 25499 I flutter : roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=obtained)
+         1794646024.569 25499 25499 I flutter : roy93~ [AdManager] ⚠️ UMP inconclusive (status=obtained, err=2:Error making request.) — keeping the persisted consent value instead of downgrading it
+         1794646024.780 25499 25499 I flutter : roy93~ [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+         1794646024.780 25499 25499 I flutter : roy93~ [AdMobAdapter] initialize [AdMob] ✅
+         1794646024.782 25499 25499 I flutter : roy93~ [ConsentManager] applyToProviders (ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true))
+         1794646024.786 25499 25499 I flutter : roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+         1794646024.813 25499 25499 I flutter : roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+         1794646024.813 25499 25499 I flutter : roy93~ [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+         1794646024.833 25499 25499 I flutter : roy93~ [AdManager] markSplashInactive
+         1794646024.839 25499 25499 I flutter : roy93~ [AdScreen~Router] 🔄 REPLACE: / → null popupDepth=0
+         1794646024.845 25499 25499 I flutter : roy93~ [AdManager] triggering App Open + banner/mrec preload
+         1794646024.846 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646024.847 25499 25499 I flutter : roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+         1794646024.850 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646024.850 25499 25499 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+         1794646024.850 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646024.850 25499 25499 I flutter : roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+         1794646024.853 25499 25499 I flutter : roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+         1794646024.947 25499 25499 I flutter : roy93~ [AdScreen] initState _HomeScreenState — preloading interstitial
+         1794646024.951 25499 25499 I flutter : roy93~ [AdScreen] buildBanner _HomeScreenState
+         1794646025.001 25499 25499 I flutter : roy93~ [BannerAdWidget] initState
+         1794646025.002 25499 25499 I flutter : roy93~ [BannerAdWidget] RouteAware subscribed: MaterialPageRoute<void>
+         1794646025.051 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646025.052 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646025.053 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646025.054 25499 25499 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=411.42857142857144
+         1794646025.055 25499 25499 I flutter : roy93~ [AdManager] isConnected read before ready, using last-known=true
+         1794646025.055 25499 25499 I flutter : roy93~ [BannerAdWidget] _initBanner ⏭️ cooldown
+         1794646025.069 25499 25499 I flutter : roy93~ [AdManager] 📶 connectivity watch started (connected=false)
+         1794646025.138 25499 25499 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] ⏭️ reload gate closed mid-lookup — aborting load
+         1794646025.172 25499 25499 I Ads     : Ad failed to load : 0
+         1794646025.175 25499 25499 I flutter : roy93~ [AdMobAdapter] ⚠️ loadAppOpen [AdMob] ❌ code=0 msg=Error while connecting to ad server: Unable to resolve host "googleads.g.doubleclick.net": No address associated with hostname
+         1794646025.386 25499 25499 I flutter : roy93~ [AdManager] markSplashInactive

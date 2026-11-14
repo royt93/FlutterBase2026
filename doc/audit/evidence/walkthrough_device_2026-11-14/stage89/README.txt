@@ -28,3 +28,10 @@ Stage 9 repeated (final controlled interval):
 - Host-side epoch boundaries: Wi-Fi turned off at 1794643730 and turned on at 1794643760 (30 seconds); `wifi_off=0`, final Wi-Fi `1`.
 - App PID log during the window contained no SDK request/load/refill/error entries; only `Codec2Client setOutputSurface` surface warning. This supports “no SDK ad request observed during this 30-second window,” not proof for every offline condition.
 - On reconnect the SDK logged `network back online → refilling ad slots + banners`. The banner was already loaded before disconnect and no new successful banner creative load was observed afterward; post-reconnect creative recovery remains unverified. Therefore Stage 9 remains PARTIAL, not PASS.
+
+Stage 9 decisive cold-start/reconnect test (2026-11-14):
+- Freshly accepted EEA test consent online and confirmed Home banner loaded.
+- Wi-Fi disabled, throwaway app force-stopped, then relaunched with Wi-Fi still disabled.
+- UMP update failed with `2:Error making request.`; banner size lookup was aborted by reload gate; interstitial load logged `skipped — no network`.
+- Wi-Fi restored after about 26 seconds. SDK logged `network back online → refilling ad slots + banners`; banner then logged `loadBanner [AdMob] ✅` and is visibly rendered (`cold_start_reconnected_banner.png`).
+- This establishes the tested cold-offline start path, skipped request gates and successful banner recovery after reconnect on this device/test ad. It does not establish all network conditions or broader stability. Prior isolated 30s interval evidence remains for no SDK request logs while offline.

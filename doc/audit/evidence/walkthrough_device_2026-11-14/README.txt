@@ -19,3 +19,5 @@ Bảo vệ app chủ: `packages_before.txt` và `packages_after_uninstall.txt` x
 Lưu ý: Một lượt thử trên một thiết bị, không phải kiểm định partner app hoặc production ad units. Logs đã lọc; raw log không lưu trong repo.
 
 Stage 9 final controlled retry evidence: `stage89/retry_offline_window.txt`, `stage89/retry_reconnect_window.txt`, `stage89/stage9_final_offline_window.txt`, and `stage89/stage9_final_reconnect_window.txt`. Second 30-second test still has no observed SDK request while Wi-Fi was off; reconnect hook logged, but no new successful banner load observed after reconnect. Remains PARTIAL.
+
+Stage 9 cold-start recovery passed on one Pixel test path; see stage89/cold_start_* evidence.
