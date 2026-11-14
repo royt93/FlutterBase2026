@@ -2,7 +2,7 @@
 
 - **Loại:** Performance / Measurement / Research
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** inprogress (hoàn thành tổng hợp bằng chứng TECNO; Pixel 7 Pro acceptance mở khi có thiết bị)
+- **Status:** inprogress (blocked: cần Pixel 7 Pro; TECNO/S24U chỉ là máy thử, không dùng làm acceptance; chủ sản phẩm xác nhận giữ tiêu chí Pixel 2026-11-14)
 
 ## Tóm tắt kết luận kỹ thuật (2026-10-24)
 
@@ -128,3 +128,6 @@ Không hạ tiêu chí 60fps và không diễn giải FrameTiming/BeginFrame nh�
 5. Audit độc lập toàn bộ truy vấn, clock alignment, trace errors và số liệu trước khi kết luận.
 6. Không push hay sửa acceptance T257 nếu chưa đạt bằng chứng và owner chưa duyệt.
 ```
+
+## Quyết định (2026-11-14)
+Chủ sản phẩm nói hiện không có Pixel và dùng TECNO cho mọi phiên; khi hỏi, chọn **giữ tiêu chí Pixel 7 Pro, TECNO chỉ là máy thử**. Hệ quả: T267 và T257 **chưa đạt**, không có kết luận 60fps nào được rút ra từ TECNO hay S24U (Macrobenchmark báo `Observed no renderthread slices`, `dumpsys SurfaceFlinger --latency` chỉ trả chu kỳ vsync, FrameTiming chỉ là thời gian engine). Mở lại khi có Pixel 7 Pro.
