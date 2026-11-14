@@ -1,0 +1,20 @@
+         1794642083.157 17947 18204 W chromium: [WARNING:services/audio/sync_reader.cc:154] ASR: No room in socket buffer.: Broken pipe (32)
+         1794642083.159 17947 18174 W cr_MediaCodecBridge: Releasing: c2.exynos.vp9.decoder
+         1794642083.159 17947 18767 I Surface : Creating surface for consumer unnamed-17947-6 with slotExpansion=0 for 64 slots
+         1794642083.159 17947 18767 D SurfaceUtils: connecting to surface 0xb400007204e88e20, reason connectToSurface
+         1794642083.159 17947 18767 I MediaCodec: [c2.exynos.vp9.decoder] setting surface generation to 18377732
+         1794642083.159 17947 18767 D SurfaceUtils: disconnecting from surface 0xb400007204e88e20, reason connectToSurface(reconnect)
+         1794642083.159 17947 18767 D SurfaceUtils: connecting to surface 0xb400007204e88e10, reason connectToSurface(reconnect-with-listener)
+         1794642083.159 17947 18767 D Codec2Client: setOutputSurface -- failed to set consumer usage (6/BAD_INDEX)
+         1794642083.159 17947 18767 D LegacyGraphicsTracker: new surface in configuration: maxDequeueRequested(0), maxDequeueCommitted(19)
+         1794642083.159 17947 18767 D LegacyGraphicsTracker: new surface configured with id:77081778061318 gen:18377732 maxDequeue:19
+         1794642083.159 17947 18767 D LegacyGraphicsTracker: maxDequeueCount is already 19
+         1794642083.159 17947 18767 D Codec2Client: setOutputSurface -- generation=18377732 consumer usage=0x900
+         1794642083.159 17947 18767 D SurfaceUtils: disconnecting from surface 0xb400007204e8b4c0, reason disconnectFromSurface
+         1794642083.159 17947 18767 D CCodecBufferChannel: [c2.exynos.vp9.decoder#160] MediaCodec discarded an unknown buffer
+         1794642083.159 17947 18767 D CCodecBufferChannel: [c2.exynos.vp9.decoder#160] MediaCodec discarded an unknown buffer
+         1794642083.159 17947 18767 D CCodecBufferChannel: [c2.exynos.vp9.decoder#160] MediaCodec discarded an unknown buffer
+         1794642083.159 17947 18767 D CCodecBufferChannel: [c2.exynos.vp9.decoder#160] MediaCodec discarded an unknown buffer
+         1794642083.160 17947 18809 D CCodec  : hold CodecLooper(1) until release
+         1794642083.160 17947 18174 W cr_MediaCodecBridge: Codec released
+         1794642083.170 17947 18767 D SurfaceUtils: disconnecting from surface 0xb400007204e88e20, reason disconnectFromSurface

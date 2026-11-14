@@ -1,0 +1,15 @@
+11-14 14:27:41.192 13869 13869 I flutter : roy93~ [AdManager] ⏭️ loadInterstitial skipped — adapter null
+11-14 14:28:21.035 13869 13869 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=411.42857142857144
+11-14 14:28:21.091 13869 13869 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-14 14:28:22.731 13869 13869 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-14 14:28:36.130 13869 13869 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] 🔄
+11-14 14:28:37.246 13869 13869 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] ✅
+11-14 14:29:54.729 13869 13869 I flutter : roy93~ [AdManager] 📶 network back online → refilling ad slots + banners
+11-14 14:29:54.749 13869 13869 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=showing rewarded=ready appOpen=ready
+11-14 14:29:54.805 13869 13869 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-14 14:30:58.057 13869 13869 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] 🔄
+11-14 14:30:58.296 13869 13869 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=411.42857142857144
+11-14 14:30:59.326 13869 13869 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-14 14:30:59.348 13869 13869 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] ✅
+11-14 14:31:44.751 13869 13869 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=411.42857142857144
+11-14 14:31:46.874 13869 13869 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] ✅

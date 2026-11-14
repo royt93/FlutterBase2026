@@ -40,7 +40,18 @@ rsync -av \
   --exclude="test" \
   "$package_dir/example/" "$output_dir/example/" >/dev/null
 
-echo "2. Chuyển đổi pubspec.yaml sang phiên bản pub.dev ($sdk_version)..."
+echo "2. Give the bundled example a disposable applicationId..."
+# The bundled example otherwise reuses the consuming app's applicationId; use a disposable ID so installation cannot replace a partner app.
+python3 -I - "$output_dir/example/android/app/build.gradle.kts" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = 'applicationId = "com.roy.admobwrapper"'
+assert text.count(old) == 1, "expected example applicationId not found exactly once"
+path.write_text(text.replace(old, 'applicationId = "com.roy.admobwrapper.partnerdemo"'))
+PY
+
+echo "3. Chuyển đổi pubspec.yaml sang phiên bản pub.dev ($sdk_version)..."
 example_pubspec="$output_dir/example/pubspec.yaml"
 
 # Thay thế dependency path: ../ bằng phiên bản pub.dev

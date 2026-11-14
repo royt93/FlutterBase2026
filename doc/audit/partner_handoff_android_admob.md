@@ -77,5 +77,6 @@ Mỗi thư mục có `README.txt` hoặc `NOTES.txt` nói rõ **đã thấy gì 
 ## 9. Việc người gửi (chủ sản phẩm) phải tự làm
 
 - Đọc lại mục 4 và đảm bảo người nhận hiểu các giới hạn.
+- Nếu tạo ZIP bằng `packages/ad_sdk/tool/package_partner_example.sh`, dùng bản mới nhất: script tự pin version hiện tại và đặt applicationId mẫu riêng `com.roy.admobwrapper.partnerdemo` để cài thử không ghi đè app của partner. Kiểm lại file ZIP sau khi tạo; không dùng ZIP cũ.
 - Quyết định kênh gửi và có đính kèm file hay chỉ link.
 - Không gửi kèm khóa riêng, ad unit production hay thông tin nội bộ; trong bằng chứng đã che địa chỉ IP mạng nội bộ và không có khóa VIP.

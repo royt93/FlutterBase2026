@@ -1,0 +1,8 @@
+UMP EEA consent form: visible; status=required before answer
+Consent: status=obtained formShown=true canRequestAds=true nonPersonalizedAds=false
+Do not consent: status=obtained formShown=true canRequestAds=true nonPersonalizedAds=true
+Privacy Options re-opened UMP form; Consent then changed nonPersonalizedAds back to false
+Wi-Fi: 1 -> 0 (30 seconds) -> 1
+Offline bounded app-PID log: no SDK load/refill/error entries; two unrelated Codec2 surface warnings
+After Wi-Fi restored: SDK logged "network back online -> refilling ad slots + banners"
+No proof that an additional creative request completed after reconnect; Stage 9 stays partial.

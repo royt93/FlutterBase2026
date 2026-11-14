@@ -1,0 +1,5 @@
+11-14 14:32:52.342 13869 13869 I flutter : roy93~ [AdManager] 📶 network back online → refilling ad slots + banners
+11-14 14:32:52.343 13869 13869 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
+11-14 14:32:52.362 13869 13869 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-14 14:32:52.363 13869 13869 I flutter : roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+11-14 14:33:21.113 13869 13869 I flutter : roy93~ [AdManager] ⏲️ retry refill scan — vip=false inter=ready rewarded=ready appOpen=ready
