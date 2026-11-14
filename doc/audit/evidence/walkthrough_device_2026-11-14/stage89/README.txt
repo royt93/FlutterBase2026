@@ -10,7 +10,7 @@ Stage 8 — PASS (UMP EEA flow on this device)
 - Opened the app's Privacy screen from Home after dismissing the interstitial via its visible close control. Privacy Options reopened the form (privacy_options_reopened_form.png). Chose Consent; log changed nonPersonalizedAds to false while canRequestAds stayed true. (ump_reconsent_result.png is a screenshot of the generic post-consent form state; log is the state evidence.)
 - A later tap intended to choose Do not consent did not change state; no claim made for that action.
 
-Stage 9 — PARTIAL / inconclusive
+Stage 9 — PASS for the specific cold-start recovery path below; prior loaded-banner intervals remain partial
 - Wi-Fi state changed 1 -> 0 -> 1 and was restored to on before cleanup.
 - On reconnect the SDK logged `network back online -> refilling ad slots + banners` and subsequent ad load activity.
 - The captured offline log was incomplete / included unrelated lifecycle activity; this run does not establish the exact no-request-while-offline behavior. Record as inconclusive, not pass.
@@ -34,4 +34,4 @@ Stage 9 decisive cold-start/reconnect test (2026-11-14):
 - Wi-Fi disabled, throwaway app force-stopped, then relaunched with Wi-Fi still disabled.
 - UMP update failed with `2:Error making request.`; banner size lookup was aborted by reload gate; interstitial load logged `skipped — no network`.
 - Wi-Fi restored after about 26 seconds. SDK logged `network back online → refilling ad slots + banners`; banner then logged `loadBanner [AdMob] ✅` and is visibly rendered (`cold_start_reconnected_banner.png`).
-- This establishes the tested cold-offline start path, skipped request gates and successful banner recovery after reconnect on this device/test ad. It does not establish all network conditions or broader stability. Prior isolated 30s interval evidence remains for no SDK request logs while offline.
+- PASS for this specific cold-start test path on this Pixel/test inventory: UMP correctly failed closed on offline update, ad work was skipped/aborted, and banner recovered after reconnect. Not a claim about all network conditions or broader stability. Two separate 30-second intervals with a preloaded banner remain partial evidence only.
