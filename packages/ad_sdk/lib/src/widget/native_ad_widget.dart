@@ -651,14 +651,29 @@ class _NativeAdWidgetState extends State<NativeAdWidget>
     return ValueListenableBuilder<int>(
       valueListenable: AdManager().initRevision,
       builder: (context, _, _) {
-        if (!_allowed.value &&
+        final manager = AdManager();
+        final failedAppLovinNative = _allowed.value &&
+            !manager.isAdMobProvider &&
+            manager.isConnected &&
+            manager.nativeHasError(this).value;
+        if ((failedAppLovinNative || !_allowed.value) &&
             !_initScheduled &&
-            AdManager().isInitialised &&
+            manager.isInitialised &&
             widget.active) {
           _initScheduled = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initScheduled = false;
             if (!mounted) return;
+            if (failedAppLovinNative &&
+                manager.isConnected &&
+                manager.nativeHasError(this).value) {
+              _retryTimer?.cancel();
+              _retryTimer = null;
+              _closeFlightRecorderVisibilityForReload();
+              _appLovinViewGeneration++;
+              manager.disposeNativeInstance(this);
+              _allowed.value = false;
+            }
             _initNative();
           });
         }

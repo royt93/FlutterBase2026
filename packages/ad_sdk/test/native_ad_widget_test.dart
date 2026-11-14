@@ -877,6 +877,86 @@ void main() {
             'is a deadlock: nothing else can ever set isLoaded true');
   });
 
+  testWidgets('AppLovin native load error retries immediately on reconnect', (
+    tester,
+  ) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    AdManager().debugReconnectDebounce = Duration.zero;
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugConnectivityChanged(true);
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.nativeListenablesByKey, hasLength(1));
+    final failedBundle = adapter.nativeListenablesByKey.values.single;
+    final failedViewElement = tester.element(find.byType(MaxNativeAdView));
+
+    AdManager().debugConnectivityChanged(false);
+    failedBundle.hasError.value = true;
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.nativeListenablesByKey.values.single, same(failedBundle));
+
+    AdManager().debugConnectivityChanged(true);
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump();
+    await tester.pump();
+
+    expect(adapter.nativeListenablesByKey, hasLength(1));
+    expect(
+      adapter.nativeListenablesByKey.values.single,
+      isNot(same(failedBundle)),
+      reason: 'failed AppLovin native bundle must be replaced on reconnect',
+    );
+    expect(
+      adapter.nativeListenablesByKey.values.single.hasError.value,
+      isFalse,
+    );
+    expect(
+      tester.element(find.byType(MaxNativeAdView)),
+      isNot(same(failedViewElement)),
+      reason: 'replacement bundle must mount a fresh platform view',
+    );
+    expect(tester.getSize(find.byType(NativeAdWidget)).height, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('healthy AppLovin native is left alone on reconnect', (
+    tester,
+  ) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _appLovinConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugReconnectDebounce = Duration.zero;
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+      AdManager().debugConnectivityChanged(true);
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    final healthyBundle = adapter.nativeListenablesByKey.values.single;
+    healthyBundle.isLoaded.value = true;
+
+    AdManager().debugConnectivityChanged(false);
+    AdManager().debugConnectivityChanged(true);
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump();
+    await tester.pump();
+
+    expect(adapter.nativeListenablesByKey.values.single, same(healthyBundle));
+    expect(adapter.disposeNativeCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('native ad collapses offline and reloads on reconnect',
       (tester) async {
     final adapter = _NativeCountingAdapter();

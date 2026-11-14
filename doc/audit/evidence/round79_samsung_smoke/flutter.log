@@ -1,0 +1,104 @@
+--------- beginning of main
+11-14 17:58:46.613 18006 18048 I flutter : [IMPORTANT:flutter/shell/platform/android/android_context_vk_impeller.cc(62)] Using the Impeller rendering backend (Vulkan).
+11-14 17:58:46.757 18006 18062 I flutter : The Dart VM service is listening on http://127.0.0.1:32971/fZHRRXoj0rk=/
+11-14 17:58:46.845 18006 18006 I flutter : roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-14T17:58:46.840
+11-14 17:58:46.854 18006 18006 I flutter : roy93~ [AdManager] setNavigatorKey ✅
+11-14 17:58:47.013 18006 18006 I flutter : roy93~ [AdScreen~Router] ➡️ PUSH: / (from: null) popupDepth=0
+11-14 17:58:47.044 18006 18006 I flutter : roy93~ [AdManager] markSplashActive
+11-14 17:58:47.045 18006 18006 I flutter : roy93~ [AdManager] incrementSplashCount → 1
+11-14 17:58:48.082 18006 18006 I flutter : roy93~ [UmpConsent] consent status: notRequired
+11-14 17:58:48.087 18006 18006 I flutter : roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+11-14 17:58:48.089 18006 18006 I flutter : roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+11-14 17:58:48.090 18006 18006 I flutter : roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+11-14 17:58:48.104 18006 18006 I flutter : roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+11-14 17:58:48.104 18006 18006 I flutter : roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+11-14 17:58:48.104 18006 18006 I flutter : roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+11-14 17:58:48.104 18006 18006 I flutter : UMP: canRequestAds=true status=ConsentStatus.notRequired formShown=false error=null
+11-14 17:58:48.110 18006 18006 I flutter : roy93~ [AdManager] initialize start, provider=admob
+11-14 17:58:48.121 18006 18006 I flutter : roy93~ [AdSafety] 🔄 init, dailyAds=0/999, suspiciousCount=0
+11-14 17:58:48.128 18006 18006 I flutter : roy93~ [AdManager] GAID resolved (present=true)
+11-14 17:58:48.385 18006 18006 I flutter : roy93~ [VipManager] load() entries=0 active=false
+11-14 17:58:48.387 18006 18006 I flutter : roy93~ [AdManager] VIP active=false entries=0
+11-14 17:58:48.390 18006 18006 I flutter : roy93~ [FirstInstallGuard] ⏭️ debug build — anti-bypass guard bypassed (test on release builds)
+11-14 17:58:48.392 18006 18006 I flutter : roy93~ [VipManager] addVip: added __FIRST_INSTALL__ until 2026-11-14 17:59:18.391488
+11-14 17:58:48.397 18006 18006 I flutter : roy93~ [VipManager] active state changed: false → true
+11-14 17:58:48.398 18006 18006 I flutter : roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-14 17:58:48.399 18006 18006 I flutter : roy93~ [FirstInstallGuard] ⏭️ debug build — Keychain flag write skipped (avoid polluting release)
+11-14 17:58:48.405 18006 18006 I flutter : roy93~ [AdManager] 🎁 first-install VIP grace granted (30s, mode=debug)
+11-14 17:58:48.407 18006 18006 I flutter : roy93~ [ConsentManager] load → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=false)
+11-14 17:58:48.426 18006 18006 I flutter : roy93~ [ConsentManager] set → ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true)
+11-14 17:58:48.429 18006 18006 I flutter : roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+11-14 17:58:48.458 18006 18006 I flutter : roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+11-14 17:58:48.459 18006 18006 I flutter : roy93~ [AdManager] 🔐 autoRequestUmpConsent — running UMP before adapter init
+11-14 17:58:48.460 18006 18006 I flutter : roy93~ [AdManager] 🔐 gate closed until UMP resolves (SDK-owned consent flow)
+11-14 17:58:48.463 18006 18006 I flutter : roy93~ [AdManager] ⏭️ auto UMP skipped — host already called requestUmpConsent()
+11-14 17:58:49.366 18006 18006 I flutter : roy93~ [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+11-14 17:58:49.366 18006 18006 I flutter : roy93~ [AdMobAdapter] initialize [AdMob] ✅
+11-14 17:58:49.371 18006 18006 I flutter : roy93~ [ConsentManager] applyToProviders (ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true))
+11-14 17:58:49.372 18006 18006 I flutter : roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+11-14 17:58:49.377 18006 18006 I flutter : roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+11-14 17:58:49.378 18006 18006 I flutter : roy93~ [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+11-14 17:58:49.400 18006 18006 I flutter : roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+11-14 17:58:49.404 18006 18006 I flutter : roy93~ [AdManager] markSplashInactive
+11-14 17:58:49.414 18006 18006 I flutter : roy93~ [AdScreen~Router] 🔄 REPLACE: / → null popupDepth=0
+11-14 17:58:49.425 18006 18006 I flutter : roy93~ [AdManager] triggering App Open + banner/mrec preload
+11-14 17:58:49.425 18006 18006 I flutter : roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+11-14 17:58:49.425 18006 18006 I flutter : roy93~ [AdManager] ⏭️ banner/mrec preload skipped — VIP member
+11-14 17:58:49.425 18006 18006 I flutter : roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+11-14 17:58:49.864 18006 18006 I flutter : roy93~ [AdManager] 📶 connectivity watch started (connected=true)
+11-14 17:59:03.416 18006 18006 I flutter : roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-14 17:59:03.425 18006 18006 I flutter : roy93~ [VipManager] grace nudge due: true
+11-14 17:59:03.426 18006 18006 I flutter : roy93~ [VipManager] ⏲️ next VIP timer event in 14s
+11-14 17:59:18.392 18006 18006 I flutter : roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+11-14 17:59:18.393 18006 18006 I flutter : roy93~ [VipManager] purgeExpired: removed 1
+11-14 17:59:18.394 18006 18006 I flutter : roy93~ [AdManager] 🔓 VIP inactive — kicking secondary preload
+11-14 17:59:18.398 18006 18006 I flutter : roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+11-14 17:59:18.402 18006 18006 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] 🔄
+11-14 17:59:18.404 18006 18006 I flutter : roy93~ [AdMobAdapter] loadRewarded [AdMob] 🔄
+11-14 17:59:18.406 18006 18006 I flutter : roy93~ [AdMobAdapter] loadRewardedInterstitial [AdMob] 🔄
+11-14 17:59:18.408 18006 18006 I flutter : roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+11-14 17:59:18.408 18006 18006 I flutter : roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+11-14 17:59:18.408 18006 18006 I flutter : roy93~ [VipManager] active state changed: true → false
+11-14 17:59:18.408 18006 18006 I flutter : roy93~ [VipManager] grace nudge due: false
+11-14 17:59:20.304 18006 18006 I flutter : roy93~ [AdMobAdapter] loadInterstitial [AdMob] ✅
+11-14 17:59:20.338 18006 18006 I flutter : roy93~ [AdMobAdapter] loadAppOpen [AdMob] ✅
+11-14 17:59:20.339 18006 18006 I flutter : roy93~ [AdManager] first secondary load → inter + rewarded + RI
+11-14 17:59:21.063 18006 18006 I flutter : roy93~ [AdMobAdapter] loadRewarded [AdMob] ✅
+11-14 17:59:21.105 18006 18006 I flutter : roy93~ [AdMobAdapter] loadRewardedInterstitial [AdMob] ✅
+11-14 18:00:37.020 18006 18006 I flutter : roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-14 18:00:37.026 18006 18006 I flutter : roy93~ [AdScreen] initState _NativeDemoPageState — preloading interstitial
+11-14 18:00:37.033 18006 18006 I flutter : roy93~ [AdScreen] buildNative _NativeDemoPageState
+11-14 18:00:37.034 18006 18006 I flutter : roy93~ [AdScreen] buildNative _NativeDemoPageState
+11-14 18:00:37.108 18006 18006 I flutter : roy93~ [NativeAdWidget] initState
+11-14 18:00:37.112 18006 18006 I flutter : roy93~ [AdMobAdapter] preloadNative [AdMob] 🔄
+11-14 18:00:37.129 18006 18006 I flutter : roy93~ [NativeAdWidget] initState
+11-14 18:00:37.129 18006 18006 I flutter : roy93~ [AdMobAdapter] preloadNative [AdMob] 🔄
+11-14 18:00:38.496 18006 18006 I flutter : roy93~ [AdMobAdapter] preloadNative [AdMob] ✅
+11-14 18:00:38.636 18006 18006 I flutter : roy93~ [AdMobAdapter] preloadNative [AdMob] ✅
+11-14 18:00:38.697 18006 18006 I flutter : roy93~ [AdMobAdapter] native [AdMob] 👁 impression
+11-14 18:00:38.697 18006 18006 I flutter : roy93~ [AdSafety] 📊 Banner impression | totalImpressions=1
+11-14 18:00:38.764 18006 18006 I flutter : roy93~ [AdMobAdapter] native [AdMob] 👁 impression
+11-14 18:00:38.764 18006 18006 I flutter : roy93~ [AdSafety] 📊 Banner impression | totalImpressions=2
+11-14 18:01:33.403 18006 18006 I flutter : roy93~ [AdScreen~Router] ⬅️ POP: null (back to: null) popupDepth=0
+11-14 18:01:33.900 18006 18006 I flutter : roy93~ [AdScreen] dispose() _NativeDemoPageState
+11-14 18:01:52.952 18006 18006 I flutter : roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=0
+11-14 18:01:52.958 18006 18006 I flutter : roy93~ [AdScreen] initState _BannerDemoPageState — preloading interstitial
+11-14 18:01:52.965 18006 18006 I flutter : roy93~ [AdScreen] buildBanner _BannerDemoPageState
+11-14 18:01:52.965 18006 18006 I flutter : roy93~ [AdScreen] buildBanner _BannerDemoPageState
+11-14 18:01:52.965 18006 18006 I flutter : roy93~ [AdScreen] buildBanner _BannerDemoPageState
+11-14 18:01:52.972 18006 18006 I flutter : roy93~ [BannerAdWidget] initState
+11-14 18:01:52.973 18006 18006 I flutter : roy93~ [BannerAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-14 18:01:52.997 18006 18006 I flutter : roy93~ [BannerAdWidget] initState
+11-14 18:01:52.997 18006 18006 I flutter : roy93~ [BannerAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-14 18:01:53.008 18006 18006 I flutter : roy93~ [BannerAdWidget] initState
+11-14 18:01:53.008 18006 18006 I flutter : roy93~ [BannerAdWidget] RouteAware subscribed: MaterialPageRoute<dynamic>
+11-14 18:01:53.018 18006 18006 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=360.0
+11-14 18:01:53.018 18006 18006 I flutter : roy93~ [BannerAdWidget] _initBanner ⏭️ cooldown
+11-14 18:01:53.019 18006 18006 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] 🔄 width=360.0
+11-14 18:01:53.019 18006 18006 I flutter : roy93~ [BannerAdWidget] _initBanner ⏭️ cooldown
+11-14 18:01:53.869 18006 18006 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-14 18:01:53.876 18006 18006 I flutter : roy93~ [AdMobAdapter] loadBanner [AdMob] ✅
+11-14 18:01:53.909 18006 18006 I flutter : roy93~ [AdMobAdapter] banner [AdMob] 👁 impression
+11-14 18:01:53.909 18006 18006 I flutter : roy93~ [AdSafety] 📊 Banner impression | totalImpressions=3
+11-14 18:01:53.968 18006 18006 I flutter : roy93~ [AdMobAdapter] banner [AdMob] 👁 impression
+11-14 18:01:53.968 18006 18006 I flutter : roy93~ [AdSafety] 📊 Banner impression | totalImpressions=4
