@@ -1,0 +1,22 @@
+10:44:17.513 T257_PHASE_MARK phase=startup timeline_us=815690370 latest_frame_vsync_us=-1 timing_samples=0
+10:44:17.513 T257_PHASE_MARK phase=consent_init timeline_us=815690515 latest_frame_vsync_us=-1 timing_samples=0
+10:44:18.241 T257_CONSENT status=notRequired canRequestAds=true
+10:44:19.706 T257_INIT ok=true scenario=real
+10:44:19.707 T257_PHASE_MARK phase=banner_load_begin timeline_us=817884119 latest_frame_vsync_us=817810263 timing_samples=236
+10:44:19.777 T257_AD slot=loading loaded=false scenario=real
+10:44:21.404 T257_REAL_AD_READY ready=true
+10:44:21.404 T267_READY scenario=real
+10:44:23.865 T267_START requested
+10:44:23.865 T267_BANNER_AT_SCROLL slot=ready loaded=true error=false
+10:44:23.866 T257_REAL_AD_RESULT state=ready loaded=true ready=true error=false
+10:44:23.866 T257_PHASE_MARK phase=real_banner_visible_end timeline_us=822043068 latest_frame_vsync_us=821418491 timing_samples=464
+10:44:26.869 T257_PHASE_MARK phase=real_scroll_end timeline_us=825046118 latest_frame_vsync_us=824060041 timing_samples=702
+10:44:29.872 T257_PHASE_MARK phase=real_return_end timeline_us=828049455 latest_frame_vsync_us=827260748 timing_samples=960
+10:44:29.873 T257_PHASE_MARK phase=report timeline_us=828050148 latest_frame_vsync_us=827260748 timing_samples=960
+10:44:29.874 T257_METRIC scenario=real phase=startup phase_start_us=815690370 phase_end_us=815690515 first_vsync_us=-1 last_vsync_us=-1 duration_ms=0 frame_timing_samples=0 frame_timing_samples_per_second=0.0 total_over_16_67ms=0 total_over_8_33ms=0 sample_vsync_gap_over_16_67ms=0 sample_vsync_gap_over_33_3ms=0 p95_sample_vsync_gap_ms=0.00 p95_build_ms=0.00 p95_raster_ms=0.00 p95_total_ms=0.00
+10:44:29.877 T257_METRIC scenario=real phase=consent_init phase_start_us=815690515 phase_end_us=817884119 first_vsync_us=815746048 last_vsync_us=817876886 duration_ms=2193 frame_timing_samples=244 frame_timing_samples_per_second=111.23247404727562 total_over_16_67ms=4 total_over_8_33ms=8 sample_vsync_gap_over_16_67ms=3 sample_vsync_gap_over_33_3ms=2 p95_sample_vsync_gap_ms=8.34 p95_build_ms=1.06 p95_raster_ms=2.24 p9
+10:44:29.879 T257_METRIC scenario=real phase=banner_load_begin phase_start_us=817884119 phase_end_us=822043068 first_vsync_us=817885216 last_vsync_us=821418491 duration_ms=4158 frame_timing_samples=220 frame_timing_samples_per_second=52.89797975401959 total_over_16_67ms=6 total_over_8_33ms=6 sample_vsync_gap_over_16_67ms=13 sample_vsync_gap_over_33_3ms=6 p95_sample_vsync_gap_ms=16.68 p95_build_ms=1.37 p95_raster_ms=1
+10:44:29.882 T257_METRIC scenario=real phase=real_banner_visible_end phase_start_us=822043068 phase_end_us=825046118 first_vsync_us=822051537 last_vsync_us=824060041 duration_ms=3003 frame_timing_samples=238 frame_timing_samples_per_second=79.25275969431078 total_over_16_67ms=0 total_over_8_33ms=3 sample_vsync_gap_over_16_67ms=1 sample_vsync_gap_over_33_3ms=0 p95_sample_vsync_gap_ms=8.34 p95_build_ms=1.31 p95_raster_
+10:44:29.885 T257_METRIC scenario=real phase=real_scroll_end phase_start_us=825046118 phase_end_us=828049455 first_vsync_us=825051706 last_vsync_us=827260748 duration_ms=3003 frame_timing_samples=258 frame_timing_samples_per_second=85.90444562165351 total_over_16_67ms=0 total_over_8_33ms=4 sample_vsync_gap_over_16_67ms=2 sample_vsync_gap_over_33_3ms=0 p95_sample_vsync_gap_ms=8.38 p95_build_ms=1.67 p95_raster_ms=2.69 
+10:44:29.885 T257_METRIC scenario=real phase=real_return_end phase_start_us=828049455 phase_end_us=828050148 first_vsync_us=-1 last_vsync_us=-1 duration_ms=0 frame_timing_samples=0 frame_timing_samples_per_second=0.0 total_over_16_67ms=0 total_over_8_33ms=0 sample_vsync_gap_over_16_67ms=0 sample_vsync_gap_over_33_3ms=0 p95_sample_vsync_gap_ms=0.00 p95_build_ms=0.00 p95_raster_ms=0.00 p95_total_ms=0.00
+10:44:29.885 T257_LIMIT: FrameTiming durations/sample gaps are Flutter pipeline observations, not confirmed presented/dropped-frame counts. Correlate with Android frame-timeline evidence.

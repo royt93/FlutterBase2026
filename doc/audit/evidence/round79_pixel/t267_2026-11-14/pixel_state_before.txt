@@ -1,0 +1,11 @@
+== before: Sat Nov 14 10:40:10 +07 2026
+  AC powered: true
+  USB powered: false
+  status: 2
+  level: 10
+  temperature: 307
+  Capacity level: 2
+Thermal Status: 0
+Cached temperatures:
+	Temperature{mValue=63.000004, mType=0, mName=LITTLE, mStatus=0}
+	Temperature{mValue=26.893002, mType=-1, mName=neutral_therm, mStatus=0}

@@ -2,7 +2,7 @@
 
 - **Loại:** Performance / Measurement / Research
 - **Priority:** P1 · **Severity:** MEDIUM
-- **Status:** inprogress (blocked: cần Pixel 7 Pro; TECNO/S24U chỉ là máy thử, không dùng làm acceptance; chủ sản phẩm xác nhận giữ tiêu chí Pixel 2026-11-14)
+- **Status:** inprogress (Pixel 7 Pro có mặt từ 2026-11-14 nhưng Macrobenchmark vẫn không thu được metric; chưa đạt acceptance; xem mục Pixel 2026-11-14)
 
 ## Tóm tắt kết luận kỹ thuật (2026-10-24)
 
@@ -131,3 +131,11 @@ Không hạ tiêu chí 60fps và không diễn giải FrameTiming/BeginFrame nh�
 
 ## Quyết định (2026-11-14)
 Chủ sản phẩm nói hiện không có Pixel và dùng TECNO cho mọi phiên; khi hỏi, chọn **giữ tiêu chí Pixel 7 Pro, TECNO chỉ là máy thử**. Hệ quả: T267 và T257 **chưa đạt**, không có kết luận 60fps nào được rút ra từ TECNO hay S24U (Macrobenchmark báo `Observed no renderthread slices`, `dumpsys SurfaceFlinger --latency` chỉ trả chu kỳ vsync, FrameTiming chỉ là thời gian engine). Mở lại khi có Pixel 7 Pro.
+
+## Pixel 7 Pro thật, 2026-11-14 (Android 17, API 37) — vẫn CHƯA đạt acceptance
+- Chạy `T257FrameTimingBenchmark#realAdMobScroll` (Profile, banner thật xác nhận `ready=true`) trên Pixel 7 Pro bản sao `/tmp` (repo không đổi). **Pin 10-12% và đang sạc** (chủ sản phẩm chọn đo ngay); nhiệt độ ~31 °C, thermal status 0.
+- Lượt 1: lỗi của tôi (Gradle không nhận cờ `--dart-define`), không chạy. Lượt 2: AndroidX từ chối: `ERRORS (not suppressed): LOW-BATTERY` (cần pin >= 25%). Lượt 3: tắt `LOW-BATTERY` qua tham số runner (chỉ bản sao, theo yêu cầu) -> benchmark chạy nhưng **vẫn thất bại**: `IllegalStateException: Observed no renderthread slices in trace` (giống TECNO và S24U).
+- Log Flutter (engine timing, 1 lượt, 120 Hz): pha `real_banner_visible_end` 238 mẫu, 0 frame > 16,67 ms, p95 5,45 ms; pha `real_scroll_end` 258 mẫu, 0 frame > 16,67 ms, p95 6,26 ms. Đây là FrameTiming của engine, không phải frame được present; số mẫu ~79-86/giây thấp hơn 120/giây nên không thể đọc thành FPS.
+- **Không có trace Perfetto nào được lưu** (lượt hỏng trước khi sao chép), nên không có dữ liệu FrameTimeline/SurfaceFlinger theo app-layer lần này.
+- **Kết luận:** có Pixel thật không làm phương pháp hiện tại đo được frame hiển thị; hai tiêu chí chính (3 lượt trên Pixel; metric attribution app/layer) **vẫn mở**, không kết luận 60fps/jank. Hướng tiếp theo đã ghi ở mục SurfaceView attribution (`SurfaceView.registerOnJankDataListener`, API 35+, chưa kiểm chứng trên máy) cần được duyệt vì phải sửa harness.
+- Bằng chứng: `doc/audit/evidence/round79_pixel/t267_2026-11-14/` (README.txt có số liệu và giới hạn).

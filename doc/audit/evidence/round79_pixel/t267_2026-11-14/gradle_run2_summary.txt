@@ -1,0 +1,31 @@
+Configuration on demand is an incubating feature.
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+Unable to strip the following libraries, packaging them as they are: libbenchmarkNative.so, libtracing_perfetto.so.
+w: file:///Users/LoiTP/.pub-cache/hosted/pub.dev/advertising_id-2.7.1/android/src/main/kotlin/com/os/operando/advertisingid/AdvertisingIdPlugin.kt:54:38 Java type mismatch: inferred type is 'String?', but 'String' was expected.
+w: file:///Users/LoiTP/.pub-cache/hosted/pub.dev/advertising_id-2.7.1/android/src/main/kotlin/com/os/operando/advertisingid/AdvertisingIdPlugin.kt:67:38 Java type mismatch: inferred type is 'String?', but 'String' was expected.
+w: file:///Users/LoiTP/.pub-cache/hosted/pub.dev/shared_preferences_android-2.4.13/android/src/main/kotlin/io/flutter/plugins/sharedpreferences/SharedPreferencesPlugin.kt:451:52 Unnecessary non-null assertion (!!) on a non-null receiver of 
+Starting 1 tests on Pixel 7 Pro - 17
+com.example.ad_sdk_macrobenchmark.T257FrameTimingBenchmark > realAdMobScroll[Pixel 7 Pro - 17] [31mFAILED [0m
+	java.lang.AssertionError: ERRORS (not suppressed): LOW-BATTERY
+	WARNINGS (suppressed):
+Tests on Pixel 7 Pro - 17 failed: There was 1 failure(s).
+Finished 1 tests on Pixel 7 Pro - 17
+[Incubating] Problems report is available at: file:///private/tmp/t267pixel/ad_sdk/example/build/reports/problems/problems-report.html
+FAILURE: Build failed with an exception.
+* What went wrong:
+Execution failed for task ':macrobenchmark:connectedProfileAndroidTest'.
+> There were failing tests. See the report at: file:///private/tmp/t267pixel/ad_sdk/example/build/macrobenchmark/reports/androidTests/connected/profile/index.html
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+For more on this, please refer to https://docs.gradle.org/8.12/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+BUILD FAILED in 47s
+511 actionable tasks: 296 executed, 149 from cache, 66 up-to-date
+gradle_exit=1
