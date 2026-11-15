@@ -293,28 +293,52 @@ class AdPreferences {
     await _prefs?.remove(_keyConsentFallback);
   }
 
-  // ─── Consent provenance journal (T202, JSON array) ────────────────────────
-  // Deliberately excluded from clearSdkData()'s default sweep below — see
-  // ConsentProvenanceJournal's class doc comment for why.
-
   static const String _keyConsentProvenanceJournal =
       'ad_sdk_consent_provenance_journal_v1';
+  static const String _keyConsentProvenanceAnchorState =
+      'ad_sdk_consent_provenance_anchor_state_v1';
 
   String? getConsentProvenanceJournalRaw() =>
       _prefs?.getString(_keyConsentProvenanceJournal);
-
-  Future<void> setConsentProvenanceJournalRaw(String json) async {
-    await _prefs?.setString(_keyConsentProvenanceJournal, json);
+  List<int>? getConsentProvenanceAnchorState() {
+    final raw = _prefs?.getString(_keyConsentProvenanceAnchorState);
+    if (raw == null) return null;
+    try {
+      final state = jsonDecode(raw) as List<dynamic>;
+      if (state.length != 2) return [];
+      return [state[0] as int, state[1] as int];
+    } catch (_) {
+      return [];
+    }
   }
+  Future<void> setConsentProvenanceAnchorState(int baseline, int cursor) =>
+      _setConsentProvenanceValue(
+        _keyConsentProvenanceAnchorState,
+        jsonEncode([baseline, cursor]),
+      );
+
+  Future<void> _setConsentProvenanceValue(String key, String value) async {
+    try {
+      if (await _prefs?.setString(key, value) == false) {
+        throw StateError('consent provenance write failed');
+      }
+    } catch (error, stackTrace) {
+      try {
+        await _prefs?.reload();
+      } catch (_) {}
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> setConsentProvenanceJournalRaw(String json) =>
+      _setConsentProvenanceValue(_keyConsentProvenanceJournal, json);
 
   Future<void> clearConsentProvenanceJournal() async {
     await _prefs?.remove(_keyConsentProvenanceJournal);
+    await _prefs?.remove(_keyConsentProvenanceAnchorState);
   }
 
-  // ─── 2.x VIP entries — legacy checksum-prefixed SharedPreferences value ───
-  // Superseded by `VipEntriesStore` (flutter_secure_storage). Kept here only
-  // as the one-time migration source for installs that predate the secure
-  // storage move — see `getLegacyVipEntriesRawChecksumValidated` below.
+  // Legacy VIP preference migration; see `getLegacyVipEntriesRawChecksumValidated`.
 
   static const String _keyVipEntries = 'ad_sdk_vip_entries';
   static const String _keyVipMigrated = 'ad_sdk_vip_migrated_v2';
@@ -842,7 +866,8 @@ class AdPreferences {
       if (!key.startsWith('ad_sdk_')) continue;
       if (!includeEntitlements && _entitlementKeys.contains(key)) continue;
       if (!purgeConsentProvenanceJournal &&
-          key == _keyConsentProvenanceJournal) {
+          (key == _keyConsentProvenanceJournal ||
+              key == _keyConsentProvenanceAnchorState)) {
         continue;
       }
       await prefs.remove(key);

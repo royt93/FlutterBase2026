@@ -140,7 +140,7 @@ void main() {
         );
         expect(applied, hasLength(1));
         expect(applied.single.toJson(), settings.toJson());
-        expect(journal.entries, hasLength(1));
+        expect(journal.entries, isEmpty);
         expect(warnings, [
           'ConsentManager: consent provenance journal append failed',
         ]);
@@ -155,60 +155,52 @@ void main() {
       },
     );
 
-    test(
-      'a later successful append persists prior in-memory failed entry',
-      () async {
-        final store = _FailingJournalStore();
-        SharedPreferencesStorePlatform.instance = store;
-        AdPreferences.resetForTest();
-        prefs = await AdPreferences.getInstance();
-        final anchored = <ConsentProvenanceEntry>[];
-        journal = await ConsentProvenanceJournal.load(
-          prefs,
-          onEntryAppended: anchored.add,
-        );
-        final manager = await ConsentManager.bootstrap(
-          prefs: prefs,
-          provenanceJournal: journal,
-        );
+    test('later successful append excludes prior failed entry', () async {
+      final store = _FailingJournalStore();
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      prefs = await AdPreferences.getInstance();
+      final anchored = <ConsentProvenanceEntry>[];
+      journal = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: anchored.add,
+      );
+      final manager = await ConsentManager.bootstrap(
+        prefs: prefs,
+        provenanceJournal: journal,
+      );
 
-        await manager.set(ConsentSettings.accepted);
-        expect(journal.entries, hasLength(1));
-        expect(
-          anchored,
-          isEmpty,
-          reason: 'failed persistence does not call external anchor',
-        );
-        expect(
-          (await store.getAll()).containsKey(_FailingJournalStore._journalKey),
-          isFalse,
-        );
+      await manager.set(ConsentSettings.accepted);
+      expect(journal.entries, isEmpty);
+      expect(
+        anchored,
+        isEmpty,
+        reason: 'failed persistence does not call external anchor',
+      );
+      expect(
+        (await store.getAll()).containsKey(_FailingJournalStore._journalKey),
+        isFalse,
+      );
 
-        store.failJournalWrite = false;
-        await manager.set(ConsentSettings.rejected);
+      store.failJournalWrite = false;
+      await manager.set(ConsentSettings.rejected);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-        expect(anchored, hasLength(1));
-        expect(
-          anchored.single.hasUserConsent,
-          isFalse,
-          reason: 'external anchor receives the successful append only',
-        );
-        expect(journal.entries, hasLength(2));
-        final raw =
-            (await store.getAll())[_FailingJournalStore._journalKey] as String;
-        final persisted = (jsonDecode(raw) as List)
-            .map(
-              (entry) => ConsentProvenanceEntry.fromJson(
-                entry as Map<String, dynamic>,
-              ),
-            )
-            .toList();
-        expect(persisted, hasLength(2));
-        expect(persisted.first.hasUserConsent, isTrue);
-        expect(persisted.last.hasUserConsent, isFalse);
-        expect(await journal.verifyChain(), isTrue);
-      },
-    );
+      expect(anchored, hasLength(1));
+      expect(anchored.single.hasUserConsent, isFalse);
+      expect(journal.entries, hasLength(1));
+      final raw =
+          (await store.getAll())[_FailingJournalStore._journalKey] as String;
+      final persisted = (jsonDecode(raw) as List)
+          .map(
+            (entry) =>
+                ConsentProvenanceEntry.fromJson(entry as Map<String, dynamic>),
+          )
+          .toList();
+      expect(persisted, hasLength(1));
+      expect(persisted.single.hasUserConsent, isFalse);
+      expect(await journal.verifyChain(), isTrue);
+    });
 
     test(
       'reset persists consent and applies providers when journal write fails',
@@ -246,7 +238,7 @@ void main() {
         );
         expect(applied.single.hasUserConsent, isFalse);
         expect(applied.single.hasBeenAsked, isFalse);
-        expect(journal.entries, hasLength(2));
+        expect(journal.entries, hasLength(1));
         expect(warnings, [
           'ConsentManager: consent provenance journal append failed',
         ]);

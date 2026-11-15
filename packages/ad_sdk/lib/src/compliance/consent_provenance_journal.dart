@@ -87,43 +87,27 @@ class ConsentProvenanceEntry {
   int get hashCode => entryHash.hashCode;
 }
 
-/// Append-only history of [ConsentProvenanceEntry], persisted as a single
-/// JSON array via [AdPreferences] (same backend as `ConsentSettings`).
-///
-/// Kept OUT of `AdPreferences.clearSdkData()`'s default sweep — a routine
-/// erasure request must not silently destroy the very evidence GDPR Art.
-/// 17(3) / CCPA sometimes require keeping ("we can prove what consent state
-/// applied and when"). Pass `purgeConsentProvenanceJournal: true` to that
-/// method to remove it explicitly — a deliberate, separate decision from
-/// erasing entitlements, hence its own flag rather than reuse of
-/// `SdkDataErasureScope.allIncludingEntitlements` (that scope is
-/// specifically about VIP/paid entitlements, an unrelated concern).
+/// Append-only consent history. Explicitly purged via
+/// `purgeConsentProvenanceJournal`, separate from entitlement erasure.
 class ConsentProvenanceJournal {
   ConsentProvenanceJournal._(this._prefs, this._entries, this._onEntryAppended);
 
   final AdPreferences _prefs;
   final List<ConsentProvenanceEntry> _entries;
 
-  /// Opt-in, fire-after-persist hook — lets a host app forward each entry to
-  /// its own server as an external anchor. [verifyChain]'s doc comment
-  /// explains why this journal alone cannot detect a fully forged chain
-  /// (no secret, no external anchor): a host that mirrors entries here as
-  /// they happen gets a copy outside device storage before any later
-  /// on-device tampering could occur. The SDK stays backend-free itself —
-  /// it never awaits this, so a slow host callback (e.g. one that starts an
-  /// HTTP call) never delays a real consent change. May be sync or `async`;
-  /// either way, an exception (sync throw, or the Future an `async`
-  /// callback returns rejecting) is swallowed — same guarantee either way,
-  /// so a broken host callback can never fail a real consent change.
+  /// Opt-in, at-least-once host anchor. Deduplicate by `entryHash`; a crash
+  /// between callback success and cursor persistence can repeat delivery.
+  /// Delivery never blocks consent mutation.
   final FutureOr<void> Function(ConsentProvenanceEntry entry)? _onEntryAppended;
 
-  /// Serializes [append] calls (audit finding A) — `ConsentManager.set()`/
-  /// `.reset()` don't serialize their own calls against each other, so two
-  /// overlapping consent changes could otherwise both read the same
-  /// `prevHash` before either finished hashing, producing a chain
-  /// [verifyChain] would wrongly flag as tampered. A simple Future-chained
-  /// mutex: each call waits for the previous one's write to fully land
-  /// (read `prevHash` → hash → append → persist) before starting its own.
+  int? _anchorCursor;
+  int _baselineEntryCount = 0;
+  int _persistedEntryCount = 0;
+  bool _deliveryRunning = false;
+  bool _deliveryRequested = false;
+  bool _deliveryReady = false;
+  int _deliveryGeneration = 0;
+
   Future<void> _writeQueue = Future<void>.value();
 
   /// Read-only view, oldest first.
@@ -147,7 +131,46 @@ class ConsentProvenanceJournal {
   }) async {
     final raw = prefs.getConsentProvenanceJournalRaw();
     final entries = _decode(raw);
-    return ConsentProvenanceJournal._(prefs, entries, onEntryAppended);
+    final journal = ConsentProvenanceJournal._(prefs, entries, onEntryAppended)
+      .._persistedEntryCount = entries.length;
+    if (onEntryAppended != null) {
+      final state = prefs.getConsentProvenanceAnchorState();
+      if (state == null) {
+        journal
+          .._baselineEntryCount = entries.length
+          .._anchorCursor = entries.length;
+        try {
+          await prefs.setConsentProvenanceAnchorState(
+            entries.length,
+            entries.length,
+          );
+          journal._deliveryReady = true;
+        } catch (_) {}
+      } else if (state.isEmpty || state[0] < 0 || state[0] > entries.length) {
+        journal
+          .._baselineEntryCount = 0
+          .._anchorCursor = 0
+          .._deliveryReady = true;
+        await prefs.setConsentProvenanceAnchorState(0, 0);
+        journal._scheduleDelivery();
+      } else if (state[1] < state[0] || state[1] > entries.length) {
+        journal
+          .._baselineEntryCount = state[0]
+          .._anchorCursor = state[0]
+          .._deliveryReady = true;
+        await prefs.setConsentProvenanceAnchorState(state[0], state[0]);
+        journal._scheduleDelivery();
+      } else {
+        journal
+          .._baselineEntryCount = state[0]
+          .._anchorCursor = state[1]
+          .._deliveryReady = true;
+        if (journal._anchorCursor! < entries.length) {
+          journal._scheduleDelivery();
+        }
+      }
+    }
+    return journal;
   }
 
   /// Test-only: build a journal from entries not necessarily produced by
@@ -173,8 +196,61 @@ class ConsentProvenanceJournal {
   }
 
   Future<void> _persist() async {
+    if (_onEntryAppended != null && !_deliveryReady) {
+      throw StateError('external anchor baseline is not durable');
+    }
     final json = jsonEncode(_entries.map((e) => e.toJson()).toList());
     await _prefs.setConsentProvenanceJournalRaw(json);
+    _persistedEntryCount = _entries.length;
+  }
+
+  void _scheduleDelivery() {
+    if (_onEntryAppended == null || !_deliveryReady) return;
+    if (_deliveryRunning) {
+      _deliveryRequested = true;
+      return;
+    }
+    _deliveryRunning = true;
+    _deliveryRequested = false;
+    unawaited(_deliverPending(_deliveryGeneration));
+  }
+
+  Future<void> _deliverPending(int generation) async {
+    try {
+      while (generation == _deliveryGeneration) {
+        final nextIndex = _anchorCursor;
+        if (nextIndex == null ||
+            nextIndex >= _entries.length ||
+            nextIndex >= _persistedEntryCount) {
+          return;
+        }
+
+        if (nextIndex < _baselineEntryCount) {
+          _anchorCursor = _baselineEntryCount;
+          await _prefs.setConsentProvenanceAnchorState(
+            _baselineEntryCount,
+            _anchorCursor!,
+          );
+          continue;
+        }
+        final entry = _entries[nextIndex];
+        await _onEntryAppended!(entry);
+        if (generation != _deliveryGeneration) return;
+        final nextCursor = nextIndex + 1;
+        await _prefs.setConsentProvenanceAnchorState(
+          _baselineEntryCount,
+          nextCursor,
+        );
+        _anchorCursor = nextCursor;
+      }
+    } catch (_) {
+      // A later append or reload retries delivery.
+    } finally {
+      _deliveryRunning = false;
+      if (generation != _deliveryGeneration || _deliveryRequested) {
+        _scheduleDelivery();
+      }
+    }
   }
 
   static Future<String> _hash(
@@ -249,41 +325,18 @@ class ConsentProvenanceJournal {
       entryHash: hash,
     );
     _entries.add(entry);
-    await _persist();
     try {
-      final result = _onEntryAppended?.call(entry);
-      // An `async` callback never throws synchronously — it returns a
-      // Future that rejects instead. Not awaiting that Future would leak
-      // its error as an unhandled zone error, so attach a no-op error
-      // handler without awaiting (stays fire-and-forget, never blocks).
-      if (result is Future) {
-        unawaited(result.catchError((_) {}));
-      }
+      await _persist();
     } catch (_) {
-      // Swallowed by design — see the field's own doc comment.
+      _entries.removeLast();
+      rethrow;
     }
+    _scheduleDelivery();
     return entry;
   }
 
-  /// Recomputes every entry's hash from its fields and the previous entry's
-  /// (persisted) hash, and compares against what's stored.
-  ///
-  /// **Round 51 audit fix (doc correction, MAJOR finding)**: this only
-  /// catches an entry whose stored `entryHash` no longer matches its own
-  /// fields plus the chain up to it — e.g. accidental corruption, or a bug
-  /// that edited an entry in place without recomputing downstream hashes.
-  /// It does **not** detect truncation (dropping the tail of the chain and
-  /// re-deriving from what remains still verifies as `true`) or a fully
-  /// forged chain (an attacker who can write this journal's storage can
-  /// recompute a self-consistent hash chain from scratch). There is no
-  /// secret or external anchor here, only a local recomputation — same
-  /// "tamper-evidence, not non-repudiation" threat model documented on
-  /// [SignedComplianceReport] and [SignedPayload], which this class did
-  /// not previously have any signed-export path to actually benefit from.
-  /// For evidence handed to a third party, export via
-  /// [signConsentProvenanceJournal] and have the recipient verify the
-  /// signature — that at least proves the exported bytes weren't edited
-  /// after the SDK produced them, which `verifyChain()` alone cannot.
+  /// Recomputes each entry hash. Detects edits, not truncation or forged chains;
+  /// use [signConsentProvenanceJournal] for verifiable third-party exports.
   Future<bool> verifyChain() async {
     var prevHash = '';
     for (final entry in _entries) {
@@ -301,9 +354,16 @@ class ConsentProvenanceJournal {
 
   /// Explicit purge — see class doc comment for why this is never called
   /// implicitly by a routine `clearSdkData()` erasure.
-  Future<void> clear() async {
-    _entries.clear();
-    await _prefs.clearConsentProvenanceJournal();
+  Future<void> clear() {
+    final result = _writeQueue.then((_) async {
+      _deliveryGeneration++;
+      _entries.clear();
+      _anchorCursor = 0;
+      _baselineEntryCount = 0;
+      await _prefs.clearConsentProvenanceJournal();
+    });
+    _writeQueue = result.catchError((_) {});
+    return result;
   }
 }
 

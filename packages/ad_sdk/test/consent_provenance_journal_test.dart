@@ -3,6 +3,7 @@
 // `ComplianceReport` (point-in-time snapshot). Covers: append/chain,
 // verifyChain() detecting tampering, persistence round-trip, clear().
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:applovin_admob_sdk/src/compliance/compliance_signing.dart';
@@ -11,6 +12,31 @@ import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+class _FailingJournalStore extends InMemorySharedPreferencesStore {
+  _FailingJournalStore() : super.empty();
+
+  static const _journalKey = 'flutter.ad_sdk_consent_provenance_journal_v1';
+  static const _anchorKey = 'flutter.ad_sdk_consent_provenance_anchor_state_v1';
+  bool failJournalWrite = true;
+  bool returnFalseForJournalWrite = false;
+  bool failCursorWrite = false;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) {
+    if (failJournalWrite && key == _journalKey) {
+      throw StateError('journal write failed');
+    }
+    if (returnFalseForJournalWrite && key == _journalKey) {
+      return Future.value(false);
+    }
+    if (failCursorWrite && key == _anchorKey) {
+      throw StateError('anchor cursor write failed');
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
 
 class _MemorySecureStorage extends FlutterSecureStorage {
   final Map<String, String> _values = {};
@@ -410,13 +436,21 @@ void main() {
   });
 
   group('onEntryAppended hook (external-anchor opt-in)', () {
-    test('fires with the appended entry after each append', () async {
+    test('delivers post-opt-in entries after each append', () async {
+      final legacy = await ConsentProvenanceJournal.load(prefs);
+      final oldEntry = await legacy.append(
+        source: 'old',
+        policyRevision: 'policy-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+
       final seen = <ConsentProvenanceEntry>[];
       final journal = await ConsentProvenanceJournal.load(
         prefs,
         onEntryAppended: seen.add,
       );
-
       final first = await journal.append(
         source: 'ump',
         policyRevision: 'ump-v1',
@@ -432,7 +466,392 @@ void main() {
         doNotSell: false,
       );
 
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(oldEntry, isNotNull);
       expect(seen, [first, second]);
+    });
+
+    test(
+      'storage failure recovery replays missed entries oldest-first',
+      () async {
+        SharedPreferencesStorePlatform.instance = _FailingJournalStore();
+        final store =
+            SharedPreferencesStorePlatform.instance as _FailingJournalStore;
+        AdPreferences.resetForTest();
+        final recoveryPrefs = await AdPreferences.getInstance();
+        final seen = <ConsentProvenanceEntry>[];
+        final journal = await ConsentProvenanceJournal.load(
+          recoveryPrefs,
+          onEntryAppended: seen.add,
+        );
+
+        await expectLater(
+          journal.append(
+            source: 'first',
+            policyRevision: 'policy-v1',
+            hasUserConsent: true,
+            isAgeRestrictedUser: false,
+            doNotSell: false,
+          ),
+          throwsStateError,
+        );
+        store.failJournalWrite = false;
+        final second = await journal.append(
+          source: 'second',
+          policyRevision: 'policy-v1',
+          hasUserConsent: false,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(seen.map((entry) => entry.source), ['second']);
+        expect(journal.entries, [second]);
+        expect(await journal.verifyChain(), isTrue);
+        final reloaded = await ConsentProvenanceJournal.load(recoveryPrefs);
+        expect(reloaded.entries, [second]);
+        expect(await reloaded.verifyChain(), isTrue);
+      },
+    );
+
+    test(
+      'acknowledgement write failure allows duplicate after reload',
+      () async {
+        final store = _FailingJournalStore()..failJournalWrite = false;
+        SharedPreferencesStorePlatform.instance = store;
+        AdPreferences.resetForTest();
+        final cursorPrefs = await AdPreferences.getInstance();
+        final delivered = <String>[];
+        final journal = await ConsentProvenanceJournal.load(
+          cursorPrefs,
+          onEntryAppended: (entry) {
+            delivered.add(entry.entryHash);
+            store.failCursorWrite = true;
+          },
+        );
+        final entry = await journal.append(
+          source: 'ump',
+          policyRevision: 'ump-v1',
+          hasUserConsent: true,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(delivered, [entry.entryHash]);
+
+        store.failCursorWrite = false;
+        SharedPreferences.resetStatic();
+        AdPreferences.resetForTest();
+        final recoveredPrefs = await AdPreferences.getInstance();
+        final recovered = <ConsentProvenanceEntry>[];
+        await ConsentProvenanceJournal.load(
+          recoveredPrefs,
+          onEntryAppended: recovered.add,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(recovered.single.entryHash, entry.entryHash);
+      },
+    );
+
+    test('ack write failure is retried on later append', () async {
+      final store = _FailingJournalStore()..failJournalWrite = false;
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      final retryPrefs = await AdPreferences.getInstance();
+      final seen = <String>[];
+      var failFirstAck = true;
+      final journal = await ConsentProvenanceJournal.load(
+        retryPrefs,
+        onEntryAppended: (entry) {
+          seen.add(entry.source);
+          if (entry.source == 'first' && failFirstAck) {
+            failFirstAck = false;
+            store.failCursorWrite = true;
+          }
+        },
+      );
+
+      await journal.append(
+        source: 'first',
+        policyRevision: 'policy-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      store.failCursorWrite = false;
+      await journal.append(
+        source: 'second',
+        policyRevision: 'policy-v1',
+        hasUserConsent: false,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(seen, ['first', 'first', 'second']);
+      expect(await journal.verifyChain(), isTrue);
+    });
+
+    test(
+      'failed in-flight delivery drains entries appended during callback',
+      () async {
+        final started = Completer<void>();
+        final finish = Completer<void>();
+        final seen = <String>[];
+        var firstAttempt = true;
+        final journal = await ConsentProvenanceJournal.load(
+          prefs,
+          onEntryAppended: (entry) async {
+            seen.add(entry.source);
+            if (entry.source == 'first' && firstAttempt) {
+              firstAttempt = false;
+              started.complete();
+              await finish.future;
+              throw StateError('temporary callback failure');
+            }
+          },
+        );
+        await journal.append(
+          source: 'first',
+          policyRevision: 'policy-v1',
+          hasUserConsent: true,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        );
+        await started.future;
+        await journal.append(
+          source: 'second',
+          policyRevision: 'policy-v1',
+          hasUserConsent: false,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        );
+        finish.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(seen, ['first', 'first', 'second']);
+      },
+    );
+
+    test('false journal write rolls back cache and entry', () async {
+      final store = _FailingJournalStore()
+        ..failJournalWrite = false
+        ..returnFalseForJournalWrite = true;
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      final prefs = await AdPreferences.getInstance();
+      final journal = await ConsentProvenanceJournal.load(prefs);
+
+      await expectLater(
+        journal.append(
+          source: 'notPersisted',
+          policyRevision: 'policy-v1',
+          hasUserConsent: true,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        ),
+        throwsStateError,
+      );
+
+      expect(journal.entries, isEmpty);
+      expect(prefs.getConsentProvenanceJournalRaw(), isNull);
+      expect((await ConsentProvenanceJournal.load(prefs)).entries, isEmpty);
+    });
+
+    test('baseline write failure does not hide later entries', () async {
+      final store = _FailingJournalStore()..failJournalWrite = false;
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      final prefs = await AdPreferences.getInstance();
+      final initial = await ConsentProvenanceJournal.load(prefs);
+      await initial.append(
+        source: 'preOptIn',
+        policyRevision: 'policy-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+
+      store.failCursorWrite = true;
+      final firstLoad = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: (_) {},
+      );
+      expect(
+        firstLoad.append(
+          source: 'firstAfterOptIn',
+          policyRevision: 'policy-v1',
+          hasUserConsent: false,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        ),
+        throwsStateError,
+      );
+      store.failCursorWrite = false;
+
+      final seen = <ConsentProvenanceEntry>[];
+      final recovered = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: seen.add,
+      );
+      await recovered.append(
+        source: 'retryAfterBaseline',
+        policyRevision: 'policy-v1',
+        hasUserConsent: false,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(seen.map((entry) => entry.source), ['retryAfterBaseline']);
+    });
+
+    test(
+      'clear prevents in-flight delivery from restoring anchor cursor',
+      () async {
+        final started = Completer<void>();
+        final finish = Completer<void>();
+        final journal = await ConsentProvenanceJournal.load(
+          prefs,
+          onEntryAppended: (_) async {
+            started.complete();
+            await finish.future;
+          },
+        );
+        await journal.append(
+          source: 'ump',
+          policyRevision: 'ump-v1',
+          hasUserConsent: true,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        );
+        await started.future;
+        await journal.clear();
+        finish.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(prefs.getConsentProvenanceJournalRaw(), isNull);
+        expect(prefs.getConsentProvenanceAnchorState(), isNull);
+
+        final seen = <ConsentProvenanceEntry>[];
+        final recovered = await ConsentProvenanceJournal.load(
+          prefs,
+          onEntryAppended: seen.add,
+        );
+        final entry = await recovered.append(
+          source: 'afterClear',
+          policyRevision: 'ump-v1',
+          hasUserConsent: false,
+          isAgeRestrictedUser: false,
+          doNotSell: false,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(seen, [entry]);
+      },
+    );
+
+    test('clear waits for an append already hashing', () async {
+      final journal = await ConsentProvenanceJournal.load(prefs);
+      final append = journal.append(
+        source: 'duringClear',
+        policyRevision: 'policy-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      final clear = journal.clear();
+      await append;
+      await clear;
+
+      expect(journal.entries, isEmpty);
+      expect(prefs.getConsentProvenanceJournalRaw(), isNull);
+    });
+
+    test('malformed anchor state replays retained entries', () async {
+      final store = _FailingJournalStore()..failJournalWrite = false;
+      SharedPreferencesStorePlatform.instance = store;
+      AdPreferences.resetForTest();
+      final malformedPrefs = await AdPreferences.getInstance();
+      final journal = await ConsentProvenanceJournal.load(malformedPrefs);
+      final retained = await journal.append(
+        source: 'preOptIn',
+        policyRevision: 'policy-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await SharedPreferences.getInstance().then(
+        (shared) => shared.setString(
+          'ad_sdk_consent_provenance_anchor_state_v1',
+          'bad',
+        ),
+      );
+
+      final seen = <ConsentProvenanceEntry>[];
+      await ConsentProvenanceJournal.load(
+        malformedPrefs,
+        onEntryAppended: seen.add,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(seen, [retained]);
+    });
+
+    test('out-of-range anchor cursor replays retained entries', () async {
+      final journal = await ConsentProvenanceJournal.load(prefs);
+      final retained = await journal.append(
+        source: 'preOptIn',
+        policyRevision: 'policy-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await prefs.setConsentProvenanceAnchorState(0, 99);
+      final seen = <ConsentProvenanceEntry>[];
+      final recovered = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: seen.add,
+      );
+      await recovered.append(
+        source: 'afterCorruption',
+        policyRevision: 'policy-v1',
+        hasUserConsent: false,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(seen.map((entry) => entry.entryHash), [
+        retained.entryHash,
+        recovered.entries.last.entryHash,
+      ]);
+    });
+
+    test('failed delivery is retried after journal reload', () async {
+      final journal = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: (_) => throw StateError('anchor unavailable'),
+      );
+      final entry = await journal.append(
+        source: 'ump',
+        policyRevision: 'ump-v1',
+        hasUserConsent: true,
+        isAgeRestrictedUser: false,
+        doNotSell: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final seen = <ConsentProvenanceEntry>[];
+      final recovered = await ConsentProvenanceJournal.load(
+        prefs,
+        onEntryAppended: seen.add,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(seen, [entry]);
+      expect(await recovered.verifyChain(), isTrue);
     });
 
     test('a throwing callback does not fail the append', () async {
