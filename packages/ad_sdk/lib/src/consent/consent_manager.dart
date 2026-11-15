@@ -389,14 +389,19 @@ class ConsentManager {
   }) async {
     final journal = _journal;
     if (journal == null) return;
-    await journal.append(
-      source: source,
-      policyRevision: policyRevision,
-      hasUserConsent: _current.hasUserConsent,
-      isAgeRestrictedUser: _current.isAgeRestrictedUser,
-      doNotSell: _current.doNotSell,
-      regionSignal: _current.country,
-    );
+    try {
+      await journal.append(
+        source: source,
+        policyRevision: policyRevision,
+        hasUserConsent: _current.hasUserConsent,
+        isAgeRestrictedUser: _current.isAgeRestrictedUser,
+        doNotSell: _current.doNotSell,
+        regionSignal: _current.country,
+      );
+    } catch (_) {
+      // Provenance audit is best-effort; it must not block the consent write or provider apply.
+      SafeLogger.w(_tag, 'consent provenance journal append failed');
+    }
   }
 
   Future<void> _persist() async {
