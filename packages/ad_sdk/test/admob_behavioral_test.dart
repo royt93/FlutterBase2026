@@ -1832,7 +1832,13 @@ void main() {
 
       bridge.lastInter!.paidCallback!(1.0, 'USD', 'estimated');
 
-      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+      final revenue = events.whereType<AdRevenueEvent>().single;
+      expect(revenue.requestId, requestId);
+      expect(revenue.valueMicros, 1);
+      expect(revenue.currencyCode, 'USD');
+      expect(revenue.precision, 'estimated');
+      expect(revenue.type, AdSlotType.interstitial);
+      expect(revenue.placement, AdPlacement.unspecified);
     });
 
     test('rewarded: same guarantee', () async {

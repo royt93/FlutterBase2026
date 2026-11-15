@@ -77,5 +77,13 @@ void main() {
     expect(revenue.requestId, loadedRequestId,
         reason: 'the real AdMob paid-event callback must carry the SAME '
             'id this load stamped — this is the whole point of T185');
+    expect(revenue.valueMicros, greaterThanOrEqualTo(0));
+    expect(revenue.currencyCode, matches(RegExp(r'^[A-Z]{3}$')));
+    expect(
+      revenue.precision,
+      anyOf('unknown', 'estimated', 'publisherProvided', 'precise'),
+    );
+    expect(revenue.type, AdSlotType.interstitial);
+    expect(revenue.placement, AdPlacement.unspecified);
   });
 }
