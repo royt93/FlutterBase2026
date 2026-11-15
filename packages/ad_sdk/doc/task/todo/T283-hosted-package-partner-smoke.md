@@ -3,7 +3,7 @@
 - **Loại:** Verification / Partner integration
 - **Priority:** P1 · **Severity:** MEDIUM
 - **Confidence:** Evidence gap
-- **Status:** todo
+- **Status:** done (2026-11-15; hosted 3.7.1 partner consumer smoke passed; scope is Android + AdMob only)
 - **Evidence:** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD:101` (consumer Flutter 3.41.9 analyze/build done once; APK chưa cài, log không lưu); integration contract in `packages/ad_sdk/README.md`; round 79 example device evidence không phải consumer app
 - **Dependencies:** Flutter toolchain đáp ứng floor package đang publish; Android device; Google test App ID và test ad units
 
@@ -21,21 +21,21 @@ SDK phát hành cho partner tích hợp. Partner guide ghi nhận một app Flut
 
 ## Acceptance criteria
 
-- [ ] Consumer resolves package từ hosted pub.dev; lockfile xác nhận `source: hosted` và version đúng version published tại thời điểm chạy.
-- [ ] `flutter analyze` và Android debug build pass trong consumer app.
-- [ ] APK cài/chạy trên thiết bị với disposable application ID; log xác nhận init, `provider=admob`, load callback/impression của Google test ad nếu inventory hỗ trợ.
-- [ ] Screenshot/log và SHA-256 evidence được lưu; redact identifiers nhạy cảm, không lưu token.
-- [ ] Smoke xác nhận Android partner integration path, không tuyên bố iOS, AppLovin, production inventory, EEA/legal setup hoặc host app thật.
+- [x] Consumer resolves `applovin_admob_sdk 3.7.1` from hosted pub.dev; lockfile confirms `source: hosted`, URL `https://pub.dev`, SHA-256 `b775e3ca03c08adfa1fd5ae29c3b94681d8c70444f37aef0ef2febd807503342`.
+- [x] Consumer `flutter analyze`, `flutter test`, and Android debug APK build pass. `flutter test` ran the disposable consumer's local widget smoke test; it is not SDK test-suite coverage.
+- [x] Installed/launched on Samsung S24 Ultra `R5CX613VZBR` (SM-S928B, Android 17) using disposable application ID `com.roy.admobwrapper.t283smoke`. Logs confirm UMP `notRequired`, `initSuccess=true`, AdMob adapter init, consent applied, Banner and App Open load success. Screenshot shows Google 320x50 test banner with test-ad label. No `FATAL EXCEPTION` in captured fatal log.
+- [x] Evidence saved under `/tmp/ad-sdk-smoke-t283/`: `pubspec.lock` SHA-256 `668b19287bbcad53cd83dfc540ee03803b0a12ea01f1c900761bb202cb2cba96`; APK SHA-256 `4d4d4a79639f9c74583e6b55cfa78cb9e5f9f7bada2e50503e7b67af1109daeb`; log SHA-256 `6d88fe440ed7d2d481c8051fe94c89471e329f555af4c4337f94466710c66952`; screenshot SHA-256 `41fa549e3e203946b9216cf22709940c21fffd6490ff0d9d61e7520ba063751a`. Fatal log is empty (SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+- [x] Smoke xác nhận Android partner integration path; không tuyên bố iOS, AppLovin, production inventory, EEA/legal setup hoặc host app thật.
 - [ ] Unit tests SDK không đổi; chạy full SDK suite nếu ticket phát hiện và dẫn tới code change. Widget test N/A nếu chỉ validation; integration device run là acceptance chính.
 - [ ] Golden N/A nếu golden/public API không đổi; interruption/network-conditioning/memory-profile/frame-jank chạy khi thay đổi có thể ảnh hưởng. Mediation chỉ chạy nếu scope có mediation; IAP thuộc host, ngoài SDK scope. Mọi N/A kèm lý do.
 - [ ] Không cài đè, clear data, hay uninstall `com.roy.admobwrapper`.
 
 ## Kế hoạch kiểm thử
 
-- **Unit:** N/A cho consumer smoke; nếu phát hiện defect SDK thì tạo test regression theo feature.
-- **Widget:** N/A nếu package behavior không đổi.
-- **Integration:** Consumer app độc lập, hosted dependency, Android test ads, consent/init/surface path.
-- **Device smoke:** Android device thật, disposable ID, evidence log/screenshot; không chạm click/CTA.
+- **Unit:** N/A for validation-only consumer smoke; no SDK code changed.
+- **Widget:** N/A for SDK package; consumer template UI only displayed bootstrap status and SDK banner.
+- **Integration:** Hosted dependency, AdMob test App ID/ad units, bootstrap/consent/provider init and banner surface passed on the consumer app.
+- **Device smoke:** S24U, disposable ID, logs/screenshot and hashes saved; no ad click/CTA interaction.
 
 ## Prompt vòng lặp (Loop Prompt)
 
