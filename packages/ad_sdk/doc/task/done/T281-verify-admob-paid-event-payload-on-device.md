@@ -1,45 +1,28 @@
-# T281 — Xác minh payload doanh thu AdMob test ad trên Android
+# T281 — Verify AdMob paid-event payload on Android
 
-- **Loại:** Verification / Test enhancement
+- **Type:** Verification / test enhancement
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Confidence:** Payload fields chưa được assert trong T185 integration; fake bridge adapter tests exercise value/currency/precision callback and only assert `requestId`. Not a proven defect.
-- **Status:** todo
-- **Evidence:** `lib/src/adapters/admob_adapter.dart:155-175, 178-225`; `lib/src/adapters/gma_bridge.dart:48-53, 264-270`; `test/admob_behavioral_test.dart:1823-1861`; `example/integration_test/t185_revenue_request_id_test.dart`
-- **Dependencies:** Android device có mạng; Google test inventory; không cần production account
+- **Confidence:** Evidence gap, not a confirmed defect.
+- **Status:** done (2026-11-15; controlled mapping tests and S24 Ultra native paid-event integration passed)
+- **Evidence:** `lib/src/adapters/admob_adapter.dart:155-225`; `lib/src/adapters/gma_bridge.dart:47-53`; `test/admob_behavioral_test.dart:1823-1889`; `example/integration_test/t185_revenue_request_id_test.dart`
 
-## Bối cảnh & vấn đề
+## Context
 
-AdMob bridge chuyển `valueMicros`, `currencyCode`, `precision` vào `AdRevenueEvent`; integration test T185 xác minh paid callback thật và `requestId`, nhưng không assert payload đầy đủ. Unit/bridge tests không chứng minh native Android callback thực tế đi qua đến event với đúng đơn vị, tiền tệ, độ chính xác và mediation metadata. Đây là thiếu bằng chứng, không phải lỗi đã tái hiện. Google test ad có thể không phát paid event ổn định hoặc có giá trị cụ thể; test không được giả định amount cố định.
-
-## Phạm vi
-
-1. Rà lại test T185 và adapter listener để xác định assertion ổn định, không phụ thuộc giá trị doanh thu cố định.
-2. Mở rộng integration test hiện có để quan sát event thật trên Android: callback xuất hiện, `valueMicros` có đơn vị như contract, `currencyCode` không rỗng, `precision` thuộc giá trị bridge hợp lệ, và `requestId` khớp ad load.
-3. Kiểm tra `mediationWaterfall` chỉ khi test device response có metadata; nếu không, ghi N/A chứ không tạo expectation giả.
-4. Nếu Google test inventory không đảm đảm bảo paid callback, ghi rõ limitation, giữ unit/bridge verification và đóng device assertion là unsupported; không thêm polling dài hay production test IDs.
+T185 originally verified that the real AdMob paid-event callback carries the request ID from its ad load, but did not assert the remaining payload. Google test ads do not guarantee a fixed revenue amount or mediation waterfall, so assertions must validate shape and contract, not exact revenue.
 
 ## Acceptance criteria
 
-- [ ] Integration assert payload fields từ callback Android thật hoặc report rõ field nào test inventory không bảo đảm.
-- [ ] Không assert số tiền cụ thể; không coi `$0`/callback vắng mặt ở một lần chạy là bằng chứng bug.
-- [ ] Test event không bị trộn giữa nhiều ad request; subscription luôn được hủy.
-- [ ] Unit/bridge coverage xác minh mapping cả ba field, precision values và dispose boundary nếu còn thiếu.
-- [ ] Chạy integration case với Google test ads trên Android device, lưu command, device model/OS, log và kết quả; không cài đè `com.roy.admobwrapper`.
-- [ ] `flutter analyze` và full SDK unit suite pass nếu code/test thay đổi.
-- [ ] Widget test N/A nếu không sửa UI; ghi lý do trong kết quả.
-- [ ] Golden test N/A nếu không đổi golden; interruption/network-conditioning/memory-profile/frame-jank chạy nếu lifecycle có thể bị ảnh hưởng; mediation assertion chỉ khi device trả metadata. IAP N/A vì ngoài SDK scope.
-- [ ] Không dùng production ad IDs, account hay credentials.
+- [x] Controlled adapter callback test asserts `valueMicros`, `currencyCode`, `precision`, ad type, placement, and matching `requestId` for interstitial. Other fullscreen formats retain their request-ID checks.
+- [x] Device integration asserts nonnegative `valueMicros`, uppercase three-letter currency, an allowed Google `PrecisionType` name (`unknown`, `estimated`, `publisherProvided`, `precise`), interstitial type, unspecified placement, and matching load `requestId`.
+- [x] Event listener is scoped to this request and cancelled with `addTearDown`.
+- [x] Integration passed on Samsung S24 Ultra `R5CX613VZBR` (SM-S928B, Android 17) using Google test ads and disposable app ID `com.roy.admobwrapper.t281smoke`. Ran from isolated source copy under `/tmp/ad-sdk-t281-isolated`; original `com.roy.admobwrapper` was not touched.
+- [x] The stricter precision enum assertion was included in the final integration run, which exited successfully after using a lean source copy without generated caches.
+- [x] `flutter analyze` passed; full SDK suite passed: 2,858 tests.
+- [x] Widget/golden N/A: no UI or public API change. Interruption, network conditioning, memory/profile, frame/jank, and mediation N/A: this test only validates one paid-event callback and does not change lifecycle/resource behavior; waterfall metadata is not guaranteed by test inventory. IAP is host-app scope.
+- [x] Google test IDs only; no production IDs, credentials, or ad clicks.
 
-## Kế hoạch kiểm thử
+## Test plan
 
-- **Unit/bridge:** controlled native callback values; mapping micro-units/currency/precision; event lifecycle/dispose.
-- **Widget:** N/A, không đổi widget.
-- **Integration:** Mở rộng `example/integration_test/t185_revenue_request_id_test.dart` hiện có, dùng event native test-ad; nếu payload callback không được Google test inventory bảo đảm, ghi unsupported thay vì thêm flaky assertion.
-- **Smoke:** thiết bị Android thật, test IDs, disposable package ID; lưu log/screenshot phù hợp. Không đụng host app.
-- **Ma trận bổ sung:** golden N/A nếu không đổi rendering/API golden; interruption, network conditioning, memory/profile, frame/jank và mediation kiểm tra theo rủi ro thực tế; IAP N/A vì là host-app concern, không thuộc SDK.
-
-## Prompt vòng lặp (Loop Prompt)
-
-```markdown
-Thực hiện T281 theo TDD; đọc ticket, `lib/src/adapters/admob_adapter.dart`, `lib/src/adapters/gma_bridge.dart`, `test/gma_bridge_test.dart` và `example/integration_test/t185_revenue_request_id_test.dart`. Xác nhận chính xác contract của `valueMicros`, `currencyCode`, `precision`, `requestId`; không suy đoán hoặc hardcode doanh thu test ad. Mở rộng test bridge/integration tối thiểu để kiểm tra callback thật nếu Google test inventory hỗ trợ; nếu không, ghi unsupported có bằng chứng và không thêm flaky assertion. Subscription phải được hủy và timeout hữu hạn. Chạy targeted tests, analyze, full SDK tests. Widget test ghi N/A nếu UI không đổi. Chạy Android smoke trên device thật bằng test IDs và disposable app ID; lưu log/result, không cài đè `com.roy.admobwrapper`, không dùng production credentials. Kiểm tra golden, interruption, network conditioning, memory/profile, frame/jank, IAP và mediation khi có thể ảnh hưởng; ghi N/A cùng lý do, không tạo coverage giả. IAP ngoài SDK scope trừ khi mở scope. Independent audit toàn bộ diff và chấm điểm /10. Chỉ push code khi mọi kiểm tra áp dụng pass, evidence thật có đủ và điểm >9/10; không push nếu kết luận là limitation/no-change.
-```
+- **Unit:** controlled adapter callback validates mapping without assuming real revenue.
+- **Integration/device:** run `flutter test integration_test/t185_revenue_request_id_test.dart -d R5CX613VZBR --dart-define=AD_PROVIDER_ADMOB=true --reporter expanded` from the isolated `example/`.
+- **Other dimensions:** N/A with reasons recorded above.
