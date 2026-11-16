@@ -20,9 +20,20 @@ Verify on a physical QA device that `InlineAdController.refresh()` creates a fre
 6. **Teardown:** navigate away/dispose during load and immediately re-enter; verify late callback does not affect new instance and no crash.
 7. **Connectivity:** if feasible, remove network during refresh then restore it; record failure/recovery, without treating no-fill as lifecycle failure.
 
+## Provider coverage matrix
+
+Run each applicable case separately on Android and iOS with approved AppLovin test credentials and QA inventory. Do not click live ads or use production inventory.
+
+1. **Initialization and consent:** verify SDK init once; test consent allowed, denied/withdrawn, and age-restricted-at-init behavior. Confirm no ad request while the SDK gate blocks requests; record that MAX consent writes are fire-and-forget where the plugin cannot confirm persistence.
+2. **Banner/MREC lifecycle:** load, route away/back, pause/resume, resize/recreate, connectivity loss/recovery, and dispose during load. Confirm no duplicate active view/request after recovery and no callback mutates disposed/replaced instances.
+3. **Native lifecycle:** run baseline, accepted refresh, repeated refresh, cooldown-blocked refresh, pause/resume, teardown during load, and network recovery as listed above. Verify each accepted refresh creates a fresh native view/load lifecycle.
+4. **Fullscreen formats:** separately test App Open, Interstitial, Rewarded, and Rewarded Interstitial: load, show, dismiss, show failure, timeout/reload, and route/modal suppression. For rewarded formats, assert reward callback fires exactly once only after provider reports earned; no reward on dismiss/failure.
+5. **Provider and safety gates:** repeat with VIP active/inactive and consent changes. Confirm VIP suppresses all surfaces and ad requests resume after VIP ends; ensure provider no-fill is not misclassified as lifecycle failure.
+6. **Repeatability:** repeat each successful lifecycle case at least three times where inventory permits; record no-fill/network failures separately from SDK failures.
+
 ## Evidence and pass criteria
 
-- Save timestamps/log markers for refresh request, old-view dispose, new-view creation, load success/failure, and widget teardown.
-- Pass only if accepted refresh demonstrably creates a new native view and produces a new load lifecycle, while blocked refresh does nothing and teardown is safe.
-- Distinguish provider no-fill/network failure from the original stale-view defect. Repeat at least three successful QA loads where inventory allows.
-- This test does not validate AdMob, cross-platform parity, policy compliance, or memory leak absence; record untested cases separately.
+- Save timestamps/log markers for init, consent/gate state, load/show callback, route/lifecycle transition, reconnect, dispose, and reward outcome. Record app/SDK/plugin versions, OS/device, redacted ad-unit label and actual network state; never save SDK keys.
+- Pass only when requests obey consent/VIP gates, accepted lifecycle actions produce expected provider callbacks, blocked actions do not load/show, disposal/replacement ignores stale callbacks, and reward is granted only once after `earned=true`.
+- Distinguish provider no-fill/network failure from SDK lifecycle defects. Repeat at least three successful QA loads where inventory allows.
+- This checklist does not prove policy compliance, fill-rate guarantees, cross-provider equivalence, or absence of native memory leaks; report each untested platform/case separately. AdMob coverage remains in the iOS checklist and existing Android evidence.
