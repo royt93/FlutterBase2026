@@ -3,9 +3,9 @@
 - **Loại:** Enhancement / Audit evidence reliability
 - **Priority:** P2 · **Severity:** MEDIUM
 - **Confidence:** Confirmed behavior gap; external anchor is opt-in
-- **Status:** todo
-- **Evidence:** `lib/src/compliance/consent_provenance_journal.dart:107-118, 193-216, 219-266`; `test/consent_provenance_journal_test.dart` hook and append coverage
-- **Dependencies:** T285 best-effort consent isolation; owner approval of callback retry/idempotency semantics
+- **Status:** done (2026-11-15)
+- **Evidence:** `lib/src/compliance/consent_provenance_journal.dart`; `lib/src/utils/ad_preferences.dart`; `test/consent_provenance_journal_test.dart`; `test/consent_manager_provenance_test.dart`; commits `7d7bd0e` and `25a66ef`
+- **Delivery contract:** At-least-once, oldest-first replay; host deduplicates by stable `entryHash`. Existing history is baseline on first callback-enabled load. Callback delivery does not block consent mutations.
 
 ## Bối cảnh & vấn đề
 
@@ -21,15 +21,15 @@
 
 ## Acceptance criteria
 
-- [ ] Reproduce: first append storage fails; second append succeeds; demonstrate precisely which entries are persisted and which callbacks were delivered.
-- [ ] Owner/host contract for external anchor delivery is explicit (best-effort, at-least-once, idempotent, or no replay).
-- [ ] If implementing replay, callback receives the missed first entry once or with stable dedupe key; later entries preserve order.
-- [ ] Storage failure, callback sync throw, callback async throw, and retry/recovery do not poison `_writeQueue` or block consent mutation.
-- [ ] Hash chain verifies before/after failure and recovery; persisted contents match documented delivery contract.
-- [ ] Unit tests cover failure → recovery, repeated failures, callback errors and no duplicate delivery; update existing hook tests.
-- [ ] Widget/golden/interruption/network-conditioning/memory-profile/frame-jank/mediation/IAP are N/A unless implementation touches those paths; document reason. IAP belongs to host app.
-- [ ] Run targeted tests, `flutter analyze`, full SDK suite. Device smoke only if a real external-anchor transport is in scope; never send real consent data to an unapproved endpoint.
-- [ ] Independent audit + score /10; push only after all applicable tests/evidence and score >9/10.
+- [x] Reproduced persistence failure and recovery; regressions assert persisted entries and callback delivery.
+- [x] Contract is at-least-once, oldest-first, with host deduplication by stable `entryHash` and baseline of pre-opt-in history.
+- [x] Delivery retries after failure and preserves order; duplicate delivery is possible at the external-success/local-ack boundary by design.
+- [x] Storage/callback failures, concurrent append, retry, and `clear()` races do not block consent or corrupt subsequent state.
+- [x] Hash chain and persisted contents covered across failure/recovery paths.
+- [x] Unit regressions cover callback/storage failure, malformed/out-of-range checkpoint recovery, false writes, retry and clear races.
+- [x] Widget/golden/device/performance/mediation/IAP N/A: no UI, transport, native provider or ad behavior changed; no real consent data was sent externally.
+- [x] Targeted tests, analyzer, full SDK suite and Android AdMob smoke passed: 31 journal tests; 11 manager tests; 2869 SDK tests; smoke used an isolated temporary package ID and Google test ads.
+- [x] Final review found no actionable findings; commits `7d7bd0e` and `25a66ef` pushed to `origin/main`.
 
 ## Kế hoạch kiểm thử
 

@@ -120,6 +120,13 @@ Chỉ mở pilot khi host app đã tick đủ checklist ở `audit_round78_andro
 - **Chưa kiểm chứng bằng audit này:** host app thực tế. Repo đang audit không chứa host app dùng SDK, nên cấu hình AdMob App ID/ad unit/UMP/app-ads.txt của app thật phải được owner xác nhận riêng.
 - **Rollback:** có đường lùi về bản package trước hoặc tắt ad serving từ host/console; pub.dev không thể rút bản đã publish.
 
+### Next evidence gates (2026-11-16)
+
+- T286 delivery/persistence implementation is complete on `main` (`7d7bd0e`, `25a66ef`); its backlog ticket still showed `todo` and has now been reconciled to done. Automated evidence: 31 journal tests, 11 manager tests, 2,869 SDK tests, analyzer, final review, and isolated Android AdMob test-ad smoke. This does not verify a real external-anchor transport or real consent data delivery.
+- **Next QA priority — iPhone ATT + UMP + AdMob:** use the existing `packages/ad_sdk/doc/task/inprogress/T256-iOS-smoke-checklist.md`; cover ATT choices on fresh installs, EEA UMP accept/decline/Manage options, Privacy Options reopening, relevant IAB TCF/GPP values, age-treatment native mapping, and ad-gate behavior. Requires an available iPhone and test setup; do not claim passed until evidence is recorded.
+- **Pilot readiness:** before any host rollout, verify host-specific config and rollback path; monitor crash/ANR, fill/load errors, impressions/revenue, reward `earned=true`, consent withdrawal and VIP suppression. Start with a small closed cohort; stop on the no-go conditions in §6. Metrics/thresholds are proposed operational gates, not Google/AdMob certification.
+- **Not in scope of current selection:** AppLovin device QA remains an independent gap; schedule only with approved test credentials and Android+iOS devices. No code or CI change made in this follow-up.
+
 ## 7. Guideline và partner readiness
 
 ### Android + AdMob findings
