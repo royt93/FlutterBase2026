@@ -178,8 +178,9 @@ class AdMobAdapter
   /// Constructor-time paid-event callback for banner — used in
   /// [BannerAdListener] since [BannerAd] inherits from [AdWithView] which
   /// doesn't expose `onPaidEvent` as a setter.
-  OnPaidEventCallback _paidEventForBanner(AdPlacement placement) => (Ad ad,
-          double valueMicros, PrecisionType precision, String currencyCode) {
+  OnPaidEventCallback _paidEventForBanner(
+          AdPlacement placement, String requestId) =>
+      (Ad ad, double valueMicros, PrecisionType precision, String currencyCode) {
         _emit(AdRevenueEvent(
           providerTag: tag,
           type: AdSlotType.banner,
@@ -190,11 +191,14 @@ class AdMobAdapter
           mediationWaterfall: ad.responseInfo?.adapterResponses
               ?.map((r) => r.adapterClassName)
               .toList(),
+          requestId: requestId,
         ));
       };
 
   /// Same as [_paidEventForBanner] but tags events [AdSlotType.mrec].
-  OnPaidEventCallback _paidEventForMrec(AdPlacement placement) => (Ad ad,
+  OnPaidEventCallback _paidEventForMrec(
+          AdPlacement placement, String requestId) =>
+      (Ad ad,
           double valueMicros, PrecisionType precision, String currencyCode) {
         _emit(AdRevenueEvent(
           providerTag: tag,
@@ -206,11 +210,14 @@ class AdMobAdapter
           mediationWaterfall: ad.responseInfo?.adapterResponses
               ?.map((r) => r.adapterClassName)
               .toList(),
+          requestId: requestId,
         ));
       };
 
   /// Same as [_paidEventForBanner] but tags events [AdSlotType.native].
-  OnPaidEventCallback _paidEventForNative(AdPlacement placement) => (Ad ad,
+  OnPaidEventCallback _paidEventForNative(
+          AdPlacement placement, String requestId) =>
+      (Ad ad,
           double valueMicros, PrecisionType precision, String currencyCode) {
         _emit(AdRevenueEvent(
           providerTag: tag,
@@ -222,6 +229,7 @@ class AdMobAdapter
           mediationWaterfall: ad.responseInfo?.adapterResponses
               ?.map((r) => r.adapterClassName)
               .toList(),
+          requestId: requestId,
         ));
       };
 
@@ -2173,6 +2181,8 @@ class AdMobAdapter
         return;
       }
       final size = adaptive ?? AdSize.banner;
+      final requestId = _nextRequestId();
+      slot.requestId = requestId;
       _bannerAdsByKey[key] = BannerAd(
         adUnitId: cfg.bannerId,
         size: size,
@@ -2184,7 +2194,7 @@ class AdMobAdapter
           extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
         ),
         listener: BannerAdListener(
-          onPaidEvent: _paidEventForBanner(AdPlacement.unspecified),
+          onPaidEvent: _paidEventForBanner(AdPlacement.unspecified, requestId),
           onAdLoaded: (ad) {
             // M4 — this closure captured `slot`/`listenables` before the
             // load started; by the time the fill lands the widget may be gone
@@ -2372,6 +2382,8 @@ class AdMobAdapter
     try {
       // MREC is a FIXED 300x250 size — no adaptive-size lookup (unlike banner).
       const size = AdSize.mediumRectangle;
+      final requestId = _nextRequestId();
+      slot.requestId = requestId;
       _mrecAdsByKey[key] = BannerAd(
         adUnitId: cfg.mrecId,
         size: size,
@@ -2380,7 +2392,7 @@ class AdMobAdapter
           extras: _restrictedDataProcessing ? const {'rdp': '1'} : null,
         ),
         listener: BannerAdListener(
-          onPaidEvent: _paidEventForMrec(AdPlacement.unspecified),
+          onPaidEvent: _paidEventForMrec(AdPlacement.unspecified, requestId),
           onAdLoaded: (ad) {
             // M4 — this closure captured `slot`/`listenables` before the
             // load started; by the time the fill lands the widget may be gone
@@ -2542,6 +2554,8 @@ class AdMobAdapter
     });
     listenables.isLoaded.value = false;
     SafeLogger.d(_logTag, 'preloadNative $tag 🔄');
+    final requestId = _nextRequestId();
+    slot.requestId = requestId;
     NativeAd? nativeAd;
     try {
       nativeAd = NativeAd(
@@ -2554,7 +2568,7 @@ class AdMobAdapter
         nativeTemplateStyle:
             debugNativeTemplateStyleFor(factoryId, templateType),
         listener: NativeAdListener(
-          onPaidEvent: _paidEventForNative(AdPlacement.unspecified),
+          onPaidEvent: _paidEventForNative(AdPlacement.unspecified, requestId),
           onAdLoaded: (ad) {
             // M4 — this closure captured `slot`/`listenables` before the
             // load started; by the time the fill lands the widget may be gone

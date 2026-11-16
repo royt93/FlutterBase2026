@@ -165,8 +165,11 @@ class AdRevenueEvent extends AdEvent {
   /// response info.
   final List<String>? mediationWaterfall;
 
-  /// T185 — see [AdShowEvent.requestId]. `null` for banner/mrec/native (no
-  /// matching `AdShowEvent` exists for those to correlate against).
+  /// T185 — see [AdShowEvent.requestId]. Fullscreen IDs identify a load and
+  /// correlate its show and revenue events. Inline IDs identify the concrete
+  /// Banner/MREC/Native ad object only; those formats emit no `AdShowEvent`,
+  /// and Banner/MREC auto-refresh may produce multiple paid callbacks under
+  /// the same object ID. Inline IDs therefore do not resolve ledger show pairs.
   final String? requestId;
 
   /// Convenience: `valueMicros / 1_000_000` as a double.

@@ -20,7 +20,9 @@ import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/applovin_adapter.dart';
 import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:applovin_max/applovin_max.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'admob_behavioral_test.dart' show FakeGmaBridge, FakeGmaFullscreenAd;
 import 'applovin_adapter_test.dart' show FakeAppLovinBridge;
@@ -31,11 +33,13 @@ class _DeferredInterstitialBridge extends FakeGmaBridge {
   void Function(GmaFullscreenAd)? pendingOnLoaded;
 
   @override
-  Future<void> loadInterstitial(String id,
-      {required bool nonPersonalizedAds,
-      bool restrictedDataProcessing = false,
-      required void Function(GmaFullscreenAd) onLoaded,
-      required void Function(int, String) onFailed}) async {
+  Future<void> loadInterstitial(
+    String id, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
+    required void Function(GmaFullscreenAd) onLoaded,
+    required void Function(int, String) onFailed,
+  }) async {
     npaInter = nonPersonalizedAds;
     pendingOnLoaded = onLoaded;
   }
@@ -62,13 +66,86 @@ const _appLovinConfig = AdConfig(
   ),
 );
 
-MaxAd _fakeMaxAd() => MaxAd('i', 'INTER', null, 'net', '', 0.0, 'exact', 'cid',
-    'dsp', '', 0, MaxAdWaterfallInfo('', '', const [], 0), null, null);
+MaxAd _fakeMaxAd() => MaxAd(
+  'i',
+  'INTER',
+  null,
+  'net',
+  '',
+  0.0,
+  'exact',
+  'cid',
+  'dsp',
+  '',
+  0,
+  MaxAdWaterfallInfo('', '', const [], 0),
+  null,
+  null,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
   group('AdMob — a fill that lands after the withdrawal', () {
+    test(
+      'manager withdrawal discards a deferred fill before it can show',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('applovin_max'),
+          (call) async => null,
+        );
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/google_mobile_ads'),
+          (call) async => null,
+        );
+        addTearDown(() {
+          messenger.setMockMethodCallHandler(
+            const MethodChannel('applovin_max'),
+            null,
+          );
+          messenger.setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/google_mobile_ads'),
+            null,
+          );
+        });
+
+        final bridge = _DeferredInterstitialBridge();
+        final adapter = AdMobAdapter(bridge: bridge);
+        final manager = AdManager();
+        manager.debugConnectivityInit = () async {};
+        AdManager.debugAdapterFactory = (_) => adapter;
+        addTearDown(() => AdManager.debugAdapterFactory = null);
+        await manager.initialize(config: _admobConfig, onComplete: (_, _) {});
+        addTearDown(manager.destroy);
+        manager.debugVipManager = null;
+        manager.debugConnectivityReady = true;
+        manager.debugConnectivityChanged(true);
+        await manager.setConsent(const AdConsent(hasUserConsent: true));
+
+        await manager.loadInterstitial();
+        expect(adapter.interstitialSlot.isLoading, isTrue);
+        expect(bridge.npaInter, isFalse);
+
+        await manager.setConsent(const AdConsent(hasUserConsent: false));
+        final late = FakeGmaFullscreenAd();
+        bridge.pendingOnLoaded!(late);
+
+        expect(late.disposeCount, 1);
+        expect(adapter.interstitialSlot.isReady, isFalse);
+        var shown = true;
+        await manager.showInterstitial(onDoneFlow: (value) => shown = value);
+        expect(shown, isFalse);
+
+        manager.debugSetAdapter(null);
+        manager.debugConfig = null;
+        manager.debugCanRequestAds = true;
+      },
+    );
+
     test('is disposed instead of being cached as ready', () async {
       final bridge = _DeferredInterstitialBridge();
       final adapter = AdMobAdapter(bridge: bridge);
@@ -77,10 +154,16 @@ void main() {
 
       adapter.applyConsent(const AdConsent(hasUserConsent: true));
       await adapter.loadInterstitial();
-      expect(adapter.interstitialSlot.isLoading, isTrue,
-          reason: 'sanity: the request is in flight');
-      expect(bridge.npaInter, isFalse,
-          reason: 'sanity: it went out as a personalised request');
+      expect(
+        adapter.interstitialSlot.isLoading,
+        isTrue,
+        reason: 'sanity: the request is in flight',
+      );
+      expect(
+        bridge.npaInter,
+        isFalse,
+        reason: 'sanity: it went out as a personalised request',
+      );
 
       // The user withdraws personalisation while the request is in the air.
       await adapter.discardCachedFullscreenAds();
@@ -88,11 +171,18 @@ void main() {
       final late = FakeGmaFullscreenAd();
       bridge.pendingOnLoaded!(late);
 
-      expect(adapter.interstitialSlot.isReady, isFalse,
-          reason: 'an ad requested under the old consent must not become the '
-              'ad the next showInterstitial() serves');
-      expect(late.disposeCount, 1,
-          reason: 'and it must be released, not merely forgotten');
+      expect(
+        adapter.interstitialSlot.isReady,
+        isFalse,
+        reason:
+            'an ad requested under the old consent must not become the '
+            'ad the next showInterstitial() serves',
+      );
+      expect(
+        late.disposeCount,
+        1,
+        reason: 'and it must be released, not merely forgotten',
+      );
     });
 
     test('is kept when no withdrawal happened', () async {
@@ -111,28 +201,37 @@ void main() {
   });
 
   group('AppLovin — a fill that lands after the withdrawal', () {
-    test('does not make the slot ready, so no show path can reach it',
-        () async {
-      final bridge = FakeAppLovinBridge();
-      final adapter = AppLovinAdapter(bridge: bridge);
-      expect(await adapter.initialize(_appLovinConfig), isTrue);
-      addTearDown(adapter.dispose);
+    test(
+      'does not make the slot ready, so no show path can reach it',
+      () async {
+        final bridge = FakeAppLovinBridge();
+        final adapter = AppLovinAdapter(bridge: bridge);
+        expect(await adapter.initialize(_appLovinConfig), isTrue);
+        addTearDown(adapter.dispose);
 
-      await adapter.loadInterstitial();
-      expect(adapter.interstitialSlot.isLoading, isTrue,
-          reason: 'sanity: the request is in flight');
+        await adapter.loadInterstitial();
+        expect(
+          adapter.interstitialSlot.isLoading,
+          isTrue,
+          reason: 'sanity: the request is in flight',
+        );
 
-      await adapter.discardCachedFullscreenAds();
-      bridge.inter!.onAdLoadedCallback(_fakeMaxAd());
+        await adapter.discardCachedFullscreenAds();
+        bridge.inter!.onAdLoadedCallback(_fakeMaxAd());
 
-      expect(adapter.interstitialSlot.isReady, isFalse,
-          reason: 'MAX may still hold this ad natively, but showInterstitial() '
-              'refuses on !isReady — that is what keeps it off screen');
+        expect(
+          adapter.interstitialSlot.isReady,
+          isFalse,
+          reason:
+              'MAX may still hold this ad natively, but showInterstitial() '
+              'refuses on !isReady — that is what keeps it off screen',
+        );
 
-      var shown = true;
-      await adapter.showInterstitial(onDone: (ok) => shown = ok);
-      expect(shown, isFalse);
-    });
+        var shown = true;
+        await adapter.showInterstitial(onDone: (ok) => shown = ok);
+        expect(shown, isFalse);
+      },
+    );
 
     test('is kept when no withdrawal happened', () async {
       final bridge = FakeAppLovinBridge();
@@ -162,8 +261,11 @@ void main() {
     final ad = FakeGmaFullscreenAd();
     bridge.pendingOnLoaded!(ad);
 
-    expect(adapter.interstitialSlot.isReady, isTrue,
-        reason: 'this request already carried the narrowed consent');
+    expect(
+      adapter.interstitialSlot.isReady,
+      isTrue,
+      reason: 'this request already carried the narrowed consent',
+    );
     expect(ad.disposeCount, 0);
   });
 }

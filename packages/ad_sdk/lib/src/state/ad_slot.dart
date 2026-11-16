@@ -115,21 +115,13 @@ class AdSlot {
   /// Always cleared after firing; [AdManager.destroy] flushes it with `false`.
   void Function(bool result)? pendingCallback;
 
-  /// T185 — a fresh, adapter-generated correlation ID stamped every time
-  /// this slot's ad finishes loading (fullscreen formats only). Read by
-  /// `AdManager` when it emits this slot's `AdShowEvent`, so
-  /// `RevenueIntegrityLedger` can match a show to its `AdRevenueEvent`
-  /// EXACTLY by ID instead of only guessing by (provider, type,
-  /// placement) within a time window. Safe to read here even though a
-  /// slot's ad instance can go through load → ready → showing → idle
-  /// several times over a session: [AdSlot.beginLoad]/[beginReload] both
-  /// refuse while [isShowing], so the value set for the ad currently
-  /// showing cannot be overwritten by a new load until AFTER that show
-  /// concludes. `null` until the first successful load, or for any
-  /// adapter that hasn't been updated to set it — every existing reader
-  /// of `AdShowEvent`/`AdRevenueEvent` keeps working unchanged since the
-  /// ledger falls back to its pre-T185 time-window match whenever this is
-  /// null on either side.
+  /// Adapter-generated ID for the current ad object. Fullscreen formats
+  /// capture it in `AdShowEvent` and `AdRevenueEvent` so the ledger can match
+  /// those events exactly. Inline formats use it to identify the concrete ad
+  /// object that emitted revenue; inline ads do not emit `AdShowEvent`, and
+  /// auto-refresh callbacks keep the same ID because the plugin does not expose
+  /// a distinct object for each refresh request. `null` until the adapter
+  /// creates an ad object or for adapters that do not assign IDs.
   String? requestId;
 
   // ─── Convenience reads ─────────────────────────────────────────────────────

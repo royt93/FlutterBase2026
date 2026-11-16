@@ -38,7 +38,8 @@ Chưa có bằng chứng: host app thật, ad unit production, consent trên thi
 
 - [ ] UMP là consent owner duy nhất; chạy mỗi lần mở app trước khi request ad.
 - [ ] Có mục **Privacy Options** dễ tìm khi UMP yêu cầu (example đã có mẫu).
-- [ ] Thử form EEA bằng test device + `DebugGeography` trên một thiết bị: Consent và Do not consent đều cho gate/ad hoạt động đúng; đổi ý qua Privacy Options.
+- [ ] **Automated SDK boundary:** `consent_gate_test.dart` verifies a closed `AdManager` gate makes zero GMA bridge load calls and an open gate makes one. The fake bridge proves only the Dart boundary; it does not prove a native GMA request, network transmission, Google receipt, or fill.
+- [ ] **Host/device EEA verification (still required):** on a test device, use EEA `DebugGeography` and manually exercise Consent, Do not consent, and Privacy Options. Capture UMP outcome, relevant IAB state, request/no-request observations, and test-ad result for the host app. Existing `ump_eea_consent_test.dart` covers only an already-obtained decision, form suppression, open `canRequestAds`, and non-empty TCF; it does not drive the form or observe an ad request.
 - [ ] Ghi nhận: `canRequestAds=true` sau khi từ chối nghĩa là ad **không cá nhân hoá** (`nonPersonalizedAds=true`), không phải không có ad.
 - [ ] Chính sách quyền riêng tư mở được từ app. Trách nhiệm pháp lý theo từng thị trường thuộc publisher, không thuộc SDK.
 

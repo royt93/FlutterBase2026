@@ -5,10 +5,14 @@
 // it is false. Driven via the debugCanRequestAds seam (real UMP needs native).
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
+import 'package:applovin_admob_sdk/src/adapters/gma_bridge.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart'
+    show AgeRestrictedTreatment;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _CountingAdapter implements AdProviderAdapter {
@@ -56,6 +60,7 @@ class _CountingAdapter implements AdProviderAdapter {
     showAppOpenCalls++;
     onDismiss(true);
   }
+
   @override
   Future<void> showRewarded({
     required void Function(RewardResult result) onDone,
@@ -65,8 +70,37 @@ class _CountingAdapter implements AdProviderAdapter {
     showRewardedCalls++;
     onDone(const RewardResult(earned: true, shown: true));
   }
+
   @override
   void applyConsent(AdConsent consent) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RecordingGmaBridge implements GmaBridge {
+  int interstitialLoads = 0;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> updateRequestConfiguration(
+    List<String> testDeviceIds, {
+    required AgeRestrictedTreatment ageRestrictedTreatment,
+  }) async {}
+
+  @override
+  Future<void> loadInterstitial(
+    String adUnitId, {
+    required bool nonPersonalizedAds,
+    bool restrictedDataProcessing = false,
+    required void Function(GmaFullscreenAd ad) onLoaded,
+    required void Function(int code, String message) onFailed,
+  }) async {
+    interstitialLoads++;
+    onFailed(3, 'no fill');
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -149,6 +183,23 @@ void main() {
       expect(adapter.loadInterstitialCalls, 1);
       expect(adapter.loadRewardedCalls, 1);
       expect(adapter.loadAppOpenCalls, 1);
+    });
+
+    test('closed gate skips GMA bridge load; open gate reaches it', () async {
+      final bridge = _RecordingGmaBridge();
+      final admobAdapter = AdMobAdapter(bridge: bridge);
+      expect(await admobAdapter.initialize(_config), isTrue);
+      AdManager().debugSetAdapter(admobAdapter);
+
+      AdManager().debugCanRequestAds = false;
+      await AdManager().loadInterstitial();
+      expect(bridge.interstitialLoads, 0);
+
+      AdManager().debugCanRequestAds = true;
+      await AdManager().loadInterstitial();
+      expect(bridge.interstitialLoads, 1);
+
+      await admobAdapter.dispose();
     });
 
     test('gate CLOSED → direct Rewarded show is skipped', () async {

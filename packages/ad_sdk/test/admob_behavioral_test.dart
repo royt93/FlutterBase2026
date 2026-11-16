@@ -1851,7 +1851,13 @@ void main() {
 
       bridge.lastRewarded!.paidCallback!(1.0, 'USD', 'estimated');
 
-      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+      final revenue = events.whereType<AdRevenueEvent>().single;
+      expect(revenue.requestId, requestId);
+      expect(revenue.valueMicros, 1);
+      expect(revenue.currencyCode, 'USD');
+      expect(revenue.precision, 'estimated');
+      expect(revenue.type, AdSlotType.rewarded);
+      expect(revenue.placement, AdPlacement.unspecified);
     });
 
     test('app open: same guarantee', () async {
@@ -1864,7 +1870,13 @@ void main() {
 
       bridge.lastAppOpen!.paidCallback!(1.0, 'USD', 'estimated');
 
-      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+      final revenue = events.whereType<AdRevenueEvent>().single;
+      expect(revenue.requestId, requestId);
+      expect(revenue.valueMicros, 1);
+      expect(revenue.currencyCode, 'USD');
+      expect(revenue.precision, 'estimated');
+      expect(revenue.type, AdSlotType.appOpen);
+      expect(revenue.placement, AdPlacement.splash);
     });
 
     test('rewarded interstitial: same guarantee', () async {
@@ -1877,7 +1889,13 @@ void main() {
 
       bridge.lastRewardedInterstitial!.paidCallback!(1.0, 'USD', 'estimated');
 
-      expect(events.whereType<AdRevenueEvent>().single.requestId, requestId);
+      final revenue = events.whereType<AdRevenueEvent>().single;
+      expect(revenue.requestId, requestId);
+      expect(revenue.valueMicros, 1);
+      expect(revenue.currencyCode, 'USD');
+      expect(revenue.precision, 'estimated');
+      expect(revenue.type, AdSlotType.rewardedInterstitial);
+      expect(revenue.placement, AdPlacement.unspecified);
     });
 
     test('two consecutive loads of the same format get two DIFFERENT '

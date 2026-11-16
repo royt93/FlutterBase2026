@@ -66,6 +66,14 @@ void main() {
         listener: const BannerAdListener(),
       );
 
+  NativeAd dummyNative() => NativeAd(
+        adUnitId: 'n',
+        request: const AdRequest(),
+        listener: NativeAdListener(),
+        nativeTemplateStyle:
+            NativeTemplateStyle(templateType: TemplateType.medium),
+      );
+
   Future<AdMobAdapter> newAdapter() async {
     final adapter = AdMobAdapter(bridge: FakeGmaBridge());
     expect(await adapter.initialize(config), isTrue);
@@ -230,6 +238,87 @@ void main() {
 
       expect(adapter.native('k').isLoaded.value, isFalse,
           reason: 'a config-A fill must never mark config B as loaded');
+    });
+  });
+
+  group('inline paid-event object request IDs', () {
+    test('banner keeps one ID across paid callbacks', () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadBannerIfNeeded('k', 320);
+      final listener = adapter.debugBannerListenerFor('k')!;
+      final requestId = adapter.bannerSlot('k').requestId;
+
+      expect(requestId, isNotNull);
+      listener.onPaidEvent!(dummyBanner(), 1234, PrecisionType.estimated, 'USD');
+      listener.onPaidEvent!(dummyBanner(), 5678, PrecisionType.precise, 'USD');
+
+      final revenue = events.whereType<AdRevenueEvent>().toList();
+      expect(revenue, hasLength(2));
+      expect(revenue[0].requestId, requestId);
+      expect(revenue[1].requestId, requestId);
+      expect(revenue[0].type, AdSlotType.banner);
+    });
+
+    test('separate Banner instances get distinct IDs', () async {
+      final adapter = await newAdapter();
+      await adapter.loadBannerIfNeeded('one', 320);
+      await adapter.loadBannerIfNeeded('two', 320);
+
+      final first = adapter.bannerSlot('one').requestId;
+      final second = adapter.bannerSlot('two').requestId;
+      expect(first, isNotNull);
+      expect(second, isNotNull);
+      expect(second, isNot(first));
+    });
+
+    test('MREC and Native get distinct IDs per ad object', () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+
+      await adapter.loadMrecIfNeeded('mrec', 0);
+      final mrecListener = adapter.debugMrecListenerFor('mrec')!;
+      final mrecId = adapter.mrecSlot('mrec').requestId;
+      await adapter.preloadNative('native');
+      final nativeListener = adapter.debugNativeListenerFor('native')!;
+      final nativeId = adapter.nativeSlot('native').requestId;
+
+      expect(mrecId, isNotNull);
+      expect(nativeId, isNotNull);
+      expect(nativeId, isNot(mrecId));
+
+      mrecListener.onPaidEvent!(dummyBanner(), 1234, PrecisionType.estimated, 'USD');
+      nativeListener.onPaidEvent!(dummyNative(), 5678, PrecisionType.precise, 'USD');
+
+      final revenue = events.whereType<AdRevenueEvent>().toList();
+      expect(revenue, hasLength(2));
+      expect(revenue[0].requestId, mrecId);
+      expect(revenue[0].type, AdSlotType.mrec);
+      expect(revenue[1].requestId, nativeId);
+      expect(revenue[1].type, AdSlotType.native);
+    });
+
+    test('late callback from replaced object retains its original ID', () async {
+      final adapter = await newAdapter();
+      final events = <AdEvent>[];
+      adapter.eventSink = events.add;
+      await adapter.loadMrecIfNeeded('k', 0);
+      final oldListener = adapter.debugMrecListenerFor('k')!;
+      final oldId = adapter.mrecSlot('k').requestId;
+
+      adapter.disposeMrecInstance('k');
+      await adapter.loadMrecIfNeeded('k', 0);
+      final newId = adapter.mrecSlot('k').requestId;
+      expect(newId, isNotNull);
+      expect(newId, isNot(oldId));
+
+      oldListener.onPaidEvent!(dummyBanner(), 1234, PrecisionType.estimated, 'USD');
+
+      final revenue = events.whereType<AdRevenueEvent>().single;
+      expect(revenue.requestId, oldId);
+      expect(revenue.requestId, isNot(newId));
     });
   });
 
