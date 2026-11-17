@@ -2,10 +2,10 @@
 
 - **Loại:** Verification / Test enhancement
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Confidence:** Native Android payload mapping remains unverified; no defect reproduced.
-- **Status:** blocked — Android device/QA app unavailable; deterministic unit coverage complete.
-- **Evidence:** `test/admob_behavioral_test.dart:1823-1899` verifies all four fullscreen formats' request ID, valueMicros, currency, precision, type and placement via fake bridge. `example/integration_test/t185_revenue_request_id_test.dart` verifies a real test-ad paid callback and requestId on Android, but not every payload field. `test/gma_bridge_test.dart` covers paid-listener disposal boundary.
-- **Completed:** Unit/bridge mapping assertions for Interstitial, Rewarded, App Open and Rewarded Interstitial. Fullscreen native-device payload verification remains open.
+- **Confidence:** No payload defect reproduced; native AdMob test callback verified on one Android device.
+- **Status:** done (2026-11-17)
+- **Evidence:** `test/admob_behavioral_test.dart:1823-1899` verifies all four fullscreen formats' request ID, valueMicros, currency, precision, type and placement via fake bridge. `example/integration_test/t185_revenue_request_id_test.dart` passed on TECNO KJ7 (Android 14/API 34), isolated app ID `com.roy.admobwrapper.t281qa`, Google test inventory, 2026-11-17. Logs showed real interstitial loaded, `showInterstitial ✅ shown`, impression callback, then the native `AdRevenueEvent` assertion matched `requestId`, nonnegative `valueMicros`, three-letter `currencyCode`, valid `precision`, interstitial type and unspecified placement. No production IDs/credentials or host package touched. The test intentionally does not dismiss the native test ad; SDK teardown completed after its bounded wait.
+- **Completed:** Unit/bridge mapping assertions plus real Android test-ad callback verification for the T185 payload fields. This proves one device/build/test-inventory path, not production revenue values, all devices, or mediation waterfall availability.
 - **Dependencies:** Android device có mạng; Google test inventory; không cần production account
 
 ## Bối cảnh & vấn đề
