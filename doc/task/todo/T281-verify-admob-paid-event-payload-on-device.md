@@ -2,9 +2,10 @@
 
 - **Loại:** Verification / Test enhancement
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Confidence:** Payload fields chưa được assert trong T185 integration; fake bridge adapter tests exercise value/currency/precision callback and only assert `requestId`. Not a proven defect.
-- **Status:** todo
-- **Evidence:** `lib/src/adapters/admob_adapter.dart:155-175, 178-225`; `lib/src/adapters/gma_bridge.dart:48-53, 264-270`; `test/admob_behavioral_test.dart:1823-1861`; `example/integration_test/t185_revenue_request_id_test.dart`
+- **Confidence:** Native Android payload mapping remains unverified; no defect reproduced.
+- **Status:** blocked — Android device/QA app unavailable; deterministic unit coverage complete.
+- **Evidence:** `test/admob_behavioral_test.dart:1823-1899` verifies all four fullscreen formats' request ID, valueMicros, currency, precision, type and placement via fake bridge. `example/integration_test/t185_revenue_request_id_test.dart` verifies a real test-ad paid callback and requestId on Android, but not every payload field. `test/gma_bridge_test.dart` covers paid-listener disposal boundary.
+- **Completed:** Unit/bridge mapping assertions for Interstitial, Rewarded, App Open and Rewarded Interstitial. Fullscreen native-device payload verification remains open.
 - **Dependencies:** Android device có mạng; Google test inventory; không cần production account
 
 ## Bối cảnh & vấn đề
