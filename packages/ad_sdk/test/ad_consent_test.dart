@@ -398,10 +398,12 @@ void main() {
               expect(result.appLovinCoppaForwarded, isFalse,
                   reason: 'AppLovin MAX 4.x has no API to receive this '
                       'signal at all, regardless of input');
-              expect(result.admobTagForChildDirectedTreatment,
-                  isAgeRestrictedUser ? 'yes' : 'no');
-              expect(result.admobTagForUnderAgeOfConsent,
-                  tagUnderAge ? 'yes' : 'unspecified');
+              expect(
+                result.admobAgeRestrictedTreatment,
+                isAgeRestrictedUser || tagUnderAge
+                    ? AgeRestrictedTreatment.child
+                    : AgeRestrictedTreatment.unspecified,
+              );
             }
           }
         }
