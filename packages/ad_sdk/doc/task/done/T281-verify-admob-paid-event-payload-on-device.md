@@ -21,6 +21,12 @@ T185 originally verified that the real AdMob paid-event callback carries the req
 - [x] Widget/golden N/A: no UI or public API change. Interruption, network conditioning, memory/profile, frame/jank, and mediation N/A: this test only validates one paid-event callback and does not change lifecycle/resource behavior; waterfall metadata is not guaranteed by test inventory. IAP is host-app scope.
 - [x] Google test IDs only; no production IDs, credentials, or ad clicks.
 
+## Follow-up exploratory QA — TECNO KJ7 (2026-11-17)
+
+Additional AdMob test-ad smoke used isolated package ID `com.roy.admobwrapper.t281qa`; APK manifest was verified before installation. Host package `com.roy.admobwrapper` remained installed and untouched. Banner, MREC, and Native integration tests passed on TECNO KJ7 (Android 14/API 34); logs are available in local `/tmp/t281-banner.log`, `/tmp/t281-mrec.log`, and `/tmp/t281-native.log` (not committed). `android_network_conditioning_test.dart` passed using SDK debug connectivity toggles only; it did not change physical Wi-Fi.
+
+Fullscreen outcomes are inconclusive: App Open test failed before show because its Home tile was not found. The test log shows splash route replacement `/ → null` after initialization, followed by successful App Open load, so failure is in example navigation/harness rather than ad-load evidence. Interstitial showed and emitted impression, but test timed out waiting for dismiss; a screenshot after timeout showed another app foreground, not the isolated QA app. No native close control was verified or tapped. Rewarded/Rewarded Interstitial fullscreen flows were not run. No further TECNO UI actions were taken. These exploratory results do not change T281 acceptance above or establish fullscreen dismiss behavior.
+
 ## Test plan
 
 - **Unit:** controlled adapter callback validates mapping without assuming real revenue.
