@@ -5163,6 +5163,50 @@ void main() {
     );
 
     testWidgets(
+      'destroy() while the resume loading buffer is pending: onComplete '
+      'neither shows through the torn-down adapter nor throws',
+      (tester) async {
+        final navigatorKey = GlobalKey<NavigatorState>();
+        AdManager().setNavigatorKey(navigatorKey);
+        AdManager().debugConfig = _admobConfig(
+          dryRun: true,
+          testIds: true,
+          loadingBufferMs: 100,
+        );
+        await tester.pumpWidget(
+          MaterialApp(navigatorKey: navigatorKey, home: const Scaffold()),
+        );
+        adapter.appOpenSlot.beginLoad();
+        adapter.appOpenSlot.markReady();
+
+        AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
+        AdManager().showAppOpenAdOnResume(); // reaches showAdBuffer
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(adapter.showAppOpenCalls, 0, reason: 'buffer still pending');
+
+        // The host tears the SDK down while the buffer is on screen. `_FakeVip`
+        // has no `activeListenable`, which destroy() reads, so drop it first.
+        AdManager().debugVipManager = null;
+        await tester.runAsync(() async {
+          await AdManager().destroy();
+        });
+        expect(AdManager().isInitialised, isFalse);
+
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(adapter.showAppOpenCalls, 0,
+            reason: 'a buffer that outlives destroy() must not present an ad '
+                'through the adapter of the dead session');
+        expect(AdManager().isInitialised, isFalse,
+            reason: 'onComplete must not resurrect any session state');
+        // No timer may be left pending (fails the test framework otherwise).
+        await tester.pumpAndSettle(const Duration(seconds: 2));
+      },
+    );
+
+    testWidgets(
       'normal screen allows resume behavior again after sensitive closes',
       (tester) async {
         await tester.pumpWidget(

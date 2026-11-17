@@ -187,6 +187,43 @@ void main() {
         reason: 'a hidden tab must not keep animating its mrec placeholder');
   });
 
+  // M1 twin of banner_ad_widget_test.dart — withdrawing personalisation must
+  // drop the mounted, loaded MREC through the widget's own listener; the
+  // canRequestAds gate stays open, so nothing else would replace it.
+  testWidgets(
+      'withdrawing personalisation drops the mounted, loaded MREC instance',
+      (tester) async {
+    final adapter = _MrecCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetMrecCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const MrecAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadMrecCalls, 1);
+    final key = adapter.mrecListenablesByKey.keys.single;
+    adapter.mrecListenablesByKey[key]!.isLoaded.value = true;
+    await tester.pump();
+
+    AdManager().personalisationRevision.value =
+        AdManager().personalisationRevision.value + 1;
+    await tester.pump();
+
+    expect(adapter.mrecListenablesByKey.containsKey(key), isFalse,
+        reason: 'M1: the real widget listener must dispose the mounted '
+            'instance — its personalised ad has no verified consent basis');
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadMrecCalls, 2,
+        reason: 'a fresh load must replace the dropped instance');
+  });
+
   testWidgets('renders an empty box when the SDK is not initialised',
       (tester) async {
     await tester.pumpWidget(host(const MrecAdWidget()));

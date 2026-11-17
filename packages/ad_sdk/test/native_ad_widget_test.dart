@@ -145,6 +145,44 @@ void main() {
         home: Scaffold(body: Center(child: child)),
       );
 
+  // M1 twin of banner_ad_widget_test.dart — withdrawing personalisation must
+  // drop the mounted, loaded native ad through the widget's own listener; the
+  // canRequestAds gate stays open, so nothing else would replace it.
+  testWidgets(
+      'withdrawing personalisation drops the mounted, loaded native instance',
+      (tester) async {
+    final adapter = _NativeCountingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = _admobConfig;
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetNativeCooldown();
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+
+    await tester.pumpWidget(host(const NativeAdWidget()));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 1);
+    final key = adapter.nativeListenablesByKey.keys.single;
+    adapter.nativeListenablesByKey[key]!.isLoaded.value = true;
+    await tester.pump();
+    final disposedBefore = adapter.disposeNativeCalls;
+
+    AdManager().personalisationRevision.value =
+        AdManager().personalisationRevision.value + 1;
+    await tester.pump();
+
+    expect(adapter.disposeNativeCalls, greaterThan(disposedBefore),
+        reason: 'M1: the real widget listener must dispose the mounted '
+            'instance — its personalised ad has no verified consent basis');
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.loadNativeCalls, 2,
+        reason: 'a fresh load must replace the dropped instance');
+  });
+
   testWidgets('renders an empty box when the SDK is not initialised',
       (tester) async {
     await tester.pumpWidget(host(const NativeAdWidget()));
