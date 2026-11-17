@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.4] - 2026-11-17
+
 - **Fixed (Flight Recorder erasure):** `AdManager.clearSdkData()` could leave erased evidence recoverable: an already-issued flight-recorder write was not ordered against the key removal, a hash or IAB read in flight could append after erasure, and a replacement recorder could reload the pre-erasure copy. Writes and removal of the flight-recorder key now share one queue, erasure waits for writes already issued, and events arriving **while** erasure runs are dropped (recording resumes once `clearSdkData()` completes). Stale references to the old recorder see an empty log. No public API change. Android's own SharedPreferences queue was already serial; this closes the SDK-level ordering gap, not an observed Android reorder. Only the Flight Recorder key is covered. A failing flight-key removal no longer stops the other `ad_sdk_*` keys from being erased (the error is rethrown afterwards). `AdFlightRecorder.clear()` now also discards `record()` calls queued before it, instead of appending them afterwards.
 
 ## [3.7.3] - 2026-11-17
