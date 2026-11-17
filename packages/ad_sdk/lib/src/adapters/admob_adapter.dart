@@ -1100,6 +1100,7 @@ class AdMobAdapter
         },
       ));
     } catch (e, st) {
+      if (_appOpenDismiss != onDismiss) return;
       SafeLogger.e(_logTag, 'showAppOpen $tag show THREW: $e\n$st');
       _appOpenShowTimeout?.cancel();
       _appOpenShowTimeout = null;
@@ -1450,6 +1451,7 @@ class AdMobAdapter
         },
       ));
     } catch (e, st) {
+      if (cycleEnded) return;
       SafeLogger.e(_logTag, 'showInterstitial $tag THREW: $e\n$st');
       // MJ25 — dispose, don't just forget: `ad` is the last reference.
       if (identical(_interstitialAd, ad)) _interstitialAd = null;
@@ -1769,7 +1771,7 @@ class AdMobAdapter
     } catch (e, st) {
       if (cycleEnded) return; // the watchdog already resolved this cycle
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
-      // MJ25 — dispose, don't just forget: `ad` is the last reference.
+      // MJ25 — dispose: `ad` is the last reference.
       if (identical(_rewardedAd, ad)) _rewardedAd = null;
       _disposeAd(ad, 'rewarded-show-threw');
       _showFailedThenReloadable(rewardedSlot);
@@ -2048,9 +2050,10 @@ class AdMobAdapter
             },
           ));
     } catch (e, st) {
+      if (cycleEnded) return;
       SafeLogger.e(
           _logTag, 'showRewardedInterstitial $tag show THREW: $e\n$st');
-      // MJ25 — dispose, don't just forget: `ad` is the last reference.
+      // MJ25 — dispose: `ad` is the last reference.
       if (identical(_rewardedInterstitialAd, ad)) {
         _rewardedInterstitialAd = null;
       }

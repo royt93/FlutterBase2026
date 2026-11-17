@@ -48,6 +48,14 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
   /// watchdog exists for — left it never armed at all.
   bool hangOnShow = false;
 
+  /// The pending `show()` while [hangOnShow] holds it; lets a test fail it
+  /// late with `completeError`, after the watchdog already resolved the cycle.
+  Completer<void>? hungShow;
+
+  /// While set, a show() carrying SSV options waits on it (the pending
+  /// `setServerSideOptions` round-trip) before the `canShow` re-check.
+  Completer<void>? pendingSsvOptions;
+
   // Captured SSV params from the most recent show() call.
   String? lastSsvCustomData;
   String? lastSsvUserId;
@@ -59,11 +67,21 @@ class FakeGmaFullscreenAd implements GmaFullscreenAd {
     String? ssvUserId,
   }) async {
     if (throwOnShow) throw PlatformException(code: 'show-failed');
+    // Mirrors the real bridge's rewarded path: await setServerSideOptions(),
+    // then honour canShow before presenting. Null when a test does not need it.
+    final ssvGate = pendingSsvOptions;
+    if (ssvGate != null && (ssvUserId != null || ssvCustomData != null)) {
+      await ssvGate.future;
+      if (callbacks.canShow?.call() == false) {
+        callbacks.onFailedToShow?.call('cancelled while SSV was pending');
+        return;
+      }
+    }
     if (hangOnShow) {
       shown = callbacks;
       showCount++;
-      // Never completes, and never invokes a callback.
-      await Completer<void>().future;
+      // Never completes by itself, and never invokes a callback.
+      await (hungShow = Completer<void>()).future;
       return;
     }
     shown = callbacks;
@@ -1590,6 +1608,167 @@ void main() {
       await adapter.showRewardedInterstitial(onDone: (r) => result = r);
       expect(result, RewardResult.skipped);
       expect(ad.disposeCount, 1);
+    });
+  });
+
+  // A show() that outlives the watchdog and only THEN throws must not touch the
+  // next cycle: the catch would otherwise drop a live `showing` slot into
+  // cooldown (letting another fullscreen stack) and resolve cycle 2's caller.
+  group('a late show() throw after the watchdog ended the cycle is dropped',
+      () {
+    const lateError = 'late-platform-error';
+
+    test('interstitial', () {
+      fakeAsync((async) {
+        unawaited(adapter.loadInterstitial());
+        async.flushMicrotasks();
+        final first = bridge.lastInter!..hangOnShow = true;
+        bool? firstDone;
+        unawaited(adapter.showInterstitial(onDone: (d) => firstDone = d));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 11));
+        expect(firstDone, isFalse, reason: 'watchdog resolved cycle 1');
+
+        // The watchdog's failure put the slot in its backoff cooldown, which
+        // is wall-clock (DateTime.now), so fakeAsync cannot elapse it.
+        adapter.interstitialSlot.reset();
+        unawaited(adapter.loadInterstitial());
+        async.flushMicrotasks();
+        bool? secondDone;
+        unawaited(adapter.showInterstitial(onDone: (d) => secondDone = d));
+        async.flushMicrotasks();
+        expect(adapter.interstitialSlot.isShowing, isTrue);
+        final failures = adapter.interstitialSlot.consecutiveFailures;
+
+        first.hungShow!.completeError(PlatformException(code: lateError));
+        async.flushMicrotasks();
+
+        expect(adapter.interstitialSlot.isShowing, isTrue,
+            reason: 'cycle 2 is on screen; a stale throw must not end it');
+        expect(secondDone, isNull);
+        expect(adapter.interstitialSlot.consecutiveFailures, failures);
+      });
+    });
+
+    test('rewarded interstitial', () {
+      fakeAsync((async) {
+        unawaited(adapter.loadRewardedInterstitial());
+        async.flushMicrotasks();
+        final first = bridge.lastRewardedInterstitial!..hangOnShow = true;
+        RewardResult? firstResult;
+        unawaited(
+            adapter.showRewardedInterstitial(onDone: (r) => firstResult = r));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 11));
+        expect(firstResult, RewardResult.skipped);
+
+        // The watchdog's failure put the slot in its backoff cooldown, which
+        // is wall-clock (DateTime.now), so fakeAsync cannot elapse it.
+        adapter.rewardedInterstitialSlot.reset();
+        unawaited(adapter.loadRewardedInterstitial());
+        async.flushMicrotasks();
+        RewardResult? secondResult;
+        unawaited(
+            adapter.showRewardedInterstitial(onDone: (r) => secondResult = r));
+        async.flushMicrotasks();
+        expect(adapter.rewardedInterstitialSlot.isShowing, isTrue);
+        final failures = adapter.rewardedInterstitialSlot.consecutiveFailures;
+
+        first.hungShow!.completeError(PlatformException(code: lateError));
+        async.flushMicrotasks();
+
+        expect(adapter.rewardedInterstitialSlot.isShowing, isTrue);
+        expect(secondResult, isNull);
+        expect(adapter.rewardedInterstitialSlot.consecutiveFailures, failures);
+      });
+    });
+
+    test('app open', () {
+      fakeAsync((async) {
+        unawaited(adapter.loadAppOpen());
+        async.flushMicrotasks();
+        final first = bridge.lastAppOpen!..hangOnShow = true;
+        bool? firstDismissed;
+        unawaited(adapter.showAppOpen(onDismiss: (d) => firstDismissed = d));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 91));
+        expect(firstDismissed, isFalse, reason: 'hard cap resolved cycle 1');
+
+        // The watchdog's failure put the slot in its backoff cooldown, which
+        // is wall-clock (DateTime.now), so fakeAsync cannot elapse it.
+        adapter.appOpenSlot.reset();
+        unawaited(adapter.loadAppOpen());
+        async.flushMicrotasks();
+        bool? secondDismissed;
+        unawaited(adapter.showAppOpen(onDismiss: (d) => secondDismissed = d));
+        async.flushMicrotasks();
+        expect(adapter.appOpenSlot.isShowing, isTrue);
+        final failures = adapter.appOpenSlot.consecutiveFailures;
+
+        first.hungShow!.completeError(PlatformException(code: lateError));
+        async.flushMicrotasks();
+
+        expect(adapter.appOpenSlot.isShowing, isTrue);
+        expect(secondDismissed, isNull);
+        expect(adapter.appOpenSlot.consecutiveFailures, failures);
+        addTearDown(() => adapter.dispose());
+      });
+    });
+  });
+
+  // gma_bridge awaits setServerSideOptions() and then re-checks canShow. If
+  // consent is withdrawn (or the SDK torn down) during that round-trip the
+  // healthy ad must be released, not shown, and the caller resolved skipped.
+  group('rewarded: show cancelled while SSV options are pending', () {
+    test('releases the ad, resolves skipped and never presents', () async {
+      await adapter.loadRewarded();
+      final ad = bridge.lastRewarded!..pendingSsvOptions = Completer<void>();
+      RewardResult? result;
+      final shown = adapter.showRewarded(
+          ssvUserId: 'u', onDone: (r) => result = r);
+      await Future<void>.delayed(Duration.zero);
+      expect(adapter.rewardedSlot.isShowing, isTrue,
+          reason: 'still waiting on the SSV round-trip');
+
+      adapter.canPresent = () => false; // consent withdrawn mid-flight
+      ad.pendingSsvOptions!.complete();
+      await shown;
+
+      expect(result, RewardResult.skipped);
+      expect(ad.showCount, 0, reason: 'a cancelled show must never present');
+      expect(ad.disposeCount, 1, reason: 'the native ad would otherwise leak');
+      expect(adapter.rewardedSlot.isShowing, isFalse);
+    });
+
+    test('documents current policy: our own cancel counts as one failure',
+        () async {
+      await adapter.loadRewarded();
+      final ad = bridge.lastRewarded!..pendingSsvOptions = Completer<void>();
+      final before = adapter.rewardedSlot.consecutiveFailures;
+      final shown =
+          adapter.showRewarded(ssvUserId: 'u', onDone: (_) {});
+      await Future<void>.delayed(Duration.zero);
+      adapter.canPresent = () => false;
+      ad.pendingSsvOptions!.complete();
+      await shown;
+
+      // Pinned deliberately: a cancel we caused is routed through
+      // _showFailedThenReloadable like a display failure. Changing this is a
+      // product decision (it shortens/lengthens the next load backoff).
+      expect(adapter.rewardedSlot.consecutiveFailures, before + 1);
+    });
+
+    test('canPresent stays true: SSV show proceeds normally', () async {
+      await adapter.loadRewarded();
+      final ad = bridge.lastRewarded!..pendingSsvOptions = Completer<void>();
+      final shown = adapter.showRewarded(ssvUserId: 'u', onDone: (_) {});
+      await Future<void>.delayed(Duration.zero);
+      ad.pendingSsvOptions!.complete();
+      await shown;
+
+      expect(ad.showCount, 1);
+      expect(ad.lastSsvUserId, 'u');
+      expect(ad.disposeCount, 0);
     });
   });
 
