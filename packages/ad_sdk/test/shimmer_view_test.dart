@@ -531,14 +531,17 @@ void main() {
         reason: 'covered route stays mounted (maintainState)');
     final shimmerContext =
         tester.element(find.byType(ShimmerView, skipOffstage: false));
-    expect(TickerMode.valuesOf(shimmerContext).enabled, isFalse);
+    // Flutter 3.38.1 has no TickerMode.valuesOf.
+    // ignore: deprecated_member_use
+    expect(TickerMode.of(shimmerContext), isFalse);
     expect(tester.binding.hasScheduledFrame, isFalse,
         reason: 'muted ticker must not schedule frames while covered');
 
     navKey.currentState!.pop();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(TickerMode.valuesOf(shimmerContext).enabled, isTrue);
+    // ignore: deprecated_member_use
+    expect(TickerMode.of(shimmerContext), isTrue);
     await tester.pump(const Duration(milliseconds: 100));
     expect(tester.binding.hasScheduledFrame, isTrue,
         reason: 'uncovered shimmer resumes scheduling frames');
