@@ -6,8 +6,11 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.3] - 2026-11-17
+
 - **Fixed (AdMob fullscreen):** A `show()` that outlived its watchdog (10s show-confirm for Interstitial / Rewarded Interstitial, 90s hard cap for App Open) and only then threw no longer runs its catch block against the next cycle. Previously it could drop a live `showing` slot into cooldown, letting another fullscreen ad stack, and resolve the newer caller with `false`. Rewarded already had this guard. The same late throw is also ignored after `dispose()`. App Open now identifies a show by a per-call sequence number rather than comparing callbacks, so a host reusing one callback object is covered.
 - **Tests:** Regression tests for the three formats (each fails without the guard), consent withdrawn while rewarded SSV options are pending, personalisation withdrawal on MREC and Native widgets, and `destroy()` while the App Open resume buffer is pending. No public API change.
+- **Verification:** Interstitial and Rewarded completed two show/dismiss cycles each on a TECNO KJ7 (Android 14) with Google test ads, closed by hand. App Open fullscreen lifecycle is still unverified on a device and Rewarded Interstitial was not shown. One device and test inventory only; not production behaviour.
 
 ## [3.7.2] - 2026-11-14
 
