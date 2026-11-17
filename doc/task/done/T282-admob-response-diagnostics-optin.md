@@ -3,9 +3,9 @@
 - **Loại:** Idea / Enhancement proposal (discovery only)
 - **Priority:** P3 · **Severity:** LOW
 - **Confidence:** IDEA; chưa có defect hoặc partner demand đã xác nhận
-- **Status:** todo (không phải cam kết phát triển API)
-- **Evidence:** `lib/src/adapters/gma_bridge.dart:47-59`; `lib/src/adapters/admob_adapter.dart:155-225`; `lib/src/state/ad_event.dart:142-166`; `lib/src/monetization/ad_diagnostics.dart:15-33, 85-90, 173-218`; `test/privacy_safe_diagnostics_test.dart`
-- **Dependencies:** Partner use case cụ thể; rà ResponseInfo contract/privacy; owner approval trước API change
+- **Status:** done — no-change (2026-11-17)
+- **Evidence:** `AdDiagnostics` already exposes bounded, redacted waterfall summaries from persisted `AdRevenueEvent`s; `AdRevenueEvent` carries `mediationWaterfall` where provider callback supplies it. This repository contains no concrete partner case/request requiring a new public API.
+- **Disposition:** No runtime/API change. Reopen only with a specific partner scenario showing current events/diagnostics cannot answer a defined operational question.
 
 ## Ý tưởng & giả thuyết giá trị
 

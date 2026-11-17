@@ -2,10 +2,10 @@
 
 - **Loại:** Contract investigation / optional enhancement
 - **Priority:** P3 · **Severity:** LOW
-- **Confidence:** Contract explicitly clears RAM/hash only; no confirmed bug. Keep as low-priority API consistency discovery; close without runtime change if no consumer need exists.
-- **Status:** todo
-- **Evidence:** `lib/src/compliance/ad_flight_recorder.dart:246-264, 329-389, 544-549`; `test/ad_flight_recorder_test.dart:38-47, 705-728`; `lib/src/core/ad_manager.dart:1659-1669`
-- **Dependencies:** Xác nhận consumer semantics; API/SemVer review nếu được yêu cầu thay đổi
+- **Confidence:** Contract reviewed; no consumer need found for direct durable clear.
+- **Status:** done — no-change (2026-11-17)
+- **Evidence:** `AdFlightRecorder.clear()` synchronously clears in-memory entries and hash anchor only; `AdManager.clearSdkData()` deletes persisted Flight Recorder data before clearing the live recorder. Existing tests cover fresh chain anchor after clear and a record/clear race without chain corruption. Repository callsite review found durable erasure routed through `clearSdkData()`; no direct-clear consumer requiring disk deletion was found.
+- **Disposition:** Keep `clear()` RAM/hash-only; use `AdManager.clearSdkData()` for durable privacy erasure. Reopen only if a concrete consumer requires direct persistent clear.
 
 ## Bối cảnh & vấn đề
 
