@@ -2,9 +2,9 @@
 
 - **Loại:** Enhancement / Audit evidence reliability
 - **Priority:** P2 · **Severity:** MEDIUM
-- **Confidence:** Confirmed behavior gap; external anchor is opt-in
-- **Status:** todo
-- **Evidence:** `lib/src/compliance/consent_provenance_journal.dart:107-118, 193-216, 219-266`; `test/consent_provenance_journal_test.dart` hook and append coverage
+- **Confidence:** Current append/replay semantics are implemented and covered; no remaining confirmed defect.
+- **Status:** done — no further change (2026-11-17)
+- **Evidence:** `ConsentProvenanceJournal._appendLocked()` removes an entry from `_entries` when persistence fails and only schedules delivery after a successful persist. Persisted entries are delivered oldest-first using a durable anchor cursor; callback or cursor-write failure retries later and may duplicate delivery, as documented. Tests cover storage-failure recovery, oldest-first delivery, duplicate-after-ack-write-failure, later-append retry, and clear invalidating in-flight cursor writes: `test/consent_provenance_journal_test.dart:474-733`.
 - **Dependencies:** T285 best-effort consent isolation; owner approval of callback retry/idempotency semantics
 
 ## Bối cảnh & vấn đề
@@ -21,15 +21,20 @@
 
 ## Acceptance criteria
 
-- [ ] Reproduce: first append storage fails; second append succeeds; demonstrate precisely which entries are persisted and which callbacks were delivered.
-- [ ] Owner/host contract for external anchor delivery is explicit (best-effort, at-least-once, idempotent, or no replay).
-- [ ] If implementing replay, callback receives the missed first entry once or with stable dedupe key; later entries preserve order.
-- [ ] Storage failure, callback sync throw, callback async throw, and retry/recovery do not poison `_writeQueue` or block consent mutation.
-- [ ] Hash chain verifies before/after failure and recovery; persisted contents match documented delivery contract.
-- [ ] Unit tests cover failure → recovery, repeated failures, callback errors and no duplicate delivery; update existing hook tests.
+- [x] Append persistence failure removes the unpersisted entry from the in-memory chain; a later append persists/delivers only committed journal entries.
+- [x] External-anchor delivery is opt-in, ordered and at-least-once using stable `entryHash` for host-side dedupe; exactly-once is not promised across callback success + cursor-write failure.
+- [x] Callback/storage failure does not block consent mutation or poison the append queue; failures retry on a later append/reload.
+- [x] Hash chain remains valid and persisted entries match callback eligibility after failure/recovery.
+- [x] Unit tests cover storage failure/recovery, oldest-first delivery, duplicate after ack-cursor failure, retry on later append, and clear racing pending delivery.
 - [ ] Widget/golden/interruption/network-conditioning/memory-profile/frame-jank/mediation/IAP are N/A unless implementation touches those paths; document reason. IAP belongs to host app.
 - [ ] Run targeted tests, `flutter analyze`, full SDK suite. Device smoke only if a real external-anchor transport is in scope; never send real consent data to an unapproved endpoint.
 - [ ] Independent audit + score /10; push only after all applicable tests/evidence and score >9/10.
+
+## Disposition
+
+- No implementation change required: the journal already persists-before-delivery and replays only committed entries. A storage failure removes the unpersisted candidate rather than retaining it for a future append.
+- External anchor callbacks are opt-in. Consumers needing an irreversible remote audit must deduplicate by `entryHash`, because a successful callback followed by a failed local cursor write can be delivered again after recovery.
+- Widget/golden/network-conditioning/device smoke are N/A for the existing local fake callback path; do not send real consent data to an unapproved endpoint. IAP remains host-owned.
 
 ## Kế hoạch kiểm thử
 

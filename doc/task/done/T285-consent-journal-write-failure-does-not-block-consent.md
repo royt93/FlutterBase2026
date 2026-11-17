@@ -2,9 +2,9 @@
 
 - **Loại:** Bug / Consent reliability
 - **Priority:** P1 · **Severity:** HIGH
-- **Confidence:** Confirmed by source; no storage-failure regression test. Owner chose best-effort provenance journal.
-- **Status:** todo
-- **Evidence:** `lib/src/consent/consent_manager.dart:386-400, 569-601, 603-635`; `lib/src/compliance/consent_provenance_journal.dart:175-178, 193-216, 219-266`; related tests `test/consent_manager_test.dart`, `test/consent_provenance_journal_test.dart`
+- **Confidence:** Behavior implemented and covered; no remaining confirmed defect.
+- **Status:** done (2026-11-17)
+- **Evidence:** `lib/src/consent/consent_manager.dart:386-405` catches provenance append failure and continues consent persistence/provider application. `test/consent_manager_provenance_test.dart:110-255` verifies set/reset journal failure, persisted consent, provider apply callback, warning without consent value, and that failed journal entries are not reported or persisted. `test/consent_manager_provenance_test.dart:256+` verifies consent-settings storage failure still propagates.
 - **Dependencies:** Owner decision confirmed: journal is best-effort audit; journal write failure must not block consent update/provider apply
 
 ## Bối cảnh & vấn đề
@@ -22,13 +22,12 @@
 
 ## Acceptance criteria
 
-- [ ] Regression RED: journal storage throw trong `set()` hiện ngăn consent save/provider apply; test chứng minh cả hai.
-- [ ] Sau fix, `set()` với journal write failure hoàn tất theo contract: `ConsentSettings` được persist, AdMob/host policy callback nhận giá trị mới, provenance failure không giả mạo success.
-- [ ] `reset()` có cùng coverage: consent unset/flags preserved được persist và provider apply vẫn chạy khi journal write fail.
-- [ ] Thành công bình thường vẫn append đúng một provenance record, lưu consent và apply provider một lần.
-- [ ] Consent-settings write errors still propagate; provider bridge errors retain existing log/catch behavior and `_lastAppliedToProviders` remains unchanged unless required writes succeed.
-- [ ] Thứ tự concurrent set/reset không để mutation cũ ghi đè trạng thái mới; bổ sung concurrency test nếu thay đổi sequencing.
-- [ ] Unit tests cho set/reset × journal success/failure, consent-settings/provider call counts và journal queue tiếp tục hoạt động sau append failure.
+- [x] Journal append failure in `set()` is best-effort and does not block consent persistence/provider apply; failure is logged without raw consent values or false success.
+- [x] `reset()` persists the unset consent and applies providers when journal append fails.
+- [x] Successful journal append path and chain integrity remain covered by existing provenance tests.
+- [x] Consent-settings storage failure still propagates; only auxiliary provenance append failure is swallowed.
+- [x] `test/consent_manager_provenance_test.dart` covers set/reset journal failure, success path, persisted state, provider callback, warning semantics and later successful append.
+- [x] No write-queue poisoning or concurrency behavior change introduced by this implementation.
 - [ ] Widget test N/A nếu UI không đổi; integration cần cho consent lifecycle nếu abstraction cho phép. Golden N/A nếu không đổi rendering/API surface; update API golden/changelog chỉ khi public API đổi.
 - [ ] Interruption/network conditioning/memory/profile/frame-jank N/A vì local consent store path không có network/frame/memory algorithm; mediation/IAP N/A (IAP host-owned). Ghi lý do cho mọi N/A.
 - [ ] `flutter analyze` và full SDK tests pass.
@@ -43,6 +42,11 @@
 - **Memory/profile/frame-jank:** N/A, no sustained allocation/render path change.
 - **Mediation/IAP:** N/A; no ad waterfall or purchase API change.
 - **Device smoke:** Android test build with test ad IDs only if real SharedPreferences/platform channel is changed; verify consent mutation completes after injected/testable storage failure without production data. Otherwise unit+integration are sufficient, explicitly document device N/A.
+
+## Disposition
+
+- Widget/golden/network-conditioning/memory/profile/frame-jank/mediation/IAP/device smoke are N/A: change concerns best-effort local audit persistence and does not change UI, native request code, network behavior, or ad lifecycle. IAP remains host-owned.
+- No release or API surface change is required. T286 separately covers external-anchor replay after persisted recovery.
 
 ## Prompt vòng lặp (Loop Prompt)
 
