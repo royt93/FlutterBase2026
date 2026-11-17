@@ -57,6 +57,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   late AdMobAdapter adapter;
+  late FakeGmaBridge bridge;
   late VipManager vip;
 
   setUp(() async {
@@ -69,7 +70,8 @@ void main() {
       if (call.method == 'getAnchoredAdaptiveBannerAdSize') return AdSize.banner;
       return null;
     });
-    adapter = AdMobAdapter(bridge: FakeGmaBridge());
+    bridge = FakeGmaBridge();
+    adapter = AdMobAdapter(bridge: bridge);
     expect(await adapter.initialize(_config), isTrue);
     vip = VipManager(prefs, vipEntriesStore: _Store(prefs));
     await vip.load();
@@ -144,6 +146,34 @@ void main() {
     expect(vip.isActive, isTrue);
     expect(adapter.bannerSlots, isEmpty);
     vip.dispose(); // stop its real expiry timer before the test ends
+    await tester.pump();
+  });
+
+  // AdManager-level coverage of the `wasVip && !_isVipMember` branch in
+  // `_resumeAdWorkAfterConsent`: the unit test only covers
+  // VipManager.recheckExpiry. Without this branch a VIP that lapsed while the
+  // app was backgrounded gets no refill until the next periodic retry tick.
+  testWidgets('VIP lapsing while backgrounded triggers a refill on resume',
+      (tester) async {
+    await grantStale(tester);
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.paused);
+    await tester.pump();
+    expect(bridge.lastAppOpen, isNull,
+        reason: 'sanity — VIP suppresses every load');
+
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 400)));
+    expect(vip.isActive, isTrue, reason: 'sanity — expired but stale');
+
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(vip.isActive, isFalse, reason: 'the expiry was noticed on resume');
+    expect(bridge.lastAppOpen, isNotNull,
+        reason: 'the lapsed VIP must trigger _retryRefillAds, which loads '
+            'App Open, instead of waiting for the periodic retry timer');
+    vip.dispose();
     await tester.pump();
   });
 }

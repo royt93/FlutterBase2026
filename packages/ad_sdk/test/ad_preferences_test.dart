@@ -189,6 +189,42 @@ void main() {
           reason: 'a real, forward day change must still roll the '
               'counter over to 0');
     });
+
+    // Documents a DELIBERATE round-37 trade-off, not a defect: the high-water
+    // mark only ever moves forward, so a clock that jumped N days ahead (bad
+    // NTP, manual change) and then returns to the real date leaves "today"
+    // pinned to the future day. The daily counters stay keyed to it and do
+    // not roll over until the real date catches up. Letting the mark move
+    // back would reopen the cap-reset-by-rewinding bypass this guard closed,
+    // so changing this is a product/owner decision, not a bug fix.
+    test('a forward clock jump pins "today" to the future day even after the '
+        'clock returns (documented round-37 trade-off)', () async {
+      final real = DateTime.utc(2026, 9, 5);
+      final future = DateTime.utc(2026, 9, 8); // +3 days
+
+      for (var i = 0; i < 5; i++) {
+        await prefs.incrementDailyAdCount(now: real);
+      }
+      expect(prefs.getDailyAdCount(now: real), 5);
+
+      // Clock jumps forward: a new day, so the counter rolls to 0 and the
+      // high-water mark moves to the future day.
+      expect(prefs.todayUtcClamped(now: future), '2026-09-08');
+      for (var i = 0; i < 3; i++) {
+        await prefs.incrementDailyAdCount(now: future);
+      }
+      expect(prefs.getDailyAdCount(now: future), 3);
+
+      // Clock is corrected back to the real date.
+      expect(prefs.todayUtcClamped(now: real), '2026-09-08',
+          reason: 'the mark never moves backward, so "today" stays pinned');
+      expect(prefs.getDailyAdCount(now: real), 3,
+          reason: 'still the future-day counter: not reset, and not the '
+              'real-day count of 5 either');
+
+      // It only rolls over once the real date reaches the pinned day.
+      expect(prefs.getDailyAdCount(now: DateTime.utc(2026, 9, 9)), 0);
+    });
   });
 
   // T165 — the fill-rate baseline monitor's day computation used to be a
