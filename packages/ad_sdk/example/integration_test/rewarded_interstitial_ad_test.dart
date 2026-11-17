@@ -124,4 +124,75 @@ void main() {
         reason: 'no coin may be granted unless the ad was actually shown '
             'and earned');
   });
+
+  testWidgets(
+      'a loaded rewarded interstitial displays and grants the Google test reward',
+      (tester) async {
+    app.main();
+    await tester.pump();
+    await _waitForInit(tester);
+    await _revokeVipGrace(tester);
+
+    var onHome = false;
+    for (var i = 0; i < 120; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+      if (find.text('Banner ad').evaluate().isNotEmpty) {
+        onHome = true;
+        break;
+      }
+    }
+    expect(onHome, isTrue, reason: 'must navigate to HomePage after init');
+
+    final tile = find.text('Rewarded interstitial ad');
+    await tester.scrollUntilVisibleAndSettle(tile, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(tile);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Rewarded interstitial demo'), findsOneWidget);
+
+    final adapter = AdManager().adapter!;
+    for (var i = 0; i < 40 && !adapter.rewardedInterstitialSlot.isReady; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(adapter.rewardedInterstitialSlot.isReady, isTrue,
+        reason: 'the test ad must be loaded before requesting disclosure');
+
+    expect(find.text('Coins: 0'), findsOneWidget);
+    final finder = find.widgetWithText(
+        FilledButton, 'Watch rewarded interstitial for +10 coins');
+    await tester.scrollUntilVisibleAndSettle(finder, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+    expect(find.text('Watch ad'), findsOneWidget,
+        reason: 'the disclosure must be shown before the rewarded ad');
+    await tester.tap(find.text('Watch ad'));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    for (var i = 0; i < 40 && !adapter.rewardedInterstitialSlot.isShowing; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(adapter.rewardedInterstitialSlot.isShowing, isTrue,
+        reason: 'the loaded Google test ad must reach native display');
+
+    // The native ad shows a close/X after granting the reward. Keep the test
+    // alive until the user closes it so onDone can be verified.
+    final completed = find.text('Last: shown=true earned=true');
+    for (var i = 0; i < 120 && completed.evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(completed, findsOneWidget,
+        reason: 'the test ad must grant its reward before dismissal');
+    expect(find.text('Coins: 10'), findsOneWidget,
+        reason: 'the demo grants coins only for earned=true');
+
+    // The reward callback precedes native dismissal. Keep the test alive until
+    // the actual native close callback releases the slot; the user must tap X.
+    for (var i = 0; i < 120 && adapter.rewardedInterstitialSlot.isShowing; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    expect(adapter.rewardedInterstitialSlot.isShowing, isFalse,
+        reason: 'the user must dismiss the native rewarded interstitial');
+    expect(tester.takeException(), isNull);
+  });
 }
