@@ -2110,14 +2110,8 @@ class AdMobAdapter
 
   @override
   Future<void> loadBannerIfNeeded(Object key, double widthPx) async {
-    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
-    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
-    // wired in AdManager). None of the banner/MREC/native entry points checked
-    // it, in EITHER adapter, so a resume after a banner error — or any other
-    // caller — could fire an ad request while consent was not granted, while
-    // the user was VIP, or after the daily cap. Requesting an ad with
-    // canRequestAds == false is a UMP policy violation, and it is invisible
-    // from the UI because the widget layer hides the banner for VIP anyway.
+    // C4 — reload gate (!VIP && !dailyCapReached && canRequestAds && isConnected):
+    // full rationale at the first C4 note (preloadBanner). Requesting while closed is a UMP violation.
     if (!canReload()) {
       SafeLogger.d(_logTag,
           'loadBannerIfNeeded $tag \u23ed\ufe0f skipped — gate closed');
@@ -2299,8 +2293,9 @@ class AdMobAdapter
           },
           onAdClosed: (ad) => SafeLogger.d(_logTag, 'banner $tag closed'),
         ),
-      )..load();
-      // Slot already transitioned to `loading` above (before BannerAd creation).
+      );
+      _loadInline(_bannerAdsByKey, _bannerRegistry, key, slot, listenables,
+          () => loadTimedOut);
     } catch (e, st) {
       if (loadTimedOut || !_bannerRegistry.isCurrent(key, slot)) return;
       SafeLogger.e(_logTag, 'loadBanner $tag adaptive size THREW: $e\n$st');
@@ -2336,16 +2331,39 @@ class AdMobAdapter
     SafeLogger.d(_logTag, 'preloadMrec $tag (no-op for AdMob)');
   }
 
+  /// Starts the load for a just-created banner/MREC and handles a rejected
+  /// future (native awaits its own). Without it a rejection left the dead ad in
+  /// [ads], so the key stayed "already cached" until the load watchdog.
+  void _loadInline(
+    Map<Object, BannerAd> ads,
+    InlineAdInstanceRegistry registry,
+    Object key,
+    AdSlot slot,
+    BannerListenables listenables,
+    bool Function() timedOut,
+  ) {
+    final ad = ads[key];
+    if (ad == null) return;
+    ad.load().catchError((Object e, StackTrace st) {
+      SafeLogger.e(_logTag, 'inline load rejected $tag: $e');
+      if (timedOut() || !registry.isCurrent(key, slot) ||
+          !identical(ads[key], ad)) {
+        return;
+      }
+      try {
+        ad.dispose();
+      } catch (_) {}
+      ads.remove(key);
+      listenables.isLoaded.value = false;
+      listenables.markError();
+      slot.markFailed();
+    });
+  }
+
   @override
   Future<void> loadMrecIfNeeded(Object key, double widthPx) async {
-    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
-    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
-    // wired in AdManager). None of the banner/MREC/native entry points checked
-    // it, in EITHER adapter, so a resume after a banner error — or any other
-    // caller — could fire an ad request while consent was not granted, while
-    // the user was VIP, or after the daily cap. Requesting an ad with
-    // canRequestAds == false is a UMP policy violation, and it is invisible
-    // from the UI because the widget layer hides the banner for VIP anyway.
+    // C4 — reload gate (!VIP && !dailyCapReached && canRequestAds && isConnected):
+    // full rationale at the first C4 note (preloadBanner). Requesting while closed is a UMP violation.
     if (!canReload()) {
       SafeLogger.d(
           _logTag, 'loadMrecIfNeeded $tag \u23ed\ufe0f skipped — gate closed');
@@ -2479,7 +2497,9 @@ class AdMobAdapter
           },
           onAdClosed: (ad) => SafeLogger.d(_logTag, 'mrec $tag closed'),
         ),
-      )..load();
+      );
+      _loadInline(_mrecAdsByKey, _mrecRegistry, key, slot, listenables,
+          () => loadTimedOut);
     } catch (e, st) {
       SafeLogger.e(_logTag, 'loadMrec $tag THREW: $e\n$st');
       listenables.markError();
@@ -2508,14 +2528,8 @@ class AdMobAdapter
       String? factoryId}) async {
     _nativeTemplateTypeByKey[key] = templateType;
     _nativeFactoryIdByKey[key] = factoryId;
-    // C4 — same gate the fullscreen load paths and the auto-reload callbacks
-    // consult (`!VIP && !dailyCapReached && canRequestAds && isConnected`,
-    // wired in AdManager). None of the banner/MREC/native entry points checked
-    // it, in EITHER adapter, so a resume after a banner error — or any other
-    // caller — could fire an ad request while consent was not granted, while
-    // the user was VIP, or after the daily cap. Requesting an ad with
-    // canRequestAds == false is a UMP policy violation, and it is invisible
-    // from the UI because the widget layer hides the banner for VIP anyway.
+    // C4 — reload gate (!VIP && !dailyCapReached && canRequestAds && isConnected):
+    // full rationale at the first C4 note (preloadBanner). Requesting while closed is a UMP violation.
     if (!canReload()) {
       SafeLogger.d(
           _logTag, 'preloadNative $tag \u23ed\ufe0f skipped — gate closed');

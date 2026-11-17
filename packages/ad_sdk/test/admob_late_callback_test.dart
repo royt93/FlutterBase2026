@@ -241,6 +241,81 @@ void main() {
     });
   });
 
+  // BannerAd.load() was fired and forgotten for banner/MREC (native awaits it).
+  // A rejected load must release the dead ad and the slot, otherwise the key
+  // stays "already cached" and every later load is refused until the watchdog.
+  group('a rejected BannerAd.load() releases the key instead of wedging it', () {
+    var loadCalls = 0;
+    void rejectLoads() {
+      loadCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getAnchoredAdaptiveBannerAdSize') {
+          return AdSize.banner;
+        }
+        if (call.method == 'loadBannerAd') {
+          loadCalls++;
+          throw PlatformException(code: 'load-rejected');
+        }
+        return null;
+      });
+    }
+
+    test('banner', () async {
+      rejectLoads();
+      final adapter = await newAdapter();
+      await adapter.loadBannerIfNeeded('k', 320);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(loadCalls, 1);
+      expect(adapter.bannerSlot('k').value, AdSlotState.cooldown,
+          reason: 'the slot must fail promptly, not sit in loading for 30s');
+      expect(adapter.banner('k').isLoaded.value, isFalse);
+
+      // Clear the failure backoff and retry: a dead ad left in the map would
+      // make this stop at "already cached" and never reach the platform again.
+      adapter.bannerSlot('k').reset();
+      await adapter.loadBannerIfNeeded('k', 320);
+      await Future<void>.delayed(Duration.zero);
+      expect(loadCalls, 2, reason: 'the key must be loadable again');
+    });
+
+    test('mrec', () async {
+      rejectLoads();
+      final adapter = await newAdapter();
+      await adapter.loadMrecIfNeeded('k', 0);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(loadCalls, 1);
+      expect(adapter.mrecSlot('k').value, AdSlotState.cooldown);
+      expect(adapter.mrec('k').isLoaded.value, isFalse);
+
+      adapter.mrecSlot('k').reset();
+      await adapter.loadMrecIfNeeded('k', 0);
+      await Future<void>.delayed(Duration.zero);
+      expect(loadCalls, 2, reason: 'the key must be loadable again');
+    });
+
+    test('a rejection landing after dispose leaves the next instance alone',
+        () async {
+      rejectLoads();
+      final adapter = await newAdapter();
+      await adapter.loadBannerIfNeeded('k', 320);
+      adapter.disposeBannerInstance('k'); // before the rejection is delivered
+      await Future<void>.delayed(Duration.zero);
+
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getAnchoredAdaptiveBannerAdSize') {
+          return AdSize.banner;
+        }
+        return null;
+      });
+      await adapter.loadBannerIfNeeded('k', 320);
+      await Future<void>.delayed(Duration.zero);
+      expect(adapter.bannerSlot('k').value, AdSlotState.loading,
+          reason: 'the stale rejection must not fail the new instance');
+    });
+  });
+
   group('inline paid-event object request IDs', () {
     test('banner keeps one ID across paid callbacks', () async {
       final adapter = await newAdapter();
